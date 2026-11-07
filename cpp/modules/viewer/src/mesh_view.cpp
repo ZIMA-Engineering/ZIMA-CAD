@@ -1561,9 +1561,11 @@ std::vector<ViewerCandidate> MeshView::selection_candidates_at(
             if(std::ranges::none_of(visible,[&](const auto& face) {
                     return std::abs(face.distance-hit.distance)<=tolerance;
                 }))continue;
+            const auto& owner=hit.reference.display_owner_id.empty()
+                ?hit.reference.sheet_owner:hit.reference.display_owner_id;
             const auto duplicate=std::ranges::find_if(candidates,[&](const auto& candidate) {
                 return candidate.kind==CandidateKind::Container&&
-                    candidate.owner_id==hit.reference.sheet_owner&&
+                    candidate.owner_id==owner&&
                     candidate.instance_path==hit.reference.instance_path;
             });
             if(duplicate!=candidates.end()) {
@@ -1571,7 +1573,7 @@ std::vector<ViewerCandidate> MeshView::selection_candidates_at(
                 candidates.erase(duplicate);
             }
             candidates.insert(candidates.begin(),ViewerCandidate{CandidateKind::Container,
-                hit.distance,hit.triangle,hit.reference.sheet_owner,{},
+                hit.distance,hit.triangle,owner,{},
                 hit.reference.instance_path,CandidateGeometry::Display});
         }
     }

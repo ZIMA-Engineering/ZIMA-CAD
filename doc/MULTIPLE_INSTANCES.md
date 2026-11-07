@@ -4,8 +4,9 @@ Double-clicking `.prtz`, `.asmz`, or `.drwz` in Explorer starts a new ZIMA-CAD
 process and opens that document. The same applies to `.frmz` and `.tblz` templates.
 The document determines its instance's working directory and local configuration;
 Explorer's or a desktop shortcut's working directory does not override it.
-If another process already reserves that directory or document, the new launch
-reports the conflict instead of opening a second editable copy.
+Processes may use the same working directory. If another process already reserves
+the requested document, the new launch reports the conflict instead of opening a
+second editable copy.
 
 Windows can sit side by side or on separate monitors for project comparison.
 Each process has its own open documents, selection, camera, and Undo/Redo history.
@@ -43,14 +44,14 @@ selected another program previously, choose ZIMA-CAD through Explorer's
 
 ## Isolation scope
 
-Application instances, including the standalone CLI, may not share a working
-directory or an open document file. The integrated console belongs to its GUI
-instance and shares that instance's reservations.
+Application instances, including the standalone CLI, may share a working
+directory but may not share an open document file. The integrated console belongs
+to its GUI instance and shares that instance's file reservations.
 The reservations are acquired atomically, including concurrent startup.
 Windows within a single process share that process's reservations. Explicit
-directory changes to an occupied directory fail without changing the current
-directory. If opening/saving a different available file would automatically select
-an occupied directory, the current working directory is retained instead.
+directory changes are independent in each process. Opening a file from Explorer
+starts a separate process; File -> Open and the integrated file manager add the
+document to the current process.
 
 Native files are reserved when added to the workspace (including component-source
 opening and hidden imported sources). Save, Save Copy, native rename publication
@@ -60,7 +61,7 @@ no other open family member uses it. Opening an already open file in the same
 instance activates its existing tab. Read-only Assembly dependency hydration does
 not open an editable source document or reserve the dependency for editing.
 
-Number, directory and file reservations use `QLockFile` under the user's temporary
+Number and file reservations use `QLockFile` under the user's temporary
 `ZIMA-CAD-instance-locks` directory, shared across projects and installation versions.
 They have no age-based expiration; Qt recovers stale reservations after process
 termination. Failure to create a reservation is reported instead of silently
@@ -75,15 +76,17 @@ application processes on this host, not third-party editors or separate machines
 Assembly, and Drawing concurrently. It checks distinct PIDs/numbers, each process's
 document and working directory, another externally launched process, stable titles
 after document closure, and independent exit. It rejects duplicate startup
-directories, occupied directory changes and opening the same file after its owner
-has changed directory; closing that file allows the other process to open it.
+files while allowing duplicate startup directories and directory changes. Opening
+the same file remains rejected after its owner changes directory; closing that file
+allows the other process to open it.
 Separate checks cover argument handling, paths with spaces, extensions, canonical
 directory aliases, file release and instance-number release. A forcibly terminated
-GUI process is restarted against the same directory to check stale-lock recovery.
+GUI process is restarted against the same document to check stale-lock recovery.
 
 Windows verification on 2026-09-17: the real-process instance contract passed,
-including concurrent numbering, directory/file exclusion, file release, the former
-New Window command and forced-termination recovery (`build/instance-isolation-process-tests.log`).
+including concurrent numbering, the then-required directory/file exclusion, file release,
+the former New Window command and forced-termination recovery
+(`build/instance-isolation-process-tests.log`).
 The current development GUI and CLI were rebuilt; `zima-cad.bat` retains its normal
 repository-root entry point. This is a local build, not a published release.
 The final process, component-properties GUI and Assembly-refresh GUI rerun passed
@@ -91,3 +94,5 @@ all three tests (`build/instance-isolation-final-tests.log`). Document operation
 component source opening, command-host and real CLI-process regression tests also
 passed (`build/instance-isolation-regression-tests.log`; its initial GUI failures
 were resolved by sharing reservations within a process and the final rerun).
+This historical record predates the current shared-working-directory contract;
+the current verification above is authoritative.

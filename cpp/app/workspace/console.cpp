@@ -123,7 +123,6 @@ void AssemblyWorkspaceWindow::create_command_console() {
     options.open_browser=[this](const std::string& url){return open_browser(QUrl(QString::fromStdString(url)))!=nullptr;};
     options.bookmarks_changed=[this]{if(browser_runtime_)browser_runtime_->bookmarks.reload();};
     options.reserve_directory=[this](const auto& path) {
-        instance_.set_directory(QString::fromStdString(document::path_to_utf8(path)));
         setProperty("instanceWorkingDirectory",QString::fromStdString(document::path_to_utf8(path)));
     };
     options.translate=[this](const char* text){return tr(text).toStdString();};

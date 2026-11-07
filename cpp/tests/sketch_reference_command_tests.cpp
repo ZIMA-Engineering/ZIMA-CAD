@@ -4,6 +4,7 @@
 #include "profile_solid_fixture.hpp"
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/sketch_reference_operations.hpp>
+#include <zima/workspace/reference_sources.hpp>
 #include <zima/workspace/model_calculation.hpp>
 #include <zima/sketcher/curve_geometry.hpp>
 #include <cmath>
@@ -19,6 +20,134 @@ void require(bool ok,const char* message){if(!ok)throw std::runtime_error(messag
 commands::Result run(command_host::Host& host,const std::string& name,Json args=Json::object()) {
     auto result=host.execute({{"command",name},{"arguments",args}});
     if(!result.ok)throw std::runtime_error(name+": "+result.code+": "+result.message+" "+args.dump());return result;
+}
+void verify_exact_descendant_reprojection() {
+    using namespace sketcher;
+    const auto encode=[](const std::string& owner,const std::string& key) {
+        return std::to_string(owner.size())+":"+owner+
+            std::to_string(key.size())+":"+key+"0:";
+    };
+    const auto child_key=[&](unsigned index,const std::string& boundary) {
+        const auto owner="pattern-parent-"+std::to_string(index);
+        const auto key="pattern:copy-"+std::to_string(index+1)+":mirror:from:6:sourceend";
+        const auto parent=encode(owner,key);
+        return "boolean:add:split-face:from:"+std::to_string(parent.size())+
+            ":"+parent+":boundary:"+boundary;
+    };
+    const std::array face_keys{child_key(0,"first"),child_key(1,"second")};
+    const std::array axis_keys{
+        std::string("pattern:copy-1:mirror:from:6:sourceaxis:first"),
+        std::string("pattern:copy-2:mirror:from:6:sourceaxis:second")};
+    const auto geometry=[&](std::array<double,2> ys,std::array<double,2> xs,
+            bool reverse,bool nested=false) {
+        kernel::ViewerMesh mesh;
+        const auto quad=[](auto& target,const kernel::FaceReference& reference,double y) {
+            const auto offset=static_cast<std::uint32_t>(target.vertices.size());
+            target.vertices.insert(target.vertices.end(),{{0,y,-5},{12,y,-5},{12,y,5},{0,y,5}});
+            target.triangles.insert(target.triangles.end(),{offset,offset+1,offset+2,offset,offset+2,offset+3});
+            target.triangle_references.insert(target.triangle_references.end(),{reference,reference});
+        };
+        const std::array order=reverse?std::array{1u,0u}:std::array{0u,1u};
+        for(const auto i:order) {
+            auto owner="descendant-"+std::to_string(i),key=face_keys[i];
+            if(nested) {
+                const auto parent=encode(owner,key);
+                owner="later-"+std::to_string(i);
+                key="boolean:subtract:split-face:from:"+std::to_string(parent.size())+
+                    ":"+parent+":boundary:later";
+            }
+            quad(mesh,{owner,key,{}},ys[i]);
+            auto surface=std::make_shared<kernel::SurfaceGeometry>();
+            surface->kind=kernel::SurfaceGeometry::Kind::Plane;
+            surface->origin={0,ys[i],0};surface->axis={0,1,0};surface->radial={1,0,0};
+            kernel::FaceReference parent{"pattern-parent-"+std::to_string(i),
+                "pattern:copy-"+std::to_string(i+1)+":mirror:from:6:sourceend",{}};
+            parent.surface=surface;quad(mesh.original_references,parent,ys[i]);
+        }
+        kernel::ViewerReferenceGeometry selected;
+        const workspace::ReferenceFrame frame;
+        workspace::append_display_face_reference_geometry(selected,mesh,frame,
+            [&](workspace::OriginalReferenceKind kind,const std::string& owner,
+                const std::string& key,const std::string&) {
+                return kind==workspace::OriginalReferenceKind::Face&&
+                    ((owner=="descendant-0"&&key==face_keys[0])||
+                     (owner=="descendant-1"&&key==face_keys[1]));
+            });
+        for(unsigned i=0;i<2;++i)selected.axes.push_back({{xs[i],0,0},{0,1,0},20,
+            {"axis-descendant-"+std::to_string(i),axis_keys[i],{}}});
+        return selected;
+    };
+    for(bool reverse:{false,true}) {
+        auto source=geometry({3,8},{4,9},reverse);
+        require(source.triangle_references.size()==4&&
+            std::ranges::all_of(source.triangle_references,[](const auto& face) {
+                return face.owner_id.starts_with("descendant-")&&face.surface&&
+                    face.surface->kind==kernel::SurfaceGeometry::Kind::Plane;
+            }),"Exact display descendants did not inherit analytic support without changing identity");
+        auto sketch=Sketch::create_default();sketch.plane_auto=false;
+        std::array<std::string,2> faces,axes,endpoints,segments;
+        for(unsigned i=0;i<2;++i) {
+            auto face=Sketch::create_external_reference(ExternalReferenceKind::Face);
+            face.source_document_id="source-document";face.source_owner_id="descendant-"+std::to_string(i);
+            face.source_semantic_key=face_keys[i];workspace::populate_external_reference_cache(sketch,face,source);
+            faces[i]=face.id;sketch.add_external_reference(face);
+            auto axis=Sketch::create_external_reference(ExternalReferenceKind::Axis);
+            axis.source_document_id="source-document";axis.source_owner_id="axis-descendant-"+std::to_string(i);
+            axis.source_semantic_key=axis_keys[i];workspace::populate_external_reference_cache(sketch,axis,source);
+            axes[i]=axis.id;sketch.add_external_reference(axis);
+            segments[i]=sketch.add_segment(0,0,1+i,1+i);
+            const auto& segment=*std::ranges::find(sketch.segments,segments[i],&SketchSegment::id);
+            endpoints[i]=segment.second_point_id;
+            if(i==0)static_cast<void>(sketch.add_point_reference_constraint(segment.first_point_id,"sketch_origin"));
+            const auto first=reverse?axes[i]:faces[i],second=reverse?faces[i]:axes[i];
+            static_cast<void>(sketch.add_point_on_line_constraint(endpoints[i],first));
+            const auto before=*sketch.find_point(endpoints[i]);
+            const auto moved=reverse?sketch.move_point(endpoints[i],before.x,before.y+2):
+                sketch.move_point(endpoints[i],before.x+2,before.y);
+            require(moved&&std::hypot(sketch.find_point(endpoints[i])->x-before.x,
+                sketch.find_point(endpoints[i])->y-before.y)>1e-6,
+                "A singly constrained external-reference endpoint did not drag along its remaining degree of freedom");
+            static_cast<void>(sketch.add_point_on_line_constraint(endpoints[i],second));
+        }
+        const auto equations=[&](const Sketch& value,std::array<double,2> expected_x,
+                std::array<double,2> expected_y) {
+            auto solved=value;const auto result=solved.solve();
+            require(result.status!=SolveStatus::Invalid&&result.status!=SolveStatus::Conflicting&&
+                result.maximum_residual<1e-7,"Two exact descendant C constraints do not solve");
+            for(unsigned i=0;i<2;++i) {
+                const auto* point=solved.find_point(endpoints[i]);
+                require(point&&std::hypot(point->x-expected_x[i],point->y-expected_y[i])<1e-6,
+                    "A descendant reference switched to another Pattern/Mirror child");
+                const auto before=*point;
+                static_cast<void>(solved.move_point(endpoints[i],before.x+3,before.y+2));
+                const auto* retained=solved.find_point(endpoints[i]);
+                require(std::hypot(retained->x-before.x,retained->y-before.y)<1e-6,
+                    "A fully constrained CC endpoint escaped during dragging");
+            }
+        };
+        equations(sketch,{4,9},{3,8});
+        for(const auto update:std::array{
+                std::pair{std::array{5.,11.},std::array{4.,10.}},
+                std::pair{std::array{7.,13.},std::array{6.,12.}}}) {
+            source=geometry(update.second,update.first,!reverse,true);
+            require(sketch.refresh_external_references("source-document",source),
+                "Changing multiple parents did not refresh their exact descendants");
+            equations(sketch,update.first,update.second);
+        }
+        sketch.plane_reference_owner_id="moved-feature-frame";
+        sketch.resolved_origin={1,2,0};sketch.resolved_x_axis={0,1,0};
+        sketch.resolved_y_axis={-1,0,0};sketch.resolved_normal={0,0,1};
+        require(sketch.refresh_external_references("source-document",source),
+            "Changing the owning feature frame left descendant references static");
+        equations(sketch,{4,10},{-6,-12});
+        const auto saved=sketch.serialized();const auto reopened=Sketch::from_serialized(saved);
+        require(reopened.serialized()==saved,"Exact descendant references changed on save/reopen");
+        equations(reopened,{4,10},{-6,-12});
+        require(std::ranges::count_if(reopened.viewer_mesh().constraint_markers,[](const auto& marker) {
+            return marker.label=="CC";
+        })==2,"The two-reference intersections do not retain their combined CC markers");
+    }
+    std::cout<<"Exact Boolean/Pattern/Mirror descendants, sibling identity, CC intersections, repeated parent/frame changes, dragging and reopen passed\n";
 }
 void verify_frame_reference_retirement() {
     using namespace sketcher;
@@ -155,6 +284,7 @@ void verify_frame_reference_retirement() {
 }
 
 void verify(const kernel::OcctKernel& kernel,fs::path directory) {
+    verify_exact_descendant_reprojection();
     verify_frame_reference_retirement();
     {
         auto sketch=sketcher::Sketch::create_default();

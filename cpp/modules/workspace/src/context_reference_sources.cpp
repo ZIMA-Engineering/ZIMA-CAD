@@ -2,6 +2,33 @@
 #include <zima/workspace/family_operations.hpp>
 #include <zima/workspace/drawing_operations.hpp>
 namespace zima::workspace {
+void append_context_display_face_reference_geometry(
+    kernel::ViewerReferenceGeometry& target,const Workspace& live,
+    const std::string& top_id,const assembly::InstancePath& dependent,
+    const OriginalReferenceFilter& filter) {
+    if(!live.open_assembly(top_id))
+        throw std::invalid_argument("Occurrence activation requires an open top-level Assembly");
+    ReferenceFrame frame;
+    frame.point=[&](auto point) {
+        return live.occurrence_point_from_scene(top_id,dependent,point);
+    };
+    frame.direction=[&](auto direction) {
+        return live.occurrence_direction_from_scene(top_id,dependent,direction);
+    };
+    frame.surface_point=[&](const std::string& path,auto point) {
+        if(path.empty())return live.occurrence_point_from_scene(top_id,dependent,point);
+        return live.occurrence_point_from_scene(top_id,dependent,
+            live.occurrence_point_to_scene(top_id,assembly::InstancePath::decode(path),point));
+    };
+    frame.surface_direction=[&](const std::string& path,auto direction) {
+        if(path.empty())return live.occurrence_direction_from_scene(top_id,dependent,direction);
+        return live.occurrence_direction_from_scene(top_id,dependent,
+            live.occurrence_direction_to_scene(top_id,assembly::InstancePath::decode(path),direction));
+    };
+    append_display_face_reference_geometry(target,
+        live.authoritative_viewer_mesh(top_id),frame,filter);
+}
+
 kernel::ViewerReferenceGeometry context_original_reference_geometry(const Workspace& live,
     const std::string& top_id,const assembly::InstancePath& dependent,
     const std::string& source_document,const OriginalReferenceFilter& filter) {

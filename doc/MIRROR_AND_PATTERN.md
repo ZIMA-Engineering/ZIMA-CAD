@@ -103,6 +103,21 @@ OCCT calculates B-Rep only explicitly. Preview, picking, references, and Propert
 use persisted ZIMA geometry. Derived topology identities store source owner and
 semantic key; OCCT traversal never defines copy identity.
 
+A Sketch reference selected on a Mirror or Pattern result retains the exact
+clicked child identity. It is not collapsed to the original feature or to a
+sibling copy. When a later Boolean splits that face, refresh follows only the
+encoded Boolean parent chain back to the stored child; analytical support may be
+inherited through that chain without changing the persisted identity. This rule
+also applies to chained Mirror/Pattern operations and to copies with multiple
+independent sources. Reordering display packets or changing another parent must
+not switch the reference to a different branch.
+
+Reference projection always uses the current source and dependent Sketch frames.
+Changing a copied parent, or translating and rotating the owning feature Origin,
+therefore reprojects the stored child on explicit Regenerate instead of retaining
+a static snapshot. The same identity and projection survive native save/reopen
+and Undo/Redo.
+
 Verification: `zima_cpp_derived_copy_contract_tests`; GUI
 `ZIMA_VERIFY_DERIVED_COPY_ONLY=1` with `zima_cpp_workspace_startup_contract`.
 The command/query regressions also cover independent solid volume, placed Bodies,
@@ -114,6 +129,13 @@ nested Pattern axes, Mirror axes and their persisted endpoint points, native sav
 cold calculation and an incremental source-profile move compared with a fresh
 calculation. Moving the source circle from X=12 to X=14 across a plane at X=5
 moves the mirrored primary axis to X=-4, confirming parent-driven regeneration.
+
+The 2026-11-07 Sketch-reference regression adds two independent copied parents,
+Mirror/Pattern chains, later Boolean descendants, both reference-selection
+orders, repeated parent changes, reversed packet order, dependent-frame
+translation and rotation, endpoint dragging, two coincident constraints at a
+reference intersection, native save/reopen and Undo/Redo. It verifies that each
+stored child remains on its authored branch throughout those changes.
 
 ### Body ownership regression coverage
 

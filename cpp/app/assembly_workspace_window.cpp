@@ -28,7 +28,6 @@ AssemblyWorkspaceWindow::AssemblyWorkspaceWindow(const QString& working_director
             working_directory_ = std::filesystem::u8path(QFileInfo(configured).absoluteFilePath().toStdString());
         }
     }
-    instance_.set_directory(QString::fromStdString(document::path_to_utf8(working_directory_)));
     setProperty("instanceWorkingDirectory",QString::fromStdString(document::path_to_utf8(working_directory_)));
     workspace_.file_reservation=[this](const auto& path) {
         instance_.reserve_file(QString::fromStdString(document::path_to_utf8(path)));

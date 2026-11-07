@@ -178,8 +178,30 @@ kernel::ViewerReferenceGeometry collect(const Workspace& live,const std::string&
         }catch(const ReferenceQueryError& error){throw SketchOperationError(error.code,error.what());}
         return true;
     });
+    if(live.open_assembly(doc)) {
+        const ReferenceFrame frame;
+        append_display_face_reference_geometry(result,live.authoritative_viewer_mesh(doc),frame,
+            [&](OriginalReferenceKind kind,const std::string& owner,
+                const std::string& key,const std::string& path) {
+                return kind==OriginalReferenceKind::Face&&keys.contains({Kind::Face,owner,key,path});
+            });
+    }
     if(const auto* part=live.open_part(doc)) {
         const auto& document=part->session.document();
+        const auto missing_display_face=std::ranges::any_of(keys,[&](const auto& wanted) {
+            if(std::get<0>(wanted)!=Kind::Face)return false;
+            return std::ranges::none_of(result.triangle_references,[&](const auto& face) {
+                return std::tuple{Kind::Face,face.owner_id,face.semantic_key,face.instance_path}==wanted;
+            });
+        });
+        if(missing_display_face&&!part->session.calculated_boundaries().empty()) {
+            const ReferenceFrame frame;
+            append_display_face_reference_geometry(result,live.authoritative_viewer_mesh(doc),frame,
+                [&](OriginalReferenceKind kind,const std::string& owner,
+                    const std::string& key,const std::string& path) {
+                    return kind==OriginalReferenceKind::Face&&keys.contains({Kind::Face,owner,key,path});
+                });
+        }
         if(!draft_body_id.empty() && !document.body_owner_for_object(sketch.owner_container_id))
             return document.construction_reference_geometry_for(draft_body_id,std::move(result));
         return document.sketch_reference_geometry_for(sketch,std::move(result));
@@ -239,6 +261,16 @@ sketcher::SketchExternalReference prepare_reference(const Workspace& live,
                 return candidate==requested&&candidate_owner==owner&&candidate_key==
                     sketcher::face_curve_source_key(key)&&candidate_path==path;
             });
+        if(!body_edge&&source_kind(kind,key)==Kind::Face)
+            append_context_display_face_reference_geometry(geometry,live,
+                reference.context_assembly_document_id,
+                assembly::InstancePath::decode(reference.context_instance_path),
+                [&](OriginalReferenceKind candidate,const auto& candidate_owner,
+                    const auto& candidate_key,const auto& candidate_path) {
+                    return candidate==OriginalReferenceKind::Face&&
+                        candidate_owner==owner&&candidate_key==
+                        sketcher::face_curve_source_key(key)&&candidate_path==path;
+                });
         geometry=!draft_body_id.empty() && !part->session.document().body_owner_for_object(sketch.owner_container_id)
             ? part->session.document().construction_reference_geometry_for(draft_body_id,std::move(geometry))
             : part->session.document().sketch_reference_geometry_for(sketch,std::move(geometry));
@@ -336,6 +368,13 @@ bool refresh_sketch_reference_snapshot(const Workspace& live,const std::string& 
                     const auto sketch_kind=kind==OriginalReferenceKind::Face?Kind::Face:kind==OriginalReferenceKind::Edge?Kind::Edge:
                         kind==OriginalReferenceKind::Point?Kind::Point:Kind::Axis;
                     return keys.contains({sketch_kind,owner,key,path});
+                });
+            append_context_display_face_reference_geometry(current,live,top,
+                assembly::InstancePath::decode(dependent),
+                [&](OriginalReferenceKind kind,const auto& owner,
+                    const auto& key,const auto& path) {
+                    return kind==OriginalReferenceKind::Face&&
+                        keys.contains({Kind::Face,owner,key,path});
                 });
         }catch(const ReferenceQueryError& error) {
             // An unavailable/replaced native source is a broken persisted

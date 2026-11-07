@@ -20,6 +20,7 @@
 #include <zima/document/general_surface.hpp>
 #include <zima/document/sheet_form_definition.hpp>
 #include <zima/document/sheet_form_dimensions.hpp>
+#include <zima/document/component_source.hpp>
 #include "../sketch_point_pick_priority.hpp"
 #include "../surface_wire_visibility.hpp"
 #include "../sketch_external_reference_kind.hpp"
@@ -165,6 +166,12 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
     }
     const auto publish_mesh=[&](zima::kernel::ViewerMesh mesh,bool fit=true) {
         if(qEnvironmentVariableIsSet("ZIMA_CPP_PROFILE_COMMAND"))std::fprintf(stderr,"Workspace scene publication\n");
+        // Direct Part display does not pass through component_source(). Apply
+        // the same read-only presentation association here so cached native
+        // transitions are selectable from their visible material faces.
+        if(const auto* displayed=workspace_.open_part(workspace_.displayed_document_id()))
+            zima::document::associate_compound_sheet_display_owners(
+                displayed->session.document(),mesh);
         if(properties_dialog_&&active_sketch_id_.empty()) {
             std::set<std::string> editing_profiles;
             if(property_owned_sketch_draft_)editing_profiles.insert(property_owned_sketch_draft_->id);

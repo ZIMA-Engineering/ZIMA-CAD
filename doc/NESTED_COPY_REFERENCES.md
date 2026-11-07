@@ -51,3 +51,17 @@ all programs, the wider suite passed **21/21** (142.57 s),
 Properties/creation, original references, context refresh, Workspace, native/cache
 tests, source documents, actual CLI, and translations.
 Build log: `build/nested-copy-reference-all-build.log`.
+
+## Exact Sketch descendants
+
+Sketch references use the clicked copied child as their persistent modeling
+identity. Analytical support may still come from the child's explicit Boolean
+ancestry, but refresh never replaces a Mirror/Pattern child with its original or
+with another copy. Multiple source parents and later Boolean features are resolved
+independently, and current frame transformations are applied on every refresh.
+
+The 2026-11-07 regression covers two independent source branches, chained
+Mirror/Pattern-style descendants, later Boolean fragments, packet reordering,
+repeated parent edits, translated/rotated dependent frames, two coincident
+constraints at a reference intersection, dragging, Undo/Redo and native reopen.
+Every branch retains its exact child identity and follows only its own parent.

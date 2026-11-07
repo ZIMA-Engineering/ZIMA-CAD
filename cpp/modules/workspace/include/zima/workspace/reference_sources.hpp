@@ -29,6 +29,13 @@ using OriginalReferenceFilter=std::function<bool(OriginalReferenceKind,
 void append_original_reference_geometry(kernel::ViewerReferenceGeometry& target,
     const kernel::ViewerReferenceGeometry& source,const ReferenceFrame&,
     const OriginalReferenceFilter&);
+// A clicked result face remains its exact persisted descendant. Copy only its
+// current display triangles. A later Boolean descendant is relabelled to that
+// stored identity for refresh, while analytic support may be inherited through
+// the same explicit parent chain. Mirror/Pattern siblings are never substituted.
+void append_display_face_reference_geometry(kernel::ViewerReferenceGeometry& target,
+    const kernel::ViewerMesh& source,const ReferenceFrame&,
+    const OriginalReferenceFilter&);
 // Read original Part references in an exact dependent occurrence frame.
 // Open source documents are authoritative; closed sources are read as native
 // data. Assembly placements and derived geometry come from the displayed
@@ -36,6 +43,9 @@ void append_original_reference_geometry(kernel::ViewerReferenceGeometry& target,
 [[nodiscard]] kernel::ViewerReferenceGeometry context_original_reference_geometry(
     const Workspace&,const std::string& top,const assembly::InstancePath& dependent,
     const std::string& source_document,const OriginalReferenceFilter& filter={});
+void append_context_display_face_reference_geometry(
+    kernel::ViewerReferenceGeometry&,const Workspace&,const std::string& top,
+    const assembly::InstancePath& dependent,const OriginalReferenceFilter&);
 // Synchronous borrowed packets. The visitor must not retain packet references.
 // Returning false stops iteration. Original geometry is never rebuilt from OCCT,
 // copied from result topology or refreshed from an open dependency implicitly.

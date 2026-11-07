@@ -1,5 +1,8 @@
 #include <zima/workspace/reference_sources.hpp>
+#include <zima/kernel/boolean_face_ancestry.hpp>
 #include <map>
+#include <set>
+#include <algorithm>
 #include <tuple>
 
 namespace zima::workspace {
@@ -59,6 +62,84 @@ void append_original_reference_geometry(kernel::ViewerReferenceGeometry& target,
         for(std::size_t corner=0;corner<3;++corner) {
             const auto index=source.triangles[triangle*3+corner];
             if(index>=source.vertices.size())throw ReferenceQueryError("invalid_reference_geometry","The persisted reference geometry is incomplete.");
+            auto [entry,inserted]=vertices.try_emplace(index,static_cast<std::uint32_t>(target.vertices.size()));
+            if(inserted)target.vertices.push_back(frame.point(source.vertices[index]));
+            target.triangles.push_back(entry->second);
+        }
+    }
+}
+
+void append_display_face_reference_geometry(kernel::ViewerReferenceGeometry& target,
+    const kernel::ViewerMesh& source,const ReferenceFrame& frame,
+    const OriginalReferenceFilter& accept) {
+    using Identity=std::tuple<std::string,std::string,std::string>;
+    std::set<Identity> complete;
+    for(const auto& reference:target.triangle_references)
+        complete.emplace(reference.owner_id,reference.semantic_key,reference.instance_path);
+    std::map<std::uint32_t,std::uint32_t> vertices;
+    std::map<Identity,std::shared_ptr<const kernel::SurfaceGeometry>> surfaces,contours;
+    const auto inherited=[&](const kernel::FaceReference& face,bool contour)
+            ->std::shared_ptr<const kernel::SurfaceGeometry> {
+        auto owner=face.owner_id,key=face.semantic_key;
+        while(const auto parent=kernel::boolean_face_parent(key)) {
+            owner=parent->first;key=parent->second;
+            const auto found=std::ranges::find_if(source.original_references.triangle_references,
+                [&](const auto& candidate) {
+                    return candidate.owner_id==owner&&candidate.semantic_key==key&&
+                        candidate.instance_path==face.instance_path;
+                });
+            if(found!=source.original_references.triangle_references.end()) {
+                if(contour&&found->contour_surface)return found->contour_surface;
+                if(found->surface)return found->surface;
+            }
+        }
+        return {};
+    };
+    const auto transformed_surface=[&](const kernel::FaceReference& identity,
+            const kernel::FaceReference& face,
+            std::shared_ptr<const kernel::SurfaceGeometry> source_surface,
+            auto& cache) -> std::shared_ptr<const kernel::SurfaceGeometry> {
+        if(!source_surface)return {};
+        const Identity key{identity.owner_id,identity.semantic_key,identity.instance_path};
+        auto [entry,inserted]=cache.try_emplace(key);
+        if(inserted) {
+            auto surface=*source_surface;
+            surface.origin=frame.surface_point(face.instance_path,surface.origin);
+            surface.axis=frame.surface_direction(face.instance_path,surface.axis);
+            surface.radial=frame.surface_direction(face.instance_path,surface.radial);
+            entry->second=std::make_shared<const kernel::SurfaceGeometry>(std::move(surface));
+        }
+        return entry->second;
+    };
+    for(std::size_t triangle=0;triangle<source.triangle_references.size();++triangle) {
+        const auto& face=source.triangle_references[triangle];
+        const auto path=frame.path(face.instance_path);
+        if(!face.valid())continue;
+        kernel::FaceReference identity=face;identity.instance_path=path;
+        bool accepted=accept(OriginalReferenceKind::Face,identity.owner_id,
+            identity.semantic_key,identity.instance_path);
+        while(!accepted) {
+            const auto parent=kernel::boolean_face_parent(identity.semantic_key);
+            if(!parent)break;
+            identity.owner_id=parent->first;identity.semantic_key=parent->second;
+            accepted=accept(OriginalReferenceKind::Face,identity.owner_id,
+                identity.semantic_key,identity.instance_path);
+        }
+        if(!accepted||complete.contains({identity.owner_id,identity.semantic_key,
+                identity.instance_path}))continue;
+        if(triangle*3+2>=source.triangles.size())
+            throw ReferenceQueryError("invalid_reference_geometry","The display reference geometry is incomplete.");
+        auto copy=face;copy.owner_id=identity.owner_id;copy.semantic_key=identity.semantic_key;
+        copy.instance_path=identity.instance_path;
+        copy.surface=transformed_surface(identity,face,
+            face.surface?face.surface:inherited(face,false),surfaces);
+        copy.contour_surface=transformed_surface(identity,face,
+            face.contour_surface?face.contour_surface:inherited(face,true),contours);
+        target.triangle_references.push_back(std::move(copy));
+        for(std::size_t corner=0;corner<3;++corner) {
+            const auto index=source.triangles[triangle*3+corner];
+            if(index>=source.vertices.size())
+                throw ReferenceQueryError("invalid_reference_geometry","The display reference geometry is incomplete.");
             auto [entry,inserted]=vertices.try_emplace(index,static_cast<std::uint32_t>(target.vertices.size()));
             if(inserted)target.vertices.push_back(frame.point(source.vertices[index]));
             target.triangles.push_back(entry->second);

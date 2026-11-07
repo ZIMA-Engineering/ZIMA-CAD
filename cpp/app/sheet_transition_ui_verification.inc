@@ -41,12 +41,44 @@ int verify_sheet_transition_ui(QApplication& application,const std::filesystem::
             auto* view=dynamic_cast<viewer::MeshView*>(window.findChild<QWidget*>("modelWorkspace"));
             auto* tree=window.findChild<QTreeWidget*>("documentTree");check(view&&tree,"Transition interaction workspace missing");
             view->fit_all();view->set_reference_visibility(viewer::ReferenceVisibility::AxisPoints,false);flush();
+            const auto document_state=window.execute_console_command("documents").data;
+            const auto mesh_revision=view->base_mesh_revision();
+            const auto project=[&](kernel::Vec3 world) {
+                const auto center=view->ray_at({view->width()*.5,view->height()*.5});
+                check(center.has_value(),"Transition camera ray missing");
+                const auto normal=center->second;
+                const auto dot=[](kernel::Vec3 a,kernel::Vec3 b){return a.x*b.x+a.y*b.y+a.z*b.z;};
+                const auto sub=[](kernel::Vec3 a,kernel::Vec3 b){return kernel::Vec3{a.x-b.x,a.y-b.y,a.z-b.z};};
+                const auto hit=[&](QPointF screen) {
+                    const auto ray=view->ray_at(screen);check(ray.has_value(),"Transition projection ray missing");
+                    const double t=dot(sub(world,ray->first),normal)/dot(ray->second,normal);
+                    return kernel::Vec3{ray->first.x+t*ray->second.x,ray->first.y+t*ray->second.y,ray->first.z+t*ray->second.z};
+                };
+                const auto origin=hit({0,0}),u=sub(hit({100,0}),origin),v=sub(hit({0,100}),origin),r=sub(world,origin);
+                const double uu=dot(u,u),vv=dot(v,v),uv=dot(u,v),det=uu*vv-uv*uv;
+                return QPointF(100*(dot(r,u)*vv-dot(r,v)*uv)/det,100*(dot(r,v)*uu-dot(r,u)*uv)/det);
+            };
             std::optional<QPointF> point;
-            for(int y=4;y<view->height()&&!point;y+=5)for(int x=4;x<view->width()&&!point;x+=5) {
-                const auto candidates=view->selection_candidates_at({double(x),double(y)});
+            const auto& references=view->mesh().original_references;
+            for(std::size_t triangle=0;triangle<references.triangle_references.size()&&!point;++triangle) {
+                const auto& reference=references.triangle_references[triangle];
+                const bool transition_region=reference.sheet_owner.starts_with(target.id+":panel:")||
+                    reference.sheet_owner.starts_with(target.id+":bend:");
+                if(!transition_region||(reference.sheet_role!=kernel::SheetFaceRole::SideA&&
+                        reference.sheet_role!=kernel::SheetFaceRole::SideB)||triangle*3+2>=references.triangles.size())continue;
+                kernel::Vec3 center{};bool valid=true;
+                for(std::size_t corner=0;corner<3;++corner) {
+                    const auto index=references.triangles[triangle*3+corner];
+                    if(index>=references.vertices.size()){valid=false;break;}
+                    const auto& p=references.vertices[index];center.x+=p.x/3;center.y+=p.y/3;center.z+=p.z/3;
+                }
+                if(!valid)continue;
+                const auto screen=project(center);
+                if(!view->rect().contains(screen.toPoint()))continue;
+                const auto candidates=view->selection_candidates_at(screen);
                 if(std::ranges::any_of(candidates,[&](const auto& candidate) {
                     return candidate.kind==viewer::CandidateKind::Container&&candidate.owner_id==target.id&&!candidate.marker_derived;
-                }))point=QPointF(x,y);
+                }))point=screen;
             }
             check(point.has_value(),label);
             QMouseEvent offer(QEvent::MouseMove,*point,QPointF(view->mapToGlobal(point->toPoint())),
@@ -71,6 +103,20 @@ int verify_sheet_transition_ui(QApplication& application,const std::filesystem::
                 current->data(0,Qt::UserRole).toString().toStdString()==target.id&&
                 current->data(0,Qt::UserRole+3)==QStringLiteral("part-container"),
                 "Transition View selection did not select its owning Tree row");
+            static_cast<void>(view->grabFramebuffer());
+            check(view->property("gpuSourceWireVertexCount").toULongLong()>0&&
+                    view->property("selectedFeatureFaceTriangleCount").toULongLong()==0,
+                "Transition selection did not display only its authored wire");
+            const auto selected_image=view->grabFramebuffer();unsigned azure{};
+            for(int y=0;y<selected_image.height();++y)for(int x=0;x<selected_image.width();++x) {
+                const auto color=selected_image.pixelColor(x,y);
+                if(std::abs(color.red()-0)<24&&std::abs(color.green()-209)<24&&
+                        std::abs(color.blue()-255)<24)++azure;
+            }
+            check(azure>4,"Transition authored wire is not visibly azure");
+            check(window.execute_console_command("documents").data==document_state&&
+                    view->base_mesh_revision()==mesh_revision,
+                "Transition single selection changed the document or base geometry");
             check(view->container_inspection_wire().empty(),
                 "A single Transition selection exposed double-click inspection");
             bool menu_seen=false,properties_seen=false;
@@ -89,10 +135,37 @@ int verify_sheet_transition_ui(QApplication& application,const std::filesystem::
                 QApplication::sendEvent(view,&event);flush();
             }
             check(menu_seen&&properties_seen,"Transition View context menu has no Properties action");
-            QMouseEvent double_click(QEvent::MouseButtonDblClick,*point,QPointF(view->mapToGlobal(point->toPoint())),
-                Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);QApplication::sendEvent(view,&double_click);flush();
+            unsigned calculations{};
+            {workspace::CalculationExecutionScope counted([&](auto run){++calculations;run();});
+                QMouseEvent double_click(QEvent::MouseButtonDblClick,*point,QPointF(view->mapToGlobal(point->toPoint())),
+                    Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);QApplication::sendEvent(view,&double_click);flush();}
+            check(calculations==0,"Transition View inspection invoked geometry calculation");
             check(!view->container_inspection_wire().empty(),"Transition View double-click did not open parameter inspection");
+            check(std::ranges::any_of(view->mesh().dimensions,[&](const auto& dimension) {
+                    return dimension.reference.owner_id==target.id&&
+                        dimension.reference.semantic_key.starts_with("parameter:");
+                }),"Transition View double-click exposed no parameter dimensions");
+            check(!window.findChild<QDialog*>("sheetTransitionDialog")&&
+                    window.execute_console_command("documents").data==document_state,
+                "Transition View inspection opened Properties or changed the document");
             check(window.finish_parameter_dimensions(),"Transition parameter inspection did not close");flush();
+            QTreeWidgetItem* row{};
+            for(QTreeWidgetItemIterator it(tree);*it;++it)
+                if((*it)->data(0,Qt::UserRole+3)==QStringLiteral("part-container")&&
+                   (*it)->data(0,Qt::UserRole).toString().toStdString()==target.id){row=*it;break;}
+            check(row,"Transition Tree row disappeared after View inspection");
+            for(auto* parent=row->parent();parent;parent=parent->parent())parent->setExpanded(true);
+            tree->scrollToItem(row);flush();
+            const auto tree_point=QPointF(tree->visualItemRect(row).center());
+            QMouseEvent tree_double(QEvent::MouseButtonDblClick,tree_point,
+                QPointF(tree->viewport()->mapToGlobal(tree_point.toPoint())),Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);
+            QApplication::sendEvent(tree->viewport(),&tree_double);flush();
+            check(std::ranges::any_of(view->mesh().dimensions,[&](const auto& dimension) {
+                    return dimension.reference.owner_id==target.id&&
+                        dimension.reference.semantic_key.starts_with("parameter:");
+                })&&window.execute_console_command("documents").data==document_state,
+                "Transition Tree double-click did not expose dimensions without mutation");
+            check(window.finish_parameter_dimensions(),"Transition Tree inspection did not close");flush();
             view->set_reference_visibility(viewer::ReferenceVisibility::AxisPoints,true);flush();
         };
         auto* rectangular=window.findChild<QAction*>("rectangularSheetTransitionAction");

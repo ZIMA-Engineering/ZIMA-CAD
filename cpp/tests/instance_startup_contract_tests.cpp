@@ -81,8 +81,6 @@ int main(int argc, char** argv) {
         require(rejected,"Unwritable reservation must not start an unprotected instance");
         {
             zima::app::ApplicationInstance a(lock_root),b(lock_root);
-            a.set_directory(root);
-            b.set_directory(QDir(root).filePath("."));
             require(zima::app::ApplicationInstance::path_key(root)==zima::app::ApplicationInstance::path_key(QDir(root).filePath(".")),"Directory alias has a different reservation key");
             a.reserve_file(blocked.fileName());
             b.reserve_file(blocked.fileName());
@@ -96,9 +94,11 @@ int main(int argc, char** argv) {
         const auto spare_dir = QDir(root).filePath("Project five");
         require(QDir().mkpath(part_dir) && QDir().mkpath(assembly_dir) && QDir().mkpath(drawing_dir) && QDir().mkpath(fourth_dir) && QDir().mkpath(spare_dir), "No project folders");
         const auto part_path = QDir(part_dir).filePath("compare part.prtz");
+        const auto sibling_part_path = QDir(part_dir).filePath("compare sibling.prtz");
         const auto assembly_path = QDir(assembly_dir).filePath("compare assembly.asmz");
         const auto drawing_path = QDir(drawing_dir).filePath("compare drawing.drwz");
         zima::document::PartDocument::create_default().save(std::filesystem::path(part_path.toStdString()));
+        zima::document::PartDocument::create_default().save(std::filesystem::path(sibling_part_path.toStdString()));
         zima::assembly::AssemblyDocument::create_default().save(std::filesystem::path(assembly_path.toStdString()));
         zima::drawing::DrawingDocument::create_default().save(std::filesystem::path(drawing_path.toStdString()));
 
@@ -145,10 +145,21 @@ int main(int argc, char** argv) {
                 "Window menu still offers New Window");
         const std::set<int> numbers{a["instance"].toInt(), b["instance"].toInt(), c["instance"].toInt()};
         require(numbers.size() == 3 && *numbers.begin() > 0, "Parallel process numbers collide");
-        QProcess duplicate;
-        duplicate.setProgram(executable);duplicate.setProcessEnvironment(environment);
-        duplicate.setArguments({"--working-directory",part_dir});duplicate.start();
-        require(duplicate.waitForFinished(10000)&&duplicate.exitCode()==2,"Duplicate working directory was not rejected at startup");
+        QProcess shared_directory;
+        shared_directory.setProgram(executable);shared_directory.setProcessEnvironment(environment);
+        shared_directory.setArguments({sibling_part_path});shared_directory.start();
+        require(shared_directory.waitForStarted(),"Sibling document process did not start");
+        const auto shared_directory_pid=shared_directory.processId();
+        require(until([&]{return !report(root,shared_directory_pid).isEmpty();}),
+            "Sibling document process did not report startup");
+        const auto shared=report(root,shared_directory_pid);
+        require(shared["documents"].toArray()==QJsonArray{"compare sibling.prtz"}&&
+            shared["directory"].toString()==part_dir&&
+            !numbers.contains(shared["instance"].toInt()),
+            "A shell launch could not open another document from a shared working directory");
+        command(root,shared_directory_pid,"quit");
+        require(shared_directory.waitForFinished(10000)&&shared_directory.exitCode()==0,
+            "Sibling document process did not close cleanly");
         int request_id=0;
         const auto execute=[&](qint64 pid,const QString& name,const QJsonObject& args) {
             QSaveFile request(QDir(root).filePath(QString::number(pid)+".command"));
@@ -159,8 +170,11 @@ int main(int argc, char** argv) {
             require(until([&]{return report(root,pid)["request"].toInt()==id;}),"Instance did not answer command");
             return report(root,pid)["success"].toBool();
         };
-        require(!execute(third_pid,"cd",{{"path",QDir(assembly_dir).filePath(".")}})&&report(root,third_pid)["directory"].toString()==drawing_dir,
-            "Changing to an occupied working directory was not rejected atomically");
+        require(execute(third_pid,"cd",{{"path",QDir(assembly_dir).filePath(".")}})&&
+            report(root,third_pid)["directory"].toString()==assembly_dir,
+            "Changing to another process's working directory was rejected");
+        require(execute(third_pid,"cd",{{"path",drawing_dir}}),
+            "Cannot restore the Drawing working directory after the sharing check");
         require(execute(first_pid,"cd",{{"path",spare_dir}}),"Cannot change to an unused directory");
         require(!execute(third_pid,"open",{{"path",part_path}})&&report(root,third_pid)["documents"].toArray().size()==1,
             "An open file became available when its owner changed working directory");
@@ -213,17 +227,21 @@ int main(int argc, char** argv) {
         require(first.waitForFinished(10000) && first.exitCode() == 0, "First instance did not close cleanly");
         require(second.state() == QProcess::Running && third.state() == QProcess::Running,
             "Closing one instance closed another");
+        const auto crash_path=QDir(spare_dir).filePath("crash recovery part.prtz");
+        zima::document::PartDocument::create_default().save(std::filesystem::path(crash_path.toStdString()));
         QProcess crashed;crashed.setProgram(executable);crashed.setProcessEnvironment(environment);
-        crashed.setArguments({"--working-directory",spare_dir});crashed.start();
+        crashed.setArguments({crash_path});crashed.start();
         require(crashed.waitForStarted(),"Cannot start crash-recovery fixture");
         const auto crashed_pid=crashed.processId();
-        require(until([&]{return !report(root,crashed_pid).isEmpty();}),"Crash-recovery instance did not reserve its directory");
+        require(until([&]{return report(root,crashed_pid)["documents"].toArray()==QJsonArray{"crash recovery part.prtz"};}),
+            "Crash-recovery instance did not reserve its document");
         crashed.kill();require(crashed.waitForFinished(10000),"Cannot terminate crash-recovery fixture");
         QProcess recovered;recovered.setProgram(executable);recovered.setProcessEnvironment(environment);
-        recovered.setArguments({"--working-directory",spare_dir});recovered.start();
+        recovered.setArguments({crash_path});recovered.start();
         require(recovered.waitForStarted(),"Cannot restart crash-recovery fixture");
         const auto recovered_pid=recovered.processId();
-        require(until([&]{return !report(root,recovered_pid).isEmpty();}),"A crashed process left a permanent directory reservation");
+        require(until([&]{return report(root,recovered_pid)["documents"].toArray()==QJsonArray{"crash recovery part.prtz"};}),
+            "A crashed process left a permanent document reservation");
         command(root,recovered_pid,"quit");require(recovered.waitForFinished(10000)&&recovered.exitCode()==0,"Recovered instance did not close");
         command(root, fourth_pid, "quit");
         command(root, second_pid, "quit");

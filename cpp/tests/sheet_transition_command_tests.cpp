@@ -8,6 +8,7 @@
 #include <zima/workspace/drawing_sources.hpp>
 #include <zima/workspace/sketch_properties.hpp>
 #include <zima/document/sheet_transition.hpp>
+#include <zima/document/component_source.hpp>
 #include <zima/document/bend.hpp>
 #include <zima/document/metadata.hpp>
 #include <zima/workspace/family_operations.hpp>
@@ -139,6 +140,21 @@ void check_inherited_transition_thickness() {
         const auto identities=face_keys(state->session.calculated_boundaries().back());
         check(!identities.empty(),"Transition has no original face identities");
         check_solid(state->session.calculated_boundaries().back());
+        const auto selectable=document::component_source(state->session.document(),
+            state->session.calculated_boundaries());
+        unsigned selectable_skins{};
+        for(const auto& face:selectable.mesh.original_references.triangle_references) {
+            const bool transition_region=face.sheet_owner.starts_with(feature.id+":panel:")||
+                face.sheet_owner.starts_with(feature.id+":bend:");
+            if(!transition_region||(face.sheet_role!=kernel::SheetFaceRole::SideA&&
+                    face.sheet_role!=kernel::SheetFaceRole::SideB))continue;
+            ++selectable_skins;
+            check(face.display_owner_id==feature.id,
+                "Transition skin does not select its authored history Container");
+            check(face.sheet_owner!=feature.id,
+                "Transition selection replaced exact panel/bend material identity");
+        }
+        check(selectable_skins>0,"Transition has no selectable material skin");
         auto check_thickness=[&](const document::PartDocument& doc,const document::HistoryContainer& f,double expected) {
             const auto resolved=document::resolved_sheet_transition_parameters(f,document::sheet_metal_defaults(doc));
             check(resolved.thickness==expected,"Wrong effective transition thickness");

@@ -17,6 +17,14 @@ mark affected references invalid while preserving their last geometry. Restoring
 the same original source repairs them. Malformed geometry is rejected rather than
 converted into a guessed replacement reference.
 
+Exact copied-face identities are refreshed from the current authoritative display
+packet when they are not present as standalone original-reference faces. A later
+Boolean fragment is mapped only through its explicit Boolean ancestry to the
+stored child. Mirror/Pattern ancestry is not used to substitute an original or a
+sibling copy. The resulting geometry is transformed through the current source,
+occurrence, dependent-Part and Sketch frames, so moving either the source parent
+or the dependent feature Origin reprojects the same persisted child.
+
 Ordinary Part and root-Assembly references retain their existing path. Format and
 templates are unchanged; the catalog remains at **209 commands**. Context-reference
 creation/detachment with a shared Sketch/Assembly-dependency commit is the next stage.
@@ -42,6 +50,11 @@ Model tests and an actual CLI process then passed **4/4** (18.20 s),
   reference, saving `.prtz`, and rejecting another occurrence path.
 
 New context and cycle-validation messages are translated into cs/en/de/fr/ru.
+
+The 2026-11-07 extension adds exact copied/display descendants to both root and
+Assembly-context creation and refresh. Its focused command contract covers
+current trim and offset propagation, broken-reference retention and repair,
+Undo/Redo and native persistence without calculating Assembly-owned operations.
 
 After adding a physically missing native-file case and rebuilding all programs,
 the **full suite passed 113/113** (511.11 s). Logs:

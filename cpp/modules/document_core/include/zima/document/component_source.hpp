@@ -2,6 +2,28 @@
 #include <zima/document/object_annotation_frames.hpp>
 #include <algorithm>
 namespace zima::document {
+inline void associate_compound_sheet_display_owners(
+        const PartDocument& document, kernel::ViewerMesh& mesh) {
+    std::vector<std::pair<std::string,std::string>> owners;
+    for(const auto& feature:document.history) {
+        if(feature.suppressed||feature.feature_kind!=FeatureKind::SheetTransition)continue;
+        owners.emplace_back(feature.id+":panel:",feature.id);
+        owners.emplace_back(feature.id+":bend:",feature.id);
+    }
+    if(owners.empty())return;
+    const auto assign=[&](auto& faces) {
+        for(auto& face:faces) {
+            if(!face.display_owner_id.empty()||face.sheet_owner.empty())continue;
+            const auto owner=std::ranges::find_if(owners,[&](const auto& entry) {
+                return face.sheet_owner.starts_with(entry.first);
+            });
+            if(owner!=owners.end())face.display_owner_id=owner->second;
+        }
+    };
+    assign(mesh.triangle_references);
+    assign(mesh.original_references.triangle_references);
+}
+
 inline kernel::Appearance component_appearance(const PartDocument& doc) {
     auto appearance=doc.appearance;appearance.body.color=doc.body_color;
     for(const auto& [key,color]:doc.face_colors)
@@ -38,6 +60,11 @@ inline void append_component_mesh(zima::kernel::ViewerMesh& target,
 inline zima::kernel::BodyResult component_source(const PartDocument& document, const std::vector<kernel::BodyResult>& calculated) {
     auto result = calculated.empty() ? zima::kernel::BodyResult{}
         : calculated.back();
+    // Compound transitions persist exact panel/bend material-region identity
+    // in sheet_owner. Ordinary selection belongs to their one authored
+    // history Container, including when opening an older cached result whose
+    // FaceReference predates this presentation association.
+    associate_compound_sheet_display_owners(document,result.mesh);
 
     for (const auto& sketch : document.sketches) {
         if (sketch.suppressed) continue;

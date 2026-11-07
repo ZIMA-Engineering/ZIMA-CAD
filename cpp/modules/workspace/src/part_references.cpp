@@ -1,6 +1,7 @@
 #include <zima/workspace/model_calculation.hpp>
 #include <zima/workspace/sketch_operations.hpp>
 #include <zima/workspace/sketch_reference_operations.hpp>
+#include <zima/workspace/reference_sources.hpp>
 #include <zima/document/feature_sketches.hpp>
 #include <zima/document/general_surface.hpp>
 #include <zima/document/loft.hpp>
@@ -246,6 +247,21 @@ bool refresh_sketch_external_references(
             if(!reference.body_edge&&allowed_owners.contains(reference.source_owner_id))
                 referenced_owners.insert(reference.source_owner_id);
         auto allowed_source=reference_geometry_for_owners(source,referenced_owners);
+        if(!calculated_boundaries.empty()) {
+            std::set<std::tuple<std::string,std::string,std::string>> faces;
+            for(const auto& reference:sketch.external_references)
+                if(reference.kind==sketcher::ExternalReferenceKind::Face&&
+                    allowed_owners.contains(reference.source_owner_id))
+                    faces.emplace(reference.source_owner_id,reference.source_semantic_key,
+                        reference.source_instance_path);
+            const ReferenceFrame frame;
+            append_display_face_reference_geometry(allowed_source,
+                calculated_boundaries.back().mesh,frame,
+                [&](OriginalReferenceKind kind,const std::string& owner,
+                    const std::string& key,const std::string& path) {
+                    return kind==OriginalReferenceKind::Face&&faces.contains({owner,key,path});
+                });
+        }
         profile(sketch.id,"filtered geometry");
         kernel::ViewerReferenceGeometry body;
         if(std::ranges::any_of(sketch.external_references,[](const auto& r){return r.body_edge;})) {
@@ -332,6 +348,18 @@ bool refresh_assembly_sketch_external_references(
     const auto scene = document.build_scene();
     const auto& source=scene.original_references;
     return update_document_sketches(document,[&](auto& sketch) {
+        auto geometry=source;
+        std::set<std::tuple<std::string,std::string,std::string>> faces;
+        for(const auto& reference:sketch.external_references)
+            if(reference.kind==sketcher::ExternalReferenceKind::Face)
+                faces.emplace(reference.source_owner_id,reference.source_semantic_key,
+                    reference.source_instance_path);
+        const ReferenceFrame frame;
+        append_display_face_reference_geometry(geometry,scene,frame,
+            [&](OriginalReferenceKind kind,const std::string& owner,
+                const std::string& key,const std::string& path) {
+                return kind==OriginalReferenceKind::Face&&faces.contains({owner,key,path});
+            });
         kernel::ViewerReferenceGeometry body;
         if(std::ranges::any_of(sketch.external_references,[](const auto& reference){return reference.body_edge;}))
             body=assembly_sketch_body_reference_geometry(document,sketch);
@@ -340,7 +368,7 @@ bool refresh_assembly_sketch_external_references(
         for(const auto& reference:sketch.external_references)
             if(!reference.source_document_id.empty())source_documents.insert(reference.source_document_id);
         for(const auto& source_document_id:source_documents)
-            changed=sketch.refresh_external_references(source_document_id,source,false,&body)||changed;
+            changed=sketch.refresh_external_references(source_document_id,geometry,false,&body)||changed;
         return changed;
     });
 }

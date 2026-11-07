@@ -71,8 +71,7 @@ FileManagerTab* AssemblyWorkspaceWindow::open_file_manager(const QString& initia
     page->working_directory_requested=[this](const QString& path){
         const auto target=std::filesystem::u8path(path.toStdString());
         if(!std::filesystem::is_directory(target)){report_operation_error(tr("Neplatný adresář"),tr("Vybraná cesta není existující adresář."));return;}
-        try {change_working_directory(target,true);}
-        catch(const std::exception& error){report_operation_error(tr("Pracovní adresář je obsazený"),QObject::tr(error.what()));return;}
+        change_working_directory(target,true);
         state_->setText(tr("Pracovní adresář: %1").arg(QDir::toNativeSeparators(path)));
     };
     page->settings_requested=[this]{

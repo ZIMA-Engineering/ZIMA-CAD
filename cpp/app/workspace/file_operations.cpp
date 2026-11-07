@@ -435,8 +435,7 @@ void AssemblyWorkspaceWindow::save_active_document_as() {
 }
 
 void AssemblyWorkspaceWindow::change_working_directory(const std::filesystem::path& path,bool required) {
-    try {instance_.set_directory(QString::fromStdString(document::path_to_utf8(path)));}
-    catch(const std::exception&) {if(required)throw;return;}
+    static_cast<void>(required);
     working_directory_=path;
     setProperty("instanceWorkingDirectory",QString::fromStdString(document::path_to_utf8(path)));
     const QString directory=QString::fromStdString(document::path_to_utf8(path));
@@ -456,8 +455,7 @@ void AssemblyWorkspaceWindow::set_working_directory() {
             tr("Vybraná cesta není existující adresář."));
         return;
     }
-    try {change_working_directory(target,true);}
-    catch(const std::exception& error) {report_operation_error(tr("Pracovní adresář je obsazený"),QObject::tr(error.what()));return;}
+    change_working_directory(target,true);
     state_->setText(tr("Pracovní adresář: %1").arg(selected));
 }
 
@@ -709,8 +707,7 @@ void AssemblyWorkspaceWindow::show_global_settings(bool system_setup,bool first_
         const QString configured =
             application_settings_.resolved_paths.value("WorkingDirectory");
         if (!configured.trimmed().isEmpty() && QFileInfo(configured).isDir()) {
-            try {change_working_directory(std::filesystem::u8path(QFileInfo(configured).absoluteFilePath().toStdString()),true);}
-            catch(const std::exception& error) {report_operation_error(tr("Pracovní adresář je obsazený"),QObject::tr(error.what()));}
+            change_working_directory(std::filesystem::u8path(QFileInfo(configured).absoluteFilePath().toStdString()),true);
             refresh_delete_file_actions();
         }
         if (language_changed) QTimer::singleShot(0, this, [this] {

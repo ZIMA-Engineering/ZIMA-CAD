@@ -313,6 +313,30 @@ int main() {
                 "State-only helper topology became selectable as Unbend/Bend Back");
         }
         {
+            // A compound sheet transition retains its exact panel material
+            // region for sheet operations and references. Its visible skin is
+            // nevertheless ordinary selection for the one authored feature.
+            zima::kernel::ViewerMesh transition;
+            transition.vertices={{-1,-1,5},{1,-1,5},{0,1,5}};
+            transition.triangles={0,1,2};
+            zima::kernel::FaceReference face{
+                "transition","transition:panel-face",{}};
+            face.sheet_owner="transition:panel:0";
+            face.sheet_role=zima::kernel::SheetFaceRole::SideA;
+            face.display_owner_id="transition";
+            transition.triangle_references={face};
+            const auto offered=zima::viewer::ordered_viewer_candidates(
+                transition,{0,0,0},{0,0,1},.01);
+            const auto containers=zima::viewer::filter_candidates(offered,
+                {zima::viewer::CandidateKind::Container});
+            const auto faces=zima::viewer::filter_candidates(offered,
+                {zima::viewer::CandidateKind::Face});
+            require(containers.size()==1&&containers.front().owner_id=="transition"&&
+                    faces.size()==1&&faces.front().owner_id=="transition"&&
+                    transition.triangle_references.front().sheet_owner=="transition:panel:0",
+                "Compound sheet selection lost its feature owner or exact material region");
+        }
+        {
             // A planar quad touches a shallow sloping face. Smoothing across
             // that CAD edge used to reveal a diagonal across the planar quad.
             zima::kernel::ViewerMesh shading_mesh;
@@ -1032,11 +1056,11 @@ int main() {
             const auto source=zima::app::placement_reference_source_candidate(offered[0]);
             const auto external_source=zima::app::sketch_external_reference_source_candidate(offered[0]);
             require(!zima::app::sketch_external_reference_has_stable_geometry(offered[0],false)&&
-                external_source.owner_id=="original-box"&&external_source.semantic_key=="z_max"&&
+                external_source.owner_id=="latest-cut"&&external_source.semantic_key==ancestry&&
                 external_source.instance_path=="8:assembly4:part"&&
                 offered[0].owner_id=="latest-cut"&&offered[0].semantic_key==ancestry&&
                 external_source.geometry_index==offered[0].geometry_index,
-                "Ordinary Sketch Reference offered a whole face or lost stored face ancestry");
+                "Ordinary Sketch Reference replaced the clicked descendant with its parent");
             auto analytic_fragment=fragment;
             auto plane=std::make_shared<zima::kernel::SurfaceGeometry>();
             plane->kind=zima::kernel::SurfaceGeometry::Kind::Plane;

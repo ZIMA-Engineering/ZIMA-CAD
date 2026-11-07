@@ -33,21 +33,19 @@ inline bool sketch_external_reference_has_stable_geometry(
                 (reference.surface->kind==kernel::SurfaceGeometry::Kind::Plane||
                  reference.surface->kind==kernel::SurfaceGeometry::Kind::Cylinder);
         };
-        // Boolean and derived-copy display fragments retain the persisted
-        // oldest source identity, but need not duplicate its analytic support
-        // on every display triangle.  The original-reference packet is the
-        // authority for that support; use the exact source/occurrence only.
+        // Boolean and derived-copy display fragments need not duplicate their
+        // analytic support on every display triangle. The original-reference
+        // packet supplies that support through the fragment's encoded parent
+        // chain; the clicked descendant itself remains the persisted identity.
+        if(supported(face))return true;
         const auto source=placement_reference_source_candidate(candidate);
-        const bool follows_parent=source.owner_id!=candidate.owner_id||
-            source.semantic_key!=candidate.semantic_key;
-        if(!follows_parent&&supported(face))return true;
-        if(source.geometry_index>=mesh->original_references.triangle_references.size())
-            return false;
-        const auto& reference=
-            mesh->original_references.triangle_references[source.geometry_index];
-        return reference.owner_id==source.owner_id&&
-            reference.semantic_key==source.semantic_key&&
-            reference.instance_path==source.instance_path&&supported(reference);
+        const auto reference=std::ranges::find_if(
+            mesh->original_references.triangle_references,[&](const auto& value) {
+                return value.owner_id==source.owner_id&&
+                    value.semantic_key==source.semantic_key&&
+                    value.instance_path==source.instance_path&&supported(value);
+            });
+        return reference!=mesh->original_references.triangle_references.end();
     }
     return candidate.kind!=viewer::CandidateKind::Face&&
         (candidate.geometry==viewer::CandidateGeometry::OriginalReference||
@@ -56,11 +54,11 @@ inline bool sketch_external_reference_has_stable_geometry(
           sketcher::is_edge_treatment_body_edge_key(candidate.semantic_key)));
 }
 
-// The caller retains the offered Display candidate for hover/confirmation.
-// Only source validation/storage follows the existing persisted parent chain.
+// The clicked persisted descendant is the modeling reference. Its encoded
+// parent chain supplies analytic support only; it never replaces this identity.
 inline viewer::ViewerCandidate sketch_external_reference_source_candidate(
         viewer::ViewerCandidate candidate) {
-    return placement_reference_source_candidate(std::move(candidate));
+    return candidate;
 }
 
 inline std::optional<sketcher::ExternalReferenceKind> sketch_external_reference_kind(

@@ -164,3 +164,27 @@ corners, unchanged broad walls, valid single solids, unfolding and bending back,
 GUI creation/editing, retained relief after facet-count changes, Cancel,
 Undo/Redo, native save/reopen and five-language controls. These checks do not
 certify a minimum cuttable feature for a particular laser, material or thickness.
+
+## Ordinary selection and inspection (2026-11-07)
+
+A transition is one authored history Container but its sheet calculation owns
+separate panel and bend material regions. Exact face references and sheet-state
+operations continue to use those region identities. For ordinary presentation,
+each visible region skin is associated with the parent `SheetTransition`
+Container. Clicking a material face therefore selects the transition row and
+shows the complete authored preview wire in azure; it never fills or recolors
+the calculated faces.
+
+Double-clicking the same face or the transition Tree row uses the shared
+parameter-inspection path and exposes the transition dimensions without opening
+Properties, invoking OCCT, changing the document revision or creating Undo data.
+The association is derived while publishing existing cached geometry, so older
+native documents do not require regeneration or a format migration merely to
+restore selection.
+
+The GUI regression clicks triangle interiors for both rectangular and
+half-round transitions, checks View/Tree synchronization, visible azure wire,
+zero selected-face triangles, parameter dimensions after View and Tree
+double-click, no calculation, unchanged document state, Cancel, Undo/Redo and
+save/reopen. Native tests independently retain the exact panel/bend material
+owner while checking the parent display owner. No user-visible text changed.
