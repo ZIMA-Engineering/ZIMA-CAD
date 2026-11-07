@@ -30,8 +30,10 @@
 #include <QPalette>
 #include <QPushButton>
 #include <QSignalBlocker>
+#include <QShowEvent>
 #include <QSizePolicy>
 #include <QTableWidget>
+#include <QTimer>
 #include <QToolButton>
 
 #include <algorithm>
@@ -366,7 +368,10 @@ ConstructionPropertiesDialog::ConstructionPropertiesDialog(
             base_plane_combo_->findData(base_plane_key));
         install_automatic_work_plane(base_plane_combo_, initial.base_plane_auto);
 
-        offset_form->addRow(tr("Výchozí rovina"), base_plane_combo_);
+        offset_form->addRow(tr("Výchozí rovina"),
+            compact_work_plane_selector(base_plane_combo_,[this] {
+                if(reference_request_)reference_request_(0);
+            }));
         offset_form->addRow(tr("Odsazení roviny"), offset_);
         content_layout()->addLayout(offset_form);
     }
@@ -563,6 +568,19 @@ ConstructionPropertiesDialog::ConstructionPropertiesDialog(
     initialize_sweep_ui();
     // Sweep adds profile and operation controls below the Curve3D editor.
     set_initial_size(QSize(660, std::max(900, sizeHint().height())));
+}
+
+void ConstructionPropertiesDialog::showEvent(QShowEvent* event) {
+    zima::ui::PropertiesSubWindow::showEvent(event);
+    if(!is_curve_container_kind(initial_.kind))return;
+    // Numeric editors publish their polished widths through queued Show
+    // events.  A transient wider value must not permanently override the
+    // established initial Curve/Sweep/Loft width after those fields settle.
+    QTimer::singleShot(0,this,[this] {
+        constexpr int initial_curve_width=660;
+        if(width()>initial_curve_width&&minimumSizeHint().width()<=initial_curve_width)
+            resize(initial_curve_width,height());
+    });
 }
 
 void ConstructionPropertiesDialog::initialize_sweep_ui() {

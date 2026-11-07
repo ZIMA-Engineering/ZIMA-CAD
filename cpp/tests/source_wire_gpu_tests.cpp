@@ -28,8 +28,13 @@ void verify_assembly_provider(QApplication& application) {
     },[](const auto& owner,const auto& path){return owner=="cut"&&path.empty();});
     const auto render=[&]{application.processEvents();check(!view.grabFramebuffer().isNull(),"Assembly provider has no framebuffer");};
     view.confirm_container("cut");render();
-    check(view.property("gpuSourceWireVertexCount").toInt()==2&&reads==1,
-        "Assembly selection ignored its dedicated wire without component source edges");
+    const auto selected_vertices=
+        view.property("gpuSourceWireVertexCount").toInt();
+    if(selected_vertices!=2||reads!=1)
+        throw std::runtime_error(
+            "Assembly selection ignored its dedicated wire without component source edges: reads="+
+            std::to_string(reads)+" vertices="+
+            std::to_string(selected_vertices));
     for(unsigned i=0;i<4;++i)render();
     check(reads==1,"Assembly repaint repeatedly read or rebuilt the cutter wire");
     available=false;view.set_container_inspection("cut");render();

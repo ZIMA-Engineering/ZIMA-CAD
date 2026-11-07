@@ -389,6 +389,60 @@ PrimitiveData combine(const PrimitiveData& input,const PrimitiveData& tool,bool 
     BRepAlgoAPI_Fuse algorithm;return apply(algorithm);
 }
 
+PrimitiveData combine_many(const PrimitiveData& input,
+        const std::vector<const PrimitiveData*>& tools,bool subtract,
+        const HistoryOperation& operation,
+        const std::vector<HistoryOperation>& history) {
+    std::vector<const PrimitiveData*> active;
+    active.reserve(tools.size());
+    for(const auto* tool:tools)if(tool&&!tool->shape.IsNull())
+        active.push_back(tool);
+    if(active.empty())return input;
+    if(active.size()==1)return combine(
+        input,*active.front(),subtract,operation,history);
+    if(input.shape.IsNull())
+        throw std::invalid_argument("FORM requires an input sheet.");
+
+    TopTools_ListOfShape arguments,tool_shapes;
+    arguments.Append(input.shape);
+    std::vector<OwnedFace> tool_faces;
+    std::vector<OwnedEdge> tool_edges;
+    std::vector<OwnedVertex> tool_vertices;
+    for(const auto* tool:active) {
+        tool_shapes.Append(tool->shape);
+        tool_faces.insert(tool_faces.end(),tool->faces.begin(),tool->faces.end());
+        tool_edges.insert(tool_edges.end(),tool->edges.begin(),tool->edges.end());
+        tool_vertices.insert(tool_vertices.end(),tool->vertices.begin(),tool->vertices.end());
+    }
+    const auto apply=[&](auto& algorithm) {
+        algorithm.SetArguments(arguments);algorithm.SetTools(tool_shapes);
+        algorithm.SetToFillHistory(true);algorithm.SetNonDestructive(true);
+        algorithm.SetRunParallel(true);
+        algorithm.SetFuzzyValue(std::max(1e-7,operation.boolean_tolerance));
+        algorithm.Build();
+        if(!algorithm.IsDone()||algorithm.Shape().IsNull()||
+                !BRepCheck_Analyzer(algorithm.Shape()).IsValid())
+            throw std::runtime_error(
+                "FORM batch could not create a valid sheet.");
+        PrimitiveData result;result.shape=algorithm.Shape();
+        result.faces=propagate_topology(
+            algorithm,input.faces,tool_faces);
+        result.edges=propagate_topology(
+            algorithm,input.edges,tool_edges);
+        result.vertices=propagate_topology(
+            algorithm,input.vertices,tool_vertices);
+        result.faces=complete_boolean_faces(result.shape,result.faces,
+            result.edges,result.vertices,operation.owner_id,"form",history);
+        result.edges=complete_boolean_edges(result.shape,result.faces,
+            result.edges,operation.owner_id,"form");
+        result.vertices=complete_boolean_vertices(result.shape,result.faces,
+            result.edges,result.vertices,operation.owner_id,"form");
+        return result;
+    };
+    if(subtract){BRepAlgoAPI_Cut algorithm;return apply(algorithm);}
+    BRepAlgoAPI_Fuse algorithm;return apply(algorithm);
+}
+
 // Remove only the material outside the real outer Bend cylinder in its
 // quarter-domain. The source Shell may close at the two virtual sharp planes;
 // those closing walls must not protrude through the destination's rounded side.

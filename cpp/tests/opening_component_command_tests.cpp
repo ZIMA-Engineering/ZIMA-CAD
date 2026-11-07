@@ -25,7 +25,11 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory,bool native) {
     else {args["designation"]="M10";args["chamfer_enabled"]=true;args["chamfer_depth_mm"]=2;args["chamfer_angle_degrees"]=90;}
     const auto created=run(kind+".create",args);const std::string id=created.at("container");
     const auto original=*state->session.document().find_container(id);
-    const auto volume=[&](){return state->session.calculated_boundaries().back().volume;};
+    const auto volume=[&](){
+        auto result=state->session.calculated_boundaries().back();
+        kernel.ensure_body_properties(result);
+        return result.volume;
+    };
     const double r=(native?original.hole.diameter:original.thread.profile_diameter)/2,tip=r/std::tan(118*std::numbers::pi/360);
     const double cylinder=216000-std::numbers::pi*r*r*20,chamfer=std::numbers::pi*(r*4+8.0/3),tip_volume=std::numbers::pi*r*r*tip/3;
     near(volume(),cylinder-chamfer-tip_volume);
@@ -62,7 +66,9 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory,bool native) {
         run("undo");require(*state->session.document().find_container(id)==original&&state->session.revision()==rev,"Removal Undo did not restore original state in one step");
         run("redo");require(*state->session.document().find_container(id)==edited&&state->session.revision()==committed_revision,"Removal Redo changed identities");
         run("save");std::vector<kernel::BodyResult> saved_cache;const auto saved=document::PartDocument::load(directory/(stem+".prtz"),&saved_cache);
-        require(*saved.find_container(id)==edited,"Native file lost removed component state");near(saved_cache.back().volume,volume());
+        require(*saved.find_container(id)==edited,"Native file lost removed component state");
+        auto saved_result=saved_cache.back();kernel.ensure_body_properties(saved_result);
+        near(saved_result.volume,volume());
         run("undo");
     }
 }

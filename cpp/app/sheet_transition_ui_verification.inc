@@ -37,6 +37,64 @@ int verify_sheet_transition_ui(QApplication& application,const std::filesystem::
         auto* action=window.findChild<QAction*>("sheetTransitionAction");check(action&&action->isEnabled()&&!action->icon().isNull(),"Transition action unavailable");
         const auto dialog=[&]{auto* d=window.findChild<QDialog*>("sheetTransitionDialog");check(d&&d->isVisible(),"Transition dialog did not open");return d;};
         const auto save=[&]{window.findChild<QAction*>("saveDocumentAction")->trigger();flush();return document::PartDocument::load(path);};
+        const auto verify_ordinary_interaction=[&](const document::HistoryContainer& target,const char* label) {
+            auto* view=dynamic_cast<viewer::MeshView*>(window.findChild<QWidget*>("modelWorkspace"));
+            auto* tree=window.findChild<QTreeWidget*>("documentTree");check(view&&tree,"Transition interaction workspace missing");
+            view->fit_all();view->set_reference_visibility(viewer::ReferenceVisibility::AxisPoints,false);flush();
+            std::optional<QPointF> point;
+            for(int y=4;y<view->height()&&!point;y+=5)for(int x=4;x<view->width()&&!point;x+=5) {
+                const auto candidates=view->selection_candidates_at({double(x),double(y)});
+                if(std::ranges::any_of(candidates,[&](const auto& candidate) {
+                    return candidate.kind==viewer::CandidateKind::Container&&candidate.owner_id==target.id&&!candidate.marker_derived;
+                }))point=QPointF(x,y);
+            }
+            check(point.has_value(),label);
+            QMouseEvent offer(QEvent::MouseMove,*point,QPointF(view->mapToGlobal(point->toPoint())),
+                Qt::NoButton,Qt::NoButton,Qt::NoModifier);QApplication::sendEvent(view,&offer);flush();
+            const auto wanted=[&] {
+                const auto candidate=view->offered_candidate();
+                return candidate&&candidate->kind==viewer::CandidateKind::Container&&candidate->owner_id==target.id;
+            };
+            for(unsigned cycle=0;cycle<64&&!wanted();++cycle)for(const auto type:{QEvent::MouseButtonPress,QEvent::MouseButtonRelease}) {
+                QMouseEvent event(type,*point,QPointF(view->mapToGlobal(point->toPoint())),Qt::RightButton,
+                    type==QEvent::MouseButtonPress?Qt::RightButton:Qt::NoButton,Qt::NoModifier);
+                QApplication::sendEvent(view,&event);flush();
+            }
+            check(wanted(),"Transition cannot be offered by the ordinary View picker");
+            for(const auto type:{QEvent::MouseButtonPress,QEvent::MouseButtonRelease}) {
+                QMouseEvent event(type,*point,QPointF(view->mapToGlobal(point->toPoint())),Qt::LeftButton,
+                    type==QEvent::MouseButtonPress?Qt::LeftButton:Qt::NoButton,Qt::NoModifier);
+                QApplication::sendEvent(view,&event);flush();
+            }
+            auto* current=tree->currentItem();const auto selected=view->confirmed_candidate();
+            check(selected&&selected->owner_id==target.id&&current&&
+                current->data(0,Qt::UserRole).toString().toStdString()==target.id&&
+                current->data(0,Qt::UserRole+3)==QStringLiteral("part-container"),
+                "Transition View selection did not select its owning Tree row");
+            check(view->container_inspection_wire().empty(),
+                "A single Transition selection exposed double-click inspection");
+            bool menu_seen=false,properties_seen=false;
+            QTimer::singleShot(0,[&] {
+                if(auto* menu=qobject_cast<QMenu*>(QApplication::activePopupWidget())) {
+                    menu_seen=menu->objectName()==QStringLiteral("partHistoryMenu");
+                    properties_seen=std::ranges::any_of(menu->actions(),[](const auto* action) {
+                        return action->text().contains(QObject::tr("Vlastnosti"));
+                    });
+                    menu->close();
+                }
+            });
+            for(const auto type:{QEvent::MouseButtonPress,QEvent::MouseButtonRelease}) {
+                QMouseEvent event(type,*point,QPointF(view->mapToGlobal(point->toPoint())),Qt::RightButton,
+                    type==QEvent::MouseButtonPress?Qt::RightButton:Qt::NoButton,Qt::NoModifier);
+                QApplication::sendEvent(view,&event);flush();
+            }
+            check(menu_seen&&properties_seen,"Transition View context menu has no Properties action");
+            QMouseEvent double_click(QEvent::MouseButtonDblClick,*point,QPointF(view->mapToGlobal(point->toPoint())),
+                Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);QApplication::sendEvent(view,&double_click);flush();
+            check(!view->container_inspection_wire().empty(),"Transition View double-click did not open parameter inspection");
+            check(window.finish_parameter_dimensions(),"Transition parameter inspection did not close");flush();
+            view->set_reference_visibility(viewer::ReferenceVisibility::AxisPoints,true);flush();
+        };
         auto* rectangular=window.findChild<QAction*>("rectangularSheetTransitionAction");
         check(rectangular&&rectangular->isEnabled()&&!rectangular->icon().isNull(),"Rectangular transition action unavailable");
         rectangular->trigger();flush();
@@ -64,6 +122,7 @@ int verify_sheet_transition_ui(QApplication& application,const std::filesystem::
         check(document::rectangular_sheet_transition(rectangular_feature)&&std::abs(rectangular_feature.placement.x-25)<1e-8,"Rectangular transition lost placement or profile mode");
         check(std::ranges::none_of(rectangular_view->mesh().edges,[](const auto& edge){return edge.preview_terminal_dashed;}),"Rectangular material preview retained dashed envelope");
         check(rectangular_feature.sheet_transition.end_rotation==kernel::Vec3{8,-10,12},"Rectangular transition lost its three-axis rotation");
+        verify_ordinary_interaction(rectangular_feature,"Rectangular transition is absent from the ordinary View picker");
         auto* rectangular_tree=window.findChild<QTreeWidget*>("documentTree");QTreeWidgetItem* rectangular_row=nullptr;
         for(QTreeWidgetItemIterator it(rectangular_tree);*it;++it)if((*it)->data(0,Qt::UserRole).toString().toStdString()==rectangular_feature.id){rectangular_row=*it;break;}
         check(rectangular_row,"Rectangular transition missing from Tree");window.show_tree_item_properties(rectangular_row);flush();
@@ -163,6 +222,7 @@ int verify_sheet_transition_ui(QApplication& application,const std::filesystem::
         check(saved_marking.end_notches&&saved_marking.short_bend_axes&&saved_marking.rectangle_reliefs&&saved_marking.rectangle_relief_depth==manufacturing.rectangle_relief_depth,"Manufacturing choices did not persist through GUI OK/save/reopen");
         const auto saved=save();check(saved.history.size()==part.history.size()+1,"Creation did not insert one feature");const auto feature=saved.history.back();
         check(feature.feature_kind==document::FeatureKind::SheetTransition&&feature.sheet_transition.end_position.z==175&&feature.placement.references.size()>=3,"UI lost transition parameters");
+        verify_ordinary_interaction(feature,"Sheet transition is absent from the ordinary View picker");
         check(feature.sheet_transition.end_rotation.x==5&&feature.sheet_transition.thickness==3,"Tilted transition lost rotation or thickness");
         const auto end_normal=mesh_view->candidate_face_normal({viewer::CandidateKind::Plane,0,0,feature.id,"plane:end",{},viewer::CandidateGeometry::OriginalReference});
         check(end_normal&&std::abs(std::hypot(end_normal->x,end_normal->y,end_normal->z)-1)<1e-8,"Transition plane cannot orient a normal view");

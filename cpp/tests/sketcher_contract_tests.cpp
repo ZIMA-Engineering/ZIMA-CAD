@@ -1745,6 +1745,59 @@ int main() {
                             "sketch_midpoint:" + initial_segment_id;
                     }),
                 "Segment midpoint was not offered as a stable placement candidate");
+        {
+            using namespace zima::sketcher;
+            auto outline=Sketch::create_default();
+            auto source=Sketch::create_external_reference(ExternalReferenceKind::Face);
+            source.source_document_id="outline-source";
+            source.source_owner_id="flange";
+            source.source_semantic_key="sketch-outline:positive:flange-edge";
+            source.cached_paths={{{10,20},{30,20}}};
+            const auto source_id=source.id;
+            outline.add_external_reference(source);
+            auto restored=Sketch::from_serialized(outline.serialized());
+            require(restored.external_references.size()==4,
+                "Persisted finite face outline did not restore its endpoint contacts");
+            const auto start=std::ranges::find(restored.external_references,
+                ExternalReferenceKind::EdgeStart,&SketchExternalReference::kind);
+            require(start!=restored.external_references.end()&&
+                    start->id==source_id+":endpoint:start"&&
+                    std::ranges::any_of(restored.viewer_mesh().points,[&](const auto& point) {
+                        return point.reference.semantic_key=="external_point:"+start->id;
+                    }),
+                "Restored face-outline endpoint has no stable pickable cross");
+            const auto start_id=start->id;
+            const auto segment=restored.add_segment(10,20,40,20);
+            const auto& line=*std::ranges::find(restored.segments,segment,&SketchSegment::id);
+            const auto first_point=line.first_point_id;
+            const auto second_point=line.second_point_id;
+            require(std::ranges::any_of(restored.constraints,[&](const auto& constraint) {
+                    return constraint.kind==ConstraintKind::PointReference&&
+                        constraint.first_point_id==first_point&&
+                        constraint.second_point_id==start_id;
+                }),
+                "Face-outline endpoint did not create its native point contact");
+            static_cast<void>(restored.add_segment_constraint(
+                segment,ConstraintKind::Horizontal));
+            require(restored.move_point(second_point,50,27)&&
+                    std::abs(restored.find_point(second_point)->x-50)<1e-8&&
+                    std::abs(restored.find_point(second_point)->y-20)<1e-8,
+                "Face-outline endpoint contact blocked the remaining segment freedom");
+            auto length=restored.create_segment_dimension(segment);
+            length.locked=true;restored.apply_dimension(length);
+            for(const double value:{35.,25.,40.})
+                require(restored.set_dimension_value(length.id,value)&&
+                        std::abs(restored.find_point(second_point)->x-(10+value))<1e-8,
+                    "Face-outline endpoint contact lost a successive length edit");
+            const auto fixed=restored.serialized();
+            require(!restored.move_point(second_point,80,30)&&
+                    restored.serialized()==fixed,
+                "Fully constrained face-outline endpoint escaped during drag");
+            auto reopened=Sketch::from_serialized(fixed);
+            require(reopened.external_references==restored.external_references&&
+                    reopened.solve().status!=SolveStatus::Conflicting,
+                "Face-outline endpoint identity or equations changed on reopen");
+        }
         auto origin_bound = zima::sketcher::Sketch::create_default();
         const auto origin_bound_point = origin_bound.add_point(3.0, 4.0);
         static_cast<void>(origin_bound.add_point_reference_constraint(

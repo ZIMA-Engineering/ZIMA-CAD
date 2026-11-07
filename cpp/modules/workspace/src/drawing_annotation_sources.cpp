@@ -163,7 +163,8 @@ drawing_annotation_sources(const Workspace *workspace,
           const auto state=kernel::sheet_material::regions_before(operations,operations.size());
           for(const auto& region:state.regions)if(region.kind==kernel::SheetMaterialDefinition::Kind::Form) {
             const auto* source=kernel::sheet_material::form_source_operation(operations,
-                region.feature_owner_id.empty()?region.owner_id:region.feature_owner_id);
+                region.feature_owner_id.empty()?region.owner_id:
+                    region.feature_owner_id,region.owner_id);
             const auto* feature=source?part.find_container(source->owner_id):nullptr;
             if(feature&&!feature->suppressed) {
               if(!kernel::sheet_material::form_symbol_visible(std::get<kernel::SheetFormRequest>(source->primitive),region))continue;
@@ -368,27 +369,38 @@ drawing_annotation_sources(const Workspace *workspace,
           throw std::runtime_error("Cyclic derived annotation source");
         chain.push_back({component.placement, {}, {}});
         if (component.derived_copy) {
-          const auto *source =
-              assembly.find_occurrence(component.derived_copy->source_id);
-          if (!source)
-            throw std::runtime_error("Missing derived annotation source");
+          const bool multiple=component.derived_copy->source_ids.size()>1;
+          const auto source_path=[&](assembly::InstancePath parent,
+                  const assembly::PartOccurrence& source) {
+            return multiple?parent.child(source.occurrence_id):parent;
+          };
           if (component.derived_copy->pattern) {
             const auto pattern =
                 kernel::validated_pattern(*component.derived_copy->pattern);
             for (unsigned index = 1;
                  index < kernel::pattern_instance_count(pattern); ++index) {
-              auto next = chain;
-              next.push_back({{}, {}, std::pair{pattern, index}});
-              expand(*source,
-                     target_path.child(kernel::pattern_copy_id(pattern, index)),
-                     std::move(next), copied);
+              for(const auto& source_id:component.derived_copy->source_ids) {
+                const auto* source=assembly.find_occurrence(source_id);
+                if(!source)throw std::runtime_error(
+                    "Missing derived annotation source");
+                auto next = chain;
+                next.push_back({{}, {}, std::pair{pattern, index}});
+                expand(*source,source_path(target_path.child(
+                    kernel::pattern_copy_id(pattern,index)),*source),
+                    std::move(next),copied);
+              }
             }
           } else {
             chain.push_back({{},
                              kernel::normalized_mirror_plane(
                                  component.derived_copy->resolved_plane),
                              {}});
-            expand(*source, target_path, std::move(chain), copied);
+            for(const auto& source_id:component.derived_copy->source_ids) {
+              const auto* source=assembly.find_occurrence(source_id);
+              if(!source)throw std::runtime_error(
+                  "Missing derived annotation source");
+              expand(*source,source_path(target_path,*source),chain,copied);
+            }
           }
           return;
         }

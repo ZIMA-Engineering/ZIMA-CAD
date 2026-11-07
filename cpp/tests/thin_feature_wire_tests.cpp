@@ -56,7 +56,7 @@ void copy_wire_matrix() {
         auto source=document::PartDocument::create_feature_container(sketch.id);sketch.owner_container_id=source.id;
         source.feature.sides[0].operation=document::FeatureSideOperation::Extrusion;source.feature.sides[0].length=20;
         auto copy=document::PartDocument::create_feature_container(sketch.id);copy.feature_kind=document::FeatureKind::DerivedCopy;
-        copy.derived_copy.source_id=source.id;copy.placement.x=30;
+        copy.derived_copy.source_ids={source.id};copy.placement.x=30;
         copy.derived_copy.reference.owner_id=copy.container_origin.id;copy.derived_copy.reference.semantic_key="origin:plane:yz";
         if(pattern) {
             kernel::PatternRequest request;request.circular=true;request.count=3;request.angle_degrees=45;

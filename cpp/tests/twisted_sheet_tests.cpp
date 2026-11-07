@@ -385,9 +385,27 @@ int main() {
         verify();verify_chain();
         kernel::OcctKernel kernel;
         auto part=document::PartDocument::load("cpp/tests/fixtures/sheet/profile-side-twist.prtz");
-        check(part.user_parameter_values.size()==12&&part.user_parameter_values.at("mass").at("")=="0.076"&&
-            part.user_parameter_values.at("material").at("")=="S235JR",
-            "Profile-side fixture lost its authored parameter values");
+        const auto parameter_value=[&](std::string_view name) {
+            const auto found=part.user_parameter_values.find(
+                std::string(name));
+            if(found==part.user_parameter_values.end())
+                return std::string("<missing>");
+            const auto value=found->second.find("");
+            return value==found->second.end()?std::string("<missing>"):
+                value->second;
+        };
+        if(part.user_parameter_values.size()!=12||
+                !part.user_parameter_values.contains("mass")||
+                !part.user_parameter_values.at("mass").contains("")||
+                !part.user_parameter_values.at("mass").at("").empty()||
+                !part.user_parameter_values.contains("material")||
+                !part.user_parameter_values.at("material").contains("")||
+                part.user_parameter_values.at("material").at("")!="S235JR")
+            throw std::runtime_error(
+                "Profile-side fixture lost its authored parameter values (count="+
+                std::to_string(part.user_parameter_values.size())+
+                ", mass="+parameter_value("mass")+
+                ", material="+parameter_value("material")+")");
         auto formed=workspace::calculate_part_with_resolved_references(kernel,part);
         check(formed.back().calculation_errors.empty(),"Profile-side fixture cannot calculate");
         const auto twist=std::ranges::find_if(part.history,[](const auto& f){return f.feature_kind==document::FeatureKind::TwistedSheet;});

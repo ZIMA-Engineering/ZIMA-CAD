@@ -8,6 +8,7 @@
 #include "surface_wire_visibility.hpp"
 #include <QCryptographicHash>
 #include <QDirIterator>
+#include <QShortcut>
 #include <zima/sketcher/sketch_trim.hpp>
 #include <zima/sketcher/external_curve_center.hpp>
 #include <zima/document/viewer_packet_json.hpp>
@@ -878,7 +879,7 @@ int verify_derived_copy_commands(QApplication& application,zima::app::AssemblyWo
             "GUI console and Mirror Properties disagree about available sources"))return 1;
     tree->setCurrentItem(row(source,"part-body"));flush();action->trigger();flush();
     auto* dialog=dynamic_cast<app::DerivedCopyDialog*>(window.findChild<QDialog*>("mirrorDialog"));
-    if(!verify(dialog&&dialog->derived_copy.source_id==source,"Mirror did not prefill selected body"))return 1;
+    if(!verify(dialog&&dialog->derived_copy.source_ids==std::vector<std::string>{source},"Mirror did not prefill selected body"))return 1;
     dialog->request_input(1);flush();
     std::optional<QPointF> root_hit;
     for(int y=4;y<view->height()&&!root_hit;y+=8)for(int x=4;x<view->width();x+=8) {
@@ -896,7 +897,7 @@ int verify_derived_copy_commands(QApplication& application,zima::app::AssemblyWo
         QMouseEvent release(QEvent::MouseButtonRelease,p,p,p,Qt::LeftButton,Qt::NoButton,Qt::NoModifier);
         QApplication::sendEvent(view,&press);QApplication::sendEvent(view,&release);flush();
     }
-    if(!verify(dialog->derived_copy.source_id==source&&dialog->active_input()==-1,"RMB cycle and LMB could not choose the whole source Body"))return 1;
+    if(!verify(dialog->derived_copy.source_ids==std::vector<std::string>{source}&&dialog->active_input()==-1,"RMB cycle and LMB could not choose the whole source Body"))return 1;
     if(!verify(part_insertion_marker_count(tree)==0,"Mirror creation retained the body-level insertion marker"))return 1;
     if(!verify(dialog->parentWidget()==&window&&(dialog->windowFlags()&Qt::WindowType_Mask)==Qt::SubWindow,"Mirror is not an internal properties window"))return 1;
     if(!verify(!dialog->buttons()->button(QDialogButtonBox::Apply),"Mirror exposes Apply"))return 1;
@@ -932,7 +933,8 @@ int verify_derived_copy_commands(QApplication& application,zima::app::AssemblyWo
                     "Copy Origin still displays its stored position beside the preview"))return false;
             translation->setValue(value);flush();
         }
-        const int initial_axis=input>=2?dialog->derived_copy.pattern->linear[input-2].local_axis:-1;
+        const int initial_axis=dialog->is_axis_input(input)?
+            dialog->derived_copy.pattern->linear[dialog->axis_row(input)].local_axis:-1;
         const auto kind=pattern?viewer::CandidateKind::Axis:viewer::CandidateKind::Plane;
         dialog->request_input(input);flush();
         const auto accepts=view->candidate_filter();
@@ -944,7 +946,12 @@ int verify_derived_copy_commands(QApplication& application,zima::app::AssemblyWo
             std::array{"origin:plane:xy","origin:plane:yz","origin:plane:xz"}) {
             candidate.semantic_key=key;
             bool available=true;
-            if(input>=2)for(int slot=0;slot<3;++slot)if(slot!=input-2&&dialog->derived_copy.pattern->linear[slot].local_axis==static_cast<int>(std::string("xyz").find(candidate.semantic_key.back())))available=false;
+            if(dialog->is_axis_input(input))for(int slot=0;slot<3;++slot)
+                if(slot!=dialog->axis_row(input)&&
+                        dialog->derived_copy.pattern->linear[slot].local_axis==
+                            static_cast<int>(std::string("xyz").find(
+                                candidate.semantic_key.back())))
+                    available=false;
             if(!verify(accepts(candidate)==available,"Copy rejected its own Origin or offered a duplicate linear axis"))return false;
         }
         candidate.instance_path="other-occurrence";
@@ -952,7 +959,7 @@ int verify_derived_copy_commands(QApplication& application,zima::app::AssemblyWo
         candidate.instance_path=prefix;candidate.semantic_key=pattern?"origin:plane:xy":"origin:axis:x";
         candidate.kind=pattern?viewer::CandidateKind::Plane:viewer::CandidateKind::Axis;
         if(!verify(!accepts(candidate),"Copy accepted the wrong Origin reference kind"))return false;
-        unsigned foreign_planes=0;
+        unsigned foreign_planes=0,accepted_foreign_planes=0;
         for(QTreeWidgetItemIterator it(tree);*it;++it) {
             auto* item=*it;
             if(item->data(0,Qt::UserRole+3).toString()!="origin-reference")continue;
@@ -962,12 +969,17 @@ int verify_derived_copy_commands(QApplication& application,zima::app::AssemblyWo
             if(!candidate.semantic_key.starts_with(pattern?"origin:axis:":"origin:plane:")||
                 (candidate.owner_id==dialog->pending.container_origin.id&&candidate.instance_path==prefix))continue;
             ++foreign_planes;
-            if(!verify(!accepts(candidate),"Mirror offered a foreign Origin plane"))return false;
-            const auto before=dialog->derived_copy;
-            tree->setCurrentItem(item);
-            if(!verify(dialog->active_input()==input&&dialog->derived_copy==before,"Tree accepted a foreign copy Origin"))return false;
+            if(dialog->is_axis_input(input)) {
+                if(!verify(!accepts(candidate),
+                        "Linear Pattern accepted a foreign local direction"))
+                    return false;
+            } else if(accepts(candidate))++accepted_foreign_planes;
         }
         if(!verify(foreign_planes>0,"Mirror fixture has no foreign Origin planes"))return false;
+        if(!dialog->is_axis_input(input)&&
+                !verify(accepted_foreign_planes>0,
+                    "Mirror/Pattern did not offer any resolvable View plane/axis"))
+            return false;
         for(const auto& ref:view->mesh().original_references.triangle_references)if(ref.owner_id==box.id) {
             candidate.kind=viewer::CandidateKind::Face;candidate.owner_id=ref.owner_id;candidate.semantic_key=ref.semantic_key;candidate.instance_path=ref.instance_path;
             if(!verify(!accepts(candidate),"Mirror offered a source solid face as its plane"))return false;
@@ -979,10 +991,12 @@ int verify_derived_copy_commands(QApplication& application,zima::app::AssemblyWo
         std::optional<QPointF> plane_hit;
         for(int y=4;y<view->height()&&!plane_hit;y+=8)for(int x=4;x<view->width();x+=8) {
             const auto candidates=view->selection_candidates_at(QPointF(x,y));
-            for(const auto& offered:candidates)
-                if(!verify(offered.kind==kind&&offered.owner_id==dialog->pending.container_origin.id&&offered.instance_path==prefix,
-                    "Mirror View offered geometry outside its own Origin"))return false;
-            if(!candidates.empty()){plane_hit=QPointF(x,y);break;}
+            if(std::ranges::any_of(candidates,[&](const auto& offered) {
+                    return offered.kind==kind&&
+                        offered.owner_id==dialog->pending.container_origin.id&&
+                        offered.instance_path==prefix;
+                }))
+                plane_hit=QPointF(x,y);
         }
         if(!plane_hit) {
             std::cerr<<"Copy Origin selection: pattern="<<pattern<<", input="<<input<<", path="<<prefix<<", owner="<<dialog->pending.container_origin.id<<'\n';
@@ -998,17 +1012,44 @@ int verify_derived_copy_commands(QApplication& application,zima::app::AssemblyWo
         QApplication::sendEvent(view,&hover);QApplication::sendEvent(view,&press);QApplication::sendEvent(view,&release);flush();
         if(!verify(dialog->active_input()==-1&&dialog->input_reference(input).owner_id==dialog->pending.container_origin.id,
             "Copy View did not confirm its own Origin"))return false;
-        if(input>=2){dialog->set_linear_axis(input-2,initial_axis);flush();}
+        if(dialog->is_axis_input(input)) {
+            dialog->set_linear_axis(dialog->axis_row(input),initial_axis);flush();
+        }
         return true;
     };
     if(!verify_copy_origin_selection())return 1;
     dialog->findChild<QDoubleSpinBox*>("sweepTranslation0")->setValue(-2);
-    dialog->findChild<QPushButton*>("mirrorPlane_yz")->click();flush();
+    dialog->request_input(app::DerivedCopyDialog::plane_field);flush();
+    QTreeWidgetItem* external_plane{};
+    for(QTreeWidgetItemIterator it(tree);*it;++it) {
+        auto* item=*it;
+        if(item->data(0,Qt::UserRole+3).toString()!="origin-reference"||
+                item->data(0,Qt::UserRole+5).toString()!=
+                    QStringLiteral("origin:plane:yz"))
+            continue;
+        const auto owner=item->data(0,
+            item->data(0,Qt::UserRole+6).isValid()?Qt::UserRole+6:
+                Qt::UserRole).toString().toStdString();
+        if(owner==source+":origin"){external_plane=item;break;}
+    }
+    if(!verify(external_plane!=nullptr,
+            "Mirror fixture has no selectable source Body plane"))return 1;
+    tree->setCurrentItem(external_plane);flush();
+    if(!verify(dialog->active_input()==-1&&
+            dialog->derived_copy.reference.owner_id==source+":origin"&&
+            dialog->derived_copy.reference.semantic_key=="origin:plane:yz",
+            "Mirror did not accept a plane selected from View/Tree"))return 1;
     window.grab().save(QString::fromStdString((directory/"mirror-ui.png").string()));
     dialog->buttons()->button(QDialogButtonBox::Ok)->click();flush();
     if(auto* failed=window.findChild<QDialog*>("mirrorDialog")){for(auto* label:failed->findChildren<QLabel*>())std::cerr<<label->text().toStdString()<<"\n";return 1;}
     save->trigger();flush();auto stored=document::PartDocument::load(path);
-    if(!verify(stored.body_history.find(id)&&stored.body_history.find(id)->derived_copy->source_id==source,"Body Mirror was not persisted"))return 1;
+    if(!verify(stored.body_history.find(id)&&
+            stored.body_history.find(id)->derived_copy->source_ids==
+                std::vector<std::string>{source}&&
+            stored.body_history.find(id)->derived_copy->reference.owner_id==
+                source+":origin",
+            "Body Mirror did not persist its source and selected View plane"))
+        return 1;
     auto bodies=kernel.evaluate_history(stored.kernel_operations());
     if(!verify(std::abs(bodies.back().volume-384)<1e-7&&bodies.back().body_inputs.contains(id),"Mirror is not a selectable full body"))return 1;
     const auto copy_command=[&](const char* command,commands::Json args) {
@@ -1082,21 +1123,24 @@ int verify_derived_copy_commands(QApplication& application,zima::app::AssemblyWo
     if(!verify(pattern_action&&pattern_action->isEnabled()&&!pattern_action->icon().isNull(),"Pattern command/icon missing"))return 1;
     tree->setCurrentItem(row(source,"part-body"));flush();pattern_action->trigger();flush();
     dialog=dynamic_cast<app::DerivedCopyDialog*>(window.findChild<QDialog*>("patternDialog"));
-    if(!verify(dialog&&dialog->derived_copy.source_id==source&&dialog->derived_copy.pattern,"Pattern did not prefill its source"))return 1;
+    if(!verify(dialog&&dialog->derived_copy.source_ids==std::vector<std::string>{source}&&dialog->derived_copy.pattern,"Pattern did not prefill its source"))return 1;
     if(!verify(part_insertion_marker_count(tree)==0,"Pattern creation retained the body-level insertion marker"))return 1;
     const auto pattern_id=dialog->pending.id;
     auto* mode=dialog->findChild<QComboBox*>("patternMode");auto* refs=dialog->findChild<QTableWidget*>("mirrorReferences");
-    if(!verify(refs->item(1,0)&&refs->item(1,0)->text()==QObject::tr("Zdroj")&&refs->cellWidget(1,1),
-        "Pattern Source label must precede its reference controls"))return 1;
-    if(!verify(mode&&refs->isRowHidden(0),"Linear Pattern displays circular axis input"))return 1;
+    auto* view_reference=dialog->findChild<QTableWidget*>("copyReferenceView");
+    if(!verify(refs&&refs->rowCount()>=3&&refs->item(0,1)&&refs->cellWidget(0,0),
+        "Pattern requires at least three shared source-entry rows"))return 1;
+    if(!verify(refs->verticalHeaderItem(0)&&refs->verticalHeaderItem(0)->text()=="1",
+        "Pattern Source row numbering does not start at one"))return 1;
+    if(!verify(mode&&view_reference&&!view_reference->isVisible(),"Linear Pattern displays circular axis input"))return 1;
     const auto retained_axis=dialog->derived_copy.reference;
-    if(!verify_copy_origin_selection(2))return 1;
+    if(!verify_copy_origin_selection(app::DerivedCopyDialog::first_axis_field))return 1;
     dialog->findChild<QDoubleSpinBox*>("sweepRotation2")->setValue(90);
     dialog->findChild<QDoubleSpinBox*>("patternSpacing0")->setValue(20);
     mode->setCurrentIndex(1);flush();
-    if(!verify(!refs->isRowHidden(0)&&dialog->findChild<QPushButton*>("mirrorPlane_z")->isVisible(),"Circular Pattern cannot select its axis"))return 1;
+    if(!verify(view_reference->isVisible()&&dialog->findChild<QToolButton*>("copyReferencePresetZ")->isVisible(),"Circular Pattern cannot select its axis"))return 1;
     if(!verify_copy_origin_selection())return 1;
-    dialog->findChild<QPushButton*>("mirrorPlane_z")->click();flush();
+    dialog->findChild<QToolButton*>("copyReferencePresetZ")->click();flush();
     mode->setCurrentIndex(0);flush();
     if(!verify(dialog->derived_copy.reference==retained_axis,"Mode switch discarded the circular axis"))return 1;
     window.grab().save(QString::fromStdString((directory/"pattern-ui.png").string()));
@@ -1126,7 +1170,7 @@ int verify_derived_copy_commands(QApplication& application,zima::app::AssemblyWo
     window.show_tree_item_properties(row(pattern_id,"part-body"));flush();
     dialog=dynamic_cast<app::DerivedCopyDialog*>(window.findChild<QDialog*>("patternDialog"));
     if(!verify(dialog!=nullptr,"Pattern editing uses a different dialog"))return 1;
-    if(!verify_copy_origin_selection(2))return 1;
+    if(!verify_copy_origin_selection(app::DerivedCopyDialog::first_axis_field))return 1;
     if(!verify(dialog->findChild<QDoubleSpinBox*>("patternSpacing0")->isReadOnly(),
             "Pattern Properties did not use the common spacing lock"))return 1;
     dialog->findChild<QSpinBox*>("patternCount0")->setValue(7);dialog->reject();flush();save->trigger();flush();
@@ -1141,7 +1185,9 @@ int verify_derived_copy_commands(QApplication& application,zima::app::AssemblyWo
     const auto pick_axis=[&](int slot,char axis) {
         directions->cellClicked(slot,1);flush();
         auto* field=dynamic_cast<ui::ReferenceCellItem*>(directions->item(slot,1));
-        if(!field||!field->is_active_input()||dialog->active_input()!=slot+2)return false;
+        if(!field||!field->is_active_input()||
+                dialog->active_input()!=app::DerivedCopyDialog::first_axis_field+slot)
+            return false;
         std::optional<QPointF> hit;
         for(int y=4;y<view->height()&&!hit;y+=4)for(int x=4;x<view->width();x+=4){
             const auto candidates=view->selection_candidates_at(QPointF(x,y));
@@ -1177,9 +1223,9 @@ int verify_derived_copy_commands(QApplication& application,zima::app::AssemblyWo
     // Command-first workflow arms the shared Tree/View source field.
     tree->clearSelection();view->clear_selection();pattern_action->trigger();flush();
     dialog=dynamic_cast<app::DerivedCopyDialog*>(window.findChild<QDialog*>("patternDialog"));
-    if(!verify(dialog&&dialog->derived_copy.source_id.empty(),"Command-first Pattern reused stale selection"))return 1;
+    if(!verify(dialog&&dialog->derived_copy.source_ids.empty(),"Command-first Pattern reused stale selection"))return 1;
     dialog->request_input(1);tree->setCurrentItem(row(source,"part-body"));flush();
-    if(!verify(dialog->derived_copy.source_id==source,"Command-first source selection failed"))return 1;
+    if(!verify(dialog->derived_copy.source_ids==std::vector<std::string>{source},"Command-first source selection failed"))return 1;
     dialog->reject();flush();
     {
         auto opening_part=document::PartDocument::create_default();
@@ -1197,7 +1243,7 @@ int verify_derived_copy_commands(QApplication& application,zima::app::AssemblyWo
         dialog->request_input(1);auto* opening_row=row(opening.id,"part-container");
         if(!verify(opening_row!=nullptr,"Opening is missing from Tree"))return 1;
         tree->setCurrentItem(opening_row);flush();
-        if(!verify(dialog->derived_copy.source_id==opening.id,"Pattern Source rejected the Opening Tree row"))return 1;
+        if(!verify(dialog->derived_copy.source_ids==std::vector<std::string>{opening.id},"Pattern Source rejected the Opening Tree row"))return 1;
         dialog->reject();flush();
         if(!verify(document::PartDocument::load(opening_path).history.size()==2,"Cancelling Opening Pattern changed its source document"))return 1;
     }
@@ -1207,9 +1253,9 @@ int verify_derived_copy_commands(QApplication& application,zima::app::AssemblyWo
     if(!verify(window.open_document_path(QString::fromStdString(assembly_path.string())),"Mirror Assembly fixture did not open"))return 1;
     flush();tree->setCurrentItem(row(occurrence.occurrence_id,"part-occurrence"));flush();action->trigger();flush();
     dialog=dynamic_cast<app::DerivedCopyDialog*>(window.findChild<QDialog*>("mirrorDialog"));
-    if(!verify(dialog&&dialog->derived_copy.source_id==occurrence.occurrence_id,"Mirror did not prefill selected component"))return 1;
+    if(!verify(dialog&&dialog->derived_copy.source_ids==std::vector<std::string>{occurrence.occurrence_id},"Mirror did not prefill selected component"))return 1;
     if(!verify_copy_origin_selection())return 1;
-    const auto assembly_mirror=dialog->pending.id;dialog->findChild<QPushButton*>("mirrorPlane_yz")->click();flush();
+    const auto assembly_mirror=dialog->pending.id;dialog->findChild<QToolButton*>("copyReferencePresetYZ")->click();flush();
     dialog->buttons()->button(QDialogButtonBox::Ok)->click();flush();save->trigger();flush();
     const auto saved_assembly=assembly::AssemblyDocument::load(assembly_path);
     if(!verify(saved_assembly.find_occurrence(assembly_mirror)&&saved_assembly.find_occurrence(assembly_mirror)->derived_copy,"Assembly Mirror not persisted"))return 1;
@@ -1224,8 +1270,11 @@ int verify_derived_copy_commands(QApplication& application,zima::app::AssemblyWo
     dialog->reject();flush();
     tree->setCurrentItem(row(occurrence.occurrence_id,"part-occurrence"));flush();pattern_action->trigger();flush();
     dialog=dynamic_cast<app::DerivedCopyDialog*>(window.findChild<QDialog*>("patternDialog"));
-    if(!verify(dialog&&dialog->derived_copy.source_id==occurrence.occurrence_id,"Assembly Pattern source prefill failed"))return 1;
-    for(int input:{2,3,4})if(!verify_copy_origin_selection(input))return 1;
+    if(!verify(dialog&&dialog->derived_copy.source_ids==std::vector<std::string>{occurrence.occurrence_id},"Assembly Pattern source prefill failed"))return 1;
+    for(int input:{app::DerivedCopyDialog::first_axis_field,
+            app::DerivedCopyDialog::first_axis_field+1,
+            app::DerivedCopyDialog::first_axis_field+2})
+        if(!verify_copy_origin_selection(input))return 1;
     dialog->findChild<QComboBox*>("patternMode")->setCurrentIndex(1);flush();
     if(!verify_copy_origin_selection())return 1;
     dialog->findChild<QComboBox*>("patternMode")->setCurrentIndex(0);flush();
@@ -1256,7 +1305,7 @@ int verify_derived_copy_commands(QApplication& application,zima::app::AssemblyWo
     window.show_tree_item_properties(row(group_id,"assembly-occurrence"));flush();
     dialog=dynamic_cast<app::DerivedCopyDialog*>(window.findChild<QDialog*>("patternDialog"));
     if(!verify(dialog!=nullptr,"Assembly Pattern did not reopen"))return 1;
-    if(!verify_copy_origin_selection(2))return 1;
+    if(!verify_copy_origin_selection(app::DerivedCopyDialog::first_axis_field))return 1;
     dialog->findChild<QComboBox*>("patternMode")->setCurrentIndex(1);flush();
     if(!verify_copy_origin_selection())return 1;
     dialog->reject();flush();
@@ -1278,7 +1327,8 @@ int verify_derived_copy_commands(QApplication& application,zima::app::AssemblyWo
         for(QTreeWidgetItemIterator it(tree);*it;++it)if((*it)->data(0,Qt::UserRole+1).toString().toStdString()==assembly::InstancePath::decode(nested_path).child(occurrence.occurrence_id).encoded()&&
             (*it)->data(0,Qt::UserRole+3).toString()=="part-occurrence"){source_row=*it;break;}
         if(!verify(source_row!=nullptr,"Nested source row missing"))return 1;tree->setCurrentItem(source_row);flush();
-        if(!verify_copy_origin_selection(mode==1?2:0,nested_path))return 1;
+        if(!verify_copy_origin_selection(mode==1?
+                app::DerivedCopyDialog::first_axis_field:0,nested_path))return 1;
         const auto nested_id=dialog->pending.id;
         std::cout<<"Nested copy commit: "<<mode<<std::endl;
         dialog->buttons()->button(QDialogButtonBox::Ok)->click();flush();
@@ -1288,7 +1338,8 @@ int verify_derived_copy_commands(QApplication& application,zima::app::AssemblyWo
         window.show_tree_item_properties(row(nested_id,mode?"assembly-occurrence":"part-occurrence"));flush();
         dialog=dynamic_cast<app::DerivedCopyDialog*>(window.findChild<QDialog*>(mode?"patternDialog":"mirrorDialog"));
         if(!verify(dialog!=nullptr,"Nested copy edit did not reopen"))return 1;
-        if(!verify_copy_origin_selection(mode==1?2:0,nested_path))return 1;
+        if(!verify_copy_origin_selection(mode==1?
+                app::DerivedCopyDialog::first_axis_field:0,nested_path))return 1;
         dialog->reject();flush();
         if(!verify(copy_query(mode?"pattern.get":"mirror.get",nested_id).data==persisted.data,"Nested copy Cancel changed persisted data"))return 1;
         std::cout<<"Nested copy committed/reopened/cancelled: "<<mode<<std::endl;
@@ -1300,7 +1351,8 @@ int verify_derived_copy_commands(QApplication& application,zima::app::AssemblyWo
         dialog=dynamic_cast<app::DerivedCopyDialog*>(window.findChild<QDialog*>(mode?"patternDialog":"mirrorDialog"));
         if(!verify(dialog!=nullptr,"Nested Part copy dialog missing"))return 1;
         if(mode==2)dialog->findChild<QComboBox*>("patternMode")->setCurrentIndex(1);
-        if(!verify_copy_origin_selection(mode==1?2:0,nested_part_path))return 1;
+        if(!verify_copy_origin_selection(mode==1?
+                app::DerivedCopyDialog::first_axis_field:0,nested_part_path))return 1;
         dialog->reject();flush();
     }
     // A body command must keep later bodies outside its source/display boundary.
@@ -1344,7 +1396,7 @@ int verify_derived_copy_commands(QApplication& application,zima::app::AssemblyWo
         if(!verify(source_filter(viewer::ViewerCandidate{viewer::CandidateKind::Container,0,0,first_box.id,{}, {},viewer::CandidateGeometry::Display})&&
             !source_filter(viewer::ViewerCandidate{viewer::CandidateKind::Container,0,0,first,{}, {},viewer::CandidateGeometry::Display}),"Active Body source filter confused a solid with its Body"))return 1;
         tree->setCurrentItem(row(first_box.id,"part-container"));flush();
-        if(!verify(copy->derived_copy.source_id==first_box.id,"Tree source selection promoted the solid to its Body"))return 1;
+        if(!verify(copy->derived_copy.source_ids==std::vector<std::string>{first_box.id},"Tree source selection promoted the solid to its Body"))return 1;
         copy->request_input(1);flush();std::optional<QPointF> hit;
         for(int y=4;y<view->height()&&!hit;y+=8)for(int x=4;x<view->width();x+=8) {
             const auto candidates=view->selection_candidates_at(QPointF(x,y));
@@ -1356,8 +1408,8 @@ int verify_derived_copy_commands(QApplication& application,zima::app::AssemblyWo
         QMouseEvent press(QEvent::MouseButtonPress,*hit,*hit,*hit,Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);
         QMouseEvent release(QEvent::MouseButtonRelease,*hit,*hit,*hit,Qt::LeftButton,Qt::NoButton,Qt::NoModifier);
         QApplication::sendEvent(view,&press);QApplication::sendEvent(view,&release);flush();
-        if(!verify(copy->derived_copy.source_id==first_box.id&&copy->active_input()==-1,"View source click disagreed with hover"))return 1;
-        if(!make_pattern)copy->findChild<QPushButton*>("mirrorPlane_yz")->click();
+        if(!verify(copy->derived_copy.source_ids==std::vector<std::string>{first_box.id}&&copy->active_input()==-1,"View source click disagreed with hover"))return 1;
+        if(!make_pattern)copy->findChild<QToolButton*>("copyReferencePresetYZ")->click();
         flush();copy->changed();flush();
         if(!verify(later_is_suppressed(),"Copy preview exposed a future body"))return 1;
         if(copy_mode==2)window.grab().save(QString::fromStdString((directory/"pattern-solid-circular-ui.png").string()));
@@ -1367,39 +1419,39 @@ int verify_derived_copy_commands(QApplication& application,zima::app::AssemblyWo
     tree->setCurrentItem(row(first_box.id,"part-container"));flush();
     window.findChild<QAction*>("mirrorAction")->trigger();flush();
     dialog=dynamic_cast<app::DerivedCopyDialog*>(window.findChild<QDialog*>("mirrorDialog"));
-    if(!verify(dialog&&dialog->derived_copy.source_id==first_box.id,"Selected solid did not prefill in-Body Mirror"))return 1;
+    if(!verify(dialog&&dialog->derived_copy.source_ids==std::vector<std::string>{first_box.id},"Selected solid did not prefill in-Body Mirror"))return 1;
     const auto owned_mirror=dialog->pending.id;
     if(!verify_copy_origin_selection())return 1;
-    dialog->findChild<QPushButton*>("mirrorPlane_yz")->click();
+    dialog->findChild<QToolButton*>("copyReferencePresetYZ")->click();
     dialog->buttons()->button(QDialogButtonBox::Ok)->click();flush();
     if(!verify(row(owned_mirror,"part-container")&&row(owned_mirror,"part-container")->parent()==row(first,"part-body"),
         "In-Body Mirror is not nested under its owning Body"))return 1;
     window.show_tree_item_properties(row(owned_mirror,"part-container"));flush();
     dialog=dynamic_cast<app::DerivedCopyDialog*>(window.findChild<QDialog*>("mirrorDialog"));
-    if(!verify(dialog&&dialog->derived_copy.source_id==first_box.id,"In-Body Mirror did not reopen"))return 1;
+    if(!verify(dialog&&dialog->derived_copy.source_ids==std::vector<std::string>{first_box.id},"In-Body Mirror did not reopen"))return 1;
     dialog->reject();flush();window.findChild<QAction*>("undoAction")->trigger();flush();
     if(!verify(!row(owned_mirror,"part-container")&&later_is_suppressed(),"In-Body Mirror Undo changed its owning context"))return 1;
     tree->setCurrentItem(row(first_box.id,"part-container"));flush();pattern_action->trigger();flush();
     dialog=dynamic_cast<app::DerivedCopyDialog*>(window.findChild<QDialog*>("patternDialog"));
-    if(!verify(dialog&&dialog->derived_copy.source_id==first_box.id,"Selected solid did not prefill Pattern"))return 1;
+    if(!verify(dialog&&dialog->derived_copy.source_ids==std::vector<std::string>{first_box.id},"Selected solid did not prefill Pattern"))return 1;
     const auto solid_pattern_id=dialog->pending.id;dialog->findChild<QComboBox*>("patternMode")->setCurrentIndex(1);
     dialog->buttons()->button(QDialogButtonBox::Ok)->click();flush();
     if(!verify(!window.findChild<QDialog*>("patternDialog"),"Circular solid Pattern did not commit"))return 1;
     save->trigger();flush();
     const auto saved_pattern_document=document::PartDocument::load(history_path);
     const auto* saved_pattern=saved_pattern_document.find_container(solid_pattern_id);
-    if(!verify(saved_pattern&&saved_pattern->derived_copy.source_id==first_box.id,
+    if(!verify(saved_pattern&&saved_pattern->derived_copy.source_ids==std::vector<std::string>{first_box.id},
         "Circular solid Pattern did not persist the exact source"))return 1;
     if(!verify(row(solid_pattern_id,"part-container")&&row(solid_pattern_id,"part-container")->parent()==row(first,"part-body"),
         "In-Body Pattern is not nested under its owning Body"))return 1;
     window.show_tree_item_properties(row(solid_pattern_id,"part-container"));flush();
     dialog=dynamic_cast<app::DerivedCopyDialog*>(window.findChild<QDialog*>("patternDialog"));
-    if(!verify(dialog&&dialog->derived_copy.source_id==first_box.id&&dialog->derived_copy.pattern->circular,"Circular solid Pattern did not reopen"))return 1;
+    if(!verify(dialog&&dialog->derived_copy.source_ids==std::vector<std::string>{first_box.id}&&dialog->derived_copy.pattern->circular,"Circular solid Pattern did not reopen"))return 1;
     dialog->reject();flush();
     if(!verify(activate_test_body(application,window,first),"Cannot reactivate source Body for subtractive Pattern"))return 1;
     tree->setCurrentItem(row(cutter.id,"part-container"));flush();pattern_action->trigger();flush();
     dialog=dynamic_cast<app::DerivedCopyDialog*>(window.findChild<QDialog*>("patternDialog"));
-    if(!verify(dialog&&dialog->derived_copy.source_id==cutter.id,"Subtractive solid did not prefill Pattern"))return 1;
+    if(!verify(dialog&&dialog->derived_copy.source_ids==std::vector<std::string>{cutter.id},"Subtractive solid did not prefill Pattern"))return 1;
     const auto subtract_pattern=dialog->pending.id;dialog->findChild<QComboBox*>("patternMode")->setCurrentIndex(1);
     dialog->buttons()->button(QDialogButtonBox::Ok)->click();flush();
     if(!verify(!window.findChild<QDialog*>("patternDialog"),"Subtractive circular Pattern did not commit"))return 1;
@@ -1821,7 +1873,14 @@ int verify_template_commands(QApplication& application,zima::app::AssemblyWorksp
 
 int verify_sweep2d_command(QApplication& application,zima::app::AssemblyWorkspaceWindow& window,
         const std::filesystem::path& directory) {
-    auto doc=zima::document::PartDocument::create_default();const auto path=directory/"sweep2d-ui.prtz";doc.save(path);
+    auto doc=zima::document::PartDocument::create_default();
+    auto datum=zima::document::PartDocument::create_construction(
+        zima::document::ConstructionKind::Plane);
+    datum.name="Path reference plane";datum.origin={0,0,-15};
+    datum.direction={0,0,1};doc.constructions.push_back(datum);
+    doc.insert_history_entry(zima::document::PartHistoryKind::Construction,datum.id);
+    doc.resolve_constructions();
+    const auto path=directory/"sweep2d-ui.prtz";doc.save(path);
     window.show();if(!verify(window.open_document_path(QString::fromStdString(path.string())),"Cannot open sweep2d fixture"))return 1;
     application.processEvents();auto* action=window.findChild<QAction*>("sweep2dAction");
     if(!verify(action&&action->isEnabled(),"2D Sweep command missing"))return 1;
@@ -1945,6 +2004,68 @@ int verify_sweep2d_command(QApplication& application,zima::app::AssemblyWorkspac
     if(!verify(dialog&&view,"Cannot test sweep2d reference selection"))return 1;
     path_plane=dialog->findChild<QComboBox*>("sweep2dPathPlane");
     if(!verify(path_plane&&path_plane->count()==3,"Path selector must offer only three own planes"))return 1;
+    auto* path_plane_view=dialog->findChild<QTableWidget*>("sweep2dPathPlaneView");
+    if(!verify(path_plane_view&&path_plane_view->rowCount()==1,
+        "Path selector has no independent View reference field"))return 1;
+    const auto placement_before_path_pick=dialog->pending.placement;
+    const auto references_before_path_pick=dialog->pending.placement.references;
+    QMetaObject::invokeMethod(path_plane_view,"cellClicked",Qt::DirectConnection,
+        Q_ARG(int,0),Q_ARG(int,1));application.processEvents();
+    if(!verify(dialog->path_inspected()&&
+        dialog->pending.placement==placement_before_path_pick&&
+        dialog->pending.placement.references==references_before_path_pick,
+        "Path-plane View entry modified the Sweep container placement"))return 1;
+    std::optional<std::pair<QPointF,zima::viewer::ViewerCandidate>> path_plane_hit;
+    bool body_origin_plane_offered=false;
+    for(int y=8;y<view->height()-8&&!path_plane_hit;y+=3)
+        for(int x=8;x<view->width()-8&&!path_plane_hit;x+=3) {
+            const QPointF at(x,y);
+            const auto candidates=view->selection_candidates_at(at);
+            body_origin_plane_offered|=std::ranges::any_of(candidates,[](const auto& value) {
+                return value.semantic_key.starts_with("origin:plane:");
+            });
+            const auto candidate=std::ranges::find_if(candidates,[&](const auto& value) {
+                return (value.kind==zima::viewer::CandidateKind::Plane||
+                        value.kind==zima::viewer::CandidateKind::Face)&&
+                    !value.semantic_key.starts_with("origin:plane:")&&
+                    value.owner_id!=dialog->pending.container_origin.id;
+            });
+            if(candidate!=candidates.end())path_plane_hit=std::pair{at,*candidate};
+        }
+    if(!verify(!body_origin_plane_offered,
+        "Path-plane View entry offered a Body Origin plane instead of the independent geometry field"))return 1;
+    if(!verify(path_plane_hit.has_value(),
+        "Path-plane View entry offers no earlier construction plane or planar face"))return 1;
+    const auto path_mouse=[&](QEvent::Type type,Qt::MouseButton button) {
+        const auto at=path_plane_hit->first;
+        QMouseEvent event(type,at,QPointF(view->mapToGlobal(at.toPoint())),button,
+            type==QEvent::MouseButtonPress?button:Qt::NoButton,Qt::NoModifier);
+        QApplication::sendEvent(view,&event);application.processEvents();
+    };
+    path_mouse(QEvent::MouseMove,Qt::NoButton);
+    for(unsigned cycle=0;cycle<64;++cycle) {
+        if(view->offered_candidate()==path_plane_hit->second)break;
+        path_mouse(QEvent::MouseButtonPress,Qt::RightButton);
+        path_mouse(QEvent::MouseButtonRelease,Qt::RightButton);
+    }
+    if(!verify(view->offered_candidate()==path_plane_hit->second,
+        "Path-plane candidate cycling lost the selected Part plane"))return 1;
+    path_mouse(QEvent::MouseButtonPress,Qt::LeftButton);
+    path_mouse(QEvent::MouseButtonRelease,Qt::LeftButton);
+    if(!verify(!dialog->path_inspected()&&dialog->pending.sweep2d.path_plane&&
+        dialog->pending.sweep2d.path_plane->owner_id==path_plane_hit->second.owner_id&&
+        dialog->pending.sweep2d.path_plane->semantic_key==path_plane_hit->second.semantic_key&&
+        dialog->pending.placement==placement_before_path_pick&&
+        dialog->pending.placement.references==references_before_path_pick,
+        "Path-plane View selection changed placement or stored the wrong plane"))return 1;
+    auto* own_xy=dialog->findChild<QToolButton*>("sweep2dPathPlaneChoiceXY");
+    if(!verify(own_xy,"Path selector has no direct own-XY button"))return 1;
+    own_xy->click();application.processEvents();
+    if(!verify(dialog->pending.sweep2d.path_plane&&
+        dialog->pending.sweep2d.path_plane->owner_id==dialog->pending.container_origin.id&&
+        dialog->pending.sweep2d.path_plane->semantic_key=="origin:plane:xy"&&
+        dialog->pending.placement==placement_before_path_pick,
+        "Own path-plane button did not replace only the path plane"))return 1;
     dialog->buttons()->button(QDialogButtonBox::Cancel)->click();application.processEvents();
     QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
     action->trigger();application.processEvents();
@@ -3634,7 +3755,7 @@ int verify_body_activation(QApplication& application, const std::filesystem::pat
     const auto b=graph.create_body("Těleso 2");graph.insert({document::PartHistoryKind::Feature,second.id});
     const auto cut=graph.create_boolean("Boolean",kernel::BodyCombination::Subtract,a,b);
     document::BodyHistory mirror;mirror.name="Zrcadlo";mirror.derived_copy=document::DerivedCopyParameters{};
-    mirror.derived_copy->source_id=cut;mirror.derived_copy->resolved_plane={{0,20,0},{0,1,0}};
+    mirror.derived_copy->source_ids={cut};mirror.derived_copy->resolved_plane={{0,20,0},{0,1,0}};
     static_cast<void>(graph.create_derived_copy(mirror));
     auto hidden=*graph.find(a);hidden.visible=false;graph.update_body(hidden);part.set_body_history(graph);
     kernel::OcctKernel kernel;auto boundaries=kernel.evaluate_history(part.kernel_operations());
@@ -6451,6 +6572,7 @@ int verify_rectangle_external_contact_ui(QApplication& application,const std::fi
 #include "skeleton_limit_ui_verification.inc"
 #include "reference_pick_performance_ui_verification.inc"
 #include "sketch_hv_view_ui_verification.inc"
+#include "sketch_combined_endpoint_ui_verification.inc"
 #include "sketch_polyline_tangent_ui_verification.inc"
 int verify_sketch_endpoint_priority_ui(QApplication& application,const std::filesystem::path& directory) {
     using namespace zima;
@@ -10265,6 +10387,7 @@ int verify_selection_filter(QApplication& application,
 
 #include "derived_copy_save_ui_verification.inc"
 #include "import_interaction_ui_verification.inc"
+#include "profile_edit_visibility_ui_verification.inc"
 
 int verify_startup_contract(
     QApplication& application, zima::app::AssemblyWorkspaceWindow& window,
@@ -10278,6 +10401,7 @@ int verify_startup_contract(
     if(qEnvironmentVariableIsSet("ZIMA_VERIFY_EQUAL_CIRCLE_ONLY"))return verify_equal_circle_ui(application,test_directory);
     if(qEnvironmentVariableIsSet("ZIMA_VERIFY_COMMAND_GUIDANCE_ONLY"))return verify_command_guidance_ui(application,test_directory);
     if(qEnvironmentVariableIsSet("ZIMA_VERIFY_IMPORTED_BODY_ONLY"))return verify_imported_body_interaction(application,window,test_directory);
+    if(qEnvironmentVariableIsSet("ZIMA_VERIFY_PROFILE_EDIT_VISIBILITY_ONLY"))return verify_profile_edit_visibility(application,window);
     if(qEnvironmentVariableIsSet("ZIMA_VERIFY_COPY_SAVE_ONLY"))return verify_derived_copy_save(application,window,test_directory);
     if(qEnvironmentVariableIsSet("ZIMA_VERIFY_COMPACT_WINDOW_ONLY")) {
         window.show();
@@ -10599,6 +10723,8 @@ int verify_startup_contract(
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_PLACED_SKETCH_REFERENCE_ONLY")) return verify_placed_sketch_reference_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_FORM_SWEEP_SKETCH_ONLY")) return verify_form_sweep_sketch_ui(application,test_directory);
     if(qEnvironmentVariableIsSet("ZIMA_VERIFY_SKETCH_HV_VIEW_ONLY"))return verify_sketch_hv_view_ui(application,test_directory);
+    if(qEnvironmentVariableIsSet("ZIMA_VERIFY_SKETCH_COMBINED_ENDPOINT_ONLY"))
+        return verify_sketch_combined_endpoint_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SKETCH_ENDPOINT_PRIORITY_ONLY")) return verify_sketch_endpoint_priority_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SKETCH_ARC_DIRECTION_ONLY")) return verify_sketch_arc_direction_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_FORM_EDGE_DISPLAY_ONLY"))

@@ -22,6 +22,7 @@ class QCheckBox;
 class QLabel;
 class QLineEdit;
 class QPushButton;
+class QShowEvent;
 class QTableWidget;
 
 namespace zima::ui {
@@ -163,6 +164,7 @@ public:
 
 protected:
     bool submit() override;
+    void showEvent(QShowEvent* event) override;
 
 private:
     zima::document::ConstructionObject initial_;

@@ -109,7 +109,10 @@ SketchPropertiesDialog::SketchPropertiesDialog(
     plane_reference_->hide();
     auto* orientation_form = new QFormLayout;
     orientation_form->setObjectName("sketchPlaneForm");
-    orientation_form->addRow(tr("Výchozí rovina"), plane_);
+    plane_selector_=compact_work_plane_selector(plane_,[this] {
+        if(reference_request_)reference_request_(0);
+    });
+    orientation_form->addRow(tr("Výchozí rovina"),plane_selector_);
     orientation_form->addRow(tr("Odsazení roviny"), offset_);
     content_layout()->addLayout(orientation_form);
     placement_->install_dof_label(content_layout());
@@ -310,7 +313,7 @@ void SketchPropertiesDialog::set_bend_mode(zima::document::BendParameters initia
     initial_.plane_auto=true;initial_.plane_offset=0;
     offset_->setValue(0);
     if(auto* plane_form=findChild<QFormLayout*>("sketchPlaneForm")) {
-        plane_form->setRowVisible(plane_,false);plane_form->setRowVisible(offset_,false);
+        plane_form->setRowVisible(plane_selector_,false);plane_form->setRowVisible(offset_,false);
     }
     auto* form=new QFormLayout;
     using Quantity=zima::ui::InputQuantity;
@@ -487,9 +490,10 @@ void SketchPropertiesDialog::update_plane_fields_enabled() {
 
 void SketchPropertiesDialog::set_reference_request_callback(
         ReferenceRequestCallback callback) {
-    placement_->set_reference_request_callback([this,callback=std::move(callback)](std::size_t index) {
+    reference_request_=std::move(callback);
+    placement_->set_reference_request_callback([this](std::size_t index) {
         if(((bend_pending_&&bend_pending_->sheet_attachment)||(flat_pending_&&flat_pending_->sheet_attachment))&&index!=0&&index!=2)return;
-        callback(index);
+        if(reference_request_)reference_request_(index);
     });
 }
 
@@ -597,7 +601,7 @@ void SketchPropertiesDialog::lock_flat_attachment_fields() {
     if(!flat_pending_)return;
     const bool automatic=flat_pending_->sheet_attachment;
     plane_->setEnabled(!automatic);
-    if(auto* form=findChild<QFormLayout*>("sketchPlaneForm"))form->setRowVisible(plane_,!automatic);
+    if(auto* form=findChild<QFormLayout*>("sketchPlaneForm"))form->setRowVisible(plane_selector_,!automatic);
     if(auto* box=findChild<QCheckBox*>("flatThicknessOverride"))box->setEnabled(!automatic);
     if(auto* field=findChild<QDoubleSpinBox*>("flatThickness")) {
         field->setEnabled(!automatic&&flat_pending_->thickness_override);

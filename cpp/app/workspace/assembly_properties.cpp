@@ -82,6 +82,15 @@ void AssemblyWorkspaceWindow::select_container(const std::string& container_id) 
                 tree_->setCurrentItem(item);
                 return;
             }
+            // A feature and its generated children may intentionally share
+            // one owner identity (for example Twisted Sheet's owned Origin).
+            // Ordinary View selection belongs to the actual history row,
+            // never to whichever child happens to be visited first.
+            if (role == QStringLiteral("part-container") ||
+                role == QStringLiteral("assembly-cut")) {
+                tree_->setCurrentItem(item);
+                return;
+            }
             if (fallback == nullptr) fallback = item;
         }
         for (int index = 0; index < item->childCount(); ++index) {

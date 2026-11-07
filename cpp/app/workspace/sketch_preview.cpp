@@ -251,6 +251,9 @@ void AssemblyWorkspaceWindow::preview_sketch_segment_ray(
     auto inference = inferred_sketch_segment_end(*position);
     const auto offered_equal_reference = inference.equal_length_reference_id;
     const auto offered_start_tangent=inference.tangent_at_start ? inference.tangent_reference_id : std::string{};
+    const auto offered_perpendicular_reference =
+        inference.perpendicular_reference_id;
+    const auto offered_parallel_reference = inference.parallel_reference_id;
     std::optional<SketchCandidateSnap> endpoint_snap;
     if (!sketch_skip_candidate_snap_) {
         if (const auto candidate = viewer_->hovered_candidate()) {
@@ -371,6 +374,36 @@ void AssemblyWorkspaceWindow::preview_sketch_segment_ray(
         sketch_tangent_intent_pixels * viewer_->devicePixelRatioF());
     const double cursor_x = (*position)[0] - (*pending_segment_start_)[0];
     const double cursor_y = (*position)[1] - (*pending_segment_start_)[1];
+    const auto line_relation_matches = [&](const std::string& support_id,
+            const zima::sketcher::ConstraintKind relation) {
+        const auto support = sketch_line_support_direction(support_id);
+        if (!support) return false;
+        const double support_length = std::hypot(
+            (*support)[0], (*support)[1]);
+        if (support_length <= 1.0e-12) return false;
+        const double error = relation ==
+                zima::sketcher::ConstraintKind::Parallel
+            ? std::abs(cursor_x * (*support)[1] -
+                  cursor_y * (*support)[0]) / support_length
+            : std::abs(cursor_x * (*support)[0] +
+                  cursor_y * (*support)[1]) / support_length;
+        return error <= direction_tolerance;
+    };
+    if ((endpoint_snap || pending_sketch_snap_kind_) &&
+        !offered_parallel_reference.empty() &&
+        automatic_constraint_enabled(zima::sketcher::ConstraintKind::Parallel) &&
+        line_relation_matches(offered_parallel_reference,
+            zima::sketcher::ConstraintKind::Parallel)) {
+        inference.parallel_reference_id = offered_parallel_reference;
+    } else if ((endpoint_snap || pending_sketch_snap_kind_) &&
+               !offered_perpendicular_reference.empty() &&
+               automatic_constraint_enabled(
+                   zima::sketcher::ConstraintKind::Perpendicular) &&
+               line_relation_matches(offered_perpendicular_reference,
+                   zima::sketcher::ConstraintKind::Perpendicular)) {
+        inference.perpendicular_reference_id =
+            offered_perpendicular_reference;
+    }
     bool endpoint_tangent = false;
     if (endpoint_tangent_curve) {
         if (const auto tangent = sketch->curve_tangent_at_point(
@@ -395,6 +428,10 @@ void AssemblyWorkspaceWindow::preview_sketch_segment_ray(
         } else {
             endpoint_perpendicular = false;
         }
+    }
+    if (!inference.parallel_reference_id.empty() ||
+        !inference.perpendicular_reference_id.empty()) {
+        endpoint_perpendicular = false;
     }
     if (!automatic_constraint_enabled(zima::sketcher::ConstraintKind::Tangent)) endpoint_tangent=false;
     if (!automatic_constraint_enabled(zima::sketcher::ConstraintKind::Perpendicular)) endpoint_perpendicular=false;
@@ -421,6 +458,8 @@ void AssemblyWorkspaceWindow::preview_sketch_segment_ray(
         inference.perpendicular_reference_id = endpoint_snap_geometry;
     }
     if (!endpoint_tangent && !endpoint_perpendicular &&
+        inference.perpendicular_reference_id.empty() &&
+        inference.parallel_reference_id.empty() &&
         endpoint_snap_kind == zima::sketcher::ConstraintKind::PointOnLine) {
         // C fixes support, not the new line's direction. Keep compatible H/V
         // relative to its accepted first point in preview and confirmation.
@@ -436,7 +475,9 @@ void AssemblyWorkspaceWindow::preview_sketch_segment_ray(
         start_tangent_matches_endpoint(*sketch,offered_start_tangent,*pending_segment_start_,inference.position,tangent_tolerance);
     if(snapped_start_tangent) {
         if(!endpoint_tangent) {inference.tangent_reference_id=offered_start_tangent;inference.tangent_at_start=true;}
-        inference.kind.reset();inference.segment_direction.reset();inference.perpendicular_reference_id.clear();endpoint_perpendicular=false;
+        inference.kind.reset();inference.segment_direction.reset();
+        inference.perpendicular_reference_id.clear();
+        inference.parallel_reference_id.clear();endpoint_perpendicular=false;
     }
     sketch_segment_inference_variant_count_ = inference.variant_count;
     const auto common_supports = endpoint_tangent ? common_tangent_supports(

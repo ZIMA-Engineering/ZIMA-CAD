@@ -1,14 +1,18 @@
 #include <zima/document/placement_reference_assignment.hpp>
+#include <zima/document/placement_surface.hpp>
 #include <zima/ui/container_placement_section.hpp>
 #include <QApplication>
 #include <QVBoxLayout>
 #include <QWidget>
 #include <QPushButton>
 #include <QTableWidget>
+#include <QToolButton>
+#include <cmath>
 #include <iostream>
 using namespace zima;using document::ConstructionReference;using Error=document::PlacementReferenceError;
 namespace {
 void require(bool value,const char* text){if(!value)throw std::runtime_error(text);}
+void near(double value,double expected,const char* text){if(!std::isfinite(value)||std::abs(value-expected)>1e-9)throw std::runtime_error(text);}
 ConstructionReference plane(std::string owner,std::string path={}) {ConstructionReference r;r.owner_id=std::move(owner);r.instance_path=std::move(path);r.semantic_key="plane";r.supports_offset=true;return r;}
 void model() {
     std::vector<ConstructionReference> position,orientation;std::array<bool,3> locks{};
@@ -176,6 +180,8 @@ void mesh_capture() {
     section.set_branch_geometry_resolver([&]() -> const kernel::ViewerReferenceGeometry& {return geometry;});
     auto first=plane("mesh");first.semantic_key="face";first.picked_position=std::array{2.,3.,0.};
     require(section.set_reference(0,first,QStringLiteral("Mesh"),nullptr),"General face input failed");
+    auto* first_lock=section.reference_table()->cellWidget(1,3)->findChild<QToolButton*>("numericValueLockButton");
+    require(first_lock&&first_lock->isChecked(),"General curved face did not visibly activate its next capture lock");
     for(std::size_t i=1;i<3;++i) {
         auto next=plane("plane-"+std::to_string(i));
         require(!section.set_reference(i,next,{},nullptr),"Mesh did not arm the next one-shot distance lock");
@@ -184,6 +190,95 @@ void mesh_capture() {
         require(section.references()[i].offset==i*2.5&&!section.references()[i].offset_locked,"Mesh capture did not release its one-shot lock");
     }
 }
+void analytic_curved_capture() {
+    for(const auto kind:{kernel::SurfaceGeometry::Kind::Cylinder,
+            kernel::SurfaceGeometry::Kind::Cone,
+            kernel::SurfaceGeometry::Kind::Torus}) {
+        QWidget owner;auto* layout=new QVBoxLayout(&owner);
+        ui::ContainerPlacementSection section(&owner,layout,true);
+        kernel::SurfaceGeometry face;face.kind=kind;
+        section.set_surface_resolver([&](const auto&) {return &face;});
+        auto first=plane("analytic-curved-face");first.semantic_key="face";
+        first.picked_position=std::array{4.,5.,6.};
+        require(section.set_reference(0,first,QStringLiteral("Curved face"),nullptr),
+            "Analytic curved View face input failed");
+        auto lock_at=[&](int row) {
+            auto* field=section.reference_table()->cellWidget(row,3);
+            return field?field->findChild<QToolButton*>("numericValueLockButton"):nullptr;
+        };
+        require(lock_at(1)&&lock_at(1)->isChecked(),
+            "Analytic curved face did not visibly activate the second-reference lock");
+        auto second=plane("analytic-second");
+        require(!section.set_reference(1,second,{},nullptr),
+            "Analytic curved face silently assigned zero to its second reference");
+        second.measured_offset=-12.5;
+        require(section.set_reference(1,second,{},nullptr)&&
+            section.references()[1].offset==-12.5&&!section.references()[1].offset_locked,
+            "Analytic curved face did not capture and release its second signed offset");
+        require(lock_at(1)&&!lock_at(1)->isChecked()&&lock_at(2)&&lock_at(2)->isChecked(),
+            "Analytic curved capture did not visibly release row two and arm row three");
+        auto third=plane("analytic-third");third.measured_offset=8.75;
+        require(section.set_reference(2,third,{},nullptr)&&
+            section.references()[2].offset==8.75&&!section.references()[2].offset_locked,
+            "Analytic curved face did not capture and release its third signed offset");
+    }
+}
+void planar_face_capture() {
+    QWidget owner;auto* layout=new QVBoxLayout(&owner);ui::ContainerPlacementSection section(&owner,layout,true);
+    kernel::ViewerReferenceGeometry geometry;
+    const auto add_plane=[&](const char* owner,kernel::Vec3 origin,kernel::Vec3 axis,bool reversed=false) {
+        auto surface=std::make_shared<kernel::SurfaceGeometry>();
+        surface->kind=kernel::SurfaceGeometry::Kind::Plane;surface->origin=origin;
+        surface->axis=axis;surface->radial={0,1,0};surface->reversed=reversed;
+        geometry.triangle_references.push_back({owner,"plane","",std::move(surface)});
+    };
+    add_plane("planar-face",{400,230,262.637},{0,0,1});
+    add_plane("planar-y",{400,230,136.224},{0,-1,0},true);
+    add_plane("planar-x",{400,0,0},{-1,0,0});
+    section.set_surface_resolver([&](const auto& reference) {
+        return document::placement_surface(reference,geometry);
+    });
+    auto first=plane("planar-face");
+    first.picked_position=std::array{459.,199.,262.637};
+    require(section.set_reference(0,first,QStringLiteral("Planar face"),nullptr),
+        "Ordinary planar View face input failed");
+    require(section.set_reference(1,plane("ordinary-planar-limit"),{},nullptr),
+        "Ordinary container unexpectedly armed Thread-only planar capture");
+    section.initialize_from_references({},{});
+    section.set_planar_face_capture_policy(true);
+    require(section.set_reference(0,first,QStringLiteral("Planar face"),nullptr),
+        "Thread planar View face input failed");
+    for(std::size_t i=1;i<3;++i) {
+        auto next=plane(i==1?"planar-y":"planar-x");
+        require(!section.set_reference(i,next,{},nullptr),
+            "Planar View face did not arm the next one-shot distance lock");
+        next.measured_offset=document::measure_placement_reference_offset(
+            next,geometry,{459,199,262.637});
+        require(next.measured_offset.has_value(),
+            "Planar View face signed distance could not be measured");
+        near(*next.measured_offset,i==1?-31.:-59.,
+            "Planar View face measured the opposite signed side");
+        require(section.set_reference(i,next,{},nullptr),
+            "Measured planar-face reference rejected");
+        require(section.references()[i].offset==*next.measured_offset&&
+            !section.references()[i].offset_locked,
+            "Planar-face capture did not preserve the signed distance and release its one-shot lock");
+    }
+    auto resolved=section.numeric_placement();
+    resolved.references=section.combined_references(3);
+    require(document::resolve_placement(resolved,geometry),
+        "Captured planar Thread references did not resolve");
+    near(resolved.x,459.,"Captured X side was mirrored after final resolve");
+    near(resolved.y,199.,"Captured Y side was mirrored after final resolve");
+    near(resolved.z,262.637,"Captured support face moved after final resolve");
+    // Selecting a datum without a concrete View point keeps the ordinary
+    // zero-offset workflow and must not arm the following rows.
+    section.initialize_from_references({},{});
+    require(section.set_reference(0,plane("datum"),QStringLiteral("Datum"),nullptr),
+        "Datum reference input failed");
+    require(section.set_reference(1,plane("datum-limit"),{},nullptr),
+        "Datum reference unexpectedly required a measured face offset");
+}
 void repeated_source() {
     std::vector<ConstructionReference> position,orientation;std::array<bool,3> locks{};const auto first=plane("A");
     require(document::assign_placement_reference({position,orientation,locks},true,0,first).error==Error::None,"Initial reference failed");
@@ -191,4 +286,4 @@ void repeated_source() {
     require(orientation[1].owner_id.empty(),"Replacing a position reference with itself duplicated its automatic FRONT into TOP");
 }
 }
-int main(int argc,char** argv){QApplication app(argc,argv);try{model();widget();repeated_source();removal_model();removal_widget();final_removal_preserves_frame();mesh_capture();std::cout<<"Placement reference rows, exact occurrences, locks, orientation and GUI adapter passed\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}
+int main(int argc,char** argv){QApplication app(argc,argv);try{model();widget();repeated_source();removal_model();removal_widget();final_removal_preserves_frame();mesh_capture();analytic_curved_capture();planar_face_capture();std::cout<<"Placement reference rows, exact occurrences, locks, orientation and GUI adapter passed\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

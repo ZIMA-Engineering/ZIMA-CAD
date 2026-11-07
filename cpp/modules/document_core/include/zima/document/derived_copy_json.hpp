@@ -4,7 +4,7 @@
 namespace zima::document {
 inline void to_json(nlohmann::json& j,const DerivedCopyParameters& m) {
     const auto& p=m.resolved_plane;const auto& r=m.reference;
-    j={{"source_id",m.source_id},{"value_locks",m.value_locks},{"reference",{{"owner_id",r.owner_id},{"semantic_key",r.semantic_key},{"instance_path",r.instance_path},{"offset",r.offset}}},
+    j={{"source_ids",m.source_ids},{"value_locks",m.value_locks},{"reference",{{"owner_id",r.owner_id},{"semantic_key",r.semantic_key},{"instance_path",r.instance_path},{"offset",r.offset}}},
         {"point",{p.point.x,p.point.y,p.point.z}},{"normal",{p.normal.x,p.normal.y,p.normal.z}},
         {"reference_valid",m.reference_valid},{"subtract_source",m.subtract_source},{"pattern",nullptr}};
     if(m.pattern){const auto& p=*m.pattern;j["pattern"]={{"circular",p.circular},{"count",p.count},{"angle_degrees",p.angle_degrees},
@@ -16,7 +16,13 @@ inline void to_json(nlohmann::json& j,const DerivedCopyParameters& m) {
 }
 inline void from_json(const nlohmann::json& j,DerivedCopyParameters& m) {
     m.value_locks=j.value("value_locks",std::set<std::string>{});
-    m.source_id=j.at("source_id");const auto& r=j.at("reference");
+    m.source_ids=j.at("source_ids").get<std::vector<std::string>>();
+    if(std::ranges::any_of(m.source_ids,
+            [](const auto& id){return id.empty();})||
+            std::set<std::string>(m.source_ids.begin(),m.source_ids.end()).size()!=
+                m.source_ids.size())
+        throw std::invalid_argument("Copy requires distinct nonempty sources.");
+    const auto& r=j.at("reference");
     m.reference={r.at("instance_path"),r.at("owner_id"),r.at("semantic_key"),r.at("offset")};
     const auto& p=j.at("point");const auto& n=j.at("normal");
     m.resolved_plane=kernel::normalized_mirror_plane({{p.at(0),p.at(1),p.at(2)},{n.at(0),n.at(1),n.at(2)}});

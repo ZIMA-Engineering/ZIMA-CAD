@@ -122,7 +122,13 @@ inline std::vector<kernel::ViewerEdge> authored_feature_wire(
         // Mirror/Pattern copy the source's complete authored tool wire. A
         // downstream Boolean can consume or split source edges; those result
         // fragments cannot define the copy's creation/inspection preview.
-        kernel::ViewerMesh source;source.edges=authored_feature_wire(session,feature->derived_copy.source_id);
+        kernel::ViewerMesh source;
+        for(const auto& source_id:feature->derived_copy.source_ids) {
+            auto edges=authored_feature_wire(session,source_id);
+            source.edges.insert(source.edges.end(),
+                std::make_move_iterator(edges.begin()),
+                std::make_move_iterator(edges.end()));
+        }
         if(body) {
             kernel::ViewerReferenceGeometry geometry;geometry.edges=std::move(source.edges);
             source.edges=doc.construction_reference_geometry_for(body->scope.id,geometry).edges;

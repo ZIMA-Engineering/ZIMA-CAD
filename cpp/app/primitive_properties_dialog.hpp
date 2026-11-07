@@ -88,6 +88,10 @@ public:
     [[nodiscard]] bool allows_point_end_target() const;
     [[nodiscard]] bool allows_skeleton_end_target() const;
     void set_extrusion_end_target(zima::document::ExtrusionParameters::EndTarget);
+    // Up-to owns an authored target rather than a nominal positive length.
+    // When that target lies on the other side of the profile, turn the shared
+    // Feature direction so the View cue and the calculated sweep agree.
+    bool orient_feature_side_toward_target(double signed_profile_distance);
     void set_extrusion_surface_target(
         zima::kernel::FaceReference reference,
         std::vector<zima::kernel::Vec3> triangles, std::string label = {});
@@ -300,6 +304,7 @@ private:
     QPushButton* own_sketch_button_{};
     QLineEdit* profile_status_{};
     QComboBox* profile_plane_{};
+    QWidget* profile_plane_selector_{};
     QComboBox* feature_axis_direction_{};
     std::function<void(zima::sketcher::SketchPlane, bool)> profile_plane_changed_;
     QDoubleSpinBox* profile_plane_offset_{};

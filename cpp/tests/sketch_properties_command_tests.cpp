@@ -1,4 +1,5 @@
 #include <zima/command_host/host.hpp>
+#include "body_measurement_fixture.hpp"
 #include <zima/workspace/sketch_properties.hpp>
 #include <zima/workspace/profile_operations.hpp>
 #include <iostream>
@@ -52,7 +53,7 @@ void verify(kernel::OcctKernel& kernel,fs::path directory,bool rotated){
     auto profile=workspace::profile_from_sketch(state->session.document(),sketch_id,document::FeatureKind::Extrusion);
     profile.extrusion.length_forward=5;
     workspace::commit_profile(live,kernel,id,std::move(profile),workspace::ProfileEditMode::TransformSketch);
-    near(state->session.calculated_boundaries().back().volume,45*std::numbers::pi);
+    near(test::measured_volume(kernel,state->session.calculated_boundaries().back()),45*std::numbers::pi);
     const auto extent=[&](double low,double high){
         const auto& vertices=state->session.calculated_boundaries().back().mesh.vertices;
         require(!vertices.empty(),"Extrusion has no visible vertices");
@@ -63,7 +64,7 @@ void verify(kernel::OcctKernel& kernel,fs::path directory,bool rotated){
     extent(14,19);
     run(host,"sketch.set",{{"sketch",sketch_id},{"plane_offset_mm",8}});
     near(current().plane_offset,8);near(feature().extrusion.profile_plane_offset,8);
-    near(state->session.calculated_boundaries().back().volume,45*std::numbers::pi);
+    near(test::measured_volume(kernel,state->session.calculated_boundaries().back()),45*std::numbers::pi);
     extent(18,23);
     run(host,"undo");run(host,"undo");require(feature().feature_kind==document::FeatureKind::Sketch,"Conversion Undo lost Sketch container");
     const auto* body=state->session.document().body_owner_for_object(owner);

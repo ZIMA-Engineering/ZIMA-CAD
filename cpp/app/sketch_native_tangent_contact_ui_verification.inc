@@ -6,7 +6,7 @@ int verify_sketch_native_tangent_contact_ui(QApplication& application,const std:
     try {
         const auto check=[](bool ok,const char* text){if(!ok)throw std::runtime_error(text);};
         const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
-        for(unsigned scenario=unsigned(std::max(0,qEnvironmentVariableIntValue("ZIMA_NATIVE_CONTACT_SCENARIO_START")));scenario<6;++scenario) {
+        for(unsigned scenario=unsigned(std::max(0,qEnvironmentVariableIntValue("ZIMA_NATIVE_CONTACT_SCENARIO_START")));scenario<7;++scenario) {
             std::cout<<"Native contact GUI scenario="<<scenario<<std::endl;
             auto part=document::PartDocument::create_default();auto feature=document::PartDocument::create_sketch_container();
             auto sketch=sketcher::Sketch::create_default();sketch.owner_container_id=feature.id;
@@ -76,19 +76,41 @@ int verify_sketch_native_tangent_contact_ui(QApplication& application,const std:
             const auto count=[&](const char* label){return std::ranges::count_if(view->mesh().constraint_markers,[&](const auto& m){return m.label==label;});};
             const auto before_t=count("T"),before_c=count("C");
             if(scenario>=4) {
-                window.findChild<QAction*>("sketchCircleAction")->trigger();flush();
-                // Keep this free C+T contact outside the K/axis capture band.
-                const auto distance=std::hypot(13.,9.);const auto contact=screen(-8+4*13/distance,-5+4*9/distance);
-                click(screen(5,4));mouse(contact,QEvent::MouseMove,Qt::NoButton);
-                auto appearance=app::ApplicationSettings::load(QString::fromStdString(directory.string()));
-                const auto original_theme=appearance.theme;
-                for(const QString theme:{"light","dark","light"}) {
-                    appearance.theme=theme;app::apply_application_appearance(application,appearance);flush();
-                    mouse(contact,QEvent::MouseMove,Qt::NoButton);
-                    check(std::ranges::any_of(view->transient_labels(),[](const auto& label){return label.second=="C+T";}),"Circular C+T preview missing after theme change");
-                    check(view->grabFramebuffer().save(QString::fromStdString((directory/("native-contact-preview-"+std::to_string(scenario)+"-"+theme.toStdString()+".png")).string())),"Circular contact preview capture failed");
+                const double squared=13.*13.+9.*9.;
+                if(scenario==6) {
+                    // The pointer is deliberately only near the analytical
+                    // solution. Preview and confirmation must hold the real
+                    // endpoint on the circle instead of drawing a tangent
+                    // line whose endpoint remains beside the contact.
+                    const double offset=4.*std::sqrt(squared-16.)/squared;
+                    const auto contact=screen(-8.+16.*13./squared+offset*9.,
+                        -5.+16.*9./squared-offset*13.);
+                    window.findChild<QAction*>("sketchSegmentAction")->trigger();flush();
+                    click(screen(5,4));mouse(contact,QEvent::MouseMove,Qt::NoButton);
+                    if(!std::ranges::any_of(view->transient_labels(),[](const auto& label){return label.second=="C  T";})) {
+                        std::cerr<<"Line-to-circle preview labels=";
+                        for(const auto& label:view->transient_labels())std::cerr<<'['<<label.second<<']';
+                        if(const auto hovered=view->hovered_candidate())std::cerr<<" hover="<<hovered->semantic_key;
+                        std::cerr<<'\n';
+                        throw std::runtime_error("Line-to-circle preview did not hold one C+T endpoint");
+                    }
+                    mouse(contact,QEvent::MouseButtonPress,Qt::LeftButton,Qt::LeftButton);
+                    mouse(contact,QEvent::MouseButtonRelease,Qt::LeftButton);
+                } else {
+                    window.findChild<QAction*>("sketchCircleAction")->trigger();flush();
+                    // Keep this free C+T contact outside the K/axis capture band.
+                    const auto distance=std::sqrt(squared);const auto contact=screen(-8+4*13/distance,-5+4*9/distance);
+                    click(screen(5,4));mouse(contact,QEvent::MouseMove,Qt::NoButton);
+                    auto appearance=app::ApplicationSettings::load(QString::fromStdString(directory.string()));
+                    const auto original_theme=appearance.theme;
+                    for(const QString theme:{"light","dark","light"}) {
+                        appearance.theme=theme;app::apply_application_appearance(application,appearance);flush();
+                        mouse(contact,QEvent::MouseMove,Qt::NoButton);
+                        check(std::ranges::any_of(view->transient_labels(),[](const auto& label){return label.second=="C+T";}),"Circular C+T preview missing after theme change");
+                        check(view->grabFramebuffer().save(QString::fromStdString((directory/("native-contact-preview-"+std::to_string(scenario)+"-"+theme.toStdString()+".png")).string())),"Circular contact preview capture failed");
+                    }
+                    appearance.theme=original_theme;app::apply_application_appearance(application,appearance);flush();click(contact);
                 }
-                appearance.theme=original_theme;app::apply_application_appearance(application,appearance);flush();click(contact);
             } else {
                 window.findChild<QAction*>("sketchTangentAction")->trigger();flush();
                 const auto first=scenario<2?"circle:"+sketch.circles[0].id:"arc:"+sketch.arcs[0].id;
@@ -107,12 +129,31 @@ int verify_sketch_native_tangent_contact_ui(QApplication& application,const std:
             const auto tangent=std::ranges::find_if(connected.constraints,[&](const auto& c){return c.kind==sketcher::ConstraintKind::Tangent&&
                 std::ranges::none_of(sketch.constraints,[&](const auto& old){return old.id==c.id;});});
             check(tangent!=connected.constraints.end()&&!tangent->first_point_id.empty(),"GUI T has no persisted native contact");
-            if(scenario<2||scenario>=4)for(const auto& geometry:{tangent->geometry_id,tangent->second_geometry_id})
+            if(scenario==6) {
+                check(std::ranges::any_of(connected.constraints,[&](const auto& relation){return relation.kind==sketcher::ConstraintKind::PointOnCircle&&relation.first_point_id==tangent->first_point_id&&relation.geometry_id==sketch.circles.front().id;}),
+                    "Line-to-circle T endpoint lacks its independent persisted C");
+            } else if(scenario<2||scenario>=4)for(const auto& geometry:{tangent->geometry_id,tangent->second_geometry_id})
                 check(std::ranges::any_of(connected.constraints,[&](const auto& relation){return relation.kind==sketcher::ConstraintKind::PointOnCircle&&relation.first_point_id==tangent->first_point_id&&relation.geometry_id==geometry;}),"Created circular contact lacks an independent persisted C");
             check(connected.points.size()==original_points+((scenario==2||scenario==3)?0:scenario>=4?2:1),"GUI created an unexpected native point");
             if(scenario==2||scenario==3)check(connected.constraints.size()==original_constraints+1,"Shared native arc GUI must add only T");
             const auto verify=[&](const sketcher::Sketch& actual) {
                 const auto* p=actual.find_point(tangent->first_point_id);check(p,"GUI drag lost native contact identity");
+                if(scenario==6) {
+                    const auto circle=std::ranges::find(actual.circles,sketch.circles.front().id,&sketcher::SketchCircle::id);
+                    const auto segment=std::ranges::find_if(actual.segments,[&](const auto& value){return value.id==tangent->geometry_id||value.id==tangent->second_geometry_id;});
+                    check(circle!=actual.circles.end()&&segment!=actual.segments.end(),"Line-to-circle C+T geometry disappeared");
+                    const auto* center=actual.find_point(circle->center_point_id);
+                    const auto* other=actual.find_point(segment->first_point_id==p->id?segment->second_point_id:segment->first_point_id);
+                    check(center&&other,"Line-to-circle C+T point identity disappeared");
+                    const double radius_x=p->x-center->x,radius_y=p->y-center->y;
+                    const double line_x=other->x-p->x,line_y=other->y-p->y;
+                    check(std::abs(std::hypot(radius_x,radius_y)-circle->radius)<1e-6,
+                        "Line-to-circle C endpoint is not on the circle");
+                    check(std::abs(radius_x*line_x+radius_y*line_y)/
+                            (circle->radius*std::hypot(line_x,line_y))<1e-7,
+                        "Line-to-circle endpoint is C but not tangent");
+                    return;
+                }
                 std::array<std::array<double,3>,2> circles;
                 for(unsigned n=0;n<2;++n) {
                     const auto geometry=n?tangent->second_geometry_id:tangent->geometry_id;
@@ -144,6 +185,8 @@ int verify_sketch_native_tangent_contact_ui(QApplication& application,const std:
             std::vector<std::string> point_ids{tangent->first_point_id};
             for(const auto& c:connected.circles)point_ids.push_back(c.center_point_id);
             for(const auto& a:connected.arcs)for(const auto& id:{a.center_point_id,a.start_point_id,a.end_point_id})if(std::ranges::find(point_ids,id)==point_ids.end())point_ids.push_back(id);
+            if(scenario==6)for(const auto& segment:connected.segments)for(const auto& id:{segment.first_point_id,segment.second_point_id})
+                if(std::ranges::find(point_ids,id)==point_ids.end())point_ids.push_back(id);
             for(const auto& id:point_ids)for(unsigned drag=0;drag<3;++drag) {
                 std::cout<<"Native GUI drag scenario="<<scenario<<" point="<<id<<" repeat="<<drag<<std::endl;
                 std::vector<kernel::Vec3> fit;for(const auto& p:view->mesh().points)if(p.reference.owner_id==sketch.id)fit.push_back(p.position);
@@ -178,6 +221,6 @@ int verify_sketch_native_tangent_contact_ui(QApplication& application,const std:
             finish();saved=document::PartDocument::load(path);verify(saved.sketches.front());open();finish();
             std::cout<<"Native contact GUI scenario="<<scenario<<" passed"<<std::endl;
         }
-        std::cout<<"Native C+T creation, manual circle T and shared native arc T-only: GUI selection, repeated point drags and persistence passed\n";return 0;
+        std::cout<<"Native C+T creation, line endpoint C+T, manual circle T and shared native arc T-only: GUI selection, repeated point drags and persistence passed\n";return 0;
     }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}
 }

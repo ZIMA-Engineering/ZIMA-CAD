@@ -203,6 +203,8 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
         placement_->initialize_numeric_values(initial.placement);
         placement_->set_point_circle_plane_policy(initial.feature_kind==zima::document::FeatureKind::Feature &&
             initial.feature.type==zima::document::FeatureType::Point);
+        placement_->set_planar_face_capture_policy(
+            initial.feature_kind==zima::document::FeatureKind::Thread);
         const bool has_orientation_reference = std::any_of(
             initial.placement.references.begin(), initial.placement.references.end(),
             [](const auto& reference) {
@@ -737,10 +739,16 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
         lock_sheet_attachment_fields();
     } else if (initial.feature_kind == zima::document::FeatureKind::Feature) {
         setObjectName("featurePropertiesDialog");
-        setProperty("expandBottomTable",true);
         name_->setObjectName("featureName");
         feature_automatic_name_=initial.feature.automatic_name;
         feature_panel_=new FeatureParameterPanel(this,initial.feature);
+        // Surplus height belongs below ordinary Feature fields.  Only a
+        // genuinely visible multi-target limit table benefits from a growing
+        // viewport; the fixed three-row placement table does not.
+        setProperty("expandBottomTable",feature_panel_->active_limit_tables());
+        feature_panel_->on_work_plane_reference([this] {
+            if(reference_request_)reference_request_(0);
+        });
         if(assembly_cut_mode)feature_panel_->set_assembly_context();
         header_form->insertRow(0,tr("Typ prvku"),feature_panel_->type_row());
         feature_panel_->set_subtract(initial.combine_mode==zima::document::CombineMode::Subtract);
@@ -977,7 +985,9 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
         profile_plane_->addItem("XZ", static_cast<int>(zima::sketcher::SketchPlane::XZ));
         profile_plane_->addItem("YZ", static_cast<int>(zima::sketcher::SketchPlane::YZ));
         install_automatic_work_plane(profile_plane_, true);
-        form->addRow(tr("Výchozí rovina"), profile_plane_);
+        profile_plane_selector_=compact_work_plane_selector(profile_plane_,
+            [this] {if(reference_request_)reference_request_(0);});
+        form->addRow(tr("Výchozí rovina"),profile_plane_selector_);
         connect(profile_plane_, &QComboBox::currentIndexChanged, this, [this] { notify_preview(); });
         profile_plane_offset_ = dimension(
             revolve ? initial.revolution.profile_plane_offset
@@ -1026,7 +1036,7 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
             sheet_thickness_override_->setObjectName("sheetRevolutionThicknessOverride");
             sheet_thickness_override_->setChecked(initial.revolution.thickness_override);
             form->addRow(sheet_thickness_override_);
-            form->setRowVisible(profile_plane_,false);form->setRowVisible(profile_plane_offset_,false);
+            form->setRowVisible(profile_plane_selector_,false);form->setRowVisible(profile_plane_offset_,false);
             form->setRowVisible(result_row,false);
             connect(sheet_thickness_override_,&QCheckBox::toggled,this,[this](bool checked) {
                 if(!checked)thin_thickness_->setValue(sheet_default_thickness_);
@@ -2196,6 +2206,19 @@ bool PrimitivePropertiesDialog::allows_skeleton_end_target() const {
 }
 void PrimitivePropertiesDialog::set_extrusion_end_target(zima::document::ExtrusionParameters::EndTarget value) {
     store_extrusion_target(std::move(value));
+}
+
+bool PrimitivePropertiesDialog::orient_feature_side_toward_target(
+        double signed_profile_distance) {
+    if(!feature_panel_||initial_.feature_kind!=zima::document::FeatureKind::Feature||
+            !std::isfinite(signed_profile_distance)||std::abs(signed_profile_distance)<=1e-9)
+        return false;
+    const auto pending=feature_panel_->parameters();
+    if(pending.type!=zima::document::FeatureType::Modeling||pending.symmetric)return false;
+    const std::size_t side=active_end_target_side_=="reverse"?1u:0u;
+    const bool reversed=(signed_profile_distance<0)!=(side==1);
+    if(pending.reversed_sides==reversed)return false;
+    return feature_panel_->set_direction(reversed?-1.:1.);
 }
 
 std::vector<zima::document::ExtrusionParameters::EndTarget>& PrimitivePropertiesDialog::profile_end_targets(bool reverse) {

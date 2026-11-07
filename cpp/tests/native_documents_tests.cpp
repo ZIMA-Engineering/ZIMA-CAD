@@ -7,7 +7,9 @@
 #include <algorithm>
 #include <cmath>
 #include <future>
+#include <iomanip>
 #include <iostream>
+#include <sstream>
 #include <stdexcept>
 #include <type_traits>
 #include <zima/document/versioned_file.hpp>
@@ -110,16 +112,23 @@ int main(){
         {
             const auto fixture=fs::absolute("cpp/tests/fixtures/parity/ventilation-linux.prtz");
             const auto before=bytes(fixture);
-            require(before.find("format_version=48")!=std::string::npos&&
-                before.find("definition_fingerprint=16f0f2ae54d2e4937158917bf9fc6ad2a76a26f64705b60a6929a2ec95df2a07")!=std::string::npos,
+            require(before.find("format_version=49")!=std::string::npos&&
+                before.find("definition_fingerprint=60caee6a30716dcf5c39d27ceed7c6563b61c89b2ee951d3786f59cf839a9790")!=std::string::npos,
                 "Converted cross-platform fixture lost its format or definition identity");
             std::vector<kernel::BodyResult> calculated;
             const auto portable=document::PartDocument::load(fixture,&calculated);
             require(bytes(fixture)==before&&calculated.size()==7,"Opening the Linux calculation changed the source or lost history");
-            require(calculated.back().physical_properties_current&&
-                    std::abs(calculated.back().surface_area-2242.5998362849596)<1e-9&&
-                    calculated.back().volume==0,
-                "Opening the converted parity fixture changed stored physical properties");
+            if(!calculated.back().physical_properties_current||
+                    std::abs(calculated.back().surface_area-2242.5998362861433)>=1e-9||
+                    calculated.back().volume!=0) {
+                std::ostringstream details;
+                details<<std::setprecision(17)
+                    <<"Opening the converted parity fixture changed stored physical properties: current="
+                    <<calculated.back().physical_properties_current<<", area="
+                    <<calculated.back().surface_area<<", volume="
+                    <<calculated.back().volume;
+                throw std::runtime_error(details.str());
+            }
             const auto snapshot=portable.serialized(calculated);
             portable.save(directory/"linux-roundtrip.prtz",calculated);
             std::vector<kernel::BodyResult> reopened;

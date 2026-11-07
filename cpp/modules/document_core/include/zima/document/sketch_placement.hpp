@@ -10,6 +10,11 @@ namespace zima::document {
 inline void prepare_profile_plane_reference(std::size_t index,ConstructionReference& reference,
         const std::vector<ConstructionReference>& existing) {
     if(index!=0||!reference.supports_offset)return;
+    // The caller may already have assigned the plane to FRONT/TOP from the
+    // actual ordered placement draft.  Preserve that explicit equation: this
+    // helper only supplies the profile-specific TOP default for an otherwise
+    // unoriented plane reference.
+    if(reference.orientation_drives_rotation&&reference.orientation_role!="none")return;
     const auto first=std::ranges::find_if(existing,[](const auto& candidate){
         return !candidate.orientation_only&&candidate.supports_offset&&
             (!candidate.owner_id.empty()||!candidate.semantic_key.empty());

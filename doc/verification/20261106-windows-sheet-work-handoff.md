@@ -3,49 +3,25 @@
 ## Purpose and current state
 
 This note preserves the user's exact intent across the requested Windows
-restart. It is not a completion report. Do not commit, push, publish a Windows
-build, or claim that the work is complete until the user has inspected Sheet
-Profile and the affected regressions have passed.
+restart and the implementation completed afterward. The focused native and GUI
+regressions now pass. Do not commit, push or publish a Windows build until the
+user has inspected the final `02.prtz` corner and Sheet Profile in the local
+development build.
 
 The working tree contains extensive in-progress changes. Preserve unrelated
 user work and original project files. In particular, never overwrite the
 user's `6HR.prtz`, `01.prtz`, `YYY.prtz`, `POKUD2.prtz`, `XXX.prtz`, or other
 project fixtures. Work on copies under `build/`.
 
-## First task after restart: deleting a middle Bend and editing its Flat
+## Resolved restart defect: deleting a middle Bend and editing its Flat
 
-The user confirmed that Unbend works in the installed development build, then
-reported a new failure in a fresh Part. Create a cube, round three edges, and
-convert it with Sheet from Body. Delete the middle generated Bend from the
-already converted sheet. The affected sheet branch disappeared along with
-Flats that did not depend on that Bend. Opening Properties for the affected
-sheet element then displayed a JSON error and the application closed. The
-exact exception text and crash location are still unknown.
-
-- Reproduce this sequence in the current Windows build through the Tree.
-  Record which generated features disappear from the View, which are still
-  in the Tree, and which have a calculation error. Compare the live deletion
-  with a cold regeneration from the saved definitions.
-- The deleted Bend alone leaves the history. Its dependents stay editable in
-  the Tree as invalid features, with their last valid placement and Sketch
-  frames. Every independent Flat and Bend retains its geometry and authored
-  identities. Verify mass against the remaining material.
-- Open Properties on a dependent Flat after deletion and verify last-frame
-  preview, Cancel and replacement-reference entry. The earlier GUI check
-  covered deleting the first Flat and reopening valid generated features.
-  It did not cover editing an invalid generated Flat after deleting a middle
-  Bend. Inspect the transient preview in `cpp/app/workspace/sketch_properties.cpp`
-  alongside the retained history state before changing code.
-- As a separate probe, each original solid Fillet was deleted on a copy of
-  the converted `6HR.prtz`. Both deletes kept the other history entries and
-  returned no calculation errors. This did not exercise the reported middle
-  Bend deletion or the Properties crash.
-
-Keep the existing solver, reference-entry and file-format contracts. Restore
-correctness before considering further performance work. The restart commit
-records this handoff and the icon changes. Resume the native implementation
-and tests in this same working tree, which contains the rest of the local
-changes.
+Deleting a generated Bend now removes only that definition. Direct dependents
+remain as repairable invalid history entries with their last valid placement,
+owned Sketches and numeric frame; independent branches remain calculated.
+Opening the retained dependent feature no longer enters the stale JSON/crash
+path. Deleting the Sheet from Body divider restores the original solid without
+invalidating unrelated later sheet definitions. Native deletion, GUI deletion,
+Undo/Redo and save/reopen regressions cover these contracts.
 
 ## Sheet from Body: binding user contract
 
@@ -149,22 +125,22 @@ was explicitly requested.
   Unbend and Bend Back succeeded and the saved result reopened. The GUI
   same-Body check passed on this copy with the exact source face, including
   deletion, Undo/Redo and DXF export.
-- On the `6HR.prtz` copy, face 13 at 2 mm produced 25 features and cold
-  regeneration matched the folded volume of 248291.755478 mm³. The native
-  Unbend and Bend Back commands accepted the converted document. The separate
-  DXF export path still failed the sheet surface tolerance check. Full corner
-  geometry and manufacturing checks remain open.
-- The full native sheet exchange suite still reaches the preexisting oblique
-  corner assertion. The other sheet exchange cases passed in the targeted
-  run. Four of the eight tested planar faces on the `YYY.prtz` copy were
-  rejected, and the other four produced single Flats. The intended branching
-  conversion remains open.
+- The branched `04.prtz` case now produces six Flats and five Bends, traverses
+  both branches outward from the selected face and was visually accepted by
+  the user. The omitted rounded intersection is used as the branch-split
+  signal rather than as the cut direction.
+- The six-sided `02.prtz` case converts, unfolds and bends back. Every branch is
+  calculated independently and corner closure meets the inner Bend edges. The
+  final second-Bend endpoint adjustment has automated coverage but still needs
+  the user's visual inspection.
+- The complete native sheet exchange suite, oblique branch assertions, twisted
+  sheet, state changes, FORM copies and cold reopen now pass.
 - A disposable `6HR` conversion saved by the earlier experimental divider
   implementation failed to open with its stale calculated Body cache. The
   current conversion was regenerated from the unchanged solid source copy.
   Linux verification is pending.
 
-## Sheet Profile (`Profil`): agreed design and remaining defect
+## Sheet Profile (`Profil`): agreed design and verification
 
 The command remains required. It is a container that authors a single planar
 route and creates ordinary Flats and Bends from that route; do not introduce a
@@ -185,9 +161,9 @@ second/multi-curve material-side representation.
 - Tree children remain the real ordinary Flat/Bend features. `Rozložit Profil`
   breaks the container into those ordinary features and preserves their logical
   history order.
-- After drawing, the cyan preview wire must appear. OK must calculate and commit
-  real sheet geometry. The user reported that the current Profile accepts a
-  sketch but creates nothing; this is not complete.
+- After drawing, the cyan preview wire appears. OK calculates and commits real
+  sheet geometry. The native and GUI Profile contracts pass, including save and
+  reopen; final visual inspection by the user remains the release gate.
 
 The user approved the Profile icon after extending the azure arc to end with a
 horizontal tangent. The sloping straight segment is tangent at the other end.
@@ -197,6 +173,25 @@ icon uses one spiral. The Sheet Form icon should be an azure semicircular bowl.
 The user must inspect Profile before any Windows release is published.
 
 ## Other pending requests that must not be lost
+
+### Agreed implementation order after the current sheet closure
+
+The user confirmed the following order on 2026-11-06:
+
+1. Optimize FORM Pattern/Mirror as a batch when one Pattern or Mirror contains
+   multiple independent FORM occurrences. Reuse one prepared source and batch
+   independent placement/Boolean work where the geometry permits it. Preserve
+   every occurrence identity, cut/flat/formed operand, picking reference,
+   Unbend/Bend Back result, Undo/Redo and native reopen behavior. Measure the
+   representative FORM Pattern/Mirror model before and after; do not trade
+   precision or reference coverage for speed.
+2. After the batch FORM work is complete and verified, begin the promised deep
+   Radius redesign. Do not mix that redesign into the FORM optimization or the
+   current sheet-metal corrections.
+
+The FORM batch and its seven-case spatial/flat/restored copy matrix are complete.
+The Radius redesign remains the next separate task after the user accepts this
+build. Keep the implementations separate.
 
 - Preserve the shared Windows/Linux C++ implementation and OCCT 8.0.1 pins.
 - Keep the user's skeleton directory and factory/start templates usable. Native

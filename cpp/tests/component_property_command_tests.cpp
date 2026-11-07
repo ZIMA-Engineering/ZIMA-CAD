@@ -1,5 +1,6 @@
 #include "profile_command_fixture.hpp"
 #include "profile_solid_fixture.hpp"
+#include "body_measurement_fixture.hpp"
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/component_properties.hpp>
 #include <iostream>
@@ -79,7 +80,9 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     near(current(second).placement.x,10);near(current(second).placement.y,11);near(current(second).placement.z,12);
     rejected({{"placement",{{"x_mm",11}}}},"constrained_coordinate");
     set(second,{{"placement_references",Json::array()},{"placement",{{"rotation_x_deg",0},{"rotation_y_deg",0},{"rotation_z_deg",0}}}});
-    Json faces={{"kind","plane_coincident"},{"component",ref(second,box,test::profile_key(live.open_part(source)->session.document(),box,"z_min"))},{"target",ref(first,box,test::profile_key(live.open_part(source)->session.document(),box,"z_max"))},{"offset",3},{"flip",true}};
+    const auto z_min_key=test::profile_key(live.open_part(source)->session.document(),box,"z_min");
+    const auto z_max_key=test::profile_key(live.open_part(source)->session.document(),box,"z_max");
+    Json faces={{"kind","plane_coincident"},{"component",ref(second,box,z_min_key)},{"target",ref(first,box,z_max_key)},{"offset",3},{"flip",true}};
     set(second,{{"placement_references",Json::array({faces})}});near(current(second).placement.z,45);
     const auto rows=get(second).at("placement_references");set(second,{{"placement_references",rows}});
     require(current(second).placement_references.front().component_reference.owner_id==box,"Original geometry was replaced with result topology");
@@ -110,7 +113,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     run(host,"redo");require(current(second).bom_ignore_variant,"BOM option did not redo");
     run(host,"save");const auto native=assembly::AssemblyDocument::load(dir/"properties.asmz");
     require(workspace::component_properties(*native.find_occurrence(second))==workspace::component_properties(current(second)),"Native file lost component properties");
-    near(native.find_occurrence(second)->calculated_source->volume,6000);
+    near(test::measured_volume(kernel,native.find_occurrence(second)->calculated_source.get()),6000);
     require(live.open_part(source)->session.revision()==source_revision,"Component properties edited the source Part");
     const auto mirror=run(host,"mirror.create",{{"source",second},{"local_plane","yz"}}).data.at("object").get<std::string>();
     set(mirror,{{"name","Own mirror"},{"visible",false}});
@@ -126,7 +129,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     const auto old_mirror=current(mirror).calculated_source;
     run(host,"activate",{{"document",source}});zima::test::resize_rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"container",box},{"length_mm","20"}});
     live.refresh_source_geometry();run(host,"activate",{{"document",id}});
-    const auto fresh=current(second).calculated_source;near(fresh->volume,12000);
+    const auto fresh=current(second).calculated_source;near(test::measured_volume(kernel,fresh.get()),12000);
     auto renamed=prepared.initial;renamed.name="Current source retained";
     require(workspace::commit_component_properties(live,prepared,renamed),"Prepared name edit did not commit");
     require(current(second).calculated_source.shares_with(fresh)&&current(mirror).calculated_source.shares_with(old_mirror),

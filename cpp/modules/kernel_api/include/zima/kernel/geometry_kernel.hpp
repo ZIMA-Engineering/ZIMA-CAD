@@ -1017,6 +1017,14 @@ struct PatternRequest {
 };
 enum class BodyCombination { Separate, Add, Subtract, Intersect, Mirror, Pattern, Scale };
 struct BodyResult;
+struct BodyCopySource {
+    // body_id is populated for whole-Body/feature Body copies. A local
+    // feature copy uses only feature_id inside its already active Body.
+    std::string body_id;
+    std::string feature_id;
+    BooleanOperation operation{BooleanOperation::Add};
+    bool operator==(const BodyCopySource&) const = default;
+};
 struct BodyHistoryScope {
     std::string id;
     BodyCombination combination{BodyCombination::Separate};
@@ -1030,6 +1038,9 @@ struct BodyHistoryScope {
     // Optional solid feature within source_id. Copies its original operand,
     // never the accumulated Body result at that feature's history boundary.
     std::string source_feature_id;
+    // Ordered sources of one native Mirror/Pattern definition. Calculation
+    // may group them by Boolean kind but must retain every source identity.
+    std::vector<BodyCopySource> copy_sources;
     // Body suppression excludes its result, not the geometry needed by children.
     bool result_suppressed{};
     double scale_factor{1};

@@ -1,4 +1,5 @@
 #include "profile_solid_fixture.hpp"
+#include "body_measurement_fixture.hpp"
 #include <zima/document/placement_json.hpp>
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/construction_reference_operations.hpp>
@@ -72,7 +73,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory,bool assembly_mo
             const double nx=(q.y-p.y)*(r.z-p.z)-(q.z-p.z)*(r.y-p.y);
             if(std::abs(nx)<1e-8||std::abs(p.x-q.x)>1e-8||std::abs(p.x-r.x)>1e-8)continue;
             const auto key=ref.semantic_key;const double expected=p.x+(nx>0?2:-2);set(face_point,0,box_id,key,2);near(object(face_point).origin.x,expected);checked=true;break;}
-        require(checked,"No original Box face was tested");near(live.open_part(id)->session.calculated_boundaries().back().volume,1000);
+        require(checked,"No original Box face was tested");near(test::measured_volume(kernel,live.open_part(id)->session.calculated_boundaries().back()),1000);
     }
     interaction.editing=true;reject(args(point,0,source.entity_id,"plane"),"editing_in_progress");interaction={};
     run("save");const auto current=all();const auto loaded=assembly_mode?assembly::AssemblyDocument::load(file).constructions:document::PartDocument::load(file).constructions;

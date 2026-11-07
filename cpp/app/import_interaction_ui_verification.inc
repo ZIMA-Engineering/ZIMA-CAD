@@ -171,8 +171,26 @@ static int verify_imported_body_interaction(QApplication& application,zima::app:
                 QMouseEvent move(QEvent::MouseMove,*hit,*hit,*hit,Qt::NoButton,Qt::NoButton,Qt::NoModifier);QApplication::sendEvent(view,&move);flush();
                 for(std::size_t index=0;index<offered_index;++index){QMouseEvent press(QEvent::MouseButtonPress,*hit,*hit,*hit,Qt::RightButton,Qt::RightButton,Qt::NoModifier);QMouseEvent release(QEvent::MouseButtonRelease,*hit,*hit,*hit,Qt::RightButton,Qt::NoButton,Qt::NoModifier);QApplication::sendEvent(view,&press);QApplication::sendEvent(view,&release);flush();}
                 check(view->offered_candidate()==offered,"Extrusion did not offer the exact imported face");
+                auto* workspace_status=window.findChild<QLabel*>("workspaceState");
+                const auto hovered_reference_status=workspace_status
+                    ? workspace_status->text() : QString{};
+                const auto* imported_feature=original.find_container(import_id);
+                check(workspace_status && imported_feature &&
+                        hovered_reference_status.contains(
+                            QString::fromStdString(original.name)) &&
+                        hovered_reference_status.contains(
+                            QString::fromStdString(imported_feature->name)) &&
+                        hovered_reference_status.count(QStringLiteral(" — "))>=2,
+                    "Placement hover status does not identify Part, feature and face");
                 QMouseEvent press(QEvent::MouseButtonPress,*hit,*hit,*hit,Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);QMouseEvent release(QEvent::MouseButtonRelease,*hit,*hit,*hit,Qt::LeftButton,Qt::NoButton,Qt::NoModifier);QApplication::sendEvent(view,&press);QApplication::sendEvent(view,&release);flush();
                 const auto pending=feature_dialog()->pending_value();check(!pending.placement.references.empty()&&pending.placement.references.front().owner_id==offered.owner_id,"Extrusion lost the clicked source identity");
+                const auto short_reference_label=table->item(0,1)
+                    ? table->item(0,1)->text() : QString{};
+                check(short_reference_label.startsWith(QStringLiteral("1. ")) &&
+                        !short_reference_label.contains(QStringLiteral(" — ")) &&
+                        hovered_reference_status.endsWith(
+                            short_reference_label.sliced(3)),
+                    "Placement field does not keep the short numbered geometry label");
                 const auto verify_placement_dimensions=[&] {
                     const auto value=feature_dialog()->pending_value();
                     const auto dimensions=document::container_placement_dimensions(value.id,value.placement,local.original_references);
@@ -188,24 +206,33 @@ static int verify_imported_body_interaction(QApplication& application,zima::app:
                     std::size_t checked{};
                     for(const auto& expected:dimensions) {
                         if(std::abs(expected.value)<=1e-12)continue;
-                        const auto actual=std::ranges::find(view->mesh().dimensions,expected.reference,&kernel::ViewerDimension::reference);
-                        check(actual!=view->mesh().dimensions.end(),"Placement dimension disappeared from the first-reference preview");
-                        viewer::ViewerCandidate dimension_candidate;dimension_candidate.kind=viewer::CandidateKind::Dimension;
-                        dimension_candidate.geometry_index=static_cast<std::size_t>(actual-view->mesh().dimensions.begin());
-                        const auto source=view->dimension_source(dimension_candidate);
+                        // Profile commands publish live dimensions through the
+                        // lightweight overlay so placement edits do not upload
+                        // the complete STEP body again. Resolve the reference
+                        // through the View's common dimension contract instead
+                        // of inspecting only its persisted base packet.
+                        view->confirm_reference(expected.reference.owner_id,
+                            expected.reference.semantic_key,
+                            expected.reference.instance_path,
+                            viewer::CandidateKind::Dimension);
+                        const auto dimension_candidate=view->confirmed_candidate();
+                        check(dimension_candidate.has_value()&&
+                            dimension_candidate->kind==viewer::CandidateKind::Dimension,
+                            "Placement dimension disappeared from the first-reference preview");
+                        const auto source=view->dimension_source(*dimension_candidate);
                         check(source.has_value(),"Placement dimension has no authored display source");
-                        if(std::abs(actual->value-expected.value)>1e-7||!close(actual->witness_second,point(expected.witness_second))) {
-                            const auto second=point(expected.witness_second);
-                            std::cerr<<"Placement dimension "<<expected.reference.semantic_key<<" value="<<actual->value<<" expected="<<expected.value
-                                <<" witness=["<<actual->witness_second.x<<','<<actual->witness_second.y<<','<<actual->witness_second.z
-                                <<"] expected=["<<second.x<<','<<second.y<<','<<second.z<<"]"<<std::endl;
-                        }
+                        const auto actual_value=view->candidate_dimension_value(
+                            *dimension_candidate);
                         // The viewer may arrange annotation lines around model
                         // bounds. Its witnesses and pre-layout source must use
                         // the same Body frame as the selected support.
-                        check(std::abs(actual->value-expected.value)<1e-7&&close(actual->witness_first,point(expected.witness_first))&&
-                            close(actual->witness_second,point(expected.witness_second))&&close(source->line_first,point(expected.line_first))&&
+                        check(actual_value.has_value()&&
+                            std::abs(*actual_value-expected.value)<1e-7&&
+                            close(source->witness_first,point(expected.witness_first))&&
+                            close(source->witness_second,point(expected.witness_second))&&
+                            close(source->line_first,point(expected.line_first))&&
                             close(source->line_second,point(expected.line_second)),"Placement dimension uses a different Body frame from its selected reference");
+                        view->clear_selection();
                         ++checked;
                     }
                     if(std::ranges::count_if(value.placement.references,[](const auto& reference){return !reference.orientation_only;})==1)
@@ -216,14 +243,22 @@ static int verify_imported_body_interaction(QApplication& application,zima::app:
                 for(const auto& handle:view->extent_manipulators())
                     std::cout<<"Extent origin=["<<handle.origin.x<<','<<handle.origin.y<<','<<handle.origin.z<<"] direction=["<<handle.direction.x<<','<<handle.direction.y<<','<<handle.direction.z<<"] length="<<handle.length<<std::endl;
                 const auto capture=qEnvironmentVariable("ZIMA_VERIFY_IMPORT_PLANE_CAPTURE");if(!capture.isEmpty()){view->repaint();flush();check(window.grab().save(capture),"Cannot capture imported Extrusion plane");}
-                const auto plane=std::ranges::find_if(view->mesh().edges,[&](const auto& edge){return edge.reference.owner_id==pending.feature_id&&edge.reference.semantic_key=="border";});
-                if(plane==view->mesh().edges.end()){
+                const auto visible_edge=[&](const auto& predicate)->const kernel::ViewerEdge* {
+                    const auto base=std::ranges::find_if(view->mesh().edges,predicate);
+                    if(base!=view->mesh().edges.end())return &*base;
+                    const auto& overlay=view->transient_context_mesh().edges;
+                    const auto transient=std::ranges::find_if(overlay,predicate);
+                    return transient==overlay.end()?nullptr:&*transient;
+                };
+                const auto plane=visible_edge([&](const auto& edge){return edge.reference.owner_id==pending.feature_id&&edge.reference.semantic_key=="border";});
+                if(!plane){
                     std::cerr<<"Missing work plane: selected="<<offered.owner_id<<':'<<offered.semantic_key<<" pending="<<pending.id<<" feature="<<pending.feature_id<<" refs="<<pending.placement.references.size()<<std::endl;
                     for(const auto& reference:pending.placement.references)std::cerr<<"Plane reference "<<reference.owner_id<<':'<<reference.semantic_key<<" role="<<reference.orientation_role<<" orientation="<<reference.orientation_drives_rotation<<std::endl;
                     for(const auto& edge:view->mesh().edges)if(edge.reference.semantic_key=="border")std::cerr<<"Other plane border "<<edge.reference.owner_id<<std::endl;
+                    for(const auto& edge:view->transient_context_mesh().edges)if(edge.reference.semantic_key=="border")std::cerr<<"Other transient plane border "<<edge.reference.owner_id<<std::endl;
                     for(auto* label:feature_dialog()->findChildren<QLabel*>())if(!label->text().isEmpty())std::cerr<<"Plane properties label "<<label->text().toStdString()<<std::endl;
                 }
-                check(plane!=view->mesh().edges.end()&&plane->points.size()==5,"Extrusion work plane has no visible border carrier");
+                check(plane&&plane->points.size()==5,"Extrusion work plane has no visible border carrier");
                 const auto plane_reference=plane->reference;
                 const auto initial_border=plane->points;
                 if(qEnvironmentVariableIsSet("ZIMA_VERIFY_IMPORT_FEATURE_PREVIEW")) {
@@ -263,7 +298,7 @@ static int verify_imported_body_interaction(QApplication& application,zima::app:
                     if(pending.feature_kind==document::FeatureKind::Feature)
                         check(feature_dialog()->set_inline_parameter_value("profile_offset",offset),"Feature profile offset is not editable");
                     else feature_dialog()->set_profile_offset_and_forward_length(offset,10);
-                    flush();const auto border=std::ranges::find_if(view->mesh().edges,[&](const auto& edge){return edge.reference==plane_reference;});check(border!=view->mesh().edges.end()&&border->points.size()==5,"Successive offset edits lost the work plane identity");
+                    flush();const auto border=visible_edge([&](const auto& edge){return edge.reference==plane_reference;});check(border&&border->points.size()==5,"Successive offset edits lost the work plane identity");
                     verify_placement_dimensions();
                     for(const auto& point:border->points){const auto distance=(point.x-equation_origin.x)*normal.x+(point.y-equation_origin.y)*normal.y+(point.z-equation_origin.z)*normal.z;check(std::abs(distance-offset_sign*offset)<1e-7,"Work plane border does not satisfy its independent signed source equation");}
                     if(pending.feature_kind==document::FeatureKind::Feature) {
@@ -336,8 +371,8 @@ static int verify_imported_body_interaction(QApplication& application,zima::app:
                 std::cout<<"Imported Extrusion plane reference="<<offered.semantic_key<<" border=";for(const auto& point:initial_border)std::cout<<'['<<point.x<<','<<point.y<<','<<point.z<<']';std::cout<<std::endl;
                 if(qEnvironmentVariableIsSet("ZIMA_VERIFY_IMPORT_DRAWN_FEATURE")) {
                     const auto draft=feature_dialog()->pending_value();
-                    const auto border=std::ranges::find_if(view->mesh().edges,[&](const auto& edge){return edge.reference==plane_reference;});
-                    check(border!=view->mesh().edges.end(),"Drawn Feature lost its work plane");
+                    const auto border=visible_edge([&](const auto& edge){return edge.reference==plane_reference;});
+                    check(border,"Drawn Feature lost its work plane");
                     const auto points=border->points;
                     sketcher::Sketch plane=sketcher::Sketch::create_default();
                     plane.plane_reference_owner_id="independent-view-plane";

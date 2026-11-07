@@ -446,15 +446,18 @@ int main(int argc,char** argv){
         const auto new_mirror=edited_records[1].at("data").at("object").get<std::string>();
         const auto new_pattern=edited_records[4].at("data").at("object").get<std::string>();
         const bool copied_ok=copy_saved.body_history.find(copy_fixture.mirror)->scope.placement.x==-4&&
-            copy_saved.body_history.find(copy_fixture.mirror)->derived_copy->source_id==copy_fixture.other&&
+            copy_saved.body_history.find(copy_fixture.mirror)->derived_copy->source_ids==
+                std::vector<std::string>{copy_fixture.other}&&
             std::abs(copied_volume(copy_fixture.mirror)-12)<1e-6&&
             copy_saved.body_history.find(copy_fixture.pattern)->derived_copy->pattern->linear[0].spacing==40&&
             std::abs(copied_volume(new_mirror)-60)<1e-6&&
             std::abs(copied_volume(new_pattern)-120)<1e-6;
         if(!copied_ok) {
+            const auto& sources=copy_saved.body_history.find(
+                copy_fixture.mirror)->derived_copy->source_ids;
             std::ostringstream detail;detail<<"CLI copy properties or independent Boolean-source copy volumes did not persist: x="
                 <<copy_saved.body_history.find(copy_fixture.mirror)->scope.placement.x<<", source="
-                <<copy_saved.body_history.find(copy_fixture.mirror)->derived_copy->source_id<<", expected_source="
+                <<(sources.empty()?"<missing>":sources.front())<<", expected_source="
                 <<copy_fixture.other<<", old_mirror="<<copied_volume(copy_fixture.mirror)
                 <<", spacing="<<copy_saved.body_history.find(copy_fixture.pattern)->derived_copy->pattern->linear[0].spacing
                 <<", new_mirror="<<copied_volume(new_mirror)

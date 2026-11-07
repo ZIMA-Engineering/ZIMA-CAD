@@ -101,9 +101,16 @@ bool commit_edge_treatment(Workspace& live,const kernel::OcctKernel& kernel,cons
     const auto available=group_edges(input->mesh.edges);
     const auto original_available=group_edges(
         input->mesh.original_references.edges);
-    const bool original_source_allowed=
-        parameters.calculation_method!=Parameters::CalculationMethod::Occt&&
-        (!fillet||parameters.fillet_mode==Parameters::FilletMode::Constant);
+    // Editing evaluates the real rollback boundary immediately before this
+    // feature. A lightweight final-first checkpoint may publish an explicitly
+    // requested source edge only in original_references, while its exact B-Rep
+    // remains the current operation input. Accept that persisted source for
+    // preflight in every edit mode; new commands still require an ordinary
+    // current display edge unless the established custom constant treatment
+    // path supports an authored source.
+    const bool original_source_allowed=stored!=nullptr||
+        (parameters.calculation_method!=Parameters::CalculationMethod::Occt&&
+         (!fillet||parameters.fillet_mode==Parameters::FilletMode::Constant));
     std::set<Key> unique;
     for(std::size_t i=0;i<parameters.routes.size();++i) {
         const auto& route=parameters.routes[i];

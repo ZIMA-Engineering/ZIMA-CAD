@@ -18,4 +18,9 @@ struct MeasurementGeometry {
     const zima::kernel::ViewerMesh&, const zima::kernel::MeasurementReference&);
 [[nodiscard]] std::optional<zima::kernel::MeasurementDistance> measure_distance(
     const MeasurementGeometry&, const MeasurementGeometry&);
+// Returns the smaller exact angle between two planar entities in degrees.
+// Parallel and antiparallel planes deliberately return no angle so the
+// measurement inspector can report their meaningful shortest distance.
+[[nodiscard]] std::optional<zima::kernel::MeasurementValue> measure_plane_angle(
+    const MeasurementGeometry&, const MeasurementGeometry&);
 } // namespace zima::measurement

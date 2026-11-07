@@ -13,6 +13,9 @@ namespace fs=std::filesystem;
 namespace {
 void require(bool value,const char* message){if(!value)throw std::runtime_error(message);}
 void near(double actual,double expected){if(std::abs(actual-expected)>1e-5)throw std::runtime_error("Expected "+std::to_string(expected)+", got "+std::to_string(actual));}
+double exact_volume(const kernel::OcctKernel& kernel,const kernel::BodyResult& source) {
+    auto result=source;kernel.ensure_body_properties(result);return result.volume;
+}
 commands::Result run(command_host::Host& host,const std::string& command,Json args=Json::object()) {
     auto result=host.execute({{"command",command},{"arguments",std::move(args)}});
     if(!result.ok)throw std::runtime_error(command+": "+result.code+": "+result.message);return result;
@@ -31,7 +34,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
         {"bore_targets",target(bore)},{"thread_end","up_to"},{"thread_targets",target(thread)},
         {"chamfer_enabled",false},{"drill_point_enabled",false},{"placement",{{"z",-30}}}}).data;
     const auto id=created.at("container").get<std::string>();const double r=8.376/2;
-    const auto measured_volume=[&]{auto result=state->session.calculated_boundaries().back();kernel.ensure_body_properties(result);return result.volume;};
+    const auto measured_volume=[&]{return exact_volume(kernel,state->session.calculated_boundaries().back());};
     const auto volume=[&](double depth){near(measured_volume(),216000-std::numbers::pi*r*r*depth);};
     const auto sheet_end=[&](double end) {
         const auto& mesh=state->session.calculated_boundaries().back().mesh;double maximum=-1e20;
@@ -52,7 +55,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     stale.find_container(id)->thread.end_targets_forward.front().fallback_origin.z=200;
     stale.find_container(id)->thread.length_end_targets.front().fallback_origin.z=300;
     const auto native_datum=kernel.evaluate_history(stale.kernel_operations());
-    near(native_datum.back().volume,216000-std::numbers::pi*r*r*20);
+    near(exact_volume(kernel,native_datum.back()),216000-std::numbers::pi*r*r*20);
 
     require(created.at("bore_targets")[0].at("owner")==bore.at("entity")&&created.at("thread_targets")[0].at("owner")==thread.at("entity"),"Opening target identities changed");
     run(host,"construction.set",{{"construction",bore.at("construction")},{"offset_mm",-5}});
@@ -68,8 +71,8 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     }
     run(host,"save");std::vector<kernel::BodyResult> stored;
     const auto loaded=document::PartDocument::load(directory/"opening-limits.prtz",&stored);
-    near(stored.back().volume,216000-std::numbers::pi*r*r*25);
-    const auto cold=kernel.evaluate_history(loaded.kernel_operations());near(cold.back().volume,stored.back().volume);
+    near(exact_volume(kernel,stored.back()),216000-std::numbers::pi*r*r*25);
+    const auto cold=kernel.evaluate_history(loaded.kernel_operations());near(cold.back().volume,exact_volume(kernel,stored.back()));
     run(host,"history.suppress",{{"object",bore.at("construction")},{"suppressed",true}});
     require(state->session.document().find_container(id)->suppressed&&
         state->session.calculated_boundaries().back().calculation_errors.empty(),"Suppressing an opening target did not suppress its dependent feature");
@@ -103,15 +106,15 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
         }
         near(maximum,z);
     };
-    near(state->session.calculated_boundaries().back().volume,216000-std::numbers::pi*r*r*60);
+    near(exact_volume(kernel,state->session.calculated_boundaries().back()),216000-std::numbers::pi*r*r*60);
     face_sheet_end(state->session.calculated_boundaries().back(),30);
     zima::test::resize_rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"container",box},{"height_mm","80"}});
-    near(state->session.calculated_boundaries().back().volume,288000-std::numbers::pi*r*r*70);
+    near(exact_volume(kernel,state->session.calculated_boundaries().back()),288000-std::numbers::pi*r*r*70);
     face_sheet_end(state->session.calculated_boundaries().back(),40);
     auto cold_face=state->session.document();
     cold_face.find_container(box.get<std::string>())->feature.sides[0].length=50;
     const auto face_result=kernel.evaluate_history(cold_face.kernel_operations());
-    near(face_result.back().volume,360000-std::numbers::pi*r*r*80);face_sheet_end(face_result.back(),50);
+    near(exact_volume(kernel,face_result.back()),360000-std::numbers::pi*r*r*80);face_sheet_end(face_result.back(),50);
     // Keep the bore reference intact: a missing thread-only face must also fail.
     auto missing=state->session.document();
     missing.find_container(face_opening)->thread.length_end_targets.front().reference.semantic_key="missing-original-face";
@@ -124,7 +127,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     run(host,"save");std::vector<kernel::BodyResult> face_stored;
     const auto saved_faces=document::PartDocument::load(directory/"opening-faces.prtz",&face_stored);
     const auto reloaded_faces=kernel.evaluate_history(saved_faces.kernel_operations());
-    near(reloaded_faces.back().volume,face_stored.back().volume);face_sheet_end(reloaded_faces.back(),40);
+    near(exact_volume(kernel,reloaded_faces.back()),exact_volume(kernel,face_stored.back()));face_sheet_end(reloaded_faces.back(),40);
     run(host,"new",{{"type","part"},{"name","opening-body-target"}});
     const auto stock=zima::test::rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"length_mm","20"},{"width_mm","20"},{"height_mm","20"}}).data.at("container");
     state=live.open_part(live.active_document_id());
@@ -137,20 +140,20 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     const auto other_opening=run(host,"opening.create",{{"type","metric"},{"designation","M10"},
         {"bore_end","up_to"},{"bore_targets",other_face},{"thread_end","up_to"},{"thread_targets",other_face},
         {"chamfer_enabled",false},{"drill_point_enabled",false},{"placement",{{"z",-40}}}}).data.at("container").get<std::string>();
-    near(state->session.calculated_boundaries().back().volume,136000-std::numbers::pi*r*r*55);
+    near(exact_volume(kernel,state->session.calculated_boundaries().back()),136000-std::numbers::pi*r*r*55);
     near(state->session.document().find_container(other_opening)->thread.end_targets_forward.front().fallback_origin.z,15);
     run(host,"body.activate",{{"body",source_body}});zima::test::resize_rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"container",stock},{"height_mm","22"}});
-    near(state->session.calculated_boundaries().back().volume,136800-std::numbers::pi*r*r*56);
+    near(exact_volume(kernel,state->session.calculated_boundaries().back()),136800-std::numbers::pi*r*r*56);
     near(state->session.document().find_container(other_opening)->thread.length_end_targets.front().fallback_origin.z,16);
-    run(host,"undo");near(state->session.calculated_boundaries().back().volume,136000-std::numbers::pi*r*r*55);
-    run(host,"redo");near(state->session.calculated_boundaries().back().volume,136800-std::numbers::pi*r*r*56);
+    run(host,"undo");near(exact_volume(kernel,state->session.calculated_boundaries().back()),136000-std::numbers::pi*r*r*55);
+    run(host,"redo");near(exact_volume(kernel,state->session.calculated_boundaries().back()),136800-std::numbers::pi*r*r*56);
     run(host,"save");std::vector<kernel::BodyResult> body_cache;
     auto body_loaded=document::PartDocument::load(directory/"opening-body-target.prtz",&body_cache);
     kernel::OcctKernel cold_kernel;
     auto* saved_opening=body_loaded.find_container(other_opening);
     saved_opening->thread.profile_diameter+=0.1;
     const auto incremental=cold_kernel.evaluate_history_incremental(body_loaded.kernel_operations(),body_cache);
-    near(incremental.back().volume,136800-std::numbers::pi*std::pow(r+0.05,2)*56);
+    near(exact_volume(cold_kernel,incremental.back()),136800-std::numbers::pi*std::pow(r+0.05,2)*56);
 
 
 }

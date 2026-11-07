@@ -285,7 +285,7 @@ int verify_show_erase_ui() {
     auto mirror = derived.components[0];
     mirror.occurrence_id = "mirror";
     mirror.derived_copy = document::DerivedCopyParameters{};
-    mirror.derived_copy->source_id = derived.components[0].occurrence_id;
+    mirror.derived_copy->source_ids = {derived.components[0].occurrence_id};
     mirror.derived_copy->resolved_plane = {{}, {1, 0, 0}};
     derived.components.push_back(mirror);
     auto pattern = mirror;

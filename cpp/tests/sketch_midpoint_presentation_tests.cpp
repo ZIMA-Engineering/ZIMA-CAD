@@ -87,7 +87,32 @@ int main(int argc,char** argv) {
                     check(candidate&&candidate->semantic_key==key,"Cursor at midpoint does not offer that exact point");
                 }
                 publish(hidden);move(center);
-                check(near.copy(crop)!=view.grabFramebuffer().copy(crop),"Cursor near midpoint has no visible feedback");
+                if(near.copy(crop)==view.grabFramebuffer().copy(crop))
+                    throw std::runtime_error("Cursor near midpoint has no visible feedback: back="+
+                        std::to_string(back)+" sector="+std::to_string(sector)+
+                        " transient="+std::to_string(transient)+" zoom="+
+                        std::to_string(zoom)+" external="+std::to_string(external));
+                if(!external&&!transient) {
+                    // Ordinary Sketch selection still offers point/reference
+                    // kinds while its active candidate is the complete
+                    // Segment. Crossing the middle must not paint M until the
+                    // exact midpoint candidate itself wins the picker.
+                    view.set_candidate_priority([](const auto& candidate) {
+                        return candidate.kind ==
+                                viewer::CandidateKind::SketchSegment
+                            ? -1 : 1;
+                    });
+                    publish(mesh);move(center);
+                    const auto segment_only=view.grabFramebuffer();
+                    check(view.hovered_candidate() &&
+                            view.hovered_candidate()->kind ==
+                                viewer::CandidateKind::SketchSegment,
+                        "Segment-priority midpoint fixture did not select the segment");
+                    publish(hidden);move(center);
+                    check(segment_only.copy(crop)==view.grabFramebuffer().copy(crop),
+                        "Selecting a segment also exposed its midpoint marker");
+                    view.set_candidate_priority(app::sketch_placement_pick_priority);
+                }
                 ++cases;
             }
         }

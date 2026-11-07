@@ -1,4 +1,5 @@
 #include "profile_solid_fixture.hpp"
+#include <zima/document/hole_profiles.hpp>
 #include <zima/document/part_document.hpp>
 #include <zima/kernel/occt_kernel.hpp>
 
@@ -85,6 +86,72 @@ int main() {
                     boundaries.back().volume > 0.0 &&
                     boundaries.back().volume < boundaries.front().volume,
                 "Hole profile did not remove material");
+
+        // A later Hole may use the analytical axis of an existing bore as a
+        // positional reference.  The axis fixes the two radial coordinates
+        // while retaining the authored station along it.  This exercises the
+        // real calculated Hole face instead of a synthetic cylinder packet.
+        const auto bore_face = std::ranges::find_if(
+            boundaries.back().mesh.original_references.triangle_references,
+            [&](const auto& reference) {
+                return reference.owner_id == hole.id && reference.surface &&
+                    reference.surface->kind ==
+                        zima::kernel::SurfaceGeometry::Kind::Cylinder;
+            });
+        require(bore_face != boundaries.back().mesh.original_references.
+                    triangle_references.end(),
+                "Calculated Hole did not publish its analytical bore face");
+        auto coaxial_hole =
+            zima::document::PartDocument::create_hole_container();
+        coaxial_hole.hole.diameter = 6.0;
+        coaxial_hole.hole.bore_length = 5.0;
+        zima::document::update_hole_profiles(coaxial_hole.hole);
+        coaxial_hole.placement.x = 12.0;
+        coaxial_hole.placement.y = -9.0;
+        coaxial_hole.placement.z = 15.0;
+        zima::document::ConstructionReference bore_axis;
+        bore_axis.owner_id = bore_face->owner_id;
+        bore_axis.semantic_key = bore_face->semantic_key;
+        bore_axis.instance_path = bore_face->instance_path;
+        bore_axis.use_axis = true;
+        bore_axis.supports_offset = false;
+        coaxial_hole.placement.references = {bore_axis};
+        require(zima::document::resolve_placement(coaxial_hole.placement,
+                    boundaries.back().mesh.original_references),
+                "Hole could not be placed on an existing bore axis");
+        require(std::abs(coaxial_hole.placement.x-hole.placement.x) < 1.0e-8 &&
+                    std::abs(coaxial_hole.placement.y-hole.placement.y) < 1.0e-8 &&
+                    std::abs(coaxial_hole.placement.z-15.0) < 1.0e-8,
+                "Bore-axis placement did not retain its axial station");
+        auto coaxial_document = document;
+        coaxial_document.history.push_back(coaxial_hole);
+        const auto coaxial_boundaries = kernel.evaluate_history(
+            coaxial_document.kernel_operations());
+        require(coaxial_boundaries.size() == 3 &&
+                    coaxial_boundaries.back().volume <
+                        coaxial_boundaries[1].volume,
+                "A Hole placed on a bore axis did not remove material");
+        const auto coaxial_path = std::filesystem::temp_directory_path() /
+            "zima-cad-hole-axis-contract.prtz";
+        coaxial_document.save(coaxial_path, coaxial_boundaries);
+        auto coaxial_loaded =
+            zima::document::PartDocument::load(coaxial_path);
+        std::filesystem::remove(coaxial_path);
+        auto* loaded_coaxial =
+            coaxial_loaded.find_container(coaxial_hole.id);
+        require(loaded_coaxial &&
+                    loaded_coaxial->placement.references.size() == 1 &&
+                    loaded_coaxial->placement.references.front().use_axis &&
+                    std::abs(loaded_coaxial->placement.z-15.0) < 1.0e-8,
+                "Bore-axis Hole placement did not survive save/reopen");
+        loaded_coaxial->hole.diameter = 5.0;
+        zima::document::update_hole_profiles(loaded_coaxial->hole);
+        const auto edited_coaxial_boundaries = kernel.evaluate_history(
+            coaxial_loaded.kernel_operations());
+        require(edited_coaxial_boundaries.size() == 3 &&
+                    coaxial_loaded.find_container(coaxial_hole.id)->
+                        placement.references.front().use_axis,
+                "Editing a bore-axis Hole lost its placement reference");
         const auto wire = document.hole_thread_edges(hole);
         require(wire.size() == 4,
                 "Cosmetic thread is not two circles and two boundary lines");

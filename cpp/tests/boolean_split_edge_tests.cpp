@@ -705,7 +705,7 @@ void form_case(const fs::path& directory) {
     const std::string cutter="01a1128b1f7a74f1b43389f983258e0d";
     const std::array lengths{4.71456615785608,10.,7.83706245628,29.8862466484,18.7992868721026};
     const auto edges=f.result().mesh.edges;
-    std::array<int,6> counts{};
+    std::array<int,5> counts{};
     for (const auto& edge:edges) {
         if(edge.reference.owner_id!=cutter||!edge.measured_length)continue;
         const auto length=std::ranges::find_if(lengths,[&](double value){return std::abs(value-*edge.measured_length)<1e-5;});

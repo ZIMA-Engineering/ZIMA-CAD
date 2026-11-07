@@ -1,4 +1,5 @@
 #include "profile_solid_fixture.hpp"
+#include "body_measurement_fixture.hpp"
 #include <zima/workspace/drawing_sources.hpp>
 #include <zima/drawing/balloon.hpp>
 #include <zima/workspace/metadata_operations.hpp>
@@ -20,7 +21,7 @@ using namespace zima;
 namespace fs=std::filesystem;
 namespace {
 void require(bool condition,const char* text){if(!condition)throw std::runtime_error(text);}
-double volume(const workspace::Workspace& live,const std::string& id){return live.open_part(id)->session.calculated_boundaries().back().volume;}
+double volume(const kernel::OcctKernel& engine,const workspace::Workspace& live,const std::string& id){return test::measured_volume(engine,live.open_part(id)->session.calculated_boundaries().back());}
 void fractional_family_test(const kernel::OcctKernel& kernel,const fs::path& directory) {
     auto base=document::PartDocument::create_default();base.name="Fractional base";
     auto box=test::rectangular_feature(base,{10.5,8,6});base.history={box};
@@ -98,7 +99,7 @@ void fractional_family_test(const kernel::OcctKernel& kernel,const fs::path& dir
         "Fractional generic changed on native reopen");
     const auto member=workspace::family_part_source(reopened,cache,variant);
     require(std::abs(test::profile_dimension(member,*member.find_container(box.id),0)-22.75)<1e-9&&
-        std::abs(cache.back().volume-22.75*8*6)<1e-8,"Fractional member changed on native reopen");
+        std::abs(test::measured_volume(kernel,cache.back())-22.75*8*6)<1e-8,"Fractional member changed on native reopen");
 }
 void bend_state_test(const kernel::OcctKernel& kernel,const fs::path& directory) {
     workspace::Workspace live;auto part=document::PartDocument::create_default();
@@ -160,7 +161,9 @@ void component_test(const kernel::OcctKernel& kernel,const fs::path& directory) 
     assembly::ComponentPlacementReference mate;mate.component_reference={assembly::MateReferenceKind::Face,assembly::InstancePath{}.child(first),root+":origin","origin:plane:xy"};mate.target_reference={assembly::MateReferenceKind::Face,assembly::InstancePath{}.child(second),root+":origin","origin:plane:xy"};moving->placement_references.push_back(mate);placed.calculate_placement_references();live.open_assembly(owner)->session.commit(placed);
     require(workspace::replace_component(live,kernel,owner,first,long_id),"Replace failed");
     const auto& replaced=live.open_assembly(owner)->session.document();const auto* changed=replaced.find_occurrence(first);
-    require(changed->source_document_id==long_id&&changed->source_path==file&&std::abs(changed->calculated_source->volume-960)<1e-8,"Replace selected the wrong variant");
+    require(changed->source_document_id==long_id&&changed->source_path==file&&
+        std::abs(test::measured_volume(kernel,changed->calculated_source.get())-960)<1e-8,
+        "Replace selected the wrong variant");
     require(std::abs(changed->placement.x-placed.find_occurrence(first)->placement.x)<1e-8,"Replace moved an unconstrained coordinate");
     require(changed->visible==placed.find_occurrence(first)->visible&&changed->value_locks==placed.find_occurrence(first)->value_locks,"Replace lost occurrence flags or locks");
     require(changed->placement_references.size()==1&&replaced.resolve_plane(changed->placement_references[0].component_reference).status==assembly::MateStatus::Valid,"Replace lost the origin mate");
@@ -225,8 +228,8 @@ void component_test(const kernel::OcctKernel& kernel,const fs::path& directory) 
         require(occurrence->placement_references.front()==original_reference&&
             result.resolve_plane(occurrence->placement_references.front().component_reference).status==assembly::MateStatus::Valid,
             "Replace by independent copy lost the original face reference");
-        require(std::abs(occurrence->calculated_source->volume-480)<1e-8&&
-            std::abs(result.find_occurrence(second)->calculated_source->volume-240)<1e-8,
+        require(std::abs(test::measured_volume(kernel,occurrence->calculated_source.get())-480)<1e-8&&
+            std::abs(test::measured_volume(kernel,result.find_occurrence(second)->calculated_source.get())-240)<1e-8,
             "Independent sources with shared topology IDs confused their geometry");
         require(workspace::step_document_history(audit,owner,workspace::HistoryDirection::Undo)&&
             audit.open_assembly(owner)->session.document().find_occurrence(first)->source_document_id==long_id,
@@ -243,8 +246,8 @@ void component_test(const kernel::OcctKernel& kernel,const fs::path& directory) 
         const auto* reopened_copy=cold_copy.find_occurrence(first);
         require(reopened_copy->source_document_id==copy_id&&
             cold_copy.resolve_plane(reopened_copy->placement_references.front().component_reference).status==assembly::MateStatus::Valid&&
-            std::abs(reopened_copy->calculated_source->volume-480)<1e-8&&
-            std::abs(cold_copy.find_occurrence(second)->calculated_source->volume-240)<1e-8,
+            std::abs(test::measured_volume(kernel,reopened_copy->calculated_source.get())-480)<1e-8&&
+            std::abs(test::measured_volume(kernel,cold_copy.find_occurrence(second)->calculated_source.get())-240)<1e-8,
             "Save/reopen confused copied-source geometry or lost its face mate");
         std::cout<<"Library copy: distinct document IDs, preserved face mate, isolated geometry, Replace Undo/Redo and cold reopen passed\n";
     }
@@ -259,12 +262,16 @@ void component_test(const kernel::OcctKernel& kernel,const fs::path& directory) 
     require(reopened.find_occurrence(first)->source_name=="Long"&&reopened.find_occurrence(second)->source_name=="Short"&&
         reopened.occurrence_snapshot()[1].source_name=="Short",
         "Cold Assembly lost native variant names or substituted a custom occurrence alias");
-    require(std::abs(reopened.find_occurrence(first)->calculated_source->volume-960)<1e-8&&std::abs(reopened.find_occurrence(second)->calculated_source->volume-240)<1e-8,"Cold Assembly confused two members in one file");
+    require(std::abs(test::measured_volume(kernel,reopened.find_occurrence(first)->calculated_source.get())-960)<1e-8&&
+        std::abs(test::measured_volume(kernel,reopened.find_occurrence(second)->calculated_source.get())-240)<1e-8,
+        "Cold Assembly confused two members in one file");
     const auto snapshot=reopened.find_occurrence(first)->calculated_source;cold.refresh_source_geometry();require(snapshot.shares_with(cold.open_assembly(owner)->session.document().find_occurrence(first)->calculated_source),"Unchanged display rebuilt the variant source");
     const auto opened=workspace::open_component_source(cold,owner,assembly::InstancePath{}.child(first));
     require(opened.document_id==long_id&&cold.open_part(root)&&cold.open_part(long_id),"Cold component Open did not load its parent and selected member");
     auto edited=cold.open_part(root)->session.document();zima::test::profile_dimension(edited,*edited.find_container(box.id),1)=9;cold.open_part(root)->session.commit(edited,kernel.evaluate_history(edited.kernel_operations()));
-    cold.refresh_source_geometry();require(std::abs(cold.open_assembly(owner)->session.document().find_occurrence(second)->calculated_source->volume-270)<1e-8,"Closed member ignored unsaved open-parent geometry");
+    cold.refresh_source_geometry();require(std::abs(test::measured_volume(kernel,
+        cold.open_assembly(owner)->session.document().find_occurrence(second)->calculated_source.get())-270)<1e-8,
+        "Closed member ignored unsaved open-parent geometry");
     // A family Assembly can itself contain Part variants and be inserted cold.
     document::FamilyTable assembly_table;assembly_table.columns={"Second"};assembly_table.bindings["Second"]={"component",second,{}};assembly_table.instances={{"One component",{{"Second","no"}}}};
     static_cast<void>(workspace::set_family_table(live,owner,assembly_table));const auto assembly_variant=workspace::open_family_instance(live,kernel,owner,"One component",false);
@@ -277,7 +284,7 @@ void component_test(const kernel::OcctKernel& kernel,const fs::path& directory) 
     require(nested_cold.resolve_occurrence(top_id,nested_path)->source_document_id==short_id&&nested_cold.occurrence_source_file(top_id,nested_path)==file,"Nested member lost its occurrence or native path");
     const auto opened_nested=workspace::open_component_source(nested_cold,top_id,assembly::InstancePath{}.child(nested));
     require(opened_nested.document_id==assembly_variant&&nested_cold.open_assembly(owner),"Cold Assembly member did not open with its parent");
-    require(std::abs(nested_cold.open_assembly(assembly_variant)->session.document().find_occurrence(first)->calculated_source->volume-960)<1e-8,
+    require(std::abs(test::measured_volume(kernel,nested_cold.open_assembly(assembly_variant)->session.document().find_occurrence(first)->calculated_source.get())-960)<1e-8,
         "Opening a cached Assembly family member did not hydrate its native Part source");
     nested_cold.activate(top_id);static_cast<void>(workspace::replace_component(nested_cold,kernel,top_id,nested,owner));
     require(nested_cold.open_assembly(top_id)->session.document().find_occurrence(native_nested)->source_document_id==owner,"Nested replacement changed its sibling");
@@ -324,7 +331,7 @@ void family_test(const kernel::OcctKernel& kernel,const fs::path& directory) {
     const auto second=graph.create_body("Second");graph.insert({document::PartHistoryKind::Feature,other.id});graph.activate({});base.set_body_history(graph);base.synchronize_dimension_identifiers();
     workspace::Workspace live;const auto id=base.document_id;
     auto cache=kernel.evaluate_history(base.kernel_operations());
-    live.add_part(base,cache,directory/"base.prtz");require(std::abs(volume(live,id)-464)<1e-8,"Generic volume must be 480 - 24 + 8");
+    live.add_part(base,cache,directory/"base.prtz");require(std::abs(volume(kernel,live,id)-464)<1e-8,"Generic volume must be 480 - 24 + 8");
     const auto refs=workspace::family_references(live,id);
     const auto find=[&](const std::string& owner,const std::string& key){for(const auto& r:refs)if(r.binding.owner_id==owner&&r.binding.semantic_key==key)return r;throw std::runtime_error("Missing family reference");};
     const auto length=find(length_owner,length_key),presence=find(cut.id,""),body=find(second,"");
@@ -355,7 +362,7 @@ void family_test(const kernel::OcctKernel& kernel,const fs::path& directory) {
     live.open_part(id)->session.document().save(directory/"base.prtz",cache);
     const auto loaded=document::PartDocument::load(directory/"base.prtz");require(document::parse_family_table(loaded.family_table)==table,"Family identities and references did not persist");
     const auto variant=workspace::open_family_instance(live,kernel,id,"Long");
-    require(std::abs(volume(live,variant)-944)<1e-8 && std::abs(volume(live,id)-464)<1e-8,"Variant dimensions changed the generic or copied the wrong operand");
+    require(std::abs(volume(kernel,live,variant)-944)<1e-8 && std::abs(volume(kernel,live,id)-464)<1e-8,"Variant dimensions changed the generic or copied the wrong operand");
     require(workspace::open_family_instance(live,kernel,id,"Long")==variant && live.size()==2,"Opening a row duplicated its tab");
     auto* held_member=live.open_part(variant);
     const auto member_shape=held_member->session.calculated_boundaries().back().kernel_shape;
@@ -374,17 +381,20 @@ void family_test(const kernel::OcctKernel& kernel,const fs::path& directory) {
     const auto observing_occurrence=live.insert_open_part(observing_id,variant,"Variant");
     auto revised=table;revised.instances.front().values[length.name]="22";
     static_cast<void>(workspace::set_family_table(live,id,revised));
-    require(workspace::open_family_instance(live,kernel,id,"Long")==variant&&std::abs(volume(live,variant)-1040)<1e-8,"Opening an updated row did not regenerate its existing tab");
+    require(workspace::open_family_instance(live,kernel,id,"Long")==variant&&std::abs(volume(kernel,live,variant)-1040)<1e-8,"Opening an updated row did not regenerate its existing tab");
     bool nested_rejected=false;try {auto child=live.open_part(variant)->session.document();child.family_table=document::serialize_family_table(table);live.open_part(variant)->session.commit(std::move(child),live.open_part(variant)->session.calculated_boundaries());}catch(const std::exception&){nested_rejected=true;}
     require(nested_rejected,"An instance accepted its own nested Family Table");
     require(live.open_part(variant)->session.data_generation()>previous_generation&&live.open_part(variant)->session.revision()>previous_revision,"Family edit reset the instance revision or viewer generation");
     live.refresh_source_geometry();
-    require(std::abs(live.open_assembly(observing_id)->session.document().find_occurrence(observing_occurrence)->calculated_source->volume-1040)<1e-8,"Assembly retained stale geometry after a family edit");
+    require(std::abs(test::measured_volume(kernel,
+        live.open_assembly(observing_id)->session.document().find_occurrence(
+            observing_occurrence)->calculated_source.get())-1040)<1e-8,
+        "Assembly retained stale geometry after a family edit");
     static_cast<void>(workspace::close_document(live,observing_id,true));
     const auto no_cut=workspace::open_family_instance(live,kernel,id,"No cut");
     const auto one=workspace::open_family_instance(live,kernel,id,"One body");
-    require(std::abs(volume(live,no_cut)-968)<1e-8,"Absent cut remains");
-    require(std::abs(volume(live,one)-936)<1e-8,"Absent Body remains");
+    require(std::abs(volume(kernel,live,no_cut)-968)<1e-8,"Absent cut remains");
+    require(std::abs(volume(kernel,live,one)-936)<1e-8,"Absent Body remains");
     auto edited=live.open_part(variant)->session.document();zima::test::profile_dimension(edited,*edited.find_container(box.id),0)=24;
     auto changed=workspace::calculate_part_with_resolved_references(kernel,edited,nullptr,{true});
     live.open_part(variant)->session.commit(edited,std::move(changed));
@@ -411,7 +421,7 @@ void family_test(const kernel::OcctKernel& kernel,const fs::path& directory) {
     require(workspace::step_document_history(live,id,workspace::HistoryDirection::Undo),"Width Undo failed");
     require(workspace::step_document_history(live,id,workspace::HistoryDirection::Undo),"Row Undo failed");
     static_cast<void>(workspace::set_family_table(live,id,table));
-    require(std::abs(volume(live,variant)-944)<1e-8,"Restored family differs");
+    require(std::abs(volume(kernel,live,variant)-944)<1e-8,"Restored family differs");
     bool separate=false;try{live.open_part(variant)->session.document().save(directory/"separate.prtz",live.open_part(variant)->session.calculated_boundaries());}catch(const std::exception&){separate=true;}
     require(separate&&!fs::exists(directory/"separate.prtz"),"Instance was saved as an independent native file");
     static_cast<void>(live.save_copy(variant,directory/"copy.prtz"));
@@ -421,7 +431,7 @@ void family_test(const kernel::OcctKernel& kernel,const fs::path& directory) {
     require(!workspace::document_needs_save(live,variant)&&!workspace::document_needs_save(live,id),"Family Save left inconsistent dirty state");
     std::vector<kernel::BodyResult> cold_cache;auto cold=document::PartDocument::load(directory/"base.prtz",&cold_cache);
     auto cold_variant=workspace::family_part_source(cold,cold_cache,variant);
-    require(cold_variant.family.parent_id==id&&std::abs(cold_cache.back().volume-944)<1e-8,"Single native file did not retain evaluated instance");
+    require(cold_variant.family.parent_id==id&&std::abs(test::measured_volume(kernel,cold_cache.back())-944)<1e-8,"Single native file did not retain evaluated instance");
     const auto [source_id,source_mesh]=workspace::read_drawing_source(nullptr,directory/"base.prtz",variant);
     require(source_id==variant&&!source_mesh.triangles.empty(),"Cold Drawing source did not resolve parent plus row");
     // Reverse Save Copy resolves a primary Family owner from the same native
@@ -440,7 +450,7 @@ void family_test(const kernel::OcctKernel& kernel,const fs::path& directory) {
         const auto model=document::PartDocument::load(model_path,&saved_cache);
         const auto copied=drawing::DrawingDocument::load(target);
         require(model.family.parent_id.empty()&&model.document_id!=variant&&
-            !saved_cache.empty()&&std::abs(saved_cache.back().volume-944)<1e-8&&
+            !saved_cache.empty()&&std::abs(test::measured_volume(kernel,saved_cache.back())-944)<1e-8&&
             copied.source_document_id==model.document_id&&copied.source_path==model_path&&
             copied.sheets.front().views.front().source_document_id==model.document_id,
             "Family Drawing copy lost its evaluated variant or retained family ownership");
@@ -485,7 +495,7 @@ void family_test(const kernel::OcctKernel& kernel,const fs::path& directory) {
     static_cast<void>(workspace::close_document(live,copied_id,true));
     auto bad=table;bad.instances.push_back({"Invalid",{{length.name,"0"}}});static_cast<void>(workspace::set_family_table(live,id,bad));
     const auto count=live.size();bool rejected=false;try{workspace::open_family_instance(live,kernel,id,"Invalid");}catch(const std::exception&){rejected=true;}
-    require(rejected&&live.size()==count&&std::abs(volume(live,id)-464)<1e-8,"Failed variant left a partial document or changed generic");
+    require(rejected&&live.size()==count&&std::abs(volume(kernel,live,id)-464)<1e-8,"Failed variant left a partial document or changed generic");
     bad=table;bad.bindings[length.name].owner_id="missing";rejected=false;try{static_cast<void>(workspace::set_family_table(live,id,bad));}catch(const std::exception&){rejected=true;}require(rejected,"Dangling family reference accepted");
     auto assembly=assembly::AssemblyDocument::create_default();assembly.name="Assembly";const auto aid=assembly.document_id;live.add_assembly(assembly,directory/"base.asmz");
     const auto component=live.insert_open_part(aid,id,"Block");

@@ -200,6 +200,11 @@ void verify_rim_reference(const kernel::OcctKernel& kernel,fs::path directory) {
 }
 }
 int main(){try {
+#ifdef _WIN32
+    _putenv_s("ZIMA_CPP_EAGER_ANALYSIS","1");
+#else
+    setenv("ZIMA_CPP_EAGER_ANALYSIS","1",1);
+#endif
     kernel::OcctKernel kernel;const auto root=fs::canonical(fs::temp_directory_path());const auto directory=root/("zima-shaft-commands-"+document::PartDocument::create_default().document_id);
     require(fs::create_directory(directory),"Cannot create test directory");verify(kernel,directory);verify_chamfer(kernel,directory);verify_rim_reference(kernel,directory);
     require(directory.parent_path()==root,"Unexpected cleanup path");fs::remove_all(directory);

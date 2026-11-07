@@ -352,7 +352,9 @@ int verify_translations(QApplication& application, QWidget& parent) {
             }
             helical.show();application.processEvents();
             auto* result=helical.findChild<QComboBox*>("helicalResultType");
-            check(helical.findChild<QPushButton*>("helicalSketch2")->y()<result->y()&&result->y()<base_plane->y()&&base_plane->y()<base_offset->y(),
+            auto* plane_selector=helical.findChild<QWidget*>("helicalBasePlaneSelector");
+            check(plane_selector&&helical.findChild<QPushButton*>("helicalSketch2")->y()<result->y()&&
+                    result->y()<plane_selector->y()&&plane_selector->y()<base_offset->y(),
                 "Helical controls are not ordered Sketches, result, plane, offset");
             bool plane_label=false;
             for(auto* label:helical.findChildren<QLabel*>())plane_label|=label->text()==settings.qt_translations.value("Rovina");

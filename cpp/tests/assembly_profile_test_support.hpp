@@ -1,4 +1,5 @@
 #include "profile_command_fixture.hpp"
+#include "body_measurement_fixture.hpp"
 #pragma once
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/profile_operations.hpp>
@@ -42,7 +43,7 @@ struct Fixture {
     }
     workspace::AssemblyState& state(){return *live.open_assembly(owner);}
     const assembly::AssemblyDocument& doc(){return state().session.document();}
-    double volume(const std::string& target){return doc().find_occurrence(target)->calculated_source->volume;}
+    double volume(const std::string& target){return zima::test::measured_volume(kernel,doc().find_occurrence(target)->calculated_source.get());}
     Json create_feature(const std::string& sketch,document::FeatureParameters parameters={},Json extra=Json::object()) {
         auto values=zima::test::public_feature_parameters(parameters);values.erase("sketch_id");
         extra["sketch"]=sketch;extra["parameters"]=std::move(values);return run("feature.create",std::move(extra));

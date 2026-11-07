@@ -4,6 +4,7 @@
 #include <limits>
 #include <map>
 #include <numeric>
+#include <numbers>
 #include <queue>
 #include <tuple>
 
@@ -360,5 +361,27 @@ std::optional<kernel::MeasurementDistance> measure_distance(const MeasurementGeo
     }
     if(!std::isfinite(best.squared))return {};
     return kernel::MeasurementDistance{{std::sqrt(std::max(0.0,best.squared)),a.approximate||b.approximate},best.a,best.b};
+}
+std::optional<kernel::MeasurementValue> measure_plane_angle(
+        const MeasurementGeometry& a,const MeasurementGeometry& b) {
+    const auto support=[](const MeasurementGeometry& geometry)
+            ->std::optional<P> {
+        if(geometry.plane&&norm(geometry.plane->second)>1e-12)
+            return unit(geometry.plane->second);
+        if(geometry.source_faces.size()!=1||
+                !geometry.source_faces.front().surface||
+                geometry.source_faces.front().surface->kind!=
+                    kernel::SurfaceGeometry::Kind::Plane)
+            return {};
+        const auto axis=geometry.source_faces.front().surface->axis;
+        if(norm(axis)<=1e-12)return {};
+        return unit(axis);
+    };
+    const auto first=support(a),second=support(b);
+    if(!first||!second)return {};
+    const double cosine=std::clamp(std::abs(dot(*first,*second)),0.,1.);
+    if(1-cosine<=1e-12)return {};
+    return kernel::MeasurementValue{
+        std::acos(cosine)*180/std::numbers::pi,false};
 }
 } // namespace zima::measurement

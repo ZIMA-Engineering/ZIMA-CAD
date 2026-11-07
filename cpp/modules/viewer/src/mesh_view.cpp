@@ -229,6 +229,11 @@ struct MeshView::Impl {
     QOpenGLBuffer selected_source_lines{QOpenGLBuffer::VertexBuffer};
     using SourceWireKey=std::tuple<std::string,std::string,std::size_t>;
     std::optional<SourceWireKey> selected_source_key;
+    // Retain the exact authored packet together with its GPU batch. Ordinary
+    // repaint/navigation must not ask an Assembly or Part document to publish
+    // the same preview again merely to reconstruct the CPU-side Sketch stroke
+    // and point-marker inputs.
+    std::vector<kernel::ViewerEdge> selected_source_wire;
     std::size_t inspection_wire_revision{};
     GLsizei selected_source_vertex_count{};
     bool selected_source_native_sketch{};
@@ -576,10 +581,9 @@ struct MeshView::Impl {
         if(passive_sketch_axis_point(point)) {
             const bool explicit_entry=sketch_axis_entry_requested()||std::ranges::any_of(allowed_kinds,[](auto kind){
                 return kind==CandidateKind::Vertex||kind==CandidateKind::SketchPoint;});
-            return (show_axes&&show_axis_points)||explicit_entry||constraint_reference_owner_ids.contains(point.reference.owner_id)||
+            return (show_axes&&show_axis_points)||(picking&&explicit_entry)||constraint_reference_owner_ids.contains(point.reference.owner_id)||
                 constraint_reference_edges.contains({point.reference.owner_id,point.reference.semantic_key,point.reference.instance_path})||
-                assembly_reference_edges.contains({point.reference.owner_id,point.reference.semantic_key,point.reference.instance_path})||
-                feature_preview_owner_ids.contains(point.reference.owner_id);
+                assembly_reference_edges.contains({point.reference.owner_id,point.reference.semantic_key,point.reference.instance_path});
         }
         auto axis_key=kernel::axis_endpoint_parent_key(point.reference.semantic_key);
         const auto parent=marker_parents.find({point.reference.owner_id,point.reference.instance_path});
@@ -611,11 +615,16 @@ struct MeshView::Impl {
                 (category==ReferenceVisibility::Axes&&(kind==CandidateKind::Axis||kind==CandidateKind::SketchAxis))||
                 (category==ReferenceVisibility::Planes&&kind==CandidateKind::Plane);
         });
-        return (category==ReferenceVisibility::Axes?(show_axes&&show_axis_points):show_planes)||explicit_entry||editing_origin_visible||
-            constraint_reference_owner_ids.contains(point.reference.owner_id)||
+        const bool explicitly_pickable=picking&&explicit_entry;
+        const bool referenced=constraint_reference_owner_ids.contains(point.reference.owner_id)||
             constraint_reference_owner_ids.contains(reference.owner_id)||
             constraint_reference_edges.contains(reference)||
             constraint_reference_edges.contains(EdgeKey{point.reference.owner_id,point.reference.semantic_key,point.reference.instance_path})||
+            assembly_reference_edges.contains(reference)||
+            assembly_reference_edges.contains(EdgeKey{point.reference.owner_id,point.reference.semantic_key,point.reference.instance_path});
+        if(category==ReferenceVisibility::Axes)
+            return (show_axes&&show_axis_points)||explicitly_pickable||referenced;
+        return show_planes||explicitly_pickable||editing_origin_visible||referenced||
             feature_preview_owner_ids.contains(point.reference.owner_id)||
             feature_preview_owner_ids.contains(reference.owner_id);
     }
@@ -2681,6 +2690,11 @@ void MeshView::set_operation_direction_indicators(
     update();
 }
 
+const std::vector<OperationDirectionIndicator>&
+MeshView::operation_direction_indicators() const {
+    return impl_->operation_direction_indicators;
+}
+
 void MeshView::set_extent_manipulator_callbacks(
     std::function<void(const std::string&)> begin,
     std::function<void(const std::string&, double)> update_callback,
@@ -4154,9 +4168,14 @@ if (impl_->show_origins) {
     std::vector<kernel::ViewerEdge> ordinary_preview_wire;
     std::set<std::string> ordinary_sketch_point_owners;
     if(ordinary_preview_candidate) {
-        ordinary_preview_wire=impl_->container_preview_wire(
+        const Impl::SourceWireKey preview_key{
             ordinary_preview_candidate->owner_id,
-            ordinary_preview_candidate->instance_path);
+            ordinary_preview_candidate->instance_path,0};
+        ordinary_preview_wire=preview_key==impl_->selected_source_key
+            ?impl_->selected_source_wire
+            :impl_->container_preview_wire(
+                ordinary_preview_candidate->owner_id,
+                ordinary_preview_candidate->instance_path);
         for(const auto& edge:ordinary_preview_wire)
             if(is_sketch_wire_edge(edge))
                 ordinary_sketch_point_owners.insert(edge.reference.owner_id);
@@ -4638,6 +4657,8 @@ if (impl_->show_origins) {
             setProperty("gpuSourceWireUploadCount",property("gpuSourceWireUploadCount").toULongLong()+1);
         }
         impl_->selected_source_data=std::move(data);
+        impl_->selected_source_wire=inspecting_source
+            ?impl_->container_inspection_wire:ordinary_preview_wire;
         impl_->selected_source_key=std::move(source_wire_key);
     }
     const bool source_wire_visible=source_wire_key.has_value()&&impl_->selected_source_vertex_count>0;
@@ -5106,23 +5127,11 @@ if (impl_->show_origins) {
                                 offset += pattern;
                             }
                         }
-                        // Mark the axis's own origin point with a small filled
-                        // dot in the same hover/select/reference-aware color as
-                        // the axis line itself, matching the always-visible dot
-                        // used for a standalone Point container -- this is the
-                        // only way to see where a construction Axis actually
-                        // starts (its dimension/length is measured from here),
-                        // and it must stay visible together with the length
-                        // dimension annotation, not just on hover/selection.
-                        // Mark the axis's own origin point with a small filled
-                        // dot, but only while this axis is hovered or selected
-                        // (exact_highlight) -- matching a solid body's own
-                        // origin-indicator convention -- not permanently, so it
-                        // does not clutter idle/default rendering.
-                        if (exact_highlight && !feature_axis && !whole_feature_axis) {
-                            draw_circular_marker(
-                                painter, project(axis.point), presentation_color);
-                        }
+                        // The axis line and its point references are separate
+                        // selectable entities.  Do not invent a centre marker
+                        // merely because the line is hovered: an actual point
+                        // marker is offered by the point picker in its own
+                        // proximity and remains visible once referenced.
                     }
                     std::string axis_source_storage;
                     if (kernel::construction_source_key(axis.reference.semantic_key,axis_source_storage).starts_with("centerline:from:centroid:")&&
@@ -5168,14 +5177,22 @@ if (impl_->show_origins) {
         };
         if (!impl_->active_sketch_owner_id.empty() && axes_visible) draw_axes();
         // Read-only reference markers belong below authored Sketch geometry.
-        const auto proximity_point_visible=[&](const kernel::ViewerPoint& point) {
+        const auto proximity_point_visible=[&](const kernel::ViewerPoint& point,
+                const bool transient_fallback=false) {
             const auto exact=[&](const auto& candidate) {
                 return candidate&&candidate->owner_id==point.reference.owner_id&&
                     candidate->semantic_key==point.reference.semantic_key&&
                     candidate->instance_path==point.reference.instance_path;
             };
-            return QLineF(project(point.position),QPointF(impl_->last_pointer)).length()<=9.*devicePixelRatioF()||
-                exact(impl_->confirmed_candidate)||
+            // Persisted Sketch geometry has a real common picker candidate;
+            // only that exact candidate may reveal its helper point.  During
+            // a live drag the replacement Sketch lives in the visual-only
+            // transient packet, so retain the local 9 px offer there until
+            // the next committed interaction mesh is published.
+            return (transient_fallback&&QLineF(project(point.position),
+                        QPointF(impl_->last_pointer)).length()<=
+                    9.*devicePixelRatioF())||
+                exact(highlighted)||exact(impl_->confirmed_candidate)||
                 impl_->constraint_reference_edges.contains(EdgeKey{
                     point.reference.owner_id,point.reference.semantic_key,point.reference.instance_path});
         };
@@ -5647,8 +5664,21 @@ if (impl_->show_origins) {
                 // A whole-profile preview or an endpoint contact must not
                 // expose a distant midpoint as a second highlighted point.
                 if(point.reference.semantic_key.starts_with("sketch_midpoint:")&&
-                    !proximity_point_visible(point))continue;
-                if(!transient_context&&!impl_->helper_point_visible(point))continue;
+                    !proximity_point_visible(point,transient_context))continue;
+                // Axis endpoints are command helpers rather than permanent
+                // markers.  The common picker may nevertheless offer the
+                // exact persisted point while the pointer is nearby.  Let
+                // that one highlighted point through the paint filter; do
+                // not reveal the other endpoints of the same axis.
+                const bool helper_point_entry_requested=
+                    impl_->sketch_axis_entry_requested()||
+                    std::ranges::any_of(impl_->allowed_kinds,[](const auto kind) {
+                        return kind==CandidateKind::Vertex||
+                            kind==CandidateKind::SketchPoint;
+                    });
+                if(!transient_context&&!impl_->helper_point_visible(point)&&
+                    !(helper_point_entry_requested&&
+                        proximity_point_visible(point)))continue;
                 if (!transient_context&&!impl_->origin_visible({point.reference.owner_id,point.reference.semantic_key,point.reference.instance_path})) continue;
                 // In an inactive Sketch this point is deliberately visible
                 // only together with the whole-container hover/selection
@@ -5689,20 +5719,12 @@ if (impl_->show_origins) {
                     const bool creation_preview = transient_context ||
                         impl_->feature_preview_owner_ids.contains(
                             point.reference.owner_id);
-                    const auto parent_axis=kernel::axis_endpoint_parent_key(point.reference.semantic_key);
-                    const auto axis_candidate=[&](const auto& candidate) {
-                        return candidate&&!parent_axis.empty()&&
-                            (candidate->kind==CandidateKind::Axis||candidate->kind==CandidateKind::Edge)&&
-                            candidate->owner_id==point.reference.owner_id&&candidate->semantic_key==parent_axis&&
-                            candidate->instance_path==point.reference.instance_path;
-                    };
                     const bool ordinary_sketch_point=ordinary_preview_candidate&&
                         ordinary_sketch_point_owners.contains(point.reference.owner_id)&&
                         ordinary_preview_candidate->instance_path==point.reference.instance_path&&
                         point.reference.semantic_key.starts_with("point:");
                     const bool selected = (ordinary_sketch_point&&impl_->confirmed_candidate) || point.reference.owner_id ==
                             impl_->selected_container_origin_id ||
-                        axis_candidate(impl_->confirmed_candidate) ||
                         (!point.display_owner_id.empty() && impl_->confirmed_candidate &&
                          impl_->confirmed_candidate->kind == CandidateKind::Container &&
                          impl_->confirmed_candidate->owner_id == point.display_owner_id &&
@@ -5720,7 +5742,7 @@ if (impl_->show_origins) {
                          impl_->confirmed_candidate->instance_path ==
                             point.reference.instance_path);
                     const bool hovered = (ordinary_sketch_point&&!impl_->confirmed_candidate) || (!impl_->confirmed_candidate && highlighted &&
-                        (axis_candidate(highlighted) || (!point.display_owner_id.empty() &&
+                        ((!point.display_owner_id.empty() &&
                           highlighted->kind == CandidateKind::Container &&
                           highlighted->owner_id == point.display_owner_id) ||
                          (highlighted->kind == CandidateKind::Container &&
@@ -5739,11 +5761,9 @@ if (impl_->show_origins) {
                     // Match ONLY the precise per-entity key -- see the
                     // identical comment on the plane block above.
                     const bool referenced = !selected && !hovered &&
-                        (impl_->constraint_reference_edges.contains(EdgeKey{
+                        impl_->constraint_reference_edges.contains(EdgeKey{
                             point.reference.owner_id, point.reference.semantic_key,
-                            point.reference.instance_path}) || (!parent_axis.empty()&&
-                         impl_->constraint_reference_edges.contains(EdgeKey{
-                             point.reference.owner_id,parent_axis,point.reference.instance_path})));
+                            point.reference.instance_path});
                     // An Axis/Plane container's own marker
                     // (always_visible=false) stays fully invisible in the
                     // ordinary state -- the Axis line / Plane border is
@@ -5751,7 +5771,8 @@ if (impl_->show_origins) {
                     // the states above gives it a meaningful color.
                     const bool hidden_marker = !point.always_visible && !selected &&
                         !hovered && !referenced && !creation_preview &&
-                        !(point.reference.semantic_key.starts_with("sketch_midpoint:")&&proximity_point_visible(point));
+                        !(point.reference.semantic_key.starts_with("sketch_midpoint:")&&
+                            proximity_point_visible(point,transient_context));
                     const bool feature_label = (point.reference.semantic_key == "point" ||
                         point.reference.semantic_key == "container:origin-marker") &&
                         point.display_owner_id == point.reference.owner_id;

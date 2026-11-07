@@ -217,11 +217,48 @@ bool document_needs_save(const Workspace& workspace,const std::string& requested
     std::set<std::string> visited;
     return document_needs_save_impl(workspace,requested,visited);
 }
+namespace {
+bool document_has_unsaved_authored_changes_impl(const Workspace& workspace,
+        const std::string& requested,std::set<std::string>& visited) {
+    const auto id=family_owner(workspace,requested);
+    if(!visited.insert(id).second)return false;
+    const auto* state=workspace.find(id);
+    if(!state)throw std::invalid_argument("Document is not open");
+    if(const auto* assembly=std::get_if<AssemblyState>(state))
+        for(const auto& component:assembly->session.document().components) {
+            if(component.derived_copy||component.source_kind==assembly::ComponentSourceKind::Pattern)continue;
+            if(workspace.find(component.source_document_id)&&
+                document_has_unsaved_authored_changes_impl(
+                    workspace,component.source_document_id,visited))return true;
+        }
+    if(const auto pending=workspace.drawing_edited_sources.find(id);
+            pending!=workspace.drawing_edited_sources.end()&&!pending->second.empty())return true;
+    return std::visit([](const auto& value) {
+        using State=std::decay_t<decltype(value)>;
+        const bool dirty=[&] {
+            if constexpr(std::is_same_v<State,DrawingState>)return value.is_dirty();
+            else return value.session.is_dirty();
+        }();
+        if(dirty||value.path.empty())return true;
+        std::error_code error;
+        return !std::filesystem::is_regular_file(value.path,error);
+    },*state);
+}
+bool document_has_unsaved_authored_changes(const Workspace& workspace,
+        const std::string& requested) {
+    std::set<std::string> visited;
+    return document_has_unsaved_authored_changes_impl(workspace,requested,visited);
+}
+}
 CloseDocumentResult close_document(Workspace& workspace, const std::string& id,
         bool discard, const DocumentRelease& release) {
     if(!workspace.find(id))return CloseDocumentResult::NotOpen;
     if(family_owner(workspace,id)!=id)return workspace.remove(id,release)?CloseDocumentResult::Closed:CloseDocumentResult::NotOpen;
-    if(!discard && document_needs_save(workspace,id))return CloseDocumentResult::UnsavedChanges;
+    // Current source packets and deferred physical analysis are derived data.
+    // They make an explicit Save useful, but closing an otherwise unchanged
+    // document must not report that display refresh as an authored edit.
+    if(!discard && document_has_unsaved_authored_changes(workspace,id))
+        return CloseDocumentResult::UnsavedChanges;
     std::vector<std::string> members;
     for(const auto& state:workspace.documents())std::visit([&](const auto& value){
         if constexpr(requires{value.session;})if(value.session.document().family.parent_id==id)members.push_back(value.session.document().document_id);

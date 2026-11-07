@@ -1,4 +1,5 @@
 #include "profile_command_fixture.hpp"
+#include "body_measurement_fixture.hpp"
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/primitive_operations.hpp>
 #include <cmath>
@@ -19,14 +20,14 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory,const workspace:
     auto value=definition.create();const auto target=value.id;require(workspace::commit_primitive(live,kernel,id,value,workspace::PrimitiveEditMode::Create),"Cannot create primitive fixture");
     const auto state=[&]() -> const workspace::PartState& {return *live.open_part(id);};
     const auto feature=[&](){return *state().session.document().find_container(target);};
-    const auto volume=state().session.calculated_boundaries().back().volume;
+    const auto volume=test::measured_volume(kernel,state().session.calculated_boundaries().back());
     const auto request=[&](const std::string& object,int index,const std::string& owner,const std::string& key,double offset=0){return Json{{"object",object},{"index",index},{"reference",{{"owner",owner},{"key",key}}},{"offset_mm",offset}};};
     const auto set=[&](Json args){return run("placement.reference.set",std::move(args));};
     const auto reject=[&](Json args,const char* code){const auto before=feature();const auto rev=state().session.revision();const auto cache=state().session.calculated_boundaries();const auto result=host.execute({{"command","placement.reference.set"},{"arguments",std::move(args)}});
         if(result.ok||result.code!=code)throw std::runtime_error(std::string("Expected ")+code+", got "+result.code+": "+result.message);
         require(feature()==before&&state().session.revision()==rev&&!host.change()&&state().session.calculated_boundaries().back().source_fingerprint==cache.back().source_fingerprint,"Invalid primitive reference committed partial state");};
     const auto initial=feature();
-    set(request(target,0,source_plane,"plane",7));near(feature().placement.z,12);near(state().session.calculated_boundaries().back().volume,volume);
+    set(request(target,0,source_plane,"plane",7));near(feature().placement.z,12);near(test::measured_volume(kernel,state().session.calculated_boundaries().back()),volume);
     require(feature().placement.references.size()==2&&feature().placement.references.back().orientation_role=="front","Plane did not populate shared FRONT field");
     const auto assigned=feature();run("undo");require(feature()==initial,"Reference assignment was not one Undo step");run("redo");require(feature()==assigned,"Redo changed original primitive identity or references");
     const auto rev=state().session.revision();require(!set(request(target,0,source_plane,"plane",7)).at("changed").get<bool>()&&state().session.revision()==rev&&!host.change(),"No-op primitive reference created history");
@@ -45,10 +46,10 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory,const workspace:
     set(request(later,0,source_point,"point"));const auto datum=*state().session.document().find_construction(later);near(datum.origin.x,12);near(datum.origin.z,3);
     const auto bound=feature();
     require(run("placement.reference.remove",{{"object",target},{"index",0}}).at("body_calculated")==true,"Primitive removal did not calculate through Properties");
-    require(feature().placement.references.empty(),"Primitive removal retained its paired orientation");near(state().session.calculated_boundaries().back().volume,volume);
+    require(feature().placement.references.empty(),"Primitive removal retained its paired orientation");near(test::measured_volume(kernel,state().session.calculated_boundaries().back()),volume);
     const auto freed=feature();run("undo");require(feature()==bound,"Primitive reference removal Undo failed");run("redo");require(feature()==freed,"Primitive reference removal Redo failed");
     run("save");std::vector<kernel::BodyResult> cache;const auto saved=document::PartDocument::load(file,&cache);
-    require(saved.find_container(target)&&*saved.find_container(target)==feature(),"Native Part changed primitive identity or reference definition");near(cache.back().volume,volume);
+    require(saved.find_container(target)&&*saved.find_container(target)==feature(),"Native Part changed primitive identity or reference definition");near(test::measured_volume(kernel,cache.back()),volume);
     const auto operations=saved.kernel_operations();require(cache.back().source_fingerprint==kernel::history_fingerprint(operations,operations.size()),"Native save used stale body calculation");
 }
 void verify_bodies(const kernel::OcctKernel& kernel,fs::path directory) {

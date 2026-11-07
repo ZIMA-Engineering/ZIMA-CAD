@@ -34,7 +34,8 @@ Json derived_copy_details(const workspace::Workspace& live,const std::string& id
         throw workspace::DerivedCopyError("wrong_feature","The requested copy type does not match this object.");
     const auto& p=copy.parameters;const auto& ref=p.reference;
     Json result={{"document",id},{"object",object},{"name",copy.name},{"kind",pattern?"pattern":"mirror"},
-        {"source",p.source_id},{"operation",p.subtract_source?"subtract":"copy"},{"origin",document::create_container_origin(object).id},{"visible",copy.visible},
+        {"source",p.source_ids.empty()?std::string{}:p.source_ids.front()},
+        {"sources",p.source_ids},{"operation",p.subtract_source?"subtract":"copy"},{"origin",document::create_container_origin(object).id},{"visible",copy.visible},
         {"placement",copy.placement},{"reference_valid",p.reference_valid},{"value_locks",p.value_locks},
         {"reference",{{"owner",ref.owner_id},{"key",ref.semantic_key},{"instance_path",ref.instance_path},
             {"offset_mm",ref.offset}}},

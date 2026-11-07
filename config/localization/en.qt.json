@@ -2685,5 +2685,16 @@
   "Zobrazit nebo skrýt body os a konstrukčních čar": "Show or hide points of axes and construction curves",
   "Invalid compressed document data.": "Invalid compressed document data.",
   "External extrusion targets must belong to a Skeleton Part.": "External extrusion targets must belong to a Skeleton Part.",
-  "Prázdná varianta": "Empty"
+  "Prázdná varianta": "Empty",
+  "Zdroje": "Sources",
+  "Ve View…": "In the View…",
+  "Vyberte zdroj ve View…": "Select a source in the View…",
+  "Vyberte zdrojový prvek, těleso nebo komponentu.": "Select a source feature, Body, or component.",
+  "Vyberte alespoň jeden dostupný zdrojový prvek, těleso nebo komponentu.": "Select at least one available source feature, Body, or component.",
+  "Kopie přebírají geometrii zdrojů. Rozměry a vlastnosti geometrie se upravují u zdrojových prvků.": "Copies inherit the source geometry. Edit geometry dimensions and properties on the source features.",
+  "Vyberte alespoň jeden zdrojový prvek, těleso nebo komponentu.": "Select at least one source feature, Body, or component.",
+  "Vyberte osu Pole.": "Select the Pattern axis.",
+  "Vyberte rovinu zrcadlení.": "Select the mirror plane.",
+  "Vyberte ve View…": "Select in the View…",
+  "Vybrat rovinu ve View": "Select a plane in the View"
 }

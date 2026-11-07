@@ -134,7 +134,7 @@ inline std::string profile_key(const document::PartDocument& doc,
             request=std::get_if<kernel::ExtrusionRequest>(&group->children.at(start_side?1:0));
     }
     if(!request)throw std::runtime_error("Profile fixture request missing");
-    const auto role=[&](const std::string& location){return location.find("z_max")!=std::string::npos||start_side?std::string("end"):std::string("start");};
+    const auto role=[](const std::string& location){return location.find("z_max")!=std::string::npos?std::string("end"):std::string("start");};
     const auto parent=[&](std::string id){return unified?kernel::feature_side_parent_key({feature->feature_id,start_side?kernel::FeatureSide::Start:kernel::FeatureSide::End,std::move(id)}):id;};
     if(selector=="z_min"||selector=="z_max")return role(selector)+":from:"+
         std::to_string(request->profile_region_id.size())+":"+request->profile_region_id;

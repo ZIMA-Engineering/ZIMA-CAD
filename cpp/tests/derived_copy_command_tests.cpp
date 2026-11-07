@@ -70,7 +70,8 @@ void verify_opening_axis_copy(const kernel::OcctKernel& kernel,fs::path dir,
         const auto path=dir/"opening-pattern.prtz";state->session.document().save(path,state->session.calculated_boundaries());
         std::vector<kernel::BodyResult> reopened_packets;
         const auto reopened=document::PartDocument::load(path,&reopened_packets);
-        require(reopened.find_container(copy)->derived_copy.source_id==opening.id,
+        require(reopened.find_container(copy)->derived_copy.source_ids==
+                std::vector<std::string>{opening.id},
             "Opening Pattern lost its persisted source");
         require(!reopened_packets.empty()&&std::ranges::any_of(
             reopened_packets.back().mesh.original_references.axes,
@@ -117,12 +118,14 @@ void verify_solid_sources(const kernel::OcctKernel& kernel,fs::path dir) {
     const auto linear=run(host,"pattern.create",{{"source",solid.id},{"linear",Json::array({{{"axis","x"},{"count",3},{"spacing_mm",20}}})}}).data.at("object").get<std::string>();
     const auto result=[&]()->const kernel::BodyResult& {return part->session.calculated_boundaries().back().body_outputs.at(linear).get();};
     near(result().volume,96);near(extent(result(),0).first,35);near(extent(result(),0).second,59);
-    require(part->session.document().body_history.find(linear)->derived_copy->source_id==solid.id,"Copy stored the Body instead of its solid source");
+    require(part->session.document().body_history.find(linear)->derived_copy->source_ids==
+        std::vector<std::string>{solid.id},"Copy stored the Body instead of its solid source");
     run(host,"pattern.set",{{"object",linear},{"mode","circular"},{"count",4}});
     near(result().volume,144);near(extent(result(),0).first,-19);near(extent(result(),0).second,4);
     const auto file=dir/"solid-pattern.prtz";part->session.document().save(file,part->session.calculated_boundaries());
     std::vector<kernel::BodyResult> saved;auto loaded=document::PartDocument::load(file,&saved);
-    require(loaded.body_history.find(linear)->derived_copy->source_id==solid.id,"Reload lost the solid source identity");
+    require(loaded.body_history.find(linear)->derived_copy->source_ids==
+        std::vector<std::string>{solid.id},"Reload lost the solid source identity");
     near(saved.back().body_outputs.at(linear)->volume,144);
     kernel::OcctKernel cold;near(cold.evaluate_history(loaded.kernel_operations()).back().body_outputs.at(linear)->volume,144);
     run(host,"undo");near(result().volume,96);run(host,"redo");near(result().volume,144);
@@ -217,7 +220,10 @@ void verify_in_body_copies(const kernel::OcctKernel& kernel,fs::path dir) {
         const auto file=dir/(std::string(pattern?"inbody-pattern":"inbody-mirror")+(subtract?"-cut.prtz":"-add.prtz"));
         saved.save(file,part->session.calculated_boundaries());
         std::vector<kernel::BodyResult> packets;auto loaded=document::PartDocument::load(file,&packets);
-        require(loaded.find_container(copy)->derived_copy.source_id==source.id&&loaded.body_history.owner(copy)->scope.id==body,"Native persistence lost copy ownership/source");
+        require(loaded.find_container(copy)->derived_copy.source_ids==
+                std::vector<std::string>{source.id}&&
+                loaded.body_history.owner(copy)->scope.id==body,
+            "Native persistence lost copy ownership/source");
         kernel::OcctKernel cold;near(cold.evaluate_history(loaded.kernel_operations()).back().body_outputs.at(body)->volume,expected);
         run(host,"undo");require(!part->session.document().find_container(copy),"Undo left the copy in history");
         run(host,"redo");near(volume(),expected);
@@ -228,7 +234,7 @@ void verify_in_body_copies(const kernel::OcctKernel& kernel,fs::path dir) {
         }
         auto edit=workspace::prepare_derived_copy_edit(live,id,copy,pattern);
         require(edit.sources.body_id==body&&std::ranges::none_of(edit.sources.items,[&](const auto& s){return s.id==copy;}),"Edit offers its own or downstream source");
-        auto invalid=edit.initial;invalid.parameters.source_id=copy;
+        auto invalid=edit.initial;invalid.parameters.source_ids={copy};
         bool rejected=false;try{workspace::commit_derived_copy(live,kernel,edit,invalid);}catch(const workspace::DerivedCopyError&){rejected=true;}
         require(rejected,"Copy accepted a source cycle");
         auto changed=edit.initial;changed.name="Edited copy";workspace::commit_derived_copy(live,kernel,edit,changed);
@@ -296,7 +302,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     reject("mirror.set",{{"object",mirror},{"source",later}});
     run(host,"body.activate",{{"body",source}});
     reject("mirror.create",{{"source",box},{"reference",{{"owner",box},{"key","x_min"}}}});
-    reject("mirror.set",{{"object",mirror},{"reference",{{"owner",source+":origin"},{"key","origin:plane:yz"}}}});
+    run(host,"mirror.set",{{"object",mirror},{"reference",{{"owner",source+":origin"},{"key","origin:plane:yz"}}}});
     reject("mirror.set",{{"object",mirror},{"reference",{{"owner",mirror+":origin"},{"key","origin:plane:yz"},{"offset_mm",1}}}});
     run(host,"mirror.set",{{"object",mirror},{"reference",{{"owner",mirror+":origin"},{"key","origin:plane:yz"}}}});
     run(host,"body.activate",{{"body",""}});
@@ -317,7 +323,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     lock(pattern,"pattern:angle",true);
     reject("pattern.set",{{"object",pattern},{"mode","circular"},{"count",6}});
     run(host,"pattern.set",{{"object",pattern},{"mode","circular"},{"count",4}});near(body(pattern).volume,3*48);
-    reject("pattern.set",{{"object",pattern},{"reference",{{"owner",source+":origin"},{"key","origin:axis:z"}}}});
+    run(host,"pattern.set",{{"object",pattern},{"reference",{{"owner",source+":origin"},{"key","origin:axis:z"}}}});
     reject("pattern.set",{{"object",pattern},{"reference",{{"owner",box},{"key","edge:0"}}}});
     run(host,"pattern.set",{{"object",pattern},{"reference",{{"owner",pattern+":origin"},{"key","origin:axis:z"}}}});
     reject("pattern.set",{{"object",pattern},{"count",6}});lock(pattern,"pattern:angle",false);
@@ -369,16 +375,22 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     run(host,"undo");require(!assembly->session.document().find_occurrence(ring),"Assembly Pattern did not undo in one step");run(host,"redo");
     for(const bool patterned:{false,true}) {
         const auto& object=patterned?ring:copied;const auto key=patterned?"origin:axis:z":"origin:plane:yz";
-        for(const auto& ref:{Json{{"owner",assembly_id+":origin"},{"key",key}},
-            Json{{"owner",first+":origin"},{"key",key}},
+        run(host,patterned?"pattern.set":"mirror.set",{{"object",object},{"reference",{{"owner",assembly_id+":origin"},{"key",key}}}});
+        for(const auto& ref:{Json{{"owner",first+":origin"},{"key",key}},
+            Json{{"owner",first+":origin"},{"key",key},{"instance_path",assembly::InstancePath{}.child(first).encoded()}},
             Json{{"owner",object+":origin"},{"key",key},{"instance_path",assembly::InstancePath{}.child(second).encoded()}}}) {
             const auto rev=assembly->session.revision();
             const auto result=host.execute({{"command",patterned?"pattern.set":"mirror.set"},{"arguments",{{"object",object},{"reference",ref}}}});
-            require(!result.ok&&result.code=="invalid_reference"&&assembly->session.revision()==rev,"Assembly accepted a foreign copy Origin or committed a rejected edit");
+            require(!result.ok&&assembly->session.revision()==rev,
+                "Assembly accepted an unresolved copy reference or committed a rejected edit");
         }
+        run(host,patterned?"pattern.set":"mirror.set",
+            patterned?Json{{"object",object},{"local_axis","z"}}:
+                Json{{"object",object},{"local_plane","yz"}});
     }
     run(host,"save");const auto saved=assembly::AssemblyDocument::load(dir/"copy-assembly.asmz");
-    require(saved.find_occurrence(ring)->derived_copy->source_id==first&&saved.find_occurrence(copied)->copy_placement.value_locks.contains("z")&&
+    require(saved.find_occurrence(ring)->derived_copy->source_ids==
+            std::vector<std::string>{first}&&saved.find_occurrence(copied)->copy_placement.value_locks.contains("z")&&
         !saved.find_occurrence(copied)->visible&&saved.find_occurrence(copied)->body_color_override=="#123456","Native Assembly lost copy-specific data");
     // Pure CLI has no GUI scene refresh. Calculating a copy must nevertheless
     // use the current open source, without saving or regenerating that Part.
@@ -410,7 +422,13 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
         "Copy calculation saved, regenerated or edited the authoritative source Part");
 }
 }
-int main(int argc,char* argv[]){try{const auto root=fs::canonical(fs::temp_directory_path());const auto dir=root/("zima-copy-command-"+document::PartDocument::create_default().document_id);
+int main(int argc,char* argv[]){try{
+#ifdef _WIN32
+    _putenv_s("ZIMA_CPP_EAGER_ANALYSIS","1");
+#else
+    setenv("ZIMA_CPP_EAGER_ANALYSIS","1",1);
+#endif
+    const auto root=fs::canonical(fs::temp_directory_path());const auto dir=root/("zima-copy-command-"+document::PartDocument::create_default().document_id);
     require(fs::create_directory(dir),"Cannot create copy command directory");kernel::OcctKernel kernel;
     if(argc==2&&std::string_view(argv[1])=="--opening-axis-only")verify_opening_axis_copy(kernel,dir);else verify(kernel,dir);
     require(dir.parent_path()==root,"Unexpected copy command cleanup path");fs::remove_all(dir);

@@ -584,6 +584,7 @@ private:
     std::size_t sketch_segment_inference_variant_count_{1};
     bool sketch_inference_cycle_refresh_{};
     bool sketch_skip_candidate_snap_{};
+    bool sketch_endpoint_inference_cycle_{};
     bool sketch_segment_active_{};
     bool sketch_segment_construction_{};
     bool sketch_polyline_active_{};
@@ -750,7 +751,7 @@ private:
 
     void create_layout();
     void create_actions();
-    void copy_selected_opening();
+    void copy_selected_opening(bool from_view);
     void paste_copied_opening();
     void new_document();
     [[nodiscard]] QString create_document(
@@ -914,6 +915,8 @@ private:
         std::size_t index, bool auto_advance = false);
     void accept_primitive_reference(
         const zima::viewer::ViewerCandidate& candidate, bool from_view = false);
+    [[nodiscard]] QString placement_reference_hover_label(
+        const zima::viewer::ViewerCandidate& candidate) const;
     // Embedded component placement-reference picking (ComponentPropertiesDialog):
     // mirrors start_construction_reference_selection()/accept_construction_reference()
     // but resolves candidates against MateReferenceKind (Face/Axis/Point)

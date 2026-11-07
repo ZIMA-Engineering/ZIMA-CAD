@@ -1,4 +1,5 @@
 #include "profile_command_fixture.hpp"
+#include "body_measurement_fixture.hpp"
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/component_source_operations.hpp>
 #include <iostream>
@@ -9,6 +10,10 @@ void require(bool value,const char* message){if(!value)throw std::runtime_error(
 void near(double actual,double expected){if(std::abs(actual-expected)>1e-6)throw std::runtime_error("Expected "+std::to_string(expected)+", got "+std::to_string(actual));}
 commands::Result run(command_host::Host& host,const char* name,Json args=Json::object()) {
     auto value=host.execute({{"command",name},{"arguments",std::move(args)}});if(!value.ok)throw std::runtime_error(std::string(name)+": "+value.code+": "+value.message);return value;
+}
+void close_checked(command_host::Host& host,Json args,const char* context) {
+    try {static_cast<void>(run(host,"close",std::move(args)));}
+    catch(const std::exception& error){throw std::runtime_error(std::string(context)+": "+error.what());}
 }
 std::string path(const std::string& id){return assembly::InstancePath{}.child(id).encoded();}
 void verify(const kernel::OcctKernel& kernel,fs::path dir) {
@@ -28,7 +33,8 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     const auto top_revision=live.open_assembly(top)->session.revision();
     const auto first_placement=live.open_assembly(top)->session.document().find_occurrence(first)->placement;
     const auto second_placement=live.open_assembly(top)->session.document().find_occurrence(second)->placement;
-    run(host,"close",{{"document",source}});run(host,"close",{{"document",middle}});
+    close_checked(host,{{"document",source}},"Close initial source");
+    close_checked(host,{{"document",middle}},"Close initial middle Assembly");
     const auto activate=[&](const std::string& selected){return run(host,"component.activate",{{"instance_path",selected}});};
     const auto context=[&](const std::string& active,const std::string& selected) {
         const auto value=run(host,"context").data;
@@ -36,18 +42,18 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     };
     auto result=activate(first_leaf);
     require(result.data.at("opened")==true&&result.data.at("changed")==true&&!live.open_assembly(middle),"Deep activation did not open only the requested source");
-    context(source,first_leaf);near(live.open_part(source)->session.calculated_boundaries().back().volume,6000);
+    context(source,first_leaf);near(test::measured_volume(kernel,live.open_part(source)->session.calculated_boundaries().back()),6000);
     result=activate(first_leaf);require(result.data.at("changed")==false&&!host.change(),"Repeated activation emitted a change");
     zima::test::resize_rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"container",box},{"height_mm","40"}});context(source,first_leaf);
-    near(live.open_part(source)->session.calculated_boundaries().back().volume,8000);
-    run(host,"undo");near(live.open_part(source)->session.calculated_boundaries().back().volume,6000);
-    run(host,"redo");near(live.open_part(source)->session.calculated_boundaries().back().volume,8000);
+    near(test::measured_volume(kernel,live.open_part(source)->session.calculated_boundaries().back()),8000);
+    run(host,"undo");near(test::measured_volume(kernel,live.open_part(source)->session.calculated_boundaries().back()),6000);
+    run(host,"redo");near(test::measured_volume(kernel,live.open_part(source)->session.calculated_boundaries().back()),8000);
     live.refresh_source_geometry();
-    for(const auto& component:live.open_assembly(top)->session.document().components)near(component.calculated_source->volume,8000);
+    for(const auto& component:live.open_assembly(top)->session.document().components)near(test::measured_volume(kernel,component.calculated_source.get()),8000);
     require(live.open_assembly(top)->session.revision()==top_revision&&
         live.open_assembly(top)->session.document().find_occurrence(first)->placement==first_placement&&
         live.open_assembly(top)->session.document().find_occurrence(second)->placement==second_placement,"Source edit regenerated or repositioned parent components");
-    std::vector<kernel::BodyResult> saved;static_cast<void>(document::PartDocument::load(dir/"activation-part.prtz",&saved));near(saved.back().volume,6000);
+    std::vector<kernel::BodyResult> saved;static_cast<void>(document::PartDocument::load(dir/"activation-part.prtz",&saved));near(test::measured_volume(kernel,saved.back()),6000);
     result=activate(second_leaf);require(result.data.at("changed")==true&&result.data.at("opened")==false,"Repeated source occurrences shared their activation identity");context(source,second_leaf);
     const auto rejected=[&](const char* command,Json args,const std::string& code) {
         const auto before=live.active_document_id(),displayed=live.displayed_document_id(),selected=live.active_occurrence_path();const auto count=live.size();
@@ -62,7 +68,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     rejected("feature.set",{{"container",box},{"parameters",zima::test::feature_profile_parameters(25,true)},{"document",top}},"document_changed");
     editing=true;rejected("component.activate",{{"instance_path",first_leaf}},"editing_in_progress");rejected("component.deactivate",Json::object(),"editing_in_progress");editing=false;
     supplied_path=first_leaf;rejected("feature.set",{{"container",box},{"parameters",zima::test::feature_profile_parameters(25,true)}},"active_occurrence");supplied_path.clear();
-    run(host,"save");context(source,second_leaf);saved.clear();static_cast<void>(document::PartDocument::load(dir/"activation-part.prtz",&saved));near(saved.back().volume,8000);
+    run(host,"save");context(source,second_leaf);saved.clear();static_cast<void>(document::PartDocument::load(dir/"activation-part.prtz",&saved));near(test::measured_volume(kernel,saved.back()),8000);
     result=activate(path(first));require(result.data.at("opened")==true,"Nested Assembly source was not opened");context(middle,path(first));
     const auto inserted=run(host,"component.insert",{{"source",source},{"name","Inserted locally"}}).data.at("occurrence").get<std::string>();
     require(live.open_assembly(middle)->session.document().components.size()==2&&live.open_assembly(top)->session.document().components.size()==2,"Nested insertion used the parent Assembly");
@@ -77,14 +83,14 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     run(host,"redo");require(!live.open_assembly(middle)->session.document().find_occurrence(inserted),"Nested removal Redo failed");context(middle,path(first));
     run(host,"save");
     // Closing an unrelated source tab keeps the exact active Assembly context.
-    run(host,"close",{{"document",source}});context(middle,path(first));
+    close_checked(host,{{"document",source}},"Close saved unrelated source");context(middle,path(first));
     activate(second_leaf);context(source,second_leaf);
     // Closing the active source restores the displayed Assembly for editing.
-    run(host,"close");context(top,"");
+    close_checked(host,Json::object(),"Close active source occurrence");context(top,"");
     activate(first_leaf);run(host,"activate",{{"document",source}});
     require(live.active_document_id()==source&&live.displayed_document_id()==source&&live.active_occurrence_path().empty(),"Opening the active source tab retained a stale occurrence");
     run(host,"component.activate",{{"instance_path",second_leaf},{"document",top}});context(source,second_leaf);
-    run(host,"close",{{"document",top}});
+    close_checked(host,{{"document",top}},"Close displayed top Assembly");
     require(live.active_document_id()==source&&live.displayed_document_id()==source&&live.active_occurrence_path().empty(),"Closing the displayed parent did not retain its open editable source");
     run(host,"open",{{"path",(dir/"activation-top.asmz").string()}});activate(first_leaf);
     result=run(host,"component.deactivate");require(result.data.at("changed")==true,"Deactivation was not reported");context(top,"");

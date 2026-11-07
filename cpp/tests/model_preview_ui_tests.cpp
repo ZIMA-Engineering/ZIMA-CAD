@@ -64,7 +64,7 @@ void datum_marker_visibility(QApplication& app) {
     mesh.original_references.axes=native.original_references.axes;
     viewer::MeshView view;view.resize(900,600);view.show();view.set_mesh(mesh);
     view.set_projection_mode(viewer::ProjectionMode::Orthographic);view.set_standard_view(viewer::StandardView::Top);
-    for(int i=0;i<10;++i)flush(app); // Let the ordinary view animation settle before comparing frames.
+    for(int i=0;i<16;++i)flush(app); // The ordinary 850 ms view animation must finish before comparing frames.
     view.set_reference_visibility(ReferenceVisibility::AxisPoints,true);
     view.fit_points({{-50,-50,0},{50,50,0}});view.set_selection_contract({CandidateKind::Container});flush(app);
     const auto world=[&](QPointF pixel) {

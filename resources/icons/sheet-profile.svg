@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" role="img" aria-labelledby="title">
   <title id="title">Sheet Profile</title>
-  <path d="M18.675 2.975 l-2.4 9.45 a11.375 11.375 0 0 1 -11.025 8.575"
+  <path d="M3 21 C6.314 21 9 18.314 9 15 V9 C9 5.686 11.686 3 15 3"
         fill="none" stroke="#39C5E8"
         stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>

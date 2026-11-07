@@ -4,6 +4,7 @@
 #include <zima/workspace/edge_treatment_operations.hpp>
 #include <zima/workspace/operation_input.hpp>
 #include <zima/document/profile_targets.hpp>
+#include <zima/document/sketch_placement.hpp>
 #include "../construction_reference_candidate_policy.hpp"
 #include <limits>
 #include <cmath>
@@ -1071,6 +1072,37 @@ void AssemblyWorkspaceWindow::accept_extrusion_target(
         try {
             const auto& native=part->session.document();const auto pending=extrusion_target_dialog_->pending_value();
             const auto frame=native.body_owner_for_object(pending.id)?pending.id:native.body_history.active_body_id();
+            const auto orient_feature_target=[&](const zima::document::ExtrusionParameters::EndTarget& target) {
+                if(pending.feature_kind!=zima::document::FeatureKind::Feature||
+                        pending.feature.type!=zima::document::FeatureType::Modeling||pending.feature.symmetric)return;
+                auto profile=std::ranges::find(native.sketches,pending.feature.sketch_id,&zima::sketcher::Sketch::id);
+                if(profile==native.sketches.end())return;
+                auto resolved=*profile;
+                zima::document::apply_automatic_sketch_work_plane(resolved,pending.placement.references);
+                const double offset=pending.feature.profile_plane_offset-resolved.plane_offset;
+                resolved.resolved_origin=zima::kernel::dimension_add(resolved.resolved_origin,
+                    zima::kernel::dimension_scale(resolved.resolved_normal,offset));
+                const auto projection=[&](const zima::kernel::Vec3& point) {
+                    return zima::kernel::dimension_dot(
+                        zima::kernel::dimension_sub(point,resolved.resolved_origin),resolved.resolved_normal);
+                };
+                std::optional<double> signed_distance;
+                if(target.kind!=zima::document::EndTargetKind::Face) signed_distance=projection(target.fallback_origin);
+                else if(!target.fallback_triangles.empty()) {
+                    double low=std::numeric_limits<double>::infinity();
+                    double high=-std::numeric_limits<double>::infinity();
+                    for(const auto& point:target.fallback_triangles) {
+                        const double value=projection(point);
+                        low=std::min(low,value);high=std::max(high,value);
+                    }
+                    // A support crossing the profile plane has no unique
+                    // direction. Keep the authored side in that case.
+                    if(low>1e-9)signed_distance=low;
+                    else if(high<-1e-9)signed_distance=high;
+                }
+                if(signed_distance)
+                    extrusion_target_dialog_->orient_feature_side_toward_target(*signed_distance);
+            };
             zima::document::ExtrusionParameters::EndTarget requested;
             const bool external=candidate.instance_path!=resolve_active_occurrence(native.document_id).value_or(std::string{});
             if(point)requested.kind=zima::document::EndTargetKind::Point;
@@ -1082,6 +1114,7 @@ void AssemblyWorkspaceWindow::accept_extrusion_target(
             for(const auto& object:native.constructions)if(object.entity_id==candidate.owner_id || object.id==candidate.owner_id)requested.label=object.name;
             const auto target=external?zima::workspace::prepare_skeleton_end_target(workspace_,native,frame,requested):
                 zima::workspace::resolve_profile_end_target(native,part->session.calculated_boundaries(),frame,requested);
+            orient_feature_target(target);
             if(external) {
                 extrusion_target_dialog_->set_extrusion_end_target(target);
                 finish_extrusion_target_selection(false);state_->setText(tr("Cíl vytažení byl nastaven."));return;

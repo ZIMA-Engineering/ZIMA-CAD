@@ -61,9 +61,9 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     auto first=assembly::AssemblyDocument::create_part_occurrence("Opakovaný díl",id,file,calculated.back());first.visible=false;
     auto second=assembly::AssemblyDocument::create_part_occurrence("Opakovaný díl",id,file,calculated.back());second.suppressed=true;
     auto reflected=first;reflected.occurrence_id=kernel::make_stable_id();reflected.visible=true;reflected.placement={};reflected.copy_placement.x=9;
-    reflected.derived_copy=document::DerivedCopyParameters{first.occurrence_id,{{},reflected.occurrence_id+":origin","origin:plane:yz"}};
+    reflected.derived_copy=document::DerivedCopyParameters{{first.occurrence_id},{{},reflected.occurrence_id+":origin","origin:plane:yz"}};
     auto patterned=first;patterned.occurrence_id=kernel::make_stable_id();patterned.copy_placement.rotation_z=15;
-    patterned.derived_copy=document::DerivedCopyParameters{first.occurrence_id,{{},patterned.occurrence_id+":origin","origin:axis:z"}};
+    patterned.derived_copy=document::DerivedCopyParameters{{first.occurrence_id},{{},patterned.occurrence_id+":origin","origin:axis:z"}};
     patterned.derived_copy->pattern=kernel::PatternRequest{};patterned.derived_copy->pattern->circular=true;
     assembly.components={first,second,reflected,patterned};assembly.calculate_derived_copies(kernel);
     // Deliberately leave changed source placement and unresolved reference data

@@ -74,7 +74,12 @@ void evaluate_measurement_references(const Workspace& live,const std::string& id
         if(!value)throw Error("missing_reference","The original measurement reference is unavailable.",i);
         values.push_back(value->values);geometry.push_back(std::move(*value));
     }
-    const auto distance=geometry.size()==2?measurement::measure_distance(geometry[0],geometry[1]):std::nullopt;
+    const auto angle=geometry.size()==2?
+        measurement::measure_plane_angle(geometry[0],geometry[1]):
+        std::nullopt;
+    const auto distance=geometry.size()==2&&!angle?
+        measurement::measure_distance(geometry[0],geometry[1]):
+        std::nullopt;
     // Publish the whole result only after every requested reference resolves.
     record.values=std::move(values);record.distance=distance;
 }

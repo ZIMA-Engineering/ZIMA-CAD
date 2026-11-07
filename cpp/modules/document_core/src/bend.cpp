@@ -89,8 +89,8 @@ std::optional<double> bend_attachment_profile_direction(
         }
     }
     if(!edge_reference)return std::nullopt;
-    const auto edge=std::ranges::find_if(geometry.edges,[&](const auto& e){return matches(e.reference,*edge_reference);});
-    if(edge==geometry.edges.end()||edge->points.size()<2)return std::nullopt;
+    const auto* edge=current_sheet_attachment_edge(references,geometry);
+    if(!edge||edge->points.size()<2)return std::nullopt;
     const auto first=edge->points.front();
     auto along=add(edge->points.back(),scale(first,-1));
     const double length=std::sqrt(dot(along,along));
@@ -182,16 +182,17 @@ kernel::VertexReference current_sheet_attachment_anchor(
     if(placement.references.size()<3||edge.points.size()<2||
             edge.edge_treatment_endpoint_references.size()!=2)
         throw std::invalid_argument("Bend origin must be an endpoint of its attachment edge.");
-    const auto& persisted=placement.references[2];
-    const auto same=[&](const auto& current) {
+    const auto same=[](const auto& current,const auto& persisted) {
         return current.owner_id==persisted.owner_id&&
             current.semantic_key==persisted.semantic_key&&
             current.instance_path==persisted.instance_path;
     };
-    if(same(edge.edge_treatment_endpoint_references[0]))
-        return edge.edge_treatment_endpoint_references[0];
-    if(same(edge.edge_treatment_endpoint_references[1]))
-        return edge.edge_treatment_endpoint_references[1];
+    for(const auto& persisted:placement.references) {
+        if(same(edge.edge_treatment_endpoint_references[0],persisted))
+            return edge.edge_treatment_endpoint_references[0];
+        if(same(edge.edge_treatment_endpoint_references[1],persisted))
+            return edge.edge_treatment_endpoint_references[1];
+    }
     const kernel::Vec3 resolved{placement.x,placement.y,placement.z};
     const auto distance_squared=[&](const auto& point) {
         const auto delta=add(point,scale(resolved,-1));
@@ -205,6 +206,43 @@ kernel::VertexReference current_sheet_attachment_anchor(
         throw std::invalid_argument("Bend origin must be an endpoint of its attachment edge.");
     return edge.edge_treatment_endpoint_references[last<first?1:0];
 }
+const kernel::ViewerEdge* current_sheet_attachment_edge(
+        const std::vector<ConstructionReference>& references,
+        const kernel::ViewerReferenceGeometry& geometry) {
+    const auto source=std::ranges::find_if(references,[](const auto& reference) {
+        return reference.orientation_drives_rotation&&
+            (reference.orientation_role=="front"||
+             reference.orientation_role=="direction");
+    });
+    if(source==references.end())return nullptr;
+    const auto matches=[&](const kernel::ViewerEdge& edge) {
+        return edge.reference.owner_id==source->owner_id&&
+            edge.reference.semantic_key==source->semantic_key&&
+            edge.reference.instance_path==source->instance_path;
+    };
+    const auto complete=[](const kernel::ViewerEdge& edge) {
+        return edge.points.size()>=2&&
+            edge.edge_treatment_endpoint_references.size()==2;
+    };
+    for(const auto& anchor:references) {
+        const auto owns_anchor=[&](const kernel::ViewerEdge& edge) {
+            return matches(edge)&&complete(edge)&&
+                std::ranges::any_of(edge.edge_treatment_endpoint_references,
+                    [&](const auto& endpoint) {
+                        return endpoint.owner_id==anchor.owner_id&&
+                            endpoint.semantic_key==anchor.semantic_key&&
+                            endpoint.instance_path==anchor.instance_path;
+                    });
+        };
+        if(const auto found=std::ranges::find_if(geometry.edges,owns_anchor);
+                found!=geometry.edges.end())return &*found;
+    }
+    if(const auto found=std::ranges::find_if(geometry.edges,
+            [&](const auto& edge){return matches(edge)&&complete(edge);});
+            found!=geometry.edges.end())return &*found;
+    const auto found=std::ranges::find_if(geometry.edges,matches);
+    return found==geometry.edges.end()?nullptr:&*found;
+}
 void update_bend_sheet_profile(HistoryContainer& feature,sketcher::Sketch& sketch,
         const kernel::ViewerReferenceGeometry& geometry,const std::string& document_id) {
     if(!feature.bend.sheet_attachment)return;
@@ -214,20 +252,29 @@ void update_sheet_edge_profile(const Placement& placement,double& thickness,sket
         const kernel::ViewerReferenceGeometry& geometry,const std::string& document_id) {
     if(placement.references.size()<3||std::ranges::count_if(sketch.segments,[](const auto& s){return !s.construction;})!=1)
         throw std::invalid_argument("Incomplete Bend sheet attachment.");
-    const auto& source=placement.references.front();
+    const auto source=std::ranges::find_if(placement.references,
+        [](const auto& reference) {
+            return reference.orientation_drives_rotation&&
+                (reference.orientation_role=="front"||
+                 reference.orientation_role=="direction");
+        });
+    const auto face=std::ranges::find_if(placement.references,
+        [](const auto& reference) {
+            return reference.orientation_drives_rotation&&
+                (reference.orientation_role=="top"||
+                 reference.orientation_role=="bottom");
+        });
+    if(source==placement.references.end()||face==placement.references.end())
+        throw std::invalid_argument("Incomplete Bend sheet attachment.");
     if(!bend_attachment_profile_direction(placement.references,geometry))
         throw std::invalid_argument("Bend requires a straight boundary with a planar joining face.");
-    const auto edge=std::ranges::find_if(geometry.edges,[&](const auto& e) {
-        return e.reference.owner_id==source.owner_id&&e.reference.semantic_key==source.semantic_key&&
-            e.reference.instance_path==source.instance_path;
-    });
-    if(edge==geometry.edges.end())throw std::invalid_argument("Missing Bend sheet edge.");
+    const auto* edge=current_sheet_attachment_edge(placement.references,geometry);
+    if(!edge)throw std::invalid_argument("Missing Bend sheet edge.");
     thickness=edge->edge_treatment_side_references.front().sheet_thickness;
     const auto expected=bend_sheet_references(*edge,
         current_sheet_attachment_anchor(*edge,placement));
-    const auto& face=placement.references[1];
-    if(face.owner_id!=expected[1].owner_id||face.semantic_key!=expected[1].semantic_key||
-        face.instance_path!=expected[1].instance_path||face.offset!=0||face.flip||source.flip)
+    if(face->owner_id!=expected[1].owner_id||face->semantic_key!=expected[1].semantic_key||
+        face->instance_path!=expected[1].instance_path||face->offset!=0||face->flip||source->flip)
         throw std::invalid_argument("The Bend joining face and direction are derived from its sheet edge.");
     if(sketch.plane_offset!=0)throw std::invalid_argument("Bend does not support an offset profile plane.");
     std::array<std::pair<double,kernel::VertexReference>,2> ends;

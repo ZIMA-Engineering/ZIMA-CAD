@@ -7,7 +7,7 @@ using namespace zima;
 void check(bool value){if(!value)throw std::runtime_error("Pattern dimension assertion failed");}
 template<class F> void rejects(F f){try{f();}catch(const std::invalid_argument&){return;}throw std::runtime_error("Invalid pattern dimension accepted");}
 int main(){try {
-    document::DerivedCopyParameters copy;copy.source_id="source";copy.pattern=kernel::PatternRequest{};
+    document::DerivedCopyParameters copy;copy.source_ids={"source"};copy.pattern=kernel::PatternRequest{};
     copy.pattern->origin={30,40,50};copy.pattern->linear[0].spacing=25;
     auto dimensions=document::pattern_dimensions("pattern",copy);
     check(dimensions.size()==2&&dimensions[0].value==25&&dimensions[1].value==4);
@@ -22,7 +22,7 @@ int main(){try {
     }
 
     check(document::assign_pattern_dimension(copy,"pattern:count:0",7));
-    check(copy.pattern->linear[0].count==7&&copy.source_id=="source");
+    check(copy.pattern->linear[0].count==7&&copy.source_ids==std::vector<std::string>{"source"});
     rejects([&]{document::assign_pattern_dimension(copy,"pattern:count:0",2.5);});
     rejects([&]{document::assign_pattern_dimension(copy,"pattern:spacing:0",0);});
     copy.value_locks.insert("pattern:spacing:0");

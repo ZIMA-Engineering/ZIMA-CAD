@@ -142,26 +142,52 @@ bool move_part_history(Workspace& live,const std::string& document_id,const kern
     commit_part_document(live,document_id,std::move(next),std::move(calculated));
     return true;
 }
-void delete_part_history(Workspace& live,const std::string& document_id,const kernel::OcctKernel& kernel,const std::string& id) {
+void delete_part_history(Workspace& live,const std::string& document_id,
+        const kernel::OcctKernel& kernel,const std::vector<std::string>& ids) {
     auto* state=live.open_part(document_id);
     if(!state)throw HistoryOperationError("unsupported_document","Part document is not open");
+    if(ids.empty())return;
     auto& part=*state;
     const auto& original=part.session.document();
-    if (!original.body_history.find(id) && !original.body_history.find_boolean(id)) {
-        static_cast<void>(part_history_suppressed(original,id));
+    const auto exists=[](const document::PartDocument& document,
+            const std::string& id) {
+        return document.body_history.find(id)||
+            document.body_history.find_boolean(id)||
+            document.find_container(id)||document.find_construction(id)||
+            std::ranges::any_of(document.sketches,[&](const auto& sketch) {
+                return sketch.id==id&&sketch.owner_container_id.empty();
+            });
+    };
+    for(const auto& id:ids) {
+        if(id.empty())continue;
+        if(!exists(original,id))
+            throw HistoryOperationError("history_not_found",
+                "The requested history object does not exist or is owned by a feature.");
         require_editable(original,id);
     }
     auto next=original;
-    const auto deletion=plan_history_deletion(original,id);
-    const auto* removed_feature=original.find_container(id);
-    const bool rebuild_sheet_union=removed_feature&&(
-        removed_feature->feature_kind==document::FeatureKind::Flat||
-        removed_feature->feature_kind==document::FeatureKind::Bend||
-        removed_feature->feature_kind==document::FeatureKind::TwistedSheet||
-        removed_feature->feature_kind==document::FeatureKind::SheetFromBody||
-        removed_feature->feature_kind==document::FeatureKind::SheetProfile);
-    detach_deleted_history_references(next,deletion);
-    next.erase_history_object(id);
+    bool rebuild_sheet_union{};
+    std::set<std::string> visited;
+    for(const auto& id:ids) {
+        if(id.empty()||!visited.insert(id).second)continue;
+        // Deleting an explicitly selected group (for example Profile) may
+        // already remove another selected child. It is still one valid batch,
+        // not a request to delete an unrelated missing identity.
+        if(!exists(next,id))continue;
+        if (!next.body_history.find(id) && !next.body_history.find_boolean(id)) {
+            static_cast<void>(part_history_suppressed(next,id));
+        }
+        const auto* removed_feature=next.find_container(id);
+        rebuild_sheet_union=rebuild_sheet_union||(removed_feature&&(
+            removed_feature->feature_kind==document::FeatureKind::Flat||
+            removed_feature->feature_kind==document::FeatureKind::Bend||
+            removed_feature->feature_kind==document::FeatureKind::TwistedSheet||
+            removed_feature->feature_kind==document::FeatureKind::SheetFromBody||
+            removed_feature->feature_kind==document::FeatureKind::SheetProfile));
+        const auto deletion=plan_history_deletion(next,id);
+        detach_deleted_history_references(next,deletion);
+        next.erase_history_object(id);
+    }
     // Flats and Bends are independent authored material tools. Rebuild their
     // shared Body with the direct parallel Add block after a deletion instead
     // of replaying every cumulative sheet Boolean from the first changed row.
@@ -170,7 +196,31 @@ void delete_part_history(Workspace& live,const std::string& document_id,const ke
         ?calculate_part(kernel,next,&part.session.calculated_boundaries())
         :calculate_part_with_resolved_references(
             kernel,next,&part.session.calculated_boundaries());
+    if(rebuild_sheet_union&&!calculated.empty()) {
+        const bool incomplete_current_identities=std::ranges::any_of(
+            calculated.back().body_outputs,[](const auto& output) {
+                const auto& mesh=output.second->mesh;
+                return !mesh.triangles.empty()&&
+                    (mesh.triangle_references.empty()||
+                     std::ranges::any_of(mesh.triangle_references,
+                        [](const auto& face){return !face.valid();}));
+            });
+        // A shortened final-first sheet history may expose a compact earlier
+        // boundary whose B-Rep and original ancestry are valid, while its
+        // current face packet deliberately carries no owners.  That packet is
+        // sufficient as an internal prefix but not as the new final Body:
+        // commands such as Sheet from Body and Fillet could display the solid
+        // yet select none of its faces.  Rebuild only this rare shortened
+        // result without the compact cache; ordinary sheet deletion keeps the
+        // direct parallel union and its warm path.
+        if(incomplete_current_identities)
+            calculated=calculate_part(kernel,next,nullptr);
+    }
     commit_part_document(live,document_id,std::move(next),std::move(calculated));
+}
+void delete_part_history(Workspace& live,const std::string& document_id,
+        const kernel::OcctKernel& kernel,const std::string& id) {
+    delete_part_history(live,document_id,kernel,std::vector<std::string>{id});
 }
 HistoryCursorChange set_part_history_cursor(Workspace& live,
         const std::string& document_id,const kernel::OcctKernel& kernel,

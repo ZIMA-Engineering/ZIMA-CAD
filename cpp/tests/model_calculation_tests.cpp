@@ -205,10 +205,16 @@ void verify_native_feature_datums_through_history(const kernel::OcctKernel& kern
                 "Incomplete Modeling profile lost its valid authored datum frame");
             near(consumer->placement.x,30,"Incomplete Modeling frame retained a stale position");continue;
         }
+        // A lost source invalidates only the stored reference. The dependent
+        // feature keeps its last resolved frame and calculated geometry so its
+        // Properties can replace the reference without collapsing downstream
+        // history or painting an otherwise usable branch red.
         if(consumer->placement.reference_valid||consumer->placement.references!=wanted||
-            !calculated.back().calculation_errors.contains(target.id))
+            calculated.back().calculation_errors.contains(target.id)||
+            calculated.back().mesh.triangles.empty())
             throw std::runtime_error("Native unavailable datum case="+std::to_string(invalid)+" valid="+std::to_string(consumer->placement.reference_valid)+
                 " errors="+nlohmann::json(calculated.back().calculation_errors).dump());
+        near(consumer->placement.x,20,"Unavailable datum lost its last valid X frame");
     }
 }
 // A manually positioned owner may already be unchanged while its owned
@@ -781,8 +787,8 @@ void verify_failed_source_reference_is_reported_downstream(
         kernel,changed,&calculated,policy);
     const auto& errors=failed.back().calculation_errors;
     require(!errors.contains(stock.id)&&errors.contains(fillet.id)&&
-            errors.contains(attached.id),
-        "A valid source edit did not leave missing dependent references as history errors");
+            !errors.contains(attached.id)&&!failed.back().mesh.triangles.empty(),
+        "A missing Fillet reference incorrectly invalidated the retained dependent feature");
     require(!changed.history.back().placement.reference_valid&&
             changed.history.back().placement.references.front().owner_id==
                 fillet.id&&

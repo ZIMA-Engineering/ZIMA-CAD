@@ -5532,7 +5532,8 @@ std::optional<double> Sketch::circular_radius(
 }
 
 std::string Sketch::add_point_on_circle_constraint(
-    const std::string& point_id, const std::string& circle_id) {
+    const std::string& point_id, const std::string& circle_id,
+    bool retain_redundant_contact) {
     const auto* point = find_point(point_id);
     const auto curve = tangent_curve_data(*this, circle_id);
     const auto spline = std::find_if(
@@ -5565,8 +5566,10 @@ std::string Sketch::add_point_on_circle_constraint(
     if (result.status == SolveStatus::Conflicting || result.status == SolveStatus::Invalid) {
         throw std::runtime_error("Point-on-curve constraint conflicts with existing geometry");
     }
-    require_constraint_dof_reduction(
-        *this, result, "Point-on-curve constraint is redundant");
+    if (!retain_redundant_contact) {
+        require_constraint_dof_reduction(
+            *this, result, "Point-on-curve constraint is redundant");
+    }
     *this = std::move(next);
     return id;
 }
@@ -5986,7 +5989,8 @@ std::string Sketch::add_external_point_segment_constraint(const std::string& ref
 }
 
 std::string Sketch::add_point_on_line_constraint(
-    const std::string& point_id, const std::string& line_id) {
+    const std::string& point_id, const std::string& line_id,
+    bool retain_redundant_contact) {
     const auto* point = find_point(point_id);
     if (point == nullptr ||
         !point_on_line_target(*this, line_id, point->x, point->y)) {
@@ -6031,7 +6035,8 @@ std::string Sketch::add_point_on_line_constraint(
         throw std::runtime_error("Point-on-line constraint conflicts with existing geometry");
     // External supports carry a persistent dependency even when another
     // endpoint relation already fixes the current coordinates (CC).
-    if (std::ranges::none_of(external_references, [&](const auto& reference) {
+    if (!retain_redundant_contact &&
+        std::ranges::none_of(external_references, [&](const auto& reference) {
             return reference.id==line_id && !is_external_point_kind(reference.kind);
         })) require_constraint_dof_reduction(
             *this, result, "Point-on-line constraint is redundant");
@@ -8572,7 +8577,9 @@ std::vector<std::string> Sketch::add_external_edge_endpoints(
             continue;
         }
         auto endpoint=*source;
-        endpoint.id=make_id();
+        endpoint.id=source->id+(kind==ExternalReferenceKind::EdgeStart
+            ? ":endpoint:start" : kind==ExternalReferenceKind::EdgeEnd
+            ? ":endpoint:end" : ":endpoint:midpoint");
         endpoint.kind=kind;
         endpoint.cached_points={*position};
         endpoint.cached_paths.clear();
@@ -10249,6 +10256,56 @@ void Sketch::apply_dimension(SketchDimension dimension) {
         next.validate();
         *this = std::move(next);
         return;
+    }
+    if ((dimension_kind == DimensionKind::Distance ||
+         dimension_kind == DimensionKind::DistanceX ||
+         dimension_kind == DimensionKind::DistanceY) &&
+        !dimension_geometry_id.empty()) {
+        const auto driver = std::ranges::find(
+            next.dimensions, dimension_id, &SketchDimension::id);
+        std::vector<std::string> free_corners;
+        for (const auto& corner : next.corner_radii) {
+            if (!corner.suppressed && !corner.dimension_visible &&
+                (corner.first_segment_id == dimension_geometry_id ||
+                 corner.second_segment_id == dimension_geometry_id)) {
+                free_corners.push_back(corner.id);
+            }
+        }
+        // A visibly shortened Segment with one undimensioned corner has one
+        // unambiguous scalar owner for its length. Seed that radius directly;
+        // moving the original (often externally fixed) Segment endpoints
+        // cannot change its visible tangent endpoint. The ordinary solver and
+        // evaluated-profile validation below remain authoritative.
+        if (driver != next.dimensions.end() && !driver->suppressed &&
+            free_corners.size() == 1) {
+            const auto measured = measured_dimension_value(next, *driver);
+            if (measured && std::abs(*measured - driver->value) > 1.0e-10) {
+                auto probe = next;
+                auto probe_corner = std::ranges::find(
+                    probe.corner_radii, free_corners.front(),
+                    &SketchCornerRadius::id);
+                auto target_corner = std::ranges::find(
+                    next.corner_radii, free_corners.front(),
+                    &SketchCornerRadius::id);
+                const double step = std::max(
+                    1.0e-6, std::abs(probe_corner->radius) * 1.0e-6);
+                probe_corner->radius += step;
+                const auto probe_driver = std::ranges::find(
+                    probe.dimensions, dimension_id, &SketchDimension::id);
+                const auto changed = measured_dimension_value(
+                    probe, *probe_driver);
+                if (changed) {
+                    const double derivative = (*changed - *measured) / step;
+                    if (std::isfinite(derivative) &&
+                        std::abs(derivative) > 1.0e-10) {
+                        const double radius = target_corner->radius +
+                            (driver->value - *measured) / derivative;
+                        if (std::isfinite(radius) && radius >= 0.0)
+                            target_corner->radius = radius;
+                    }
+                }
+            }
+        }
     }
     if (dimension_kind == DimensionKind::Radius ||
         dimension_kind == DimensionKind::Diameter) {
@@ -14422,8 +14479,28 @@ SolveResult Sketch::solve_impl(
         auto& columns = entity_columns[radius.id];
         columns = entity_columns[radius.vertex_id];
         if (!radius.dimension_visible) {
-            columns.push_back(variables.size());
+            const auto radius_column = variables.size();
+            columns.push_back(radius_column);
             variables.push_back(&radius.radius);
+            // A length selected on a visibly trimmed Segment is a function of
+            // its free corner radius as well as of the source endpoints. Give
+            // only that explicit driving dimension ownership of the scalar
+            // column. Adding it to every adjacent Segment also changes the
+            // solve graph of unrelated dimensions on mirrored/negative
+            // profiles and can move a valid tangent branch.
+            const auto owns_visible_length = [&](const std::string& segment) {
+                return std::ranges::any_of(dimensions, [&](const auto& d) {
+                    return !d.suppressed && d.driving &&
+                        (d.kind == DimensionKind::Distance ||
+                         d.kind == DimensionKind::DistanceX ||
+                         d.kind == DimensionKind::DistanceY) &&
+                        d.geometry_id == segment;
+                });
+            };
+            if (owns_visible_length(radius.first_segment_id))
+                entity_columns[radius.first_segment_id].push_back(radius_column);
+            if (owns_visible_length(radius.second_segment_id))
+                entity_columns[radius.second_segment_id].push_back(radius_column);
         }
     }
     const auto append_entity = [&](const std::string& target,
@@ -17201,6 +17278,18 @@ Sketch Sketch::from_serialized_json(const nlohmann::json& root) {
         v.arrows_reversed=entry.at("reverse");v.radius_center_line_hidden=entry.at("hide_center");v.radius_rotation_degrees=entry.value("radius_rotation",0.);
         sketch.dimension_layouts.push_back({entry.at("owner"),entry.at("key"),v});
     }
+    // A finite projected face-outline has the same usable start/end/midpoint
+    // contacts as an ordinary projected edge.  Keep that invariant for
+    // documents authored before the UI began inserting the child contacts at
+    // selection time as well; deterministic child identities make an
+    // unchanged reopen stable and immediately bindable.
+    std::vector<std::string> missing_outline_contacts;
+    for(const auto& reference:sketch.external_references)
+        if(reference.kind==ExternalReferenceKind::Face&&!reference.broken&&
+           !reference.infinite&&is_face_curve_key(reference.source_semantic_key))
+            missing_outline_contacts.push_back(reference.id);
+    for(const auto& id:missing_outline_contacts)
+        static_cast<void>(sketch.add_external_edge_endpoints(id));
     sketch.validate();
     return sketch;
 }

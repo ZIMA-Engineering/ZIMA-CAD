@@ -19,7 +19,11 @@ HistoryDependencyCollector dependencies(const document::PartDocument& doc,bool i
     }
     for(const auto& f:doc.history) {
         graph.use(f.id,f.holes.sketch_id);graph.use(f.id,f.flat.sketch_id);graph.use(f.id,f.bend.sketch_id);
-        if(f.feature_kind==document::FeatureKind::DerivedCopy){graph.use(f.id,f.derived_copy.source_id);graph.reference(f.id,f.derived_copy.reference);}
+        if(f.feature_kind==document::FeatureKind::DerivedCopy){
+            for(const auto& source:f.derived_copy.source_ids)
+                graph.use(f.id,source);
+            graph.reference(f.id,f.derived_copy.reference);
+        }
         for(const auto& owner:f.sheet_state.owners)graph.use(f.id,owner);
         for(const auto& owner:f.solid_state.owners)graph.use(f.id,owner);
     }
@@ -179,7 +183,10 @@ void detach_deleted_history_references(document::PartDocument& doc,const History
             if(lost(boundary.owner_id))boundary={};
             else if(boundary.support&&lost(boundary.support->owner_id))boundary.support.reset();
         }
-        id(f.derived_copy.source_id);reference(f.derived_copy.reference);
+        std::erase_if(f.derived_copy.source_ids,[&](const auto& source) {
+            return root_owner(source)!=f.id&&lost(source);
+        });
+        reference(f.derived_copy.reference);
         std::erase_if(f.sheet_state.owners,lost);
         std::erase_if(f.solid_state.owners,lost);
     }
@@ -224,6 +231,30 @@ void detach_deleted_history_references(document::PartDocument& doc,const History
     const auto after=dependencies(doc,true);
     for(const auto& owner:plan.affected)doc.removed_reference_states[owner]=signature(after,owner,plan.removed);
     for(const auto& owner:plan.removed){doc.removed_reference_states.erase(owner);doc.reference_errors.erase(owner);}
+}
+bool acknowledge_retained_history_edit(document::PartDocument& doc,
+        const std::string& owner) {
+    const auto missing=doc.removed_reference_states.find(owner);
+    if(missing==doc.removed_reference_states.end())return false;
+    if(auto* feature=doc.find_container(owner)) {
+        if(feature->feature_kind==document::FeatureKind::Fillet||
+                feature->feature_kind==document::FeatureKind::Chamfer||
+                feature->feature_kind==document::FeatureKind::Shell)
+            return false;
+        // An attached Flat is otherwise a complete authored profile. Once its
+        // source edge has been deleted and Properties acknowledges the retained
+        // feature, its persisted numeric placement and resolved Sketch frame
+        // become the independent definition. Leaving sheet_attachment enabled
+        // would reinterpret the intentionally empty reference list as a new
+        // malformed attachment and discard that last valid frame.
+        if(feature->feature_kind==document::FeatureKind::Flat&&
+                feature->flat.sheet_attachment&&
+                feature->placement.references.empty())
+            feature->flat.sheet_attachment=false;
+    } else if(!doc.body_history.find(owner))return false;
+    doc.removed_reference_states.erase(missing);
+    doc.reference_errors.erase(owner);
+    return true;
 }
 bool refresh_removed_reference_states(document::PartDocument& doc) {
     if(doc.removed_reference_states.empty())return false;

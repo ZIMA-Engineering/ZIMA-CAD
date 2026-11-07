@@ -1,4 +1,5 @@
 #include "profile_command_fixture.hpp"
+#include "body_measurement_fixture.hpp"
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/section_operations.hpp>
 #include <cmath>
@@ -29,7 +30,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
         const kernel::Vec3 u{b.x-a.x,b.y-a.y,b.z-a.z},v{c.x-a.x,c.y-a.y,c.z-a.z};
         area+=std::hypot(u.y*v.z-u.z*v.y,u.z*v.x-u.x*v.z,u.x*v.y-u.y*v.x)/2;
     }
-    near(area,300);near(part->session.calculated_boundaries().back().volume,6000);
+    near(area,300);near(test::measured_volume(kernel,part->session.calculated_boundaries().back()),6000);
     require(part->session.calculated_boundaries().back().source_fingerprint==before,"Section creation recalculated the body");
     run(host,"section.set",{{"object",id},{"name","B–B"},{"reversed",true},{"show_plane",true},{"placement",{{"y",2}}}});
     const auto& changed=part->session.document().sections.front();

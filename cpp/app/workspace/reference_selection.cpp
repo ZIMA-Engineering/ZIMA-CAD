@@ -51,6 +51,84 @@ zima::assembly::MateReferenceKind AssemblyWorkspaceWindow::component_reference_k
     return component_reference_kind_index_.kind(placement_reference_source_candidate(candidate));
 }
 
+QString AssemblyWorkspaceWindow::placement_reference_hover_label(
+    const zima::viewer::ViewerCandidate& offered) const {
+    const auto candidate = placement_reference_source_candidate(offered);
+    const auto& geometry = pending_construction_reference_index_
+        ? construction_reference_geometry_ : primitive_reference_geometry_;
+    const auto short_label = reference_display_label(
+        zima::kernel::EdgeReference{candidate.owner_id,
+            candidate.semantic_key, candidate.instance_path}, geometry);
+    if (!short_label) return {};
+
+    std::string source_document_id = workspace_.active_document_id();
+    QString document_label;
+    if (!candidate.instance_path.empty() &&
+        workspace_.open_assembly(workspace_.displayed_document_id())) {
+        try {
+            if (const auto address = workspace_.resolve_occurrence(
+                    workspace_.displayed_document_id(),
+                    zima::assembly::InstancePath::decode(
+                        candidate.instance_path))) {
+                source_document_id = address->source_document_id;
+                if (const auto* owner = workspace_.open_assembly(
+                        address->owner_assembly_document_id)) {
+                    if (const auto* occurrence =
+                            owner->session.document().find_occurrence(
+                                address->occurrence_id)) {
+                        document_label = QString::fromStdString(
+                            occurrence->name);
+                    }
+                }
+            }
+        } catch (const std::invalid_argument&) {
+            // The picker remains usable while a stale transient occurrence
+            // path is being replaced; the stable geometry label is enough.
+        }
+    }
+
+    QString feature_label;
+    if (const auto* part = workspace_.open_part(source_document_id)) {
+        if (document_label.isEmpty())
+            document_label = QString::fromStdString(
+                part->session.document().name);
+        if (const auto* feature =
+                part->session.document().find_container(candidate.owner_id)) {
+            feature_label = QString::fromStdString(feature->name);
+        } else if (const auto* construction =
+                       part->session.document().find_construction(
+                           candidate.owner_id)) {
+            feature_label = QString::fromStdString(construction->name);
+        } else if (const auto sketch = std::ranges::find(
+                       part->session.document().sketches,
+                       candidate.owner_id, &zima::sketcher::Sketch::id);
+                   sketch != part->session.document().sketches.end()) {
+            feature_label = QString::fromStdString(sketch->name);
+        }
+    } else if (const auto* assembly =
+                   workspace_.open_assembly(source_document_id)) {
+        if (document_label.isEmpty())
+            document_label = QString::fromStdString(
+                assembly->session.document().name);
+        if (const auto* construction =
+                assembly->session.document().find_construction(
+                    candidate.owner_id)) {
+            feature_label = QString::fromStdString(construction->name);
+        } else if (const auto* feature =
+                       assembly->session.document().find_cut(
+                           candidate.owner_id)) {
+            feature_label = QString::fromStdString(feature->definition.name);
+        }
+    }
+
+    QStringList parts;
+    if (!document_label.isEmpty()) parts.push_back(document_label);
+    if (!feature_label.isEmpty() && feature_label != document_label)
+        parts.push_back(feature_label);
+    parts.push_back(*short_label);
+    return parts.join(QStringLiteral(" — "));
+}
+
 void AssemblyWorkspaceWindow::end_placement_branch_selection() {
     if(!placement_branch_section_)return;
     placement_branch_section_->end_branch_entry();placement_branch_section_.clear();

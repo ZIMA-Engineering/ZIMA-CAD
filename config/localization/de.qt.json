@@ -2685,5 +2685,16 @@
   "Zobrazit nebo skrýt body os a konstrukčních čar": "Punkte von Achsen und Konstruktionskurven ein- oder ausblenden",
   "Invalid compressed document data.": "Ungültige komprimierte Dokumentdaten.",
   "External extrusion targets must belong to a Skeleton Part.": "Externe Austragungsziele müssen zu einem Skeleton-Teil gehören.",
-  "Prázdná varianta": "Leer"
+  "Prázdná varianta": "Leer",
+  "Zdroje": "Quellen",
+  "Ve View…": "In der Ansicht…",
+  "Vyberte zdroj ve View…": "Quelle in der Ansicht auswählen…",
+  "Vyberte zdrojový prvek, těleso nebo komponentu.": "Quell-Feature, Körper oder Komponente auswählen.",
+  "Vyberte alespoň jeden dostupný zdrojový prvek, těleso nebo komponentu.": "Mindestens ein verfügbares Quell-Feature, einen Körper oder eine Komponente auswählen.",
+  "Kopie přebírají geometrii zdrojů. Rozměry a vlastnosti geometrie se upravují u zdrojových prvků.": "Kopien übernehmen die Geometrie der Quellen. Maße und Geometrieeigenschaften werden an den Quell-Features bearbeitet.",
+  "Vyberte alespoň jeden zdrojový prvek, těleso nebo komponentu.": "Mindestens ein Quell-Feature, einen Körper oder eine Komponente auswählen.",
+  "Vyberte osu Pole.": "Achse des Musters auswählen.",
+  "Vyberte rovinu zrcadlení.": "Spiegelebene auswählen.",
+  "Vyberte ve View…": "In der Ansicht auswählen…",
+  "Vybrat rovinu ve View": "Ebene in der Ansicht auswählen"
 }

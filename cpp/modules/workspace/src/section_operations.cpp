@@ -60,7 +60,10 @@ kernel::ViewerReferenceGeometry section_reference_geometry(const Workspace& live
 }
 }
 kernel::ViewerReferenceGeometry section_placement_geometry(const Workspace& live,const std::string& id) {
-    return section_reference_geometry(live,id,live.authoritative_viewer_mesh(id).original_references);
+    const auto geometry=live.open_assembly(id)
+        ? live.open_assembly(id)->session.document().build_drawing_scene()
+        : live.authoritative_viewer_mesh(id);
+    return section_reference_geometry(live,id,geometry.original_references);
 }
 bool commit_section(Workspace& live,const SectionEdit& edit,document::SectionDefinition value) {
     auto sections=editable_sections(live,edit.document_id);
@@ -83,7 +86,9 @@ bool commit_section(Workspace& live,const SectionEdit& edit,document::SectionDef
     }
     value.component_names=edit.initial.component_names;value.body_owners=edit.initial.body_owners;
     std::vector<document::SectionDefinition> pending{std::move(value)};
-    const auto source=live.authoritative_viewer_mesh(edit.document_id);
+    const auto source=live.open_assembly(edit.document_id)
+        ? live.open_assembly(edit.document_id)->session.document().build_drawing_scene()
+        : live.authoritative_viewer_mesh(edit.document_id);
     document::resolve_section_placements(pending,section_reference_geometry(live,edit.document_id,source.original_references));
     value=std::move(pending.front());
     if(!value.placement.reference_valid)throw SectionOperationError("invalid_reference","Section placement has unresolved references.");

@@ -47,6 +47,23 @@ bool commit_sheet_state(Workspace& live,const kernel::OcctKernel& kernel,
     else {next.insert_history_entry(document::PartHistoryKind::Feature,owner);next.history.push_back(std::move(feature));}
     auto policy=feature_definition_calculation_policy(before,state->session.calculated_boundaries(),owner);
     if(existing){policy.edited_document_id=id;policy.edited_history_limit=before.history_index(owner);}
+    if(!existing) {
+        const auto history_index=next.history_index(owner);
+        const auto operations=next.kernel_operations(true,true);
+        // An appended Unbend/Bend Back cannot be a source of any earlier
+        // persisted placement, construction or Sketch. If it is also the
+        // final native operation, its calculation need only prove that the
+        // complete authored prefix stayed byte-identical before reusing the
+        // prefix's already resolved reference and projection state.
+        if(history_index&&*history_index+1==next.history.size()&&
+                !operations.empty()&&operations.back().owner_id==owner) {
+            policy.edited_document_id=id;
+            policy.edited_history_limit=*history_index;
+            policy.reuse_unchanged_local_sketch_references=true;
+            policy.reuse_unchanged_reference_resolution=true;
+            policy.unchanged_last_operation_owner=owner;
+        }
+    }
     // A sheet-state row changes only the derived folded/developed result. Keep
     // the already verified exact history boundaries authoritative for
     // placements owned by the unchanged authored prefix; otherwise resolving

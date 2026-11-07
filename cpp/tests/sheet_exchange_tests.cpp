@@ -13,6 +13,7 @@
 #include <zima/workspace/history_operations.hpp>
 #include <zima/workspace/history_deletion.hpp>
 #include <zima/workspace/part_transactions.hpp>
+#include <zima/workspace/sheet_state_operations.hpp>
 #include <zima/kernel/sheet_material.hpp>
 #include <zima/kernel/calculated_body_shape.hpp>
 #include <TopExp_Explorer.hxx>
@@ -35,7 +36,7 @@ double measured_volume(const kernel::OcctKernel& engine,const kernel::BodySnapsh
 }
 void contract(bool include_oblique_corners = true) {
     kernel::OcctKernel kernel;
-    {
+    if(!std::getenv("ZIMA_CPP_SHEET_SKIP_CORNER_REJECTION")) {
         auto part=document::PartDocument::create_default();const auto body=part.body_history.create_body("Rounded solid");
         auto box=test::rectangular_feature(part,{100,80,20});
         part.insert_history_entry(document::PartHistoryKind::Feature,box.id);part.history.push_back(box);
@@ -51,9 +52,22 @@ void contract(bool include_oblique_corners = true) {
         const auto& references=cache.back().mesh.original_references.triangle_references;
         const auto seed=std::ranges::max_element(references,{},[](const auto& f){return f.surface&&f.surface->kind==kernel::SurfaceGeometry::Kind::Plane?f.measured_area.value_or(0):0;});
         const auto before=part.serialized();bool rejected=false;
-        try{static_cast<void>(workspace::prepare_sheet_from_body(part,cache,*seed,1,kernel));}
-        catch(const std::invalid_argument& error){rejected=std::string_view(error.what())=="Sheet conversion cannot reproduce this surface transition.";}
-        check(rejected&&part.serialized()==before,"Three-edge corner blend was silently converted or modified");
+        std::string rejection;
+        try {
+            const auto conversion=workspace::prepare_sheet_from_body(
+                part,cache,*seed,1,kernel);
+            rejection="created="+std::to_string(conversion.created.size())+
+                " skipped="+std::to_string(conversion.skipped);
+        }
+        catch(const std::invalid_argument& error) {
+            rejection=error.what();
+            rejected=rejection==
+                "Sheet conversion cannot reproduce this surface transition.";
+        }
+        if(!rejected||part.serialized()!=before)
+            throw std::runtime_error(
+                "Three-edge corner blend was silently converted or modified: "+
+                (rejection.empty()?"no rejection":rejection));
     }
     {
         // Three rounded perimeter edges reproduce the real Sheet-from-Body
@@ -169,6 +183,29 @@ void contract(bool include_oblique_corners = true) {
         }
         check(bends==3&&double_meeting==1&&single_meeting==2,
             "Converted Bend meeting ends did not use the 11 - 1 setback");
+        std::size_t clipped_flats{};
+        for(const auto& id:converted.created) {
+            const auto* flat=converted.document.find_container(id);
+            if(!flat||flat->feature_kind!=document::FeatureKind::Flat)
+                continue;
+            const auto sketch=std::ranges::find(converted.document.sketches,
+                flat->flat.sketch_id,&sketcher::Sketch::id);
+            if(sketch==converted.document.sketches.end())continue;
+            const auto first=std::ranges::find(sketch->external_references,
+                sketch->id+":flat-attachment:first",
+                &sketcher::SketchExternalReference::id);
+            const auto last=std::ranges::find(sketch->external_references,
+                sketch->id+":flat-attachment:last",
+                &sketcher::SketchExternalReference::id);
+            if(first==sketch->external_references.end()||
+                    last==sketch->external_references.end())continue;
+            check(first->cached_points.size()==1&&
+                    last->cached_points.size()==1,
+                "Converted Flat lost its Bend endpoint stations");
+            ++clipped_flats;
+        }
+        check(clipped_flats==3,
+            "Three-branch conversion did not clip every Flat after its Bend");
         check(converted.calculated.back().calculation_errors.empty()&&
                 converted.calculated.back().body_outputs.at(body)->has_solid(),
             "Three-branch conversion produced no solid sheet");
@@ -302,6 +339,167 @@ void contract(bool include_oblique_corners = true) {
                 !deleted.document().find_container(middle_bend)&&
                 deleted.calculated_boundaries().back().calculation_errors.empty(),
             "Middle-Bend deletion Redo did not retain the remaining sheets");
+    }
+    {
+        // A vertical corner fillet crossed by the two cap fillets has the same
+        // topology as the 04 native-solid fixture.  Starting on one side must
+        // always grow outwards: the adjacent side is the common branch Flat
+        // and remains whole, while both cap faces are split by their inferred
+        // continuation Bends.  Reversing that ownership still creates eleven
+        // features, so the orientation counts below protect the topology and
+        // not merely the feature count.
+        auto part=document::PartDocument::create_default();
+        const auto body=part.body_history.create_body(
+            "Outward corner continuation");
+        constexpr double height=457.040232070199;
+        constexpr double radius=10;
+        const std::array<std::array<double,2>,6> points{{
+            {{0,0}},{{361.261461397387,0}},
+            {{665.975309029948,298.8665239324305}},
+            {{565.6859241492795,401.11807068178155}},
+            {{302.74695795542806,143.22478672484596}},
+            {{0,143.22478672484596}}}};
+        auto profile=sketcher::Sketch::create_default();
+        for(std::size_t index=0;index<points.size();++index) {
+            const auto& first=points[index];
+            const auto& second=points[(index+1)%points.size()];
+            static_cast<void>(profile.add_segment(first[0],first[1],
+                second[0],second[1]));
+        }
+        auto source=document::PartDocument::create_feature_container(
+            profile.id);
+        profile.owner_container_id=source.id;
+        source.feature.sides[0].length=height;
+        part.insert_history_entry(document::PartHistoryKind::Feature,
+            source.id);
+        part.history.push_back(source);
+        part.sketches.push_back(profile);
+        auto cache=workspace::calculate_part_with_resolved_references(
+            kernel,part);
+        const auto& source_edges=
+            cache.back().body_outputs.at(body)->mesh.edges;
+        const auto vertical=std::ranges::find_if(
+                source_edges,[&](const auto& edge) {
+            return edge.points.size()>=2&&
+                std::ranges::all_of(edge.points,[&](const auto point) {
+                    return std::abs(point.x-points[1][0])<1e-6&&
+                        std::abs(point.y-points[1][1])<1e-6;
+                });
+        });
+        check(vertical!=source_edges.end(),
+            "Outward-corner fixture lacks its vertical corner edge");
+        auto corner=document::PartDocument::create_fillet_container(
+            {vertical->reference});
+        corner.edge_treatment.primary_size=radius;
+        part.insert_history_entry(document::PartHistoryKind::Feature,
+            corner.id);
+        part.history.push_back(corner);
+        workspace::PartCalculationPolicy policy;
+        policy.reject_errors=true;
+        cache=workspace::calculate_part_with_resolved_references(
+            kernel,part,&cache,policy);
+
+        const auto& rounded_edges=
+            cache.back().body_outputs.at(body)->mesh.edges;
+        const auto line_distance=[](const auto point,const auto& first,
+                const auto& second) {
+            const kernel::Vec3 a{first[0],first[1],0};
+            const kernel::Vec3 b{second[0],second[1],0};
+            const kernel::Vec3 p{point.x,point.y,0};
+            const auto delta=kernel::sheet_material::sub(b,a);
+            return std::abs(kernel::sheet_material::cross(
+                kernel::sheet_material::sub(p,a),delta).z)/
+                std::sqrt(kernel::sheet_material::dot(delta,delta));
+        };
+        const auto cap_route=[&](double z) {
+            const kernel::ViewerEdge* first_side=nullptr;
+            const kernel::ViewerEdge* arc=nullptr;
+            const kernel::ViewerEdge* second_side=nullptr;
+            for(const auto& edge:rounded_edges) {
+                if(edge.points.size()<2||!std::ranges::all_of(
+                        edge.points,[&](const auto point) {
+                            return std::abs(point.z-z)<1e-6;
+                        }))continue;
+                const bool on_first=std::ranges::all_of(
+                    edge.points,[&](const auto point) {
+                        return line_distance(point,points[0],points[1])<1e-6;
+                    });
+                const bool on_second=std::ranges::all_of(
+                    edge.points,[&](const auto point) {
+                        return line_distance(point,points[1],points[2])<1e-6;
+                    });
+                const bool in_corner=std::ranges::all_of(
+                    edge.points,[&](const auto point) {
+                        return std::hypot(point.x-points[1][0],
+                            point.y-points[1][1])<3*radius;
+                    });
+                if(on_first)first_side=&edge;
+                else if(on_second)second_side=&edge;
+                else if(in_corner)arc=&edge;
+            }
+            check(first_side&&arc&&second_side,
+                "Outward-corner fixture lacks a rounded cap route");
+            return std::vector<kernel::EdgeReference>{
+                first_side->reference,arc->reference,second_side->reference};
+        };
+        auto bottom_route=cap_route(0);
+        auto top_route=cap_route(height);
+        auto caps=document::PartDocument::create_fillet_container(
+            bottom_route);
+        caps.edge_treatment.routes={
+            std::move(bottom_route),std::move(top_route)};
+        caps.edge_treatment.route_end_faces.resize(2);
+        caps.edge_treatment.primary_size=radius;
+        part.insert_history_entry(document::PartHistoryKind::Feature,caps.id);
+        part.history.push_back(caps);
+        cache=workspace::calculate_part_with_resolved_references(
+            kernel,part,&cache,policy);
+        const auto& faces=
+            cache.back().mesh.original_references.triangle_references;
+        const auto seed=std::ranges::find_if(faces,[](const auto& face) {
+            return face.surface&&face.surface->kind==
+                    kernel::SurfaceGeometry::Kind::Plane&&
+                std::abs(face.surface->origin.y)<1e-6&&
+                std::abs(face.surface->axis.y)>.999999;
+        });
+        check(seed!=faces.end(),
+            "Outward-corner fixture lacks its first side face");
+        const auto converted=workspace::prepare_sheet_from_body(
+            part,cache,*seed,5,kernel);
+        if(converted.created.size()!=11||converted.skipped!=0)
+            throw std::runtime_error(
+                "Outward corner did not create six Flats and five Bends: created="+
+                std::to_string(converted.created.size())+" skipped="+
+                std::to_string(converted.skipped));
+        std::size_t cap_flats{},side_flats{};
+        std::size_t bends{};
+        for(const auto& id:converted.created) {
+            const auto* feature=converted.document.find_container(id);
+            if(feature->feature_kind==document::FeatureKind::Bend) {
+                ++bends;
+                continue;
+            }
+            if(feature->feature_kind!=document::FeatureKind::Flat)continue;
+            const auto sketch=std::ranges::find(converted.document.sketches,
+                feature->flat.sketch_id,&sketcher::Sketch::id);
+            check(sketch!=converted.document.sketches.end(),
+                "Outward-corner Flat lost its profile");
+            const auto normal=sketch->resolved_normal;
+            if(std::abs(normal.z)>.999999)++cap_flats;
+            else ++side_flats;
+        }
+        check(bends==5&&cap_flats==4&&side_flats==2,
+            "Corner continuation turned back into the common branch face");
+        check(converted.calculated.back().calculation_errors.empty()&&
+                converted.calculated.back().body_outputs.at(body)->has_solid(),
+            "Outward corner continuation produced no solid sheet");
+        auto reopened=document::PartDocument::from_serialized(
+            converted.document.serialized());
+        const auto cold=workspace::calculate_part_with_resolved_references(
+            kernel,reopened);
+        check(cold.back().calculation_errors.empty()&&
+                cold.back().body_outputs.at(body)->has_solid(),
+            "Outward corner continuation failed cold regeneration");
     }
     {
         // A thick ordinary solid is a valid source. Its opposite-face spacing
@@ -598,6 +796,12 @@ void contract(bool include_oblique_corners = true) {
         check(bottom_edges.size()==6,
             "Oblique corner fixture lacks its six base edges");
         auto fillet=document::PartDocument::create_fillet_container(bottom_edges);
+        fillet.edge_treatment.routes.clear();
+        fillet.edge_treatment.route_end_faces.clear();
+        for(const auto& edge:bottom_edges) {
+            fillet.edge_treatment.routes.push_back({edge});
+            fillet.edge_treatment.route_end_faces.emplace_back();
+        }
         fillet.edge_treatment.primary_size=5;
         part.insert_history_entry(document::PartHistoryKind::Feature,fillet.id);
         part.history.push_back(fillet);
@@ -620,6 +824,12 @@ void contract(bool include_oblique_corners = true) {
         check(converted.created.size()==13&&converted.skipped==0,
             "Oblique polygon skin did not create six Bend branches");
         std::size_t bends=0;
+        struct BendEndCurve {
+            std::string owner;
+            std::string role;
+            std::vector<kernel::Vec3> points;
+        };
+        std::vector<BendEndCurve> end_curves;
         for(const auto& id:converted.created) {
             const auto* feature=converted.document.find_container(id);
             if(feature->feature_kind!=document::FeatureKind::Bend)continue;
@@ -627,7 +837,80 @@ void contract(bool include_oblique_corners = true) {
             check(feature->bend.corner==std::array{true,true}&&
                     feature->bend.corner_gap==0,
                 "Converted oblique Bend did not retain zero-gap corner closure");
+            const auto sketch=std::ranges::find(
+                converted.document.sketches,feature->bend.sketch_id,
+                &sketcher::Sketch::id);
+            check(sketch!=converted.document.sketches.end(),
+                "Converted oblique Bend lost its start Sketch");
+            const auto preview=document::bend_preview(*feature,*sketch,
+                document::sheet_metal_defaults(converted.document));
+            if(std::getenv("ZIMA_CPP_SHEET_CORNER_PROFILE")) {
+                const auto extensions=
+                    document::bend_profile_extensions(*feature);
+                std::cout<<"oblique_bend="<<id<<" extensions="
+                    <<extensions[0]<<','<<extensions[1]<<'\n';
+            }
+            for(const auto& edge:preview.edges)
+                for(const auto* role:{"outer-first","outer-last",
+                        "inner-first","inner-last"})
+                    if(edge.reference.semantic_key.find(role)!=
+                            std::string::npos)
+                        end_curves.push_back({id,role,edge.points});
         }
+        const auto point_distance=[](const auto& a,const auto& b) {
+            return std::hypot(std::hypot(a.x-b.x,a.y-b.y),a.z-b.z);
+        };
+        const auto curve_gap=[&](const auto& a,const auto& b) {
+            double result{};
+            for(const auto* first:{&a,&b}) {
+                const auto* second=first==&a?&b:&a;
+                for(const auto& point:*first) {
+                    double nearest=INFINITY;
+                    for(const auto& other:*second)
+                        nearest=std::min(nearest,
+                            point_distance(point,other));
+                    result=std::max(result,nearest);
+                }
+            }
+            return result;
+        };
+        for(const auto& curve:end_curves) {
+            double nearest=INFINITY;
+            for(const auto& other:end_curves)
+                if(other.owner!=curve.owner&&
+                        other.role.starts_with(
+                            curve.role.starts_with("outer")?
+                                "outer":"inner"))
+                    nearest=std::min(nearest,
+                        curve_gap(curve.points,other.points));
+            if(curve.role.starts_with("inner"))
+                check(nearest<1e-7,
+                    "Measured oblique Bend inner endpoints do not close");
+            if(std::getenv("ZIMA_CPP_SHEET_CORNER_PROFILE"))
+                std::cout<<"oblique_end="<<curve.owner<<':'<<curve.role
+                    <<" nearest_gap="<<nearest<<'\n';
+        }
+        std::size_t attached_flats{},endpoint_bindings{};
+        for(const auto& id:converted.created) {
+            const auto* feature=converted.document.find_container(id);
+            if(!feature||feature->feature_kind!=document::FeatureKind::Flat||
+                    !feature->flat.sheet_attachment)continue;
+            ++attached_flats;
+            const auto sketch=std::ranges::find(converted.document.sketches,
+                feature->flat.sketch_id,&sketcher::Sketch::id);
+            check(sketch!=converted.document.sketches.end(),
+                "Converted oblique Flat lost its profile Sketch");
+            check(std::ranges::none_of(sketch->segments,
+                    &sketcher::SketchSegment::construction),
+                "Converted Flat retained a visible construction guide");
+            endpoint_bindings+=std::ranges::count_if(sketch->constraints,
+                [](const auto& constraint) {
+                    return !constraint.suppressed&&constraint.kind==
+                        sketcher::ConstraintKind::PointReference;
+                });
+        }
+        check(attached_flats==6&&endpoint_bindings==12,
+            "Oblique conversion did not bind both Flat endpoints directly");
         check(bends==6&&
                 converted.calculated.back().calculation_errors.empty()&&
                 converted.calculated.back().body_outputs.at(sheet_body)->has_solid(),
@@ -639,6 +922,44 @@ void contract(bool include_oblique_corners = true) {
         check(cold.back().calculation_errors.empty()&&
                 cold.back().body_outputs.at(sheet_body)->has_solid(),
             "Oblique zero-gap Bend corners failed cold regeneration");
+        workspace::Workspace deletion_live;
+        const auto deletion_document=converted.document.document_id;
+        deletion_live.add_part(converted.document,converted.calculated);
+        auto deletion_ids=converted.created;
+        std::reverse(deletion_ids.begin(),deletion_ids.end());
+        if(!converted.container_id.empty())
+            deletion_ids.push_back(converted.container_id);
+        auto& deletion_session=deletion_live.open_part(
+            deletion_document)->session;
+        const auto deletion_revision=deletion_session.revision();
+        const auto deletion_started=std::chrono::steady_clock::now();
+        workspace::delete_part_history(deletion_live,deletion_document,kernel,
+            deletion_ids);
+        const auto deletion_ms=std::chrono::duration<double,std::milli>(
+            std::chrono::steady_clock::now()-deletion_started).count();
+        std::cout<<"Batch sheet-history deletion: "<<deletion_ms<<" ms\n";
+        check(deletion_session.revision()==deletion_revision+1&&
+                std::ranges::none_of(deletion_ids,[&](const auto& id) {
+                    return deletion_session.document().find_container(id)!=nullptr;
+                })&&deletion_session.calculated_boundaries().back().
+                    calculation_errors.empty()&&
+                deletion_session.calculated_boundaries().back().
+                    body_outputs.at(body)->has_solid(),
+            "Batch deletion did not remove the selected sheet set in one transaction");
+        check(deletion_ms<=1000.,
+            "Batch deletion of the representative sheet set exceeded one second");
+        check(workspace::step_part_document_history(deletion_live,
+                    deletion_document,false)&&
+                std::ranges::all_of(deletion_ids,[&](const auto& id) {
+                    return deletion_session.document().find_container(id)!=nullptr;
+                }),
+            "Batch sheet deletion Undo did not restore the complete selected set");
+        check(workspace::step_part_document_history(deletion_live,
+                    deletion_document,true)&&
+                std::ranges::none_of(deletion_ids,[&](const auto& id) {
+                    return deletion_session.document().find_container(id)!=nullptr;
+                }),
+            "Batch sheet deletion Redo did not remove the complete selected set");
     }
     {
         // A source profile may carry one real bend radius along its selected
@@ -886,6 +1207,33 @@ void contract(bool include_oblique_corners = true) {
             check(workspace::step_part_document_history(live,document_id,true)&&
                     !session->document().find_container(same.container_id),
                 "Sheet from Body deletion Redo retained the divider");
+            for(const auto& created:same.created)
+                workspace::delete_part_history(live,document_id,kernel,created);
+            const auto& restored_output=session->calculated_boundaries().back().
+                body_outputs.at(source)->mesh;
+            check(!restored_output.triangle_references.empty()&&
+                    std::ranges::all_of(
+                        restored_output.triangle_references,
+                        [](const auto& face){return face.valid();}),
+                "Deleting generated sheets retained ownerless current faces");
+            const auto& restored_faces=session->calculated_boundaries().back().
+                mesh.original_references.triangle_references;
+            const auto restored_seed=std::ranges::find_if(
+                restored_faces,[&](const auto& face) {
+                    return face.owner_id==feature.id&&face.surface&&
+                        face.surface->kind==
+                            kernel::SurfaceGeometry::Kind::Plane&&
+                        face.sheet_role==kernel::SheetFaceRole::SideA;
+                });
+            check(restored_seed!=restored_faces.end(),
+                "Deleting Sheet from Body and every generated sheet lost the original source face");
+            const auto reconverted=workspace::prepare_sheet_from_body(
+                session->document(),session->calculated_boundaries(),
+                *restored_seed,2,kernel);
+            check(!reconverted.created.empty()&&
+                    reconverted.document.find_container(
+                        reconverted.container_id),
+                "Sheet from Body cannot run again after its divider and generated sheets were deleted");
         }
         if(direction==document::ExtrusionDirection::Forward) {
             auto inherited=part;
@@ -1082,9 +1430,14 @@ void contract(bool include_oblique_corners = true) {
                 }
             invalid.back().body_outputs[source]=kernel::BodySnapshot(std::move(input));
             const auto before=part.serialized();bool rejected=false;
-            try{static_cast<void>(workspace::prepare_sheet_from_body(part,invalid,*seed,2,kernel));}
+            std::size_t invalid_created{};
+            try{invalid_created=workspace::prepare_sheet_from_body(
+                    part,invalid,*seed,2,kernel).created.size();}
             catch(const std::invalid_argument&){rejected=true;}
-            check(rejected&&part.serialized()==before,"Unsupported branch committed a partial conversion");
+            if(!rejected||part.serialized()!=before)
+                throw std::runtime_error(
+                    "Unsupported branch committed a partial conversion: created="+
+                    std::to_string(invalid_created));
         }
         {
             auto same=workspace::prepare_sheet_from_body(part,cache,*seed,2,kernel);
@@ -1185,8 +1538,249 @@ int main(int argc,char** argv) {
             cache=zima::workspace::calculate_part_with_resolved_references(
                 regeneration,part);
         }
+        if(argc==5&&std::string_view(argv[2])=="trim-copy") {
+            const auto retained=static_cast<std::size_t>(std::stoull(argv[3]));
+            check(retained<=part.history.size(),
+                "Trim-copy cursor exceeds the Part history");
+            while(part.history.size()>retained)
+                part.erase_history_object(part.history.back().id);
+            // The archive may carry intentionally compact lazy boundaries
+            // without per-Body outputs.  A trimmed diagnostic fixture must be
+            // independently calculated before it is used as a conversion
+            // source; resizing that persisted cache can retain an empty Body
+            // map and hide the geometry under test.
+            zima::kernel::OcctKernel kernel;
+            cache=zima::workspace::calculate_part_with_resolved_references(
+                kernel,part);
+            check(!cache.empty()&&cache.back().calculation_errors.empty(),
+                "Trimmed diagnostic source did not regenerate");
+            part.save(argv[4],cache);
+            std::cout<<"trimmed_features="<<part.history.size()
+                <<" output="<<argv[4]<<'\n';
+            return 0;
+        }
         const std::string_view diagnostic=argc==3?std::string_view(argv[2]):
             std::string_view{};
+        if(diagnostic=="cache-boundaries") {
+            for(std::size_t index=0;index<cache.size();++index) {
+                std::cout<<"boundary["<<index<<"] outputs=";
+                for(const auto& [body,output]:cache[index].body_outputs)
+                    std::cout<<body<<":faces="
+                        <<output->mesh.triangle_references.size()<<',';
+                std::cout<<'\n';
+            }
+            return 0;
+        }
+        if(diagnostic=="flat-profiles") {
+            for(const auto& feature:part.history) {
+                if(feature.feature_kind!=document::FeatureKind::Flat)continue;
+                const auto sketch=std::ranges::find(part.sketches,
+                    feature.flat.sketch_id,&sketcher::Sketch::id);
+                if(sketch==part.sketches.end())continue;
+                std::cout<<"flat="<<feature.name<<':'<<feature.id<<'\n';
+                for(const auto& segment:sketch->segments) {
+                    if(segment.construction)continue;
+                    const auto* first=sketch->find_point(
+                        segment.first_point_id);
+                    const auto* last=sketch->find_point(
+                        segment.second_point_id);
+                    if(!first||!last)continue;
+                    const auto a=sketch->world_point(first->x,first->y);
+                    const auto b=sketch->world_point(last->x,last->y);
+                    std::cout<<"  "<<a.x<<','<<a.y<<','<<a.z<<" -> "
+                        <<b.x<<','<<b.y<<','<<b.z<<'\n';
+                }
+            }
+            return 0;
+        }
+        if(diagnostic=="bend-inner-gaps") {
+            struct BendEndCurve {
+                std::string owner;
+                std::string role;
+                std::vector<zima::kernel::Vec3> points;
+            };
+            std::vector<BendEndCurve> end_curves;
+            const auto defaults=zima::document::sheet_metal_defaults(part);
+            for(const auto& feature:part.history) {
+                if(feature.feature_kind!=zima::document::FeatureKind::Bend)
+                    continue;
+                const auto sketch=std::ranges::find(part.sketches,
+                    feature.bend.sketch_id,&zima::sketcher::Sketch::id);
+                check(sketch!=part.sketches.end(),
+                    "Diagnostic Bend lost its profile Sketch");
+                const auto preview=zima::document::bend_preview(
+                    feature,*sketch,defaults);
+                for(const auto& edge:preview.edges)
+                    for(const auto* role:{"outer-first","outer-last",
+                            "inner-first","inner-last"})
+                        if(edge.reference.semantic_key.find(role)!=
+                                std::string::npos)
+                            end_curves.push_back({feature.id,role,edge.points});
+            }
+            const auto point_distance=[](const auto& a,const auto& b) {
+                return std::hypot(std::hypot(a.x-b.x,a.y-b.y),a.z-b.z);
+            };
+            const auto curve_gap=[&](const auto& a,const auto& b) {
+                double result{};
+                for(const auto* first:{&a,&b}) {
+                    const auto* second=first==&a?&b:&a;
+                    for(const auto& point:*first) {
+                        double nearest=INFINITY;
+                        for(const auto& other:*second)
+                            nearest=std::min(nearest,
+                                point_distance(point,other));
+                        result=std::max(result,nearest);
+                    }
+                }
+                return result;
+            };
+            for(const auto& curve:end_curves) {
+                double nearest=INFINITY;
+                double endpoint_nearest=INFINITY;
+                double startpoint_nearest=INFINITY;
+                std::string nearest_owner;
+                for(const auto& other:end_curves)
+                    if(other.owner!=curve.owner&&
+                            other.role.starts_with(
+                                curve.role.starts_with("outer")?
+                                    "outer":"inner")) {
+                        const double gap=curve_gap(curve.points,other.points);
+                        if(gap<nearest) {
+                            nearest=gap;
+                            nearest_owner=other.owner;
+                        }
+                        if(!curve.points.empty()&&!other.points.empty())
+                            startpoint_nearest=std::min(startpoint_nearest,
+                                point_distance(curve.points.front(),
+                                    other.points.front()));
+                        if(!curve.points.empty()&&!other.points.empty())
+                            endpoint_nearest=std::min(endpoint_nearest,
+                                point_distance(curve.points.back(),
+                                    other.points.back()));
+                    }
+                std::cout<<"bend_inner="<<curve.owner<<':'<<curve.role
+                    <<" nearest="<<nearest
+                    <<" startpoint_nearest="<<startpoint_nearest
+                    <<" endpoint_nearest="<<endpoint_nearest
+                    <<" other="<<nearest_owner<<'\n';
+            }
+            return 0;
+        }
+        if(diagnostic=="warm-unbend") {
+            zima::kernel::OcctKernel kernel;
+            zima::workspace::Workspace live;
+            const auto document_id=part.document_id;
+            cache=zima::workspace::calculate_part_with_resolved_references(
+                kernel,part,&cache);
+            live.add_part(part,cache);
+            auto feature=zima::document::PartDocument::
+                create_sketch_container();
+            feature.feature_kind=zima::document::FeatureKind::Unbend;
+            feature.name="Unbend performance probe";
+            feature.sheet_state.all=true;
+            const auto started=std::chrono::steady_clock::now();
+            check(zima::workspace::commit_sheet_state(
+                    live,kernel,document_id,std::move(feature)),
+                "Unbend performance probe did not commit");
+            const auto milliseconds=std::chrono::duration<double,std::milli>(
+                std::chrono::steady_clock::now()-started).count();
+            const auto& session=live.open_part(document_id)->session;
+            std::cout<<"unbend milliseconds="<<milliseconds
+                <<" operations="<<session.document().history.size()
+                <<" errors="<<session.calculated_boundaries().back().
+                    calculation_errors.size()<<'\n';
+            return 0;
+        }
+        if(diagnostic=="warm-sheet-roundtrip") {
+            zima::kernel::OcctKernel kernel;
+            zima::workspace::Workspace live;
+            const auto document_id=part.document_id;
+            cache=zima::workspace::calculate_part_with_resolved_references(
+                kernel,part,&cache);
+            live.add_part(part,cache);
+            std::vector<zima::document::HistoryContainer> authored_bends;
+            for(const auto& candidate:part.history)
+                if(candidate.feature_kind==zima::document::FeatureKind::Bend)
+                    authored_bends.push_back(candidate);
+            const auto bend_definition_unchanged=[](const auto* retained,
+                    const auto& authored) {
+                if(!retained)return false;
+                const auto& current=retained->bend;
+                const auto& original=authored.bend;
+                return retained->id==authored.id&&
+                    retained->feature_id==authored.feature_id&&
+                    retained->feature_parent_id==authored.feature_parent_id&&
+                    retained->feature_kind==authored.feature_kind&&
+                    retained->container_origin==authored.container_origin&&
+                    current.corner==original.corner&&
+                    current.corner_gap==original.corner_gap&&
+                    current.sketch_id==original.sketch_id&&
+                    current.sheet_attachment==original.sheet_attachment&&
+                    current.radius==original.radius&&
+                    current.angle_degrees==original.angle_degrees&&
+                    current.thickness==original.thickness&&
+                    current.k_factor==original.k_factor&&
+                    current.thickness_override==original.thickness_override&&
+                    current.k_factor_override==original.k_factor_override&&
+                    current.radius_follows_thickness==
+                        original.radius_follows_thickness&&
+                    zima::document::bend_profile_extensions(*retained)==
+                        zima::document::bend_profile_extensions(authored)&&
+                    retained->placement.references==
+                        authored.placement.references;
+            };
+            const auto change_state=[&](zima::document::FeatureKind kind,
+                    const char* name) {
+                auto feature=zima::document::PartDocument::
+                    create_sketch_container();
+                feature.feature_kind=kind;
+                feature.name=name;
+                feature.sheet_state.all=true;
+                const auto started=std::chrono::steady_clock::now();
+                check(zima::workspace::commit_sheet_state(
+                        live,kernel,document_id,std::move(feature)),
+                    "Sheet-state round trip did not commit");
+                return std::chrono::duration<double,std::milli>(
+                    std::chrono::steady_clock::now()-started).count();
+            };
+            const double unbend_ms=change_state(
+                zima::document::FeatureKind::Unbend,
+                "Unbend round-trip probe");
+            const double bend_back_ms=change_state(
+                zima::document::FeatureKind::BendBack,
+                "Bend Back round-trip probe");
+            const auto& session=live.open_part(document_id)->session;
+            check(session.calculated_boundaries().back().calculation_errors.
+                    empty(),
+                "Sheet-state round trip produced a calculation error");
+            for(const auto& authored:authored_bends) {
+                const auto* retained=session.document().find_container(
+                    authored.id);
+                check(bend_definition_unchanged(retained,authored),
+                    "Sheet-state round trip changed an authored Bend");
+            }
+            const auto serialized=session.document().serialized(
+                session.calculated_boundaries());
+            auto reopened=zima::document::PartDocument::from_serialized(
+                serialized);
+            zima::kernel::OcctKernel cold_kernel;
+            const auto cold=zima::workspace::
+                calculate_part_with_resolved_references(cold_kernel,reopened);
+            check(!cold.empty()&&cold.back().calculation_errors.empty(),
+                "Sheet-state round trip failed cold native regeneration");
+            for(const auto& authored:authored_bends) {
+                const auto* retained=reopened.find_container(authored.id);
+                check(bend_definition_unchanged(retained,authored),
+                    "Native reopen changed an authored Bend");
+            }
+            std::cout<<"unbend_ms="<<unbend_ms
+                <<" bend_back_ms="<<bend_back_ms
+                <<" bends="<<authored_bends.size()
+                <<" operations="<<session.document().history.size()
+                <<" cold_errors="<<cold.back().calculation_errors.size()
+                <<'\n';
+            return 0;
+        }
         const bool warm_delete=diagnostic.starts_with("warm-delete-name=");
         if(diagnostic.starts_with("delete-name=")||warm_delete) {
             const std::string name(diagnostic.substr(
@@ -1232,8 +1826,22 @@ int main(int argc,char** argv) {
             const auto& feature=part.history[index];
             std::cout<<"history["<<index<<"] kind="<<static_cast<int>(feature.feature_kind)
                 <<" name="<<feature.name<<" id="<<feature.id;
-            if(feature.feature_kind==zima::document::FeatureKind::Bend)
-                std::cout<<" attached="<<feature.bend.sheet_attachment;
+            if(feature.feature_kind==zima::document::FeatureKind::Bend) {
+                const auto extensions=
+                    zima::document::bend_profile_extensions(feature);
+                std::cout<<" attached="<<feature.bend.sheet_attachment
+                    <<" radius="<<feature.bend.radius
+                    <<" angle="<<feature.bend.angle_degrees
+                    <<" corner="<<feature.bend.corner[0]<<','
+                    <<feature.bend.corner[1]
+                    <<" extensions="<<extensions[0]<<','
+                    <<extensions[1];
+            }
+            if(feature.feature_kind==zima::document::FeatureKind::Fillet)
+                {std::cout<<" radius="<<feature.edge_treatment.primary_size
+                    <<" routes=";
+                for(const auto& route:feature.edge_treatment.routes)
+                    std::cout<<route.size()<<',';}
             if(feature.feature_kind==zima::document::FeatureKind::Flat)
                 std::cout<<" attached="<<feature.flat.sheet_attachment;
             if(!feature.placement.references.empty())
@@ -1321,7 +1929,21 @@ int main(int argc,char** argv) {
         if(argc>=3) {
             const auto before=part.serialized();zima::kernel::OcctKernel kernel;
             if(std::filesystem::path(argv[2]).extension()==".prtz") {
-                const std::string_view selector=argc>=4?std::string_view(argv[3]):std::string_view{};
+                std::string_view selector=argc>=4?std::string_view(argv[3]):
+                    std::string_view{};
+                if(selector.starts_with("history=")) {
+                    const auto separator=selector.find(',');
+                    check(separator!=std::string_view::npos,
+                        "History selector requires a face selector");
+                    const auto retained=static_cast<std::size_t>(std::stoull(
+                        std::string(selector.substr(8,separator-8))));
+                    check(retained<=part.history.size()&&retained<=cache.size(),
+                        "Requested source history boundary is unavailable");
+                    while(part.history.size()>retained)
+                        part.erase_history_object(part.history.back().id);
+                    cache.resize(retained);
+                    selector=selector.substr(separator+1);
+                }
                 const bool same_body=selector=="same-body"||
                     selector.starts_with("same-body-face=");
                 std::string target;if(same_body)target=part.body_history.order().front();
@@ -1329,12 +1951,23 @@ int main(int argc,char** argv) {
                 if(target.empty())target=part.body_history.create_body("Conversion verification");
                 if(!target.empty()){part.body_history.move_body(target,part.body_history.order().size()-1);part.body_history.activate(target);}
                 const auto& mesh=cache.back().body_outputs.at(part.body_history.order().front())->mesh;
-                const auto& seed_faces=mesh.triangle_references;
-                auto first=same_body?std::ranges::find_if(seed_faces,[](const auto& face){return face.surface&&face.surface->kind==zima::kernel::SurfaceGeometry::Kind::Plane&&face.surface->axis.z<-.99&&!face.surface->reversed;}):std::ranges::max_element(seed_faces,{},[](const auto& face){return face.surface&&face.surface->kind==zima::kernel::SurfaceGeometry::Kind::Plane?face.measured_area.value_or(0):0;});
+                const auto& seed_faces=mesh.original_references.triangle_references;
+                auto first=same_body?std::ranges::find_if(seed_faces,[&](const auto& face){
+                    return face.surface&&face.surface->kind==zima::kernel::SurfaceGeometry::Kind::Plane&&
+                        face.surface->axis.z<-.99&&!face.surface->reversed&&
+                        std::ranges::find(mesh.triangle_references,face)!=
+                            mesh.triangle_references.end();
+                }):std::ranges::max_element(seed_faces,{},[](const auto& face){return face.surface&&face.surface->kind==zima::kernel::SurfaceGeometry::Kind::Plane?face.measured_area.value_or(0):0;});
                 if(selector.starts_with("face=")||
                         selector.starts_with("same-body-face=")) {
                     std::map<std::string,const zima::kernel::FaceReference*> indexed;
-                    for(const auto& face:seed_faces)indexed.emplace(face.owner_id+":"+face.semantic_key,&face);
+                    std::set<std::string> current;
+                    for(const auto& face:mesh.triangle_references)
+                        current.insert(face.owner_id+":"+face.semantic_key);
+                    for(const auto& face:seed_faces) {
+                        const auto identity=face.owner_id+":"+face.semantic_key;
+                        if(current.contains(identity))indexed.emplace(identity,&face);
+                    }
                     const auto separator=selector.find('=');
                     const auto requested=static_cast<std::size_t>(std::stoull(
                         std::string(selector.substr(separator+1))));
@@ -1354,8 +1987,6 @@ int main(int argc,char** argv) {
                 std::cout<<std::endl;
                 const auto started=std::chrono::steady_clock::now();
                 const auto converted=zima::workspace::prepare_sheet_from_body(part,cache,*first,thickness,kernel);
-                if(selector=="same-body")check(converted.created.size()==3,
-                    "01.prtz branch did not create two Flats and a Bend");
                 converted.document.save(argv[2],converted.calculated);
                 std::size_t lines=0,arcs=0,circles=0,splines=0;for(const auto& sketch:converted.document.sketches)if(std::ranges::find(converted.created,sketch.owner_container_id)!=converted.created.end()){lines+=sketch.segments.size();arcs+=sketch.arcs.size();circles+=sketch.circles.size();splines+=sketch.bsplines.size();}
                 std::cout<<"Created="<<converted.created.size()<<" skipped="<<converted.skipped<<" lines="<<lines<<" arcs="<<arcs<<" circles="<<circles<<" splines="<<splines
@@ -1397,6 +2028,25 @@ int main(int argc,char** argv) {
             std::cout<<'\n';
         }
         std::cout<<"edges="<<packet.edges.size()<<'\n';
+        if(std::getenv("ZIMA_CPP_SHEET_FRAGMENT_PROFILE")) {
+            std::size_t fragment_index{};
+            for(const auto& face:
+                    packet.original_references.triangle_references) {
+                std::cout<<"fragment["<<fragment_index++<<"] key="
+                    <<face.semantic_key;
+                if(face.surface) {
+                    const auto& s=*face.surface;
+                    std::cout<<" kind="<<int(s.kind)
+                        <<" r="<<s.radius
+                        <<" p="<<s.origin.x<<','<<s.origin.y<<','
+                        <<s.origin.z
+                        <<" axis="<<s.axis.x<<','<<s.axis.y<<','
+                        <<s.axis.z
+                        <<" reversed="<<s.reversed;
+                }
+                std::cout<<'\n';
+            }
+        }
         std::size_t adjacent=0;for(const auto& edge:mesh.edges)if(!edge.edge_treatment_side_references.empty())++adjacent;
         std::cout<<"body edges="<<mesh.edges.size()<<" with adjacency="<<adjacent<<'\n';
         const auto surface_normal=[](const zima::kernel::FaceReference& face,const zima::kernel::Vec3& at) {

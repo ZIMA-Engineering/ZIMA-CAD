@@ -1,5 +1,6 @@
 #pragma once
 #include "sketch_button_style.hpp"
+#include "work_plane_selection.hpp"
 #include <zima/document/part_document.hpp>
 #include "sweep_placement_dialog.hpp"
 #include <QComboBox>
@@ -57,7 +58,8 @@ public:
         auto* base_plane=new QComboBox(this);base_plane->setObjectName("helicalBasePlane");
         base_plane->addItems({"XY","XZ","YZ"});
         base_plane->setCurrentIndex(static_cast<int>(sketcher::Sketch::from_serialized(pending.helical.sketches[0]).plane));
-        form->addRow(tr("Rovina"),base_plane);
+        form->addRow(tr("Rovina"),compact_work_plane_selector(base_plane,
+            [this] {if(request_placement)request_placement(0);}));
         connect(base_plane,&QComboBox::currentIndexChanged,this,[this](int index){
             auto base=sketcher::Sketch::from_serialized(pending.helical.sketches[0]);
             base.plane=static_cast<sketcher::SketchPlane>(index);

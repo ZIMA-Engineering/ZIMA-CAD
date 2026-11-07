@@ -139,6 +139,18 @@ Q_NEVER_INLINE static int verify_ordered_up_to_ui(QApplication& application,
         }
         auto part=document::PartDocument::create_default();document::BodyHistoryGraph graph;
         static_cast<void>(graph.create_body("Ordered GUI"));std::vector<std::string> sources;
+        auto opposite=document::create_general_surface();opposite.name="Opposite target";
+        const std::array<kernel::Vec3,4> opposite_corners{{{-2,-2,-10},{10,-2,-10},{10,5,-10},{-2,5,-10}}};
+        for(unsigned edge=0;edge<4;++edge) {
+            opposite.general_surface.boundaries[edge]=document::create_general_surface_curve(opposite);
+            auto& curve=*opposite.general_surface.boundaries[edge].curve;
+            curve.curve_type=document::Curve3DType::Polyline;curve.curve_points.clear();
+            for(const auto point:{opposite_corners[edge],opposite_corners[(edge+1)%4]}) {
+                auto owned=document::create_owned_point(curve.id);owned.origin=point;curve.curve_points.push_back(owned);
+            }
+        }
+        const auto opposite_source=opposite.id;
+        graph.insert({document::PartHistoryKind::Feature,opposite.id});part.history.push_back(std::move(opposite));
         const std::array<double,3> slopes{{1,0,-.5}},heights{{10,12,15}},first{{-2,2.3,6.3}},last{{1.7,5.7,10}};
         for(unsigned row=0;row<3;++row) {
             auto target=document::create_general_surface();target.name="Ordered target "+std::to_string(row+1);
@@ -183,21 +195,59 @@ Q_NEVER_INLINE static int verify_ordered_up_to_ui(QApplication& application,
             QMouseEvent press(QEvent::MouseButtonPress,point,global,button,button,Qt::NoModifier);QApplication::sendEvent(widget,&press);
             QMouseEvent release(QEvent::MouseButtonRelease,point,global,button,Qt::NoButton,Qt::NoModifier);QApplication::sendEvent(widget,&release);flush();
         };
+        const auto pick_target=[&](PrimitivePropertiesDialog* dialog,unsigned row,const std::string& owner) {
+            auto* limits=static_cast<FeatureLimitTable*>(dialog->findChild<QWidget*>("featureSideLimits0"));auto* table=limits->table();
+            table->scrollToItem(table->item(static_cast<int>(row),3));
+            for(auto* ancestor=table->parentWidget();ancestor;ancestor=ancestor->parentWidget())
+                if(auto* scroll=qobject_cast<QScrollArea*>(ancestor))scroll->ensureWidgetVisible(table);
+            flush();mouse(table->viewport(),table->visualItemRect(table->item(static_cast<int>(row),3)).center(),Qt::LeftButton);
+            std::optional<QPointF> pixel;
+            for(int y=12;y<view->height()-12&&!pixel;y+=7)for(int x=12;x<view->width()-12&&!pixel;x+=7) {
+                const auto hits=view->selection_candidates_at({double(x),double(y)});
+                if(!hits.empty()&&hits.front().owner_id==owner&&hits.front().kind==viewer::CandidateKind::Face)pixel=QPointF(x,y);
+            }
+            check(pixel.has_value(),"Up-to source face was not offered by the real View picker");
+            mouse(view,*pixel,Qt::LeftButton);
+        };
+        auto* dialog=edit();dialog->findChild<QComboBox*>("featureSideEnd0")->setCurrentIndex(1);flush();view->fit_all();flush();
+        pick_target(dialog,0,opposite_source);
+        const auto opposite_pending=dialog->pending_value();
+        check(opposite_pending.feature.reversed_sides&&
+                dialog->findChild<QDoubleSpinBox*>("featureDirection")->value()==-1.,
+            "Opposite real View target did not reverse Feature direction");
+        const auto& direction_cues=view->operation_direction_indicators();
+        check(direction_cues.size()==1&&
+                kernel::dimension_dot(direction_cues.front().direction,part.sketches.front().resolved_normal)<-.999,
+            "Opposite real View target did not reverse the purple direction cue");
+        check(!view->transient_edges().empty(),"Opposite real View target has no live Feature preview");
+        dialog->buttons()->button(QDialogButtonBox::Ok)->click();flush();run("save");
+        std::vector<kernel::BodyResult> opposite_geometry;const auto opposite_saved=document::PartDocument::load(file,&opposite_geometry);
+        const auto* opposite_feature=opposite_saved.find_container(feature.id);
+        check(opposite_feature&&opposite_feature->feature.reversed_sides&&
+                opposite_feature->feature.sides[0].targets.size()==1&&
+                opposite_feature->feature.sides[0].targets.front().reference.owner_id==opposite_source,
+            "Opposite Up-to target did not persist its reversed side");
+        check(!opposite_geometry.empty()&&opposite_geometry.back().calculation_errors.empty(),
+            "Opposite Up-to target did not calculate");
+        double opposite_low=1e100,opposite_high=-1e100;std::size_t opposite_triangles{};
+        const auto& opposite_mesh=opposite_geometry.back().mesh;
+        for(std::size_t triangle=0;triangle<opposite_mesh.triangle_references.size();++triangle) {
+            if(opposite_mesh.triangle_references[triangle].owner_id!=feature.id)continue;
+            ++opposite_triangles;
+            for(std::size_t corner=0;corner<3;++corner) {
+                const auto point=opposite_mesh.vertices.at(opposite_mesh.triangles.at(triangle*3+corner));
+                opposite_low=std::min(opposite_low,point.z);opposite_high=std::max(opposite_high,point.z);
+            }
+        }
+        check(opposite_triangles>0&&opposite_low<-9.999&&opposite_high<1e-6,
+            "Opposite Up-to result was calculated on the preview's other side");
+        run("undo");check(get().at("parameters")==original.at("parameters"),
+            "Opposite Up-to Undo did not restore the original Feature");
         const auto select=[&](PrimitivePropertiesDialog* dialog) {
             dialog->findChild<QComboBox*>("featureSideEnd0")->setCurrentIndex(1);flush();view->fit_all();flush();
             auto* limits=static_cast<FeatureLimitTable*>(dialog->findChild<QWidget*>("featureSideLimits0"));auto* table=limits->table();
             for(unsigned row=0;row<3;++row) {
-                table->scrollToItem(table->item(row,3));
-                for(auto* ancestor=table->parentWidget();ancestor;ancestor=ancestor->parentWidget())
-                    if(auto* scroll=qobject_cast<QScrollArea*>(ancestor))scroll->ensureWidgetVisible(table);
-                flush();mouse(table->viewport(),table->visualItemRect(table->item(row,3)).center(),Qt::LeftButton);
-                std::optional<QPointF> pixel;
-                for(int y=12;y<view->height()-12&&!pixel;y+=7)for(int x=12;x<view->width()-12&&!pixel;x+=7) {
-                    const auto hits=view->selection_candidates_at({double(x),double(y)});
-                    if(!hits.empty()&&hits.front().owner_id==sources[row]&&hits.front().kind==viewer::CandidateKind::Face)pixel=QPointF(x,y);
-                }
-                check(pixel.has_value(),"Ordered source face was not offered by the real View picker");
-                mouse(view,*pixel,Qt::LeftButton);
+                pick_target(dialog,row,sources[row]);
                 const auto pending=dialog->pending_value();
                 check(pending.feature.sides[0].targets.size()==row+1&&pending.feature.sides[0].targets[row].reference.owner_id==sources[row],
                     "View target click replaced another row or reached placement input");
@@ -226,7 +276,7 @@ Q_NEVER_INLINE static int verify_ordered_up_to_ui(QApplication& application,
             check(!limits->active_row()&&dialog->highlighted_reference_entries().empty()&&dialog->pending_value().feature==draft.feature,
                 "Short middle click deleted data, retained entry or committed the Feature");
         };
-        auto* dialog=edit();select(dialog);check(get().at("revision")==original.at("revision"),"Draft picking committed the native document");
+        dialog=edit();select(dialog);check(get().at("revision")==original.at("revision"),"Draft picking committed the native document");
         dialog->buttons()->button(QDialogButtonBox::Cancel)->click();flush();
         check(get().at("parameters")==original.at("parameters")&&get().at("revision")==original.at("revision"),"Ordered target Cancel changed the native Feature");
         dialog=edit();select(dialog);dialog->findChild<QDoubleSpinBox*>("featureSideCorrection0")->setValue(1.5);

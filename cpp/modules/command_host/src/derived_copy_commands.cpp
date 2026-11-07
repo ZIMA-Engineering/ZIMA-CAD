@@ -40,7 +40,22 @@ document::ConstructionReference reference(const Json& value) {
 void parameters(workspace::DerivedCopyDefinition& value,const workspace::DerivedCopyEdit& edit,const Json& args,bool pattern) {
     auto& params=value.parameters;
     if(args.contains("name"))value.name=args.at("name").get<std::string>();
-    if(args.contains("source"))params.source_id=args.at("source").get<std::string>();
+    if(args.contains("source")&&args.contains("sources"))
+        throw Error("invalid_arguments",
+            "Choose source or sources, not both.");
+    if(args.contains("source"))
+        params.source_ids={args.at("source").get<std::string>()};
+    if(args.contains("sources")) {
+        if(!args.at("sources").is_array())
+            throw Error("invalid_arguments","Copy sources must be an array.");
+        params.source_ids=args.at("sources").get<std::vector<std::string>>();
+        if(params.source_ids.empty()||std::ranges::any_of(params.source_ids,
+                [](const auto& source){return source.empty();})||
+                std::set<std::string>(params.source_ids.begin(),
+                    params.source_ids.end()).size()!=params.source_ids.size())
+            throw Error("invalid_arguments",
+                "Copy sources must be distinct nonempty object IDs.");
+    }
     if(args.contains("placement")) {
         const auto& values=args.at("placement");
         if(values.empty())throw Error("invalid_arguments","Specify at least one placement parameter.");
@@ -100,9 +115,12 @@ void parameters(workspace::DerivedCopyDefinition& value,const workspace::Derived
         }
         params.reference={{},value.id+":origin",std::move(key)};
     }
-    if((!pattern||params.pattern->circular||!params.reference.owner_id.empty())&&
-        !document::is_derived_copy_origin_reference(params.reference,value.id,pattern))
-        throw Error("invalid_reference",pattern?"Select an axis of the Pattern's own Origin.":"Select a plane of the Mirror's own Origin.");
+    if(params.reference.owner_id==value.id+":origin"&&
+        !document::is_derived_copy_origin_reference(
+            params.reference,value.id,pattern))
+        throw Error("invalid_reference",pattern?
+            "Select an axis of the Pattern's own Origin.":
+            "Select a plane of the Mirror's own Origin.");
 }
 }
 void Host::register_derived_copy_commands() {
@@ -110,7 +128,9 @@ void Host::register_derived_copy_commands() {
     for(const bool pattern:{false,true})for(const bool create:{true,false}) {
         std::vector<commands::Argument> fields;
         if(!create)fields.push_back({"object",true});
-        fields.insert(fields.end(),{{"source",create},{"name",false},{"placement",false,Type::Object},{"reference",false,Type::Object}});
+        fields.insert(fields.end(),{{"source",false},{"sources",false,Type::Array},
+            {"name",false},{"placement",false,Type::Object},
+            {"reference",false,Type::Object}});
         if(pattern)fields.insert(fields.end(),{{"mode",false},{"linear",false,Type::Array},{"count",false,Type::Integer},
             {"angle_degrees",false,Type::Number},{"full_circle",false,Type::Boolean},{"local_axis",false}});
         else fields.push_back({"local_plane",false});

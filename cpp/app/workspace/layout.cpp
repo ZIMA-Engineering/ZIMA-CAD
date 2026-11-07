@@ -819,7 +819,9 @@ void AssemblyWorkspaceWindow::create_layout() {
     for(QWidget* target:{static_cast<QWidget*>(tree_),static_cast<QWidget*>(viewer_)}) {
         auto* copy=new QShortcut(QKeySequence::Copy,target);
         copy->setObjectName("copyOpeningShortcut");copy->setContext(Qt::WidgetShortcut);
-        connect(copy,&QShortcut::activated,this,&AssemblyWorkspaceWindow::copy_selected_opening);
+        connect(copy,&QShortcut::activated,this,[this,target] {
+            copy_selected_opening(target==viewer_);
+        });
         auto* paste=new QShortcut(QKeySequence::Paste,target);
         paste->setObjectName("pasteOpeningShortcut");paste->setContext(Qt::WidgetShortcut);
         connect(paste,&QShortcut::activated,this,&AssemblyWorkspaceWindow::paste_copied_opening);
@@ -1168,6 +1170,13 @@ void AssemblyWorkspaceWindow::create_layout() {
     viewer_->set_world_pointer_callback([this](const auto& origin, const auto& direction) {
         if(measurement_dialog_)return;
         if(template_region_ray(origin,direction,false))return;
+        if ((pending_primitive_reference_index_ ||
+                pending_construction_reference_index_) &&
+            viewer_->hovered_candidate()) {
+            const auto label = placement_reference_hover_label(
+                *viewer_->hovered_candidate());
+            if (!label.isEmpty()) state_->setText(label);
+        }
         // Hover identifies only the exact edge under the cursor. The complete
         // logical treatment route becomes cyan only after confirmation; do
         // not add a second, weaker route-wide hover overlay.
@@ -1181,6 +1190,7 @@ void AssemblyWorkspaceWindow::create_layout() {
         if (!sketch_inference_cycle_refresh_) {
             sketch_segment_inference_cycle_ = 0;
             sketch_skip_candidate_snap_ = false;
+            sketch_endpoint_inference_cycle_ = false;
         }
         sketch_inference_cycle_refresh_ = false;
         auto [local_origin, local_direction] =
@@ -1526,17 +1536,18 @@ void AssemblyWorkspaceWindow::create_layout() {
                 return cancel_current_sketch_step(true);
             if (!sketch_segment_active_ || sketch_polyline_active_ ||
                 !pending_segment_start_) return false;
-            if (!sketch_skip_candidate_snap_) {
+            if (!sketch_endpoint_inference_cycle_) {
                 // Let MeshView advance through every overlapping geometry
-                // candidate first. Only after the last one do we enter the
-                // inferred H/V/tangent/etc. variants.
+                // candidate first. After the last one, cycle the compatible
+                // inference variants while retaining that exact endpoint C.
                 if (candidate_index + 1 < candidate_count) return false;
-                sketch_skip_candidate_snap_ = true;
-                sketch_segment_inference_cycle_ = 0;
+                sketch_endpoint_inference_cycle_ = true;
+                sketch_segment_inference_cycle_ =
+                    sketch_segment_inference_variant_count_ > 1 ? 1 : 0;
             } else {
                 if (sketch_segment_inference_cycle_ + 1 >=
                         sketch_segment_inference_variant_count_) {
-                    sketch_skip_candidate_snap_ = false;
+                    sketch_endpoint_inference_cycle_ = false;
                     sketch_segment_inference_cycle_ = 0;
                     viewer_->reset_candidate_cycle();
                 } else {
@@ -2618,6 +2629,29 @@ void AssemblyWorkspaceWindow::create_layout() {
                 // first so a selected dependent does not block deletion of
                 // its also-selected source.
                 std::reverse(targets.begin(), targets.end());
+                if (workspace_.open_part(workspace_.active_document_id()) &&
+                        std::ranges::all_of(targets, [](const auto& target) {
+                            return target.kind == QStringLiteral("container");
+                        })) {
+                    try {
+                        std::vector<std::string> ids;
+                        ids.reserve(targets.size());
+                        for (const auto& target : targets) ids.push_back(target.id);
+                        workspace::delete_part_history(workspace_,
+                            workspace_.active_document_id(), kernel_, ids);
+                        for (const auto& id : ids) {
+                            if (active_sketch_id_ == id) active_sketch_id_.clear();
+                            if (selected_sketch_id_ == id) selected_sketch_id_.clear();
+                        }
+                        refresh_tabs();
+                        preserve_view_on_refresh_ = true;
+                        refresh_scene();
+                    } catch (const std::exception& error) {
+                        QMessageBox::warning(this, tr("Objekt nelze odstranit"),
+                            tr(error.what()));
+                    }
+                    return;
+                }
                 for (const auto& target : targets) {
                     delete_part_object(target.id, target.kind, false);
                 }

@@ -111,7 +111,17 @@ int verify_sketch_face_plane_ui(QApplication& application,const std::filesystem:
             }
             const auto stored=snapshot();const auto& result=read(stored);
             check(spline_case?result.bsplines.size()==1&&result.bsplines.front().degree==3&&result.bsplines.front().control_point_ids.size()==4:result.bsplines.empty(),"Face-plane contour lost its exact source type/basis");
-            const auto expected=multiple?(contour?6u:2u):1u;check(result.external_references.size()==expected,"Wrong number of selected branches/endpoints");
+            // Each selected finite contour branch owns its source reference,
+            // both endpoint contacts and one exact midpoint contact.  The
+            // midpoint remains hidden during ordinary branch hover/selection
+            // and is offered only when the cursor reaches that exact point.
+            const auto expected=multiple?(contour?8u:2u):1u;
+            if(result.external_references.size()!=expected)
+                throw std::runtime_error("Wrong number of selected branches/endpoints: expected "+
+                    std::to_string(expected)+", actual "+
+                    std::to_string(result.external_references.size())+
+                    ", segments "+std::to_string(result.segments.size())+
+                    ", points "+std::to_string(result.points.size()));
             for(const auto& r:result.external_references)check(r.intersection.has_value()&&!r.broken,"Saved branch binding missing or broken");
             check(contour?(multiple?result.segments.size()==2:trimmed_case?result.arcs.size()==1:spline_case?result.bsplines.size()==1:result.circles.size()==1):result.segments.empty()&&result.circles.empty(),"Reference and contour commands have the same output");
             if(contour&&!multiple&&!spline_case&&!trimmed_case)check(std::abs(result.circles.front().radius-5)<1e-7&&result.points.size()==1,"Certified circle lost its radius or gained spline poles");

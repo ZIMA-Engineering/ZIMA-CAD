@@ -1,4 +1,5 @@
 #include "profile_command_fixture.hpp"
+#include "body_measurement_fixture.hpp"
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/sketch_operations.hpp>
 #include <cmath>
@@ -77,9 +78,9 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     geometry("sketch.point.delete",{{"point",point}});require(!current().find_point(point),"Point deletion failed");run(host,"undo");
     interaction.editing=true;geometry("sketch.get",{});
     require(host.execute({{"command","sketch.point.create"},{"arguments",{{"sketch",sketch},{"position",{1,2}}}}}).code=="editing_in_progress","Command overwrote pending Sketcher draft");interaction.editing=false;
-    require(std::abs(state->session.calculated_boundaries().back().volume-1000)<1e-7,"Sketch mutation changed cached solid");
+    require(std::abs(test::measured_volume(kernel,state->session.calculated_boundaries().back())-1000)<1e-7,"Sketch mutation changed cached solid");
     run(host,"save");std::vector<kernel::BodyResult> loaded_cache;const auto loaded=document::PartDocument::load(directory/"sketches.prtz",&loaded_cache);
-    require(loaded.sketches.back().serialized()==current().serialized() && !loaded_cache.empty() && std::abs(loaded_cache.back().volume-1000)<1e-7,"Native save lost exact Sketch geometry or cached body");
+    require(loaded.sketches.back().serialized()==current().serialized() && !loaded_cache.empty() && std::abs(test::measured_volume(kernel,loaded_cache.back())-1000)<1e-7,"Native save lost exact Sketch geometry or cached body");
     const auto active_body=state->session.document().body_history.active_body_id();run(host,"body.create",{{"name","Other"}});
     require(host.execute({{"command","sketch.point.create"},{"arguments",{{"sketch",sketch},{"position",{1,2}}}}}).code=="inactive_body","Edited Sketch in inactive Body");run(host,"body.activate",{{"body",active_body}});
     for(const auto* plane:{"XZ","YZ"}) {

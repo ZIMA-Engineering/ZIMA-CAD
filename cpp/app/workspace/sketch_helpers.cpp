@@ -219,6 +219,23 @@ std::string apply_sketch_point_snap(zima::sketcher::Sketch& sketch,
     const std::string& point_id, const std::string& support_id,
     const std::optional<zima::sketcher::ConstraintKind>& kind) {
     if (!kind || support_id.empty()) return point_id;
+    const auto apply_curve_support = [&](const std::string& support) {
+        try {
+            const auto* point = sketch.find_point(point_id);
+            if (point != nullptr && sketch.project_point_to_curve(
+                    support, point->x, point->y)) {
+                static_cast<void>(sketch.add_point_on_circle_constraint(
+                    point_id, support, true));
+            } else {
+                static_cast<void>(sketch.add_point_on_line_constraint(
+                    point_id, support, true));
+            }
+        } catch (const std::invalid_argument&) {
+            // One branch of a composite CC snap can already be implied by
+            // the point's other relations.  Keep processing the independently
+            // selected second support instead of dropping the complete CC.
+        }
+    };
     try {
         if (*kind==zima::sketcher::ConstraintKind::Horizontal || *kind==zima::sketcher::ConstraintKind::Vertical) {
             if (point_id!=support_id) static_cast<void>(sketch.add_point_pair_constraint(support_id,point_id,*kind));
@@ -231,24 +248,16 @@ std::string apply_sketch_point_snap(zima::sketcher::Sketch& sketch,
                 point_id, support_id));
         } else if (*kind == zima::sketcher::ConstraintKind::PointOnCircle) {
             static_cast<void>(sketch.add_point_on_circle_constraint(
-                point_id, support_id));
+                point_id, support_id, true));
         } else if (*kind == zima::sketcher::ConstraintKind::PointOnLine) {
             const auto separator = support_id.find("||");
             if (separator == std::string::npos) {
                 static_cast<void>(sketch.add_point_on_line_constraint(
-                    point_id, support_id));
+                    point_id, support_id, true));
             } else {
                 for (const auto& support : {support_id.substr(0, separator),
                          support_id.substr(separator + 2)}) {
-                    const auto* point = sketch.find_point(point_id);
-                    if (point != nullptr && sketch.project_point_to_curve(
-                            support, point->x, point->y)) {
-                        static_cast<void>(sketch.add_point_on_circle_constraint(
-                            point_id, support));
-                    } else {
-                        static_cast<void>(sketch.add_point_on_line_constraint(
-                            point_id, support));
-                    }
+                    apply_curve_support(support);
                 }
             }
         }

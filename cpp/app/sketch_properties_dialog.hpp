@@ -130,6 +130,7 @@ private:
     CommitCallback commit_;
     QLineEdit* name_{};
     QComboBox* plane_{};
+    QWidget* plane_selector_{};
     QDoubleSpinBox* offset_{};
     QDoubleSpinBox* holes_diameter_{};
     QDoubleSpinBox* bend_radius_{};
@@ -149,6 +150,7 @@ private:
     QPushButton* sketch_button_{};
     QLabel* error_{};
     std::unique_ptr<zima::ui::ContainerPlacementSection> placement_;
+    ReferenceRequestCallback reference_request_;
     zima::kernel::ViewerReferenceGeometry reference_geometry_;
     std::string reference_document_id_;
     PreviewCallback preview_;

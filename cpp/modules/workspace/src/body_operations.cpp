@@ -1,4 +1,5 @@
 #include <zima/workspace/body_operations.hpp>
+#include <zima/workspace/history_deletion.hpp>
 #include <zima/document/body_origin_attachment.hpp>
 #include <algorithm>
 #include <chrono>
@@ -19,9 +20,12 @@ PartState& checked(Workspace& workspace,const BodyGraphEdit& edit) {
     return state;
 }
 bool calculate_and_commit(PartState& state,const kernel::OcctKernel& kernel,
-    document::BodyHistoryGraph graph,bool exact_final_pass) {
+    document::BodyHistoryGraph graph,bool exact_final_pass,
+    const std::string& edited_body = {}) {
     if(graph==state.session.document().body_history)return false;
     auto next=state.session.document();next.set_body_history(std::move(graph));
+    if(!edited_body.empty())
+        static_cast<void>(acknowledge_retained_history_edit(next,edited_body));
     PartCalculationPolicy policy;policy.reject_errors=true;
     auto phase_start=std::chrono::steady_clock::now();
     const auto phase=[&](const char* name) {
@@ -77,7 +81,7 @@ bool commit_body_edit(Workspace& workspace,const kernel::OcctKernel& kernel,
     auto graph=edit.pending;graph.update_body(std::move(value));
     if(active)graph.activate(edit.object_id);
     else if(graph.active_body_id()==edit.object_id)graph.activate({});
-    return calculate_and_commit(state,kernel,std::move(graph),true);
+    return calculate_and_commit(state,kernel,std::move(graph),true,edit.object_id);
 }
 bool commit_body_boolean_edit(Workspace& workspace,const kernel::OcctKernel& kernel,
     const BodyGraphEdit& edit,document::BodyBoolean value) {

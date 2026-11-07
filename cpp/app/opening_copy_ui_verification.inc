@@ -14,10 +14,13 @@ int verify_opening_copy_ui(QApplication& application,const std::filesystem::path
         run("sketch.rectangle.create",{{"sketch",sketch},{"first",{-30,-30}},{"second",{30,30}}});
         document::FeatureParameters block;block.sides[0].length=60;
         auto parameters=document::serialize_feature_parameters(block);parameters.erase("sketch_id");
+        for(auto& side:parameters.at("sides"))
+            if(side.at("operation")=="extrusion")side["operation"]="extrude";
         const auto blank=run("feature.create",{{"sketch",sketch},{"parameters",parameters}}).at("container").get<std::string>();
         const auto opening=run("opening.create",{{"type","metric"},{"designation","M10"},{"bore_length_mm",20},{"thread_length_mm",10},
             {"chamfer_enabled",true},{"chamfer_depth_mm",.6},{"chamfer_angle_degrees",90},{"drill_point_enabled",true},{"placement",{{"x",-15}}}}).at("container").get<std::string>();
         const auto path=directory/"copied-openings.prtz";
+        std::filesystem::remove(path);
         run("save_as",{{"path",path.generic_string()}});run("close",{{"discard",true}});run("open",{{"path",path.generic_string()}});
         const auto initial=document::PartDocument::load(path);const auto source=*initial.find_container(opening);
         check(activate_test_body(application,window,initial.body_history.active_body_id()),"Copy fixture Body activation failed");flush();
@@ -42,9 +45,19 @@ int verify_opening_copy_ui(QApplication& application,const std::filesystem::path
             for(const auto& item:run("documents"))if(item.value("active",false))return item.at("revision").get<std::int64_t>();
             throw std::runtime_error("No active clipboard test document");
         };
-        select(opening);const auto before_copy=revision();key(tree,Qt::Key_C);
+        select(opening);const auto before_copy=revision();
+        auto* tree_copy=tree->findChild<QShortcut*>("copyOpeningShortcut",Qt::FindDirectChildrenOnly);
+        check(tree_copy&&tree_copy->isEnabled(),"Tree Opening Copy shortcut is missing or disabled");
+        bool tree_copy_activated=false;
+        QObject::connect(tree_copy,&QShortcut::activated,&window,[&]{tree_copy_activated=true;});
+        key(tree,Qt::Key_C);
+        check(tree_copy_activated,"Tree Ctrl+C did not activate the Opening Copy shortcut");
         check(revision()==before_copy,"Copy changed document revision");
-        check(QApplication::clipboard()->mimeData()->hasFormat("application/x-zima-opening-settings-token"),"Tree Ctrl+C did not copy Opening settings");
+        if(!QApplication::clipboard()->mimeData()->hasFormat("application/x-zima-opening-settings-token")) {
+            std::string formats;
+            for(const auto& format:QApplication::clipboard()->mimeData()->formats())formats+=(formats.empty()?"":",")+format.toStdString();
+            throw std::runtime_error("Tree Ctrl+C did not copy Opening settings; clipboard formats: "+formats);
+        }
         key(view,Qt::Key_V);auto* pending=dialog();check(pending,"Ctrl+V did not open Opening creation");
         check(revision()==before_copy,"Paste preview changed document revision");
         check(pending->pending_value().thread==source.thread&&pending->pending_value().placement.x!=source.placement.x,"Pasted Opening lost settings or copied placement");

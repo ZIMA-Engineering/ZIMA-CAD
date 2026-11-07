@@ -24,6 +24,16 @@ G point(P p){G g;g.points={p};return g;}
 G line(P a,P b){G g;g.segments={{a,b}};return g;}
 G axis(P a,P direction){G g;g.axis={{a,direction}};return g;}
 G plane(P a,P normal){G g;g.plane={{a,normal}};return g;}
+G planar_face(P normal){
+    G g;
+    kernel::FaceReference face;
+    kernel::SurfaceGeometry surface;
+    surface.kind=kernel::SurfaceGeometry::Kind::Plane;
+    surface.axis=normal;
+    face.surface=std::make_shared<const kernel::SurfaceGeometry>(surface);
+    g.source_faces.push_back(std::move(face));
+    return g;
+}
 void distance(const G& a,const G& b,double expected){
     const auto d=measurement::measure_distance(a,b),reverse=measurement::measure_distance(b,a);
     require(d.has_value()&&reverse.has_value(),"Distance unavailable");
@@ -132,6 +142,18 @@ try{
     distance(axis({0,0,0},{1,0,0}),axis({0,0,3},{0,1,0}),3);
     distance(plane({0,0,0},{0,0,1}),plane({0,0,7},{0,0,1}),7);
     distance(plane({0,0,0},{0,0,1}),plane({0,0,7},{0,1,0}),0);
+    require(!measurement::measure_plane_angle(
+        planar_face({0,0,1}),planar_face({0,0,-1})),
+        "Parallel planar faces reported an angle instead of distance");
+    const auto right_angle=measurement::measure_plane_angle(
+        planar_face({0,0,1}),planar_face({0,1,0}));
+    require(right_angle&&!right_angle->approximate,
+        "Perpendicular planar-face angle unavailable");
+    near(right_angle->value,90,"Perpendicular planar-face angle is wrong");
+    const auto oblique_angle=measurement::measure_plane_angle(
+        planar_face({0,0,1}),planar_face({0,.5,std::sqrt(.75)}));
+    require(oblique_angle.has_value(),"Oblique planar-face angle unavailable");
+    near(oblique_angle->value,30,"Oblique planar-face angle is wrong");
     distance(plane({0,0,0},{0,0,1}),axis({0,0,7},{0,0,1}),0);
     distance(plane({0,0,0},{0,0,1}),axis({0,0,7},{1,0,0}),7);
     G triangle;triangle.triangles={{{{0,0,0},{2,0,0},{0,2,0}}}};

@@ -17,7 +17,7 @@ inline CopyQueryFixture copy_query_fixture() {
     const auto copy=[&](const std::string& source,bool pattern) {
         document::BodyHistory body;body.scope.id=kernel::make_stable_id();body.name=pattern?"Pole žluťoučké":"Zrcadlo";
         body.scope.placement.x=-2;body.scope.placement.value_locks.insert("x");
-        body.derived_copy=document::DerivedCopyParameters{source,{{},body.origin().id,pattern?"origin:axis:z":"origin:plane:yz"}};
+        body.derived_copy=document::DerivedCopyParameters{{source},{{},body.origin().id,pattern?"origin:axis:z":"origin:plane:yz"}};
         if(pattern) {
             body.derived_copy->pattern=kernel::PatternRequest{};
             auto& p=*body.derived_copy->pattern;

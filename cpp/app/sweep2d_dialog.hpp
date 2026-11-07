@@ -5,6 +5,7 @@
 #include "sketch_button_style.hpp"
 #include "sweep_placement_dialog.hpp"
 #include "sweep_point_order_dialog.hpp"
+#include "work_plane_selection.hpp"
 #include <zima/ui/reference_cell.hpp>
 #include <QComboBox>
 #include <QDoubleSpinBox>
@@ -36,13 +37,19 @@ public:
         plane_->addItem("XY","origin:plane:xy");plane_->addItem("XZ","origin:plane:xz");plane_->addItem("YZ","origin:plane:yz");
         connect(plane_,&QComboBox::currentIndexChanged,this,[this](int index){
             if(index<0||index>=3)return;
+            if(path_entry_active_) {
+                end_path_entry();
+                if(path_entry_ended)path_entry_ended();
+            }
             pending.sweep2d.path_plane=document::ConstructionReference{{},pending.container_origin.id,plane_->itemData(index).toString().toStdString()};
-            plane_initialized_=true;refresh_plane();notify();
+            path_label_.clear();plane_initialized_=true;refresh_plane();notify();
         });
-        plane_eye_=ui::build_reference_inspection_button(false,false,[this](bool on){plane_inspected_=on;refresh_plane();notify();});
         auto* path_button=new QPushButton(tr("Skica dráhy…"),this);path_button->setObjectName("sweep2dSketch0");style_sketch_button(path_button);
         connect(path_button,&QPushButton::clicked,this,[this]{if(edit_sketch)edit_sketch(0);});
-        path_row->addWidget(plane_,1);path_row->addWidget(plane_eye_);path_row->addWidget(path_button);
+        auto* selector=compact_work_plane_selector(plane_,[this] {begin_path_entry();});
+        path_view_=selector->findChild<QTableWidget*>("sweep2dPathPlaneView");
+        if(path_view_)path_field_=dynamic_cast<ui::ReferenceCellItem*>(path_view_->item(0,1));
+        path_row->addWidget(selector,1);path_row->addWidget(path_button);
         content_layout()->addWidget(new QLabel(tr("Rovina a skica dráhy"),this));content_layout()->addLayout(path_row);
         auto* help=new QLabel(tr("Vyberte vlastní rovinu XY, YZ nebo XZ kontejneru pro skicu dráhy."),this);
         help->setWordWrap(true);content_layout()->addWidget(help);
@@ -96,14 +103,28 @@ public:
         pending.sweep2d.path_plane->orientation_drives_rotation=false;pending.sweep2d.path_plane->orientation_only=false;
         pending.sweep2d.path_plane->orientation_role.clear();refresh_plane();
     }
+    std::function<void()> request_path_plane;
+    std::function<void()> path_entry_ended;
     bool point_order_open() const{return point_order_open_;}
-    bool path_inspected() const{return plane_inspected_;}
-    void end_path_entry(){plane_inspected_=false;refresh_plane();}
+    bool path_inspected() const{return path_entry_active_;}
+    void begin_path_entry(){
+        set_active_reference_index(std::nullopt);path_entry_active_=true;
+        refresh_plane();if(request_path_plane)request_path_plane();
+    }
+    void end_path_entry(){
+        path_entry_active_=false;refresh_plane();
+    }
+    void set_path_plane(document::ConstructionReference ref,QString label={}) {
+        ref.orientation_drives_rotation=false;ref.orientation_only=false;
+        ref.orientation_role.clear();pending.sweep2d.path_plane=std::move(ref);
+        path_label_=std::move(label);plane_initialized_=true;
+        end_path_entry();notify();
+    }
     void set_active_reference_index(std::optional<std::size_t> index) override {
         if(index)end_path_entry();SweepPlacementDialog::set_active_reference_index(index);
     }
     void clear_reference_highlights() override {
-        plane_inspected_=false;refresh_plane();SweepPlacementDialog::clear_reference_highlights();
+        SweepPlacementDialog::clear_reference_highlights();
     }
     bool set_inline_parameter_value(std::string_view key,double value) override {
         if(key=="thickness"&&thickness_->isVisible()){thickness_->setValue(value);return true;}
@@ -170,9 +191,10 @@ protected:
 private:
     std::function<void(document::HistoryContainer)> commit_;
     QComboBox* side_{};QDoubleSpinBox* thickness_{};QLabel* status_{};QFormLayout* thin_form_{};
-    QTableWidget* profiles_{};QComboBox* plane_{};
-    QToolButton* plane_eye_{};
-    bool plane_initialized_{},plane_inspected_{},point_order_open_{};QString path_error_;
+    QTableWidget* profiles_{};QComboBox* plane_{};QTableWidget* path_view_{};
+    ui::ReferenceCellItem* path_field_{};
+    bool plane_initialized_{},point_order_open_{},path_entry_active_{};
+    QString path_error_,path_label_;
     void notify(){if(changed)changed();}
     void update_thin(){const bool enabled=pending.sweep2d.result_type==document::ProfileResultType::Thin;
         thin_form_->setRowVisible(thickness_,enabled);thin_form_->setRowVisible(side_,enabled);
@@ -182,17 +204,28 @@ private:
             subtract->setEnabled(!surface);
         }}
     void refresh_plane(){
-        const auto& ref=pending.sweep2d.path_plane;const QSignalBlocker blocked(plane_),eye_blocked(plane_eye_);
+        const auto& ref=pending.sweep2d.path_plane;const QSignalBlocker blocked(plane_);
         while(plane_->count()>3)plane_->removeItem(3);
         int index=static_cast<int>(sketcher::Sketch::from_serialized(pending.sweep2d.path_sketch).plane);
+        bool external=false;
         if(ref) {
             index=ref->instance_path.empty()&&ref->owner_id==pending.container_origin.id
                 ?plane_->findData(QString::fromStdString(ref->semantic_key)):-1;
             // Preserve a current reference assigned through commands until the user changes it.
-            if(index<0){plane_->addItem(QString::fromStdString(ref->owner_id+":"+ref->semantic_key));index=3;}
+            if(index<0){external=true;plane_->addItem(QString::fromStdString(ref->owner_id+":"+ref->semantic_key));index=3;}
         }
         plane_->setCurrentIndex(index);
-        plane_eye_->setEnabled(ref.has_value());plane_eye_->setChecked(plane_inspected_&&ref.has_value());
+        if(path_field_) {
+            if(external) {
+                const auto value=QString::fromStdString(ref->owner_id+":"+ref->semantic_key);
+                path_field_->set_reference(value);
+                path_field_->setText(path_label_.isEmpty()?value:path_label_);
+            } else {
+                path_field_->clear_reference();path_field_->setText(tr("Ve View…"));
+            }
+            path_field_->set_active_input(path_entry_active_);
+            if(path_view_)path_view_->viewport()->update();
+        }
     }
 };
 }

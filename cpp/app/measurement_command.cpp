@@ -12,6 +12,7 @@
 #include <QSignalBlocker>
 #include <QTreeWidget>
 #include <QTreeWidgetItemIterator>
+#include <numbers>
 
 namespace zima::app {
 namespace {
@@ -44,6 +45,8 @@ void AssemblyWorkspaceWindow::show_measurement(const std::string& saved_id){
             catch(const std::exception& error){throw std::runtime_error(tr(error.what()).toStdString());}
             *saved_record=edit.initial.id;
         },document::length_unit_mm(units.at("Length")),QString::fromStdString(units.at("Length")),
+        units.at("Angle")=="rad"?180./std::numbers::pi:1.,
+        units.at("Angle")=="rad"?QStringLiteral("rad"):QStringLiteral("°"),
         document::mass_unit_kg(units.at("Mass")),QString::fromStdString(units.at("Mass")),this);
     dialog->set_save_available(workspace_.active_document_id()==id,
         tr("Activate the displayed model before changing saved measurements."));

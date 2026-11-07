@@ -97,7 +97,7 @@ int main() {
             require(part.body_history.available_before(part.body_history.order().size())==std::vector<std::string>({a,b}),"Deleting Boolean failed to restore input bodies");
             for(bool pattern:{false,true}) {
                 auto graph=part.body_history;document::BodyHistory copy;copy.name=pattern?"Pattern":"Mirror";
-                copy.derived_copy=document::DerivedCopyParameters{};copy.derived_copy->source_id=a;
+                copy.derived_copy=document::DerivedCopyParameters{};copy.derived_copy->source_ids={a};
                 copy.derived_copy->resolved_plane={{0,0,0},{1,0,0}};
                 if(pattern)copy.derived_copy->pattern=kernel::PatternRequest{};
                 const auto id=graph.create_derived_copy(copy);part.set_body_history(graph);
@@ -237,7 +237,7 @@ int main() {
             require(source_graph.serialized()==before,"Suppressing active Body partly committed");
             document::BodyHistory reflected;reflected.name="Mirror";
             reflected.derived_copy=document::DerivedCopyParameters{};
-            reflected.derived_copy->source_id=source;
+            reflected.derived_copy->source_ids={source};
             reflected.derived_copy->resolved_plane={{0,0,0},{1,0,0}};
             const auto mirror=source_graph.create_derived_copy(reflected);
             const auto both=kernel.evaluate_history(source_graph.compile(compiler));

@@ -1,5 +1,6 @@
 #include "profile_command_fixture.hpp"
 #include "profile_solid_fixture.hpp"
+#include "body_measurement_fixture.hpp"
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/value_lock_operations.hpp>
 #include <algorithm>
@@ -23,7 +24,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     const auto set=[&](const std::string& object,const std::string& key,bool locked){return run(host,"value_lock.set",{{"object",object},{"key",key},{"locked",locked}}).data;};
     const auto locked=[&](const std::string& object,const std::string& key){return workspace::value_locked(live,live.active_document_id(),object,key).value_or(false);};
     const auto revision=state->session.revision();const auto* cache=state->session.calculated_boundaries().data();
-    const auto before=get(box);require(before.at("items").size()==17&&state->session.revision()==revision&&state->session.calculated_boundaries().data()==cache&&!host.change(),"Lock query calculated or mutated geometry");
+    const auto before=get(box);require(before.at("items").size()==22&&state->session.revision()==revision&&state->session.calculated_boundaries().data()==cache&&!host.change(),"Lock query calculated or mutated geometry");
     const auto shape=state->session.calculated_boundaries().back().kernel_shape;const auto fingerprint=state->session.calculated_boundaries().back().source_fingerprint;
     require(set(box,"side0_length",true).at("changed")==true&&host.change()->kind==command_host::ChangeKind::Metadata,"Lock did not use metadata notification");
     require(locked(box,"parameter:side0_length")&&state->session.document().find_container(box)->feature.sides[0].length==15&&
@@ -60,7 +61,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     run(host,"save");std::vector<kernel::BodyResult> saved;const auto native=document::PartDocument::load(dir/"value-locks.prtz",&saved);
     require(native.find_container(box)->value_locks.contains("side0_length")&&native.find_container(box)->placement.value_locks.contains("x")&&
         std::ranges::any_of(native.body_history.find(body)->scope.placement.references,[](const auto& ref){return ref.semantic_key=="origin:plane:yz"&&ref.offset_locked;})&&native.find_construction(child)->value_locks.contains("placement:y"),"Native Part lost a lock");
-    require(std::abs(saved.back().volume-6600)<1e-6,"Locks corrupted the calculated solid");
+    require(std::abs(test::measured_volume(kernel,saved.back())-6600)<1e-6,"Locks corrupted the calculated solid");
     run(host,"new",{{"type","assembly"},{"name","assembly-locks"}});const auto assembly_id=live.active_document_id();
     const auto first=run(host,"component.insert",{{"source",id}}).data.at("occurrence").get<std::string>();
     const auto second=run(host,"component.insert",{{"source",id}}).data.at("occurrence").get<std::string>();

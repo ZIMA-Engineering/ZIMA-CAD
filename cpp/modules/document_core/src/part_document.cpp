@@ -6292,11 +6292,22 @@ void PartDocument::resolve_constructions(
             }
             if(body.derived_copy) {
                 dependency(body.derived_copy->reference);
-                const auto* source_owner=next.body_history.owner(body.derived_copy->source_id);
-                const auto source=source_owner?source_owner->scope.id:body.derived_copy->source_id;
-                if(std::ranges::find(body.dependencies,source)==body.dependencies.end())
-                    body.dependencies.push_back(source);
-                resolve_copy_reference(*body.derived_copy,body.scope.id,body.scope.placement,source_geometry);
+                for(const auto& id:body.derived_copy->source_ids) {
+                    const auto* source_owner=next.body_history.owner(id);
+                    const auto source=source_owner?source_owner->scope.id:id;
+                    if(std::ranges::find(body.dependencies,source)==
+                            body.dependencies.end())
+                        body.dependencies.push_back(source);
+                }
+                try {
+                    resolve_copy_reference(*body.derived_copy,body.scope.id,
+                        body.scope.placement,source_geometry);
+                } catch(const std::exception&) {
+                    // Keep the last calculated copy frame for display and
+                    // repair. The explicit body calculation still rejects the
+                    // invalid reference through reference_valid below.
+                    body.derived_copy->reference_valid=false;
+                }
             }
             const auto construction_dependencies = [&](const auto& self, const ConstructionObject& object) -> void {
                 for (const auto& reference : object.references) dependency(reference);
@@ -6306,6 +6317,8 @@ void PartDocument::resolve_constructions(
             };
             for (const auto& feature : carrier.history) {
                 for (const auto& reference : feature.placement.references) dependency(reference);
+                if(feature.feature_kind==FeatureKind::DerivedCopy)
+                    dependency(feature.derived_copy.reference);
                 if (feature.feature_kind == FeatureKind::Sweep3D)
                     construction_dependencies(construction_dependencies, feature.sweep3d.path);
                 if(feature.feature_kind==FeatureKind::GeneralSurface||feature.feature_kind==FeatureKind::Loft)
@@ -6713,6 +6726,17 @@ void PartDocument::resolve_constructions(
             static_cast<void>(resolve_sheet_form_feature_placement(container.sheet_form,container.placement,source_geometry));
         else static_cast<void>(resolve_placement(container.placement, source_geometry));
         if (!container.placement.reference_valid) return;
+        if(container.feature_kind==FeatureKind::DerivedCopy) {
+            try {
+                resolve_copy_reference(container.derived_copy,container.id,
+                    container.placement,source_geometry);
+            } catch(const std::exception&) {
+                // Preserve the last valid resolved plane/axis, but do not let
+                // a later material calculation consume a broken reference.
+                container.derived_copy.reference_valid=false;
+                return;
+            }
+        }
         if(container.feature_kind==FeatureKind::SheetForm) {
             // FORM consumes the current native support metadata at its input
             // boundary. The copied library surface is independent; its inward
@@ -6733,13 +6757,10 @@ void PartDocument::resolve_constructions(
             container.twisted_sheet.sheet_attachment) {
             if(container.placement.references.size()!=3)
                 throw std::invalid_argument("Incomplete Twisted Sheet attachment.");
-            const auto& source=container.placement.references[0];
-            const auto edge=std::ranges::find_if(source_geometry.edges,[&](const auto& value) {
-                return value.reference.owner_id==source.owner_id&&
-                    value.reference.semantic_key==source.semantic_key&&
-                    value.reference.instance_path==source.instance_path;
-            });
-            if(edge==source_geometry.edges.end())
+            const auto& source=container.placement.references.front();
+            const auto* edge=current_sheet_attachment_edge(
+                container.placement.references,source_geometry);
+            if(!edge)
                 throw std::invalid_argument("Missing Twisted Sheet attachment edge.");
             auto& anchor=container.placement.references[2];
             const auto expected=bend_sheet_references(*edge,
@@ -8282,10 +8303,18 @@ PlanarSweepPath planar_sweep_path(const HistoryContainer& c) {
 }
 void PartDocument::resolve_copy_reference(DerivedCopyParameters& mirror,const std::string& id,
     const Placement& placement,const kernel::ViewerReferenceGeometry& geometry) {
-    if((!mirror.pattern||mirror.pattern->circular||!mirror.reference.owner_id.empty())&&
-        !is_derived_copy_origin_reference(mirror.reference,id,mirror.pattern.has_value())) {
+    const bool needs_reference=!mirror.pattern||mirror.pattern->circular;
+    if(needs_reference&&mirror.reference.owner_id.empty()) {
         mirror.reference_valid=false;
-        throw std::invalid_argument(mirror.pattern?"Vyberte osu X, Y nebo Z vlastního počátku Pole.":
+        throw std::invalid_argument(mirror.pattern?
+            "Vyberte osu Pole.":"Vyberte rovinu zrcadlení.");
+    }
+    if(mirror.reference.owner_id==id+":origin"&&
+            !is_derived_copy_origin_reference(mirror.reference,id,
+                mirror.pattern.has_value())) {
+        mirror.reference_valid=false;
+        throw std::invalid_argument(mirror.pattern?
+            "Vyberte osu X, Y nebo Z vlastního počátku Pole.":
             "Vyberte rovinu XY, YZ nebo XZ vlastního počátku Zrcadla.");
     }
     auto references=geometry;
@@ -8297,6 +8326,10 @@ void PartDocument::resolve_copy_reference(DerivedCopyParameters& mirror,const st
         append_reference_geometry(references,transform_reference_geometry(carrier.origin_viewer_mesh().original_references,
             {placement.x,placement.y,placement.z},{placement.rotation_x,placement.rotation_y,placement.rotation_z},false));
     }
+    const bool has_reference_geometry=!references.vertices.empty()||
+        !references.triangles.empty()||!references.triangle_references.empty()||
+        !references.edges.empty()||!references.points.empty()||
+        !references.axes.empty();
     if(mirror.pattern) {
         auto& pattern=*mirror.pattern;
         const std::array<kernel::Vec3,3> basis{{{1,0,0},{0,1,0},{0,0,1}}};
@@ -8306,16 +8339,31 @@ void PartDocument::resolve_copy_reference(DerivedCopyParameters& mirror,const st
             direction.direction=rotated_vector(basis[direction.local_axis],{placement.rotation_x,placement.rotation_y,placement.rotation_z});
         }
         if(pattern.circular) {
-            const auto axis=placement_reference_axis(mirror.reference,references);
-            mirror.reference_valid=axis.has_value();
-            if(!axis)throw std::invalid_argument("Vyberte platnou osu kruhového Pole.");
-            pattern.origin=axis->point;pattern.axis=axis->direction;
+            if(has_reference_geometry) {
+                const auto axis=placement_reference_axis(
+                    mirror.reference,references);
+                mirror.reference_valid=axis.has_value();
+                if(!axis)throw std::invalid_argument(
+                    "Vyberte platnou osu kruhového Pole.");
+                pattern.origin=axis->point;pattern.axis=axis->direction;
+            } else if(!mirror.reference_valid) {
+                throw std::invalid_argument(
+                    "Vyberte platnou osu kruhového Pole.");
+            }
         } else mirror.reference_valid=true;
         static_cast<void>(kernel::validated_pattern(pattern));return;
     }
+    if(!has_reference_geometry) {
+        if(!mirror.reference_valid)
+            throw std::invalid_argument("Vyberte rovinu zrcadlení.");
+        mirror.resolved_plane=kernel::normalized_mirror_plane(
+            mirror.resolved_plane);
+        return;
+    }
     const auto plane=placement_reference_plane(mirror.reference,references);
     mirror.reference_valid=plane.has_value()&&construction_reference_is_planar_face(mirror.reference,references);
-    if(!mirror.reference_valid)throw std::invalid_argument("Vyberte rovinu XY, YZ nebo XZ vlastního počátku Zrcadla.");
+    if(!mirror.reference_valid)
+        throw std::invalid_argument("Vyberte rovinu zrcadlení.");
     const auto p=plane->point,n=plane->normal;
     mirror.resolved_plane=kernel::normalized_mirror_plane({{p.x+n.x*mirror.reference.offset,p.y+n.y*mirror.reference.offset,p.z+n.z*mirror.reference.offset},n});
 }
@@ -8617,11 +8665,8 @@ void update_flat_sheet_attachment(HistoryContainer& feature,sketcher::Sketch& sk
     auto& placement=feature.placement;
     if(placement.references.size()!=3)throw std::invalid_argument("Incomplete Flat sheet attachment.");
     const auto& source=placement.references.front();
-    const auto edge=std::ranges::find_if(geometry.edges,[&](const auto& e) {
-        return e.reference.owner_id==source.owner_id&&e.reference.semantic_key==source.semantic_key&&
-            e.reference.instance_path==source.instance_path;
-    });
-    if(edge==geometry.edges.end())throw std::invalid_argument("Missing Flat attachment edge.");
+    const auto* edge=current_sheet_attachment_edge(placement.references,geometry);
+    if(!edge)throw std::invalid_argument("Missing Flat attachment edge.");
     const auto expected=flat_sheet_references(*edge,
         current_sheet_attachment_anchor(*edge,placement));
     const auto& face=placement.references[1];
@@ -8660,6 +8705,21 @@ void update_flat_sheet_attachment(HistoryContainer& feature,sketcher::Sketch& sk
     };
     const auto old_first=old_reference(":flat-attachment:first");
     const auto old_last=old_reference(":flat-attachment:last");
+    std::set<std::string> attachment_points;
+    for(const auto& constraint:sketch.constraints)
+        if(!constraint.suppressed&&constraint.kind==
+                sketcher::ConstraintKind::PointReference&&
+                (constraint.second_point_id==sketch.id+":flat-attachment:first"||
+                 constraint.second_point_id==sketch.id+":flat-attachment:last"))
+            attachment_points.insert(constraint.first_point_id);
+    const bool guide_free_source_outline=
+        std::ranges::none_of(sketch.segments,
+            &sketcher::SketchSegment::construction)&&
+        sketch.dimensions.empty()&&
+        std::ranges::all_of(sketch.constraints,[](const auto& constraint) {
+            return constraint.suppressed||constraint.kind==
+                sketcher::ConstraintKind::PointReference;
+        });
     const auto matches=[](const auto& old,const auto& current) {
         return old.source_owner_id==current.owner_id&&
             old.source_semantic_key==current.semantic_key&&
@@ -8703,10 +8763,57 @@ void update_flat_sheet_attachment(HistoryContainer& feature,sketcher::Sketch& sk
         if(existing==sketch.external_references.end()) {
             sketch.external_references.push_back({});existing=std::prev(sketch.external_references.end());
         }
+        const auto target=sketch.local_point(position);
+        // Seed the exact attachment vertex before the generic nonlinear solve.
+        // Otherwise an underconstrained Flat perimeter may distribute this
+        // endpoint residual into unrelated remote vertices and shear the
+        // source-face outline. Older profiles with an explicit parallel guide
+        // retain their established complete-side translation; guide-free
+        // profiles move only the shared joining vertex.
+        if(existing->cached_points.size()==1) {
+            const std::array delta{
+                target[0]-existing->cached_points.front()[0],
+                target[1]-existing->cached_points.front()[1]};
+            for(const auto& reference:sketch.constraints) {
+                if(reference.suppressed||reference.kind!=
+                        sketcher::ConstraintKind::PointReference||
+                        reference.second_point_id!=id)continue;
+                auto* joining=sketch.find_point(reference.first_point_id);
+                if(!joining)continue;
+                std::set<std::string> moved;
+                for(const auto& side:sketch.segments) {
+                    if(side.construction||
+                            (side.first_point_id!=joining->id&&
+                             side.second_point_id!=joining->id))continue;
+                    const bool has_parallel=std::ranges::any_of(
+                        sketch.constraints,[&](const auto& relation) {
+                            if(relation.suppressed||relation.kind!=
+                                    sketcher::ConstraintKind::Parallel)return false;
+                            const auto other=relation.geometry_id==side.id?
+                                relation.second_geometry_id:
+                                relation.second_geometry_id==side.id?
+                                    relation.geometry_id:std::string{};
+                            const auto guide=std::ranges::find(
+                                sketch.segments,other,&sketcher::SketchSegment::id);
+                            return guide!=sketch.segments.end()&&
+                                guide->construction;
+                        });
+                    if(!guide_free_source_outline&&!has_parallel)continue;
+                    const auto& remote_id=side.first_point_id==joining->id?
+                        side.second_point_id:side.first_point_id;
+                    if(attachment_points.contains(remote_id))continue;
+                    if(!moved.insert(remote_id).second)continue;
+                    if(auto* remote=sketch.find_point(remote_id)) {
+                        remote->x+=delta[0];remote->y+=delta[1];
+                    }
+                }
+                joining->x+=delta[0];joining->y+=delta[1];
+            }
+        }
         existing->id=id;existing->kind=sketcher::ExternalReferenceKind::Point;
         existing->source_document_id=document_id;existing->source_owner_id=endpoint.owner_id;
         existing->source_semantic_key=endpoint.semantic_key;existing->source_instance_path=endpoint.instance_path;
-        existing->cached_points={sketch.local_point(position)};existing->broken=false;
+        existing->cached_points={target};existing->broken=false;
     }
     const auto solved=sketch.solve();
     if(solved.status==sketcher::SolveStatus::Conflicting||solved.status==sketcher::SolveStatus::Invalid)
@@ -9613,11 +9720,13 @@ void PartDocument::validate_body_ownership() const {
         std::set<std::string> preceding;
         for (const auto& entry : body.entries) {
             if(const auto* copy=find_container(entry.id);copy&&copy->feature_kind==FeatureKind::DerivedCopy &&
-                !(copy->derived_copy.source_id.empty() && removed_reference_states.contains(copy->id))) {
-                if(!preceding.contains(copy->derived_copy.source_id))
-                    throw std::invalid_argument("Copy source must precede its copy in the same Body.");
-                if(!find_container(copy->derived_copy.source_id))
-                    throw std::invalid_argument("Copy source must be a solid feature.");
+                !(copy->derived_copy.source_ids.empty() && removed_reference_states.contains(copy->id))) {
+                for(const auto& source:copy->derived_copy.source_ids) {
+                    if(!preceding.contains(source))
+                        throw std::invalid_argument("Every copy source must precede its copy in the same Body.");
+                    if(!find_container(source))
+                        throw std::invalid_argument("Copy sources must be solid features.");
+                }
             }
             preceding.insert(entry.id);
             const auto found = expected.find(entry.id);
@@ -9808,17 +9917,24 @@ void PartDocument::erase_history_object(const std::string& id) {
 
 void PartDocument::synchronize_derived_copy_sources() {
     for(auto& feature:history)if(feature.feature_kind==FeatureKind::DerivedCopy) {
-        const auto* source=find_container(feature.derived_copy.source_id);
-        if(!source) {
+        std::vector<const HistoryContainer*> sources;
+        for(const auto& id:feature.derived_copy.source_ids)
+            if(const auto* source=find_container(id))sources.push_back(source);
+        if(sources.size()!=feature.derived_copy.source_ids.size()) {
             if(removed_reference_states.contains(feature.id))continue;
             throw std::runtime_error("Copy source feature is missing.");
         }
-        feature.derived_copy.subtract_source=source->combine_mode==CombineMode::Subtract;
-        feature.combine_mode=source->combine_mode;
+        feature.derived_copy.subtract_source=!sources.empty()&&
+            std::ranges::all_of(sources,[](const auto* source) {
+                return source->combine_mode==CombineMode::Subtract;
+            });
+        feature.combine_mode=feature.derived_copy.subtract_source?
+            CombineMode::Subtract:CombineMode::Add;
     }
     const auto bodies=body_history.bodies();
     for(auto body:bodies)if(body.derived_copy) {
-        const auto* source=find_container(body.derived_copy->source_id);
+        const auto* source=body.derived_copy->source_ids.size()==1?
+            find_container(body.derived_copy->source_ids.front()):nullptr;
         const bool subtract=source&&source->combine_mode==CombineMode::Subtract;
         if(body.derived_copy->subtract_source!=subtract) {
             body.derived_copy->subtract_source=subtract;body_history.update_body(std::move(body));
@@ -10236,8 +10352,22 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
             resolve_copy_reference(parameters,container.id,container.placement,{});
             zima::kernel::HistoryOperation operation;operation.owner_id=container.id;
             operation.suppressed=container.suppressed;operation.boolean_tolerance=boolean_tolerance;operation.mesh_deflection=mesh_deflection;
-            operation.operation=parameters.subtract_source?kernel::BooleanOperation::Subtract:kernel::BooleanOperation::Add;
-            kernel::BodyHistoryScope copy;copy.source_feature_id=parameters.source_id;
+            kernel::BodyHistoryScope copy;
+            for(const auto& source_id:parameters.source_ids) {
+                const auto* source=find_container(source_id);
+                if(!source)throw std::runtime_error(
+                    "Copy source feature is missing.");
+                copy.copy_sources.push_back({{},source_id,
+                    source->combine_mode==CombineMode::Subtract?
+                        kernel::BooleanOperation::Subtract:
+                        kernel::BooleanOperation::Add});
+            }
+            if(copy.copy_sources.empty())throw std::runtime_error(
+                "Copy source is missing.");
+            copy.source_feature_id=copy.copy_sources.front().feature_id;
+            operation.operation=copy.copy_sources.size()==1?
+                copy.copy_sources.front().operation:
+                kernel::BooleanOperation::Add;
             copy.combination=parameters.pattern?kernel::BodyCombination::Pattern:kernel::BodyCombination::Mirror;
             copy.mirror_plane=parameters.resolved_plane;if(parameters.pattern)copy.pattern=*parameters.pattern;
             operation.feature_copy=std::move(copy);operations.push_back(std::move(operation));continue;
@@ -12962,7 +13092,12 @@ nlohmann::json PartDocument::serialized(
         if(!removed_reference_states.contains(container.id) && !failed_containers.contains(container.id)) {
         if(container.feature_kind==FeatureKind::DerivedCopy) {
             auto parameters=container.derived_copy;
-            if(parameters.source_id.empty())throw std::runtime_error("Copy source is missing.");
+            if(parameters.source_ids.empty()||
+                    std::set<std::string>(parameters.source_ids.begin(),
+                        parameters.source_ids.end()).size()!=
+                        parameters.source_ids.size())
+                throw std::runtime_error(
+                    "Copy requires distinct nonempty sources.");
             resolve_copy_reference(parameters,container.id,container.placement,{});
         } else if (is_solid_state(container.feature_kind)) {
             require_default_sketch_feature_placement(container.placement);

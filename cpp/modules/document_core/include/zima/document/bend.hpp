@@ -10,6 +10,12 @@ namespace zima::document {
 // replaced one native endpoint identity by an older contributing vertex.
 [[nodiscard]] kernel::VertexReference current_sheet_attachment_anchor(
     const kernel::ViewerEdge&,const Placement&);
+// Several Boolean fragments may retain one original edge identity. Prefer the
+// fragment that still owns the persisted endpoint, then any complete native
+// endpoint pair, instead of accepting the first incomplete display fragment.
+[[nodiscard]] const kernel::ViewerEdge* current_sheet_attachment_edge(
+    const std::vector<ConstructionReference>&,
+    const kernel::ViewerReferenceGeometry&);
 void update_bend_sheet_profile(HistoryContainer&,sketcher::Sketch&,
     const kernel::ViewerReferenceGeometry&,const std::string& document_id);
 void update_sheet_edge_profile(const Placement&,double& thickness,sketcher::Sketch&,

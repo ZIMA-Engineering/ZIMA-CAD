@@ -44,6 +44,7 @@ inline std::string axis_endpoint_parent_key(std::string_view key) {
     for(const std::string_view prefix:{"sweep:path-point:start:from:","sweep:path-point:end:from:"})
         if(key.starts_with(prefix))return "centerline:from:"+std::string(key.substr(prefix.size()));
     if(key=="axis:point:start"||key=="axis:point:end")return "axis";
+    if(key=="axis:start"||key=="axis:end")return "axis:primary";
     return {};
 }
 inline std::optional<std::array<Vec3,2>> axis_curve_overhang(const ViewerEdge& edge) {

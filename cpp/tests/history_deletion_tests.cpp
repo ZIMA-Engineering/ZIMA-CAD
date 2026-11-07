@@ -3,6 +3,7 @@
 #include <zima/workspace/history_operations.hpp>
 #include <zima/workspace/part_transactions.hpp>
 #include <zima/workspace/edge_treatment_operations.hpp>
+#include <zima/workspace/profile_operations.hpp>
 #include <zima/document/bend.hpp>
 #include <zima/document/viewer_packet_json.hpp>
 #include <sstream>
@@ -355,12 +356,152 @@ static void verify_retained_feature_and_sketch_frames(const kernel::OcctKernel& 
     require(std::abs(volume(session.calculated_boundaries()) - saved_volume) < 1e-8,
         "Reference deletion Redo lost a dependent feature's retained solid");
 }
+static void verify_retained_container_properties_repair(
+        const kernel::OcctKernel& kernel) {
+    auto part=document::PartDocument::create_default();
+    auto first=test::rectangular_feature(part,{20,20,10});
+    auto replacement=test::rectangular_feature(part,{12,12,8});
+    replacement.placement.x=50;
+    auto second=test::rectangular_feature(part,{8,8,6});
+    auto third=test::rectangular_feature(part,{4,4,4});
+    part.history={first,replacement,second,third};
+    document::BodyHistoryGraph graph;
+    static_cast<void>(graph.create_body("Three retained containers"));
+    for(const auto& feature:part.history)
+        graph.insert({document::PartHistoryKind::Feature,feature.id});
+    part.set_body_history(graph);
+    auto calculated=workspace::calculate_part_with_resolved_references(
+        kernel,part);
+    const auto planar_face=[&](const std::string& owner) {
+        const auto& references=calculated.back().mesh.original_references;
+        const kernel::FaceReference* found{};
+        for(const auto& reference:references.triangle_references)
+            if(reference.owner_id==owner&&reference.surface&&
+                    reference.surface->kind==
+                        kernel::SurfaceGeometry::Kind::Plane&&
+                    std::abs(reference.surface->axis.x)>.9&&
+                    (!found||reference.surface->origin.x>
+                        found->surface->origin.x))
+                found=&reference;
+        require(found,
+            "Retained-container fixture has no planar face");
+        document::ConstructionReference support;
+        support.owner_id=found->owner_id;
+        support.semantic_key=found->semantic_key;
+        support.orientation_role="front";
+        support.orientation_drives_rotation=true;
+        return support;
+    };
+    const auto replacement_support=planar_face(replacement.id);
+    part.find_container(second.id)->placement.references={planar_face(first.id)};
+    part.resolve_constructions(calculated.back().mesh.original_references);
+    calculated=workspace::calculate_part_with_resolved_references(
+        kernel,part,&calculated);
+    const auto third_support=planar_face(second.id);
+    const auto third_support_face=std::ranges::find_if(
+        calculated.back().mesh.original_references.triangle_references,
+        [&](const auto& reference) {
+            return reference.owner_id==third_support.owner_id&&
+                reference.semantic_key==third_support.semantic_key;
+        });
+    require(third_support_face!=calculated.back().mesh.original_references.
+            triangle_references.end()&&third_support_face->surface,
+        "Retained-container fixture lost its follow surface");
+    const auto follow_axis=third_support_face->surface->axis;
+    part.find_container(third.id)->placement.references={third_support};
+    part.resolve_constructions(calculated.back().mesh.original_references);
+    calculated=workspace::calculate_part_with_resolved_references(
+        kernel,part,&calculated);
+    const auto third_before=*part.find_container(third.id);
+    workspace::Workspace live;const auto document_id=part.document_id;
+    live.add_part(part,calculated);
+    workspace::delete_part_history(live,document_id,kernel,first.id);
+    auto& session=live.open_part(document_id)->session;
+    const auto& deleted=session.document();
+    require(!deleted.find_container(first.id)&&
+            deleted.find_container(second.id)&&
+            deleted.find_container(third.id),
+        "Deleting Container 1 removed Container 2 or Container 3");
+    require(deleted.removed_reference_states.contains(second.id)&&
+            !deleted.removed_reference_states.contains(third.id)&&
+            deleted.find_container(second.id)->placement.references.empty()&&
+            !deleted.find_container(second.id)->placement.reference_valid&&
+            deleted.find_container(third.id)->placement.references.size()==1&&
+            deleted.find_container(third.id)->placement.references.front().owner_id==second.id,
+        "Reference deletion crossed the retained Container 2 boundary");
+    const auto revision_after_delete=session.revision();
+    auto edited=*deleted.find_container(second.id);
+    edited.placement.reference_valid=true;
+    edited.placement.x+=17*follow_axis.x;
+    edited.placement.y+=17*follow_axis.y;
+    edited.placement.z+=17*follow_axis.z;
+    edited.extrusion.length_forward+=2;
+    workspace::commit_profile(live,kernel,document_id,edited,
+        workspace::ProfileEditMode::Replace);
+    const auto& repaired=session.document();
+    require(session.revision()==revision_after_delete+1&&
+            !repaired.removed_reference_states.contains(second.id)&&
+            !repaired.removed_reference_states.contains(third.id)&&
+            repaired.find_container(second.id)->placement.reference_valid&&
+            repaired.find_container(second.id)->placement.x==edited.placement.x&&
+            repaired.find_container(second.id)->extrusion.length_forward==
+                edited.extrusion.length_forward,
+        "Container 2 Properties did not repair placement and dimensions");
+    require(repaired.find_container(third.id)->placement.reference_valid&&
+            repaired.find_container(third.id)->placement.references.size()==1&&
+            repaired.find_container(third.id)->placement.references.front().owner_id==second.id&&
+            repaired.find_container(third.id)->placement!=third_before.placement,
+        "Container 3 did not remain attached to the repaired Container 2");
+    require(session.calculated_boundaries().back().calculation_errors.empty(),
+        "Retained-container repair left a calculation error");
+    const auto repaired_serialized=repaired.serialized();
+    require(workspace::step_part_document_history(live,document_id,false)&&
+            session.document().removed_reference_states.contains(second.id),
+        "Retained-container repair Undo lost the deleted-reference state");
+    require(workspace::step_part_document_history(live,document_id,true)&&
+            session.document().serialized()==repaired_serialized,
+        "Retained-container repair Redo changed the repaired chain");
+    const auto path=std::filesystem::absolute(
+        "build/history-deletion-three-containers.prtz");
+    session.document().save(path,session.calculated_boundaries());
+    std::vector<kernel::BodyResult> reopened_calculated;
+    const auto reopened=document::PartDocument::load(path,&reopened_calculated);
+    require(!reopened.removed_reference_states.contains(second.id)&&
+            reopened.find_container(second.id)->placement.x==edited.placement.x&&
+            reopened.find_container(third.id)->placement.reference_valid&&
+            !reopened_calculated.empty()&&
+            reopened_calculated.back().calculation_errors.empty(),
+        "Saved retained-container repair did not reopen intact");
+    std::filesystem::remove(path);
+    require(workspace::step_part_document_history(live,document_id,false)&&
+            session.document().removed_reference_states.contains(second.id),
+        "Placement-rebind Undo did not restore the repairable state");
+    auto rebound=*session.document().find_container(second.id);
+    rebound.placement.references={replacement_support};
+    rebound.placement.reference_valid=true;
+    workspace::commit_profile(live,kernel,document_id,rebound,
+        workspace::ProfileEditMode::Replace);
+    require(!session.document().removed_reference_states.contains(second.id),
+        "Rebound Container 2 retained its deleted-reference state");
+    require(session.document().find_container(second.id)->placement.reference_valid,
+        "Rebound Container 2 placement is invalid");
+    require(session.document().find_container(second.id)->placement.references==
+            rebound.placement.references,
+        "Container 2 replacement placement reference was not persisted");
+    require(session.document().find_container(third.id)->placement.reference_valid,
+        "Container 3 placement became invalid after Container 2 rebinding");
+    require(session.document().find_container(third.id)->placement.references.front().owner_id==second.id,
+        "Container 3 stopped referencing Container 2 after rebinding");
+    require(session.calculated_boundaries().back().calculation_errors.empty(),
+        "Container 2 rebinding left a calculation error");
+}
 int main() {
     try {
         kernel::OcctKernel kernel;
         verify_live_regeneration(kernel);verify_cold_history_resume();verify_recovery_prefix();
         verify_sheet_suppression(kernel);
         verify_retained_feature_and_sketch_frames(kernel);
+        verify_retained_container_properties_repair(kernel);
         auto doc=document::PartDocument::create_default();
         auto source=test::rectangular_feature(doc,{10,10,10});
         doc.history={source};
@@ -565,7 +706,7 @@ int main() {
         auto pattern_source=test::rectangular_feature(pattern_doc,{4,4,4});
         auto pattern=document::PartDocument::create_fillet_container({reference});
         pattern.feature_kind=document::FeatureKind::DerivedCopy;pattern.name="Pattern";
-        pattern.derived_copy.source_id=pattern_source.id;pattern.derived_copy.pattern=kernel::PatternRequest{};
+        pattern.derived_copy.source_ids={pattern_source.id};pattern.derived_copy.pattern=kernel::PatternRequest{};
         pattern_doc.history={pattern_source,pattern};
         document::BodyHistoryGraph pattern_graph;static_cast<void>(pattern_graph.create_body("Pattern"));
         for(const auto& f:pattern_doc.history)pattern_graph.insert({document::PartHistoryKind::Feature,f.id});
@@ -574,7 +715,7 @@ int main() {
         pattern_live.add_part(pattern_doc,workspace::calculate_part(kernel,pattern_doc));
         workspace::delete_part_history(pattern_live,pattern_id,kernel,pattern_source.id);
         const auto pattern_roundtrip=document::PartDocument::from_serialized(pattern_live.open_part(pattern_id)->session.document().serialized());
-        require(pattern_roundtrip.find_container(pattern.id)&&pattern_roundtrip.find_container(pattern.id)->derived_copy.source_id.empty()&&
+        require(pattern_roundtrip.find_container(pattern.id)&&pattern_roundtrip.find_container(pattern.id)->derived_copy.source_ids.empty()&&
             pattern_roundtrip.removed_reference_states.contains(pattern.id),"Pattern without source could not remain in native history");
         std::cout<<"History deletion contracts passed\n";
         return 0;

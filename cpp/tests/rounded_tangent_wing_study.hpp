@@ -102,10 +102,29 @@ inline void run() {
             }
             if(!full)std::erase_if(s.dimensions,[](const auto& d){return d.id=="landing-x";});
             auto d=*std::ranges::find(s.dimensions,driver,&SketchDimension::id);d.driving=driving;d.locked=locked&&driving;s.apply_dimension(d);
-            const auto initial=d.value;const auto sources=s.external_references;equations(s);
+            // Numeric entry consumes the displayed coordinate. XZ persists
+            // native Sketch Y as -Z, so its user-facing value is deliberately
+            // the opposite sign of the stored solver scalar.
+            const auto initial=dimension_display_value(d,s.plane);
+            const auto sources=s.external_references;equations(s);
             const auto status=s.solve();check(status.remaining_degrees_of_freedom==(!full)+(!driving),"Rounded wing DOF differs from independent equation count");
             for(double scale:{1.02,1.04,1.}) {
-                const auto before=s.serialized();check(s.set_dimension_value(driver,initial*scale),"Rounded wing driver edit was rejected");equations(s);
+                const auto before=s.serialized();
+                if(!s.set_dimension_value(driver,initial*scale)) {
+                    auto attempted=*std::ranges::find(
+                        s.dimensions,driver,&SketchDimension::id);
+                    set_dimension_input_value(
+                        attempted,initial*scale,s.plane);
+                    try {s.apply_dimension(std::move(attempted));}
+                    catch(const std::exception& error) {
+                        throw std::runtime_error(
+                            std::string("Rounded wing driver edit was rejected: ")+
+                            error.what());
+                    }
+                    throw std::runtime_error(
+                        "Rounded wing driver edit was rejected without a solver error");
+                }
+                equations(s);
                 if(!driving)check(s.serialized()==before,"Reference dimension edited rounded wing geometry");
                 check(s.external_references==sources,"Rounded wing changed a read-only source");
                 s=Sketch::from_serialized(s.serialized());equations(s);

@@ -1137,6 +1137,11 @@ if(ZIMA_BUILD_TESTS)
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.."
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_SKETCH_CONSTRAINT_BUTTONS_ONLY=1"
         TIMEOUT 60 RUN_SERIAL TRUE)
+    add_test(NAME zima_cpp_sketch_constraint_hover_contract COMMAND zima_cpp_ui_contract_tests)
+    set_tests_properties(zima_cpp_sketch_constraint_hover_contract PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.."
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_SKETCH_CONSTRAINT_HOVER_ONLY=1"
+        TIMEOUT 60 RUN_SERIAL TRUE)
     add_test(NAME zima_cpp_sketch_reference_icons_contract COMMAND zima_cpp_ui_contract_tests)
     set_tests_properties(zima_cpp_sketch_reference_icons_contract PROPERTIES
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.."
@@ -1388,6 +1393,11 @@ if(ZIMA_BUILD_TESTS)
     set_tests_properties(zima_cpp_native_tangent_contact_tests PROPERTIES
         ENVIRONMENT "ZIMA_CPP_VERIFY_NATIVE_CURVE_CONTACT=1" TIMEOUT 120)
     add_test(NAME zima_cpp_native_tangent_contact_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    add_test(NAME zima_cpp_sketch_combined_endpoint_ui_contract COMMAND zima-cad-cpp --verify-startup
+        "--working-directory=${CMAKE_BINARY_DIR}/sketch-combined-endpoint-gui")
+    set_tests_properties(zima_cpp_sketch_combined_endpoint_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_SKETCH_COMBINED_ENDPOINT_ONLY=1"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." RUN_SERIAL TRUE TIMEOUT 300)
     add_test(NAME zima_cpp_native_arc_axis_ui_contract COMMAND zima-cad-cpp --verify-startup)
     set_tests_properties(zima_cpp_native_arc_axis_ui_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_SKETCH_KEYPOINT_CONTACT_ONLY=1;ZIMA_VERIFY_NATIVE_CURVE_CONTACT_ONLY=1;ZIMA_VERIFY_ARC_AXIS_UI_ONLY=1;ZIMA_NATIVE_CONTACT_SOURCE=${CMAKE_SOURCE_DIR}/tests/fixtures/sketch/form-koule-shared-arcs.json"
@@ -1473,6 +1483,10 @@ if(ZIMA_BUILD_TESTS)
     target_link_libraries(zima_cpp_cli_process_tests PRIVATE zima_command_host Qt6::Core)
     # The protocol matrix exceeds MSVC's standard COFF section limit.
     target_compile_options(zima_cpp_cli_process_tests PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/bigobj>)
+    # Its single native protocol matrix also retains many complete document
+    # fixtures at once. Match the other combined Windows regression binaries
+    # instead of depending on MSVC's 1 MiB executable-stack default.
+    target_link_options(zima_cpp_cli_process_tests PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/STACK:8388608>)
     add_dependencies(zima_cpp_cli_process_tests zima-cad-cli)
     add_test(NAME zima_cpp_cli_process_tests COMMAND zima_cpp_cli_process_tests "$<TARGET_FILE:zima-cad-cli>")
     set_tests_properties(zima_cpp_cli_process_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 120)

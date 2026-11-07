@@ -1,4 +1,5 @@
 #include "profile_command_fixture.hpp"
+#include "body_measurement_fixture.hpp"
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/relation_operations.hpp>
 #include <zima/document/feature_direction.hpp>
@@ -46,7 +47,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     }
     const auto equations=[&](bool reverse) {
         const auto& result=state->session.calculated_boundaries().back();check(result.calculation_errors.empty(),"Direction calculation failed");
-        check(std::abs(result.volume-24*17)<1e-6,"Direction changed the profile volume");
+        check(std::abs(test::measured_volume(kernel,result)-24*17)<1e-6,"Direction changed the profile volume");
         double low=1e100,high=-1e100;for(auto p:result.mesh.vertices){low=std::min(low,p.z);high=std::max(high,p.z);}
         check(std::abs(low-(reverse?-12:-5))<1e-6&&std::abs(high-(reverse?5:12))<1e-6,"Direction did not reverse physical sides");
         check(value().feature.sides==original.feature.sides&&value().feature.sketch_id==original.feature.sketch_id,"Direction exchanged panels or source identity");
@@ -75,7 +76,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     run("undo");equations(true);run("redo");equations(false);run("save");
     std::vector<kernel::BodyResult> cache;const auto reopened=document::PartDocument::load(directory/"direction.prtz",&cache);
     check(reopened.dimension_identifiers.identifier(id,"parameter:direction")==direction&&reopened.find_container(id)->feature==value().feature,"Native reopen changed direction identity or panels");
-    const auto cold=kernel.evaluate_history(reopened.kernel_operations());check(std::abs(cold.back().volume-cache.back().volume)<1e-6,"Cold direction regeneration differs");
+    const auto cold=kernel.evaluate_history(reopened.kernel_operations());check(std::abs(test::measured_volume(kernel,cold.back())-test::measured_volume(kernel,cache.back()))<1e-6,"Cold direction regeneration differs");
     for(std::size_t side:{0u,1u})for(bool reversed:{false,true}) {
         auto p=original.feature;p.reversed_sides=reversed;const auto untouched=p.sides[1-side];
         check(document::set_feature_signed_length(p,side,-7)&&p.reversed_sides!=reversed&&p.sides[side].length==7&&p.sides[1-side]==untouched,"Negative extent lost side ownership");

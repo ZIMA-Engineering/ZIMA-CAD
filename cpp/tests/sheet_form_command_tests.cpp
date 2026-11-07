@@ -97,7 +97,8 @@ int main(){try {
         check(current->session.document().serialized(current->session.calculated_boundaries())==before,"FORM copy Redo changed persisted geometry or references");
         std::vector<kernel::BodyResult> reopened;
         const auto copy_document=document::PartDocument::from_serialized(before,&reopened);
-        check(copy_document.find_container(mirror)->derived_copy.source_id==pattern&&
+        check(copy_document.find_container(mirror)->derived_copy.source_ids==
+                std::vector<std::string>{pattern}&&
             reopened.back().calculation_errors.empty(),"FORM copy native reopen lost its source chain");
     }
     auto bad=saved().find_container(feature.id)->sheet_form;

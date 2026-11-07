@@ -1258,12 +1258,14 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
             auto resolved_preview = preview;
             auto& placement = resolved_preview.placement;
             // Creation and later Properties editing must resolve the same
-            // reference set. OK normalizes a Thread's Axis + Plane rows
-            // before committing; doing that only at commit time left the
-            // first cyan preview on its stale numerical origin (typically
-            // Z=0), while reopening Properties immediately looked correct.
+            // reference set. OK normalizes a Thread's Axis + Plane rows and
+            // a Hole's FRONT/TOP rows before committing. Doing that only at
+            // commit time can resolve a different frame and put the final
+            // opening on the opposite side from its cyan preview.
             if (resolved_preview.feature_kind ==
-                    zima::document::FeatureKind::Thread) {
+                    zima::document::FeatureKind::Thread ||
+                resolved_preview.feature_kind ==
+                    zima::document::FeatureKind::Hole) {
                 normalize_owned_profile_front_references(
                     placement.references);
             }

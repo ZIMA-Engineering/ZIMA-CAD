@@ -7,6 +7,7 @@
 #include <charconv>
 #include <cmath>
 #include <cctype>
+#include <set>
 namespace zima::workspace {
 namespace {
 std::uint64_t revision(const Workspace& live,const std::string& id) {
@@ -56,7 +57,15 @@ void validate(const DerivedCopyEdit& edit,const DerivedCopyDefinition& value) {
     document::validate_native_metadata_text(value.name);
     if(value.name.empty()||std::ranges::all_of(value.name,[](unsigned char c){return std::isspace(c)!=0;}))
         throw DerivedCopyError("invalid_arguments","Specify a nonempty object name.");
-    if(std::ranges::none_of(edit.sources.items,[&](const auto& source){return source.id==value.parameters.source_id;}))
+    if(value.parameters.source_ids.empty()||
+            std::set<std::string>(value.parameters.source_ids.begin(),
+                value.parameters.source_ids.end()).size()!=
+                value.parameters.source_ids.size()||
+            std::ranges::any_of(value.parameters.source_ids,
+                [&](const auto& id) {
+                    return std::ranges::none_of(edit.sources.items,
+                        [&](const auto& source){return source.id==id;});
+                }))
         throw DerivedCopyError("invalid_source","Select an available source before this copy in its owning document.");
     const auto& placement=value.placement;
     for(double number:{placement.x,placement.y,placement.z,placement.rotation_x,placement.rotation_y,placement.rotation_z,
@@ -144,8 +153,13 @@ bool commit_derived_copy(Workspace& live,const kernel::OcctKernel& kernel,const 
     if(revision(live,edit.document_id)!=edit.revision)
         throw DerivedCopyError("document_changed","The document changed while copy properties were open.");
     if(const auto* part=live.open_part(edit.document_id)) {
-        const auto* source=part->session.document().find_container(value.parameters.source_id);
-        value.parameters.subtract_source=source&&source->combine_mode==document::CombineMode::Subtract;
+        value.parameters.subtract_source=!value.parameters.source_ids.empty()&&
+            std::ranges::all_of(value.parameters.source_ids,
+                [&](const auto& id) {
+                    const auto* source=part->session.document().find_container(id);
+                    return source&&source->combine_mode==
+                        document::CombineMode::Subtract;
+                });
     }
     validate(edit,value);
     if(!document::resolve_placement(value.placement,edit.references))
@@ -185,7 +199,10 @@ bool commit_derived_copy(Workspace& live,const kernel::OcctKernel& kernel,const 
         part->session.commit(std::move(next),std::move(calculated));return true;
     }
     auto* assembly=live.open_assembly(edit.document_id);auto next=assembly->session.document();
-    const auto* source=next.find_occurrence(value.parameters.source_id);
+    const auto* source=next.find_occurrence(
+        document::primary_derived_copy_source(value.parameters));
+    if(!source)throw DerivedCopyError("invalid_source",
+        "Select an available source before this copy in its owning document.");
     auto result=edit.creating?*source:*next.find_occurrence(value.id);
     result.occurrence_id=value.id;result.name=value.name;result.derived_copy=value.parameters;result.copy_placement=value.placement;
     if(!edit.creating)result.visible=value.visible;

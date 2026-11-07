@@ -54,7 +54,10 @@ public:
         plane->addItem("XY",0);plane->addItem("XZ",1);plane->addItem("YZ",2);
         install_automatic_work_plane(plane,true);
         plane_label_=new QLabel(tr("Výchozí rovina"),plane_group_);
-        sketch_form->addRow(plane_label_,plane);
+        plane_selector_=compact_work_plane_selector(plane,
+            [this] {if(work_plane_reference_requested_)
+                work_plane_reference_requested_();});
+        sketch_form->addRow(plane_label_,plane_selector_);
         axis_direction_=new QComboBox(this);axis_direction_->setObjectName("featureAxisDirection");
         axis_direction_->addItem("X",static_cast<int>(sketcher::SketchPlane::YZ));
         axis_direction_->addItem("Y",static_cast<int>(sketcher::SketchPlane::XZ));
@@ -365,6 +368,9 @@ public:
         connect(operation_group_,&QButtonGroup::idClicked,this,notify);
         if(type_->parentWidget()!=this)connect(type_,&QComboBox::currentIndexChanged,this,notify);
     }
+    void on_work_plane_reference(std::function<void()> callback) {
+        work_plane_reference_requested_=std::move(callback);
+    }
 protected:
     void changeEvent(QEvent* event) override {
         QWidget::changeEvent(event);
@@ -393,6 +399,7 @@ private:
     QLabel *plane_label_{},*axis_direction_label_{};
     QFormLayout* plane_rows_{};
     QGroupBox *plane_group_{},*sketch_group_{},*result_group_{};
+    QWidget* plane_selector_{};
     QCheckBox* symmetric_control_{};
     QWidget* options_row_{};
     QLabel* draft_notice_{};std::function<void()> notice_changed_;
@@ -402,6 +409,7 @@ private:
     QPushButton* swap_{};
     std::function<void()> swap_requested_;
     std::function<void()> change_requested_;
+    std::function<void()> work_plane_reference_requested_;
     QButtonGroup* operation_group_{};
     int last_operation_{};
     bool changing_operation_{};
@@ -456,8 +464,11 @@ private:
         plane_group_->setTitle(axis?tr("Osa"):tr("Rovina"));
         plane_label_->setText(tr("Výchozí rovina"));
         axis_direction_label_->setText(tr("Směr osy"));
+        // A native Axis is oriented by its placed Origin and endpoint
+        // limits. Its hidden profile-plane state is an implementation detail,
+        // not an editable work-plane row.
         plane_group_->setVisible(type!=document::FeatureType::Point);
-        plane_rows_->setRowVisible(plane_,!axis);
+        plane_rows_->setRowVisible(plane_selector_,!axis);
         plane_rows_->setRowVisible(axis_direction_,axis);
         plane_rows_->setRowVisible(offset_,!axis);
         sketch_group_->setVisible(modeling||type==document::FeatureType::Sketch);

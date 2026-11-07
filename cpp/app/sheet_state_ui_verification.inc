@@ -58,8 +58,119 @@ int verify_sheet_state_ui(QApplication& application,const std::filesystem::path&
                 check(std::hypot(std::hypot(axis->point.x-(a.x+b.x)/2,axis->point.y-(a.y+b.y)/2),axis->point.z-(a.z+b.z)/2)<1e-7,
                     "Twist axis misses the centre of its starting section.");
                 window.grab().save(QString::fromStdString((directory/(context?"twist-attached-context.png":"twist-attached-profile.png")).string()));
-                twist->buttons()->button(QDialogButtonBox::Cancel)->click();flush();
-                check(view->transient_edges().empty(),"Cancel retained the Twisted Sheet preview.");
+                if(context) {
+                    twist->buttons()->button(QDialogButtonBox::Cancel)->click();flush();
+                    check(view->transient_edges().empty(),
+                        "Assembly-context Twisted Sheet Cancel retained its preview.");
+                } else {
+                const auto twist_id=twist->pending_value().id;
+                twist->buttons()->button(QDialogButtonBox::Ok)->click();flush();
+                check(view->transient_edges().empty(),"Twisted Sheet OK retained its transient preview.");
+                view->fit_all();flush();
+                std::optional<QPointF> twist_hit;
+                const auto dot=[](kernel::Vec3 x,kernel::Vec3 y) {
+                    return x.x*y.x+x.y*y.y+x.z*y.z;
+                };
+                const auto sub=[](kernel::Vec3 x,kernel::Vec3 y) {
+                    return kernel::Vec3{x.x-y.x,x.y-y.y,x.z-y.z};
+                };
+                const auto project=[&](kernel::Vec3 point) -> std::optional<QPointF> {
+                    const auto center=view->ray_at({view->width()*.5,view->height()*.5});
+                    if(!center)return {};
+                    const auto hit=[&](QPointF screen) -> std::optional<kernel::Vec3> {
+                        const auto ray=view->ray_at(screen);if(!ray)return {};
+                        const double denominator=dot(ray->second,center->second);
+                        if(std::abs(denominator)<1e-12)return {};
+                        const double t=dot(sub(point,ray->first),center->second)/denominator;
+                        return kernel::Vec3{ray->first.x+t*ray->second.x,
+                            ray->first.y+t*ray->second.y,ray->first.z+t*ray->second.z};
+                    };
+                    const auto origin=hit({0,0}),right=hit({100,0}),down=hit({0,100});
+                    if(!origin||!right||!down)return {};
+                    const auto u=sub(*right,*origin),v=sub(*down,*origin),r=sub(point,*origin);
+                    const double uu=dot(u,u),vv=dot(v,v),uv=dot(u,v),det=uu*vv-uv*uv;
+                    if(std::abs(det)<1e-12)return {};
+                    return QPointF(100*(dot(r,u)*vv-dot(r,v)*uv)/det,
+                        100*(dot(r,v)*uu-dot(r,u)*uv)/det);
+                };
+                for(const auto& shown:view->mesh().edges) {
+                    if(shown.reference.owner_id!=twist_id&&shown.display_owner_id!=twist_id)continue;
+                    for(std::size_t point=1;point<shown.points.size()&&!twist_hit;++point) {
+                        const auto& a=shown.points[point-1];const auto& b=shown.points[point];
+                        const auto pixel=project({(a.x+b.x)/2,(a.y+b.y)/2,(a.z+b.z)/2});
+                        if(!pixel||!view->rect().contains(pixel->toPoint()))continue;
+                        const auto candidates=view->selection_candidates_at(*pixel);
+                        if(!candidates.empty()&&
+                                candidates.front().kind==viewer::CandidateKind::Container&&
+                                candidates.front().owner_id==twist_id&&
+                                candidates.front().instance_path==active_path)
+                            twist_hit=*pixel;
+                    }
+                }
+                check(twist_hit.has_value(),"Twisted Sheet is absent from the ordinary View picker.");
+                const auto send_click=[&](Qt::MouseButton button) {
+                    for(const auto type:{QEvent::MouseMove,QEvent::MouseButtonPress,QEvent::MouseButtonRelease}) {
+                        QMouseEvent event(type,*twist_hit,*twist_hit,
+                            QPointF(view->mapToGlobal(twist_hit->toPoint())),
+                            type==QEvent::MouseMove?Qt::NoButton:button,
+                            type==QEvent::MouseButtonPress?button:Qt::NoButton,
+                            Qt::NoModifier);
+                        QApplication::sendEvent(view,&event);flush();
+                    }
+                };
+                send_click(Qt::LeftButton);
+                auto* twist_tree=window.findChild<QTreeWidget*>("documentTree");
+                check(twist_tree&&twist_tree->currentItem()&&
+                        twist_tree->currentItem()->data(0,Qt::UserRole).toString().toStdString()==twist_id,
+                    "Twisted Sheet View selection did not synchronize its Tree row.");
+                check(view->container_inspection_wire().empty(),
+                    "Twisted Sheet single-click exposed parameter inspection.");
+                bool menu_seen=false,properties_seen=false;
+                QTimer::singleShot(0,[&] {
+                    if(auto* menu=qobject_cast<QMenu*>(QApplication::activePopupWidget())) {
+                        menu_seen=menu->objectName()==QStringLiteral("partHistoryMenu");
+                        properties_seen=std::ranges::any_of(menu->actions(),[](const auto* action) {
+                            return action->text().contains(QObject::tr("Vlastnosti"));
+                        });
+                        menu->close();
+                    }
+                });
+                for(const auto type:{QEvent::MouseButtonPress,QEvent::MouseButtonRelease}) {
+                    QMouseEvent event(type,*twist_hit,*twist_hit,
+                        QPointF(view->mapToGlobal(twist_hit->toPoint())),Qt::RightButton,
+                        type==QEvent::MouseButtonPress?Qt::RightButton:Qt::NoButton,
+                        Qt::NoModifier);
+                    QApplication::sendEvent(view,&event);flush();
+                }
+                check(menu_seen&&properties_seen,
+                    "Twisted Sheet View context menu has no Properties action.");
+                QMouseEvent double_click(QEvent::MouseButtonDblClick,*twist_hit,*twist_hit,
+                    QPointF(view->mapToGlobal(twist_hit->toPoint())),
+                    Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);
+                QApplication::sendEvent(view,&double_click);flush();
+                check(!view->container_inspection_wire().empty(),
+                    "Twisted Sheet View double-click did not open parameter inspection.");
+                check(window.finish_parameter_dimensions(),
+                    "Twisted Sheet parameter inspection did not close.");flush();
+                QTreeWidgetItem* twist_row{};
+                for(QTreeWidgetItemIterator item(twist_tree);*item;++item)
+                    if((*item)->data(0,Qt::UserRole).toString().toStdString()==twist_id) {
+                        twist_row=*item;break;
+                    }
+                check(twist_row,"Twisted Sheet is absent from Tree after inspection.");
+                window.show_tree_item_properties(twist_row);flush();
+                app::PrimitivePropertiesDialog* reopened{};
+                for(auto* item:window.findChildren<QDialog*>())
+                    if(auto* candidate=dynamic_cast<app::PrimitivePropertiesDialog*>(item);
+                            candidate&&candidate->isVisible())reopened=candidate;
+                check(reopened&&reopened->findChild<QDoubleSpinBox*>("twistedSheetWidth"),
+                    "Twisted Sheet Properties did not reopen from its Tree row.");
+                reopened->buttons()->button(QDialogButtonBox::Cancel)->click();flush();
+                window.findChild<QAction*>("undoAction")->trigger();flush();
+                check(std::ranges::none_of(view->mesh().triangle_references,[&](const auto& face) {
+                        return face.owner_id==twist_id;
+                    }),"Undo retained the Twisted Sheet result.");
+                }
             }
             auto* sheet_toolbar=window.findChild<QToolBar*>("toolsToolbar");
             const auto separated=[&](const char* first,const char* last) {

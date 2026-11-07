@@ -97,9 +97,15 @@ protected:
         QStyleOptionToolButton option;
         option.initFrom(button_);
         const auto* hit=QApplication::widgetAt(QCursor::pos());
-        if (hit==button_ || (hit && button_->isAncestorOf(hit)))
+        if (hit==button_ || (hit && button_->isAncestorOf(hit)) ||
+            (!hit && button_->testAttribute(Qt::WA_UnderMouse)))
             CommandButtonHoverTracker::instance().watch(button_);
-        if (hit!=button_ && !(hit && button_->isAncestorOf(hit)))
+        // A transient native window activation can make widgetAt() return no
+        // widget even though Qt has already delivered Enter and marked this
+        // button under the pointer. Preserve that real event state. A known
+        // different hit still retires hover immediately, while the shared
+        // movement/Leave tracker clears missed-release states independently.
+        if (hit && hit!=button_ && !button_->isAncestorOf(hit))
             option.state &= ~QStyle::State_MouseOver;
         option.subControls=QStyle::SC_ToolButton;
         if(option.state & QStyle::State_MouseOver)option.activeSubControls=QStyle::SC_ToolButton;

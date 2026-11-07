@@ -1,4 +1,5 @@
 #include "profile_command_fixture.hpp"
+#include "body_measurement_fixture.hpp"
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/sketch_operations.hpp>
 #include <cmath>
@@ -30,12 +31,12 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     require(after.sketch.id==before.sketch.id&&after.sketch.segments.front().id==before.sketch.segments.front().id&&
         after.sketch.find_point(first)->y==2&&after.sketch.find_point(second)->y==2,"Section point edits lost geometry or stable identities");
     const auto& calculated=part->session.calculated_boundaries().back();
+    const auto calculated_volume=test::measured_volume(kernel,calculated);
     if(calculated.source_fingerprint!=fingerprint||!calculated.has_solid()||
-       (calculated.physical_properties_current&&
-        std::abs(calculated.volume-6000)>=1e-6))
+       std::abs(calculated_volume-6000)>=1e-6)
         throw std::runtime_error("Section sketch edit changed calculated body geometry: before="+
             fingerprint+", after="+calculated.source_fingerprint+
-            ", volume="+std::to_string(calculated.volume)+
+            ", volume="+std::to_string(calculated_volume)+
             ", physical_current="+
             std::to_string(calculated.physical_properties_current));
     require(!run(host,"section.sketch.edit",{{"object",id},{"operations",edits}}).at("changed").get<bool>(),"Unchanged batch added history");
@@ -82,8 +83,11 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     run(host,"section.sketch.edit",{{"object",id},{"operations",Json::array({request("sketch.reference.refresh"),request("sketch.reference.delete",{{"reference",ref}})})}});
     require(part->session.document().sections.front().sketch.external_references.empty()&&part->session.document().sections.front().sketch.segments==unlinked,
         "Detaching a Section reference changed its native trace");
-    run(host,"undo");require(part->session.document().sections.front().sketch.external_references.size()==3,
-        "Undo did not restore the Section edge and its endpoint identities");
+    run(host,"undo");
+    const auto restored_reference_count=part->session.document().sections.front().sketch.external_references.size();
+    if(restored_reference_count!=4)
+        throw std::runtime_error("Undo restored "+std::to_string(restored_reference_count)+
+            " Section references instead of the edge, endpoint and midpoint identities");
     run(host,"redo");
     run(host,"save");const auto saved=document::PartDocument::load(dir/"section-sketch.prtz");
     require(document::serialize_sections(saved.sections)==document::serialize_sections(part->session.document().sections),"Native Part lost rebuilt Section Sketch");
@@ -101,7 +105,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     for(const auto& reference:refs)
         if(reference.kind==sketcher::ExternalReferenceKind::Edge)
             edges.push_back(&reference);
-    require(refs.size()==6&&edges.size()==2&&
+    require(refs.size()==8&&edges.size()==2&&
         edges[0]->source_instance_path!=edges[1]->source_instance_path&&
         edges[0]->source_document_id==doc&&edges[1]->source_document_id==doc,
         "Section merged original edges from repeated Assembly occurrences");

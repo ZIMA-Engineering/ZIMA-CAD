@@ -247,6 +247,16 @@ inline std::string form_copy_region_id(const HistoryOperation& operation,const s
     return (copy.combination==BodyCombination::Pattern?"pattern:"+pattern_copy_id(validated_pattern(copy.pattern),index)+":" : std::string{})+
         mirror_source_key(operation.owner_id,source);
 }
+inline std::vector<std::string> feature_copy_source_ids(
+        const BodyHistoryScope& copy) {
+    std::vector<std::string> result;
+    if(!copy.copy_sources.empty()) {
+        for(const auto& source:copy.copy_sources)
+            if(!source.feature_id.empty())result.push_back(source.feature_id);
+    } else if(!copy.source_feature_id.empty())
+        result.push_back(copy.source_feature_id);
+    return result;
+}
 inline History regions_before(const std::vector<HistoryOperation>& operations,std::size_t limit) {
     History history;
     for(std::size_t i=0;i<std::min(limit,operations.size());++i) {
@@ -266,11 +276,14 @@ inline History regions_before(const std::vector<HistoryOperation>& operations,st
         if(operation.feature_copy) {
             const auto& copy=*operation.feature_copy;
             const auto source_regions=history.regions;
+            const auto source_ids=feature_copy_source_ids(copy);
             const bool patterned=copy.combination==BodyCombination::Pattern;
             const auto pattern=patterned?validated_pattern(copy.pattern):PatternRequest{};
             const auto plane=patterned?MirrorPlane{}:normalized_mirror_plane(copy.mirror_plane);
             for(const auto& source:source_regions)if(source.kind==SheetMaterialDefinition::Kind::Form&&
-                (source.owner_id==copy.source_feature_id||source.feature_owner_id==copy.source_feature_id)) {
+                std::ranges::any_of(source_ids,[&](const auto& id) {
+                    return source.owner_id==id||source.feature_owner_id==id;
+                })) {
                 for(unsigned index=1;index<(patterned?pattern.count:2);++index) {
                     auto material=source;
                     material.owner_id=form_copy_region_id(operation,source.owner_id,index);
@@ -291,16 +304,41 @@ inline History regions_before(const std::vector<HistoryOperation>& operations,st
 // Resolve the authored FORM through an arbitrary native feature-copy chain.
 // Instances keep their own region identity; their manufacturing strokes share
 // only the independently copied definition, never a live library file.
-inline const HistoryOperation* form_source_operation(const std::vector<HistoryOperation>& operations,std::string owner) {
+inline const HistoryOperation* form_source_operation(
+        const std::vector<HistoryOperation>& operations,std::string owner,
+        std::string region_owner={}) {
     std::set<std::string> visited;
-    while(visited.insert(owner).second) {
-        const auto source=std::ranges::find(operations,owner,&HistoryOperation::owner_id);
+    const auto resolve=[&](auto&& self,std::string current,
+            std::string region)->const HistoryOperation* {
+        if(!visited.insert(current).second)return nullptr;
+        const auto source=std::ranges::find(operations,current,
+            &HistoryOperation::owner_id);
         if(source==operations.end())return nullptr;
-        if(std::holds_alternative<SheetFormRequest>(source->primitive))return &*source;
+        if(std::holds_alternative<SheetFormRequest>(source->primitive)) {
+            if(region.empty()||source->owner_id==region||
+                    (source->sheet_material&&
+                        source->sheet_material->owner_id==region)||
+                    std::ranges::any_of(source->sheet_regions,
+                        [&](const auto& value) {
+                            return value.owner_id==region;
+                        }))
+                return &*source;
+            return nullptr;
+        }
         if(!source->feature_copy)return nullptr;
-        owner=source->feature_copy->source_feature_id;
-    }
-    return nullptr;
+        if(region.starts_with("pattern:")) {
+            const auto separator=region.find(':',8);
+            if(separator==std::string::npos)return nullptr;
+            region.erase(0,separator+1);
+        }
+        if(const auto parent=mirror_parent_reference(region))
+            region=parent->semantic_key;
+        for(const auto& candidate:
+                feature_copy_source_ids(*source->feature_copy))
+            if(const auto* found=self(self,candidate,region))return found;
+        return nullptr;
+    };
+    return resolve(resolve,std::move(owner),std::move(region_owner));
 }
 inline bool form_symbol_visible(const SheetFormRequest& form,const SheetMaterialDefinition& region) {
     // A closed corner gusset is formed during bending, without flat-stock
@@ -316,7 +354,9 @@ inline bool is_form_centroid_axis(const AxisReference& reference) {
 inline std::vector<ViewerEdge> form_symbol_edges(const std::vector<HistoryOperation>& operations,const History& state) {
     std::vector<ViewerEdge> result;
     for(const auto& region:state.regions)if(region.kind==SheetMaterialDefinition::Kind::Form&&region.unfolded) {
-        const auto* source=form_source_operation(operations,region.feature_owner_id.empty()?region.owner_id:region.feature_owner_id);
+        const auto* source=form_source_operation(operations,
+            region.feature_owner_id.empty()?region.owner_id:
+                region.feature_owner_id,region.owner_id);
         if(!source)continue;
         const auto& form=std::get<SheetFormRequest>(source->primitive);
         if(!form_symbol_visible(form,region))continue;

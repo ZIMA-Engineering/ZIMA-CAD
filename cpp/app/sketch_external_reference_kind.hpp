@@ -28,8 +28,26 @@ inline bool sketch_external_reference_has_stable_geometry(
     if(candidate.kind==viewer::CandidateKind::Face) {
         if(candidate.geometry!=viewer::CandidateGeometry::Display||!mesh||candidate.geometry_index>=mesh->triangle_references.size())return false;
         const auto& face=mesh->triangle_references[candidate.geometry_index];
-        return face.surface&&(face.surface->kind==kernel::SurfaceGeometry::Kind::Plane||
-            face.surface->kind==kernel::SurfaceGeometry::Kind::Cylinder);
+        const auto supported=[](const auto& reference) {
+            return reference.surface&&
+                (reference.surface->kind==kernel::SurfaceGeometry::Kind::Plane||
+                 reference.surface->kind==kernel::SurfaceGeometry::Kind::Cylinder);
+        };
+        // Boolean and derived-copy display fragments retain the persisted
+        // oldest source identity, but need not duplicate its analytic support
+        // on every display triangle.  The original-reference packet is the
+        // authority for that support; use the exact source/occurrence only.
+        const auto source=placement_reference_source_candidate(candidate);
+        const bool follows_parent=source.owner_id!=candidate.owner_id||
+            source.semantic_key!=candidate.semantic_key;
+        if(!follows_parent&&supported(face))return true;
+        if(source.geometry_index>=mesh->original_references.triangle_references.size())
+            return false;
+        const auto& reference=
+            mesh->original_references.triangle_references[source.geometry_index];
+        return reference.owner_id==source.owner_id&&
+            reference.semantic_key==source.semantic_key&&
+            reference.instance_path==source.instance_path&&supported(reference);
     }
     return candidate.kind!=viewer::CandidateKind::Face&&
         (candidate.geometry==viewer::CandidateGeometry::OriginalReference||

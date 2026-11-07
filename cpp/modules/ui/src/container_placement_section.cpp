@@ -669,17 +669,22 @@ bool ContainerPlacementSection::set_reference(std::size_t index,
     if(index<3)for(auto& ref:references_){ref.solution_branch=0;ref.branch_sources.clear();}
     if(seed && index==0 && !references_[0].use_axis) {
         const auto* surface=surface_resolver_?surface_resolver_(references_[0]):nullptr;
-        bool curved=surface && surface->kind!=zima::kernel::SurfaceGeometry::Kind::Plane;
-        if(!curved && branch_geometry_) {
+        bool capture=surface && surface->kind!=zima::kernel::SurfaceGeometry::Kind::Plane;
+        if(!capture && branch_geometry_) {
             const auto& ref=references_[0];
             const auto& geometry=branch_geometry_();
-            curved=zima::document::placement_mesh::is_surface(ref,geometry) || std::ranges::any_of(geometry.edges,[&](const auto& edge) {
+            capture=zima::document::placement_mesh::is_surface(ref,geometry) || std::ranges::any_of(geometry.edges,[&](const auto& edge) {
                 return edge.exact_spline && edge.exact_spline->degree>1 &&
                     edge.reference.owner_id==ref.owner_id && edge.reference.semantic_key==ref.semantic_key &&
                     edge.reference.instance_path==ref.instance_path;
             });
         }
-        if(curved)empty_reference_locks_[1]=empty_reference_locks_[2]=true;
+        // Opening/Thread additionally captures signed distances from a point
+        // picked on a planar face.  Keep this opt-in so ordinary containers
+        // and datum planes retain their established zero-offset workflow.
+        capture|=planar_face_capture_policy_ && picked && surface &&
+            surface->kind==zima::kernel::SurfaceGeometry::Kind::Plane;
+        if(capture)empty_reference_locks_[1]=empty_reference_locks_[2]=true;
     }
     if(error_text)error_text->clear();
     if(seed && picked)for(std::size_t axis=0;axis<3;++axis) {

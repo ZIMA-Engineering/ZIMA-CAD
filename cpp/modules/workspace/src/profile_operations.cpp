@@ -6,6 +6,7 @@
 #include <zima/workspace/operation_input.hpp>
 #include <zima/workspace/sketch_operations.hpp>
 #include <zima/workspace/history_policy.hpp>
+#include <zima/workspace/history_deletion.hpp>
 #include "ordered_up_to_assembly_sources.hpp"
 #include <zima/workspace/origin_display_operations.hpp>
 #include <algorithm>
@@ -287,6 +288,8 @@ void commit_profile(Workspace& live, const kernel::OcctKernel& kernel, const std
     const auto container_id = value.id;
     if (existing) *next.find_container(container_id) = std::move(value);
     else {next.insert_history_entry(document::PartHistoryKind::Feature, container_id); next.history.push_back(std::move(value));}
+    if(existing)
+        static_cast<void>(acknowledge_retained_history_edit(next,container_id));
     if(feature)for(std::size_t side=0;side<2;++side) {
         auto& current=next.find_container(container_id)->feature.sides[side];
         if(current.targets.size()>1&&existing&&existing->feature_kind==document::FeatureKind::Feature) {

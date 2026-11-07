@@ -1,4 +1,5 @@
 #include "profile_command_fixture.hpp"
+#include "body_measurement_fixture.hpp"
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/engineering_metadata_operations.hpp>
 #include <zima/workspace/metadata_operations.hpp>
@@ -32,7 +33,10 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
         {{"key","MASS_DENSITY"},{"value","2700"},{"unit","kg/m^3"}}});
     const auto previous_mass=part->session.document().user_parameters.at("mass");
     run(host,"document.material.set",{{"properties",material}});
-    require(std::abs(document::physical_values(part->session.document(),part->session.calculated_boundaries()).at("model.mass")-.0162)<1e-10 && part->session.document().user_parameters.at("mass")==previous_mass,"Material must update physical inputs without evaluating relations");
+    require(!document::physical_values(part->session.document(),
+            part->session.calculated_boundaries()).contains("model.mass") &&
+        part->session.document().user_parameters.at("mass")==previous_mass,
+        "Material edit evaluated deferred physical properties or relations");
     require(part->session.calculated_boundaries().back().kernel_shape==geometry,"Material edit changed B-Rep");
     run(host,"undo");require(workspace::material_data(live,id)==initial_material,"Material Undo failed");run(host,"redo");
     run(host,"document.parameters.set",{{"parameters",Json::array({{{"key","x"},{"values",{{"","2"}}}}})}});
@@ -136,15 +140,15 @@ void verify_driving(const kernel::OcctKernel& kernel,fs::path dir) {
     const auto original_color=part->session.document().body_color;
     const auto source=dimension+" = 60 / divisor\nstock = \"⌀\" & "+dimension+" & \"x20\"\nnote = \"  řádek 1\\n[Document]\\nname=нержавейка  \"\nif povrch == \"Zn\"\n color = \"#A0A0A0\"\nelseif povrch == \"nerez\"\n color = \"#FFFFFF\"\nelse\n color = \"#000000\"\nendif\n";
     run(host,"document.relations.set",{{"relations",source}});
-    require(part->session.document().body_color==original_color&&std::abs(part->session.calculated_boundaries().back().volume-6000)<1e-7,"Saving source changed geometry or color");
+    require(part->session.document().body_color==original_color&&std::abs(test::measured_volume(kernel,part->session.calculated_boundaries().back())-6000)<1e-7,"Saving source changed geometry or color");
     run(host,"regenerate");
-    require(std::abs(part->session.calculated_boundaries().back().volume-12000)<1e-7,"Relation did not drive extrusion volume");
+    require(std::abs(test::measured_volume(kernel,part->session.calculated_boundaries().back())-12000)<1e-7,"Relation did not drive extrusion volume");
     require(part->session.document().body_color=="#A0A0A0"&&part->session.document().user_parameters.at("stock")=="⌀30x20","Color or Unicode text was not evaluated");
     for(const auto& [body,style]:part->session.document().appearance.bodies)require(style.color=="#A0A0A0","Whole-Part color missed Body appearance");
     require(!part->session.document().user_parameters.contains("color"),"Color became an ordinary parameter");
     const auto evaluated_parameters=run(host,"document.parameters.get").data.at("parameters");
     require(!run(host,"document.parameters.set",{{"parameters",evaluated_parameters}}).data.at("changed").get<bool>(),"Reading or confirming multiline relation results changed metadata");
-    run(host,"undo");require(part->session.document().body_color==original_color&&std::abs(part->session.calculated_boundaries().back().volume-6000)<1e-7&&part->session.document().relations==source,"Regeneration Undo did not restore geometry and color together");
+    run(host,"undo");require(part->session.document().body_color==original_color&&std::abs(test::measured_volume(kernel,part->session.calculated_boundaries().back())-6000)<1e-7&&part->session.document().relations==source,"Regeneration Undo did not restore geometry and color together");
     run(host,"redo");
     auto bad=part->session.document();bad.user_parameters["divisor"]="0";part->session.commit(bad,part->session.calculated_boundaries());
     const auto revision=part->session.revision(),generation=part->session.data_generation();

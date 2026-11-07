@@ -9,13 +9,13 @@
 namespace zima::app {
 using namespace workspace_detail;
 
-void AssemblyWorkspaceWindow::copy_selected_opening() {
+void AssemblyWorkspaceWindow::copy_selected_opening(const bool from_view) {
     if(properties_dialog_||!active_sketch_id_.empty())return;
     opening_clipboard_.reset();
     const auto* part=workspace_.open_part(workspace_.active_document_id());
     if(!part)return;
     std::string id;
-    if(viewer_->hasFocus()) {
+    if(from_view) {
         const auto candidate=viewer_->confirmed_candidate();
         if(!candidate||candidate->instance_path!=workspace_.active_occurrence_path())return;
         id=candidate->owner_id;
@@ -27,9 +27,18 @@ void AssemblyWorkspaceWindow::copy_selected_opening() {
     const auto* source=part->session.document().find_container(id);
     if(!source||source->feature_kind!=zima::document::FeatureKind::Thread||!part_element_context_menu_enabled(id))return;
     opening_clipboard_=zima::workspace::copy_opening_settings(*source);
-    auto* mime=new QMimeData;
-    mime->setData("application/x-zima-opening-settings-token",QByteArray::fromStdString(opening_clipboard_->id));
-    QApplication::clipboard()->setMimeData(mime);
+    const auto token=opening_clipboard_->id;
+    // QTreeWidget may perform its ordinary Copy handling after the shortcut
+    // callback and replace the clipboard. Publish our private payload after
+    // the key event finishes so Tree and View use the same stable contract.
+    QTimer::singleShot(0,this,[this,token] {
+        if(!opening_clipboard_||opening_clipboard_->id!=token)return;
+        auto* mime=new QMimeData;
+        mime->setData("application/x-zima-opening-settings-token",QByteArray::fromStdString(token));
+        mime->setData("application/json",QByteArray::fromStdString(
+            "{\"application\":\"ZIMA-CAD\",\"type\":\"opening-settings\",\"token\":\""+token+"\"}"));
+        QApplication::clipboard()->setMimeData(mime);
+    });
     state_->setText(tr("Nastavení otvoru zkopírováno."));
 }
 

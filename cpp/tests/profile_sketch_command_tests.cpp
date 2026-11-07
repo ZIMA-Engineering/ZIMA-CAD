@@ -11,16 +11,18 @@ void verify(const kernel::OcctKernel& kernel,const fs::path& directory,bool asse
     if(!assembly)f.run("new",{{"type","part"},{"name",stem}});
     const auto document=f.live.active_document_id();
     const auto sketch=extrusion?f.rectangle(-1,-1.5,2,3):f.rectangle(1,0,1,4);
-    Json args={{"sketch",sketch}};
-    if(extrusion)args["length_forward_mm"]=4;
-    else {const auto axis=f.line(sketch,0,0,0,4);f.run("sketch.segment.centerline",{{"sketch",sketch},{"segment",axis},{"centerline",true}});args["axis"]=axis;}
-    if(assembly)args["targets"]={f.first};
-    const std::string prefix=extrusion?"extrusion":"revolution",command=prefix+".sketch.edit";
-    const auto created=f.run((prefix+".create").c_str(),args);const std::string container=created.at("container");
+    document::FeatureParameters parameters;
+    if(extrusion)parameters.sides[0].length=4;
+    else {const auto axis=f.line(sketch,0,0,0,4);f.run("sketch.segment.centerline",{{"sketch",sketch},{"segment",axis},{"centerline",true}});
+        parameters.axis_segment_id=axis;parameters.sides[0].operation=document::FeatureSideOperation::Revolution;
+        parameters.sides[0].rotation_extent=document::FeatureRotationExtent::Full;}
+    Json extra=Json::object();if(assembly)extra["targets"]={f.first};
+    const std::string command="feature.sketch.edit";
+    const auto created=f.create_feature(sketch,parameters,std::move(extra));const std::string container=created.at("container");
     const auto current=[&](){return workspace::document_sketch(f.live,document,sketch);};
     const auto revision=[&](){return assembly?f.state().session.revision():f.live.open_part(document)->session.revision();};
     const auto generation=[&](){return assembly?f.state().session.data_generation():f.live.open_part(document)->session.data_generation();};
-    const auto volume=[&](){return assembly?f.volume(f.first):f.live.open_part(document)->session.calculated_boundaries().back().volume;};
+    const auto volume=[&](){return assembly?f.volume(f.first):test::measured_volume(kernel,f.live.open_part(document)->session.calculated_boundaries().back());};
     const auto expected=[&](double body){return assembly?1000-body:body;};
     const auto original=current();const auto original_revision=revision();
     const double old_volume=extrusion?24:12*std::numbers::pi,new_volume=extrusion?36:32*std::numbers::pi;
@@ -67,10 +69,10 @@ void verify(const kernel::OcctKernel& kernel,const fs::path& directory,bool asse
     if(assembly) {
         const auto saved=assembly::AssemblyDocument::load(directory/(stem+"-fixture.asmz"));
         require(saved.find_cut(container)->definition.feature_id==created.at("feature").get<std::string>()&&std::ranges::find(saved.sketches,sketch,&sketcher::Sketch::id)->serialized()==stable,"Native Assembly lost batched profile identity");
-        near(saved.find_occurrence(f.first)->calculated_source->volume,expected(new_volume));near(saved.find_occurrence(f.second)->calculated_source->volume,1000);
+        near(test::measured_volume(kernel,saved.find_occurrence(f.first)->calculated_source.get()),expected(new_volume));near(test::measured_volume(kernel,saved.find_occurrence(f.second)->calculated_source.get()),1000);
     } else {
         std::vector<kernel::BodyResult> cache;const auto saved=document::PartDocument::load(directory/(stem+".prtz"),&cache);
-        require(saved.find_container(container)->feature_id==created.at("feature").get<std::string>()&&saved.sketches.front().serialized()==stable,"Native Part lost batched profile identity");near(cache.back().volume,new_volume);
+        require(saved.find_container(container)->feature_id==created.at("feature").get<std::string>()&&saved.sketches.front().serialized()==stable,"Native Part lost batched profile identity");near(test::measured_volume(kernel,cache.back()),new_volume);
     }
 }
 }

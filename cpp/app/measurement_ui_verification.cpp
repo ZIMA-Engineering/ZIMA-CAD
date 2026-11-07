@@ -38,6 +38,15 @@ try{
         check(!source.empty()&&std::filesystem::exists(source),"Body measurement source is missing");
         check(window.open_document_path(QString::fromStdString(source.string())),"Cannot open body measurement source");
         window.resize(1200,850);window.show();flush();
+        if(const auto capture=qEnvironmentVariable("ZIMA_MEASUREMENT_CAPTURE");
+                !capture.isEmpty()) {
+            auto* view=dynamic_cast<viewer::MeshView*>(
+                window.findChild<QOpenGLWidget*>("modelWorkspace"));
+            check(view,"Body measurement source View is unavailable");
+            view->fit_all();flush();
+            check(view->grabFramebuffer().save(capture),
+                "Cannot capture body measurement source View");
+        }
         auto* action=window.findChild<QAction*>("massPropertiesAction");
         check(action&&action->isEnabled(),"Body properties action is unavailable for the source");
         const auto dialog=[&]()->MassPropertiesDialog* {
@@ -116,6 +125,55 @@ try{
         if(qEnvironmentVariableIsSet("ZIMA_MEASUREMENT_CAPTURE"))window.grab().save(qEnvironmentVariable("ZIMA_MEASUREMENT_CAPTURE"));
         dialog()->reject();flush();check(window.execute_console_command("documents").data==before,"Circular measurement inspection changed document revision");
         std::cout<<"Circular measurement exact diameter, length, localization and unchanged revision passed\n";return 0;
+    }
+    {
+        std::vector<kernel::FaceReference> planar_faces;
+        for(const auto& face:view->mesh().original_references.
+                triangle_references) {
+            if(!face.surface||face.surface->kind!=
+                    kernel::SurfaceGeometry::Kind::Plane)continue;
+            if(std::ranges::find(planar_faces,face)!=planar_faces.end())
+                continue;
+            planar_faces.push_back(face);
+        }
+        const auto cosine=[](const auto& first,const auto& second) {
+            const auto& a=first.surface->axis;
+            const auto& b=second.surface->axis;
+            const double aa=a.x*a.x+a.y*a.y+a.z*a.z;
+            const double bb=b.x*b.x+b.y*b.y+b.z*b.z;
+            return std::abs(a.x*b.x+a.y*b.y+a.z*b.z)/
+                std::sqrt(aa*bb);
+        };
+        std::optional<std::array<std::size_t,2>> perpendicular,parallel;
+        for(std::size_t i=0;i<planar_faces.size();++i)
+            for(std::size_t j=i+1;j<planar_faces.size();++j) {
+                const double value=cosine(planar_faces[i],planar_faces[j]);
+                if(!perpendicular&&value<1e-8)perpendicular={{i,j}};
+                if(!parallel&&value>1-1e-8)parallel={{i,j}};
+            }
+        check(perpendicular&&parallel,
+            "Measurement fixture has no planar angle/distance pairs");
+        const auto reference=[&](std::size_t index) {
+            const auto& face=planar_faces[index];
+            return kernel::MeasurementReference{
+                kernel::MeasurementKind::Face,face.owner_id,
+                face.semantic_key,face.instance_path};
+        };
+        action->trigger();flush();
+        dialog()->select_reference(reference((*perpendicular)[0]));
+        dialog()->select_reference(reference((*perpendicular)[1]));
+        check(dialog()->angle()&&!dialog()->distance()&&
+                std::abs(dialog()->angle()->value-90)<1e-8&&
+                dialog()->findChild<QLabel*>("measurementDistance")->text().
+                    contains(QObject::tr("Úhel ploch")),
+            "Two nonparallel planar faces did not show their angle");
+        dialog()->reject();flush();
+        action->trigger();flush();
+        dialog()->select_reference(reference((*parallel)[0]));
+        dialog()->select_reference(reference((*parallel)[1]));
+        check(!dialog()->angle()&&dialog()->distance(),
+            "Two parallel planar faces did not retain shortest distance");
+        dialog()->reject();flush();
     }
     auto drawing=drawing::DrawingDocument::create_default();
     drawing.sheets.front().views.push_back(drawing::DrawingDocument::create_view(part.document_id,path,bodies.back().mesh));

@@ -720,6 +720,11 @@ calculate_part_reference_state(
     zima::document::PartDocument& document,
     const std::vector<zima::kernel::BodyResult>* previous,
     const PartCalculationPolicy& policy) {
+    if(policy.edited_document_id==document.document_id&&
+            policy.edited_history_limit&&
+            *policy.edited_history_limit<document.history.size())
+        static_cast<void>(acknowledge_retained_history_edit(
+            document,document.history[*policy.edited_history_limit].id));
     static_cast<void>(refresh_removed_reference_states(document));
     document.synchronize_derived_copy_sources();
     refresh_cached_external_profile_target_frames(document);
@@ -792,11 +797,22 @@ calculate_part_reference_state(
                 if(keys.size()==1)feature.surface_trim.retained_region_key=*keys.begin();
             }
         document::refresh_body_properties(document,calculated);
+        const bool terminal_append=previous&&
+            !policy.unchanged_last_operation_owner.empty()&&
+            calculated.size()==previous->size()+1;
+        const bool terminal_edit=previous&&
+            calculated.size()==previous->size();
         bool unchanged_source_prefix=(policy.reuse_unchanged_local_sketch_references ||
             policy.reuse_unchanged_reference_resolution) && previous&&
-            calculated.size()==previous->size()&&!calculated.empty()&&
+            (terminal_edit||terminal_append)&&!calculated.empty()&&
             policy.edited_history_limit&&*policy.edited_history_limit+1==document.history.size();
-        for(std::size_t index=0;unchanged_source_prefix&&index+1<calculated.size();++index)
+        // A terminal edit may change only its last boundary. A terminal append
+        // must retain every already calculated boundary exactly. This proves
+        // reuse from actual geometry fingerprints rather than from row count.
+        const auto unchanged_boundary_count=terminal_append?previous->size():
+            (calculated.empty()?0:calculated.size()-1);
+        for(std::size_t index=0;
+                unchanged_source_prefix&&index<unchanged_boundary_count;++index)
             unchanged_source_prefix=calculated[index].source_fingerprint==
                 previous->at(index).source_fingerprint;
         std::optional<std::vector<kernel::HistoryOperation>> unchanged_operations;
@@ -1088,7 +1104,13 @@ PartRegenerationResult regenerate_part(Workspace& workspace,
     const auto& previous = part->session.document();
     auto next = previous;
     auto relation_input=part->session.calculated_boundaries();
-    const auto relation_values=document::physical_values(previous,relation_input);
+    // Explicit Regenerate is an analysis boundary. Complete the cached
+    // physical values before evaluating a program that may read output-only
+    // quantities such as model.mass. Ordinary metadata editing and queries
+    // remain calculation-free.
+    static_cast<void>(complete_part_physical_analysis(
+        kernel,next,relation_input,true));
+    auto relation_values=document::physical_values(next,relation_input);
     // Calculated physical quantities are output-only. RelationProgram rejects
     // every direct or transitive attempt to drive a dimension from them, so
     // exact mass/inertia must not extend the geometry regeneration path.
@@ -1115,10 +1137,12 @@ PartRegenerationResult regenerate_part(Workspace& workspace,
         refresh_context_sketch_intersections(workspace,kernel,next) |
         prune_missing_drill_point_references(next, calculated);
     if (references_changed) calculated = calculate_part_with_resolved_references(kernel, next, &calculated, relation_policy);
-    // Regeneration applies ordinary relation outputs against the last complete
-    // physical snapshot. Optional aggregate analysis remains demand-driven;
-    // Save owns refreshing mass/area/volume-dependent parameters after the new
-    // geometry has been accepted.
+    // A dimension relation can change geometry. Analyze the accepted result
+    // before publishing output-only relation parameters so their values match
+    // this regeneration rather than its input cache.
+    static_cast<void>(complete_part_physical_analysis(
+        kernel,next,calculated,true));
+    relation_values=document::physical_values(next,calculated);
     apply_relation_parameters(next,relation_values);
     const bool sketches_changed = next.sketches.size() != previous.sketches.size() ||
         !std::equal(next.sketches.begin(), next.sketches.end(), previous.sketches.begin(),
@@ -1198,7 +1222,18 @@ bool complete_history_geometry(const kernel::BodyResult& value,
     // sampled edges only. That is sufficient for reference settling, but it is
     // not the real rollback body required by Properties. A deliberately empty
     // datum Feature is already complete without a solid viewer mesh.
-    if(!value.mesh.triangles.empty())return true;
+    if(!value.mesh.triangles.empty()) {
+        // Sheet commands attach to the actual current boundary wire. A cached
+        // viewer solid without its authored edge packet is therefore still a
+        // deferred rollback boundary, even though it is sufficient to draw.
+        // Materialize only when the user explicitly enters that history point.
+        const bool sheet_boundary=
+            operation.sheet_operation!=kernel::SheetOperation::None||
+            operation.sheet_material.has_value()||
+            !operation.sheet_regions.empty();
+        return !sheet_boundary||
+            !value.mesh.original_references.edges.empty();
+    }
     const auto* group=std::get_if<kernel::FeatureGroupRequest>(
         &operation.primitive);
     return group&&group->allow_empty&&group->children.empty()&&

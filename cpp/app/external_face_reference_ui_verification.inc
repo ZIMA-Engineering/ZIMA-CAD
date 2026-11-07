@@ -67,7 +67,8 @@ static int verify_plane_and_generator_reference_ui(QApplication& application,con
             mouse(QEvent::MouseButtonPress,Qt::LeftButton);mouse(QEvent::MouseButtonRelease,Qt::LeftButton);
             const auto snapshot=[&]{window.findChild<QAction*>("saveDocumentAction")->trigger();flush();return document::PartDocument::load(file);};
             const auto saved=snapshot();const auto& result=*std::ranges::find(saved.sketches,target.id,&sketcher::Sketch::id);
-            check(result.external_references.size()==(mode==2?3u:1u),"Reference insertion did not create the expected single support and native endpoints");
+            check(result.external_references.size()==((mode==1||mode==2)?4u:1u),
+                "Reference insertion did not create the expected support, endpoints and midpoint");
             const auto& reference=result.external_references.front();
             check(!reference.broken&&reference.kind==sketcher::ExternalReferenceKind::Face&&reference.infinite==(mode==0),"Plane/generator support kind or finite extent is wrong");
             check(result.segments.size()==(mode==2?1u:0u)&&result.bsplines.empty()&&result.circles.empty(),"Reference entry created extraneous profile geometry");
@@ -76,7 +77,19 @@ static int verify_plane_and_generator_reference_ui(QApplication& application,con
                 check(circle&&std::hypot((*circle)[0],(*circle)[1])<1e-8&&std::abs((*circle)[2]-5)<1e-8&&reference.exact_spline,
                     "Partial cylindrical face did not provide its complete exact circular support");
                 check(reference.cached_paths.size()==1&&reference.cached_paths.front().front()==reference.cached_paths.front().back(),"Cylindrical support retained a trimmed arc");
-            } else if(mode)check(reference.cached_paths.size()==1&&reference.cached_paths.front().size()==2,"Generator entry projected an entire face");
+            } else if(mode) {
+                check(reference.cached_paths.size()==1&&reference.cached_paths.front().size()==2,
+                    "Generator entry projected an entire face");
+                check(std::ranges::count_if(result.external_references,[](const auto& value) {
+                    return sketcher::is_external_endpoint_kind(value.kind);
+                })==2,"Finite face outline did not publish both usable endpoints");
+                const auto mesh=result.viewer_mesh();
+                for(const auto& endpoint:result.external_references)
+                    if(sketcher::is_external_endpoint_kind(endpoint.kind))
+                        check(std::ranges::any_of(mesh.points,[&](const auto& point) {
+                            return point.reference.semantic_key=="external_point:"+endpoint.id;
+                        }),"Finite face-outline endpoint has no pickable cross marker");
+            }
             else check(reference.cached_paths.empty()&&reference.cached_points.size()==2,"Planar face did not become an infinite dashed support");
             if(mode==0) {
                 // Real face entry above verifies source identity/persistence. Exercise
@@ -257,8 +270,8 @@ int verify_external_face_reference_ui(QApplication& application,const std::files
             const auto snapshot=[&]{window.findChild<QAction*>("saveDocumentAction")->trigger();flush();return document::PartDocument::load(file);};
             const auto saved=snapshot();const auto& sketch=*std::ranges::find(saved.sketches,sketch_id,&sketcher::Sketch::id);
             const auto& original=*std::ranges::find(part.sketches,sketch_id,&sketcher::Sketch::id);
-            check(sketch.external_references.size()==original.external_references.size()+3,
-                "Mouse selection did not insert one edge and its two endpoint references");
+            check(sketch.external_references.size()==original.external_references.size()+4,
+                "Mouse selection did not insert one edge, its two endpoints and midpoint");
             const auto ref_it=std::ranges::find_if(sketch.external_references,
                 [&](const auto& reference) {
                     return reference.kind==sketcher::ExternalReferenceKind::Edge&&

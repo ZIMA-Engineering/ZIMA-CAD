@@ -332,14 +332,14 @@ Q_NEVER_INLINE static int verify_corner_sheet_form_ui(QApplication& application,
             auto* action=window.findChild<QAction*>(pattern?"patternAction":"mirrorAction");
             check(action&&action->isEnabled(),"Corner copy command disabled");action->trigger();flush();
             auto* copy=dynamic_cast<DerivedCopyDialog*>(window.findChild<QDialog*>(pattern?"patternDialog":"mirrorDialog"));
-            check(copy&&copy->derived_copy.source_id==created_id,"Corner copy did not prefill selected feature");
+            check(copy&&copy->derived_copy.source_ids==std::vector<std::string>{created_id},"Corner copy did not prefill selected feature");
             if(pattern) {
                 check(copy->derived_copy.pattern->linear[0].local_axis==0,"Default Pattern direction is not X");
                 copy->findChild<QSpinBox*>("patternCount0")->setValue(2);
                 copy->findChild<QDoubleSpinBox*>("patternSpacing0")->setValue(30.);
             }else {
                 copy->findChild<QDoubleSpinBox*>("sweepTranslation0")->setValue(15.);
-                copy->findChild<QPushButton*>("mirrorPlane_yz")->click();
+                copy->findChild<QToolButton*>("copyReferencePresetYZ")->click();
             }
             flush();const auto copy_id=copy->pending.id;
             check(!view->transient_edges().empty(),"Corner copy preview is empty");

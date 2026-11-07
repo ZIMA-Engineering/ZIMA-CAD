@@ -281,6 +281,8 @@ public:
         std::optional<OperationDirectionIndicator> indicator);
     void set_operation_direction_indicators(
         std::vector<OperationDirectionIndicator> indicators);
+    [[nodiscard]] const std::vector<OperationDirectionIndicator>&
+        operation_direction_indicators() const;
     void set_extent_manipulator_callbacks(
         std::function<void(const std::string&)> begin,
         std::function<void(const std::string&, double)> update,

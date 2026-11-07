@@ -1,4 +1,5 @@
 #include "profile_command_fixture.hpp"
+#include "body_measurement_fixture.hpp"
 #include <zima/command_host/host.hpp>
 #include <zima/document/section.hpp>
 #include <zima/kernel/stable_id.hpp>
@@ -64,7 +65,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     run(host,"section.delete",{{"object",cut.id}});require(part->session.document().sections.empty(),"Section removal failed");
     run(host,"undo");require(part->session.document().sections.front().id==cut.id&&part->session.document().sections.front().show_cut,"Section removal Undo lost its identity or activation");
     run(host,"redo");require(part->session.document().sections.empty(),"Section removal Redo failed");run(host,"undo");
-    require(std::abs(part->session.calculated_boundaries().back().volume-6000)<1e-8,"Section actions changed solid volume");
+    require(std::abs(test::measured_volume(kernel,part->session.calculated_boundaries().back())-6000)<1e-8,"Section actions changed solid volume");
     run(host,"save");
     auto invalid=section();invalid.sketch.segments.clear();
     auto broken=part->session.document();broken.sections.push_back(invalid);

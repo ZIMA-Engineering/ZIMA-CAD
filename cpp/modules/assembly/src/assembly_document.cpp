@@ -187,6 +187,36 @@ void append_viewer_mesh(zima::kernel::ViewerMesh& target,
         std::make_move_iterator(incoming.axes.begin()), std::make_move_iterator(incoming.axes.end()));
 }
 
+void prefix_viewer_mesh_instance(zima::kernel::ViewerMesh& mesh,
+                                 const std::string& instance_path) {
+    const auto prefix = [&](auto& reference) {
+        reference.instance_path = instance_path + reference.instance_path;
+    };
+    for (auto& reference : mesh.triangle_references) prefix(reference);
+    for (auto& edge : mesh.edges) {
+        prefix(edge.reference);
+        for (auto& reference : edge.edge_treatment_side_references) prefix(reference);
+        for (auto& reference : edge.edge_treatment_endpoint_references) prefix(reference);
+    }
+    for (auto& point : mesh.points) prefix(point.reference);
+    for (auto& axis : mesh.axes) prefix(axis.reference);
+    for (auto& dimension : mesh.dimensions) prefix(dimension.reference);
+    for (auto& marker : mesh.constraint_markers) prefix(marker.reference);
+    for (auto& reference : mesh.original_references.triangle_references) prefix(reference);
+    for (auto& edge : mesh.original_references.edges) {
+        prefix(edge.reference);
+        for (auto& reference : edge.edge_treatment_side_references) prefix(reference);
+        for (auto& reference : edge.edge_treatment_endpoint_references) prefix(reference);
+    }
+    for (auto& point : mesh.original_references.points) prefix(point.reference);
+    for (auto& axis : mesh.original_references.axes) prefix(axis.reference);
+    decltype(mesh.annotation_frames) frames;
+    for (auto& [identity, frame] : mesh.annotation_frames)
+        frames.emplace(decltype(mesh.annotation_frames)::key_type{identity.first,
+            instance_path + identity.second}, std::move(frame));
+    mesh.annotation_frames = std::move(frames);
+}
+
 std::string make_id() {
     return zima::kernel::make_stable_id();
 }
@@ -1116,7 +1146,9 @@ std::vector<OccurrenceSnapshot> AssemblyDocument::occurrence_snapshot() const {
             !component.suppressed &&
                 effectively_suppressed.contains(component.occurrence_id),
             component.visible, component.grounded, component.placement,
-            component.nested_snapshot,component.derived_copy ? component.derived_copy->source_id : std::string{},component.derived_copy&&component.derived_copy->pattern.has_value(),component.source_missing,component.source_name});
+            component.nested_snapshot,component.derived_copy ?
+                document::primary_derived_copy_source(*component.derived_copy) :
+                std::string{},component.derived_copy&&component.derived_copy->pattern.has_value(),component.source_missing,component.source_name});
     }
     return result;
 }
@@ -1354,7 +1386,8 @@ const PartOccurrence* AssemblyDocument::derived_source(const std::string& id) co
     const auto* source=find_occurrence(id);std::set<std::string> visited;
     while(source&&source->derived_copy) {
         if(!visited.insert(source->occurrence_id).second)throw std::invalid_argument("Cyklická závislost odkazované kopie.");
-        source=find_occurrence(source->derived_copy->source_id);
+        source=find_occurrence(document::primary_derived_copy_source(
+            *source->derived_copy));
     }
     return source;
 }
@@ -1387,7 +1420,8 @@ void AssemblyDocument::calculate_derived_copies(const zima::kernel::GeometryKern
             }
             visiting.erase(id);done.insert(id);return;
         }
-        calculate(result->derived_copy->source_id);
+        for(const auto& source_id:result->derived_copy->source_ids)
+            calculate(source_id);
         const auto prerequisite=[&](const document::ConstructionReference& ref) {
             for(const auto& owner:reference_owners(ref)) {
                 if(owner==id) {
@@ -1418,32 +1452,107 @@ void AssemblyDocument::calculate_derived_copies(const zima::kernel::GeometryKern
         append(origin_viewer_mesh().original_references);append(reference_document.construction_viewer_mesh().original_references);
         if(!document::resolve_placement(result->copy_placement,geometry))throw std::invalid_argument("Chybí reference umístění kontejneru.");
         document::PartDocument::resolve_copy_reference(*result->derived_copy,id,result->copy_placement,geometry);
-        const auto* source=find_occurrence(result->derived_copy->source_id);
-        const auto translation=zima::kernel::Vec3{source->placement.x,source->placement.y,source->placement.z};
-        const auto rotation=zima::kernel::Vec3{source->placement.rotation_x,source->placement.rotation_y,source->placement.rotation_z};
-        auto source_body=calculate_component_body(*source,kernel);
-        copy_surface_frames(source_body.mesh,source->nested_snapshot,true);
-        auto calculated_copy=result->derived_copy->pattern
-            ? kernel.pattern_body(source_body,*result->derived_copy->pattern,id,translation,rotation,true)
-            : kernel.mirror_body(source_body,result->derived_copy->resolved_plane,{},translation,rotation);
+        std::vector<const PartOccurrence*> sources;
+        sources.reserve(result->derived_copy->source_ids.size());
+        for(const auto& source_id:result->derived_copy->source_ids) {
+            const auto* source=find_occurrence(source_id);
+            if(!source)throw std::invalid_argument(
+                "Chybí zdrojová komponenta kopie.");
+            sources.push_back(source);
+        }
+        const bool multiple=sources.size()>1;
+        std::vector<kernel::PlacedBody> copied_bodies;
+        kernel::ViewerMesh combined_mesh;
+        std::vector<OccurrenceSnapshot> source_nodes;
+        std::optional<double> combined_nested_mass=0.;
+        copied_bodies.reserve(sources.size());source_nodes.reserve(sources.size());
+        for(const auto* source:sources) {
+            auto source_body=calculate_component_body(*source,kernel);
+            copy_surface_frames(source_body.mesh,source->nested_snapshot,true);
+            if(multiple)prefix_viewer_mesh_instance(source_body.mesh,
+                InstancePath{}.child(source->occurrence_id).encoded());
+            const auto translation=zima::kernel::Vec3{
+                source->placement.x,source->placement.y,source->placement.z};
+            const auto rotation=zima::kernel::Vec3{source->placement.rotation_x,
+                source->placement.rotation_y,source->placement.rotation_z};
+            auto copied=result->derived_copy->pattern
+                ? kernel.pattern_body(source_body,*result->derived_copy->pattern,
+                    id,translation,rotation,true)
+                : kernel.mirror_body(source_body,result->derived_copy->resolved_plane,
+                    {},translation,rotation);
+            append_viewer_mesh(combined_mesh,copied.mesh);
+            copied_bodies.push_back({std::move(copied),{}, {}});
+            OccurrenceSnapshot node;
+            node.occurrence_id=source->occurrence_id;node.name=source->name;
+            node.source_document_id=source->source_document_id.empty()?
+                source->occurrence_id:source->source_document_id;
+            node.source_kind=source->source_kind;node.visible=true;
+            node.grounded=true;node.placement=source->placement;
+            node.children=source->nested_snapshot;
+            node.derived_source_id=source->derived_copy?
+                document::primary_derived_copy_source(*source->derived_copy):
+                std::string{};
+            node.pattern_group=source->derived_copy&&
+                source->derived_copy->pattern.has_value();
+            source_nodes.push_back(std::move(node));
+            if(source->nested_mass_kg)*combined_nested_mass+=
+                *source->nested_mass_kg;
+            else if(source->density_kg_mm3)*combined_nested_mass+=
+                std::abs(source_body.volume)* *source->density_kg_mm3;
+            else combined_nested_mass.reset();
+        }
+        auto calculated_copy=multiple?
+            kernel.compound_bodies(copied_bodies):
+            std::move(copied_bodies.front().body);
+        if(multiple) {
+            calculated_copy.mesh=std::move(combined_mesh);
+            // compound_bodies creates generic topology locators. Its authored
+            // references are the already transformed source packets above;
+            // do not pair those references with unrelated generic locators.
+            calculated_copy.kernel_faces={};calculated_copy.kernel_edges={};
+            calculated_copy.kernel_vertices={};
+        }
         // Build the copy's exact instance hierarchy before restoring surface
-        // frames; Pattern adds one persisted virtual occurrence for each copy.
-        result->nested_snapshot=source->nested_snapshot;
+        // frames. Multi-source rows retain an explicit source path below each
+        // Pattern instance, so equal feature IDs from different Parts cannot
+        // be mistaken for one another.
+        result->nested_snapshot=multiple?source_nodes:sources.front()->nested_snapshot;
         if(result->derived_copy->pattern) {
             result->nested_snapshot.clear();
-            for(unsigned index=1;index<kernel::pattern_instance_count(*result->derived_copy->pattern);++index)
-                result->nested_snapshot.push_back({kernel::pattern_copy_id(*result->derived_copy->pattern,index),source->name+" ("+std::to_string(index+1)+")",
-                    source->source_document_id,source->source_kind,false,false,true,true,{},source->nested_snapshot});
+            for(unsigned index=1;index<kernel::pattern_instance_count(
+                    *result->derived_copy->pattern);++index) {
+                OccurrenceSnapshot copy;
+                copy.occurrence_id=kernel::pattern_copy_id(
+                    *result->derived_copy->pattern,index);
+                copy.name=result->name+" ("+std::to_string(index+1)+")";
+                copy.source_document_id=multiple?result->occurrence_id:
+                    sources.front()->source_document_id;
+                copy.source_kind=multiple?ComponentSourceKind::Pattern:
+                    sources.front()->source_kind;
+                copy.visible=true;copy.grounded=true;
+                copy.children=multiple?source_nodes:sources.front()->nested_snapshot;
+                result->nested_snapshot.push_back(std::move(copy));
+            }
         }
         copy_surface_frames(calculated_copy.mesh,result->nested_snapshot,false);
         result->calculated_source=std::move(calculated_copy);
-        result->density_kg_mm3=source->density_kg_mm3;
-        result->nested_mass_kg=source->nested_mass_kg;
-        result->mass_volume_mm3=std::abs(result->calculated_source->volume);
+        const auto* primary=sources.front();
+        result->density_kg_mm3=multiple?std::optional<double>{}:
+            primary->density_kg_mm3;
+        result->nested_mass_kg=combined_nested_mass;
         if(result->nested_mass_kg && result->derived_copy->pattern)
-            *result->nested_mass_kg*=kernel::pattern_instance_count(*result->derived_copy->pattern)-1;
-        result->source_document_id=source->source_document_id;result->source_path=source->source_path;result->source_kind=source->source_kind;
-        result->body_color=source->body_color;result->appearance=source->appearance;result->face_colors=source->face_colors;
+            *result->nested_mass_kg*=kernel::pattern_instance_count(
+                *result->derived_copy->pattern)-1;
+        result->mass_volume_mm3=std::abs(result->calculated_source->volume);
+        result->source_document_id=multiple?result->occurrence_id:
+            primary->source_document_id;
+        result->source_path=multiple?std::filesystem::path{}:primary->source_path;
+        result->source_kind=multiple?ComponentSourceKind::Pattern:
+            primary->source_kind;
+        result->body_color=primary->body_color;
+        result->appearance=primary->appearance;
+        result->face_colors=multiple?std::map<std::string,std::string>{}:
+            primary->face_colors;
         if(result->derived_copy->pattern)result->source_kind=ComponentSourceKind::Pattern;
         result->placement={};result->placement_references.clear();result->grounded=true;
         visiting.erase(id);done.insert(id);
@@ -1467,7 +1576,9 @@ void AssemblyDocument::calculate_derived_copies(const zima::kernel::GeometryKern
     }
     std::erase_if(dependencies,[](const auto& dependency){return dependency.kind==ComponentDependencyKind::DerivedCopyReference;});
     for(const auto& component:components)if(component.derived_copy) {
-        std::set<std::string> prerequisite_ids{component.derived_copy->source_id};
+        std::set<std::string> prerequisite_ids(
+            component.derived_copy->source_ids.begin(),
+            component.derived_copy->source_ids.end());
         const auto collect=[&](const document::ConstructionReference& ref) {
             const auto owners=reference_owners(ref);prerequisite_ids.insert(owners.begin(),owners.end());prerequisite_ids.erase(component.occurrence_id);
         };

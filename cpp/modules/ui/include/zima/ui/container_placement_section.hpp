@@ -41,6 +41,12 @@ public:
     using GeometryResolver = std::function<const zima::kernel::ViewerReferenceGeometry&()>;
     void set_branch_geometry_resolver(GeometryResolver resolver);
     void set_point_circle_plane_policy(bool enabled);
+    // Opening/Thread opt-in: a direct View point on a planar face arms the
+    // next two one-shot signed-distance captures.  Curved-face capture is the
+    // established shared placement behavior and does not depend on this flag.
+    void set_planar_face_capture_policy(bool enabled) {
+        planar_face_capture_policy_=enabled;
+    }
     void set_branch_request_callback(std::function<void(bool)> callback) { branch_request_=std::move(callback); }
     [[nodiscard]] std::vector<zima::document::Placement> solution_branches() const;
     void select_solution_branch(const zima::document::Placement&);
@@ -211,6 +217,7 @@ public:
 
 private:
     bool point_circle_plane_policy_{};
+    bool planar_face_capture_policy_{};
     void refresh_derived_offsets();
     GeometryResolver branch_geometry_;
     std::function<void(bool)> branch_request_;

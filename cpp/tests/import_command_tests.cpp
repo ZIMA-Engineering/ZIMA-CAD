@@ -1,5 +1,6 @@
 #include "profile_command_fixture.hpp"
 #include "profile_solid_fixture.hpp"
+#include "body_measurement_fixture.hpp"
 #include <set>
 #include <zima/workspace/imported_feature_operations.hpp>
 #include <zima/workspace/body_operations.hpp>
@@ -34,7 +35,7 @@ void verify_imported_properties(command_host::Host& host, workspace::Workspace& 
     const auto id = live.active_document_id();
     auto& state = *live.open_part(id);
     const auto original = workspace::imported_feature(live, id, container);
-    const auto volume = state.session.calculated_boundaries().back().volume;
+    const auto volume = test::measured_volume(kernel,state.session.calculated_boundaries().back());
     const auto reference_ids = [&] {
         std::set<std::string> ids;
         const auto& refs = state.session.calculated_boundaries().back().mesh.original_references;
@@ -114,7 +115,7 @@ void verify_imported_properties(command_host::Host& host, workspace::Workspace& 
             std::abs(rotated_spans.z-original_spans.z-12)<1e-7 && reference_ids()==original_ids,
         "Imported translation/rotation did not transform geometry with its original identities");
     require(workspace::imported_feature(live, id, container).imported_step == original.imported_step &&
-            std::abs(state.session.calculated_boundaries().back().volume - volume) < 1e-5,
+            std::abs(test::measured_volume(kernel,state.session.calculated_boundaries().back()) - volume) < 1e-5,
         "Imported property edit changed native geometry or its scale");
     const auto edited = snapshot(state.session.document());
     const auto unchanged_revision = state.session.revision();
@@ -169,7 +170,7 @@ void verify_imported_properties(command_host::Host& host, workspace::Workspace& 
     const auto saved = document::PartDocument::load(state.path, &saved_cache);
     require(saved.find_container(container)->imported_step == original.imported_step &&
             saved.find_container(container)->placement.references.front().offset_locked &&
-            !saved_cache.empty() && std::abs(saved_cache.back().volume - volume) < 1e-5,
+            !saved_cache.empty() && std::abs(test::measured_volume(kernel,saved_cache.back()) - volume) < 1e-5,
         "Native imported properties lost geometry, topology or placement");
     const auto bound = workspace::imported_feature(live, id, container);
     require(run(host, "placement.reference.remove", {{"object", container}, {"index", 0}}).data.at("body_calculated") == true,
@@ -177,7 +178,7 @@ void verify_imported_properties(command_host::Host& host, workspace::Workspace& 
     require(workspace::imported_feature(live, id, container).placement.references.empty() &&
         workspace::imported_feature(live, id, container).imported_step == original.imported_step,
         "Imported removal changed geometry identity or retained its paired reference");
-    require(std::abs(state.session.calculated_boundaries().back().volume-volume)<1e-5,"Imported removal changed solid volume");
+    require(std::abs(test::measured_volume(kernel,state.session.calculated_boundaries().back())-volume)<1e-5,"Imported removal changed solid volume");
     const auto freed = workspace::imported_feature(live, id, container); run(host, "undo");
     require(workspace::imported_feature(live, id, container)==bound,"Imported removal Undo lost its source");run(host, "redo");
     require(workspace::imported_feature(live, id, container)==freed,"Imported removal Redo changed source payload");run(host, "save");
@@ -194,22 +195,22 @@ void verify_imported_properties(command_host::Host& host, workspace::Workspace& 
     const auto base = zima::test::rectangular_commands([&](const char* n,commands::Json a){return run(host, n,std::move(a));},{{"length_mm", "200"}, {"width_mm", "200"}, {"height_mm", "200"}}).data.at("container");
     run(host, "placement.set", {{"object", base}, {"values", {{"x", -50}, {"y", -50}, {"z", -50}}}});
     run(host, "history.move", {{"object", base}, {"before", container}});
-    require(std::abs(state.session.calculated_boundaries().back().volume - (8000000 + volume)) < 1e-4,
+    require(std::abs(test::measured_volume(kernel,state.session.calculated_boundaries().back()) - (8000000 + volume)) < 1e-4,
         "Imported add did not preserve the compound volume");
     require(run(host, "import.set", {{"container", container}, {"combine", "subtract"}}).data.at("combine") == "subtract" &&
-            std::abs(state.session.calculated_boundaries().back().volume - (8000000 - volume)) < 1e-4,
+            std::abs(test::measured_volume(kernel,state.session.calculated_boundaries().back()) - (8000000 - volume)) < 1e-4,
         "Imported subtract property did not remove the independent source volume");
-    run(host, "undo"); require(std::abs(state.session.calculated_boundaries().back().volume - (8000000 + volume)) < 1e-4,
+    run(host, "undo"); require(std::abs(test::measured_volume(kernel,state.session.calculated_boundaries().back()) - (8000000 + volume)) < 1e-4,
         "Imported Boolean Undo failed");
     run(host, "redo"); run(host, "save"); saved_cache.clear();
     const auto boolean_saved = document::PartDocument::load(state.path, &saved_cache);
     require(boolean_saved.find_container(container)->combine_mode == document::CombineMode::Subtract &&
             boolean_saved.find_container(container)->imported_step == original.imported_step &&
-            !saved_cache.empty() && std::abs(saved_cache.back().volume - (8000000 - volume)) < 1e-4,
+            !saved_cache.empty() && std::abs(test::measured_volume(kernel,saved_cache.back()) - (8000000 - volume)) < 1e-4,
         "Native imported Boolean lost its operation or original source");
     kernel::OcctKernel cold_kernel;
     const auto cold = cold_kernel.evaluate_history(boolean_saved.kernel_operations());
-    require(!cold.empty() && std::abs(cold.back().volume - (8000000 - volume)) < 1e-4,
+    require(!cold.empty() && std::abs(test::measured_volume(cold_kernel,cold.back()) - (8000000 - volume)) < 1e-4,
         "Reopened imported Boolean cannot regenerate without the interchange source");
 }
 void verify(const kernel::OcctKernel& kernel,fs::path dir) {
@@ -239,7 +240,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
         const auto added=imported.at("bodies")[0].get<std::string>();
         auto expected=old_order;expected.insert(expected.begin(),added);
         require(target->session.document().body_history.order()==expected,"Import did not prepend new Body");
-        require(std::abs(target->session.calculated_boundaries().back().volume-6060)<1e-5,"Import lost existing solid geometry");
+        require(std::abs(test::measured_volume(kernel,target->session.calculated_boundaries().back())-6060)<1e-5,"Import lost existing solid geometry");
         const auto committed=snapshot(target->session.document());
         run(host,"undo");require(snapshot(target->session.document())==original,"Prepending import Undo changed prior state");
         run(host,"redo");require(snapshot(target->session.document())==committed,"Prepending import Redo changed state");
@@ -250,25 +251,25 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     const auto initial=snapshot(live.open_part(step_doc)->session.document());
     const auto result=run(host,"import.step",{{"path","kvádr.step"},{"mesh_deflection_mm",2.0}}).data;
     auto* part=live.open_part(step_doc);require(result.at("bodies").size()==1 && result.at("containers").size()==1 && result.at("body_calculated")==true,"STEP report lost imported ownership");
-    require(std::abs(part->session.calculated_boundaries().back().volume-6000)<1e-5,"STEP command changed box scale or volume");
+    require(std::abs(test::measured_volume(kernel,part->session.calculated_boundaries().back())-6000)<1e-5,"STEP command changed box scale or volume");
     const auto imported_id=result.at("containers")[0].get<std::string>();const auto* feature=part->session.document().find_container(imported_id);
     require(feature && feature->imported_step.mesh_deflection==2.0 && !feature->imported_step.topology.empty() && feature->imported_step.frozen_brep,"STEP lost selected mesh precision or native topology");
     const auto topology=feature->imported_step.topology;const auto after=snapshot(part->session.document());
     run(host,"undo");require(snapshot(part->session.document())==initial,"Import Undo did not restore input");run(host,"redo");require(snapshot(part->session.document())==after,"Import Redo changed identities");
     reject("import.step",{{"path","kvádr.step"},{"mesh_deflection_mm",0}});reject("import.step",{{"path","kvádr.step"},{"mesh_deflection_mm",-1}});reject("import.step",{{"path","kvádr.igs"}});reject("import.step",{{"path","missing.step"}});
     run(host,"save");fs::remove(dir/fs::path(u8"kvádr.step"));run(host,"regenerate");
-    run(host,"save");require(part->session.document().find_container(imported_id)->imported_step.topology==topology && std::abs(part->session.calculated_boundaries().back().volume-6000)<1e-5,"Native STEP lost independent regeneration");
-    std::vector<kernel::BodyResult> loaded_body;const auto loaded=document::PartDocument::load(dir/"imported-step.prtz",&loaded_body);require(loaded.find_container(imported_id)->imported_step.topology==topology && std::abs(loaded_body.back().volume-6000)<1e-5,"Saved STEP import lost geometry");
+    run(host,"save");require(part->session.document().find_container(imported_id)->imported_step.topology==topology && std::abs(test::measured_volume(kernel,part->session.calculated_boundaries().back())-6000)<1e-5,"Native STEP lost independent regeneration");
+    std::vector<kernel::BodyResult> loaded_body;const auto loaded=document::PartDocument::load(dir/"imported-step.prtz",&loaded_body);require(loaded.find_container(imported_id)->imported_step.topology==topology && std::abs(test::measured_volume(kernel,loaded_body.back())-6000)<1e-5,"Saved STEP import lost geometry");
     const auto regenerated_revision=part->session.revision();
     run(host,"regenerate");run(host,"save");
     require(part->session.revision()==regenerated_revision,"Unchanged import regeneration created an Undo transaction");
     run(host,"undo");run(host,"save");run(host,"redo");run(host,"save");
     require(part->session.document().find_container(imported_id)->imported_step.topology==topology &&
-        std::abs(part->session.calculated_boundaries().back().volume-6000)<1e-5,
+        std::abs(test::measured_volume(kernel,part->session.calculated_boundaries().back())-6000)<1e-5,
         "Regeneration Undo/Redo changed imported topology or volume");
     verify_imported_properties(host,live,kernel,dir,imported_id);
     run(host,"new",{{"type","part"},{"name","imported-iges"}});const auto iges=run(host,"import.iges",{{"path","kvádr.igs"},{"mesh_deflection_mm",1.5}}).data;
-    part=live.open_part(live.active_document_id());require(iges.at("bodies").size()==1 && std::abs(part->session.calculated_boundaries().back().volume-6000)<1e-5 && part->session.document().find_container(iges.at("containers")[0].get<std::string>())->imported_step.mesh_deflection==1.5,"IGES command changed geometry or mesh choice");
+    part=live.open_part(live.active_document_id());require(iges.at("bodies").size()==1 && std::abs(test::measured_volume(kernel,part->session.calculated_boundaries().back())-6000)<1e-5 && part->session.document().find_container(iges.at("containers")[0].get<std::string>())->imported_step.mesh_deflection==1.5,"IGES command changed geometry or mesh choice");
     fs::remove(dir/fs::path(u8"kvádr.igs"));
     run(host,"save");run(host,"regenerate");run(host,"save");
     verify_imported_properties(host,live,kernel,dir,iges.at("containers")[0].get<std::string>());
@@ -349,7 +350,7 @@ void verify_closed_profiles(const kernel::OcctKernel& kernel,const fs::path& dir
         document.sketches.push_back(std::move(profile));document.history.push_back(std::move(feature));
         const auto calculated=kernel.evaluate_history(document.kernel_operations());
         const double expected=(rational?250:150)*std::numbers::pi;
-        require(calculated.size()==1&&!calculated.back().kernel_shape.empty()&&std::abs(calculated.back().volume-expected)<1e-5,"Imported exact DXF profile did not produce its analytic extrusion volume");
+        require(calculated.size()==1&&!calculated.back().kernel_shape.empty()&&std::abs(test::measured_volume(kernel,calculated.back())-expected)<1e-5,"Imported exact DXF profile did not produce its analytic extrusion volume");
     }
 }
 }

@@ -175,6 +175,177 @@ int verify_sketch_intersections_ui(QApplication& application,const std::filesyst
             const auto saved=document::PartDocument::load(path);const auto& reopened=saved.sketches.back();
             check(reopened.constraints==result.constraints,"Intersection constraints changed during native save/reopen");
         }
+        {
+            // Exact user workflow: the first line point is the Sketch Origin;
+            // the second is the crossing of one read-only external support and
+            // a native Sketch axis.  The endpoint owns both C contacts (CC).
+            auto part=document::PartDocument::create_default();
+            auto source=document::PartDocument::create_construction(
+                document::ConstructionKind::Axis);
+            source.origin={25,0,0};source.direction={0,1,0};
+            source.name="External vertical support";
+            auto feature=document::PartDocument::create_sketch_container();
+            auto sketch=sketcher::Sketch::create_default();
+            sketch.owner_container_id=feature.id;feature.feature.sketch_id=sketch.id;
+            const auto parallel_support=sketch.add_segment(-35,15,35,15);
+            sketch.set_point_fixed(sketch.segments.front().first_point_id,true);
+            sketch.set_point_fixed(sketch.segments.front().second_point_id,true);
+            part.constructions={source};part.history={feature};
+            document::BodyHistoryGraph graph;
+            const auto body=graph.create_body("External-axis CC endpoint");
+            graph.insert({document::PartHistoryKind::Construction,source.id});
+            graph.insert({document::PartHistoryKind::Feature,feature.id});
+            part.set_body_history(graph);part.resolve_constructions();
+            auto reference=sketcher::Sketch::create_external_reference(
+                sketcher::ExternalReferenceKind::Axis);
+            reference.source_document_id=part.document_id;
+            reference.source_owner_id=source.entity_id;
+            reference.source_semantic_key="axis";
+            workspace::populate_external_reference_cache(sketch,reference,
+                part.construction_viewer_mesh().original_references);
+            check(sketcher::external_reference_line(reference).has_value(),
+                "External-axis CC fixture did not resolve its support");
+            const auto reference_id=reference.id;
+            sketch.add_external_reference(std::move(reference));
+            part.sketches={sketch};
+            const auto path=directory/"external-axis-origin-cc.prtz";
+            part.save(path);
+            app::AssemblyWorkspaceWindow window(
+                QString::fromStdString(directory.string()));
+            window.resize(1200,900);window.show();
+            check(window.open_document_path(QString::fromStdString(path.string())),
+                "Cannot open external-axis CC fixture");flush();
+            check(activate_test_body(application,window,body),
+                "Cannot activate external-axis CC Body");flush();
+            auto* tree=window.findChild<QTreeWidget*>("documentTree");
+            QTreeWidgetItem* row{};
+            for(QTreeWidgetItemIterator item(tree);*item;++item)
+                if((*item)->data(0,Qt::UserRole).toString().toStdString()==sketch.id&&
+                    (*item)->data(0,Qt::UserRole+3)=="part-sketch") {row=*item;break;}
+            check(row,"External-axis CC Sketch row missing");
+            window.show_tree_item_properties(row);flush();
+            window.findChild<QPushButton*>("sketchOpenButton")->click();flush();
+            QEventLoop settle;QTimer::singleShot(950,&settle,&QEventLoop::quit);
+            settle.exec();
+            auto* view=dynamic_cast<viewer::MeshView*>(
+                window.findChild<QOpenGLWidget*>());
+            check(view,"External-axis CC View missing");
+            view->fit_points({sketch.world_point(-15,-30),
+                sketch.world_point(40,30)});flush();
+            const auto local=[&](QPointF screen_position) {
+                const auto ray=view->ray_at(screen_position);
+                check(ray.has_value(),"External-axis CC ray missing");
+                const auto point=sketch.intersect_ray(ray->first,ray->second);
+                check(point.has_value(),"External-axis CC ray misses Sketch");
+                return *point;
+            };
+            const auto a=local({0,0}),b=local({100,0}),c=local({0,100});
+            const double ux=(b[0]-a[0])/100,uy=(b[1]-a[1])/100;
+            const double vx=(c[0]-a[0])/100,vy=(c[1]-a[1])/100;
+            const double determinant=ux*vy-uy*vx;
+            const auto screen=[&](double x,double y) {
+                return QPointF(((x-a[0])*vy-(y-a[1])*vx)/determinant,
+                    (ux*(y-a[1])-uy*(x-a[0]))/determinant);
+            };
+            const auto mouse=[&](QPointF position,QEvent::Type type,
+                    Qt::MouseButton button) {
+                QMouseEvent event(type,position,
+                    QPointF(view->mapToGlobal(position.toPoint())),button,
+                    type==QEvent::MouseButtonPress?button:Qt::NoButton,
+                    Qt::NoModifier);
+                QApplication::sendEvent(view,&event);flush();
+            };
+            const auto choose=[&](QPointF position,const auto& wanted) {
+                mouse(position,QEvent::MouseMove,Qt::NoButton);
+                const auto candidates=view->selection_candidates_at(position);
+                check(std::ranges::any_of(candidates,wanted),
+                    "Expected external-axis CC candidate is not published");
+                for(std::size_t cycle=0;cycle<candidates.size()+1;++cycle) {
+                    if(view->offered_candidate()&&wanted(*view->offered_candidate()))break;
+                    mouse(position,QEvent::MouseButtonPress,Qt::RightButton);
+                    mouse(position,QEvent::MouseButtonRelease,Qt::RightButton);
+                }
+                check(view->offered_candidate()&&wanted(*view->offered_candidate()),
+                    "RMB cannot offer the exact external-axis CC candidate");
+                mouse(position,QEvent::MouseButtonPress,Qt::LeftButton);
+                mouse(position,QEvent::MouseButtonRelease,Qt::LeftButton);
+            };
+            auto* segment=window.findChild<QAction*>("sketchSegmentAction");
+            check(segment&&segment->isEnabled(),
+                "Segment unavailable for external-axis CC test");
+            segment->trigger();flush();
+            choose(screen(0,0),[](const auto& candidate) {
+                return candidate.semantic_key=="external_point:sketch_origin";
+            });
+            const auto endpoint=screen(25,0);
+            const auto crossing=[&](const auto& candidate) {
+                return candidate.semantic_key.starts_with("sketch_intersection:")&&
+                    candidate.semantic_key.find("sketch_axis:x")!=std::string::npos&&
+                    candidate.semantic_key.find(reference_id)!=std::string::npos;
+            };
+            mouse(endpoint,QEvent::MouseMove,Qt::NoButton);
+            check(std::ranges::any_of(view->transient_labels(),[](const auto& label) {
+                return label.second=="CC";
+            }),"External-axis second endpoint does not preview CC");
+            choose(endpoint,crossing);
+            QKeyEvent escape(QEvent::KeyPress,Qt::Key_Escape,Qt::NoModifier);
+            QApplication::sendEvent(view,&escape);flush();
+            window.findChild<QAction*>("finishSketchAction")->trigger();flush();
+            app::SketchPropertiesDialog* properties{};
+            for(auto* dialog:window.findChildren<QDialog*>())
+                if(auto* candidate=dynamic_cast<app::SketchPropertiesDialog*>(dialog);
+                    candidate&&candidate->isVisible())properties=candidate;
+            check(properties,"External-axis CC did not return to Properties");
+            const auto result=properties->pending_value().first;
+            check(result.segments.size()==2,
+                "External-axis CC did not create exactly one line");
+            const auto& line=result.segments.back();
+            const auto* first=result.find_point(line.first_point_id);
+            const auto* second=result.find_point(line.second_point_id);
+            check(first&&second&&std::hypot(first->x,first->y)<1e-8&&
+                std::hypot(second->x-25,second->y)<1e-8,
+                "External-axis CC moved one of the confirmed endpoints");
+            check(std::ranges::any_of(result.constraints,[&](const auto& value) {
+                    return value.kind==sketcher::ConstraintKind::PointReference&&
+                        value.first_point_id==line.first_point_id&&
+                        value.second_point_id=="sketch_origin";
+                }),"Line start lost its Origin C");
+            check(std::ranges::any_of(result.constraints,[&](const auto& value) {
+                    return value.kind==sketcher::ConstraintKind::PointOnLine&&
+                        value.first_point_id==line.second_point_id&&
+                        value.geometry_id==reference_id;
+                })&&std::ranges::any_of(result.constraints,[&](const auto& value) {
+                    return value.kind==sketcher::ConstraintKind::PointOnLine&&
+                        value.first_point_id==line.second_point_id&&
+                        value.geometry_id=="sketch_axis:x";
+                }),"Line second endpoint did not persist both CC supports");
+            check(std::ranges::none_of(result.constraints,[&](const auto& value) {
+                    return value.kind==sketcher::ConstraintKind::Parallel&&
+                        (value.geometry_id==parallel_support||
+                            value.second_geometry_id==parallel_support)&&
+                        (value.geometry_id==line.id||
+                            value.second_geometry_id==line.id);
+                }),"Redundant inferred parallel relation was persisted");
+            auto dragged=result;
+            static_cast<void>(dragged.move_point(line.second_point_id,32,7));
+            const auto* held=dragged.find_point(line.second_point_id);
+            check(held&&std::hypot(held->x-25,held->y)<1e-8,
+                "Dragging let the fully constrained CC endpoint escape");
+            properties->buttons()->button(QDialogButtonBox::Ok)->click();flush();
+            window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
+            const auto saved=document::PartDocument::load(path).sketches.front();
+            check(saved.constraints==result.constraints,
+                "External-axis CC changed during save/reopen");
+            window.findChild<QAction*>("undoAction")->trigger();flush();
+            window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
+            const auto undone=document::PartDocument::load(path).sketches.front();
+            check(undone.segments.size()==1&&undone.segments.front().id==parallel_support,
+                "External-axis CC Undo did not restore only the support line");
+            window.findChild<QAction*>("redoAction")->trigger();flush();
+            window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
+            check(document::PartDocument::load(path).sketches.front().serialized()==
+                result.serialized(),"External-axis CC Redo changed the line");
+        }
         std::cout<<"External intersections: first point, both rectangle corners, C/CC priority, RMB and native persistence passed\n";return 0;
     }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}
 }

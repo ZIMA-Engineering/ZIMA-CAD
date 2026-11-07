@@ -1037,6 +1037,19 @@ int main() {
                 offered[0].owner_id=="latest-cut"&&offered[0].semantic_key==ancestry&&
                 external_source.geometry_index==offered[0].geometry_index,
                 "Ordinary Sketch Reference offered a whole face or lost stored face ancestry");
+            auto analytic_fragment=fragment;
+            auto plane=std::make_shared<zima::kernel::SurfaceGeometry>();
+            plane->kind=zima::kernel::SurfaceGeometry::Kind::Plane;
+            analytic_fragment.original_references.triangle_references[0].surface=plane;
+            require(!analytic_fragment.triangle_references[0].surface&&
+                zima::app::sketch_external_reference_has_stable_geometry(
+                    offered[0],false,false,&analytic_fragment),
+                "Ordinary Sketch Reference lost an analytic source face after Boolean ancestry");
+            analytic_fragment.original_references.triangle_references[0].instance_path=
+                "8:assembly5:other";
+            require(!zima::app::sketch_external_reference_has_stable_geometry(
+                    offered[0],false,false,&analytic_fragment),
+                "Ordinary Sketch Reference borrowed analytic support from another occurrence");
             const auto reference_kinds=zima::app::sketch_external_reference_candidate_kinds(false);
             // Certified planar faces supply an individual infinite support;
             // the stable-geometry predicate above rejects uncertified faces.

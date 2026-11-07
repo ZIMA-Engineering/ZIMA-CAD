@@ -86,14 +86,19 @@ void AssemblyWorkspaceWindow::show_derived_copy_properties(const std::string& id
         if(path.occurrence_ids.size()!=parent.occurrence_ids.size()+1||!std::equal(parent.occurrence_ids.begin(),parent.occurrence_ids.end(),path.occurrence_ids.begin()))return {};
         const auto& source=path.occurrence_ids.back();return sources.contains(source)?source:std::string{};
     };
-    if(id.empty()&&selected)parameters.source_id=source_id(*selected);
+    if(id.empty()&&selected) {
+        const auto source=source_id(*selected);
+        if(!source.empty())parameters.source_ids={source};
+    }
     auto* dialog=new DerivedCopyDialog(initial,parameters,[this,edit](auto value,auto parameters) {
         auto copy=edit->initial;copy.id=value.id;copy.name=value.name;
         copy.placement=value.placement;copy.parameters=std::move(parameters);
         try {static_cast<void>(workspace::commit_derived_copy(workspace_,kernel_,*edit,std::move(copy)));}
         catch(const std::exception& error){throw std::runtime_error(tr(error.what()).toStdString());}
     },this);
-    if(sources.contains(parameters.source_id))dialog->set_source(parameters.source_id,sources.at(parameters.source_id).name);
+    for(const auto& source:parameters.source_ids)
+        if(sources.contains(source))
+            dialog->set_source_label(source,sources.at(source).name);
     properties_dialog_=dialog;properties_dialog_instance_path_=prefix;primitive_parameter_owner_id_=initial.id;
     // The live preview owns this Origin; revealing the stored one as context
     // would also draw its old position while editing an existing feature.
@@ -115,13 +120,14 @@ void AssemblyWorkspaceWindow::show_derived_copy_properties(const std::string& id
         viewer_->set_original_container_selection(false);
         dialog->end_input();dialog->changed();feature_reference_pick_={};feature_reference_end_={};start_primitive_reference_selection(index);
     };
-    dialog->request_input=[this,dialog,source_id,prefix,sources](int row) {
+    dialog->request_input=[this,dialog,source_id,prefix,sources,document_id,edit](int row) {
         pending_primitive_reference_index_.reset();primitive_reference_auto_advance_=false;set_local_origin_selection_mode(false);dialog->arm(row);
         // Offer whole Bodies alongside leaf solids through the same picker.
         // These temporary container-display markers never become topology
         // references and are discarded when reference input changes/ends.
-        if(row!=1&&has_copy_source_offers(viewer_->mesh())){dialog->changed();return;}
-        if(row==1&&!has_copy_source_offers(viewer_->mesh())) {
+        const bool source_input=dialog->is_source_input(row);
+        if(!source_input&&has_copy_source_offers(viewer_->mesh())){dialog->changed();return;}
+        if(source_input&&!has_copy_source_offers(viewer_->mesh())) {
             auto mesh=viewer_->mesh();
             for(const auto& [id,source]:sources)if(source.whole_body) {
                 kernel::ViewerMesh offer;offer.vertices=source.mesh.vertices;offer.triangles=source.mesh.triangles;offer.edges=source.mesh.edges;
@@ -137,38 +143,103 @@ void AssemblyWorkspaceWindow::show_derived_copy_properties(const std::string& id
             }
             viewer_->set_mesh(std::move(mesh));
         }
-        const auto accepts=[dialog,source_id,prefix,row](const viewer::ViewerCandidate& candidate) {
-            if(row==1)return (candidate.kind==viewer::CandidateKind::Occurrence||candidate.kind==viewer::CandidateKind::Container)&&!source_id(candidate).empty();
+        const bool assembly_copy=workspace_.open_assembly(document_id)!=nullptr;
+        const auto accepts=[dialog,source_id,prefix,row,assembly_copy,edit](const viewer::ViewerCandidate& candidate) {
+            if(dialog->is_source_input(row))return (candidate.kind==viewer::CandidateKind::Occurrence||candidate.kind==viewer::CandidateKind::Container)&&!source_id(candidate).empty();
             const bool pattern=dialog->derived_copy.pattern.has_value();
-            if(candidate.kind!=(pattern?viewer::CandidateKind::Axis:viewer::CandidateKind::Plane)||candidate.instance_path!=prefix||
-                !document::is_derived_copy_origin_reference({{},candidate.owner_id,candidate.semantic_key},dialog->pending.id,pattern))return false;
-            if(row>=2) {
+            if(candidate.kind!=(pattern?viewer::CandidateKind::Axis:viewer::CandidateKind::Plane)||
+                    candidate.geometry!=viewer::CandidateGeometry::OriginalReference)
+                return false;
+            if(dialog->is_axis_input(row)) {
+                if(candidate.instance_path!=prefix||
+                        !document::is_derived_copy_origin_reference(
+                            {{},candidate.owner_id,candidate.semantic_key},
+                            dialog->pending.id,true))
+                    return false;
                 const auto key=candidate.semantic_key;
                 const int axis=static_cast<int>(std::string("xyz").find(key.back()));
-                for(int i=0;i<3;++i)if(i!=row-2&&dialog->derived_copy.pattern->linear[i].local_axis==axis)return false;
+                for(int i=0;i<3;++i)
+                    if(i!=dialog->axis_row(row)&&
+                            dialog->derived_copy.pattern->linear[i].local_axis==axis)
+                        return false;
+            } else {
+                if(candidate.owner_id==dialog->pending.container_origin.id)
+                    return candidate.instance_path==prefix&&
+                        document::is_derived_copy_origin_reference(
+                            {{},candidate.owner_id,candidate.semantic_key},
+                            dialog->pending.id,pattern);
+                const auto candidate_path=assembly::InstancePath::decode(
+                    candidate.instance_path);
+                const auto owner_path=assembly::InstancePath::decode(prefix);
+                if(!assembly_copy&&candidate.instance_path!=prefix)
+                    return false;
+                if(assembly_copy&&(candidate_path.occurrence_ids.size()<
+                        owner_path.occurrence_ids.size()||
+                        !std::equal(owner_path.occurrence_ids.begin(),
+                            owner_path.occurrence_ids.end(),
+                            candidate_path.occurrence_ids.begin())))
+                    return false;
+                auto relative_path=candidate_path;
+                relative_path.occurrence_ids.erase(
+                    relative_path.occurrence_ids.begin(),
+                    relative_path.occurrence_ids.begin()+
+                        owner_path.occurrence_ids.size());
+                const document::ConstructionReference reference{
+                    relative_path.encoded(),candidate.owner_id,
+                    candidate.semantic_key};
+                const auto matches=[&](const auto& value) {
+                    return value.owner_id==reference.owner_id&&
+                        value.semantic_key==reference.semantic_key&&
+                        value.instance_path==reference.instance_path;
+                };
+                const auto& references=edit->references;
+                if(pattern)
+                    return std::ranges::any_of(references.axes,
+                        [&](const auto& axis){return matches(axis.reference);});
+                return std::ranges::any_of(references.triangle_references,
+                    matches);
             }
             return true;
         };
         tree_->setProperty("commandSelectionActive",true);
-        viewer_->set_selection_contract(row==1?std::vector<viewer::CandidateKind>{viewer::CandidateKind::Occurrence,viewer::CandidateKind::Container}:
+        viewer_->set_selection_contract(source_input?std::vector<viewer::CandidateKind>{viewer::CandidateKind::Occurrence,viewer::CandidateKind::Container}:
             dialog->derived_copy.pattern ? std::vector<viewer::CandidateKind>{viewer::CandidateKind::Axis} :
             std::vector<viewer::CandidateKind>{viewer::CandidateKind::Plane});
-        viewer_->set_original_container_selection(row==1);
-        viewer_->set_candidate_priority(row==1?std::function<int(const viewer::ViewerCandidate&)>{[source_id,sources](const auto& candidate) {
-            const auto id=source_id(candidate);return sources.contains(id)&&sources.at(id).whole_body?1:0;
-        }}:std::function<int(const viewer::ViewerCandidate&)>{});
+        viewer_->set_original_container_selection(source_input);
+        std::function<int(const viewer::ViewerCandidate&)> candidate_priority;
+        if(source_input)
+            candidate_priority=[source_id,sources](const auto& candidate) {
+                const auto id=source_id(candidate);
+                return sources.contains(id)&&sources.at(id).whole_body?1:0;
+            };
+        else
+            candidate_priority=[owner=dialog->pending.container_origin.id,
+                prefix](const auto& candidate) {
+                // Preserve the established direct pick of the command's own
+                // Origin where several selectable Origins overlap. External
+                // planes/axes remain immediately available through candidate
+                // cycling and everywhere they do not share that hit point.
+                return candidate.owner_id==owner&&
+                    candidate.instance_path==prefix?0:1;
+            };
+        viewer_->set_candidate_priority(std::move(candidate_priority));
         // set_selection_contract clears any previous filter.
         viewer_->set_candidate_filter(accepts);
         feature_reference_pick_=[this,dialog,source_id,prefix,row,accepts,sources](const auto& candidate){if(!accepts(candidate))return;
             feature_reference_pick_={};feature_reference_end_={};
-            if(row==1){const auto id=source_id(candidate);dialog->set_source(id,sources.at(id).name);}
-            else if(row>=2)dialog->set_linear_axis(row-2,static_cast<int>(std::string("xyz").find(candidate.semantic_key.back())));
+            if(dialog->is_source_input(row)){const auto id=source_id(candidate);dialog->set_source(id,sources.at(id).name);}
+            else if(dialog->is_axis_input(row))dialog->set_linear_axis(dialog->axis_row(row),static_cast<int>(std::string("xyz").find(candidate.semantic_key.back())));
             else {auto path=assembly::InstancePath::decode(candidate.instance_path);const auto parent=assembly::InstancePath::decode(prefix);
                 path.occurrence_ids.erase(path.occurrence_ids.begin(),path.occurrence_ids.begin()+parent.occurrence_ids.size());
                 dialog->set_plane({path.encoded(),candidate.owner_id,candidate.semantic_key},QString::fromStdString(candidate.semantic_key));}
             viewer_->clear_selection();tree_->clearSelection();};
         feature_reference_end_=[this,dialog]{feature_reference_pick_={};feature_reference_end_={};dialog->end_input();dialog->clear_reference_highlights();dialog->changed();};
-        state_->setText(row==1?tr("Vyberte zdrojový solid, těleso nebo komponentu."):dialog->derived_copy.pattern?tr("Vyberte osu X, Y nebo Z vlastního počátku Pole."):tr("Vyberte rovinu XY, YZ nebo XZ vlastního počátku Zrcadla."));
+        state_->setText(source_input?
+            tr("Vyberte zdrojový prvek, těleso nebo komponentu."):
+            dialog->is_axis_input(row)?
+                tr("Vyberte osu X, Y nebo Z vlastního počátku Pole."):
+            dialog->derived_copy.pattern?tr("Vyberte osu Pole."):
+                tr("Vyberte rovinu zrcadlení."));
     };
     dialog->changed=[this,dialog,geometry,sources,prefix,document_id,graph,id,available,body_id=choices.body_id,body_cursor=choices.body_cursor]{
         if(!dialog->isVisible())return;
@@ -187,10 +258,26 @@ void AssemblyWorkspaceWindow::show_derived_copy_properties(const std::string& id
         try {
             if(!valid)throw std::invalid_argument("Chybí reference umístění kontejneru.");
             document::PartDocument::resolve_copy_reference(dialog->derived_copy,dialog->pending.id,dialog->pending.placement,geometry);
-            if(!sources.contains(dialog->derived_copy.source_id))throw std::invalid_argument("Vyberte zdrojový solid, těleso nebo komponentu.");
+            if(dialog->derived_copy.source_ids.empty()||
+                    std::ranges::any_of(dialog->derived_copy.source_ids,
+                        [&](const auto& source){return !sources.contains(source);}))
+                throw std::invalid_argument(
+                    "Vyberte alespoň jeden dostupný zdrojový prvek, těleso nebo komponentu.");
+            const auto combined_source_mesh=[&] {
+                kernel::ViewerMesh result;
+                for(const auto& source:dialog->derived_copy.source_ids)
+                    append_derived_copy_references(result,sources.at(source).mesh);
+                return result;
+            };
             if(const auto* part=workspace_.open_part(document_id);part&&body_id.empty()) {
-                const auto* source=part->session.document().find_container(dialog->derived_copy.source_id);
-                dialog->derived_copy.subtract_source=source&&source->combine_mode==document::CombineMode::Subtract;
+                dialog->derived_copy.subtract_source=
+                    !dialog->derived_copy.source_ids.empty()&&
+                    std::ranges::all_of(dialog->derived_copy.source_ids,
+                        [&](const auto& source_id) {
+                            const auto* source=part->session.document().find_container(source_id);
+                            return source&&source->combine_mode==
+                                document::CombineMode::Subtract;
+                        });
                 auto preview=part->session.document();auto updated=graph;document::BodyHistory body;
                 if(!id.empty())body=*updated.find(id);
                 body.scope.id=dialog->pending.id;body.name=dialog->pending.name;body.scope.placement=dialog->pending.placement;body.derived_copy=dialog->derived_copy;
@@ -201,7 +288,7 @@ void AssemblyWorkspaceWindow::show_derived_copy_properties(const std::string& id
             if(!body_id.empty()) {
                 // The command parameters are Body-local; source meshes are in document coordinates.
                 document::PartDocument::resolve_copy_reference(preview_parameters,dialog->pending.id,dialog->pending.placement,{});
-                auto source_mesh=sources.at(dialog->derived_copy.source_id).mesh;
+                auto source_mesh=combined_source_mesh();
                 const auto& part_document=workspace_.open_part(document_id)->session.document();
                 const auto local=part_document.construction_reference_geometry_for(body_id,
                     {source_mesh.vertices,source_mesh.triangles,source_mesh.triangle_references,source_mesh.edges,source_mesh.points,source_mesh.axes});
@@ -215,10 +302,20 @@ void AssemblyWorkspaceWindow::show_derived_copy_properties(const std::string& id
                 edges=part_document.place_body_mesh(std::move(preview),body_id).edges;
             } else if(dialog->derived_copy.pattern) {
                 const auto p=kernel::validated_pattern(*dialog->derived_copy.pattern);
-                for(unsigned i=1;i<p.count;++i){const auto mesh=kernel::pattern_copy_mesh(sources.at(dialog->derived_copy.source_id).mesh,p,i);edges.insert(edges.end(),mesh.edges.begin(),mesh.edges.end());}
+                for(const auto& source:dialog->derived_copy.source_ids)
+                    for(unsigned i=1;i<p.count;++i) {
+                        const auto mesh=kernel::pattern_copy_mesh(
+                            sources.at(source).mesh,p,i);
+                        edges.insert(edges.end(),mesh.edges.begin(),mesh.edges.end());
+                    }
                 if(p.circular){kernel::ViewerEdge axis;axis.overlay=true;axis.dash_dot=true;
                     axis.points={{p.origin.x-p.axis.x*50,p.origin.y-p.axis.y*50,p.origin.z-p.axis.z*50},{p.origin.x+p.axis.x*50,p.origin.y+p.axis.y*50,p.origin.z+p.axis.z*50}};edges.push_back(std::move(axis));}
-            } else edges=kernel::mirrored_viewer_mesh(sources.at(dialog->derived_copy.source_id).mesh,dialog->derived_copy.resolved_plane).edges;
+            } else for(const auto& source:dialog->derived_copy.source_ids) {
+                auto copy=kernel::mirrored_viewer_mesh(sources.at(source).mesh,
+                    dialog->derived_copy.resolved_plane);
+                edges.insert(edges.end(),std::make_move_iterator(copy.edges.begin()),
+                    std::make_move_iterator(copy.edges.end()));
+            }
             dialog->set_status(tr("Náhled je připraven. OK vypočítá a uloží výsledek."));
         }catch(const std::exception& e){dialog->set_status(QString::fromUtf8(e.what()));}
         const auto nested_scene=[&]() -> kernel::ViewerMesh {
@@ -275,14 +372,25 @@ void AssemblyWorkspaceWindow::show_derived_copy_properties(const std::string& id
         }
         std::set<viewer::EdgeKey> highlights;
         bool inspecting=false;
-        for(int field=0;field<dialog->input_count();++field)if(field!=1&&dialog->inspected(field)&&!dialog->input_reference(field).owner_id.empty()) {
+        for(const int field:dialog->input_fields())
+            if(!dialog->is_source_input(field)&&dialog->inspected(field)&&
+                    !dialog->input_reference(field).owner_id.empty()) {
             inspecting=true;const auto ref=dialog->input_reference(field);auto path=assembly::InstancePath::decode(prefix);
             const auto local=assembly::InstancePath::decode(ref.instance_path);for(const auto& p:local.occurrence_ids)path=path.child(p);
             highlights.insert({ref.owner_id,ref.semantic_key,path.encoded()});if(ref.semantic_key=="plane")highlights.insert({ref.owner_id,"border",path.encoded()});
         }
         std::vector<kernel::ViewerEdge> source_inspection;
-        if(dialog->inspected(1)&&sources.contains(dialog->derived_copy.source_id)) {
-            source_inspection=sources.at(dialog->derived_copy.source_id).mesh.edges;
+        bool inspecting_source=false;
+        for(int row=0;row<static_cast<int>(dialog->derived_copy.source_ids.size());++row) {
+            const int field=DerivedCopyDialog::first_source_field+row;
+            const auto& source=dialog->derived_copy.source_ids[row];
+            if(!dialog->inspected(field)||!sources.contains(source))continue;
+            inspecting_source=true;
+            const auto& source_edges=sources.at(source).mesh.edges;
+            source_inspection.insert(source_inspection.end(),source_edges.begin(),
+                source_edges.end());
+        }
+        if(inspecting_source) {
             std::erase_if(source_inspection,[](const auto& edge){return edge.parameter_seam||kernel::smooth_transition_junction(edge);});
             if(!prefix.empty())for(auto& edge:source_inspection)for(auto& point:edge.points)
                 point=workspace_.occurrence_point_to_scene(workspace_.displayed_document_id(),assembly::InstancePath::decode(prefix),point);
@@ -294,7 +402,7 @@ void AssemblyWorkspaceWindow::show_derived_copy_properties(const std::string& id
         else if(!pending_primitive_reference_index_) {feature_reference_pick_={};set_primitive_properties_dimension_selection();}
         viewer_->set_container_inspection_wire(std::move(source_inspection));
         viewer_->set_constraint_reference_highlights({},std::move(highlights));
-        if(inspecting||dialog->inspected(1))feature_reference_end_=[this,dialog]{feature_reference_pick_={};feature_reference_end_={};dialog->end_input();dialog->changed();};
+        if(inspecting||inspecting_source)feature_reference_end_=[this,dialog]{feature_reference_pick_={};feature_reference_end_={};dialog->end_input();dialog->changed();};
     };
     // Release the Tree transaction before the final scene/Tree publication.
     // Otherwise that refresh still treats the closed dialog as an active edit
@@ -320,7 +428,9 @@ bool AssemblyWorkspaceWindow::accept_derived_copy_tree_reference(QTreeWidgetItem
     auto* dialog=dynamic_cast<DerivedCopyDialog*>(properties_dialog_);if(!dialog||dialog->active_input()<0||!feature_reference_pick_)return false;
     viewer::ViewerCandidate candidate;candidate.instance_path=item->data(0,Qt::UserRole+1).toString().toStdString();
     candidate.owner_id=item->data(0,Qt::UserRole).toString().toStdString();const auto kind=item->data(0,Qt::UserRole+3).toString();
-    if(dialog->active_input()==1)candidate.kind=candidate.instance_path.empty()?viewer::CandidateKind::Container:viewer::CandidateKind::Occurrence;
+    if(dialog->is_source_input(dialog->active_input()))
+        candidate.kind=candidate.instance_path.empty()?
+            viewer::CandidateKind::Container:viewer::CandidateKind::Occurrence;
     else {
         candidate.kind=dialog->derived_copy.pattern?viewer::CandidateKind::Axis:viewer::CandidateKind::Plane;candidate.geometry=viewer::CandidateGeometry::OriginalReference;
         if(kind=="origin-reference") {
@@ -340,10 +450,14 @@ void AssemblyWorkspaceWindow::show_derived_source(const std::string& id,bool pro
     if(properties_dialog_)return;
     if(const auto* part=workspace_.open_part(workspace_.active_document_id())) {
         const auto& graph=part->session.document().body_history;auto source_id=id;const auto* body=graph.find(source_id);std::set<std::string> seen;
-        while(body&&body->derived_copy&&seen.insert(body->scope.id).second){source_id=body->derived_copy->source_id;body=graph.find(source_id);}
+        while(body&&body->derived_copy&&seen.insert(body->scope.id).second) {
+            source_id=document::primary_derived_copy_source(
+                *body->derived_copy);body=graph.find(source_id);
+        }
         while(const auto* feature=part->session.document().find_container(source_id)) {
             if(feature->feature_kind!=document::FeatureKind::DerivedCopy||!seen.insert(source_id).second)break;
-            source_id=feature->derived_copy.source_id;
+            source_id=document::primary_derived_copy_source(
+                feature->derived_copy);
         }
         if(const auto* feature=part->session.document().find_container(source_id)) {
             show_parameter_dimensions(feature->id);if(properties)show_primitive_properties(feature->feature_kind,feature->id);return;

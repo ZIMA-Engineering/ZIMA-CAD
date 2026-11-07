@@ -27,7 +27,7 @@ static void verify_derived_reference_database(const kernel::OcctKernel& kernel,b
     graph.insert({document::PartHistoryKind::Feature,feature.id});graph.activate({});
     document::BodyHistory derived;derived.scope.id="derived-body";derived.name="Derived";
     if(mirror) {
-        derived.derived_copy=document::DerivedCopyParameters{source,{{},derived.scope.id+":origin","origin:plane:yz"}};
+        derived.derived_copy=document::DerivedCopyParameters{{source},{{},derived.scope.id+":origin","origin:plane:yz"}};
         static_cast<void>(graph.create_derived_copy(derived));
     } else {
         derived.scale=document::BodyScale{source,2,{}};static_cast<void>(graph.create_scale(derived));

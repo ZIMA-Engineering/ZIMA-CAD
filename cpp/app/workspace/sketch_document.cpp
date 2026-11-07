@@ -108,7 +108,12 @@ void AssemblyWorkspaceWindow::accept_sketch_external_reference(
         const auto reference_id=reference.id;
         const auto reference_kind=reference.kind;
         pending.add_external_reference(std::move(reference));
-        if(reference_kind==sketcher::ExternalReferenceKind::Edge)
+        // A finite face-outline candidate is persisted as a Face reference so
+        // its source-side identity survives refresh, but it still owns the
+        // same two usable endpoints as an ordinary projected edge.
+        if(reference_kind==sketcher::ExternalReferenceKind::Edge||
+           (reference_kind==sketcher::ExternalReferenceKind::Face&&
+            sketcher::is_face_curve_key(source.semantic_key)))
             static_cast<void>(pending.add_external_edge_endpoints(reference_id));
         if(sketch_external_profile_active_)static_cast<void>(pending.add_external_profile_geometry(reference_id));
         // Drafts are local to the parent dialog. Only its final Part commit

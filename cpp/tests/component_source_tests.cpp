@@ -24,7 +24,19 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     require(live.open_assembly(top)->session.revision()==revision && std::abs(live.open_part(part_id)->session.calculated_boundaries().back().volume-6000)<1e-8,"Source open regenerated geometry or parent");
     run(host,"activate",{{"document",part_id}});zima::test::resize_rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"container",box},{"height_mm","40"}});run(host,"activate",{{"document",top}});
     bool io=false;opened=workspace::open_component_source(live,top,path,[&](auto){io=true;});
-    require(!opened.opened && !io && std::abs(live.open_part(part_id)->session.calculated_boundaries().back().volume-8000)<1e-8,"Opening an already edited source reloaded its file");
+    const auto& edited_vertices=live.open_part(part_id)->session.
+        calculated_boundaries().back().mesh.vertices;
+    double z_min=1e100,z_max=-1e100;
+    for(const auto& vertex:edited_vertices) {
+        z_min=std::min(z_min,vertex.z);
+        z_max=std::max(z_max,vertex.z);
+    }
+    const double edited_height=z_max-z_min;
+    if(opened.opened||io||edited_vertices.empty()||
+            std::abs(edited_height-40.)>=1e-8)
+        throw std::runtime_error("Opening an already edited source reloaded its file: opened="+
+            std::to_string(opened.opened)+", io="+std::to_string(io)+
+            ", height="+std::to_string(edited_height));
     run(host,"close",{{"document",part_id},{"discard",true}});
     const auto fails=[&](const auto& runner,const char* code) {
         bool failed=false;try{static_cast<void>(workspace::open_component_source(live,top,path,runner));}catch(const workspace::ComponentOperationError& e){failed=e.code==std::string(code);}
@@ -41,7 +53,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     opened=workspace::open_component_source(live,top,path,[&](auto read){read();static_cast<void>(workspace::insert_native_document(live,workspace::read_native_document(source_file)));auto doc=live.open_part(part_id)->session.document();doc.name="already edited";live.open_part(part_id)->session.commit(std::move(doc),live.open_part(part_id)->session.calculated_boundaries());});
     require(!opened.opened && live.open_part(part_id)->session.document().name=="already edited","Source opened during reading was overwritten");
     // A copied subassembly redirects opening to its editable original occurrence.
-    auto doc=live.open_assembly(top)->session.document();auto copy=doc.components.front();copy.occurrence_id="derived-occurrence";copy.name="Mirror";copy.derived_copy=document::DerivedCopyParameters{};copy.derived_copy->source_id=root;doc.components.push_back(std::move(copy));live.open_assembly(top)->session.commit(std::move(doc));
+    auto doc=live.open_assembly(top)->session.document();auto copy=doc.components.front();copy.occurrence_id="derived-occurrence";copy.name="Mirror";copy.derived_copy=document::DerivedCopyParameters{};copy.derived_copy->source_ids={root};doc.components.push_back(std::move(copy));live.open_assembly(top)->session.commit(std::move(doc));
     const auto copied=assembly::InstancePath{}.child("derived-occurrence").child(leaf);
     opened=workspace::open_component_source(live,top,copied);
     require(opened.document_id==part_id && opened.source_instance_path==path,"Derived occurrence did not open its editable original source");

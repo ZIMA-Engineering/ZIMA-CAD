@@ -157,12 +157,40 @@ static void verify_sketch_axis_visibility(QApplication& application,QWidget& par
                 "A curved Sketch centerline exposed a permanent endpoint marker");
             view.set_mesh(packet,false);application.processEvents();
         }
-        view.set_selection_contract({viewer::CandidateKind::SketchAxis});
-        view.set_reference_visibility(viewer::ReferenceVisibility::Axes,true);application.processEvents();
+        const auto endpoint=std::ranges::find_if(packet.points,[](const auto& point) {
+            return point.reference.semantic_key.starts_with("point:")&&
+                point.construction;
+        });
+        require(endpoint!=packet.points.end(),
+            "Curved Sketch centerline has no persisted endpoint helper");
+        view.set_selection_contract({viewer::CandidateKind::SketchPoint});
+        view.set_reference_visibility(viewer::ReferenceVisibility::Axes,true);
+        const auto endpoint_position=project(endpoint->position.x,
+            endpoint->position.y);
+        QMouseEvent near_endpoint(QEvent::MouseMove,endpoint_position,
+            QPointF(view.mapToGlobal(endpoint_position.toPoint())),
+            Qt::NoButton,Qt::NoButton,Qt::NoModifier);
+        QApplication::sendEvent(&view,&near_endpoint);application.processEvents();
+        require(std::ranges::any_of(view.selection_candidates_at(endpoint_position),
+                [&](const auto& candidate) {
+                    return candidate.kind==viewer::CandidateKind::SketchPoint&&
+                        candidate.owner_id==endpoint->reference.owner_id&&
+                        candidate.semantic_key==endpoint->reference.semantic_key;
+                }),"Curved Sketch centerline endpoint is not offered near the pointer");
         const auto reference_entry=view.grabFramebuffer();
-        view.set_mesh(without_axis_points,false);application.processEvents();
+        view.set_mesh(without_axis_points,false);
+        QApplication::sendEvent(&view,&near_endpoint);application.processEvents();
         require(view.grabFramebuffer()!=reference_entry,
-            "Curved Sketch centerline endpoints are unavailable during explicit axis entry");
+            "Curved Sketch centerline endpoint is not revealed near the pointer");
+        view.set_mesh(packet,false);
+        QMouseEvent away(QEvent::MouseMove,QPointF(20,20),
+            QPointF(view.mapToGlobal(QPoint(20,20))),Qt::NoButton,
+            Qt::NoButton,Qt::NoModifier);
+        QApplication::sendEvent(&view,&away);application.processEvents();
+        const auto away_frame=view.grabFramebuffer();
+        view.set_mesh(without_axis_points,false);application.processEvents();
+        require(view.grabFramebuffer()==away_frame,
+            "Curved Sketch centerline endpoint remains visible away from the pointer");
         view.set_mesh(packet,false);
         view.set_selection_contract({});
     }

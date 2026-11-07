@@ -362,7 +362,7 @@ int main(int argc,char** argv){try {
             kernel::OcctKernel kernel;auto previous=workspace::calculate_part_with_resolved_references(kernel,part);
             workspace::Workspace live;live.add_part(part,previous);
             auto edit=workspace::prepare_derived_copy_edit(live,part.document_id,{},true);auto value=edit.initial;
-            value.parameters.source_id=source.id;value.parameters.pattern->linear[0].count=large?50:6;
+            value.parameters.source_ids={source.id};value.parameters.pattern->linear[0].count=large?50:6;
             value.parameters.pattern->linear[0].spacing=mode.starts_with("overlap")?2.:mode.starts_with("touch")?6.:12.;
             check(workspace::commit_derived_copy(live,kernel,edit,value),"Ordinary batch fixture failed");
             part=live.open_part(part.document_id)->session.document();
@@ -428,7 +428,7 @@ int main(int argc,char** argv){try {
             if(std::getenv("ZIMA_CPP_CORNER_MIRROR_ONLY")&&pattern)continue;
             workspace::Workspace live;live.add_part(part,previous);kernel::OcctKernel kernel;
             const auto edit=workspace::prepare_derived_copy_edit(live,part.document_id,{},pattern);
-            auto value=edit.initial;value.parameters.source_id=source;
+            auto value=edit.initial;value.parameters.source_ids={source};
             if(pattern) {value.parameters.pattern->linear[0].count=2;
                 value.parameters.pattern->linear[0].spacing=30.;
                 auto& direction=value.parameters.pattern->linear[0];
@@ -519,7 +519,7 @@ int main(int argc,char** argv){try {
                 }),"Bend Back did not restore the copied Drawing axis");
                 check(state->session.undo()&&state->session.undo(),"Corner-copy material state Undo failed");
                 auto bad=workspace::prepare_derived_copy_edit(live,part.document_id,{},true);auto invalid=bad.initial;
-                invalid.parameters.source_id=source;invalid.parameters.pattern->linear[0].spacing=10000.;
+                invalid.parameters.source_ids={source};invalid.parameters.pattern->linear[0].spacing=10000.;
                 const auto before=state->session.document().serialized();const auto revision_before=state->session.revision();bool rejected=false;
                 try {static_cast<void>(workspace::commit_derived_copy(live,kernel,bad,invalid));}catch(const std::exception&){rejected=true;}
                 check(rejected&&before==state->session.document().serialized()&&revision_before==state->session.revision(),"Disconnected copy changed the document");
@@ -1458,13 +1458,24 @@ int main(int argc,char** argv){try {
     start=std::chrono::steady_clock::now();const auto result=kernel.evaluate_history(history);
     std::cout<<"FORM cold insertion="<<elapsed(start)<<" s"<<std::endl;valid(result.back());
     check(result.back().volume!=baseline.back().volume,"FORM left the spatial sheet unchanged");
-    if(argc==2&&(std::string_view(argv[1])=="--copy-matrix"||std::string_view(argv[1])=="--copy-after-unbend")) {
-        const bool after_unbend=std::string_view(argv[1])=="--copy-after-unbend";
+    const bool single_copy_scenario=argc==3&&
+        std::string_view(argv[1])=="--copy-scenario";
+    if((argc==2&&(std::string_view(argv[1])=="--copy-matrix"||
+            std::string_view(argv[1])=="--copy-after-unbend"))||
+            single_copy_scenario) {
+        const bool after_unbend=!single_copy_scenario&&
+            std::string_view(argv[1])=="--copy-after-unbend";
+        const int first_scenario=single_copy_scenario?std::stoi(argv[2]):
+            (after_unbend?6:0);
+        const int last_scenario=single_copy_scenario?first_scenario+1:
+            (after_unbend?7:6);
+        check(first_scenario>=0&&last_scenario<=7,
+            "FORM copy scenario is outside the verification matrix");
         auto large=part;for(auto& p:large.sketches.front().points){p.x*=3;p.y*=3;}
         const auto stock_ops=large.kernel_operations();const auto stock_result=kernel.evaluate_history(stock_ops);
         auto source_form=form;auto source_request=request;source_request.position.y=-80;
         source_form.primitive=source_request;source_form.sheet_material->origin=source_request.position;
-        for(int scenario=after_unbend?6:0;scenario<(after_unbend?7:6);++scenario) {
+        for(int scenario=first_scenario;scenario<last_scenario;++scenario) {
             auto chain=stock_ops;chain.push_back(source_form);
             const auto single=kernel.evaluate_history(chain);valid(single.back());
             const auto single_volume=single.back().volume-stock_result.back().volume;
@@ -1483,7 +1494,18 @@ int main(int argc,char** argv){try {
             copied.feature_copy=copy;chain.push_back(copied);
             if(scenario==5) {auto nested=copied;nested.owner_id="nested-form-mirror";nested.feature_copy->source_feature_id=copied.owner_id;
                 nested.feature_copy->combination=kernel::BodyCombination::Mirror;nested.feature_copy->mirror_plane={{75,0,0},{1,0,0}};chain.push_back(nested);}
-            const auto spatial=kernel.evaluate_history(chain);valid(spatial.back());
+            const auto warm_started=std::chrono::steady_clock::now();
+            const auto warm_spatial=[&] {
+                kernel::AggregatePropertyScope ordinary(
+                    kernel::AggregatePropertyDemand::Deferred);
+                return kernel.evaluate_history_incremental(chain,single);
+            }();
+            const auto warm_seconds=elapsed(warm_started);valid(warm_spatial.back());
+            const auto copy_started=std::chrono::steady_clock::now();
+            const auto spatial=kernel.evaluate_history(chain);
+            const auto copy_seconds=elapsed(copy_started);valid(spatial.back());
+            near(measured_volume(kernel,warm_spatial.back()),
+                spatial.back().volume,1e-5);
             const auto state=kernel::sheet_material::regions_before(chain,chain.size());
             const auto count=std::ranges::count_if(state.regions,[](const auto& r){return r.kind==kernel::SheetMaterialDefinition::Kind::Form;});
             check(count==(scenario==4?4:scenario==5?3:2),"FORM copies lost material instances");
@@ -1516,7 +1538,9 @@ int main(int argc,char** argv){try {
                 after_unbend?area.Mass()*tolerance:1e-3);
             check(std::ranges::none_of(restored_copies.back().mesh.edges,[](const auto& e){return e.reference.semantic_key.starts_with("form:symbol:");}),
                 "Restored FORM retained flat-only symbol strokes");
-            std::cout<<"FORM copy scenario "<<scenario<<": "<<count<<" spatial/flat/restored instances passed\n";
+            std::cout<<"FORM copy scenario "<<scenario<<": "<<count
+                <<" spatial/flat/restored instances passed, spatial="
+                <<copy_seconds<<" s, warm="<<warm_seconds<<" s\n";
         }
         return 0;
     }

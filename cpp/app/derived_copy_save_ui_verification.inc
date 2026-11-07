@@ -25,14 +25,31 @@ int verify_derived_copy_save(QApplication& application, zima::app::AssemblyWorks
     const auto start=[&](bool pattern){check(row(first.id),"Copy source row missing");tree->setCurrentItem(row(first.id));flush();
         window.findChild<QAction*>(pattern?"patternAction":"mirrorAction")->trigger();flush();
         auto* dialog=dynamic_cast<app::DerivedCopyDialog*>(window.findChild<QDialog*>(pattern?"patternDialog":"mirrorDialog"));
-        check(dialog&&dialog->derived_copy.source_id==first.id,"Copy source was not prefilled");return dialog;};
+        check(dialog&&dialog->derived_copy.source_ids==std::vector<std::string>{first.id},"Copy source was not prefilled");return dialog;};
     auto* mirror=start(false);const auto mirror_id=mirror->pending.id;
-    mirror->findChild<QPushButton*>("mirrorPlane_yz")->click();flush();
+    auto* source_table=mirror->findChild<QTableWidget*>("mirrorReferences");
+    auto* plane_yz=mirror->findChild<QToolButton*>("copyReferencePresetYZ");
+    auto* plane_table=mirror->findChild<QTableWidget*>("copyReferenceView");
+    check(source_table&&source_table->rowCount()>=3&&
+        source_table->verticalHeaderItem(0)&&
+        source_table->verticalHeaderItem(0)->text()=="1",
+        "Mirror source table does not start at row 1 or expose three entries");
+    check(plane_yz&&plane_table&&plane_table!=source_table&&
+        plane_table->columnCount()==2,
+        "Mirror plane input is still coupled to its source table");
+    mirror->arm(app::DerivedCopyDialog::first_source_field+1);
+    mirror->set_source(cut.id,QStringLiteral("Cut"));flush();
+    check(mirror->derived_copy.source_ids==
+        std::vector<std::string>{first.id,cut.id},
+        "Mirror did not retain two ordered source rows");
+    plane_yz->click();flush();
+    check(mirror->derived_copy.source_ids==
+        std::vector<std::string>{first.id,cut.id},
+        "Selecting a Mirror plane changed its independent sources");
     auto* view=dynamic_cast<viewer::MeshView*>(window.findChild<QOpenGLWidget*>());
-    auto* references=mirror->findChild<QTableWidget*>("mirrorReferences");
-    auto* eye=references->cellWidget(1,3)->findChild<QToolButton*>();check(view&&eye&&eye->isEnabled(),"Mirror source inspection unavailable");
+    auto* eye=source_table->cellWidget(1,2)->findChild<QToolButton*>();check(view&&eye&&eye->isEnabled(),"Mirror second-source inspection unavailable");
     const auto draft_state=window.execute_console_command("documents").data;eye->click();flush();
-    check(mirror->inspected(1),"Mirror source eye did not retain inspection state");
+    check(mirror->inspected(app::DerivedCopyDialog::first_source_field+1),"Mirror source eye did not retain inspection state");
     check(!view->container_inspection_wire().empty(),"Mirror source eye omitted authored wire");
     check(window.execute_console_command("documents").data==draft_state,"Mirror source eye modified its document");
     eye->click();flush();check(view->container_inspection_wire().empty(),"Mirror source eye did not clear its own inspection");
@@ -44,11 +61,18 @@ int verify_derived_copy_save(QApplication& application, zima::app::AssemblyWorks
     window.findChild<QAction*>("undoAction")->trigger();flush();check(!row(mirror_id),"Mirror Undo failed");
     check(insertion_visible(),"Mirror Undo lost Insert Here");
     auto* pattern=start(true);const auto pattern_id=pattern->pending.id;
+    pattern->arm(app::DerivedCopyDialog::first_source_field+1);
+    pattern->set_source(cut.id,QStringLiteral("Cut"));flush();
+    check(pattern->derived_copy.source_ids==
+        std::vector<std::string>{first.id,cut.id},
+        "Pattern did not retain two ordered source rows");
     pattern->findChild<QComboBox*>("patternMode")->setCurrentIndex(1);
     pattern->buttons()->button(QDialogButtonBox::Ok)->click();flush();
     check(row(pattern_id)&&insertion_visible(),"Pattern OK failed to restore Insert Here without regeneration");check(save&&save->isEnabled(),"Save is disabled after copy commit");
     save->trigger();flush();
     const auto stored=document::PartDocument::load(path);const auto* feature=stored.find_container(pattern_id);
-    check(feature&&feature->derived_copy.source_id==first.id,"Saved Part is missing the committed circular Pattern");
+    check(feature&&feature->derived_copy.source_ids==
+        std::vector<std::string>{first.id,cut.id},
+        "Saved Part is missing the committed multi-source circular Pattern");
     std::cout<<"Derived copy save after Undo and branching passed\n";return 0;
 }

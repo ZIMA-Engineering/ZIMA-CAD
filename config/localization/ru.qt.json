@@ -2685,5 +2685,16 @@
   "Zobrazit nebo skrýt body os a konstrukčních čar": "Показать или скрыть точки осей и вспомогательных кривых",
   "Invalid compressed document data.": "Недопустимые сжатые данные документа.",
   "External extrusion targets must belong to a Skeleton Part.": "Внешние цели вытягивания должны принадлежать детали Skeleton.",
-  "Prázdná varianta": "Пустой вариант"
+  "Prázdná varianta": "Пустой вариант",
+  "Zdroje": "Источники",
+  "Ve View…": "В виде…",
+  "Vyberte zdroj ve View…": "Выберите источник в виде…",
+  "Vyberte zdrojový prvek, těleso nebo komponentu.": "Выберите исходный элемент, тело или компонент.",
+  "Vyberte alespoň jeden dostupný zdrojový prvek, těleso nebo komponentu.": "Выберите хотя бы один доступный исходный элемент, тело или компонент.",
+  "Kopie přebírají geometrii zdrojů. Rozměry a vlastnosti geometrie se upravují u zdrojových prvků.": "Копии наследуют геометрию источников. Размеры и свойства геометрии изменяются в исходных элементах.",
+  "Vyberte alespoň jeden zdrojový prvek, těleso nebo komponentu.": "Выберите хотя бы один исходный элемент, тело или компонент.",
+  "Vyberte osu Pole.": "Выберите ось массива.",
+  "Vyberte rovinu zrcadlení.": "Выберите плоскость зеркального отражения.",
+  "Vyberte ve View…": "Выберите в виде…",
+  "Vybrat rovinu ve View": "Выбрать плоскость в виде"
 }

@@ -1,4 +1,5 @@
 #include "profile_command_fixture.hpp"
+#include "body_measurement_fixture.hpp"
 #include <zima/command_host/host.hpp>
 #include <cmath>
 #include <numbers>
@@ -22,7 +23,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory,bool extrusion) 
     const auto target=run("feature.create",create).at("container").get<std::string>();
     const auto feature=[&](){return *state->session.document().find_container(target);};
     const auto owned=[&](){const auto& sketches=state->session.document().sketches;return *std::ranges::find(sketches,sketch,&sketcher::Sketch::id);};
-    const auto volume=[&](){return state->session.calculated_boundaries().back().volume;};const double expected=extrusion?30:36*std::numbers::pi;near(volume(),expected);
+    const auto volume=[&](){return test::measured_volume(kernel,state->session.calculated_boundaries().back());};const double expected=extrusion?30:36*std::numbers::pi;near(volume(),expected);
     const auto request=[&](int index,const std::string& owner,const std::string& key,double offset=0){return Json{{"object",target},{"index",index},{"reference",{{"owner",owner},{"key",key}}},{"offset_mm",offset}};};
     const auto set=[&](Json args){return run("placement.reference.set",std::move(args));};
     const auto reject=[&](const std::string& command,Json args,const char* code){const auto before=feature();const auto sketch_before=owned().serialized();const auto rev=state->session.revision();const auto* cache=state->session.calculated_boundaries().data();const auto result=host.execute({{"command",command},{"arguments",std::move(args)}});
@@ -47,7 +48,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory,bool extrusion) 
     require(feature()==freed&&owned().serialized()==freed_sketch,"Profile reference removal Redo changed identities");
     run("save");std::vector<kernel::BodyResult> saved_cache;const auto saved=document::PartDocument::load(directory/(prefix+"-reference.prtz"),&saved_cache);
     require(saved.find_container(target)&&*saved.find_container(target)==feature(),"Native profile definition changed on reopen");
-    require(std::ranges::find(saved.sketches,sketch,&sketcher::Sketch::id)->serialized()==owned().serialized(),"Native save lost owned profile data");near(saved_cache.back().volume,expected);
+    require(std::ranges::find(saved.sketches,sketch,&sketcher::Sketch::id)->serialized()==owned().serialized(),"Native save lost owned profile data");near(test::measured_volume(kernel,saved_cache.back()),expected);
 }
 }
 int main(){try{const auto root=fs::canonical(fs::temp_directory_path()),directory=root/("zima-profile-reference-"+document::PartDocument::create_default().document_id);require(fs::create_directory(directory),"Cannot create test directory");kernel::OcctKernel kernel;verify(kernel,directory,true);verify(kernel,directory,false);require(fs::canonical(directory).parent_path()==root,"Invalid cleanup path");fs::remove_all(directory);std::cout<<"Profile references: ownership, volume, exact displacement, no-op and native Undo/Redo passed\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

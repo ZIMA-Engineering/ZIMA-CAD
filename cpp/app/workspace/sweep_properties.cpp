@@ -169,6 +169,75 @@ void AssemblyWorkspaceWindow::show_sweep_properties(zima::document::FeatureKind 
         feature_reference_pick_={};feature_reference_end_={};
         start_primitive_reference_selection(i);
     };
+    if(auto* planar_editor=dynamic_cast<Sweep2DDialog*>(dialog)) {
+        const auto path_plane_reference=[this,active_path=*occurrence](
+                const viewer::ViewerCandidate& offered)
+                ->std::optional<std::pair<document::ConstructionReference,QString>> {
+            const auto candidate=placement_reference_source_candidate(offered);
+            if((candidate.kind!=viewer::CandidateKind::Plane&&
+                    candidate.kind!=viewer::CandidateKind::Face)||
+                    candidate.semantic_key.starts_with("origin:plane:")||
+                    !placement_reference_candidate_has_stable_geometry(candidate))
+                return std::nullopt;
+            std::string local_path=candidate.instance_path;
+            try {
+                auto path=assembly::InstancePath::decode(candidate.instance_path);
+                const auto prefix=assembly::InstancePath::decode(active_path);
+                if(path!=prefix)return std::nullopt;
+                if(!prefix.occurrence_ids.empty()) {
+                    path.occurrence_ids.erase(path.occurrence_ids.begin(),
+                        path.occurrence_ids.begin()+static_cast<std::ptrdiff_t>(
+                            prefix.occurrence_ids.size()));
+                    local_path=path.encoded();
+                }
+            }catch(const std::invalid_argument&) {return std::nullopt;}
+            if(!placement_reference_exists(candidate,
+                    primitive_reference_geometry_,local_path))return std::nullopt;
+            document::ConstructionReference reference{local_path,
+                candidate.owner_id,candidate.semantic_key,0.,
+                candidate_supports_offset(candidate)};
+            if(!document::PartDocument::sweep2d_accepts_path_plane(
+                    reference,primitive_reference_geometry_))return std::nullopt;
+            const auto label=reference_display_label(kernel::EdgeReference{
+                reference.owner_id,reference.semantic_key,reference.instance_path},
+                primitive_reference_geometry_).value_or(tr("Rovina"));
+            return std::pair{std::move(reference),label};
+        };
+        const auto end_path_plane_entry=[this,planar_editor] {
+            feature_reference_pick_={};feature_reference_end_={};
+            planar_editor->end_path_entry();
+            tree_->setProperty("commandSelectionActive",false);
+            set_primitive_properties_dimension_selection();
+        };
+        planar_editor->path_entry_ended=end_path_plane_entry;
+        planar_editor->request_path_plane=[this,planar_editor,
+                path_plane_reference,end_path_plane_entry] {
+            feature_reference_pick_={};feature_reference_end_={};
+            pending_primitive_reference_index_.reset();
+            primitive_reference_auto_advance_=false;
+            planar_editor->set_active_reference_index(std::nullopt);
+            tree_->setProperty("commandSelectionActive",true);
+            viewer_->set_original_face_selection(false);
+            viewer_->set_selection_contract({viewer::CandidateKind::Plane,
+                viewer::CandidateKind::Face});
+            viewer_->set_candidate_filter([path_plane_reference](const auto& candidate) {
+                return path_plane_reference(candidate).has_value();
+            });
+            feature_reference_pick_=[this,planar_editor,path_plane_reference,
+                    end_path_plane_entry](const auto& offered) {
+                const auto selected=path_plane_reference(offered);
+                if(!selected)return;
+                viewer_->remember_reference_face(offered);
+                planar_editor->set_path_plane(selected->first,selected->second);
+                viewer_->clear_selection();
+                tree_->setProperty("commandSelectionActive",false);
+                end_path_plane_entry();
+                state_->setText(tr("Reference zadána."));
+            };
+            feature_reference_end_=[end_path_plane_entry]{end_path_plane_entry();};
+            state_->setText(tr("Vyberte rovinu nebo rovinnou plochu pro skicu dráhy."));
+        };
+    }
     dialog->changed=[this,dialog,planar,transition,general,geometry,body_id,sheet_defaults]{
         const auto* planar_editor=dynamic_cast<Sweep2DDialog*>(dialog);
         if(!dialog->isVisible()&&!(planar_editor&&planar_editor->point_order_open()))return;
@@ -199,11 +268,12 @@ void AssemblyWorkspaceWindow::show_sweep_properties(zima::document::FeatureKind 
         viewer_->set_feature_preview_owners({c.feature_id,c.container_origin.id});
         preserve_view_on_refresh_=true;refresh_scene();
         auto highlights=highlighted_reference_edge_keys(*dialog);
-        if(auto* planar_dialog=dynamic_cast<Sweep2DDialog*>(dialog);planar_dialog&&planar_dialog->path_inspected()&&c.sweep2d.path_plane) {
+        if(auto* planar_dialog=dynamic_cast<Sweep2DDialog*>(dialog);planar_dialog&&c.sweep2d.path_plane) {
             const auto& ref=*c.sweep2d.path_plane;
             highlights.insert({ref.owner_id,ref.semantic_key,properties_dialog_instance_path_});
             if(ref.semantic_key=="plane")highlights.insert({ref.owner_id,"border",properties_dialog_instance_path_});
-            feature_reference_end_=[this,planar_dialog]{feature_reference_pick_={};feature_reference_end_={};planar_dialog->end_path_entry();planar_dialog->changed();};
+            if(planar_dialog->path_inspected())
+                feature_reference_end_=[this,planar_dialog]{feature_reference_pick_={};feature_reference_end_={};planar_dialog->end_path_entry();planar_dialog->changed();};
         }
         viewer_->set_constraint_reference_highlights({},std::move(highlights));
         zima::kernel::ViewerMesh preview_mesh;

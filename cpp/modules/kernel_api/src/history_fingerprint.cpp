@@ -109,6 +109,15 @@ std::string encode_history_fingerprint(
             u64(operation.body.source_feature_id.size());
             for(const unsigned char value:operation.body.source_feature_id)byte(value);
         }
+        if(!operation.body.copy_sources.empty()) {
+            byte(0xc8);u64(operation.body.copy_sources.size());
+            for(const auto& source:operation.body.copy_sources)
+                for(const auto* text:{&source.body_id,&source.feature_id}) {
+                    u64(text->size());for(const unsigned char value:*text)byte(value);
+                }
+            for(const auto& source:operation.body.copy_sources)
+                byte(static_cast<std::uint8_t>(source.operation));
+        }
         if(operation.body.combination==BodyCombination::Pattern) {
             const auto& p=operation.body.pattern;u64(p.count);byte(p.circular);byte(p.full_circle);
             u64(std::bit_cast<std::uint64_t>(p.angle_degrees));

@@ -27,10 +27,12 @@ public:
     using Label=std::function<QString(const kernel::MeasurementReference&)>;
     using Save=std::function<void(kernel::SavedMeasurement)>;
     MeasurementDialog(kernel::SavedMeasurement initial,Resolve resolve,Label label,Save save,
-            double length_scale,QString length_unit,double mass_scale,QString mass_unit,QWidget* parent)
+            double length_scale,QString length_unit,double angle_scale,QString angle_unit,
+            double mass_scale,QString mass_unit,QWidget* parent)
         :PropertiesSubWindow(tr("Měření"),parent),initial_(std::move(initial)),resolve_(std::move(resolve)),
-         label_(std::move(label)),save_(std::move(save)),length_scale_(length_scale),mass_scale_(mass_scale),
-         length_unit_(std::move(length_unit)),mass_unit_(std::move(mass_unit)){
+         label_(std::move(label)),save_(std::move(save)),length_scale_(length_scale),angle_scale_(angle_scale),
+         mass_scale_(mass_scale),length_unit_(std::move(length_unit)),angle_unit_(std::move(angle_unit)),
+         mass_unit_(std::move(mass_unit)){
         setObjectName("measurementDialog");setAttribute(Qt::WA_DeleteOnClose);set_initial_size({420,1});
         name_=new QLineEdit(QString::fromStdString(initial_.name));name_->setObjectName("measurementName");
         content_layout()->addWidget(new QLabel(tr("Název uloženého měření")));content_layout()->addWidget(name_);
@@ -80,7 +82,9 @@ public:
     const auto& geometries()const{return geometries_;}
     const auto& inspected()const{return inspected_;}
     const auto& distance()const{return distance_;}
+    const auto& angle()const{return angle_;}
     QString distance_text()const{return distance_?format(distance_->distance,1,length_scale_,length_unit_):QString{};}
+    QString angle_text()const{return angle_?number(angle_->value/angle_scale_)+angle_unit_:QString{};}
     kernel::SavedMeasurement current()const{
         auto record=initial_;record.name=name_->text().trimmed().toStdString();record.references.clear();record.values.clear();
         for(int i=0;i<2;++i)if(references_[i]){
@@ -164,8 +168,16 @@ private:
             info_[i]->setText(geometries_[i]?details(*geometries_[i]):references_[i]?tr("Reference chybí. Klikněte do pole a vyberte náhradu."):QString{});
             info_[i]->setVisible(!info_[i]->text().isEmpty());
         }
-        distance_=geometries_[0]&&geometries_[1]?measurement::measure_distance(*geometries_[0],*geometries_[1]):std::nullopt;
-        result_->setText(distance_?tr("Nejkratší vzdálenost: %1").arg(distance_text()):QString{});
+        angle_=geometries_[0]&&geometries_[1]?
+            measurement::measure_plane_angle(*geometries_[0],*geometries_[1]):
+            std::nullopt;
+        distance_=geometries_[0]&&geometries_[1]&&!angle_?
+            measurement::measure_distance(*geometries_[0],*geometries_[1]):
+            std::nullopt;
+        result_->setText(angle_?
+            tr("Úhel ploch")+QStringLiteral(": ")+angle_text():
+            distance_?tr("Nejkratší vzdálenost: %1").arg(distance_text()):
+            QString{});
         bool approximate=distance_&&distance_->distance.approximate;
         for(const auto& g:geometries_)if(g)approximate|=(g->values.area&&g->values.area->approximate)||(g->values.length&&g->values.length->approximate)||(g->values.volume&&g->values.volume->approximate);
         if(approximate)result_->setText(result_->text()+tr("\n≈ Označené hodnoty jsou aproximací zobrazené geometrie."));
@@ -185,13 +197,16 @@ private:
     }
     bool save_available_{true};
     kernel::SavedMeasurement initial_;Resolve resolve_;Label label_;Save save_;std::function<void()> changed_;
-    double length_scale_,mass_scale_;QString length_unit_,mass_unit_;
+    double length_scale_,angle_scale_,mass_scale_;
+    QString length_unit_,angle_unit_,mass_unit_;
     QLineEdit* name_{};std::array<QTableWidget*,2> tables_{};std::array<ui::ReferenceCellItem*,2> items_{};
     std::array<QWidget*,2> indicators_{};std::array<QToolButton*,2> eyes_{};std::array<QLabel*,2> info_{};
     QLabel *result_{},*hint_{};QPushButton* save_button_{};
     std::array<std::optional<kernel::MeasurementReference>,2> references_;
     std::array<std::optional<measurement::MeasurementGeometry>,2> geometries_;
-    std::array<bool,2> inspected_{};std::optional<kernel::MeasurementDistance> distance_;
+    std::array<bool,2> inspected_{};
+    std::optional<kernel::MeasurementDistance> distance_;
+    std::optional<kernel::MeasurementValue> angle_;
     int active_{};QPointF middle_;bool pending_middle_{},dragged_{};
 };
 } // namespace zima::app

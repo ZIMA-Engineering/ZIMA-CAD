@@ -37,10 +37,12 @@
 #include "resource_icon.hpp"
 #include "command_button_paint.hpp"
 #include "tool_button_style.hpp"
+#include "../common/interaction_colors.hpp"
 
 #include <zima/viewer/mesh_view.hpp>
 #include <zima/viewer/view_theme.hpp>
 #include <zima/kernel/mirror_geometry.hpp>
+#include <zima/kernel/axis_display.hpp>
 #include <zima/kernel/solid_state_ancestry.hpp>
 #include <zima/document/viewer_packet_json.hpp>
 #include <nlohmann/json.hpp>
@@ -787,7 +789,13 @@ void verify_container_frame_dialog(QWidget& parent) {
             "Sketch/Bend/Flat/Holes dialog lost TOP");
         const auto expected_plane=sequence==std::vector{g,f,n}
             ?sketcher::SketchPlane::XY:sketcher::SketchPlane::XZ;
-        require(pending.first.plane_auto&&pending.first.plane==expected_plane,"Dialog lost the automatic FRONT/whole-Origin work plane");
+        if(!pending.first.plane_auto||pending.first.plane!=expected_plane)
+            throw std::runtime_error(
+                "Dialog lost the automatic FRONT/whole-Origin work plane: automatic="+
+                std::to_string(pending.first.plane_auto)+" actual="+
+                std::to_string(static_cast<int>(pending.first.plane))+" expected="+
+                std::to_string(static_cast<int>(expected_plane))+" first="+
+                sequence.front().semantic_key);
         // A positional replacement must remove its own automatic twin from
         // the baseline; otherwise an old plane secretly continues driving it.
         const auto without=dialog.references_without(0);
@@ -880,6 +888,40 @@ void verify_point_marker_colours(QApplication& application,QWidget& parent) {
         require(framebuffer_contains_color_near(view.grabFramebuffer(),view.size(),{250,180},QColor("#00D1FF"),8),
             "Point base colour replaced confirmed azure highlighting");
     }
+    view.set_reference_visibility(viewer::ReferenceVisibility::AxisPoints,false);
+    view.set_selection_contract({viewer::CandidateKind::Vertex,viewer::CandidateKind::Axis});
+    for(const std::string key:{"axis:point:start",
+            "profile:path-point:start:from:axis:profile:1",
+            "sweep:path-point:start:from:path",
+            "helical:axis-point:start:from:helical:rotation-axis:from:path",
+            "axis:start"}) {
+        kernel::ViewerMesh mesh;
+        kernel::ViewerPoint endpoint{{0,0,0},{"axis-feature",key,{}}};
+        endpoint.display_owner_id="axis-feature";endpoint.always_visible=true;
+        mesh.points.push_back(endpoint);mesh.original_references.points.push_back(endpoint);
+        const auto parent=kernel::axis_endpoint_parent_key(key);
+        require(!parent.empty(),"Axis endpoint family has no parent Axis identity");
+        view.clear_selection();view.set_mesh(mesh);view.show();view.raise();
+        QMouseEvent away(QEvent::MouseMove,QPointF(20,20),QPointF(view.mapToGlobal(QPoint(20,20))),
+            Qt::NoButton,Qt::NoButton,Qt::NoModifier);QApplication::sendEvent(&view,&away);
+        application.processEvents();
+        require(!framebuffer_contains_color_near(view.grabFramebuffer(),view.size(),{250,180},QColor(173,110,46),5),
+            "Reference entry displayed every Axis endpoint while the pointer was distant");
+        const auto candidates=view.selection_candidates_at({250,180});
+        require(std::ranges::any_of(candidates,[&](const auto& candidate) {
+            return candidate.kind==viewer::CandidateKind::Vertex&&candidate.owner_id=="axis-feature"&&
+                candidate.semantic_key==key;
+        }),"A hidden Axis endpoint is unavailable to the proximity picker");
+        QMouseEvent near(QEvent::MouseMove,QPointF(250,180),QPointF(view.mapToGlobal(QPoint(250,180))),
+            Qt::NoButton,Qt::NoButton,Qt::NoModifier);QApplication::sendEvent(&view,&near);
+        application.processEvents();
+        require(framebuffer_contains_color_near(view.grabFramebuffer(),view.size(),{250,180},interaction::hover,6),
+            "A nearby Axis endpoint did not appear under the pointer");
+        view.confirm_reference("axis-feature",key,{},viewer::CandidateKind::Vertex);application.processEvents();
+        require(framebuffer_contains_color_near(view.grabFramebuffer(),view.size(),{250,180},interaction::selected,6),
+            "A confirmed Axis endpoint did not remain visible");
+    }
+    view.set_reference_visibility(viewer::ReferenceVisibility::AxisPoints,true);
     kernel::ViewerMesh solid;
     {
         auto sketch=sketcher::Sketch::create_default();static_cast<void>(sketch.add_circle(0,0,1));
@@ -1579,6 +1621,103 @@ static void verify_edge_treatment_fragments(QWidget& parent) {
     std::cout<<"Fillet/Chamfer stable descendant fragments and always-visible Properties route passed\n";
 }
 
+static void verify_adjacent_constraint_hover(QApplication& application,
+                                             QWidget& parent) {
+    zima::viewer::MeshView view(&parent);
+    view.resize(320, 240);
+    view.show();
+    zima::kernel::ViewerMesh mesh;
+    mesh.edges.push_back({
+        {{-20.0, 0.0, 0.0}, {20.0, 0.0, 0.0}},
+        {"passive-hover-extent", "extent"}});
+    mesh.constraint_markers.push_back({
+        {0.0, 0.0, 0.0}, "C",
+        {"constraint-hover-sketch", "constraint:coincident"}});
+    mesh.constraint_markers.push_back({
+        {0.0, 0.0, 0.0}, "T",
+        {"constraint-hover-sketch", "constraint:tangent"}});
+    view.set_mesh(std::move(mesh));
+    view.set_active_sketch_owner("constraint-hover-sketch");
+    view.set_selection_contract(
+        {zima::viewer::CandidateKind::SketchConstraint});
+    view.fit_all();
+    application.processEvents();
+
+    std::array<std::optional<QPointF>, 2> hover_positions;
+    for (int y = 0; y < view.height() &&
+            (!hover_positions[0] || !hover_positions[1]); ++y) {
+        for (int x = 0; x < view.width(); ++x) {
+            const QPointF position(x, y);
+            const auto candidates = view.selection_candidates_at(position);
+            for (std::size_t marker = 0; marker < 2; ++marker) {
+                const bool owns_marker = std::ranges::any_of(candidates,
+                    [&](const auto& candidate) {
+                        return candidate.kind ==
+                                zima::viewer::CandidateKind::SketchConstraint &&
+                            candidate.geometry_index == marker;
+                    });
+                const bool owns_other = std::ranges::any_of(candidates,
+                    [&](const auto& candidate) {
+                        return candidate.kind ==
+                                zima::viewer::CandidateKind::SketchConstraint &&
+                            candidate.geometry_index == 1 - marker;
+                    });
+                if (owns_marker && !owns_other && !hover_positions[marker])
+                    hover_positions[marker] = position;
+            }
+        }
+    }
+    require(hover_positions[0] && hover_positions[1],
+        "Adjacent C/T constraint glyphs have no independent hover area");
+
+    const auto hover_relation = [&](std::size_t marker) {
+        view.clear_selection();
+        view.reset_candidate_cycle();
+        QMouseEvent move(QEvent::MouseMove, *hover_positions[marker],
+            QPointF(view.mapToGlobal(hover_positions[marker]->toPoint())),
+            Qt::NoButton, Qt::NoButton, Qt::NoModifier);
+        QApplication::sendEvent(&view, &move);
+        application.processEvents();
+        const auto hovered = view.hovered_candidate();
+        require(hovered &&
+                hovered->kind ==
+                    zima::viewer::CandidateKind::SketchConstraint &&
+                hovered->geometry_index == marker,
+            "Constraint hover selected an adjacent relation glyph");
+        return view.grabFramebuffer();
+    };
+    const auto first_frame = hover_relation(0);
+    const auto second_frame = hover_relation(1);
+    const auto color_mask = [](const QImage& image, const QColor& expected) {
+        std::vector<std::uint64_t> result;
+        for (int y = 0; y < image.height(); ++y) {
+            for (int x = 0; x < image.width(); ++x) {
+                const auto color = image.pixelColor(x, y);
+                if (std::abs(color.red() - expected.red()) <= 14 &&
+                    std::abs(color.green() - expected.green()) <= 14 &&
+                    std::abs(color.blue() - expected.blue()) <= 14)
+                    result.push_back((std::uint64_t(std::uint32_t(y)) << 32) |
+                        std::uint32_t(x));
+            }
+        }
+        return result;
+    };
+    const auto first_azure = color_mask(first_frame, zima::interaction::hover);
+    const auto second_azure = color_mask(second_frame, zima::interaction::hover);
+    const auto first_green = color_mask(first_frame, QColor("#7CFF6B"));
+    const auto second_green = color_mask(second_frame, QColor("#7CFF6B"));
+    std::vector<std::uint64_t> shared_azure;
+    std::ranges::set_intersection(first_azure, second_azure,
+        std::back_inserter(shared_azure));
+    require(first_azure.size() > 3 && second_azure.size() > 3 &&
+            first_green.size() > 3 && second_green.size() > 3,
+        "Constraint hover did not keep one glyph azure and its neighbor green");
+    require(shared_azure.size() * 4 <
+            std::min(first_azure.size(), second_azure.size()),
+        "Hovering one adjacent constraint highlighted both glyphs azure");
+    std::cout << "Adjacent constraint hover highlights exactly one glyph passed\n";
+}
+
 int main(int argc, char* argv[]) {
     QApplication application(argc, argv);
     zima::app::apply_application_appearance(application, zima::app::ApplicationSettings{});
@@ -1588,6 +1727,11 @@ int main(int argc, char* argv[]) {
     QWidget parent;
     parent.setWindowFlag(Qt::WindowStaysOnTopHint); // Real-cursor hover checks require an unobscured test surface.
     parent.resize(900, 650);
+    // Windows otherwise lets the shell place this transient harness beside
+    // the current foreground window, which can leave most of it beyond the
+    // active screen. Real-cursor hover verification requires a deterministic
+    // on-screen native surface.
+    parent.move(40,40);
     parent.show();
     const auto initial = zima::document::PartDocument::create_twisted_sheet_container();
 
@@ -1646,6 +1790,7 @@ int main(int argc, char* argv[]) {
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_ENTRY_TABLES_ONLY"))return verify_entry_tables(application,parent);
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_FEATURE_AXIS_HIGHLIGHT_ONLY")) {verify_feature_axis_highlight(application,parent);return 0;}
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_SKETCH_AXIS_VISIBILITY_ONLY")) {verify_sketch_axis_visibility(application,parent);return 0;}
+        if(qEnvironmentVariableIsSet("ZIMA_VERIFY_SKETCH_CONSTRAINT_HOVER_ONLY")) {verify_adjacent_constraint_hover(application,parent);return 0;}
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_RELATIONS_ONLY")) {
             using namespace zima::app;
             ApplicationSettings settings;std::string saved;bool committed=false;
@@ -1882,6 +2027,7 @@ int main(int argc, char* argv[]) {
             QCursor::setPos(parent.mapToGlobal(QPoint(400,200)));
             application.processEvents();
             command.setAttribute(Qt::WA_UnderMouse,true); // Simulate a lost Leave after a command.
+            zima::app::CommandButtonHoverTracker::instance().reconcile();
             const auto stale=command.grab().toImage();
             require(background(stale)==native_background(QStyle::State_None),
                 "Command retained hover after the cursor left");
@@ -4486,15 +4632,15 @@ int main(int argc, char* argv[]) {
         const auto inactive_reference_cell = paint_reference_cell(
             QStyle::State_Enabled);
         require(focused_reference_cell == inactive_reference_cell,
-                "Stored reference text or green inspection changed when the "
+                "Stored reference text or azure inspection changed when the "
                 "Properties window gained/lost focus");
         require(framebuffer_contains_color_near(
                     focused_reference_cell, focused_reference_cell.size(),
                     QPointF(60.0, 18.0), QColor(QStringLiteral("#102027")), 42),
-                "Inspected reference label lacks dark text on the green background");
+                "Inspected reference label lacks dark text on the azure background");
         require(framebuffer_contains_color_near(focused_reference_cell, focused_reference_cell.size(),
-                    QPointF(235,18), QColor(QStringLiteral("#4DD811")), 3),
-                "Inspected reference did not paint its green background");
+                    QPointF(235,18), QColor(QStringLiteral("#00D1FF")), 3),
+                "Inspected reference did not paint its azure background");
         box_reference_dialog->set_active_reference_index(std::nullopt);
         {
             active_box_reference->set_active_input(true);
@@ -5345,8 +5491,9 @@ int main(int argc, char* argv[]) {
         sweep_dialog->set_sweep_profile_edit_request_callback([&](std::size_t index){edited_profile=index;});
         sweep_dialog->show();
         application.processEvents();
-        require(sweep_dialog->width() <= 660,
-                "Sweep/Loft properties exceed the three-column placement width");
+        if(sweep_dialog->width()>660)
+            throw std::runtime_error("Sweep/Loft properties exceed the three-column placement width: "+
+                std::to_string(sweep_dialog->width()));
         auto* thin_result=sweep_dialog->findChild<QComboBox*>("sweep3DResultType");
         auto* thin_side=sweep_dialog->findChild<QComboBox*>("sweep3DThinSide");
         auto* thin_thickness=sweep_dialog->findChild<QDoubleSpinBox*>("sweep3DThickness");
@@ -6130,7 +6277,7 @@ int main(int argc, char* argv[]) {
         require(sketch_plane != nullptr &&
                     sketch_plane->currentData() == QStringLiteral("auto") &&
                     sketch_plane->currentData(Qt::UserRole + 1).toInt() == static_cast<int>(
-                        zima::sketcher::SketchPlane::XZ) &&
+                        zima::sketcher::SketchPlane::XY) &&
                     sketch_plane->currentText().contains(QStringLiteral("První rovina")),
                 "First planar reference did not become the Sketch work plane");
         auto* sketch_front = sketch_dialog->findChild<QPushButton*>(
@@ -6155,7 +6302,7 @@ int main(int argc, char* argv[]) {
         sketch_offset->setValue(12.5);
         sketch_dialog->buttons()->button(QDialogButtonBox::Ok)->click();
         require(sketch_commits == 1 && sketch.plane_offset == 12.5 &&
-                    sketch.plane == zima::sketcher::SketchPlane::XZ &&
+                    sketch.plane == zima::sketcher::SketchPlane::XY &&
                     !sketch_placement.references.empty() &&
                     sketch_placement.references.front().owner_id == "source-plane" &&
                     sketch_placement.orientation_back &&
@@ -6635,6 +6782,8 @@ int main(int argc, char* argv[]) {
         QApplication::sendEvent(&gesture_view, &gesture_middle_release);
         require(double_middle_finishes == 1 && short_middle_confirmations == 1,
                 "Middle double-click did not finish exactly once or leaked a short click");
+
+        verify_adjacent_constraint_hover(application, parent);
 
         zima::viewer::MeshView box_selection_view(&parent);
         box_selection_view.resize(320, 240);

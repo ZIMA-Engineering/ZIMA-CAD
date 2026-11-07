@@ -1,5 +1,6 @@
 #include "profile_command_fixture.hpp"
 #include "profile_request_fixture.hpp"
+#include "body_measurement_fixture.hpp"
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/body_operations.hpp>
 #include <zima/workspace/document_operations.hpp>
@@ -20,8 +21,8 @@ commands::Result run(command_host::Host& host,const std::string& command,Json ar
     auto result=host.execute({{"command",command},{"arguments",std::move(args)}});
     if(!result.ok)throw std::runtime_error(command+": "+result.code+": "+result.message);return result;
 }
-void volume(const workspace::PartState& state,double expected) {
-    const auto actual=state.session.calculated_boundaries().back().volume;
+void volume(const kernel::OcctKernel& engine,const workspace::PartState& state,double expected) {
+    const auto actual=test::measured_volume(engine,state.session.calculated_boundaries().back());
     if(std::abs(actual-expected)>1e-6)throw std::runtime_error("Expected volume "+std::to_string(expected)+", got "+std::to_string(actual));
 }
 void verify_import_resolution(const kernel::OcctKernel& kernel,const fs::path& directory) {
@@ -100,7 +101,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     auto* state=live.open_part(id);
     const auto first=state->session.document().body_history.active_body_id();
     const auto first_box=zima::test::rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"length_mm","10"},{"width_mm","10"},{"height_mm","10"}}).data.at("container").get<std::string>();
-    volume(*state,1000);
+    volume(kernel,*state,1000);
     const auto created=run(host,"body.create",{{"name","Tool"}}).data;
     const auto tool=created.at("body").get<std::string>();
     require(created.at("placement").at("x")==0 && created.at("placement").at("references").size()==5,"New Body is not fully attached to the Part origin");
@@ -140,7 +141,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     }
     {
         const auto original=state->session.document().body_history;
-        const auto calculated=state->session.calculated_boundaries();
+        auto calculated=state->session.calculated_boundaries();
         const auto* calculated_allocation=
             state->session.calculated_boundaries().data();
         const auto unchanged_geometry=[&]{
@@ -148,10 +149,15 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
             require(current.data()==calculated_allocation,
                 "Body display metadata copied the immutable calculated cache");
             require(current.size()==calculated.size(),"Body display metadata changed history boundaries");
-            for(std::size_t i=0;i<current.size();++i)
-                require(current[i].kernel_shape==calculated[i].kernel_shape &&
-                    current[i].source_fingerprint==calculated[i].source_fingerprint && current[i].volume==calculated[i].volume,
-                    "Body visibility or cursor changed calculated geometry");
+            for(std::size_t i=0;i<current.size();++i) {
+                const bool shape=current[i].kernel_shape==calculated[i].kernel_shape;
+                const bool fingerprint=current[i].source_fingerprint==calculated[i].source_fingerprint;
+                const bool properties=current[i].physical_properties_current==calculated[i].physical_properties_current;
+                if(!shape||!fingerprint||!properties)
+                    throw std::runtime_error("Body visibility or cursor changed calculated geometry at boundary "+
+                        std::to_string(i)+" (shape="+std::to_string(shape)+", fingerprint="+
+                        std::to_string(fingerprint)+", properties="+std::to_string(properties)+")");
+            }
         };
         const auto revision=state->session.revision();
         const auto hidden=run(host,"body.set",{{"body",first},{"visible",false}}).data;
@@ -168,12 +174,13 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
             state->session.revision()==same_revision,"Invalid visibility target changed state");
         run(host,"save");std::vector<kernel::BodyResult> reopened;
         const auto saved=document::PartDocument::load(directory/"bodies.prtz",&reopened);
-        require(saved.body_history==expected && !reopened.empty() && reopened.back().volume==calculated.back().volume,
+        require(saved.body_history==expected && !reopened.empty() && test::measured_volume(kernel,reopened.back())==test::measured_volume(kernel,calculated.back()),
             "Native save lost visibility, placement or calculated geometry");
         run(host,"undo");require(state->session.document().body_history==original,"Visibility Undo changed more than visibility");
         run(host,"redo");require(state->session.document().body_history==expected,"Visibility Redo failed");
         // Save analysis may replace the calculated packet with an equivalent
         // immutable snapshot. Metadata commits after that point must share it.
+        calculated=state->session.calculated_boundaries();
         calculated_allocation=state->session.calculated_boundaries().data();
         run(host,"body.set",{{"body",first},{"visible",true}});
         const auto cursor=original.insertion_cursor();
@@ -201,17 +208,17 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
         const auto revision=state->session.revision();
         require(host.execute({{"command","body.suppress"},{"arguments",{{"body",tool},{"suppressed",true}}}}).code=="active_body" &&
             state->session.revision()==revision,"Active Body suppression changed the document");
-        run(host,"body.suppress",{{"body",first},{"suppressed",true}});volume(*state,64);
+        run(host,"body.suppress",{{"body",first},{"suppressed",true}});volume(kernel,*state,64);
         require(state->session.document().body_history.find(first)->suppressed &&
             !state->session.document().find_container(first_box)->suppressed,"Body suppression changed feature suppression");
         const auto changed_revision=state->session.revision();
         require(run(host,"body.suppress",{{"body",first},{"suppressed",true}}).data.at("changed")==false &&
             state->session.revision()==changed_revision,"No-op suppression created a transaction");
-        run(host,"undo");volume(*state,1064);
-        run(host,"redo");volume(*state,64);
+        run(host,"undo");volume(kernel,*state,1064);
+        run(host,"redo");volume(kernel,*state,64);
         require(!host.execute({{"command","body.activate"},{"arguments",{{"body",first}}}}).ok,
             "Suppressed Body became active");
-        run(host,"body.suppress",{{"body",first},{"suppressed",false}});volume(*state,1064);
+        run(host,"body.suppress",{{"body",first},{"suppressed",false}});volume(kernel,*state,1064);
         require(state->session.document().body_history==original_graph,"Restoring Body changed history");
     }
     {
@@ -220,16 +227,16 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
         run(host,"body.activate");
         const auto scaled=run(host,"body.scale",{{"source",first},{"factor",2},{"name","Scaled"}}).data;
         require(scaled.at("derived")==true&&scaled.at("history").empty()&&scaled.at("scale").at("source")==first,
-            "Scale command created a feature history or lost its source");volume(*state,9064);
+            "Scale command created a feature history or lost its source");volume(kernel,*state,9064);
         const auto revision=state->session.revision();
         require(!host.execute({{"command","body.scale"},{"arguments",{{"source",first},{"factor",-1}}}}).ok&&
             state->session.revision()==revision,"Invalid Scale partly committed");
-        run(host,"body.suppress",{{"body",first},{"suppressed",true}});volume(*state,8064);
-        run(host,"undo");volume(*state,9064);run(host,"undo");volume(*state,1064);run(host,"undo");
+        run(host,"body.suppress",{{"body",first},{"suppressed",true}});volume(kernel,*state,8064);
+        run(host,"undo");volume(kernel,*state,9064);run(host,"undo");volume(kernel,*state,1064);run(host,"undo");
         require(state->session.document().body_history==original_graph,"Scale Undo did not restore editing context");
     }
     const auto cut=run(host,"body.boolean.create",{{"operation","subtract"},{"target",first},{"tool",tool}}).data.at("boolean").get<std::string>();
-    volume(*state,936);require(state->session.document().body_history.active_body_id().empty(),"Boolean did not finish Body editing");
+    volume(kernel,*state,936);require(state->session.document().body_history.active_body_id().empty(),"Boolean did not finish Body editing");
     require(state->session.document().body_history.find(first)->entries==original_graph.find(first)->entries &&
         state->session.document().body_history.find(tool)->entries==original_graph.find(tool)->entries,"Boolean replaced source history");
     const auto revision=state->session.revision();const auto* boolean_cache=state->session.calculated_boundaries().data();
@@ -237,27 +244,27 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     require(run(host,"body.boolean.set",{{"boolean",cut},{"operation","subtract"}}).data.at("changed")==false && state->session.calculated_boundaries().data()==boolean_cache,"Boolean no-op recalculated");
     require(!host.execute({{"command","body.boolean.set"},{"arguments",{{"boolean",cut},{"tool",first}}}}).ok && state->session.revision()==revision,"Invalid Boolean inputs partly committed");
     require(!host.execute({{"command","body.boolean.create"},{"arguments",{{"operation","add"},{"target",first},{"tool",tool}}}}).ok && state->session.revision()==revision,"Consumed results reused by another Boolean");
-    run(host,"body.boolean.set",{{"boolean",cut},{"operation","intersect"}});volume(*state,64);
-    run(host,"undo");volume(*state,936);run(host,"redo");volume(*state,64);
-    run(host,"body.boolean.set",{{"boolean",cut},{"operation","add"}});volume(*state,1000);
+    run(host,"body.boolean.set",{{"boolean",cut},{"operation","intersect"}});volume(kernel,*state,64);
+    run(host,"undo");volume(kernel,*state,936);run(host,"redo");volume(kernel,*state,64);
+    run(host,"body.boolean.set",{{"boolean",cut},{"operation","add"}});volume(kernel,*state,1000);
     require(state->session.document().find_container(first_box)->id==first_box && state->session.document().find_container(tool_box)->id==tool_box,"Boolean changed original feature identities");
     // Exercise the exact same body placement transaction as the GUI. The
     // persisted origin-plane offset drives the resulting position.
     auto edit=workspace::prepare_body_edit(state->session.document(),tool);
     auto moved=*edit.pending.find(tool);moved.scope.placement.references.at(2).offset=20;
-    require(workspace::commit_body_edit(live,kernel,edit,moved,false),"Body placement did not commit");volume(*state,1064);
+    require(workspace::commit_body_edit(live,kernel,edit,moved,false),"Body placement did not commit");volume(kernel,*state,1064);
     require(state->session.document().body_history.find(tool)->scope.placement.x==20 &&
         state->session.document().body_history.find(tool)->scope.placement.references.at(2).owner_id==id+":origin","Body lost its original placement reference");
-    run(host,"undo");volume(*state,1000);run(host,"redo");volume(*state,1064);
+    run(host,"undo");volume(kernel,*state,1000);run(host,"redo");volume(kernel,*state,1064);
     // A stale properties draft cannot overwrite a later graph edit.
     edit=workspace::prepare_body_edit(state->session.document(),tool);moved=*edit.pending.find(tool);moved.name="stale edit";
     run(host,"body.activate",{{"body",first}});
     bool stale=false;try{static_cast<void>(workspace::commit_body_edit(live,kernel,edit,moved,false));}
     catch(const workspace::BodyOperationError& error){stale=std::string(error.code)=="body_history_changed";}
     require(stale && state->session.document().body_history.find(tool)->name=="Tool renamed","Stale draft overwrote newer graph state");
-    const auto preserved_volume=state->session.calculated_boundaries().back().volume;
+    const auto preserved_volume=test::measured_volume(kernel,state->session.calculated_boundaries().back());
     run(host,"body.cursor",{{"index",0},{"body",first}});
-    require(state->session.document().body_history.find(first)->cursor==0,"Body cursor not changed");volume(*state,preserved_volume);
+    require(state->session.document().body_history.find(first)->cursor==0,"Body cursor not changed");volume(kernel,*state,preserved_volume);
     const auto cursor_revision=state->session.revision();const auto* cursor_cache=state->session.calculated_boundaries().data();
     run(host,"body.cursor",{{"index",0},{"body",first}});
     require(state->session.revision()==cursor_revision && state->session.calculated_boundaries().data()==cursor_cache,"No-op cursor rebuilt history");
@@ -306,7 +313,7 @@ int main() {
             run(host,"new",{{"type","part"},{"name","linked-target"}});run(host,"body.activate");
             const auto target=live.active_document_id();
             const auto created=run(host,"body.link",{{"file","linked-source.prtz"},{"source_body",source_body}}).data;
-            const auto body=created.at("body").get<std::string>();volume(*live.open_part(target),1000);
+            const auto body=created.at("body").get<std::string>();volume(kernel,*live.open_part(target),1000);
             require(created.at("link").at("document")==source&&created.at("link").at("body")==source_body,"CLI lost source identities");
             require(!run(host,"body.link",{{"file","linked-source.prtz"},{"source_body",source_body},{"body",body}}).data.at("changed").get<bool>(),"CLI no-op link created a transaction");
             run(host,"save");

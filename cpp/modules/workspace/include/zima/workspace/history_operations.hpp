@@ -1,6 +1,7 @@
 #pragma once
 #include <zima/workspace/model_calculation.hpp>
 #include <stdexcept>
+#include <vector>
 
 namespace zima::workspace {
 class HistoryOperationError : public std::runtime_error {
@@ -15,6 +16,11 @@ public:
 [[nodiscard]] bool set_part_history_suppressed(Workspace&,const std::string& document,const kernel::OcctKernel&,const std::string& object,bool suppressed);
 [[nodiscard]] bool move_part_history(Workspace&,const std::string& document,const kernel::OcctKernel&,const std::string& object,const std::string& before={},bool commit=true);
 void delete_part_history(Workspace&,const std::string& document,const kernel::OcctKernel&,const std::string& object);
+// Deletes an already ordered set of ordinary Part history objects in one
+// document transaction and performs one final calculation.  This is the Tree
+// multi-selection path; individual deletion retains the overload above.
+void delete_part_history(Workspace&,const std::string& document,
+    const kernel::OcctKernel&,const std::vector<std::string>& objects);
 [[nodiscard]] HistoryCursorChange set_part_history_cursor(
     Workspace&,const std::string& document,const kernel::OcctKernel&,
     std::size_t index);

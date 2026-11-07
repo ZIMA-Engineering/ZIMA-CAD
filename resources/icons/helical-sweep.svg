@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" role="img" aria-labelledby="title">
   <title id="title">Helical Sweep</title>
-  <path d="M5 4 c0 2.49 3.13 4.63 7 5.3 s7 -0.14 7 -1.3 s-3.13 -1.97 -7 -1.3 s-7 2.81 -7 5.3
-           c0 2.49 3.13 4.63 7 5.3 s7 -0.14 7 -1.3 s-3.13 -1.97 -7 -1.3 s-7 2.81 -7 5.3"
+  <path d="M5 6 c0 2.49 3.13 4.63 7 5.3 s7 -0.14 7 -1.3
+           s-3.13 -1.97 -7 -1.3 s-7 2.81 -7 5.3"
         fill="none" stroke="#00D1FF" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>

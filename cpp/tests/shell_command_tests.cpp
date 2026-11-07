@@ -1,4 +1,5 @@
 #include "profile_command_fixture.hpp"
+#include "body_measurement_fixture.hpp"
 #include "profile_solid_fixture.hpp"
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/shell_operations.hpp>
@@ -41,8 +42,8 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     for(const auto args:std::vector<Json>{{{"limit",0}},{{"limit",5001}},{{"offset",-1}},{{"container",box}}})
         require(!host.execute({{"command","shell.faces"},{"arguments",args}}).ok,"Invalid Shell face query accepted");
     const auto id=run(host,"shell.create",{{"faces",Json::array({top})}}).data.at("container").get<std::string>();
-    const auto original=*state->session.document().find_container(id);near(state->session.calculated_boundaries().back().volume,424);
-    run(host,"undo");require(!state->session.document().find_container(id),"Shell create did not Undo in one step");near(state->session.calculated_boundaries().back().volume,1000);
+    const auto original=*state->session.document().find_container(id);near(test::measured_volume(kernel,state->session.calculated_boundaries().back()),424);
+    run(host,"undo");require(!state->session.document().find_container(id),"Shell create did not Undo in one step");near(test::measured_volume(kernel,state->session.calculated_boundaries().back()),1000);
     run(host,"redo");require(*state->session.document().find_container(id)==original,"Shell Redo changed identities");
     const auto unchanged=state->session.revision();const auto* saved_cache=state->session.calculated_boundaries().data();
     run(host,"shell.get",{{"container",id}});require(!run(host,"shell.set",{{"container",id},{"thickness_mm",1}}).data.at("changed").get<bool>(),"Shell equal properties committed");
@@ -55,18 +56,18 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
         auto args=patch;args["container"]=id;require(!host.execute({{"command","shell.set"},{"arguments",args}}).ok,"Invalid Shell edit accepted");
         require(state->session.revision()==unchanged&&saved_cache==state->session.calculated_boundaries().data()&&*state->session.document().find_container(id)==original,"Invalid Shell edit partly committed");
     }
-    run(host,"shell.set",{{"container",id},{"thickness_mm",2}});near(state->session.calculated_boundaries().back().volume,712);
-    run(host,"undo");near(state->session.calculated_boundaries().back().volume,424);run(host,"redo");near(state->session.calculated_boundaries().back().volume,712);
-    run(host,"shell.set",{{"container",id},{"thickness_mm",1},{"faces",Json::array({top,side})}});near(state->session.calculated_boundaries().back().volume,352);
-    run(host,"shell.set",{{"container",id},{"faces",Json::array({top,bottom})}});near(state->session.calculated_boundaries().back().volume,360);
-    run(host,"shell.set",{{"container",id},{"faces",Json::array()}});near(state->session.calculated_boundaries().back().volume,488);
+    run(host,"shell.set",{{"container",id},{"thickness_mm",2}});near(test::measured_volume(kernel,state->session.calculated_boundaries().back()),712);
+    run(host,"undo");near(test::measured_volume(kernel,state->session.calculated_boundaries().back()),424);run(host,"redo");near(test::measured_volume(kernel,state->session.calculated_boundaries().back()),712);
+    run(host,"shell.set",{{"container",id},{"thickness_mm",1},{"faces",Json::array({top,side})}});near(test::measured_volume(kernel,state->session.calculated_boundaries().back()),352);
+    run(host,"shell.set",{{"container",id},{"faces",Json::array({top,bottom})}});near(test::measured_volume(kernel,state->session.calculated_boundaries().back()),360);
+    run(host,"shell.set",{{"container",id},{"faces",Json::array()}});near(test::measured_volume(kernel,state->session.calculated_boundaries().back()),488);
     // A changed source is used by the existing Shell after explicit calculation.
-    zima::test::resize_rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"container",box},{"length_mm","12"}});near(state->session.calculated_boundaries().back().volume,560);
+    zima::test::resize_rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"container",box},{"length_mm","12"}});near(test::measured_volume(kernel,state->session.calculated_boundaries().back()),560);
     auto locked=*state->session.document().find_container(id);locked.value_locks.insert("thickness");
     static_cast<void>(workspace::commit_shell(live,kernel,document_id,locked,workspace::ShellEditMode::Replace));
     require(host.execute({{"command","shell.set"},{"arguments",{{"container",id},{"thickness_mm",2}}}}).code=="value_locked","Shell bypassed its Properties lock");
     run(host,"save");std::vector<kernel::BodyResult> saved;const auto loaded=document::PartDocument::load(directory/"shell-command.prtz",&saved);
-    require(*loaded.find_container(id)==locked,"Shell native save lost properties/references");near(saved.back().volume,560);near(kernel.evaluate_history(loaded.kernel_operations()).back().volume,560);
+    require(*loaded.find_container(id)==locked,"Shell native save lost properties/references");near(test::measured_volume(kernel,saved.back()),560);near(test::measured_volume(kernel,kernel.evaluate_history(loaded.kernel_operations()).back()),560);
     // Select only the owning Body, including when another Body has an identical shape.
     const auto other=run(host,"body.create",{{"name","Other"}}).data.at("body").get<std::string>();
     const auto other_box=zima::test::rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"length_mm","20"},{"width_mm","20"},{"height_mm","20"},{"one_sided",true}}).data.at("container").get<std::string>();
@@ -79,17 +80,17 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     run(host,"body.cursor",{{"body",body},{"index",1}});
     require(run(host,"shell.faces").data.at("total")==6,"Shell insertion ignored the history cursor");
     const auto* input=workspace::calculated_operation_input(state->session);
-    require(input&&std::abs(input->volume-1200)<1e-6,"Borrowed input is not the real insertion boundary");
+    require(input&&std::abs(test::measured_volume(kernel,*input)-1200)<1e-6,"Borrowed input is not the real insertion boundary");
     const auto pointer=input;
     require(workspace::calculated_operation_input(state->session)==pointer,"Reading operation input copied the body");
     // Current non-planar source: cylinder with one open end.
     run(host,"new",{{"type","part"},{"name","shell-cylinder"}});
     const auto cylinder=zima::test::circular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"radius_mm","10"},{"height_mm","20"}}).data.at("container").get<std::string>();
     run(host,"shell.create",{{"faces",Json::array({face("z_max",cylinder)})}});
-    state=live.open_part(live.active_document_id());near(state->session.calculated_boundaries().back().volume,461*std::numbers::pi);
+    state=live.open_part(live.active_document_id());near(test::measured_volume(kernel,state->session.calculated_boundaries().back()),461*std::numbers::pi);
     // Closed shell: the kernel must preserve both boundaries of a spherical wall.
     run(host,"new",{{"type","part"},{"name","shell-sphere"}});zima::test::spherical_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},10);run(host,"shell.create");
-    state=live.open_part(live.active_document_id());near(state->session.calculated_boundaries().back().volume,4*std::numbers::pi*271/3);
+    state=live.open_part(live.active_document_id());near(test::measured_volume(kernel,state->session.calculated_boundaries().back()),4*std::numbers::pi*271/3);
     const auto sphere_shell=state->session.document().history.back().id;
     const auto sphere_faces=[&](const kernel::BodyResult& result) {
         std::set<std::pair<std::string,std::string>> ids;
@@ -105,7 +106,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     };
     const auto sphere_ids=sphere_faces(state->session.calculated_boundaries().back());run(host,"save");
     auto sphere_loaded=document::PartDocument::load(directory/"shell-sphere.prtz");const auto sphere_cold=kernel.evaluate_history(sphere_loaded.kernel_operations());
-    near(sphere_cold.back().volume,4*std::numbers::pi*271/3);require(sphere_faces(sphere_cold.back())==sphere_ids,"Spherical Shell changed face identities after native reload");
+    near(test::measured_volume(kernel,sphere_cold.back()),4*std::numbers::pi*271/3);require(sphere_faces(sphere_cold.back())==sphere_ids,"Spherical Shell changed face identities after native reload");
     // A treatment owns new real faces, which the Shell input query must retain.
     run(host,"new",{{"type","part"},{"name","shell-filleted"}});state=live.open_part(live.active_document_id());
     auto treated=state->session.document();auto block=zima::test::rectangular_feature(treated,{100,80,50});
@@ -117,7 +118,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     const auto treated_faces=run(host,"shell.faces",{{"owner",fillet.id}}).data;
     require(treated_faces.at("total")==2,"Shell did not offer the real Fillet faces of its input body");
     run(host,"shell.create",{{"thickness_mm",2},{"faces",Json::array({face("z_max",block.id)})}});
-    near(state->session.calculated_boundaries().back().volume,(7950+12.5*std::numbers::pi)*50-(7278+4.5*std::numbers::pi)*48);
+    near(test::measured_volume(kernel,state->session.calculated_boundaries().back()),(7950+12.5*std::numbers::pi)*50-(7278+4.5*std::numbers::pi)*48);
     // Trimming a sphere introduces a real circular rim. It must survive the
     // seam/pole policy, including its new inward-offset circle at radius 9.
     run(host,"new",{{"type","part"},{"name","shell-hemisphere"}});state=live.open_part(live.active_document_id());
@@ -128,10 +129,10 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     auto cutter=zima::test::rectangular_feature(hemisphere,{40,40,20});cutter.placement.z=10;cutter.combine_mode=document::CombineMode::Subtract;
     for(const auto& feature:{ball,cutter}){hemisphere.insert_history_entry(document::PartHistoryKind::Feature,feature.id);hemisphere.history.push_back(feature);}
     hemisphere.resolve_constructions();
-    auto hemisphere_results=kernel.evaluate_history(hemisphere.kernel_operations());near(hemisphere_results.back().volume,2000*std::numbers::pi/3);
+    auto hemisphere_results=kernel.evaluate_history(hemisphere.kernel_operations());near(test::measured_volume(kernel,hemisphere_results.back()),2000*std::numbers::pi/3);
     state->session.commit(std::move(hemisphere),std::move(hemisphere_results));
     run(host,"shell.create",{{"faces",Json::array({face("z_min",cutter.id)})}});
-    const auto& hemisphere_result=state->session.calculated_boundaries().back();near(hemisphere_result.volume,542*std::numbers::pi/3);
+    const auto& hemisphere_result=state->session.calculated_boundaries().back();near(test::measured_volume(kernel,hemisphere_result),542*std::numbers::pi/3);
     for(const double radius:{9.,10.})require(std::ranges::any_of(hemisphere_result.mesh.edges,[&](const auto& edge){
         return edge.reference.valid()&&edge.points.size()>2&&std::ranges::all_of(edge.points,[&](const auto& point){
             return std::abs(point.z)<1e-5&&std::abs(std::hypot(point.x,point.y)-radius)<1e-5;});
@@ -145,7 +146,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     const auto skin_id=run(host,"surface_shell.create").data.at("container").get<std::string>();
     const auto skin_definition=*state->session.document().find_container(skin_id);
     require(skin_definition.is_surface_result()&&skin_definition.shell.thickness==0.,"Surface shell retained a wall thickness");
-    near(state->session.calculated_boundaries().back().volume,0);near(state->session.calculated_boundaries().back().surface_area,600);
+    near(test::measured_volume(kernel,state->session.calculated_boundaries().back()),0);near(test::measured_surface_area(kernel,state->session.calculated_boundaries().back()),600);
     std::set<std::string> skin_faces;
     for(const auto& r:state->session.calculated_boundaries().back().mesh.original_references.triangle_references)if(r.owner_id==skin_id) {
         const auto parent=kernel::surface_shell_parent(r.semantic_key);
@@ -156,11 +157,11 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     // Downstream treatments consume the actual extracted shell edges.
     const auto skin_edge=state->session.calculated_boundaries().back().mesh.edges.front().reference;
     const auto blend=run(host,"fillet.create",{{"radius_mm",1},{"routes",Json::array({Json{{"edges",Json::array({Json{{"owner",skin_edge.owner_id},{"key",skin_edge.semantic_key}}})}}})}}).data.at("container").get<std::string>();
-    near(state->session.calculated_boundaries().back().volume,0);
+    near(test::measured_volume(kernel,state->session.calculated_boundaries().back()),0);
     require(std::ranges::all_of(state->session.calculated_boundaries().back().mesh.triangle_references,[](const auto& face){return face.surface_result;}),
         "Extracted shell Fillet lost yellow surface classification");
     run(host,"undo");require(!state->session.document().find_container(blend),"Shell Fillet Undo failed");
-    run(host,"undo");near(state->session.calculated_boundaries().back().volume,1000);
+    run(host,"undo");near(test::measured_volume(kernel,state->session.calculated_boundaries().back()),1000);
     run(host,"redo");require(*state->session.document().find_container(skin_id)==skin_definition,"Surface shell Redo changed definition");
     const auto skin_revision=state->session.revision();const auto* skin_cache=state->session.calculated_boundaries().data();
     require(!run(host,"surface_shell.set",{{"container",skin_id},{"faces",Json::array()}}).data.at("changed").get<bool>(),"Unchanged surface shell committed");
@@ -169,24 +170,24 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
         "Surface shell accepted removal of all faces");
     require(state->session.revision()==skin_revision,"Rejected surface shell edit changed document");
     run(host,"surface_shell.set",{{"container",skin_id},{"faces",Json::array({skin_input.front()})}});
-    near(state->session.calculated_boundaries().back().volume,0);near(state->session.calculated_boundaries().back().surface_area,500);
+    near(test::measured_volume(kernel,state->session.calculated_boundaries().back()),0);near(test::measured_surface_area(kernel,state->session.calculated_boundaries().back()),500);
     run(host,"save");std::vector<kernel::BodyResult> skin_saved;
     auto skin_reopened=document::PartDocument::load(directory/"surface-shell.prtz",&skin_saved);
     require(skin_reopened.find_container(skin_id)->shell.thickness==0.,"Native surface shell became a thick Shell");
-    near(skin_saved.back().volume,0);near(kernel.evaluate_history(skin_reopened.kernel_operations()).back().surface_area,500);
+    near(test::measured_volume(kernel,skin_saved.back()),0);near(test::measured_surface_area(kernel,kernel.evaluate_history(skin_reopened.kernel_operations()).back()),500);
     // Removing the four walls leaves two exact disconnected cap surfaces.
     Json walls=Json::array();for(const auto& entry:skin_input)
         if(entry.at("key")!=face("z_max",skin_box).at("key")&&entry.at("key")!=face("z_min",skin_box).at("key"))walls.push_back(entry);
     run(host,"surface_shell.set",{{"container",skin_id},{"faces",walls}});
-    near(state->session.calculated_boundaries().back().surface_area,200);near(state->session.calculated_boundaries().back().volume,0);
+    near(test::measured_surface_area(kernel,state->session.calculated_boundaries().back()),200);near(test::measured_volume(kernel,state->session.calculated_boundaries().back()),0);
     const auto removed_walls=state->session.document().find_container(skin_id)->shell.removed_faces;
     zima::test::resize_rectangular_commands([&](const char* n,Json a){return run(host,n,std::move(a));},{{"container",skin_box},{"length_mm","12"}});
-    near(state->session.calculated_boundaries().back().surface_area,240);near(state->session.calculated_boundaries().back().volume,0);
+    near(test::measured_surface_area(kernel,state->session.calculated_boundaries().back()),240);near(test::measured_volume(kernel,state->session.calculated_boundaries().back()),0);
     require(state->session.document().find_container(skin_id)->shell.removed_faces==removed_walls,"Source edit changed extraction references");
     run(host,"new",{{"type","part"},{"name","surface-shell-sphere"}});
     zima::test::spherical_commands([&](const char* n,Json a){return run(host,n,std::move(a));},10);
     run(host,"surface_shell.create");state=live.open_part(live.active_document_id());
-    near(state->session.calculated_boundaries().back().volume,0);near(state->session.calculated_boundaries().back().surface_area,400*std::numbers::pi);
+    near(test::measured_volume(kernel,state->session.calculated_boundaries().back()),0);near(test::measured_surface_area(kernel,state->session.calculated_boundaries().back()),400*std::numbers::pi);
     // A separate surface in the same Body keeps its original ownership.
     run(host,"new",{{"type","part"},{"name","surface-shell-mixed"}});state=live.open_part(live.active_document_id());
     auto mixed=state->session.document();auto mixed_box=zima::test::rectangular_feature(mixed,{10,10,10});
@@ -194,7 +195,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     for(const auto& feature:{mixed_box,unrelated}){mixed.insert_history_entry(document::PartHistoryKind::Feature,feature.id);mixed.history.push_back(feature);}
     mixed.resolve_constructions();auto mixed_results=kernel.evaluate_history(mixed.kernel_operations());
     state->session.commit(std::move(mixed),std::move(mixed_results));run(host,"surface_shell.create");
-    near(state->session.calculated_boundaries().back().volume,0);near(state->session.calculated_boundaries().back().surface_area,1000);
+    near(test::measured_volume(kernel,state->session.calculated_boundaries().back()),0);near(test::measured_surface_area(kernel,state->session.calculated_boundaries().back()),1000);
     require(std::ranges::any_of(state->session.calculated_boundaries().back().mesh.triangle_references,[&](const auto& ref){return ref.owner_id==unrelated.id&&ref.surface_result;}),
         "Solid extraction changed unrelated surface ownership");
     // An impossible thickness retains the whole multi-solid input atomically.
@@ -227,9 +228,9 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     const auto check_branches=[&](double source_volume,double skin_area) {
         const auto& result=state->session.calculated_boundaries().back();
         require(result.calculation_errors.empty(),"External extraction calculation failed");
-        near(result.body_outputs.at(source_body)->volume,source_volume);
-        near(result.body_outputs.at(destination)->volume,0.);
-        near(result.body_outputs.at(destination)->surface_area,skin_area);
+        near(test::measured_volume(kernel,result.body_outputs.at(source_body).get()),source_volume);
+        near(test::measured_volume(kernel,result.body_outputs.at(destination).get()),0.);
+        near(test::measured_surface_area(kernel,result.body_outputs.at(destination).get()),skin_area);
         require(std::ranges::all_of(result.body_outputs.at(destination)->mesh.triangle_references,[&](const auto& ref){return ref.owner_id==extract&&ref.surface_result;}),"Extracted surface lost native ancestry/owner");
     };
     check_branches(1000.,400.);
@@ -256,8 +257,8 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     require(*linked_reopened.find_container(extract)==extraction,"Native file lost external extraction source");
     const auto linked_regenerated=kernel.evaluate_history_incremental(linked_reopened.kernel_operations(),linked_saved);
     require(linked_regenerated.back().calculation_errors.empty(),"External extraction regeneration failed");
-    near(linked_regenerated.back().body_outputs.at(source_body)->volume,1200.);
-    near(linked_regenerated.back().body_outputs.at(destination)->surface_area,440.);
+    near(test::measured_volume(kernel,linked_regenerated.back().body_outputs.at(source_body).get()),1200.);
+    near(test::measured_surface_area(kernel,linked_regenerated.back().body_outputs.at(destination).get()),440.);
     require(!linked_saved.back().body_boundaries.at(source_body).back().kernel_faces.empty(),"Retained source solid lacks persisted native topology");
     for(const bool rotate:{false,true}) {
         auto positioned=linked_reopened;auto graph=positioned.body_history;
@@ -272,7 +273,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
         require(result.back().calculation_errors.empty(),"Linked surface failed after source/target Body placement");
         const auto& solid=result.back().body_outputs.at(source_body)->mesh;
         const auto& skin=result.back().body_outputs.at(destination)->mesh;
-        near(result.back().body_outputs.at(destination)->surface_area,440.);
+        near(test::measured_surface_area(kernel,result.back().body_outputs.at(destination).get()),440.);
         for(const auto& point:skin.vertices)require(std::ranges::any_of(solid.vertices,[&](const auto& original){
             return std::hypot(point.x-original.x,point.y-original.y,point.z-original.z)<1e-7;
         }),"Linked surface applies a Body transform twice or loses source placement");
@@ -296,13 +297,13 @@ void verify_disconnected(const kernel::OcctKernel& kernel,fs::path directory) {
         boxes.push_back(box.id);part.insert_history_entry(document::PartHistoryKind::Feature,box.id);part.history.push_back(box);
     }
     part.resolve_constructions();auto input=kernel.evaluate_history(part.kernel_operations());
-    near(input.back().volume,3*3840);state->session.commit(part,input);
+    near(test::measured_volume(kernel,input.back()),3*3840);state->session.commit(part,input);
     const auto face=[&](int i,const char* side="z_max") {
         return Json{{"owner",boxes[i]},{"key",test::profile_key(part,boxes[i],side)}};
     };
     const auto check=[&](double volume) {
         const auto& result=state->session.calculated_boundaries().back();
-        require(result.calculation_errors.empty(),"Disconnected Shell retained a calculation error");near(result.volume,volume);
+        require(result.calculation_errors.empty(),"Disconnected Shell retained a calculation error");near(test::measured_volume(kernel,result),volume);
     };
     const auto untouched=[&](int i) {
         const auto collect=[&](const kernel::ViewerMesh& mesh) {
@@ -336,7 +337,7 @@ void verify_disconnected(const kernel::OcctKernel& kernel,fs::path directory) {
     run(host,"save");std::vector<kernel::BodyResult> stored;
     auto reopened=document::PartDocument::load(directory/"disconnected-shell.prtz",&stored);
     require(reopened.find_container(second)&&reopened.find_container(first),"Native reopen lost consecutive disconnected Shells");
-    const auto cold=kernel.evaluate_history(reopened.kernel_operations());near(cold.back().volume,2*1068+3840);
+    const auto cold=kernel.evaluate_history(reopened.kernel_operations());near(test::measured_volume(kernel,cold.back()),2*1068+3840);
     const auto identities=[](const kernel::BodyResult& result) {
         std::set<std::pair<std::string,std::string>> values;
         for(const auto& face:result.mesh.triangle_references)values.emplace(face.owner_id,face.semantic_key);
@@ -376,14 +377,16 @@ void verify_supplied(const kernel::OcctKernel& kernel,const fs::path& directory)
         auto edited=part;edited.history.back().shell.thickness=thickness;
         edited.history.back().shell.removed_faces.assign(faces.begin(),faces.begin()+count);
         const auto result=kernel.evaluate_history(edited.kernel_operations());
-        require(result.back().calculation_errors.empty()&&result.back().volume>0&&result.back().volume<result[result.size()-2].volume,
+        const auto result_volume=test::measured_volume(kernel,result.back());
+        const auto input_volume=test::measured_volume(kernel,result[result.size()-2]);
+        require(result.back().calculation_errors.empty()&&result_volume>0&&result_volume<input_volume,
             "Supplied skeleton Shell failed one/multiple-solid opening calculation");
         const auto copy=directory/("supplied-shell-"+std::to_string(count)+"-"+std::to_string(int(thickness))+".prtz");
         edited.save(copy,result);std::vector<kernel::BodyResult> saved;const auto reopened=document::PartDocument::load(copy,&saved);
         require(reopened.history.back().shell==edited.history.back().shell,"Supplied Shell native reopen changed its definition");
-        same_volume(saved.back().volume,result.back().volume);
-        const auto cold=kernel.evaluate_history(reopened.kernel_operations());same_volume(cold.back().volume,result.back().volume);
-        std::cout<<"Supplied skeleton openings="<<count<<" thickness="<<thickness<<" volume="<<result.back().volume<<" passed\n";
+        same_volume(test::measured_volume(kernel,saved.back()),result_volume);
+        const auto cold=kernel.evaluate_history(reopened.kernel_operations());same_volume(test::measured_volume(kernel,cold.back()),result_volume);
+        std::cout<<"Supplied skeleton openings="<<count<<" thickness="<<thickness<<" volume="<<result_volume<<" passed\n";
     }
 }
 }

@@ -591,6 +591,16 @@ void AssemblyWorkspaceWindow::add_part_tree_children(
             font.setStrikeOut(true);
             item->setFont(0, font);
         }
+        // Double-click inspection is a transient edit entry for a retained,
+        // self-contained feature. Its stored frame remains authoritative even
+        // after the placement source was deleted, so do not keep painting the
+        // actively inspected row red. No authored state is changed here: if
+        // inspection ends without an edit, the ordinary missing-reference
+        // presentation returns on the next scene refresh.
+        if (!container.suppressed &&
+                construction_dimension_object_id_ == container.id &&
+                document.removed_reference_states.contains(container.id))
+            item->setForeground(0, QBrush{});
         if (part_rollback_ &&
             part_rollback_->part_document_id == document.document_id) {
             if (index == part_rollback_->history_limit) {
@@ -675,7 +685,11 @@ void AssemblyWorkspaceWindow::add_part_tree_children(
     }
     for (int i = 0; i < parent->childCount(); ++i) {
         auto* row = parent->child(i);
-        if (document.removed_reference_states.contains(row->data(0, Qt::UserRole).toString().toStdString())) {
+        const auto object_id = row->data(0, Qt::UserRole).toString().toStdString();
+        const bool actively_inspecting_retained_container =
+            construction_dimension_object_id_ == object_id;
+        if (!actively_inspecting_retained_container &&
+            document.removed_reference_states.contains(object_id)) {
             row->setForeground(0, QBrush(QColor(210, 75, 65)));
             row->setToolTip(0, tr("A source reference was deleted. Select replacement references in Properties."));
         }
@@ -807,10 +821,17 @@ void AssemblyWorkspaceWindow::add_part_tree_children(
             origin->setText(0, definition->derived_copy ? (definition->derived_copy->pattern?tr("Počátek Pole"):tr("Počátek Zrcadla")) : tr("Počátek tělesa"));
             if(definition->link) {shade_downstream(row,index);continue;}
             if(definition->derived_copy) {
-                const auto* source=graph.find(definition->derived_copy->source_id);
-                const auto* feature=document.find_container(definition->derived_copy->source_id);
-                auto* link=new QTreeWidgetItem(row,{tr("Zdroj: %1").arg(QString::fromStdString(source?source->name:feature?feature->name:definition->derived_copy->source_id))});
-                link->setData(0,Qt::UserRole,QString::fromStdString(id));link->setData(0,Qt::UserRole+3,"mirror-source");
+                for(const auto& source_id:definition->derived_copy->source_ids) {
+                    const auto* source=graph.find(source_id);
+                    const auto* feature=document.find_container(source_id);
+                    auto* link=new QTreeWidgetItem(row,{tr("Zdroj: %1").arg(
+                        QString::fromStdString(source?source->name:
+                            feature?feature->name:source_id))});
+                    link->setData(0,Qt::UserRole,QString::fromStdString(id));
+                    link->setData(0,Qt::UserRole+3,"mirror-source");
+                    link->setData(0,Qt::UserRole+5,
+                        QString::fromStdString(source_id));
+                }
             }
             for (const auto& entry : definition->entries) {
                 const auto found = entries.find(entry.id);

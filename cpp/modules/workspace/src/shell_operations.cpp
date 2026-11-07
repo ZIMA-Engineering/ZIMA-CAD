@@ -1,5 +1,6 @@
 #include <zima/workspace/shell_operations.hpp>
 #include <zima/workspace/operation_input.hpp>
+#include <zima/workspace/model_calculation.hpp>
 #include <algorithm>
 #include <cmath>
 #include <set>
@@ -56,6 +57,9 @@ bool commit_shell(Workspace& live,const kernel::OcctKernel& kernel,const std::st
     if(!std::isfinite(feature.shell.thickness)||(feature.shell.thickness!=0.&&feature.shell.thickness<.001)||feature.shell.thickness>1e6)
         throw ShellOperationError("invalid_arguments","Shell thickness must be between 0.001 and 1000000 mm.");
     if(!feature.shell.source_body.empty()&&feature.shell.thickness!=0.)throw ShellOperationError("invalid_arguments","Invalid Shell parameters");
+    if(stored)static_cast<void>(materialize_part_history_input_boundary(
+        live,kernel,id,feature.id));
+    state=live.open_part(id);
     const auto available=shell_input_faces(*state,stored?feature.id:std::string{},feature.shell.source_body);
     std::set<std::pair<std::string,std::string>> unique;
     for(const auto& face:feature.shell.removed_faces) {

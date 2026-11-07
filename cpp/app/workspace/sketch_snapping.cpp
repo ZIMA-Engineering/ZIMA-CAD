@@ -44,44 +44,12 @@ bool AssemblyWorkspaceWindow::accept_sketch_point_ray(
                     (*position)[0], (*position)[1]);
                 created = target.points.size() != previous_size;
                 if (created && snap_kind && !snap_geometry_id.empty()) {
-                    if (*snap_kind==zima::sketcher::ConstraintKind::Horizontal || *snap_kind==zima::sketcher::ConstraintKind::Vertical) {
-                        static_cast<void>(apply_sketch_point_snap(target,point_id,snap_geometry_id,snap_kind));
-                    } else if (*snap_kind ==
+                    if (*snap_kind ==
                         zima::sketcher::ConstraintKind::Midpoint) {
                         static_cast<void>(target.add_midpoint_constraint(
                             point_id, snap_geometry_id));
-                    } else if (*snap_kind ==
-                               zima::sketcher::ConstraintKind::Coincident) {
-                        static_cast<void>(apply_sketch_point_snap(
-                            target, point_id, snap_geometry_id, snap_kind));
-                    } else if (*snap_kind ==
-                        zima::sketcher::ConstraintKind::PointOnLine) {
-                        const auto separator = snap_geometry_id.find("||");
-                        if (separator == std::string::npos) {
-                            static_cast<void>(target.add_point_on_line_constraint(
-                                point_id, snap_geometry_id));
-                        } else {
-                            const auto apply_support = [&](const std::string& id) {
-                                const auto* point = target.find_point(point_id);
-                                if (point != nullptr && target.project_point_to_curve(
-                                        id, point->x, point->y)) {
-                                    static_cast<void>(
-                                        target.add_point_on_circle_constraint(
-                                            point_id, id));
-                                } else {
-                                    static_cast<void>(
-                                        target.add_point_on_line_constraint(
-                                            point_id, id));
-                                }
-                            };
-                            apply_support(snap_geometry_id.substr(0, separator));
-                            apply_support(snap_geometry_id.substr(separator + 2));
-                        }
-                    } else if (*snap_kind ==
-                               zima::sketcher::ConstraintKind::PointOnCircle) {
-                        static_cast<void>(target.add_point_on_circle_constraint(
-                            point_id, snap_geometry_id));
-                    }
+                    } else static_cast<void>(apply_sketch_point_snap(
+                        target, point_id, snap_geometry_id, snap_kind));
                 }
             })) return true;
         if (!created) {
@@ -540,6 +508,9 @@ bool AssemblyWorkspaceWindow::accept_sketch_segment_ray(
     auto inferred_end = inferred_sketch_segment_end(*position);
     const auto offered_equal_reference = inferred_end.equal_length_reference_id;
     const auto offered_start_tangent=inferred_end.tangent_at_start ? inferred_end.tangent_reference_id : std::string{};
+    const auto offered_perpendicular_reference =
+        inferred_end.perpendicular_reference_id;
+    const auto offered_parallel_reference = inferred_end.parallel_reference_id;
     auto confirmed_position = inferred_end.position;
     auto direction_inference = inferred_end.kind;
     const auto offered_direction_inference = direction_inference;
@@ -559,6 +530,45 @@ bool AssemblyWorkspaceWindow::accept_sketch_segment_ray(
         inferred_end.parallel_reference_id.clear();
         inferred_end.midpoint_line_reference_id.clear();
         inferred_end.external_point_reference_id.clear();
+        const double relation_tolerance = viewer_->world_tolerance_for_pixels(
+            2.0 * viewer_->devicePixelRatioF());
+        const auto line_relation_matches = [&](const std::string& support_id,
+                const zima::sketcher::ConstraintKind relation) {
+            const auto support = sketch_line_support_direction(support_id);
+            if (!support) return false;
+            const double support_length = std::hypot(
+                (*support)[0], (*support)[1]);
+            if (support_length <= 1.0e-12) return false;
+            const double segment_x =
+                confirmed_position[0] - (*pending_segment_start_)[0];
+            const double segment_y =
+                confirmed_position[1] - (*pending_segment_start_)[1];
+            const double error = relation ==
+                    zima::sketcher::ConstraintKind::Parallel
+                ? std::abs(segment_x * (*support)[1] -
+                      segment_y * (*support)[0]) / support_length
+                : std::abs(segment_x * (*support)[0] +
+                      segment_y * (*support)[1]) / support_length;
+            return error <= relation_tolerance;
+        };
+        // C owns the exact endpoint while the inference cycle owns the
+        // direction. Preserve the selected compatible line relation instead
+        // of replacing it with a relation to whichever support was picked at
+        // the second endpoint. Parallel is intentionally considered first.
+        if (!offered_parallel_reference.empty() &&
+            automatic_constraint_enabled(
+                zima::sketcher::ConstraintKind::Parallel) &&
+            line_relation_matches(offered_parallel_reference,
+                zima::sketcher::ConstraintKind::Parallel)) {
+            inferred_end.parallel_reference_id = offered_parallel_reference;
+        } else if (!offered_perpendicular_reference.empty() &&
+                   automatic_constraint_enabled(
+                       zima::sketcher::ConstraintKind::Perpendicular) &&
+                   line_relation_matches(offered_perpendicular_reference,
+                       zima::sketcher::ConstraintKind::Perpendicular)) {
+            inferred_end.perpendicular_reference_id =
+                offered_perpendicular_reference;
+        }
         // Candidate snapping and directional inference are independent. A
         // line endpoint confirmed on a curve/line owns both its support
         // relation and the natural tangent/perpendicular relation.
@@ -575,6 +585,8 @@ bool AssemblyWorkspaceWindow::accept_sketch_segment_ray(
                 if (automatic_constraint_enabled(zima::sketcher::ConstraintKind::Tangent) && tangent_error <= viewer_->world_tolerance_for_pixels(
                         sketch_tangent_intent_pixels *
                         viewer_->devicePixelRatioF())) {
+                        inferred_end.perpendicular_reference_id.clear();
+                        inferred_end.parallel_reference_id.clear();
                     inferred_end.tangent_reference_id = end_snap_geometry_id;
                     inferred_end.tangent_at_start = false;
                     if (const auto exact = exact_circle_tangent_contact(
@@ -600,6 +612,8 @@ bool AssemblyWorkspaceWindow::accept_sketch_segment_ray(
                     if (automatic_constraint_enabled(zima::sketcher::ConstraintKind::Tangent) && tangent_error <= viewer_->world_tolerance_for_pixels(
                             sketch_tangent_intent_pixels *
                             viewer_->devicePixelRatioF())) {
+                        inferred_end.perpendicular_reference_id.clear();
+                        inferred_end.parallel_reference_id.clear();
                         inferred_end.tangent_reference_id = *curve_id;
                         inferred_end.tangent_at_start = false;
                         if (const auto exact = exact_circle_tangent_contact(
@@ -671,7 +685,9 @@ bool AssemblyWorkspaceWindow::accept_sketch_segment_ray(
                 const double intent_tolerance =
                     viewer_->world_tolerance_for_pixels(
                         2.0 * viewer_->devicePixelRatioF());
-                if (automatic_constraint_enabled(vertical ? zima::sketcher::ConstraintKind::Vertical : zima::sketcher::ConstraintKind::Horizontal) && direction_error <= intent_tolerance) {
+                if (inferred_end.perpendicular_reference_id.empty() &&
+                    inferred_end.parallel_reference_id.empty() &&
+                    automatic_constraint_enabled(vertical ? zima::sketcher::ConstraintKind::Vertical : zima::sketcher::ConstraintKind::Horizontal) && direction_error <= intent_tolerance) {
                     direction_inference = vertical
                         ? zima::sketcher::ConstraintKind::Vertical
                         : zima::sketcher::ConstraintKind::Horizontal;
@@ -700,12 +716,16 @@ bool AssemblyWorkspaceWindow::accept_sketch_segment_ray(
                 const double intent_tolerance =
                     viewer_->world_tolerance_for_pixels(
                         2.0 * viewer_->devicePixelRatioF());
-                if (automatic_constraint_enabled(zima::sketcher::ConstraintKind::Perpendicular) && perpendicular_error <= intent_tolerance) {
+                if (inferred_end.perpendicular_reference_id.empty() &&
+                    inferred_end.parallel_reference_id.empty() &&
+                    automatic_constraint_enabled(zima::sketcher::ConstraintKind::Perpendicular) && perpendicular_error <= intent_tolerance) {
                     inferred_end.perpendicular_reference_id =
                         end_snap_geometry_id;
                 }
             }
-            if (inferred_end.perpendicular_reference_id.empty() && !direction_inference) {
+            if (inferred_end.perpendicular_reference_id.empty() &&
+                inferred_end.parallel_reference_id.empty() &&
+                !direction_inference) {
                 const double intent_tolerance = viewer_->world_tolerance_for_pixels(2.0 * viewer_->devicePixelRatioF());
                 if (automatic_constraint_enabled(zima::sketcher::ConstraintKind::Horizontal) &&
                     std::abs(confirmed_position[1]-(*pending_segment_start_)[1]) <= intent_tolerance)
@@ -734,7 +754,9 @@ bool AssemblyWorkspaceWindow::accept_sketch_segment_ray(
         if(inferred_end.tangent_reference_id.empty()) {
             inferred_end.tangent_reference_id=offered_start_tangent;inferred_end.tangent_at_start=true;
         }
-        direction_inference.reset();inferred_end.segment_direction.reset();inferred_end.perpendicular_reference_id.clear();
+        direction_inference.reset();inferred_end.segment_direction.reset();
+        inferred_end.perpendicular_reference_id.clear();
+        inferred_end.parallel_reference_id.clear();
     }
     const bool polyline_arc_endpoint_snap = polyline_arc && end_snap_kind.has_value();
     const bool polyline_arc_point_alignment = polyline_arc &&
@@ -856,44 +878,12 @@ bool AssemblyWorkspaceWindow::accept_sketch_segment_ray(
                         const auto& kind) -> std::string {
                     if (!kind || geometry_id.empty()) return point_id;
                     try {
-                        if (*kind==zima::sketcher::ConstraintKind::Horizontal || *kind==zima::sketcher::ConstraintKind::Vertical)
-                            return apply_sketch_point_snap(target,point_id,geometry_id,kind);
                         if (*kind ==
                             zima::sketcher::ConstraintKind::Midpoint) {
                             static_cast<void>(target.add_midpoint_constraint(
                                 point_id, geometry_id));
-                        } else if (*kind ==
-                                   zima::sketcher::ConstraintKind::Coincident) {
-                            return apply_sketch_point_snap(
-                                target, point_id, geometry_id, kind);
-                        } else if (*kind ==
-                                   zima::sketcher::ConstraintKind::PointOnLine) {
-                            const auto separator = geometry_id.find("||");
-                            if (separator == std::string::npos) {
-                                static_cast<void>(target.add_point_on_line_constraint(
-                                    point_id, geometry_id));
-                            } else {
-                                const auto apply_support = [&](const std::string& id) {
-                                    const auto* point = target.find_point(point_id);
-                                    if (point != nullptr && target.project_point_to_curve(
-                                            id, point->x, point->y)) {
-                                        static_cast<void>(
-                                            target.add_point_on_circle_constraint(
-                                                point_id, id));
-                                    } else {
-                                        static_cast<void>(
-                                            target.add_point_on_line_constraint(
-                                                point_id, id));
-                                    }
-                                };
-                                apply_support(geometry_id.substr(0, separator));
-                                apply_support(geometry_id.substr(separator + 2));
-                            }
-                        } else if (*kind ==
-                                   zima::sketcher::ConstraintKind::PointOnCircle) {
-                            static_cast<void>(target.add_point_on_circle_constraint(
-                                point_id, geometry_id));
-                        }
+                        } else return apply_sketch_point_snap(
+                            target, point_id, geometry_id, kind);
                     } catch (const std::invalid_argument&) {
                         // A shared endpoint can already own the same support.
                     }
@@ -927,16 +917,28 @@ bool AssemblyWorkspaceWindow::accept_sketch_segment_ray(
                     catch(const zima::sketcher::RedundantConstraint&) {}
                 }
                 if (!inferred_end.perpendicular_reference_id.empty()) {
-                    static_cast<void>(target.add_segment_pair_constraint(
-                        inferred_end.perpendicular_reference_id,
-                        created_geometry_id,
-                        zima::sketcher::ConstraintKind::Perpendicular));
+                    try {
+                        static_cast<void>(target.add_segment_pair_constraint(
+                            inferred_end.perpendicular_reference_id,
+                            created_geometry_id,
+                            zima::sketcher::ConstraintKind::Perpendicular));
+                    } catch (const zima::sketcher::RedundantConstraint&) {
+                        // Exact endpoint contacts can already determine the
+                        // inferred direction. Keep those contacts and the new
+                        // segment instead of rejecting the complete creation.
+                    }
                 }
                 if (!inferred_end.parallel_reference_id.empty()) {
-                    static_cast<void>(target.add_segment_pair_constraint(
-                        inferred_end.parallel_reference_id,
-                        created_geometry_id,
-                        zima::sketcher::ConstraintKind::Parallel));
+                    try {
+                        static_cast<void>(target.add_segment_pair_constraint(
+                            inferred_end.parallel_reference_id,
+                            created_geometry_id,
+                            zima::sketcher::ConstraintKind::Parallel));
+                    } catch (const zima::sketcher::RedundantConstraint&) {
+                        // Both endpoints can already lie on the same axis or
+                        // support. The automatic parallel inference then adds
+                        // no degree of freedom and must remain only a preview.
+                    }
                 }
                 if (!inferred_end.midpoint_line_reference_id.empty()) {
                     static_cast<void>(target.add_midpoint_on_line_constraint(
@@ -1000,6 +1002,7 @@ bool AssemblyWorkspaceWindow::accept_sketch_segment_ray(
     pending_segment_start_snap_kind_.reset();
     sketch_segment_inference_cycle_ = 0;
     sketch_skip_candidate_snap_ = false;
+    sketch_endpoint_inference_cycle_ = false;
     clear_completed_sketch_interaction();
     refresh_tabs();
     refresh_scene();
@@ -1390,6 +1393,12 @@ AssemblyWorkspaceWindow::inferred_sketch_segment_end(
     for (auto& candidate : tangencies) {
         variants.push_back(std::move(candidate));
     }
+    for (auto& candidate : parallels) {
+        for (const auto& equal : equal_candidates_for(candidate.second.position)) {
+            variants.push_back(exact_equal(candidate.second, equal));
+        }
+        variants.push_back(std::move(candidate.second));
+    }
     for (auto& candidate : perpendiculars) {
         for (const auto& equal : equal_candidates_for(candidate.position)) {
             variants.push_back(exact_equal(candidate, equal));
@@ -1425,12 +1434,6 @@ AssemblyWorkspaceWindow::inferred_sketch_segment_end(
         variants.push_back(std::move(candidate.second));
     }
     for (auto& candidate : directions) {
-        for (const auto& equal : equal_candidates_for(candidate.second.position)) {
-            variants.push_back(exact_equal(candidate.second, equal));
-        }
-        variants.push_back(std::move(candidate.second));
-    }
-    for (auto& candidate : parallels) {
         for (const auto& equal : equal_candidates_for(candidate.second.position)) {
             variants.push_back(exact_equal(candidate.second, equal));
         }

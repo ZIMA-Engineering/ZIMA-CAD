@@ -32,18 +32,19 @@ struct PartCalculationPolicy {
     // every history boundary. Ordinary interactive calculation keeps the
     // final-boundary-first policy and its compact intermediate packets.
     bool publish_complete_history{};
-    // The editing command proved that every local Sketch projection frame and
-    // its persisted external-reference state are unchanged. The settling
+    // The command proved that every local Sketch projection frame and its
+    // persisted external-reference state are unchanged. The settling
     // calculation still verifies an identical calculated source prefix before
-    // reusing those projections.
+    // reusing those projections. This also applies to a newly appended
+    // terminal derived-state operation whose complete input prefix is intact.
     bool reuse_unchanged_local_sketch_references{};
-    // The editing command proved that no persisted placement, construction,
-    // Sketch or later history object consumes the edited last feature. Once
-    // the calculation also proves an identical source prefix, the document's
+    // The command proved that no persisted placement, construction, Sketch or
+    // later history object consumes a changed terminal result. Once the
+    // calculation also proves an identical source prefix, the document's
     // already resolved reference state remains current.
     bool reuse_unchanged_reference_resolution{};
-    // Nonempty only when the command proved that the edited last definition
-    // still produces the same single native operation owner.
+    // Nonempty only when the command proved that the changed or newly appended
+    // terminal definition produces one native operation with this owner.
     std::string unchanged_last_operation_owner;
     // Internal calculation boundary used to complete one deferred history
     // packet. It never changes the authored cursor or persisted document.

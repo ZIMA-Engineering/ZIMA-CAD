@@ -1,4 +1,5 @@
 #include "profile_command_fixture.hpp"
+#include "body_measurement_fixture.hpp"
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/drill_reference_operations.hpp>
 #include <cmath>
@@ -28,7 +29,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory,const std::strin
         if(kind=="plain")create["nominal_diameter_mm"]=10;else create["designation"]=kind=="metric"?"M10":kind=="pipe"?"G 1/2":"W 1/2";}
     const auto target=run(prefix+".create",create).at("container").get<std::string>();
     const auto feature=[&]()->const document::HistoryContainer&{return *state->session.document().find_container(target);};
-    const auto volume=[&]{return state->session.calculated_boundaries().back().volume;};const auto original=feature();
+    const auto volume=[&]{return test::measured_volume(kernel,state->session.calculated_boundaries().back());};const auto original=feature();
     const auto r=hole?5.:(kind=="plain"?original.thread.nominal_diameter:original.thread.profile_diameter)/2;
     const auto expected=64000-std::numbers::pi*r*r*10;near(volume(),expected);
     const auto request=[&](int index,const std::string& owner,const std::string& key,double offset){return Json{{"container",target},{"index",index},{"reference",{{"owner",owner},{"key",key}}},{"offset_mm",offset}};};
@@ -68,7 +69,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory,const std::strin
     require(std::ranges::none_of(feature().placement.references,[&](const auto& ref){return ref.semantic_key=="origin:plane:yz";}),"Hole/Opening removal retained a paired source");near(volume(),expected);
     const auto freed=feature();run("undo");require(feature()==bound,"Hole/Opening removal Undo lost profile identity");run("redo");require(feature()==freed,"Hole/Opening removal Redo changed profile identity");
     run("save");std::vector<kernel::BodyResult> saved_cache;const auto saved=document::PartDocument::load(directory/(kind+"-reference.prtz"),&saved_cache);
-    require(saved.find_container(target)&&*saved.find_container(target)==feature(),"Native save changed Hole/Opening placement or source identities");near(saved_cache.back().volume,expected);
+    require(saved.find_container(target)&&*saved.find_container(target)==feature(),"Native save changed Hole/Opening placement or source identities");near(test::measured_volume(kernel,saved_cache.back()),expected);
 }
 }
 int main(){try{const auto root=fs::canonical(fs::temp_directory_path()),dir=root/("zima-drill-reference-"+document::PartDocument::create_default().document_id);fs::create_directory(dir);kernel::OcctKernel kernel;for(const auto* kind:{"hole","plain","metric","whitworth","pipe"})verify(kernel,dir,kind);require(fs::canonical(dir).parent_path()==root,"Unsafe cleanup");fs::remove_all(dir);std::cout<<"Hole and Opening references: exact wall displacement, thread sheets, volumes, identity, Undo and persistence passed\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

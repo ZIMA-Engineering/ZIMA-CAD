@@ -571,7 +571,8 @@ public:
         const std::string& reference_geometry_id,
         const std::string& driven_geometry_id);
     [[nodiscard]] std::string add_point_on_circle_constraint(
-        const std::string& point_id, const std::string& circle_id);
+        const std::string& point_id, const std::string& circle_id,
+        bool retain_redundant_contact = false);
     [[nodiscard]] std::optional<std::array<double, 2>> project_point_to_curve(
         const std::string& geometry_id, double x, double y) const;
     [[nodiscard]] std::optional<double> circular_radius(
@@ -600,7 +601,8 @@ public:
     [[nodiscard]] std::string add_external_point_segment_constraint(
         const std::string& reference_id, const std::string& segment_id, bool midpoint);
     [[nodiscard]] std::string add_point_on_line_constraint(
-        const std::string& point_id, const std::string& line_id);
+        const std::string& point_id, const std::string& line_id,
+        bool retain_redundant_contact = false);
     [[nodiscard]] std::vector<std::string>
     add_segment_on_external_line_constraint(
         const std::string& segment_id, const std::string& line_id);

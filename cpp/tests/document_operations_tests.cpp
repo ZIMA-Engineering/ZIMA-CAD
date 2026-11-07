@@ -81,7 +81,7 @@ int main() {
                 sketch.owner_container_id=feature.id;failed_part.sketches.push_back(std::move(sketch));
             }
             if(kind==document::FeatureKind::DerivedCopy) {
-                feature.derived_copy.source_id=stock.id;
+                feature.derived_copy.source_ids={stock.id};
                 feature.derived_copy.reference={{},feature.container_origin.id,"origin:plane:yz"};
             }
             if(kind==document::FeatureKind::Bend) {

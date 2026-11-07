@@ -17,6 +17,9 @@ namespace fs=std::filesystem;
 namespace {
 void require(bool value,const char* message){if(!value)throw std::runtime_error(message);}
 void near(double actual,double expected){if(std::abs(actual-expected)>1e-5)throw std::runtime_error("Expected "+std::to_string(expected)+", got "+std::to_string(actual));}
+double exact_volume(const kernel::OcctKernel& kernel,const kernel::BodyResult& source) {
+    auto result=source;kernel.ensure_body_properties(result);return result.volume;
+}
 commands::Result run(command_host::Host& host,const std::string& command,Json args=Json::object()) {
     auto result=host.execute({{"command",command},{"arguments",std::move(args)}});
     if(!result.ok)throw std::runtime_error(command+": "+result.code+": "+result.message);return result;
@@ -84,19 +87,19 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
         }
         const double r=(threaded?original.thread.profile_diameter:original.thread.nominal_diameter)/2;
         const double plain_volume=216000-std::numbers::pi*r*r*20;
-        near(state->session.calculated_boundaries().back().volume,plain_volume);
+        near(exact_volume(kernel,state->session.calculated_boundaries().back()),plain_volume);
         {
             auto pasted=workspace::copy_opening_settings(original);
             pasted.placement=original.placement;pasted.placement.x+=20;
             const auto revision=state->session.revision();
             require(workspace::commit_opening(live,kernel,live.active_document_id(),pasted,workspace::OpeningEditMode::Create),"Copied Opening did not commit");
             require(state->session.revision()==revision+1&&state->session.document().find_container(pasted.id),"Opening paste must be one transaction");
-            near(state->session.calculated_boundaries().back().volume,216000-2*std::numbers::pi*r*r*20);
+            near(exact_volume(kernel,state->session.calculated_boundaries().back()),216000-2*std::numbers::pi*r*r*20);
             require(*state->session.document().find_container(id)==original,"Pasting changed the original Opening");
             run(host,"undo");require(!state->session.document().find_container(pasted.id),"Opening paste Undo left the clone");
-            near(state->session.calculated_boundaries().back().volume,plain_volume);
+            near(exact_volume(kernel,state->session.calculated_boundaries().back()),plain_volume);
             run(host,"redo");require(state->session.document().find_container(pasted.id),"Opening paste Redo lost its identity");
-            near(state->session.calculated_boundaries().back().volume,216000-2*std::numbers::pi*r*r*20);
+            near(exact_volume(kernel,state->session.calculated_boundaries().back()),216000-2*std::numbers::pi*r*r*20);
             run(host,"undo");
         }
         const auto rev=state->session.revision();const auto* cache=state->session.calculated_boundaries().data();
@@ -117,7 +120,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
             run(host,"opening.set",{{"container",id},{"chamfer_enabled",true},{"chamfer_depth_mm",2},{"chamfer_angle_degrees",angle},
                 {"drill_point_enabled",true},{"drill_point_angle_degrees",118}});
             const double t=std::tan(angle*std::numbers::pi/360),tip=r/std::tan(118*std::numbers::pi/360);
-            near(state->session.calculated_boundaries().back().volume,plain_volume-std::numbers::pi*(r*4*t+8*t*t/3+r*r*tip/3));
+            near(exact_volume(kernel,state->session.calculated_boundaries().back()),plain_volume-std::numbers::pi*(r*4*t+8*t*t/3+r*r*tip/3));
             run(host,"undo");require(*state->session.document().find_container(id)==original,"Undo did not restore complete opening parameters");
         }
         {
@@ -128,7 +131,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
             static_cast<void>(workspace::commit_opening(live,kernel,live.active_document_id(),placed,workspace::OpeningEditMode::Replace));
             const auto& normalized=*state->session.document().find_container(id);
             require(normalized.placement.references.front().orientation_role=="front"&&normalized.placement.reference_valid,"Opening did not use the GUI FRONT normalization");
-            near(state->session.calculated_boundaries().back().volume,plain_volume);
+            near(exact_volume(kernel,state->session.calculated_boundaries().back()),plain_volume);
             run(host,"undo");require(*state->session.document().find_container(id)==original,"Referenced opening Undo changed original placement");
         }
         // Whole-Origin entry is a frame attachment, not the single FRONT
@@ -165,7 +168,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
             const double tip=r/std::tan(118*std::numbers::pi/360),c=.6;
             const double cut=std::numbers::pi*(r*r*(shape==2?60:shape==3?30:20)+(shape==1?r*c*c+c*c*c/3+r*r*tip/3:0));
             const double expected=216000-cut;
-            near(state->session.calculated_boundaries().back().volume,expected);
+            near(exact_volume(kernel,state->session.calculated_boundaries().back()),expected);
             std::optional<kernel::ViewerAxis> preview_axis;
             const auto wire=state->session.document().thread_edges(committed,nullptr,&preview_axis);
             require(!wire.empty()&&preview_axis.has_value(),"Whole-Origin Opening preview missing");
@@ -196,31 +199,32 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
                 const auto reopened=document::PartDocument::load(path,&bodies);
                 require(*reopened.find_container(id)==committed,"Whole-Origin Opening save/reopen changed placement or identities");
                 require(!bodies.empty(),"Whole-Origin Opening lost calculated native geometry");
-                near(bodies.back().volume,expected);near(kernel.evaluate_history(reopened.kernel_operations()).back().volume,expected);
+                near(exact_volume(kernel,bodies.back()),expected);
+                near(exact_volume(kernel,kernel.evaluate_history(reopened.kernel_operations()).back()),expected);
             }
             run(host,"undo");require(*state->session.document().find_container(id)==original,"Whole-Origin Opening Undo changed original");
-            near(state->session.calculated_boundaries().back().volume,plain_volume);
+            near(exact_volume(kernel,state->session.calculated_boundaries().back()),plain_volume);
             run(host,"redo");require(*state->session.document().find_container(id)==committed,"Whole-Origin Opening Redo changed references");
-            near(state->session.calculated_boundaries().back().volume,expected);run(host,"undo");
+            near(exact_volume(kernel,state->session.calculated_boundaries().back()),expected);run(host,"undo");
         }
         run(host,"opening.set",{{"container",id},{"direction","reverse"},{"placement",{{"z",30}}}});
-        near(state->session.calculated_boundaries().back().volume,plain_volume);
+        near(exact_volume(kernel,state->session.calculated_boundaries().back()),plain_volume);
         run(host,"undo");
         run(host,"opening.set",{{"container",id},{"bore_end","through_all"}});
-        near(state->session.calculated_boundaries().back().volume,216000-std::numbers::pi*r*r*60);
+        near(exact_volume(kernel,state->session.calculated_boundaries().back()),216000-std::numbers::pi*r*r*60);
         run(host,"undo");
         if(threaded) {
             run(host,"opening.set",{{"container",id},{"custom_bore_diameter",true},{"bore_diameter_mm",2*r+.1}});
-            near(state->session.calculated_boundaries().back().volume,216000-std::numbers::pi*std::pow(r+.05,2)*20);
+            near(exact_volume(kernel,state->session.calculated_boundaries().back()),216000-std::numbers::pi*std::pow(r+.05,2)*20);
             run(host,"opening.set",{{"container",id},{"custom_bore_diameter",false}});
-            near(state->session.calculated_boundaries().back().volume,plain_volume);
+            near(exact_volume(kernel,state->session.calculated_boundaries().back()),plain_volume);
         }
         auto locked=*state->session.document().find_container(id);locked.value_locks.insert("bore_length");
         static_cast<void>(workspace::commit_opening(live,kernel,live.active_document_id(),locked,workspace::OpeningEditMode::Replace));
         require(host.execute({{"command","opening.set"},{"arguments",{{"container",id},{"bore_length_mm",21}}}}).code=="value_locked","Opening dimension lock bypassed");
         if(threaded) {
             run(host,"opening.set",{{"container",id},{"left_handed",true}});
-            near(state->session.calculated_boundaries().back().volume,plain_volume);
+            near(exact_volume(kernel,state->session.calculated_boundaries().back()),plain_volume);
             require(run(host,"opening.get",{{"container",id}}).data.at("left_handed").get<bool>(),"Opening handedness was not stored");
             run(host,"undo");
             auto diameter_locked=locked;diameter_locked.value_locks.insert("nominal_diameter");
@@ -232,7 +236,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
         run(host,"save");std::vector<kernel::BodyResult> saved;
         const auto loaded=document::PartDocument::load(directory/(std::string("opening-")+type+".prtz"),&saved);
         require(*loaded.find_container(id)==locked,"Native file lost opening properties or source identities");
-        near(saved.back().volume,plain_volume);const auto cold=kernel.evaluate_history(loaded.kernel_operations());near(cold.back().volume,plain_volume);
+        near(exact_volume(kernel,saved.back()),plain_volume);const auto cold=kernel.evaluate_history(loaded.kernel_operations());near(cold.back().volume,plain_volume);
         auto invalid=locked;invalid.hole.circle_id="replaced-source";
         bool rejected=false;try{static_cast<void>(workspace::commit_opening(live,kernel,live.active_document_id(),invalid,workspace::OpeningEditMode::Replace));}
         catch(const workspace::OpeningOperationError& error){rejected=std::string(error.code)=="identity_changed";}
@@ -257,7 +261,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
         run(host,"opening.set",{{"container",id},{"thread_length_mm",length}});
         const auto current=*state->session.document().find_container(id);
         near(current.thread.length_forward,length);near(current.thread.bore_length,std::min(16.,length+1.5));
-        near(state->session.calculated_boundaries().back().volume,216000-std::numbers::pi*radius*radius*current.thread.bore_length);
+        near(exact_volume(kernel,state->session.calculated_boundaries().back()),216000-std::numbers::pi*radius*radius*current.thread.bore_length);
         require(current.hole==source.hole&&current.placement==source.placement,"Derived opening edit replaced profile or placement identity");
         run(host,"undo");require(*state->session.document().find_container(id)==before,"Derived opening Undo lost dependent bore");
         run(host,"redo");require(*state->session.document().find_container(id)==current,"Derived opening Redo lost dependent bore");
@@ -272,7 +276,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     run(host,"save");std::vector<kernel::BodyResult> saved;
     const auto restored=document::PartDocument::load(directory/"opening-derived-bore.prtz",&saved);
     require(restored.relations==expression&&*restored.find_container(id)==before,"Derived opening native round trip lost definition");
-    near(saved.back().volume,216000-std::numbers::pi*radius*radius*before.thread.bore_length);
+    near(exact_volume(kernel,saved.back()),216000-std::numbers::pi*radius*radius*before.thread.bore_length);
 }
 }
 int main(){try {

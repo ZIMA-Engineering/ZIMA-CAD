@@ -1,5 +1,6 @@
 #pragma once
 #include "sketch_button_style.hpp"
+#include "work_plane_selection.hpp"
 #include <zima/document/part_document.hpp>
 #include "sweep_placement_dialog.hpp"
 #include <zima/document/section.hpp>
@@ -113,7 +114,10 @@ public:
         name_=new QLineEdit(QString::fromStdString(value_.name),this);name_->setObjectName("sectionName");form->addRow(tr("Název"),name_);content_layout()->addLayout(form);
         install_placement();
         auto* row=new QHBoxLayout;plane_=new QComboBox(this);plane_->setObjectName("sectionSketchPlane");plane_->addItems({"XY","XZ","YZ"});plane_->setCurrentIndex(static_cast<int>(value_.sketch.plane));
-        row->addWidget(new QLabel(tr("Skicová rovina kontejneru"),this));row->addWidget(plane_);auto* sketch=new QPushButton(tr("Skica…"),this);sketch->setObjectName("editSectionSketch");style_sketch_button(sketch);row->addWidget(sketch);content_layout()->addLayout(row);
+        row->addWidget(new QLabel(tr("Skicová rovina kontejneru"),this));
+        row->addWidget(compact_work_plane_selector(plane_,[this] {
+            if(request_placement)request_placement(0);
+        }));auto* sketch=new QPushButton(tr("Skica…"),this);sketch->setObjectName("editSectionSketch");style_sketch_button(sketch);row->addWidget(sketch);content_layout()->addLayout(row);
         connect(plane_,&QComboBox::currentIndexChanged,this,[this](int i){value_.sketch.plane=static_cast<zima::sketcher::SketchPlane>(i);if(changed)changed();});
         connect(sketch,&QPushButton::clicked,this,[this]{if(edit_sketch)edit_sketch(0);});
         sketch_info_=new QLabel(this);content_layout()->addWidget(sketch_info_);update_sketch_info();

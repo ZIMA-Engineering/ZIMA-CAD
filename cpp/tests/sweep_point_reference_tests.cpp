@@ -1,6 +1,7 @@
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/sweep_operations.hpp>
 #include "sweep_test_support.hpp"
+#include "body_measurement_fixture.hpp"
 #include <cmath>
 #include <numbers>
 #include <iostream>
@@ -48,7 +49,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory,bool body_mode){
     const auto result=set(first);
     require(result.at("body_calculated")==true&&result.at("changed")==true,"Owned point did not calculate through the Sweep transaction");
     near(point(1).origin.x,5);near(point(1).origin.z,20);
-    near(state().session.calculated_boundaries().back().volume,4*std::numbers::pi*std::sqrt(425.0));
+    near(test::measured_volume(kernel,state().session.calculated_boundaries().back()),4*std::numbers::pi*std::sqrt(425.0));
     const auto bound=current();run(host,"undo");require(current()==initial,"Sweep point Undo changed identity");run(host,"redo");require(current()==bound,"Sweep point Redo differs");
     const auto revision=state().session.revision();require(set(first).at("changed")==false&&state().session.revision()==revision&&!host.change(),"Owned point no-op added history");
     set(request(a,0,initial.sweep3d.path.container_origin.id,"origin:plane:yz",2));
@@ -57,7 +58,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory,bool body_mode){
     auto entries=Json::array({Json{{"construction",a},{"values",{{"reference_offset:0",4}}}},Json{{"construction",b}}});
     run(host,"sweep3d.set",{{"container",owner},{"path",{{"points",entries}}}});
     near(point(0).origin.x,4);near(point(1).origin.x,7);
-    near(state().session.calculated_boundaries().back().volume,4*std::numbers::pi*std::sqrt(409.0));
+    near(test::measured_volume(kernel,state().session.calculated_boundaries().back()),4*std::numbers::pi*std::sqrt(409.0));
     const auto before_constrained=current();const auto constrained_revision=state().session.revision();
     const auto constrained=host.execute({{"command","sweep3d.set"},{"arguments",{{"container",owner},{"path",{{"points",Json::array({
         Json{{"construction",a}},Json{{"construction",b},{"values",{{"x",99}}}}})}}}}}});
@@ -76,7 +77,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory,bool body_mode){
     interaction.editing=true;reject(first,"editing_in_progress");interaction.editing=false;
     const auto external=state().session.document().find_construction(source)->container_origin.id;
     set(request(b,0,external,"point"));near(point(1).origin.x,11);near(point(1).origin.y,8);near(point(1).origin.z,40);
-    near(state().session.calculated_boundaries().back().volume,4*std::numbers::pi*std::sqrt(1713.0));
+    near(test::measured_volume(kernel,state().session.calculated_boundaries().back()),4*std::numbers::pi*std::sqrt(1713.0));
     require(current().placement==initial.placement&&current().sweep3d.path.id==initial.sweep3d.path.id&&
         current().sweep3d.profiles[0].id==initial.sweep3d.profiles[0].id,"Point edit changed parent placement or profile identity");
     // Explicit FRONT/TOP references use the same independent orientation rows.
@@ -106,7 +107,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory,bool body_mode){
     }
     run(host,"save");std::vector<kernel::BodyResult> cache;const auto loaded=document::PartDocument::load(file,&cache);
     require(*loaded.find_container(owner)==current()&&!cache.empty(),"Native file lost owned point references or cached body");
-    near(cache.back().volume,state().session.calculated_boundaries().back().volume);
+    near(test::measured_volume(kernel,cache.back()),test::measured_volume(kernel,state().session.calculated_boundaries().back()));
     std::cout<<"Owned Sweep Point: Body="<<body_mode<<" passed\n";
 }
 }

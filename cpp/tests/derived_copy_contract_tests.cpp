@@ -6,6 +6,8 @@
 #include <zima/kernel/pattern_geometry.hpp>
 #include <zima/kernel/axis_display.hpp>
 #include <zima/document/part_document.hpp>
+#include <zima/document/placement_surface.hpp>
+#include <zima/document/derived_copy_json.hpp>
 #include <zima/assembly/assembly_document.hpp>
 #include <zima/workspace/workspace.hpp>
 #include <iostream>
@@ -215,6 +217,88 @@ static void mirrored_construction_axes() {
         require(std::ranges::count_if(body.mesh.axes,[](const auto& axis) {
             return axis.reference.owner_id=="axis-mirror";
         })==source_axes,"Mirror copied its axes only as hidden references instead of normal View geometry");
+        const auto source_cylinders=std::ranges::count_if(
+            references.triangle_references,[](const auto& face) {
+                return face.owner_id=="mirror-axis-source"&&face.surface&&
+                    face.surface->kind==kernel::SurfaceGeometry::Kind::Cylinder;
+            });
+        require(source_cylinders>0,"Mirror axis fixture has no analytic cylindrical face");
+        require(std::ranges::count_if(references.triangle_references,[](const auto& face) {
+            return face.owner_id=="axis-mirror"&&face.surface&&
+                face.surface->kind==kernel::SurfaceGeometry::Kind::Cylinder;
+        })==source_cylinders,"Mirror omitted or duplicated analytic cylinder axes");
+        for(const auto& face:references.triangle_references)
+            if(face.owner_id=="axis-mirror"&&face.surface&&
+                    face.surface->kind==kernel::SurfaceGeometry::Kind::Cylinder) {
+                const auto parent=kernel::mirror_parent_reference(
+                    face.semantic_key);
+                require(parent&&parent->owner_id=="mirror-axis-source",
+                    "Mirrored cylinder lost its source face identity");
+                const auto source=std::ranges::find_if(
+                    references.triangle_references,[&](const auto& candidate) {
+                        return candidate.owner_id==parent->owner_id&&
+                            candidate.semantic_key==parent->semantic_key&&
+                            candidate.instance_path==parent->instance_path;
+                    });
+                require(source!=references.triangle_references.end()&&
+                    source->surface&&document::placement_surface_has_axis(
+                        *source->surface),
+                    "Mirrored cylinder has no usable source axis");
+                const auto expected_origin=kernel::mirrored_point(
+                    source->surface->origin,scope.mirror_plane);
+                const auto expected_axis=kernel::mirrored_vector(
+                    source->surface->axis,scope.mirror_plane);
+                close(face.surface->origin.x,expected_origin.x);
+                close(face.surface->origin.y,expected_origin.y);
+                close(face.surface->origin.z,expected_origin.z);
+                const double parallel=face.surface->axis.x*expected_axis.x+
+                    face.surface->axis.y*expected_axis.y+
+                    face.surface->axis.z*expected_axis.z;
+                close(std::abs(parallel),1.0);
+                document::ConstructionReference reference{{},face.owner_id,
+                    face.semantic_key};
+                reference.use_axis=true;
+                document::Placement placement;
+                placement.references={reference};
+                require(document::resolve_placement(placement,references),
+                    "Mirrored analytic cylinder cannot be reused as an axis reference");
+                const kernel::Vec3 solved{placement.x,placement.y,placement.z};
+                const kernel::Vec3 delta{solved.x-face.surface->origin.x,
+                    solved.y-face.surface->origin.y,
+                    solved.z-face.surface->origin.z};
+                const auto& axis=face.surface->axis;
+                const double along=delta.x*axis.x+delta.y*axis.y+
+                    delta.z*axis.z;
+                const kernel::Vec3 radial{delta.x-along*axis.x,
+                    delta.y-along*axis.y,delta.z-along*axis.z};
+                close(radial.x,0);close(radial.y,0);close(radial.z,0);
+            }
+        const auto mirrored_plane=std::ranges::find_if(
+            references.triangle_references,[](const auto& face) {
+                return face.owner_id=="axis-mirror"&&face.surface&&
+                    face.surface->kind==kernel::SurfaceGeometry::Kind::Plane;
+            });
+        require(mirrored_plane!=references.triangle_references.end(),
+            "Mirror omitted the selectable planar faces of its solid");
+        const auto plane_parent=kernel::mirror_parent_reference(
+            mirrored_plane->semantic_key);
+        require(plane_parent&&plane_parent->owner_id=="mirror-axis-source",
+            "Mirrored planar face lost its source identity");
+        document::ConstructionReference face_reference{{},
+            mirrored_plane->owner_id,mirrored_plane->semantic_key};
+        face_reference.supports_offset=true;
+        document::Placement face_placement;
+        face_placement.references={face_reference};
+        require(document::resolve_placement(face_placement,references),
+            "A mirrored solid face cannot be reused as a downstream reference");
+        const kernel::Vec3 placed{face_placement.x,face_placement.y,
+            face_placement.z};
+        const auto projected=document::project_placement_surface(
+            *mirrored_plane->surface,placed);
+        require(projected.has_value(),
+            "Mirrored planar face lost its exact analytic support");
+        close(placed.x,projected->point.x);close(placed.y,projected->point.y);
+        close(placed.z,projected->point.z);
         for(const auto& axis:references.axes)if(axis.reference.owner_id=="axis-mirror") {
             const auto parent=kernel::mirror_parent_reference(axis.reference.semantic_key);
             require(parent&&parent->owner_id=="mirror-axis-source","Mirror axis lost its source identity");
@@ -253,10 +337,83 @@ static void mirrored_construction_axes() {
     close(moved_axis->point.x,-4);
     std::cout<<"Mirror construction axes and endpoints passed\n";
 }
+static void multiple_copy_sources() {
+    kernel::HistoryOperation stock{"multi-stock",
+        zima::test::ProfilePrism{20,20,10}};
+    zima::test::ProfilePrism tab{3,2,10};
+    tab.translation={20,0,0};
+    kernel::HistoryOperation additive{"multi-add",tab,
+        kernel::BooleanOperation::Add};
+    zima::test::ProfilePrism hole{2,2,10};
+    hole.translation={4,4,0};
+    kernel::HistoryOperation subtractive{"multi-cut",hole,
+        kernel::BooleanOperation::Subtract};
+
+    kernel::HistoryOperation pattern;
+    pattern.owner_id="multi-pattern";
+    pattern.operation=kernel::BooleanOperation::Add;
+    kernel::BodyHistoryScope pattern_scope;
+    pattern_scope.combination=kernel::BodyCombination::Pattern;
+    pattern_scope.pattern.count=2;
+    pattern_scope.pattern.linear[0].count=2;
+    pattern_scope.pattern.linear[0].spacing=5;
+    pattern_scope.copy_sources={
+        {{},additive.owner_id,kernel::BooleanOperation::Add},
+        {{},subtractive.owner_id,kernel::BooleanOperation::Subtract}};
+    pattern.feature_copy=pattern_scope;
+
+    kernel::HistoryOperation nested;
+    nested.owner_id="multi-nested-mirror";
+    nested.operation=kernel::BooleanOperation::Add;
+    kernel::BodyHistoryScope mirror_scope;
+    mirror_scope.combination=kernel::BodyCombination::Mirror;
+    mirror_scope.mirror_plane={{12,0,0},{1,0,0}};
+    mirror_scope.copy_sources={
+        {{},pattern.owner_id,kernel::BooleanOperation::Add}};
+    nested.feature_copy=mirror_scope;
+
+    kernel::OcctKernel engine;
+    const auto calculated=engine.evaluate_history(
+        {stock,additive,subtractive,pattern,nested});
+    require(calculated.size()==5,
+        "A multi-source copy lost a history boundary");
+    close(calculated[2].volume,4020);
+    close(calculated[3].volume,4040);
+    close(calculated[4].volume,4060);
+    const auto& references=calculated.back().mesh.original_references;
+    require(std::ranges::any_of(references.triangle_references,
+        [](const auto& reference) {
+            return reference.owner_id=="multi-pattern"&&
+                reference.semantic_key.starts_with("pattern:copy-");
+        }),"Multi-source Pattern lost its copied topology identity");
+    require(std::ranges::any_of(references.triangle_references,
+        [](const auto& reference) {
+            return reference.owner_id=="multi-nested-mirror"&&
+                kernel::mirror_parent_reference(reference.semantic_key)
+                    .has_value();
+        }),"Nested Mirror lost the multi-source Pattern ancestry");
+
+    document::DerivedCopyParameters parameters;
+    parameters.source_ids={additive.owner_id,subtractive.owner_id};
+    parameters.reference={{},"multi-pattern:origin","origin:axis:x"};
+    parameters.resolved_plane={{},{1,0,0}};
+    parameters.pattern=pattern_scope.pattern;
+    const nlohmann::json persisted=parameters;
+    require(persisted.get<document::DerivedCopyParameters>()==parameters,
+        "Ordered multi-source Pattern parameters did not round-trip");
+    auto duplicate=persisted;
+    duplicate["source_ids"]={additive.owner_id,additive.owner_id};
+    rejects([&] {
+        static_cast<void>(
+            duplicate.get<document::DerivedCopyParameters>());
+    });
+    std::cout<<"Multi-source Pattern/Mirror contracts passed\n";
+}
 int main(){try{
     copied_construction_axes();
     incremental_copy_sources();
     mirrored_construction_axes();
+    multiple_copy_sources();
     kernel::HistoryOperation zero;zero.owner_id="signed-zero";zero.body.id="body";zero.primitive=zima::test::rectangular_request();
     auto signed_zero=zero;signed_zero.body.translation.y=-0.0;
     // Profile direction carries modeling intent; test only placement zero here.
@@ -287,7 +444,7 @@ int main(){try{
             const auto parent=kernel::mirror_parent_reference(ref.semantic_key);require(parent&&parent->owner_id=="box","Mirror lost its persisted topology parent");}
     }
     document::BodyHistoryGraph graph;const auto source_id=graph.create_body("Zdroj");graph.insert({document::PartHistoryKind::Feature,"box"});
-    document::BodyHistory body;body.name="Zrcadlo";body.scope.id="mirror-body";body.derived_copy=document::DerivedCopyParameters{source_id,{{},"mirror-body:origin","origin:plane:yz"}};
+    document::BodyHistory body;body.name="Zrcadlo";body.scope.id="mirror-body";body.derived_copy=document::DerivedCopyParameters{{source_id},{{},"mirror-body:origin","origin:plane:yz"}};
     body.scope.placement.x=2;document::PartDocument::resolve_copy_reference(*body.derived_copy,body.scope.id,body.scope.placement,{});close(body.derived_copy->resolved_plane.point.x,2);
     const auto mirrored_id=graph.create_derived_copy(body);
     const auto compile=[&](double length){return graph.compile([&](const auto& e)->std::optional<kernel::HistoryOperation>{return kernel::HistoryOperation{e.id,box(length)};});};
@@ -307,7 +464,7 @@ int main(){try{
     assembly::AssemblyDocument assembly=assembly::AssemblyDocument::create_default();
     auto component=assembly::AssemblyDocument::create_part_occurrence("Zdroj","source-part",{},source);component.placement.x=10;
     auto mirror=assembly::AssemblyDocument::create_part_occurrence("Zrcadlo","source-part",{},{});
-    mirror.derived_copy=document::DerivedCopyParameters{component.occurrence_id,{{},mirror.occurrence_id+":origin","origin:plane:yz"}};
+    mirror.derived_copy=document::DerivedCopyParameters{{component.occurrence_id},{{},mirror.occurrence_id+":origin","origin:plane:yz"}};
     mirror.copy_placement.x=1;assembly.components={component,mirror};assembly.calculate_derived_copies(kernel);
     const auto& reflected=assembly.components.back();close(reflected.calculated_source->volume,source.volume);
     close(reflected.calculated_source->mesh.vertices.front().x,2-(source.mesh.vertices.front().x+10));
@@ -317,7 +474,7 @@ int main(){try{
     assembly.calculate_derived_copies(kernel);close(assembly.components.back().calculated_source->mesh.vertices.front().x,2-(source.mesh.vertices.front().x+20));
     const auto file=std::filesystem::temp_directory_path()/"zima-mirror-contract.asmz";assembly.save(file);auto loaded=assembly::AssemblyDocument::load(file);std::filesystem::remove(file);
     require(loaded.components.back().derived_copy==assembly.components.back().derived_copy,"Assembly reload lost Mirror source/plane");
-    auto cycle=assembly;cycle.components.front().derived_copy=document::DerivedCopyParameters{mirror.occurrence_id,{{},component.occurrence_id+":origin","origin:plane:yz"}};
+    auto cycle=assembly;cycle.components.front().derived_copy=document::DerivedCopyParameters{{mirror.occurrence_id},{{},component.occurrence_id+":origin","origin:plane:yz"}};
     rejects([&]{cycle.calculate_derived_copies(kernel);});
     auto followed=assembly;auto follower=component;follower.occurrence_id="follower";follower.placement={};follower.grounded=false;
     const auto vertex=source.mesh.original_references.points.front().reference;
@@ -358,7 +515,7 @@ int main(){try{
     invalid=grid;invalid.linear[0].count=4;rejects([&]{static_cast<void>(kernel::validated_pattern(invalid));});
     invalid=grid;invalid.linear[1].count=1000;rejects([&]{static_cast<void>(kernel::validated_pattern(invalid));});
     auto grid_graph=graph;document::BodyHistory grid_body;grid_body.name="Mřížka";
-    grid_body.derived_copy=document::DerivedCopyParameters{};grid_body.derived_copy->source_id=source_id;grid_body.derived_copy->pattern=grid;
+    grid_body.derived_copy=document::DerivedCopyParameters{};grid_body.derived_copy->source_ids={source_id};grid_body.derived_copy->pattern=grid;
     const auto grid_id=grid_graph.create_derived_copy(grid_body);
     require(document::BodyHistoryGraph::from_serialized(grid_graph.serialized()).find(grid_id)->derived_copy==grid_body.derived_copy,"Grid directions did not round-trip");
     pattern.circular=true;pattern.origin={2,3,4};pattern.axis={0,0,1};
@@ -367,20 +524,58 @@ int main(){try{
     pattern.full_circle=false;pattern.angle_degrees=180;rejects([&]{static_cast<void>(kernel.pattern_body(source,pattern));});
     pattern.full_circle=true;pattern.count=1;rejects([&]{static_cast<void>(kernel.pattern_body(source,pattern));});
     pattern.count=4;
-    document::DerivedCopyParameters parameters{source_id,{{},"pattern-body:origin","origin:axis:z"}};parameters.pattern=pattern;
+    document::DerivedCopyParameters parameters{{source_id},{{},"pattern-body:origin","origin:axis:z"}};parameters.pattern=pattern;
     document::Placement frame;frame.rotation_y=90;parameters.pattern->linear[0].local_axis=1;
     document::PartDocument::resolve_copy_reference(parameters,"pattern-body",frame,{});
     close(parameters.pattern->axis.x,1);close(parameters.pattern->axis.z,0);
     for(const bool patterned:{false,true}) {
         auto own=parameters;if(!patterned)own.pattern.reset();
         own.reference={{},"pattern-body:origin",patterned?"origin:axis:z":"origin:plane:yz"};
-        for(const auto& ref:{document::ConstructionReference{{},"other:origin",own.reference.semantic_key},
+        for(const auto& ref:{
             document::ConstructionReference{"other-occurrence","pattern-body:origin",own.reference.semantic_key},
             document::ConstructionReference{{},"pattern-body:origin",own.reference.semantic_key,2}}) {
             auto invalid=own;invalid.reference=ref;
             rejects([&]{document::PartDocument::resolve_copy_reference(invalid,"pattern-body",frame,{});});
         }
     }
+    document::PartDocument reference_carrier;
+    auto datum_plane=document::PartDocument::create_construction(
+        document::ConstructionKind::Plane);
+    datum_plane.origin={7,8,9};datum_plane.entity_origin=datum_plane.origin;
+    reference_carrier.constructions={datum_plane};
+    auto external_mirror=parameters;external_mirror.pattern.reset();
+    external_mirror.reference={{},datum_plane.entity_id,"plane"};
+    document::PartDocument::resolve_copy_reference(external_mirror,
+        "external-mirror",{},reference_carrier.construction_viewer_mesh().original_references);
+    const kernel::Vec3 datum_delta{
+        datum_plane.entity_origin.x-external_mirror.resolved_plane.point.x,
+        datum_plane.entity_origin.y-external_mirror.resolved_plane.point.y,
+        datum_plane.entity_origin.z-external_mirror.resolved_plane.point.z};
+    close(datum_delta.x*external_mirror.resolved_plane.normal.x+
+        datum_delta.y*external_mirror.resolved_plane.normal.y+
+        datum_delta.z*external_mirror.resolved_plane.normal.z,0);
+    const auto persisted_external_plane=external_mirror.resolved_plane;
+    document::PartDocument::resolve_copy_reference(external_mirror,
+        "external-mirror",{},{});
+    require(external_mirror.resolved_plane==persisted_external_plane,
+        "Mirror did not retain its resolved external plane for native calculation");
+    auto datum_axis=document::PartDocument::create_construction(
+        document::ConstructionKind::Axis);
+    datum_axis.origin={3,4,5};datum_axis.entity_origin=datum_axis.origin;
+    datum_axis.direction={0,1,0};reference_carrier.constructions={datum_axis};
+    auto external_pattern=parameters;external_pattern.pattern->circular=true;
+    external_pattern.reference={{},datum_axis.entity_id,"axis"};
+    document::PartDocument::resolve_copy_reference(external_pattern,
+        "external-pattern",{},reference_carrier.construction_viewer_mesh().original_references);
+    close(external_pattern.pattern->origin.x,3);
+    close(external_pattern.pattern->origin.y,4);
+    close(external_pattern.pattern->origin.z,5);
+    close(external_pattern.pattern->axis.y,1);
+    const auto persisted_external_axis=*external_pattern.pattern;
+    document::PartDocument::resolve_copy_reference(external_pattern,
+        "external-pattern",{},{});
+    require(*external_pattern.pattern==persisted_external_axis,
+        "Pattern did not retain its resolved external axis for native calculation");
     parameters.pattern->circular=false;const auto retained=parameters.reference;
     document::PartDocument::resolve_copy_reference(parameters,"pattern-body",frame,{});
     close(parameters.pattern->linear[0].direction.y,1);require(parameters.reference==retained,"Linear mode discarded the stored circular axis");

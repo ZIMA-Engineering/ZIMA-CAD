@@ -1,4 +1,5 @@
 #include "profile_command_fixture.hpp"
+#include "body_measurement_fixture.hpp"
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/component_operations.hpp>
 #include <zima/workspace/model_calculation.hpp>
@@ -43,14 +44,14 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     run(host,"activate",{{"document",source}});zima::test::resize_rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"container",box},{"length_mm","20"}});const auto source_revision=live.open_part(source)->session.revision();
     run(host,"activate",{{"document",owner}});const auto removed=remove(second).data;
     require(removed.at("removed")==true&&live.open_assembly(owner)->session.document().components.size()==1,"Removal result or component count is wrong");
-    near(live.open_assembly(owner)->session.document().find_occurrence(first)->calculated_source->volume,2000);
+    near(test::measured_volume(kernel,live.open_assembly(owner)->session.document().find_occurrence(first)->calculated_source.get()),2000);
     require(live.open_part(source)->session.revision()==source_revision&&live.open_part(source)->session.is_dirty()&&fs::exists(dir/"remove-source.prtz"),"Removal changed or deleted the source document");
     run(host,"undo");require(live.open_assembly(owner)->session.document().find_occurrence(second),"Removal did not undo in one step");run(host,"redo");
     require(!live.open_assembly(owner)->session.document().find_occurrence(second),"Redo changed removal identity");run(host,"undo");live.refresh_source_geometry();
     // Removal publishes current source geometry but does not evaluate relations.
     run(host,"document.relations.set",{{"relations","capacity = 1 / (3000 - round(model.volume))\n"}});
     run(host,"activate",{{"document",source}});zima::test::resize_rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"container",box},{"length_mm","30"}});run(host,"activate",{{"document",owner}});
-    remove(second);near(live.open_assembly(owner)->session.document().find_occurrence(first)->calculated_source->volume,3000);
+    remove(second);near(test::measured_volume(kernel,live.open_assembly(owner)->session.document().find_occurrence(first)->calculated_source.get()),3000);
     require(!host.execute({{"command","regenerate"}}).ok,"Deferred removal relation unexpectedly succeeded");
     run(host,"undo");
     run(host,"document.relations.set",{{"relations",""}});
@@ -78,16 +79,16 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     auto cutter=document::PartDocument::create_extrusion_container(profile.id);cutter.combine_mode=document::CombineMode::Subtract;
     cutter.extrusion.extent_mode=document::ProfileExtentMode::Symmetric;cutter.extrusion.length_forward=20;cutter.extrusion.height=20;
     profile.owner_container_id=cutter.id;cut_model.sketches.push_back(profile);cut_model.cuts.push_back({cutter,{a,b},{}});
-    workspace::calculate_resolved_assembly_cuts(kernel,cut_model);near(cut_model.find_occurrence(a)->calculated_source->volume,2800);
+    workspace::calculate_resolved_assembly_cuts(kernel,cut_model);near(test::measured_volume(kernel,cut_model.find_occurrence(a)->calculated_source.get()),2800);
     live.open_assembly(cut_owner)->session.commit(std::move(cut_model));
     remove(b);const auto& after=live.open_assembly(cut_owner)->session.document();
     require(after.cuts.front().target_occurrence_ids==std::vector<std::string>{a}&&after.cuts.front().input_component_bodies.size()==1,
         "Removal retained deleted cut targets or rollback input packets");
-    near(after.cuts.front().input_component_bodies.at(a).volume,3000);near(after.find_occurrence(a)->calculated_source->volume,2800);
-    run(host,"undo");near(live.open_assembly(cut_owner)->session.document().find_occurrence(b)->calculated_source->volume,2800);run(host,"redo");
+    near(test::measured_volume(kernel,after.cuts.front().input_component_bodies.at(a)),3000);near(test::measured_volume(kernel,after.find_occurrence(a)->calculated_source.get()),2800);
+    run(host,"undo");near(test::measured_volume(kernel,live.open_assembly(cut_owner)->session.document().find_occurrence(b)->calculated_source.get()),2800);run(host,"redo");
     run(host,"save");const auto native=assembly::AssemblyDocument::load(dir/"remove-cut.asmz");
     require(native.components.size()==1&&native.cuts.front().target_occurrence_ids==std::vector<std::string>{a},"Native Assembly lost removal or cut targets");
-    near(native.find_occurrence(a)->calculated_source->volume,2800);
+    near(test::measured_volume(kernel,native.find_occurrence(a)->calculated_source.get()),2800);
     remove(a);require(live.open_assembly(cut_owner)->session.document().components.empty()&&live.open_assembly(cut_owner)->session.document().cuts.front().target_occurrence_ids.empty(),
         "Removing the last cut target retained a component");
     require(live.open_part(source)&&fs::exists(dir/"remove-source.prtz"),"Removing last occurrence deleted source Part");

@@ -3,7 +3,10 @@
 #include <zima/kernel/pattern_geometry.hpp>
 namespace zima::document {
 struct DerivedCopyParameters {
-    std::string source_id;
+    // Ordered native sources copied by one Mirror/Pattern container.
+    // The order is authored UI data; calculation groups compatible operands
+    // without changing these identities.
+    std::vector<std::string> source_ids;
     ConstructionReference reference;
     kernel::MirrorPlane resolved_plane;
     bool reference_valid{true};
@@ -14,6 +17,13 @@ struct DerivedCopyParameters {
     bool subtract_source{};
     bool operator==(const DerivedCopyParameters&) const = default;
 };
+
+inline const std::string& primary_derived_copy_source(
+        const DerivedCopyParameters& parameters) {
+    if(parameters.source_ids.empty())
+        throw std::invalid_argument("Copy source is missing.");
+    return parameters.source_ids.front();
+}
 
 inline bool is_derived_copy_origin_reference(const ConstructionReference& reference,
     const std::string& owner_id,bool pattern) {

@@ -75,7 +75,7 @@ void verify(const fs::path& dir) {
     auto original=assembly::AssemblyDocument::create_part_occurrence("Original",source_id,dir/"reference-source.prtz",boundaries.back());
     auto mirrored=assembly::AssemblyDocument::create_part_occurrence("Mirror",source_id,dir/"reference-source.prtz",
         kernel.mirror_body(boundaries.back(),{{},{1,0,0}},{},{},{}));
-    mirrored.derived_copy=document::DerivedCopyParameters{};mirrored.derived_copy->source_id=original.occurrence_id;
+    mirrored.derived_copy=document::DerivedCopyParameters{};mirrored.derived_copy->source_ids={original.occurrence_id};
     mirrored.placement={5,6,7,0,0,0};with_copy.components.push_back(original);with_copy.components.push_back(mirrored);
     live.open_assembly(top.document_id)->session.commit(std::move(with_copy));
     const auto mirror_path=assembly::InstancePath{}.child(mirrored.occurrence_id).encoded();

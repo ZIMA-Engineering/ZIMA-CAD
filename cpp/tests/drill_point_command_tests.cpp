@@ -1,5 +1,6 @@
 #include "profile_command_fixture.hpp"
 #include "drill_point_test_support.hpp"
+#include "body_measurement_fixture.hpp"
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/drill_point_operations.hpp>
 #include <zima/kernel/drill_point_identity.hpp>
@@ -31,7 +32,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     const auto created=run(host,"drill_point.create",{{"faces",Json::array({a,b})}}).data;
     const auto id=created.at("container").get<std::string>();const auto original=*state->session.document().find_container(id);
     const auto geometry=[&](double angle,bool big,bool little) {
-        const auto& result=state->session.calculated_boundaries().back();near(result.volume,test::drilled_block_volume(angle,big,little));
+        const auto& result=state->session.calculated_boundaries().back();near(test::measured_volume(kernel,result),test::drilled_block_volume(angle,big,little));
         std::set<std::string> sources;
         for(std::size_t i=0;i<result.mesh.triangle_references.size();++i) {
             const auto& ref=result.mesh.triangle_references[i];if(ref.owner_id!=id)continue;
@@ -69,8 +70,8 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     require(host.execute({{"command","drill_point.set"},{"arguments",{{"container",id},{"angle_degrees",118}}}}).code=="value_locked","Drill angle bypassed its Properties lock");
     run(host,"save");std::vector<kernel::BodyResult> saved;
     const auto loaded=document::PartDocument::load(directory/"drill-command.prtz",&saved);
-    require(*loaded.find_container(id)==locked,"Drill native save lost its parameters/references");near(saved.back().volume,test::drilled_block_volume(120,false,true));
-    const auto cold=kernel.evaluate_history(loaded.kernel_operations());near(cold.back().volume,saved.back().volume);
+    require(*loaded.find_container(id)==locked,"Drill native save lost its parameters/references");near(test::measured_volume(kernel,saved.back()),test::drilled_block_volume(120,false,true));
+    const auto cold=kernel.evaluate_history(loaded.kernel_operations());near(test::measured_volume(kernel,cold.back()),test::measured_volume(kernel,saved.back()));
     const auto expected=kernel::drill_point_key("side",{small,b.at("key").get<std::string>(),{}});
     require(std::ranges::any_of(cold.back().mesh.triangle_references,[&](const auto& ref){return ref.owner_id==id&&ref.semantic_key==expected;}),"Cold calculation lost remaining bottom identity");
     for(const auto* malformed:{"drill-point:side:from:0::x","drill-point:side:from:999:x:y","drill-point:unknown:from:1:a:b","drill-point:side:from:x:a:b"})
@@ -86,7 +87,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
         if(ref.owner_id==opening&&ref.surface&&ref.surface->kind==kernel::SurfaceGeometry::Kind::Plane&&std::abs(ref.surface->origin.z+5)<1e-7)opening_bottom=ref;
     require(opening_bottom.has_value(),"Current Otvor did not expose its original blind bottom");
     const auto point=run(host,"drill_point.create",{{"faces",Json::array({face(opening,opening_bottom->semantic_key.c_str())})},{"angle_degrees",120}}).data.at("container").get<std::string>();
-    near(state->session.calculated_boundaries().back().volume,64000-375*std::numbers::pi-125*std::numbers::pi/(3*std::tan(std::numbers::pi/3)));
+    near(test::measured_volume(kernel,state->session.calculated_boundaries().back()),64000-375*std::numbers::pi-125*std::numbers::pi/(3*std::tan(std::numbers::pi/3)));
     require(std::ranges::any_of(state->session.calculated_boundaries().back().mesh.triangle_references,
         [&](const auto& ref){return ref.owner_id==point&&kernel::drill_point_source(ref.semantic_key)==opening_bottom;}),
         "Drill point on the current Otvor lost its original bottom parent");
@@ -109,13 +110,13 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
         bore.extrusion.direction=reverse?document::ExtrusionDirection::Reverse:document::ExtrusionDirection::Forward;
         for(const auto& f:{block,bore}){part.insert_history_entry(document::PartHistoryKind::Feature,f.id);part.history.push_back(f);}
         part.resolve_constructions();const auto key=test::profile_key(part,bore.id,reverse?"z_max":"z_min");
-        auto input=kernel.evaluate_history(part.kernel_operations());const auto input_volume=input.back().volume;
+        auto input=kernel.evaluate_history(part.kernel_operations());const auto input_volume=test::measured_volume(kernel,input.back());
         state->session.commit(std::move(part),std::move(input));
         const auto id=run(host,"drill_point.create",{{"faces",Json::array({Json{{"owner",bore.id},{"key",key}}})}}).data.at("container").get<std::string>();
         const auto verify_tip=[&](double angle) {
             const auto& result=state->session.calculated_boundaries().back();
             require(result.calculation_errors.empty(),"Partial floor drill point retained a calculation error");
-            near(input_volume-result.volume,clipped_cone(5,x==0?-1:x-20,angle));
+            near(input_volume-test::measured_volume(kernel,result),clipped_cone(5,x==0?-1:x-20,angle));
             bool found=false;
             for(std::size_t i=0;i<result.mesh.triangle_references.size();++i) {
                 const auto& ref=result.mesh.triangle_references[i];if(ref.owner_id!=id)continue;
@@ -148,7 +149,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
         const auto reopened=document::PartDocument::load(directory/(name+".prtz"),&cached);
         require(reopened.find_container(id)->drill_point.bottom_faces==state->session.document().find_container(id)->drill_point.bottom_faces,"Partial floor native reopen changed its source");
         const auto cold=kernel.evaluate_history(reopened.kernel_operations());
-        require(cold.back().calculation_errors.empty(),"Partial floor cold regeneration failed");near(cold.back().volume,cached.back().volume);
+        require(cold.back().calculation_errors.empty(),"Partial floor cold regeneration failed");near(test::measured_volume(kernel,cold.back()),test::measured_volume(kernel,cached.back()));
     }
 }
 }

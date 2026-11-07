@@ -257,6 +257,205 @@ Q_NEVER_INLINE static int verify_history_deletion(QApplication& application,
         check(window.findChild<QPushButton*>("sketchOpenButton"),
             "Surviving Sketch Properties cannot reopen after deletion Redo");
         for(auto* candidate:window.findChildren<QDialog*>())if(candidate->isVisible())candidate->reject();flush();
-        std::cout<<"History deletion GUI: Tree/View menu parity, exact target, preview, Cancel, OK, save, Undo/Redo and linked two-Body Sketch entry passed\n";return 0;
+
+        // Exact Properties contract for an ordinary retained chain:
+        // Container 1 is deleted, Container 2 becomes an editable free frame,
+        // and Container 3 remains attached to Container 2 throughout repair.
+        auto chain=document::PartDocument::create_default();
+        auto chain_first=test::rectangular_feature(chain,{20,20,10});
+        auto chain_replacement=test::rectangular_feature(chain,{12,12,8});
+        chain_replacement.placement.x=50;
+        auto chain_second=test::rectangular_feature(chain,{8,8,6});
+        auto chain_third=test::rectangular_feature(chain,{4,4,4});
+        chain.history={chain_first,chain_replacement,chain_second,chain_third};
+        document::BodyHistoryGraph chain_graph;
+        const auto chain_body=chain_graph.create_body("Three retained containers");
+        for(const auto& feature:chain.history)
+            chain_graph.insert({document::PartHistoryKind::Feature,feature.id});
+        chain.set_body_history(chain_graph);
+        auto chain_calculated=workspace::calculate_part_with_resolved_references(kernel,chain);
+        const auto chain_face=[&](const std::string& owner) {
+            const auto& references=chain_calculated.back().mesh.original_references;
+            const kernel::FaceReference* found{};
+            for(const auto& reference:references.triangle_references)
+                if(reference.owner_id==owner&&reference.surface&&
+                        reference.surface->kind==kernel::SurfaceGeometry::Kind::Plane&&
+                        std::abs(reference.surface->axis.x)>.9&&
+                        (!found||reference.surface->origin.x>
+                            found->surface->origin.x))
+                    found=&reference;
+            check(found,
+                "Retained-chain GUI fixture has no X-normal planar face");
+            document::ConstructionReference support;
+            support.owner_id=found->owner_id;support.semantic_key=found->semantic_key;
+            support.orientation_role="front";support.orientation_drives_rotation=true;
+            return support;
+        };
+        chain.find_container(chain_second.id)->placement.references={chain_face(chain_first.id)};
+        chain.resolve_constructions(chain_calculated.back().mesh.original_references);
+        chain_calculated=workspace::calculate_part_with_resolved_references(
+            kernel,chain,&chain_calculated);
+        chain.find_container(chain_third.id)->placement.references={chain_face(chain_second.id)};
+        chain.resolve_constructions(chain_calculated.back().mesh.original_references);
+        chain_calculated=workspace::calculate_part_with_resolved_references(
+            kernel,chain,&chain_calculated);
+        const auto chain_third_before=chain.find_container(chain_third.id)->placement;
+        const auto chain_path=directory/"history-deletion-three-containers-ui.prtz";
+        chain.save(chain_path,chain_calculated);
+        AssemblyWorkspaceWindow chain_window(
+            QString::fromStdString(document::path_to_utf8(directory)));
+        chain_window.showMaximized();
+        check(chain_window.open_document_path(QString::fromStdString(chain_path.string())),
+            "Retained-chain GUI fixture did not open");flush();
+        const auto chain_run=[&](const QString& command) {
+            auto result=chain_window.execute_console_command(command);
+            check(result.ok,result.message.c_str());flush();
+        };
+        chain_run(QString::fromStdString(commands::Json{{"command","body.activate"},
+            {"arguments",{{"body",chain_body}}}}.dump()));
+        tree=chain_window.findChild<QTreeWidget*>("documentTree");
+        const auto chain_row=[&](const std::string& id)->QTreeWidgetItem* {
+            for(QTreeWidgetItemIterator it(tree);*it;++it)
+                if((*it)->data(0,Qt::UserRole).toString().toStdString()==id&&
+                   (*it)->data(0,Qt::UserRole+3).toString()=="part-container")return *it;
+            return nullptr;
+        };
+        chain_window.delete_part_object_for_test(chain_first.id,
+            QStringLiteral("part-container"));flush();
+        auto* chain_confirmation=chain_window.findChild<QDialog*>("deleteHistoryDialog");
+        check(chain_confirmation&&chain_confirmation->isVisible(),
+            "Retained-chain deletion confirmation missing");
+        chain_confirmation->findChild<QDialogButtonBox*>()->button(
+            QDialogButtonBox::Ok)->click();flush();
+        check(!chain_row(chain_first.id)&&chain_row(chain_second.id)&&
+                chain_row(chain_third.id)&&
+                chain_row(chain_second.id)->foreground(0).color()==QColor(210,75,65)&&
+                chain_row(chain_third.id)->foreground(0).color()!=QColor(210,75,65),
+            "Deleting Container 1 did not retain the exact 2 -> 3 boundary");
+        auto* chain_view=dynamic_cast<viewer::MeshView*>(
+            chain_window.findChild<QOpenGLWidget*>("modelWorkspace"));
+        check(chain_view,"Retained-chain View is missing");
+        chain_view->confirm_container(chain_second.id);
+        check(chain_view->confirmed_candidate()&&
+                chain_view->confirmed_candidate()->owner_id==chain_second.id,
+            "Retained Container 2 cannot be confirmed in the View");
+        const QPointF inspection_point(chain_view->rect().center());
+        QMouseEvent inspect_retained(QEvent::MouseButtonDblClick,
+            inspection_point,QPointF(chain_view->mapToGlobal(
+                inspection_point.toPoint())),Qt::LeftButton,Qt::LeftButton,
+            Qt::NoModifier);
+        QApplication::sendEvent(chain_view,&inspect_retained);flush();
+        const bool view_cleared_red=
+            chain_row(chain_second.id)->foreground(0).color()!=QColor(210,75,65);
+        const bool view_inspection_started=chain_window.finish_parameter_dimensions();
+        flush();
+        check(view_inspection_started,
+            "View double-click did not inspect retained Container 2");
+        check(view_cleared_red,
+            "View double-click left retained Container 2 red");
+        check(chain_row(chain_second.id)->foreground(0).color()==QColor(210,75,65),
+            "Unchanged View inspection acknowledged a deleted reference");
+        const auto visible_chain_properties=[&] {
+            PrimitivePropertiesDialog* properties{};
+            for(auto* candidate:chain_window.findChildren<QDialog*>())
+                if(auto* dialog=dynamic_cast<PrimitivePropertiesDialog*>(candidate);
+                        dialog&&dialog->isVisible())properties=dialog;
+            return properties;
+        };
+        const auto open_chain_properties=[&] {
+            chain_window.show_tree_item_properties(chain_row(chain_second.id));flush();
+            auto* properties=visible_chain_properties();
+            if(!properties)for(auto* candidate:chain_window.findChildren<QMessageBox*>())
+                if(candidate->isVisible())std::cerr<<
+                    "Retained Properties warning: "<<
+                    candidate->text().toStdString()<<'\n';
+            check(properties&&properties->isVisible(),
+                "Retained Container 2 Properties did not open");
+            check(chain_row(chain_second.id)->foreground(0).color()!=QColor(210,75,65),
+                "Entering retained Container 2 Properties left it red");
+            return properties;
+        };
+        auto* chain_properties=open_chain_properties();
+        auto* sketch_button=chain_properties->findChild<QPushButton*>(
+            "primitiveOwnSketchButton");
+        if(!sketch_button)sketch_button=chain_properties->findChild<QPushButton*>(
+            "featureSketchButton");
+        if(!sketch_button)sketch_button=chain_properties->findChild<QPushButton*>(
+            "sketchOpenButton");
+        check(sketch_button&&sketch_button->isEnabled(),
+            "Retained Container 2 cannot enter Sketcher");
+        sketch_button->click();flush();
+        auto* finish_sketch=chain_window.findChild<QAction*>("finishSketchAction");
+        check(finish_sketch&&finish_sketch->isEnabled()&&
+                !visible_chain_properties(),
+            "Retained Container 2 did not enter its Sketcher");
+        finish_sketch->trigger();flush();
+        chain_properties=visible_chain_properties();
+        check(chain_properties&&chain_properties->pending_value().id==chain_second.id,
+            "Retained Container 2 did not return from Sketcher to Properties");
+        const double moved_x=chain_properties->pending_value().placement.x+7;
+        check(chain_properties->set_inline_parameter_value("placement:x",moved_x),
+            "Retained Container 2 placement X is not editable");
+        chain_properties->findChild<QDoubleSpinBox*>("extrusionHeight")->setValue(
+            chain_properties->pending_value().extrusion.length_forward+1);
+        flush();
+        check(chain_properties->pending_value().placement.x==moved_x,
+            "Retained Container 2 placement edit did not react");
+        chain_properties->buttons()->button(QDialogButtonBox::Cancel)->click();flush();
+        check(chain_row(chain_second.id)->foreground(0).color()==QColor(210,75,65),
+            "Cancel did not restore Container 2's deleted-reference state");
+        chain_run("save");
+        const auto cancelled_chain=document::PartDocument::load(chain_path);
+        check(cancelled_chain.removed_reference_states.contains(chain_second.id),
+            "Cancel committed the retained-container repair");
+        chain_properties=open_chain_properties();
+        auto* default_origin=chain_properties->findChild<QPushButton*>(
+            "containerDefaultOriginButton");
+        check(default_origin&&default_origin->isEnabled(),
+            "Reopened retained Container 2 has no usable Default placement");
+        default_origin->click();flush();
+        const auto default_placement=chain_properties->pending_value().placement;
+        const auto chain_origin=chain.body_history.find(chain_body)->origin().id;
+        check(!default_placement.references.empty()&&
+                std::ranges::all_of(default_placement.references,
+                    [&](const auto& reference) {
+                        return reference.owner_id==chain_origin;
+                    }),"Default did not attach retained Container 2 to its Body Origin");
+        const double moved_height=chain_properties->pending_value().extrusion.length_forward+1;
+        chain_properties->findChild<QDoubleSpinBox*>("extrusionHeight")->setValue(moved_height);
+        chain_properties->buttons()->button(QDialogButtonBox::Ok)->click();flush();
+        check(std::ranges::none_of(chain_window.findChildren<QDialog*>(),
+                [](auto* candidate) {
+                    const auto* dialog=dynamic_cast<PrimitivePropertiesDialog*>(candidate);
+                    return dialog&&dialog->isVisible();
+                }),"Retained Container 2 OK did not finish");
+        chain_run("save");
+        std::vector<kernel::BodyResult> repaired_chain_geometry;
+        const auto repaired_chain=document::PartDocument::load(
+            chain_path,&repaired_chain_geometry);
+        check(!repaired_chain.removed_reference_states.contains(chain_second.id)&&
+                !repaired_chain.removed_reference_states.contains(chain_third.id)&&
+                repaired_chain.find_container(chain_second.id)->extrusion.length_forward==moved_height&&
+                repaired_chain.find_container(chain_second.id)->placement.reference_valid&&
+                !repaired_chain.find_container(chain_second.id)->placement.references.empty()&&
+                std::ranges::all_of(
+                    repaired_chain.find_container(chain_second.id)->placement.references,
+                    [&](const auto& reference) {
+                        return reference.owner_id==chain_origin;
+                    })&&
+                repaired_chain.find_container(chain_third.id)->placement.reference_valid&&
+                repaired_chain.find_container(chain_third.id)->placement!=chain_third_before&&
+                !repaired_chain_geometry.empty()&&
+                repaired_chain_geometry.back().calculation_errors.empty(),
+            "Container 2 repair did not persist or Container 3 stopped following it");
+        chain_run("undo");
+        check(chain_row(chain_second.id)->foreground(0).color()==QColor(210,75,65)&&
+                chain_row(chain_third.id)->foreground(0).color()!=QColor(210,75,65),
+            "Container 2 repair Undo changed the retained dependency boundary");
+        chain_run("redo");
+        check(chain_row(chain_second.id)->foreground(0).color()!=QColor(210,75,65)&&
+                chain_row(chain_third.id)->foreground(0).color()!=QColor(210,75,65),
+            "Container 2 repair Redo did not restore the repaired chain");
+        std::cout<<"History deletion GUI: Tree/View menu parity, exact target, preview, Cancel, OK, save, Undo/Redo, linked Body Sketch entry and retained 1 -> 2 -> 3 Properties repair passed\n";return 0;
     }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}
 }

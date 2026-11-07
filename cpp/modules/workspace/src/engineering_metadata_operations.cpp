@@ -24,8 +24,14 @@ bool set_model_relations(Workspace& live,const std::string& id,std::string relat
     const document::RelationProgram program(relations);const auto before=model_relations(live,id);
     metadata_detail::read(live,id,[&](const auto& doc){
         // Validate against current persisted values without publishing results
-        // or calculating geometry. Regenerate remains the only evaluation commit.
-        auto draft=doc;draft.relations=relations;apply_relation_parameters(draft,before.model_values);return true;
+        // or calculating geometry. Pending physical analysis still has known
+        // quantity types, so use finite validation placeholders only for the
+        // missing values. Regenerate/Save remain the evaluation commits.
+        auto validation_values=before.model_values;
+        for(const auto* name:{"model.mass","model.area","model.volume","material.density"})
+            validation_values.try_emplace(name,0.);
+        auto draft=doc;draft.relations=relations;
+        apply_relation_parameters(draft,validation_values);return true;
     });
     return metadata_detail::write(live,id,[&](auto& doc) {
         doc.relations=std::move(relations);

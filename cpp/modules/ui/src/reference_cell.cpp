@@ -264,7 +264,7 @@ void ReferenceCellItem::set_inspected(bool value) {
     setData(inspected_role, value);
     // QStyledItemDelegate initializes its paint options again from the model;
     // an option-only background is discarded by that second initialization.
-    setBackground(value ? QBrush(QColor(QStringLiteral("#4DD811"))) : QBrush{});
+    setBackground(value ? QBrush(QColor(QStringLiteral("#00D1FF"))) : QBrush{});
 }
 
 }  // namespace zima::ui

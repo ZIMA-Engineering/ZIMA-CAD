@@ -78,7 +78,8 @@ std::vector<sheet_material::Transition> transitions_to(const Contribution& sourc
 }
 Sources capture(Sources sources,const PrimitiveData& before,const PrimitiveData& after,
         const std::vector<SheetMaterialDefinition>& regions,const HistoryOperation& operation,double tolerance,
-        double material_tolerance=std::numeric_limits<double>::max()) {
+        double material_tolerance=std::numeric_limits<double>::max(),
+        const PrimitiveData* authored_additive=nullptr) {
     if(operation.suppressed||std::holds_alternative<SheetStateRequest>(operation.primitive)||regions.empty())return sources;
     if(!sources&&!before.shape.IsNull())sources=std::make_shared<Contribution>(Contribution{before,{},BooleanOperation::Add,{}});
     const auto domains=sources;
@@ -128,7 +129,8 @@ Sources capture(Sources sources,const PrimitiveData& before,const PrimitiveData&
         retain(std::move(remaining),BooleanOperation::Subtract,{});
     }
     if(operation.operation==BooleanOperation::Add||treatment)
-        retain(difference(after,before,operation.owner_id),BooleanOperation::Add,
+        retain(authored_additive?*authored_additive:
+                difference(after,before,operation.owner_id),BooleanOperation::Add,
             operation.sheet_material?operation.sheet_material->owner_id:std::string{});
     return sources;
 }
@@ -153,6 +155,94 @@ PrimitiveData calculate(Sources sources,const std::vector<SheetMaterialDefinitio
     std::vector<Sources> ordered;for(auto source=sources;source;source=source->previous)ordered.push_back(source);
     const bool restoring_authored=std::ranges::all_of(ordered,[&](const auto& source){return transitions_to(*source,target).empty();});
     const auto reconstruct=[&](bool refine,double requested_tolerance) {
+        // A native sheet authored only from explicit additive regions has no
+        // order-dependent material removal. Transform those immutable region
+        // operands independently and join them in one parallel Boolean. The
+        // former left-to-right Fuse rebuilt an ever larger solid for every
+        // Flat/Bend and made Unbend quadratic in the number of regions.
+        const bool batch_additive=ordered.size()>1&&
+            std::ranges::all_of(ordered,[](const auto& source) {
+                return source->operation==BooleanOperation::Add&&
+                    !source->created_region.empty()&&
+                    source->form_owner.empty()&&
+                    !source->material.shape.IsNull();
+            });
+        if(batch_additive)try {
+            std::vector<PrimitiveData> materials(ordered.size());
+            std::atomic_size_t next{};
+            const auto workers=std::min<std::size_t>(8,
+                std::min<std::size_t>(ordered.size(),
+                    std::max(2u,std::thread::hardware_concurrency())));
+            std::vector<std::future<void>> jobs;
+            jobs.reserve(workers);
+            for(std::size_t worker=0;worker<workers;++worker)
+                jobs.push_back(std::async(std::launch::async,[&] {
+                    while(true) {
+                        const auto index=next.fetch_add(1);
+                        if(index>=ordered.size())break;
+                        const auto& source=*ordered[ordered.size()-1-index];
+                        const auto transitions=transitions_to(source,target);
+                        const double effective_tolerance=std::min(
+                            requested_tolerance,source.material_tolerance);
+                        materials[index]=sheet_state_geometry::transform(
+                            source.material,transitions,
+                            refine?effective_tolerance:requested_tolerance,
+                            owner,source.created_region);
+                    }
+                }));
+            for(auto& job:jobs)job.get();
+
+            TopTools_ListOfShape arguments,tools;
+            arguments.Append(materials.front().shape);
+            std::vector<OwnedFace> faces;
+            std::vector<OwnedEdge> edges;
+            std::vector<OwnedVertex> vertices;
+            for(std::size_t index=0;index<materials.size();++index) {
+                if(index)tools.Append(materials[index].shape);
+                faces.insert(faces.end(),materials[index].faces.begin(),
+                    materials[index].faces.end());
+                edges.insert(edges.end(),materials[index].edges.begin(),
+                    materials[index].edges.end());
+                vertices.insert(vertices.end(),materials[index].vertices.begin(),
+                    materials[index].vertices.end());
+            }
+            BRepAlgoAPI_Fuse fuse;
+            fuse.SetArguments(arguments);fuse.SetTools(tools);
+            fuse.SetRunParallel(true);fuse.SetToFillHistory(true);
+            fuse.SetFuzzyValue(restoring_authored?ordered.back()->boolean_tolerance:
+                requested_tolerance/8);
+            fuse.Build();
+            if(!fuse.IsDone()||fuse.Shape().IsNull())
+                throw std::runtime_error(
+                    "Cannot batch reconstruct additive sheet material.");
+            PrimitiveData result;result.shape=fuse.Shape();
+            result.faces=propagate_topology(fuse,faces,
+                std::vector<OwnedFace>{});
+            result.edges=propagate_topology(fuse,edges,
+                std::vector<OwnedEdge>{});
+            result.vertices=propagate_topology(fuse,vertices,
+                std::vector<OwnedVertex>{});
+            if(!BRepCheck_Analyzer(result.shape).IsValid())
+                throw std::runtime_error(
+                    "Batch reconstructed sheet material is invalid.");
+            std::size_t solids=0;
+            for(TopExp_Explorer it(result.shape,TopAbs_SOLID);it.More();it.Next())
+                ++solids;
+            if(solids!=expected_solids)throw ConnectivityError();
+            result.edges=complete_boolean_edges(result.shape,result.faces,
+                result.edges,owner,"sheet-state");
+            result.vertices=complete_boolean_vertices(result.shape,result.faces,
+                result.edges,result.vertices,owner,"sheet-state");
+            sheet_state_geometry::identify(result,owner);
+            return result;
+        } catch(const ConnectivityError&) {
+            throw;
+        } catch(const Standard_Failure&) {
+            // Preserve the established sequential reconstruction for any
+            // kernel case that cannot use the additive batch safely.
+        } catch(const std::runtime_error&) {
+            // Preserve the same fallback for validity or ancestry failures.
+        }
         PrimitiveData result;
         for(auto it=ordered.rbegin();it!=ordered.rend();++it) {
             const auto& source=**it;const auto transitions=transitions_to(source,target);

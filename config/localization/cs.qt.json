@@ -2685,5 +2685,16 @@
   "Zobrazit nebo skrýt body os a konstrukčních čar": "Zobrazit nebo skrýt body os a konstrukčních čar",
   "Invalid compressed document data.": "Neplatná komprimovaná data dokumentu.",
   "External extrusion targets must belong to a Skeleton Part.": "Externí cíle tažení musí patřit dílu Skeleton.",
-  "Prázdná varianta": "Prázdná varianta"
+  "Prázdná varianta": "Prázdná varianta",
+  "Zdroje": "Zdroje",
+  "Ve View…": "Ve View…",
+  "Vyberte zdroj ve View…": "Vyberte zdroj ve View…",
+  "Vyberte zdrojový prvek, těleso nebo komponentu.": "Vyberte zdrojový prvek, těleso nebo komponentu.",
+  "Vyberte alespoň jeden dostupný zdrojový prvek, těleso nebo komponentu.": "Vyberte alespoň jeden dostupný zdrojový prvek, těleso nebo komponentu.",
+  "Kopie přebírají geometrii zdrojů. Rozměry a vlastnosti geometrie se upravují u zdrojových prvků.": "Kopie přebírají geometrii zdrojů. Rozměry a vlastnosti geometrie se upravují u zdrojových prvků.",
+  "Vyberte alespoň jeden zdrojový prvek, těleso nebo komponentu.": "Vyberte alespoň jeden zdrojový prvek, těleso nebo komponentu.",
+  "Vyberte osu Pole.": "Vyberte osu Pole.",
+  "Vyberte rovinu zrcadlení.": "Vyberte rovinu zrcadlení.",
+  "Vyberte ve View…": "Vyberte ve View…",
+  "Vybrat rovinu ve View": "Vybrat rovinu ve View"
 }

@@ -2685,5 +2685,16 @@
   "Zobrazit nebo skrýt body os a konstrukčních čar": "Afficher ou masquer les points des axes et des courbes de construction",
   "Invalid compressed document data.": "Données compressées du document non valides.",
   "External extrusion targets must belong to a Skeleton Part.": "Les limites externes d’extrusion doivent appartenir à une pièce Skeleton.",
-  "Prázdná varianta": "Vide"
+  "Prázdná varianta": "Vide",
+  "Zdroje": "Sources",
+  "Ve View…": "Dans la vue…",
+  "Vyberte zdroj ve View…": "Sélectionner une source dans la vue…",
+  "Vyberte zdrojový prvek, těleso nebo komponentu.": "Sélectionnez une fonction, un corps ou un composant source.",
+  "Vyberte alespoň jeden dostupný zdrojový prvek, těleso nebo komponentu.": "Sélectionnez au moins une fonction, un corps ou un composant source disponible.",
+  "Kopie přebírají geometrii zdrojů. Rozměry a vlastnosti geometrie se upravují u zdrojových prvků.": "Les copies héritent de la géométrie des sources. Modifiez les cotes et les propriétés géométriques dans les fonctions sources.",
+  "Vyberte alespoň jeden zdrojový prvek, těleso nebo komponentu.": "Sélectionnez au moins une fonction, un corps ou un composant source.",
+  "Vyberte osu Pole.": "Sélectionnez l’axe du réseau.",
+  "Vyberte rovinu zrcadlení.": "Sélectionnez le plan de symétrie.",
+  "Vyberte ve View…": "Sélectionner dans la vue…",
+  "Vybrat rovinu ve View": "Sélectionner un plan dans la vue"
 }
