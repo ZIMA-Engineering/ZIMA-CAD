@@ -1,0 +1,71 @@
+{
+  "release": {
+    "tag": "ZIMA-CAD-2026110702",
+    "commit": "c1982e0c80e2520bc248538ba3541f41356f0113",
+    "published_at": "2026-11-07T20:38:11Z",
+    "url": "https://github.com/ZIMA-Engineering/ZIMA-CAD/releases/tag/ZIMA-CAD-2026110702",
+    "draft": false,
+    "prerelease": false,
+    "latest": true
+  },
+  "candidate": {
+    "archive_size": 961919772,
+    "archive_sha256": "2fedd9ad90ff9c4fa3e8f80b46818453ea403a632bad046b484723519e2ad252",
+    "windows_smoke": "passed",
+    "native_factory_assets_loaded": 1185,
+    "native_factory_asset_failures": 0
+  },
+  "signed_release": {
+    "archive_name": "ZIMA-CAD-2026110702.zip",
+    "archive_size": 962735540,
+    "archive_sha256": "93fe7123a368fd80a056dd4f236eebf3b5c6abbf131bdd80b16ed9ae17ba4bee",
+    "archive_file_count": 17496,
+    "archive_unpacked_size": 3222832321,
+    "windows_smoke": "passed",
+    "linux_smoke": "not-run",
+    "publisher_key_id": "zcp-8fa1f825cbde5d81",
+    "manifest_sha256": "579814e70a5410431a355eafc92d792cd2a9a262b6a0aa68a3fa9d95e5b5ec42",
+    "signature_file_sha256": "f6566111cb39b612edc814ea39cfea0926ac8c7497bcb29482dccc653ce94c5c"
+  },
+  "public_assets": [
+    {
+      "name": "ZIMA-CAD-2026110702.zip",
+      "size": 962735540,
+      "sha256": "93fe7123a368fd80a056dd4f236eebf3b5c6abbf131bdd80b16ed9ae17ba4bee",
+      "github_digest_matches": true,
+      "anonymous_download_matches": true
+    },
+    {
+      "name": "update-manifest.json",
+      "size": 703,
+      "sha256": "579814e70a5410431a355eafc92d792cd2a9a262b6a0aa68a3fa9d95e5b5ec42",
+      "github_digest_matches": true,
+      "anonymous_download_matches": true
+    },
+    {
+      "name": "update-manifest.sig",
+      "size": 176,
+      "sha256": "f6566111cb39b612edc814ea39cfea0926ac8c7497bcb29482dccc653ce94c5c",
+      "github_digest_matches": true,
+      "anonymous_download_matches": true
+    }
+  ],
+  "updater_discovery": {
+    "status": "not-run",
+    "reason": "No previous managed release installation was retained locally.",
+    "download_performed": false,
+    "installation_performed": false
+  },
+  "focused_verification": {
+    "sheet_cut_up_to_direction_and_same_side_rejection": "passed",
+    "exact_terminal_history_continuation_under_one_second": "passed",
+    "cross_bend_sheet_cut_behavior": "passed",
+    "tree_scrollbar_viewport_geometry": "passed",
+    "five_language_catalog_contract": "passed"
+  },
+  "limits": [
+    "The complete repository-wide regression matrix is not claimed green.",
+    "Native Linux compilation and execution were not run on the Windows host.",
+    "Deleting a solid used by an Up-to target remains a manual repair case."
+  ]
+}
