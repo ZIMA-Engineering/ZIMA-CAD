@@ -2,7 +2,9 @@
 #include <zima/document/viewer_packet_json.hpp>
 #include <zima/document/file_path.hpp>
 #include <nlohmann/json.hpp>
+#include <algorithm>
 #include <cmath>
+#include <limits>
 #include <stdexcept>
 
 namespace zima::document {
@@ -46,6 +48,57 @@ ExternalProfileTarget load_external_profile_target(const nlohmann::json& value) 
 }
 bool profile_target_is_datum(const kernel::FaceReference& reference) {
     return reference.semantic_key=="plane" || reference.semantic_key.starts_with("origin:plane:");
+}
+std::optional<int> profile_target_half_space(kernel::Vec3 profile_origin,
+        kernel::Vec3 profile_normal,
+        const ExtrusionParameters::EndTarget& target) {
+    constexpr double tolerance=1e-9;
+    const double profile_length=std::hypot(
+        profile_normal.x,profile_normal.y,profile_normal.z);
+    if(!std::isfinite(profile_length)||profile_length<=tolerance)
+        return std::nullopt;
+    const auto projection=[&](kernel::Vec3 point) {
+        return ((point.x-profile_origin.x)*profile_normal.x+
+            (point.y-profile_origin.y)*profile_normal.y+
+            (point.z-profile_origin.z)*profile_normal.z)/profile_length;
+    };
+    if(target.kind==EndTargetKind::Point) {
+        const double value=projection(target.fallback_origin);
+        if(!std::isfinite(value)||std::abs(value)<=tolerance)return std::nullopt;
+        return value<0?-1:1;
+    }
+    if(target.kind==EndTargetKind::Plane) {
+        const double target_length=std::hypot(target.fallback_normal.x,
+            target.fallback_normal.y,target.fallback_normal.z);
+        if(!std::isfinite(target_length)||target_length<=tolerance)
+            return std::nullopt;
+        const kernel::Vec3 cross{
+            profile_normal.y*target.fallback_normal.z-
+                profile_normal.z*target.fallback_normal.y,
+            profile_normal.z*target.fallback_normal.x-
+                profile_normal.x*target.fallback_normal.z,
+            profile_normal.x*target.fallback_normal.y-
+                profile_normal.y*target.fallback_normal.x};
+        // Non-parallel infinite planes intersect, so the target spans both
+        // profile half-spaces even when its stored origin lies on one side.
+        if(std::hypot(cross.x,cross.y,cross.z)>
+                tolerance*profile_length*target_length)
+            return std::nullopt;
+        const double value=projection(target.fallback_origin);
+        if(!std::isfinite(value)||std::abs(value)<=tolerance)return std::nullopt;
+        return value<0?-1:1;
+    }
+    if(target.fallback_triangles.empty())return std::nullopt;
+    double low=std::numeric_limits<double>::infinity();
+    double high=-std::numeric_limits<double>::infinity();
+    for(const auto& point:target.fallback_triangles) {
+        const double value=projection(point);
+        if(!std::isfinite(value))return std::nullopt;
+        low=std::min(low,value);high=std::max(high,value);
+    }
+    if(low>tolerance)return 1;
+    if(high<-tolerance)return -1;
+    return std::nullopt;
 }
 std::optional<ExtrusionParameters::EndTarget> resolve_profile_target(
     const ExtrusionParameters::EndTarget& requested,const kernel::ViewerReferenceGeometry& source) {

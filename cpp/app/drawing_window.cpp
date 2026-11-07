@@ -1566,8 +1566,10 @@ protected:
         if(pixels<=0)return;
         bounds.adjust(-2/pixels,-2/pixels,2/pixels,2/pixels);
         const double device_scale=painter.device()->devicePixelRatioF();
+        const bool visible_edges_only=bool(placed_);
         const auto image=drawing_depth_view().render(view,bounds,pixels*device_scale,
-            zoom*device_scale,Qt::white,QColor("#666666"),device_scale,device_scale);
+            zoom*device_scale,Qt::white,QColor("#666666"),device_scale,device_scale,
+            false,visible_edges_only);
         const QRectF target(origin.x()+(sheet_->width_mm()-view.x+bounds.left()*view.scale)*zoom,
             origin.y()+(sheet_->height_mm()-view.y-bounds.bottom()*view.scale)*zoom,
             bounds.width()*pixels,bounds.height()*pixels);
@@ -1576,19 +1578,22 @@ protected:
         // Headless and unsupported GL platforms still show the already
         // projected viewer wire. Precise vector visibility remains reserved
         // for explicit output preparation.
-        if(view.display_style==drawing::DisplayStyle::Shaded||
-                view.display_style==drawing::DisplayStyle::ShadedWithEdges) {
+        if(!visible_edges_only&&(view.display_style==drawing::DisplayStyle::Shaded||
+                view.display_style==drawing::DisplayStyle::ShadedWithEdges)) {
             const auto fill=drawing_shaded_fill(view,bounds,pixels*device_scale);
             if(!fill.isNull())painter.drawImage(target,fill);
         }
-        if(view.display_style==drawing::DisplayStyle::Shaded)return;
+        if(!visible_edges_only&&view.display_style==drawing::DisplayStyle::Shaded)return;
         painter.save();
         painter.translate(origin.x()+(sheet_->width_mm()-view.x)*zoom,
             origin.y()+(sheet_->height_mm()-view.y)*zoom);
         painter.scale(pixels,-pixels);
         for(const auto& edge:view.projected_edges) {
-            if(edge.points.size()<2||!drawing::drawing_edge_visible(view,edge))continue;
-            const QColor color=edge.hidden||edge.thread?QColor("#666666"):QColor(Qt::white);
+            const bool shown=visible_edges_only
+                ?drawing::drawing_placement_edge_visible(view,edge)
+                :drawing::drawing_edge_visible(view,edge);
+            if(edge.points.size()<2||!shown)continue;
+            const QColor color=!visible_edges_only&&(edge.hidden||edge.thread)?QColor("#666666"):QColor(Qt::white);
             painter.setPen(QPen(color,1/pixels));
             QPolygonF line;for(const auto& point:edge.points)line<<QPointF(point.x,point.y);
             painter.drawPolyline(line);

@@ -81,8 +81,11 @@ int verify_sketch_entry_view_ui(QApplication& application,const std::filesystem:
             check(view,"Empty Sketch View missing");
             check_sketch_entry_camera(application,*view,sketch.id);
             const auto camera=view->camera_state();
-            check(camera[4]>350&&camera[4]<500,
-                "Empty Sketch retained monitor 1:1 instead of fitting its work area");
+            const double dpi=view->physicalDpiY()>=50&&view->physicalDpiY()<=400
+                ?view->physicalDpiY():96.;
+            const double physical_scale=view->height()*25.4/(2.*dpi);
+            check(std::abs(camera[4]-physical_scale)<.05,
+                "Existing first empty Sketch does not retain monitor physical scale");
             const auto ray=view->ray_at(
                 {view->width()*.5,view->height()*.5});
             check(ray&&std::abs(ray->second.z)>1e-8,
@@ -111,11 +114,10 @@ int verify_sketch_entry_view_ui(QApplication& application,const std::filesystem:
                 "Empty Sketch camera changed persisted geometry");
             ++cases;
         }
-        // The physical-scale exception is deliberately narrower than the
-        // existing-empty-Sketch case above: both a newly inserted standalone
-        // tree container and its first completely clean Sketch entry are
-        // required. Exercise it with and without preceding calculated model
-        // geometry, then reopen the same Sketch to prove the exception ended.
+        // A newly inserted first Sketch is not in the document vector until
+        // its Properties transaction finishes. Exercise both that first-Sketch
+        // case and a later Sketch with preceding model context, then reopen
+        // each one to prove that the classification does not depend on entry.
         for(const bool model_context:{false,true}) {
             auto part=document::PartDocument::create_default();
             auto graph=part.body_history;
@@ -160,13 +162,15 @@ int verify_sketch_entry_view_ui(QApplication& application,const std::filesystem:
             const double dpi=view->physicalDpiY()>=50&&view->physicalDpiY()<=400
                 ?view->physicalDpiY():96.;
             const double physical_scale=view->height()*25.4/(2.*dpi);
-            check(std::abs(view->camera_state()[4]-physical_scale)<.05,
-                "A new tree item's first clean Sketch does not use monitor physical scale");
+            check(model_context?view->camera_state()[4]<100:
+                    std::abs(view->camera_state()[4]-physical_scale)<.05,
+                "A newly entered Sketch used the wrong first/later-Sketch scale");
             const auto editing_state=window.execute_console_command("documents").data;
             window.findChild<QAction*>("sketchNormalViewAction")->trigger();flush();
-            check(std::abs(view->camera_state()[4]-physical_scale)<.05&&
+            check((model_context?view->camera_state()[4]<100:
+                    std::abs(view->camera_state()[4]-physical_scale)<.05)&&
                 window.execute_console_command("documents").data==editing_state,
-                "Normal view changed first clean Sketch scale or document state");
+                "Normal view changed Sketch scale policy or document state");
             window.findChild<QAction*>("finishSketchAction")->trigger();flush();
             for(auto* child:window.findChildren<QDialog*>())
                 if(auto* dialog=dynamic_cast<app::SketchPropertiesDialog*>(child);
@@ -201,8 +205,8 @@ int verify_sketch_entry_view_ui(QApplication& application,const std::filesystem:
             properties->findChild<QPushButton*>("sketchOpenButton")->click();flush();
             check_sketch_entry_camera(application,*view,sketch_id);
             check(model_context?view->camera_state()[4]<100:
-                    view->camera_state()[4]>350,
-                "The first-entry metric exception leaked into an existing empty Sketch");
+                    std::abs(view->camera_state()[4]-physical_scale)<.05,
+                "A reopened Sketch used the wrong first/later-Sketch scale");
             window.findChild<QAction*>("finishSketchAction")->trigger();flush();
             for(auto* child:window.findChildren<QDialog*>())
                 if(auto* dialog=dynamic_cast<app::SketchPropertiesDialog*>(child);
@@ -237,7 +241,10 @@ int verify_sketch_entry_view_ui(QApplication& application,const std::filesystem:
             auto* open=window.findChild<QPushButton*>("sketchOpenButton");check(open,"Camera fixture Sketch open button missing");open->click();flush();
             auto* view=dynamic_cast<viewer::MeshView*>(window.findChild<QOpenGLWidget*>());check(view,"Camera fixture View missing");
             const auto revision=window.execute_console_command("documents").data.front().at("revision");
-            const auto verify=[&](bool right=true,bool up=true){std::cout<<"Check camera plane="<<int(plane)<<" placed="<<placed<<" right="<<right<<" up="<<up<<std::endl;check_sketch_entry_camera(application,*view,sketch.id,right,up);check(window.execute_console_command("documents").data.front().at("revision")==revision,"Camera controls changed document revision");};
+            const double dpi=view->physicalDpiY()>=50&&view->physicalDpiY()<=400
+                ?view->physicalDpiY():96.;
+            const double physical_scale=view->height()*25.4/(2.*dpi);
+            const auto verify=[&](bool right=true,bool up=true){std::cout<<"Check camera plane="<<int(plane)<<" placed="<<placed<<" right="<<right<<" up="<<up<<std::endl;check_sketch_entry_camera(application,*view,sketch.id,right,up);check(std::abs(view->camera_state()[4]-physical_scale)<.05,"Existing first non-empty Sketch does not use monitor physical scale");check(window.execute_console_command("documents").data.front().at("revision")==revision,"Camera controls changed document revision");};
             const bool local_y_up=plane!=sketcher::SketchPlane::XZ;
             verify(true,local_y_up);window.findChild<QAction*>("sketchFlipViewAction")->trigger();flush();verify(true,!local_y_up);
             window.findChild<QAction*>("sketchFlipViewAction")->trigger();flush();verify(true,local_y_up);
@@ -288,15 +295,18 @@ int verify_sketch_entry_view_ui(QApplication& application,const std::filesystem:
             // actual calculated cap identity, including its persisted side.
             const document::ConstructionReference raw_face{{},face->owner_id,face->semantic_key,0,true,"front",true};
             const auto hover_face=dialog()->prepare_reference_candidate(0,raw_face);
-            check(hover_face.orientation_role=="top"&&hover_face.orientation_drives_rotation,
-                "First face hover validation does not consume the same real local Z role as confirmation");
+            check(hover_face.orientation_role==raw_face.orientation_role&&
+                    hover_face.orientation_drives_rotation,
+                "First face hover validation changed the picker's explicit local orientation role");
             check(dialog()->set_reference(0,raw_face,"Calculated cap"),"Cannot attach feature to its real cap");flush();
             dialog()->set_profile_offset_and_forward_length(0,7);flush();
             const auto pending=dialog()->pending_value();
             check(pending.placement.references.front().orientation_role==hover_face.orientation_role,
                 "First face hover and confirmation disagree about the local frame");
-            check(std::ranges::any_of(pending.placement.references,[](const auto& ref){return ref.orientation_drives_rotation&&ref.orientation_role=="top";}),
-                "First face was not stored as the real local Z orientation");
+            check(std::ranges::any_of(pending.placement.references,[&](const auto& ref){
+                    return ref.orientation_drives_rotation&&
+                        ref.orientation_role==raw_face.orientation_role;}),
+                "First face did not retain the picker's explicit orientation equation");
             auto* own_sketch=dialog()->findChild<QPushButton*>("primitiveOwnSketchButton");check(own_sketch,"Face-attached Sketch action missing");own_sketch->click();flush();
             check(!dialog()&&window.findChild<QAction*>("finishSketchAction")->isEnabled(),"Cannot enter face-attached feature Sketch");
             check_sketch_entry_camera(application,*view,pending.extrusion.sketch_id);
@@ -307,10 +317,23 @@ int verify_sketch_entry_view_ui(QApplication& application,const std::filesystem:
             const auto y_axis=std::ranges::find_if(axes,[&](const auto& axis){return axis.reference.owner_id==pending.extrusion.sketch_id&&axis.reference.semantic_key=="sketch_axis:y";});
             const kernel::Vec3 rotation{pending.placement.rotation_x,pending.placement.rotation_y,pending.placement.rotation_z};
             const auto dot=[](auto a,auto b){return a.x*b.x+a.y*b.y+a.z*b.z;};
+            const auto work_plane=raw_face.orientation_role=="top"||
+                    raw_face.orientation_role=="bottom"
+                ?sketcher::SketchPlane::XY:
+                raw_face.orientation_role=="left"||
+                    raw_face.orientation_role=="right"
+                    ?sketcher::SketchPlane::YZ:sketcher::SketchPlane::XZ;
+            const auto local_x=document::construction_direction_from_local_axis("x",rotation);
+            const auto local_y=document::construction_direction_from_local_axis("y",rotation);
+            const auto local_z=document::construction_direction_from_local_axis("z",rotation);
+            const auto expected_x=work_plane==sketcher::SketchPlane::YZ?local_y:local_x;
+            const auto expected_y=work_plane==sketcher::SketchPlane::XY?local_y:
+                work_plane==sketcher::SketchPlane::YZ?local_z:
+                kernel::Vec3{-local_z.x,-local_z.y,-local_z.z};
             check(x_axis!=axes.end()&&y_axis!=axes.end()&&
-                dot(x_axis->direction,document::construction_direction_from_local_axis("x",rotation))>1-1e-6&&
-                dot(y_axis->direction,document::construction_direction_from_local_axis("y",rotation))>1-1e-6,
-                "Sketch axes do not match the owning feature's real local XY frame");
+                dot(x_axis->direction,expected_x)>1-1e-6&&
+                dot(y_axis->direction,expected_y)>1-1e-6,
+                "Sketch axes do not match the owning feature's selected local work plane");
             check(window.execute_console_command("documents").data==state,"Entering face Sketch changed the document revision");
             window.findChild<QAction*>("finishSketchAction")->trigger();flush();check(dialog(),"Face Sketch did not return to feature Properties");
             const auto returned=dialog()->pending_value();

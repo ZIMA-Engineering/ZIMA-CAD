@@ -293,11 +293,18 @@ void AssemblyWorkspaceWindow::update_sketch_point_drag(
             half_angle_tangent <= 1.0e-12) return;
         const std::array cursor_vector{
             (*position)[0] - vertex->x, (*position)[1] - vertex->y};
-        const double tangent_distance = std::max(0.0, std::max(
+        double tangent_distance = std::max(0.0, std::max(
             cursor_vector[0] * first_direction[0] +
                 cursor_vector[1] * first_direction[1],
             cursor_vector[0] * second_direction[0] +
                 cursor_vector[1] * second_direction[1]));
+        // A pointer exactly over the native corner can unproject a few floating
+        // point units away from it. Treat only a sub-pixel miss as the explicit
+        // sharp-corner intent so a mouse drag can restore an exact zero radius.
+        if (tangent_distance <= viewer_->world_tolerance_for_pixels(
+                0.05 * viewer_->devicePixelRatioF())) {
+            tangent_distance = 0.0;
+        }
         const double maximum_radius = std::min(first_length, second_length) *
             half_angle_tangent * (1.0 - 1.0e-6);
         const double radius = std::min(

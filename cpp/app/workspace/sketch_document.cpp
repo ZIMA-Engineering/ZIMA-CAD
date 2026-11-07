@@ -234,6 +234,17 @@ void AssemblyWorkspaceWindow::align_active_sketch_view(bool fit_view) {
     // accessor as ordinary document sketches, before they enter history.
     const auto* sketch = active_sketch();
     if (sketch == nullptr) return;
+    const bool first_part_sketch=[&] {
+        if(part==nullptr||sketch->drawing_template)return false;
+        const auto& sketches=part->session.document().sketches;
+        const auto first=std::ranges::find_if(sketches,[](const auto& value) {
+            return !value.drawing_template;
+        });
+        // A newly created first Sketch is still a command-owned draft and is
+        // not in the document vector until its Properties session finishes.
+        return (first!=sketches.end()&&first->id==sketch->id)||
+            (first==sketches.end()&&first_empty_sketch_entry_id_==sketch->id);
+    }();
     // `plane` is only the local XY/XZ/YZ choice. Once the container has
     // placement/orientation references, the real sketch plane can point in
     // any world direction; using the enum here caused Sketcher to claim a
@@ -323,16 +334,22 @@ void AssemblyWorkspaceWindow::align_active_sketch_view(bool fit_view) {
             if(!path.empty())for(auto& point:points)point=workspace_.occurrence_point_to_scene(
                 workspace_.displayed_document_id(),zima::assembly::InstancePath::decode(path),point);
         }
-        if(points.empty() && genuinely_empty &&
-            first_empty_sketch_entry_id_ == sketch->id) {
-            // The first clean Sketch of a newly created standalone tree item
-            // starts approximately 1:1 on this monitor. A single point gives
-            // fit_points() the established DPI-based metric scale and centers
-            // the view without allowing prior model or dimension bounds to
-            // enlarge it. Existing empty Sketches intentionally keep the
-            // established 500 mm work-area/context fit below.
+        if(first_part_sketch) {
+            // A designer's first ordinary Part Sketch starts approximately
+            // 1:1 on the current monitor, including after save/reopen and when
+            // it already contains geometry. A single center point selects the
+            // established DPI-based metric scale; existing points only center
+            // the subject and never shrink it back to Fit All.
             auto center=sketch->world_point(0.,0.);
-            if(assembly_context) {
+            if(!points.empty()) {
+                auto low=points.front(),high=points.front();
+                for(const auto& point:points) {
+                    low.x=std::min(low.x,point.x);low.y=std::min(low.y,point.y);low.z=std::min(low.z,point.z);
+                    high.x=std::max(high.x,point.x);high.y=std::max(high.y,point.y);high.z=std::max(high.z,point.z);
+                }
+                center={(low.x+high.x)*.5,(low.y+high.y)*.5,(low.z+high.z)*.5};
+            }
+            if(assembly_context&&points.empty()) {
                 const auto path=part?resolve_active_occurrence(
                     part->session.document().document_id).value_or(
                         std::string{}):workspace_.active_occurrence_path();

@@ -2208,17 +2208,37 @@ void PrimitivePropertiesDialog::set_extrusion_end_target(zima::document::Extrusi
     store_extrusion_target(std::move(value));
 }
 
-bool PrimitivePropertiesDialog::orient_feature_side_toward_target(
-        double signed_profile_distance) {
+std::size_t PrimitivePropertiesDialog::active_feature_target_side() const {
+    return active_end_target_side_=="reverse"?1u:0u;
+}
+
+FeatureUpToTargetDecision PrimitivePropertiesDialog::prepare_feature_up_to_target(
+        int target_half_space,std::optional<int> other_half_space) {
     if(!feature_panel_||initial_.feature_kind!=zima::document::FeatureKind::Feature||
-            !std::isfinite(signed_profile_distance)||std::abs(signed_profile_distance)<=1e-9)
-        return false;
+            (target_half_space!=-1&&target_half_space!=1))
+        return FeatureUpToTargetDecision::Accepted;
     const auto pending=feature_panel_->parameters();
-    if(pending.type!=zima::document::FeatureType::Modeling||pending.symmetric)return false;
-    const std::size_t side=active_end_target_side_=="reverse"?1u:0u;
-    const bool reversed=(signed_profile_distance<0)!=(side==1);
-    if(pending.reversed_sides==reversed)return false;
-    return feature_panel_->set_direction(reversed?-1.:1.);
+    if(pending.type!=zima::document::FeatureType::Modeling||pending.symmetric)
+        return FeatureUpToTargetDecision::Accepted;
+    const std::size_t side=active_feature_target_side();
+    const auto& current=pending.effective_side(side);
+    const auto& other=pending.effective_side(1-side);
+    const bool current_up_to=current.operation==zima::document::FeatureSideOperation::Extrusion&&
+        current.extrusion_extent==zima::document::EndCondition::UpTo;
+    const bool other_up_to=other.operation==zima::document::FeatureSideOperation::Extrusion&&
+        other.extrusion_extent==zima::document::EndCondition::UpTo&&!other.targets.empty();
+    if(current_up_to&&other_up_to&&other_half_space&&
+            *other_half_space==target_half_space)
+        return FeatureUpToTargetDecision::SameSideConflict;
+    // The second logical branch must retain the direction authored through
+    // the shared direction control. Automatically changing it would also
+    // reverse Side 1 and make the two inputs fight each other.
+    if(side!=0||!current_up_to)return FeatureUpToTargetDecision::Accepted;
+    const bool reversed=target_half_space<0;
+    if(pending.reversed_sides==reversed)return FeatureUpToTargetDecision::Accepted;
+    if(!feature_panel_->set_direction(reversed?-1.:1.))
+        return FeatureUpToTargetDecision::DirectionLocked;
+    return FeatureUpToTargetDecision::DirectionChanged;
 }
 
 std::vector<zima::document::ExtrusionParameters::EndTarget>& PrimitivePropertiesDialog::profile_end_targets(bool reverse) {

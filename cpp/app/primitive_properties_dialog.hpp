@@ -36,6 +36,13 @@ namespace zima::app {
 class FeatureParameterPanel;
 class SheetFormPlacementSection;
 
+enum class FeatureUpToTargetDecision {
+    Accepted,
+    DirectionChanged,
+    SameSideConflict,
+    DirectionLocked
+};
+
 // Single source of truth for history features that consume the complete
 // shared container-placement contract in both Properties and the View.
 [[nodiscard]] bool uses_container_placement(
@@ -88,10 +95,12 @@ public:
     [[nodiscard]] bool allows_point_end_target() const;
     [[nodiscard]] bool allows_skeleton_end_target() const;
     void set_extrusion_end_target(zima::document::ExtrusionParameters::EndTarget);
-    // Up-to owns an authored target rather than a nominal positive length.
-    // When that target lies on the other side of the profile, turn the shared
-    // Feature direction so the View cue and the calculated sweep agree.
-    bool orient_feature_side_toward_target(double signed_profile_distance);
+    // Side 1 owns the shared Feature direction and automatically faces its
+    // Up-to target. Side 2 never changes that direction. Two Up-to sides may
+    // not select targets in the same profile-plane half-space.
+    [[nodiscard]] std::size_t active_feature_target_side() const;
+    FeatureUpToTargetDecision prepare_feature_up_to_target(
+        int target_half_space,std::optional<int> other_half_space);
     void set_extrusion_surface_target(
         zima::kernel::FaceReference reference,
         std::vector<zima::kernel::Vec3> triangles, std::string label = {});

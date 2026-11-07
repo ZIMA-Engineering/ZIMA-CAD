@@ -25,6 +25,8 @@
   "Extrusion end references require a point, a plane or an original face.": "Для окончания выдавливания требуется точка, плоскость или исходная грань.",
   "Vyberte bod předchozí skici, rovinu nebo původní plochu.": "Выберите точку предыдущего эскиза, плоскость или исходную грань.",
   "Cíl vytažení byl nastaven.": "Цель окончания выдавливания задана.",
+  "Cíle obou větví Až k musí ležet na opačných stranách roviny skici.": "Цели обеих ветвей «До» должны находиться по разные стороны плоскости эскиза.",
+  "Směr prvku je uzamčený a nelze jej otočit k vybranému cíli Až k.": "Направление элемента заблокировано, поэтому его нельзя развернуть к выбранной цели «До».",
   "Model export supports STEP, IGES, STL and DXF.": "Экспорт модели поддерживает STEP, IGES, STL и DXF.",
   "IGES export failed": "Не удалось экспортировать IGES",
   "DXF (*.dxf);;STEP (*.step *.stp);;IGES (*.igs *.iges);;STL (*.stl);;PNG (*.png);;JPEG (*.jpg *.jpeg)": "DXF (*.dxf);;STEP (*.step *.stp);;IGES (*.igs *.iges);;STL (*.stl);;PNG (*.png);;JPEG (*.jpg *.jpeg)",

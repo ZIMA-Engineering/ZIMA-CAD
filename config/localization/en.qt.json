@@ -25,6 +25,8 @@
   "Extrusion end references require a point, a plane or an original face.": "Extrusion end references require a point, a plane or an original face.",
   "Vyberte bod předchozí skici, rovinu nebo původní plochu.": "Select a point from an earlier sketch, a plane or an original face.",
   "Cíl vytažení byl nastaven.": "Extrusion end target set.",
+  "Cíle obou větví Až k musí ležet na opačných stranách roviny skici.": "Targets of both Up-to branches must lie on opposite sides of the Sketch plane.",
+  "Směr prvku je uzamčený a nelze jej otočit k vybranému cíli Až k.": "The Feature direction is locked and cannot be turned toward the selected Up-to target.",
   "Model export supports STEP, IGES, STL and DXF.": "Model export supports STEP, IGES, STL and DXF.",
   "IGES export failed": "IGES export failed",
   "DXF (*.dxf);;STEP (*.step *.stp);;IGES (*.igs *.iges);;STL (*.stl);;PNG (*.png);;JPEG (*.jpg *.jpeg)": "DXF (*.dxf);;STEP (*.step *.stp);;IGES (*.igs *.iges);;STL (*.stl);;PNG (*.png);;JPEG (*.jpg *.jpeg)",

@@ -25,6 +25,8 @@
   "Extrusion end references require a point, a plane or an original face.": "Das Extrusionsende erfordert einen Punkt, eine Ebene oder eine ursprüngliche Fläche.",
   "Vyberte bod předchozí skici, rovinu nebo původní plochu.": "Wählen Sie einen Punkt einer vorherigen Skizze, eine Ebene oder eine ursprüngliche Fläche.",
   "Cíl vytažení byl nastaven.": "Extrusionsziel festgelegt.",
+  "Cíle obou větví Až k musí ležet na opačných stranách roviny skici.": "Die Ziele beider Bis-zu-Zweige müssen auf gegenüberliegenden Seiten der Skizzenebene liegen.",
+  "Směr prvku je uzamčený a nelze jej otočit k vybranému cíli Až k.": "Die Richtung des Features ist gesperrt und kann nicht zum ausgewählten Bis-zu-Ziel gedreht werden.",
   "Model export supports STEP, IGES, STL and DXF.": "Der Modellexport unterstützt STEP, IGES, STL und DXF.",
   "IGES export failed": "IGES-Export fehlgeschlagen",
   "DXF (*.dxf);;STEP (*.step *.stp);;IGES (*.igs *.iges);;STL (*.stl);;PNG (*.png);;JPEG (*.jpg *.jpeg)": "DXF (*.dxf);;STEP (*.step *.stp);;IGES (*.igs *.iges);;STL (*.stl);;PNG (*.png);;JPEG (*.jpg *.jpeg)",

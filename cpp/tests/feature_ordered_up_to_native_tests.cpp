@@ -1,6 +1,7 @@
 #include <zima/document/general_surface.hpp>
 #include <zima/document/viewer_packet_json.hpp>
 #include <zima/document/feature_material_wire.hpp>
+#include <zima/document/profile_targets.hpp>
 #include "../modules/kernel_occt/src/ordered_up_to.hpp"
 #include <zima/workspace/general_surface_operations.hpp>
 #include <zima/workspace/profile_operations.hpp>
@@ -23,6 +24,7 @@
 #include <iostream>
 #include <numbers>
 #include <sstream>
+#include <string_view>
 #include <cstdlib>
 
 using namespace zima;
@@ -215,7 +217,16 @@ unsigned independent_limits(const std::filesystem::path& output) {
     workspace::commit_profile(live,engine,id,pending,workspace::ProfileEditMode::Replace);near(volume(engine,*state),810.);
     auto before=state->session.calculated_boundaries().back();engine.ensure_body_properties(before);
     const auto unchanged=state->session.document().serialized();const auto revision=state->session.revision();
-    pending=*state->session.document().find_container(feature.id);pending.feature.reversed_sides=true;bool rejected=false;
+    pending=*state->session.document().find_container(feature.id);
+    pending.feature.sides[1].targets=pending.feature.sides[0].targets;
+    document::prune_feature_up_to_patch_choices(pending.feature.sides[1]);
+    bool rejected=false;
+    try{workspace::commit_profile(live,engine,id,pending,workspace::ProfileEditMode::Replace);}catch(const std::exception& error){
+        rejected=std::string_view(error.what()).find("opačných stranách")!=std::string_view::npos;
+    }
+    check(rejected&&state->session.revision()==revision&&state->session.document().serialized()==unchanged,
+        "Two Up-to branches accepted targets in the same profile half-space");
+    pending=*state->session.document().find_container(feature.id);pending.feature.reversed_sides=true;rejected=false;
     try{workspace::commit_profile(live,engine,id,pending,workspace::ProfileEditMode::Replace);}catch(const std::exception&){rejected=true;}
     check(rejected&&state->session.revision()==revision&&state->session.document().serialized()==unchanged,
         "Reversing toward fixed targets on the wrong side changed the native document");
@@ -232,7 +243,7 @@ unsigned independent_limits(const std::filesystem::path& output) {
     std::vector<kernel::BodyResult> cached;auto reopened=document::PartDocument::load(file,&cached);
     workspace::Workspace cold_live;kernel::OcctKernel cold;cold_live.add_part(reopened,cached,file);
     static_cast<void>(workspace::regenerate_part(cold_live,cold,id));near(volume(cold,*cold_live.open_part(id)),810.);
-    return 5;
+    return 6;
 }
 unsigned assembly_limit_sources(const std::filesystem::path& source_file,const std::string& source_feature,
         const std::vector<kernel::FaceReference>& target_parents) {
@@ -359,6 +370,18 @@ unsigned assembly_limit_sources(const std::filesystem::path& source_file,const s
 }
 int main(int argc,char** argv){QCoreApplication app(argc,argv);try {
     if(const auto* file=std::getenv("ZIMA_VERIFY_TANGENT_SOURCE")){kernel::OcctKernel engine;verify_saved_tangent_case(engine,file);return 0;}
+    document::ExtrusionParameters::EndTarget half_space_target;
+    half_space_target.kind=document::EndTargetKind::Plane;
+    half_space_target.fallback_origin={0,0,10};
+    half_space_target.fallback_normal={0,0,1};
+    check(document::profile_target_half_space({0,0,0},{0,0,2},half_space_target)==1,
+        "A parallel Up-to Plane lost its profile half-space");
+    half_space_target.fallback_normal={1,0,0};
+    check(!document::profile_target_half_space({0,0,0},{0,0,2},half_space_target),
+        "An intersecting Up-to Plane was assigned to one profile half-space");
+    half_space_target.kind=document::EndTargetKind::Point;
+    check(document::profile_target_half_space({0,0,0},{0,0,2},half_space_target)==1,
+        "An Up-to Point lost its profile half-space");
     unsigned cases=correction_relations<document::PartDocument>()+correction_relations<assembly::AssemblyDocument>()+assembly_through_all_input();
     const auto output=std::filesystem::temp_directory_path()/
         ("zima-ordered-feature-"+std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));

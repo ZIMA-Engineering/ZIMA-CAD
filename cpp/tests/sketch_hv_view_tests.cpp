@@ -85,6 +85,12 @@ int main() {
         b.kind=viewer::CandidateKind::SketchExternalReference;
         check(app::sketch_edit_pick_priority(a)<app::sketch_edit_pick_priority(b),"References outrank authored Sketch geometry");
     }
+    viewer::ViewerCandidate handle,vertex;
+    handle.kind=vertex.kind=viewer::CandidateKind::SketchPoint;
+    handle.semantic_key="corner_radius_handle:corner:first";
+    vertex.semantic_key="point:corner";
+    check(app::sketch_edit_pick_priority(handle)<app::sketch_edit_pick_priority(vertex),
+        "A corner-radius drag grip does not outrank an overlapping native vertex");
     std::cout<<cases<<" view-relative H/V equation, dimension, drag and persistence cases passed\n";
     return 0;
  }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}

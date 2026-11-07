@@ -10751,6 +10751,45 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
                 }
                 return limit;
             };
+            if(p.type==FeatureType::Modeling&&!p.symmetric) {
+                const auto& first=p.effective_side(0);
+                const auto& second=p.effective_side(1);
+                const auto extrusion_up_to=[](const FeatureSideParameters& side) {
+                    return side.operation==FeatureSideOperation::Extrusion&&
+                        side.extrusion_extent==EndCondition::UpTo&&!side.targets.empty();
+                };
+                if(extrusion_up_to(first)&&extrusion_up_to(second)) {
+                    auto profile_origin=sketch->world_point(0,0);
+                    auto profile_normal=sketch->normal();
+                    if(sketch->owner_container_id!=container.id) {
+                        const auto rotation=placement_rotation_matrix_from_euler_degrees(
+                            {container.placement.rotation_x,container.placement.rotation_y,
+                             container.placement.rotation_z});
+                        profile_origin=placement_transform_point(rotation,
+                            {container.placement.x,container.placement.y,
+                             container.placement.z},profile_origin);
+                        profile_normal=placement_transform_direction(rotation,profile_normal);
+                    }
+                    const auto half_space=[&](const FeatureSideParameters& side)
+                            ->std::optional<int> {
+                        std::optional<int> result;
+                        for(const auto& authored:side.targets) {
+                            const auto target=resolved_extrusion_end_target(*this,container,
+                                authored,allow_persisted_external_target,true);
+                            const auto current=profile_target_half_space(
+                                profile_origin,profile_normal,target);
+                            if(!current||(result&&*result!=*current))return std::nullopt;
+                            result=current;
+                        }
+                        return result;
+                    };
+                    const auto first_half=half_space(first);
+                    const auto second_half=half_space(second);
+                    if(first_half&&second_half&&*first_half==*second_half)
+                        throw std::invalid_argument(
+                            "Cíle obou větví Až k musí ležet na opačných stranách roviny skici.");
+                }
+            }
             if(p.type==FeatureType::Modeling || p.type==FeatureType::Sketch)
             for(std::size_t side=0;side<2;++side) {
                 const auto& settings=p.effective_side(side);

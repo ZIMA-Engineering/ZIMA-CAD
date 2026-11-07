@@ -5,6 +5,11 @@ namespace zima::viewer {
 // geometry. Keep all candidates available for explicit right-button cycling.
 inline int sketch_edit_pick_priority(const ViewerCandidate& candidate) {
     using K=CandidateKind;
+    // A corner-radius handle is an explicit drag grip. At approximately 1:1
+    // small radii can put it inside the ordinary vertex hit tolerance; the
+    // grip must win that overlap while RMB still exposes the native point.
+    if(candidate.kind==K::SketchPoint&&
+            candidate.semantic_key.starts_with("corner_radius_handle:"))return -1;
     if(candidate.kind==K::SketchPoint)return 0;
     if(candidate.kind==K::Dimension||candidate.kind==K::SketchConstraint)return 1;
     if(candidate.kind==K::SketchSegment||candidate.kind==K::SketchCurve||candidate.kind==K::SketchText)return 2;

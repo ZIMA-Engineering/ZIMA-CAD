@@ -240,6 +240,15 @@ inline bool drawing_edge_visible(const DrawingView& view,const ProjectedEdge& ed
     return !edge.hidden||view.display_style==DisplayStyle::HiddenEdges;
 }
 
+// View placement deliberately shows only lightweight physical foreground
+// edges and silhouettes. Hidden strokes, hatches and conventional thread
+// graphics return only after the view is committed and rendered normally.
+inline bool drawing_placement_edge_visible(const DrawingView& view,
+        const ProjectedEdge& edge) {
+    return !edge.hidden&&!edge.thread&&!edge.thread_leadin&&!edge.hatch&&
+        !(edge.tangent&&view.tangent_edge_style==TangentEdgeStyle::Hidden);
+}
+
 enum class DrawingDimensionKind { Linear, Radius, Diameter, Chain, Angular };
 enum class DimensionAttachmentKind { Point, CurvePoint, Line, Center, Tangent, Intersection };
 enum class DimensionDirection { Automatic, Horizontal, Vertical, Parallel };

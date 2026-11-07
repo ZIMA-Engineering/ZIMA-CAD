@@ -107,17 +107,34 @@ static void verify_ordered_limits(QApplication& application,QWidget& parent) {
     authored.feature.sides[0].up_to.angle_correction_degrees=7.123456789;
     int commits=0,picks=0,inspections=0,previews=0;
     app::PrimitivePropertiesDialog dialog(authored,true,true,[&](auto){++commits;},&parent);
-    dialog.set_extrusion_target_request([&]{++picks;});
     dialog.set_reference_highlights_changed_callback([&]{++inspections;});
     dialog.set_preview_callback([&](const auto&){++previews;});
     dialog.show();flush();
-    check(dialog.orient_feature_side_toward_target(-12.)&&
+    check(dialog.prepare_feature_up_to_target(-1,1)==
+            app::FeatureUpToTargetDecision::DirectionChanged&&
             dialog.pending_value().feature.reversed_sides,
         "Opposite Up-to target did not reverse the Feature direction");
-    check(dialog.orient_feature_side_toward_target(12.)&&
+    check(dialog.prepare_feature_up_to_target(1,-1)==
+            app::FeatureUpToTargetDecision::DirectionChanged&&
             !dialog.pending_value().feature.reversed_sides,
         "Forward Up-to target did not restore the Feature direction");
+    dialog.set_extrusion_target({"source-a","plane",{}},{0,0,12},{0,0,1},"source-a");
+    dialog.findChild<QComboBox*>("featureSideMode1")->setCurrentIndex(1);flush();
+    dialog.findChild<QComboBox*>("featureSideEnd1")->setCurrentIndex(1);flush();
+    auto* reverse_limits=static_cast<app::FeatureLimitTable*>(dialog.findChild<QWidget*>("featureSideLimits1"));
+    reverse_limits->begin_entry(0);
+    check(dialog.prepare_feature_up_to_target(1,1)==
+            app::FeatureUpToTargetDecision::SameSideConflict&&
+            !dialog.pending_value().feature.reversed_sides,
+        "Second Up-to side accepted a target in the first side's half-space");
+    check(dialog.prepare_feature_up_to_target(-1,1)==
+            app::FeatureUpToTargetDecision::Accepted&&
+            !dialog.pending_value().feature.reversed_sides,
+        "Second Up-to side changed the shared Feature direction");
+    dialog.findChild<QComboBox*>("featureSideMode1")->setCurrentIndex(0);flush();
     auto* limits=static_cast<app::FeatureLimitTable*>(dialog.findChild<QWidget*>("featureSideLimits0"));
+    limits->begin_entry(0);
+    dialog.set_extrusion_target_request([&]{++picks;});
     auto* table=limits->table();
     const auto click=[&](QWidget* widget,QPoint point){
         for(const auto type:{QEvent::MouseButtonPress,QEvent::MouseButtonRelease}) {

@@ -200,8 +200,16 @@ int main(int argc,char** argv) {
             require(drawing_edge_visible(view,projected.front()),"Visible tangent boundary was hidden");
             auto hidden_tangent=projected.front();hidden_tangent.hidden=true;
             require(!drawing_edge_visible(view,hidden_tangent),"Occluded tangent boundary must stay hidden even in hidden-edge mode");
+            require(drawing_placement_edge_visible(view,projected.front())&&
+                !drawing_placement_edge_visible(view,hidden_tangent),
+                "Lightweight placement did not keep only the visible tangent boundary");
             hidden_tangent.tangent=false;
             require(drawing_edge_visible(view,hidden_tangent),"Ordinary hidden edge disappeared with tangent filtering");
+            auto thread=projected.front();thread.thread=true;
+            auto hatch=projected.front();hatch.hatch=true;
+            require(!drawing_placement_edge_visible(view,thread)&&
+                !drawing_placement_edge_visible(view,hatch),
+                "Lightweight placement retained thread or hatch graphics");
             view.tangent_edge_style=TangentEdgeStyle::Hidden;
             require(!drawing_edge_visible(view,projected.front()),"Tangent hide setting was ignored");
             view.tangent_edge_style=TangentEdgeStyle::Thin;

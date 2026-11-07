@@ -42,7 +42,7 @@ class DrawingDepthView {
         double zmin{},zmax{};
         drawing::Point2 origin;
         QRectF bounds;
-        std::array<double,7> style{};
+        std::array<double,8> style{};
         QColor visible,hidden;
         QImage image;
     };
@@ -71,7 +71,8 @@ public:
         context_.doneCurrent();
     }
     QImage render(const drawing::DrawingView& view,const QRectF& bounds,double pixels,double paper_pixels,
-                  QColor visible,QColor hidden,double thick,double thin,bool fill_only=false) {
+                  QColor visible,QColor hidden,double thick,double thin,bool fill_only=false,
+                  bool visible_edges_only=false) {
         const bool profile=qEnvironmentVariableIsSet("ZIMA_DRAWING_PROFILE_DEPTH");
         QElapsedTimer timer;if(profile)timer.start();
         const auto stamp=[&](const char* stage){if(profile)std::fprintf(stderr,"drawing depth %s %.3f ms\n",stage,timer.nsecsElapsed()/1e6);};
@@ -87,7 +88,7 @@ public:
         })&&std::ranges::equal(previous->triangles,view.projected_triangles,[](const auto& a,const auto& b){
             return a.points==b.points&&a.vertex_depths==b.vertex_depths&&a.light==b.light&&a.source.semantic_key.starts_with("thread:surface:")==b.source.semantic_key.starts_with("thread:surface:");
         });
-        const std::array style{thick*reduction,thin*reduction,double(view.display_style),double(view.tangent_edge_style),double(view.show_thread_leadins),double(fill_only),double(view.hidden_edge_style)};
+        const std::array style{thick*reduction,thin*reduction,double(view.display_style),double(view.tangent_edge_style),double(view.show_thread_leadins),double(fill_only),double(view.hidden_edge_style),double(visible_edges_only)};
         // A CPU image cache hit needs no context switch or GPU synchronization.
         if(same_geometry&&!previous->image.isNull()&&previous->image.size()==QSize(w,h)&&previous->bounds==bounds&&previous->style==style&&previous->visible==visible&&previous->hidden==hidden){stamp("cached");return previous->image;}
         RestoreContext restore;
@@ -129,7 +130,9 @@ public:
         target.bind();gl->glViewport(0,0,w,h);gl->glClearColor(0,0,0,0);gl->glClearDepthf(1);
         gl->glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT);gl->glEnable(GL_DEPTH_TEST);gl->glDepthFunc(GL_LEQUAL);
         const double zspan=std::max(1.,packet.zmax-packet.zmin);
-        const auto shaded=fill_only||view.display_style==drawing::DisplayStyle::Shaded||view.display_style==drawing::DisplayStyle::ShadedWithEdges;
+        const auto shaded=fill_only||(!visible_edges_only&&
+            (view.display_style==drawing::DisplayStyle::Shaded||
+             view.display_style==drawing::DisplayStyle::ShadedWithEdges));
         packet.buffer.bind();shader_->bind();shader_->enableAttributeArray("position");
         shader_->setAttributeBuffer("position",GL_FLOAT,0,3,sizeof(Vertex));
         shader_->enableAttributeArray("lighting");shader_->setAttributeBuffer("lighting",GL_FLOAT,3*sizeof(float),1,sizeof(Vertex));
@@ -139,11 +142,14 @@ public:
         gl->glColorMask(shaded,shaded,shaded,shaded);gl->glEnable(GL_POLYGON_OFFSET_FILL);gl->glPolygonOffset(1,1);
         shader_->setUniformValue("ink",QColor(185,194,204));gl->glDrawArrays(GL_TRIANGLES,0,packet.triangle_vertices);
         gl->glDisable(GL_POLYGON_OFFSET_FILL);gl->glColorMask(true,true,true,true);gl->glDepthMask(false);
-        if(!fill_only&&view.display_style!=drawing::DisplayStyle::Shaded)for(bool occluded:{true,false}) {
-            if(occluded&&view.display_style!=drawing::DisplayStyle::HiddenEdges)continue;
+        if(!fill_only&&(visible_edges_only||view.display_style!=drawing::DisplayStyle::Shaded))for(bool occluded:{true,false}) {
+            if(occluded&&(visible_edges_only||view.display_style!=drawing::DisplayStyle::HiddenEdges))continue;
             gl->glDepthFunc(occluded?GL_GREATER:GL_LEQUAL);
             for(bool thick_pass:{false,true})for(const auto& range:packet.ranges){auto edge=range.style;edge.hidden=occluded;
-                if(!drawing::drawing_edge_visible(view,edge))continue;
+                const bool shown=visible_edges_only
+                    ?drawing::drawing_placement_edge_visible(view,edge)
+                    :drawing::drawing_edge_visible(view,edge);
+                if(!shown)continue;
                 const bool heavy=!(occluded||edge.thread||edge.hatch||(edge.tangent&&view.tangent_edge_style==drawing::TangentEdgeStyle::Thin));
                 if(heavy!=thick_pass)continue;
                 // Interactive hidden edges match the continuous gray 3D display.
@@ -151,7 +157,8 @@ public:
                 // Tangent style controls lineweight/visibility, not whether a
                 // foreground edge is presented as hidden.  Keep a visible
                 // tangent boundary in the normal ink, matching vector output.
-                shader_->setUniformValue("ink",occluded||edge.thread?hidden:visible);
+                shader_->setUniformValue("ink",visible_edges_only?visible:
+                    occluded||edge.thread?hidden:visible);
                 gl->glLineWidth(float((heavy?thick:thin)*reduction));
                 gl->glDrawArrays(GL_LINES,range.first,range.count);
             }

@@ -25,6 +25,8 @@
   "Extrusion end references require a point, a plane or an original face.": "La fin d’extrusion nécessite un point, un plan ou une face d’origine.",
   "Vyberte bod předchozí skici, rovinu nebo původní plochu.": "Sélectionnez un point d’une esquisse précédente, un plan ou une face d’origine.",
   "Cíl vytažení byl nastaven.": "Cible de fin d’extrusion définie.",
+  "Cíle obou větví Až k musí ležet na opačných stranách roviny skici.": "Les cibles des deux branches Jusqu’à doivent se trouver de part et d’autre du plan d’esquisse.",
+  "Směr prvku je uzamčený a nelze jej otočit k vybranému cíli Až k.": "La direction de la fonction est verrouillée et ne peut pas être orientée vers la cible Jusqu’à sélectionnée.",
   "Model export supports STEP, IGES, STL and DXF.": "L’export du modèle prend en charge STEP, IGES, STL et DXF.",
   "IGES export failed": "Échec de l’export IGES",
   "DXF (*.dxf);;STEP (*.step *.stp);;IGES (*.igs *.iges);;STL (*.stl);;PNG (*.png);;JPEG (*.jpg *.jpeg)": "DXF (*.dxf);;STEP (*.step *.stp);;IGES (*.igs *.iges);;STL (*.stl);;PNG (*.png);;JPEG (*.jpg *.jpeg)",
