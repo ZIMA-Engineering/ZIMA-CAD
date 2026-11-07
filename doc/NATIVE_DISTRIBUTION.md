@@ -1,5 +1,17 @@
 # Native versioned distribution
 
+Signed Windows [2026110703](releases/2026110703.md#windows-publication-acceptance)
+was published at `2026-11-07T22:42:45Z` from immutable source
+`a212e65243295a14dfa6589622b2ca5c8e8f1eb8`. The ZIMA Fillet and Chamfer node
+workflow, direct segment selection, exact two- and three-branch connectors,
+stable authored identities and Boolean-descendant regeneration passed their
+focused contracts. Candidate and signed native smoke passed; candidate smoke
+loaded all 1,185 factory assets. The signed manifest binds 17,499 archive
+entries, exact source and the Windows runtime. All three anonymous public
+downloads match the accepted bytes. Native Linux execution remains a separate
+host gate. See the
+[publication evidence](verification/20261107-windows-0703-publication.json).
+
 Signed Windows [2026110702](releases/2026110702.md#windows-publication-acceptance)
 was published at `2026-11-07T20:38:11Z` from immutable source
 `c1982e0c80e2520bc248538ba3541f41356f0113`. Sheet Cut Up-to direction,

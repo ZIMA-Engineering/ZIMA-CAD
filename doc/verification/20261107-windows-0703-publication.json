@@ -1,0 +1,72 @@
+{
+  "release": {
+    "tag": "ZIMA-CAD-2026110703",
+    "commit": "a212e65243295a14dfa6589622b2ca5c8e8f1eb8",
+    "published_at": "2026-11-07T22:42:45Z",
+    "url": "https://github.com/ZIMA-Engineering/ZIMA-CAD/releases/tag/ZIMA-CAD-2026110703",
+    "draft": false,
+    "prerelease": false,
+    "latest": true
+  },
+  "candidate": {
+    "archive_size": 961959714,
+    "archive_sha256": "8ef9cdadd3d6092066680ee695844b79c6c23a01100c4b91d49c919ba47fc826",
+    "windows_smoke": "passed",
+    "native_factory_assets_loaded": 1185,
+    "native_factory_asset_failures": 0
+  },
+  "signed_release": {
+    "archive_name": "ZIMA-CAD-2026110703.zip",
+    "archive_size": 962775651,
+    "archive_sha256": "d3e5ac5226a4469744c04d1a7c20c2ecd61595c2aad6c8b89c2700a3bc35de80",
+    "archive_file_count": 17499,
+    "archive_unpacked_size": 3222973458,
+    "windows_smoke": "passed",
+    "linux_smoke": "not-run",
+    "publisher_key_id": "zcp-8fa1f825cbde5d81",
+    "manifest_sha256": "d95acf25e84903f8c581e6af3cb22742966f2eec8171381ba71a5f50c5d8e339",
+    "signature_file_sha256": "d0a131fde856553d7e5cd85819dcd6c4bd22a9556147e071cf35591db1b915ef"
+  },
+  "public_assets": [
+    {
+      "name": "ZIMA-CAD-2026110703.zip",
+      "size": 962775651,
+      "sha256": "d3e5ac5226a4469744c04d1a7c20c2ecd61595c2aad6c8b89c2700a3bc35de80",
+      "github_digest_matches": true,
+      "anonymous_download_matches": true
+    },
+    {
+      "name": "update-manifest.json",
+      "size": 703,
+      "sha256": "d95acf25e84903f8c581e6af3cb22742966f2eec8171381ba71a5f50c5d8e339",
+      "github_digest_matches": true,
+      "anonymous_download_matches": true
+    },
+    {
+      "name": "update-manifest.sig",
+      "size": 176,
+      "sha256": "d0a131fde856553d7e5cd85819dcd6c4bd22a9556147e071cf35591db1b915ef",
+      "github_digest_matches": true,
+      "anonymous_download_matches": true
+    }
+  ],
+  "updater_discovery": {
+    "status": "not-run",
+    "reason": "No previous managed release installation was retained locally.",
+    "download_performed": false,
+    "installation_performed": false
+  },
+  "focused_verification": {
+    "zima_fillet_nodes_and_fixtures": "passed",
+    "zima_chamfer_nodes_and_fixtures": "passed",
+    "edge_treatment_save_reopen_cold_regeneration_undo_redo": "passed",
+    "edge_treatment_selection_and_method_ui": "passed",
+    "edge_treatment_localization_contract": "passed",
+    "console_ui_contract": "failed before edge-treatment coverage at an existing Sketch linked-segment persistence assertion"
+  },
+  "limits": [
+    "The complete repository-wide regression matrix is not claimed green.",
+    "The broad console UI contract stopped at an existing unrelated Sketch linked-segment persistence assertion; focused changed paths passed.",
+    "Native Linux compilation and execution were not run on the Windows host."
+  ]
+}
