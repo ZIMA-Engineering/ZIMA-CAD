@@ -1,5 +1,16 @@
 # Native versioned distribution
 
+Signed Windows [2026110701](releases/2026110701.md#windows-publication-acceptance)
+was published at `2026-11-07T18:09:05Z` from immutable source
+`0de4f3a7a30c166620ef1ed5399fd9aaa079317d`. Exact derived Sketch references,
+independent Explorer launches, transition inspection, Up-to direction,
+first-Sketch scale and lightweight drawing placement passed their focused
+contracts. Candidate and signed native smoke passed; candidate smoke loaded all
+1,185 factory assets. The signed manifest binds 17,493 archive entries, exact
+source and the Windows runtime. All three anonymous public downloads match the
+accepted bytes. Native Linux execution remains a separate host gate. See the
+[publication evidence](verification/20261107-windows-0701-publication.json).
+
 Signed Windows [2026110601](releases/2026110601.md#windows-publication-acceptance)
 was published at `2026-11-06T07:15:17Z` from immutable source
 `d75fcced3d10db3a37636c5cb0dd131ee93c35c5`. Independent sheet history,
