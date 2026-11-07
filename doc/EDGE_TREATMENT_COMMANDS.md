@@ -94,7 +94,7 @@ model, history and translations passed initially. Logs:
 at this milestone: 195 commands. Earlier results above concern queries only.
 
 ```json
-{"command":"fillet.create","arguments":{"calculation_method":"automatic","radius_mm":2,"routes":[{"edges":[{"owner":"SOURCE-ID","key":"EDGE-KEY"}],"first_face":null,"last_face":{"owner":"FACE-OWNER","key":"FACE-KEY"}}]}}
+{"command":"fillet.create","arguments":{"calculation_method":"zima","radius_mm":2,"routes":[{"edges":[{"owner":"SOURCE-ID","key":"EDGE-KEY"}],"first_face":null,"last_face":{"owner":"FACE-OWNER","key":"FACE-KEY"}}]}}
 {"command":"fillet.set","arguments":{"container":"FILLET-ID","calculation_method":"zima","mode":"linear","radius_mm":2,"radius_end_mm":5,"routes":[{"edges":[{"owner":"SOURCE-ID","key":"EDGE-KEY"}],"start":{"owner":"POINT-OWNER","key":"R1-POINT-KEY"},"first_face":null,"last_face":null}]}}
 {"command":"chamfer.create","arguments":{"calculation_method":"occt","mode":"two_distances","distance_a_mm":2,"distance_b_mm":5,"flip":false,"routes":[{"edges":[{"owner":"SOURCE-ID","key":"EDGE-KEY"}],"first_face":null,"last_face":null}]}}
 ```
@@ -106,10 +106,12 @@ at this milestone: 195 commands. Earlier results above concern queries only.
   the other support face using existing stable original-face identity ordering.
 - Dimensions match Properties ranges: 0.001–1000000 mm, angle 0.1–89.9 degrees.
   Arguments are JSON numbers in mm regardless of display units; defaults 1 mm/45°.
-- `calculation_method` is `automatic`, `zima` or `occt`. Automatic uses the
-  supported straight-planar ZIMA construction and retains OCCT outside that
-  boundary. Explicit ZIMA rejects unsupported geometry. Explicit OCCT rejects
-  nonempty end-face fields.
+- `calculation_method` is `zima` or `occt`. ZIMA uses the exact custom builder
+  where its contract applies and safely falls back to OCCT for unsupported
+  geometry. OCCT rejects nonempty end-face fields. The former command value
+  `automatic` and the former strict experimental ZIMA mode are no longer
+  exposed; legacy persisted values still load without changing the native
+  document format.
 - `routes` completely replaces 1–10000 nonempty routes, at most 10000 edges total.
   Each has `edges`, optional `start`, and optional `first_face`/`last_face`
   references (or `null`). An end face must be local, planar and contain the exact
@@ -203,6 +205,51 @@ cases for both types and real CLI/GUI console scenarios. Translations passed sep
 **1/1** (1.43 s). Logs: `build/edge-remove-all-build.log`,
 `build/edge-remove-related-tests.log`, `build/edge-remove-translations-tests.log`.
 Catalog: **196 commands**; formats/templates unchanged.
+
+## ZIMA nodes and direct edge items (2026-11-07)
+
+Fillet and Chamfer Properties now expose exactly two calculation engines,
+**ZIMA** and **OCCT**. Every selected authored segment is one top-level item
+with its own remove control. Calculation routes remain internal ordering data;
+they are no longer shown as expandable branches. Manual end-face columns and
+route-level restore/remove controls are not presented. Clicking an already
+selected segment in the View removes that exact logical item. Current split
+descendants remain inspection data for the stable authored item instead of
+becoming duplicate rows.
+
+The View publishes the complete analytical treatment preview together with the
+unique endpoints of the selected segments as azure node markers. This display
+does not calculate the result Body or create a transaction. The same stable
+authored edge identities are retained when an upstream feature changes; current
+Boolean descendants are resolved during explicit regeneration.
+
+The exact ZIMA builders now accept symmetric constant-radius Fillet and A x A
+Chamfer at deterministic inner and outer two- and three-branch nodes. Ordinary
+two-branch corners are completed by their signed swept bands. Orthogonal
+three-branch Chamfer adds the exact tetrahedral connector of volume `A^3/12`;
+the Fillet counterpart adds the exact radius cube outside the trihedral sphere.
+A staggered two-box shoulder is classified from the material octants and uses
+an oblique Chamfer pyramid of volume `A^3/3`, or the corresponding Fillet cube
+minus both perpendicular rolling cylinders. Connectors are applied after the
+segment bands as signed CUT/FUSE operations, so authored selection order cannot
+change the result.
+
+Asymmetric Chamfer (`A x B` and `A + angle`) is intentionally limited to one
+connected open line. Multiple routes or disconnected members are rejected
+before calculation without changing the document. Unsupported or ambiguous
+node configurations stay outside the exact ZIMA boundary and therefore use the
+ordinary OCCT fallback when the user selected ZIMA.
+
+Direct builder regressions compare volume, area, validity and source-face
+ancestry against OCCT for outer and inner two-/three-branch nodes in both edge
+orders. Fixtures include two staggered boxes, a blind box-minus-box pocket, a
+through notch and a side-reaching pocket. Command-level verification covers
+native save/reopen, a cold kernel calculation, upstream source resizing,
+Undo/Redo and unchanged stable treatment definitions. On the Windows Release
+build, the complete direct Fillet fixture set ran in 1.27 seconds and the
+complete direct Chamfer set in 0.84 seconds; each set contains many operations,
+while the individual representative treatment remains below the one-second
+interaction target. No native format, start template or factory asset changed.
 
 ## Boolean edge fragments (2026-09-15)
 

@@ -2,6 +2,8 @@
 
 #include <BRepAdaptor_Curve.hxx>
 #include <BRepAdaptor_Surface.hxx>
+#include <BRepAlgoAPI_Cut.hxx>
+#include <BRepAlgoAPI_Fuse.hxx>
 #include <BRepCheck_Analyzer.hxx>
 #include <BRepClass_FaceClassifier.hxx>
 #include <BRepFilletAPI_MakeFillet.hxx>
@@ -32,6 +34,7 @@
 #include <cmath>
 #include <iostream>
 #include <numbers>
+#include <ranges>
 #include <stdexcept>
 #include <vector>
 
@@ -88,6 +91,116 @@ std::vector<TopoDS_Edge> vertical_edges(const TopoDS_Shape& shape,
                 }))result.push_back(edge);
     }
     return result;
+}
+
+std::vector<TopoDS_Edge> edges_at_point(const TopoDS_Shape& shape,
+        const gp_Pnt& point) {
+    std::vector<TopoDS_Edge> result;
+    for(TopExp_Explorer item(shape,TopAbs_EDGE);item.More();item.Next()) {
+        const auto edge=TopoDS::Edge(item.Current());
+        TopTools_IndexedMapOfShape vertices;
+        TopExp::MapShapes(edge,TopAbs_VERTEX,vertices);
+        if(std::ranges::none_of(std::views::iota(1,vertices.Extent()+1),
+                [&](int index) {
+                    return BRep_Tool::Pnt(TopoDS::Vertex(
+                        vertices.FindKey(index))).Distance(point)<=1.0e-9;
+                }))continue;
+        if(std::ranges::none_of(result,[&](const auto& current) {
+                return current.IsSame(edge);
+            }))result.push_back(edge);
+    }
+    return result;
+}
+
+TopoDS_Shape blind_pocket() {
+    BRepAlgoAPI_Cut cut(BRepPrimAPI_MakeBox(30,30,30).Shape(),
+        BRepPrimAPI_MakeBox(gp_Pnt(9,9,18),
+            gp_Pnt(21,21,31)).Shape());
+    cut.Build();
+    require(cut.IsDone()&&!cut.Shape().IsNull()&&
+            BRepCheck_Analyzer(cut.Shape(),true,true,false).IsValid(),
+        "Blind-pocket fixture failed");
+    return cut.Shape();
+}
+
+TopoDS_Shape through_notch() {
+    BRepAlgoAPI_Cut cut(BRepPrimAPI_MakeBox(30,30,30).Shape(),
+        BRepPrimAPI_MakeBox(gp_Pnt(-1,9,9),
+            gp_Pnt(31,21,21)).Shape());
+    cut.Build();
+    require(cut.IsDone()&&!cut.Shape().IsNull()&&
+            BRepCheck_Analyzer(cut.Shape(),true,true,false).IsValid(),
+        "Through-notch fixture failed");
+    return cut.Shape();
+}
+
+TopoDS_Shape side_reaching_pocket() {
+    BRepAlgoAPI_Cut cut(BRepPrimAPI_MakeBox(30,30,30).Shape(),
+        BRepPrimAPI_MakeBox(gp_Pnt(9,-1,18),
+            gp_Pnt(21,21,31)).Shape());
+    cut.Build();
+    require(cut.IsDone()&&!cut.Shape().IsNull()&&
+            BRepCheck_Analyzer(cut.Shape(),true,true,false).IsValid(),
+        "Side-reaching pocket fixture failed");
+    return cut.Shape();
+}
+
+TopoDS_Shape staggered_boxes() {
+    BRepAlgoAPI_Fuse fuse(BRepPrimAPI_MakeBox(30,30,10).Shape(),
+        BRepPrimAPI_MakeBox(gp_Pnt(5,5,10),
+            gp_Pnt(25,25,20)).Shape());
+    fuse.Build();
+    require(fuse.IsDone()&&!fuse.Shape().IsNull()&&
+            BRepCheck_Analyzer(fuse.Shape(),true,true,false).IsValid(),
+        "Staggered-box fixture failed");
+    return fuse.Shape();
+}
+
+TopoDS_Shape reference_fillet(const TopoDS_Shape& input,
+    const std::vector<TopoDS_Edge>& edges,double radius);
+
+void verify_node(const TopoDS_Shape& input,
+        std::vector<TopoDS_Edge> edges,double radius,
+        const char* message) {
+    std::vector<std::size_t> routes(edges.size(),1);
+    const auto custom=zima::kernel::occt_planar_edge_fillet(
+        input,edges,radius,1.0e-7,{},
+        zima::kernel::OcctPlanarEdgeFilletEndMode::Perpendicular,routes);
+    const auto reference=reference_fillet(input,edges,radius);
+    require(custom.history&&
+            BRepCheck_Analyzer(custom.shape,true,true,false).IsValid()&&
+            custom.fillet_faces.size()==edges.size()&&
+            std::ranges::all_of(custom.fillet_faces,
+                [](const auto& faces) {return !faces.empty();}),message);
+    if(edges.size()==3)for(std::size_t index=0;index<edges.size();++index) {
+        const bool spherical=std::ranges::any_of(
+            custom.fillet_faces[index],[](const auto& face) {
+                return BRepAdaptor_Surface(face,true).GetType()==
+                    GeomAbs_Sphere;
+            });
+        const bool generated_sphere=std::ranges::any_of(
+            custom.Generated(edges[index]),[](const auto& shape) {
+                return shape.ShapeType()==TopAbs_FACE&&
+                    BRepAdaptor_Surface(TopoDS::Face(shape),true).
+                        GetType()==GeomAbs_Sphere;
+            });
+        require(spherical&&generated_sphere,
+            "Three-branch ZIMA Fillet node lost spherical face ancestry");
+    }
+    std::reverse(edges.begin(),edges.end());
+    const auto reversed=zima::kernel::occt_planar_edge_fillet(
+        input,edges,radius,1.0e-7,{},
+        zima::kernel::OcctPlanarEdgeFilletEndMode::Perpendicular,routes);
+    require(BRepCheck_Analyzer(reversed.shape,true,true,false).IsValid(),
+        "Reordered ZIMA Fillet node is invalid");
+    near(volume(reversed.shape),volume(custom.shape),
+        "ZIMA Fillet node volume depends on selection order");
+    near(area(reversed.shape),area(custom.shape),
+        "ZIMA Fillet node area depends on selection order");
+    near(volume(custom.shape),volume(reference),
+        "ZIMA Fillet node volume differs from OCCT");
+    near(area(custom.shape),area(reference),
+        "ZIMA Fillet node area differs from OCCT");
 }
 
 TopoDS_Shape reference_fillet(const TopoDS_Shape& input,
@@ -535,6 +648,25 @@ int main() try {
         }
         require(joined_rejected,
             "Custom planar Fillet accepted a non-tangent joined route");
+        const auto outer_node=edges_at_point(box,{0,0,0});
+        require(outer_node.size()==3,
+            "Box fixture lost its three-branch outer node");
+        verify_node(box,std::vector<TopoDS_Edge>(
+            outer_node.begin(),outer_node.begin()+2),2.,
+            "Two-branch outer ZIMA Fillet node is invalid");
+        verify_node(box,outer_node,2.,
+            "Three-branch outer ZIMA Fillet node is invalid");
+        const auto stepped=staggered_boxes();
+        auto shoulder_node=edges_at_point(stepped,{5,5,10});
+        std::erase_if(shoulder_node,[](const auto& edge) {
+            const BRepAdaptor_Curve curve(edge);
+            return std::abs(curve.Value(curve.FirstParameter()).Z()-
+                curve.Value(curve.LastParameter()).Z())>1.0e-9;
+        });
+        require(shoulder_node.size()==2,
+            "Staggered-box fixture lost its two shoulder branches");
+        verify_node(stepped,shoulder_node,2.,
+            "Staggered-box ZIMA Fillet shoulder node is invalid");
     }
     {
         std::cerr<<"fillet-test: wedge\n";
@@ -598,6 +730,45 @@ int main() try {
                     "Mixed outer/inner Fillet lost edge-to-face ancestry");
             }
         }
+        const auto pocket=blind_pocket();
+        const auto inner_node=edges_at_point(pocket,{9,9,18});
+        require(inner_node.size()==3,
+            "Blind-pocket fixture lost its three-branch inner node");
+        verify_node(pocket,std::vector<TopoDS_Edge>(
+            inner_node.begin(),inner_node.begin()+2),2.,
+            "Two-branch inner ZIMA Fillet node is invalid");
+        verify_node(pocket,inner_node,2.,
+            "Three-branch inner ZIMA Fillet node is invalid");
+        const auto through=through_notch();
+        const auto through_node=edges_at_point(through,{0,9,9});
+        require(through_node.size()==3,
+            "Through-notch fixture lost its mouth node");
+        const auto through_edge=std::ranges::find_if(through_node,
+            [](const auto& edge) {
+                const BRepAdaptor_Curve curve(edge);
+                const auto first=curve.Value(curve.FirstParameter());
+                const auto last=curve.Value(curve.LastParameter());
+                return std::abs(first.X()-last.X())>29.;
+            });
+        require(through_edge!=through_node.end(),
+            "Through-notch fixture lost its through edge");
+        verify_node(through,{*through_edge},2.,
+            "Through-notch ZIMA Fillet terminal is invalid");
+        const auto side_pocket=side_reaching_pocket();
+        const auto side_node=edges_at_point(side_pocket,{9,0,18});
+        require(side_node.size()==3,
+            "Side-reaching pocket fixture lost its mouth node");
+        const auto side_edge=std::ranges::find_if(side_node,
+            [](const auto& edge) {
+                const BRepAdaptor_Curve curve(edge);
+                const auto first=curve.Value(curve.FirstParameter());
+                const auto last=curve.Value(curve.LastParameter());
+                return std::abs(first.Y()-last.Y())>20.;
+            });
+        require(side_edge!=side_node.end(),
+            "Side-reaching pocket fixture lost its depth edge");
+        verify_node(side_pocket,{*side_edge},2.,
+            "Side-reaching pocket ZIMA Fillet terminal is invalid");
     }
     {
         std::cerr<<"fillet-test: circular paths\n";
@@ -684,7 +855,7 @@ int main() try {
                     [](const auto& faces){return !faces.empty();}),
             "ZIMA Fillet did not accept a route tangent to its Up To face");
     }
-    std::cout<<"Custom planar edge Fillet: convex/concave 90-degree, mixed CUT/FUSE order, batch, 60-degree, perpendicular/angled/tangent Up To ends, exact cylinder ancestry and rejection checks passed\n";
+    std::cout<<"Custom planar edge Fillet: convex/concave 90-degree, inner/outer two/three-branch and staggered-step nodes, through-notch and side-pocket terminals, mixed CUT/FUSE order, batch, 60-degree, perpendicular/angled/tangent Up To ends, exact cylinder/sphere ancestry and rejection checks passed\n";
     return 0;
 } catch(const std::exception& error) {
     std::cerr<<error.what()<<'\n';return 1;

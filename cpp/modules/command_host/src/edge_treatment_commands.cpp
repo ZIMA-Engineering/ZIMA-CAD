@@ -55,7 +55,7 @@ const char* calculation_method_name(
         Parameters::CalculationMethod method) {
     using Method=Parameters::CalculationMethod;
     switch(method) {
-    case Method::Automatic:return "automatic";
+    case Method::Automatic:
     case Method::Zima:return "zima";
     case Method::Occt:return "occt";
     }
@@ -64,10 +64,10 @@ const char* calculation_method_name(
 Parameters::CalculationMethod calculation_method(
         const std::string& name) {
     using Method=Parameters::CalculationMethod;
-    if(name=="automatic")return Method::Automatic;
-    if(name=="zima")return Method::Zima;
+    if(name=="zima")return Method::Automatic;
     if(name=="occt")return Method::Occt;
-    throw Error("invalid_arguments","Unsupported edge treatment mode.");
+    throw Error("invalid_arguments",
+        "Calculation method must be zima or occt.");
 }
 Json details(const workspace::PartState& state,const document::HistoryContainer& feature) {
     const auto& doc=state.session.document();const auto* body=doc.body_owner_for_object(feature.id);

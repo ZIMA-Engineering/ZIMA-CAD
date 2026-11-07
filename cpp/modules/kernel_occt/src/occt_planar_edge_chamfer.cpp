@@ -7,10 +7,13 @@
 #include <BRepAlgoAPI_Common.hxx>
 #include <BRepBuilderAPI_MakeEdge.hxx>
 #include <BRepBuilderAPI_MakeFace.hxx>
+#include <BRepBuilderAPI_MakeSolid.hxx>
 #include <BRepBuilderAPI_MakeWire.hxx>
+#include <BRepBuilderAPI_Sewing.hxx>
 #include <BRepCheck_Analyzer.hxx>
 #include <BRepClass_FaceClassifier.hxx>
 #include <BRepClass3d_SolidClassifier.hxx>
+#include <BRepLib.hxx>
 #include <BRepPrimAPI_MakePrism.hxx>
 #include <BRepPrimAPI_MakeHalfSpace.hxx>
 #include <BRep_Tool.hxx>
@@ -24,7 +27,10 @@
 #include <ShapeUpgrade_UnifySameDomain.hxx>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
+#include <initializer_list>
+#include <iterator>
 #include <numbers>
 #include <optional>
 #include <ranges>
@@ -38,7 +44,164 @@ struct Tool {
     TopoDS_Shape solid;
     std::vector<TopoDS_Face> treatment_faces;
     bool adds_material{};
+    TopoDS_Solid material;
 };
+
+struct SelectedNode {
+    TopoDS_Vertex vertex;
+    std::vector<std::size_t> tools;
+};
+
+struct NodeConnector {
+    TopoDS_Shape solid;
+    bool adds_material{};
+};
+
+gp_Dir outgoing_tangent(const TopoDS_Edge& edge,
+        const TopoDS_Vertex& vertex,double tolerance) {
+    const BRepAdaptor_Curve curve(edge);
+    const auto first=curve.Value(curve.FirstParameter());
+    const auto last=curve.Value(curve.LastParameter());
+    const auto point=BRep_Tool::Pnt(vertex);
+    const auto opposite=point.Distance(first)<=point.Distance(last)
+        ?last:first;
+    const gp_Vec direction(point,opposite);
+    if(direction.Magnitude()<=tolerance)
+        throw std::invalid_argument(
+            "ZIMA Chamfer node has a degenerate branch");
+    return gp_Dir(direction);
+}
+
+TopoDS_Solid make_three_branch_connector(const TopoDS_Vertex& vertex,
+        const std::array<gp_Dir,3>& branches,double distance,
+        double tolerance) {
+    for(std::size_t first=0;first<branches.size();++first)
+        for(std::size_t second=first+1;second<branches.size();++second)
+            if(std::abs(branches[first].Dot(branches[second]))>1.0e-7)
+                throw std::invalid_argument(
+                    "ZIMA Chamfer requires orthogonal three-branch nodes");
+    const auto origin=BRep_Tool::Pnt(vertex);
+    const auto pair_point=[&](std::size_t first,std::size_t second) {
+        return origin.Translated(distance*(gp_Vec(branches[first])+
+            gp_Vec(branches[second])));
+    };
+    const std::array base{pair_point(0,1),pair_point(0,2),
+        pair_point(1,2)};
+    const auto apex=origin.Translated(.5*distance*(
+        gp_Vec(branches[0])+gp_Vec(branches[1])+
+        gp_Vec(branches[2])));
+    const auto triangle=[&](const gp_Pnt& first,const gp_Pnt& second,
+            const gp_Pnt& third) {
+        BRepBuilderAPI_MakeWire wire;
+        wire.Add(BRepBuilderAPI_MakeEdge(first,second).Edge());
+        wire.Add(BRepBuilderAPI_MakeEdge(second,third).Edge());
+        wire.Add(BRepBuilderAPI_MakeEdge(third,first).Edge());
+        if(!wire.IsDone())
+            throw std::runtime_error(
+                "ZIMA Chamfer could not construct a node wire");
+        BRepBuilderAPI_MakeFace face(wire.Wire());
+        if(!face.IsDone())
+            throw std::runtime_error(
+                "ZIMA Chamfer could not construct a node face");
+        return face.Face();
+    };
+    BRepBuilderAPI_Sewing sewing(tolerance);
+    sewing.Add(triangle(apex,base[0],base[1]));
+    sewing.Add(triangle(apex,base[1],base[2]));
+    sewing.Add(triangle(apex,base[2],base[0]));
+    sewing.Add(triangle(base[0],base[2],base[1]));
+    sewing.Perform();
+    TopExp_Explorer shells(sewing.SewedShape(),TopAbs_SHELL);
+    if(!shells.More())
+        throw std::runtime_error(
+            "ZIMA Chamfer could not sew its node connector");
+    BRepBuilderAPI_MakeSolid solid(TopoDS::Shell(shells.Current()));
+    shells.Next();
+    if(shells.More()||!solid.IsDone())
+        throw std::runtime_error(
+            "ZIMA Chamfer could not construct a valid node connector");
+    auto result=solid.Solid();
+    if(!result.IsNull())BRepLib::OrientClosedSolid(result);
+    if(result.IsNull()||!BRepCheck_Analyzer(result).IsValid())
+        throw std::runtime_error(
+            "ZIMA Chamfer could not construct a valid node connector");
+    return result;
+}
+
+TopoDS_Solid make_step_connector(const TopoDS_Vertex& vertex,
+        const gp_Dir& first_branch,const gp_Dir& second_branch,
+        const gp_Dir& third_branch,double distance,double tolerance) {
+    for(const auto pair:std::array{
+            std::pair{first_branch,second_branch},
+            std::pair{first_branch,third_branch},
+            std::pair{second_branch,third_branch}})
+        if(std::abs(pair.first.Dot(pair.second))>1.0e-7)
+            throw std::invalid_argument(
+                "ZIMA Chamfer requires an orthogonal step node");
+    const auto origin=BRep_Tool::Pnt(vertex);
+    const auto first=origin.Translated(-distance*gp_Vec(first_branch));
+    const auto second=origin.Translated(-distance*gp_Vec(second_branch));
+    const auto opposite=origin.Translated(-distance*(
+        gp_Vec(first_branch)+gp_Vec(second_branch)));
+    const auto apex=origin.Translated(distance*gp_Vec(third_branch));
+    const auto face=[&](std::initializer_list<gp_Pnt> points) {
+        BRepBuilderAPI_MakeWire wire;
+        for(auto current=points.begin();current!=points.end();++current) {
+            auto next=std::next(current);
+            if(next==points.end())next=points.begin();
+            wire.Add(BRepBuilderAPI_MakeEdge(*current,*next).Edge());
+        }
+        if(!wire.IsDone())
+            throw std::runtime_error(
+                "ZIMA Chamfer could not construct a step-node wire");
+        BRepBuilderAPI_MakeFace result(wire.Wire());
+        if(!result.IsDone())
+            throw std::runtime_error(
+                "ZIMA Chamfer could not construct a step-node face");
+        return result.Face();
+    };
+    BRepBuilderAPI_Sewing sewing(tolerance);
+    sewing.Add(face({origin,second,opposite,first}));
+    sewing.Add(face({origin,first,apex}));
+    sewing.Add(face({origin,apex,second}));
+    sewing.Add(face({first,opposite,apex}));
+    sewing.Add(face({second,apex,opposite}));
+    sewing.Perform();
+    TopExp_Explorer shells(sewing.SewedShape(),TopAbs_SHELL);
+    if(!shells.More())
+        throw std::runtime_error(
+            "ZIMA Chamfer could not sew its step-node connector");
+    BRepBuilderAPI_MakeSolid solid(TopoDS::Shell(shells.Current()));
+    shells.Next();
+    if(shells.More()||!solid.IsDone())
+        throw std::runtime_error(
+            "ZIMA Chamfer could not construct a step-node connector");
+    auto result=solid.Solid();
+    if(!result.IsNull())BRepLib::OrientClosedSolid(result);
+    if(result.IsNull()||!BRepCheck_Analyzer(result).IsValid())
+        throw std::runtime_error(
+            "ZIMA Chamfer could not construct a valid step-node connector");
+    return result;
+}
+
+int material_octants(const TopoDS_Solid& material,const gp_Pnt& origin,
+        const std::array<gp_Dir,3>& directions,double probe,
+        double tolerance) {
+    int inside{};
+    for(const int first:{-1,1})for(const int second:{-1,1})
+        for(const int third:{-1,1}) {
+            const auto point=origin.Translated(probe*(
+                first*gp_Vec(directions[0])+
+                second*gp_Vec(directions[1])+
+                third*gp_Vec(directions[2])));
+            BRepClass3d_SolidClassifier classifier(material,point,tolerance);
+            if(classifier.State()==TopAbs_IN)++inside;
+            else if(classifier.State()!=TopAbs_OUT)
+                throw std::invalid_argument(
+                    "ZIMA Chamfer could not classify a step node");
+        }
+    return inside;
+}
 
 gp_Dir outward_normal(const TopoDS_Face& face) {
     const BRepAdaptor_Surface support(face,true);
@@ -269,7 +432,7 @@ Tool make_tool(const TopoDS_Edge& edge,const TopoDS_Face& first_face,
     const gp_Pnt interior=first.Translated(gp_Vec(tangent)*(length*.5));
     clip(end_faces.first,interior);
     clip(end_faces.last,interior);
-    return {tool,std::move(treatment_faces),adds};
+    return {tool,std::move(treatment_faces),adds,material};
 }
 
 } // namespace
@@ -304,7 +467,8 @@ OcctPlanarEdgeChamferResult occt_planar_edge_chamfer(
     TopTools_IndexedDataMapOfShapeListOfShape edge_faces,edge_solids;
     TopExp::MapShapesAndAncestors(input,TopAbs_EDGE,TopAbs_FACE,edge_faces);
     TopExp::MapShapesAndAncestors(input,TopAbs_EDGE,TopAbs_SOLID,edge_solids);
-    TopTools_IndexedMapOfShape requested_edges,requested_vertices;
+    TopTools_IndexedMapOfShape requested_edges;
+    std::vector<SelectedNode> selected_nodes;
     std::vector<Tool> tools;
     for(std::size_t selection_index=0;
             selection_index<selections.size();++selection_index) {
@@ -317,11 +481,15 @@ OcctPlanarEdgeChamferResult occt_planar_edge_chamfer(
         TopTools_IndexedMapOfShape vertices;
         TopExp::MapShapes(edge,TopAbs_VERTEX,vertices);
         for(int index=1;index<=vertices.Extent();++index) {
-            const auto& vertex=vertices.FindKey(index);
-            if(requested_vertices.Contains(vertex))
-                throw std::invalid_argument(
-                    "ZIMA Chamfer does not yet support selected edges sharing an endpoint");
-            requested_vertices.Add(vertex);
+            const auto vertex=TopoDS::Vertex(vertices.FindKey(index));
+            const auto found=std::ranges::find_if(selected_nodes,
+                [&](const auto& node) {
+                    return node.vertex.IsSame(vertex);
+                });
+            if(found==selected_nodes.end())
+                selected_nodes.push_back({vertex,{selection_index}});
+            else
+                found->tools.push_back(selection_index);
         }
         std::vector<TopoDS_Face> faces;
         std::vector<TopoDS_Solid> solids;
@@ -381,6 +549,86 @@ OcctPlanarEdgeChamferResult occt_planar_edge_chamfer(
         tools.push_back(std::move(tool));
     }
 
+    // A persisted tangent chain is still one line. A non-collinear shared
+    // endpoint is a real node and is admitted only for symmetric A x A:
+    // inner/outer x two/three branches are the four deterministic base cases.
+    // The signed tools already encode inner (FUSE) versus outer (CUT), so a
+    // mixed-sense node is rejected instead of depending on click order.
+    const double angular_tolerance=std::max(1.0e-9,tolerance);
+    std::vector<NodeConnector> node_connectors;
+    for(const auto& node:selected_nodes) {
+        if(node.tools.size()<2)continue;
+        if(node.tools.size()>3)
+            throw std::invalid_argument(
+                "ZIMA Chamfer supports only two- or three-branch nodes");
+        const auto first_direction=outgoing_tangent(
+            selections[node.tools.front()].edge,node.vertex,tolerance);
+        const bool one_line=node.tools.size()==2&&
+            first_direction.IsParallel(outgoing_tangent(
+                selections[node.tools.back()].edge,node.vertex,tolerance),
+                angular_tolerance);
+        if(one_line)continue;
+        if(mode!=OcctPlanarEdgeChamferMode::EqualDistance)
+            throw std::invalid_argument(
+                "A x B and A + angle Chamfer require one continuous line");
+        const bool adds_material=tools[node.tools.front()].adds_material;
+        if(std::ranges::any_of(node.tools,[&](const auto index) {
+                return tools[index].adds_material!=adds_material;
+            }))
+            throw std::invalid_argument(
+                "ZIMA Chamfer node mixes inner and outer branches");
+        if(node.tools.size()==3) {
+            std::array<gp_Dir,3> branches{
+                outgoing_tangent(selections[node.tools[0]].edge,
+                    node.vertex,tolerance),
+                outgoing_tangent(selections[node.tools[1]].edge,
+                    node.vertex,tolerance),
+                outgoing_tangent(selections[node.tools[2]].edge,
+                    node.vertex,tolerance)};
+            node_connectors.push_back({make_three_branch_connector(
+                node.vertex,branches,distance_a,tolerance),adds_material});
+        } else {
+            const auto& material=tools[node.tools.front()].material;
+            if(std::ranges::any_of(node.tools,[&](const auto index) {
+                    return !tools[index].material.IsSame(material);
+                }))
+                throw std::invalid_argument(
+                    "ZIMA Chamfer node spans more than one material solid");
+            std::vector<TopoDS_Edge> unselected;
+            for(TopExp_Explorer item(material,TopAbs_EDGE);
+                    item.More();item.Next()) {
+                const auto edge=TopoDS::Edge(item.Current());
+                TopTools_IndexedMapOfShape vertices;
+                TopExp::MapShapes(edge,TopAbs_VERTEX,vertices);
+                if(!vertices.Contains(node.vertex)||
+                        std::ranges::any_of(node.tools,
+                            [&](const auto index) {
+                                return selections[index].edge.IsSame(edge);
+                            }))continue;
+                if(std::ranges::none_of(unselected,
+                        [&](const auto& current) {
+                            return current.IsSame(edge);
+                        }))unselected.push_back(edge);
+            }
+            if(unselected.size()==1) {
+                const std::array branches{first_direction,
+                    outgoing_tangent(
+                        selections[node.tools.back()].edge,node.vertex,
+                        tolerance),
+                    outgoing_tangent(unselected.front(),node.vertex,
+                        tolerance)};
+                const int occupied=material_octants(material,
+                    BRep_Tool::Pnt(node.vertex),branches,
+                    std::max(100.*tolerance,distance_a*.05),tolerance);
+                if((adds_material&&occupied==5)||
+                        (!adds_material&&occupied==3))
+                    node_connectors.push_back({make_step_connector(
+                        node.vertex,branches[0],branches[1],branches[2],
+                        distance_a,tolerance),adds_material});
+            }
+        }
+    }
+
     OcctPlanarEdgeChamferResult result;
     result.treatment_domains.reserve(tools.size());
     for(const auto& tool:tools)result.treatment_domains.push_back(tool.solid);
@@ -419,6 +667,41 @@ OcctPlanarEdgeChamferResult occt_planar_edge_chamfer(
             BRepAlgoAPI_Cut cut;apply(cut,first,last);
         }
         first=last;
+    }
+    // Three mutually orthogonal bands leave one tetrahedral gap at their
+    // common node. Its vertices are the pairwise A-offset points and the
+    // intersection of all three chamfer planes; its exact volume is A^3/12.
+    // A two-branch step leaves the corresponding oblique square pyramid,
+    // whose exact volume is A^3/3. Apply either connector after the bands so
+    // an inner connector is already attached to fused material and an outer
+    // connector cuts only the remaining node gap.
+    for(const auto& connector:node_connectors) {
+        NCollection_List<TopoDS_Shape> arguments,boolean_tools;
+        arguments.Append(current);
+        boolean_tools.Append(connector.solid);
+        if(connector.adds_material) {
+            BRepAlgoAPI_Fuse fuse;
+            fuse.SetArguments(arguments);fuse.SetTools(boolean_tools);
+            fuse.SetNonDestructive(true);fuse.SetRunParallel(false);
+            fuse.SetToFillHistory(true);fuse.SetFuzzyValue(tolerance);
+            fuse.Build();
+            if(!fuse.IsDone()||fuse.Shape().IsNull()||!fuse.History())
+                throw std::runtime_error(
+                    "ZIMA Chamfer node Boolean failed");
+            result.history->Merge(fuse.History());
+            current=fuse.Shape();
+        } else {
+            BRepAlgoAPI_Cut cut;
+            cut.SetArguments(arguments);cut.SetTools(boolean_tools);
+            cut.SetNonDestructive(true);cut.SetRunParallel(false);
+            cut.SetToFillHistory(true);cut.SetFuzzyValue(tolerance);
+            cut.Build();
+            if(!cut.IsDone()||cut.Shape().IsNull()||!cut.History())
+                throw std::runtime_error(
+                    "ZIMA Chamfer node Boolean failed");
+            result.history->Merge(cut.History());
+            current=cut.Shape();
+        }
     }
     // The two support sides of the exact triangular tool lie on the original
     // planes. OCCT may retain their end sections as coplanar Boolean seams.

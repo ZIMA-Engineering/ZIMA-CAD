@@ -188,6 +188,7 @@ void AssemblyWorkspaceWindow::start_edge_treatment(
         pending_drill_point_faces_.clear();
         tree_->setProperty("commandSelectionActive", false);
         viewer_->set_transient_edges({});
+        viewer_->set_transient_points({});
         viewer_->set_transient_dimensions({});
         viewer_->set_edge_treatment_selection_edges({});
         viewer_->set_feature_hover_edges({});
@@ -282,11 +283,33 @@ void AssemblyWorkspaceWindow::accept_edge_treatment(
     const bool already_selected = std::any_of(
         pending_edge_treatment_groups_.begin(), pending_edge_treatment_groups_.end(),
         [&](const auto& group) {
-            return std::find(group.begin(), group.end(), seed) != group.end();
+            return std::ranges::any_of(group,[&](const auto& selected) {
+                return zima::kernel::edge_reference_matches_or_descends_from(
+                    seed,selected)||
+                    zima::kernel::edge_reference_matches_or_descends_from(
+                        selected,seed);
+            });
         });
-    // Python parity: clicking an already selected route keeps it selected;
-    // removal is an explicit action in the dialog's route tree.
-    if (already_selected) return;
+    if (already_selected) {
+        for(std::size_t group=0;
+                group<pending_edge_treatment_groups_.size();++group) {
+            const auto& selected=pending_edge_treatment_groups_[group];
+            const auto member=std::ranges::find_if(selected,
+                [&](const auto& edge) {
+                    return zima::kernel::
+                            edge_reference_matches_or_descends_from(seed,edge)||
+                        zima::kernel::edge_reference_matches_or_descends_from(
+                            edge,seed);
+                });
+            if(member==selected.end())continue;
+            remove_edge_treatment_member(group,
+                static_cast<std::size_t>(member-selected.begin()));
+            state_->setText(tr(
+                "Hrana byla odebrána z výběru zaoblení nebo sražení."));
+            return;
+        }
+        return;
+    }
     auto route = candidate.geometry==
             zima::viewer::CandidateGeometry::OriginalReference
         ?std::vector<zima::kernel::EdgeReference>{seed}
@@ -303,22 +326,11 @@ void AssemblyWorkspaceWindow::accept_edge_treatment(
     if (!route.empty()) {
         pending_edge_treatment_groups_.push_back(std::move(route));
         pending_edge_treatment_seeds_.push_back(seed);
+        // Terminal faces are derived by the ZIMA solver from the current
+        // material neighborhood. Do not author hidden per-route end choices
+        // while collecting segments.
         edge_treatment_preview_parameters_.route_end_faces.resize(
             pending_edge_treatment_groups_.size());
-        if(const auto* input=zima::workspace::calculated_operation_input(
-                part->session,part->session.document().find_container(
-                    edge_treatment_preview_owner_id_)
-                    ?edge_treatment_preview_owner_id_:std::string{})) {
-            const auto route_index=pending_edge_treatment_groups_.size()-1;
-            auto& ends=edge_treatment_preview_parameters_.route_end_faces[
-                route_index];
-            const auto first=route_end_face_candidates(input->mesh,
-                pending_edge_treatment_groups_[route_index],0);
-            const auto last=route_end_face_candidates(input->mesh,
-                pending_edge_treatment_groups_[route_index],1);
-            if(first.size()==1)ends.first=first.front();
-            if(last.size()==1)ends.last=last.front();
-        }
     }
     refresh_edge_treatment_selection_ui();
     state_->setText(tr("Vybrané hrany Tělesa: %1. Potvrďte OK.")
@@ -472,12 +484,14 @@ void AssemblyWorkspaceWindow::refresh_edge_treatment_preview() {
     if (!edge_treatment_selection_ || part == nullptr ||
         input==nullptr||pending_edge_treatment_groups_.empty()) {
         viewer_->set_transient_edges({});
+        viewer_->set_transient_points({});
         viewer_->set_transient_dimensions({});
         return;
     }
     const std::string instance_path = resolve_active_occurrence(
         part->session.document().document_id).value_or(std::string{});
     std::vector<std::vector<zima::kernel::ViewerEdge>> display_groups;
+    std::vector<zima::kernel::Vec3> node_points;
     std::vector<zima::kernel::VertexReference> route_start_vertices;
     const auto authored_start_count=edge_treatment_preview_parameters_.route_start_vertices.size();
     display_groups.reserve(pending_edge_treatment_groups_.size());
@@ -492,6 +506,18 @@ void AssemblyWorkspaceWindow::refresh_edge_treatment_preview() {
         for(auto& edge:display_group)
             for(auto& endpoint:edge.edge_treatment_endpoint_references)
                 endpoint.instance_path.clear();
+        const auto append_node=[&](const zima::kernel::Vec3& point) {
+            const auto same=[&](const zima::kernel::Vec3& other) {
+                return std::hypot(std::hypot(point.x-other.x,
+                    point.y-other.y),point.z-other.z)<=1.0e-7;
+            };
+            if(std::ranges::none_of(node_points,same))
+                node_points.push_back(point);
+        };
+        for(const auto& edge:display_group)if(!edge.points.empty()) {
+            append_node(edge.points.front());
+            append_node(edge.points.back());
+        }
         // Opening Properties must never choose a different R1 merely because
         // the viewer orders edges differently. An unavailable stored endpoint
         // is retained for explicit validation at OK, not silently repaired.
@@ -524,6 +550,7 @@ void AssemblyWorkspaceWindow::refresh_edge_treatment_preview() {
         *edge_treatment_selection_,
         edge_treatment_preview_owner_id_);
     viewer_->set_transient_edges(std::move(preview.edges));
+    viewer_->set_transient_points(std::move(node_points));
     for (auto& dimension : preview.dimensions) dimension.reference.instance_path = instance_path;
     viewer_->set_transient_dimensions(std::move(preview.dimensions));
 }

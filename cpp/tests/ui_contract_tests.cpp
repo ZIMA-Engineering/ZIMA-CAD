@@ -1608,17 +1608,18 @@ static void verify_edge_treatment_fragments(QWidget& parent) {
         fillet,false,false,[](auto){},&parent);
     dialog->set_edge_groups({{authored}},{fragments});
     auto* rows=dialog->findChild<QTreeWidget*>("edgeTreatmentEdges");
-    const auto* route=rows?rows->topLevelItem(0):nullptr;
-    const auto* member=route&&route->childCount()==1?route->child(0):nullptr;
-    require(rows&&rows->columnCount()==5&&rows->topLevelItemCount()==2&&
-            route&&route->isExpanded()&&route->text(1)==QStringLiteral("2 objektů")&&
-            member&&member->isExpanded()&&member->childCount()==2&&
-            member->child(0)->text(2)==QStringLiteral("1.1.1")&&
-            member->child(1)->text(2)==QStringLiteral("1.1.2")&&
+    const auto* item=rows?rows->topLevelItem(0):nullptr;
+    require(rows&&rows->columnCount()==2&&rows->topLevelItemCount()==2&&
+            item&&item->childCount()==0&&
+            item->text(1)==QStringLiteral("route-owner / edge:split")&&
+            item->toolTip(1).contains(QString::fromStdString(
+                first_child.semantic_key))&&
+            item->toolTip(1).contains(QString::fromStdString(
+                nested_child.semantic_key))&&
             dialog->findChild<QWidget*>("edgeMemberRemove0_0"),
-        "Fillet/Chamfer Properties did not keep one always-visible stable route with all current fragments beneath it");
+        "Fillet/Chamfer Properties did not keep one direct stable item with all current fragments in its inspection data");
     dialog->deleteLater();
-    std::cout<<"Fillet/Chamfer stable descendant fragments and always-visible Properties route passed\n";
+    std::cout<<"Fillet/Chamfer stable descendant fragments and direct Properties item passed\n";
 }
 
 static void verify_adjacent_constraint_hover(QApplication& application,
@@ -1852,7 +1853,7 @@ int main(int argc, char* argv[]) {
         if(qEnvironmentVariableIsSet(
                 "ZIMA_VERIFY_EDGE_TREATMENT_METHOD_ONLY")) {
             const std::vector<zima::kernel::EdgeReference> edges{
-                {"source","edge",{}}};
+                {"source","edge-a",{}},{"source","edge-b",{}}};
             zima::document::HistoryContainer committed;
             auto* fillet=new zima::app::PrimitivePropertiesDialog(
                 zima::document::PartDocument::create_fillet_container(edges),
@@ -1862,76 +1863,34 @@ int main(int argc, char* argv[]) {
             fillet->show();application.processEvents();
             auto* fillet_mode=fillet->findChild<QComboBox*>(
                 "edgeTreatmentType");
-            auto* fillet_automatic=fillet->findChild<QCheckBox*>(
-                "edgeTreatmentMethodAutomatic");
             auto* fillet_zima=fillet->findChild<QCheckBox*>(
                 "edgeTreatmentMethodZima");
             auto* fillet_occt=fillet->findChild<QCheckBox*>(
                 "edgeTreatmentMethodOcct");
-            require(fillet_mode&&fillet_automatic&&fillet_zima&&
-                    fillet_occt&&
-                    fillet->minimumWidth()>=680&&
-                    fillet_automatic->isChecked()&&
-                    !fillet_zima->isChecked()&&!fillet_occt->isChecked(),
-                "Constant Fillet did not default to Automatic");
-            auto* route_tree=fillet->findChild<QTreeWidget*>(
+            require(fillet_mode&&fillet_zima&&fillet_occt&&
+                    fillet_zima->isChecked()&&!fillet_occt->isChecked()&&
+                    !fillet->findChild<QCheckBox*>(
+                        "edgeTreatmentMethodAutomatic"),
+                "Constant Fillet did not expose exactly ZIMA and OCCT");
+            auto* item_tree=fillet->findChild<QTreeWidget*>(
                 "edgeTreatmentEdges");
-            auto* first_end=fillet->findChild<QTableWidget*>(
-                "edgeEndFace_0_0");
-            auto* last_end=fillet->findChild<QTableWidget*>(
-                "edgeEndFace_0_1");
-            require(route_tree&&route_tree->topLevelItemCount()>=1&&
-                    route_tree->topLevelItem(0)->isExpanded()&&
-                    first_end&&last_end,
-                "Fillet route did not expose its segments directly or omitted its two end-face fields");
-            int end_requests{},end_autos{};
-            fillet->set_edge_end_face_callbacks(
-                [&](std::size_t route,std::size_t end) {
-                    require(route==0&&end==0,
-                        "End-face entry requested the wrong route end");
-                    ++end_requests;
-                },
-                [&](std::size_t route,std::size_t end) {
-                    require(route==0&&end==0,
-                        "End-face Auto requested the wrong route end");
-                    ++end_autos;
-                });
-            QMetaObject::invokeMethod(first_end,"cellClicked",
-                Qt::DirectConnection,Q_ARG(int,0),Q_ARG(int,1));
-            auto auto_buttons=first_end->findChildren<QToolButton*>();
-            const auto auto_button=std::ranges::find_if(auto_buttons,
-                [](const auto* button) {return button->text()=="A";});
-            require(end_requests==1&&auto_button!=auto_buttons.end(),
-                "End-face reference cell did not arm input or expose Auto");
-            (*auto_button)->click();
-            require(end_autos==1,
-                "End-face Auto action did not request detection");
-            fillet->set_edge_route_end_faces({{{"stock","face:end",{}},{}}});
-            first_end=fillet->findChild<QTableWidget*>("edgeEndFace_0_0");
-            require(first_end&&!fillet_occt->isEnabled()&&
-                    fillet->pending_value().edge_treatment.
-                        route_end_faces[0].first.valid(),
-                "Stored end face did not disable OCCT or enter the pending definition");
-            const auto shortcuts=first_end->findChildren<QShortcut*>();
-            require(shortcuts.size()==1,
-                "End-face field omitted its Delete shortcut");
-            QMetaObject::invokeMethod(shortcuts.front(),"activated",
-                Qt::DirectConnection);
-            require(!fillet->pending_value().edge_treatment.
-                        route_end_faces[0].first.valid()&&end_requests==2&&
-                    fillet_occt->isEnabled(),
-                "Delete did not keep an explicit perpendicular end and reactivate input");
-            fillet_zima->click();
-            require(!fillet_automatic->isChecked()&&
-                    fillet_zima->isChecked()&&!fillet_occt->isChecked(),
-                "Fillet method checkboxes are not mutually exclusive");
+            require(item_tree&&item_tree->columnCount()==2&&
+                    item_tree->topLevelItemCount()==3&&
+                    item_tree->topLevelItem(0)->childCount()==0&&
+                    item_tree->topLevelItem(1)->childCount()==0&&
+                    item_tree->itemWidget(item_tree->topLevelItem(0),0)&&
+                    item_tree->itemWidget(item_tree->topLevelItem(1),0)&&
+                    !fillet->findChild<QTableWidget*>("edgeEndFace_0_0")&&
+                    !fillet->findChild<QPushButton*>("restoreRouteButton"),
+                "Fillet did not present direct removable items without route branches or end faces");
             fillet_occt->click();
-            fillet_automatic->click();
+            require(!fillet_zima->isChecked()&&fillet_occt->isChecked(),
+                "Fillet method checkboxes are not mutually exclusive");
+            fillet_zima->click();
             fillet_mode->setCurrentIndex(
                 fillet_mode->findData("linear"));
-            require(fillet_automatic->isChecked()&&
-                    fillet_zima->isEnabled()&&fillet_occt->isEnabled(),
-                "Variable Fillet changed or disabled the explicit method choices");
+            require(fillet_zima->isChecked()&&fillet_occt->isEnabled(),
+                "Variable Fillet changed or disabled ZIMA/OCCT selection");
             fillet_mode->setCurrentIndex(
                 fillet_mode->findData("constant"));
             fillet->buttons()->button(QDialogButtonBox::Ok)->click();
@@ -1941,7 +1900,7 @@ int main(int argc, char* argv[]) {
                     committed.edge_treatment.calculation_method==
                         zima::document::EdgeTreatmentParameters::
                             CalculationMethod::Automatic,
-                "Fillet Properties did not commit Automatic");
+                "Fillet Properties did not commit the ZIMA calculation path");
 
             committed={};
             auto* chamfer=new zima::app::PrimitivePropertiesDialog(
@@ -1952,26 +1911,21 @@ int main(int argc, char* argv[]) {
             chamfer->show();application.processEvents();
             auto* chamfer_mode=chamfer->findChild<QComboBox*>(
                 "edgeTreatmentType");
-            auto* chamfer_automatic=chamfer->findChild<QCheckBox*>(
-                "edgeTreatmentMethodAutomatic");
             auto* chamfer_zima=chamfer->findChild<QCheckBox*>(
                 "edgeTreatmentMethodZima");
             auto* chamfer_occt=chamfer->findChild<QCheckBox*>(
                 "edgeTreatmentMethodOcct");
-            require(chamfer_mode&&chamfer_automatic&&chamfer_zima&&
-                    chamfer_occt,
-                "Chamfer method controls are missing");
-            require(chamfer->minimumWidth()>=680,
-                "Chamfer Properties did not reserve another table-column width");
+            require(chamfer_mode&&chamfer_zima&&chamfer_occt&&
+                    chamfer_zima->isChecked(),
+                "Chamfer ZIMA/OCCT controls are missing");
             for(const char* mode:{"equal_distance","two_distances",
                     "distance_angle"}) {
                 chamfer_mode->setCurrentIndex(
                     chamfer_mode->findData(mode));
-                require(chamfer_automatic->isChecked()&&
-                        chamfer_zima->isEnabled()&&chamfer_occt->isEnabled(),
+                require(chamfer_zima->isChecked()&&
+                        chamfer_occt->isEnabled(),
                     "A x A, A x B or A + angle changed the method controls");
             }
-            chamfer_zima->click();
             chamfer->buttons()->button(QDialogButtonBox::Ok)->click();
             application.processEvents();
             require(committed.feature_kind==
@@ -1981,7 +1935,7 @@ int main(int argc, char* argv[]) {
                             ChamferMode::DistanceAngle&&
                     committed.edge_treatment.calculation_method==
                         zima::document::EdgeTreatmentParameters::
-                            CalculationMethod::Zima,
+                            CalculationMethod::Automatic,
                 "Chamfer Properties did not commit ZIMA A + angle");
             std::cout<<"ZIMA/OCCT Fillet and Chamfer method selection passed\n";
             return 0;
@@ -2614,10 +2568,13 @@ int main(int argc, char* argv[]) {
                 "Fillet create/edit dialog does not use a Properties title");
         auto* fillet_routes = fillet_dialog->findChild<QTreeWidget*>(
             "edgeTreatmentEdges");
-        require(fillet_routes != nullptr && fillet_routes->columnCount() == 5 &&
-                    fillet_routes->topLevelItemCount() == 2 &&
-                    fillet_routes->topLevelItem(0)->childCount() == 3,
-                "One Fillet route was split into separate one-object routes");
+        require(fillet_routes != nullptr && fillet_routes->columnCount() == 2 &&
+                    fillet_routes->topLevelItemCount() == 4 &&
+                    fillet_routes->topLevelItem(0)->childCount() == 0 &&
+                    fillet_routes->topLevelItem(1)->childCount() == 0 &&
+                    fillet_routes->topLevelItem(2)->childCount() == 0 &&
+                    fillet_routes->topLevelItem(3)->childCount() == 0,
+                "Fillet did not present every selected segment as a direct item");
         require(fillet_dialog->findChild<QLineEdit*>()->isHidden(),
                 "Fillet dialog retained the unrelated container-name editor");
         std::optional<std::size_t> removed_member;std::size_t removed_group=99;
@@ -2626,8 +2583,8 @@ int main(int argc, char* argv[]) {
         },[](std::size_t){});
         fillet_dialog->findChild<QWidget*>("edgeMemberRemove0_1")->findChild<QPushButton*>()->click();
         require(removed_group==0 && removed_member==1,"Fillet row removal addressed another edge");
-        fillet_dialog->findChild<QWidget*>("edgeRouteRemove0")->findChild<QPushButton*>()->click();
-        require(removed_group==0 && !removed_member,"Fillet route removal addressed one edge only");
+        require(!fillet_dialog->findChild<QWidget*>("edgeRouteRemove0"),
+                "Fillet retained a route-level remove control");
         fillet_dialog->buttons()->button(QDialogButtonBox::Ok)->click();
         application.processEvents();
         require(committed_fillet.edge_treatment.flattened_edges() ==
@@ -4407,9 +4364,6 @@ int main(int argc, char* argv[]) {
                 "edgeTreatmentFlip");
             auto* treatment_reverse = treatment_dialog->findChild<QPushButton*>(
                 "edgeTreatmentReverse");
-            auto* treatment_method_automatic =
-                treatment_dialog->findChild<QCheckBox*>(
-                    "edgeTreatmentMethodAutomatic");
             auto* treatment_method_zima = treatment_dialog->findChild<QCheckBox*>(
                 "edgeTreatmentMethodZima");
             auto* treatment_method_occt = treatment_dialog->findChild<QCheckBox*>(
@@ -4417,14 +4371,12 @@ int main(int argc, char* argv[]) {
             require(treatment_type != nullptr && treatment_primary != nullptr &&
                         treatment_secondary != nullptr && treatment_angle != nullptr &&
                         treatment_flip != nullptr && treatment_reverse != nullptr &&
-                        treatment_method_automatic != nullptr &&
                         treatment_method_zima != nullptr &&
                         treatment_method_occt != nullptr,
                     "Fillet/Chamfer edit did not expose the shared mode Properties UI");
-            require(treatment_method_automatic->isChecked() &&
-                        !treatment_method_zima->isChecked() &&
+            require(treatment_method_zima->isChecked() &&
                         !treatment_method_occt->isChecked(),
-                    "A new Fillet/Chamfer did not default to Automatic calculation");
+                    "A new Fillet/Chamfer did not default to ZIMA calculation");
             int treatment_preview_updates = 0;
             double previewed_treatment_size = 0.0;
             treatment_dialog->set_preview_callback(
@@ -4446,10 +4398,9 @@ int main(int argc, char* argv[]) {
                 require(treatment_secondary->isVisible() &&
                             treatment_reverse->isVisible() &&
                             !treatment_flip->isVisible() &&
-                            treatment_method_automatic->isEnabled() &&
                             treatment_method_zima->isEnabled() &&
                             treatment_method_occt->isEnabled() &&
-                            treatment_method_automatic->isChecked(),
+                            treatment_method_zima->isChecked(),
                     "Variable Fillet mode did not preserve the selectable calculation method");
                 require(treatment_dialog->set_inline_parameter_value(
                             "secondary", 4.5) &&
@@ -4463,10 +4414,9 @@ int main(int argc, char* argv[]) {
                 require(treatment_angle->isVisible() &&
                             treatment_flip->isVisible() &&
                             !treatment_secondary->isVisible() &&
-                            treatment_method_automatic->isEnabled() &&
                             treatment_method_zima->isEnabled() &&
                             treatment_method_occt->isEnabled() &&
-                            treatment_method_automatic->isChecked(),
+                            treatment_method_zima->isChecked(),
                     "A + angle Chamfer mode did not retain the selectable ZIMA method, angle and FLIP");
                 require(treatment_dialog->set_inline_parameter_value(
                             "treatment_angle", 37.5) &&

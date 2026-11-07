@@ -206,6 +206,7 @@ int verify_edge_treatment_ui(QApplication& application, AssemblyWorkspaceWindow&
                     "edgeTreatmentEdges");
                 std::vector<std::vector<kernel::ViewerEdge>> groups;
                 std::size_t persisted_count{},resolved_count{};
+                std::size_t presented_item{};
                 bool reconnected_compact_route{};
                 for(std::size_t route=0;route<parameters.routes.size();++route) {
                     const auto active=document::actual_edge_treatment_intervals(
@@ -215,6 +216,16 @@ int verify_edge_treatment_ui(QApplication& application, AssemblyWorkspaceWindow&
                         parameters,route,std::nullopt,view->mesh());
                     resolved_count+=fragments.size();
                     for(const auto& stored:active) {
+                        auto* row=rows&&presented_item<
+                                static_cast<std::size_t>(rows->topLevelItemCount())
+                            ?rows->topLevelItem(
+                                static_cast<int>(presented_item)):nullptr;
+                        check(row&&row->childCount()==0&&
+                                rows->itemWidget(row,0)&&
+                                row->text(1).toStdString()==stored.owner_id+
+                                    " / "+stored.semantic_key,
+                            "Treatment Properties did not present a direct removable row for every authored segment");
+                        ++presented_item;
                         const auto retained=std::ranges::find_if(
                             view->mesh().original_references.edges,
                             [&](const auto& edge) {
@@ -233,14 +244,6 @@ int verify_edge_treatment_ui(QApplication& application, AssemblyWorkspaceWindow&
                                     }))
                             reconnected_compact_route=true;
                     }
-                    const auto* row=rows&&route<static_cast<std::size_t>(
-                        rows->topLevelItemCount())
-                        ?rows->topLevelItem(static_cast<int>(route)):nullptr;
-                    bool count_ok{};
-                    const auto presented=row?row->text(1).section(' ',0,0)
-                        .toULongLong(&count_ok):0;
-                    check(row&&count_ok&&presented==fragments.size(),
-                        "Treatment Properties does not report every current route fragment");
                     for(const auto& fragment:fragments)
                         check(fragment.edge_treatment_side_directions.size()==2&&
                             std::ranges::all_of(
@@ -255,6 +258,12 @@ int verify_edge_treatment_ui(QApplication& application, AssemblyWorkspaceWindow&
                 check(resolved_count>=persisted_count&&
                         reconnected_compact_route,
                     "User-model fixture did not reconnect a compact two-sided Feature edge to its current face guides");
+                check(rows&&presented_item==persisted_count&&
+                        rows->topLevelItemCount()==
+                            static_cast<int>(persisted_count+1)&&
+                        rows->topLevelItem(
+                            static_cast<int>(persisted_count))->childCount()==0,
+                    "Treatment Properties retained a route branch or omitted its offered-input row");
                 const auto expected=workspace_detail::
                     edge_treatment_preview_wire(groups,parameters,
                         pending->feature_kind(),owner);
@@ -270,7 +279,7 @@ int verify_edge_treatment_ui(QApplication& application, AssemblyWorkspaceWindow&
                 finish(false);
                 check(run("documents").at(0).at("revision")==revision,
                     "Fragment presentation inspection changed the document");
-                std::cout<<"User-model treatment fragments: stable parent, all current rows, face guides, complete preview and Cancel passed\n";
+                std::cout<<"User-model treatment fragments: stable parent, direct segment rows, face guides, complete preview and Cancel passed\n";
             }
             window.grab().save(QString::fromStdString((directory/"user-model-fillet-inspection.png").string()));
             std::cout<<"User-model rounded surface: single-click Tree selection, double-click radius and unchanged revision passed\n";return 0;

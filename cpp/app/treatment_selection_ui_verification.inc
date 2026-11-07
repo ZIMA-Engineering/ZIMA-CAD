@@ -50,9 +50,25 @@
                 verify(shell?viewer::CandidateKind::Face:viewer::CandidateKind::Edge);
                 auto* pending=dialog();
                 if(shell)check(pending->pending_value().shell.removed_faces==std::vector<kernel::FaceReference>{{chosen.owner_id,chosen.semantic_key,{}}},"Shell click did not confirm its offered face");
-                else check(!pending->pending_value().edge_treatment.routes.empty()&&pending->pending_value().edge_treatment.routes.front().front().owner_id==box.id,"Treatment click did not confirm its offered edge");
+                else {
+                    const auto selected=pending->pending_value().edge_treatment.routes;
+                    check(!selected.empty()&&selected.front().front().owner_id==box.id,
+                        "Treatment click did not confirm its offered edge");
+                    check(!view->transient_points().empty(),
+                        "Treatment selection did not publish its endpoint nodes");
+                    static_cast<void>(pick(viewer::CandidateKind::Edge,
+                        chosen.owner_id,chosen.semantic_key));
+                    check(dialog()->pending_value().edge_treatment.routes.empty(),
+                        "Clicking a selected treatment segment did not remove it");
+                    check(view->transient_points().empty(),
+                        "Removing the last treatment segment retained its endpoint nodes");
+                    static_cast<void>(pick(viewer::CandidateKind::Edge,
+                        chosen.owner_id,chosen.semantic_key));
+                    check(!dialog()->pending_value().edge_treatment.routes.empty(),
+                        "Clicking the removed treatment segment did not restore it");
+                }
                 finish(false);run("save");
                 check(document::PartDocument::load(file).history.size()==2,"Treatment Cancel changed the document");
             }
-            std::cout<<"Fillet/Chamfer/Shell GUI: visible Curve3D and Sketch excluded, real body hover/click retained, selection refresh and Cancel passed\n";return 0;
+            std::cout<<"Fillet/Chamfer/Shell GUI: visible Curve3D and Sketch excluded, real body hover/click retained, edge toggle with endpoint nodes, selection refresh and Cancel passed\n";return 0;
         }

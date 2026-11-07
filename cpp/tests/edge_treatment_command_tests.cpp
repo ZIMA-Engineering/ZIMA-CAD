@@ -38,11 +38,19 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     const double start_z=start.at("position_mm")[2],end_z=end.at("position_mm")[2];start.erase("position_mm");end.erase("position_mm");
     const auto routes=[&](Json reference=Json(nullptr)){return Json::array({Json{{"edges",Json::array({edge})},{"start",reference}}});};
     const auto id=run(host,"fillet.create",{{"routes",routes()},{"radius_mm",2}}).data.at("container").get<std::string>();
+    require(run(host,"fillet.get",{{"container",id}}).data.at(
+                "calculation_method")=="zima",
+        "Fillet command exposed the removed Automatic method name");
     const double corner=1-std::numbers::pi/4;
     near(measured_volume(),400000-corner*4*50);
     auto original=*state->session.document().find_container(id);run(host,"undo");require(!state->session.document().find_container(id),"Fillet create needs multiple Undo steps");run(host,"redo");
     require(*state->session.document().find_container(id)==original,"Fillet Redo lost identity");
     const auto revision=state->session.revision();const auto* cache=state->session.calculated_boundaries().data();
+    require(host.execute({{"command","fillet.set"},{"arguments",
+                {{"container",id},{"calculation_method","automatic"}}}}).
+                code=="invalid_arguments"&&
+            state->session.revision()==revision,
+        "Fillet command accepted the removed Automatic method name");
     run(host,"fillet.get",{{"container",id}});require(!run(host,"fillet.set",{{"container",id},{"radius_mm",2}}).data.at("changed").get<bool>(),"Fillet equal patch committed");
     require(state->session.revision()==revision&&state->session.calculated_boundaries().data()==cache,"Fillet read/no-op recalculated");
     for(const auto& patch:std::vector<Json>{{{"radius_mm",0}},{{"radius_mm",1000001}},{{"mode","nonsense"}},{{"mode","linear"}},
@@ -129,6 +137,26 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     const auto chamfer_routes=Json::array({Json{{"edges",Json::array({Json{{"owner",block},{"key",test::profile_key(state->session.document(),block,"edge:x_max:y_min:z_max--x_max:y_min:z_min")}}})}}});
     const auto chamfer=run(host,"chamfer.create",{{"routes",chamfer_routes},{"distance_a_mm",2}}).data.at("container").get<std::string>();
     near(measured_volume(),399900);
+    const Json disconnected_chamfer_edge={{"owner",block},{"key",
+        test::profile_key(state->session.document(),block,
+            "edge:x_min:y_max:z_max--x_min:y_max:z_min")}};
+    const auto separate_chamfer_routes=Json::array({
+        chamfer_routes.front(),
+        Json{{"edges",Json::array({disconnected_chamfer_edge})}}});
+    const auto disconnected_chamfer_route=Json::array({Json{{"edges",
+        Json::array({chamfer_routes.front().at("edges").front(),
+            disconnected_chamfer_edge})}}});
+    const auto before_asymmetric_rejection=state->session.revision();
+    for(const auto& invalid_routes:{separate_chamfer_routes,
+            disconnected_chamfer_route}) {
+        const auto rejected=host.execute({{"command","chamfer.set"},
+            {"arguments",{{"container",chamfer},
+                {"mode","two_distances"},{"distance_b_mm",5},
+                {"routes",invalid_routes}}}});
+        require(!rejected.ok&&rejected.code=="invalid_reference"&&
+                state->session.revision()==before_asymmetric_rejection,
+            "A x B Chamfer accepted more than one continuous line");
+    }
     run(host,"chamfer.set",{{"container",chamfer},{"mode","two_distances"},{"distance_b_mm",5}});near(measured_volume(),399750);
     const auto side_distances=[&]() {
         std::pair<double,double> result{};
@@ -146,6 +174,74 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     for(const auto* field:{"distance_a_mm","distance_b_mm","angle_degrees"})require(host.execute({{"command","chamfer.set"},{"arguments",{{"container",chamfer},{field,4}}}}).code=="value_locked","Chamfer bypassed dimension lock");
     require(run(host,"chamfer.get",{{"container",chamfer}}).data.at("angle_degrees")==30&&state->session.revision()==unchanged,"Chamfer query or rejected edit mutated state");
     run(host,"save");const auto chamfer_saved=document::PartDocument::load(directory/"chamfer-command.prtz");require(*chamfer_saved.find_container(chamfer)==chamfer_locked,"Native Chamfer lost state");
+    // The common three-branch outer node must survive the complete command
+    // lifecycle, not only the direct exact-builder fixture.
+    for(const bool fillet_node:{true,false}) {
+        const std::string prefix=fillet_node?"fillet":"chamfer";
+        const std::string name=prefix+"-three-branch-node";
+        run(host,"new",{{"type","part"},{"name",name}});
+        const auto node_box=zima::test::rectangular_commands(
+            [&](const char* n,commands::Json a){return run(host,n,std::move(a));},
+            {{"length_mm","20"},{"width_mm","20"},
+             {"one_sided",true},{"height_mm","20"}}).data.at("container");
+        state=live.open_part(live.active_document_id());
+        const auto node_edge=[&](const char* key) {
+            return Json{{"owner",node_box},{"key",test::profile_key(
+                state->session.document(),node_box,key)}};
+        };
+        const auto node_routes=Json::array({
+            Json{{"edges",Json::array({node_edge(
+                "edge:x_max:y_min:z_max--x_max:y_min:z_min")})}},
+            Json{{"edges",Json::array({node_edge(
+                "edge:x_max:y_min:z_min--x_max:y_max:z_min")})}},
+            Json{{"edges",Json::array({node_edge(
+                "edge:x_min:y_min:z_min--x_max:y_min:z_min")})}}});
+        const auto created=run(host,(prefix+".create").c_str(),
+            {{"routes",node_routes},
+             {fillet_node?"radius_mm":"distance_a_mm",2}}).data
+            .at("container").get<std::string>();
+        require(state->session.calculated_boundaries().back().
+                    calculation_errors.empty(),
+            "Three-branch edge-treatment command retained a calculation error");
+        const auto authored=*state->session.document().find_container(created);
+        const double node_volume=measured_volume();
+        const auto path=directory/(name+".prtz");
+        state->session.document().save(path,
+            state->session.calculated_boundaries());
+        std::vector<kernel::BodyResult> node_saved;
+        const auto reopened=document::PartDocument::load(path,&node_saved);
+        require(*reopened.find_container(created)==authored&&
+                !node_saved.empty(),
+            "Native file lost the three-branch treatment definition");
+        auto saved_node=node_saved.back();kernel.ensure_body_properties(saved_node);
+        near(saved_node.volume,node_volume);
+        const auto cold=kernel.evaluate_history(reopened.kernel_operations());
+        auto cold_node=cold.back();kernel.ensure_body_properties(cold_node);
+        near(cold_node.volume,node_volume);
+        run(host,"undo");
+        require(!state->session.document().find_container(created),
+            "Three-branch treatment create took more than one Undo step");
+        run(host,"redo");
+        require(*state->session.document().find_container(created)==authored&&
+                state->session.calculated_boundaries().back().
+                    calculation_errors.empty(),
+            "Three-branch treatment Redo lost its definition or result");
+        near(measured_volume(),node_volume);
+        zima::test::resize_rectangular_commands(
+            [&](const char* n,commands::Json a){return run(host,n,std::move(a));},
+            {{"container",node_box},{"length_mm","24"}});
+        require(*state->session.document().find_container(created)==authored&&
+                state->session.calculated_boundaries().back().
+                    calculation_errors.empty(),
+            "Upstream resize lost the three-branch treatment anchors");
+        const double resized_node_volume=measured_volume();
+        require(std::abs(resized_node_volume-node_volume)>1.,
+            "Upstream resize did not regenerate the three-branch treatment");
+        run(host,"undo");near(measured_volume(),node_volume);
+        run(host,"redo");near(measured_volume(),resized_node_volume);
+        require(*state->session.document().find_container(created)==authored,
+            "Resize Undo/Redo changed the three-branch treatment definition");
+    }
     // Four independent contours use alternating explicit R1 ends. The runtime
     // topology may contain repeated shape uses for one persisted input edge.
     run(host,"new",{{"type","part"},{"name","four-linear-routes"}});

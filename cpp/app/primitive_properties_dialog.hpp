@@ -353,7 +353,6 @@ private:
     std::function<void(bool)> profile_pick_request_;
     std::function<void(zima::document::HistoryContainer)> edit_sketch_;
     std::function<void(const zima::document::HistoryContainer&)> preview_;
-    QCheckBox* treatment_method_automatic_{};
     QCheckBox* treatment_method_zima_{};
     QCheckBox* treatment_method_occt_{};
     QComboBox* treatment_type_{};

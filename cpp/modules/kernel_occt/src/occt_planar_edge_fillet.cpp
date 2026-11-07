@@ -14,7 +14,10 @@
 #include <BRepBuilderAPI_MakeVertex.hxx>
 #include <BRepBuilderAPI_MakeWire.hxx>
 #include <BRepPrimAPI_MakePrism.hxx>
+#include <BRepPrimAPI_MakeBox.hxx>
+#include <BRepPrimAPI_MakeCylinder.hxx>
 #include <BRepPrimAPI_MakeRevol.hxx>
+#include <BRepPrimAPI_MakeSphere.hxx>
 #include <BRepPrimAPI_MakeHalfSpace.hxx>
 #include <BRepOffsetAPI_MakePipeShell.hxx>
 #include <BRep_Tool.hxx>
@@ -23,6 +26,7 @@
 #include <GC_MakeArcOfCircle.hxx>
 #include <GCPnts_AbscissaPoint.hxx>
 #include <gp_Ax1.hxx>
+#include <gp_Ax2.hxx>
 #include <gp_Lin.hxx>
 #include <gp_Pln.hxx>
 #include <gp_Trsf.hxx>
@@ -74,6 +78,13 @@ struct SharedEndpoint {
     std::vector<std::size_t> jobs;
 };
 
+struct NodeConnector {
+    TopoDS_Shape solid;
+    std::optional<gp_Pnt> sphere_center;
+    std::vector<std::size_t> jobs;
+    bool adds_material{};
+};
+
 struct EdgePath {
     EdgeFilletPathKind kind{EdgeFilletPathKind::Linear};
     double first_parameter{},last_parameter{},middle_parameter{},length{};
@@ -89,6 +100,120 @@ Vec3 vector(const gp_XYZ& value) {
 
 Vec3 point(const gp_Pnt& value) {
     return vector(value.XYZ());
+}
+
+gp_Dir node_outgoing_tangent(const TopoDS_Edge& edge,
+        const TopoDS_Vertex& vertex,double tolerance) {
+    const BRepAdaptor_Curve curve(edge);
+    const auto first=curve.Value(curve.FirstParameter());
+    const auto last=curve.Value(curve.LastParameter());
+    const auto point=BRep_Tool::Pnt(vertex);
+    const auto opposite=point.Distance(first)<=point.Distance(last)
+        ?last:first;
+    const gp_Vec direction(point,opposite);
+    if(direction.Magnitude()<=tolerance)
+        throw std::invalid_argument(
+            "ZIMA Fillet node has a degenerate branch");
+    return gp_Dir(direction);
+}
+
+NodeConnector make_fillet_corner_connector(
+        const TopoDS_Vertex& vertex,
+        std::array<gp_Dir,3> branches,double radius,double tolerance,
+        std::vector<std::size_t> jobs,bool adds_material) {
+    for(std::size_t first=0;first<branches.size();++first)
+        for(std::size_t second=first+1;second<branches.size();++second)
+            if(std::abs(branches[first].Dot(branches[second]))>1.0e-7)
+                throw std::invalid_argument(
+                    "ZIMA Fillet requires orthogonal three-branch nodes");
+    // Reorder only the local axes into a right-handed frame. The three
+    // physical outgoing directions and their persisted jobs remain intact.
+    if(gp_Vec(branches[0]).Crossed(gp_Vec(branches[1])).Dot(
+            gp_Vec(branches[2]))<0.)
+        std::swap(branches[1],branches[2]);
+    const auto origin=BRep_Tool::Pnt(vertex);
+    const gp_Ax2 frame(origin,branches[2],branches[0]);
+    BRepPrimAPI_MakeBox corner(frame,radius,radius,radius);
+    const auto center=origin.Translated(radius*(gp_Vec(branches[0])+
+        gp_Vec(branches[1])+gp_Vec(branches[2])));
+    BRepPrimAPI_MakeSphere sphere(center,radius);
+    BRepAlgoAPI_Cut connector(corner.Shape(),sphere.Shape());
+    connector.SetNonDestructive(true);
+    connector.SetRunParallel(false);
+    connector.SetFuzzyValue(tolerance);
+    connector.Build();
+    if(!connector.IsDone()||connector.Shape().IsNull()||
+            !BRepCheck_Analyzer(connector.Shape()).IsValid())
+        throw std::runtime_error(
+            "ZIMA Fillet could not construct a valid node connector");
+    return {connector.Shape(),center,std::move(jobs),adds_material};
+}
+
+NodeConnector make_step_fillet_connector(const TopoDS_Vertex& vertex,
+        gp_Dir first_branch,gp_Dir second_branch,gp_Dir third_branch,
+        double radius,double tolerance,std::vector<std::size_t> jobs,
+        bool adds_material) {
+    for(const auto pair:std::array{
+            std::pair{first_branch,second_branch},
+            std::pair{first_branch,third_branch},
+            std::pair{second_branch,third_branch}})
+        if(std::abs(pair.first.Dot(pair.second))>1.0e-7)
+            throw std::invalid_argument(
+                "ZIMA Fillet requires an orthogonal step node");
+    first_branch.Reverse();
+    second_branch.Reverse();
+    std::array axes{first_branch,second_branch,third_branch};
+    if(gp_Vec(axes[0]).Crossed(gp_Vec(axes[1])).Dot(
+            gp_Vec(axes[2]))<0.)
+        std::swap(axes[1],axes[2]);
+    const auto origin=BRep_Tool::Pnt(vertex);
+    BRepPrimAPI_MakeBox corner(gp_Ax2(origin,axes[2],axes[0]),
+        radius,radius,radius);
+    const auto cylinder=[&](const gp_Dir& axis,const gp_Dir& first_offset,
+            const gp_Dir& second_offset) {
+        const auto center=origin.Translated(radius*(
+            gp_Vec(first_offset)+gp_Vec(second_offset)));
+        return BRepPrimAPI_MakeCylinder(gp_Ax2(center,axis),radius,
+            radius).Shape();
+    };
+    const auto first_cylinder=cylinder(first_branch,second_branch,
+        third_branch);
+    const auto second_cylinder=cylinder(second_branch,first_branch,
+        third_branch);
+    BRepAlgoAPI_Cut first_cut(corner.Shape(),first_cylinder);
+    first_cut.SetNonDestructive(true);first_cut.SetRunParallel(false);
+    first_cut.SetFuzzyValue(tolerance);first_cut.Build();
+    if(!first_cut.IsDone()||first_cut.Shape().IsNull())
+        throw std::runtime_error(
+            "ZIMA Fillet could not construct its step-node domain");
+    BRepAlgoAPI_Cut second_cut(first_cut.Shape(),second_cylinder);
+    second_cut.SetNonDestructive(true);second_cut.SetRunParallel(false);
+    second_cut.SetFuzzyValue(tolerance);second_cut.Build();
+    if(!second_cut.IsDone()||second_cut.Shape().IsNull()||
+            !BRepCheck_Analyzer(second_cut.Shape()).IsValid())
+        throw std::runtime_error(
+            "ZIMA Fillet could not construct a valid step-node connector");
+    return {second_cut.Shape(),std::nullopt,std::move(jobs),
+        adds_material};
+}
+
+int fillet_material_octants(const TopoDS_Solid& material,
+        const gp_Pnt& origin,const std::array<gp_Dir,3>& directions,
+        double probe,double tolerance) {
+    int inside{};
+    for(const int first:{-1,1})for(const int second:{-1,1})
+        for(const int third:{-1,1}) {
+            const auto point=origin.Translated(probe*(
+                first*gp_Vec(directions[0])+
+                second*gp_Vec(directions[1])+
+                third*gp_Vec(directions[2])));
+            BRepClass3d_SolidClassifier classifier(material,point,tolerance);
+            if(classifier.State()==TopAbs_IN)++inside;
+            else if(classifier.State()!=TopAbs_OUT)
+                throw std::invalid_argument(
+                    "ZIMA Fillet could not classify a step node");
+        }
+    return inside;
 }
 
 EdgePath edge_path(const TopoDS_Edge& edge,double tolerance) {
@@ -1428,6 +1553,103 @@ OcctPlanarEdgeFilletResult occt_planar_edge_fillet(
                     "Planar edge Fillet fragments are not tangent at their shared endpoint");
         }
     }
+    std::vector<std::optional<bool>> job_adds_material(jobs.size());
+    for(const auto& cutter:cutters)
+        for(const auto job:cutter.source_jobs) {
+            if(job_adds_material[job]&&
+                    *job_adds_material[job]!=cutter.adds_material)
+                throw std::invalid_argument(
+                    "ZIMA Fillet route changes material sense");
+            job_adds_material[job]=cutter.adds_material;
+        }
+    std::vector<SharedEndpoint> selected_nodes;
+    for(std::size_t job=0;job<jobs.size();++job) {
+        TopTools_IndexedMapOfShape vertices;
+        TopExp::MapShapes(jobs[job].edge,TopAbs_VERTEX,vertices);
+        for(int index=1;index<=vertices.Extent();++index) {
+            const auto vertex=TopoDS::Vertex(vertices.FindKey(index));
+            const auto found=std::ranges::find_if(selected_nodes,
+                [&](const auto& node) {
+                    return node.vertex.IsSame(vertex);
+                });
+            if(found==selected_nodes.end())
+                selected_nodes.push_back({vertex,{job}});
+            else
+                found->jobs.push_back(job);
+        }
+    }
+    std::vector<NodeConnector> node_connectors;
+    const double node_angular_tolerance=std::max(1.0e-9,tolerance);
+    for(const auto& node:selected_nodes) {
+        if(node.jobs.size()<2)continue;
+        if(node.jobs.size()>3)
+            throw std::invalid_argument(
+                "ZIMA Fillet supports only two- or three-branch nodes");
+        std::vector<gp_Dir> directions;
+        directions.reserve(node.jobs.size());
+        for(const auto job:node.jobs)
+            directions.push_back(node_outgoing_tangent(
+                jobs[job].edge,node.vertex,tolerance));
+        const bool one_line=node.jobs.size()==2&&
+            directions.front().IsParallel(directions.back(),
+                node_angular_tolerance);
+        if(one_line)continue;
+        if(std::ranges::any_of(node.jobs,[&](const auto job) {
+                return !job_adds_material[job].has_value();
+            }))
+            throw std::invalid_argument(
+                "ZIMA Fillet node has no signed branch tool");
+        const bool adds_material=
+            *job_adds_material[node.jobs.front()];
+        if(std::ranges::any_of(node.jobs,[&](const auto job) {
+                return *job_adds_material[job]!=adds_material;
+            }))
+            throw std::invalid_argument(
+                "ZIMA Fillet node mixes inner and outer branches");
+        if(node.jobs.size()==3)
+            node_connectors.push_back(
+                make_fillet_corner_connector(node.vertex,
+                    {directions[0],directions[1],directions[2]},
+                    radius,tolerance,node.jobs,adds_material));
+        else {
+            const auto& material=jobs[node.jobs.front()].material;
+            if(std::ranges::any_of(node.jobs,[&](const auto job) {
+                    return !jobs[job].material.IsSame(material);
+                }))
+                throw std::invalid_argument(
+                    "ZIMA Fillet node spans more than one material solid");
+            std::vector<TopoDS_Edge> unselected;
+            for(TopExp_Explorer item(material,TopAbs_EDGE);
+                    item.More();item.Next()) {
+                const auto edge=TopoDS::Edge(item.Current());
+                TopTools_IndexedMapOfShape vertices;
+                TopExp::MapShapes(edge,TopAbs_VERTEX,vertices);
+                if(!vertices.Contains(node.vertex)||
+                        std::ranges::any_of(node.jobs,
+                            [&](const auto job) {
+                                return jobs[job].edge.IsSame(edge);
+                            }))continue;
+                if(std::ranges::none_of(unselected,
+                        [&](const auto& current) {
+                            return current.IsSame(edge);
+                        }))unselected.push_back(edge);
+            }
+            if(unselected.size()==1) {
+                const auto third=node_outgoing_tangent(unselected.front(),
+                    node.vertex,tolerance);
+                const std::array branches{directions[0],directions[1],third};
+                const int occupied=fillet_material_octants(material,
+                    BRep_Tool::Pnt(node.vertex),branches,
+                    std::max(100.*tolerance,radius*.05),tolerance);
+                if((adds_material&&occupied==5)||
+                        (!adds_material&&occupied==3)) {
+                    node_connectors.push_back(make_step_fillet_connector(
+                        node.vertex,directions[0],directions[1],third,
+                        radius,tolerance,node.jobs,adds_material));
+                }
+            }
+        }
+    }
     OcctPlanarEdgeFilletResult result;
     result.metrics.requested_edges=edges.size();
     result.metrics.cutter_solids=cutters.size();
@@ -1481,6 +1703,40 @@ OcctPlanarEdgeFilletResult occt_planar_edge_fillet(
             BRepAlgoAPI_Cut cut;apply_boolean(cut,first,last);
         }
         first=last;
+    }
+    // Three rolling bands leave the trihedral node corner outside their
+    // pairwise cylindrical domains. Its exact connector is the local
+    // radius-sized corner box minus the sphere centred one radius along all
+    // three outgoing branches. A two-branch step uses the same local box
+    // minus both perpendicular rolling cylinders. Applying either connector
+    // after the bands works identically as a signed CUT for an outer node and
+    // a signed FUSE for an inner node.
+    for(const auto& connector:node_connectors) {
+        NCollection_List<TopoDS_Shape> arguments,tools;
+        arguments.Append(current);tools.Append(connector.solid);
+        if(connector.adds_material) {
+            BRepAlgoAPI_Fuse fuse;
+            fuse.SetArguments(arguments);fuse.SetTools(tools);
+            fuse.SetNonDestructive(true);fuse.SetRunParallel(false);
+            fuse.SetToFillHistory(true);fuse.SetFuzzyValue(tolerance);
+            fuse.Build();
+            if(!fuse.IsDone()||fuse.Shape().IsNull()||!fuse.History())
+                throw std::runtime_error(
+                    "ZIMA Fillet node Boolean failed");
+            result.history->Merge(fuse.History());
+            current=fuse.Shape();
+        } else {
+            BRepAlgoAPI_Cut cut;
+            cut.SetArguments(arguments);cut.SetTools(tools);
+            cut.SetNonDestructive(true);cut.SetRunParallel(false);
+            cut.SetToFillHistory(true);cut.SetFuzzyValue(tolerance);
+            cut.Build();
+            if(!cut.IsDone()||cut.Shape().IsNull()||!cut.History())
+                throw std::runtime_error(
+                    "ZIMA Fillet node Boolean failed");
+            result.history->Merge(cut.History());
+            current=cut.Shape();
+        }
     }
     // The two straight sides of the exact arc-and-two-lines profile lie on
     // the original support planes. OCCT can retain their end sections as
@@ -1582,6 +1838,31 @@ OcctPlanarEdgeFilletResult occt_planar_edge_fillet(
                 "Planar edge Fillet lost its circular result face ancestry");
         for(const auto source_job:cutters[index].source_jobs)
             result.fillet_faces[source_job]=cutter_faces;
+    }
+    for(const auto& connector:node_connectors) {
+        if(!connector.sphere_center)continue;
+        std::vector<TopoDS_Face> spherical_faces;
+        for(int index=1;index<=result_faces.Extent();++index) {
+            const auto face=TopoDS::Face(result_faces.FindKey(index));
+            const BRepAdaptor_Surface surface(face,true);
+            if(surface.GetType()!=GeomAbs_Sphere)continue;
+            const auto sphere=surface.Sphere();
+            if(sphere.Location().Distance(*connector.sphere_center)>
+                    tolerance||std::abs(sphere.Radius()-radius)>tolerance)
+                continue;
+            spherical_faces.push_back(face);
+        }
+        if(spherical_faces.empty())
+            throw std::runtime_error(
+                "ZIMA Fillet lost its spherical node face");
+        result.metrics.generated_fillet_faces+=spherical_faces.size();
+        for(const auto job:connector.jobs)
+            for(const auto& face:spherical_faces)
+                if(std::ranges::none_of(result.fillet_faces[job],
+                        [&](const auto& current_face) {
+                            return current_face.IsSame(face);
+                        }))
+                    result.fillet_faces[job].push_back(face);
     }
     result.metrics.boolean_ms=std::chrono::duration<double,std::milli>(
         Clock::now()-boolean_started).count();

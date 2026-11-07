@@ -90,6 +90,11 @@ bool commit_edge_treatment(Workspace& live,const kernel::OcctKernel& kernel,cons
     // final-first checkpoint deliberately omits its unused face mesh/B-Rep.
     if(!input||input->mesh.edges.empty())throw Error("missing_input","Edge treatment requires a calculated input body.");
     if(parameters.routes.empty())throw Error("invalid_reference","Select at least one input edge route.");
+    const bool asymmetric_chamfer=!fillet&&
+        parameters.chamfer_mode!=Parameters::ChamferMode::EqualDistance;
+    if(asymmetric_chamfer&&parameters.routes.size()!=1)
+        throw Error("invalid_reference",
+            "A x B and A + angle Chamfer require one continuous line.");
     if(parameters.route_start_vertices.size()>parameters.routes.size())throw Error("invalid_reference","Each edge route may have only one R1 endpoint.");
     if(parameters.route_end_faces.size()!=parameters.routes.size())
         throw Error("invalid_reference","Each edge route requires exactly two end-face slots.");
@@ -140,6 +145,10 @@ bool commit_edge_treatment(Workspace& live,const kernel::OcctKernel& kernel,cons
                                  !face->semantic_key.empty())))
                 throw Error("invalid_reference","Select a local persisted end face or leave the end perpendicular.");
         if(!start.instance_path.empty())throw Error("invalid_reference","Select a local persisted input reference.");
+        if(asymmetric_chamfer&&
+                endpoints(route_available,route).size()!=2)
+            throw Error("invalid_reference",
+                "A x B and A + angle Chamfer require one continuous line.");
         if(fillet&&parameters.fillet_mode==Parameters::FilletMode::Linear) {
             const auto ends=endpoints(route_available,route);
             if(!start.valid()||!start.instance_path.empty()||std::ranges::find(ends,start)==ends.end())

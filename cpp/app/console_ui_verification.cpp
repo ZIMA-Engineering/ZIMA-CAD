@@ -3518,14 +3518,14 @@ static int verify_general_command_console(QApplication& application,AssemblyWork
                 auto two_routes=routes;two_routes.push_back(other_route);
                 json_run("fillet.set",{{"container",id},{"routes",two_routes}});flush();
                 for(const bool commit:{false,true}) {
-                    dialog=edit();auto* rows=dialog->findChild<QTreeWidget*>("edgeTreatmentEdges");check(rows&&rows->topLevelItemCount()==3,"Properties lost separate routes");
-                    rows->setCurrentItem(rows->topLevelItem(0));dialog->findChild<QWidget*>("edgeRouteRemove0")->findChild<QPushButton*>()->click();flush();
-                    check(rows->topLevelItemCount()==2&&get().at("routes").size()==2,"Pending route deletion committed too early");
+                    dialog=edit();auto* rows=dialog->findChild<QTreeWidget*>("edgeTreatmentEdges");check(rows&&rows->topLevelItemCount()==3,"Properties lost separate selected items");
+                    rows->setCurrentItem(rows->topLevelItem(0));dialog->findChild<QWidget*>("edgeMemberRemove0_0")->findChild<QPushButton*>()->click();flush();
+                    check(rows->topLevelItemCount()==2&&get().at("routes").size()==2,"Pending item deletion committed too early");
                     dialog->findChild<QDialogButtonBox*>()->button(commit?QDialogButtonBox::Ok:QDialogButtonBox::Cancel)->click();flush();
-                    check(get().at("routes").size()==(commit?1:2),"Route deletion OK/Cancel failed");
+                    check(get().at("routes").size()==(commit?1:2),"Selected-item deletion OK/Cancel failed");
                 }
                 check(get().at("routes")[0].at("start")==other_start,"Deleting an earlier route moved the surviving R1 to the wrong group");
-                dialog=edit();auto* rows=dialog->findChild<QTreeWidget*>("edgeTreatmentEdges");rows->setCurrentItem(rows->topLevelItem(0));dialog->findChild<QWidget*>("edgeRouteRemove0")->findChild<QPushButton*>()->click();
+                dialog=edit();auto* rows=dialog->findChild<QTreeWidget*>("edgeTreatmentEdges");rows->setCurrentItem(rows->topLevelItem(0));dialog->findChild<QWidget*>("edgeMemberRemove0_0")->findChild<QPushButton*>()->click();
                 dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
                 check(dialog->isVisible()&&get().at("routes").size()==1,"Empty Fillet edit changed the document");
                 dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();

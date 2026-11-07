@@ -1380,17 +1380,19 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
         auto* method_layout=new QHBoxLayout(method_row);
         method_layout->setContentsMargins(0,0,0,0);
         method_layout->setSpacing(12);
-        treatment_method_automatic_=new QCheckBox(tr("Automaticky"),this);
+        // The user-facing contract has two explicit engines.  The persisted
+        // Automatic value remains the durable ZIMA-with-safe-fallback route;
+        // the former strict experimental Zima choice is intentionally not
+        // exposed as a third mode.
         treatment_method_zima_=new QCheckBox(QStringLiteral("ZIMA"),this);
         treatment_method_occt_=new QCheckBox(QStringLiteral("OCCT"),this);
-        treatment_method_automatic_->setObjectName(
-            "edgeTreatmentMethodAutomatic");
-        treatment_method_zima_->setObjectName("edgeTreatmentMethodZima");
+        treatment_method_zima_->setObjectName(
+            "edgeTreatmentMethodZima");
         treatment_method_occt_->setObjectName("edgeTreatmentMethodOcct");
         auto* method_group=new QButtonGroup(this);
         method_group->setExclusive(true);
-        for(auto* method:{treatment_method_automatic_,
-                treatment_method_zima_,treatment_method_occt_}) {
+        for(auto* method:{treatment_method_zima_,
+                treatment_method_occt_}) {
             method_group->addButton(method);
             method_layout->addWidget(method);
         }
@@ -1398,10 +1400,8 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
         using CalculationMethod=
             zima::document::EdgeTreatmentParameters::CalculationMethod;
         (initial.edge_treatment.calculation_method==
-                CalculationMethod::Zima?treatment_method_zima_:
-            initial.edge_treatment.calculation_method==
                 CalculationMethod::Occt?treatment_method_occt_:
-                treatment_method_automatic_)->setChecked(true);
+                treatment_method_zima_)->setChecked(true);
         form->addRow(tr("Způsob výpočtu"),method_row);
         treatment_type_ = new QComboBox(this);
         treatment_type_->setObjectName("edgeTreatmentType");
@@ -1461,34 +1461,19 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
         form->addRow(edges_label);
         edge_list_ = new QTreeWidget(this);
         edge_list_->setObjectName("edgeTreatmentEdges");
-        edge_list_->setColumnCount(5);
-        edge_list_->setHeaderLabels({tr("Trasa"), tr("Objekty"),
-            QStringLiteral("#"),QString{},tr("Koncová plocha")});
-        edge_list_->setTreePosition(2);
-        // Treatment routes are grouped for deletion and end conditions, but
-        // their segments are always visible. There is no collapsed/expanded
-        // interaction in this table.
+        edge_list_->setColumnCount(2);
+        edge_list_->setHeaderLabels({QString{},tr("Objekty")});
+        edge_list_->setTreePosition(0);
+        // Every authored segment is one directly removable item. Runtime
+        // routes remain internal calculation data and are not presented as
+        // expandable branches.
         edge_list_->setItemsExpandable(false);
         edge_list_->setRootIsDecorated(false);
-        for(int column:{2,3})edge_list_->header()->setSectionResizeMode(column,QHeaderView::Fixed);
-        edge_list_->setColumnWidth(2,64);edge_list_->setColumnWidth(3,34);
-        edge_list_->header()->moveSection(edge_list_->header()->visualIndex(2),0);
-        edge_list_->header()->moveSection(edge_list_->header()->visualIndex(3),1);
+        edge_list_->header()->setSectionResizeMode(0,QHeaderView::Fixed);
+        edge_list_->setColumnWidth(0,34);
         edge_list_->setMouseTracking(true);
-        edge_list_->header()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
         edge_list_->header()->setSectionResizeMode(1, QHeaderView::Stretch);
-        edge_list_->header()->setSectionResizeMode(4, QHeaderView::Stretch);
         edge_list_->setMinimumHeight(90);
-        restore_route_button_ = new QPushButton(tr("Obnovit celou trasu"), this);
-        connect(edge_list_, &QTreeWidget::currentItemChanged, restore_route_button_,
-            [button=restore_route_button_](QTreeWidgetItem* item) {
-            button->setEnabled(item && item->data(0,Qt::UserRole).isValid());
-        });
-        connect(restore_route_button_, &QPushButton::clicked, this, [this] {
-            const auto* item = edge_list_->currentItem();
-            if (item != nullptr && item->data(0,Qt::UserRole).isValid() && restore_route_)
-                restore_route_(item->data(0, Qt::UserRole).toUInt());
-        });
         set_edge_groups(initial.edge_treatment.routes);
     }
 
@@ -1504,7 +1489,8 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
     }
     if(edge_list_) {
         content_layout()->addWidget(edge_list_,1);
-        content_layout()->addWidget(restore_route_button_);
+        if(restore_route_button_)
+            content_layout()->addWidget(restore_route_button_);
         setProperty("expandBottomTable",true);
     }
 
@@ -1598,8 +1584,8 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
             this, [this] { notify_preview(); });
         connect(treatment_reverse_, &QPushButton::toggled,
             this, [this] { notify_preview(); });
-        for(auto* method:{treatment_method_automatic_,
-                treatment_method_zima_,treatment_method_occt_})
+        for(auto* method:{treatment_method_zima_,
+                treatment_method_occt_})
             connect(method,&QCheckBox::toggled,this,
                 [this](bool checked) {
                     if(!checked)return;
@@ -1889,14 +1875,11 @@ zima::document::HistoryContainer PrimitivePropertiesDialog::values() const {
         result.edge_treatment.flip = treatment_flip_->isChecked();
         result.edge_treatment.reverse = treatment_reverse_->isChecked();
         result.edge_treatment.calculation_method=
-            treatment_method_zima_->isChecked()
+            treatment_method_occt_->isChecked()
                 ?zima::document::EdgeTreatmentParameters::
-                    CalculationMethod::Zima
-                :treatment_method_occt_->isChecked()
-                    ?zima::document::EdgeTreatmentParameters::
-                        CalculationMethod::Occt
-                    :zima::document::EdgeTreatmentParameters::
-                        CalculationMethod::Automatic;
+                    CalculationMethod::Occt
+                :zima::document::EdgeTreatmentParameters::
+                    CalculationMethod::Automatic;
     }
     if (uses_container_placement(result.feature_kind)) {
         result.placement = placement_->numeric_placement();
@@ -1971,189 +1954,44 @@ void PrimitivePropertiesDialog::set_edge_groups(std::vector<EdgeGroup> groups,
     if (edge_list_ == nullptr) return;
     edge_list_->clear();
     edge_end_face_fields_.clear();
-    const bool end_faces_enabled=treatment_method_occt_==nullptr||
-        !treatment_method_occt_->isChecked();
-    const bool has_end_faces=std::ranges::any_of(
-        initial_.edge_treatment.route_end_faces,[](const auto& ends) {
-            return ends.first.valid()||ends.last.valid();
-        });
     if(treatment_method_occt_) {
-        treatment_method_occt_->setEnabled(!has_end_faces);
-        treatment_method_occt_->setToolTip(has_end_faces
-            ?tr("OCCT nepodporuje vybrané koncové plochy. Použijte ZIMA nebo Automaticky.")
-            :QString{});
+        treatment_method_occt_->setEnabled(true);
+        treatment_method_occt_->setToolTip({});
     }
-    const auto build_end_field=[&](std::size_t route_index,
-            std::size_t end_index) {
-        auto* table=new QTableWidget(1,4,edge_list_);
-        table->setObjectName(QStringLiteral("edgeEndFace_%1_%2")
-            .arg(route_index).arg(end_index));
-        table->horizontalHeader()->hide();
-        table->verticalHeader()->hide();
-        table->setShowGrid(false);
-        table->setFrameShape(QFrame::NoFrame);
-        table->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-        table->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-        table->setFixedHeight(32);
-        table->setColumnWidth(0,34);
-        table->setColumnWidth(2,34);
-        table->setColumnWidth(3,34);
-        table->horizontalHeader()->setSectionResizeMode(0,QHeaderView::Fixed);
-        table->horizontalHeader()->setSectionResizeMode(1,QHeaderView::Stretch);
-        table->horizontalHeader()->setSectionResizeMode(2,QHeaderView::Fixed);
-        table->horizontalHeader()->setSectionResizeMode(3,QHeaderView::Fixed);
-        zima::ui::install_reference_cell_delegate(table);
-        const auto& ends=initial_.edge_treatment.route_end_faces[route_index];
-        const auto& face=end_index==0?ends.first:ends.last;
-        auto* item=new zima::ui::ReferenceCellItem;
-        if(face.valid()) {
-            item->setText(QString::fromStdString(
-                face.owner_id+" / "+face.semantic_key));
-            item->set_reference(item->text());
-            item->setToolTip(item->text());
-        } else {
-            item->setText(tr("Kolmo – vyberte plochu"));
-            item->set_placeholder_style(QColor("#8d969f"));
-        }
-        item->set_active_input(active_edge_end_face_==
-            std::pair{route_index,end_index});
-        table->setItem(0,1,item);
-        auto clear=[this,route_index,end_index] {
-            if(route_index>=initial_.edge_treatment.route_end_faces.size())return;
-            auto& ends=initial_.edge_treatment.route_end_faces[route_index];
-            (end_index==0?ends.first:ends.last)={};
-            active_edge_end_face_=std::pair{route_index,end_index};
-            set_edge_groups(edge_groups_);
-            notify_preview();
-            if(request_edge_end_face_)request_edge_end_face_(route_index,end_index);
-        };
-        auto* indicator=zima::ui::build_reference_row_indicator(clear);
-        zima::ui::set_reference_row_populated(indicator,face.valid());
-        table->setCellWidget(0,0,zima::ui::centered_cell_widget(indicator));
-        auto* eye=zima::ui::build_reference_inspection_button(
-            face.valid(),false,[this,route_index,end_index](bool checked) {
-                if(inspect_edge_end_face_)
-                    inspect_edge_end_face_(route_index,end_index,checked);
-            });
-        table->setCellWidget(0,2,zima::ui::centered_cell_widget(eye));
-        auto* automatic=new QToolButton(table);
-        automatic->setText(QStringLiteral("A"));
-        automatic->setFixedSize(30,30);
-        automatic->setToolTip(tr("Automaticky najít koncovou plochu"));
-        connect(automatic,&QToolButton::clicked,this,
-            [this,route_index,end_index] {
-                if(auto_edge_end_face_)auto_edge_end_face_(route_index,end_index);
-            });
-        table->setCellWidget(0,3,zima::ui::centered_cell_widget(automatic));
-        connect(table,&QTableWidget::cellClicked,this,
-            [this,route_index,end_index](int,int column) {
-                if(column!=1)return;
-                active_edge_end_face_=std::pair{route_index,end_index};
-                set_edge_end_face_selection_active(active_edge_end_face_);
-                if(request_edge_end_face_)request_edge_end_face_(route_index,end_index);
-            });
-        table->setContextMenuPolicy(Qt::CustomContextMenu);
-        connect(table,&QWidget::customContextMenuRequested,this,
-            [this,table,clear,route_index,end_index](const QPoint& point) {
-                QMenu menu(table);
-                auto* automatic=menu.addAction(
-                    tr("Automaticky najít koncovou plochu"));
-                auto* perpendicular=menu.addAction(
-                    tr("Vymazat – kolmé zakončení"));
-                const auto selected=menu.exec(table->mapToGlobal(point));
-                if(selected==automatic&&auto_edge_end_face_)
-                    auto_edge_end_face_(route_index,end_index);
-                else if(selected==perpendicular)clear();
-            });
-        auto* remove_shortcut=new QShortcut(QKeySequence::Delete,table);
-        remove_shortcut->setContext(Qt::WidgetWithChildrenShortcut);
-        connect(remove_shortcut,&QShortcut::activated,this,clear);
-        table->setEnabled(end_faces_enabled);
-        automatic->setEnabled(end_faces_enabled);
-        edge_end_face_fields_.push_back({route_index,end_index,table,
-            item,indicator,eye});
-        return table;
-    };
     for (std::size_t group_index = 0; group_index < edge_groups_.size(); ++group_index) {
         const auto& group = edge_groups_[group_index];
         if (group.empty()) continue;
         const auto& displayed=edge_display_fragments_[group_index];
-        const auto displayed_count=displayed.empty()?group.size():displayed.size();
-        auto* route = new QTreeWidgetItem(edge_list_, {
-            tr("Trasa %1").arg(group_index + 1),
-            tr("%1 objektů").arg(displayed_count)});
-        route->setData(0, Qt::UserRole, static_cast<uint>(group_index));
-        route->setText(2,QString::number(group_index+1));
-        route->setSizeHint(0,QSize(edge_list_->fontMetrics().horizontalAdvance(route->text(0))+16,34));
-        auto* route_action=zima::ui::build_reference_row_indicator([this,group_index] {
-            if(remove_edge_)remove_edge_(group_index,std::nullopt);
-        });
-        route_action->setObjectName(QString("edgeRouteRemove%1").arg(group_index));
-        zima::ui::set_reference_row_populated(route_action,true);
-        edge_list_->setItemWidget(route,3,zima::ui::centered_cell_widget(route_action));
         for (std::size_t member = 0; member < group.size(); ++member) {
             const auto& edge = group[member];
-            auto* child = new QTreeWidgetItem(route, {QString{},
+            auto* item = new QTreeWidgetItem(edge_list_, {QString{},
                 QString::fromStdString(edge.owner_id + " / " + edge.semantic_key)});
-            child->setData(0, Qt::UserRole, static_cast<uint>(group_index));
-            child->setData(0, Qt::UserRole + 1, static_cast<uint>(member));
-            child->setText(2,QStringLiteral("%1.%2").arg(group_index+1).arg(member+1));
-            child->setSizeHint(0,QSize(16,34));
+            item->setData(0, Qt::UserRole, static_cast<uint>(group_index));
+            item->setData(0, Qt::UserRole + 1, static_cast<uint>(member));
+            item->setSizeHint(0,QSize(34,34));
             auto* action=zima::ui::build_reference_row_indicator([this,group_index,member] {
                 if(remove_edge_)remove_edge_(group_index,member);
             });
             action->setObjectName(QString("edgeMemberRemove%1_%2").arg(group_index).arg(member));
             zima::ui::set_reference_row_populated(action,true);
-            edge_list_->setItemWidget(child,3,zima::ui::centered_cell_widget(action));
-            std::vector<const zima::kernel::ViewerEdge*> fragments;
+            edge_list_->setItemWidget(item,0,zima::ui::centered_cell_widget(action));
+            QStringList fragments;
             for(const auto& fragment:displayed)
                 if(zima::kernel::edge_reference_matches_or_descends_from(
-                        fragment.reference,edge))fragments.push_back(&fragment);
-            const bool resolved_as_fragments=fragments.size()>1||
-                (fragments.size()==1&&fragments.front()->reference!=edge);
-            if(resolved_as_fragments) {
-                for(std::size_t fragment_index=0;
-                        fragment_index<fragments.size();++fragment_index) {
-                    const auto& reference=fragments[fragment_index]->reference;
-                    auto* fragment=new QTreeWidgetItem(child,{QString{},
-                        QString::fromStdString(reference.owner_id+" / "+
-                            reference.semantic_key)});
-                    fragment->setData(0,Qt::UserRole,
-                        static_cast<uint>(group_index));
-                    fragment->setData(0,Qt::UserRole+1,
-                        static_cast<uint>(member));
-                    fragment->setData(0,Qt::UserRole+2,
-                        static_cast<uint>(fragment_index));
-                    fragment->setText(2,QStringLiteral("%1.%2.%3")
-                        .arg(group_index+1).arg(member+1)
-                        .arg(fragment_index+1));
-                    fragment->setSizeHint(0,QSize(16,34));
-                }
-                child->setExpanded(true);
-            }
-            const bool first=member==0;
-            const bool last=member+1==group.size();
-            if(first||last) {
-                auto* end_widget=new QWidget(edge_list_);
-                auto* end_layout=new QVBoxLayout(end_widget);
-                end_layout->setContentsMargins(0,0,0,0);
-                end_layout->setSpacing(1);
-                if(first)end_layout->addWidget(build_end_field(group_index,0));
-                if(last)end_layout->addWidget(build_end_field(group_index,1));
-                child->setSizeHint(4,QSize(220,(first&&last)?65:33));
-                edge_list_->setItemWidget(child,4,end_widget);
-            }
+                        fragment.reference,edge))
+                    fragments.push_back(QString::fromStdString(
+                        fragment.reference.owner_id+" / "+
+                        fragment.reference.semantic_key));
+            if(!fragments.empty())item->setToolTip(1,fragments.join('\n'));
         }
-        route->setExpanded(true);
     }
     // The command already owns edge entry throughout its lifetime. This row
     // makes the offered input visible without creating an empty model route.
     auto* offered=new QTreeWidgetItem(edge_list_);
     offered->setText(1,tr("Vybrat referenci"));
     offered->setForeground(1,QColor("#00D1FF"));
-    offered->setText(2,QString::number(edge_groups_.size()+1));
-    offered->setSizeHint(0,QSize(0,34));
-    edge_list_->setItemWidget(offered,3,zima::ui::centered_cell_widget(
+    offered->setSizeHint(0,QSize(34,34));
+    edge_list_->setItemWidget(offered,0,zima::ui::centered_cell_widget(
         zima::ui::build_reference_row_indicator({})));
     if (restore_route_button_) restore_route_button_->setEnabled(false);
     notify_preview();
