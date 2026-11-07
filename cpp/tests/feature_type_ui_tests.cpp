@@ -131,6 +131,49 @@ static void verify_ordered_limits(QApplication& application,QWidget& parent) {
             app::FeatureUpToTargetDecision::Accepted&&
             !dialog.pending_value().feature.reversed_sides,
         "Second Up-to side changed the shared Feature direction");
+
+    auto sheet_cut=document::PartDocument::create_extrusion_container(
+        "sheet-cut-direction-sketch");
+    sheet_cut.extrusion.sheet_cut=true;
+    sheet_cut.combine_mode=document::CombineMode::Subtract;
+    sheet_cut.extrusion.end_condition_forward=document::EndCondition::UpTo;
+    app::PrimitivePropertiesDialog sheet_cut_dialog(sheet_cut,true,true,
+        [&](auto){++commits;},&parent);
+    sheet_cut_dialog.set_preview_callback([&](const auto&){++previews;});
+    sheet_cut_dialog.show();flush();
+    const int sheet_previews=previews;
+    check(sheet_cut_dialog.prepare_feature_up_to_target(-1,std::nullopt)==
+            app::FeatureUpToTargetDecision::DirectionChanged&&
+            sheet_cut_dialog.pending_value().extrusion.direction==
+                document::ExtrusionDirection::Reverse&&
+            previews==sheet_previews,
+        "Opposite Sheet Cut Up-to target did not reverse without an incomplete preview");
+    check(sheet_cut_dialog.prepare_feature_up_to_target(1,std::nullopt)==
+            app::FeatureUpToTargetDecision::DirectionChanged&&
+            sheet_cut_dialog.pending_value().extrusion.direction==
+                document::ExtrusionDirection::Forward,
+        "Forward Sheet Cut Up-to target did not restore the extrusion direction");
+    sheet_cut_dialog.set_extrusion_target(
+        {"sheet-cut-target","face",{}},{0,0,10},{0,0,1},
+        "sheet-cut-target");
+    auto* sheet_extent=sheet_cut_dialog.findChild<QComboBox*>(
+        "extrusionExtentMode");
+    auto* sheet_reverse_end=sheet_cut_dialog.findChild<QComboBox*>(
+        "extrusionReverseEndCondition");
+    sheet_extent->setCurrentIndex(sheet_extent->findData("two_sides"));
+    sheet_reverse_end->setCurrentIndex(sheet_reverse_end->findData("up_to"));
+    flush();
+    check(sheet_cut_dialog.prepare_feature_up_to_target(1,1)==
+            app::FeatureUpToTargetDecision::SameSideConflict&&
+            sheet_cut_dialog.pending_value().extrusion.direction==
+                document::ExtrusionDirection::Forward,
+        "Second Sheet Cut Up-to side accepted the first side's half-space");
+    check(sheet_cut_dialog.prepare_feature_up_to_target(-1,1)==
+            app::FeatureUpToTargetDecision::Accepted&&
+            sheet_cut_dialog.pending_value().extrusion.direction==
+                document::ExtrusionDirection::Forward,
+        "Second Sheet Cut Up-to side changed the shared direction");
+    sheet_cut_dialog.reject();
     dialog.findChild<QComboBox*>("featureSideMode1")->setCurrentIndex(0);flush();
     auto* limits=static_cast<app::FeatureLimitTable*>(dialog.findChild<QWidget*>("featureSideLimits0"));
     limits->begin_entry(0);

@@ -95,9 +95,10 @@ public:
     [[nodiscard]] bool allows_point_end_target() const;
     [[nodiscard]] bool allows_skeleton_end_target() const;
     void set_extrusion_end_target(zima::document::ExtrusionParameters::EndTarget);
-    // Side 1 owns the shared Feature direction and automatically faces its
-    // Up-to target. Side 2 never changes that direction. Two Up-to sides may
-    // not select targets in the same profile-plane half-space.
+    // Side 1 owns the shared profile-operation direction and automatically
+    // faces its Up-to target for both Feature and legacy Extrusion storage.
+    // Side 2 never changes that direction. Two Up-to sides may not select
+    // targets in the same profile-plane half-space.
     [[nodiscard]] std::size_t active_feature_target_side() const;
     FeatureUpToTargetDecision prepare_feature_up_to_target(
         int target_half_space,std::optional<int> other_half_space);

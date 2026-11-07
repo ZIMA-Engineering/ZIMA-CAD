@@ -10395,6 +10395,34 @@ int verify_startup_contract(
     const QString& part_capture_path = {}, const QString& drawing_capture_path = {}) {
     auto test_directory = initial_test_directory;
     if(qEnvironmentVariableIsSet("ZIMA_VERIFY_HIDDEN_WINDOWS"))window.setAttribute(Qt::WA_DontShowOnScreen);
+    if(qEnvironmentVariableIsSet("ZIMA_VERIFY_TREE_GEOMETRY_ONLY")) {
+        auto* tree=window.findChild<QTreeWidget*>("documentTree");
+        if(tree)tree->setVerticalScrollBarPolicy(
+            Qt::ScrollBarAlwaysOn);
+        window.resize(1200,800);window.show();
+        if(!verify(window.execute_console_command(
+                "new part tree-geometry").ok,
+            "Cannot create Tree geometry fixture"))return 1;
+        for(int index=0;index<3;++index)application.processEvents();
+        const bool aligned=tree&&tree->viewport()->geometry().top()>0&&
+                tree->verticalScrollBar()->geometry().top()==
+                    tree->viewport()->geometry().top()&&
+                tree->verticalScrollBar()->geometry().bottom()==
+                    tree->viewport()->geometry().bottom();
+        if(!aligned&&tree)
+            std::cerr<<"Tree geometry viewport="
+                <<tree->viewport()->geometry().x()<<','
+                <<tree->viewport()->geometry().y()<<','
+                <<tree->viewport()->geometry().width()<<','
+                <<tree->viewport()->geometry().height()
+                <<" scrollbar="<<tree->verticalScrollBar()->geometry().x()<<','
+                <<tree->verticalScrollBar()->geometry().y()<<','
+                <<tree->verticalScrollBar()->geometry().width()<<','
+                <<tree->verticalScrollBar()->geometry().height()<<'\n';
+        if(!verify(aligned,
+            "Tree vertical scrollbar overlaps its document header"))return 1;
+        return 0;
+    }
     if(qEnvironmentVariableIsSet("ZIMA_VERIFY_SKETCH_DOCUMENT_BUTTON_ONLY"))return verify_sketch_document_button_ui(application,test_directory);
     if(qEnvironmentVariableIsSet("ZIMA_VERIFY_SHEET_PROFILE_ONLY"))return verify_sheet_profile_ui(application,test_directory);
     if(qEnvironmentVariableIsSet("ZIMA_VERIFY_MIDPOINT_ONLY"))return verify_midpoint_profile_ui(application,test_directory);

@@ -723,6 +723,11 @@ int resave_native_part(const std::filesystem::path& source,
 std::string edit_native_last_operation(zima::document::PartDocument& changed) {
     using namespace zima;
     auto& feature=changed.history.back();
+    if(feature.feature_kind==document::FeatureKind::Extrusion) {
+        feature.extrusion.length_forward+=1.0;
+        return feature.extrusion.sheet_cut
+            ?"SheetCutLength":"ExtrusionLength";
+    }
     if(feature.feature.type==document::FeatureType::Modeling&&!feature.feature.sketch_id.empty()) {
         const auto sketch=std::ranges::find(changed.sketches,feature.feature.sketch_id,&sketcher::Sketch::id);
         if(sketch!=changed.sketches.end()&&!sketch->corner_radii.empty()) {
@@ -980,10 +985,19 @@ int benchmark_native_loaded_last_operation(const std::filesystem::path& source) 
         "Loaded last-operation calculation failed");
     require(calculated.size()==previous.size(),
         "Loaded last-operation calculation changed the history boundary count");
-    for(std::size_t index=0;index+1<calculated.size();++index)
-        require(document::serialize_body_result(calculated[index])==
-                document::serialize_body_result(previous[index]),
-            "Loaded last-operation calculation changed an unchanged saved prefix boundary");
+    for(std::size_t index=0;index+1<calculated.size();++index) {
+        const auto actual=document::serialize_body_result(
+            calculated[index]);
+        const auto expected=document::serialize_body_result(
+            previous[index]);
+        if(actual!=expected) {
+            const auto difference=Json::diff(expected,actual);
+            throw std::runtime_error(
+                "Loaded last-operation calculation changed saved prefix boundary "+
+                std::to_string(index)+": "+
+                difference.dump().substr(0,2000));
+        }
+    }
     const auto& body=calculated.back().body_boundaries.at(model.body_history.active_body_id()).back();
     const auto packet=document::serialize_body_result(body).dump();
     const auto digest=QCryptographicHash::hash(QByteArrayView(packet.data(),packet.size()),QCryptographicHash::Sha256);

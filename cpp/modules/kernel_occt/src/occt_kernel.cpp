@@ -9657,16 +9657,36 @@ std::vector<BodyResult> OcctKernel::evaluate_body_histories(
             local = {output.get()};
         document.body_outputs.emplace(branch.scope.id, std::move(output));
         profile("branch output");
-        for (const auto& boundary : local) {
+        for (std::size_t local_index=0;
+                local_index<local.size();++local_index) {
+            const auto& boundary=local[local_index];
             document.resolved_up_to_limits.insert(document.resolved_up_to_limits.end(),
                 boundary.resolved_up_to_limits.begin(),boundary.resolved_up_to_limits.end());
             // The final slot is replaced by the complete document packet below.
             // Do not copy an unused complete import into that temporary slot.
             if(boundaries.size()+1==operations.size())boundaries.emplace_back();
             else {
-                auto published=boundary;
-                published.source_fingerprint=history_fingerprint(operations,boundaries.size()+1);
-                boundaries.push_back(std::move(published));
+                const bool unchanged_local=
+                    local_index<cached_local.size()&&
+                    cached_local[local_index].calculation_errors==
+                        boundary.calculation_errors&&
+                    cached_local[local_index].source_fingerprint==
+                        boundary.source_fingerprint;
+                if(unchanged_local&&
+                   boundaries.size()<previous_boundaries.size()) {
+                    // The local evaluator may temporarily restore reference
+                    // coverage needed by a later changed suffix. The final
+                    // document owns that live coverage in body_boundaries;
+                    // keep the already persisted top-level prefix packet byte
+                    // for byte unchanged.
+                    boundaries.push_back(
+                        previous_boundaries[boundaries.size()]);
+                } else {
+                    auto published=boundary;
+                    published.source_fingerprint=history_fingerprint(
+                        operations,boundaries.size()+1);
+                    boundaries.push_back(std::move(published));
+                }
             }
         }
     }
@@ -10393,8 +10413,23 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
             previous_boundaries.back().source_fingerprint)&&
         live_cache_->boundaries.at(
             previous_boundaries.back().source_fingerprint).sheet_sources;
+    std::size_t authored_reusable_prefix{};
+    for(std::size_t index=0;
+            index<std::min(operations.size(),
+                previous_boundaries.size());++index) {
+        if(!previous_boundaries[index].calculation_errors.empty()||
+           previous_boundaries[index].source_fingerprint!=
+               history_fingerprint(operations,index+1)+
+                   context.dependency_key)
+            break;
+        authored_reusable_prefix=index+1;
+    }
+    const bool has_terminal_reusable_prefix=
+        authored_reusable_prefix>0&&
+        authored_reusable_prefix+1>=operations.size();
     if(!context.direct_batch_active&&
        (previous_boundaries.empty()||has_sheet_material)&&
+       !has_terminal_reusable_prefix&&
        !cached_sheet_state_prefix&&
        !std::getenv("ZIMA_CPP_DISABLE_DIRECT_BATCH_REGEN")) {
         try {
@@ -10409,7 +10444,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                     <<error.what()<<'\n';
         }
     }
-    const bool retain_original_edges=std::ranges::any_of(operations,[](const auto& operation){
+    const auto operation_needs_original_edges=[](const auto& operation) {
         if(!operation.suppressed&&(std::holds_alternative<SurfaceIntersectionRequest>(operation.primitive)||std::holds_alternative<SurfaceTrimRequest>(operation.primitive)))return true;
         if(!operation.suppressed) {
             if(const auto* fillet=std::get_if<FilletRequest>(
@@ -10423,7 +10458,9 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
         }
         const auto* surface=std::get_if<BoundarySurfaceRequest>(&operation.primitive);
         return !operation.suppressed&&surface&&std::ranges::any_of(surface->constraints,[](const auto& c){return c.edge.has_value();});
-    });
+    };
+    const bool retain_original_edges=std::ranges::any_of(
+        operations,operation_needs_original_edges);
     std::optional<std::vector<HistoryOperation>> canonical_operations;
     const auto fingerprint=[&](const std::vector<HistoryOperation>& values,std::size_t count) {
         return history_fingerprint(&values==&operations&&canonical_operations?*canonical_operations:values,count)+context.dependency_key;
@@ -10505,6 +10542,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
         std::vector<sheet_form_geometry::Instance> copied_form_operands;
         std::size_t current_operation{};
         EdgeGuideReuse edge_guide_reuse;
+        bool original_edges_history_complete=true;
 #include "incremental_history_cache.inc"
         const auto remember_live_boundary = [&](
                 const std::string& fingerprint, const TopoDS_Shape& shape,
@@ -10584,7 +10622,9 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                 live_cache_->boundaries.insert_or_assign(fingerprint,
                     LiveCache::Boundary{shape, std::move(topology),context.original_faces,
                         sheet_sources_needed[current_operation]||state_boundary?
-                            sheet_sources:nullptr,retain_original_edges});
+                            sheet_sources:nullptr,
+                        retain_original_edges&&
+                            original_edges_history_complete});
             static_cast<void>(iterator);
             phase("boundary-cache");
             if (!inserted) return;
@@ -10867,22 +10907,25 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
             // instead of pretending a solid-only prefix also restored it.
             reusable_prefix = 0;
         }
-        // A compact native Part stores one complete final B-Rep together with
-        // exact face/edge/vertex locators. When a new independent suffix is
-        // appended after reopening, those bindings are sufficient to restore
-        // the live continuation boundary without replaying the complete old
-        // history. Operations that need an earlier standalone source or an
-        // original limit face retain the conservative replay path below.
+        // A compact native Part stores complete retained B-Reps together with
+        // exact face/edge/vertex locators. When an independent suffix is
+        // appended or replaces a suffix after reopening, those bindings are
+        // sufficient to restore the live continuation boundary without
+        // replaying the complete old history. Operations that need an earlier
+        // standalone source or an original limit face retain the conservative
+        // replay path below.
         if(reusable_prefix>0&&
-                reusable_prefix==previous_boundaries.size()&&
                 reusable_prefix<operations.size()&&
                 !live_cache_->boundaries.contains(
                     previous_boundaries[reusable_prefix-1].
                         source_fingerprint)&&
-                context.dependency_key.empty()&&!retain_original_edges) {
+                context.dependency_key.empty()) {
             const std::vector<HistoryOperation> suffix(
                 operations.begin()+static_cast<std::ptrdiff_t>(
                     reusable_prefix),operations.end());
+            const bool suffix_needs_original_edges=
+                std::ranges::any_of(suffix,
+                    operation_needs_original_edges);
             const bool needs_copy_source=std::ranges::any_of(
                 suffix,[](const auto& operation) {
                     return operation.feature_copy.has_value();
@@ -10895,7 +10938,8 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                         std::holds_alternative<SheetStateRequest>(
                             operation.primitive);
                 });
-            if(!needs_copy_source&&!needs_sheet_state)try {
+            if(!suffix_needs_original_edges&&!needs_copy_source&&
+                    !needs_sheet_state)try {
                 const auto& persisted=
                     previous_boundaries[reusable_prefix-1];
                 if(persisted.kernel_shape.empty()||
@@ -10951,14 +10995,14 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                     LiveCache::Boundary{geometry.shape,
                         std::move(topology),
                         std::move(continuation_originals),nullptr,false});
+                original_edges_history_complete=false;
                 std::erase(live_cache_->insertion_order,
                     persisted.source_fingerprint);
                 live_cache_->insertion_order.push_back(
                     persisted.source_fingerprint);
                 live_cache_->copy_references.insert_or_assign(
                     persisted.source_fingerprint,
-                    previous_boundaries.back().mesh.
-                        original_references);
+                    persisted.mesh.original_references);
                 std::erase(live_cache_->copy_reference_order,
                     persisted.source_fingerprint);
                 live_cache_->copy_reference_order.push_back(
@@ -11042,7 +11086,12 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                         std::holds_alternative<SheetStateRequest>(
                             operation.primitive);
                 });
-        if(retain_original_edges&&reusable_prefix>0&&
+        const bool suffix_needs_original_edges=
+            std::ranges::any_of(
+                operations.begin()+static_cast<std::ptrdiff_t>(
+                    reusable_prefix),operations.end(),
+                operation_needs_original_edges);
+        if(suffix_needs_original_edges&&reusable_prefix>0&&
             !sheet_state_only_suffix&&
             !live_cache_->boundaries.at(previous_boundaries[reusable_prefix-1].source_fingerprint).original_edges_retained)
             reusable_prefix=0;

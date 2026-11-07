@@ -1073,16 +1073,22 @@ void AssemblyWorkspaceWindow::accept_extrusion_target(
             const auto& native=part->session.document();const auto pending=extrusion_target_dialog_->pending_value();
             const auto frame=native.body_owner_for_object(pending.id)?pending.id:native.body_history.active_body_id();
             const auto prepare_feature_target=[&](const zima::document::ExtrusionParameters::EndTarget& target) {
-                if(pending.feature_kind!=zima::document::FeatureKind::Feature||
-                        pending.feature.type!=zima::document::FeatureType::Modeling||pending.feature.symmetric)return;
+                const bool feature=pending.feature_kind==zima::document::FeatureKind::Feature&&
+                    pending.feature.type==zima::document::FeatureType::Modeling;
+                const bool extrusion=pending.feature_kind==zima::document::FeatureKind::Extrusion;
+                if((!feature&&!extrusion)||(feature&&pending.feature.symmetric)||
+                        (extrusion&&pending.extrusion.extent_mode==
+                            zima::document::ProfileExtentMode::Symmetric))return;
                 // Resolve the pending container and its owned profile through
                 // the same cached-reference path as the live preview. Merely
                 // adding an offset delta to the committed frame is stale when
                 // the support, FRONT/TOP frame or profile offset changed.
                 auto preview=native;
-                auto profile=std::ranges::find(preview.sketches,pending.feature.sketch_id,
+                const auto& sketch_id=feature?pending.feature.sketch_id:
+                    pending.extrusion.sketch_id;
+                auto profile=std::ranges::find(preview.sketches,sketch_id,
                     &zima::sketcher::Sketch::id);
-                if(property_owned_sketch_draft_&&property_owned_sketch_draft_->id==pending.feature.sketch_id) {
+                if(property_owned_sketch_draft_&&property_owned_sketch_draft_->id==sketch_id) {
                     if(profile==preview.sketches.end()) {
                         preview.sketches.push_back(*property_owned_sketch_draft_);
                         profile=std::prev(preview.sketches.end());
@@ -1091,7 +1097,8 @@ void AssemblyWorkspaceWindow::accept_extrusion_target(
                 if(profile==preview.sketches.end())return;
                 profile->owner_container_id=pending.id;
                 zima::document::apply_automatic_sketch_work_plane(*profile,pending.placement.references);
-                profile->plane_offset=pending.feature.profile_plane_offset;
+                profile->plane_offset=feature?pending.feature.profile_plane_offset:
+                    pending.extrusion.profile_plane_offset;
                 if(auto* owner=preview.find_container(pending.id))*owner=pending;
                 else {
                     preview.insert_history_entry(zima::document::PartHistoryKind::Feature,pending.id);
@@ -1107,7 +1114,11 @@ void AssemblyWorkspaceWindow::accept_extrusion_target(
                 const std::size_t side=extrusion_target_dialog_->active_feature_target_side();
                 std::optional<int> other_half_space;
                 bool other_ambiguous=false;
-                for(const auto& authored:pending.feature.effective_side(1-side).targets) {
+                const auto& other_targets=feature
+                    ?pending.feature.effective_side(1-side).targets
+                    :(side?pending.extrusion.end_targets_forward:
+                        pending.extrusion.end_targets_reverse);
+                for(const auto& authored:other_targets) {
                     const auto resolved=zima::workspace::resolve_profile_end_target(native,
                         part->session.calculated_boundaries(),frame,authored);
                     const auto classified=zima::document::profile_target_half_space(

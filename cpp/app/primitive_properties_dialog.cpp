@@ -2214,8 +2214,36 @@ std::size_t PrimitivePropertiesDialog::active_feature_target_side() const {
 
 FeatureUpToTargetDecision PrimitivePropertiesDialog::prepare_feature_up_to_target(
         int target_half_space,std::optional<int> other_half_space) {
-    if(!feature_panel_||initial_.feature_kind!=zima::document::FeatureKind::Feature||
-            (target_half_space!=-1&&target_half_space!=1))
+    if(target_half_space!=-1&&target_half_space!=1)
+        return FeatureUpToTargetDecision::Accepted;
+    if(initial_.feature_kind==zima::document::FeatureKind::Extrusion) {
+        if(!extrusion_direction_||!extent_mode_||!forward_end_condition_||
+                !reverse_end_condition_||
+                extent_mode_->currentData()=="symmetric")
+            return FeatureUpToTargetDecision::Accepted;
+        const std::size_t side=active_feature_target_side();
+        const bool current_up_to=(side?reverse_end_condition_:
+            forward_end_condition_)->currentData()=="up_to";
+        const bool other_up_to=(side?forward_end_condition_:
+            reverse_end_condition_)->currentData()=="up_to"&&
+            !(side?initial_.extrusion.end_targets_forward:
+                initial_.extrusion.end_targets_reverse).empty();
+        if(current_up_to&&other_up_to&&other_half_space&&
+                *other_half_space==target_half_space)
+            return FeatureUpToTargetDecision::SameSideConflict;
+        // The forward branch owns the shared legacy Extrusion direction.
+        // The reverse branch must not turn it and make both inputs fight.
+        if(side!=0||!current_up_to)return FeatureUpToTargetDecision::Accepted;
+        const bool reversed=target_half_space<0;
+        if(extrusion_direction_->currentData()==
+                (reversed?"reverse":"forward"))
+            return FeatureUpToTargetDecision::Accepted;
+        const QSignalBlocker blocked(extrusion_direction_);
+        extrusion_direction_->setCurrentIndex(extrusion_direction_->findData(
+            reversed?"reverse":"forward"));
+        return FeatureUpToTargetDecision::DirectionChanged;
+    }
+    if(!feature_panel_||initial_.feature_kind!=zima::document::FeatureKind::Feature)
         return FeatureUpToTargetDecision::Accepted;
     const auto pending=feature_panel_->parameters();
     if(pending.type!=zima::document::FeatureType::Modeling||pending.symmetric)

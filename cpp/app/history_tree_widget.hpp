@@ -24,6 +24,16 @@ public:
     std::function<bool(QTreeWidgetItem*,const QString&,bool)> reorder_requested;
 
 protected:
+    void updateGeometries() override {
+        QTreeWidget::updateGeometries();
+        auto* scroll=verticalScrollBar();
+        const auto content=viewport()->geometry();
+        auto geometry=scroll->geometry();
+        geometry.setTop(content.top());
+        geometry.setBottom(content.bottom());
+        scroll->setGeometry(geometry);
+    }
+
     void drawBranches(QPainter* painter,const QRect& rect,const QModelIndex& index) const override {
         // Fusion supplies disclosure arrows but omits the hierarchy guides.
         // Let Qt paint the branch background and ordinary disclosure arrows

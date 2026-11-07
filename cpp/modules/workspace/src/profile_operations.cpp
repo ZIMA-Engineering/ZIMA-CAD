@@ -339,14 +339,29 @@ void commit_profile(Workspace& live, const kernel::OcctKernel& kernel, const std
     const auto before_projection_state=local_sketch_reference_projection_state(before);
     auto next_projection_state=local_sketch_reference_projection_state(next);
     const auto* pending_container=next.find_container(container_id);
-    const bool reuse_resolved_profile_frame=existing&&pending_container&&
-        existing->feature_kind==document::FeatureKind::Feature&&
-        pending_container->feature_kind==document::FeatureKind::Feature&&
-        existing->feature.type==pending_container->feature.type&&
-        existing->placement==pending_container->placement&&
-        existing->feature.profile_source==pending_container->feature.profile_source&&
-        existing->feature.sketch_id==pending_container->feature.sketch_id&&
-        existing->feature.profile_plane_offset==pending_container->feature.profile_plane_offset&&
+    const auto unchanged_profile_frame_definition=[&] {
+        if(!existing||!pending_container||
+                existing->feature_kind!=pending_container->feature_kind||
+                existing->placement!=pending_container->placement)
+            return false;
+        switch(existing->feature_kind) {
+        case document::FeatureKind::Feature:
+            return existing->feature.type==pending_container->feature.type&&
+                existing->feature.profile_source==pending_container->feature.profile_source&&
+                existing->feature.sketch_id==pending_container->feature.sketch_id&&
+                existing->feature.profile_plane_offset==pending_container->feature.profile_plane_offset;
+        case document::FeatureKind::Extrusion:
+            return existing->extrusion.profile_source==pending_container->extrusion.profile_source&&
+                existing->extrusion.sketch_id==pending_container->extrusion.sketch_id&&
+                existing->extrusion.profile_plane_offset==pending_container->extrusion.profile_plane_offset;
+        case document::FeatureKind::Revolution:
+            return existing->revolution.profile_source==pending_container->revolution.profile_source&&
+                existing->revolution.sketch_id==pending_container->revolution.sketch_id&&
+                existing->revolution.profile_plane_offset==pending_container->revolution.profile_plane_offset;
+        default:return false;
+        }
+    };
+    const bool reuse_resolved_profile_frame=unchanged_profile_frame_definition()&&
         before_projection_state&&next_projection_state&&
         *before_projection_state==*next_projection_state;
     if(!reuse_resolved_profile_frame) {
@@ -366,15 +381,8 @@ void commit_profile(Workspace& live, const kernel::OcctKernel& kernel, const std
         policy.reuse_unchanged_local_sketch_references=
             before_projection_state&&next_projection_state&&
             *before_projection_state==*next_projection_state;
-        auto normalized_pending=*next.find_container(container_id);
-        if(existing->feature_kind==document::FeatureKind::Feature&&
-            normalized_pending.feature_kind==document::FeatureKind::Feature)
-            normalized_pending.feature.thin_thickness=existing->feature.thin_thickness;
-        const bool pure_thickness_edit=
-            existing->feature_kind==document::FeatureKind::Feature&&
-            normalized_pending==*existing;
         policy.reuse_unchanged_reference_resolution=
-            pure_thickness_edit && reuse_resolved_profile_frame &&
+            reuse_resolved_profile_frame &&
             policy.reuse_unchanged_local_sketch_references &&
             last_profile_has_no_reference_consumers(next, container_id);
         if(policy.reuse_unchanged_reference_resolution)
