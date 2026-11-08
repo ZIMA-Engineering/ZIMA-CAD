@@ -20,8 +20,11 @@ document format or the placement solver equations:
   one analytical clipping surface, so `12.prtz` Fillet 01 could overrun or stop
   at the wrong finite face boundary;
 - a route ending where two different curved faces jointly continue its support
-  faces could be mistaken for one split cylinder and extended to a remote Body
-  cap instead of stopping at the local edge;
+  faces needed a material-side decision between the local radius and the first
+  adjoining planar Body face, without ever extending through the Body;
+- a straight Fillet between a planar and a circular support used the tangent of
+  the circle as a linear approximation, leaving the requested radius visibly
+  C0 instead of tangent to the real circle;
 - the Body wire publisher could hide a real smooth junction merely because its
   two adjacent faces were cylindrical, even when their radii or axes differed;
 - asymmetric `A x B` and `A + angle` Chamfer needed to preserve its authored
@@ -71,11 +74,13 @@ None of the source files was overwritten.
   earlier arc. A subtractive edge alone may continue to the next planar cap only
   when the material-side probe confirms that its removal wedge passes the arc;
   the opposite orientation remains stopped at the arc.
-- `11.prtz` Fillets 13 and 15 retain their verified results. Fillet 09 recognizes
-  its cylinder/Fillet compound terminal and stops at that local Body edge rather
-  than extending to a remote planar cap. Fillet 19 stops at the preceding arc;
-  when its new profile radius exceeds that arc radius, only the construction
-  tool is overgrown and the final result is clipped by the exact curved surface.
+- `11.prtz` Fillets 13 and 15 retain their verified results. For subtractive
+  Fillets 09, 19 and 20, the compound radius is followed only as far as the
+  nearby white planar Body face selected by the material-side probe. The tool
+  does not continue through the Body. Additive approaches still stop at the
+  beginning of the preceding radius. When a new profile radius exceeds an
+  earlier curved radius, only the construction tool is overgrown and the final
+  result is clipped by exact support geometry.
 - `12.prtz` Fillet 01 recognizes both trimmed halves of its coaxial cylinder as
   one curved terminal. Its local tool crosses the terminal profile and is then
   clipped by the complete analytical cylinder; no material remains outside the
@@ -84,6 +89,11 @@ None of the source files was overwritten.
   splits, while two smooth edges between geometrically different cylinders are
   again published in the Body wire. The authored blue preview and ordinary Body
   display therefore no longer disagree because of the broad cylinder-type test.
+- `12.prtz` Fillet 02 uses an exact three-edge rolling section: the requested
+  R20 arc, the original R427.974 circular-support arc and the planar closing
+  line. The two contact normal dots are both `1.000000`; the previous circular
+  seam was `0.981695` (about 11 degrees from tangency). The isolated read-only
+  reproduction regenerated in 0.304 seconds including CLI startup and loading.
 
 ## Regression evidence
 
@@ -95,6 +105,10 @@ The Windows Release build completed and the following focused checks passed:
 - direct planar Fillet calculation at both small and large radii with an
   automatically detected angled planar end, checked against the same explicit
   end face;
+- exact rolling sections for plane/circle, circle/circle, ellipse/circle and
+  spline/circle supports. Each tool has the expected three-edge section, both
+  result contacts have coincident normals within `1e-9`, reversed route order is
+  equivalent, and automatic end clipping matches perpendicular construction;
 - standalone additive termination at an earlier curved face, plus equivalent
   volume and area for one joined tangent route and the same line/arc persisted
   as two explicit selection items; the latter produces exactly one cutter;
@@ -104,8 +118,8 @@ The Windows Release build completed and the following focused checks passed:
 - a larger additive profile clipped by a preceding smaller-radius cylinder,
   while the established smaller-profile exact-stop case remains unchanged;
 - read-only regeneration of the current `11.prtz` and `12.prtz` diagnostic
-  copies, including the compound Fillet 09 end and the differentiated Body seam
-  classification;
+  copies, including the planar termination of compound Fillets 09/19/20, exact
+  Fillet 02 circular tangency and the differentiated Body seam classification;
 - `A x B` and `A + angle` on connected two-segment bent routes, including
   reversed member order, support-role transport and atomic rejection of a
   disconnected asymmetric selection;
@@ -127,9 +141,15 @@ The Windows Release build completed and the following focused checks passed:
 - Czech, English, German, French and Russian catalog/source coverage.
 
 Focused Windows Release results were `zima_cpp_contract_tests`,
-`zima_cpp_tangent_edge_route_tests`, `zima_cpp_occt_planar_edge_fillet_tests`
-and `zima_cpp_occt_planar_edge_chamfer_tests`. The translation, edge-treatment,
-symmetric-treatment and treatment-selection GUI contracts also passed. The
+`zima_cpp_direct_batch_edge_treatment_tests`,
+`zima_cpp_occt_edge_treatment_support_tests`,
+`zima_cpp_tangent_edge_route_tests`, `zima_cpp_occt_planar_edge_fillet_tests`,
+`zima_cpp_occt_planar_edge_chamfer_tests`,
+`zima_cpp_edge_treatment_command_tests` and
+`zima_cpp_edge_treatment_query_tests`. The translation, edge-treatment,
+symmetric-treatment and treatment-selection GUI contracts also passed. Two
+document-writing tests were repeated with an explicit workspace TEMP after the
+host sandbox denied its package-local default TEMP; both passed there. The
 diagnostic model copies regenerated without calculation errors; the original
 user files remained untouched.
 

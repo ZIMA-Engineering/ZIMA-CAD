@@ -9,10 +9,12 @@
 #include <BRepCheck_Analyzer.hxx>
 #include <BRepClass_FaceClassifier.hxx>
 #include <BRepClass3d_SolidClassifier.hxx>
+#include <BRepGProp.hxx>
 #include <BRepBuilderAPI_MakeEdge.hxx>
 #include <BRepBuilderAPI_MakeFace.hxx>
 #include <BRepBuilderAPI_MakeVertex.hxx>
 #include <BRepBuilderAPI_MakeWire.hxx>
+#include <BRepBuilderAPI_Transform.hxx>
 #include <BRepPrimAPI_MakePrism.hxx>
 #include <BRepPrimAPI_MakeBox.hxx>
 #include <BRepPrimAPI_MakeCylinder.hxx>
@@ -23,9 +25,16 @@
 #include <BRep_Tool.hxx>
 #include <BRepTools.hxx>
 #include <Bnd_Box.hxx>
+#include <ChFi2d_FilletAlgo.hxx>
 #include <GC_MakeArcOfCircle.hxx>
 #include <GCPnts_AbscissaPoint.hxx>
+#include <GeomAdaptor_Curve.hxx>
+#include <GeomAPI_IntSS.hxx>
+#include <GeomAPI_ProjectPointOnCurve.hxx>
 #include <GeomAPI_ProjectPointOnSurf.hxx>
+#include <Geom_Plane.hxx>
+#include <Geom_Surface.hxx>
+#include <GProp_GProps.hxx>
 #include <gp_Ax1.hxx>
 #include <gp_Ax2.hxx>
 #include <gp_Lin.hxx>
@@ -33,6 +42,7 @@
 #include <gp_Trsf.hxx>
 #include <TopExp.hxx>
 #include <TopExp_Explorer.hxx>
+#include <TopLoc_Location.hxx>
 #include <TopTools_IndexedDataMapOfShapeListOfShape.hxx>
 #include <TopTools_IndexedMapOfShape.hxx>
 #include <TopoDS.hxx>
@@ -677,8 +687,9 @@ std::vector<TopoDS_Face> local_curved_terminal_faces(
     // supports. In both cases the pair is a real local end condition because
     // its members are incident to opposite route supports at the endpoint.
     // Do not require a common analytic surface: a cylinder/Fillet or
-    // Fillet/Fillet pair is an exact compound endpoint and must not trigger
-    // remote Body-envelope continuation.
+    // Fillet/Fillet pair is one compound endpoint.  The material-side probe
+    // below still decides whether the new removal stops here or continues to
+    // the first planar cap adjoining this compound terminal.
     for(std::size_t first=0;first<candidates.size();++first)
         for(std::size_t second=first+1;second<candidates.size();++second) {
             const auto& a=candidates[first];
@@ -774,18 +785,14 @@ std::vector<TopoDS_Face> remote_terminal_faces_through_local_curve(
         int support_adjacency{};
     };
     std::vector<Candidate> candidates;
-    for(TopExp_Explorer item(material,TopAbs_FACE);item.More();item.Next()) {
-        const auto curved=TopoDS::Face(item.Current());
-        if(curved.IsSame(first_support)||curved.IsSame(second_support)||
-           BRepAdaptor_Surface(curved,true).GetType()==GeomAbs_Plane)
-            continue;
-        BRepClass_FaceClassifier at_endpoint(curved,endpoint,tolerance);
-        if(at_endpoint.State()!=TopAbs_IN&&at_endpoint.State()!=TopAbs_ON)
-            continue;
-        if(!terminal_face_meets_support_at_endpoint(curved,first_support,
-                endpoint,tolerance)||
-           !terminal_face_meets_support_at_endpoint(curved,second_support,
-                endpoint,tolerance))continue;
+    // Follow exactly the local curved terminal already classified for this
+    // route endpoint.  One Fillet face can continue both supports, but Boolean
+    // descendants and Fillet-to-Fillet contacts can represent the same local
+    // end with two different faces.  Requiring one face to touch both supports
+    // misses that compound case and lets an overgrown cutter cross the Body.
+    const auto local_curves=local_curved_terminal_faces(material,
+        first_support,second_support,endpoint,tolerance);
+    for(const auto& curved:local_curves) {
         for(TopExp_Explorer edge_item(curved,TopAbs_EDGE);
                 edge_item.More();edge_item.Next()) {
             const auto edge=TopoDS::Edge(edge_item.Current());
@@ -961,6 +968,264 @@ struct TangentFilletProfile {
     gp_Pnt center;
     double span{};
 };
+
+struct RollingSupportSection {
+    occ::handle<Geom_Curve> curve;
+    double origin_parameter{},branch_parameter{};
+    TopoDS_Edge edge;
+};
+
+struct RollingSupportProfile {
+    FilletProfile profile;
+    std::array<gp_Pnt,2> contacts;
+    gp_Pnt center;
+    double span{};
+};
+
+RollingSupportProfile translated_rolling_support_profile(
+        const RollingSupportProfile& source,const gp_Vec& translation) {
+    gp_Trsf transformation;
+    transformation.SetTranslation(translation);
+    BRepBuilderAPI_Transform transformed(source.profile.wire,transformation,
+        true);
+    if(!transformed.IsDone()||transformed.Shape().IsNull())
+        throw std::runtime_error(
+            "Planar edge Fillet could not position its rolling support profile");
+    RollingSupportProfile result=source;
+    result.profile.wire=TopoDS::Wire(transformed.Shape());
+    const auto circular_edge=transformed.ModifiedShape(
+        source.profile.circular_edge);
+    if(circular_edge.IsNull()||circular_edge.ShapeType()!=TopAbs_EDGE)
+        throw std::runtime_error(
+            "Planar edge Fillet lost its rolling support arc while positioning it");
+    result.profile.circular_edge=TopoDS::Edge(circular_edge);
+    for(auto& contact:result.contacts)contact.Translate(translation);
+    result.center.Translate(translation);
+    return result;
+}
+
+bool support_is_prismatic_along(const TopoDS_Face& face,
+        const gp_Dir& direction,double angular_tolerance) {
+    const BRepAdaptor_Surface surface(face,true);
+    switch(surface.GetType()) {
+    case GeomAbs_Plane:
+        return std::abs(surface.Plane().Axis().Direction().Dot(direction))<=
+            angular_tolerance;
+    case GeomAbs_Cylinder:
+        return surface.Cylinder().Axis().Direction().IsParallel(direction,
+            angular_tolerance);
+    case GeomAbs_SurfaceOfExtrusion:
+        return surface.Direction().IsParallel(direction,
+            angular_tolerance);
+    default:return false;
+    }
+}
+
+std::optional<RollingSupportSection> rolling_support_section(
+        const TopoDS_Face& face,const gp_Pln& section_plane,
+        const gp_Pnt& origin,const gp_Dir& inward,
+        const TopoDS_Vertex& origin_vertex,double span,double tolerance) {
+    TopLoc_Location location;
+    auto support_surface=BRep_Tool::Surface(face,location);
+    if(!location.IsIdentity())
+        support_surface=Handle(Geom_Surface)::DownCast(
+            support_surface->Transformed(location.Transformation()));
+    if(support_surface.IsNull())return std::nullopt;
+    GeomAPI_IntSS intersection(support_surface,new Geom_Plane(section_plane),
+        tolerance);
+    if(!intersection.IsDone())return std::nullopt;
+    occ::handle<Geom_Curve> curve;
+    double origin_parameter{};
+    double nearest=std::numeric_limits<double>::infinity();
+    for(int index=1;index<=intersection.NbLines();++index) {
+        const auto& candidate=intersection.Line(index);
+        GeomAPI_ProjectPointOnCurve projection(origin,candidate);
+        if(projection.NbPoints()==0||projection.LowerDistance()>nearest)
+            continue;
+        nearest=projection.LowerDistance();
+        origin_parameter=projection.LowerDistanceParameter();
+        curve=candidate;
+    }
+    if(curve.IsNull()||nearest>10.*tolerance)return std::nullopt;
+    gp_Pnt point;gp_Vec derivative;
+    curve->D1(origin_parameter,point,derivative);
+    if(derivative.SquareMagnitude()<=1.0e-18)return std::nullopt;
+    const double sense=derivative.Dot(gp_Vec(inward))>=0.?1.:-1.;
+    GeomAdaptor_Curve adaptor(curve);
+    double branch_length=span;
+    if(curve->IsPeriodic())
+        branch_length=std::min(branch_length,GCPnts_AbscissaPoint::Length(
+            adaptor,origin_parameter,
+            origin_parameter+sense*.49*curve->Period(),tolerance));
+    GCPnts_AbscissaPoint branch(tolerance,adaptor,sense*branch_length,
+        origin_parameter);
+    if(!branch.IsDone())return std::nullopt;
+    const double branch_parameter=branch.Parameter();
+    const auto branch_point=curve->Value(branch_parameter);
+    const auto branch_vertex=BRepBuilderAPI_MakeVertex(branch_point).Vertex();
+    BRepBuilderAPI_MakeEdge edge;
+    if(origin_parameter<branch_parameter)
+        edge=BRepBuilderAPI_MakeEdge(curve,origin_vertex,branch_vertex,
+            origin_parameter,branch_parameter);
+    else
+        edge=BRepBuilderAPI_MakeEdge(curve,branch_vertex,origin_vertex,
+            branch_parameter,origin_parameter);
+    if(!edge.IsDone())return std::nullopt;
+    return RollingSupportSection{curve,origin_parameter,
+        branch_parameter,edge.Edge()};
+}
+
+std::optional<RollingSupportProfile> rolling_support_profile(
+        const gp_Pnt& origin,const gp_Dir& path_tangent,
+        const gp_Dir& first_inward,const gp_Dir& second_inward,
+        const TopoDS_Face& first_face,const TopoDS_Face& second_face,
+        const TopoDS_Solid& material,double radius,double tolerance,
+        bool adds_material) {
+    const double angular_tolerance=std::max(1.0e-9,
+        tolerance/std::max(1.,radius));
+    if(!support_is_prismatic_along(first_face,path_tangent,
+            angular_tolerance)||
+       !support_is_prismatic_along(second_face,path_tangent,
+            angular_tolerance))return std::nullopt;
+    const bool first_planar=BRepAdaptor_Surface(first_face,true).GetType()==
+        GeomAbs_Plane;
+    const bool second_planar=BRepAdaptor_Surface(second_face,true).GetType()==
+        GeomAbs_Plane;
+    if(first_planar&&second_planar)return std::nullopt;
+    const gp_Pln section_plane(origin,path_tangent);
+    const auto origin_vertex=BRepBuilderAPI_MakeVertex(origin).Vertex();
+    const double opening=first_inward.Angle(second_inward);
+    const double local_span=4.*radius/std::max(.05,
+        std::tan(opening/2.));
+    const double section_span=std::min(
+        body_envelope_extension(material,4.*radius,tolerance),
+        std::max(8.*radius,local_span));
+    const auto first=rolling_support_section(first_face,section_plane,
+        origin,first_inward,origin_vertex,section_span,tolerance);
+    const auto second=rolling_support_section(second_face,section_plane,
+        origin,second_inward,origin_vertex,section_span,tolerance);
+    if(!first||!second)return std::nullopt;
+
+    auto first_edge=first->edge;
+    auto second_edge=second->edge;
+    const auto orient_to_origin=[&](TopoDS_Edge& edge,bool origin_first) {
+        TopoDS_Vertex a,b;TopExp::Vertices(edge,a,b,true);
+        if((origin_first&&!a.IsSame(origin_vertex))||
+           (!origin_first&&!b.IsSame(origin_vertex)))edge.Reverse();
+    };
+    orient_to_origin(first_edge,false);
+    orient_to_origin(second_edge,true);
+    ChFi2d_FilletAlgo fillet(first_edge,second_edge,section_plane);
+    if(!fillet.Perform(radius))return std::nullopt;
+    const int count=fillet.NbResults(origin);
+    std::optional<RollingSupportProfile> best;
+    double best_score=std::numeric_limits<double>::infinity();
+    for(int solution=1;solution<=count;++solution) {
+        TopoDS_Edge remaining_first,remaining_second;
+        auto fillet_edge=fillet.Result(origin,remaining_first,
+            remaining_second,solution);
+        if(fillet_edge.IsNull()||
+           BRepAdaptor_Curve(fillet_edge).GetType()!=GeomAbs_Circle)
+            continue;
+        std::array<TopoDS_Vertex,2> fillet_vertices;
+        TopExp::Vertices(fillet_edge,fillet_vertices[0],
+            fillet_vertices[1],true);
+        if(fillet_vertices[0].IsNull()||fillet_vertices[1].IsNull())continue;
+        const std::array<RollingSupportSection,2> sections{*first,*second};
+        std::array<std::array<double,2>,2> parameters{};
+        std::array<std::array<double,2>,2> distances{};
+        for(std::size_t support=0;support<2;++support)
+            for(std::size_t vertex=0;vertex<2;++vertex) {
+                const double lower=std::min(sections[support].origin_parameter,
+                    sections[support].branch_parameter);
+                const double upper=std::max(sections[support].origin_parameter,
+                    sections[support].branch_parameter);
+                GeomAPI_ProjectPointOnCurve projection(
+                    BRep_Tool::Pnt(fillet_vertices[vertex]),
+                    sections[support].curve,lower,upper);
+                if(projection.NbPoints()==0) {
+                    distances[support][vertex]=
+                        std::numeric_limits<double>::infinity();
+                    continue;
+                }
+                distances[support][vertex]=projection.LowerDistance();
+                parameters[support][vertex]=
+                    projection.LowerDistanceParameter();
+            }
+        const double direct=distances[0][0]+distances[1][1];
+        const double reverse=distances[0][1]+distances[1][0];
+        const std::array<std::size_t,2> assignment=direct<=reverse
+            ?std::array<std::size_t,2>{0,1}
+            :std::array<std::size_t,2>{1,0};
+        const double contact_error=std::min(direct,reverse);
+        if(!std::isfinite(contact_error)||contact_error>20.*tolerance)
+            continue;
+        std::array<gp_Pnt,2> contacts;
+        std::array<TopoDS_Edge,2> connectors;
+        bool valid=true;
+        for(std::size_t support=0;support<2;++support) {
+            const auto vertex=assignment[support];
+            contacts[support]=BRep_Tool::Pnt(fillet_vertices[vertex]);
+            const double contact_parameter=parameters[support][vertex];
+            BRepBuilderAPI_MakeEdge connector;
+            if(sections[support].origin_parameter<contact_parameter)
+                connector=BRepBuilderAPI_MakeEdge(sections[support].curve,
+                    origin_vertex,fillet_vertices[vertex],
+                    sections[support].origin_parameter,contact_parameter);
+            else
+                connector=BRepBuilderAPI_MakeEdge(sections[support].curve,
+                    fillet_vertices[vertex],origin_vertex,contact_parameter,
+                    sections[support].origin_parameter);
+            if(!connector.IsDone()) {valid=false;break;}
+            connectors[support]=connector.Edge();
+            gp_Pnt support_point;gp_Vec support_derivative;
+            sections[support].curve->D1(contact_parameter,support_point,
+                support_derivative);
+            const BRepAdaptor_Curve fillet_curve(fillet_edge);
+            const bool at_first=contacts[support].Distance(
+                fillet_curve.Value(fillet_curve.FirstParameter()))<=
+                contacts[support].Distance(
+                    fillet_curve.Value(fillet_curve.LastParameter()));
+            gp_Pnt fillet_point;gp_Vec fillet_derivative;
+            fillet_curve.D1(at_first?fillet_curve.FirstParameter():
+                fillet_curve.LastParameter(),fillet_point,
+                fillet_derivative);
+            if(support_derivative.SquareMagnitude()<=1.0e-18||
+               fillet_derivative.SquareMagnitude()<=1.0e-18||
+               !gp_Dir(support_derivative).IsParallel(
+                    gp_Dir(fillet_derivative),1.0e-7)) {
+                valid=false;break;
+            }
+        }
+        if(!valid)continue;
+        BRepBuilderAPI_MakeWire wire;
+        wire.Add(fillet_edge);wire.Add(connectors[0]);
+        wire.Add(connectors[1]);
+        if(!wire.IsDone())continue;
+        BRepBuilderAPI_MakeFace face(wire.Wire());
+        if(!face.IsDone()||!BRepCheck_Analyzer(face.Face()).IsValid())continue;
+        GProp_GProps properties;
+        BRepGProp::SurfaceProperties(face.Face(),properties);
+        BRepClass3d_SolidClassifier classifier(material,
+            properties.CentreOfMass(),tolerance);
+        if((adds_material&&classifier.State()!=TopAbs_OUT)||
+           (!adds_material&&classifier.State()!=TopAbs_IN))continue;
+        const BRepAdaptor_Curve fillet_curve(fillet_edge);
+        const auto center=fillet_curve.Circle().Location();
+        const double score=origin.Distance(contacts[0])+origin.Distance(
+            contacts[1]);
+        if(score>=best_score)continue;
+        RollingSupportProfile candidate;
+        candidate.profile.circular_edge=fillet_edge;
+        candidate.profile.wire=wire.Wire();
+        candidate.contacts=contacts;
+        candidate.center=center;
+        candidate.span=std::max({score,origin.Distance(center)+radius,
+            2.*radius});
+        best=std::move(candidate);best_score=score;
+    }
+    return best;
+}
 
 TangentFilletProfile tangent_plane_cylinder_profile(
         const gp_Pnt& origin,const gp_Dir& path_tangent,
@@ -1180,6 +1445,110 @@ Cutter make_tangent_plane_cylinder_cutter(
         midpoint.profile.wire,midpoint.profile.circular_edge,{}};
 }
 
+std::optional<Cutter> make_rolling_support_cutter(
+        const TopoDS_Face& first_face,const TopoDS_Face& second_face,
+        const EdgePath& path,const gp_Dir& first_inward,
+        const gp_Dir& second_inward,double radius,double tolerance,
+        const TopoDS_Solid& material,
+        const OcctPlanarEdgeEndFaces& end_faces,bool profile_only,
+        OcctPlanarEdgeFilletEndMode end_mode,bool adds_material) {
+    if(path.kind!=EdgeFilletPathKind::Linear)return std::nullopt;
+    const auto midpoint=rolling_support_profile(path.middle,
+        path.first_tangent,first_inward,second_inward,first_face,
+        second_face,material,radius,tolerance,adds_material);
+    if(!midpoint)return std::nullopt;
+    const auto analytic=[&](const RollingSupportProfile& profile,
+            double extension) {
+        return PlanarFilletAnalyticRemovalDomain{
+            point(path.first),point(path.last),
+            vector(path.first_tangent.XYZ()),
+            vector(first_inward.XYZ()),vector(second_inward.XYZ()),
+            point(profile.contacts[0]),point(profile.contacts[1]),
+            point(profile.center),radius,extension,path.kind,{},{},0.,0.};
+    };
+    if(profile_only)
+        return Cutter{{},{},analytic(*midpoint,0.),adds_material,
+            midpoint->profile.wire,midpoint->profile.circular_edge,{}};
+
+    std::array<std::vector<TopoDS_Face>,2> terminal_faces;
+    if(!end_faces.first.IsNull())terminal_faces[0].push_back(end_faces.first);
+    if(!end_faces.last.IsNull())terminal_faces[1].push_back(end_faces.last);
+    if(end_mode==OcctPlanarEdgeFilletEndMode::AutomaticBodyEnvelope) {
+        if(terminal_faces[0].empty())
+            terminal_faces[0]=automatic_terminal_faces(material,
+                first_face,second_face,path.first,path.first_tangent,
+                path.middle,tolerance);
+        if(terminal_faces[1].empty())
+            terminal_faces[1]=automatic_terminal_faces(material,
+                first_face,second_face,path.last,path.last_tangent,
+                path.middle,tolerance);
+    }
+    const auto extension=[&](const auto& faces,const gp_Pnt& endpoint,
+            const gp_Dir& outward) {
+        double result{};
+        for(const auto& face:faces) {
+            const BRepAdaptor_Surface support(face,true);
+            if(support.GetType()!=GeomAbs_Plane)
+                throw std::invalid_argument(
+                    "Planar edge Fillet end face must be planar");
+            const auto normal=support.Plane().Axis().Direction();
+            const double signed_incidence=normal.Dot(outward);
+            const double incidence=std::abs(signed_incidence);
+            double distance{};
+            if(support.Plane().Distance(endpoint)>tolerance) {
+                if(incidence<=1.0e-8)
+                    throw std::invalid_argument(
+                        "Planar edge Fillet remote end face does not intersect the route");
+                distance=gp_Vec(endpoint,support.Plane().Location()).Dot(
+                    gp_Vec(normal))/signed_incidence;
+                if(distance<=tolerance)
+                    throw std::invalid_argument(
+                        "Planar edge Fillet remote end face is behind the route endpoint");
+            }
+            result=std::max(result,distance+(incidence<=1.0e-8
+                ?midpoint->span:midpoint->span/incidence+tolerance));
+        }
+        return result;
+    };
+    const gp_Dir first_outward(-gp_Vec(path.first_tangent));
+    const gp_Dir last_outward(path.last_tangent);
+    const double first_extension=extension(terminal_faces[0],path.first,
+        first_outward);
+    const double last_extension=extension(terminal_faces[1],path.last,
+        last_outward);
+    const gp_Pnt source_origin=path.first.Translated(
+        gp_Vec(first_outward)*first_extension);
+    const auto source=translated_rolling_support_profile(*midpoint,
+        gp_Vec(path.middle,source_origin));
+    BRepBuilderAPI_MakeFace section(source.profile.wire);
+    if(!section.IsDone())
+        throw std::runtime_error(
+            "Planar edge Fillet could not construct its rolling support section");
+    BRepPrimAPI_MakePrism prism(section.Face(),gp_Vec(path.first_tangent)*
+        (path.length+first_extension+last_extension),false,true);
+    prism.Build();
+    if(!prism.IsDone()||prism.Shape().IsNull()||
+       !BRepCheck_Analyzer(prism.Shape()).IsValid())
+        throw std::runtime_error(
+            "Planar edge Fillet could not construct a valid rolling support tool");
+    std::vector<TopoDS_Face> circular_faces;
+    for(const auto& generated:prism.Generated(source.profile.circular_edge))
+        if(generated.ShapeType()==TopAbs_FACE)
+            circular_faces.push_back(TopoDS::Face(generated));
+    if(circular_faces.empty())
+        throw std::runtime_error(
+            "Planar edge Fillet rolling support omitted its circular face");
+    TopoDS_Shape tool=prism.Shape();
+    for(const auto& face:terminal_faces[0])
+        clip_fillet_tool(tool,circular_faces,face,path.middle,tolerance);
+    for(const auto& face:terminal_faces[1])
+        clip_fillet_tool(tool,circular_faces,face,path.middle,tolerance);
+    return Cutter{tool,std::move(circular_faces),
+        analytic(source,std::max(first_extension,last_extension)),
+        adds_material,midpoint->profile.wire,
+        midpoint->profile.circular_edge,{}};
+}
+
 Cutter make_cutter(const TopoDS_Edge& edge,
         const TopoDS_Face& first_face,
         const TopoDS_Face& second_face,double radius,double tolerance,
@@ -1273,6 +1642,27 @@ Cutter make_cutter(const TopoDS_Edge& edge,
         throw std::invalid_argument(
             "Planar edge Fillet could not classify the material wedge");
 
+    // A straight rolling path bounded by an extruded circle, ellipse or spline
+    // needs the real support sections.  Replacing a curved support by its
+    // tangent at the selected edge creates the right nominal radius but leaves
+    // a visible C0 seam.  ChFi2d supplies the local arc/curve/curve profile;
+    // the fast plane/plane implementation below remains unchanged.
+    const bool rolling_support_required=
+        path.kind==EdgeFilletPathKind::Linear&&
+        support_is_prismatic_along(first_face,path.first_tangent,
+            angular_tolerance)&&
+        support_is_prismatic_along(second_face,path.first_tangent,
+            angular_tolerance)&&
+        (BRepAdaptor_Surface(first_face,true).GetType()!=GeomAbs_Plane||
+         BRepAdaptor_Surface(second_face,true).GetType()!=GeomAbs_Plane);
+    if(rolling_support_required) {
+        if(auto rolling=make_rolling_support_cutter(first_face,second_face,path,
+                first_inward,second_inward,radius,tolerance,material,end_faces,
+                profile_only,end_mode,adds_material))return std::move(*rolling);
+        throw std::invalid_argument(
+            "Planar edge Fillet could not construct an exact tangent rolling profile");
+    }
+
     const double tangent_distance=radius/
         std::tan(interior_angle/2.);
     const double center_distance=radius/
@@ -1334,18 +1724,18 @@ Cutter make_cutter(const TopoDS_Edge& edge,
         gp_Vec(first_inward),(1.-anchor_fraction)*path.length));
     const gp_Dir last_terminal_second_inward(transported(path,
         gp_Vec(second_inward),(1.-anchor_fraction)*path.length));
-    // Different curved faces which jointly continue the two supports are an
-    // exact compound end (for example a cylinder meeting an earlier Fillet),
-    // not two pieces of one surface through which the removal may continue.
-    // Keep the material-direction probe for a genuinely split single surface.
+    // The material-side probe distinguishes an earlier radius which bends into
+    // this removal (exact local stop) from one which bends away (continue only
+    // to its first adjoining planar cap).  The same decision applies when a
+    // Boolean represents that local radius with different curved faces.
     const bool continue_first=local_curved_first&&!adds_material&&
-        !explicit_first&&!compound_curved_first&&
+        !explicit_first&&
         removal_profile_continues_past_curved_terminal(
             material,path.first,first_outward,
             first_terminal_first_inward,first_terminal_second_inward,
             radius,tolerance);
     const bool continue_last=local_curved_last&&!adds_material&&
-        !explicit_last&&!compound_curved_last&&
+        !explicit_last&&
         removal_profile_continues_past_curved_terminal(
             material,path.last,last_outward,
             last_terminal_first_inward,last_terminal_second_inward,
@@ -1760,10 +2150,10 @@ Cutter make_route_cutter(const std::vector<CutterJob>& jobs,
     // Keep terminal differential work lazy.  Routes which do not meet a
     // preceding curved face retain their established automatic-cap path.
     const bool continue_first=local_curved_first&&!profile.adds_material&&
-        !explicit_first&&!compound_curved_first&&
+        !explicit_first&&
         continues_past_local_curve(start_job,start_point,start_outward);
     const bool continue_last=local_curved_last&&!profile.adds_material&&
-        !explicit_last&&!compound_curved_last&&
+        !explicit_last&&
         continues_past_local_curve(end_job,end_point,end_outward);
     if(end_mode==OcctPlanarEdgeFilletEndMode::AutomaticBodyEnvelope) {
         if(continue_first)

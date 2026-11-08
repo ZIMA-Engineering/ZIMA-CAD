@@ -2,6 +2,7 @@
 
 #include <BRepAdaptor_Curve.hxx>
 #include <BRepAdaptor_Surface.hxx>
+#include <BRepAlgoAPI_Common.hxx>
 #include <BRepAlgoAPI_Cut.hxx>
 #include <BRepAlgoAPI_Fuse.hxx>
 #include <BRepCheck_Analyzer.hxx>
@@ -20,6 +21,7 @@
 #include <GCPnts_AbscissaPoint.hxx>
 #include <Geom_BSplineCurve.hxx>
 #include <gp_Circ.hxx>
+#include <gp_Elips.hxx>
 #include <TColgp_Array1OfPnt.hxx>
 #include <TColStd_Array1OfInteger.hxx>
 #include <TColStd_Array1OfReal.hxx>
@@ -657,6 +659,192 @@ TangentEndFixture tangent_end_fixture() {
     return result;
 }
 
+TopoDS_Shape common_solid(const TopoDS_Shape& first,
+        const TopoDS_Shape& second,const char* message) {
+    BRepAlgoAPI_Common common(first,second);
+    common.SetNonDestructive(true);
+    common.Build();
+    require(common.IsDone()&&!common.Shape().IsNull()&&
+            BRepCheck_Analyzer(common.Shape(),true,true,false).IsValid(),
+        message);
+    return common.Shape();
+}
+
+TopoDS_Shape ellipse_prism(double major_radius,double minor_radius,
+        double height) {
+    BRepBuilderAPI_MakeWire wire;
+    wire.Add(BRepBuilderAPI_MakeEdge(gp_Elips(gp_Ax2(
+        gp_Pnt(0,0,0),gp_Dir(0,0,1),gp_Dir(1,0,0)),major_radius,
+        minor_radius)).Edge());
+    require(wire.IsDone(),"Ellipse rolling-support wire failed");
+    BRepBuilderAPI_MakeFace face(wire.Wire());
+    BRepPrimAPI_MakePrism prism(face.Face(),gp_Vec(0,0,height),false,true);
+    prism.Build();
+    require(prism.IsDone()&&
+            BRepCheck_Analyzer(prism.Shape(),true,true,false).IsValid(),
+        "Ellipse rolling-support prism failed");
+    return prism.Shape();
+}
+
+TopoDS_Shape spline_prism(double height) {
+    TColgp_Array1OfPnt poles(1,3);
+    poles.SetValue(1,gp_Pnt(-100,0,0));
+    poles.SetValue(2,gp_Pnt(0,-80,0));
+    poles.SetValue(3,gp_Pnt(100,0,0));
+    TColStd_Array1OfReal knots(1,2);
+    knots.SetValue(1,0.);knots.SetValue(2,1.);
+    TColStd_Array1OfInteger multiplicities(1,2);
+    multiplicities.SetValue(1,3);multiplicities.SetValue(2,3);
+    const Handle(Geom_BSplineCurve) spline=new Geom_BSplineCurve(
+        poles,knots,multiplicities,2,false);
+    BRepBuilderAPI_MakeWire wire;
+    wire.Add(BRepBuilderAPI_MakeEdge(spline).Edge());
+    wire.Add(BRepBuilderAPI_MakeEdge(
+        gp_Pnt(100,0,0),gp_Pnt(100,120,0)).Edge());
+    wire.Add(BRepBuilderAPI_MakeEdge(
+        gp_Pnt(100,120,0),gp_Pnt(-100,120,0)).Edge());
+    wire.Add(BRepBuilderAPI_MakeEdge(
+        gp_Pnt(-100,120,0),gp_Pnt(-100,0,0)).Edge());
+    require(wire.IsDone(),"Spline rolling-support wire failed");
+    BRepBuilderAPI_MakeFace face(wire.Wire());
+    BRepPrimAPI_MakePrism prism(face.Face(),gp_Vec(0,0,height),false,true);
+    prism.Build();
+    require(prism.IsDone()&&
+            BRepCheck_Analyzer(prism.Shape(),true,true,false).IsValid(),
+        "Spline rolling-support prism failed");
+    return prism.Shape();
+}
+
+TopoDS_Edge rolling_support_edge(const TopoDS_Shape& shape,double height,
+        GeomAbs_SurfaceType first_type,GeomAbs_SurfaceType second_type) {
+    TopTools_IndexedDataMapOfShapeListOfShape edge_faces;
+    TopExp::MapShapesAndAncestors(shape,TopAbs_EDGE,TopAbs_FACE,edge_faces);
+    for(int index=1;index<=edge_faces.Extent();++index) {
+        const auto edge=TopoDS::Edge(edge_faces.FindKey(index));
+        const BRepAdaptor_Curve curve(edge);
+        const auto first=curve.Value(curve.FirstParameter());
+        const auto last=curve.Value(curve.LastParameter());
+        if(std::abs(first.X()-last.X())>1.0e-8||
+           std::abs(first.Y()-last.Y())>1.0e-8||
+           std::abs(std::abs(first.Z()-last.Z())-height)>1.0e-8)
+            continue;
+        const auto& adjacent=edge_faces.FindFromIndex(index);
+        if(adjacent.Size()!=2)continue;
+        std::array<TopoDS_Face,2> faces;
+        std::array<GeomAbs_SurfaceType,2> types;
+        std::size_t face_index{};
+        for(const auto& value:adjacent) {
+            faces[face_index]=TopoDS::Face(value);
+            types[face_index]=BRepAdaptor_Surface(faces[face_index],true).
+                GetType();
+            ++face_index;
+        }
+        if(faces[0].IsSame(faces[1]))continue;
+        if(types[0]==GeomAbs_Cylinder&&types[1]==GeomAbs_Cylinder&&
+           BRepAdaptor_Surface(faces[0],true).Cylinder().Axis().Location().
+                Distance(BRepAdaptor_Surface(faces[1],true).Cylinder().
+                    Axis().Location())<1.0e-8)
+            continue;
+        if((types[0]==first_type&&types[1]==second_type)||
+           (types[0]==second_type&&types[1]==first_type))return edge;
+    }
+    return {};
+}
+
+gp_Dir face_normal_on_edge(const TopoDS_Face& face,
+        const TopoDS_Edge& edge) {
+    Standard_Real first{},last{};
+    const auto pcurve=BRep_Tool::CurveOnSurface(edge,face,first,last);
+    require(!pcurve.IsNull(),
+        "Rolling-support contact lost its face parameter curve");
+    const auto uv=pcurve->Value((first+last)/2.);
+    gp_Pnt point;gp_Vec du,dv;
+    BRepAdaptor_Surface surface(face,true);
+    surface.D1(uv.X(),uv.Y(),point,du,dv);
+    auto normal=du.Crossed(dv);
+    require(normal.SquareMagnitude()>1.0e-18,
+        "Rolling-support contact has a degenerate normal");
+    if(face.Orientation()==TopAbs_REVERSED)normal.Reverse();
+    return gp_Dir(normal);
+}
+
+std::vector<GeomAbs_SurfaceType> rolling_support_contacts(
+        const TopoDS_Shape& shape,double fillet_radius,double height) {
+    TopTools_IndexedDataMapOfShapeListOfShape edge_faces;
+    TopExp::MapShapesAndAncestors(shape,TopAbs_EDGE,TopAbs_FACE,edge_faces);
+    std::vector<GeomAbs_SurfaceType> result;
+    for(int index=1;index<=edge_faces.Extent();++index) {
+        const auto edge=TopoDS::Edge(edge_faces.FindKey(index));
+        const BRepAdaptor_Curve curve(edge);
+        const auto first=curve.Value(curve.FirstParameter());
+        const auto last=curve.Value(curve.LastParameter());
+        if(std::abs(std::abs(first.Z()-last.Z())-height)>1.0e-7)
+            continue;
+        const auto& adjacent=edge_faces.FindFromIndex(index);
+        if(adjacent.Size()!=2)continue;
+        std::array<TopoDS_Face,2> faces;
+        std::size_t face_index{};
+        for(const auto& value:adjacent)faces[face_index++]=TopoDS::Face(value);
+        std::optional<std::size_t> fillet_index;
+        for(std::size_t current=0;current<2;++current) {
+            const BRepAdaptor_Surface surface(faces[current],true);
+            if(surface.GetType()==GeomAbs_Cylinder&&
+               std::abs(surface.Cylinder().Radius()-fillet_radius)<1.0e-7)
+                fillet_index=current;
+        }
+        if(!fillet_index)continue;
+        const std::size_t support_index=1-*fillet_index;
+        const double dot=std::abs(face_normal_on_edge(faces[*fillet_index],
+            edge).Dot(face_normal_on_edge(faces[support_index],edge)));
+        require(dot>1.-1.0e-9,
+            "Rolling-support Fillet is not geometrically tangent");
+        result.push_back(BRepAdaptor_Surface(faces[support_index],true).
+            GetType());
+    }
+    return result;
+}
+
+void verify_rolling_support(const TopoDS_Shape& input,
+        const TopoDS_Edge& edge,double radius,double height,
+        std::array<GeomAbs_SurfaceType,2> expected_contacts,
+        const char* message) {
+    require(!edge.IsNull(),message);
+    const auto result=zima::kernel::occt_planar_edge_fillet(
+        input,std::array{edge},radius,1.0e-7);
+    require(result.history&&result.removal_domains.size()==1&&
+            result.analytic_removal_domains.size()==1&&
+            result.fillet_faces.size()==1&&
+            !result.fillet_faces.front().empty()&&
+            BRepCheck_Analyzer(result.shape,true,true,false).IsValid(),
+        message);
+    TopTools_IndexedMapOfShape tool_faces;
+    TopExp::MapShapes(result.removal_domains.front(),TopAbs_FACE,tool_faces);
+    require(tool_faces.Extent()==5,
+        "Rolling-support Fillet did not use its three-edge exact profile");
+    auto contacts=rolling_support_contacts(result.shape,radius,height);
+    require(contacts.size()==2,
+        "Rolling-support Fillet lost one of its two tangent contacts");
+    std::ranges::sort(contacts);
+    std::ranges::sort(expected_contacts);
+    require(std::ranges::equal(contacts,expected_contacts),message);
+    const std::array reversed_edges{TopoDS::Edge(edge.Reversed())};
+    const auto reversed=zima::kernel::occt_planar_edge_fillet(input,
+        reversed_edges,radius,1.0e-7,{},
+        zima::kernel::OcctPlanarEdgeFilletEndMode::AutomaticBodyEnvelope);
+    require(reversed.history&&
+            BRepCheck_Analyzer(reversed.shape,true,true,false).IsValid(),
+        "Reversed rolling-support Fillet is invalid");
+    near(volume(reversed.shape),volume(result.shape),
+        "Rolling-support Fillet volume depends on route orientation");
+    near(area(reversed.shape),area(result.shape),
+        "Rolling-support Fillet area depends on route orientation");
+    auto reversed_contacts=rolling_support_contacts(reversed.shape,radius,
+        height);
+    std::ranges::sort(reversed_contacts);
+    require(std::ranges::equal(reversed_contacts,expected_contacts),
+        "Reversed rolling-support Fillet lost an exact tangent contact");
+}
+
 } // namespace
 
 int main() try {
@@ -694,6 +882,28 @@ int main() try {
         require(volume(automatic_continue.shape)<
                 volume(exact_stop.shape)-1.0e-6,
             "Second subtractive Fillet did not remove material through the earlier arc");
+        const auto compound_approach=straight_edge_between(
+            automatic_continue.shape,{0,3,0},{0,30,0});
+        require(!compound_approach.IsNull(),
+            "Two preceding Fillets lost the remaining compound-terminal edge");
+        const auto compound_exact=zima::kernel::occt_planar_edge_fillet(
+            automatic_continue.shape,std::array{compound_approach},1.,
+            1.0e-7,{},zima::kernel::OcctPlanarEdgeFilletEndMode::
+                Perpendicular);
+        const auto compound_planar_stop=
+            zima::kernel::occt_planar_edge_fillet(
+                automatic_continue.shape,std::array{compound_approach},1.,
+                1.0e-7,{},zima::kernel::OcctPlanarEdgeFilletEndMode::
+                    AutomaticBodyEnvelope);
+        require(BRepCheck_Analyzer(compound_planar_stop.shape,true,true,
+                    false).IsValid()&&
+                compound_planar_stop.analytic_removal_domains.size()==1&&
+                compound_planar_stop.analytic_removal_domains.front().
+                    axial_extension>1.0e-7,
+            "Third subtractive Fillet did not stop on the planar face beyond its compound curved terminal");
+        require(volume(compound_planar_stop.shape)<
+                volume(compound_exact.shape)-1.0e-6,
+            "Third subtractive Fillet crossed its compound terminal without using the adjoining planar stop");
         const auto sequential_pocket=blind_pocket();
         const auto first_inner_edge=straight_edge_between(sequential_pocket,
             {9,9,18},{9,21,18});
@@ -1078,6 +1288,62 @@ int main() try {
         }
     }
     {
+        std::cerr<<"fillet-test: rolling curved supports\n";
+        constexpr double height=40.;
+        const auto cylinder=BRepPrimAPI_MakeCylinder(100.,height).Shape();
+        const auto half_box=BRepPrimAPI_MakeBox(gp_Pnt(-120.,-120.,0.),
+            gp_Pnt(20.,120.,height)).Shape();
+        const auto plane_circle=common_solid(cylinder,half_box,
+            "Plane-circle rolling-support fixture failed");
+        std::cerr<<"  plane-circle\n";
+        verify_rolling_support(plane_circle,
+            rolling_support_edge(plane_circle,height,GeomAbs_Plane,
+                GeomAbs_Cylinder),5.,height,
+            {GeomAbs_Plane,GeomAbs_Cylinder},
+            "Plane-circle rolling-support Fillet lost a support contact");
+
+        const auto first_circle=BRepPrimAPI_MakeCylinder(
+            gp_Ax2(gp_Pnt(-30.,0.,0.),gp_Dir(0.,0.,1.)),100.,height).
+            Shape();
+        const auto second_circle=BRepPrimAPI_MakeCylinder(
+            gp_Ax2(gp_Pnt(30.,0.,0.),gp_Dir(0.,0.,1.)),100.,height).
+            Shape();
+        const auto circle_circle=common_solid(first_circle,second_circle,
+            "Circle-circle rolling-support fixture failed");
+        std::cerr<<"  circle-circle\n";
+        verify_rolling_support(circle_circle,
+            rolling_support_edge(circle_circle,height,GeomAbs_Cylinder,
+                GeomAbs_Cylinder),5.,height,
+            {GeomAbs_Cylinder,GeomAbs_Cylinder},
+            "Circle-circle rolling-support Fillet lost a support contact");
+
+        const auto ellipse=ellipse_prism(120.,80.,height);
+        const auto ellipse_circle_source=BRepPrimAPI_MakeCylinder(
+            gp_Ax2(gp_Pnt(30.,0.,0.),gp_Dir(0.,0.,1.)),90.,height).
+            Shape();
+        const auto ellipse_circle=common_solid(ellipse,
+            ellipse_circle_source,
+            "Ellipse-circle rolling-support fixture failed");
+        std::cerr<<"  ellipse-circle\n";
+        verify_rolling_support(ellipse_circle,
+            rolling_support_edge(ellipse_circle,height,
+                GeomAbs_SurfaceOfExtrusion,GeomAbs_Cylinder),3.,height,
+            {GeomAbs_SurfaceOfExtrusion,GeomAbs_Cylinder},
+            "Ellipse-circle rolling-support Fillet lost a support contact");
+
+        const auto spline=spline_prism(height);
+        const auto spline_circle_source=
+            BRepPrimAPI_MakeCylinder(80.,height).Shape();
+        const auto spline_circle=common_solid(spline,spline_circle_source,
+            "Spline-circle rolling-support fixture failed");
+        std::cerr<<"  spline-circle\n";
+        verify_rolling_support(spline_circle,
+            rolling_support_edge(spline_circle,height,
+                GeomAbs_SurfaceOfExtrusion,GeomAbs_Cylinder),3.,height,
+            {GeomAbs_SurfaceOfExtrusion,GeomAbs_Cylinder},
+            "Spline-circle rolling-support Fillet lost a support contact");
+    }
+    {
         std::cerr<<"fillet-test: straight B-spline path\n";
         const auto fixture=straight_spline_fixture();
         verify_result(fixture.shape,{fixture.edge},1.5);
@@ -1143,7 +1409,7 @@ int main() try {
                 "Separately selected tangent line and arc changed route area");
         }
     }
-    std::cout<<"Custom planar edge Fillet: convex/concave 90-degree, inner/outer two/three-branch and staggered-step nodes, through-notch and side-pocket terminals, mixed CUT/FUSE order, batch, 60-degree, perpendicular/angled/tangent Up To ends, exact cylinder/sphere ancestry and rejection checks passed\n";
+    std::cout<<"Custom planar edge Fillet: convex/concave 90-degree, inner/outer two/three-branch and staggered-step nodes, through-notch and side-pocket terminals, mixed CUT/FUSE order, batch, 60-degree, perpendicular/angled/tangent Up To ends, exact plane/circle, circle/circle, ellipse/circle and spline/circle rolling supports, cylinder/sphere ancestry and rejection checks passed\n";
     return 0;
 } catch(const std::exception& error) {
     std::cerr<<error.what()<<'\n';return 1;
