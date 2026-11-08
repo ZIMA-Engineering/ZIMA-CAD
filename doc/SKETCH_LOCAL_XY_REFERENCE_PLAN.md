@@ -13,9 +13,11 @@ the complete mapping is rolled out.
 The first prototype covers automatic first-plane entry in the ordinary Sketch
 and profile Properties dialogs. An unplaced profile consumes the existing TOP
 orientation equation: the picked plane normal drives local Z, and the profile
-lies in the feature's real local XY plane. Replacing an already authored plane
-retains its explicit orientation role. No common FRONT/TOP axis definitions are
-changed. Explicit manual work planes retain their meaning.
+lies in the feature's real local XY plane. A fresh replacement pick in automatic
+mode is another authoring action and therefore uses the same TOP/XY policy.
+Merely loading an existing persisted FRONT/XZ frame does not migrate or rotate
+it. No common FRONT/TOP axis definitions are changed. Explicit manual work
+planes retain their meaning.
 
 ## One frame policy and real geometry
 
@@ -113,3 +115,22 @@ existing XY/FRONT/TOP identifiers and all five catalogs are reused.
 The isolated build is `C:/zcb/reference-next`. The ordinary `zima-cad.bat` and its
 development executable are not replaced. Manual acceptance starts with a new
 test feature or private copy, not a factory conversion.
+
+## Automatic replacement correction (2026-11-08)
+
+The user explicitly approved the narrow shared-placement correction after a
+placed profile in `10.prtz` retained the generic FRONT role supplied by placement
+row zero. That role maps the picked carrier to local XZ and can make the profile
+and its resulting solid appear to change sides after later editing. New and
+replacement planar picks in automatic profile mode now override that transient
+generic candidate with the established TOP/local-XY role. Manual work planes,
+complete-Origin entry and persisted frames that are only being loaded remain
+unchanged.
+
+The native matrix reproduces a FRONT-preassigned GUI candidate, requires TOP
+after preparation and independently verifies that an existing persisted FRONT
+frame still resolves to XZ until the user explicitly replaces its support. The
+48-case first-face matrix covers XY/XZ/YZ supports, both sides, quarter turns,
+offsets, calculated volume and native save/reopen. The complete work-plane GUI
+contract and five-language catalog contract also pass. No persisted field,
+format version, solver equation or platform-specific modeling path changed.

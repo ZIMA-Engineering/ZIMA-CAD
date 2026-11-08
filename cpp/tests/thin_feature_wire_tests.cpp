@@ -166,6 +166,25 @@ void rectangular_matrix(const kernel::OcctKernel& engine) {
                 "Two-edge Thin fillet did not commit");
             auto& state=*live.open_part(doc.document_id);
             require(state.session.calculated_boundaries().back().calculation_errors.empty(),"Two-edge Thin fillet retained a calculation failure");
+            const auto* treatment_input=workspace::calculated_operation_input(
+                state.session,treatment.id);
+            require(treatment_input,"Two-edge Thin fillet lost its calculated input");
+            std::vector<kernel::ViewerEdge> expected_wire;
+            for(std::size_t route=0;route<treatment.edge_treatment.routes.size();++route) {
+                auto resolved=document::treatment_selection_wire(
+                    treatment.edge_treatment,route,std::nullopt,
+                    treatment_input->mesh);
+                expected_wire.insert(expected_wire.end(),
+                    std::make_move_iterator(resolved.begin()),
+                    std::make_move_iterator(resolved.end()));
+            }
+            const auto authored_wire=app::authored_feature_wire(
+                state.session,treatment.id);
+            require(authored_wire.size()==expected_wire.size(),
+                "Fillet authored wire omitted one of its persisted routes");
+            for(std::size_t edge=0;edge<expected_wire.size();++edge)
+                require(authored_wire[edge].points==expected_wire[edge].points,
+                    "Fillet authored wire differs from its rollback-input route");
             require(state.session.undo()&&state.session.redo(),"Two-edge Thin fillet Undo/Redo failed");++fillets;
         }
     }

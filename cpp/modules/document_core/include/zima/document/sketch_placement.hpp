@@ -5,27 +5,19 @@
 #include <zima/document/placement_orientation.hpp>
 
 namespace zima::document {
-// Plane entry chooses a real TOP equation for an unplaced profile. Replacing
-// an authored placement retains its chosen axis; no stored frame is migrated.
+// Plane entry chooses a real TOP equation for an automatic profile. This is
+// called only for an explicit new/replacement pick; merely loading a stored
+// FRONT frame never passes through here and therefore is not migrated.
 inline void prepare_profile_plane_reference(std::size_t index,ConstructionReference& reference,
         const std::vector<ConstructionReference>& existing) {
     if(index!=0||!reference.supports_offset)return;
-    // The caller may already have assigned the plane to FRONT/TOP from the
-    // actual ordered placement draft.  Preserve that explicit equation: this
-    // helper only supplies the profile-specific TOP default for an otherwise
-    // unoriented plane reference.
-    if(reference.orientation_drives_rotation&&reference.orientation_role!="none")return;
-    const auto first=std::ranges::find_if(existing,[](const auto& candidate){
-        return !candidate.orientation_only&&candidate.supports_offset&&
-            (!candidate.owner_id.empty()||!candidate.semantic_key.empty());
-    });
-    if(first!=existing.end()) {
-        if(first->orientation_drives_rotation&&first->orientation_role!="none") {
-            reference.orientation_role=first->orientation_role;reference.orientation_drives_rotation=true;
-        }
-        return;
-    }
-    if(std::ranges::any_of(existing,[](const auto& candidate){return candidate.orientation_drives_rotation;}))return;
+    static_cast<void>(existing);
+    // The common placement row prepares position 0 as FRONT before the
+    // profile dialog sees it. FRONT maps the picked plane to local XZ, which
+    // regressed the established first-plane -> local XY contract. A pick in
+    // automatic work-plane mode is a fresh authoring action, so TOP wins even
+    // when the generic candidate arrived preassigned as FRONT. Manual profile
+    // planes bypass this helper, and persisted frames are left untouched.
     reference.orientation_role="top";reference.orientation_drives_rotation=true;
 }
 

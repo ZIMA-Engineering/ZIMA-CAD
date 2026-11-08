@@ -4,6 +4,7 @@
 #include <zima/kernel/edge_treatment_chain.hpp>
 #include <zima/kernel/edge_treatment_route_plan.hpp>
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <limits>
 #include <map>
@@ -111,8 +112,8 @@ inline std::vector<EdgeReference> tangent_edge_route(const std::vector<ViewerEdg
         return zima::kernel::Vec3{tangent.x/length,
             tangent.y/length,tangent.z/length};
     };
-    const auto material_angle_signature=[&](std::size_t index,int end)
-            ->std::optional<double> {
+    const auto material_side_signature=[&](std::size_t index,int end)
+            ->std::optional<std::array<Vec3,2>> {
         const auto& edge=edges[index];
         if(edge.edge_treatment_side_directions.size()!=2||
            edge.edge_treatment_side_directions[0].size()!=edge.points.size()||
@@ -126,8 +127,15 @@ inline std::vector<EdgeReference> tangent_edge_route(const std::vector<ViewerEdg
         if(!std::isfinite(first_length)||!std::isfinite(second_length)||
            first_length<=1.0e-12||second_length<=1.0e-12)
             return std::nullopt;
-        return std::clamp((first.x*second.x+first.y*second.y+
-            first.z*second.z)/(first_length*second_length),-1.,1.);
+        return std::array{
+            Vec3{first.x/first_length,first.y/first_length,
+                first.z/first_length},
+            Vec3{second.x/second_length,second.y/second_length,
+                second.z/second_length}};
+    };
+    const auto dot=[](const Vec3& first,const Vec3& second) {
+        return std::clamp(first.x*second.x+first.y*second.y+
+            first.z*second.z,-1.,1.);
     };
     std::set<std::size_t> selected{*seed_index};
     std::vector<std::size_t> pending{*seed_index};
@@ -143,7 +151,7 @@ inline std::vector<EdgeReference> tangent_edge_route(const std::vector<ViewerEdg
         const auto current = pending.back(); pending.pop_back();
         for (int end = 0; end < 2; ++end) {
             const auto current_direction = direction(current, end);
-            const auto current_material=material_angle_signature(current,end);
+            const auto current_material=material_side_signature(current,end);
             const auto vertex = endpoint_key(edges[current], end);
             if (!current_direction || !vertex) continue;
             // Once the route has crossed one vertex, do not enter the same
@@ -155,16 +163,36 @@ inline std::vector<EdgeReference> tangent_edge_route(const std::vector<ViewerEdg
                 if (candidate.edge == current || selected.contains(candidate.edge)) continue;
                 const auto candidate_direction = direction(candidate.edge, candidate.end);
                 if (!candidate_direction) continue;
-                const auto candidate_material=material_angle_signature(
+                const auto candidate_material=material_side_signature(
                     candidate.edge,candidate.end);
                 // Geometric tangency alone is insufficient at a Boolean
                 // branch: the same authored curve can continue from a real
                 // corner into an old smooth seam.  When both calculated
                 // fragments publish their exact face-side directions, retain
                 // only a continuation with the same material opening.
-                if(current_material&&candidate_material&&
-                   std::abs(*current_material-*candidate_material)>1.0e-6)
-                    continue;
+                if(current_material&&candidate_material) {
+                    const double current_opening=dot(
+                        (*current_material)[0],(*current_material)[1]);
+                    const double candidate_opening=dot(
+                        (*candidate_material)[0],(*candidate_material)[1]);
+                    if(std::abs(current_opening-candidate_opening)>1.0e-6)
+                        continue;
+                    // Equal opening angles are not enough. At a Boolean
+                    // vertex the same 90-degree material wedge can continue
+                    // onto a different pair of faces, making a visually sharp
+                    // break even though the two edge curves are tangent. Both
+                    // inward material-side directions must continue (their
+                    // stored order is not significant). A true line/arc or
+                    // split-edge continuation reaches 1 for one pairing;
+                    // a same-angle wedge turned onto another side is stopped.
+                    const double direct=std::min(
+                        dot((*current_material)[0],(*candidate_material)[0]),
+                        dot((*current_material)[1],(*candidate_material)[1]));
+                    const double swapped=std::min(
+                        dot((*current_material)[0],(*candidate_material)[1]),
+                        dot((*current_material)[1],(*candidate_material)[0]));
+                    if(std::max(direct,swapped)<1.-1.0e-6)continue;
+                }
                 const double alignment =
                     current_direction->x * candidate_direction->x +
                     current_direction->y * candidate_direction->y +

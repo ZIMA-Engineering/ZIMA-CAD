@@ -1,6 +1,7 @@
 #pragma once
 #include "sketch_profile_wire.hpp"
 #include <zima/document/feature_material_wire.hpp>
+#include <zima/document/edge_treatment_selection.hpp>
 #include <zima/document/document_session.hpp>
 #include <zima/document/feature_up_to.hpp>
 #include <zima/document/bend.hpp>
@@ -118,6 +119,27 @@ inline std::vector<kernel::ViewerEdge> authored_feature_wire(
         wire.edges=document::PartDocument::helical_preview_edges(*feature);return place(std::move(wire));
     case FeatureKind::SheetTransition:
         return place(document::sheet_transition_preview(*feature,document::sheet_metal_defaults(doc)));
+    case FeatureKind::Fillet:
+    case FeatureKind::Chamfer:
+        // Fillet/Chamfer authoring selects routes on the body immediately
+        // before the treatment. Later Boolean boundaries may retain only one
+        // parent contribution or split it into unrelated result fragments;
+        // neither is the command's creation/Properties wire. Re-resolve every
+        // persisted route against the already calculated input packet, exactly
+        // like the treatment dialog and Tree route rows do. This is a read-only
+        // presentation path and never invokes OCCT.
+        if (input) {
+            for (std::size_t route=0;
+                    route<feature->edge_treatment.routes.size();++route) {
+                auto edges=document::treatment_selection_wire(
+                    feature->edge_treatment,route,std::nullopt,input_mesh);
+                wire.edges.insert(wire.edges.end(),
+                    std::make_move_iterator(edges.begin()),
+                    std::make_move_iterator(edges.end()));
+            }
+            return place(std::move(wire));
+        }
+        return {};
     case FeatureKind::DerivedCopy: {
         // Mirror/Pattern copy the source's complete authored tool wire. A
         // downstream Boolean can consume or split source edges; those result

@@ -7281,10 +7281,15 @@ int history_cursor_boundary_probe(const std::filesystem::path& source,
     const auto calculate_ms=std::chrono::duration<double,std::milli>(
         Clock::now()-calculate_start).count();
     const auto mesh=state->session.body_context_mesh();
-    if(!change.changed||!change.boundary_materialized||
-       mesh.vertices.empty()||mesh.triangles.empty())
-        throw std::runtime_error(
-            "History boundary probe did not materialize its visible Body");
+    if(!change.changed||mesh.vertices.empty()||mesh.triangles.empty()) {
+        std::ostringstream detail;
+        detail<<"History boundary probe did not publish its visible Body"
+            <<" changed="<<change.changed
+            <<" materialized="<<change.boundary_materialized
+            <<" vertices="<<mesh.vertices.size()
+            <<" triangles="<<mesh.triangles.size();
+        throw std::runtime_error(detail.str());
+    }
 
     const auto save_start=Clock::now();
     state->session.document().save(destination,

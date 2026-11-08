@@ -251,6 +251,34 @@ complete direct Chamfer set in 0.84 seconds; each set contains many operations,
 while the individual representative treatment remains below the one-second
 interaction target. No native format, start template or factory asset changed.
 
+## Route boundaries, authored wire and edit rollback (2026-11-08)
+
+Automatic tangent traversal now preserves the material-side pair at every
+continuation. Curve tangency and an equal opening angle are insufficient when a
+Boolean vertex turns the same 90-degree wedge onto another pair of faces. Both
+unordered inward side directions must continue within the existing numerical
+tolerance. This stops selection at the visible material break while retaining
+true line/arc and split-edge continuation. Missing exact side metadata retains
+the previous conservative traversal behavior.
+
+Ordinary Fillet and Chamfer selection reconstructs its authored azure wire from
+every persisted route against the already calculated Body immediately before
+the treatment. It no longer relies on later Boolean result fragments, which may
+retain only one contribution or split an authored edge. The presentation path
+is read-only, fills no faces and invokes no OCCT calculation. Opening Properties
+uses that same history boundary as its rollback input; Cancel restores the full
+history without changing the document revision.
+
+The exact `10.prtz` reproduction verifies nonempty authored wires for all seven
+Fillets and both Chamfers. In particular, Fillet 05 restores its missing wire,
+Fillet 07 resolves all five current fragments across its three persisted routes,
+and the route that previously offered two segments past the break stops at its
+three authored members. Actual View clicks select the correct Tree feature,
+double-click exposes its radius, Properties retains a nonempty rollback Body and
+Cancel is transaction-free. Native thin-profile, command, work-plane, route,
+six focused GUI and five-language catalog contracts pass. The native format,
+factory assets, geometry precision and Qt/OCCT pins are unchanged.
+
 ## Boolean edge fragments (2026-09-15)
 
 A through Extrusion across a hollow Part can leave multiple disconnected pieces

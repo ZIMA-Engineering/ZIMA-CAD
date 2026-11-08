@@ -31,7 +31,13 @@ void first_face_xy(kernel::OcctKernel& kernel,const fs::path& directory) {
         sketch.owner_container_id=feature.id;feature.extrusion.length_forward=7;
         document::ConstructionReference face;face.owner_id=doc.document_id+":origin";face.semantic_key=std::string("origin:plane:")+plane;
         face.supports_offset=true;face.flip=flip;face.offset=std::array{0.,-0.,3.,-3.}[turn];
+        // Reproduce the actual shared placement candidate. Position row 0 is
+        // generically prepared as FRONT before the automatic profile policy
+        // changes the newly picked support to the established TOP/XY default.
+        face.orientation_drives_rotation=true;face.orientation_role="front";
         document::prepare_profile_plane_reference(0,face,{});
+        check(face.orientation_drives_rotation&&face.orientation_role=="top",
+            "Automatic first-plane pick retained the generic FRONT/XZ role");
         std::vector<document::ConstructionReference> position,orientation;std::array<bool,3> locks{};
         check(document::assign_placement_reference({position,orientation,locks},true,0,face).error==document::PlacementReferenceError::None,"TOP first plane assignment failed");
         feature.placement.references=document::combined_placement_references(position,orientation);
@@ -54,6 +60,12 @@ void first_face_xy(kernel::OcctKernel& kernel,const fs::path& directory) {
         // silently converted to TOP when existing geometry is opened/edited.
         auto front=authored;for(auto& ref:front)ref.orientation_role="front";
         const auto before=front;document::normalize_container_front_references(front);check(front==before,"Explicit FRONT was reinterpreted as TOP");
+        check(document::automatic_sketch_work_plane(front)==sketcher::SketchPlane::XZ,
+            "Reading an existing FRONT frame silently migrated it to XY");
+        auto replacement=face;replacement.orientation_role="front";
+        document::prepare_profile_plane_reference(0,replacement,front);
+        check(replacement.orientation_role=="top",
+            "Replacing the first automatic support retained its old FRONT/XZ role");
     }
     std::cout<<"First face: "<<cases<<" XY/XZ/YZ supports, sides, camera-independent back/quarter poses, offsets, calculated volume and native reopen passed\n";
 }

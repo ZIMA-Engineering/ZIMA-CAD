@@ -192,12 +192,25 @@ int verify_edge_treatment_ui(QApplication& application, AssemblyWorkspaceWindow&
                     item->data(0,Qt::UserRole+3)=="part-container";
             };
             check(selected_feature(),"Single-clicking the rounded surface did not select its feature in the Tree");
+            check(view->property("gpuSourceWireVertexCount").toULongLong()>0,
+                "Single-clicking the rounded surface omitted its authored azure wire");
+            check(view->property("selectedFeatureFaceTriangleCount").toULongLong()==0,
+                "Single-clicking the rounded surface filled the selected feature");
             check(run("documents").at(0).at("revision")==revision,"Surface selection created a transaction");
             mouse(QEvent::MouseButtonDblClick,surface,Qt::LeftButton,Qt::LeftButton);
             mouse(QEvent::MouseButtonRelease,surface,Qt::LeftButton,Qt::NoButton);
             check(radius_visible(),"Double-clicking the rounded surface omitted its radius annotation");
             check(selected_feature(),"Double-clicking the rounded surface lost its selected Tree feature");
             check(run("documents").at(0).at("revision")==revision,"Surface inspection created a transaction");
+            auto* opened_properties=edit(owner);
+            check(opened_properties->container_id()==owner,
+                "Tree Properties opened a different treatment");
+            check(!view->mesh().vertices.empty()&&
+                    !view->mesh().triangles.empty(),
+                "Opening treatment Properties hid the complete rollback input");
+            finish(false);
+            check(run("documents").at(0).at("revision")==revision,
+                "Treatment Properties Cancel changed the user model");
             if(qEnvironmentVariableIsSet(
                     "ZIMA_VERIFY_EDGE_TREATMENT_FRAGMENT_PRESENTATION")) {
                 auto* pending=edit(owner);

@@ -138,6 +138,26 @@ int main(){try {
     check(tangent_edge_route({a,b},{"missing","missing",{}}).empty(),"Missing seed was guessed");
     check(tangent_edge_route({a,b},a.reference,0).size()==2,"Exactly collinear route was rejected");
     {
+        auto first=a,continuation=b,turned=b;
+        turned.reference={"feature-turned","turned",{}};
+        const auto publish_material=[](ViewerEdge& value,
+                Vec3 first,Vec3 second) {
+            value.edge_treatment_side_directions={
+                std::vector(value.points.size(),first),
+                std::vector(value.points.size(),second)};
+        };
+        publish_material(first,{0,1,0},{0,0,1});
+        publish_material(continuation,{0,1,0},{0,0,1});
+        publish_material(turned,{1,0,0},{0,0,1});
+        check(tangent_edge_route({first,continuation},first.reference)==
+                std::vector<EdgeReference>{first.reference,
+                    continuation.reference},
+            "A tangent route with the same material sides was stopped");
+        check(tangent_edge_route({first,turned},first.reference)==
+                std::vector<EdgeReference>{first.reference},
+            "A tangent edge crossed a same-angle material wedge turned onto another side");
+    }
+    {
         const std::vector body{a,b,tee};
         const std::array<std::size_t,2> selected{1,0};
         const auto plan=build_edge_treatment_route_plan(body,selected);

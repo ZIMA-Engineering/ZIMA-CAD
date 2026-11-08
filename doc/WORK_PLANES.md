@@ -5,10 +5,12 @@ construction Plane expose **Base plane** selection.
 
 - New unbound Sketches and construction Planes start in local **XY**. Their
   displayed container axes agree with the complete Origin entered by **Default**.
-- **Automatic** uses local XY after explicitly entering a complete Origin;
-  otherwise it follows the first directional reference (FRONT) for feature
-  containers. A planar reference contributes its normal; a curve contributes
-  its tangent at the attachment. An anchoring point does not consume FRONT.
+- **Automatic** uses local XY after explicitly entering a complete Origin. For
+  an ordinary Sketch or profile container, a newly picked or replaced first
+  planar support also authors TOP and therefore local XY. Other feature
+  containers follow the first directional reference (FRONT). A planar
+  reference contributes its normal; a curve contributes its tangent at the
+  attachment. An anchoring point does not consume FRONT.
 - **XY / XZ / YZ** stores a manual selection in the container's local frame.
 - **Plane offset** is measured perpendicular to the selected plane. The
   container itself is still positioned by its references and coordinates.
@@ -16,9 +18,12 @@ construction Plane expose **Base plane** selection.
 - Returning to **Automatic** resumes following FRONT.
 - The Revolution axis belongs to the Sketch and changes frame with the profile.
 
-The automatic choice is local XZ when the first reference defines FRONT
-(the local Y axis). The source plane's world name therefore need not match
-its corresponding local plane in the already rotated container.
+The automatic choice is local XZ when an existing authored first reference
+defines FRONT (the local Y axis). Reading such a persisted frame does not
+silently migrate it. An explicit replacement of the first automatic planar
+support is a new profile-authoring action and uses TOP/local XY. The source
+plane's world name therefore need not match its corresponding local plane in
+an already rotated container.
 Selecting the complete Origin is a frame attachment, not a request to draw
 on its first listed datum plane. Manual plane choices remain unchanged.
 Regeneration preserves the plane already stored in an authored document;
