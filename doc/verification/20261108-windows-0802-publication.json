@@ -1,0 +1,73 @@
+{
+  "release": {
+    "tag": "ZIMA-CAD-2026110802",
+    "commit": "5f3a6aa93c0d30370779770bc9e1cad5ee53d98b",
+    "published_at": "2026-11-08T18:05:06Z",
+    "url": "https://github.com/ZIMA-Engineering/ZIMA-CAD/releases/tag/ZIMA-CAD-2026110802",
+    "draft": false,
+    "prerelease": false,
+    "latest": true
+  },
+  "candidate": {
+    "archive_size": 962058715,
+    "archive_sha256": "c5dc830cc9a7738da4c8b57cfdc809df034f1174b398c8029a5428b877fb23ab",
+    "windows_smoke": "passed",
+    "native_factory_assets_loaded": 1185,
+    "native_factory_asset_failures": 0
+  },
+  "signed_release": {
+    "archive_name": "ZIMA-CAD-2026110802.zip",
+    "archive_size": 962875034,
+    "archive_sha256": "f0b52026fca4e4071c5fd3d334b3a8b997b7fa177e4ccbcdbe3187d65b922395",
+    "archive_file_count": 17506,
+    "archive_unpacked_size": 3223260345,
+    "source_tree_sha256": "2145a34396342401b2bdd2bc57258a7e9733f72f7393ac1d4f62fc5f3b5d725c",
+    "windows_smoke": "passed",
+    "linux_smoke": "not-run",
+    "publisher_key_id": "zcp-8fa1f825cbde5d81",
+    "manifest_sha256": "5dd2818189cbb3519766bf42feb463e7c8d03827a8ce28b4220f57cd08d9f693",
+    "signature_file_sha256": "d8f2b25c51ea298acc4a68242248bbe4feed341674b7d1b9adf1249781c81824"
+  },
+  "public_assets": [
+    {
+      "name": "ZIMA-CAD-2026110802.zip",
+      "size": 962875034,
+      "sha256": "f0b52026fca4e4071c5fd3d334b3a8b997b7fa177e4ccbcdbe3187d65b922395",
+      "github_digest_matches": true,
+      "anonymous_download_matches": true
+    },
+    {
+      "name": "update-manifest.json",
+      "size": 703,
+      "sha256": "5dd2818189cbb3519766bf42feb463e7c8d03827a8ce28b4220f57cd08d9f693",
+      "github_digest_matches": true,
+      "anonymous_download_matches": true
+    },
+    {
+      "name": "update-manifest.sig",
+      "size": 176,
+      "sha256": "d8f2b25c51ea298acc4a68242248bbe4feed341674b7d1b9adf1249781c81824",
+      "github_digest_matches": true,
+      "anonymous_download_matches": true
+    }
+  ],
+  "updater_discovery": {
+    "status": "not-run",
+    "reason": "No previous managed release installation was retained locally.",
+    "download_performed": false,
+    "installation_performed": false
+  },
+  "focused_verification": {
+    "tests_passed": 17,
+    "tests_failed": 0,
+    "curved_fillet_and_chamfer_terminals": "passed",
+    "exact_chamfer_route_membership": "passed",
+    "rolling_support_preview_wires": "passed",
+    "history_treatment_deletion": "passed",
+    "localization_contract": "passed"
+  },
+  "limits": [
+    "The complete repository-wide regression matrix is not claimed green.",
+    "Native Linux compilation and execution were not run on the Windows host."
+  ]
+}

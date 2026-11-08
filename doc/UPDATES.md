@@ -1,5 +1,16 @@
 # Application updates
 
+Signed Windows [2026110802](releases/2026110802.md#windows-publication-acceptance)
+was published at `2026-11-08T18:05:06Z` from immutable source
+`5f3a6aa93c0d30370779770bc9e1cad5ee53d98b`. Shared exact curved Fillet and
+Chamfer termination, persisted Chamfer routes, rolling-support preview wires
+and safe history-treatment deletion passed their focused contracts. Candidate
+and signed native smoke passed; candidate smoke loaded all 1,185 factory
+assets. The signed manifest binds 17,506 archive entries, exact source and the
+Windows runtime. All three anonymous public downloads match the accepted
+bytes. Native Linux execution remains a separate host gate. See the
+[publication evidence](verification/20261108-windows-0802-publication.json).
+
 Signed Windows [2026110703](releases/2026110703.md#windows-publication-acceptance)
 was published at `2026-11-07T22:42:45Z` from immutable source
 `a212e65243295a14dfa6589622b2ca5c8e8f1eb8`. The ZIMA Fillet and Chamfer node
