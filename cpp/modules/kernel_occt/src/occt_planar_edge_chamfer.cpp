@@ -33,6 +33,7 @@
 #include <iterator>
 #include <numbers>
 #include <optional>
+#include <queue>
 #include <ranges>
 #include <stdexcept>
 #include <utility>
@@ -45,6 +46,11 @@ struct Tool {
     std::vector<TopoDS_Face> treatment_faces;
     bool adds_material{};
     TopoDS_Solid material;
+    // For asymmetric Chamfers the first support owns A and the second owns B.
+    // Keeping the exact faces lets a shared route node prove that A/B continues
+    // through the same side instead of choosing each segment independently.
+    TopoDS_Face first_support;
+    TopoDS_Face second_support;
 };
 
 struct SelectedNode {
@@ -432,7 +438,8 @@ Tool make_tool(const TopoDS_Edge& edge,const TopoDS_Face& first_face,
     const gp_Pnt interior=first.Translated(gp_Vec(tangent)*(length*.5));
     clip(end_faces.first,interior);
     clip(end_faces.last,interior);
-    return {tool,std::move(treatment_faces),adds,material};
+    return {tool,std::move(treatment_faces),adds,material,
+        first_face,second_face};
 }
 
 } // namespace
@@ -469,7 +476,10 @@ OcctPlanarEdgeChamferResult occt_planar_edge_chamfer(
     TopExp::MapShapesAndAncestors(input,TopAbs_EDGE,TopAbs_SOLID,edge_solids);
     TopTools_IndexedMapOfShape requested_edges;
     std::vector<SelectedNode> selected_nodes;
-    std::vector<Tool> tools;
+    std::vector<std::array<TopoDS_Face,2>> selection_faces;
+    std::vector<TopoDS_Solid> selection_materials;
+    selection_faces.reserve(selections.size());
+    selection_materials.reserve(selections.size());
     for(std::size_t selection_index=0;
             selection_index<selections.size();++selection_index) {
         const auto& selection=selections[selection_index];
@@ -532,26 +542,101 @@ OcctPlanarEdgeChamferResult occt_planar_edge_chamfer(
         if(faces.size()!=2||solids.size()!=1)
             throw std::invalid_argument(
                 "ZIMA Chamfer requires one manifold solid edge");
-        if(mode!=OcctPlanarEdgeChamferMode::EqualDistance) {
-            if(selection.distance_a_face.IsNull())
-                throw std::invalid_argument(
-                    "ZIMA Chamfer requires the stable A support face");
-            if(selection.distance_a_face.IsSame(faces[1]))
-                std::swap(faces[0],faces[1]);
-            else if(!selection.distance_a_face.IsSame(faces[0]))
-                throw std::invalid_argument(
-                    "ZIMA Chamfer A support is not adjacent to its edge");
+        if(mode!=OcctPlanarEdgeChamferMode::EqualDistance&&
+                (selection.distance_a_face.IsNull()||
+                 (!selection.distance_a_face.IsSame(faces[0])&&
+                  !selection.distance_a_face.IsSame(faces[1]))))
+            throw std::invalid_argument(
+                selection.distance_a_face.IsNull()
+                    ?"ZIMA Chamfer requires the stable A support face"
+                    :"ZIMA Chamfer A support is not adjacent to its edge");
+        selection_faces.push_back({faces[0],faces[1]});
+        selection_materials.push_back(solids.front());
+    }
+
+    if(mode!=OcctPlanarEdgeChamferMode::EqualDistance) {
+        // A/B is authored once on the first member, then transported through
+        // the one connected route.  At a turn the common support keeps its
+        // current role and the new support inherits the other role.  This
+        // avoids reinterpreting A/B from independent face-name sorting on
+        // every segment.
+        if(selections[0].distance_a_face.IsSame(selection_faces[0][1]))
+            std::swap(selection_faces[0][0],selection_faces[0][1]);
+        std::vector<bool> oriented(selections.size());
+        oriented[0]=true;
+        std::queue<std::size_t> pending;
+        pending.push(0);
+        while(!pending.empty()) {
+            const auto current=pending.front();
+            pending.pop();
+            for(const auto& node:selected_nodes) {
+                if(std::ranges::find(node.tools,current)==node.tools.end())
+                    continue;
+                for(const auto neighbor:node.tools) {
+                    if(neighbor==current)continue;
+                    int current_common=-1,neighbor_common=-1,common_count{};
+                    for(int first=0;first<2;++first)
+                        for(int second=0;second<2;++second)
+                            if(selection_faces[current][first].IsSame(
+                                    selection_faces[neighbor][second])) {
+                                current_common=first;
+                                neighbor_common=second;
+                                ++common_count;
+                            }
+                    if(common_count==0)
+                        throw std::invalid_argument(
+                            "A x B and A + angle Chamfer route has no continuous support side");
+                    int neighbor_a{};
+                    if(common_count==2) {
+                        neighbor_a=selection_faces[neighbor][0].IsSame(
+                            selection_faces[current][0])?0:1;
+                    } else if(common_count==1) {
+                        neighbor_a=current_common==0
+                            ?neighbor_common:1-neighbor_common;
+                    } else {
+                        throw std::invalid_argument(
+                            "A x B and A + angle Chamfer route has ambiguous support sides");
+                    }
+                    const auto intended_a=selection_faces[neighbor][neighbor_a];
+                    if(oriented[neighbor]) {
+                        if(!selection_faces[neighbor][0].IsSame(intended_a))
+                            throw std::invalid_argument(
+                                "A x B and A + angle Chamfer route reverses A/B sides");
+                        continue;
+                    }
+                    if(neighbor_a==1)
+                        std::swap(selection_faces[neighbor][0],
+                            selection_faces[neighbor][1]);
+                    oriented[neighbor]=true;
+                    pending.push(neighbor);
+                }
+            }
         }
-        auto tool=make_tool(edge,faces[0],faces[1],mode,distance_a,
+        if(std::ranges::any_of(oriented,[](bool value){return !value;}))
+            throw std::invalid_argument(
+                "A x B and A + angle Chamfer require one connected route");
+    }
+
+    std::vector<Tool> tools;
+    tools.reserve(selections.size());
+    for(std::size_t selection_index=0;
+            selection_index<selections.size();++selection_index) {
+        auto& faces=selection_faces[selection_index];
+        auto tool=make_tool(selections[selection_index].edge,
+            faces[0],faces[1],mode,distance_a,
             distance_b_or_angle,tolerance,
-            solids.front(),end_faces.empty()?OcctPlanarEdgeEndFaces{}:
-                end_faces[tools.size()]);
+            selection_materials[selection_index],
+            end_faces.empty()?OcctPlanarEdgeEndFaces{}:
+                end_faces[selection_index]);
         tools.push_back(std::move(tool));
     }
 
-    // A persisted tangent chain is still one line. A non-collinear shared
-    // endpoint is a real node and is admitted only for symmetric A x A:
-    // inner/outer x two/three branches are the four deterministic base cases.
+    // One persisted asymmetric route may turn at a two-edge node. A/B is not
+    // chosen again after that turn: the two segments must share the same
+    // support in the same role. This makes the distance pair (or A + angle)
+    // continuous while rejecting a side swap, a branch or an ambiguous node.
+    // Symmetric A x A additionally supports the deterministic inner/outer
+    // two- and three-branch base cases below.
     // The signed tools already encode inner (FUSE) versus outer (CUT), so a
     // mixed-sense node is rejected instead of depending on click order.
     const double angular_tolerance=std::max(1.0e-9,tolerance);
@@ -567,10 +652,34 @@ OcctPlanarEdgeChamferResult occt_planar_edge_chamfer(
             first_direction.IsParallel(outgoing_tangent(
                 selections[node.tools.back()].edge,node.vertex,tolerance),
                 angular_tolerance);
+        if(mode!=OcctPlanarEdgeChamferMode::EqualDistance) {
+            if(node.tools.size()!=2)
+                throw std::invalid_argument(
+                    "A x B and A + angle Chamfer require one continuous line");
+            const auto first=node.tools.front();
+            const auto second=node.tools.back();
+            if(!tools[first].material.IsSame(tools[second].material)||
+               tools[first].adds_material!=tools[second].adds_material)
+                throw std::invalid_argument(
+                    "A x B and A + angle Chamfer route changes material side");
+            const bool a_continues=tools[first].first_support.IsSame(
+                tools[second].first_support);
+            const bool b_continues=tools[first].second_support.IsSame(
+                tools[second].second_support);
+            if(one_line) {
+                if(!a_continues||!b_continues)
+                    throw std::invalid_argument(
+                        "A x B and A + angle Chamfer route changes A/B sides");
+            } else if(a_continues==b_continues) {
+                // A proper turn has exactly one common support. If neither or
+                // both roles match, the next segment cannot inherit A/B
+                // unambiguously.
+                throw std::invalid_argument(
+                    "A x B and A + angle Chamfer route has ambiguous A/B sides");
+            }
+            continue;
+        }
         if(one_line)continue;
-        if(mode!=OcctPlanarEdgeChamferMode::EqualDistance)
-            throw std::invalid_argument(
-                "A x B and A + angle Chamfer require one continuous line");
         const bool adds_material=tools[node.tools.front()].adds_material;
         if(std::ranges::any_of(node.tools,[&](const auto index) {
                 return tools[index].adds_material!=adds_material;

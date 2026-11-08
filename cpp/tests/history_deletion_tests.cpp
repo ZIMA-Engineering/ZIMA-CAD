@@ -1,6 +1,7 @@
 #include "profile_solid_fixture.hpp"
 #include <zima/workspace/history_deletion.hpp>
 #include <zima/workspace/history_operations.hpp>
+#include <zima/workspace/operation_input.hpp>
 #include <zima/workspace/part_transactions.hpp>
 #include <zima/workspace/edge_treatment_operations.hpp>
 #include <zima/workspace/profile_operations.hpp>
@@ -495,13 +496,65 @@ static void verify_retained_container_properties_repair(
     require(session.calculated_boundaries().back().calculation_errors.empty(),
         "Container 2 rebinding left a calculation error");
 }
+static void verify_treatment_delete_input(kernel::OcctKernel& kernel) {
+    auto document=document::PartDocument::create_default();
+    auto source=test::rectangular_feature(document,{10,10,10});
+    document.history={source};
+    auto calculated=workspace::calculate_part(kernel,document);
+    auto fillet=document::PartDocument::create_fillet_container(
+        {calculated.back().mesh.edges.front().reference});
+    fillet.edge_treatment.primary_size=.5;
+    document.history.push_back(fillet);
+    calculated=workspace::calculate_part(kernel,document);
+    require(calculated.back().calculation_errors.empty(),
+        "Treatment deletion fixture Fillet failed");
+    bool usable{};
+    for(const auto& edge:calculated.back().mesh.edges)
+        if(edge.reference.semantic_key.find("fillet:")!=std::string::npos) {
+            auto dependent=document::PartDocument::create_fillet_container(
+                {edge.reference});
+            dependent.edge_treatment.primary_size=.1;
+            document.history.push_back(dependent);
+            const auto candidate=workspace::calculate_part(kernel,document);
+            if(candidate.back().calculation_errors.empty()) {
+                calculated=candidate;usable=true;break;
+            }
+            document.history.pop_back();
+        }
+    require(usable,"Treatment deletion fixture has no dependent edge");
+    const auto dependent_id=document.history.back().id;
+    document::BodyHistoryGraph graph;
+    static_cast<void>(graph.create_body("Body"));
+    for(const auto& feature:document.history)
+        graph.insert({document::PartHistoryKind::Feature,feature.id});
+    document.set_body_history(graph);
+    calculated=workspace::calculate_part(kernel,document);
+    workspace::Workspace live;const auto id=document.document_id;
+    live.add_part(document,calculated);
+    workspace::delete_part_history(live,id,kernel,fillet.id);
+    const auto& session=live.open_part(id)->session;
+    require(session.document().removed_reference_states.contains(dependent_id),
+        "Deleted treatment did not retain its broken dependent");
+    const auto* input=workspace::calculated_operation_input(session,{});
+    require(input&&std::ranges::any_of(input->mesh.edges,
+            [](const auto& edge) {
+                return !edge.parameter_seam&&edge.reference.valid();
+            }),
+        "Deleting a treatment removed every selectable current Body edge");
+    std::cout<<"Treatment deletion: broken dependent retained and current Body edges remained selectable\n";
+}
 int main() {
     try {
         kernel::OcctKernel kernel;
+        if(std::getenv("ZIMA_VERIFY_TREATMENT_DELETE_INPUT_ONLY")) {
+            verify_treatment_delete_input(kernel);
+            return 0;
+        }
         verify_live_regeneration(kernel);verify_cold_history_resume();verify_recovery_prefix();
         verify_sheet_suppression(kernel);
         verify_retained_feature_and_sketch_frames(kernel);
         verify_retained_container_properties_repair(kernel);
+        verify_treatment_delete_input(kernel);
         auto doc=document::PartDocument::create_default();
         auto source=test::rectangular_feature(doc,{10,10,10});
         doc.history={source};
@@ -585,6 +638,31 @@ int main() {
                 "Restoring a final dependent did not enable its transitive prerequisites");
         }
         require(doc.serialized()==original,"Preview mutated document");
+        {
+            // Reproduce deleting one complete treatment while a later
+            // treatment still depends on it.  The dependent definition stays
+            // broken for explicit repair, but the retained current Body must
+            // remain a usable insertion input for a new Fillet/Chamfer.
+            workspace::Workspace dependent_live;
+            const auto dependent_id=doc.document_id;
+            dependent_live.add_part(doc,workspace::calculate_part(kernel,doc));
+            workspace::delete_part_history(dependent_live,dependent_id,kernel,
+                fillet.id);
+            const auto& dependent_session=
+                dependent_live.open_part(dependent_id)->session;
+            require(!dependent_session.document().find_container(fillet.id)&&
+                    dependent_session.document().find_container(chamfer.id)&&
+                    dependent_session.document().removed_reference_states.
+                        contains(chamfer.id),
+                "Deleting a treatment did not retain its broken dependent");
+            const auto* insertion=workspace::calculated_operation_input(
+                dependent_session,{});
+            require(insertion&&std::ranges::any_of(insertion->mesh.edges,
+                    [](const auto& edge) {
+                        return !edge.parameter_seam&&edge.reference.valid();
+                    }),
+                "Deleting a treatment removed every selectable current Body edge");
+        }
         workspace::Workspace live;const auto id=doc.document_id;
         live.add_part(doc,workspace::calculate_part(kernel,doc));
         const auto revision=live.open_part(id)->session.revision();

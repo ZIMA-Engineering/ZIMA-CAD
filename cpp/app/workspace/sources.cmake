@@ -19,7 +19,6 @@ set(ZIMA_WORKSPACE_SOURCES
     app/workspace/surface_intersection.cpp
     app/workspace/surface_trim.cpp
     app/workspace/documents.cpp
-    app/workspace/edge_preview_helpers.cpp
     app/workspace/edge_treatment.cpp
     app/workspace/file_operations.cpp
     app/workspace/file_manager.cpp

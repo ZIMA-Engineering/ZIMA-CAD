@@ -31,6 +31,7 @@ int main(){try {
     {
         auto left=edge("left",{-1,1,0},{0,1,0},"left-end","arc-start");
         auto arc=edge("radius",{0,1,0},{1,0,0},"arc-start","arc-end");
+        arc.reference={"previous-fillet","fillet:edge:from:radius",{}};
         const double weight=std::sqrt(.5);
         BSplineGeometry exact;exact.degree=2;
         exact.poles={{0,1,0},{1,1,0},{1,0,0}};
@@ -156,6 +157,42 @@ int main(){try {
         check(tangent_edge_route({first,turned},first.reference)==
                 std::vector<EdgeReference>{first.reference},
             "A tangent edge crossed a same-angle material wedge turned onto another side");
+        auto fillet_boundary=first;
+        fillet_boundary.reference={"previous-fillet",
+            "fillet:edge:from:source",{}};
+        check(tangent_edge_route({fillet_boundary,continuation},
+                fillet_boundary.reference)==
+                std::vector<EdgeReference>{fillet_boundary.reference,
+                    continuation.reference},
+            "A forward current Fillet edge stopped a compatible tangent route");
+        check(tangent_edge_route({fillet_boundary,continuation},
+                continuation.reference)==
+                std::vector<EdgeReference>{fillet_boundary.reference,
+                    continuation.reference},
+            "A compatible route could not enter a current Fillet edge");
+        auto chamfer_boundary=first;
+        chamfer_boundary.reference={"previous-chamfer",
+            "chamfer:edge:from:source",{}};
+        check(tangent_edge_route({chamfer_boundary,continuation},
+                chamfer_boundary.reference)==
+                std::vector<EdgeReference>{chamfer_boundary.reference,
+                    continuation.reference},
+            "A forward current Chamfer edge stopped a compatible tangent route");
+        auto fillet_return=tangent_return;
+        fillet_return.reference={"previous-returning-fillet",
+            "fillet:edge:from:returning-source",{}};
+        publish_material(fillet_return,{0,1,0},{0,0,1});
+        check(tangent_edge_route({first,fillet_return},first.reference)==
+                std::vector<EdgeReference>{first.reference},
+            "A tangent but reversing current Fillet arc was selected");
+        auto inherited_key=first;
+        inherited_key.reference={"later-boolean",
+            "boolean:add:split-edge:from:fillet:edge:from:source",{}};
+        check(tangent_edge_route({inherited_key,continuation},
+                inherited_key.reference)==
+                std::vector<EdgeReference>{inherited_key.reference,
+                    continuation.reference},
+            "A later Boolean edge was mistaken for a Fillet boundary from nested ancestry");
     }
     {
         const std::vector body{a,b,tee};

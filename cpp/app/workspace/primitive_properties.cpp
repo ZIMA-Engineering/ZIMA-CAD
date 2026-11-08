@@ -2319,16 +2319,6 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                 remove_edge_treatment_member(group, member);
             },
             [this](std::size_t group) { restore_edge_treatment_route(group); });
-        dialog->set_edge_end_face_callbacks(
-            [this](std::size_t route,std::size_t end) {
-                request_edge_treatment_end_face(route,end);
-            },
-            [this](std::size_t route,std::size_t end) {
-                auto_edge_treatment_end_face(route,end);
-            },
-            [this](std::size_t route,std::size_t end,bool inspected) {
-                inspect_edge_treatment_end_face(route,end,inspected);
-            });
         dialog->set_preview_callback([this](const auto& preview) {
             edge_treatment_preview_parameters_ = preview.edge_treatment;
             refresh_edge_treatment_preview();
@@ -2428,7 +2418,6 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
         edge_treatment_dialog_ = nullptr;
         edge_treatment_selection_.reset();
         edge_treatment_hover_seed_.reset();
-        edge_treatment_end_face_pick_.reset();
         pending_edge_treatment_edges_.clear();
         pending_edge_treatment_groups_.clear();
         pending_edge_treatment_seeds_.clear();

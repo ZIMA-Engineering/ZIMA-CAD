@@ -988,7 +988,7 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
                             auto geometry = edge_treatment_preview_wire(
                                 {std::move(route_edges)}, container->edge_treatment,
                                 container->feature_kind,
-                                container->id);
+                                container->id,&input_mesh);
                             if(const auto* body=document.body_owner_for_object(container->id)) {
                                 zima::kernel::ViewerMesh dimensions;dimensions.dimensions=std::move(geometry.dimensions);
                                 geometry.dimensions=document.place_body_mesh(std::move(dimensions),body->scope.id).dimensions;

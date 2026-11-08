@@ -169,14 +169,45 @@ void rectangular_matrix(const kernel::OcctKernel& engine) {
             const auto* treatment_input=workspace::calculated_operation_input(
                 state.session,treatment.id);
             require(treatment_input,"Two-edge Thin fillet lost its calculated input");
-            std::vector<kernel::ViewerEdge> expected_wire;
+            std::vector<std::vector<kernel::ViewerEdge>> expected_groups;
             for(std::size_t route=0;route<treatment.edge_treatment.routes.size();++route) {
-                auto resolved=document::treatment_selection_wire(
+                expected_groups.push_back(document::treatment_selection_wire(
                     treatment.edge_treatment,route,std::nullopt,
-                    treatment_input->mesh);
-                expected_wire.insert(expected_wire.end(),
-                    std::make_move_iterator(resolved.begin()),
-                    std::make_move_iterator(resolved.end()));
+                    treatment_input->mesh));
+            }
+            const auto expected_wire=app::workspace_detail::
+                edge_treatment_preview_wire(expected_groups,
+                    treatment.edge_treatment,treatment.feature_kind,
+                    treatment.id,&treatment_input->mesh).edges;
+            require(expected_wire.size()==
+                    4*treatment.edge_treatment.routes.size(),
+                "Fillet analytical cage omitted a rail or terminal arc");
+            const auto same_point=[](const kernel::Vec3& first,
+                                     const kernel::Vec3& second) {
+                return std::hypot(first.x-second.x,first.y-second.y,
+                    first.z-second.z)<=1.0e-7;
+            };
+            for(std::size_t route=0;
+                    route<treatment.edge_treatment.routes.size();++route) {
+                const auto offset=4*route;
+                const auto& first_rail=expected_wire[offset];
+                const auto& second_rail=expected_wire[offset+1];
+                const auto& first_arc=expected_wire[offset+2];
+                const auto& last_arc=expected_wire[offset+3];
+                require(first_rail.overlay&&second_rail.overlay&&
+                        first_arc.overlay&&last_arc.overlay&&
+                        first_rail.points.size()>=2&&
+                        second_rail.points.size()>=2&&
+                        first_arc.points.size()>2&&last_arc.points.size()>2&&
+                        same_point(first_arc.points.front(),
+                            first_rail.points.front())&&
+                        same_point(first_arc.points.back(),
+                            second_rail.points.front())&&
+                        same_point(last_arc.points.front(),
+                            first_rail.points.back())&&
+                        same_point(last_arc.points.back(),
+                            second_rail.points.back()),
+                    "Fillet analytical cage is not two rails closed by two arcs");
             }
             const auto authored_wire=app::authored_feature_wire(
                 state.session,treatment.id);
@@ -363,16 +394,7 @@ void rounded_profile_matrix(const kernel::OcctKernel& engine) {
 }
 int main(int argc,char** argv) {
     QCoreApplication application(argc,argv);
-    try{if(argc>2&&std::string_view(argv[1])=="--audit-authored-wire") {
-            std::vector<kernel::BodyResult> boundaries;auto part=document::PartDocument::load(std::filesystem::u8path(argv[2]),&boundaries);
-            document::DocumentSession session(part,boundaries);
-            for(const auto& feature:part.history) {
-                try {const auto wire=app::authored_feature_wire(session,feature.id);
-                    std::cout<<feature.name<<" id="<<feature.id<<" kind="<<static_cast<int>(feature.feature_kind)<<" wire="<<wire.size()<<std::endl;}
-                catch(const std::exception& e){std::cout<<feature.name<<" ERROR "<<e.what()<<std::endl;}
-            }
-            return 0;
-        }
+    try{
         if(argc>1&&std::string_view(argv[1])=="--sketch-profile-wire"){sketch_wire_matrix();copy_wire_matrix();return 0;}
         if(const auto* file=std::getenv("ZIMA_SKETCH_WIRE_REVIEW_FILE")){actual_sketch_wire(std::filesystem::u8path(file));return 0;}
         kernel::OcctKernel engine;rectangular_matrix(engine);revolution_matrix(engine);rounded_profile_matrix(engine);

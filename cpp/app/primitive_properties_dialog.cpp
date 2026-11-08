@@ -1950,10 +1950,12 @@ void PrimitivePropertiesDialog::set_edge_groups(std::vector<EdgeGroup> groups,
     edge_display_fragments_=std::move(displayed_fragments);
     edge_display_fragments_.resize(edge_groups_.size());
     initial_.edge_treatment.routes = edge_groups_;
-    initial_.edge_treatment.route_end_faces.resize(edge_groups_.size());
+    // Terminal material profiles are solver-owned. Keep only empty reserved
+    // persistence slots until the next agreed native-format revision; no
+    // dialog or command can author a manual terminal face.
+    initial_.edge_treatment.route_end_faces.assign(edge_groups_.size(),{});
     if (edge_list_ == nullptr) return;
     edge_list_->clear();
-    edge_end_face_fields_.clear();
     if(treatment_method_occt_) {
         treatment_method_occt_->setEnabled(true);
         treatment_method_occt_->setToolTip({});
@@ -1995,35 +1997,6 @@ void PrimitivePropertiesDialog::set_edge_groups(std::vector<EdgeGroup> groups,
         zima::ui::build_reference_row_indicator({})));
     if (restore_route_button_) restore_route_button_->setEnabled(false);
     notify_preview();
-}
-
-void PrimitivePropertiesDialog::set_edge_route_end_faces(
-        std::vector<zima::document::EdgeTreatmentParameters::RouteEndFaces>
-            faces) {
-    faces.resize(edge_groups_.size());
-    if(initial_.edge_treatment.route_end_faces==faces)return;
-    initial_.edge_treatment.route_end_faces=std::move(faces);
-    set_edge_groups(edge_groups_);
-    notify_preview();
-}
-
-void PrimitivePropertiesDialog::set_edge_end_face_callbacks(
-        std::function<void(std::size_t,std::size_t)> request,
-        std::function<void(std::size_t,std::size_t)> automatic,
-        std::function<void(std::size_t,std::size_t,bool)> inspect) {
-    request_edge_end_face_=std::move(request);
-    auto_edge_end_face_=std::move(automatic);
-    inspect_edge_end_face_=std::move(inspect);
-}
-
-void PrimitivePropertiesDialog::set_edge_end_face_selection_active(
-        std::optional<std::pair<std::size_t,std::size_t>> active) {
-    active_edge_end_face_=active;
-    for(auto& field:edge_end_face_fields_) {
-        field.item->set_active_input(active==
-            std::pair{field.route,field.end});
-        field.table->viewport()->update();
-    }
 }
 
 void PrimitivePropertiesDialog::set_edge_group_callbacks(

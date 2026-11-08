@@ -598,6 +598,13 @@ target_link_libraries(zima_interchange PUBLIC zima_sketcher zima_document_core z
 
 include(app/workspace/sources.cmake)
 
+add_library(zima_edge_treatment_preview
+    app/workspace/edge_preview_helpers.cpp)
+target_link_libraries(zima_edge_treatment_preview PUBLIC
+    zima_document_core zima_kernel_api)
+target_compile_options(zima_edge_treatment_preview PRIVATE
+    $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
+
 add_library(zima_dxf_preview STATIC
     third_party/qdxf/src/dxfinterface.cpp third_party/qdxf/src/dxfsceneview.cpp
     third_party/qdxf/src/mtexttohtml.cpp
@@ -655,6 +662,7 @@ endif()
 target_include_directories(zima-cad-cpp PRIVATE app)
 target_link_libraries(zima-cad-cpp PRIVATE
     zima_update_ui zima_ai zima_dxf_preview
+    zima_edge_treatment_preview
     zima_command_host zima_commands zima_workspace zima_assembly zima_document_core zima_drawing zima_kernel_occt zima_viewer zima_ui
     zima_interchange nlohmann_json::nlohmann_json
     Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Svg)
@@ -1860,7 +1868,8 @@ if(ZIMA_BUILD_TESTS)
 
     add_executable(zima_cpp_edge_treatment_command_tests tests/edge_treatment_command_tests.cpp)
     add_executable(zima_cpp_thin_feature_wire_tests tests/thin_feature_wire_tests.cpp)
-    target_link_libraries(zima_cpp_thin_feature_wire_tests PRIVATE zima_workspace Qt6::Core)
+    target_link_libraries(zima_cpp_thin_feature_wire_tests PRIVATE
+        zima_workspace zima_edge_treatment_preview Qt6::Core)
     add_test(NAME zima_cpp_thin_feature_wire_tests COMMAND zima_cpp_thin_feature_wire_tests)
     set_tests_properties(zima_cpp_thin_feature_wire_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
     add_test(NAME zima_cpp_sketch_profile_wire_tests COMMAND zima_cpp_thin_feature_wire_tests --sketch-profile-wire)

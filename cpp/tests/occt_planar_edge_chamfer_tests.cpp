@@ -44,6 +44,12 @@ double volume(const TopoDS_Shape& shape) {
     return std::abs(properties.Mass());
 }
 
+double area(const TopoDS_Shape& shape) {
+    GProp_GProps properties;
+    BRepGProp::SurfaceProperties(shape,properties);
+    return std::abs(properties.Mass());
+}
+
 void near(double actual,double expected,const char* message) {
     if(std::abs(actual-expected)>
             1.0e-7*std::max({1.,std::abs(actual),std::abs(expected)}))
@@ -90,6 +96,22 @@ std::vector<TopoDS_Edge> edges_at_point(const TopoDS_Shape& shape,
             }))result.push_back(edge);
     }
     return result;
+}
+
+TopoDS_Edge straight_edge_between(const TopoDS_Shape& shape,
+        const gp_Pnt& first,const gp_Pnt& second,
+        double tolerance=1.0e-7) {
+    for(TopExp_Explorer item(shape,TopAbs_EDGE);item.More();item.Next()) {
+        const auto edge=TopoDS::Edge(item.Current());
+        const BRepAdaptor_Curve curve(edge);
+        if(curve.GetType()!=GeomAbs_Line)continue;
+        const auto a=curve.Value(curve.FirstParameter());
+        const auto b=curve.Value(curve.LastParameter());
+        if((a.Distance(first)<=tolerance&&b.Distance(second)<=tolerance)||
+           (a.Distance(second)<=tolerance&&b.Distance(first)<=tolerance))
+            return edge;
+    }
+    return {};
 }
 
 void verify_node(const TopoDS_Shape& input,
@@ -408,6 +430,85 @@ int main() try {
     verify_asymmetric(box,box_edges.front(),first_edge_faces.back(),
         zima::kernel::OcctPlanarEdgeChamferMode::DistanceAngle,
         3.,angle,angled_distance,box_height);
+
+    const auto route_x=straight_edge_between(box,{0,0,0},{20,0,0});
+    const auto route_y=straight_edge_between(box,{0,0,0},{0,30,0});
+    require(!route_x.IsNull()&&!route_y.IsNull(),
+        "Asymmetric Chamfer fixture lost its connected route");
+    const auto supports_for=[&](const TopoDS_Edge& edge) {
+        std::vector<TopoDS_Face> result;
+        const int index=box_edge_faces.FindIndex(edge);
+        require(index!=0,"Asymmetric Chamfer route edge has no supports");
+        for(const auto& value:box_edge_faces.FindFromIndex(index))
+            result.push_back(TopoDS::Face(value));
+        require(result.size()==2,
+            "Asymmetric Chamfer route edge is not manifold");
+        return result;
+    };
+    const auto route_x_faces=supports_for(route_x);
+    const auto route_y_faces=supports_for(route_y);
+    TopoDS_Face common_route_face;
+    for(const auto& first:route_x_faces)
+        for(const auto& second:route_y_faces)
+            if(first.IsSame(second))common_route_face=first;
+    require(!common_route_face.IsNull(),
+        "Connected asymmetric Chamfer route has no common support");
+    const std::array forward_route{
+        zima::kernel::OcctPlanarEdgeChamferSelection{
+            route_x,common_route_face},
+        zima::kernel::OcctPlanarEdgeChamferSelection{
+            route_y,common_route_face}};
+    const std::array reverse_route{
+        zima::kernel::OcctPlanarEdgeChamferSelection{
+            route_y,common_route_face},
+        zima::kernel::OcctPlanarEdgeChamferSelection{
+            route_x,common_route_face}};
+    const auto bent_two_distances=
+        zima::kernel::occt_planar_edge_chamfer(box,forward_route,
+            zima::kernel::OcctPlanarEdgeChamferMode::TwoDistances,
+            3.,5.,1.0e-7);
+    const auto reversed_two_distances=
+        zima::kernel::occt_planar_edge_chamfer(box,reverse_route,
+            zima::kernel::OcctPlanarEdgeChamferMode::TwoDistances,
+            3.,5.,1.0e-7);
+    require(BRepCheck_Analyzer(bent_two_distances.Shape(),true,true,false).
+                IsValid()&&bent_two_distances.chamfer_faces.size()==2&&
+            std::ranges::all_of(bent_two_distances.chamfer_faces,
+                [](const auto& faces){return !faces.empty();}),
+        "Connected bent A x B Chamfer route is invalid");
+    near(volume(bent_two_distances.Shape()),
+        volume(reversed_two_distances.Shape()),
+        "Connected bent A x B Chamfer depends on route order");
+    near(area(bent_two_distances.Shape()),
+        area(reversed_two_distances.Shape()),
+        "Connected bent A x B Chamfer area depends on route order");
+    const auto bent_distance_angle=
+        zima::kernel::occt_planar_edge_chamfer(box,forward_route,
+            zima::kernel::OcctPlanarEdgeChamferMode::DistanceAngle,
+            3.,angle,1.0e-7);
+    require(BRepCheck_Analyzer(bent_distance_angle.Shape(),true,true,false).
+                IsValid()&&bent_distance_angle.chamfer_faces.size()==2,
+        "Connected bent A + angle Chamfer route is invalid");
+
+    const auto disconnected_edge=straight_edge_between(box,
+        {20,30,0},{20,30,box_height});
+    const auto disconnected_faces=supports_for(disconnected_edge);
+    bool disconnected_rejected=false;
+    try {
+        const std::array disconnected{
+            zima::kernel::OcctPlanarEdgeChamferSelection{
+                route_x,common_route_face},
+            zima::kernel::OcctPlanarEdgeChamferSelection{
+                disconnected_edge,disconnected_faces.front()}};
+        static_cast<void>(zima::kernel::occt_planar_edge_chamfer(
+            box,disconnected,
+            zima::kernel::OcctPlanarEdgeChamferMode::TwoDistances,
+            3.,5.,1.0e-7));
+    } catch(const std::invalid_argument&) {
+        disconnected_rejected=true;
+    }
+    require(disconnected_rejected,
+        "A x B Chamfer accepted disconnected route members");
 
     constexpr double concave_height=25.;
     const auto concave=concave_prism(concave_height);

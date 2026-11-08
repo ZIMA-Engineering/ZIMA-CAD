@@ -279,7 +279,7 @@ int verify_edge_treatment_ui(QApplication& application, AssemblyWorkspaceWindow&
                     "Treatment Properties retained a route branch or omitted its offered-input row");
                 const auto expected=workspace_detail::
                     edge_treatment_preview_wire(groups,parameters,
-                        pending->feature_kind(),owner);
+                        pending->feature_kind(),owner,&view->mesh());
                 const auto& published=view->transient_edges();
                 check(!expected.edges.empty()&&
                     published.size()==expected.edges.size()&&
@@ -557,7 +557,12 @@ int verify_edge_treatment_ui(QApplication& application, AssemblyWorkspaceWindow&
             }
             window.findChild<QAction*>(fillet?"filletAction":"chamferAction")->trigger();flush();
             auto* pending=dialog();const auto owner=pending->container_id();
-            pick(viewer::CandidateKind::Edge,box,rail);
+            const auto selected=pick(viewer::CandidateKind::Edge,box,rail);
+            auto historical=selected;
+            historical.geometry=viewer::CandidateGeometry::OriginalReference;
+            check(view->candidate_filter()&&
+                    !view->candidate_filter()(historical),
+                "Fillet/Chamfer creation offered a historical edge instead of a current Body edge");
             check(pending->pending_value().edge_treatment.routes.size()==1,"Mouse did not select a creation edge");
             if(symmetric_fixture)check(pending->pending_value().edge_treatment.routes.front().size()==2,"Mouse did not offer both halves of the symmetric rail");
             drag(owner,"parameter:primary",0);const auto layout=pending->dimension_layouts();

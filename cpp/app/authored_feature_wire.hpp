@@ -1,5 +1,6 @@
 #pragma once
 #include "sketch_profile_wire.hpp"
+#include "workspace/edge_treatment_preview.hpp"
 #include <zima/document/feature_material_wire.hpp>
 #include <zima/document/edge_treatment_selection.hpp>
 #include <zima/document/document_session.hpp>
@@ -121,22 +122,23 @@ inline std::vector<kernel::ViewerEdge> authored_feature_wire(
         return place(document::sheet_transition_preview(*feature,document::sheet_metal_defaults(doc)));
     case FeatureKind::Fillet:
     case FeatureKind::Chamfer:
-        // Fillet/Chamfer authoring selects routes on the body immediately
-        // before the treatment. Later Boolean boundaries may retain only one
-        // parent contribution or split it into unrelated result fragments;
-        // neither is the command's creation/Properties wire. Re-resolve every
-        // persisted route against the already calculated input packet, exactly
-        // like the treatment dialog and Tree route rows do. This is a read-only
-        // presentation path and never invokes OCCT.
+        // Rebuild the same analytical outer cage used by creation/Properties:
+        // two longitudinal boundary rails plus the start/end Fillet arcs or
+        // Chamfer sections. The persisted input edge defines the operation but
+        // is not itself the authored shape presented for ordinary selection.
+        // This uses only the already calculated input packet and never invokes
+        // OCCT or extracts edges from the later Boolean result.
         if (input) {
+            std::vector<std::vector<kernel::ViewerEdge>> groups;
+            groups.reserve(feature->edge_treatment.routes.size());
             for (std::size_t route=0;
                     route<feature->edge_treatment.routes.size();++route) {
-                auto edges=document::treatment_selection_wire(
-                    feature->edge_treatment,route,std::nullopt,input_mesh);
-                wire.edges.insert(wire.edges.end(),
-                    std::make_move_iterator(edges.begin()),
-                    std::make_move_iterator(edges.end()));
+                groups.push_back(document::treatment_selection_wire(
+                    feature->edge_treatment,route,std::nullopt,input_mesh));
             }
+            wire.edges=workspace_detail::edge_treatment_preview_wire(
+                groups,feature->edge_treatment,feature->feature_kind,
+                feature->id,&input_mesh).edges;
             return place(std::move(wire));
         }
         return {};

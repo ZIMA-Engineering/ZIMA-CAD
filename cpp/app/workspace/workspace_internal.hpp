@@ -9,6 +9,7 @@
 // Private implementation support for the split workspace sources.
 // Do not include this header from public APIs or model/kernel modules.
 #include "tab_close_button.hpp"
+#include "edge_treatment_preview.hpp"
 #include <zima/document/body_origin_attachment.hpp>
 #include <zima/workspace/native_documents.hpp>
 #include "sketch_offset_dialog.hpp"
@@ -462,69 +463,6 @@ zima::kernel::ViewerEdge ellipse_preview_edge(
 zima::document::ConstructionObject sweep_display_path(
     const zima::document::HistoryContainer& container);
 
-double edge_preview_length(const zima::kernel::Vec3& value);
-
-zima::kernel::Vec3 edge_preview_difference(
-    const zima::kernel::Vec3& left, const zima::kernel::Vec3& right);
-
-double edge_preview_dot(
-    const zima::kernel::Vec3& left, const zima::kernel::Vec3& right);
-
-std::optional<zima::kernel::Vec3> edge_preview_normalized(
-    const zima::kernel::Vec3& value);
-
-zima::kernel::Vec3 edge_preview_offset(const zima::kernel::Vec3& point,
-    const zima::kernel::Vec3& direction, double distance);
-
-bool edge_preview_same_point(
-    const zima::kernel::Vec3& first, const zima::kernel::Vec3& second);
-
-struct EdgeTreatmentPreviewPath {
-    std::vector<zima::kernel::ViewerEdge> edges;
-};
-
-struct EdgeTreatmentPreviewGeometry {
-    std::vector<zima::kernel::ViewerEdge> edges;
-    std::vector<zima::kernel::ViewerDimension> dimensions;
-};
-
-bool edge_preview_has_face_guides(const zima::kernel::ViewerEdge& edge);
-
-void edge_preview_reverse(zima::kernel::ViewerEdge& edge);
-
-std::vector<EdgeTreatmentPreviewPath> ordered_edge_treatment_preview_paths(
-    std::vector<zima::kernel::ViewerEdge> edges);
-
-zima::kernel::Vec3 edge_preview_blend_direction(
-    const zima::kernel::Vec3& first, const zima::kernel::Vec3& second,
-    double ratio);
-
-struct EdgeTreatmentSection {
-    zima::kernel::ViewerEdge wire;
-    zima::kernel::Vec3 first_tangent;
-    zima::kernel::Vec3 second_tangent;
-    std::optional<zima::kernel::Vec3> radius_center;
-    std::optional<zima::kernel::Vec3> radius_rim;
-    zima::kernel::Vec3 plane_normal;
-    double first_distance{};
-    double second_distance{};
-};
-
-std::optional<EdgeTreatmentSection> edge_treatment_section(
-    const zima::kernel::Vec3& point,
-    const zima::kernel::Vec3& raw_first_direction,
-    const zima::kernel::Vec3& raw_second_direction,
-    const zima::document::EdgeTreatmentParameters& parameters,
-    bool fillet, double radius);
-
-void edge_preview_append_corner(std::vector<zima::kernel::Vec3>& rail,
-    const zima::kernel::Vec3& corner,
-    const zima::kernel::Vec3& target);
-
-EdgeTreatmentPreviewGeometry edge_treatment_preview_wire(
-    const std::vector<std::vector<zima::kernel::ViewerEdge>>& groups,
-    const zima::document::EdgeTreatmentParameters& parameters,
-    zima::document::FeatureKind kind, const std::string& owner_id);
 std::pair<double, double> camera_angles_for_view_direction(const zima::kernel::Vec3& direction);
 double camera_roll_for_direction(const zima::kernel::Vec3& view_direction, const zima::kernel::Vec3& world_direction, double target_angle_degrees);
 

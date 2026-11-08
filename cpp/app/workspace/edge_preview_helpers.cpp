@@ -1,7 +1,27 @@
-#include "workspace_internal.hpp"
+#include "edge_treatment_preview.hpp"
+#include <zima/document/edge_treatment_selection.hpp>
+#include <zima/kernel/dimension_layout.hpp>
+#include <algorithm>
+#include <array>
+#include <cmath>
+#include <map>
+#include <numbers>
+#include <optional>
+#include <ranges>
+#include <set>
 
 namespace zima::app::workspace_detail {
 
+struct EdgeTreatmentSection {
+    zima::kernel::ViewerEdge wire;
+    zima::kernel::Vec3 first_tangent;
+    zima::kernel::Vec3 second_tangent;
+    std::optional<zima::kernel::Vec3> radius_center;
+    std::optional<zima::kernel::Vec3> radius_rim;
+    zima::kernel::Vec3 plane_normal;
+    double first_distance{};
+    double second_distance{};
+};
 
 double edge_preview_length(const zima::kernel::Vec3& value) {
     return std::hypot(std::hypot(value.x, value.y), value.z);
@@ -155,8 +175,14 @@ std::optional<EdgeTreatmentSection> edge_treatment_section(
     const auto second_direction = edge_preview_normalized(
         flip ? raw_first_direction : raw_second_direction);
     if (!first_direction || !second_direction) return std::nullopt;
-    const double cosine = std::clamp(edge_preview_dot(
-        *first_direction, *second_direction), -0.999999, 0.999999);
+    const double raw_cosine = edge_preview_dot(
+        *first_direction, *second_direction);
+    // Exactly tangent supports have no finite line/line corner. Their
+    // curvature decides the real blend and is handled from the calculated
+    // support-face sections below. Clamping this case invents a huge remote
+    // radius cage (for example a plane meeting an earlier Fillet cylinder).
+    if (raw_cosine > 1.0 - 1.0e-8) return std::nullopt;
+    const double cosine = std::clamp(raw_cosine, -0.999999, 0.999999);
     const double half_angle = std::acos(cosine) * 0.5;
     if (half_angle <= 1.0e-5 ||
         std::abs(std::tan(half_angle)) <= 1.0e-9) return std::nullopt;
@@ -230,6 +256,342 @@ std::optional<EdgeTreatmentSection> edge_treatment_section(
     return result;
 }
 
+bool edge_preview_same_face(const zima::kernel::FaceReference& first,
+        const zima::kernel::FaceReference& second) {
+    return first.owner_id == second.owner_id &&
+        first.semantic_key == second.semantic_key &&
+        first.instance_path == second.instance_path;
+}
+
+std::vector<std::vector<zima::kernel::Vec3>> edge_preview_face_sections(
+        const zima::kernel::ViewerMesh& mesh,
+        const zima::kernel::FaceReference& face,
+        const zima::kernel::Vec3& point,
+        const zima::kernel::Vec3& plane_normal,
+        const zima::kernel::Vec3& guide) {
+    using Vec3 = zima::kernel::Vec3;
+    struct Segment {Vec3 first;Vec3 second;};
+    std::vector<Segment> segments;
+    const double coordinate_scale = std::max({1.0, std::abs(point.x),
+        std::abs(point.y), std::abs(point.z)});
+    const double tolerance = 1.0e-7 * coordinate_scale;
+    const auto signed_distance = [&](const Vec3& value) {
+        return edge_preview_dot(edge_preview_difference(value, point),
+            plane_normal);
+    };
+    const auto append_unique = [&](std::vector<Vec3>& values,
+                                    const Vec3& value) {
+        if (std::ranges::none_of(values, [&](const auto& existing) {
+                return edge_preview_length(edge_preview_difference(
+                    existing, value)) <= tolerance;
+            })) values.push_back(value);
+    };
+    for (std::size_t triangle = 0;
+            triangle < mesh.triangle_references.size(); ++triangle) {
+        if (!edge_preview_same_face(mesh.triangle_references[triangle], face) ||
+            3 * triangle + 2 >= mesh.triangles.size()) continue;
+        std::array<Vec3, 3> vertices;
+        bool valid = true;
+        for (std::size_t corner = 0; corner < 3; ++corner) {
+            const auto index = mesh.triangles[3 * triangle + corner];
+            if (index >= mesh.vertices.size()) {valid = false;break;}
+            vertices[corner] = mesh.vertices[index];
+        }
+        if (!valid) continue;
+        std::vector<Vec3> intersections;
+        for (std::size_t edge = 0; edge < 3; ++edge) {
+            const auto& first = vertices[edge];
+            const auto& second = vertices[(edge + 1) % 3];
+            const double first_distance = signed_distance(first);
+            const double second_distance = signed_distance(second);
+            if (std::abs(first_distance) <= tolerance)
+                append_unique(intersections, first);
+            if (std::abs(second_distance) <= tolerance)
+                append_unique(intersections, second);
+            if ((first_distance < -tolerance &&
+                    second_distance > tolerance) ||
+                (first_distance > tolerance &&
+                    second_distance < -tolerance)) {
+                const double ratio = first_distance /
+                    (first_distance - second_distance);
+                append_unique(intersections, {
+                    first.x + (second.x - first.x) * ratio,
+                    first.y + (second.y - first.y) * ratio,
+                    first.z + (second.z - first.z) * ratio});
+            }
+        }
+        if (intersections.size() < 2) continue;
+        std::pair<std::size_t, std::size_t> farthest{0, 1};
+        double farthest_distance{};
+        for (std::size_t first = 0; first < intersections.size(); ++first)
+            for (std::size_t second = first + 1;
+                    second < intersections.size(); ++second) {
+                const double distance = edge_preview_length(
+                    edge_preview_difference(intersections[first],
+                        intersections[second]));
+                if (distance > farthest_distance) {
+                    farthest_distance = distance;
+                    farthest = {first, second};
+                }
+            }
+        if (farthest_distance > tolerance)
+            segments.push_back({intersections[farthest.first],
+                intersections[farthest.second]});
+    }
+    if (segments.empty()) return {};
+
+    std::vector<Vec3> nodes;
+    std::vector<std::array<std::size_t, 2>> links;
+    const auto node_for = [&](const Vec3& value) {
+        const auto found = std::ranges::find_if(nodes,
+            [&](const auto& existing) {
+                return edge_preview_length(edge_preview_difference(
+                    existing, value)) <= tolerance;
+            });
+        if (found != nodes.end())
+            return static_cast<std::size_t>(found - nodes.begin());
+        nodes.push_back(value);
+        return nodes.size() - 1;
+    };
+    std::set<std::pair<std::size_t, std::size_t>> unique_links;
+    for (const auto& segment : segments) {
+        auto first = node_for(segment.first);
+        auto second = node_for(segment.second);
+        if (first == second) continue;
+        if (second < first) std::swap(first, second);
+        if (unique_links.emplace(first, second).second)
+            links.push_back({first, second});
+    }
+    if (links.empty()) return {};
+    const auto start = std::ranges::min_element(nodes, {},
+        [&](const auto& node) {
+            return edge_preview_length(edge_preview_difference(node, point));
+        });
+    if (start == nodes.end() || edge_preview_length(
+            edge_preview_difference(*start, point)) > 10.0 * tolerance)
+        return {};
+    const std::size_t start_index =
+        static_cast<std::size_t>(start - nodes.begin());
+    std::vector<std::size_t> neighbors;
+    for (const auto& link : links) {
+        if (link[0] == start_index) neighbors.push_back(link[1]);
+        else if (link[1] == start_index) neighbors.push_back(link[0]);
+    }
+    const auto normalized_guide = edge_preview_normalized(guide);
+    if (!normalized_guide || neighbors.empty()) return {};
+    struct PathState {
+        std::vector<std::size_t> path;
+        std::set<std::size_t> visited;
+    };
+    std::vector<PathState> pending;
+    for (const auto neighbor : neighbors) {
+        const auto direction = edge_preview_normalized(
+            edge_preview_difference(nodes[neighbor],nodes[start_index]));
+        if (direction && edge_preview_dot(*direction,*normalized_guide)>=.5)
+            pending.push_back({{start_index,neighbor},
+                {start_index,neighbor}});
+    }
+    std::vector<std::vector<Vec3>> result;
+    constexpr std::size_t maximum_paths=64;
+    while (!pending.empty() && result.size()<maximum_paths) {
+        auto state=std::move(pending.back());
+        pending.pop_back();
+        const auto previous=state.path[state.path.size()-2];
+        const auto current=state.path.back();
+        std::vector<std::size_t> candidates;
+        for (const auto& link:links) {
+            const auto candidate=link[0]==current?link[1]:
+                link[1]==current?link[0]:nodes.size();
+            if (candidate<nodes.size()&&candidate!=previous&&
+                    !state.visited.contains(candidate))
+                candidates.push_back(candidate);
+        }
+        if (candidates.empty()||state.path.size()>=nodes.size()) {
+            std::vector<Vec3> path{point};
+            for (std::size_t index=1;index<state.path.size();++index)
+                path.push_back(nodes[state.path[index]]);
+            result.push_back(std::move(path));
+            continue;
+        }
+        // A single persisted face identity can have several current Body
+        // descendants meeting at this section.  Preserve every local branch;
+        // the rolling-radius solution below selects the nearest valid pair.
+        // Following only the straightest branch can jump to a remote Body
+        // boundary instead of returning over the preceding radius.
+        for (const auto candidate:candidates) {
+            if (pending.size()+result.size()>=maximum_paths) break;
+            auto branch=state;
+            branch.path.push_back(candidate);
+            branch.visited.insert(candidate);
+            pending.push_back(std::move(branch));
+        }
+    }
+    return result;
+}
+
+std::optional<EdgeTreatmentSection> edge_treatment_curved_section(
+        const zima::kernel::ViewerMesh& mesh,
+        const zima::kernel::ViewerEdge& route,
+        std::size_t point_index,
+        double radius) {
+    using Vec3 = zima::kernel::Vec3;
+    if (!std::isfinite(radius) || radius <= 1.0e-9 ||
+        route.edge_treatment_side_references.size() != 2 ||
+        !edge_preview_has_face_guides(route) ||
+        point_index >= route.points.size()) return {};
+    const auto& point = route.points[point_index];
+    Vec3 route_delta;
+    if (point_index == 0)
+        route_delta = edge_preview_difference(route.points[1], point);
+    else if (point_index + 1 == route.points.size())
+        route_delta = edge_preview_difference(point,
+            route.points[point_index - 1]);
+    else
+        route_delta = edge_preview_difference(route.points[point_index + 1],
+            route.points[point_index - 1]);
+    const auto plane_normal = edge_preview_normalized(route_delta);
+    if (!plane_normal) return {};
+    const auto first_axis = edge_preview_normalized(
+        route.edge_treatment_side_directions[0][point_index]);
+    if (!first_axis) return {};
+    const auto second_axis = edge_preview_normalized(
+        zima::kernel::dimension_cross(*plane_normal, *first_axis));
+    if (!second_axis) return {};
+    const auto first_curves = edge_preview_face_sections(mesh,
+        route.edge_treatment_side_references[0], point, *plane_normal,
+        route.edge_treatment_side_directions[0][point_index]);
+    const auto second_curves = edge_preview_face_sections(mesh,
+        route.edge_treatment_side_references[1], point, *plane_normal,
+        route.edge_treatment_side_directions[1][point_index]);
+    if (first_curves.empty() || second_curves.empty()) return {};
+
+    struct Vec2 {double x{};double y{};};
+    const auto to_2d = [&](const Vec3& value) {
+        const auto delta = edge_preview_difference(value, point);
+        return Vec2{edge_preview_dot(delta, *first_axis),
+            edge_preview_dot(delta, *second_axis)};
+    };
+    const auto to_3d = [&](const Vec2& value) {
+        return Vec3{point.x + first_axis->x * value.x + second_axis->x * value.y,
+            point.y + first_axis->y * value.x + second_axis->y * value.y,
+            point.z + first_axis->z * value.x + second_axis->z * value.y};
+    };
+    const auto cross = [](const Vec2& left, const Vec2& right) {
+        return left.x * right.y - left.y * right.x;
+    };
+    const auto difference = [](const Vec2& left, const Vec2& right) {
+        return Vec2{left.x - right.x, left.y - right.y};
+    };
+    const auto add = [](const Vec2& point, const Vec2& direction,
+                         double scale) {
+        return Vec2{point.x + direction.x * scale,
+            point.y + direction.y * scale};
+    };
+    struct Candidate {Vec2 center;Vec2 first;Vec2 second;double score{};};
+    std::optional<Candidate> best;
+    for (const auto& first_curve:first_curves)
+        for (const auto& second_curve:second_curves) {
+    std::vector<Vec2> first, second;
+    std::ranges::transform(first_curve, std::back_inserter(first), to_2d);
+    std::ranges::transform(second_curve, std::back_inserter(second), to_2d);
+    double first_progress{};
+    for (std::size_t first_segment = 1;
+            first_segment < first.size(); ++first_segment) {
+        const auto first_delta = difference(first[first_segment],
+            first[first_segment - 1]);
+        const double first_length = std::hypot(first_delta.x, first_delta.y);
+        if (first_length <= 1.0e-9) continue;
+        const Vec2 first_unit{first_delta.x / first_length,
+            first_delta.y / first_length};
+        const Vec2 first_normal{-first_unit.y, first_unit.x};
+        double second_progress{};
+        for (std::size_t second_segment = 1;
+                second_segment < second.size(); ++second_segment) {
+            const auto second_delta = difference(second[second_segment],
+                second[second_segment - 1]);
+            const double second_length = std::hypot(second_delta.x,
+                second_delta.y);
+            if (second_length <= 1.0e-9) continue;
+            const Vec2 second_unit{second_delta.x / second_length,
+                second_delta.y / second_length};
+            const Vec2 second_normal{-second_unit.y, second_unit.x};
+            const double denominator = cross(first_delta, second_delta);
+            if (std::abs(denominator) <= 1.0e-12 *
+                    first_length * second_length) {
+                second_progress += second_length;
+                continue;
+            }
+            for (const double first_side : {-1.0, 1.0})
+                for (const double second_side : {-1.0, 1.0}) {
+                    const auto first_offset = add(first[first_segment - 1],
+                        first_normal, first_side * radius);
+                    const auto second_offset = add(second[second_segment - 1],
+                        second_normal, second_side * radius);
+                    const auto between = difference(second_offset,
+                        first_offset);
+                    const double first_ratio = cross(between, second_delta) /
+                        denominator;
+                    const double second_ratio = cross(between, first_delta) /
+                        denominator;
+                    constexpr double parameter_tolerance = 1.0e-6;
+                    if (first_ratio < -parameter_tolerance ||
+                        first_ratio > 1.0 + parameter_tolerance ||
+                        second_ratio < -parameter_tolerance ||
+                        second_ratio > 1.0 + parameter_tolerance) continue;
+                    const auto first_contact = add(
+                        first[first_segment - 1], first_delta, first_ratio);
+                    const auto second_contact = add(
+                        second[second_segment - 1], second_delta,
+                        second_ratio);
+                    if (std::hypot(first_contact.x - second_contact.x,
+                            first_contact.y - second_contact.y) <= 1.0e-6)
+                        continue;
+                    const double first_distance = first_progress +
+                        std::clamp(first_ratio, 0.0, 1.0) * first_length;
+                    const double second_distance = second_progress +
+                        std::clamp(second_ratio, 0.0, 1.0) * second_length;
+                    if (first_distance <= 1.0e-6 ||
+                        second_distance <= 1.0e-6) continue;
+                    const auto center = add(first_offset, first_delta,
+                        first_ratio);
+                    const double score = first_distance + second_distance;
+                    if (!best || score < best->score)
+                        best = Candidate{center, first_contact,
+                            second_contact, score};
+                }
+            second_progress += second_length;
+        }
+        first_progress += first_length;
+    }
+    }
+    if (!best) return {};
+    EdgeTreatmentSection result;
+    result.wire.overlay = true;
+    result.first_tangent = to_3d(best->first);
+    result.second_tangent = to_3d(best->second);
+    result.first_distance = edge_preview_length(edge_preview_difference(
+        result.first_tangent, point));
+    result.second_distance = edge_preview_length(edge_preview_difference(
+        result.second_tangent, point));
+    result.radius_center = to_3d(best->center);
+    const auto first_radius = edge_preview_difference(result.first_tangent,
+        *result.radius_center);
+    const auto second_radius = edge_preview_difference(result.second_tangent,
+        *result.radius_center);
+    constexpr std::size_t samples = 12;
+    for (std::size_t sample = 0; sample <= samples; ++sample) {
+        const double ratio = static_cast<double>(sample) /
+            static_cast<double>(samples);
+        const auto direction = edge_preview_blend_direction(first_radius,
+            second_radius, ratio);
+        result.wire.points.push_back(edge_preview_offset(
+            *result.radius_center, direction, radius));
+    }
+    result.radius_rim = result.wire.points[samples / 2];
+    result.plane_normal = *plane_normal;
+    return result;
+}
+
 void edge_preview_append_corner(std::vector<zima::kernel::Vec3>& rail,
     const zima::kernel::Vec3& corner,
     const zima::kernel::Vec3& target) {
@@ -253,7 +615,8 @@ void edge_preview_append_corner(std::vector<zima::kernel::Vec3>& rail,
 EdgeTreatmentPreviewGeometry edge_treatment_preview_wire(
     const std::vector<std::vector<zima::kernel::ViewerEdge>>& groups,
     const zima::document::EdgeTreatmentParameters& parameters,
-    zima::document::FeatureKind kind, const std::string& owner_id) {
+    zima::document::FeatureKind kind, const std::string& owner_id,
+    const zima::kernel::ViewerMesh* input_mesh) {
     EdgeTreatmentPreviewGeometry result;
     const bool fillet = kind == zima::document::FeatureKind::Fillet;
     if (!std::isfinite(parameters.primary_size) ||
@@ -301,13 +664,31 @@ EdgeTreatmentPreviewGeometry edge_treatment_preview_wire(
             std::optional<EdgeTreatmentSection> last_section;
             bool rails_valid = true;
             double traversed{};
+            const auto section_at=[&](const auto& edge,
+                    std::size_t point_index,double section_radius) {
+                auto section=edge_treatment_section(edge.points[point_index],
+                    edge.edge_treatment_side_directions[0][point_index],
+                    edge.edge_treatment_side_directions[1][point_index],
+                    parameters,fillet,section_radius);
+                // A very shallow line/line angle is normally evidence that
+                // one support is an earlier curved treatment represented by
+                // its endpoint tangent.  Its finite-radius solution is local;
+                // the line approximation can place the preview hundreds of
+                // millimetres away. Prefer the calculated face sections when
+                // that approximation exceeds a small radius neighbourhood.
+                const bool remote_linear=section&&fillet&&
+                    std::max(section->first_distance,
+                        section->second_distance)>8.*section_radius;
+                if(fillet&&input_mesh&&(!section||remote_linear))
+                    if(auto curved=edge_treatment_curved_section(*input_mesh,
+                            edge,point_index,section_radius))
+                        section=std::move(curved);
+                return section;
+            };
             for (std::size_t edge_index = 0;
                  edge_index < path.edges.size(); ++edge_index) {
                 auto& edge = path.edges[edge_index];
-                auto start = edge_treatment_section(edge.points.front(),
-                    edge.edge_treatment_side_directions[0].front(),
-                    edge.edge_treatment_side_directions[1].front(), parameters,
-                    fillet, radius_at(traversed));
+                auto start=section_at(edge,0,radius_at(traversed));
                 if (!start) {
                     rails_valid = false;
                     break;
@@ -326,10 +707,7 @@ EdgeTreatmentPreviewGeometry edge_treatment_preview_wire(
                     if (swapped < straight) {
                         std::swap(edge.edge_treatment_side_directions[0],
                                   edge.edge_treatment_side_directions[1]);
-                        start = edge_treatment_section(edge.points.front(),
-                            edge.edge_treatment_side_directions[0].front(),
-                            edge.edge_treatment_side_directions[1].front(),
-                            parameters, fillet, radius_at(traversed));
+                        start=section_at(edge,0,radius_at(traversed));
                     }
                 }
                 if (!start) {
@@ -350,10 +728,8 @@ EdgeTreatmentPreviewGeometry edge_treatment_preview_wire(
                             edge.points[point_index],
                             edge.points[point_index - 1]));
                     }
-                    auto section = edge_treatment_section(edge.points[point_index],
-                        edge.edge_treatment_side_directions[0][point_index],
-                        edge.edge_treatment_side_directions[1][point_index],
-                        parameters, fillet, radius_at(traversed));
+                    auto section=section_at(edge,point_index,
+                        radius_at(traversed));
                     if (!section) {
                         rails_valid = false;
                         break;

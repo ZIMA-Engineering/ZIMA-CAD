@@ -1259,6 +1259,21 @@ int main() {
             require(zima::document::treatment_selection_wire(parameters,0,std::nullopt,input).size()==4 &&
                 zima::document::treatment_selection_wire(parameters,0,0,input).front().reference==refs[2],
                 "Treatment Tree wire does not distinguish route and segment");
+            auto previous_fillet=input.edges[1];
+            previous_fillet.reference={"previous-fillet",
+                "fillet:edge:from:source",{}};
+            input.edges.push_back(previous_fillet);
+            auto explicit_mixed=parameters;
+            explicit_mixed.routes={{refs[0],previous_fillet.reference}};
+            require(zima::document::actual_edge_treatment_intervals(
+                        explicit_mixed.routes.front())==
+                            explicit_mixed.routes.front()&&
+                    zima::document::treatment_selection_wire(explicit_mixed,0,
+                        std::nullopt,input).size()==2&&
+                    zima::document::actual_edge_treatment_intervals(
+                        std::vector{previous_fillet}).size()==1,
+                "An explicit current-Body treatment arc was removed from its persisted route or preview");
+            input.edges.pop_back();
             auto boolean_route=parameters;
             const auto encoded_reference=[](const auto& reference) {
                 return std::to_string(reference.owner_id.size())+":"+

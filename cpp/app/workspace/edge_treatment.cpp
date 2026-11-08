@@ -13,99 +13,6 @@
 namespace zima::app {
 using namespace workspace_detail;
 
-namespace {
-bool same_face(const zima::kernel::FaceReference& first,
-        const zima::kernel::FaceReference& second) {
-    return first.owner_id==second.owner_id&&
-        first.semantic_key==second.semantic_key;
-}
-
-struct RouteEndpoint {
-    zima::kernel::Vec3 point;
-    std::vector<zima::kernel::FaceReference> support_faces;
-};
-
-std::optional<RouteEndpoint> route_endpoint(
-        const zima::kernel::ViewerMesh& mesh,
-        const std::vector<zima::kernel::EdgeReference>& authored_route,
-        std::size_t end) {
-    const auto route=zima::document::actual_edge_treatment_intervals(
-        authored_route);
-    zima::document::EdgeTreatmentParameters parameters;
-    parameters.routes={authored_route};
-    const auto resolved=zima::document::treatment_selection_wire(
-        parameters,0,std::nullopt,mesh);
-    const auto terminals=zima::workspace::edge_treatment_route_endpoints(
-        resolved,route);
-    if(terminals.size()!=2)return {};
-    const auto terminal=[&](const zima::kernel::VertexReference& value) {
-        return std::ranges::find(terminals,value)!=terminals.end();
-    };
-    const auto scan=[&](const zima::kernel::EdgeReference& reference,
-            bool reverse)->std::optional<RouteEndpoint> {
-        for(const auto& edge:resolved) {
-            if(edge.reference!=reference||edge.points.empty()||
-               edge.edge_treatment_endpoint_references.size()!=2)continue;
-            for(const std::size_t endpoint:reverse
-                    ?std::array<std::size_t,2>{1,0}
-                    :std::array<std::size_t,2>{0,1}) {
-                if(!terminal(edge.edge_treatment_endpoint_references[endpoint]))
-                    continue;
-                return RouteEndpoint{
-                    endpoint==0?edge.points.front():edge.points.back(),
-                    edge.edge_treatment_side_references};
-            }
-        }
-        return {};
-    };
-    if(end==0) {
-        for(const auto& reference:route)
-            if(auto found=scan(reference,false))return found;
-    } else {
-        for(auto reference=route.rbegin();reference!=route.rend();++reference)
-            if(auto found=scan(*reference,true))return found;
-    }
-    return {};
-}
-
-std::vector<zima::kernel::FaceReference> route_end_face_candidates(
-        const zima::kernel::ViewerMesh& mesh,
-        const std::vector<zima::kernel::EdgeReference>& route,
-        std::size_t end) {
-    const auto endpoint=route_endpoint(mesh,route,end);
-    if(!endpoint)return {};
-    const auto distance_squared=[](const auto& first,const auto& second) {
-        const double x=first.x-second.x,y=first.y-second.y,z=first.z-second.z;
-        return x*x+y*y+z*z;
-    };
-    std::vector<zima::kernel::FaceReference> result;
-    for(std::size_t triangle=0;
-            triangle<mesh.triangle_references.size();++triangle) {
-        if(3*triangle+2>=mesh.triangles.size())break;
-        const auto& face=mesh.triangle_references[triangle];
-        if(!face.valid()||!face.instance_path.empty()||
-           (face.surface&&face.surface->kind!=
-                zima::kernel::SurfaceGeometry::Kind::Plane)||
-           std::ranges::any_of(endpoint->support_faces,
-                [&](const auto& support){return same_face(support,face);}))
-            continue;
-        bool incident=false;
-        for(std::size_t corner=0;corner<3;++corner) {
-            const auto vertex=mesh.triangles[3*triangle+corner];
-            if(vertex<mesh.vertices.size()&&distance_squared(
-                    mesh.vertices[vertex],endpoint->point)<=1.0e-10) {
-                incident=true;break;
-            }
-        }
-        if(incident&&std::ranges::none_of(result,
-                [&](const auto& existing){return same_face(existing,face);}))
-            result.push_back(face);
-    }
-    return result;
-}
-}
-
-
 void AssemblyWorkspaceWindow::start_edge_treatment(
     zima::document::FeatureKind kind) {
     if (properties_dialog_ != nullptr ||
@@ -155,16 +62,6 @@ void AssemblyWorkspaceWindow::start_edge_treatment(
             remove_edge_treatment_member(group, member);
         },
         [this](std::size_t group) { restore_edge_treatment_route(group); });
-    dialog->set_edge_end_face_callbacks(
-        [this](std::size_t route,std::size_t end) {
-            request_edge_treatment_end_face(route,end);
-        },
-        [this](std::size_t route,std::size_t end) {
-            auto_edge_treatment_end_face(route,end);
-        },
-        [this](std::size_t route,std::size_t end,bool inspected) {
-            inspect_edge_treatment_end_face(route,end,inspected);
-        });
     dialog->set_preview_callback([this](const auto& preview) {
         edge_treatment_preview_parameters_ = preview.edge_treatment;
         refresh_edge_treatment_preview();
@@ -175,7 +72,6 @@ void AssemblyWorkspaceWindow::start_edge_treatment(
         edge_treatment_dialog_ = nullptr;
         edge_treatment_selection_.reset();
         edge_treatment_hover_seed_.reset();
-        edge_treatment_end_face_pick_.reset();
         pending_edge_treatment_edges_.clear();
         pending_edge_treatment_groups_.clear();
         pending_edge_treatment_seeds_.clear();
@@ -208,53 +104,8 @@ void AssemblyWorkspaceWindow::start_edge_treatment(
 void AssemblyWorkspaceWindow::accept_edge_treatment(
     const zima::viewer::ViewerCandidate& candidate) {
     if (!edge_treatment_selection_) return;
-    if(edge_treatment_end_face_pick_) {
-        const auto [route,end]=*edge_treatment_end_face_pick_;
-        if(candidate.kind!=zima::viewer::CandidateKind::Face||
-           candidate.geometry!=zima::viewer::CandidateGeometry::Display||
-           (viewer_->candidate_filter()&&
-            !viewer_->candidate_filter()(candidate))) {
-            state_->setText(tr(
-                "Vyberte rovinnou plochu ležící na konci trasy."));
-            return;
-        }
-        const auto* part=workspace_.open_part(workspace_.active_document_id());
-        if(!part||route>=pending_edge_treatment_groups_.size())return;
-        const auto* input=zima::workspace::calculated_operation_input(
-            part->session,part->session.document().find_container(
-                edge_treatment_preview_owner_id_)
-                ?edge_treatment_preview_owner_id_:std::string{});
-        if(!input)return;
-        const auto candidates=route_end_face_candidates(input->mesh,
-            pending_edge_treatment_groups_[route],end);
-        const auto found=std::ranges::find_if(candidates,[&](const auto& face) {
-            return face.owner_id==candidate.owner_id&&
-                face.semantic_key==candidate.semantic_key;
-        });
-        if(found==candidates.end()) {
-            state_->setText(tr(
-                "Koncová plocha musí obsahovat příslušný konec trasy."));
-            return;
-        }
-        auto face=*found;face.instance_path.clear();
-        edge_treatment_preview_parameters_.route_end_faces.resize(
-            pending_edge_treatment_groups_.size());
-        auto& ends=edge_treatment_preview_parameters_.route_end_faces[route];
-        (end==0?ends.first:ends.last)=std::move(face);
-        edge_treatment_end_face_pick_.reset();
-        if(edge_treatment_dialog_) {
-            edge_treatment_dialog_->set_edge_route_end_faces(
-                edge_treatment_preview_parameters_.route_end_faces);
-            edge_treatment_dialog_->set_edge_end_face_selection_active({});
-        }
-        refresh_edge_treatment_selection_ui();
-        state_->setText(tr("Koncová plocha byla přiřazena."));
-        return;
-    }
     if (candidate.kind != zima::viewer::CandidateKind::Edge ||
-        (candidate.geometry != zima::viewer::CandidateGeometry::Display &&
-         candidate.geometry !=
-            zima::viewer::CandidateGeometry::OriginalReference) ||
+        candidate.geometry != zima::viewer::CandidateGeometry::Display ||
         candidate.owner_id.empty() || candidate.semantic_key.empty() ||
         (viewer_->candidate_filter() && !viewer_->candidate_filter()(candidate))) {
         state_->setText(tr("Vyberte hranu původního solidu aktivního Partu."));
@@ -310,11 +161,8 @@ void AssemblyWorkspaceWindow::accept_edge_treatment(
         }
         return;
     }
-    auto route = candidate.geometry==
-            zima::viewer::CandidateGeometry::OriginalReference
-        ?std::vector<zima::kernel::EdgeReference>{seed}
-        :zima::document::edge_treatment_intervals_from_seed(
-            viewer_->tangent_edge_route(candidate),seed);
+    auto route = zima::document::edge_treatment_intervals_from_seed(
+        viewer_->tangent_edge_route(candidate),seed);
     for (auto& edge : route) edge.instance_path.clear();
     if (route.empty()) route = {seed};
     std::erase_if(route, [&](const auto& edge) {
@@ -351,61 +199,23 @@ void AssemblyWorkspaceWindow::refresh_edge_treatment_selection_ui() {
                 ?edge_treatment_preview_owner_id_:std::string{});
     if (edge_treatment_selection_ && part != nullptr) {
         std::set<std::pair<std::string,std::string>> input_edges;
-        std::set<std::pair<std::string,std::string>> original_edges;
-        const bool original_selection_allowed=
-            edge_treatment_preview_parameters_.calculation_method!=
-                zima::document::EdgeTreatmentParameters::CalculationMethod::Occt&&
-            (*edge_treatment_selection_!=zima::document::FeatureKind::Fillet||
-             edge_treatment_preview_parameters_.fillet_mode==
-                zima::document::EdgeTreatmentParameters::FilletMode::Constant);
         if(input)for(const auto& edge:input->mesh.edges)
             if(!edge.parameter_seam && edge.reference.valid())
                 input_edges.emplace(edge.reference.owner_id,edge.reference.semantic_key);
-        if(input)for(const auto& edge:input->mesh.original_references.edges)
-            if(!edge.parameter_seam&&edge.reference.valid())
-                original_edges.emplace(edge.reference.owner_id,
-                    edge.reference.semantic_key);
         tree_->setProperty("commandSelectionActive", true);
-        if(edge_treatment_end_face_pick_&&input) {
-            const auto [route,end]=*edge_treatment_end_face_pick_;
-            std::set<std::pair<std::string,std::string>> input_faces;
-            if(route<pending_edge_treatment_groups_.size())
-                for(const auto& face:route_end_face_candidates(input->mesh,
-                        pending_edge_treatment_groups_[route],end))
-                    input_faces.emplace(face.owner_id,face.semantic_key);
-            viewer_->set_selection_contract({
-                zima::viewer::CandidateKind::Face});
-            viewer_->set_candidate_priority({});
-            viewer_->set_candidate_filter(
-                [expected_path=instance_path,
-                 input_faces=std::make_shared<const decltype(input_faces)>(
-                    std::move(input_faces))](const auto& candidate) {
-                    return candidate.kind==zima::viewer::CandidateKind::Face&&
-                        candidate.geometry==
-                            zima::viewer::CandidateGeometry::Display&&
-                        candidate.instance_path==expected_path&&
-                        input_faces->contains({candidate.owner_id,
-                            candidate.semantic_key});
-                },false);
-        } else {
         viewer_->set_selection_contract({zima::viewer::CandidateKind::Edge,
                                          zima::viewer::CandidateKind::Dimension});
-        // At a Boolean joint the real intersection and a surviving source-edge
-        // fragment are both legitimate choices. Offer the intersection first;
-        // RMB cycling can still select the original edge explicitly.
+        // Fillet/Chamfer operates only on exact current Body edges.  Historical
+        // authored edges remain inspection geometry and must not be mixed into
+        // an automatically collected route.
         viewer_->set_candidate_priority([](const auto& candidate) {
             if(candidate.kind!=zima::viewer::CandidateKind::Edge)return 1;
-            if(candidate.geometry==
-                    zima::viewer::CandidateGeometry::OriginalReference)return 2;
             return zima::kernel::is_boolean_intersection_interval({
                 candidate.owner_id,candidate.semantic_key,{}})?0:1;
         });
         viewer_->set_candidate_filter(
             [expected_path = instance_path,
              input_edges = std::make_shared<const decltype(input_edges)>(std::move(input_edges)),
-             original_edges = std::make_shared<const decltype(original_edges)>(
-                std::move(original_edges)),
-             original_selection_allowed,
              preview_owner = edge_treatment_preview_owner_id_](
                 const auto& candidate) {
                 if (candidate.kind == zima::viewer::CandidateKind::Dimension) {
@@ -413,21 +223,13 @@ void AssemblyWorkspaceWindow::refresh_edge_treatment_selection_ui() {
                         candidate.semantic_key.starts_with("parameter:");
                 }
                 if(candidate.kind!=zima::viewer::CandidateKind::Edge||
-                   candidate.instance_path!=expected_path)return false;
+                   candidate.instance_path!=expected_path||
+                   candidate.geometry!=
+                       zima::viewer::CandidateGeometry::Display)return false;
                 const auto identity=std::pair{candidate.owner_id,
                     candidate.semantic_key};
-                return candidate.geometry==
-                        zima::viewer::CandidateGeometry::Display
-                    ?input_edges->contains(identity)
-                    :candidate.geometry==
-                        zima::viewer::CandidateGeometry::OriginalReference&&
-                        original_selection_allowed&&
-                        !zima::kernel::is_boolean_intersection_interval({
-                            candidate.owner_id,candidate.semantic_key,{}})&&
-                        !input_edges->contains(identity)&&
-                        original_edges->contains(identity);
+                return input_edges->contains(identity);
             }, false);
-        }
     }
     auto display_parameters=edge_treatment_preview_parameters_;
     display_parameters.routes=pending_edge_treatment_groups_;
@@ -458,10 +260,6 @@ void AssemblyWorkspaceWindow::refresh_edge_treatment_selection_ui() {
     if (edge_treatment_dialog_ != nullptr) {
         edge_treatment_dialog_->set_edge_groups(pending_edge_treatment_groups_,
             std::move(displayed_fragments));
-        edge_treatment_dialog_->set_edge_route_end_faces(
-            edge_treatment_preview_parameters_.route_end_faces);
-        edge_treatment_dialog_->set_edge_end_face_selection_active(
-            edge_treatment_end_face_pick_);
     }
     viewer_->set_edge_treatment_selection_edges(std::move(highlighted));
     refresh_edge_treatment_preview();
@@ -548,7 +346,7 @@ void AssemblyWorkspaceWindow::refresh_edge_treatment_preview() {
     auto preview = edge_treatment_preview_wire(
         display_groups, edge_treatment_preview_parameters_,
         *edge_treatment_selection_,
-        edge_treatment_preview_owner_id_);
+        edge_treatment_preview_owner_id_, input ? &input->mesh : nullptr);
     viewer_->set_transient_edges(std::move(preview.edges));
     viewer_->set_transient_points(std::move(node_points));
     for (auto& dimension : preview.dimensions) dimension.reference.instance_path = instance_path;
@@ -618,79 +416,6 @@ void AssemblyWorkspaceWindow::restore_edge_treatment_route(std::size_t group) {
         if(edge_treatment_dialog_)edge_treatment_dialog_->set_edge_route_start_vertices(starts);
     }
     refresh_edge_treatment_selection_ui();
-}
-
-void AssemblyWorkspaceWindow::request_edge_treatment_end_face(
-        std::size_t route,std::size_t end) {
-    if(!edge_treatment_selection_||route>=pending_edge_treatment_groups_.size()||
-       end>1)return;
-    if(edge_treatment_preview_parameters_.calculation_method==
-            zima::document::EdgeTreatmentParameters::CalculationMethod::Occt) {
-        state_->setText(tr(
-            "OCCT nepodporuje koncové plochy. Zvolte ZIMA nebo Automaticky."));
-        return;
-    }
-    edge_treatment_end_face_pick_=std::pair{route,end};
-    if(edge_treatment_dialog_)
-        edge_treatment_dialog_->set_edge_end_face_selection_active(
-            edge_treatment_end_face_pick_);
-    refresh_edge_treatment_selection_ui();
-    state_->setText(tr(
-        "Vyberte rovinnou plochu ležící na označeném konci trasy. Delete ponechá kolmý konec."));
-}
-
-void AssemblyWorkspaceWindow::auto_edge_treatment_end_face(
-        std::size_t route,std::size_t end) {
-    const auto* part=workspace_.open_part(workspace_.active_document_id());
-    if(!part||route>=pending_edge_treatment_groups_.size()||end>1)return;
-    const auto* input=zima::workspace::calculated_operation_input(
-        part->session,part->session.document().find_container(
-            edge_treatment_preview_owner_id_)
-            ?edge_treatment_preview_owner_id_:std::string{});
-    if(!input)return;
-    const auto candidates=route_end_face_candidates(input->mesh,
-        pending_edge_treatment_groups_[route],end);
-    if(candidates.size()!=1) {
-        state_->setText(candidates.empty()
-            ?tr("Automatika nenašla jednoznačnou rovinnou koncovou plochu.")
-            :tr("Automatika našla více koncových ploch; vyberte jednu ručně."));
-        return;
-    }
-    edge_treatment_preview_parameters_.route_end_faces.resize(
-        pending_edge_treatment_groups_.size());
-    auto& ends=edge_treatment_preview_parameters_.route_end_faces[route];
-    (end==0?ends.first:ends.last)=candidates.front();
-    edge_treatment_end_face_pick_.reset();
-    if(edge_treatment_dialog_) {
-        edge_treatment_dialog_->set_edge_route_end_faces(
-            edge_treatment_preview_parameters_.route_end_faces);
-        edge_treatment_dialog_->set_edge_end_face_selection_active({});
-    }
-    refresh_edge_treatment_selection_ui();
-    state_->setText(tr("Koncová plocha byla automaticky doplněna."));
-}
-
-void AssemblyWorkspaceWindow::inspect_edge_treatment_end_face(
-        std::size_t route,std::size_t end,bool inspected) {
-    if(!inspected||route>=edge_treatment_preview_parameters_.
-            route_end_faces.size()||end>1) {
-        viewer_->set_inspected_faces({});
-        return;
-    }
-    const auto& ends=edge_treatment_preview_parameters_.route_end_faces[route];
-    const auto& face=end==0?ends.first:ends.last;
-    if(!face.valid())return;
-    zima::viewer::ViewerCandidate candidate;
-    candidate.kind=zima::viewer::CandidateKind::Face;
-    candidate.geometry=zima::viewer::CandidateGeometry::Display;
-    candidate.owner_id=face.owner_id;
-    candidate.semantic_key=face.semantic_key;
-    const auto* part=workspace_.open_part(workspace_.active_document_id());
-    candidate.instance_path=part
-        ?resolve_active_occurrence(part->session.document().document_id).
-            value_or(std::string{})
-        :std::string{};
-    viewer_->set_inspected_faces({std::move(candidate)});
 }
 
 bool AssemblyWorkspaceWindow::finish_edge_treatment_selection() {

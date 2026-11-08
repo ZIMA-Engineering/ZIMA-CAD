@@ -2,6 +2,7 @@
 #include <zima/document/part_document.hpp>
 #include <algorithm>
 #include <cmath>
+#include <iterator>
 #include <map>
 #include <limits>
 #include <optional>
@@ -63,6 +64,11 @@ inline std::vector<kernel::EdgeReference> edge_treatment_intervals_from_seed(
 
 inline std::vector<kernel::EdgeReference> actual_edge_treatment_intervals(
         const std::vector<kernel::EdgeReference>& route) {
+    // Route construction already decides where automatic tangent traversal
+    // stops. Every persisted member is an explicitly selected current-Body
+    // edge after that decision, including a Fillet/Chamfer arc between two
+    // straight or Boolean-split members. Preview and calculation must consume
+    // exactly the same complete route shown in Properties.
     return route;
 }
 
@@ -89,11 +95,20 @@ inline std::vector<kernel::ViewerEdge> treatment_selection_wire(
     for (std::size_t i=0;i<selected.size();++i) {
         if (segment && i!=*segment) continue;
         std::vector<std::size_t> exact,descendants;
+        const bool selected_treatment_edge=
+            selected[i].semantic_key.starts_with("fillet:edge:from:")||
+            selected[i].semantic_key.starts_with("chamfer:edge:from:");
         for (std::size_t edge_index=0;edge_index<input.edges.size();++edge_index) {
             const auto& reference=input.edges[edge_index].reference;
             if(reference==selected[i])exact.push_back(edge_index);
             else if(kernel::edge_reference_matches_or_descends_from(
-                        reference,selected[i]))descendants.push_back(edge_index);
+                        reference,selected[i])&&
+                    (selected_treatment_edge||
+                     (!reference.semantic_key.starts_with(
+                          "fillet:edge:from:")&&
+                      !reference.semantic_key.starts_with(
+                          "chamfer:edge:from:"))))
+                descendants.push_back(edge_index);
         }
         // A two-sided or later Boolean operation can split one persisted
         // authored edge into several current operational fragments.  Those

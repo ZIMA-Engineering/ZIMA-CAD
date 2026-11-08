@@ -14421,6 +14421,22 @@ int verify_startup_contract(
         application.processEvents();
         auto* tree=route_window.findChild<QTreeWidget*>("documentTree");
         auto* view=dynamic_cast<zima::viewer::MeshView*>(route_window.findChild<QOpenGLWidget*>("modelWorkspace"));
+        const auto find_container=[&]() -> QTreeWidgetItem* {
+            for (QTreeWidgetItemIterator i(tree);*i;++i)
+                if ((*i)->data(0,Qt::UserRole+3).toString()=="part-container" &&
+                    (*i)->data(0,Qt::UserRole).toString().toStdString()==treatment.id)
+                    return *i;
+            return nullptr;
+        };
+        const auto treatment_wire_visible=[&] {
+            auto* container=find_container();
+            if (!container || !view) return false;
+            tree->clearSelection();
+            tree->setCurrentItem(container);
+            application.processEvents();
+            static_cast<void>(view->grabFramebuffer());
+            return view->property("gpuSourceWireVertexCount").toInt()>0;
+        };
         const auto find_item=[&](int route,int segment) -> QTreeWidgetItem* {
             for (QTreeWidgetItemIterator i(tree);*i;++i)
                 if ((*i)->data(0,Qt::UserRole+3).toString()=="part-treatment-component" &&
@@ -14460,13 +14476,19 @@ int verify_startup_contract(
         };
         if (!verify(remove_item(0,0) && find_item(0,-1) && find_item(0,-1)->childCount()==1 &&
                 find_item(1,-1),"Deleting one segment damaged the other treatment routes")) return 1;
+        if (!verify(treatment_wire_visible(),
+                "Deleting one treatment segment disabled its authored azure wire")) return 1;
         if (!verify(remove_item(1,-1) && !find_item(1,-1) && find_item(0,-1),
                 "Deleting a route damaged the remaining route")) return 1;
+        if (!verify(treatment_wire_visible(),
+                "Deleting one treatment route disabled its authored azure wire")) return 1;
         if (!verify(remove_item(0,-1) && !find_item(0,-1),
                 "Deleting the last route retained an invalid empty treatment")) return 1;
         route_window.findChild<QAction*>("undoAction")->trigger();application.processEvents();
         if (!verify(find_item(0,-1) && find_item(0,-1)->childCount()==1,
                 "Undo failed to restore the last deleted treatment route")) return 1;
+        if (!verify(treatment_wire_visible(),
+                "Undo after deleting a treatment did not restore its authored azure wire")) return 1;
         route_window.findChild<QAction*>("saveDocumentAction")->trigger();application.processEvents();
         const auto saved=zima::document::PartDocument::load(path);
         const auto* restored=saved.find_container(treatment.id);

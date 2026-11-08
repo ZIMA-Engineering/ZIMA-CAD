@@ -11186,11 +11186,11 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
                 route_edge_counts.push_back(selected_route.size());
                 contour_starts.insert(contour_starts.end(),
                     selected_route.size(), start);
-                const auto ends=route<
-                        container.edge_treatment.route_end_faces.size()
-                    ?container.edge_treatment.route_end_faces[route]
-                    :EdgeTreatmentParameters::RouteEndFaces{};
-                route_end_faces.push_back({ends.first,ends.last});
+                // Terminal material faces are derived from the current local
+                // Body neighborhood by the ZIMA solver. Reserved persisted
+                // slots are intentionally ignored so an old manual choice
+                // cannot override regenerated geometry.
+                route_end_faces.emplace_back();
             }
             primitive = zima::kernel::FilletRequest{
                 std::move(calculation_edges),
@@ -11225,11 +11225,8 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
                 calculation_edges.insert(calculation_edges.end(),
                     selected_route.begin(),selected_route.end());
                 route_edge_counts.push_back(selected_route.size());
-                const auto ends=route_index<
-                        container.edge_treatment.route_end_faces.size()
-                    ?container.edge_treatment.route_end_faces[route_index]
-                    :EdgeTreatmentParameters::RouteEndFaces{};
-                route_end_faces.push_back({ends.first,ends.last});
+                // See Fillet above: route terminals are solver-owned.
+                route_end_faces.emplace_back();
             }
             primitive = zima::kernel::ChamferRequest{
                 std::move(calculation_edges),

@@ -207,7 +207,9 @@ void AssemblyWorkspaceWindow::create_layout() {
                 if(authored_sketch_profile(*feature)||feature->feature_kind==document::FeatureKind::Feature||
                     feature->feature_kind==document::FeatureKind::DerivedCopy||feature->feature_kind==document::FeatureKind::Loft||
                     feature->feature_kind==document::FeatureKind::Flat||feature->feature_kind==document::FeatureKind::Bend||
-                    feature->feature_kind==document::FeatureKind::SheetTransition)return true;
+                    feature->feature_kind==document::FeatureKind::SheetTransition||
+                    feature->feature_kind==document::FeatureKind::Fillet||
+                    feature->feature_kind==document::FeatureKind::Chamfer)return true;
         }
         if(const auto* assembly=workspace_.open_assembly(workspace_.active_document_id()))
             if(const auto* cut=assembly->session.document().find_cut(owner))

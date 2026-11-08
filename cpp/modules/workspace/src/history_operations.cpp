@@ -196,23 +196,27 @@ void delete_part_history(Workspace& live,const std::string& document_id,
         ?calculate_part(kernel,next,&part.session.calculated_boundaries())
         :calculate_part_with_resolved_references(
             kernel,next,&part.session.calculated_boundaries());
-    if(rebuild_sheet_union&&!calculated.empty()) {
+    if(!calculated.empty()) {
         const bool incomplete_current_identities=std::ranges::any_of(
             calculated.back().body_outputs,[](const auto& output) {
                 const auto& mesh=output.second->mesh;
-                return !mesh.triangles.empty()&&
+                const bool incomplete_faces=!mesh.triangles.empty()&&
                     (mesh.triangle_references.empty()||
                      std::ranges::any_of(mesh.triangle_references,
                         [](const auto& face){return !face.valid();}));
+                const bool incomplete_edges=!mesh.edges.empty()&&
+                    std::ranges::none_of(mesh.edges,[](const auto& edge) {
+                        return edge.reference.valid();
+                    });
+                return incomplete_faces||incomplete_edges;
             });
-        // A shortened final-first sheet history may expose a compact earlier
-        // boundary whose B-Rep and original ancestry are valid, while its
-        // current face packet deliberately carries no owners.  That packet is
-        // sufficient as an internal prefix but not as the new final Body:
-        // commands such as Sheet from Body and Fillet could display the solid
-        // yet select none of its faces.  Rebuild only this rare shortened
-        // result without the compact cache; ordinary sheet deletion keeps the
-        // direct parallel union and its warm path.
+        // A shortened final-first history may expose a compact earlier
+        // boundary whose B-Rep is valid while its current face or edge packet
+        // carries no usable owners.  That packet is sufficient as an internal
+        // prefix but not as the new final Body: a failed dependent treatment
+        // could display the solid yet offer no edge for a new Fillet/Chamfer.
+        // Rebuild only this rare shortened result without the compact cache;
+        // ordinary deletion keeps its warm path.
         if(incomplete_current_identities)
             calculated=calculate_part(kernel,next,nullptr);
     }

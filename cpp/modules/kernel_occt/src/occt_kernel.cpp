@@ -194,6 +194,7 @@
 #include <gp_Circ.hxx>
 #include <gp_Dir.hxx>
 #include <gp_Elips.hxx>
+#include <gp_Lin.hxx>
 #include <gp_Pnt.hxx>
 #include <gp_Pnt2d.hxx>
 #include <gp_Pln.hxx>
@@ -6651,10 +6652,20 @@ BodyResult make_result(
                 const BRepAdaptor_Surface first(adjacent_faces[0], true);
                 const BRepAdaptor_Surface second(adjacent_faces[1], true);
                 if (first.GetType() == GeomAbs_Cylinder &&
-                    second.GetType() == GeomAbs_Cylinder &&
-                    BRepLib::ContinuityOfFaces(edge, adjacent_faces[0],
-                        adjacent_faces[1], 1.0e-6) != GeomAbs_C0) {
-                    viewer_edge.parameter_seam = true;
+                    second.GetType() == GeomAbs_Cylinder) {
+                    const auto first_cylinder=first.Cylinder();
+                    const auto second_cylinder=second.Cylinder();
+                    const bool same_cylinder=
+                        std::abs(first_cylinder.Radius()-
+                            second_cylinder.Radius())<=1.0e-6&&
+                        first_cylinder.Axis().Direction().IsParallel(
+                            second_cylinder.Axis().Direction(),1.0e-9)&&
+                        gp_Lin(first_cylinder.Axis()).Distance(
+                            second_cylinder.Axis().Location())<=1.0e-6;
+                    if(same_cylinder&&
+                       BRepLib::ContinuityOfFaces(edge,adjacent_faces[0],
+                           adjacent_faces[1],1.0e-6)!=GeomAbs_C0)
+                        viewer_edge.parameter_seam=true;
                 }
             }
         }
@@ -9678,9 +9689,13 @@ std::vector<BodyResult> OcctKernel::evaluate_body_histories(
                     // coverage needed by a later changed suffix. The final
                     // document owns that live coverage in body_boundaries;
                     // keep the already persisted top-level prefix packet byte
-                    // for byte unchanged.
-                    boundaries.push_back(
-                        previous_boundaries[boundaries.size()]);
+                    // for byte unchanged.  Its ephemeral live proof is not
+                    // serialized, so copy the proof from the exact local row
+                    // which was just accepted by this kernel instance.
+                    auto published=previous_boundaries[boundaries.size()];
+                    published.calculation_provenance=
+                        boundary.calculation_provenance;
+                    boundaries.push_back(std::move(published));
                 } else {
                     auto published=boundary;
                     published.source_fingerprint=history_fingerprint(
@@ -11532,13 +11547,23 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                 const auto resolved_treatment_edges=[&](
                         const EdgeReference& requested) {
                     std::vector<const OwnedEdge*> exact,descendants;
+                    const bool requested_treatment_edge=
+                        requested.semantic_key.starts_with(
+                            "fillet:edge:from:")||
+                        requested.semantic_key.starts_with(
+                            "chamfer:edge:from:");
                     for(const auto& owned:owned_topology->edges) {
                         if(owned.reference.owner_id==requested.owner_id&&
                            owned.reference.semantic_key==
                                requested.semantic_key)
                             exact.push_back(&owned);
                         else if(split_edge_descends_from(
-                                    owned.reference,requested))
+                                    owned.reference,requested)&&
+                                (requested_treatment_edge||
+                                 (!owned.reference.semantic_key.starts_with(
+                                      "fillet:edge:from:")&&
+                                  !owned.reference.semantic_key.starts_with(
+                                      "chamfer:edge:from:"))))
                             descendants.push_back(&owned);
                     }
                     // Explicit split descendants are the actual surviving
@@ -11547,103 +11572,6 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                     // otherwise use the unchanged edge. No geometric proximity,
                     // enumeration order or measured dimension participates.
                     return descendants.empty()?exact:descendants;
-                };
-                struct OriginalTreatmentSupport {
-                    TopoDS_Edge edge;
-                    std::array<TopoDS_Face,2> faces;
-                    TopoDS_Solid material;
-                };
-                const auto original_treatment_support=[&](
-                        const EdgeReference& requested)
-                        ->std::optional<OriginalTreatmentSupport> {
-                    if(is_boolean_intersection_interval(requested))return {};
-                    // An exact current edge is an ordinary current-body
-                    // selection. Only fall back to retained source geometry
-                    // when that exact edge has disappeared and the user chose
-                    // its separately offered OriginalReference candidate.
-                    if(std::ranges::any_of(owned_topology->edges,
-                            [&](const auto& owned) {
-                                return owned.reference==requested;
-                            }))return {};
-                    for(auto node=context.original_faces;node;
-                            node=node->previous) {
-                        if(node->shape.IsNull())continue;
-                        std::vector<TopoDS_Edge> matches;
-                        for(const auto& owned:node->edges)
-                            if(owned.reference==requested&&
-                               std::ranges::none_of(matches,
-                                    [&](const auto& existing) {
-                                        return existing.IsSame(owned.shape);
-                                    }))
-                                matches.push_back(
-                                    TopoDS::Edge(owned.shape));
-                        if(matches.empty())continue;
-                        if(matches.size()!=1)return {};
-                        TopTools_IndexedDataMapOfShapeListOfShape edge_faces,
-                            edge_solids;
-                        TopExp::MapShapesAndAncestors(node->shape,
-                            TopAbs_EDGE,TopAbs_FACE,edge_faces);
-                        TopExp::MapShapesAndAncestors(node->shape,
-                            TopAbs_EDGE,TopAbs_SOLID,edge_solids);
-                        const int face_index=edge_faces.FindIndex(
-                            matches.front());
-                        const int solid_index=edge_solids.FindIndex(
-                            matches.front());
-                        if(!face_index||!solid_index)return {};
-                        std::vector<TopoDS_Face> faces;
-                        for(const auto& value:
-                                edge_faces.FindFromIndex(face_index)) {
-                            const auto face=TopoDS::Face(value);
-                            if(std::ranges::none_of(faces,
-                                    [&](const auto& existing) {
-                                        return existing.IsSame(face);
-                                    }))faces.push_back(face);
-                        }
-                        std::vector<TopoDS_Solid> solids;
-                        for(const auto& value:
-                                edge_solids.FindFromIndex(solid_index)) {
-                            const auto solid=TopoDS::Solid(value);
-                            if(std::ranges::none_of(solids,
-                                    [&](const auto& existing) {
-                                        return existing.IsSame(solid);
-                                    }))solids.push_back(solid);
-                        }
-                        if(faces.size()!=2||solids.size()!=1)return {};
-                        const auto reference_for=[&](
-                                const TopoDS_Face& face) {
-                            std::optional<FaceReference> result;
-                            for(const auto& owned:node->faces)
-                                if(owned.shape.IsSame(face)&&
-                                   owned.reference.valid()&&
-                                   (!result||std::tie(
-                                        owned.reference.owner_id,
-                                        owned.reference.semantic_key,
-                                        owned.reference.instance_path)<
-                                    std::tie(result->owner_id,
-                                        result->semantic_key,
-                                        result->instance_path)))
-                                    result=owned.reference;
-                            return result.value_or(FaceReference{});
-                        };
-                        std::array references{
-                            reference_for(faces[0]),
-                            reference_for(faces[1])};
-                        if(!references[0].valid()||
-                           !references[1].valid())return {};
-                        if(std::tie(references[1].owner_id,
-                                references[1].semantic_key,
-                                references[1].instance_path)<
-                           std::tie(references[0].owner_id,
-                                references[0].semantic_key,
-                                references[0].instance_path)) {
-                            std::swap(faces[0],faces[1]);
-                            std::swap(references[0],references[1]);
-                        }
-                        return OriginalTreatmentSupport{
-                            matches.front(),{faces[0],faces[1]},
-                            solids.front()};
-                    }
-                    return {};
                 };
                 std::vector<std::pair<TopoDS_Edge, EdgeReference>> selected;
                 std::vector<std::size_t> selected_requested_indices;
@@ -12082,7 +12010,6 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                         throw std::invalid_argument(
                             "ZIMA Fillet currently supports only a constant radius; use OCCT for a variable radius");
                     if(try_custom_planar) {
-                        bool custom_original_source=false;
                         try {
                             std::vector<TopoDS_Edge> custom_edges;
                             std::vector<OcctPlanarEdgeEndFaces> custom_ends;
@@ -12101,35 +12028,6 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                             for(std::size_t requested_index=0;
                                     requested_index<treatment.edges.size();
                                     ++requested_index) {
-                                if(const auto original=
-                                        original_treatment_support(
-                                            treatment.edges[requested_index])) {
-                                    custom_original_source=true;
-                                    custom_seeds.emplace_back(
-                                        original->edge,
-                                        treatment.edges[requested_index]);
-                                    custom_seed_requests.push_back(
-                                        requested_index);
-                                    auto ends=OcctPlanarEdgeEndFaces{};
-                                    for(std::size_t selected_index=0;
-                                            selected_index<
-                                                selected_seed_requests.size();
-                                            ++selected_index)
-                                        if(selected_seed_requests[
-                                                selected_index]==
-                                                requested_index) {
-                                            ends=custom_end_faces[
-                                                selected_index];
-                                            break;
-                                        }
-                                    custom_seed_ends.push_back(
-                                        std::move(ends));
-                                    custom_seed_supports.push_back({
-                                        original->faces[0],
-                                        original->faces[1],
-                                        original->material});
-                                    continue;
-                                }
                                 for(std::size_t selected_index=0;
                                         selected_index<selected_seeds.size();
                                         ++selected_index)
@@ -12277,8 +12175,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                                 operation.owner_id.c_str(),error.what());
                             if(treatment.calculation_method==
                                     EdgeTreatmentCalculationMethod::Zima||
-                               has_authored_end_faces||
-                               custom_original_source)
+                               has_authored_end_faces)
                                 throw std::runtime_error(
                                     std::string("ZIMA Fillet rejected the selected geometry: ")+
                                     error.what());
@@ -12729,42 +12626,9 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                         std::vector<OcctPlanarEdgeSupport> custom_supports;
                         std::vector<std::pair<TopoDS_Edge,EdgeReference>>
                             custom_parents;
-                        bool custom_original_source=false;
                         for(std::size_t requested_index=0;
                                 requested_index<treatment.edges.size();
                                 ++requested_index) {
-                            if(const auto original=
-                                    original_treatment_support(
-                                        treatment.edges[requested_index])) {
-                                custom_original_source=true;
-                                const auto a_face=treatment.mode==
-                                        ChamferRequest::Mode::EqualDistance
-                                    ?TopoDS_Face{}
-                                    :treatment.flip
-                                        ?original->faces[1]
-                                        :original->faces[0];
-                                custom_edges.push_back({original->edge,
-                                    a_face});
-                                custom_supports.push_back({
-                                    original->faces[0],
-                                    original->faces[1],
-                                    original->material});
-                                custom_parents.emplace_back(original->edge,
-                                    treatment.edges[requested_index]);
-                                auto ends=OcctPlanarEdgeEndFaces{};
-                                for(std::size_t selected_index=0;
-                                        selected_index<
-                                            selected_requested_indices.size();
-                                        ++selected_index)
-                                    if(selected_requested_indices[
-                                            selected_index]==requested_index) {
-                                        ends=custom_end_faces[
-                                            selected_index];
-                                        break;
-                                    }
-                                custom_ends.push_back(std::move(ends));
-                                continue;
-                            }
                             for(std::size_t selected_index=0;
                                     selected_index<selected.size();
                                     ++selected_index) {
@@ -12817,8 +12681,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                                 operation.owner_id.c_str(),error.what());
                             if(treatment.calculation_method==
                                     EdgeTreatmentCalculationMethod::Zima||
-                               has_authored_end_faces||
-                               custom_original_source)
+                               has_authored_end_faces)
                                 throw std::runtime_error(
                                     std::string(
                                         "ZIMA Chamfer rejected the selected geometry: ")+
