@@ -1095,6 +1095,74 @@ int main() try {
         require(outside_cylinder.IsDone()&&
                 volume(outside_cylinder.Shape())<=1.0e-6,
             "Split cylindrical terminal let additive Fillet escape its Body envelope");
+        BRepAlgoAPI_Cut single_notched_cylinder(cylinder_envelope,
+            BRepPrimAPI_MakeBox(gp_Pnt(-10.,0.,50.),
+                gp_Pnt(10.,120.,110.)).Shape());
+        single_notched_cylinder.SetNonDestructive(true);
+        single_notched_cylinder.Build();
+        require(single_notched_cylinder.IsDone()&&
+                BRepCheck_Analyzer(single_notched_cylinder.Shape(),true,
+                    true,false).IsValid(),
+            "Single cylindrical Fillet terminal fixture failed");
+        const auto single_cylinder_route=straight_edge_between(
+            single_notched_cylinder.Shape(),{-10.,0.,50.},
+            {-10.,circle_end,50.},1.0e-6);
+        require(!single_cylinder_route.IsNull(),
+            "Single cylindrical terminal lost its concave route edge");
+        const auto single_flat=zima::kernel::occt_planar_edge_fillet(
+            single_notched_cylinder.Shape(),
+            std::array{single_cylinder_route},8.,1.0e-7,{},
+            zima::kernel::OcctPlanarEdgeFilletEndMode::Perpendicular);
+        const auto single_curved=zima::kernel::occt_planar_edge_fillet(
+            single_notched_cylinder.Shape(),
+            std::array{single_cylinder_route},8.,1.0e-7,{},
+            zima::kernel::OcctPlanarEdgeFilletEndMode::
+                AutomaticBodyEnvelope);
+        require(BRepCheck_Analyzer(single_curved.shape,true,true,false).
+                    IsValid()&&
+                single_curved.analytic_removal_domains.size()==1&&
+                single_curved.analytic_removal_domains.front().
+                    axial_extension>1.0e-7&&
+                volume(single_curved.shape)>volume(single_flat.shape)+1.0e-6,
+            "Additive Fillet did not reach its single cylindrical terminal");
+        BRepAlgoAPI_Cut outside_single(single_curved.shape,
+            cylinder_envelope);
+        outside_single.SetNonDestructive(true);
+        outside_single.Build();
+        require(outside_single.IsDone()&&
+                volume(outside_single.Shape())<=1.0e-6,
+            "Single cylindrical terminal let additive Fillet escape its Body envelope");
+        BRepAlgoAPI_Common convex_cylinder_terminal(cylinder_envelope,
+            BRepPrimAPI_MakeBox(gp_Pnt(-10.,0.,50.),
+                gp_Pnt(10.,120.,100.)).Shape());
+        convex_cylinder_terminal.SetNonDestructive(true);
+        convex_cylinder_terminal.Build();
+        require(convex_cylinder_terminal.IsDone()&&
+                BRepCheck_Analyzer(convex_cylinder_terminal.Shape(),true,
+                    true,false).IsValid(),
+            "Subtractive cylindrical Fillet terminal fixture failed");
+        const auto convex_cylinder_route=straight_edge_between(
+            convex_cylinder_terminal.Shape(),{-10.,0.,50.},
+            {-10.,circle_end,50.},1.0e-6);
+        require(!convex_cylinder_route.IsNull(),
+            "Subtractive cylindrical terminal lost its Fillet route edge");
+        const auto convex_flat=zima::kernel::occt_planar_edge_fillet(
+            convex_cylinder_terminal.Shape(),
+            std::array{convex_cylinder_route},8.,1.0e-7,{},
+            zima::kernel::OcctPlanarEdgeFilletEndMode::Perpendicular);
+        const auto convex_automatic=zima::kernel::occt_planar_edge_fillet(
+            convex_cylinder_terminal.Shape(),
+            std::array{convex_cylinder_route},8.,1.0e-7,{},
+            zima::kernel::OcctPlanarEdgeFilletEndMode::
+                AutomaticBodyEnvelope);
+        require(BRepCheck_Analyzer(convex_automatic.shape,true,true,false).
+                    IsValid()&&
+                convex_automatic.analytic_removal_domains.size()==1&&
+                convex_automatic.analytic_removal_domains.front().
+                    axial_extension>1.0e-7&&
+                volume(convex_automatic.shape)<
+                    volume(convex_flat.shape)-1.0e-6,
+            "Subtractive Fillet did not reach its cylindrical Body envelope");
         TopoDS_Edge adjacent;
         for(TopExp_Explorer item(box,TopAbs_EDGE);item.More();item.Next()) {
             const auto candidate=TopoDS::Edge(item.Current());

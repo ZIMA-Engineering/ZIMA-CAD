@@ -1,7 +1,9 @@
 #include <zima/kernel/occt_planar_edge_chamfer.hpp>
+#include "occt_edge_treatment_terminals.hpp"
 
 #include <BRepAdaptor_Curve.hxx>
 #include <BRepAdaptor_Surface.hxx>
+#include <BRepBndLib.hxx>
 #include <BRepAlgoAPI_Cut.hxx>
 #include <BRepAlgoAPI_Fuse.hxx>
 #include <BRepAlgoAPI_Common.hxx>
@@ -18,6 +20,7 @@
 #include <BRepPrimAPI_MakeHalfSpace.hxx>
 #include <BRep_Tool.hxx>
 #include <BRepTools.hxx>
+#include <Bnd_Box.hxx>
 #include <TopExp.hxx>
 #include <TopExp_Explorer.hxx>
 #include <TopTools_IndexedDataMapOfShapeListOfShape.hxx>
@@ -250,7 +253,9 @@ Tool make_tool(const TopoDS_Edge& edge,const TopoDS_Face& first_face,
         OcctPlanarEdgeChamferMode mode,double distance_a,
         double distance_b_or_angle,double tolerance,
         const TopoDS_Solid& material,
-        const OcctPlanarEdgeEndFaces& end_faces) {
+        const OcctPlanarEdgeEndFaces& end_faces,
+        OcctPlanarEdgeEndMode end_mode,
+        std::array<bool,2> route_ends) {
     const BRepAdaptor_Curve curve(edge);
     if(curve.GetType()!=GeomAbs_Line)
         throw std::invalid_argument(
@@ -315,18 +320,35 @@ Tool make_tool(const TopoDS_Edge& edge,const TopoDS_Face& first_face,
         throw std::invalid_argument(
             "ZIMA Chamfer could not classify the material wedge");
 
+    std::array<std::vector<TopoDS_Face>,2> terminal_faces;
+    if(!end_faces.first.IsNull())terminal_faces[0].push_back(end_faces.first);
+    if(!end_faces.last.IsNull())terminal_faces[1].push_back(end_faces.last);
+    const bool automatic_first=end_mode==
+        OcctPlanarEdgeEndMode::AutomaticBodyEnvelope&&
+        end_faces.first.IsNull()&&route_ends[0];
+    const bool automatic_last=end_mode==
+        OcctPlanarEdgeEndMode::AutomaticBodyEnvelope&&
+        end_faces.last.IsNull()&&route_ends[1];
+    if(end_mode==OcctPlanarEdgeEndMode::AutomaticBodyEnvelope) {
+        if(terminal_faces[0].empty()&&route_ends[0])
+            terminal_faces[0]=
+                edge_treatment_terminals::local_terminal_faces(material,
+                    first_face,second_face,first,tolerance,false);
+        if(terminal_faces[1].empty()&&route_ends[1])
+            terminal_faces[1]=
+                edge_treatment_terminals::local_terminal_faces(material,
+                    first_face,second_face,last,tolerance,false);
+    }
     const auto axial_extension=[&](const TopoDS_Face& face,
             const gp_Pnt& endpoint,double cross_span) {
         if(face.IsNull())return 0.;
         const BRepAdaptor_Surface support(face,true);
-        if(support.GetType()!=GeomAbs_Plane)
-            throw std::invalid_argument(
-                "ZIMA Chamfer end face must be planar");
-        if(support.Plane().Distance(endpoint)>tolerance)
-            throw std::invalid_argument(
-                "ZIMA Chamfer end face does not contain the route endpoint");
         BRepClass_FaceClassifier classifier(face,endpoint,tolerance);
         if(classifier.State()!=TopAbs_IN&&classifier.State()!=TopAbs_ON)
+            throw std::invalid_argument(
+                "ZIMA Chamfer end face does not contain the route endpoint");
+        if(support.GetType()!=GeomAbs_Plane)return cross_span;
+        if(support.Plane().Distance(endpoint)>tolerance)
             throw std::invalid_argument(
                 "ZIMA Chamfer end face does not contain the route endpoint");
         const double incidence=std::abs(
@@ -341,10 +363,15 @@ Tool make_tool(const TopoDS_Edge& edge,const TopoDS_Face& first_face,
     // it outside the corner creates unnecessary coplanar seams and can retain
     // the auxiliary overlap as visible material for an additive Chamfer.
     const double cross_span=2.*(distance_a+distance_b);
-    const double first_extension=axial_extension(
-        end_faces.first,first,cross_span);
-    const double last_extension=axial_extension(
-        end_faces.last,last,cross_span);
+    const auto end_extension=[&](const auto& faces,const gp_Pnt& endpoint) {
+        double result{};
+        for(const auto& face:faces)
+            result=std::max(result,
+                axial_extension(face,endpoint,cross_span));
+        return result;
+    };
+    const double first_extension=end_extension(terminal_faces[0],first);
+    const double last_extension=end_extension(terminal_faces[1],last);
     const gp_Pnt origin=first.Translated(
         -gp_Vec(tangent)*first_extension);
     const gp_Pnt first_tangent=origin.Translated(
@@ -382,11 +409,60 @@ Tool make_tool(const TopoDS_Edge& edge,const TopoDS_Face& first_face,
     const auto clip=[&](const TopoDS_Face& face,const gp_Pnt& inside) {
         if(face.IsNull())return;
         const BRepAdaptor_Surface end_support(face,true);
-        BRepBuilderAPI_MakeFace end_plane(end_support.Plane());
-        if(!end_plane.IsDone())
-            throw std::runtime_error(
-                "ZIMA Chamfer could not construct an end plane");
-        BRepPrimAPI_MakeHalfSpace half_space(end_plane.Face(),inside);
+        TopoDS_Face boundary=face;
+        if(end_support.GetType()==GeomAbs_Plane) {
+            BRepBuilderAPI_MakeFace complete(end_support.Plane());
+            if(!complete.IsDone())
+                throw std::runtime_error(
+                    "ZIMA Chamfer could not construct an end plane");
+            boundary=complete.Face();
+        } else if(end_support.GetType()==GeomAbs_Cylinder) {
+            BRepBuilderAPI_MakeFace complete(end_support.Cylinder());
+            if(complete.IsDone())boundary=complete.Face();
+        } else if(end_support.GetType()==GeomAbs_Cone) {
+            BRepBuilderAPI_MakeFace complete(end_support.Cone());
+            if(complete.IsDone())boundary=complete.Face();
+        } else if(end_support.GetType()==GeomAbs_Sphere) {
+            BRepBuilderAPI_MakeFace complete(end_support.Sphere());
+            if(complete.IsDone())boundary=complete.Face();
+        } else if(end_support.GetType()==GeomAbs_Torus) {
+            BRepBuilderAPI_MakeFace complete(end_support.Torus());
+            if(complete.IsDone())boundary=complete.Face();
+        }
+        gp_Pnt retained_side=inside;
+        BRepClass3d_SolidClassifier retained(tool,retained_side,tolerance);
+        if(retained.State()!=TopAbs_IN) {
+            Bnd_Box bounds;
+            BRepBndLib::Add(tool,bounds);
+            double x0{},y0{},z0{},x1{},y1{},z1{};
+            bounds.Get(x0,y0,z0,x1,y1,z1);
+            const double diagonal=gp_Pnt(x0,y0,z0).Distance(
+                gp_Pnt(x1,y1,z1));
+            const double step=std::max(1000.*tolerance,
+                diagonal*1.0e-6);
+            bool found{};
+            for(const double multiplier:{1.,10.,100.}) {
+                for(int x=-1;x<=1&&!found;++x)
+                    for(int y=-1;y<=1&&!found;++y)
+                        for(int z=-1;z<=1&&!found;++z) {
+                            if(x==0&&y==0&&z==0)continue;
+                            const auto candidate=inside.Translated(gp_Vec(
+                                x*step*multiplier,y*step*multiplier,
+                                z*step*multiplier));
+                            BRepClass3d_SolidClassifier classifier(
+                                tool,candidate,tolerance);
+                            if(classifier.State()==TopAbs_IN) {
+                                retained_side=candidate;
+                                found=true;
+                            }
+                        }
+                if(found)break;
+            }
+            if(!found)
+                throw std::runtime_error(
+                    "ZIMA Chamfer could not trim its selected end face");
+        }
+        BRepPrimAPI_MakeHalfSpace half_space(boundary,retained_side);
         if(!half_space.IsDone())
             throw std::runtime_error(
                 "ZIMA Chamfer could not construct an end half-space");
@@ -436,8 +512,15 @@ Tool make_tool(const TopoDS_Edge& edge,const TopoDS_Face& first_face,
         tool=common.Shape();
     };
     const gp_Pnt interior=first.Translated(gp_Vec(tangent)*(length*.5));
-    clip(end_faces.first,interior);
-    clip(end_faces.last,interior);
+    // A subtractive automatic end needs only a finite overlap.  The final
+    // Body CUT is its exact envelope clip; pre-intersecting the tool with the
+    // same material creates coincident boundary faces which OCCT can discard.
+    // Explicit Up To faces and every additive end still require their own
+    // half-space clip before the Boolean operation.
+    if(adds||!automatic_first)
+        for(const auto& face:terminal_faces[0])clip(face,interior);
+    if(adds||!automatic_last)
+        for(const auto& face:terminal_faces[1])clip(face,interior);
     return {tool,std::move(treatment_faces),adds,material,
         first_face,second_face};
 }
@@ -450,7 +533,8 @@ OcctPlanarEdgeChamferResult occt_planar_edge_chamfer(
         OcctPlanarEdgeChamferMode mode,double distance_a,
         double distance_b_or_angle,double tolerance,
         std::span<const OcctPlanarEdgeEndFaces> end_faces,
-        std::span<const OcctPlanarEdgeSupport> supports) {
+        std::span<const OcctPlanarEdgeSupport> supports,
+        OcctPlanarEdgeEndMode end_mode) {
     if(input.IsNull()||selections.empty())
         throw std::invalid_argument(
             "ZIMA Chamfer requires a Body and selected edges");
@@ -622,12 +706,24 @@ OcctPlanarEdgeChamferResult occt_planar_edge_chamfer(
     for(std::size_t selection_index=0;
             selection_index<selections.size();++selection_index) {
         auto& faces=selection_faces[selection_index];
+        TopoDS_Vertex first_vertex,last_vertex;
+        TopExp::Vertices(selections[selection_index].edge,
+            first_vertex,last_vertex,true);
+        const auto is_route_end=[&](const TopoDS_Vertex& vertex) {
+            const auto node=std::ranges::find_if(selected_nodes,
+                [&](const auto& candidate) {
+                    return !vertex.IsNull()&&
+                        candidate.vertex.IsSame(vertex);
+                });
+            return node==selected_nodes.end()||node->tools.size()==1;
+        };
         auto tool=make_tool(selections[selection_index].edge,
             faces[0],faces[1],mode,distance_a,
             distance_b_or_angle,tolerance,
             selection_materials[selection_index],
             end_faces.empty()?OcctPlanarEdgeEndFaces{}:
-                end_faces[selection_index]);
+                end_faces[selection_index],end_mode,
+            {is_route_end(first_vertex),is_route_end(last_vertex)});
         tools.push_back(std::move(tool));
     }
 
@@ -927,13 +1023,14 @@ OcctPlanarEdgeChamferResult occt_planar_edge_chamfer(
         const TopoDS_Shape& input,std::span<const TopoDS_Edge> edges,
         double distance,double tolerance,
         std::span<const OcctPlanarEdgeEndFaces> end_faces,
-        std::span<const OcctPlanarEdgeSupport> supports) {
+        std::span<const OcctPlanarEdgeSupport> supports,
+        OcctPlanarEdgeEndMode end_mode) {
     std::vector<OcctPlanarEdgeChamferSelection> selections;
     selections.reserve(edges.size());
     for(const auto& edge:edges)selections.push_back({edge,{}});
     return occt_planar_edge_chamfer(input,selections,
         OcctPlanarEdgeChamferMode::EqualDistance,distance,distance,
-        tolerance,end_faces,supports);
+        tolerance,end_faces,supports,end_mode);
 }
 
 const NCollection_List<TopoDS_Shape>& OcctPlanarEdgeChamferResult::Modified(

@@ -6,6 +6,7 @@
 #include <zima/kernel/occt_kernel.hpp>
 #include <zima/sketcher/curve_geometry.hpp>
 #include <QCoreApplication>
+#include <cstdint>
 #include <iostream>
 #include <set>
 #include <cmath>
@@ -221,6 +222,84 @@ void rectangular_matrix(const kernel::OcctKernel& engine) {
     }
     std::cout<<"Thin rectangle matrix: 12 plane/mode/direction variants, eight exact rails each, "<<fillets<<" two-edge fillets passed\n";
 }
+void rolling_edge_treatment_preview() {
+    using Vec3=kernel::Vec3;
+    kernel::ViewerMesh mesh;
+    const kernel::FaceReference plane_face{"preview-plane","face",{}};
+    const kernel::FaceReference curved_face{"preview-circle","face",{}};
+    const auto append_strip=[&](const std::vector<Vec3>& section,
+            const kernel::FaceReference& face) {
+        for(std::size_t index=1;index<section.size();++index) {
+            const auto first=mesh.vertices.size();
+            for(const double z:{0.,20.}) {
+                mesh.vertices.push_back(
+                    {section[index-1].x,section[index-1].y,z});
+                mesh.vertices.push_back(
+                    {section[index].x,section[index].y,z});
+            }
+            const auto vertex=static_cast<std::uint32_t>(first);
+            mesh.triangles.insert(mesh.triangles.end(),{
+                vertex,vertex+1,vertex+3,vertex,vertex+3,vertex+2});
+            mesh.triangle_references.push_back(face);
+            mesh.triangle_references.push_back(face);
+        }
+    };
+    append_strip({{0,0,0},{40,0,0}},plane_face);
+    std::vector<Vec3> circle;
+    constexpr std::size_t samples=64;
+    for(std::size_t index=0;index<=samples;++index) {
+        const double angle=std::acos(-1.)-
+            (std::acos(-1.)/2.)*static_cast<double>(index)/samples;
+        circle.push_back({20.+20.*std::cos(angle),
+            20.*std::sin(angle),0.});
+    }
+    append_strip(circle,curved_face);
+    kernel::ViewerEdge route;
+    route.reference={"preview-route","edge",{}};
+    route.points={{0,0,5},{0,0,15}};
+    route.edge_treatment_side_references={plane_face,curved_face};
+    route.edge_treatment_side_directions={
+        std::vector<Vec3>{{1,0,0},{1,0,0}},
+        std::vector<Vec3>{{0,1,0},{0,1,0}}};
+    document::EdgeTreatmentParameters parameters;
+    parameters.primary_size=5.;
+    const auto preview=app::workspace_detail::edge_treatment_preview_wire(
+        {{{route}}},parameters,document::FeatureKind::Fillet,
+        "rolling-preview",&mesh);
+    require(preview.edges.size()==4&&preview.edges[2].points.size()>2,
+        "Rolling-support Fillet preview lost its two rails and end arcs");
+    const auto& first_section=preview.edges[2];
+    const auto first_contact=first_section.points.front();
+    const auto curved_contact=first_section.points.back();
+    require(std::abs(first_contact.y)<1.0e-6&&
+            std::abs(first_contact.z-5.)<1.0e-6,
+        "Rolling-support preview lost its planar contact");
+    const auto point_segment_distance=[](const Vec3& point,
+            const Vec3& first,const Vec3& second) {
+        const Vec3 segment{second.x-first.x,second.y-first.y,
+            second.z-first.z};
+        const Vec3 delta{point.x-first.x,point.y-first.y,
+            point.z-first.z};
+        const double squared=segment.x*segment.x+segment.y*segment.y+
+            segment.z*segment.z;
+        const double ratio=squared<=1.0e-18?0.:std::clamp(
+            (delta.x*segment.x+delta.y*segment.y+delta.z*segment.z)/
+                squared,0.,1.);
+        return std::hypot(std::hypot(
+            point.x-(first.x+ratio*segment.x),
+            point.y-(first.y+ratio*segment.y)),
+            point.z-(first.z+ratio*segment.z));
+    };
+    double curved_distance=1.0e100;
+    for(std::size_t index=1;index<circle.size();++index)
+        curved_distance=std::min(curved_distance,point_segment_distance(
+            curved_contact,
+            {circle[index-1].x,circle[index-1].y,5.},
+            {circle[index].x,circle[index].y,5.}));
+    require(curved_distance<1.0e-6&&curved_contact.x>.05,
+        "Rolling-support preview fell back to the old tangent-line cage");
+    std::cout<<"Rolling-support Fillet preview: calculated plane/circle sections and exact lightweight boundary contacts passed\n";
+}
 void revolution_matrix(const kernel::OcctKernel& engine) {
     unsigned cases{};
     for(auto plane:{sketcher::SketchPlane::XY,sketcher::SketchPlane::XZ})
@@ -397,7 +476,9 @@ int main(int argc,char** argv) {
     try{
         if(argc>1&&std::string_view(argv[1])=="--sketch-profile-wire"){sketch_wire_matrix();copy_wire_matrix();return 0;}
         if(const auto* file=std::getenv("ZIMA_SKETCH_WIRE_REVIEW_FILE")){actual_sketch_wire(std::filesystem::u8path(file));return 0;}
-        kernel::OcctKernel engine;rectangular_matrix(engine);revolution_matrix(engine);rounded_profile_matrix(engine);
+        kernel::OcctKernel engine;rectangular_matrix(engine);
+        rolling_edge_treatment_preview();
+        revolution_matrix(engine);rounded_profile_matrix(engine);
         if(const auto* file=std::getenv("ZIMA_THIN_REVIEW_FILE"))review_fillets(engine,std::filesystem::u8path(file));
         return 0;}
     catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}

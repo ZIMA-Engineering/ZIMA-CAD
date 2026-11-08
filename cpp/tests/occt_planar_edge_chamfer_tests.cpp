@@ -2,6 +2,7 @@
 
 #include <BRepAdaptor_Curve.hxx>
 #include <BRepAdaptor_Surface.hxx>
+#include <BRepAlgoAPI_Common.hxx>
 #include <BRepAlgoAPI_Cut.hxx>
 #include <BRepAlgoAPI_Fuse.hxx>
 #include <BRepBuilderAPI_MakeEdge.hxx>
@@ -12,6 +13,7 @@
 #include <BRepGProp.hxx>
 #include <BRepFilletAPI_MakeChamfer.hxx>
 #include <BRepPrimAPI_MakeBox.hxx>
+#include <BRepPrimAPI_MakeCylinder.hxx>
 #include <BRepPrimAPI_MakePrism.hxx>
 #include <BRepPrimAPI_MakeWedge.hxx>
 #include <BRep_Tool.hxx>
@@ -587,7 +589,84 @@ int main() try {
             "Custom planar Chamfer did not trim a valid angled end");
     }
 
-    std::cout<<"Custom planar edge Chamfer: convex/concave A x A, inner/outer two/three-branch and staggered-step nodes, through-notch and side-pocket terminals, mixed CUT/FUSE order, A x B, A + angle, FLIP, batch, perpendicular/angled ends and exact ancestry checks passed\n";
+    {
+        // A route can end on a curved Body envelope. The common ZIMA end
+        // contract must extend the straight Chamfer profile and clip it by
+        // that exact surface, just as it does for a Fillet profile.
+        const auto cylinder_envelope=
+            BRepPrimAPI_MakeCylinder(100.,100.).Shape();
+        BRepAlgoAPI_Fuse split_cylinder(
+            BRepPrimAPI_MakeCylinder(100.,50.).Shape(),
+            BRepPrimAPI_MakeCylinder(
+                gp_Ax2(gp_Pnt(0.,0.,50.),gp_Dir(0.,0.,1.)),
+                100.,50.).Shape());
+        split_cylinder.SetNonDestructive(true);
+        split_cylinder.Build();
+        require(split_cylinder.IsDone()&&
+                BRepCheck_Analyzer(split_cylinder.Shape(),true,true,
+                    false).IsValid(),
+            "Split cylindrical Chamfer envelope fixture failed");
+        BRepAlgoAPI_Cut notched_cylinder(split_cylinder.Shape(),
+            BRepPrimAPI_MakeBox(gp_Pnt(-10.,0.,50.),
+                gp_Pnt(10.,120.,110.)).Shape());
+        notched_cylinder.SetNonDestructive(true);
+        notched_cylinder.Build();
+        require(notched_cylinder.IsDone()&&
+                BRepCheck_Analyzer(notched_cylinder.Shape(),true,true,
+                    false).IsValid(),
+            "Split cylindrical Chamfer terminal fixture failed");
+        const double circle_end=std::sqrt(100.*100.-10.*10.);
+        const auto cylinder_route=straight_edge_between(
+            notched_cylinder.Shape(),{-10.,0.,50.},
+            {-10.,circle_end,50.},1.0e-6);
+        require(!cylinder_route.IsNull(),
+            "Split cylindrical terminal lost its Chamfer route edge");
+        const std::array route{cylinder_route};
+        const auto perpendicular=zima::kernel::occt_planar_edge_chamfer(
+            notched_cylinder.Shape(),route,8.,1.0e-7);
+        const auto automatic=zima::kernel::occt_planar_edge_chamfer(
+            notched_cylinder.Shape(),route,8.,1.0e-7,{}, {},
+            zima::kernel::OcctPlanarEdgeEndMode::AutomaticBodyEnvelope);
+        require(BRepCheck_Analyzer(automatic.Shape(),true,true,false).
+                    IsValid()&&
+                volume(automatic.Shape())>
+                    volume(perpendicular.Shape())+1.0e-6,
+            "Automatic ZIMA Chamfer did not reach its curved terminal");
+        BRepAlgoAPI_Cut outside(automatic.Shape(),cylinder_envelope);
+        outside.SetNonDestructive(true);
+        outside.Build();
+        require(outside.IsDone()&&volume(outside.Shape())<=1.0e-6,
+            "Curved terminal let additive Chamfer escape the Body envelope");
+
+        BRepAlgoAPI_Common convex_cylinder_terminal(cylinder_envelope,
+            BRepPrimAPI_MakeBox(gp_Pnt(-10.,0.,50.),
+                gp_Pnt(10.,120.,100.)).Shape());
+        convex_cylinder_terminal.SetNonDestructive(true);
+        convex_cylinder_terminal.Build();
+        require(convex_cylinder_terminal.IsDone()&&
+                BRepCheck_Analyzer(convex_cylinder_terminal.Shape(),true,
+                    true,false).IsValid(),
+            "Subtractive cylindrical Chamfer terminal fixture failed");
+        const auto convex_route=straight_edge_between(
+            convex_cylinder_terminal.Shape(),{-10.,0.,50.},
+            {-10.,circle_end,50.},1.0e-6);
+        require(!convex_route.IsNull(),
+            "Subtractive cylindrical terminal lost its Chamfer route edge");
+        const std::array convex_selection{convex_route};
+        const auto convex_flat=zima::kernel::occt_planar_edge_chamfer(
+            convex_cylinder_terminal.Shape(),convex_selection,8.,1.0e-7);
+        const auto convex_automatic=zima::kernel::occt_planar_edge_chamfer(
+            convex_cylinder_terminal.Shape(),convex_selection,8.,1.0e-7,
+            {},{},zima::kernel::OcctPlanarEdgeEndMode::
+                AutomaticBodyEnvelope);
+        require(BRepCheck_Analyzer(convex_automatic.Shape(),true,true,false).
+                    IsValid()&&
+                volume(convex_automatic.Shape())<
+                    volume(convex_flat.Shape())-1.0e-6,
+            "Subtractive Chamfer did not reach its cylindrical Body envelope");
+    }
+
+    std::cout<<"Custom planar edge Chamfer: convex/concave A x A, inner/outer two/three-branch and staggered-step nodes, through-notch and side-pocket terminals, mixed CUT/FUSE order, A x B, A + angle, FLIP, batch, perpendicular/angled/curved ends and exact ancestry checks passed\n";
     return 0;
 } catch(const std::exception& error) {
     std::cerr<<error.what()<<'\n';return 1;

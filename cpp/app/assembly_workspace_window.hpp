@@ -1224,6 +1224,7 @@ private:
     bool reorder_tree_item(QTreeWidgetItem* item, const QString& before, bool commit);
     bool reorder_part_history(const std::string& id, const std::string& before, bool commit);
     void move_part_container(const std::string& container_id, int direction);
+    void retire_history_deletion_interaction();
     void delete_part_object(const std::string& object_id, const QString& kind,
         bool ask_confirmation = true);
     void show_sketch_dimension_properties(

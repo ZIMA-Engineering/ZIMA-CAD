@@ -109,6 +109,33 @@ Q_NEVER_INLINE static int verify_history_deletion(QApplication& application,
         }
         }
         app::apply_application_translations(application,original_language);
+        // Delete the exact risky state reported by users: the Fillet is
+        // selected in the View and its parameter dimensions are being
+        // inspected when the history transaction releases its calculated
+        // topology. The transaction must retire those presentation handles,
+        // remain undoable and leave ordinary selection usable afterwards.
+        view->confirm_container(fillet.id);
+        window.show_parameter_dimensions(fillet.id);flush();
+        window.delete_part_object_for_test(fillet.id,
+            QStringLiteral("container"));flush();
+        auto* selected_fillet_confirmation=
+            window.findChild<QDialog*>("deleteHistoryDialog");
+        check(selected_fillet_confirmation&&
+                selected_fillet_confirmation->isVisible(),
+            "Selected Fillet deletion confirmation missing");
+        selected_fillet_confirmation->findChild<QDialogButtonBox*>()->button(
+            QDialogButtonBox::Ok)->click();flush();
+        check(!row(fillet.id)&&!view->confirmed_candidate()&&
+                view->confirmed_component_wire().empty()&&
+                !window.finish_parameter_dimensions(),
+            "Deleting an inspected Fillet retained stale View topology or dimensions");
+        run("undo");
+        check(row(fillet.id),"Selected Fillet deletion Undo failed");
+        view->confirm_container(fillet.id);
+        check(view->confirmed_candidate()&&
+                view->confirmed_candidate()->owner_id==fillet.id,
+            "Fillet could not be selected after deletion Undo");
+        view->clear_selection();tree->clearSelection();flush();
         const auto open_confirmation=[&](bool from_view=false) {
             auto* item=row(source.id);check(item,"Source tree row missing");tree->setCurrentItem(item);tree->scrollToItem(item);flush();
             QTimer::singleShot(0,&window,[&] {

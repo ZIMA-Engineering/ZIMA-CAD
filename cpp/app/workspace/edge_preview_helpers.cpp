@@ -666,24 +666,19 @@ EdgeTreatmentPreviewGeometry edge_treatment_preview_wire(
             double traversed{};
             const auto section_at=[&](const auto& edge,
                     std::size_t point_index,double section_radius) {
-                auto section=edge_treatment_section(edge.points[point_index],
+                // The calculated support-face sections are the authoritative
+                // lightweight source for a rolling Fillet. Try them first so
+                // plane/circle, circle/circle, ellipse/circle and spline/circle
+                // contacts do not fall back to an old tangent-line cage merely
+                // because those tangents happen to form a finite angle.
+                if(fillet&&input_mesh)
+                    if(auto curved=edge_treatment_curved_section(*input_mesh,
+                            edge,point_index,section_radius))
+                        return curved;
+                return edge_treatment_section(edge.points[point_index],
                     edge.edge_treatment_side_directions[0][point_index],
                     edge.edge_treatment_side_directions[1][point_index],
                     parameters,fillet,section_radius);
-                // A very shallow line/line angle is normally evidence that
-                // one support is an earlier curved treatment represented by
-                // its endpoint tangent.  Its finite-radius solution is local;
-                // the line approximation can place the preview hundreds of
-                // millimetres away. Prefer the calculated face sections when
-                // that approximation exceeds a small radius neighbourhood.
-                const bool remote_linear=section&&fillet&&
-                    std::max(section->first_distance,
-                        section->second_distance)>8.*section_radius;
-                if(fillet&&input_mesh&&(!section||remote_linear))
-                    if(auto curved=edge_treatment_curved_section(*input_mesh,
-                            edge,point_index,section_radius))
-                        section=std::move(curved);
-                return section;
             };
             for (std::size_t edge_index = 0;
                  edge_index < path.edges.size(); ++edge_index) {

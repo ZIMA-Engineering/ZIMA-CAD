@@ -54,7 +54,9 @@ struct OcctPlanarEdgeChamferSelection {
     double distance_b_or_angle,
     double tolerance,
     std::span<const OcctPlanarEdgeEndFaces> end_faces = {},
-    std::span<const OcctPlanarEdgeSupport> supports = {});
+    std::span<const OcctPlanarEdgeSupport> supports = {},
+    OcctPlanarEdgeEndMode end_mode =
+        OcctPlanarEdgeEndMode::Perpendicular);
 
 [[nodiscard]] OcctPlanarEdgeChamferResult occt_planar_edge_chamfer(
     const TopoDS_Shape& input,
@@ -62,6 +64,8 @@ struct OcctPlanarEdgeChamferSelection {
     double distance,
     double tolerance,
     std::span<const OcctPlanarEdgeEndFaces> end_faces = {},
-    std::span<const OcctPlanarEdgeSupport> supports = {});
+    std::span<const OcctPlanarEdgeSupport> supports = {},
+    OcctPlanarEdgeEndMode end_mode =
+        OcctPlanarEdgeEndMode::Perpendicular);
 
 } // namespace zima::kernel

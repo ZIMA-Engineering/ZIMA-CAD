@@ -43,10 +43,12 @@ struct PlanarFilletAnalyticRemovalDomain {
     double sweep_angle_radians{};
 };
 
-enum class OcctPlanarEdgeFilletEndMode {
+enum class OcctPlanarEdgeEndMode {
     Perpendicular,
     AutomaticBodyEnvelope
 };
+
+using OcctPlanarEdgeFilletEndMode=OcctPlanarEdgeEndMode;
 
 // Exact builder for straight plane/plane edges. It constructs the circular
 // treatment domains directly, batches consecutive edges with the same
@@ -72,8 +74,9 @@ struct OcctPlanarEdgeFilletResult {
 };
 
 // Faces are already resolved against the current input Body. A null face is
-// the explicit perpendicular end. Non-null faces must be planar and contain
-// the matching curve-parameter endpoint of the selected edge.
+// the automatic/perpendicular end selected by `OcctPlanarEdgeEndMode`.
+// Non-null faces contain the matching curve-parameter endpoint and remain
+// authoritative for an explicit Up To termination.
 struct OcctPlanarEdgeEndFaces {
     TopoDS_Face first;
     TopoDS_Face last;

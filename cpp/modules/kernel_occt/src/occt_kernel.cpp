@@ -11820,6 +11820,94 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                         }
                     }
                 }
+                const auto accept_edge_treatment_result=[&](auto& built,
+                        const auto& parents,
+                        const std::string& treatment_owner,
+                        std::string_view treatment_role,
+                        bool preserve_exact_result,
+                        const char* invalid_body_message) {
+                    const auto role=[&](std::string_view topology) {
+                        auto value=std::string(treatment_role);
+                        value+=':';
+                        value+=topology;
+                        return value;
+                    };
+                    auto treatment_faces=propagate_topology(
+                        built,owned_topology->faces,
+                        std::vector<OwnedFace>{});
+                    treatment_phase("validation and face propagation");
+                    auto generated_faces=generated_edge_treatment_faces(
+                        built,parents,treatment_owner,role("face"));
+                    treatment_faces.insert(treatment_faces.end(),
+                        std::make_move_iterator(generated_faces.begin()),
+                        std::make_move_iterator(generated_faces.end()));
+                    append_unmapped_edge_treatment_faces(
+                        built.Shape(),parents,owned_topology->faces,
+                        treatment_owner,role("face"),
+                        std::max(1.0e-7,operation.boolean_tolerance),
+                        treatment_faces);
+                    treatment_phase("generated and unmapped faces");
+                    classify_edge_treatment_surfaces(
+                        built.Shape(),treatment_owner,treatment_faces);
+                    treatment_phase("surface classification");
+                    auto treatment_topology=
+                        std::make_shared<LiveCache::Topology>(
+                            LiveCache::Topology{
+                                std::move(treatment_faces),
+                                propagate_edge_treatment_topology(
+                                    built,built.Shape(),
+                                    owned_topology->edges),
+                                propagate_edge_treatment_topology(
+                                    built,built.Shape(),
+                                    owned_topology->vertices),
+                                propagate_display_edges(
+                                    built,owned_topology
+                                        ->hidden_display_edges)});
+                    treatment_phase("edge and vertex propagation");
+                    result_shape=built.Shape();
+                    auto unified=preserve_exact_result
+                        ?ProvenanceUnifyResult{
+                            result_shape,
+                            std::move(treatment_topology->faces),
+                            std::move(treatment_topology->edges),
+                            std::move(treatment_topology->vertices),
+                            std::move(treatment_topology
+                                ->hidden_display_edges),
+                            false}
+                        :unify_preserving_face_provenance(
+                            result_shape,treatment_topology->faces,
+                            treatment_topology->edges,
+                            treatment_topology->vertices,
+                            std::max(1.0e-7,
+                                operation.boolean_tolerance));
+                    treatment_phase("unify");
+                    if(!unified.validated&&
+                       (unified.shape.IsNull()||
+                        !BRepCheck_Analyzer(
+                            unified.shape,true,true,false).IsValid()))
+                        throw std::runtime_error(invalid_body_message);
+                    treatment_phase("fallback validation");
+                    result_shape=std::move(unified.shape);
+                    auto completed_edges=complete_edge_treatment_edges(
+                        result_shape,unified.faces,unified.edges,
+                        owned_topology->edges,parents,treatment_owner,
+                        role("edge"));
+                    treatment_phase("complete edges");
+                    auto completed_vertices=
+                        complete_edge_treatment_vertices(
+                            result_shape,completed_edges,
+                            unified.vertices,parents,treatment_owner,
+                            role("vertex"));
+                    treatment_phase("complete vertices");
+                    owned_topology=
+                        std::make_shared<LiveCache::Topology>(
+                            LiveCache::Topology{
+                                std::move(unified.faces),
+                                std::move(completed_edges),
+                                std::move(completed_vertices),
+                                std::move(
+                                    unified.hidden_display_edges)});
+                };
                 if constexpr (std::is_same_v<Treatment, FilletRequest>) {
                     treatment_phase("selection");
                     BRepFilletAPI_MakeFillet algorithm(result_shape);
@@ -11905,77 +11993,9 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                     const auto accept_fillet_result=[&](auto& built,
                             const auto& parents,
                             const std::string& treatment_owner) {
-                        auto treatment_faces = propagate_topology(
-                            built, owned_topology->faces,
-                            std::vector<OwnedFace>{});
-                        treatment_phase("validation and face propagation");
-                        auto generated_faces = generated_edge_treatment_faces(
-                            built, parents, treatment_owner, "fillet:face");
-                        treatment_faces.insert(treatment_faces.end(),
-                            std::make_move_iterator(generated_faces.begin()),
-                            std::make_move_iterator(generated_faces.end()));
-                        append_unmapped_edge_treatment_faces(
-                            built.Shape(), parents, owned_topology->faces,
-                            treatment_owner, "fillet:face",
-                            std::max(1.0e-7, operation.boolean_tolerance),
-                            treatment_faces);
-                        treatment_phase("generated and unmapped faces");
-                        classify_edge_treatment_surfaces(
-                            built.Shape(),treatment_owner,treatment_faces);
-                        treatment_phase("surface classification");
-                        auto treatment_topology =
-                            std::make_shared<LiveCache::Topology>(
-                                LiveCache::Topology{
-                                    std::move(treatment_faces),
-                                    propagate_edge_treatment_topology(
-                                        built, built.Shape(),
-                                        owned_topology->edges),
-                                    propagate_edge_treatment_topology(
-                                        built, built.Shape(),
-                                        owned_topology->vertices),
-                                    propagate_display_edges(
-                                        built,
-                                        owned_topology->hidden_display_edges)});
-                        treatment_phase("edge and vertex propagation");
-                        result_shape = built.Shape();
-                        // BRepFilletAPI already returns the authored treatment
-                        // topology. Preserve that exact result and its mapped
-                        // ancestry; a second same-domain rebuild is redundant.
-                        auto unified = ProvenanceUnifyResult{
-                            result_shape,
-                            std::move(treatment_topology->faces),
-                            std::move(treatment_topology->edges),
-                            std::move(treatment_topology->vertices),
-                            std::move(treatment_topology->hidden_display_edges),
-                            false};
-                        treatment_phase("unify");
-                        if(!unified.validated&&
-                           (unified.shape.IsNull()||
-                            !BRepCheck_Analyzer(
-                                unified.shape,true,true,false).IsValid()))
-                            throw std::runtime_error(
-                                "OCCT Fillet produced an invalid body");
-                        treatment_phase("fallback validation");
-                        result_shape = std::move(unified.shape);
-                        auto completed_edges = complete_edge_treatment_edges(
-                            result_shape, unified.faces, unified.edges,
-                            owned_topology->edges, parents,
-                            treatment_owner,"fillet:edge");
-                        treatment_phase("complete edges");
-                        auto completed_vertices =
-                            complete_edge_treatment_vertices(
-                                result_shape, completed_edges,
-                                unified.vertices, parents,
-                                treatment_owner,"fillet:vertex");
-                        treatment_phase("complete vertices");
-                        owned_topology =
-                            std::make_shared<LiveCache::Topology>(
-                                LiveCache::Topology{
-                                    std::move(unified.faces),
-                                    std::move(completed_edges),
-                                    std::move(completed_vertices),
-                                    std::move(
-                                        unified.hidden_display_edges)});
+                        accept_edge_treatment_result(built,parents,
+                            treatment_owner,"fillet",true,
+                            "OCCT Fillet produced an invalid body");
                     };
                     bool custom_planar_accepted=false;
                     const char* custom_planar_environment=std::getenv(
@@ -12151,8 +12171,8 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                                 result_shape,custom_edges,
                                 treatment.radius_start,fillet_tolerance,
                                 custom_ends,
-                                treatment.calculation_method==
-                                        EdgeTreatmentCalculationMethod::Automatic
+                                treatment.calculation_method!=
+                                        EdgeTreatmentCalculationMethod::Occt
                                     ?OcctPlanarEdgeFilletEndMode::
                                         AutomaticBodyEnvelope
                                     :OcctPlanarEdgeFilletEndMode::
@@ -12509,73 +12529,12 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                 } else {
                     const auto accept_chamfer_result=[&](auto& algorithm,
                             const auto& parents,
-                            const std::string& treatment_owner) {
-                        auto treatment_faces=propagate_topology(
-                            algorithm,owned_topology->faces,
-                            std::vector<OwnedFace>{});
-                        auto generated_faces=generated_edge_treatment_faces(
-                            algorithm,parents,treatment_owner,
-                            "chamfer:face");
-                        treatment_faces.insert(treatment_faces.end(),
-                            std::make_move_iterator(generated_faces.begin()),
-                            std::make_move_iterator(generated_faces.end()));
-                        append_unmapped_edge_treatment_faces(
-                            algorithm.Shape(),parents,
-                            owned_topology->faces,treatment_owner,
-                            "chamfer:face",
-                            std::max(1.0e-7,
-                                operation.boolean_tolerance),
-                            treatment_faces);
-                        classify_edge_treatment_surfaces(
-                            algorithm.Shape(),treatment_owner,
-                            treatment_faces);
-                        auto treatment_topology=
-                            std::make_shared<LiveCache::Topology>(
-                                LiveCache::Topology{
-                                    std::move(treatment_faces),
-                                    propagate_edge_treatment_topology(
-                                        algorithm,algorithm.Shape(),
-                                        owned_topology->edges),
-                                    propagate_edge_treatment_topology(
-                                        algorithm,algorithm.Shape(),
-                                        owned_topology->vertices),
-                                    propagate_display_edges(
-                                        algorithm,
-                                        owned_topology
-                                            ->hidden_display_edges)});
-                        result_shape=algorithm.Shape();
-                        auto unified=unify_preserving_face_provenance(
-                            result_shape,treatment_topology->faces,
-                            treatment_topology->edges,
-                            treatment_topology->vertices,
-                            std::max(1.0e-7,
-                                operation.boolean_tolerance));
-                        if(!unified.validated&&
-                           (unified.shape.IsNull()||
-                            !BRepCheck_Analyzer(unified.shape,
-                                true,true,false).IsValid()))
-                            throw std::runtime_error(
-                                "OCCT Chamfer produced an invalid body");
-                        result_shape=std::move(unified.shape);
-                        auto completed_edges=
-                            complete_edge_treatment_edges(
-                                result_shape,unified.faces,
-                                unified.edges,owned_topology->edges,
-                                parents,treatment_owner,
-                                "chamfer:edge");
-                        auto completed_vertices=
-                            complete_edge_treatment_vertices(
-                                result_shape,completed_edges,
-                                unified.vertices,parents,
-                                treatment_owner,"chamfer:vertex");
-                        owned_topology=
-                            std::make_shared<LiveCache::Topology>(
-                                LiveCache::Topology{
-                                    std::move(unified.faces),
-                                    std::move(completed_edges),
-                                    std::move(completed_vertices),
-                                    std::move(
-                                        unified.hidden_display_edges)});
+                            const std::string& treatment_owner,
+                            bool preserve_exact_result) {
+                        accept_edge_treatment_result(algorithm,parents,
+                            treatment_owner,"chamfer",
+                            preserve_exact_result,
+                            "OCCT Chamfer produced an invalid body");
                     };
                     TopTools_IndexedDataMapOfShapeListOfShape edge_faces;
                     TopExp::MapShapesAndAncestors(result_shape,
@@ -12671,9 +12630,11 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                                 treatment.distance_a,secondary,
                                 std::max(1.0e-7,
                                     operation.boolean_tolerance),
-                                custom_ends,custom_supports);
+                                custom_ends,custom_supports,
+                                OcctPlanarEdgeEndMode::
+                                    AutomaticBodyEnvelope);
                             accept_chamfer_result(custom,custom_parents,
-                                operation.owner_id);
+                                operation.owner_id,true);
                             custom_chamfer_accepted=true;
                         } catch(const std::exception& error) {
                             if(trace_treatment)std::fprintf(stderr,
@@ -12715,8 +12676,14 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                         algorithm.Build();
                         if(!algorithm.IsDone()||
                            algorithm.Shape().IsNull())return false;
+                        // BRepFilletAPI_MakeChamfer has already authored the
+                        // exact treatment topology. A second same-domain
+                        // rebuild can reject a valid mixed line/arc contour
+                        // (for example 11.prtz / Chamfer 02) as disconnected.
+                        // Match Fillet and the direct ZIMA builder: preserve
+                        // the accepted shape and only complete its ancestry.
                         accept_chamfer_result(
-                            algorithm,parents,treatment_owner);
+                            algorithm,parents,treatment_owner,true);
                         return true;
                     };
                     const auto selected_seeds=selected;

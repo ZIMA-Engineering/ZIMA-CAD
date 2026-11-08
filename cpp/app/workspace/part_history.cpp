@@ -142,6 +142,26 @@ void AssemblyWorkspaceWindow::move_part_container(const std::string& id,int dire
     if (direction>0 && index+1<order.size()) reorder_part_history(id,index+2<order.size() ? order[index+2].id : std::string{},true);
 }
 
+void AssemblyWorkspaceWindow::retire_history_deletion_interaction() {
+    // A history transaction can release the calculated mesh that backs the
+    // current candidate, authored treatment wire and dimension inspection.
+    // Retire all of those handles before mutating the document; waiting for
+    // the subsequent scene refresh leaves a paint/hover event with stale
+    // topology and made deletion failures depend on the current mouse state.
+    tree_->clearSelection();
+    viewer_->clear_selection();
+    viewer_->set_feature_hover_edges({});
+    viewer_->set_feature_selected_edges({});
+    viewer_->set_feature_hover_edge_indices({});
+    viewer_->set_feature_selected_edge_indices({});
+    viewer_->set_feature_preview_owners({});
+    viewer_->set_transient_edges({});
+    edge_treatment_hover_seed_.reset();
+    construction_dimension_object_id_.clear();
+    parameter_dimension_preview_.reset();
+    opening_component_edit_ = {};
+}
+
 void AssemblyWorkspaceWindow::delete_part_object(
     const std::string& object_id, const QString& kind,
     bool ask_confirmation) {
@@ -154,6 +174,7 @@ void AssemblyWorkspaceWindow::delete_part_object(
             deletion.affected.empty() ? tr("Opravdu chcete vybraný objekt odstranit?") :
                 tr("Opravdu chcete vybraný objekt odstranit? Červeně označené závislé prvky zůstanou ve stromu. Jejich neplatné reference budou odstraněny a bude nutné je opravit ve Vlastnostech."),
             [this, document_id, object_id] {
+                retire_history_deletion_interaction();
                 workspace::delete_part_history(workspace_, document_id, kernel_, object_id);
                 if (active_sketch_id_ == object_id) active_sketch_id_.clear();
                 if (selected_sketch_id_ == object_id) selected_sketch_id_.clear();
@@ -181,6 +202,7 @@ void AssemblyWorkspaceWindow::delete_part_object(
         QMessageBox::Yes) return;
     QString calculation_issue;
     try {
+        retire_history_deletion_interaction();
         if (kind == QStringLiteral("assembly-cut")) {
             workspace::remove_assembly_cut(workspace_,kernel_,workspace_.active_document_id(),object_id);
         } else if (kind == QStringLiteral("assembly-sketch") || kind == QStringLiteral("assembly-sketch-container")) {
