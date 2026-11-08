@@ -502,13 +502,10 @@ void AssemblyWorkspaceWindow::show_sweep3d_properties(
     // rollback first so it publishes the real input once, without an interim
     // full-history scene followed by a second rollback rebuild.
     if (edit_mode) {
-        const auto history_index = part->session.document().history_index(initial.id);
-        if (history_index) {
-            const auto input = *history_index == 0
-                ? std::optional<zima::kernel::BodyResult>{}
-                : part->session.calculated_boundary(*history_index);
+        if (const auto boundary = part_history_rollback_boundary(initial.id)) {
             part_rollback_ = PartRollbackContext{document_id,
-                workspace_.active_occurrence_path(), *history_index, input};
+                workspace_.active_occurrence_path(), boundary->history_index,
+                boundary->input_body};
         }
     }
 

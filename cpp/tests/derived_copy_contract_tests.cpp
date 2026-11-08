@@ -191,6 +191,54 @@ static void copied_construction_axes() {
         require(std::ranges::count_if(chained.mesh.original_references.axes,[](const auto& a){return a.reference.owner_id=="nested-pattern";})==4*source_axes,
             "Nested Pattern dropped construction axes");
     }
+    {
+        kernel::RevolutionRequest revolution;
+        revolution.axis_direction={0,0,1};
+        revolution.profile_normal={0,1,0};
+        revolution.profile_region_id="revolution-region";
+        revolution.outer_profile=kernel::ExtrusionRequest::CircleProfile{{12,0,0},2};
+        revolution.outer_edge_source_ids={"revolution-circle"};
+        kernel::FeatureGroupRequest feature;
+        feature.children.emplace_back(revolution);
+        kernel::HistoryOperation source{"group-revolution-axis",feature};
+        kernel::HistoryOperation copy;copy.owner_id="group-revolution-pattern";
+        kernel::BodyHistoryScope scope;scope.source_feature_id=source.owner_id;
+        scope.combination=kernel::BodyCombination::Pattern;
+        scope.pattern.count=3;scope.pattern.linear[0].count=3;
+        scope.pattern.linear[0].spacing=10;copy.feature_copy=scope;
+        const std::vector<kernel::HistoryOperation> operations{source,copy};
+        kernel::OcctKernel engine;
+        const auto verify=[&](const kernel::BodyResult& body) {
+            const auto& axes=body.mesh.original_references.axes;
+            require(std::ranges::count_if(axes,[](const auto& axis) {
+                return axis.reference.owner_id=="group-revolution-axis"&&
+                    axis.reference.semantic_key=="axis:primary";
+            })==1,"Feature group lost its Revolution axis");
+            require(std::ranges::count_if(axes,[](const auto& axis) {
+                return axis.reference.owner_id=="group-revolution-pattern"&&
+                    axis.reference.semantic_key.ends_with("axis:primary");
+            })==2,"Pattern omitted or duplicated a Feature Revolution axis");
+            for(unsigned index=1;index<3;++index) {
+                const auto expected=kernel::pattern_point({0,0,0},
+                    scope.pattern,index);
+                const auto found=std::ranges::find_if(axes,[&](const auto& axis) {
+                    return axis.reference.owner_id==copy.owner_id&&
+                        axis.reference.semantic_key.starts_with("pattern:"+
+                            kernel::pattern_copy_id(scope.pattern,index)+":")&&
+                        axis.reference.semantic_key.ends_with("axis:primary");
+                });
+                require(found!=axes.end(),
+                    "Patterned Feature Revolution axis lost its copy identity");
+                close(found->point.x,expected.x);close(found->point.y,expected.y);
+                close(found->point.z,expected.z);close(found->direction.z,1);
+            }
+        };
+        const auto result=engine.evaluate_history(operations);
+        verify(result.back());
+        verify(document::load_body_result(
+            document::serialize_body_result(result.back())));
+        kernel::OcctKernel cold;verify(cold.evaluate_history(operations).back());
+    }
     std::cout<<"Linear/circular and nested Pattern construction axes passed\n";
 }
 static void mirrored_construction_axes() {

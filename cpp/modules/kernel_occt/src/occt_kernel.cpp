@@ -604,7 +604,28 @@ std::vector<ViewerAxis> axes_for_operation(
             }
             return axes;
         } else if constexpr (std::is_same_v<Request, FeatureGroupRequest>) {
-            return primitive.axes;
+            auto axes = primitive.axes;
+            const bool has_primary = std::ranges::any_of(
+                axes, [](const auto& axis) {
+                    return axis.reference.semantic_key == "axis:primary";
+                });
+            if (!has_primary) {
+                const auto revolution = std::ranges::find_if(
+                    primitive.children, [](const auto& child) {
+                        return std::holds_alternative<RevolutionRequest>(child);
+                    });
+                if (revolution != primitive.children.end()) {
+                    const auto& request =
+                        std::get<RevolutionRequest>(*revolution);
+                    HistoryOperation axis_source{operation.owner_id, request};
+                    auto generated = axes_for_operation(axis_source,
+                        calculated_operand, {}, false, endpoints);
+                    axes.insert(axes.end(),
+                        std::make_move_iterator(generated.begin()),
+                        std::make_move_iterator(generated.end()));
+                }
+            }
+            return axes;
         } else if constexpr (std::is_same_v<Request, Sweep3DRequest>) {
             std::vector<ViewerAxis> axes;
             if(primitive.rotation_axis)axes.push_back(*primitive.rotation_axis);
