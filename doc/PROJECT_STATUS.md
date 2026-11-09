@@ -20,11 +20,12 @@ The release completes the curved Fillet/Chamfer terminal and route-membership
 corrections, analytical treatment previews and safe treatment deletion. Its
 native schema is unchanged.
 
-Windows source candidate [2026110901](releases/2026110901.md) adds automatic
-edge-attached Sheet Profile creation, deterministic positive route axes, Sweep
-Properties rollback ordering, Pattern/Mirror copy Origins, relation-preserving
-Trim, direct projected-view placement and faster Drawing display with distinct
-thin strokes. Its focused verification is recorded in
+The unpublished 2026110901 source tag is superseded by Windows candidate
+[2026110902](releases/2026110902.md). It attaches Sheet Profile with the exact
+Bend endpoint and trajectory frame, removes Profile-only manual attachment
+shortcuts, and includes Sweep Properties rollback ordering, Pattern/Mirror copy
+Origins, relation-preserving Trim, direct projected-view placement and faster
+Drawing display with distinct thin strokes. Its focused verification is recorded in
 [the 2026-11-09 matrix](verification/20261109-sheet-profile-and-properties-rollback.md).
 Packaging and public acceptance are not claimed until that record is updated.
 
@@ -110,7 +111,7 @@ evidence. Published 2501 and every older signed release remain immutable.
 
 | Work | Current boundary / next step |
 | --- | --- |
-| Current correction/release batch | Windows 2026110802 is published. The 2026110901 Profile/Sweep/copy/Trim/Drawing source candidate has passed the linked focused matrix and is awaiting clean committed-source packaging and publication acceptance. Native Linux verification remains separate. |
+| Current correction/release batch | Windows 2026110802 is published. The 2026110901 tag was not published; superseding 2026110902 aligns Profile placement with Bend and has passed the linked focused matrix. It awaits clean committed-source packaging and publication acceptance. Native Linux verification remains separate. |
 | Skeleton interaction | New Feature opening measures 0.280--0.353 s, Default Origin 0.272--0.280 s and the representative Sketch move about 6 ms. The 32-operation Skeleton opens in about 7.4 s; cold explicit regeneration measures about 68.9 s after physical analysis leaves the critical path, while exact Save adds about 30 s. A late Solid Fillet edit/Undo/Redo succeeds, but its dependent suffix remains about 26 s. Production parallel batching and immediate Escape cancellation remain gated on exact identity and cooperative OCCT cancellation. |
 | Remaining fasteners | Cast wing-nut studies and toothed/fan washers remain unfinished. Preserve source-dimension discrepancies and private user edits. Two-part locking nuts are excluded. See [library queue](FASTENER_REMAINING_WORK.md). |
 | Sketch intersection references | Native source/branch association and editor commands are implemented in the documented finite scope. Arbitrary curved arrangements and the native Linux matrix remain unverified. See [editor verification](verification/20261022-sketch-intersection-editor.md). |

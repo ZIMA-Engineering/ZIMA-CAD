@@ -65,9 +65,11 @@ the analytical treatment preview and safe history-treatment deletion. The shared
 Windows/Linux source remains pinned to OCCT 8.0.1. See the
 [release record](doc/releases/2026110802.md) and
 [publication evidence](doc/verification/20261108-windows-0802-publication.json).
-The subsequent [2026110901 source candidate](doc/releases/2026110901.md) contains
-the Profile attachment, Sweep rollback, copy-Origin, Sketch Trim, projected-view
-and interactive Drawing corrections described in its finite verification record.
+The unpublished 2026110901 source tag is superseded by the
+[2026110902 Windows candidate](doc/releases/2026110902.md), which aligns Profile
+attachment exactly with Bend and contains the Sweep rollback, copy-Origin,
+Sketch Trim, projected-view and interactive Drawing corrections described in
+its finite verification record.
 The [current status](doc/PROJECT_STATUS.md) separates released scope and remaining
 work. Linux verification follows the separate handoff.
 

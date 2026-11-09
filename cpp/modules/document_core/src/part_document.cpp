@@ -6585,13 +6585,16 @@ void PartDocument::resolve_constructions(
                 local_y = {-*bend_attachment, 0.0, 0.0};
             }
             if(profile_attachment_direction) {
-                // The picked boundary's joining face determines which local
-                // X direction leaves the existing sheet. Rotate both in-plane
-                // axes together so the seeded route remains entirely +X/+Y
-                // while its normal continues along the selected edge.
-                local_x={*profile_attachment_direction,0,0};
-                local_y={0,0,-*profile_attachment_direction};
-                local_normal={0,1,0};
+                // Reuse the established Bend trajectory frame.  In the
+                // ordinary edge placement local Y follows the boundary and
+                // local Z is the joining-face normal.  A Bend trajectory uses
+                // +Z as its first tangent, the material-inward direction as
+                // its second axis, and the selected edge as its plane normal.
+                // Keeping this exact cyclic mapping makes an attached Profile
+                // start at the same point and in the same direction as Bend.
+                local_x={0,0,1};
+                local_y={-*profile_attachment_direction,0,0};
+                local_normal={0,-*profile_attachment_direction,0};
             }
             // The Sketch is rigidly attached to the final container frame.
             // FRONT/BACK and quarter turns therefore rotate its actual wire and

@@ -54,8 +54,12 @@ static int verify_sheet_profile_ui(QApplication& application,
         require(!dialog->findChild<QComboBox*>("sheetProfileMaterialSide")&&
             !dialog->findChild<QPushButton*>(
                 "sheetProfileMaterialSideSwitch")&&
+            !dialog->findChild<QPushButton*>(
+                "sheetProfileOtherEndpoint")&&
+            !dialog->findChild<QPushButton*>(
+                "sheetProfileManualPlacement")&&
             dialog->findChild<QPushButton*>("sketchOpenButton"),
-            "Sheet Profile still exposes manual material side or lost its Sketch control");
+            "Sheet Profile still exposes manual attachment controls or lost its Sketch control");
         require(!dialog->findChild<QWidget*>("sheetProfileWidth"),
             "Sheet Profile exposes a duplicate width control");
         auto [driver,placement]=dialog->pending_value();

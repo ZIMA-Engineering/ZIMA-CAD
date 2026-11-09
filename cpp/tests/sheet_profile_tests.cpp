@@ -7,6 +7,7 @@
 #include <zima/document/bend.hpp>
 #include <zima/document/sheet_profile.hpp>
 
+#include <algorithm>
 #include <cmath>
 #include <iostream>
 #include <stdexcept>
@@ -257,6 +258,98 @@ void attached_profile_seed_and_history() {
     require(std::abs(thickness-2.5)<1e-9,
         "Attached Profile fixture lost its sheet thickness");
 
+    const auto close=[](kernel::Vec3 a,kernel::Vec3 b) {
+        return std::hypot(std::hypot(a.x-b.x,a.y-b.y),a.z-b.z)<1e-8;
+    };
+    const auto cross=[](kernel::Vec3 a,kernel::Vec3 b) {
+        return kernel::Vec3{a.y*b.z-a.z*b.y,a.z*b.x-a.x*b.z,
+            a.x*b.y-a.y*b.x};
+    };
+    const auto unit=[](kernel::Vec3 value) {
+        const auto length=std::hypot(std::hypot(value.x,value.y),value.z);
+        return kernel::Vec3{value.x/length,value.y/length,value.z/length};
+    };
+    const auto verify_bend_route_frame=[&](
+            const kernel::ViewerReferenceGeometry& current_geometry,
+            const kernel::ViewerEdge& current_edge,
+            const kernel::VertexReference& endpoint) {
+        const auto current_references=document::bend_sheet_references(
+            current_edge,endpoint);
+
+        auto profile_route=sketcher::Sketch::create_default();
+        auto attached=document::PartDocument::create_sheet_profile_container(
+            profile_route.id);
+        profile_route.owner_container_id=attached.id;
+        attached.sheet_profile.start_point_id=
+            document::initialize_attached_sheet_profile(
+                profile_route,thickness);
+        attached.sheet_profile.sheet_attachment=true;
+        attached.placement.references=current_references;
+        document::PartDocument profile_carrier;
+        profile_carrier.document_id=part.document_id;
+        profile_carrier.history={attached};
+        profile_carrier.sketches={profile_route};
+        profile_carrier.resolve_constructions(current_geometry);
+        const auto& resolved_route=profile_carrier.sketches.front();
+
+        auto bend=document::PartDocument::create_sketch_container();
+        bend.feature_kind=document::FeatureKind::Bend;
+        auto bend_start=sketcher::Sketch::create_default();
+        bend_start.owner_container_id=bend.id;
+        document::initialize_bend_start_profile(bend_start,40);
+        bend.bend.sketch_id=bend_start.id;
+        bend.bend.sheet_attachment=true;
+        bend.placement.references=current_references;
+        document::PartDocument bend_carrier;
+        bend_carrier.document_id=part.document_id;
+        bend_carrier.history={bend};bend_carrier.sketches={bend_start};
+        bend_carrier.resolve_constructions(current_geometry);
+        const auto& resolved_bend=bend_carrier.sketches.front();
+        const auto& line=*std::ranges::find_if(resolved_bend.segments,
+            [](const auto& value){return !value.construction;});
+        const auto* first=resolved_bend.find_point(line.first_point_id);
+        const auto* last=resolved_bend.find_point(line.second_point_id);
+        require(first&&last,"Resolved Bend attachment lost its start line");
+        const auto first_world=resolved_bend.world_point(first->x,first->y);
+        const auto last_world=resolved_bend.world_point(last->x,last->y);
+        const auto along=unit({last_world.x-first_world.x,
+            last_world.y-first_world.y,last_world.z-first_world.z});
+        const auto inward=cross(resolved_bend.resolved_normal,along);
+        const kernel::Vec3 route_normal{-along.x,-along.y,-along.z};
+        require(close(resolved_route.resolved_origin,
+                    resolved_bend.resolved_origin)&&
+                close(resolved_route.resolved_x_axis,
+                    resolved_bend.resolved_normal)&&
+                close(resolved_route.resolved_y_axis,inward)&&
+                close(resolved_route.resolved_normal,route_normal),
+            "Attached Sheet Profile frame differs from Bend trajectory");
+        const auto endpoint_index=current_edge.edge_treatment_endpoint_references[1]
+                ==endpoint?1u:0u;
+        require(close(resolved_route.resolved_origin,
+                endpoint_index?current_edge.points.back():
+                    current_edge.points.front()),
+            "Attached Sheet Profile origin is not the selected Bend endpoint");
+    };
+    for(const auto& endpoint:boundary->edge_treatment_endpoint_references)
+        verify_bend_route_frame(geometry,*boundary,endpoint);
+    auto reversed_geometry=geometry;
+    auto reversed_boundary=std::ranges::find_if(reversed_geometry.edges,
+        [&](const auto& edge){return edge.reference==boundary->reference;});
+    require(reversed_boundary!=reversed_geometry.edges.end(),
+        "Attached Profile reversed-edge fixture lost its boundary");
+    std::ranges::reverse(reversed_boundary->points);
+    std::ranges::reverse(
+        reversed_boundary->edge_treatment_endpoint_references);
+    if(reversed_boundary->exact_spline) {
+        std::ranges::reverse(reversed_boundary->exact_spline->poles);
+        kernel::reverse_bspline_parameters(
+            reversed_boundary->exact_spline->knots,
+            reversed_boundary->exact_spline->weights);
+    }
+    for(const auto& endpoint:
+            reversed_boundary->edge_treatment_endpoint_references)
+        verify_bend_route_frame(reversed_geometry,*reversed_boundary,endpoint);
+
     auto route=sketcher::Sketch::create_default();
     auto profile=document::PartDocument::create_sheet_profile_container(
         route.id);
@@ -306,14 +399,25 @@ void attached_profile_seed_and_history() {
         stored->placement.rotation_y,stored->placement.rotation_z};
     const auto base_x=document::construction_direction_from_local_axis(
         "x",rotation);
+    const auto base_y=document::construction_direction_from_local_axis(
+        "y",rotation);
     const auto base_z=document::construction_direction_from_local_axis(
         "z",rotation);
     const auto dot=[](kernel::Vec3 a,kernel::Vec3 b) {
         return a.x*b.x+a.y*b.y+a.z*b.z;
     };
-    require(dot(stored_route->resolved_x_axis,base_x)*frame_side>1-1e-8&&
-            dot(stored_route->resolved_y_axis,base_z)*-frame_side>1-1e-8,
-        "Attached Sheet Profile frame does not map its route into +X/+Y");
+    require(dot(stored_route->resolved_x_axis,base_z)>1-1e-8&&
+            dot(stored_route->resolved_y_axis,base_x)*-frame_side>1-1e-8&&
+            dot(stored_route->resolved_normal,base_y)*-frame_side>1-1e-8,
+        "Attached Sheet Profile does not reuse the Bend trajectory frame");
+    const auto* start=stored_route->find_point(
+        stored->sheet_profile.start_point_id);
+    require(start,"Attached Sheet Profile start point is missing");
+    const auto world_start=stored_route->world_point(start->x,start->y);
+    require(std::hypot(std::hypot(world_start.x-stored->placement.x,
+                world_start.y-stored->placement.y),
+                world_start.z-stored->placement.z)<1e-8,
+        "Attached Sheet Profile does not start at the selected Bend endpoint");
 
     require(workspace::step_part_document_history(live,document_id,false)&&
             !state->session.document().find_container(profile.id),

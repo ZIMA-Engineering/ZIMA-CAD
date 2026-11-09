@@ -4,7 +4,8 @@
 
 This finite Windows Release matrix verifies the correction batch after signed
 Windows 2026110802. The baseline source before the final Profile work was
-`604247d77`. The source candidate version is `2026110901`.
+`604247d77`. The corrected source candidate version is `2026110902`; the
+intermediate `2026110901` tag was not published.
 
 The batch contains five already separated changes:
 
@@ -21,9 +22,10 @@ The batch contains five already separated changes:
   line-weight preview control, and displays thin edges with the same continuous
   gray family as hidden edges while PDF/vector export retains output weights.
 - Sheet Profile removes the material-side control. Selecting a valid sheet
-  boundary derives edge, joining face, endpoint and thickness, creates an empty
-  owned route as Bend followed by tangent Flat, and maps the route into positive
-  local X/Y. Endpoint switching and manual detachment reuse the existing controls.
+  boundary derives edge, joining face, native endpoint and thickness, creates an
+  empty owned route as Bend followed by tangent Flat, and uses the exact Bend
+  trajectory frame. Profile-specific endpoint switching and manual detachment
+  controls are removed.
 
 No native file-format field, factory asset, start template, protected shared
 placement solver, geometry-side meaning, modeling precision or dependency pin
@@ -39,10 +41,12 @@ arc and one tangent segment. It independently verifies:
 - one picked edge fills the three Bend-style references;
 - attached thickness is inherited and its override is disabled;
 - the persisted material side is the derived outer branch;
-- all authored route points are non-negative in local X/Y;
+- all authored route points are non-negative in their owned Sketch coordinates;
+- Profile and Bend resolve to the same origin and trajectory frame;
+- both real native endpoints and reversed edge representation resolve correctly;
 - the first generated child is Bend, the second is Flat and the Bend has `R=T`;
-- endpoint switching changes only the derived endpoint;
-- manual placement restores the ordinary plane and thickness controls;
+- Profile Properties exposes neither endpoint-switch nor manual-placement
+  shortcuts, while other commands retain their established controls;
 - Undo/Redo restores byte-equivalent definitions;
 - native save/reopen and cold OCCT regeneration finish without errors.
 
@@ -81,6 +85,17 @@ instrumentation; both runs passed in 24.81 and 24.65 seconds. It covers 2D splin
 Cancel, unchanged OK without Undo, native save and reopen. The Loft Properties
 rollback and five-language dialog contract passed separately in 6.96 seconds.
 
+After the final Bend-frame correction, four focused Release tests passed 4/4 in
+91.46 seconds: Bend attachment UI, five-language catalog coverage, Sheet Profile
+native contracts and Sheet Profile UI. The desktop application, CLI and Profile
+test target rebuilt successfully with the same shared Windows/Linux sources.
+
+The broader shared UI contract was also sampled. It stopped at an unrelated
+existing generic automatic work-plane expectation (`automatic=1`, `actual=0`,
+expected reference `origin:plane:xy`). That finite gap is not caused by the
+Profile frame or removed controls and was intentionally not combined with this
+small correction.
+
 This is a focused matrix, not a claim that every repository test or every
 possible modeling feature was exhaustively exercised. The earlier first Sweep
 GUI run terminated without a diagnostic; one traced run and the following three
@@ -98,9 +113,10 @@ is outside the repository and is not included in the product commit or release.
 
 ## Localization review
 
-The Profile UI removes one existing control and reuses the already translated
-**Other edge endpoint** and **Manual placement references** strings. No new
-control label was added. The three new validation messages are translated for
+The Profile UI removes its existing **Other edge endpoint** and **Manual
+placement references** controls. Those translated strings remain used by other
+commands, so no catalog entries were removed and no new control label was
+added. The three new validation messages are translated for
 Czech, English, German, French and Russian and the dialog now resolves dynamic
 operation failures through the active Qt catalogue. Catalog coverage also
 includes the projected-view translation added earlier in this batch.

@@ -278,37 +278,6 @@ void SketchPropertiesDialog::set_sheet_profile_mode(
     });
     form->addRow(custom);
     form->addRow(tr("Tloušťka"),thickness);
-    auto* change_end=new QPushButton(tr("Druhý konec hrany"),this);
-    change_end->setObjectName("sheetProfileOtherEndpoint");form->addRow(change_end);
-    connect(change_end,&QPushButton::clicked,this,[this] {
-        if(!sheet_profile_pending_->sheet_attachment)return;
-        const auto refs=placement_->combined_references(3);
-        if(refs.size()<3)return;
-        for(const auto& edge:reference_geometry_.edges) {
-            if(edge.reference.owner_id!=refs[0].owner_id||
-               edge.reference.semantic_key!=refs[0].semantic_key||
-               edge.reference.instance_path!=refs[0].instance_path)continue;
-            for(const auto& end:edge.edge_treatment_endpoint_references) {
-                if(end.owner_id==refs[2].owner_id&&
-                   end.semantic_key==refs[2].semantic_key&&
-                   end.instance_path==refs[2].instance_path)continue;
-                set_reference(2,{end.instance_path,end.owner_id,
-                    end.semantic_key},QString::fromStdString(
-                        end.semantic_key));return;
-            }
-        }
-    });
-    auto* manual=new QPushButton(tr("Ruční reference umístění"),this);
-    manual->setObjectName("sheetProfileManualPlacement");form->addRow(manual);
-    connect(manual,&QPushButton::clicked,this,[this,pending,changed] {
-        pending->sheet_attachment=false;changed(*pending);
-        placement_->initialize_from_references(
-            placement_->combined_references(3),[](const auto& key) {
-                return QString::fromStdString(key);
-            });
-        lock_sheet_profile_attachment_fields();
-        refresh_resolved_placement();notify_preview();
-    });
     auto* note=new QLabel(
         tr("Bez zaškrtnutí se použije tloušťka vybraného plechu nebo nastavení plechu v dílu."),this);
     note->setWordWrap(true);
@@ -663,10 +632,6 @@ void SketchPropertiesDialog::lock_sheet_profile_attachment_fields() {
             thickness->setValue(sheet_profile_pending_->thickness);
         }
     }
-    if(auto* button=findChild<QPushButton*>("sheetProfileOtherEndpoint"))
-        button->setEnabled(automatic);
-    if(auto* button=findChild<QPushButton*>("sheetProfileManualPlacement"))
-        button->setEnabled(automatic);
     for(const auto* name:{"containerOrientationFlipButton",
             "containerOrientationRotateButton"})
         if(auto* button=findChild<QPushButton*>(name))
