@@ -5620,53 +5620,90 @@ zima::kernel::ViewerReferenceGeometry
 PartDocument::history_origin_reference_geometry_before(
         const std::string& container_id, double reference_scene_size) const {
     zima::kernel::ViewerReferenceGeometry result;
-    const auto append = [](zima::kernel::ViewerReferenceGeometry& target,
-                           zima::kernel::ViewerReferenceGeometry source) {
-        const auto vertex_base = static_cast<std::uint32_t>(target.vertices.size());
-        target.vertices.insert(target.vertices.end(),
-            source.vertices.begin(), source.vertices.end());
-        for (const auto index : source.triangles)
-            target.triangles.push_back(vertex_base + index);
-        target.triangle_references.insert(target.triangle_references.end(),
-            source.triangle_references.begin(), source.triangle_references.end());
-        target.edges.insert(target.edges.end(), source.edges.begin(), source.edges.end());
-        target.points.insert(target.points.end(), source.points.begin(), source.points.end());
-        target.axes.insert(target.axes.end(), source.axes.begin(), source.axes.end());
+    const auto local_origin = [&](const HistoryContainer& container) {
+        PartDocument carrier;
+        carrier.document_id = container.id;
+        carrier.name = container.name;
+        return transform_reference_geometry(
+            carrier.origin_viewer_mesh(reference_scene_size).original_references,
+            {container.placement.x, container.placement.y, container.placement.z},
+            {container.placement.rotation_x, container.placement.rotation_y,
+             container.placement.rotation_z}, false);
+    };
+    // A derived solid owns the transformed source Origins of its actual
+    // generated occurrences.  Its separate, ordinary container Origin remains
+    // the definition frame for Pattern/Mirror itself.  Keeping those two roles
+    // distinct also prevents a nested Pattern from copying the definition
+    // frame as if it were source geometry.
+    std::unordered_map<std::string,zima::kernel::ViewerReferenceGeometry>
+        generated_origin_cache;
+    std::unordered_set<std::string> resolving_origins;
+    const auto generated_origins = [&](const auto& self,
+            const HistoryContainer& container)
+            -> zima::kernel::ViewerReferenceGeometry {
+        if (const auto found = generated_origin_cache.find(container.id);
+            found != generated_origin_cache.end()) return found->second;
+        zima::kernel::ViewerReferenceGeometry generated;
+        if (container.suppressed || !container.placement.reference_valid ||
+            !resolving_origins.insert(container.id).second) return generated;
+        if (container.feature_kind != FeatureKind::DerivedCopy) {
+            generated = local_origin(container);
+        } else if (container.derived_copy.reference_valid) {
+            try {
+                for (const auto& source_id : container.derived_copy.source_ids) {
+                    const auto* source = find_container(source_id);
+                    if (!source) continue;
+                    const auto source_origins = self(self, *source);
+                    if (container.derived_copy.pattern) {
+                        const auto pattern = zima::kernel::validated_pattern(
+                            *container.derived_copy.pattern);
+                        for (unsigned index = 1; index < pattern.count; ++index) {
+                            zima::kernel::ViewerMesh packet;
+                            packet.original_references = source_origins;
+                            append_reference_geometry(generated,
+                                zima::kernel::pattern_copy_mesh(std::move(packet),
+                                    pattern, index, container.container_origin.id)
+                                    .original_references);
+                        }
+                    } else {
+                        zima::kernel::ViewerMesh packet;
+                        packet.original_references = source_origins;
+                        append_reference_geometry(generated,
+                            zima::kernel::mirrored_viewer_mesh(std::move(packet),
+                                container.derived_copy.resolved_plane,
+                                container.container_origin.id)
+                                .original_references);
+                    }
+                }
+            } catch (const std::invalid_argument&) {
+                // An invalid pending copy keeps its own editable Origin but
+                // must not publish references for occurrences it cannot make.
+                generated = {};
+            }
+        }
+        resolving_origins.erase(container.id);
+        generated_origin_cache.emplace(container.id, generated);
+        return generated;
     };
     for (const auto& container : history) {
         if (!container_id.empty() && container.id == container_id) break;
         if (!container.placement.reference_valid || container.suppressed) continue;
-        PartDocument carrier;
-        carrier.document_id = container.id;
-        carrier.name = container.name;
-        auto origin = carrier.origin_viewer_mesh(
-            reference_scene_size).original_references;
-        const auto rotation = placement_rotation_matrix_from_euler_degrees({
-            container.placement.rotation_x,
-            container.placement.rotation_y,
-            container.placement.rotation_z});
-        const zima::kernel::Vec3 translation{
-            container.placement.x, container.placement.y, container.placement.z};
-        for (auto& point : origin.vertices)
-            point = placement_transform_point(rotation, translation, point);
-        for (auto& edge : origin.edges) {
-            for (auto& point : edge.points)
-                point = placement_transform_point(rotation, translation, point);
+        auto origin = local_origin(container);
+        auto copied_origins = container.feature_kind == FeatureKind::DerivedCopy
+            ? generated_origins(generated_origins, container)
+            : zima::kernel::ViewerReferenceGeometry{};
+        if (const auto* body = body_history.owner(container.id)) {
+            origin = transform_reference_geometry(std::move(origin),
+                body->scope.translation(), body->scope.rotation_degrees(), false);
+            copied_origins = transform_reference_geometry(std::move(copied_origins),
+                body->scope.translation(), body->scope.rotation_degrees(), false);
         }
-        for (auto& point : origin.points)
-            point.position = placement_transform_point(
-                rotation, translation, point.position);
-        for (auto& axis : origin.axes) {
-            axis.point = placement_transform_point(rotation, translation, axis.point);
-            axis.direction = placement_transform_direction(rotation, axis.direction);
-        }
-        if (const auto* body = body_history.owner(container.id))
-            origin = transform_reference_geometry(std::move(origin), body->scope.translation(), body->scope.rotation_degrees(), false);
-        append(result, std::move(origin));
+        append_reference_geometry(result, std::move(origin));
+        append_reference_geometry(result, std::move(copied_origins));
         if(container.feature_kind==FeatureKind::SheetTransition){
             auto end=sheet_transition_end_references(container);
             if(const auto* body=body_history.owner(container.id))end=transform_reference_geometry(std::move(end),body->scope.translation(),body->scope.rotation_degrees(),false);
-            append(result,std::move(end));
+            append_reference_geometry(result,std::move(end));
         }
 
     }

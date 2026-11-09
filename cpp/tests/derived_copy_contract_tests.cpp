@@ -385,6 +385,124 @@ static void mirrored_construction_axes() {
     close(moved_axis->point.x,-4);
     std::cout<<"Mirror construction axes and endpoints passed\n";
 }
+static void derived_container_origins() {
+    auto part=document::PartDocument::create_default();
+    auto source=zima::test::rectangular_feature(part,{4,4,4});
+    source.name="Origin source";source.placement.x=3;source.placement.y=4;
+    source.placement.z=5;
+    const auto copy=[](std::string name) {
+        auto result=document::PartDocument::create_sketch_container();
+        result.feature_kind=document::FeatureKind::DerivedCopy;
+        result.name=std::move(name);return result;
+    };
+    auto pattern=copy("Pattern origins");pattern.placement.x=100;
+    pattern.derived_copy.source_ids={source.id};
+    pattern.derived_copy.reference={{},pattern.container_origin.id,
+        "origin:axis:z"};
+    pattern.derived_copy.pattern=kernel::PatternRequest{};
+    pattern.derived_copy.pattern->count=3;
+    pattern.derived_copy.pattern->linear[0].count=3;
+    pattern.derived_copy.pattern->linear[0].spacing=10;
+
+    auto nested=copy("Nested Pattern origins");nested.placement.x=200;
+    nested.derived_copy.source_ids={pattern.id};
+    nested.derived_copy.reference={{},nested.container_origin.id,
+        "origin:axis:z"};
+    nested.derived_copy.pattern=kernel::PatternRequest{};
+    nested.derived_copy.pattern->count=2;
+    nested.derived_copy.pattern->linear[0].count=2;
+    nested.derived_copy.pattern->linear[0].spacing=100;
+
+    auto mirror=copy("Mirror origins");
+    mirror.derived_copy.source_ids={source.id};
+    mirror.derived_copy.reference={{},mirror.container_origin.id,
+        "origin:plane:yz"};
+    mirror.derived_copy.resolved_plane={{0,0,0},{1,0,0}};
+
+    part.history={source,pattern,nested,mirror};
+    document::BodyHistoryGraph graph;
+    static_cast<void>(graph.create_body("Derived origin Body"));
+    for(const auto& feature:part.history)
+        graph.insert({document::PartHistoryKind::Feature,feature.id});
+    part.set_body_history(std::move(graph));
+
+    const auto verify=[&](const document::PartDocument& value) {
+        const auto geometry=value.history_origin_reference_geometry_before({});
+        const auto points=[&](const std::string& owner) {
+            std::vector<const kernel::ViewerPoint*> result;
+            for(const auto& point:geometry.points)
+                if(point.reference.owner_id==owner)result.push_back(&point);
+            return result;
+        };
+        const auto generated=[&](const std::string& owner) {
+            auto result=points(owner);
+            std::erase_if(result,[](const auto* point) {
+                return point->reference.semantic_key=="origin:point";
+            });
+            for(const auto* point:result) {
+                std::string storage;
+                require(kernel::construction_source_key(
+                    point->reference.semantic_key,storage)=="origin:point",
+                    "Derived Origin point lost its source semantic identity");
+            }
+            return result;
+        };
+        require(points(source.container_origin.id).size()==1,
+            "Pattern changed the source container Origin");
+        const auto patterned=generated(pattern.container_origin.id);
+        require(points(pattern.container_origin.id).size()==3&&
+            patterned.size()==2,
+            "Pattern did not publish one Origin for every generated copy");
+        for(unsigned index=1;index<3;++index) {
+            const auto expected=kernel::pattern_point({3,4,5},
+                *pattern.derived_copy.pattern,index);
+            const auto found=std::ranges::find_if(patterned,[&](const auto* point) {
+                return point->reference.semantic_key.starts_with("pattern:"+
+                    kernel::pattern_copy_id(*pattern.derived_copy.pattern,index)+":");
+            });
+            require(found!=patterned.end(),
+                "Pattern Origin lost its stable occurrence identity");
+            close((*found)->position.x,expected.x);
+            close((*found)->position.y,expected.y);
+            close((*found)->position.z,expected.z);
+        }
+        const auto nested_points=generated(nested.container_origin.id);
+        require(points(nested.container_origin.id).size()==3&&
+            nested_points.size()==2,
+            "Nested Pattern copied its definition Origin or lost source Origins");
+        std::set<int> nested_x;
+        for(const auto* point:nested_points)
+            nested_x.insert(static_cast<int>(std::lround(point->position.x)));
+        require(nested_x==std::set<int>{113,123},
+            "Nested Pattern did not transform only generated source Origins");
+
+        const auto mirrored=generated(mirror.container_origin.id);
+        require(points(mirror.container_origin.id).size()==2&&
+            mirrored.size()==1,
+            "Mirror did not publish exactly one transformed source Origin");
+        close(mirrored.front()->position.x,-3);
+        close(mirrored.front()->position.y,4);
+        close(mirrored.front()->position.z,5);
+        const auto parent=kernel::mirror_parent_reference(
+            mirrored.front()->reference.semantic_key);
+        require(parent&&parent->owner_id==source.container_origin.id&&
+            parent->semantic_key=="origin:point",
+            "Mirror Origin lost its exact source identity");
+
+        auto route_point=document::PartDocument::create_construction(
+            document::ConstructionKind::Point);
+        route_point.references.push_back({{},pattern.container_origin.id,
+            patterned.front()->reference.semantic_key});
+        require(document::resolve_construction(route_point,geometry),
+            "3D Sweep Point cannot use a patterned Origin point");
+        close(route_point.origin.x,patterned.front()->position.x);
+        close(route_point.origin.y,patterned.front()->position.y);
+        close(route_point.origin.z,patterned.front()->position.z);
+    };
+    verify(part);
+    verify(document::PartDocument::from_serialized(part.serialized()));
+    std::cout<<"Pattern/Mirror generated Origin references and native readback passed\n";
+}
 static void multiple_copy_sources() {
     kernel::HistoryOperation stock{"multi-stock",
         zima::test::ProfilePrism{20,20,10}};
@@ -461,6 +579,7 @@ int main(){try{
     copied_construction_axes();
     incremental_copy_sources();
     mirrored_construction_axes();
+    derived_container_origins();
     multiple_copy_sources();
     kernel::HistoryOperation zero;zero.owner_id="signed-zero";zero.body.id="body";zero.primitive=zima::test::rectangular_request();
     auto signed_zero=zero;signed_zero.body.translation.y=-0.0;

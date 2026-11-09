@@ -1,5 +1,6 @@
 #include <zima/document/placement_orientation.hpp>
 #include <zima/workspace/placement_edit.hpp>
+#include <zima/kernel/axis_display.hpp>
 #include "workspace_internal.hpp"
 #include "new_document_options.hpp"
 #include "../sketch_profile_wire.hpp"
@@ -258,23 +259,31 @@ zima::kernel::ViewerMesh local_origin_display_mesh(
     // untouched.
     constexpr double local_origin_display_scale = 0.5;
     for (const auto& axis : geometry.axes) {
+        std::string source_storage;
+        const auto source_key = zima::kernel::construction_source_key(
+            axis.reference.semantic_key, source_storage);
         if (!visible_origin_ids.contains(axis.reference.owner_id) ||
-            !axis.reference.semantic_key.starts_with("origin:")) continue;
+            !source_key.starts_with("origin:")) continue;
         auto displayed = axis;
         displayed.display_length *= local_origin_display_scale;
         mesh.axes.push_back(std::move(displayed));
     }
     for (const auto& point : geometry.points) {
+        std::string source_storage;
+        const auto source_key = zima::kernel::construction_source_key(
+            point.reference.semantic_key, source_storage);
         if (visible_origin_ids.contains(point.reference.owner_id) &&
-            (point.reference.semantic_key == "origin:point" ||
-             point.reference.semantic_key == "point"))
+            (source_key == "origin:point" || source_key == "point"))
             mesh.points.push_back(point);
     }
     for (std::size_t triangle = 0;
          triangle + 1 < geometry.triangle_references.size(); triangle += 2) {
         const auto& reference = geometry.triangle_references[triangle];
+        std::string source_storage;
+        const auto source_key = zima::kernel::construction_source_key(
+            reference.semantic_key, source_storage);
         if (!visible_origin_ids.contains(reference.owner_id) ||
-            !reference.semantic_key.starts_with("origin:plane:") ||
+            !source_key.starts_with("origin:plane:") ||
             geometry.triangle_references[triangle + 1] != reference) continue;
         const std::size_t offset = triangle * 3;
         if (offset + 5 >= geometry.triangles.size()) continue;
