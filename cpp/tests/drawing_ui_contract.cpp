@@ -662,7 +662,10 @@ int verify_drawing_ui() {
                 const auto settings=zima::app::ApplicationSettings::load(language_directory.path());zima::app::apply_application_translations(*qApp,settings);
                 window.select_view(original.id);action("editDrawingViewAction")->trigger();flush();auto* editing=dialog();require(editing,"Localized view description properties missing");
                 auto* table=editing->findChild<QTableWidget*>("drawingViewDescriptions");
-                require(table&&table->horizontalHeaderItem(4)->text()==settings.qt_translations.value("Výška [mm]")&&editing->findChild<QCheckBox*>("drawingViewCaption")->text()==settings.qt_translations.value("Zobrazit popis pohledu"),"View descriptions did not follow language switch");
+                require(editing->windowTitle()==settings.qt_translations.value("Vlastnosti pohledu")&&
+                    table&&table->horizontalHeaderItem(4)->text()==settings.qt_translations.value("Výška [mm]")&&
+                    editing->findChild<QCheckBox*>("drawingViewCaption")->text()==settings.qt_translations.value("Zobrazit popis pohledu"),
+                    "View properties did not follow language switch");
                 verify_view_properties_layout(editing);
                 const auto window_size=window.size();
                 for(const QSize available:{QSize(1366,768),QSize(1920,1080)}) {
@@ -676,6 +679,13 @@ int verify_drawing_ui() {
                 qobject_cast<QLineEdit*>(table->cellWidget(0,3))->setText("CANCELLED DESCRIPTION");editing->resize(1000,850);flush();
                 editing->grab().save(QString("build/drawing-view-description-%1.png").arg(language));editing->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();
                 require(state.sheets.front().views.front().description_rows==original.description_rows&&workspace.open_drawing(drawing.document_id)->revision()==tracked_revision,"Description Cancel changed native state or Undo history");
+                action("insertDrawingViewAction")->trigger();flush();click(canvas,center+QPointF(180,80));
+                auto* creating=dialog();require(creating&&creating->windowTitle()==settings.qt_translations.value("Vložit pohled")&&
+                    creating->findChild<QCheckBox*>("drawingViewCaption")->text()==settings.qt_translations.value("Zobrazit popis pohledu"),
+                    "Insert View creation window did not follow language switch");
+                creating->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();
+                require(count()==1&&workspace.open_drawing(drawing.document_id)->revision()==tracked_revision,
+                    "Localized Insert View Cancel changed Drawing history");
             }
             zima::app::apply_application_translations(*qApp,saved_settings);
         }
@@ -758,6 +768,21 @@ int verify_drawing_ui() {
         action("projectDrawingViewAction")->trigger();
         QKeyEvent escape(QEvent::KeyPress,Qt::Key_Escape,Qt::NoModifier);QApplication::sendEvent(canvas,&escape);flush();
         require(count()==1&&!dialog()&&workspace.open_drawing(drawing.document_id)->revision()==projection_revision,"Canceled projection changed the drawing");
+        const auto source_rectangle=window.view_rectangle_for_test(original.id);
+        require(source_rectangle.has_value(),"Projected source has no visible bounding rectangle");
+        const std::array edge_offers{
+            std::pair{QPointF(source_rectangle->right()+2,source_rectangle->top()+2),zima::drawing::ProjectionDirection::Right},
+            std::pair{QPointF(source_rectangle->left()-2,source_rectangle->bottom()-2),zima::drawing::ProjectionDirection::Left},
+            std::pair{QPointF(source_rectangle->right()-2,source_rectangle->top()-2),zima::drawing::ProjectionDirection::Top},
+            std::pair{QPointF(source_rectangle->left()+2,source_rectangle->bottom()+2),zima::drawing::ProjectionDirection::Bottom}};
+        for(const auto& [point,expected]:edge_offers) {
+            window.select_view_for_test(original.id);action("projectDrawingViewAction")->trigger();
+            mouse(canvas,QEvent::MouseMove,point,Qt::NoButton,Qt::NoButton);click(canvas,point);
+            require(count()==2&&state.sheets.front().views.back().projection_direction==expected,
+                "Projected side was not offered immediately beyond the source rectangle");
+            require(workspace.open_drawing(drawing.document_id)->undo(),"Rectangle-edge projection has no atomic Undo");
+            window.edit_workspace_document(drawing.document_id);flush();require(count()==1,"Rectangle-edge projection Undo retained a child");
+        }
         for(const auto delta:std::array{QPointF(220,70),QPointF(220,-70),QPointF(-220,70),QPointF(-220,-70),
                                       QPointF(70,220),QPointF(-70,220),QPointF(70,-220),QPointF(-70,-220)}) {
             window.select_view_for_test(original.id);action("projectDrawingViewAction")->trigger();

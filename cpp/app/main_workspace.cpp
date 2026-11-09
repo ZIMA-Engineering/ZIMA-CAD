@@ -7201,8 +7201,193 @@ int verify_sketch_trim_junction_ui(
                 }),
         "Removing T after GUI Trim deleted its shared native point")) return 1;
 
-    std::cout << "GUI Trim shared-point, C/T, Undo/Redo and persistence "
-                 "contracts passed\n";
+    {
+        auto parallel_document=PartDocument::create_default();
+        auto parallel_feature=PartDocument::create_sketch_container();
+        auto parallel_sketch=sketcher::Sketch::create_default();parallel_sketch.owner_container_id=parallel_feature.id;
+        const auto support=parallel_sketch.add_segment(-20,-10,20,-10);
+        const auto target=parallel_sketch.add_segment(-20,5,20,5);
+        const auto target_line=*std::ranges::find(parallel_sketch.segments,target,&sketcher::SketchSegment::id);
+        const auto hv_target=parallel_sketch.add_segment(-20,15,20,15);
+        const auto hv_target_line=*std::ranges::find(parallel_sketch.segments,hv_target,&sketcher::SketchSegment::id);
+        const auto hv_anchor=parallel_sketch.add_point(-30,15);
+        parallel_sketch.find_point(hv_anchor)->fixed=true;
+        static_cast<void>(parallel_sketch.add_segment_constraint(
+            hv_target,ConstraintKind::Horizontal));
+        const auto point_horizontal=parallel_sketch.add_point_pair_constraint(
+            hv_anchor,hv_target_line.first_point_id,ConstraintKind::Horizontal);
+        for(const auto& id:{support}) {
+            const auto line=std::ranges::find(parallel_sketch.segments,id,&sketcher::SketchSegment::id);
+            parallel_sketch.find_point(line->first_point_id)->fixed=true;
+            parallel_sketch.find_point(line->second_point_id)->fixed=true;
+        }
+        for(double x:{-5.,5.}) {
+            const auto cutter=parallel_sketch.add_segment(x,0,x,10,1e-7,true);
+            const auto line=std::ranges::find(parallel_sketch.segments,cutter,&sketcher::SketchSegment::id);
+            parallel_sketch.find_point(line->first_point_id)->fixed=true;
+            parallel_sketch.find_point(line->second_point_id)->fixed=true;
+        }
+        const auto hv_cutter=parallel_sketch.add_segment(-12,12,-12,18,1e-7,true);
+        const auto hv_cutter_line=std::ranges::find(
+            parallel_sketch.segments,hv_cutter,&sketcher::SketchSegment::id);
+        parallel_sketch.find_point(hv_cutter_line->first_point_id)->fixed=true;
+        parallel_sketch.find_point(hv_cutter_line->second_point_id)->fixed=true;
+        static_cast<void>(parallel_sketch.add_segment_pair_constraint(
+            support,target,ConstraintKind::Parallel));
+        const auto verify_hv=[&](const sketcher::Sketch& value,bool endpoint_replaced) {
+            const auto line=std::ranges::find(value.segments,hv_target,&sketcher::SketchSegment::id);
+            if(line==value.segments.end())return false;
+            const auto* first=value.find_point(line->first_point_id);
+            const auto* second=value.find_point(line->second_point_id);
+            const auto* anchor=value.find_point(hv_anchor);
+            if(!first||!second||!anchor||std::abs(first->y-second->y)>1e-7||
+                std::abs(first->y-anchor->y)>1e-7)return false;
+            if(endpoint_replaced) {
+                if(line->first_point_id==hv_target_line.first_point_id||
+                    value.find_point(hv_target_line.first_point_id))return false;
+            } else if(line->first_point_id!=hv_target_line.first_point_id)return false;
+            const auto segment_horizontal=std::ranges::find_if(value.constraints,[&](const auto& relation) {
+                return relation.kind==ConstraintKind::Horizontal&&relation.geometry_id==hv_target&&
+                    relation.first_point_id==line->first_point_id&&relation.second_point_id==line->second_point_id;
+            });
+            const auto point_relation=std::ranges::find(
+                value.constraints,point_horizontal,&sketcher::SketchConstraint::id);
+            return segment_horizontal!=value.constraints.end()&&point_relation!=value.constraints.end()&&
+                ((point_relation->first_point_id==hv_anchor&&point_relation->second_point_id==line->first_point_id)||
+                 (point_relation->second_point_id==hv_anchor&&point_relation->first_point_id==line->first_point_id));
+        };
+        const auto parallel_topology=sketcher::sketch_trim_topology(parallel_sketch,true);
+        const auto middle=sketcher::nearest_sketch_trim_piece(parallel_topology,{0,5},.1);
+        if(!verify(middle&&middle->geometry_id==target,"Parallel GUI fixture has no middle Trim piece"))return 1;
+        const auto middle_index=std::ranges::find_if(parallel_topology,[&](const auto& piece) {
+            return piece.geometry_id==middle->geometry_id&&std::abs(piece.start-middle->start)<1e-9&&std::abs(piece.end-middle->end)<1e-9;
+        })-parallel_topology.begin();
+        parallel_document.history={parallel_feature};parallel_document.sketches={parallel_sketch};
+        BodyHistoryGraph parallel_graph;const auto parallel_body=parallel_graph.create_body("Parallel Trim body");
+        parallel_graph.insert({PartHistoryKind::Feature,parallel_feature.id});parallel_document.set_body_history(parallel_graph);parallel_document.resolve_constructions();
+        const auto parallel_path=directory/"parallel-trim-ui.prtz";parallel_document.save(parallel_path);
+        app::AssemblyWorkspaceWindow parallel_window(QString::fromStdString(directory.string()));
+        parallel_window.resize(1200,900);parallel_window.show();
+        if(!verify(parallel_window.open_document_path(QString::fromStdString(parallel_path.string())),"Cannot open Parallel Trim GUI fixture"))return 1;
+        flush();if(!verify(activate_test_body(application,parallel_window,parallel_body),"Cannot activate Parallel Trim body"))return 1;
+        auto* parallel_tree=parallel_window.findChild<QTreeWidget*>("documentTree");QTreeWidgetItem* parallel_row{};
+        for(QTreeWidgetItemIterator item(parallel_tree);*item;++item)if((*item)->data(0,Qt::UserRole).toString().toStdString()==parallel_sketch.id&&
+            (*item)->data(0,Qt::UserRole+3).toString()=="part-sketch"){parallel_row=*item;break;}
+        if(!verify(parallel_row,"Parallel Trim Sketch row is missing"))return 1;
+        parallel_window.show_tree_item_properties(parallel_row);flush();parallel_window.findChild<QPushButton*>("sketchOpenButton")->click();flush();
+        QEventLoop parallel_animation;QTimer::singleShot(950,&parallel_animation,&QEventLoop::quit);parallel_animation.exec();flush();
+        auto* parallel_view=dynamic_cast<viewer::MeshView*>(parallel_window.findChild<QOpenGLWidget*>());
+        auto* parallel_trim=parallel_window.findChild<QAction*>("sketchTrimAction");
+        if(!verify(parallel_view&&parallel_trim,"Parallel Trim GUI controls are missing"))return 1;
+        parallel_trim->trigger();flush();std::optional<QPointF> middle_hit;
+        for(int y=12;y<parallel_view->height()-12&&!middle_hit;y+=2)for(int x=12;x<parallel_view->width()-12&&!middle_hit;x+=2) {
+            const auto candidates=parallel_view->selection_candidates_at(QPointF(x,y));
+            if(!candidates.empty()&&candidates.front().kind==viewer::CandidateKind::SketchTrimPiece&&
+                candidates.front().owner_id==parallel_sketch.id&&candidates.front().semantic_key=="trim_piece:"+std::to_string(middle_index))middle_hit=QPointF(x,y);
+        }
+        if(!verify(middle_hit.has_value(),"Parallel middle piece cannot be picked in the actual View"))return 1;
+        for(const auto type:{QEvent::MouseMove,QEvent::MouseButtonPress,QEvent::MouseButtonRelease}) {
+            QMouseEvent event(type,*middle_hit,QPointF(parallel_view->mapToGlobal(middle_hit->toPoint())),
+                type==QEvent::MouseMove?Qt::NoButton:Qt::LeftButton,type==QEvent::MouseButtonPress?Qt::LeftButton:Qt::NoButton,Qt::NoModifier);
+            QApplication::sendEvent(parallel_view,&event);flush();
+        }
+        const auto* parallel_preview=parallel_window.sketch_trim_preview_for_test();
+        if(!verify(parallel_preview&&parallel_preview->segments.size()==7&&verify_hv(*parallel_preview,false)&&
+            std::ranges::count_if(parallel_preview->constraints,[](const auto& relation){return relation.kind==ConstraintKind::Parallel;})==2,
+            "Parallel Trim GUI preview did not retain Parallel and untouched H/V relations"))return 1;
+        for(const auto type:{QEvent::MouseButtonDblClick,QEvent::MouseButtonRelease}) {
+            QMouseEvent event(type,*middle_hit,QPointF(parallel_view->mapToGlobal(middle_hit->toPoint())),Qt::MiddleButton,
+                type==QEvent::MouseButtonDblClick?Qt::MiddleButton:Qt::NoButton,Qt::NoModifier);
+            QApplication::sendEvent(parallel_view,&event);flush();
+        }
+        const auto verify_parallel=[&](const sketcher::Sketch& value) {
+            if(value.segments.size()!=7)return false;
+            const auto source=std::ranges::find(value.segments,support,&sketcher::SketchSegment::id);
+            if(source==value.segments.end())return false;
+            const auto* a=value.find_point(source->first_point_id);const auto* b=value.find_point(source->second_point_id);
+            std::size_t relations{};
+            for(const auto& relation:value.constraints)if(relation.kind==ConstraintKind::Parallel&&
+                (relation.geometry_id==support||relation.second_geometry_id==support)) {
+                const auto id=relation.geometry_id==support?relation.second_geometry_id:relation.geometry_id;
+                const auto line=std::ranges::find(value.segments,id,&sketcher::SketchSegment::id);if(line==value.segments.end())return false;
+                const auto* p=value.find_point(line->first_point_id);const auto* q=value.find_point(line->second_point_id);
+                if(std::abs((b->x-a->x)*(q->y-p->y)-(b->y-a->y)*(q->x-p->x))>1e-7)return false;++relations;
+            }
+            return relations==2;
+        };
+        if(!verify(parallel_window.active_sketch_for_test()&&verify_parallel(*parallel_window.active_sketch_for_test())&&
+            verify_hv(*parallel_window.active_sketch_for_test(),false),
+            "Confirmed GUI Trim lost a survivor Parallel or untouched H/V relation"))return 1;
+        std::optional<QPointF> endpoint;
+        for(int y=12;y<parallel_view->height()-12&&!endpoint;y+=2)for(int x=12;x<parallel_view->width()-12&&!endpoint;x+=2)
+            for(const auto& candidate:parallel_view->selection_candidates_at(QPointF(x,y)))if(candidate.kind==viewer::CandidateKind::SketchPoint&&
+                candidate.owner_id==parallel_sketch.id&&candidate.semantic_key=="point:"+target_line.second_point_id){endpoint=QPointF(x,y);break;}
+        if(!verify(endpoint.has_value(),"Trimmed Parallel endpoint cannot be dragged in the actual View"))return 1;
+        const auto before_drag=parallel_window.active_sketch_for_test()->serialized();
+        for(const auto [type,point,button,buttons]:std::array{
+            std::tuple{QEvent::MouseMove,*endpoint,Qt::NoButton,Qt::NoButton},
+            std::tuple{QEvent::MouseButtonPress,*endpoint,Qt::LeftButton,Qt::LeftButton},
+            std::tuple{QEvent::MouseMove,*endpoint+QPointF(25,0),Qt::NoButton,Qt::LeftButton},
+            std::tuple{QEvent::MouseButtonRelease,*endpoint+QPointF(25,0),Qt::LeftButton,Qt::NoButton}}) {
+            QMouseEvent event(type,point,QPointF(parallel_view->mapToGlobal(point.toPoint())),button,buttons,Qt::NoModifier);
+            QApplication::sendEvent(parallel_view,&event);flush();
+        }
+        const auto after_drag=parallel_window.active_sketch_for_test()->serialized();
+        if(!verify(after_drag!=before_drag&&verify_parallel(*parallel_window.active_sketch_for_test()),
+            "Real endpoint drag did not move or broke the trimmed Parallel equations"))return 1;
+        auto* parallel_undo=parallel_window.findChild<QAction*>("undoAction");auto* parallel_redo=parallel_window.findChild<QAction*>("redoAction");
+        parallel_undo->trigger();flush();parallel_redo->trigger();flush();
+        if(!verify(parallel_window.active_sketch_for_test()->serialized()==after_drag,"Parallel Trim drag Undo/Redo changed the Sketch"))return 1;
+
+        const auto hv_topology=sketcher::sketch_trim_topology(
+            *parallel_window.active_sketch_for_test(),true);
+        const auto hv_piece=sketcher::nearest_sketch_trim_piece(hv_topology,{-16,15},.2);
+        if(!verify(hv_piece&&hv_piece->geometry_id==hv_target,
+            "Point H/V GUI fixture has no end Trim piece"))return 1;
+        const auto hv_piece_index=std::ranges::find_if(hv_topology,[&](const auto& piece) {
+            return piece.geometry_id==hv_piece->geometry_id&&std::abs(piece.start-hv_piece->start)<1e-9&&
+                std::abs(piece.end-hv_piece->end)<1e-9;
+        })-hv_topology.begin();
+        parallel_trim->trigger();flush();std::optional<QPointF> hv_hit;
+        for(int y=12;y<parallel_view->height()-12&&!hv_hit;y+=2)for(int x=12;x<parallel_view->width()-12&&!hv_hit;x+=2) {
+            const auto candidates=parallel_view->selection_candidates_at(QPointF(x,y));
+            if(!candidates.empty()&&candidates.front().kind==viewer::CandidateKind::SketchTrimPiece&&
+                candidates.front().owner_id==parallel_sketch.id&&
+                candidates.front().semantic_key=="trim_piece:"+std::to_string(hv_piece_index))hv_hit=QPointF(x,y);
+        }
+        if(!verify(hv_hit.has_value(),"Point H/V end piece cannot be picked in the actual View"))return 1;
+        for(const auto type:{QEvent::MouseMove,QEvent::MouseButtonPress,QEvent::MouseButtonRelease}) {
+            QMouseEvent event(type,*hv_hit,QPointF(parallel_view->mapToGlobal(hv_hit->toPoint())),
+                type==QEvent::MouseMove?Qt::NoButton:Qt::LeftButton,
+                type==QEvent::MouseButtonPress?Qt::LeftButton:Qt::NoButton,Qt::NoModifier);
+            QApplication::sendEvent(parallel_view,&event);flush();
+        }
+        const auto* hv_preview=parallel_window.sketch_trim_preview_for_test();
+        if(!verify(hv_preview&&verify_parallel(*hv_preview)&&verify_hv(*hv_preview,true),
+            "Point H/V GUI preview did not transfer the aligned endpoint and segment H relations"))return 1;
+        for(const auto type:{QEvent::MouseButtonDblClick,QEvent::MouseButtonRelease}) {
+            QMouseEvent event(type,*hv_hit,QPointF(parallel_view->mapToGlobal(hv_hit->toPoint())),Qt::MiddleButton,
+                type==QEvent::MouseButtonDblClick?Qt::MiddleButton:Qt::NoButton,Qt::NoModifier);
+            QApplication::sendEvent(parallel_view,&event);flush();
+        }
+        if(!verify(parallel_window.active_sketch_for_test()&&verify_parallel(*parallel_window.active_sketch_for_test())&&
+            verify_hv(*parallel_window.active_sketch_for_test(),true),
+            "Confirmed GUI Trim lost its aligned point H or segment H relation"))return 1;
+        const auto after_hv_trim=parallel_window.active_sketch_for_test()->serialized();
+        parallel_undo->trigger();flush();parallel_redo->trigger();flush();
+        if(!verify(parallel_window.active_sketch_for_test()->serialized()==after_hv_trim&&
+            verify_hv(*parallel_window.active_sketch_for_test(),true),
+            "Point H/V GUI Trim Undo/Redo changed its transferred relations"))return 1;
+        parallel_window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
+        const auto parallel_reopened=PartDocument::load(parallel_path);
+        const auto reopened_parallel_sketch=std::ranges::find(
+            parallel_reopened.sketches,parallel_sketch.id,&sketcher::Sketch::id);
+        if(!verify(reopened_parallel_sketch!=parallel_reopened.sketches.end()&&
+            verify_parallel(*reopened_parallel_sketch)&&verify_hv(*reopened_parallel_sketch,true),
+            "Parallel and point/segment H Trim save/reopen lost a relation"))return 1;
+    }
+
+    std::cout << "GUI Trim shared-point C/T, split Parallel, point/segment H transfer, real endpoint drag, Undo/Redo and persistence contracts passed\n";
     return 0;
 }
 

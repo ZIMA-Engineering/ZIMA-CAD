@@ -314,7 +314,8 @@ public:
         std::function<void(ViewPropertiesDialog*,drawing::DrawingView)> edit_breaks,
         std::function<void(ViewPropertiesDialog*,drawing::DrawingView,int,std::string)> edit_crop,
         bool creating)
-        : PropertiesSubWindow(QObject::tr("Vlastnosti pohledu"), parent),
+        : PropertiesSubWindow(creating ? QObject::tr("Vložit pohled")
+                                       : QObject::tr("Vlastnosti pohledu"), parent),
           value_(std::move(initial)), sources_(std::move(sources)),
           sections_(std::move(sections)), sheet_scale_(sheet_scale), accepted_(std::move(accepted)), preview_(std::move(preview)) {
         setObjectName("drawingViewProperties");
@@ -621,7 +622,7 @@ private:
                 marker_table_->setCellWidget(row,1,button);
             }
             marker_table_->resizeRowsToContents();marker_table_->setFixedHeight(std::min(150,marker_table_->horizontalHeader()->height()+marker_table_->verticalHeader()->length()+2*marker_table_->frameWidth()));marker_table_->setVisible(marker_table_->rowCount()>0);
-        }catch(const std::exception& e){error_->setText(QString::fromUtf8(e.what()));}
+        }catch(const std::exception& e){error_->setText(QObject::tr(e.what()));}
     }
     void set_section_components(){
         components_->set_components({},{});const auto id=section_->currentData().toString().toStdString();
@@ -1347,6 +1348,16 @@ public:
         if(preview_&&preview_->id==id)return view_bounds(*preview_).center();
         if(sheet_)for(const auto& view:sheet_->views)if(view.id==id)return view_bounds(view).center();
         return {};
+    }
+    std::optional<QRectF> rectangle(const std::string& id)const {
+        if(preview_&&preview_->id==id)return view_bounds(*preview_);
+        if(sheet_)for(const auto& view:sheet_->views)if(view.id==id)return view_bounds(view);
+        return {};
+    }
+    std::optional<QRectF> paper_rectangle(const std::string& id)const {
+        const auto bounds=rectangle(id);if(!bounds||!sheet_)return {};
+        const auto first=paper_point(bounds->topLeft()),last=paper_point(bounds->bottomRight());
+        return QRectF(QPointF(first.x,first.y),QPointF(last.x,last.y)).normalized();
     }
     std::optional<QPointF> detail_label_handle(const std::string& id)const{
         for(const auto& handle:annotation_handles_)if(handle.key.kind==AnnotationKind::DetailLabel&&handle.key.view==id)return handle.point;return {};
@@ -2522,13 +2533,13 @@ void DrawingWindow::create_layout() {
     });
     const auto change_scale=[this]{
         auto* sheet=active_sheet();if(!sheet)return;auto value=zima::workspace::sheet_settings(*sheet);value.scale=scale_numerator_->value()/scale_denominator_->value();
-        try{set_sheet_settings(sheet->id,value);}catch(const std::exception& e){refresh(false);set_status_message(QString::fromUtf8(e.what()));}
+        try{set_sheet_settings(sheet->id,value);}catch(const std::exception& e){refresh(false);set_status_message(tr(e.what()));}
     };
     connect(scale_numerator_,&QDoubleSpinBox::valueChanged,this,[change_scale](double){change_scale();});
     connect(scale_denominator_,&QDoubleSpinBox::valueChanged,this,[change_scale](double){change_scale();});
     connect(projection_method_,&QComboBox::currentIndexChanged,this,[this](int index){
         auto* sheet=active_sheet();if(!sheet||index<0)return;auto value=zima::workspace::sheet_settings(*sheet);value.projection=index==0?zima::drawing::ProjectionMethod::FirstAngle:zima::drawing::ProjectionMethod::ThirdAngle;
-        try{set_sheet_settings(sheet->id,value);}catch(const std::exception& e){refresh(false);set_status_message(QString::fromUtf8(e.what()));}
+        try{set_sheet_settings(sheet->id,value);}catch(const std::exception& e){refresh(false);set_status_message(tr(e.what()));}
     });
     // Sheet controls keep their normal sizes without imposing their combined
     // width on every page of the shared workspace stack.
@@ -2615,6 +2626,9 @@ void DrawingWindow::load_frame_for_test(const std::filesystem::path& path) {
 std::optional<QPointF> DrawingWindow::view_rectangle_center_for_test(const std::string& id)const {
     return canvas_->rectangle_center(id);
 }
+std::optional<QRectF> DrawingWindow::view_rectangle_for_test(const std::string& id)const {
+    return canvas_->rectangle(id);
+}
 std::optional<QPointF> DrawingWindow::title_field_center_for_test(const std::string& id) const {
     return canvas_->title_field_center(id);
 }
@@ -2642,7 +2656,7 @@ void DrawingWindow::open_document() {
         }
         refresh(false);
     }
-    catch (const std::exception& error) { QMessageBox::warning(this, tr("Nelze otevřít výkres"), error.what()); }
+    catch (const std::exception& error) { QMessageBox::warning(this, tr("Nelze otevřít výkres"), tr(error.what())); }
 }
 void DrawingWindow::quick_export(bool pdf) {
     if(path_.empty()) {set_status_message(tr("Před rychlým exportem uložte výkres."));return;}
@@ -2702,7 +2716,7 @@ void DrawingWindow::save_document() {
         } else { document_.save(target);path_=target; }
         sync_workspace_document(false); set_status_message(tr("Výkres uložen."));
     }
-    catch (const std::exception& error) { QMessageBox::warning(this, tr("Nelze uložit výkres"), error.what()); }
+    catch (const std::exception& error) { QMessageBox::warning(this, tr("Nelze uložit výkres"), tr(error.what())); }
 }
 void DrawingWindow::add_sheet() {
     const auto inherited=selected_source_id();
@@ -2713,7 +2727,7 @@ void DrawingWindow::add_sheet() {
 }
 void DrawingWindow::remove_sheet() {
     const auto* sheet=active_sheet();if(!sheet||document_.sheets.size()<=1)return;
-    try{zima::workspace::delete_drawing_sheet(document_,sheet->id);refresh();}catch(const std::exception& e){set_status_message(QString::fromUtf8(e.what()));}
+    try{zima::workspace::delete_drawing_sheet(document_,sheet->id);refresh();}catch(const std::exception& e){set_status_message(tr(e.what()));}
 }
 void DrawingWindow::set_sheet_settings(const std::string& id,const zima::workspace::SheetSettings& settings){
     if(zima::workspace::set_drawing_sheet(document_,id,settings,[this](const auto& view){
@@ -2736,7 +2750,7 @@ void DrawingWindow::load_frame() {
     try { const auto source=std::filesystem::u8path(path.toStdString());
         if(drawing::is_native_template_file(source)){select_frame_variant(source);return;}
         zima::workspace::load_drawing_template(document_,sheet->id,source,false); refresh(); }
-    catch(const std::exception& error) { QMessageBox::warning(this,tr("Nelze načíst formát"),error.what()); }
+    catch(const std::exception& error) { QMessageBox::warning(this,tr("Nelze načíst formát"),tr(error.what())); }
 }
 void DrawingWindow::remove_frame() {
     const auto* sheet=active_sheet();if(sheet&&zima::workspace::clear_drawing_template(document_,sheet->id,false))refresh();
@@ -2754,7 +2768,7 @@ void DrawingWindow::load_title_block() {
         if(drawing::is_native_template_file(source)){select_title_block_variant(source);return;}
         zima::workspace::load_drawing_template(document_,sheet->id,source,true,workspace_,path_); refresh();
     }
-    catch(const std::exception& error) { QMessageBox::warning(this,tr("Nelze načíst razítko"),error.what()); }
+    catch(const std::exception& error) { QMessageBox::warning(this,tr("Nelze načíst razítko"),tr(error.what())); }
 }
 void DrawingWindow::select_title_block_variant(const std::filesystem::path& source) {
     const auto* sheet=active_sheet();if(!sheet||raise_open_properties(window()))return;
@@ -3171,7 +3185,7 @@ void DrawingWindow::show_view_properties(zima::drawing::DrawingView view, bool c
         },
         [this](const auto& path){return family_source_choices(workspace_,{},path);},
         [this,project](ViewPropertiesDialog* properties,drawing::DrawingView pending){
-            try{project(pending,true);}catch(const std::exception& e){properties->set_error(QString::fromUtf8(e.what()));return;}
+            try{project(pending,true);}catch(const std::exception& e){properties->set_error(tr(e.what()));return;}
             auto sheet=*active_sheet();auto owner=window();QPointer<ViewPropertiesDialog> guarded(properties);
             auto* editor=new DrawingBreakEditor(owner,std::move(sheet),pending,[guarded](auto breaks){if(guarded)guarded->set_breaks(std::move(breaks));});
             properties->hide();canvas_->set_preview({});canvas_->setEnabled(false);
@@ -3206,6 +3220,7 @@ void DrawingWindow::create_projected_view() {
     const auto* sheet=active_sheet(); if (!parent || !sheet) return;
     try {
         const auto parent_copy=*parent;
+        const auto parent_bounds=canvas_->paper_rectangle(parent_copy.id);
         auto projection=std::make_shared<workspace::DrawingProjection>(workspace_,path_);
         auto view=zima::drawing::DrawingDocument::create_view(parent_copy.source_document_id,parent_copy.source_path,{});
         view.output_source=parent_copy.output_source;view.measurement_geometry=parent_copy.measurement_geometry;
@@ -3232,8 +3247,20 @@ void DrawingWindow::create_projected_view() {
                 set_status_message(tr("Výběr: kliknutím do obdélníkové oblasti vyberte pohled."));update_action_states();}
             catch(const std::exception& exception){start_selection();QMessageBox::warning(this,tr("Projekční pohled"),tr(exception.what()));}
         }, [this] { start_selection(); },
-        [this,projection,parent_copy,method=sheet->projection_method](auto& pending,auto point) {
-            const double dx=point.x-parent_copy.x, dy=point.y-parent_copy.y;
+        [this,projection,parent_copy,parent_bounds,method=sheet->projection_method](auto& pending,auto point) {
+            double dx=point.x-parent_copy.x, dy=point.y-parent_copy.y;
+            if(parent_bounds) {
+                dx=point.x<parent_bounds->left()?point.x-parent_bounds->left():
+                    point.x>parent_bounds->right()?point.x-parent_bounds->right():0;
+                dy=point.y<parent_bounds->top()?point.y-parent_bounds->top():
+                    point.y>parent_bounds->bottom()?point.y-parent_bounds->bottom():0;
+                // Inside the source rectangle retain the established center
+                // behavior. As soon as the pointer crosses any side, only its
+                // distance beyond that visible side chooses the projection.
+                if(std::abs(dx)<1e-12&&std::abs(dy)<1e-12) {
+                    dx=point.x-parent_copy.x;dy=point.y-parent_copy.y;
+                }
+            }
             const auto direction=drawing::cardinal_projection_direction({dx,dy});
             if (direction!=pending.projection_direction) {
                 pending.projection_direction=direction;
@@ -3242,11 +3269,12 @@ void DrawingWindow::create_projected_view() {
                 canvas_->set_placement_frame(placement_frame(pending));
             }
             const auto ray=projection_placement(direction,1.0);
-            const double distance=dx*ray.x+dy*ray.y;
+            const double center_dx=point.x-parent_copy.x,center_dy=point.y-parent_copy.y;
+            const double distance=center_dx*ray.x+center_dy*ray.y;
             pending.x=parent_copy.x+distance*ray.x; pending.y=parent_copy.y+distance*ray.y;
         });
         set_status_message(tr("Projekční pohled: pohybem zvolte směr, kliknutím umístěte. Esc zruší vložení."));
-    } catch (const std::exception& exception) { QMessageBox::warning(this,tr("Projekční pohled"),exception.what()); }
+    } catch (const std::exception& exception) { QMessageBox::warning(this,tr("Projekční pohled"),tr(exception.what())); }
 }
 QImage DrawingWindow::render_sheet_for_test(bool printing)const{QImage image(840,1188,QImage::Format_ARGB32_Premultiplied);image.fill(printing?Qt::white:Qt::black);QPainter painter(&image);canvas_->paint_sheet(painter,2,{},printing);return image;}
 std::optional<QPointF> DrawingWindow::model_annotation_handle_for_test(const drawing::ModelAnnotationReference& id,int end,const std::string& view)const{return canvas_->model_handle(model_annotation_key(id),end,view);}

@@ -949,6 +949,7 @@ SketchTrimResult apply_sketch_trim(
 
     auto next = sketch;
     std::map<std::string, std::vector<std::array<double, 2>>> survivor_domains;
+    std::map<std::string, std::string> replaced_endpoints;
     for (const auto& [geometry_id, removed_intervals] : removed_by_id) {
         const auto& curve = *curve_by_id.at(geometry_id);
         std::vector<std::array<double, 2>> domains{{0.0, 1.0}};
@@ -1116,6 +1117,11 @@ SketchTrimResult apply_sketch_trim(
                 });
             if (survivor_boundary) restore_source_point(contact.point_id);
         }
+        const bool keeps_start = std::any_of(domains.begin(), domains.end(),
+            [](const auto& domain) { return domain[0] <= 1.0e-8; });
+        const bool keeps_end = std::any_of(domains.begin(), domains.end(),
+            [](const auto& domain) { return domain[1] >= 1.0 - 1.0e-8 &&
+                                            domain[1] <= 1.0 + 1.0e-8; });
         if (!domains.empty()) {
             if (curve.kind == SampledKind::Circle || curve.kind == SampledKind::Arc ||
                 curve.kind == SampledKind::Ellipse ||
@@ -1127,11 +1133,6 @@ SketchTrimResult apply_sketch_trim(
                 restore_source_point(source_point_ids[1]);
                 restore_source_point(source_point_ids[2]);
             }
-            const bool keeps_start = std::any_of(domains.begin(), domains.end(),
-                [](const auto& domain) { return domain[0] <= 1.0e-8; });
-            const bool keeps_end = std::any_of(domains.begin(), domains.end(),
-                [](const auto& domain) { return domain[1] >= 1.0 - 1.0e-8 &&
-                                                domain[1] <= 1.0 + 1.0e-8; });
             if (curve.kind == SampledKind::Segment) {
                 if (keeps_start) restore_source_point(source_point_ids[0]);
                 if (keeps_end) restore_source_point(source_point_ids[1]);
@@ -1207,6 +1208,22 @@ SketchTrimResult apply_sketch_trim(
             }
             generated.push_back(stable_id);
         }
+        const auto remember_replaced_endpoint = [&](const std::string& old_id,
+                const std::string& replacement_id) {
+            if (old_id.empty() || replacement_id.empty() || next.find_point(old_id)) return;
+            const auto [found,inserted]=replaced_endpoints.emplace(old_id,replacement_id);
+            if(!inserted&&found->second!=replacement_id)found->second.clear();
+        };
+        if (!generated.empty() && curve.kind==SampledKind::Segment) {
+            const auto first=std::ranges::find(
+                next.segments,generated.front(),&SketchSegment::id);
+            const auto last=std::ranges::find(
+                next.segments,generated.back(),&SketchSegment::id);
+            if(!keeps_start)remember_replaced_endpoint(
+                source_point_ids[0],first->first_point_id);
+            if(!keeps_end)remember_replaced_endpoint(
+                source_point_ids[1],last->second_point_id);
+        }
         for (const auto& generated_id : generated) {
             if (curve.kind != SampledKind::Segment) break;
             for (const auto kind : reusable_segment_constraints) {
@@ -1248,7 +1265,31 @@ SketchTrimResult apply_sketch_trim(
         const auto point_survives = [&](const std::string& id) {
             return id.empty() || !sketch.find_point(id) || next.find_point(id);
         };
-        bool valid = point_survives(constraint.first_point_id) &&
+        bool point_direction_valid=true;
+        if(constraint.kind==ConstraintKind::Horizontal||constraint.kind==ConstraintKind::Vertical) {
+            auto first=constraint.first_point_id,second=constraint.second_point_id;
+            const auto replace=[&](std::string& id) {
+                if(id.empty()||next.find_point(id))return false;
+                if(const auto replacement=replaced_endpoints.find(id);
+                    replacement!=replaced_endpoints.end()&&!replacement->second.empty()) {
+                    id=replacement->second;return true;
+                }
+                return false;
+            };
+            const bool replaced_first=replace(first);
+            const bool replaced_second=replace(second);
+            const bool replaced=replaced_first||replaced_second;
+            if(replaced) {
+                const auto* a=next.find_point(first);const auto* b=next.find_point(second);
+                point_direction_valid=a&&b&&std::abs(constraint.kind==ConstraintKind::Horizontal?
+                    a->y-b->y:a->x-b->x)<=1e-7;
+                if(point_direction_valid) {
+                    constraint.first_point_id=std::move(first);
+                    constraint.second_point_id=std::move(second);
+                }
+            }
+        }
+        bool valid = point_direction_valid&&point_survives(constraint.first_point_id) &&
             point_survives(constraint.second_point_id);
         const auto remap = [&](std::string& id, const std::string& other_id) {
             if (!removed_by_id.contains(id)) return true;
@@ -1292,6 +1333,15 @@ SketchTrimResult apply_sketch_trim(
         };
         const auto first_owner = constraint.geometry_id;
         const auto second_owner = constraint.second_geometry_id;
+        const auto parallel_survivors = [&](const std::string& id) {
+            if (constraint.kind != ConstraintKind::Parallel ||
+                !removed_by_id.contains(id)) {
+                return std::vector<std::string>{id};
+            }
+            return result.geometry_mapping.at(id);
+        };
+        const auto parallel_first = parallel_survivors(first_owner);
+        const auto parallel_second = parallel_survivors(second_owner);
         valid = valid && remap(constraint.geometry_id, second_owner) &&
             remap(constraint.second_geometry_id, first_owner);
         if (valid && keypoint_owner && removed_by_id.contains(*keypoint_owner)) {
@@ -1314,7 +1364,29 @@ SketchTrimResult apply_sketch_trim(
             }
         }
         std::erase_if(next.constraints, [&](const auto& value) { return value.id==constraint.id; });
-        if (valid) next.constraints.push_back(std::move(constraint));
+        if (valid) {
+            // Every straight survivor still represents the authored support.
+            // Keep a minimal connected Parallel graph instead of constraining
+            // only the first piece after a middle Trim split.
+            if (constraint.kind == ConstraintKind::Parallel) {
+                const auto relation = constraint;
+                for (std::size_t i = 1; i < parallel_first.size(); ++i) {
+                    auto copy = relation;
+                    copy.id = kernel::make_stable_id();
+                    copy.geometry_id = parallel_first[i];
+                    copy.second_geometry_id = parallel_second.front();
+                    next.constraints.push_back(std::move(copy));
+                }
+                for (std::size_t i = 1; i < parallel_second.size(); ++i) {
+                    auto copy = relation;
+                    copy.id = kernel::make_stable_id();
+                    copy.geometry_id = parallel_first.front();
+                    copy.second_geometry_id = parallel_second[i];
+                    next.constraints.push_back(std::move(copy));
+                }
+            }
+            next.constraints.push_back(std::move(constraint));
+        }
     }
     // Native pieces of one circular support retain one authored radius. The
     // first survivor keeps the source identity; the other survivors share its

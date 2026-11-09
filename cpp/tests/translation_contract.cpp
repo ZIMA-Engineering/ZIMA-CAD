@@ -134,6 +134,10 @@ int verify_translations(QApplication& application, QWidget& parent) {
         check(settings.language == languages[language], "Configured language was ignored");
         check(settings.qt_translations.keys() == sources.keys(), "Language has missing or extra messages");
         check(settings.translations.keys() == named_sources.keys(), "Language has missing or extra named messages");
+        for (auto it = sources.cbegin(); it != sources.cend(); ++it)
+            check(!settings.qt_translations.value(it.key()).isEmpty() &&
+                tokens(it.key()) == tokens(settings.qt_translations.value(it.key())),
+                "UI translation is empty or changes placeholders");
         for (auto it = named_sources.cbegin(); it != named_sources.cend(); ++it)
             check(!settings.translations.value(it.key()).isEmpty() &&
                 tokens(it.value()) == tokens(settings.translations.value(it.key())),

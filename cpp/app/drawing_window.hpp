@@ -57,6 +57,7 @@ public:
     void select_model_annotation(const std::string& view, const std::string& key);
     void select_view_for_test(const std::string& view_id);
     std::optional<QPointF> view_rectangle_center_for_test(const std::string& id) const;
+    std::optional<QRectF> view_rectangle_for_test(const std::string& id) const;
     std::optional<QPointF> view_label_center_for_test(const std::string& id,bool section=false)const;
     std::optional<QPointF> annotation_handle_for_test(const std::string& id,int end=0,bool dimension=false)const;
     std::optional<QPointF> detail_label_handle_for_test(const std::string& id)const;

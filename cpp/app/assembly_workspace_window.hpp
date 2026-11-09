@@ -111,6 +111,9 @@ public:
     [[nodiscard]] const zima::sketcher::Sketch* active_sketch_for_test() const {
         return active_sketch();
     }
+    [[nodiscard]] const zima::sketcher::Sketch* sketch_trim_preview_for_test() const {
+        return sketch_trim_preview_ ? &*sketch_trim_preview_ : nullptr;
+    }
     void delete_part_object_for_test(const std::string& object_id,const QString& kind) {
         delete_part_object(object_id,kind);
     }
