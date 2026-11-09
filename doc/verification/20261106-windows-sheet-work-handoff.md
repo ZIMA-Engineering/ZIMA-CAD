@@ -1,5 +1,14 @@
 # Windows sheet-metal and pending-work handoff (2026-11-06)
 
+Status update, 2026-11-09: the user explicitly requested completion, commit,
+push and a Windows GitHub release after the later Profile and application fixes.
+That instruction supersedes the inspection hold below. Edge-attached Profile now
+derives the Bend-style references and thickness, creates its owned positive-X/Y
+Bend/Flat route when empty, and no longer exposes material side. The finite
+implementation and regression evidence is in
+[the 2026-11-09 verification record](20261109-sheet-profile-and-properties-rollback.md).
+The remaining text is retained as the original handoff and historical scope.
+
 ## Purpose and current state
 
 This note preserves the user's exact intent across the requested Windows

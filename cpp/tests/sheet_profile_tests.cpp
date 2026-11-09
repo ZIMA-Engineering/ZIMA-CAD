@@ -1,7 +1,10 @@
 #include <zima/workspace/sheet_profile_operations.hpp>
+#include <zima/workspace/flat_operations.hpp>
 #include <zima/workspace/history_deletion.hpp>
 #include <zima/workspace/history_policy.hpp>
+#include <zima/workspace/part_transactions.hpp>
 
+#include <zima/document/bend.hpp>
 #include <zima/document/sheet_profile.hpp>
 
 #include <cmath>
@@ -220,6 +223,112 @@ void master_edit_propagation() {
     }
 }
 
+void attached_profile_seed_and_history() {
+    auto part=document::PartDocument::create_default();
+    document::BodyHistoryGraph graph;
+    static_cast<void>(graph.create_body("Body"));
+    part.set_body_history(std::move(graph));
+    auto stock=document::PartDocument::create_sketch_container();
+    stock.feature_kind=document::FeatureKind::Flat;
+    stock.flat.thickness=2.5;stock.flat.thickness_override=true;
+    auto outline=sketcher::Sketch::create_default();
+    outline.owner_container_id=stock.id;stock.flat.sketch_id=outline.id;
+    static_cast<void>(outline.add_rectangle(0,0,60,40));
+    part.insert_history_entry(document::PartHistoryKind::Feature,stock.id);
+    part.history.push_back(stock);part.sketches.push_back(outline);
+    kernel::OcctKernel kernel;
+    auto baseline=workspace::calculate_part_with_resolved_references(
+        kernel,part);
+    const auto& geometry=baseline.back().mesh.original_references;
+    const kernel::ViewerEdge* boundary{};
+    std::vector<document::ConstructionReference> references;
+    double frame_side{};
+    for(const auto& edge:geometry.edges)try {
+        auto candidate=document::bend_sheet_references(edge);
+        const auto side=document::bend_attachment_profile_direction(
+            candidate,geometry);
+        if(side) {
+            boundary=&edge;references=std::move(candidate);
+            frame_side=*side;break;
+        }
+    } catch(const std::exception&) {}
+    require(boundary,"Attached Profile fixture has no valid sheet boundary");
+    const double thickness=boundary->edge_treatment_side_references.front().sheet_thickness;
+    require(std::abs(thickness-2.5)<1e-9,
+        "Attached Profile fixture lost its sheet thickness");
+
+    auto route=sketcher::Sketch::create_default();
+    auto profile=document::PartDocument::create_sheet_profile_container(
+        route.id);
+    route.owner_container_id=profile.id;route.name=profile.name;
+    profile.sheet_profile.start_point_id=
+        document::initialize_attached_sheet_profile(route,thickness);
+    profile.sheet_profile.initial_width=30;
+    profile.sheet_profile.thickness_override=false;
+    profile.sheet_profile.sheet_attachment=true;
+    profile.sheet_profile.material_side=-1; // Attachment derives this value.
+    profile.placement.references=references;
+
+    workspace::Workspace live;
+    const auto document_id=part.document_id;
+    live.add_part(std::move(part),std::move(baseline));live.activate(document_id);
+    require(workspace::commit_sheet_profile(live,kernel,document_id,
+            profile,route),
+        "Attached Sheet Profile did not commit");
+    auto* state=live.open_part(document_id);
+    require(state,"Attached Sheet Profile lost its Part");
+    const auto complete=state->session.document().serialized();
+    const auto* stored=state->session.document().find_container(profile.id);
+    require(stored&&stored->sheet_profile.sheet_attachment&&
+            stored->sheet_profile.material_side==1&&
+            !stored->sheet_profile.thickness_override&&
+            std::abs(stored->sheet_profile.thickness-thickness)<1e-9,
+        "Attached Sheet Profile did not derive material side and thickness");
+    const auto stored_route=std::ranges::find(
+        state->session.document().sketches,route.id,&sketcher::Sketch::id);
+    require(stored_route!=state->session.document().sketches.end(),
+        "Attached Sheet Profile lost its route Sketch");
+    const auto spans=document::sheet_profile_route(*stored_route,
+        stored->sheet_profile.start_point_id);
+    require(spans.spans.size()==2&&
+            spans.spans[0].kind==document::SheetProfileSpanKind::Bend&&
+            spans.spans[1].kind==document::SheetProfileSpanKind::Flat&&
+            std::ranges::all_of(stored_route->points,[](const auto& point) {
+                return point.x>=-1e-9&&point.y>=-1e-9;
+            }),
+        "Attached Sheet Profile is not a positive Bend/Flat route");
+    const auto* master=state->session.document().find_container(
+        stored->sheet_profile.master_feature_id);
+    require(master&&master->feature_kind==document::FeatureKind::Bend&&
+            std::abs(master->bend.radius-thickness)<1e-8,
+        "Attached Sheet Profile first Bend is not R=T");
+    const kernel::Vec3 rotation{stored->placement.rotation_x,
+        stored->placement.rotation_y,stored->placement.rotation_z};
+    const auto base_x=document::construction_direction_from_local_axis(
+        "x",rotation);
+    const auto base_z=document::construction_direction_from_local_axis(
+        "z",rotation);
+    const auto dot=[](kernel::Vec3 a,kernel::Vec3 b) {
+        return a.x*b.x+a.y*b.y+a.z*b.z;
+    };
+    require(dot(stored_route->resolved_x_axis,base_x)*frame_side>1-1e-8&&
+            dot(stored_route->resolved_y_axis,base_z)*-frame_side>1-1e-8,
+        "Attached Sheet Profile frame does not map its route into +X/+Y");
+
+    require(workspace::step_part_document_history(live,document_id,false)&&
+            !state->session.document().find_container(profile.id),
+        "Attached Sheet Profile Undo failed");
+    require(workspace::step_part_document_history(live,document_id,true)&&
+            state->session.document().serialized()==complete,
+        "Attached Sheet Profile Redo changed its definition");
+    auto reopened=document::PartDocument::from_serialized(complete);
+    const auto recalculated=workspace::calculate_part_with_resolved_references(
+        kernel,reopened);
+    require(!recalculated.empty()&&
+            recalculated.back().calculation_errors.empty(),
+        "Attached Sheet Profile failed cold save/reopen calculation");
+}
+
 void rejected_routes() {
     {
         Fixture fixture;
@@ -259,6 +368,7 @@ int main() {
         free_flat_bend_flat();
         arc_first_and_flat_only();
         master_edit_propagation();
+        attached_profile_seed_and_history();
         group_history_contracts();
         rejected_routes();
         std::cout<<"Sheet Profile contracts passed\n";

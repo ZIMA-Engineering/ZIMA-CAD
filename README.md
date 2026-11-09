@@ -57,16 +57,17 @@ See [native distribution](doc/NATIVE_DISTRIBUTION.md),
 [updates](doc/UPDATES.md) and the [user manual](doc/USER_MANUAL.md).
 
 The latest published signed Windows release is
-[2026102801](https://github.com/ZIMA-Engineering/ZIMA-CAD/releases/tag/ZIMA-CAD-2026102801).
+[2026110802](https://github.com/ZIMA-Engineering/ZIMA-CAD/releases/tag/ZIMA-CAD-2026110802).
 Its clean committed-source package, signature, candidate and signed native smoke,
-all 1,185 factory native assets, anonymous public downloads, production bootstrap
-trust and trusted `2026102701` updater discovery are verified. It moves output-only
-mass, centroid and inertia integration outside ordinary regeneration, completes
-pending analysis after idle, reuses reversible native history frames and accepts
-the valid exact-radius Thin corner collapse. The shared Windows/Linux source
-remains pinned to OCCT 8.0.1. See the
-[release record](doc/releases/2026102801.md) and
-[publication evidence](doc/verification/20261028-windows-2801-publication.json).
+all 1,185 factory native assets and fresh anonymous public downloads are verified.
+It completes the curved Fillet/Chamfer terminal and route-membership corrections,
+the analytical treatment preview and safe history-treatment deletion. The shared
+Windows/Linux source remains pinned to OCCT 8.0.1. See the
+[release record](doc/releases/2026110802.md) and
+[publication evidence](doc/verification/20261108-windows-0802-publication.json).
+The subsequent [2026110901 source candidate](doc/releases/2026110901.md) contains
+the Profile attachment, Sweep rollback, copy-Origin, Sketch Trim, projected-view
+and interactive Drawing corrections described in its finite verification record.
 The [current status](doc/PROJECT_STATUS.md) separates released scope and remaining
 work. Linux verification follows the separate handoff.
 

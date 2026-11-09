@@ -149,4 +149,26 @@ SheetProfileRoute sheet_profile_route(const zima::sketcher::Sketch& source,
     return result;
 }
 
+std::string initialize_attached_sheet_profile(
+        zima::sketcher::Sketch& sketch,double thickness) {
+    if(!std::isfinite(thickness)||thickness<.001||
+       !sketch.points.empty()||!sketch.segments.empty()||
+       !sketch.arcs.empty()||!sketch.circles.empty()||
+       !sketch.ellipses.empty()||!sketch.elliptical_arcs.empty()||
+       !sketch.bsplines.empty()||!sketch.texts.empty())
+        throw std::invalid_argument(
+            "An attached Sheet Profile needs an empty Sketch and a positive thickness");
+    const double outer_radius=2*thickness;
+    const auto arc=sketch.add_arc(0,outer_radius,0,0,
+        outer_radius,outer_radius);
+    const auto contact=sketch.arcs.front().end_point_id;
+    const auto line=sketch.add_segment(outer_radius,outer_radius,
+        outer_radius,outer_radius+40);
+    static_cast<void>(sketch.add_tangent_constraint(arc,line,contact));
+    const auto start=sketch.arcs.front().start_point_id;
+    if(auto* point=sketch.find_point(start))point->fixed=true;
+    sketch.validate();
+    return start;
+}
+
 } // namespace zima::document

@@ -1,6 +1,7 @@
 #include <limits>
 #include <zima/document/bend.hpp>
 #include <zima/document/flat.hpp>
+#include <zima/document/sheet_profile.hpp>
 #include "table_entry.hpp"
 #include "shaft_thread_dialog.hpp"
 #include "sweep2d_dialog.hpp"
@@ -709,6 +710,80 @@ void verify_sheet_attachment_dialog(QWidget& parent) {
         require(std::hypot(pending.first.resolved_y_axis.x-after.first.resolved_y_axis.x,pending.first.resolved_y_axis.y-after.first.resolved_y_axis.y,
             pending.first.resolved_y_axis.z-after.first.resolved_y_axis.z)<1e-6,"Origin switch flipped Bend side");
     }
+
+    auto sheet_profile=document::PartDocument::create_sheet_profile_container(
+        sketcher::Sketch::create_default().id);
+    auto route=sketcher::Sketch::create_default();
+    sheet_profile.sheet_profile.sketch_id=route.id;
+    route.owner_container_id=sheet_profile.id;
+    app::SketchPropertiesDialog profile_dialog(route,{},false,{},
+        [](auto,auto,bool){},&parent);
+    profile_dialog.set_reference_document_id(part.document_id);
+    profile_dialog.set_reference_geometry(geometry);
+    profile_dialog.set_sheet_profile_mode(sheet_profile.sheet_profile,{},
+        sheet_profile.value_locks,[&](auto value) {
+            sheet_profile.sheet_profile=value;
+        },[]{});
+    profile_dialog.set_preview_callback([](auto,auto){});
+    profile_dialog.show();QApplication::processEvents();
+    require(!profile_dialog.findChild<QComboBox*>(
+                "sheetProfileMaterialSide")&&
+            !profile_dialog.findChild<QPushButton*>(
+                "sheetProfileMaterialSideSwitch"),
+        "Sheet Profile still exposes manual material side");
+    const auto boundary=std::ranges::find_if(geometry.edges,[](const auto& edge) {
+        return kernel::sheet_edge_role(edge)==kernel::SheetEdgeRole::Boundary;
+    });
+    require(boundary!=geometry.edges.end(),
+        "Sheet Profile dialog fixture has no boundary edge");
+    const document::ConstructionReference boundary_reference{
+        boundary->reference.instance_path,boundary->reference.owner_id,
+        boundary->reference.semantic_key};
+    require(profile_dialog.set_reference(0,boundary_reference,"Boundary"),
+        "Sheet Profile rejected an attachable Bend edge");
+    auto attached=profile_dialog.pending_value();
+    const auto attached_route=document::sheet_profile_route(
+        attached.first,sheet_profile.sheet_profile.start_point_id);
+    require(sheet_profile.sheet_profile.sheet_attachment&&
+            sheet_profile.sheet_profile.material_side==1&&
+            !sheet_profile.sheet_profile.thickness_override&&
+            attached.second.references.size()==3,
+        "One edge did not fill Sheet Profile attachment references");
+    require(!profile_dialog.findChild<QCheckBox*>(
+                "sheetProfileThicknessOverride")->isEnabled()&&
+            !profile_dialog.findChild<QDoubleSpinBox*>(
+                "sheetProfileThickness")->isEnabled(),
+        "Attached Sheet Profile still allows a thickness mismatch");
+    require(attached.first.plane_auto&&
+            attached.first.plane==sketcher::SketchPlane::XZ&&
+            attached_route.spans.size()==2&&
+            attached_route.spans[0].kind==
+                document::SheetProfileSpanKind::Bend&&
+            attached_route.spans[1].kind==
+                document::SheetProfileSpanKind::Flat,
+        "Attached Sheet Profile did not seed Bend followed by Flat");
+    require(std::ranges::count_if(attached.first.constraints,
+            [](const auto& constraint) {
+                return !constraint.suppressed&&constraint.kind==
+                    sketcher::ConstraintKind::Tangent;
+            })==1&&
+            std::ranges::all_of(attached.first.points,[](const auto& point) {
+                return point.x>=-1e-9&&point.y>=-1e-9;
+            }),
+        "Attached Sheet Profile route is not tangent in positive X/Y");
+    const auto before=attached.second.references[2];
+    profile_dialog.findChild<QPushButton*>(
+        "sheetProfileOtherEndpoint")->click();
+    attached=profile_dialog.pending_value();
+    require(attached.second.references[2].semantic_key!=before.semantic_key,
+        "Sheet Profile endpoint switch failed");
+    profile_dialog.findChild<QPushButton*>(
+        "sheetProfileManualPlacement")->click();
+    require(!sheet_profile.sheet_profile.sheet_attachment&&
+            profile_dialog.findChild<QComboBox*>("sketchPlane")->isEnabled()&&
+            profile_dialog.findChild<QCheckBox*>(
+                "sheetProfileThicknessOverride")->isEnabled(),
+        "Sheet Profile manual placement did not restore controls");
 }
 void verify_flat_attachment_dialog(QWidget& parent) {
     using namespace zima;

@@ -830,6 +830,40 @@ The focused arc-only backend and GUI contracts, sheet-state geometry, conversion
 backend/GUI and five-language coverage pass. See [the release verification
 record](releases/2026092904.md) for the unresolved broader-test findings.
 
+## Sheet Profile route (2026-11-09)
+
+**Profile** owns one planar route and expands it into ordinary editable Flat and
+Bend history children. Straight spans become Flats and circular arcs become
+Bends; adjacent spans must meet at one native point and remain tangent. The
+first child owns the common width, so Profile Properties has no duplicate width
+field.
+
+Selecting a valid straight boundary of an existing sheet now enters the same
+automatic attachment workflow as Bend. The selected edge derives its joining
+face, endpoint, thickness and complete placement frame. A new empty route is
+seeded as a 90-degree outer arc followed by a tangent straight span. The arc has
+outer radius `2T`, so its ordinary generated Bend starts with inner radius
+`R = T`. The route is authored entirely in positive local X/Y; the attachment
+frame chooses the physical signs so X leaves the existing sheet and Y continues
+upward in the Sketch.
+
+Attached Profiles inherit the source sheet thickness and cannot introduce a
+thickness mismatch. **Other edge endpoint** changes the derived endpoint without
+losing the edge or joining face. **Manual placement references** detaches the
+Profile and restores the ordinary plane, orientation and reference controls.
+Free Profiles retain their existing thickness override. Material side is no
+longer a user-facing Profile property: an attached route always uses its derived
+outer branch, while existing independent definitions retain their persisted
+geometry-side identity.
+
+The operation does not add a second modeling algorithm or a persistence branch.
+It reuses the ordinary Sheet Profile expansion, Bend attachment references and
+shared container placement consumer. The protected placement solver, native file
+format, geometry precision and OCCT 8.0.1 pin are unchanged. The focused Windows
+matrix covers creation, endpoint switching, manual detachment, calculation,
+Undo/Redo, save/reopen and cold regeneration; native Linux execution remains a
+separate host gate.
+
 ## Sheet Revolution
 
 The Sheet Metal toolbar and Insert menu expose **Revolution** (`Rotace`). It

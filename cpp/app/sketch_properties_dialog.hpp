@@ -145,6 +145,7 @@ private:
         sheet_profile_changed_;
     void lock_flat_attachment_fields();
     void lock_bend_attachment_fields();
+    void lock_sheet_profile_attachment_fields();
     std::function<void(zima::document::BendParameters)> set_bend_parameters_;
     QComboBox* plane_reference_{};
     QPushButton* sketch_button_{};

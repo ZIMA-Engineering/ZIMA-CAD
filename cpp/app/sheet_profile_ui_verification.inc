@@ -48,13 +48,14 @@ static int verify_sheet_profile_ui(QApplication& application,
             "sheetProfileThicknessOverride");
         auto* thickness=dialog->findChild<QDoubleSpinBox*>(
             "sheetProfileThickness");
-        auto* side=dialog->findChild<QComboBox*>("sheetProfileMaterialSide");
         require(custom&&!custom->isChecked()&&thickness&&
             !thickness->isEnabled()&&std::abs(thickness->value()-2.5)<1e-9,
             "New Sheet Profile does not inherit the Part sheet thickness");
-        require(side&&side->count()==2&&
+        require(!dialog->findChild<QComboBox*>("sheetProfileMaterialSide")&&
+            !dialog->findChild<QPushButton*>(
+                "sheetProfileMaterialSideSwitch")&&
             dialog->findChild<QPushButton*>("sketchOpenButton"),
-            "Sheet Profile material side or Sketch control is missing");
+            "Sheet Profile still exposes manual material side or lost its Sketch control");
         require(!dialog->findChild<QWidget*>("sheetProfileWidth"),
             "Sheet Profile exposes a duplicate width control");
         auto [driver,placement]=dialog->pending_value();
@@ -67,21 +68,6 @@ static int verify_sheet_profile_ui(QApplication& application,
             window.findChild<QOpenGLWidget*>());
         require(view&&!view->transient_edges().empty(),
             "Sheet Profile Sketch return produced no cyan feature wire");
-        const auto wire_packet=[](const auto& edges) {
-            std::vector<std::array<double,3>> points;
-            for(const auto& edge:edges)for(const auto& point:edge.points)
-                points.push_back({point.x,point.y,point.z});
-            std::ranges::sort(points);
-            return points;
-        };
-        const auto first_side_wire=wire_packet(view->transient_edges());
-        side->setCurrentIndex((side->currentIndex()+1)%side->count());flush();
-        require(!view->transient_edges().empty()&&
-            wire_packet(view->transient_edges())!=first_side_wire,
-            "Sheet Profile material-side change did not update its cyan wire");
-        side->setCurrentIndex((side->currentIndex()+1)%side->count());flush();
-        require(wire_packet(view->transient_edges())==first_side_wire,
-            "Sheet Profile material-side round trip did not restore its wire");
         dialog->findChild<QDialogButtonBox*>()->button(
             QDialogButtonBox::Ok)->click();flush();
         require(!window.findChild<QDialog*>("sheetProfilePropertiesDialog"),

@@ -422,9 +422,28 @@ PreparedSheetProfile prepare_sheet_profile(const document::PartDocument& before,
     append_reference_geometry(references,
         before.construction_viewer_mesh().original_references);
     const auto inherited=referenced_sheet_thickness(profile,references);
+    const auto attachment_direction=
+        document::bend_attachment_profile_direction(
+            profile.placement.references,references);
+    if(profile.sheet_profile.sheet_attachment) {
+        if(!attachment_direction||!inherited)
+            throw std::invalid_argument(
+                "Sheet Profile requires a straight sheet boundary with a planar joining face.");
+        if(profile.placement.orientation_back||
+           profile.placement.orientation_quarter_turns||
+           profile.placement.rotation_offset_x!=0||
+           profile.placement.rotation_offset_y!=0||
+           profile.placement.rotation_offset_z!=0)
+            throw std::invalid_argument(
+                "Sheet Profile attachment orientation is derived from its sheet edge.");
+    }
     carrier.resolve_constructions(std::move(references));
     profile=std::move(carrier.history.front());
     driver=std::move(carrier.sketches.front());
+    // The attached route is authored as the outer branch. Its positive first
+    // turn therefore has material toward the arc centre.
+    if(profile.sheet_profile.sheet_attachment)
+        profile.sheet_profile.material_side=1;
     auto route=document::sheet_profile_route(driver,
         profile.sheet_profile.start_point_id);
     profile.sheet_profile.start_point_id=route.start_point_id;
@@ -437,11 +456,12 @@ PreparedSheetProfile prepare_sheet_profile(const document::PartDocument& before,
     const auto [width_first,width_last]=interval;
     profile.sheet_profile.initial_width=width_last-width_first;
     const auto defaults=document::sheet_metal_defaults(before);
-    profile.sheet_profile.sheet_attachment=
-        !profile.sheet_profile.thickness_override&&inherited.has_value();
+    if(profile.sheet_profile.sheet_attachment)
+        profile.sheet_profile.thickness_override=false;
     const double thickness=profile.sheet_profile.thickness_override?
         profile.sheet_profile.thickness:
-        inherited.value_or(defaults.thickness_mm.value_or(1.0));
+        (profile.sheet_profile.sheet_attachment?*inherited:
+            inherited.value_or(defaults.thickness_mm.value_or(1.0)));
     profile.sheet_profile.thickness=thickness;
     document::validate_sheet_metal_defaults({thickness,defaults.k_factor});
 

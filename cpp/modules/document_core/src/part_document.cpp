@@ -6529,6 +6529,9 @@ void PartDocument::resolve_constructions(
             boundary_references.enter(owner->id,source_geometry);
             const bool sheet_rotation=owner->feature_kind==FeatureKind::Revolution&&owner->revolution.sheet_metal;
             const bool sheet_section=owner->feature_kind==FeatureKind::Bend||sheet_rotation;
+            const bool sheet_profile_attachment=
+                owner->feature_kind==FeatureKind::SheetProfile&&
+                owner->sheet_profile.sheet_attachment;
             if(sheet_rotation&&!owner->revolution.sheet_attachment&&!owner->revolution.thickness_override)
                 owner->revolution.thin_thickness=sheet_metal_defaults(*this).thickness_mm.value_or(1);
             if(owner->feature_kind==FeatureKind::Flat&&owner->flat.sheet_attachment) {
@@ -6541,10 +6544,18 @@ void PartDocument::resolve_constructions(
             if(sheet_section) {
                 sketch.plane_auto=true;sketch.plane_offset=0;sketch.plane=zima::sketcher::SketchPlane::XY;
             }
+            if(sheet_profile_attachment) {
+                sketch.plane_auto=true;sketch.plane_offset=0;
+                sketch.plane=zima::sketcher::SketchPlane::XZ;
+            }
             const auto bend_attachment = sheet_section &&
                 (sketch.plane_auto || sketch.plane == zima::sketcher::SketchPlane::XY)
                 ? bend_attachment_profile_direction(owner->placement.references, source_geometry)
                 : std::nullopt;
+            const auto profile_attachment_direction=sheet_profile_attachment
+                ?bend_attachment_profile_direction(
+                    owner->placement.references,source_geometry)
+                :std::nullopt;
             // Automatic work planes follow FRONT, including a tangent assigned
             // after an anchor point. FRONT is local Y; its normal plane is XZ.
             // A persisted manual choice only changes the work plane within that
@@ -6572,6 +6583,15 @@ void PartDocument::resolve_constructions(
             if (bend_attachment) {
                 local_x = {0.0, *bend_attachment, 0.0};
                 local_y = {-*bend_attachment, 0.0, 0.0};
+            }
+            if(profile_attachment_direction) {
+                // The picked boundary's joining face determines which local
+                // X direction leaves the existing sheet. Rotate both in-plane
+                // axes together so the seeded route remains entirely +X/+Y
+                // while its normal continues along the selected edge.
+                local_x={*profile_attachment_direction,0,0};
+                local_y={0,0,-*profile_attachment_direction};
+                local_normal={0,1,0};
             }
             // The Sketch is rigidly attached to the final container frame.
             // FRONT/BACK and quarter turns therefore rotate its actual wire and

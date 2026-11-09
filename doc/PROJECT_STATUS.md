@@ -1,26 +1,32 @@
 # Current project status
 
-Reviewed on 2026-11-04 against the current shared C++ implementation, focused
+Reviewed on 2026-11-09 against the current shared C++ implementation, focused
 native/GUI contracts and the live GitHub release list. Dated proposals and
 historical release records remain evidence for their original scope; they are
 not the current feature backlog.
 
 ## Current release boundary
 
-Signed Windows [2026110403](releases/2026110403.md#windows-publication-acceptance)
+Signed Windows [2026110802](releases/2026110802.md#windows-publication-acceptance)
 is the latest published stable build. It was published at
-`2026-11-04T21:44:30Z` from immutable source
-`e32c89f8377cfd6e7d00e267cdba39515e460035` with Qt 6.11.0 and OCCT 8.0.1.
+`2026-11-08T18:05:06Z` from immutable source
+`5f3a6aa93c0d30370779770bc9e1cad5ee53d98b` with Qt 6.11.0 and OCCT 8.0.1.
 Candidate and signed native smoke each pass with all 1,185 factory assets;
-signature/trust, 17,475 archive entries, anonymous public downloads,
-twelve packaged GUI suites and trusted 2026110402 updater discovery pass.
-Native Linux execution remains a separate host requirement. See the
-[publication evidence](verification/20261104-windows-0403-publication.json).
+signature/trust, 17,506 archive entries and fresh anonymous public downloads
+pass. Native Linux execution remains a separate host requirement. See the
+[publication evidence](verification/20261108-windows-0802-publication.json).
 
-The release adds the finite Sketch mechanism/profile review, Drawing performance
-and interaction repairs, closed nested appearance and an Empty general-roughness
-variant. Its native schema is unchanged from 0402, which introduced the approved
-Sketch view memory and external midpoint persistence changes.
+The release completes the curved Fillet/Chamfer terminal and route-membership
+corrections, analytical treatment previews and safe treatment deletion. Its
+native schema is unchanged.
+
+Windows source candidate [2026110901](releases/2026110901.md) adds automatic
+edge-attached Sheet Profile creation, deterministic positive route axes, Sweep
+Properties rollback ordering, Pattern/Mirror copy Origins, relation-preserving
+Trim, direct projected-view placement and faster Drawing display with distinct
+thin strokes. Its focused verification is recorded in
+[the 2026-11-09 matrix](verification/20261109-sheet-profile-and-properties-rollback.md).
+Packaging and public acceptance are not claimed until that record is updated.
 
 Windows and Linux use the same C++ modeling implementation and pin OCCT 8.0.1.
 The protected container-placement, geometry-side, reference-identity and
@@ -104,7 +110,7 @@ evidence. Published 2501 and every older signed release remain immutable.
 
 | Work | Current boundary / next step |
 | --- | --- |
-| Current correction/release batch | Windows 2026110402 is published. The 2026110403 mechanism/Drawing review and Empty general-roughness variant are undergoing final packaging acceptance; see the linked finite matrix. Native Linux verification remains separate. |
+| Current correction/release batch | Windows 2026110802 is published. The 2026110901 Profile/Sweep/copy/Trim/Drawing source candidate has passed the linked focused matrix and is awaiting clean committed-source packaging and publication acceptance. Native Linux verification remains separate. |
 | Skeleton interaction | New Feature opening measures 0.280--0.353 s, Default Origin 0.272--0.280 s and the representative Sketch move about 6 ms. The 32-operation Skeleton opens in about 7.4 s; cold explicit regeneration measures about 68.9 s after physical analysis leaves the critical path, while exact Save adds about 30 s. A late Solid Fillet edit/Undo/Redo succeeds, but its dependent suffix remains about 26 s. Production parallel batching and immediate Escape cancellation remain gated on exact identity and cooperative OCCT cancellation. |
 | Remaining fasteners | Cast wing-nut studies and toothed/fan washers remain unfinished. Preserve source-dimension discrepancies and private user edits. Two-part locking nuts are excluded. See [library queue](FASTENER_REMAINING_WORK.md). |
 | Sketch intersection references | Native source/branch association and editor commands are implemented in the documented finite scope. Arbitrary curved arrangements and the native Linux matrix remain unverified. See [editor verification](verification/20261022-sketch-intersection-editor.md). |

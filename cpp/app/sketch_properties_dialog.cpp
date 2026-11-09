@@ -2,6 +2,7 @@
 #include <zima/document/sketch_placement.hpp>
 #include <zima/document/bend.hpp>
 #include <zima/document/flat.hpp>
+#include <zima/document/sheet_profile.hpp>
 #include <zima/ui/numeric_value_lock.hpp>
 #include <zima/ui/unit_spin_box.hpp>
 #include "sketch_button_style.hpp"
@@ -246,21 +247,6 @@ void SketchPropertiesDialog::set_sheet_profile_mode(
     sheet_profile_pending_=pending;
     sheet_profile_changed_=changed;
     auto* form=new QFormLayout;
-    auto* side=new QComboBox(this);
-    side->setObjectName("sheetProfileMaterialSide");
-    side->addItem(tr("První strana"),1);
-    side->addItem(tr("Druhá strana"),-1);
-    side->setCurrentIndex(side->findData(initial.material_side));
-    auto* side_row=new QWidget(this);
-    auto* side_layout=new QHBoxLayout(side_row);
-    side_layout->setContentsMargins(0,0,0,0);
-    auto* side_switch=new QPushButton(tr("Přepnout"),side_row);
-    side_switch->setObjectName("sheetProfileMaterialSideSwitch");
-    side_layout->addWidget(side,1);
-    side_layout->addWidget(side_switch);
-    connect(side_switch,&QPushButton::clicked,this,[side] {
-        side->setCurrentIndex((side->currentIndex()+1)%side->count());
-    });
     auto* custom=new QCheckBox(tr("Nedržet se tloušťky plechu"),this);
     custom->setObjectName("sheetProfileThicknessOverride");
     custom->setChecked(initial.thickness_override);
@@ -274,7 +260,8 @@ void SketchPropertiesDialog::set_sheet_profile_mode(
         const QSignalBlocker blocker(thickness);
         thickness->setValue(pending->thickness_override||
             pending->sheet_attachment?pending->thickness:inherited);
-        thickness->setEnabled(pending->thickness_override);
+        thickness->setEnabled(pending->thickness_override&&
+            !pending->sheet_attachment);
     };
     refresh();
     zima::ui::bind_numeric_value_lock(thickness,"thickness",locks,
@@ -282,9 +269,6 @@ void SketchPropertiesDialog::set_sheet_profile_mode(
     const auto publish=[this,pending,changed,refresh] {
         refresh();changed(*pending);notify_preview();
     };
-    connect(side,&QComboBox::currentIndexChanged,this,[=](int) {
-        pending->material_side=side->currentData().toInt();publish();
-    });
     connect(custom,&QCheckBox::toggled,this,[=](bool enabled) {
         if(enabled)pending->thickness=thickness->value();
         pending->thickness_override=enabled;publish();
@@ -292,15 +276,46 @@ void SketchPropertiesDialog::set_sheet_profile_mode(
     connect(thickness,&QDoubleSpinBox::valueChanged,this,[=](double value) {
         pending->thickness=value;changed(*pending);notify_preview();
     });
-    form->addRow(tr("Strana materiálu"),side_row);
     form->addRow(custom);
     form->addRow(tr("Tloušťka"),thickness);
+    auto* change_end=new QPushButton(tr("Druhý konec hrany"),this);
+    change_end->setObjectName("sheetProfileOtherEndpoint");form->addRow(change_end);
+    connect(change_end,&QPushButton::clicked,this,[this] {
+        if(!sheet_profile_pending_->sheet_attachment)return;
+        const auto refs=placement_->combined_references(3);
+        if(refs.size()<3)return;
+        for(const auto& edge:reference_geometry_.edges) {
+            if(edge.reference.owner_id!=refs[0].owner_id||
+               edge.reference.semantic_key!=refs[0].semantic_key||
+               edge.reference.instance_path!=refs[0].instance_path)continue;
+            for(const auto& end:edge.edge_treatment_endpoint_references) {
+                if(end.owner_id==refs[2].owner_id&&
+                   end.semantic_key==refs[2].semantic_key&&
+                   end.instance_path==refs[2].instance_path)continue;
+                set_reference(2,{end.instance_path,end.owner_id,
+                    end.semantic_key},QString::fromStdString(
+                        end.semantic_key));return;
+            }
+        }
+    });
+    auto* manual=new QPushButton(tr("Ruční reference umístění"),this);
+    manual->setObjectName("sheetProfileManualPlacement");form->addRow(manual);
+    connect(manual,&QPushButton::clicked,this,[this,pending,changed] {
+        pending->sheet_attachment=false;changed(*pending);
+        placement_->initialize_from_references(
+            placement_->combined_references(3),[](const auto& key) {
+                return QString::fromStdString(key);
+            });
+        lock_sheet_profile_attachment_fields();
+        refresh_resolved_placement();notify_preview();
+    });
     auto* note=new QLabel(
         tr("Bez zaškrtnutí se použije tloušťka vybraného plechu nebo nastavení plechu v dílu."),this);
     note->setWordWrap(true);
     form->addRow(note);
     content_layout()->insertLayout(content_layout()->indexOf(sketch_button_),form);
     edit_pending_sketch_=std::move(edit_sketch);
+    lock_sheet_profile_attachment_fields();
 }
 
 void SketchPropertiesDialog::set_bend_mode(zima::document::BendParameters initial,
@@ -543,6 +558,10 @@ SketchPropertiesDialog::current_values() const {
     sketch.plane_auto = automatic_work_plane(plane_);
     sketch.plane_offset = offset_->value();
     if(bend_pending_) {sketch.plane_auto=true;sketch.plane_offset=0;sketch.plane=zima::sketcher::SketchPlane::XY;}
+    if(sheet_profile_pending_&&sheet_profile_pending_->sheet_attachment) {
+        sketch.plane_auto=true;sketch.plane_offset=0;
+        sketch.plane=zima::sketcher::SketchPlane::XZ;
+    }
     sketch.plane_reference_owner_id.clear();
     auto placement = placement_->numeric_placement();
     if(initial_placement_.value_locks.contains("profile_offset"))placement.value_locks.insert("profile_offset");else placement.value_locks.erase("profile_offset");
@@ -552,7 +571,9 @@ SketchPropertiesDialog::current_values() const {
             zima::document::bend_attachment_profile_direction(placement.references, reference_geometry_))
         sketch.plane = zima::sketcher::SketchPlane::XY;
     else zima::document::apply_automatic_sketch_work_plane(sketch,placement.references);
-    if((bend_pending_&&bend_pending_->sheet_attachment)||(flat_pending_&&flat_pending_->sheet_attachment)) {
+    if((bend_pending_&&bend_pending_->sheet_attachment)||
+       (flat_pending_&&flat_pending_->sheet_attachment)||
+       (sheet_profile_pending_&&sheet_profile_pending_->sheet_attachment)) {
         placement.rotation_offset_x=placement.rotation_offset_y=placement.rotation_offset_z=0;
         placement.orientation_back=false;placement.orientation_quarter_turns=0;
         zima::document::PartDocument carrier;
@@ -560,7 +581,8 @@ SketchPropertiesDialog::current_values() const {
         auto feature=zima::document::PartDocument::create_sketch_container();
         feature.id=sketch.owner_container_id;feature.feature_kind=zima::document::FeatureKind::Bend;
         if(bend_pending_)feature.bend=*bend_pending_;
-        else {feature.feature_kind=zima::document::FeatureKind::Flat;feature.flat=*flat_pending_;}
+        else if(flat_pending_) {feature.feature_kind=zima::document::FeatureKind::Flat;feature.flat=*flat_pending_;}
+        else {feature.feature_kind=zima::document::FeatureKind::SheetProfile;feature.sheet_profile=*sheet_profile_pending_;}
         feature.placement=placement;
         carrier.history={feature};carrier.sketches={sketch};carrier.resolve_constructions(reference_geometry_);
         sketch=carrier.sketches.front();
@@ -625,6 +647,52 @@ void SketchPropertiesDialog::lock_flat_attachment_fields() {
     }
 }
 
+void SketchPropertiesDialog::lock_sheet_profile_attachment_fields() {
+    if(!sheet_profile_pending_)return;
+    const bool automatic=sheet_profile_pending_->sheet_attachment;
+    plane_->setEnabled(!automatic);
+    if(auto* form=findChild<QFormLayout*>("sketchPlaneForm"))
+        form->setRowVisible(plane_selector_,!automatic);
+    if(auto* box=findChild<QCheckBox*>("sheetProfileThicknessOverride"))
+        box->setEnabled(!automatic);
+    if(auto* thickness=findChild<QDoubleSpinBox*>("sheetProfileThickness")) {
+        thickness->setEnabled(!automatic&&
+            sheet_profile_pending_->thickness_override);
+        if(automatic) {
+            const QSignalBlocker blocker(thickness);
+            thickness->setValue(sheet_profile_pending_->thickness);
+        }
+    }
+    if(auto* button=findChild<QPushButton*>("sheetProfileOtherEndpoint"))
+        button->setEnabled(automatic);
+    if(auto* button=findChild<QPushButton*>("sheetProfileManualPlacement"))
+        button->setEnabled(automatic);
+    for(const auto* name:{"containerOrientationFlipButton",
+            "containerOrientationRotateButton"})
+        if(auto* button=findChild<QPushButton*>(name))
+            button->setEnabled(!automatic);
+    if(!automatic)return;
+    for(auto* field:placement_->rotation_offset_fields())if(field) {
+        const QSignalBlocker blocker(field);field->setValue(0);
+        field->setEnabled(false);
+    }
+    auto* table=placement_->reference_table();
+    for(int row=0;row<table->rowCount();++row) {
+        for(int column:{0,2})if(auto* widget=table->cellWidget(row,column))
+            widget->setEnabled(false);
+        if(row==1)if(auto* item=table->item(row,1))
+            item->setFlags(item->flags()&~Qt::ItemIsEnabled);
+    }
+    if(auto* orientation=placement_->orientation_table())
+        for(int row=0;row<orientation->rowCount();++row) {
+            for(int column:{0,2,4})
+                if(auto* widget=orientation->cellWidget(row,column))
+                    widget->setEnabled(false);
+            if(auto* item=orientation->item(row,1))
+                item->setFlags(item->flags()&~Qt::ItemIsEnabled);
+        }
+}
+
 void SketchPropertiesDialog::prepare_flat_default_origin() {
     if(!flat_pending_)return;
     flat_pending_->sheet_attachment=false;flat_changed_(*flat_pending_);
@@ -650,13 +718,25 @@ bool SketchPropertiesDialog::sheet_reference_allowed(std::size_t index,const zim
                 catch(const std::exception&){return false;}
             }
         }
-        if(!bend_pending_&&!(flat_pending_&&flat_pending_->sheet_attachment))return true;
+        if(sheet_profile_pending_&&index==0&&
+           zima::kernel::sheet_edge_role(*edge)==
+                zima::kernel::SheetEdgeRole::Boundary) {
+            try {
+                return zima::document::bend_attachment_profile_direction(
+                    zima::document::bend_sheet_references(*edge),
+                    reference_geometry_).has_value();
+            } catch(const std::exception&) {return false;}
+        }
+        if(!bend_pending_&&!(flat_pending_&&flat_pending_->sheet_attachment)&&
+           !(sheet_profile_pending_&&sheet_profile_pending_->sheet_attachment))return true;
         if(index==0&&zima::kernel::sheet_edge_role(*edge)==zima::kernel::SheetEdgeRole::Boundary) {
             try {return zima::document::bend_attachment_profile_direction(zima::document::bend_sheet_references(*edge),reference_geometry_).has_value();}
             catch(const std::exception&){return false;}
         }
     }
-    if(!(bend_pending_&&bend_pending_->sheet_attachment)&&!(flat_pending_&&flat_pending_->sheet_attachment))return true;
+    if(!(bend_pending_&&bend_pending_->sheet_attachment)&&
+       !(flat_pending_&&flat_pending_->sheet_attachment)&&
+       !(sheet_profile_pending_&&sheet_profile_pending_->sheet_attachment))return true;
     if(index!=2)return false;
     const auto refs=placement_->combined_references(3);
     if(refs.empty())return false;
@@ -670,10 +750,14 @@ void SketchPropertiesDialog::notify_preview() {
     if(reference_update_){reference_preview_pending_=true;return;}
     try {
         auto [sketch, placement] = current_values();
-        if((bend_pending_&&bend_pending_->sheet_attachment)||(flat_pending_&&flat_pending_->sheet_attachment))initial_=sketch;
+        if((bend_pending_&&bend_pending_->sheet_attachment)||
+           (flat_pending_&&flat_pending_->sheet_attachment)||
+           (sheet_profile_pending_&&sheet_profile_pending_->sheet_attachment))
+            initial_=sketch;
         lock_flat_attachment_fields();
+        lock_sheet_profile_attachment_fields();
         preview_(sketch, placement);error_->clear();
-    } catch(const std::exception& failure) {error_->setText(QString::fromUtf8(failure.what()));}
+    } catch(const std::exception& failure) {error_->setText(tr(failure.what()));}
 }
 
 void SketchPropertiesDialog::refresh_resolved_placement() {
@@ -707,6 +791,7 @@ void SketchPropertiesDialog::refresh_resolved_placement() {
         placement_valid);
     lock_bend_attachment_fields();
     lock_flat_attachment_fields();
+    lock_sheet_profile_attachment_fields();
 }
 
 std::vector<zima::document::ConstructionReference>
@@ -716,7 +801,10 @@ SketchPropertiesDialog::highlighted_reference_entries() const {
 
 std::vector<zima::document::ConstructionReference>
 SketchPropertiesDialog::references_without(std::size_t index) const {
-    if(((bend_pending_&&bend_pending_->sheet_attachment)||(flat_pending_&&flat_pending_->sheet_attachment))&&index==0)return {};
+    if(((bend_pending_&&bend_pending_->sheet_attachment)||
+        (flat_pending_&&flat_pending_->sheet_attachment)||
+        (sheet_profile_pending_&&sheet_profile_pending_->sheet_attachment))&&
+       index==0)return {};
     return placement_->references_without(index);
 }
 
@@ -751,24 +839,40 @@ bool SketchPropertiesDialog::set_reference(std::size_t index,
                     value.reference.semantic_key==reference.semantic_key&&
                     value.reference.instance_path==reference.instance_path;
             });
-        if(edge!=reference_geometry_.edges.end()) {
-            const auto side=std::ranges::find_if(
-                edge->edge_treatment_side_references,[](const auto& value) {
-                    return std::isfinite(value.sheet_thickness)&&
-                        value.sheet_thickness>=.001;
-                });
-            sheet_profile_pending_->sheet_attachment=
-                side!=edge->edge_treatment_side_references.end();
-            if(side!=edge->edge_treatment_side_references.end()&&
-               !sheet_profile_pending_->thickness_override) {
-                sheet_profile_pending_->thickness=side->sheet_thickness;
-                if(auto* thickness=findChild<QDoubleSpinBox*>(
-                        "sheetProfileThickness")) {
-                    const QSignalBlocker blocker(thickness);
-                    thickness->setValue(side->sheet_thickness);
-                }
+        if(edge!=reference_geometry_.edges.end()&&
+           zima::kernel::sheet_edge_role(*edge)==
+                zima::kernel::SheetEdgeRole::Boundary) {
+            const auto refs=zima::document::bend_sheet_references(*edge);
+            const auto side=zima::document::bend_attachment_profile_direction(
+                refs,reference_geometry_);
+            if(!side)return false;
+            sheet_profile_pending_->sheet_attachment=true;
+            sheet_profile_pending_->material_side=1;
+            const double thickness=edge->edge_treatment_side_references.front().sheet_thickness;
+            sheet_profile_pending_->thickness_override=false;
+            sheet_profile_pending_->thickness=thickness;
+            if(auto* custom=findChild<QCheckBox*>(
+                    "sheetProfileThicknessOverride")) {
+                const QSignalBlocker blocker(custom);custom->setChecked(false);
             }
+            if(auto* field=findChild<QDoubleSpinBox*>(
+                    "sheetProfileThickness")) {
+                const QSignalBlocker blocker(field);
+                field->setValue(sheet_profile_pending_->thickness);
+            }
+            if(initial_.points.empty()&&initial_.segments.empty()&&
+               initial_.arcs.empty()&&initial_.circles.empty()&&
+               initial_.ellipses.empty()&&initial_.elliptical_arcs.empty()&&
+               initial_.bsplines.empty()&&initial_.texts.empty())
+                sheet_profile_pending_->start_point_id=
+                    zima::document::initialize_attached_sheet_profile(
+                        initial_,sheet_profile_pending_->thickness);
             sheet_profile_changed_(*sheet_profile_pending_);
+            placement_->initialize_from_references(refs,[](const auto& key) {
+                return QString::fromStdString(key);
+            });
+            lock_sheet_profile_attachment_fields();
+            refresh_resolved_placement();notify_preview();return true;
         }
     }
     if(flat_pending_&&index==0) {
@@ -851,6 +955,7 @@ void SketchPropertiesDialog::set_translation_constraint_state(
         const zima::kernel::Vec3& solution) {
     placement_->set_translation_constraint_state(state, solution);
     lock_bend_attachment_fields();
+    lock_sheet_profile_attachment_fields();
 }
 
 void SketchPropertiesDialog::set_remaining_rotation_dof(int dof) {
@@ -861,18 +966,21 @@ void SketchPropertiesDialog::set_rotation_constraint_state(
         const zima::document::OrientationConstraintState& state) {
     placement_->set_rotation_constraint_state(state);
     lock_bend_attachment_fields();
+    lock_sheet_profile_attachment_fields();
 }
 
 void SketchPropertiesDialog::set_orientation_base_rotation(
         const zima::kernel::Vec3& rotation, bool constrained) {
     placement_->set_orientation_base_rotation(rotation, constrained);
     lock_bend_attachment_fields();
+    lock_sheet_profile_attachment_fields();
 }
 
 void SketchPropertiesDialog::set_resolved_rotation(
         const zima::kernel::Vec3& rotation, bool valid) {
     placement_->set_resolved_rotation(rotation, valid);
     lock_bend_attachment_fields();
+    lock_sheet_profile_attachment_fields();
 }
 
 bool SketchPropertiesDialog::set_inline_parameter_value(

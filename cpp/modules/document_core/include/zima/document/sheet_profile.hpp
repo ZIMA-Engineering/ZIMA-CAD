@@ -43,4 +43,11 @@ struct SheetProfileRoute {
 [[nodiscard]] SheetProfileRoute sheet_profile_route(
     const zima::sketcher::Sketch&, const std::string& start_point_id = {});
 
+// Seeds the owned route of a newly edge-attached Profile. The first circular
+// span represents the Bend outer fibre (2T, hence the ordinary child Bend is
+// R=T) and the following line owns the same native junction point plus T.
+// Existing authored geometry is never replaced.
+[[nodiscard]] std::string initialize_attached_sheet_profile(
+    zima::sketcher::Sketch&, double thickness);
+
 } // namespace zima::document
