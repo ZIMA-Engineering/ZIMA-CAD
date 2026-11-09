@@ -90,7 +90,6 @@ private:
     void set_status_message(const QString& message);
     QComboBox* sheet_format_{};
     QComboBox* projection_method_{};
-    QComboBox* lineweight_mode_{};
     QDoubleSpinBox* scale_numerator_{};
     QDoubleSpinBox* scale_denominator_{};
     QToolBar* drawing_toolbar_{};

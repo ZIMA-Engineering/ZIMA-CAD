@@ -1604,7 +1604,10 @@ protected:
                 ?drawing::drawing_placement_edge_visible(view,edge)
                 :drawing::drawing_edge_visible(view,edge);
             if(edge.points.size()<2||!shown)continue;
-            const QColor color=!visible_edges_only&&(edge.hidden||edge.thread)?QColor("#666666"):QColor(Qt::white);
+            const bool muted=!visible_edges_only&&(edge.hidden||edge.thread||
+                (edge.tangent&&view.tangent_edge_style==
+                    drawing::TangentEdgeStyle::Thin));
+            const QColor color=muted?QColor("#666666"):QColor(Qt::white);
             painter.setPen(QPen(color,1/pixels));
             QPolygonF line;for(const auto& point:edge.points)line<<QPointF(point.x,point.y);
             painter.drawPolyline(line);
@@ -1643,7 +1646,6 @@ protected:
 public:
     void set_model_command(std::set<std::string> offered,std::function<void(const std::string&)> pick){model_offered_=std::move(offered);model_pick_=std::move(pick);selected_annotation_.reset();hovered_annotation_.reset();offered_annotations_.clear();update();}
     std::optional<QPointF> model_handle(const std::string& key,int end,const std::string& view)const{for(const auto& h:annotation_handles_)if(h.key.kind==AnnotationKind::Model&&h.key.id==key&&h.key.end==end&&(view.empty()||h.key.view==view))return h.point;return {};}
-    void set_lineweights(bool value){lineweights_=value;update();}
 protected:
     const drawing::DrawingDimension* pending_dimension() const override {return witness_draft_?&*witness_draft_:dimension_command_?&dimension_command_->value():nullptr;}
     void paint_reference_overlay(QPainter& painter) override {
@@ -2440,11 +2442,6 @@ void DrawingWindow::create_layout() {
     remove_sheet->setFixedWidth(34); add_sheet->setFixedWidth(34);
     connect(remove_sheet, &QPushButton::clicked, this, [this] { this->remove_sheet(); });
     connect(add_sheet, &QPushButton::clicked, this, [this] { this->add_sheet(); });
-    lineweight_mode_ = new QComboBox(central);
-    lineweight_mode_->setObjectName("drawingLineweightMode");
-    lineweight_mode_->addItem(tr("Tenké čáry"));
-    lineweight_mode_->addItem(tr("Náhled tlouštěk"));
-    connect(lineweight_mode_,&QComboBox::currentIndexChanged,this,[this](int index){canvas_->set_lineweights(index==1);});
     scale_numerator_ = new QDoubleSpinBox(central);
     scale_denominator_ = new QDoubleSpinBox(central);
     for (auto* spin : {scale_numerator_, scale_denominator_}) {
@@ -2512,8 +2509,6 @@ void DrawingWindow::create_layout() {
     bottom->addWidget(source_variant_);
     bottom->addWidget(sheets_, 1); bottom->addWidget(remove_sheet);
     bottom->addWidget(add_sheet); bottom->addSpacing(16);
-    bottom->addWidget(new QLabel(tr("Tloušťky:"), central));
-    bottom->addWidget(lineweight_mode_);
     bottom->addWidget(new QLabel(tr("Měřítko:"), central));
     bottom->addWidget(scale_numerator_); bottom->addWidget(new QLabel(":"));
     bottom->addWidget(scale_denominator_);

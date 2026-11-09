@@ -154,11 +154,15 @@ public:
                 if(heavy!=thick_pass)continue;
                 // Interactive hidden edges match the continuous gray 3D display.
                 // The saved dash style is applied only by vector output.
-                // Tangent style controls lineweight/visibility, not whether a
-                // foreground edge is presented as hidden.  Keep a visible
-                // tangent boundary in the normal ink, matching vector output.
+                // A thin tangent remains foreground geometry for depth, but
+                // uses the same muted screen tone as hidden/thread edges so
+                // View Properties distinguishes it from a strong contour.
+                // Physical output remains a thin ordinary-ink stroke.
+                const bool muted=occluded||edge.thread||(!visible_edges_only&&
+                    edge.tangent&&view.tangent_edge_style==
+                        drawing::TangentEdgeStyle::Thin);
                 shader_->setUniformValue("ink",visible_edges_only?visible:
-                    occluded||edge.thread?hidden:visible);
+                    muted?hidden:visible);
                 gl->glLineWidth(float((heavy?thick:thin)*reduction));
                 gl->glDrawArrays(GL_LINES,range.first,range.count);
             }

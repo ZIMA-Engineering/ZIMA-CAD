@@ -121,7 +121,7 @@ void SheetRenderer::paint_sheet(QPainter& painter,double zoom,QPointF origin,boo
         if(!sheet_)return;
         const auto* dimension_preview=pending_dimension();
         if(!printing){annotation_handles_.clear();witness_handles_.clear();}
-        const auto width=[&](bool thick){return printing||lineweights_?zoom*(thick?sheet_->thick_line_mm:sheet_->thin_line_mm):1.0;};
+        const auto width=[&](bool thick){return printing?zoom*(thick?sheet_->thick_line_mm:sheet_->thin_line_mm):1.0;};
         const auto ink=printing?QColor(Qt::black):QColor(Qt::white);
         std::vector<viewer::DimensionTextLabel> dimension_texts;
         std::vector<const zima::drawing::DrawingView*> views;
@@ -179,7 +179,7 @@ void SheetRenderer::paint_sheet(QPainter& painter,double zoom,QPointF origin,boo
             // Stroking a filled glyph with the full pen width would count its
             // native thickness twice. A mid-height I slice excludes serifs.
             double weight_delta=0;
-            if((printing||lineweights_)&&!native_text_output_) {
+            if(printing&&!native_text_output_) {
                 QPainterPath stem;stem.addText(QPointF{},font,QStringLiteral("I"));
                 QPainterPath slice;slice.addRect(QRectF(stem.boundingRect().left()-1,-metrics.capHeight()*.5,stem.boundingRect().width()+2,.01));
                 const double native_width=stem.intersected(slice).boundingRect().width();
@@ -228,13 +228,13 @@ void SheetRenderer::paint_sheet(QPainter& painter,double zoom,QPointF origin,boo
                 // Fixed title-block fields remain ordinary text selection.
             }
         };
-        const auto pen_width=[&](zima::drawing::DrawingPen pen){return printing||lineweights_?zoom*zima::drawing::drawing_pen_width_mm(*sheet_,pen):1.0;};
+        const auto pen_width=[&](zima::drawing::DrawingPen pen){return printing?zoom*zima::drawing::drawing_pen_width_mm(*sheet_,pen):1.0;};
         const auto draw_template=[&](const auto& lines,const auto& texts,const auto& circles) {
             for(const auto& line:lines) {
                 const auto first=screen(line.first),second=screen(line.second);
                 const bool selected=!printing&&!line.field_id.empty()&&selected_field_==line.field_id;
                 const bool hovered=!printing&&!line.field_id.empty()&&hovered_field_==line.field_id;
-                QPen pen(selected?interaction::selected:hovered?interaction::hover:pen_color(line.pen),line.centerline?(printing||lineweights_?zoom*sheet_->thin_line_mm:1.0):pen_width(line.pen));
+                QPen pen(selected?interaction::selected:hovered?interaction::hover:pen_color(line.pen),line.centerline?(printing?zoom*sheet_->thin_line_mm:1.0):pen_width(line.pen));
                 if(line.centerline)pen.setDashPattern({2*zoom/pen.widthF(),.4*zoom/pen.widthF(),.2*zoom/pen.widthF(),.4*zoom/pen.widthF()});
                 painter.setPen(pen);painter.drawLine(first,second);
                 if(!printing&&!line.field_id.empty()) {
@@ -359,7 +359,11 @@ void SheetRenderer::paint_sheet(QPainter& painter,double zoom,QPointF origin,boo
                     const auto& edge=group.first;if(edge.hidden!=hidden||!drawing::drawing_edge_visible(view,edge))continue;
                     const bool heavy=!edge.thread&&!edge.hatch&&!edge.hidden&&!(edge.tangent&&view.tangent_edge_style==drawing::TangentEdgeStyle::Thin);
                     if(heavy!=thick_pass)continue;
-                    const auto color=edge.hatch?QColor("#55BB77"):(edge.hidden||edge.thread)?QColor("#666666"):ink;
+                    const bool muted=edge.hidden||edge.thread||
+                        (edge.tangent&&view.tangent_edge_style==
+                            drawing::TangentEdgeStyle::Thin);
+                    const auto color=edge.hatch?QColor("#55BB77"):
+                        muted?QColor("#666666"):ink;
                     QPen pen(color,width(!edge.thread&&!edge.hatch&&!edge.hidden&&!(edge.tangent&&view.tangent_edge_style==drawing::TangentEdgeStyle::Thin))/(zoom*view.scale));
                     pen.setCapStyle(Qt::FlatCap);pen.setJoinStyle(Qt::RoundJoin);
                     if(edge.hatch&&edge.hatch_pattern==2)pen.setDashPattern({3.0/(view.scale*pen.widthF()),1.5/(view.scale*pen.widthF())});
@@ -374,7 +378,11 @@ void SheetRenderer::paint_sheet(QPainter& painter,double zoom,QPointF origin,boo
                 const bool heavy=!edge.thread&&!edge.hatch&&!edge.hidden&&!(edge.tangent&&view.tangent_edge_style==zima::drawing::TangentEdgeStyle::Thin);
                 if(heavy!=thick_pass)continue;
                 const bool gray=edge.hidden&&view.hidden_edge_style==zima::drawing::HiddenEdgeStyle::Gray;
-                const QColor edge_color=edge.hatch&&!printing?QColor("#55BB77"):(edge.hidden||edge.thread)&&!printing?QColor("#666666"):gray?QColor("#808080"):ink;
+                const bool muted=!printing&&(edge.hidden||edge.thread||
+                    (edge.tangent&&view.tangent_edge_style==
+                        zima::drawing::TangentEdgeStyle::Thin));
+                const QColor edge_color=edge.hatch&&!printing?QColor("#55BB77"):
+                    muted?QColor("#666666"):gray?QColor("#808080"):ink;
                 QPen pen(edge_color,width(!edge.thread&&!edge.hatch&&!edge.hidden&&!(edge.tangent&&view.tangent_edge_style==zima::drawing::TangentEdgeStyle::Thin)));
                 pen.setCapStyle(Qt::FlatCap);pen.setJoinStyle(Qt::RoundJoin);
                 if((printing&&edge.hidden&&!gray)||(edge.hatch&&edge.hatch_pattern==2)){pen.setDashPattern({3.0*zoom/pen.widthF(),1.5*zoom/pen.widthF()});}

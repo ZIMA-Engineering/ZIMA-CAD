@@ -56,7 +56,6 @@ protected:
         std::map<unsigned,std::pair<drawing::ProjectedEdge,QPainterPath>> groups;
     };
     std::map<std::string,StrokeCache> stroke_cache_;
-    bool lineweights_{};
     bool native_text_output_{};
     bool show_paper_border_{true};
     std::string selected_;
