@@ -1,5 +1,18 @@
 # Native versioned distribution
 
+Signed Windows [2026111003](releases/2026111003.md#windows-publication-acceptance)
+was published at `2026-11-10T23:44:49Z` from immutable source
+`c107847a039a329b4b2db9bc0a0833dd3c3f2218`. The associative Sheet from Body,
+stable generated children, retained last-valid result, imported-sheet
+reconstruction corrections, developed selection wires and Sketcher
+external-contact correction passed their focused contracts. Candidate and signed
+native smoke passed; candidate smoke loaded all 1,185 factory assets. The signed
+manifest binds 17,518 archive entries, exact source and the Windows runtime. All
+three anonymous public downloads match the accepted bytes and public updater
+signature verification reports the build as current. Native Linux execution
+remains a separate host gate. See the
+[publication evidence](verification/20261111-windows-1003-publication.json).
+
 Signed Windows [2026110802](releases/2026110802.md#windows-publication-acceptance)
 was published at `2026-11-08T18:05:06Z` from immutable source
 `5f3a6aa93c0d30370779770bc9e1cad5ee53d98b`. Shared exact curved Fillet and

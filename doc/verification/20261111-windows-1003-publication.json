@@ -1,0 +1,84 @@
+{
+  "release": {
+    "tag": "ZIMA-CAD-2026111003",
+    "commit": "c107847a039a329b4b2db9bc0a0833dd3c3f2218",
+    "published_at": "2026-11-10T23:44:49Z",
+    "url": "https://github.com/ZIMA-Engineering/ZIMA-CAD/releases/tag/ZIMA-CAD-2026111003",
+    "draft": false,
+    "prerelease": false,
+    "latest": true
+  },
+  "candidate": {
+    "build_kind": "committed-candidate",
+    "archive_size": 963689842,
+    "archive_sha256": "17ba411cc4ad8008f42ec18e0eeed246043082d566ae99c01e70b68a4795e5b1",
+    "windows_smoke": "passed",
+    "native_factory_assets_loaded": 1185,
+    "native_factory_asset_failures": 0
+  },
+  "signed_release": {
+    "archive_name": "ZIMA-CAD-2026111003.zip",
+    "archive_size": 964506769,
+    "archive_sha256": "36b6e0ec36922f703d7b92fa03e7026a5e3f3ed00726b6e0042b7de75085fcac",
+    "archive_file_count": 17518,
+    "archive_unpacked_size": 3226250406,
+    "checksums_sha256": "56a370d0f8ce19bf5613c244745b99bdd04e04e46b782ee5ad80069b9b14cc90",
+    "source_tree_sha256": "0c4a62a1a16c973a231950d3d85b2fa5ca70d04bfe4ed60a7b2c6fe1c22efb2c",
+    "windows_smoke": "passed",
+    "linux_smoke": "not-run",
+    "publisher_key_id": "zcp-8fa1f825cbde5d81",
+    "manifest_sha256": "453de9483603c0cfee59bdbea72d52683d535b3c00e98635d99a825def863ab8",
+    "signature_file_sha256": "b5a8c3f155fe2f453e247ae35649a20aa128881d595d2da9c426fc9db103015b"
+  },
+  "public_assets": [
+    {
+      "name": "ZIMA-CAD-2026111003.zip",
+      "size": 964506769,
+      "sha256": "36b6e0ec36922f703d7b92fa03e7026a5e3f3ed00726b6e0042b7de75085fcac",
+      "github_digest_matches": true,
+      "anonymous_download_matches": true
+    },
+    {
+      "name": "update-manifest.json",
+      "size": 703,
+      "sha256": "453de9483603c0cfee59bdbea72d52683d535b3c00e98635d99a825def863ab8",
+      "github_digest_matches": true,
+      "anonymous_download_matches": true
+    },
+    {
+      "name": "update-manifest.sig",
+      "size": 176,
+      "sha256": "b5a8c3f155fe2f453e247ae35649a20aa128881d595d2da9c426fc9db103015b",
+      "github_digest_matches": true,
+      "anonymous_download_matches": true
+    }
+  ],
+  "updater_discovery": {
+    "installed_version": "2026111003",
+    "status": "current",
+    "public_manifest_signature_verified": true,
+    "download_performed": false,
+    "installation_performed": false
+  },
+  "focused_verification": {
+    "test_executables_passed": 9,
+    "test_executables_failed": 0,
+    "imported_sheet_history": "passed",
+    "cold_first_bend": "passed",
+    "compound_ear_recovery": "passed",
+    "native_step_circles": "passed",
+    "sheet_profile_continuity": "passed",
+    "feature_side_reversal": "passed",
+    "occurrence_source_wire": "passed",
+    "sketcher_tangency": "passed",
+    "localization_contract": "passed",
+    "reported_17_prtz_cold_regeneration": "passed",
+    "associative_sheet_from_body": "passed",
+    "developed_result_wire": "passed"
+  },
+  "limits": [
+    "The complete repository-wide regression matrix is not claimed green.",
+    "The compound-ear volume differs by 44.50694 cubic millimetres (0.0044 percent) because the requested reconstruction replaces each exported two-fillet ear with one native Bend.",
+    "Native Linux compilation and execution were not run on the Windows host."
+  ]
+}

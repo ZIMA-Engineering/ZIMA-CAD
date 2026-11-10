@@ -57,17 +57,19 @@ See [native distribution](doc/NATIVE_DISTRIBUTION.md),
 [updates](doc/UPDATES.md) and the [user manual](doc/USER_MANUAL.md).
 
 The latest published signed Windows release is
-[2026111002](https://github.com/ZIMA-Engineering/ZIMA-CAD/releases/tag/ZIMA-CAD-2026111002).
+[2026111003](https://github.com/ZIMA-Engineering/ZIMA-CAD/releases/tag/ZIMA-CAD-2026111003).
 Its clean committed-source package, trusted signature, candidate and signed
 native smoke, all 1,185 factory native assets, production-updater discovery and
-fresh anonymous public downloads are verified. It reconstructs imported STEP
-sheets as ordered native Flat/Bend history from the selected planar face,
-recovers the reported compound-fillet ears as one Bend each, authors matching
-STEP semicircles as native circles, repairs first-Bend cold-start topology and
-retains the correct material side across consecutive Sheet Profile bends. The
-shared Windows/Linux source remains pinned to OCCT 8.0.1. See the
-[release record](doc/releases/2026111002.md) and
-[publication evidence](doc/verification/20261110-windows-1002-publication.json).
+fresh anonymous public downloads are verified. It makes native-solid Sheet from
+Body associative, keeps the source Body editable but outside the destination
+material result, preserves generated child identities during source edits and
+retains the last valid result after reference loss. It also keeps the imported
+STEP reconstruction, single-Bend ear recovery, true native circles, cold first
+Bend and carried sheet side from 2026111002, and adds developed-state selection
+wires and the corrected Sketcher external-contact relation. The shared
+Windows/Linux source remains pinned to OCCT 8.0.1. See the
+[release record](doc/releases/2026111003.md) and
+[publication evidence](doc/verification/20261111-windows-1003-publication.json).
 The [current status](doc/PROJECT_STATUS.md) separates released scope and remaining
 work. Linux verification follows the separate handoff.
 

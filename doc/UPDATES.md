@@ -1,5 +1,21 @@
 # Application updates
 
+Signed Windows [2026111003](releases/2026111003.md#windows-publication-acceptance)
+was published at `2026-11-10T23:44:49Z` from immutable source
+`c107847a039a329b4b2db9bc0a0833dd3c3f2218`. Native-solid Sheet from Body is
+associative, generated Flat/Bend identities remain stable during source edits,
+the source Body stays editable without entering the destination material result,
+and a broken source reference retains the last valid result for repair. The
+release also retains the imported-sheet reconstruction corrections, shows
+authored and developed selection wires together, and preserves the direct
+Sketcher horizontal/vertical relation at an external contact. Candidate and
+signed native smoke passed with all 1,185 factory assets. The signed manifest
+binds 17,518 archive entries, exact source and the Windows runtime. All three
+anonymous public downloads match the accepted bytes and the production updater
+reports the release as current. Native Linux execution remains a separate host
+gate. See the
+[publication evidence](verification/20261111-windows-1003-publication.json).
+
 Signed Windows [2026111002](releases/2026111002.md#windows-publication-acceptance)
 was published at `2026-11-10T18:23:38Z` from immutable source
 `ef47698916fd135a68b9e87495ee5ab1c7b8f947`. Imported STEP sheets now
