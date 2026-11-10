@@ -6,6 +6,7 @@
 #include <QMouseEvent>
 #include <QCursor>
 #include <QQuaternion>
+#include <QVariantAnimation>
 #include <numbers>
 #include <cmath>
 #include <iostream>
@@ -146,6 +147,69 @@ void verify_occluded_selection(QApplication& application) {
         }
     }
     std::cout<<"Occluded Container/Face mouse hover/RMB cycling/LMB selection: all five display modes, authored Container preview without result edges, exact Face boundary, unchanged interiors passed\n";
+}
+void verify_occluded_occurrence(QApplication& application) {
+    kernel::ViewerMesh mesh;
+    constexpr const char* selected_path="4:selected";
+    constexpr const char* sibling_path="4:sibling";
+    mesh.vertices={{-1.5,-1.5,1},{1.5,-1.5,1},{1.5,1.5,1},{-1.5,1.5,1}};
+    mesh.triangles={0,1,2,0,2,3};
+    mesh.triangle_references={{"front","face",selected_path},{"front","face",selected_path}};
+    kernel::ViewerEdge hidden{{{-1,0,0},{1,0,0}},{"feature","generated:hidden",selected_path}};
+    hidden.display_owner_id="feature";
+    kernel::ViewerEdge sibling{{{-1,-.7,0},{1,-.7,0}},{"feature","generated:sibling",sibling_path}};
+    sibling.display_owner_id="feature";
+    mesh.edges={hidden,sibling};
+    viewer::MeshView view;view.resize(640,640);view.set_mesh(mesh);view.show();
+    view.set_view_direction({0,0,-1});
+    for(auto* animation:view.findChildren<QVariantAnimation*>())
+        animation->setCurrentTime(animation->duration());
+    view.fit_all();
+    view.set_selection_contract({viewer::CandidateKind::Occurrence});
+    const auto azure=[&](const QImage& frame,QPointF at) {
+        const double ratio=frame.width()/double(view.width());
+        for(int dy=-2;dy<=2;++dy)for(int dx=-2;dx<=2;++dx) {
+            const int x=qRound(at.x()*ratio)+dx,y=qRound(at.y()*ratio)+dy;
+            if(!frame.rect().contains(x,y))continue;
+            const auto c=frame.pixelColor(x,y);
+            if(c.red()<25&&c.green()>180&&c.blue()>235)return true;
+        }
+        return false;
+    };
+    for(const auto mode:{viewer::DisplayMode::NoHiddenEdges,
+                         viewer::DisplayMode::ShadedWithEdges,
+                         viewer::DisplayMode::Shaded}) {
+        view.set_display_mode(mode);view.clear_selection();application.processEvents();
+        const QPointF center(view.width()/2.,view.height()/2.);
+        const double pixels=1/view.world_tolerance_for_pixels(1);
+        const QPointF sibling_at=center+QPointF(0,.7*pixels);
+        const auto baseline=view.grabFramebuffer();
+        QMouseEvent move(QEvent::MouseMove,center,QPointF(view.mapToGlobal(center.toPoint())),
+            Qt::NoButton,Qt::NoButton,Qt::NoModifier);
+        QApplication::sendEvent(&view,&move);application.processEvents();
+        check(view.offered_candidate()&&view.offered_candidate()->kind==viewer::CandidateKind::Occurrence&&
+            view.offered_candidate()->instance_path==selected_path,
+            "Occluded occurrence fixture did not offer its visible front face");
+        const auto hover=view.grabFramebuffer();
+        check(azure(hover,center)&&!azure(baseline,center),
+            "Assembly occurrence hover kept its rear wire behind the depth buffer");
+        check(!azure(hover,sibling_at),
+            "Assembly occurrence hover highlighted a sibling occurrence wire");
+        for(const auto type:{QEvent::MouseButtonPress,QEvent::MouseButtonRelease}) {
+            QMouseEvent event(type,center,QPointF(view.mapToGlobal(center.toPoint())),Qt::LeftButton,
+                type==QEvent::MouseButtonPress?Qt::LeftButton:Qt::NoButton,Qt::NoModifier);
+            QApplication::sendEvent(&view,&event);
+        }
+        application.processEvents();const auto selected=view.grabFramebuffer();
+        check(view.confirmed_candidate()&&view.confirmed_candidate()->kind==viewer::CandidateKind::Occurrence&&
+            view.confirmed_candidate()->instance_path==selected_path&&azure(selected,center),
+            "Assembly occurrence click did not reveal its complete rear wire");
+        check(view.property("selectedFeatureFaceTriangleCount").toULongLong()==0,
+            "Assembly occurrence selection recolored or filled its faces");
+        check(!azure(selected,sibling_at),
+            "Assembly occurrence selection highlighted a sibling occurrence wire");
+    }
+    std::cout<<"Assembly occurrence hover/selection: complete persisted wire through occlusion in three solid display modes passed\n";
 }
 void verify_curved_hover(QApplication& application) {
     // Two real curved face owners, with no persisted display edges. Any cyan
@@ -305,6 +369,6 @@ int main(int argc,char** argv){QApplication application(argc,argv);try {
     std::cout<<"source="<<owner<<" edges="<<mesh.edges.size()<<" source_vertices="<<view.property("gpuSourceWireVertexCount").toInt()
         <<" initial_source_uploads="<<source_uploads<<" camera_frames=40 extra_source_uploads=0 extra_base_uploads=0 extra_color_builds=0 idle_median_ms="<<idle_times[idle_times.size()/2]<<" selected_median_ms="<<times[times.size()/2]<<" p90_ms="<<times[36]<<'\n';
     if(argc>2)render().save(QString::fromUtf8(argv[2]));
-    if(argc==1){verify_assembly_provider(application);verify_curved_hover(application);verify_occluded_selection(application);verify_import_batches(application);}
+    if(argc==1){verify_assembly_provider(application);verify_curved_hover(application);verify_occluded_occurrence(application);verify_occluded_selection(application);verify_import_batches(application);}
     return 0;
 }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}}

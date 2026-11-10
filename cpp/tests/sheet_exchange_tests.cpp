@@ -82,8 +82,18 @@ void contract(bool include_oblique_corners = true) {
         constexpr double bottom_y=-10.449853897094727;
         constexpr double top_y=166.9654541015625;
         auto source_profile=sketcher::Sketch::create_default();
-        const auto rectangle=source_profile.add_rectangle(
-            -width/2,bottom_y,width/2,top_y);
+        // Keep the perimeter clockwise and the opening off-centre.  After a
+        // STEP round trip this makes the source-face entry run opposite to
+        // one native Bend End. Conversion must select the matching endpoint
+        // explicitly; relying on the kernel edge order misplaces the holed
+        // child Flat at the far end of its attachment.
+        const std::vector<std::string> rectangle{
+            source_profile.add_segment(width/2,bottom_y,-width/2,bottom_y),
+            source_profile.add_segment(-width/2,bottom_y,-width/2,top_y),
+            source_profile.add_segment(-width/2,top_y,width/2,top_y),
+            source_profile.add_segment(width/2,top_y,width/2,bottom_y)};
+        static_cast<void>(source_profile.add_circle(
+            -width/4,bottom_y+40,5));
         const auto bottom_segment=std::ranges::find(
             source_profile.segments,rectangle.front(),
             &sketcher::SketchSegment::id);
@@ -126,7 +136,7 @@ void contract(bool include_oblique_corners = true) {
             bottom=std::min(bottom,point.z);
         std::vector<kernel::EdgeReference> perimeter;
         for(const auto& edge:box_edges)
-            if(edge.points.size()>=2&&std::ranges::all_of(edge.points,
+            if(edge.points.size()==2&&std::ranges::all_of(edge.points,
                     [&](const auto& point){return std::abs(point.z-bottom)<1e-6;})&&
                     !std::ranges::all_of(edge.points,[&](const auto& point) {
                         return std::abs(point.y-top_y)<1e-6;
@@ -228,23 +238,16 @@ void contract(bool include_oblique_corners = true) {
         const auto& imported_faces=
             imported.calculated.back().mesh.original_references.
                 triangle_references;
-        const auto imported_seed=std::ranges::max_element(
-            imported_faces,{},[&](const auto& face) {
+        const auto imported_seed=std::ranges::find_if(
+            imported_faces,[&](const auto& face) {
                 if(!face.surface||face.surface->kind!=
-                        kernel::SurfaceGeometry::Kind::Plane)return 0u;
-                unsigned cylinders{};
-                for(const auto& edge:imported.calculated.back().mesh.edges) {
-                    const auto side=std::ranges::find(
-                        edge.edge_treatment_side_references,face);
-                    if(side==edge.edge_treatment_side_references.end())continue;
-                    cylinders+=std::ranges::any_of(
-                        edge.edge_treatment_side_references,[&](const auto& other) {
-                            return other!=face&&other.surface&&
-                                other.surface->kind==
-                                    kernel::SurfaceGeometry::Kind::Cylinder;
-                        });
-                }
-                return cylinders;
+                        kernel::SurfaceGeometry::Kind::Plane)
+                    return false;
+                const auto& surface=*face.surface;
+                const double outward_x=surface.axis.x*
+                    (surface.reversed?-1:1);
+                return std::abs(surface.origin.x+width/2)<1e-6&&
+                    outward_x<-.999999;
             });
         check(imported_seed!=imported_faces.end()&&imported_seed->surface&&
                 imported_seed->surface->kind==
@@ -254,6 +257,52 @@ void contract(bool include_oblique_corners = true) {
             imported.document,imported.calculated,*imported_seed,1,kernel);
         check(reconverted.created.size()==7&&reconverted.skipped==0,
             "Imported finished sheet did not reproduce its seven branches");
+        const document::HistoryContainer* holed_flat=nullptr;
+        std::size_t imported_flat_circles{};
+        for(const auto& id:reconverted.created) {
+            const auto* feature=reconverted.document.find_container(id);
+            if(!feature||feature->feature_kind!=document::FeatureKind::Flat)
+                continue;
+            const auto sketch=std::ranges::find(reconverted.document.sketches,
+                feature->flat.sketch_id,&sketcher::Sketch::id);
+            check(sketch!=reconverted.document.sketches.end(),
+                "Imported STEP Flat lost its profile Sketch");
+            imported_flat_circles+=sketch->circles.size();
+            if(!sketch->circles.empty())holed_flat=feature;
+        }
+        check(imported_flat_circles==1&&holed_flat,
+            "Imported STEP full-circle opening was not retained as one native Sketch circle");
+        const auto reconverted_geometry=
+            workspace::construction_reference_source_geometry(
+                reconverted.calculated);
+        unsigned reverse_anchors{};
+        for(const auto& id:reconverted.created) {
+            const auto* feature=reconverted.document.find_container(id);
+            if(!feature||feature->placement.references.size()<3)continue;
+            const auto* edge=document::current_sheet_attachment_edge(
+                feature->placement.references,reconverted_geometry);
+            if(!edge||edge->edge_treatment_endpoint_references.size()!=2)
+                continue;
+            const auto& anchor=feature->placement.references[2];
+            const auto& endpoint=
+                edge->edge_treatment_endpoint_references.back();
+            reverse_anchors+=anchor.owner_id==endpoint.owner_id&&
+                anchor.semantic_key==endpoint.semantic_key&&
+                anchor.instance_path==endpoint.instance_path;
+        }
+        check(reverse_anchors>0,
+            "Imported STEP conversion ignored a reversed attachment endpoint");
+        constexpr std::array imported_branch_order{
+            document::FeatureKind::Flat,
+            document::FeatureKind::Bend,document::FeatureKind::Flat,
+            document::FeatureKind::Bend,document::FeatureKind::Flat,
+            document::FeatureKind::Bend,document::FeatureKind::Flat};
+        for(std::size_t index=0;index<imported_branch_order.size();++index) {
+            const auto* feature=reconverted.document.find_container(
+                reconverted.created[index]);
+            check(feature&&feature->feature_kind==imported_branch_order[index],
+                "Imported STEP conversion did not complete each Bend branch before starting the next branch");
+        }
         std::size_t imported_elevens{},imported_zeros{};
         for(const auto& id:reconverted.created) {
             const auto* feature=reconverted.document.find_container(id);
@@ -268,6 +317,132 @@ void contract(bool include_oblique_corners = true) {
         }
         check(imported_elevens==4&&imported_zeros==2,
             "Imported STEP did not preserve its finished meeting endpoints");
+        const auto complete_imported_sheet=[&](const auto& calculated) {
+            return !calculated.empty()&&
+                calculated.back().calculation_errors.empty()&&
+                std::ranges::any_of(
+                    calculated.back().body_outputs,
+                    [](const auto& output){return output.second->has_solid();});
+        };
+        auto imported_cold_document=reconverted.document;
+        const auto imported_cold=
+            workspace::calculate_part_with_resolved_references(
+                kernel,imported_cold_document);
+        check(complete_imported_sheet(imported_cold),
+            "Imported STEP conversion failed cold regeneration");
+        const auto* converted_sheet_body=
+            reconverted.document.body_owner_for_object(holed_flat->id);
+        check(converted_sheet_body,
+            "Imported holed Flat has no owning sheet Body");
+        const auto sheet_output=reconverted.calculated.back().body_outputs.find(
+            converted_sheet_body->scope.id);
+        check(sheet_output!=reconverted.calculated.back().body_outputs.end(),
+            "Imported holed sheet Body has no calculated output");
+        const auto& sheet_geometry=
+            sheet_output->second->mesh.original_references;
+        std::vector<const kernel::ViewerEdge*> bend_candidates;
+        for(const auto& edge:sheet_geometry.edges) {
+            if(edge.reference.owner_id!=holed_flat->id||
+                    kernel::sheet_edge_role(edge)!=
+                        kernel::SheetEdgeRole::Boundary||
+                    edge.edge_treatment_endpoint_references.size()!=2)
+                continue;
+            try {
+                static_cast<void>(document::bend_sheet_references(edge,
+                    edge.edge_treatment_endpoint_references.front()));
+                bend_candidates.push_back(&edge);
+            } catch(const std::invalid_argument&) {}
+        }
+        std::ranges::sort(bend_candidates,{},[](const auto* edge) {
+            const auto delta=kernel::sheet_material::sub(
+                edge->points.back(),edge->points.front());
+            return kernel::sheet_material::dot(delta,delta);
+        });
+        std::ranges::reverse(bend_candidates);
+        bool appended_bend{};
+        for(const auto* edge:bend_candidates)try {
+            auto with_bend=reconverted.document;
+            with_bend.body_history.activate(converted_sheet_body->scope.id);
+            auto bend=document::PartDocument::create_sketch_container();
+            bend.feature_kind=document::FeatureKind::Bend;
+            bend.name="STEP circle follow-up Bend";
+            bend.bend.sheet_attachment=true;
+            const auto defaults=document::sheet_metal_defaults(with_bend);
+            bend.bend.thickness=defaults.thickness_mm.value_or(1.);
+            bend.bend.k_factor=defaults.k_factor;
+            bend.bend.radius_follows_thickness=true;
+            bend.bend.angle_degrees=90;
+            bend.placement.references=document::bend_sheet_references(*edge,
+                edge->edge_treatment_endpoint_references.front());
+            auto profile=sketcher::Sketch::create_default();
+            profile.owner_container_id=bend.id;
+            profile.name=bend.name;
+            bend.bend.sketch_id=profile.id;
+            document::initialize_bend_start_profile(profile,40);
+            with_bend.insert_history_entry(
+                document::PartHistoryKind::Feature,bend.id);
+            with_bend.history.push_back(bend);
+            with_bend.sketches.push_back(profile);
+            with_bend.resolve_constructions(sheet_geometry);
+            workspace::PartCalculationPolicy bend_policy;
+            bend_policy.reject_errors=true;
+            kernel::OcctKernel bend_kernel;
+            const auto bent=workspace::calculate_part_with_resolved_references(
+                bend_kernel,with_bend,&reconverted.calculated,bend_policy);
+            auto reopened=document::PartDocument::from_serialized(
+                with_bend.serialized());
+            kernel::OcctKernel bend_cold_kernel;
+            const auto bent_cold=workspace::
+                calculate_part_with_resolved_references(
+                    bend_cold_kernel,reopened);
+            check(bent_cold.back().calculation_errors.empty()&&
+                    bent_cold.back().body_outputs.at(
+                        converted_sheet_body->scope.id)->has_solid(),
+                "Bend after a STEP circle failed cold regeneration");
+            appended_bend=true;
+            break;
+        } catch(const std::exception&) {}
+        check(appended_bend,
+            "A native Bend could not follow a STEP Flat containing a split circular opening");
+        QTemporaryDir imported_native_fixture(
+            QStringLiteral("build/three-sheet-native-XXXXXX"));
+        check(imported_native_fixture.isValid(),
+            "Cannot isolate imported native sheet fixture");
+        const auto imported_native_path=std::filesystem::u8path(
+            imported_native_fixture.path().toStdString())/
+                "imported-finished-sheet.prtz";
+        reconverted.document.save(
+            imported_native_path,reconverted.calculated);
+        auto imported_reopened=document::PartDocument::load(
+            imported_native_path);
+        const auto imported_reopened_cold=
+            workspace::calculate_part_with_resolved_references(
+                kernel,imported_reopened);
+        check(complete_imported_sheet(imported_reopened_cold)&&
+                std::ranges::all_of(reconverted.created,[&](const auto& id) {
+                    return imported_reopened.find_container(id)!=nullptr;
+                }),
+            "Imported STEP conversion failed save, reopen or cold regeneration");
+        workspace::Workspace imported_live;
+        const auto imported_document_id=imported.document.document_id;
+        imported_live.add_part(imported.document,imported.calculated);
+        workspace::commit_part_document(imported_live,imported_document_id,
+            reconverted.document,reconverted.calculated);
+        check(workspace::step_part_document_history(
+                    imported_live,imported_document_id,false)&&
+                std::ranges::none_of(reconverted.created,[&](const auto& id) {
+                    return imported_live.open_part(imported_document_id)->
+                        session.document().find_container(id)!=nullptr;
+                }),
+            "Imported STEP conversion Undo did not restore its source history");
+        check(workspace::step_part_document_history(
+                    imported_live,imported_document_id,true)&&
+                std::ranges::all_of(reconverted.created,[&](const auto& id) {
+                    return imported_live.open_part(imported_document_id)->
+                        session.document().find_container(id)!=nullptr;
+                })&&complete_imported_sheet(imported_live.open_part(
+                    imported_document_id)->session.calculated_boundaries()),
+            "Imported STEP conversion Redo did not restore its native sheet");
 
         workspace::Workspace live;
         const auto document_id=converted.document.document_id;

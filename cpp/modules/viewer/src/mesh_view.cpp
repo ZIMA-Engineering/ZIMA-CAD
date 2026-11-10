@@ -4196,9 +4196,17 @@ if (impl_->show_origins) {
         if(authored_preview)candidate.reset();
         return candidate;
     }();
-    const std::optional<EdgeKey> color_key=line_candidate&&line_candidate->kind==CandidateKind::Container&&
-        (line_candidate->semantic_key.empty()||line_candidate->semantic_key=="solid")
-        ?std::optional<EdgeKey>{{line_candidate->owner_id,{},line_candidate->instance_path}}:std::nullopt;
+    const bool whole_wire_candidate=line_candidate&&(
+        (line_candidate->kind==CandidateKind::Container&&
+            (line_candidate->semantic_key.empty()||line_candidate->semantic_key=="solid"))||
+        line_candidate->kind==CandidateKind::Occurrence);
+    // The cache key also records the candidate kind. Occurrences have no
+    // owner ID, so using a private semantic marker keeps an occurrence and a
+    // Tree-only local body selection at the same path distinct.
+    const std::optional<EdgeKey> color_key=whole_wire_candidate
+        ?std::optional<EdgeKey>{{line_candidate->owner_id,
+            line_candidate->kind==CandidateKind::Occurrence?"@occurrence":std::string{},
+            line_candidate->instance_path}}:std::nullopt;
     if(color_key&&color_key!=impl_->container_color_key) {
         impl_->container_color_edges.clear();impl_->container_color_edges.reserve(impl_->mesh.edges.size());
         for(const auto& edge:impl_->mesh.edges)
@@ -4215,9 +4223,14 @@ if (impl_->show_origins) {
         setProperty("containerColorBuildCount",property("containerColorBuildCount").toULongLong()+1);
     }
     const auto candidate_colors_edge=[&](const ViewerCandidate& candidate,const kernel::ViewerEdge& edge,std::size_t index) {
-        if(color_key&&candidate.kind==CandidateKind::Container&&(candidate.semantic_key.empty()||candidate.semantic_key=="solid")&&
-           candidate.owner_id==color_key->owner_id&&candidate.instance_path==color_key->instance_path&&
-           index<impl_->container_color_edges.size())return bool(impl_->container_color_edges[index]);
+        const bool cached_candidate=color_key&&index<impl_->container_color_edges.size()&&
+            candidate.owner_id==color_key->owner_id&&candidate.instance_path==color_key->instance_path&&(
+                (candidate.kind==CandidateKind::Container&&
+                    (candidate.semantic_key.empty()||candidate.semantic_key=="solid")&&
+                    color_key->semantic_key.empty())||
+                (candidate.kind==CandidateKind::Occurrence&&
+                    color_key->semantic_key=="@occurrence"));
+        if(cached_candidate)return bool(impl_->container_color_edges[index]);
         return candidate_recolors_wire_edge(candidate,edge);
     };
     const auto component_edges=confirmed_component_edge_indices();
@@ -4495,9 +4508,11 @@ if (impl_->show_origins) {
     // Whole-object and individual-face selection are wire-only.
     setProperty("selectedFeatureFaceTriangleCount",QVariant::fromValue<qulonglong>(0));
     if(color_key&&!impl_->geometry_editing_presentation&&impl_->display_mode!=DisplayMode::Wire) {
-        // The same cached result-edge ranges show the offered/confirmed wire
-        // through occluders. Reuse its VBO at ordinary width, without a model
-        // calculation, source-wire upload or screen-space reprojection.
+        // The same cached edge ranges show the offered/confirmed whole wire
+        // through occluders. This includes Assembly occurrences: their first
+        // depth-tested pass used to colour only the visible portions. Reuse
+        // the existing VBO at ordinary width, without a model calculation,
+        // source-wire upload or screen-space reprojection.
         glDisable(GL_DEPTH_TEST);glDepthMask(GL_FALSE);glLineWidth(1.F);
         draw_lines(/*force_black_if_not_highlighted=*/false,/*highlighted_only=*/true);
         glDepthMask(GL_TRUE);glEnable(GL_DEPTH_TEST);
@@ -4542,7 +4557,8 @@ if (impl_->show_origins) {
     // that have no real sharp topology edge there. Gated the same way as
     // Python's _draw_gpu_silhouette_edges() in zima_cad/viewer.py: only in
     // the line-drawing display modes, never in plain Shaded.
-    const auto silhouette_hover_key=!impl_->geometry_editing_presentation&&!impl_->inspected_container
+    const auto silhouette_hover_key=!impl_->geometry_editing_presentation&&!impl_->inspected_container&&
+        line_candidate&&line_candidate->kind==CandidateKind::Container
         ?color_key:std::nullopt;
     if ((impl_->display_mode != DisplayMode::Shaded||silhouette_hover_key) &&
         (!impl_->silhouette_candidates.empty()||!impl_->smooth_silhouette_triangles.empty())) {

@@ -1010,8 +1010,20 @@ void attached_profile_seed_and_history() {
         return std::abs(first_interval[0]-last_interval[0])<1e-8&&
             std::abs(first_interval[1]-last_interval[1])<1e-8;
     };
+    const auto edge_gap=[](const std::array<kernel::Vec3,2>& first,
+            const std::array<kernel::Vec3,2>& last) {
+        const auto distance=[](kernel::Vec3 a,kernel::Vec3 b) {
+            return std::hypot(std::hypot(a.x-b.x,a.y-b.y),a.z-b.z);
+        };
+        return std::min(
+            std::max(distance(first[0],last[0]),
+                distance(first[1],last[1])),
+            std::max(distance(first[0],last[1]),
+                distance(first[1],last[0])));
+    };
     std::optional<std::array<kernel::Vec3,2>> outgoing_edge;
     std::size_t checked_bends{};
+    double carried_outer_offset{};
     for(const auto& span:regenerated_spans.spans) {
         const auto feature=std::ranges::find_if(chained.history,
             [&](const auto& value) {
@@ -1051,6 +1063,18 @@ void attached_profile_seed_and_history() {
         }
         require(!outgoing_edge||same_width(*outgoing_edge,input),
             "Extended Profile child restarted from an earlier joining edge");
+        double expected_gap{};
+        if(span.kind==document::SheetProfileSpanKind::Bend) {
+            const int turn=span.turn_degrees>0?1:-1;
+            const double outer_offset=
+                regenerated_chain->sheet_profile.material_side==turn?0:
+                    regenerated_chain->sheet_profile.thickness;
+            expected_gap=std::abs(outer_offset-carried_outer_offset);
+            carried_outer_offset=outer_offset;
+        }
+        require(!outgoing_edge||
+                std::abs(edge_gap(*outgoing_edge,input)-expected_gap)<1e-8,
+            "Extended Profile Bend reapplied an already carried thickness offset");
         outgoing_edge=output;
     }
     require(checked_bends==3&&

@@ -192,6 +192,26 @@ void external_plane_limits(const kernel::OcctKernel& engine) {
     }
     std::cout<<"External Plane Up To: both directions, symmetric/independent, native reopening passed\n";
 }
+void single_external_plane_limit(const kernel::OcctKernel& engine) {
+    for(bool reversed:{false,true})for(std::size_t active:{0u,1u}) {
+        auto part=fixture(false);auto& p=part.history.front().feature;
+        p.reversed_sides=reversed;
+        p.sides[1-active].operation=document::FeatureSideOperation::None;
+        auto& side=p.sides[active];side.extrusion_extent=document::EndCondition::UpTo;
+        document::ExtrusionParameters::EndTarget target;
+        target.kind=document::EndTargetKind::Plane;
+        target.reference={"external-plane","single-side","source-occurrence"};
+        const double end=p.side_direction_sign(active)*9.;
+        target.fallback_origin={0,0,end};target.fallback_normal={0,0,1};
+        side.targets={target};
+        const auto result=calculate(engine,part,true);
+        const auto bounds=envelope(result.mesh);
+        near(bounds.minimum.z,std::min(0.,end));
+        near(bounds.maximum.z,std::max(0.,end));
+        preview_extents(part,bounds.minimum.z,bounds.maximum.z);
+    }
+    std::cout<<"Single active Plane Up To: both logical branches and reversed sides passed\n";
+}
 void twist_and_mixed(const kernel::OcctKernel& engine) {
     for(bool reversed:{false,true})for(bool twist_reverse:{false,true})for(bool smooth:{false,true}) {
         auto part=fixture(false);auto& p=part.history.front().feature;p.reversed_sides=reversed;
@@ -303,5 +323,5 @@ void rotation_end_contacts(const kernel::OcctKernel& engine) {
     std::cout<<"32 double-Revolution end contacts and 64 gaps at requested precision: both sides, axis orientations and directions passed\n";
 }
 }
-int main(){try{kernel::OcctKernel engine;matrix(engine);active_sides_and_draft(engine);external_plane_limits(engine);twist_and_mixed(engine);through_all_cut(engine);native_points_and_axes(engine);rotation_end_contacts(engine);return 0;}
+int main(){try{kernel::OcctKernel engine;matrix(engine);active_sides_and_draft(engine);external_plane_limits(engine);single_external_plane_limit(engine);twist_and_mixed(engine);through_all_cut(engine);native_points_and_axes(engine);rotation_end_contacts(engine);return 0;}
 catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}}

@@ -10,6 +10,7 @@
 #include <limits>
 #include <numbers>
 #include <optional>
+#include <set>
 
 namespace zima::workspace {
 namespace {
@@ -323,6 +324,150 @@ std::vector<Node> skin(const kernel::ViewerMesh& mesh,const Face& first) {
     }
     return result;
 }
+std::size_t append_imported_compound_bends(const kernel::ViewerMesh& mesh,
+        std::vector<Node>& nodes,double thickness) {
+    if(!std::isfinite(thickness)||thickness<=0)return 0;
+    const auto same_identity=[](const Face& first,const Face& second) {
+        return first.owner_id==second.owner_id&&
+            first.semantic_key==second.semantic_key&&
+            first.instance_path==second.instance_path;
+    };
+    const auto edge_length=[](const kernel::ViewerEdge& edge) {
+        if(edge.points.size()<2)return 0.;
+        const auto delta=sub(edge.points.back(),edge.points.front());
+        return std::sqrt(dot(delta,delta));
+    };
+    const auto cylinder_error=[](const Face& face,
+            const kernel::ViewerEdge& edge) {
+        if(!face.surface||face.surface->kind!=
+                    kernel::SurfaceGeometry::Kind::Cylinder||
+                edge.points.empty())
+            return std::numeric_limits<double>::infinity();
+        const auto& surface=*face.surface;
+        const auto axis=unit(surface.axis);
+        double result{};
+        for(const auto point:edge.points) {
+            const auto delta=sub(point,surface.origin);
+            const auto radial=sub(delta,mul(axis,dot(delta,axis)));
+            result=std::max(result,std::abs(
+                std::sqrt(dot(radial,radial))-surface.radius));
+        }
+        return result;
+    };
+    const auto coaxial=[](const Face& first,const Face& second) {
+        const auto& a=*first.surface;
+        const auto& b=*second.surface;
+        const auto axis=unit(a.axis);
+        return std::abs(std::abs(dot(axis,unit(b.axis)))-1.)<=1e-8&&
+            std::sqrt(dot(cross(sub(a.origin,b.origin),axis),
+                cross(sub(a.origin,b.origin),axis)))<=1e-5;
+    };
+    const auto original_node_count=nodes.size();
+    std::set<std::string> used_transitions;
+    std::size_t appended{};
+    for(std::size_t plane_index=0;plane_index<original_node_count;
+            ++plane_index) {
+        const auto& source_node=nodes[plane_index];
+        if(!source_node.face.surface||source_node.face.surface->kind!=
+                kernel::SurfaceGeometry::Kind::Plane)
+            continue;
+        bool appended_for_plane{};
+        for(const auto& entry:mesh.edges) {
+            if(!straight(entry)||entry.edge_treatment_side_references.size()!=2)
+                continue;
+            const Face* transition_identity=nullptr;
+            bool owns_entry{};
+            for(const auto& identity:entry.edge_treatment_side_references) {
+                if(same_identity(identity,source_node.face))owns_entry=true;
+                else transition_identity=&identity;
+            }
+            if(!owns_entry||!transition_identity)continue;
+            const double source_length=edge_length(entry);
+            if(source_length<.001)continue;
+            std::vector<Face> inner_candidates;
+            for(const auto& candidate:
+                    mesh.original_references.triangle_references)
+                if(same_identity(candidate,*transition_identity)&&
+                        candidate.surface&&candidate.surface->kind==
+                            kernel::SurfaceGeometry::Kind::Cylinder)
+                    inner_candidates.push_back(candidate);
+            for(const auto& inner:inner_candidates) {
+                if(cylinder_error(inner,entry)>join_tolerance||
+                        dot(normal(inner,entry.points.front()),
+                            normal(source_node.face,
+                                entry.points.front()))<1-1e-6||
+                        used_transitions.contains(key(inner))||
+                        std::ranges::any_of(nodes,[&](const auto& node) {
+                            return same_identity(node.face,inner);
+                        }))
+                    continue;
+                bool has_thickness_pair{};
+                for(const auto& candidate:
+                        mesh.original_references.triangle_references) {
+                    if(!candidate.surface||candidate.surface->kind!=
+                            kernel::SurfaceGeometry::Kind::Cylinder||
+                            std::abs(candidate.surface->radius-
+                                inner.surface->radius-thickness)>1e-5||
+                            !coaxial(inner,candidate))
+                        continue;
+                    has_thickness_pair=true;
+                    break;
+                }
+                if(!has_thickness_pair)continue;
+                const kernel::ViewerEdge* exit_edge=nullptr;
+                std::optional<Face> target_plane;
+                double exit_error=INFINITY;
+                for(const auto& candidate_edge:mesh.edges) {
+                    if(!straight(candidate_edge)||
+                            candidate_edge.edge_treatment_side_references.
+                                size()!=2||
+                            std::abs(edge_length(candidate_edge)-source_length)>
+                                join_tolerance)
+                        continue;
+                    bool owns_transition{};
+                    const Face* other_identity=nullptr;
+                    for(const auto& identity:
+                            candidate_edge.edge_treatment_side_references) {
+                        if(same_identity(identity,inner))
+                            owns_transition=true;
+                        else other_identity=&identity;
+                    }
+                    if(!owns_transition||!other_identity)continue;
+                    const auto other=edge_face_fragment(
+                        mesh,*other_identity,candidate_edge);
+                    if(!other||!other->surface||other->surface->kind!=
+                                kernel::SurfaceGeometry::Kind::Plane||
+                            std::abs(dot(normal(source_node.face,
+                                    entry.points.front()),
+                                normal(*other,
+                                    candidate_edge.points.front())))>
+                                1-1e-6||
+                            dot(normal(inner,
+                                    candidate_edge.points.front()),
+                                normal(*other,
+                                    candidate_edge.points.front()))<1-1e-6)
+                        continue;
+                    const double error=cylinder_error(inner,candidate_edge);
+                    if(error<exit_error) {
+                        exit_error=error;
+                        exit_edge=&candidate_edge;
+                        target_plane=*other;
+                    }
+                }
+                if(!exit_edge||!target_plane||exit_error>1e-4)continue;
+                used_transitions.insert(key(inner));
+                const auto bend_index=nodes.size();
+                nodes.push_back({inner,plane_index,entry});
+                nodes.push_back({*target_plane,bend_index,*exit_edge});
+                ++appended;
+                appended_for_plane=true;
+                break;
+            }
+            if(appended_for_plane)break;
+        }
+    }
+    return appended;
+}
 const kernel::ViewerEdge* bend_exit_edge(const std::vector<Node>& nodes,
         std::size_t bend) {
     for(const auto& candidate:nodes)
@@ -613,6 +758,11 @@ RootSheetFrame root_sheet_frame(const document::PartDocument& source,
     return {chosen_origin,fallback_x,cross(n,fallback_x),n};
 }
 void outline(sketcher::Sketch& sketch,const kernel::ViewerMesh& mesh,const Face& face) {
+    struct BoundaryEdge {
+        const kernel::ViewerEdge* edge;
+        std::vector<Face> sides;
+    };
+    std::vector<BoundaryEdge> boundary;
     for(const auto& edge:mesh.edges) {
         std::vector<Face> sides;
         for(const auto& identity:edge.edge_treatment_side_references)
@@ -628,49 +778,113 @@ void outline(sketcher::Sketch& sketch,const kernel::ViewerMesh& mesh,const Face&
             std::ranges::any_of(sides,
                 [&](const auto& side){return same_fragment(side,face);});
         if(edge.parameter_seam||!belongs)continue;
+        boundary.push_back({&edge,std::move(sides)});
+    }
+    struct CircularEdge {
+        std::array<double,2> center,a,b,m;
+        double radius{};
+    };
+    const auto circular=[&](const BoundaryEdge& boundary_edge) ->
+            std::optional<CircularEdge> {
+        const auto& edge=*boundary_edge.edge;
+        std::optional<std::array<double,2>> circle_center;
+        double radius{};
+        for(const auto& side:boundary_edge.sides)
+            if(!same_fragment(side,face)&&side.surface) {
+                const auto& surface=*side.surface;
+                if(surface.kind!=kernel::SurfaceGeometry::Kind::Cylinder||
+                        std::abs(dot(surface.axis,
+                            sketch.resolved_normal))<1-1e-7)
+                    continue;
+                circle_center=sketch.local_point(surface.origin);
+                radius=surface.radius;
+            }
+        if(!circle_center||edge.points.size()<=2)return std::nullopt;
+        const auto center=*circle_center;
+        for(const auto point:edge.points) {
+            const auto local=sketch.local_point(point);
+            if(std::abs(std::hypot(local[0]-center[0],
+                    local[1]-center[1])-radius)>1e-5)
+                return std::nullopt;
+        }
+        const auto project=[&](std::array<double,2> point) {
+            const double length=std::hypot(point[0]-center[0],
+                point[1]-center[1]);
+            if(length<=1e-12)return point;
+            point[0]=center[0]+radius*(point[0]-center[0])/length;
+            point[1]=center[1]+radius*(point[1]-center[1])/length;
+            return point;
+        };
+        return CircularEdge{center,project(sketch.local_point(
+            edge.points.front())),project(sketch.local_point(
+            edge.points.back())),project(sketch.local_point(
+            edge.points[edge.points.size()/2])),radius};
+    };
+    std::vector<bool> consumed(boundary.size());
+    for(std::size_t edge_index=0;edge_index<boundary.size();++edge_index) {
+        if(consumed[edge_index])continue;
+        const auto& edge=*boundary[edge_index].edge;
         if(straight(edge)) {
             const auto a=sketch.local_point(edge.points.front()),b=sketch.local_point(edge.points.back());
             static_cast<void>(sketch.add_segment(a[0],a[1],b[0],b[1],1e-6,false));continue;
         }
-        std::optional<std::array<double,2>> circle_center;double radius=0;
-        for(const auto& side:sides)
-                if(!same_fragment(side,face)&&side.surface) {
-            const auto& surface=*side.surface;
-            if(surface.kind!=kernel::SurfaceGeometry::Kind::Cylinder||std::abs(dot(surface.axis,sketch.resolved_normal))<1-1e-7)continue;
-            circle_center=sketch.local_point(surface.origin);radius=surface.radius;
-        }
-        if(circle_center&&edge.points.size()>2) {
-            const auto center=*circle_center;bool circular=true;
-            for(auto p:edge.points){const auto q=sketch.local_point(p);if(std::abs(std::hypot(q[0]-center[0],q[1]-center[1])-radius)>1e-5)circular=false;}
-            if(circular) {
-                auto a=sketch.local_point(edge.points.front()),b=sketch.local_point(edge.points.back());
-                const auto m=sketch.local_point(edge.points[edge.points.size()/2]);
-                const auto project=[&](std::array<double,2> point) {
-                    const double length=std::hypot(point[0]-center[0],point[1]-center[1]);
-                    if(length<=1e-12)return point;
-                    point[0]=center[0]+radius*(point[0]-center[0])/length;
-                    point[1]=center[1]+radius*(point[1]-center[1])/length;
-                    // OCCT can report a circular endpoint a few tenths of a
-                    // micron away from its analytic cylinder. Keep the shared
-                    // native Sketch point, but put it on the exact circle so
-                    // the imported Flat stays closed and editable.
-                    const auto existing=std::ranges::find_if(sketch.points,[&](const auto& candidate) {
-                        return std::hypot(candidate.x-point[0],candidate.y-point[1])<=1e-5;
-                    });
-                    if(existing!=sketch.points.end()) {
-                        existing->x=point[0];existing->y=point[1];
-                    }
-                    return point;
-                };
-                a=project(a);b=project(b);
-                if(std::hypot(a[0]-b[0],a[1]-b[1])<1e-6)static_cast<void>(sketch.add_circle(center[0],center[1],radius));
-                else {
-                    const double start=std::atan2(a[1]-center[1],a[0]-center[0]);
-                    const auto angle=[&](const auto& p){double d=std::atan2(p[1]-center[1],p[0]-center[0])-start;return d<0?d+2*std::numbers::pi:d;};
-                    static_cast<void>(sketch.add_arc(center[0],center[1],a[0],a[1],b[0],b[1],false,1e-7,angle(m)>angle(b)));
-                }
+        if(const auto circle=circular(boundary[edge_index])) {
+            const auto& [center,a,b,m,radius]=*circle;
+            if(std::hypot(a[0]-b[0],a[1]-b[1])<1e-6) {
+                static_cast<void>(sketch.add_circle(center[0],center[1],radius));
                 continue;
             }
+            bool merged{};
+            for(std::size_t other_index=edge_index+1;
+                    other_index<boundary.size();++other_index) {
+                if(consumed[other_index])continue;
+                const auto other=circular(boundary[other_index]);
+                if(!other||std::hypot(other->center[0]-center[0],
+                            other->center[1]-center[1])>1e-5||
+                        std::abs(other->radius-radius)>1e-5)
+                    continue;
+                const bool same_ends=(std::hypot(other->a[0]-a[0],
+                            other->a[1]-a[1])<=1e-5&&
+                        std::hypot(other->b[0]-b[0],
+                            other->b[1]-b[1])<=1e-5)||
+                    (std::hypot(other->a[0]-b[0],
+                            other->a[1]-b[1])<=1e-5&&
+                        std::hypot(other->b[0]-a[0],
+                            other->b[1]-a[1])<=1e-5);
+                const auto chord_side=[&](const auto& point) {
+                    return (b[0]-a[0])*(point[1]-a[1])-
+                        (b[1]-a[1])*(point[0]-a[0]);
+                };
+                if(!same_ends||chord_side(m)*chord_side(other->m)>=-1e-10)
+                    continue;
+                consumed[other_index]=true;
+                static_cast<void>(sketch.add_circle(center[0],center[1],radius));
+                merged=true;
+                break;
+            }
+            if(merged)continue;
+            // OCCT can report a circular endpoint a few tenths of a micron
+            // away from its analytic cylinder. Keep a shared native Sketch
+            // point on the exact circle for non-closed curved boundaries.
+            for(const auto point:{a,b}) {
+                const auto existing=std::ranges::find_if(sketch.points,
+                    [&](const auto& candidate) {
+                        return std::hypot(candidate.x-point[0],
+                            candidate.y-point[1])<=1e-5;
+                    });
+                if(existing!=sketch.points.end()) {
+                    existing->x=point[0];existing->y=point[1];
+                }
+            }
+            const double start=std::atan2(a[1]-center[1],a[0]-center[0]);
+            const auto angle=[&](const auto& point) {
+                double value=std::atan2(point[1]-center[1],
+                    point[0]-center[0])-start;
+                return value<0?value+2*std::numbers::pi:value;
+            };
+            static_cast<void>(sketch.add_arc(center[0],center[1],a[0],a[1],
+                b[0],b[1],false,1e-7,angle(m)>angle(b)));
+            continue;
         }
         const auto original=std::ranges::find_if(mesh.original_references.edges,[&](const auto& e){return e.reference==edge.reference;});
         const auto* exact=edge.exact_spline?&*edge.exact_spline:original!=mesh.original_references.edges.end()&&original->exact_spline?&*original->exact_spline:nullptr;
@@ -1402,7 +1616,10 @@ SheetBodyConversion prepare_sheet_from_body(const document::PartDocument& source
     if(!root||!root->surface||
             root->surface->kind!=kernel::SurfaceGeometry::Kind::Plane)
         throw std::invalid_argument("Select a calculated planar source face.");
-    const auto nodes=skin(mesh,*root);
+    auto nodes=skin(mesh,*root);
+    if(imported_step_source)
+        static_cast<void>(append_imported_compound_bends(
+            mesh,nodes,thickness));
     const auto continuations=imported_step_source?
         std::vector<ContinuationBend>{}:
         infer_corner_continuations(mesh,nodes);
@@ -1465,6 +1682,269 @@ SheetBodyConversion prepare_sheet_from_body(const document::PartDocument& source
             " segments, "+
             std::to_string(result.document.sketches.back().points.size())+
             " points): "+error.what()+profile);
+    }
+    if(imported_step_source) {
+        // A finished imported sheet already carries its manufacturing seams.
+        // Rebuild it branch-by-branch with the ordinary native contract:
+        // Flat -> Bend -> the Bend's output End -> Flat.  The general solid
+        // conversion below deliberately remains a separate algorithm because
+        // it must infer clearances and omitted corner continuations that do
+        // not exist in a finished sheet model.
+        std::vector<std::string> imported_authored(nodes.size());
+        imported_authored.front()=result.created.front();
+        std::vector<std::size_t> imported_order;
+        std::vector<std::size_t> pending{0};
+        while(!pending.empty()) {
+            const auto parent=pending.back();
+            pending.pop_back();
+            if(parent)imported_order.push_back(parent);
+            std::vector<std::size_t> children;
+            for(std::size_t index=1;index<nodes.size();++index)
+                if(nodes[index].parent&&*nodes[index].parent==parent)
+                    children.push_back(index);
+            const auto entry_length_squared=[&](std::size_t index) {
+                const auto& points=nodes[index].entry.points;
+                if(points.size()<2)return 0.;
+                const auto delta=sub(points.back(),points.front());
+                return dot(delta,delta);
+            };
+            // Complete the long manufacturing walls before their short end
+            // tabs.  STEP exporters can represent one tab corner by two
+            // neighbouring rounds; adding that closed end first leaves a
+            // transient overlap when the full-length sibling Flat is fused.
+            // The stack pops its last item, hence ascending length and reverse
+            // identity order here produce longest-first stable traversal.
+            std::ranges::sort(children,[&](std::size_t first,
+                    std::size_t second) {
+                const double first_length=entry_length_squared(first);
+                const double second_length=entry_length_squared(second);
+                if(std::abs(first_length-second_length)>1e-12)
+                    return first_length<second_length;
+                return first>second;
+            });
+            pending.insert(pending.end(),children.begin(),children.end());
+        }
+        const auto edge_distance=[](const kernel::ViewerEdge& first,
+                const kernel::ViewerEdge& second) {
+            const auto distance=[](V a,V b) {
+                const auto delta=sub(a,b);
+                return std::sqrt(dot(delta,delta));
+            };
+            if(first.points.empty()||second.points.empty())
+                return std::numeric_limits<double>::infinity();
+            return std::min(
+                std::max(distance(first.points.front(),second.points.front()),
+                    distance(first.points.back(),second.points.back())),
+                std::max(distance(first.points.front(),second.points.back()),
+                    distance(first.points.back(),second.points.front())));
+        };
+        for(const auto index:imported_order) {
+            const auto& node=nodes[index];
+            if(!node.parent||*node.parent>=imported_authored.size()||
+                    imported_authored[*node.parent].empty()) {
+                throw std::invalid_argument(
+                    "Sheet conversion cannot reproduce every connected face.");
+            }
+            const auto& parent=imported_authored[*node.parent];
+            const auto& surface=*node.face.surface;
+            const bool bend=surface.kind==
+                kernel::SurfaceGeometry::Kind::Cylinder;
+            const auto* exit_edge=bend?bend_exit_edge(nodes,index):nullptr;
+            if(bend&&!exit_edge) {
+                continue;
+            }
+
+            const auto geometry=construction_reference_source_geometry(
+                result.calculated);
+            const auto local_geometry=source.sketch_reference_geometry_for(
+                local_context,geometry);
+            auto a=node.entry.points.front();
+            auto b=node.entry.points.back();
+            if(bend&&surface.reversed) {
+                const auto shift=mul(normal(node.face,a),-thickness);
+                a=add(a,shift);b=add(b,shift);
+            }
+            const auto distance=[](V first,V second) {
+                const auto delta=sub(first,second);
+                return std::sqrt(dot(delta,delta));
+            };
+            const kernel::ViewerEdge* attachment=nullptr;
+            double attachment_error=INFINITY;
+            if(bend) {
+                // A Bend starts on the exact source-face boundary represented
+                // by its parent native Flat.
+                for(const auto& edge:local_geometry.edges) {
+                    if(edge.reference.owner_id!=parent||!straight(edge))
+                        continue;
+                    try {
+                        static_cast<void>(
+                            document::bend_sheet_references(edge));
+                    } catch(const std::invalid_argument&) {continue;}
+                    const double error=std::min(
+                        std::max(distance(a,edge.points.front()),
+                            distance(b,edge.points.back())),
+                        std::max(distance(b,edge.points.front()),
+                            distance(a,edge.points.back())));
+                    if(error<attachment_error) {
+                        attachment_error=error;
+                        attachment=&edge;
+                    }
+                }
+            } else {
+                // Do not rediscover a merely similar edge from the STEP face.
+                // The following Flat is owned by the explicit output End of
+                // its newly authored native Bend, including both End vertices.
+                const auto* parent_feature=result.document.find_container(
+                    parent);
+                if(!parent_feature||parent_feature->feature_kind!=
+                        document::FeatureKind::Bend)
+                    throw std::invalid_argument(
+                        "Sheet conversion cannot reproduce every connected face.");
+                const auto parent_sketch=std::ranges::find(
+                    result.document.sketches,parent_feature->bend.sketch_id,
+                    &sketcher::Sketch::id);
+                if(parent_sketch==result.document.sketches.end())
+                    throw std::invalid_argument(
+                        "Sheet conversion cannot reproduce every connected face.");
+                const auto preview=document::bend_preview(*parent_feature,
+                    *parent_sketch,
+                    document::sheet_metal_defaults(result.document));
+                const auto& output_end=bend_preview_edge(
+                    preview,"outer-end");
+                for(const auto& edge:local_geometry.edges) {
+                    if(edge.reference.owner_id!=parent||!straight(edge))
+                        continue;
+                    try {
+                        static_cast<void>(
+                            document::flat_sheet_references(edge));
+                    } catch(const std::invalid_argument&) {continue;}
+                    const double error=edge_distance(edge,output_end);
+                    if(error<attachment_error) {
+                        attachment_error=error;
+                        attachment=&edge;
+                    }
+                }
+            }
+            if(!attachment||attachment_error>join_tolerance) {
+                throw std::invalid_argument(
+                    "Sheet conversion cannot reproduce every connected face.");
+            }
+            const auto attachment_anchor=[&]() {
+                if(attachment->edge_treatment_endpoint_references.size()!=2||
+                        attachment->points.size()<2)
+                    return kernel::VertexReference{};
+                const auto target=node.entry.points.front();
+                const auto first_delta=sub(attachment->points.front(),target);
+                const auto last_delta=sub(attachment->points.back(),target);
+                return attachment->edge_treatment_endpoint_references[
+                    dot(last_delta,last_delta)<dot(first_delta,first_delta)?1:0];
+            }();
+
+            auto next=result.document;
+            auto profile=sketcher::Sketch::create_default();
+            auto added=document::PartDocument::create_sketch_container();
+            profile.owner_container_id=added.id;
+            added.feature_kind=bend?document::FeatureKind::Bend:
+                document::FeatureKind::Flat;
+            added.name=bend?"Ohyb":"Tabule";
+            profile.name=added.name;
+            if(bend) {
+                const auto incoming=normal(node.face,
+                    node.entry.points.front());
+                const auto outgoing=normal(node.face,
+                    exit_edge->points.front());
+                added.bend.angle_degrees=std::acos(std::clamp(
+                    dot(incoming,outgoing),-1.,1.))*180/std::numbers::pi;
+                added.bend.radius=surface.radius-
+                    (surface.reversed?0:thickness);
+                if(std::abs(added.bend.radius)<=1e-7)
+                    added.bend.radius=0;
+                if(added.bend.radius<0||
+                        added.bend.angle_degrees<.001)
+                    throw std::invalid_argument(
+                        "Sheet conversion cannot reproduce this surface transition.");
+                added.bend.sketch_id=profile.id;
+                added.bend.sheet_attachment=true;
+                added.bend.thickness_override=thickness_override;
+                added.bend.thickness=thickness;
+                document::initialize_bend_start_profile(profile,
+                    distance(a,b));
+                added.placement.references=
+                    document::bend_sheet_references(
+                        *attachment,attachment_anchor);
+            } else {
+                added.flat.sketch_id=profile.id;
+                added.flat.sheet_attachment=true;
+                added.flat.thickness_override=thickness_override;
+                added.flat.thickness=thickness;
+                added.flat.direction=document::ExtrusionDirection::Reverse;
+                added.placement.references=
+                    document::flat_sheet_references(
+                        *attachment,attachment_anchor);
+            }
+            next.insert_history_entry(document::PartHistoryKind::Feature,
+                added.id);
+            next.history.push_back(added);
+            next.sketches.push_back(profile);
+            if(replaces_body)
+                next.find_container(result.container_id)->
+                    sheet_from_body.generated_features.push_back(added.id);
+            next.resolve_constructions(geometry);
+            auto& placed=next.sketches.back();
+            if(!bend) {
+                if(std::abs(dot(placed.resolved_normal,surface.axis))<
+                        1-1e-6)
+                    throw std::invalid_argument(
+                        "Sheet conversion cannot reproduce this surface transition.");
+                outline(placed,mesh,node.face);
+                bind_flat_outline_to_attachment(placed,0,false);
+            } else {
+                document::prepare_bend_sketches(next.history.back(),placed,
+                    document::sheet_metal_defaults(next));
+                const auto end=sketcher::Sketch::from_serialized(
+                    next.history.back().bend.auxiliary_sketches[1]);
+                const auto first=end.local_point(exit_edge->points.front());
+                const auto last=end.local_point(exit_edge->points.back());
+                const auto* start_reference=end.find_point(
+                    end.id+":reference:first");
+                const auto* end_reference=end.find_point(
+                    end.id+":reference:last");
+                const double source_start=std::min(first[0],last[0]);
+                const double source_end=std::max(first[0],last[0]);
+                for(const auto& other:nodes) {
+                    if(&other==&node||!other.face.surface||
+                            other.face.surface->kind!=
+                                kernel::SurfaceGeometry::Kind::Cylinder)
+                        continue;
+                    for(const auto point:node.entry.points)
+                        for(const auto other_point:other.entry.points) {
+                            if(distance(point,other_point)>join_tolerance)
+                                continue;
+                            const auto local=end.local_point(point);
+                            const std::size_t endpoint=
+                                std::abs(local[0]-source_start)<=
+                                    std::abs(local[0]-source_end)?0:1;
+                            next.history.back().bend.corner[endpoint]=true;
+                            next.history.back().bend.corner_gap=0;
+                        }
+                }
+                document::set_bend_profile_extensions(next.history.back(),
+                    start_reference->x-source_start,
+                    source_end-end_reference->x);
+                document::prepare_bend_sketches(next.history.back(),placed,
+                    document::sheet_metal_defaults(next));
+            }
+            PartCalculationPolicy policy;
+            policy.reject_errors=true;
+            auto calculated=calculate_part_with_resolved_references(
+                kernel,next,&result.calculated,policy);
+            result.document=std::move(next);
+            result.calculated=std::move(calculated);
+            result.created.push_back(added.id);
+            imported_authored[index]=added.id;
+        }
+        result.document.validate_sheet_from_body();
+        return result;
     }
     std::vector<std::string> authored(nodes.size());
     authored.front()=result.created.front();

@@ -721,6 +721,7 @@ PreparedSheetProfile prepare_sheet_profile(const document::PartDocument& before,
         add(route_origin,mul(width_axis,width_first)),
         add(route_origin,mul(width_axis,width_last))};
     std::optional<sketcher::Sketch> previous_bend_end;
+    double carried_outer_offset=0.;
     for(std::size_t index=0;index<route.spans.size();++index) {
         const auto& span=route.spans[index];
         auto child=child_for(before,profile,span,old_children);
@@ -780,8 +781,13 @@ PreparedSheetProfile prepare_sheet_profile(const document::PartDocument& before,
                     "Sheet Profile thickness exceeds an outer Bend radius.");
             const auto material=mul(left,
                 static_cast<double>(profile.sheet_profile.material_side));
-            const auto outer_start=material_toward_center?route_origin:
-                add(route_origin,mul(material,thickness));
+            const double outer_offset=material_toward_center?0.:thickness;
+            // route_origin already contains the material-side displacement
+            // produced by the preceding Bend. Apply only the change needed by
+            // this Bend, otherwise consecutive same-side turns accumulate a
+            // second sheet-thickness gap at their shared edge.
+            const auto outer_start=add(route_origin,mul(material,
+                outer_offset-carried_outer_offset));
             const auto inward=mul(left,static_cast<double>(turn));
             const auto along=mul(width_axis,static_cast<double>(-turn));
             child.feature.bend.sketch_id=child.sketch.id;
@@ -844,6 +850,7 @@ PreparedSheetProfile prepare_sheet_profile(const document::PartDocument& before,
                 child.feature.bend.auxiliary_sketches[1]);
             incoming_width_edge=bend_end_width_edge(*previous_bend_end);
             route_origin=previous_bend_end->resolved_origin;
+            carried_outer_offset=outer_offset;
         }
         logical.push_back(std::move(child));
     }
