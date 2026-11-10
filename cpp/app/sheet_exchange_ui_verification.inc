@@ -140,11 +140,11 @@ int verify_sheet_exchange_ui(QApplication& application,const std::filesystem::pa
             check(conversion_row,"Sheet from Body boundary is absent from the Tree");
             check(!conversion_row->icon(0).isNull(),
                 "Sheet from Body boundary has no Tree icon");
-            check(conversion_row->childCount()==0,
-                "Sheet from Body boundary is incorrectly presented as a Tree parent");
+            check(conversion_row->childCount()==static_cast<int>(
+                    conversion->sheet_from_body.generated_features.size()),
+                "Sheet from Body boundary does not own its generated Tree rows");
             auto* history_parent=conversion_row->parent();
             check(history_parent,"Sheet from Body boundary has no Body history owner");
-            const auto boundary_index=history_parent->indexOfChild(conversion_row);
             for(std::size_t index=0;
                     index<conversion->sheet_from_body.generated_features.size();
                     ++index) {
@@ -152,14 +152,19 @@ int verify_sheet_exchange_ui(QApplication& application,const std::filesystem::pa
                 QTreeWidgetItem* feature_row=nullptr;
                 for(QTreeWidgetItemIterator it(tree);*it;++it)
                     if((*it)->data(0,Qt::UserRole).toString().toStdString()==id){feature_row=*it;break;}
-                check(feature_row&&feature_row->parent()==history_parent&&
-                        history_parent->indexOfChild(feature_row)==
-                            boundary_index+1+static_cast<int>(index),
-                    "Generated feature does not follow its Sheet from Body history boundary");
+                check(feature_row&&feature_row->parent()==conversion_row&&
+                        conversion_row->indexOfChild(feature_row)==
+                            static_cast<int>(index),
+                    "Generated feature is not nested under its Sheet from Body boundary");
             }
         } else {
-            check(conversion==saved.history.end(),
-                "Cross-Body conversion incorrectly created a history boundary");
+            check(conversion!=saved.history.end()&&
+                    !conversion->sheet_from_body.replaces_body&&
+                    conversion->sheet_from_body.source_body_id==
+                        saved.body_history.order().front()&&
+                    conversion->sheet_from_body.generated_features.size()==
+                        conversion->sheet_from_body.child_bindings.size(),
+                "Cross-Body conversion lost its associative history boundary");
             const auto* source_body=saved.body_history.find(
                 saved.body_history.order().front());
             const auto* target_body=saved.body_history.find(target_id);
@@ -170,13 +175,19 @@ int verify_sheet_exchange_ui(QApplication& application,const std::filesystem::pa
             for(QTreeWidgetItemIterator it(tree);*it;++it)
                 if((*it)->data(0,Qt::UserRole).toString().toStdString()==target_id){target_row=*it;break;}
             check(target_row,"Cross-Body conversion target is absent from the Tree");
-            for(auto feature=saved.history.begin()+static_cast<std::ptrdiff_t>(original);
-                    feature!=saved.history.end();++feature) {
+            QTreeWidgetItem* conversion_row=nullptr;
+            for(QTreeWidgetItemIterator it(tree);*it;++it)
+                if((*it)->data(0,Qt::UserRole).toString().toStdString()==
+                        conversion->id){conversion_row=*it;break;}
+            check(conversion_row&&conversion_row->parent()==target_row,
+                "Cross-Body conversion boundary is not owned by its target Body");
+            for(const auto& id:
+                    conversion->sheet_from_body.generated_features) {
                 QTreeWidgetItem* feature_row=nullptr;
                 for(QTreeWidgetItemIterator it(tree);*it;++it)
-                    if((*it)->data(0,Qt::UserRole).toString().toStdString()==feature->id){feature_row=*it;break;}
-                check(feature_row&&feature_row->parent()==target_row,
-                    "Cross-Body sheet feature is not an ordinary target-Body row");
+                    if((*it)->data(0,Qt::UserRole).toString().toStdString()==id){feature_row=*it;break;}
+                check(feature_row&&feature_row->parent()==conversion_row,
+                    "Cross-Body sheet feature is not nested under its conversion");
             }
         }
         check(window.findChild<QAction*>("sheetFromBodyAction")->isEnabled(),"Conversion unavailable in the active editable Body");

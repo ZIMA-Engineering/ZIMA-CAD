@@ -9,6 +9,7 @@
 #include <zima/document/profile_status.hpp>
 #include <zima/document/bend.hpp>
 #include <zima/document/metadata.hpp>
+#include <zima/document/solid_state_calculation.hpp>
 #include <zima/workspace/model_calculation.hpp>
 #include <zima/workspace/history_operations.hpp>
 #include <zima/workspace/history_deletion.hpp>
@@ -172,6 +173,35 @@ void contract(bool include_oblique_corners = true) {
             part,cache,*seed,1,kernel);
         check(converted.created.size()==7&&converted.skipped==0,
             "Three rounded edges did not create four Flats and three Bends");
+        const auto* conversion=converted.document.find_container(
+            converted.container_id);
+        check(conversion&&conversion->sheet_from_body.child_bindings.size()==
+                    converted.created.size()&&
+                conversion->sheet_from_body.child_bindings.front().root,
+            "Sheet conversion did not retain one source binding per child");
+        for(const auto& binding:
+                conversion->sheet_from_body.child_bindings) {
+            check(!binding.faces.empty()&&!binding.edges.empty()&&
+                    binding.references_valid&&!binding.detached,
+                "Sheet conversion source binding is incomplete");
+            if(!binding.bend)continue;
+            const auto has_role=[&](document::SheetFromBodyFaceRole role) {
+                return std::ranges::any_of(binding.faces,
+                    [&](const auto& face){return face.role==role;});
+            };
+            check((has_role(document::SheetFromBodyFaceRole::BendInner)||
+                    has_role(document::SheetFromBodyFaceRole::BendOuter))&&
+                    has_role(document::SheetFromBodyFaceRole::Adjacent),
+                "Converted Bend did not retain its radius and adjacent source faces");
+            check(std::ranges::any_of(binding.edges,[](const auto& edge) {
+                    return edge.role==
+                        document::SheetFromBodyEdgeRole::Entry;
+                })&&std::ranges::any_of(binding.edges,[](const auto& edge) {
+                    return edge.role==
+                        document::SheetFromBodyEdgeRole::Exit;
+                }),
+                "Converted Bend did not retain its source entry and exit edges");
+        }
         std::size_t double_meeting{},single_meeting{},bends{};
         std::string middle_bend;
         for(const auto& id:converted.created) {
@@ -360,6 +390,7 @@ void contract(bool include_oblique_corners = true) {
         });
         std::ranges::reverse(bend_candidates);
         bool appended_bend{};
+        std::string appended_bend_error;
         for(const auto* edge:bend_candidates)try {
             auto with_bend=reconverted.document;
             with_bend.body_history.activate(converted_sheet_body->scope.id);
@@ -401,9 +432,12 @@ void contract(bool include_oblique_corners = true) {
                 "Bend after a STEP circle failed cold regeneration");
             appended_bend=true;
             break;
-        } catch(const std::exception&) {}
-        check(appended_bend,
-            "A native Bend could not follow a STEP Flat containing a split circular opening");
+        } catch(const std::exception& error) {
+            appended_bend_error=error.what();
+        }
+        if(!appended_bend)throw std::runtime_error(
+            "A native Bend could not follow a STEP Flat containing a split circular opening: "+
+            appended_bend_error);
         QTemporaryDir imported_native_fixture(
             QStringLiteral("build/three-sheet-native-XXXXXX"));
         check(imported_native_fixture.isValid(),
@@ -1335,6 +1369,13 @@ void contract(bool include_oblique_corners = true) {
             check(boundary&&boundary->feature_kind==
                     document::FeatureKind::SheetFromBody&&
                     boundary->sheet_from_body.generated_features==same.created&&
+                    boundary->sheet_from_body.child_bindings.size()==
+                        same.created.size()&&
+                    boundary->sheet_from_body.child_bindings.front().root&&
+                    boundary->sheet_from_body.child_bindings.front().
+                        feature_id==same.created.front()&&
+                    boundary->sheet_from_body.child_bindings.front().
+                        faces.size()>=2&&
                     boundary->sheet_from_body.replaces_body&&
                     boundary->sheet_from_body.source_body_id==source,
                 "Same-Body conversion did not persist its history boundary");
@@ -1350,8 +1391,141 @@ void contract(bool include_oblique_corners = true) {
             same.calculated=workspace::calculate_part_with_resolved_references(kernel,same.document);
             near(measured_volume(kernel,same.calculated.back().body_outputs.at(source)),expected*2/3,.001);
             auto reopened=document::PartDocument::from_serialized(same.document.serialized());
+            const auto* current_boundary=same.document.find_container(
+                same.container_id);
+            const auto* reopened_boundary=reopened.find_container(
+                same.container_id);
+            check(current_boundary&&reopened_boundary&&
+                    reopened_boundary->sheet_from_body.child_bindings==
+                        current_boundary->sheet_from_body.child_bindings,
+                "Native round trip changed Sheet from Body source bindings");
             auto cold=workspace::calculate_part_with_resolved_references(kernel,reopened);
             near(measured_volume(kernel,cold.back().body_outputs.at(source)),expected*2/3,.001);
+            if(direction==document::ExtrusionDirection::Forward) {
+                auto linked=same;
+                const auto generated_ids=linked.created;
+                std::vector<std::string> generated_sketch_ids;
+                for(const auto& id:generated_ids) {
+                    const auto* child=linked.document.find_container(id);
+                    generated_sketch_ids.push_back(
+                        child->feature_kind==document::FeatureKind::Flat?
+                            child->flat.sketch_id:child->bend.sketch_id);
+                }
+                const auto source_profile=std::ranges::find(
+                    linked.document.sketches,feature.id,
+                    &sketcher::Sketch::owner_container_id);
+                check(source_profile!=linked.document.sketches.end(),
+                    "Associative source Flat lost its owned Sketch");
+                for(auto& point:source_profile->points)
+                    if(std::abs(point.x-100)<1e-9)point.x=120;
+                linked.calculated=
+                    workspace::calculate_part_with_resolved_references(
+                        kernel,linked.document,&linked.calculated);
+                const double first_edit_volume=expected*2/3+20*80*2;
+                near(measured_volume(kernel,linked.calculated.back().
+                    body_outputs.at(source)),first_edit_volume,.001);
+                const auto* linked_parent=linked.document.find_container(
+                    linked.container_id);
+                check(linked_parent&&
+                        linked_parent->sheet_from_body.generated_features==
+                            generated_ids&&
+                        std::ranges::all_of(linked_parent->sheet_from_body.
+                            child_bindings,[](const auto& binding) {
+                                return binding.references_valid;
+                            }),
+                    "Source dimension edit lost Sheet from Body identities or bindings");
+                for(std::size_t index=0;index<generated_ids.size();++index) {
+                    const auto* child=linked.document.find_container(
+                        generated_ids[index]);
+                    check(child&&
+                            (child->feature_kind==document::FeatureKind::Flat?
+                                child->flat.sketch_id:child->bend.sketch_id)==
+                                    generated_sketch_ids[index],
+                        "Source dimension edit changed a generated Sketch identity");
+                }
+
+                auto second_edit=linked.document;
+                const auto second_profile=std::ranges::find(
+                    second_edit.sketches,feature.id,
+                    &sketcher::Sketch::owner_container_id);
+                for(auto& point:second_profile->points)
+                    if(std::abs(point.x-120)<1e-9)point.x=135;
+                auto second_calculated=
+                    workspace::calculate_part_with_resolved_references(
+                        kernel,second_edit,&linked.calculated);
+                const double second_edit_volume=expected*2/3+35*80*2;
+                near(measured_volume(kernel,second_calculated.back().
+                    body_outputs.at(source)),second_edit_volume,.001);
+                const auto settled_definition=second_edit.serialized();
+                const auto settled_fingerprint=second_calculated.back().
+                    source_fingerprint;
+                auto repeated=
+                    workspace::calculate_part_with_resolved_references(
+                        kernel,second_edit,&second_calculated);
+                check(second_edit.serialized()==settled_definition&&
+                        repeated.back().source_fingerprint==
+                            settled_fingerprint,
+                    "Unchanged associative regeneration rewrote the document");
+
+                workspace::Workspace association_live;
+                const auto association_id=same.document.document_id;
+                association_live.add_part(same.document,same.calculated);
+                workspace::commit_part_document(association_live,
+                    association_id,linked.document,linked.calculated);
+                workspace::commit_part_document(association_live,
+                    association_id,second_edit,second_calculated);
+                auto& association_session=association_live.open_part(
+                    association_id)->session;
+                check(workspace::step_part_document_history(
+                            association_live,association_id,false),
+                    "First associative source edit Undo failed");
+                near(measured_volume(kernel,association_session.
+                    calculated_boundaries().back().body_outputs.at(source)),
+                    first_edit_volume,.001);
+                check(workspace::step_part_document_history(
+                            association_live,association_id,false),
+                    "Second associative source edit Undo failed");
+                near(measured_volume(kernel,association_session.
+                    calculated_boundaries().back().body_outputs.at(source)),
+                    expected*2/3,.001);
+                check(workspace::step_part_document_history(
+                            association_live,association_id,true)&&
+                        workspace::step_part_document_history(
+                            association_live,association_id,true),
+                    "Associative source edit Redo failed");
+                near(measured_volume(kernel,association_session.
+                    calculated_boundaries().back().body_outputs.at(source)),
+                    second_edit_volume,.001);
+
+                auto linked_reopened=document::PartDocument::from_serialized(
+                    second_edit.serialized(second_calculated));
+                const auto linked_cold=
+                    workspace::calculate_part_with_resolved_references(
+                        kernel,linked_reopened);
+                near(measured_volume(kernel,linked_cold.back().
+                    body_outputs.at(source)),second_edit_volume,.001);
+                const auto* cold_parent=linked_reopened.find_container(
+                    linked.container_id);
+                check(cold_parent&&cold_parent->sheet_from_body.
+                        generated_features==generated_ids,
+                    "Cold reopen changed associative child identities");
+
+                auto broken=second_edit;
+                broken.erase_history_object(feature.id);
+                const auto broken_calculated=
+                    workspace::calculate_part_with_resolved_references(
+                        kernel,broken,&second_calculated);
+                near(measured_volume(kernel,broken_calculated.back().
+                    body_outputs.at(source)),second_edit_volume,.001);
+                const auto* broken_parent=broken.find_container(
+                    linked.container_id);
+                check(broken_parent&&std::ranges::all_of(
+                        broken_parent->sheet_from_body.child_bindings,
+                        [](const auto& binding) {
+                            return !binding.references_valid;
+                        }),
+                    "Missing source did not retain and mark last-valid generated sheets");
+            }
             workspace::Workspace live;const auto document_id=reopened.document_id;
             live.add_part(std::move(reopened),std::move(cold));
             auto* session=&live.open_part(document_id)->session;
@@ -1450,14 +1624,23 @@ void contract(bool include_oblique_corners = true) {
         check(part.serialized()==before,"Conversion mutated its input");
         check(converted.created.size()==1&&converted.skipped==0,"Planar conversion created unexpected features");
         const auto* retained_source=converted.document.body_history.find(source);
-        check(converted.container_id.empty()&&retained_source&&
+        const auto* cross_boundary=converted.document.find_container(
+            converted.container_id);
+        check(cross_boundary&&
+                cross_boundary->feature_kind==
+                    document::FeatureKind::SheetFromBody&&
+                !cross_boundary->sheet_from_body.replaces_body&&
+                cross_boundary->sheet_from_body.source_body_id==source&&
+                cross_boundary->sheet_from_body.generated_features==
+                    converted.created&&
+                cross_boundary->sheet_from_body.child_bindings.size()==1&&
+                retained_source&&
                 retained_source->visible&&!retained_source->suppressed&&
-                std::ranges::none_of(converted.document.history,
-                    [](const auto& feature) {
-                        return feature.feature_kind==
-                            document::FeatureKind::SheetFromBody;
-                    }),
-            "Cross-Body conversion did not retain both Bodies without a boundary");
+                std::ranges::find(converted.document.body_history.find(
+                    target)->dependencies,source)!=
+                    converted.document.body_history.find(target)->
+                        dependencies.end(),
+            "Cross-Body conversion did not retain its associative boundary and source Body");
         const auto& sketch=converted.document.sketches.back();
         check(sketch.bsplines.empty()&&sketch.arcs.size()>=4,"Native slots were replaced with splines");
         check(converted.document.history.back().placement.references.empty()&&sketch.external_references.empty(),"Root sheet retained source references");
@@ -1528,6 +1711,193 @@ void contract(bool include_oblique_corners = true) {
         near(measured_volume(kernel,body_delete_calculated.back()),expected,.001);
         bool rejected=false;try{static_cast<void>(workspace::prepare_sheet_from_body(reopened,recalculated,seed,3,kernel));}catch(const std::invalid_argument&){rejected=true;}
         check(rejected,"Conversion accepted a non-empty target Body");
+    }
+    {
+        // Imported manufacturing geometry may be thicker than the newly
+        // authored sheet.  Recognition uses the measured STEP thickness,
+        // while the generated Flat/Bend sequence uses the requested one.
+        // The material-side cylinder must still reach both original axial
+        // end edges; otherwise a 3 mm STEP reconstructed as 1 mm finishes
+        // short of the supplier geometry.
+        auto source_part=document::PartDocument::create_default();
+        const auto source_body=source_part.body_history.create_body(
+            "Three millimetre imported sheet");
+        document::set_sheet_metal_defaults(source_part,
+            {3.,0.318309886184});
+        auto flat=document::PartDocument::create_sketch_container();
+        flat.feature_kind=document::FeatureKind::Flat;
+        flat.flat.thickness_override=true;
+        flat.flat.thickness=3;
+        flat.flat.direction=document::ExtrusionDirection::Reverse;
+        auto profile=sketcher::Sketch::create_default();
+        profile.owner_container_id=flat.id;
+        flat.flat.sketch_id=profile.id;
+        static_cast<void>(profile.add_rectangle(0,0,80,50));
+        source_part.insert_history_entry(
+            document::PartHistoryKind::Feature,flat.id);
+        source_part.history.push_back(flat);
+        source_part.sketches.push_back(profile);
+        auto source_cache=workspace::calculate_part_with_resolved_references(
+            kernel,source_part);
+        const auto joining_edge=std::ranges::find_if(
+            source_cache.back().mesh.original_references.edges,
+            [](const auto& edge) {
+                return kernel::sheet_edge_role(edge)==
+                        kernel::SheetEdgeRole::Boundary&&
+                    edge.points.size()>=2&&
+                    std::ranges::all_of(edge.points,[](auto point) {
+                        return std::abs(point.y-50)<1e-6&&
+                            std::abs(point.z)<1e-6;
+                    });
+            });
+        check(joining_edge!=source_cache.back().mesh.
+                original_references.edges.end(),
+            "Three millimetre STEP fixture lacks its Bend edge");
+        auto bend=document::PartDocument::create_sketch_container();
+        bend.feature_kind=document::FeatureKind::Bend;
+        bend.bend.sheet_attachment=true;
+        bend.bend.thickness_override=true;
+        bend.bend.thickness=3;
+        bend.bend.radius=6;
+        bend.bend.angle_degrees=90;
+        auto section=sketcher::Sketch::create_default();
+        section.owner_container_id=bend.id;
+        bend.bend.sketch_id=section.id;
+        document::initialize_bend_start_profile(section,80);
+        bend.placement.references=
+            document::bend_sheet_references(*joining_edge);
+        source_part.insert_history_entry(
+            document::PartHistoryKind::Feature,bend.id);
+        source_part.history.push_back(bend);
+        source_part.sketches.push_back(section);
+        source_cache=workspace::calculate_part_with_resolved_references(
+            kernel,source_part,&source_cache);
+        auto wall=document::PartDocument::create_sketch_container();
+        wall.feature_kind=document::FeatureKind::Flat;
+        wall.flat.sheet_attachment=true;
+        wall.flat.thickness_override=true;
+        wall.flat.thickness=3;
+        wall.flat.direction=document::ExtrusionDirection::Reverse;
+        auto wall_profile=sketcher::Sketch::create_default();
+        wall_profile.owner_container_id=wall.id;
+        wall.flat.sketch_id=wall_profile.id;
+        bool attached{};
+        for(const auto& candidate:
+                source_cache.back().mesh.original_references.edges) {
+            if(candidate.reference.owner_id!=bend.id)continue;
+            if(std::ranges::none_of(
+                    candidate.edge_treatment_side_references,
+                    [](const auto& face) {
+                        return face.semantic_key.starts_with(
+                            "sweep:cap:end:");
+                    }))
+                continue;
+            try {
+                wall.placement.references=
+                    document::flat_sheet_references(candidate);
+            } catch(const std::invalid_argument&) {continue;}
+            const auto first=candidate.points.front();
+            const auto last=candidate.points.back();
+            const double width=std::hypot(first.x-last.x,
+                first.y-last.y,first.z-last.z);
+            static_cast<void>(wall_profile.add_rectangle(0,0,width,30));
+            attached=true;
+            break;
+        }
+        check(attached,
+            "Three millimetre STEP fixture lacks its continuation edge");
+        source_part.insert_history_entry(
+            document::PartHistoryKind::Feature,wall.id);
+        source_part.history.push_back(wall);
+        source_part.sketches.push_back(wall_profile);
+        source_cache=workspace::calculate_part_with_resolved_references(
+            kernel,source_part,&source_cache);
+        check(source_cache.back().calculation_errors.empty()&&
+                source_cache.back().body_outputs.at(source_body)->has_solid(),
+            "Three millimetre STEP fixture produced no source sheet");
+
+        QTemporaryDir directory(
+            QStringLiteral("build/sheet-thickness-step-XXXXXX"));
+        check(directory.isValid(),
+            "Cannot isolate different-thickness STEP fixture");
+        const auto step_path=std::filesystem::u8path(
+            directory.path().toStdString())/"three-millimetre-sheet.step";
+        kernel.export_step(std::vector<kernel::PlacedBody>{{
+                source_cache.back().body_outputs.at(source_body).get(),{},{}}},
+            step_path.string());
+        auto imported=interchange::import_step_part(
+            document::PartDocument::create_default(),{},step_path);
+        const auto& imported_faces=imported.calculated.back().mesh.
+            original_references.triangle_references;
+        const auto seed=std::ranges::max_element(imported_faces,{},
+            [](const auto& face) {
+                return face.surface&&face.surface->kind==
+                        kernel::SurfaceGeometry::Kind::Plane?
+                    face.measured_area.value_or(0):0;
+            });
+        check(seed!=imported_faces.end()&&seed->surface&&
+                seed->surface->kind==kernel::SurfaceGeometry::Kind::Plane,
+            "Imported three millimetre sheet lacks its planar seed");
+        near(workspace::suggest_sheet_thickness(
+            imported.calculated.back().mesh,*seed),3,.001);
+        const auto converted=workspace::prepare_sheet_from_body(
+            imported.document,imported.calculated,*seed,1,kernel);
+        check(converted.created.size()==3&&converted.skipped==0&&
+                converted.calculated.back().calculation_errors.empty(),
+            "Three to one millimetre STEP conversion lost a Flat or Bend");
+        const auto* replacement=converted.document.find_container(
+            converted.container_id);
+        check(replacement&&replacement->sheet_from_body.child_bindings.empty()&&
+                replacement->sheet_from_body.generated_features==
+                    converted.created,
+            "Imported STEP conversion became an associative solid conversion");
+
+        const auto same_axis=[](const kernel::SurfaceGeometry& first,
+                const kernel::SurfaceGeometry& second) {
+            const auto a=kernel::sheet_material::unit(first.axis);
+            const auto b=kernel::sheet_material::unit(second.axis);
+            const auto delta=kernel::sheet_material::sub(
+                first.origin,second.origin);
+            const auto across=kernel::sheet_material::cross(delta,a);
+            return std::abs(std::abs(
+                       kernel::sheet_material::dot(a,b))-1)<1e-7&&
+                std::sqrt(kernel::sheet_material::dot(across,across))<1e-5;
+        };
+        const auto reaches_source_ends=[&](const auto& calculated) {
+            const auto active=converted.document.body_history.active_body_id();
+            const auto& result_faces=calculated.back().body_outputs.at(active)->
+                mesh.original_references.triangle_references;
+            for(const auto& source_face:imported_faces) {
+                if(!source_face.surface||source_face.surface->kind!=
+                        kernel::SurfaceGeometry::Kind::Cylinder)
+                    continue;
+                for(const auto& result_face:result_faces) {
+                    if(!result_face.surface||result_face.surface->kind!=
+                            kernel::SurfaceGeometry::Kind::Cylinder)
+                        continue;
+                    const auto& source_surface=*source_face.surface;
+                    const auto& result_surface=*result_face.surface;
+                    if(same_axis(source_surface,result_surface)&&
+                            std::abs(source_surface.radius-
+                                result_surface.radius)<1e-5&&
+                            std::abs(source_surface.axial_min-
+                                result_surface.axial_min)<1e-5&&
+                            std::abs(source_surface.axial_max-
+                                result_surface.axial_max)<1e-5)
+                        return true;
+                }
+            }
+            return false;
+        };
+        check(reaches_source_ends(converted.calculated),
+            "One millimetre Bend does not reach the original STEP end edges");
+        auto reopened=document::PartDocument::from_serialized(
+            converted.document.serialized());
+        const auto cold=workspace::calculate_part_with_resolved_references(
+            kernel,reopened);
+        check(cold.back().calculation_errors.empty()&&
+                reaches_source_ends(cold),
+            "Different-thickness STEP Bend changed after save and reopen");
     }
     {
         // A centred source face should seed the new root Flat at the Part
@@ -1648,6 +2018,103 @@ void contract(bool include_oblique_corners = true) {
             }
         }
         check(flats==2&&bends==1,"Sheet from Body merged a flat wall into the Bend");
+        {
+            // Every generated region remains tied to the native source face,
+            // including analytic bend radius changes. Child and Sketch IDs
+            // are authored once and must survive repeated source edits.
+            auto radius_linked=converted;
+            const auto generated_ids=radius_linked.created;
+            std::vector<std::string> sketch_ids;
+            for(const auto& id:generated_ids) {
+                const auto* child=radius_linked.document.find_container(id);
+                sketch_ids.push_back(child->feature_kind==
+                        document::FeatureKind::Flat?
+                    child->flat.sketch_id:child->bend.sketch_id);
+            }
+            const auto update_source_radius=[&](double radius) {
+                auto* source_bend=radius_linked.document.find_container(
+                    bend.id);
+                check(source_bend&&source_bend->feature_kind==
+                        document::FeatureKind::Bend,
+                    "Associative radius source Bend is unavailable");
+                source_bend->bend.radius=radius;
+                const auto source_sketch=std::ranges::find(
+                    radius_linked.document.sketches,
+                    source_bend->bend.sketch_id,&sketcher::Sketch::id);
+                check(source_sketch!=radius_linked.document.sketches.end(),
+                    "Associative radius source Sketch is unavailable");
+                document::prepare_bend_sketches(*source_bend,
+                    *source_sketch,document::sheet_metal_defaults(
+                        radius_linked.document));
+                radius_linked.calculated=
+                    workspace::calculate_part_with_resolved_references(
+                        kernel,radius_linked.document,
+                        &radius_linked.calculated);
+                const auto* parent=radius_linked.document.find_container(
+                    radius_linked.container_id);
+                check(parent&&parent->sheet_from_body.generated_features==
+                        generated_ids&&std::ranges::all_of(
+                            parent->sheet_from_body.child_bindings,
+                            [](const auto& binding) {
+                                return binding.references_valid;
+                            }),
+                    "Source radius edit lost an associative region");
+                bool checked_bend{};
+                for(std::size_t index=0;index<generated_ids.size();++index) {
+                    const auto* child=radius_linked.document.find_container(
+                        generated_ids[index]);
+                    check(child&&(child->feature_kind==
+                            document::FeatureKind::Flat?
+                        child->flat.sketch_id:child->bend.sketch_id)==
+                            sketch_ids[index],
+                        "Source radius edit changed a generated identity");
+                    if(child->feature_kind==document::FeatureKind::Bend) {
+                        near(child->bend.radius,radius,.001);
+                        checked_bend=true;
+                    }
+                }
+                check(checked_bend,
+                    "Source radius edit lost its generated Bend");
+                near(measured_volume(kernel,radius_linked.calculated.back().
+                        body_outputs.at(target)),
+                    measured_volume(kernel,radius_linked.calculated.back().
+                        body_outputs.at(source)),.02);
+            };
+            update_source_radius(6);
+            update_source_radius(7);
+            const auto radius_settled=radius_linked.document.serialized();
+            radius_linked.calculated=
+                workspace::calculate_part_with_resolved_references(
+                    kernel,radius_linked.document,
+                    &radius_linked.calculated);
+            check(radius_linked.document.serialized()==radius_settled,
+                "Unchanged radius association rewrote the document");
+            const auto radius_operations=
+                document::solid_state_calculation_operations(
+                    radius_linked.document,&radius_linked.calculated);
+            const auto radius_fingerprints=
+                kernel::history_fingerprints(radius_operations);
+            for(std::size_t index=0;
+                    index<radius_linked.calculated.size();++index)
+                if(radius_linked.calculated[index].source_fingerprint!=
+                        radius_fingerprints.at(index+1))
+                    throw std::runtime_error(
+                        "Radius association returned a stale boundary at "+
+                        std::to_string(index)+" owner "+
+                        radius_operations.at(index).owner_id);
+            auto radius_reopened=document::PartDocument::from_serialized(
+                radius_linked.document.serialized(
+                    radius_linked.calculated));
+            const auto radius_cold=
+                workspace::calculate_part_with_resolved_references(
+                    kernel,radius_reopened);
+            const auto* radius_parent=radius_reopened.find_container(
+                radius_linked.container_id);
+            check(radius_parent&&radius_parent->sheet_from_body.
+                    generated_features==generated_ids&&
+                    radius_cold.back().calculation_errors.empty(),
+                "Radius-linked Sheet from Body changed after reopen");
+        }
         const double folded_volume=measured_volume(kernel,converted.calculated.back().body_outputs.at(target));
         near(folded_volume,measured_volume(kernel,cache.back().body_outputs.at(source)),.01);
         const auto dxf=workspace::prepare_sheet_dxf(converted.document,converted.calculated,kernel);
@@ -1657,8 +2124,17 @@ void contract(bool include_oblique_corners = true) {
             near(std::hypot(a->x-b->x,a->y-b->y),60,.001);
         }
         near(dxf.volume,folded_volume,.05);
-        converted.document.erase_history_object(source);
-        converted.calculated=workspace::calculate_part_with_resolved_references(kernel,converted.document);
+        bool source_delete_rejected{};
+        try {
+            converted.document.erase_history_object(source);
+        } catch(const std::invalid_argument&) {
+            source_delete_rejected=true;
+        }
+        check(source_delete_rejected&&
+                converted.document.body_history.find(source),
+            "Associative Sheet from Body allowed its source Body to be deleted");
+        converted.calculated=workspace::calculate_part_with_resolved_references(
+            kernel,converted.document);
         near(measured_volume(kernel,converted.calculated.back().body_outputs.at(target)),folded_volume,.01);
         for(bool unfold:{true,false}) {
             auto state=document::PartDocument::create_sketch_container();state.feature_kind=unfold?document::FeatureKind::Unbend:document::FeatureKind::BendBack;

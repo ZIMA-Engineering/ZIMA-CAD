@@ -1,8 +1,9 @@
 # Convert Solid to Sheet Metal and Rip
 
-Status: design proposal recorded from the user discussion on 2026-11-10. It is
-not an implementation claim and must remain a separate change from the Sheet
-Profile work.
+Status: the associative conversion core was implemented on 2026-11-10. Stable
+source bindings, generated-child ownership, source-driven regeneration and
+last-valid recovery are implemented. Rip, detach/explode and partial-unfold
+extensions remain design proposals.
 
 ## Goal
 
@@ -28,8 +29,19 @@ edit the original Sketch geometry and dimensions.
   duplicate hidden solid or reconstruct editable geometry from Boolean result
   fragments.
 
-The exact Tree operations and persistence representation require an agreed
-native-format design before implementation.
+The implemented Part format 51 persists the owning conversion, source Body,
+stable source face/edge roles and generated child bindings. Bound Flat/Bend
+children are nested below the conversion row. A source edit regenerates only
+the conversion boundary and its dependent result while retaining child and
+Sketch identities. If a required source face disappears, the dependent sheet
+keeps its last valid geometry and reports the broken association instead of
+moving or being silently rebuilt from an unrelated face.
+
+Conversion within the same Body replaces that Body's material result. Conversion
+to another Body keeps the authored source solid as editable reference history,
+but the source solid is not included in the destination sheet result. Imported
+STEP reconstruction deliberately remains an ordinary independent sequence of
+Flat and Bend features; it is not locked inside this associative owner.
 
 ## Rip definition
 
@@ -80,16 +92,14 @@ desirable capability, but its exact meaning and selection contract must be
 agreed before implementation. Czech UI wording must not use one ambiguous
 translation of "explode/unfold" for both actions.
 
-## Required design gates
+## Remaining design gates
 
-Before implementation:
+The implemented associative core satisfies stable ownership, source identity,
+Undo/Redo, save/reopen and native-format persistence. The following gates still
+apply before adding Rip, detach/explode or partial unfold:
 
-- define stable ownership and source-reference identities for every generated
-  child;
-- agree the native `.prtz` format change and regenerate all affected factory
-  assets and templates;
 - define editing, suppression, deletion, detach/explode, Undo/Redo and
-  save/reopen behavior;
+  save/reopen behavior for released children;
 - define automatic seam selection and deterministic precedence between explicit
   Rips and automatic rules;
 - define supported source solids, thickness inference, corner classification,
@@ -101,10 +111,12 @@ Before implementation:
 - localize every final UI label and diagnostic in Czech, English, German,
   French and Russian.
 
-## Initial verification matrix
+## Verification matrix
 
-Cover at least: no Rip versus explicit Rip; direct edge versus Sketch line;
-single and multiple corners; one and multiple generated Bends; detach one child;
-explode all; source-dimension edits; broken/repaired source references; stable
-face/edge identities; suppression; repeated Undo/Redo; save/reopen; partial
-unfold if implemented; and equivalent Windows/Linux calculation results.
+Implemented Windows coverage includes planar source-dimension edits, repeated
+cylindrical radius edits, one and multiple generated Bends, stable child and
+Sketch identities, unchanged regeneration, broken source-face last-valid
+retention, two-level Undo/Redo, cold save/reopen and exact calculated-boundary
+fingerprints. Rip, direct-edge versus Sketch-line seams, detach one child,
+explode all, partial unfold and equivalent Linux execution remain future matrix
+items.

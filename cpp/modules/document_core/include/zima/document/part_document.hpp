@@ -595,15 +595,77 @@ struct FlatParameters {
     bool operator==(const FlatParameters&) const = default;
 };
 
-// Non-geometric history boundary for a Sheet-from-Body conversion performed
-// inside one Body. The generated ordinary Flats/Bends follow it at the same
-// Tree level and replace the preceding solid. Conversion from another Body
-// creates ordinary sheet features without this boundary and retains both
-// Bodies independently.
+enum class SheetFromBodyFaceRole {
+    Skin,
+    OppositeSkin,
+    Adjacent,
+    BendInner,
+    BendOuter,
+};
+
+enum class SheetFromBodyEdgeRole {
+    Boundary,
+    Entry,
+    Exit,
+};
+
+// A source face may keep one topology identity while its analytic support is
+// edited. The last calculated support is persisted as comparison and repair
+// evidence; it is never a substitute for resolving the topology identity.
+struct SheetFromBodySurfaceSignature {
+    kernel::SurfaceGeometry::Kind kind{kernel::SurfaceGeometry::Kind::Plane};
+    kernel::Vec3 origin;
+    kernel::Vec3 axis;
+    kernel::Vec3 radial;
+    double radius{};
+    double axial_min{};
+    double axial_max{};
+    bool reversed{};
+    bool operator==(const SheetFromBodySurfaceSignature&) const = default;
+};
+
+struct SheetFromBodyFaceBinding {
+    kernel::FaceReference reference;
+    SheetFromBodyFaceRole role{SheetFromBodyFaceRole::Skin};
+    // Explicit orientation of the source side used by the conversion. This
+    // remains meaningful even when the numeric offset is zero.
+    int side{1};
+    SheetFromBodySurfaceSignature last_valid_surface;
+    bool operator==(const SheetFromBodyFaceBinding&) const = default;
+};
+
+struct SheetFromBodyEdgeBinding {
+    kernel::EdgeReference reference;
+    SheetFromBodyEdgeRole role{SheetFromBodyEdgeRole::Boundary};
+    int direction{1};
+    std::array<kernel::Vec3,2> last_valid_endpoints{};
+    bool operator==(const SheetFromBodyEdgeBinding&) const = default;
+};
+
+// One generated native Flat or Bend is associated with every source face and
+// edge that defines its material region. The stable region ID is authored
+// once; neither history row numbers nor OCCT enumeration define ownership.
+struct SheetFromBodyChildBinding {
+    std::string feature_id;
+    std::string region_id;
+    bool bend{};
+    bool root{};
+    bool detached{};
+    bool references_valid{true};
+    std::vector<SheetFromBodyFaceBinding> faces;
+    std::vector<SheetFromBodyEdgeBinding> edges;
+    bool operator==(const SheetFromBodyChildBinding&) const = default;
+};
+
+// Non-geometric history boundary for an associative Sheet-from-Body
+// conversion. Generated ordinary Flats/Bends follow it in the same Body. The
+// boundary owns only their source association; the children keep their normal
+// native identities and editable definitions.
 struct SheetFromBodyParameters {
-    // Record of what the conversion originally generated. These IDs do not
-    // own or constrain any of the ordinary history entries.
+    // Ordered display record retained for the existing Tree and inspection
+    // paths. Binding identity is stored independently in child_bindings.
     std::vector<std::string> generated_features;
+    std::vector<SheetFromBodyChildBinding> child_bindings;
     std::string source_body_id;
     double thickness{1.0};
     bool thickness_override{};

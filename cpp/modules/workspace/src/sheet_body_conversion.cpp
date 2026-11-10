@@ -18,6 +18,11 @@ using namespace kernel::sheet_material;
 using V=kernel::Vec3;
 using Face=kernel::FaceReference;
 constexpr double join_tolerance=.05;
+thread_local unsigned sheet_conversion_authoring_depth{};
+struct SheetConversionAuthoringScope {
+    SheetConversionAuthoringScope(){++sheet_conversion_authoring_depth;}
+    ~SheetConversionAuthoringScope(){--sheet_conversion_authoring_depth;}
+};
 std::string key(const Face& face){return face.owner_id+":"+face.semantic_key;}
 V normal(const Face& face,V point) {
     const auto& s=*face.surface;auto n=s.axis;
@@ -477,6 +482,223 @@ const kernel::ViewerEdge* bend_exit_edge(const std::vector<Node>& nodes,
             return &candidate.entry;
     return nullptr;
 }
+
+kernel::FaceReference persistent_face_reference(const Face& face) {
+    return {face.owner_id,face.semantic_key,face.instance_path};
+}
+
+kernel::EdgeReference persistent_edge_reference(
+        const kernel::EdgeReference& edge) {
+    return {edge.owner_id,edge.semantic_key,edge.instance_path};
+}
+
+document::SheetFromBodySurfaceSignature surface_signature(
+        const Face& face) {
+    if(!face.surface)throw std::invalid_argument(
+        "Sheet conversion source face has no analytic support.");
+    return {face.surface->kind,face.surface->origin,face.surface->axis,
+        face.surface->radial,face.surface->radius,face.surface->axial_min,
+        face.surface->axial_max,face.surface->reversed};
+}
+
+std::string source_region_id(const Face& face,std::string_view suffix) {
+    const auto field=[](std::string_view value) {
+        return std::to_string(value.size())+":"+std::string(value);
+    };
+    return "sheet-source-region:"+field(face.owner_id)+field(
+        face.semantic_key)+field(face.instance_path)+field(suffix);
+}
+
+bool same_edge_geometry(const kernel::ViewerEdge& first,
+        const kernel::ViewerEdge& second) {
+    if(first.points.size()<2||second.points.size()<2)return false;
+    const auto distance=[](V a,V b) {
+        const auto delta=sub(a,b);return std::sqrt(dot(delta,delta));
+    };
+    return std::min(
+        std::max(distance(first.points.front(),second.points.front()),
+            distance(first.points.back(),second.points.back())),
+        std::max(distance(first.points.front(),second.points.back()),
+            distance(first.points.back(),second.points.front())))<=1e-5;
+}
+
+document::SheetFromBodyChildBinding source_region_binding(
+        const kernel::ViewerMesh& mesh,const std::string& feature_id,
+        const Face& primary,double thickness,bool root,
+        std::string_view suffix,
+        const std::vector<std::pair<const kernel::ViewerEdge*,
+            document::SheetFromBodyEdgeRole>>& marked_edges={}) {
+    using FaceRole=document::SheetFromBodyFaceRole;
+    using EdgeRole=document::SheetFromBodyEdgeRole;
+    if(!primary.surface||
+            (primary.surface->kind!=kernel::SurfaceGeometry::Kind::Plane&&
+             primary.surface->kind!=kernel::SurfaceGeometry::Kind::Cylinder))
+        throw std::invalid_argument(
+            "Sheet conversion source region is not planar or cylindrical.");
+    document::SheetFromBodyChildBinding result;
+    result.feature_id=feature_id;
+    result.region_id=source_region_id(primary,suffix);
+    result.bend=primary.surface->kind==
+        kernel::SurfaceGeometry::Kind::Cylinder;
+    result.root=root;
+    const auto face_role=[&](const Face& face,bool opposite) {
+        if(!result.bend)return opposite?FaceRole::OppositeSkin:FaceRole::Skin;
+        const bool inner=face.surface->reversed;
+        return inner?FaceRole::BendInner:FaceRole::BendOuter;
+    };
+    const auto add_face=[&](const Face& face,FaceRole role) {
+        if(!face.valid()||!face.surface)return;
+        const auto signature=surface_signature(face);
+        const auto found=std::ranges::find_if(result.faces,
+            [&](const auto& existing) {
+                return existing.reference==face&&
+                    existing.last_valid_surface==signature;
+            });
+        if(found!=result.faces.end()) {
+            if(found->role==FaceRole::Adjacent&&role!=FaceRole::Adjacent)
+                found->role=role;
+            return;
+        }
+        result.faces.push_back({persistent_face_reference(face),role,
+            face.surface->reversed?-1:1,signature});
+    };
+    add_face(primary,face_role(primary,false));
+
+    std::vector<Face> adjacent;
+    const auto add_adjacent=[&](const Face& face) {
+        if(std::ranges::none_of(adjacent,[&](const auto& existing) {
+                return same_fragment(existing,face);
+            }))adjacent.push_back(face);
+        add_face(face,FaceRole::Adjacent);
+    };
+    for(const auto& edge:mesh.edges) {
+        bool belongs{};
+        for(const auto& identity:edge.edge_treatment_side_references)
+            if(const auto fragment=edge_face_fragment(mesh,identity,edge);
+                    fragment&&same_fragment(*fragment,primary)) {
+                belongs=true;break;
+            }
+        if(!belongs)continue;
+        EdgeRole role=EdgeRole::Boundary;
+        for(const auto& [marked,marked_role]:marked_edges)
+            if(marked&&(edge.reference==marked->reference||
+                    same_edge_geometry(edge,*marked))) {
+                role=marked_role;break;
+            }
+        if(edge.reference.valid()&&edge.points.size()>=2) {
+            const auto found=std::ranges::find_if(result.edges,
+                [&](const auto& existing) {
+                    return existing.reference==edge.reference;
+                });
+            const std::array endpoints{edge.points.front(),edge.points.back()};
+            if(found==result.edges.end())
+                result.edges.push_back({persistent_edge_reference(
+                    edge.reference),role,1,endpoints});
+            else if(found->role==EdgeRole::Boundary&&
+                    role!=EdgeRole::Boundary)found->role=role;
+        }
+        for(const auto& identity:edge.edge_treatment_side_references)
+            if(const auto fragment=edge_face_fragment(mesh,identity,edge);
+                    fragment&&!same_fragment(*fragment,primary))
+                add_adjacent(*fragment);
+    }
+
+    const auto touches_adjacent=[&](const Face& candidate) {
+        return std::ranges::any_of(mesh.edges,[&](const auto& edge) {
+            bool candidate_side{};
+            bool adjacent_side{};
+            for(const auto& identity:edge.edge_treatment_side_references)
+                if(const auto fragment=edge_face_fragment(mesh,identity,edge)) {
+                    candidate_side|=same_fragment(*fragment,candidate);
+                    adjacent_side|=std::ranges::any_of(adjacent,
+                        [&](const auto& face) {
+                            return same_fragment(*fragment,face);
+                        });
+                }
+            return candidate_side&&adjacent_side;
+        });
+    };
+    const auto paired=[&](const Face& candidate) {
+        if(!candidate.surface||same_fragment(candidate,primary)||
+                candidate.surface->kind!=primary.surface->kind)
+            return false;
+        const auto& source=*primary.surface;
+        const auto& other=*candidate.surface;
+        if(source.kind==kernel::SurfaceGeometry::Kind::Plane) {
+            const auto axis=unit(source.axis);
+            if(std::abs(std::abs(dot(axis,unit(other.axis)))-1.)>1e-8)
+                return false;
+            const double separation=std::abs(dot(
+                sub(other.origin,source.origin),axis));
+            return std::abs(separation-thickness)<=1e-5;
+        }
+        const auto axis=unit(source.axis);
+        if(std::abs(std::abs(dot(axis,unit(other.axis)))-1.)>1e-8||
+                std::sqrt(dot(cross(sub(source.origin,other.origin),axis),
+                    cross(sub(source.origin,other.origin),axis)))>1e-5||
+                std::abs(std::abs(source.radius-other.radius)-thickness)>
+                    1e-5)
+            return false;
+        const double orientation=dot(axis,unit(other.axis))<0?-1:1;
+        const double offset=dot(sub(other.origin,source.origin),axis);
+        const double other_first=offset+orientation*other.axial_min;
+        const double other_last=offset+orientation*other.axial_max;
+        const double other_min=std::min(other_first,other_last);
+        const double other_max=std::max(other_first,other_last);
+        return std::min(source.axial_max,other_max)+1e-5>=
+                std::max(source.axial_min,other_min);
+    };
+    const auto collect_pair=[&](const auto& candidates) {
+        for(const auto& candidate:candidates)
+            if(paired(candidate)&&
+                    (primary.surface->kind==
+                        kernel::SurfaceGeometry::Kind::Cylinder||
+                     touches_adjacent(candidate)))
+                add_face(candidate,face_role(candidate,true));
+    };
+    collect_pair(mesh.original_references.triangle_references);
+    collect_pair(mesh.triangle_references);
+    if(result.bend) {
+        double inner_radius=std::numeric_limits<double>::infinity();
+        double outer_radius=-std::numeric_limits<double>::infinity();
+        for(const auto& face:result.faces)
+            if(face.role==FaceRole::BendInner||
+                    face.role==FaceRole::BendOuter) {
+                inner_radius=std::min(inner_radius,
+                    face.last_valid_surface.radius);
+                outer_radius=std::max(outer_radius,
+                    face.last_valid_surface.radius);
+            }
+        if(std::isfinite(inner_radius)&&std::isfinite(outer_radius)&&
+                outer_radius-inner_radius>1e-7)
+            for(auto& face:result.faces)
+                if(face.role==FaceRole::BendInner||
+                        face.role==FaceRole::BendOuter)
+                    face.role=std::abs(face.last_valid_surface.radius-
+                        inner_radius)<=std::abs(
+                            face.last_valid_surface.radius-outer_radius)?
+                        FaceRole::BendInner:FaceRole::BendOuter;
+    }
+    return result;
+}
+
+void append_source_binding(document::PartDocument& part,
+        const std::string& conversion_id,
+        document::SheetFromBodyChildBinding binding) {
+    auto* conversion=part.find_container(conversion_id);
+    if(!conversion||conversion->feature_kind!=
+            document::FeatureKind::SheetFromBody)
+        throw std::invalid_argument(
+            "Sheet conversion lost its associative history boundary.");
+    auto& bindings=conversion->sheet_from_body.child_bindings;
+    if(std::ranges::any_of(bindings,[&](const auto& existing) {
+            return existing.feature_id==binding.feature_id||
+                existing.region_id==binding.region_id;
+        }))throw std::invalid_argument(
+            "Sheet conversion produced a duplicate source region.");
+    bindings.push_back(std::move(binding));
+}
+
 struct ContinuationBend {
     // The source Flat owns the Bend attachment. The target Flat is split into
     // one region per incoming branch; edges use the same source/target order.
@@ -1507,6 +1729,7 @@ SheetBodyConversion prepare_sheet_from_body(const document::PartDocument& source
         const std::vector<kernel::BodyResult>& cache,const Face& selected,
         double thickness,const kernel::OcctKernel& kernel,
         bool thickness_override) {
+    SheetConversionAuthoringScope authoring_scope;
     const auto* target=source.body_history.find(source.body_history.active_body_id());
     if(!target||target->derived_copy)throw std::invalid_argument("Sheet from Body requires an editable active Body.");
     if(!thickness_override)
@@ -1616,10 +1839,16 @@ SheetBodyConversion prepare_sheet_from_body(const document::PartDocument& source
     if(!root||!root->surface||
             root->surface->kind!=kernel::SurfaceGeometry::Kind::Plane)
         throw std::invalid_argument("Select a calculated planar source face.");
+    const double measured_source_thickness=
+        planar_pair_distance(available,*root);
+    const double source_sheet_thickness=imported_step_source&&
+            std::isfinite(measured_source_thickness)&&
+            measured_source_thickness>.001?
+        measured_source_thickness:thickness;
     auto nodes=skin(mesh,*root);
     if(imported_step_source)
         static_cast<void>(append_imported_compound_bends(
-            mesh,nodes,thickness));
+            mesh,nodes,source_sheet_thickness));
     const auto continuations=imported_step_source?
         std::vector<ContinuationBend>{}:
         infer_corner_continuations(mesh,nodes);
@@ -1636,19 +1865,34 @@ SheetBodyConversion prepare_sheet_from_body(const document::PartDocument& source
         return result;
     };
     SheetBodyConversion result;result.document=source;result.calculated=cache;
-    if(replaces_body) {
-        auto conversion=document::PartDocument::create_sheet_from_body_container();
+    // Imported STEP sheet reconstruction remains an ordinary editable Flat /
+    // Bend sequence.  It needs the non-geometric replacement boundary only
+    // when replacing material in the same Body, and never owns/nests the
+    // generated features.  Native parametric solid conversion is associative
+    // in both same-Body and cross-Body workflows.
+    const bool associative_source=!imported_step_source;
+    if(replaces_body||associative_source) {
+        auto conversion=
+            document::PartDocument::create_sheet_from_body_container();
         conversion.sheet_from_body.source_body_id=source_owner->scope.id;
         conversion.sheet_from_body.thickness=thickness;
         conversion.sheet_from_body.thickness_override=thickness_override;
-        conversion.sheet_from_body.replaces_body=true;
+        conversion.sheet_from_body.replaces_body=replaces_body;
         result.container_id=conversion.id;
         result.document.insert_history_entry(
             document::PartHistoryKind::Feature,conversion.id);
         result.document.history.push_back(std::move(conversion));
     }
-    // Author a new root frame and new profile geometry; no source reference is
-    // persisted. Subsequent features will use only newly authored references.
+    if(associative_source&&!replaces_body) {
+        auto target_body=*result.document.body_history.find(target->scope.id);
+        if(std::ranges::find(target_body.dependencies,
+                source_owner->scope.id)==target_body.dependencies.end())
+            target_body.dependencies.push_back(source_owner->scope.id);
+        result.document.body_history.update_body(std::move(target_body));
+    }
+    // Author the ordinary editable root Flat and retain the exact source
+    // region that defined it. The source solid remains the parametric driver;
+    // the conversion boundary excludes that solid from the later body result.
     auto sketch=sketcher::Sketch::create_default();auto feature=document::PartDocument::create_sketch_container();
     feature.feature_kind=document::FeatureKind::Flat;feature.name="Tabule";feature.flat.sketch_id=sketch.id;
     feature.flat.thickness_override=thickness_override;
@@ -1659,9 +1903,13 @@ SheetBodyConversion prepare_sheet_from_body(const document::PartDocument& source
     numeric_frame(feature,sketch,frame.origin,frame.x,frame.y,frame.normal);outline(sketch,mesh,*root);
     result.document.insert_history_entry(document::PartHistoryKind::Feature,feature.id);result.created.push_back(feature.id);
     result.document.history.push_back(std::move(feature));result.document.sketches.push_back(std::move(sketch));
-    if(replaces_body)
+    if(!result.container_id.empty())
         result.document.find_container(result.container_id)->
             sheet_from_body.generated_features=result.created;
+    if(associative_source)
+        append_source_binding(result.document,result.container_id,
+            source_region_binding(mesh,result.created.back(),*root,
+                thickness,true,"root"));
     result.document.resolve_constructions(construction_reference_source_geometry(cache));
     try {
         result.calculated=kernel.evaluate_history_incremental(
@@ -1886,7 +2134,7 @@ SheetBodyConversion prepare_sheet_from_body(const document::PartDocument& source
                 added.id);
             next.history.push_back(added);
             next.sketches.push_back(profile);
-            if(replaces_body)
+            if(!result.container_id.empty())
                 next.find_container(result.container_id)->
                     sheet_from_body.generated_features.push_back(added.id);
             next.resolve_constructions(geometry);
@@ -2043,9 +2291,16 @@ SheetBodyConversion prepare_sheet_from_body(const document::PartDocument& source
         }
         next.insert_history_entry(document::PartHistoryKind::Feature,added.id);
         next.history.push_back(added);next.sketches.push_back(profile);
-        if(replaces_body)
-            next.find_container(result.container_id)->
-                sheet_from_body.generated_features.push_back(added.id);
+        next.find_container(result.container_id)->
+            sheet_from_body.generated_features.push_back(added.id);
+        std::vector<std::pair<const kernel::ViewerEdge*,
+            document::SheetFromBodyEdgeRole>> source_edges{
+            {&node.entry,document::SheetFromBodyEdgeRole::Entry}};
+        if(exit_edge)source_edges.push_back(
+            {exit_edge,document::SheetFromBodyEdgeRole::Exit});
+        append_source_binding(next,result.container_id,
+            source_region_binding(mesh,added.id,node.face,thickness,
+                false,"node:"+std::to_string(i),source_edges));
         try {
             next.resolve_constructions(wave_geometry);
         } catch(const std::exception& error) {
@@ -2260,9 +2515,20 @@ SheetBodyConversion prepare_sheet_from_body(const document::PartDocument& source
         next.insert_history_entry(document::PartHistoryKind::Feature,bend.id);
         next.history.push_back(bend);
         next.sketches.push_back(profile);
-        if(replaces_body)
-            next.find_container(result.container_id)->
-                sheet_from_body.generated_features.push_back(bend.id);
+        next.find_container(result.container_id)->
+            sheet_from_body.generated_features.push_back(bend.id);
+        auto transition_face=continuation.transition;
+        transition_face.surface=
+            std::make_shared<const kernel::SurfaceGeometry>(
+                continuation.surface);
+        append_source_binding(next,result.container_id,
+            source_region_binding(mesh,bend.id,transition_face,
+                thickness,false,"continuation-bend:"+
+                    std::to_string(continuation_index),
+                {{&continuation.edges[0],
+                    document::SheetFromBodyEdgeRole::Entry},
+                 {&continuation.edges[1],
+                    document::SheetFromBodyEdgeRole::Exit}}));
         next.resolve_constructions(geometry);
         auto& placed_bend=next.sketches.back();
         document::prepare_bend_sketches(next.history.back(),placed_bend,
@@ -2358,9 +2624,14 @@ SheetBodyConversion prepare_sheet_from_body(const document::PartDocument& source
             flat.id);
         flat_next.history.push_back(flat);
         flat_next.sketches.push_back(flat_profile);
-        if(replaces_body)
-            flat_next.find_container(result.container_id)->
-                sheet_from_body.generated_features.push_back(flat.id);
+        flat_next.find_container(result.container_id)->
+            sheet_from_body.generated_features.push_back(flat.id);
+        append_source_binding(flat_next,result.container_id,
+            source_region_binding(mesh,flat.id,nodes[target_index].face,
+                thickness,false,"continuation-flat:"+
+                    std::to_string(continuation_index),
+                {{&continuation.edges[1],
+                    document::SheetFromBodyEdgeRole::Entry}}));
         flat_next.resolve_constructions(flat_geometry);
         auto& placed_flat=flat_next.sketches.back();
         const auto& target_surface=*nodes[target_index].face.surface;
@@ -2400,5 +2671,533 @@ SheetBodyConversion prepare_sheet_from_body(const document::PartDocument& source
     }
     result.document.validate_sheet_from_body();
     return result;
+}
+
+namespace {
+bool source_reference_matches(const kernel::FaceReference& actual,
+        const kernel::FaceReference& expected) {
+    return actual.owner_id==expected.owner_id&&
+        actual.semantic_key==expected.semantic_key&&
+        actual.instance_path==expected.instance_path;
+}
+
+bool source_reference_matches(const kernel::EdgeReference& actual,
+        const kernel::EdgeReference& expected) {
+    if(actual.owner_id!=expected.owner_id||
+            actual.instance_path!=expected.instance_path)return false;
+    if(actual.semantic_key==expected.semantic_key)return true;
+    // A union boundary edge keeps its deterministic parent but its compact
+    // adjacency digest can differ between an isolated source-prefix
+    // calculation and the same prefix inside the complete document. For this
+    // association detector only, compare that stable parent portion. General
+    // persisted modeling references retain their exact identity contract.
+    const auto stable_parent=[](std::string_view key) {
+        const auto digest=key.find(":context-digest:");
+        return key.substr(0,digest);
+    };
+    return actual.semantic_key.find(":context-digest:")!=std::string::npos&&
+        expected.semantic_key.find(":context-digest:")!=std::string::npos&&
+        stable_parent(actual.semantic_key)==stable_parent(
+            expected.semantic_key);
+}
+
+bool close_value(double first,double second,double tolerance=1e-7) {
+    return std::abs(first-second)<=tolerance;
+}
+
+bool close_vector(V first,V second,double tolerance=1e-7) {
+    return close_value(first.x,second.x,tolerance)&&
+        close_value(first.y,second.y,tolerance)&&
+        close_value(first.z,second.z,tolerance);
+}
+
+bool same_surface_signature(
+        const document::SheetFromBodySurfaceSignature& first,
+        const document::SheetFromBodySurfaceSignature& second) {
+    if(first.kind!=second.kind||first.reversed!=second.reversed)
+        return false;
+    const auto first_axis=unit(first.axis);
+    const auto second_axis=unit(second.axis);
+    const double alignment=dot(first_axis,second_axis);
+    if(std::abs(alignment)<1-1e-8)return false;
+    if(first.kind==kernel::SurfaceGeometry::Kind::Plane)
+        return std::abs(dot(sub(second.origin,first.origin),first_axis))<=
+            1e-7;
+    if(!close_value(first.radius,second.radius))return false;
+    const auto line_offset=cross(sub(second.origin,first.origin),first_axis);
+    if(std::sqrt(dot(line_offset,line_offset))>1e-7)return false;
+    // Axial trimming belongs to the stable boundary edges. A compact Body
+    // boundary may expose the same cylinder support with a shorter current
+    // fragment than its exact authored reference; comparing those ranges
+    // would turn ordinary cache compaction into a false source edit.
+    return true;
+}
+
+bool same_edge_endpoints(const std::array<V,2>& first,
+        const kernel::ViewerEdge& second) {
+    if(second.points.size()<2)return false;
+    const std::array<V,2> endpoints{
+        second.points.front(),second.points.back()};
+    return (close_vector(first[0],endpoints[0])&&
+            close_vector(first[1],endpoints[1]))||
+        (close_vector(first[0],endpoints[1])&&
+            close_vector(first[1],endpoints[0]));
+}
+
+kernel::ViewerMesh source_mesh_in_target_coordinates(
+        const document::PartDocument& source,
+        const std::vector<kernel::BodyResult>& calculated,
+        const document::HistoryContainer& conversion) {
+    if(calculated.empty())return {};
+    const auto* target=source.body_owner_for_object(conversion.id);
+    const auto* source_body=source.body_history.find(
+        conversion.sheet_from_body.source_body_id);
+    if(!target||!source_body)return {};
+    kernel::ViewerMesh mesh;
+    if(source_body==target) {
+        std::size_t operation_count{};
+        for(const auto& entry:target->entries) {
+            if(entry.id==conversion.id)break;
+            if(entry.kind!=document::PartHistoryKind::Feature)continue;
+            const auto* feature=source.find_container(entry.id);
+            if(feature&&feature->feature_kind!=document::FeatureKind::Sketch&&
+                    feature->feature_kind!=
+                        document::FeatureKind::SheetProfile)
+                ++operation_count;
+        }
+        const auto boundaries=calculated.back().body_boundaries.find(
+            source_body->scope.id);
+        if(!operation_count||boundaries==calculated.back().
+                body_boundaries.end()||
+                operation_count>boundaries->second.size())return {};
+        // Body histories are local. Move this exact pre-conversion boundary
+        // through world space before expressing it in the target frame, just
+        // like the original conversion path does for a final Body output.
+        mesh=source.place_body_mesh(
+            boundaries->second[operation_count-1].mesh,
+            source_body->scope.id);
+    } else {
+        const auto output=calculated.back().body_outputs.find(
+            source_body->scope.id);
+        if(output==calculated.back().body_outputs.end())return {};
+        mesh=output->second->mesh;
+    }
+    // Intermediate Body boundaries deliberately compact their authored
+    // reference database. The final aggregate retains the exact source
+    // supports in world coordinates; use those supports for association
+    // comparison while keeping the pre-conversion current edges above.
+    // Keep the exact pre-conversion references: Boolean split edges that
+    // define a converted region may no longer be published by the final
+    // aggregate after the generated sheet replaces the source Body. Add the
+    // aggregate database only as a supplement for authored supports that an
+    // intermediate boundary compacted away.
+    document::history_reference_detail::append(mesh.original_references,
+        calculated.back().mesh.original_references);
+    auto local=sketcher::Sketch::create_default();
+    local.owner_container_id=target->scope.id;
+    kernel::ViewerReferenceGeometry packet{std::move(mesh.vertices),
+        std::move(mesh.triangles),std::move(mesh.triangle_references),
+        std::move(mesh.edges),std::move(mesh.points),std::move(mesh.axes)};
+    packet=source.sketch_reference_geometry_for(local,std::move(packet));
+    mesh.vertices=std::move(packet.vertices);
+    mesh.triangles=std::move(packet.triangles);
+    mesh.triangle_references=std::move(packet.triangle_references);
+    mesh.edges=std::move(packet.edges);
+    mesh.points=std::move(packet.points);
+    mesh.axes=std::move(packet.axes);
+    mesh.original_references=source.sketch_reference_geometry_for(
+        local,std::move(mesh.original_references));
+    return mesh;
+}
+
+const Face* find_source_face(const kernel::ViewerMesh& mesh,
+        const kernel::FaceReference& reference,
+        const document::SheetFromBodySurfaceSignature* previous=nullptr) {
+    const Face* result=nullptr;
+    double best=std::numeric_limits<double>::infinity();
+    const auto consider=[&](const auto& candidates) {
+        for(const auto& candidate:candidates) {
+            if(!source_reference_matches(candidate,reference)||
+                    !candidate.surface)continue;
+            double score{};
+            if(previous) {
+                const auto current=surface_signature(candidate);
+                if(current.kind!=previous->kind)score+=1e12;
+                else {
+                    const auto a=unit(previous->axis);
+                    const auto b=unit(current.axis);
+                    score+=1e6*(1-std::abs(dot(a,b)));
+                    if(current.kind==kernel::SurfaceGeometry::Kind::Plane)
+                        score+=std::abs(dot(sub(current.origin,
+                            previous->origin),a));
+                    else {
+                        score+=std::abs(current.radius-previous->radius);
+                        const auto offset=cross(sub(current.origin,
+                            previous->origin),a);
+                        score+=std::sqrt(dot(offset,offset));
+                    }
+                    if(current.reversed!=previous->reversed)score+=1e9;
+                }
+            }
+            if(score<best) {best=score;result=&candidate;}
+        }
+    };
+    consider(mesh.original_references.triangle_references);
+    consider(mesh.triangle_references);
+    return result;
+}
+
+const kernel::ViewerEdge* find_source_edge(const kernel::ViewerMesh& mesh,
+        const kernel::EdgeReference& reference,
+        const std::array<V,2>* previous=nullptr) {
+    const kernel::ViewerEdge* result=nullptr;
+    double best=std::numeric_limits<double>::infinity();
+    const auto distance=[](V first,V second) {
+        const auto delta=sub(first,second);
+        return std::sqrt(dot(delta,delta));
+    };
+    const auto consider=[&](const auto& candidates) {
+        for(const auto& candidate:candidates) {
+            if(!source_reference_matches(candidate.reference,reference)||
+                    candidate.points.size()<2)continue;
+            double score{};
+            if(previous)score=std::min(
+                std::max(distance((*previous)[0],candidate.points.front()),
+                    distance((*previous)[1],candidate.points.back())),
+                std::max(distance((*previous)[0],candidate.points.back()),
+                    distance((*previous)[1],candidate.points.front())));
+            if(score<best) {best=score;result=&candidate;}
+        }
+    };
+    consider(mesh.original_references.edges);
+    consider(mesh.edges);
+    return result;
+}
+
+const kernel::ViewerEdge* find_source_edge_by_geometry(
+        const kernel::ViewerMesh& mesh,
+        const document::SheetFromBodyEdgeBinding& binding) {
+    const kernel::ViewerEdge* result=nullptr;
+    int best=-1;
+    const auto consider=[&](const auto& candidates) {
+        for(const auto& candidate:candidates) {
+            if(!candidate.reference.valid()||
+                    !same_edge_endpoints(binding.last_valid_endpoints,
+                        candidate))continue;
+            int score{};
+            if(candidate.reference.owner_id==binding.reference.owner_id)
+                score+=2;
+            if(source_reference_matches(candidate.reference,
+                    binding.reference))score+=4;
+            if(score>best) {best=score;result=&candidate;}
+        }
+    };
+    consider(mesh.original_references.edges);
+    consider(mesh.edges);
+    return result;
+}
+
+void replace_generated_identity(std::string& value,
+        const std::vector<std::pair<std::string,std::string>>& replacements) {
+    for(const auto& [before,after]:replacements) {
+        if(before.empty()||before==after)continue;
+        std::size_t position{};
+        while((position=value.find(before,position))!=std::string::npos) {
+            value.replace(position,before.size(),after);
+            position+=after.size();
+        }
+    }
+}
+
+void replace_generated_reference(document::ConstructionReference& reference,
+        const std::vector<std::pair<std::string,std::string>>& replacements) {
+    replace_generated_identity(reference.owner_id,replacements);
+    replace_generated_identity(reference.semantic_key,replacements);
+    replace_generated_identity(reference.instance_path,replacements);
+    for(auto& source:reference.branch_sources)
+        for(auto& field:source)
+            replace_generated_identity(field,replacements);
+}
+
+const sketcher::Sketch* owned_sketch(
+        const document::PartDocument& source,const std::string& owner) {
+    const auto found=std::ranges::find(source.sketches,owner,
+        &sketcher::Sketch::owner_container_id);
+    return found==source.sketches.end()?nullptr:&*found;
+}
+
+sketcher::Sketch* owned_sketch(
+        document::PartDocument& source,const std::string& owner) {
+    const auto found=std::ranges::find(source.sketches,owner,
+        &sketcher::Sketch::owner_container_id);
+    return found==source.sketches.end()?nullptr:&*found;
+}
+}
+
+bool refresh_sheet_from_body_associations(
+        document::PartDocument& source,
+        const std::vector<kernel::BodyResult>& calculated,
+        const kernel::OcctKernel& kernel) {
+    if(calculated.empty()||sheet_conversion_authoring_depth)return false;
+    bool document_changed{};
+    // Work from stable parent IDs because a successful refresh replaces the
+    // parent's binding vectors and invalidates references into `history`.
+    std::vector<std::string> conversions;
+    for(const auto& feature:source.history)
+        if(feature.feature_kind==document::FeatureKind::SheetFromBody&&
+                !feature.sheet_from_body.child_bindings.empty())
+            conversions.push_back(feature.id);
+    for(const auto& conversion_id:conversions) {
+        auto* conversion=source.find_container(conversion_id);
+        if(!conversion)continue;
+        auto source_mesh=source_mesh_in_target_coordinates(source,calculated,
+            *conversion);
+        bool missing{};
+        bool changed_source{};
+        for(auto& binding:conversion->sheet_from_body.child_bindings) {
+            if(binding.detached)continue;
+            bool binding_missing{};
+            bool binding_changed=!binding.references_valid;
+            for(std::size_t face_index=0;face_index<binding.faces.size();
+                    ++face_index) {
+                const auto& face=binding.faces[face_index];
+                const auto* current=find_source_face(source_mesh,
+                    face.reference,&face.last_valid_surface);
+                if(!current) {
+                    // The primary source support owns the stable region. Its
+                    // loss is broken topology. Opposite/adjacent supports may
+                    // legitimately receive new Boolean edge identities after
+                    // a source parameter edit; let reconstruction replace
+                    // that complete binding instead of treating it as lost.
+                    if(face_index==0)binding_missing=true;
+                    else binding_changed=true;
+                    continue;
+                }
+                const bool differs=!same_surface_signature(
+                    face.last_valid_surface,surface_signature(*current));
+                binding_changed|=differs;
+            }
+            for(const auto& edge:binding.edges) {
+                const auto* current=find_source_edge(source_mesh,
+                    edge.reference,&edge.last_valid_endpoints);
+                if(!current) {
+                    binding_changed=true;
+                    continue;
+                }
+                const bool differs=!same_edge_endpoints(
+                    edge.last_valid_endpoints,*current);
+                binding_changed|=differs;
+            }
+            if(binding_missing) {
+                missing=true;
+                if(binding.references_valid) {
+                    binding.references_valid=false;
+                    document_changed=true;
+                }
+            } else changed_source|=binding_changed;
+        }
+        // Broken topology retains every last-valid Flat/Bend. A later source
+        // repair is detected by the same stable references and can refresh it.
+        if(missing||!changed_source)continue;
+
+        const auto old_definition=conversion->sheet_from_body;
+        const auto* target=source.body_owner_for_object(conversion_id);
+        if(!target)continue;
+        const auto target_id=target->scope.id;
+        auto prefix=source;
+        const auto* prefix_target=prefix.body_history.find(target_id);
+        const auto boundary=std::ranges::find(prefix_target->entries,
+            conversion_id,&document::PartHistoryEntry::id);
+        if(boundary==prefix_target->entries.end())continue;
+        std::vector<std::string> trailing;
+        for(auto entry=boundary;entry!=prefix_target->entries.end();++entry)
+            trailing.push_back(entry->id);
+        for(auto entry=trailing.rbegin();entry!=trailing.rend();++entry)
+            if(prefix.find_container(*entry)||
+                    prefix.find_construction(*entry))
+                prefix.erase_history_object(*entry);
+        prefix.body_history.activate(target_id);
+        prefix.body_history.set_history_cursor(target_id,
+            prefix.body_history.find(target_id)->entries.size());
+
+        PartCalculationPolicy source_policy;
+        source_policy.reject_errors=true;
+        SheetBodyConversion rebuilt;
+        try {
+            auto source_cache=calculate_part(kernel,prefix,nullptr,
+                source_policy);
+            if(source_cache.empty())throw std::runtime_error(
+                "Sheet from Body source prefix has no calculated output");
+            const auto source_output=source_cache.back().body_outputs.find(
+                old_definition.source_body_id);
+            if(source_output==source_cache.back().body_outputs.end())
+                throw std::runtime_error(
+                    "Sheet from Body source prefix is unavailable");
+            const auto root=std::ranges::find_if(
+                old_definition.child_bindings,
+                &document::SheetFromBodyChildBinding::root);
+            if(root==old_definition.child_bindings.end()||
+                    root->faces.empty())
+                throw std::runtime_error(
+                    "Sheet from Body root binding is unavailable");
+            const auto* selected=find_source_face(source_output->second->mesh,
+                root->faces.front().reference);
+            if(!selected)throw std::runtime_error(
+                "Sheet from Body root source face is unavailable");
+            rebuilt=prepare_sheet_from_body(prefix,source_cache,*selected,
+                old_definition.thickness,kernel,
+                old_definition.thickness_override);
+        } catch(const std::exception&) {
+            // A changed source that can no longer be represented is a broken
+            // association, not permission to discard the last valid sheet.
+            conversion=source.find_container(conversion_id);
+            for(auto& binding:conversion->sheet_from_body.child_bindings)
+                if(!binding.detached&&binding.references_valid) {
+                    binding.references_valid=false;
+                    document_changed=true;
+                }
+            continue;
+        }
+
+        const auto* rebuilt_parent=rebuilt.document.find_container(
+            rebuilt.container_id);
+        if(!rebuilt_parent)continue;
+        std::map<std::string,const document::SheetFromBodyChildBinding*>
+            old_regions;
+        for(const auto& binding:old_definition.child_bindings)
+            old_regions.emplace(binding.region_id,&binding);
+        std::map<std::string,const document::SheetFromBodyChildBinding*>
+            new_regions;
+        for(const auto& binding:rebuilt_parent->sheet_from_body.child_bindings)
+            new_regions.emplace(binding.region_id,&binding);
+        bool compatible=old_regions.size()==new_regions.size();
+        for(const auto& [region,binding]:old_regions)
+            compatible=compatible&&new_regions.contains(region)&&
+                binding->bend==new_regions.at(region)->bend;
+        std::vector<std::string> mapped_order;
+        if(compatible)for(const auto& feature_id:
+                rebuilt_parent->sheet_from_body.generated_features) {
+            const auto binding=std::ranges::find(
+                rebuilt_parent->sheet_from_body.child_bindings,feature_id,
+                &document::SheetFromBodyChildBinding::feature_id);
+            if(binding==rebuilt_parent->sheet_from_body.child_bindings.end()||
+                    !old_regions.contains(binding->region_id)) {
+                compatible=false;break;
+            }
+            mapped_order.push_back(
+                old_regions.at(binding->region_id)->feature_id);
+        }
+        compatible=compatible&&mapped_order==old_definition.generated_features;
+        if(!compatible) {
+            conversion=source.find_container(conversion_id);
+            for(auto& binding:conversion->sheet_from_body.child_bindings)
+                if(!binding.detached&&binding.references_valid) {
+                    binding.references_valid=false;
+                    document_changed=true;
+                }
+            continue;
+        }
+
+        std::vector<std::pair<std::string,std::string>> replacements;
+        replacements.emplace_back(rebuilt.container_id,conversion_id);
+        for(const auto& [region,new_binding]:new_regions) {
+            const auto* old_binding=old_regions.at(region);
+            replacements.emplace_back(new_binding->feature_id,
+                old_binding->feature_id);
+            const auto* new_feature=rebuilt.document.find_container(
+                new_binding->feature_id);
+            const auto* old_feature=source.find_container(
+                old_binding->feature_id);
+            if(new_feature&&old_feature) {
+                replacements.emplace_back(new_feature->feature_id,
+                    old_feature->feature_id);
+                const auto* new_sketch=owned_sketch(rebuilt.document,
+                    new_feature->id);
+                const auto* old_sketch=owned_sketch(source,old_feature->id);
+                if(new_sketch&&old_sketch)
+                    replacements.emplace_back(new_sketch->id,old_sketch->id);
+            }
+        }
+
+        for(const auto& [region,new_binding]:new_regions) {
+            const auto* old_binding=old_regions.at(region);
+            if(old_binding->detached)continue;
+            const auto* generated=rebuilt.document.find_container(
+                new_binding->feature_id);
+            auto* current=source.find_container(old_binding->feature_id);
+            const auto* generated_sketch=generated?owned_sketch(
+                rebuilt.document,generated->id):nullptr;
+            auto* current_sketch=current?
+                owned_sketch(source,current->id):nullptr;
+            if(!generated||!current||!generated_sketch||!current_sketch)
+                continue;
+            auto next=*current;
+            next.placement=generated->placement;
+            for(auto& reference:next.placement.references)
+                replace_generated_reference(reference,replacements);
+            if(next.feature_kind==document::FeatureKind::Flat) {
+                next.flat=generated->flat;
+                replace_generated_identity(next.flat.sketch_id,replacements);
+            } else {
+                next.bend=generated->bend;
+                replace_generated_identity(next.bend.sketch_id,replacements);
+                for(auto& sketch:next.bend.auxiliary_sketches)
+                    replace_generated_identity(sketch,replacements);
+            }
+            std::string sketch_data=generated_sketch->serialized();
+            replace_generated_identity(sketch_data,replacements);
+            auto next_sketch=sketcher::Sketch::from_serialized(sketch_data);
+            if(next!=*current) {
+                *current=std::move(next);
+                document_changed=true;
+            }
+            if(next_sketch.serialized()!=current_sketch->serialized()) {
+                *current_sketch=std::move(next_sketch);
+                document_changed=true;
+            }
+        }
+
+        conversion=source.find_container(conversion_id);
+        auto next_definition=conversion->sheet_from_body;
+        next_definition.generated_features=std::move(mapped_order);
+        next_definition.child_bindings.clear();
+        for(const auto& new_binding:
+                rebuilt_parent->sheet_from_body.child_bindings) {
+            auto next=new_binding;
+            const auto* old_binding=old_regions.at(next.region_id);
+            next.feature_id=old_binding->feature_id;
+            next.detached=old_binding->detached;
+            if(next.detached)next=*old_binding;
+            else {
+                next.references_valid=true;
+                // The isolated source-prefix calculation may publish a
+                // Boolean boundary under an equivalent, but context-specific,
+                // reference. Persist the identity visible in the complete
+                // document so the next settling pass observes the regenerated
+                // result as stable. Edges that the complete source boundary
+                // cannot publish are not usable association inputs.
+                for(auto& edge:next.edges)
+                    if(const auto* current=find_source_edge(source_mesh,
+                            edge.reference,&edge.last_valid_endpoints))
+                        edge.reference=persistent_edge_reference(
+                            current->reference);
+                    else if(const auto* current=
+                            find_source_edge_by_geometry(source_mesh,edge))
+                        edge.reference=persistent_edge_reference(
+                            current->reference);
+                std::erase_if(next.edges,[&](const auto& edge) {
+                    return !find_source_edge(source_mesh,edge.reference,
+                        &edge.last_valid_endpoints);
+                });
+            }
+            next_definition.child_bindings.push_back(std::move(next));
+        }
+        if(next_definition!=conversion->sheet_from_body) {
+            conversion->sheet_from_body=std::move(next_definition);
+            document_changed=true;
+        }
+        source.validate_sheet_from_body();
+    }
+    return document_changed;
 }
 }

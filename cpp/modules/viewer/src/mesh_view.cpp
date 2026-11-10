@@ -238,6 +238,14 @@ struct MeshView::Impl {
     GLsizei selected_source_vertex_count{};
     bool selected_source_native_sketch{};
     std::vector<float> selected_source_data;
+    // A sheet-state result remains a separate calculated presentation from
+    // the authored preview above.  These ranges point into the already
+    // uploaded display-line buffer, so revealing the corresponding developed
+    // material never calculates or uploads a second copy of result geometry.
+    using SheetStateWireKey=std::pair<std::string,std::string>;
+    std::optional<SheetStateWireKey> selected_sheet_state_key;
+    std::vector<std::pair<GLint,GLsizei>> selected_sheet_state_ranges;
+    GLsizei selected_sheet_state_vertex_count{};
     QOpenGLBuffer silhouette{QOpenGLBuffer::VertexBuffer};
     QOpenGLVertexArrayObject vertex_array;
     std::vector<std::pair<GLint, GLsizei>> line_ranges;
@@ -1047,6 +1055,7 @@ void MeshView::set_mesh(zima::kernel::ViewerMesh mesh, bool fit_view) {
     impl_->container_inspection_wire.clear();
     impl_->inspected_container.reset();
     impl_->selected_source_key.reset();
+    impl_->selected_sheet_state_key.reset();
     impl_->container_color_key.reset();
     const auto previous_confirmation = impl_->confirmed_candidate;
     impl_->dimension_bounds=kernel::model_envelope(mesh);
@@ -2045,6 +2054,7 @@ void MeshView::set_container_preview_provider(std::function<std::vector<kernel::
     impl_->container_preview_provider=std::move(provider);
     impl_->container_preview_authoritative=std::move(authoritative);
     impl_->selected_source_key.reset();
+    impl_->selected_sheet_state_key.reset();
     update();
 }
 
@@ -3457,6 +3467,8 @@ void main(){
     impl_->lines.create();
     impl_->selected_source_lines.create();
     impl_->selected_source_key.reset();impl_->selected_source_data.clear();
+    impl_->selected_sheet_state_key.reset();
+    impl_->selected_sheet_state_ranges.clear();
     impl_->silhouette.create();
     impl_->silhouette_view_direction.reset();
     impl_->silhouette_vertex_count = 0;
@@ -4643,6 +4655,49 @@ if (impl_->show_origins) {
             }
             glDepthFunc(GL_LESS);
         }
+    }
+
+    // A developed sheet-state contribution is presentation-only correspondence
+    // to the authored feature. Keep it separate from the authored preview and
+    // reuse ranges in the existing display-line buffer. The persisted
+    // sheet-state prefix distinguishes this from ordinary later result edges.
+    std::optional<Impl::SheetStateWireKey> sheet_state_wire_key;
+    if(ordinary_preview_candidate)
+        sheet_state_wire_key=Impl::SheetStateWireKey{
+            ordinary_preview_candidate->owner_id,
+            ordinary_preview_candidate->instance_path};
+    if(sheet_state_wire_key&&sheet_state_wire_key!=impl_->selected_sheet_state_key) {
+        impl_->selected_sheet_state_ranges.clear();
+        impl_->selected_sheet_state_vertex_count=0;
+        for(std::size_t index=0;index<impl_->line_edges.size();++index) {
+            const auto& edge=impl_->line_edges[index];
+            if(edge.construction||edge.parameter_seam||
+                edge.display_owner_id!=sheet_state_wire_key->first||
+                edge.reference.instance_path!=sheet_state_wire_key->second||
+                !edge.reference.semantic_key.starts_with("sheet-state:from:"))continue;
+            const auto [first,count]=impl_->line_ranges[index];
+            auto& ranges=impl_->selected_sheet_state_ranges;
+            if(!ranges.empty()&&ranges.back().first+ranges.back().second==first)
+                ranges.back().second+=count;
+            else ranges.emplace_back(first,count);
+            impl_->selected_sheet_state_vertex_count+=count;
+        }
+        impl_->selected_sheet_state_key=sheet_state_wire_key;
+        setProperty("gpuSheetStateWireBuildCount",
+            property("gpuSheetStateWireBuildCount").toULongLong()+1);
+    }
+    const bool sheet_state_wire_visible=sheet_state_wire_key.has_value()&&
+        impl_->selected_sheet_state_vertex_count>0;
+    setProperty("gpuSheetStateWireVertexCount",sheet_state_wire_visible?
+        impl_->selected_sheet_state_vertex_count:0);
+    if(sheet_state_wire_visible) {
+        impl_->program.setUniformValue("unlit",1);
+        impl_->program.setUniformValue("color",interaction::rgba(interaction::selected));
+        bind_attributes(impl_->lines);
+        glDisable(GL_DEPTH_TEST);glLineWidth(1.F);
+        for(const auto& [first,count]:impl_->selected_sheet_state_ranges)
+            glDrawArrays(GL_LINES,first,count);
+        glEnable(GL_DEPTH_TEST);
     }
 
     // Hover, click and inspection share the same authored preview wire.

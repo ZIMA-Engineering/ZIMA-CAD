@@ -20,4 +20,10 @@ struct SheetBodyConversion {
 [[nodiscard]] SheetBodyConversion prepare_sheet_from_body(const document::PartDocument&,
     const std::vector<kernel::BodyResult>&,const kernel::FaceReference&,double thickness,
     const kernel::OcctKernel&,bool thickness_override=true);
+// Refreshes only bound, non-detached native Flat/Bend children whose stable
+// source regions changed. Missing source topology keeps the last valid child
+// geometry and marks its binding invalid for later repair.
+[[nodiscard]] bool refresh_sheet_from_body_associations(
+    document::PartDocument&,const std::vector<kernel::BodyResult>&,
+    const kernel::OcctKernel&);
 }

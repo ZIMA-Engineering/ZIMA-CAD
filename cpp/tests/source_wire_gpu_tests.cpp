@@ -68,6 +68,120 @@ void verify_import_batches(QApplication& application) {
         "Imported selection rebuilt or duplicated geometry during navigation");
     std::cout<<"Source-less 29000-edge STEP selection: existing display batches, no source upload, stable navigation cache passed\n";
 }
+void verify_sheet_state_correspondence(QApplication& application) {
+    constexpr const char* authored="flat";
+    kernel::ViewerMesh mesh;
+    mesh.vertices={{-1,-1,0},{1,-1,0},{0,1,0}};
+    mesh.triangles={0,1,2};
+    kernel::FaceReference face{"unbend","sheet-state:from:flat:face",{}};
+    face.display_owner_id=authored;
+    mesh.triangle_references={face};
+    kernel::ViewerEdge developed{{{-1,0,0},{1,0,0}},
+        {"unbend","sheet-state:from:flat:edge",{}}};
+    developed.display_owner_id=authored;
+    kernel::ViewerEdge later_result{{{-1,-.45,0},{1,-.45,0}},
+        {"later","generated:edge",{}}};
+    later_result.display_owner_id=authored;
+    kernel::ViewerEdge sibling_state{{{-1,.45,0},{1,.45,0}},
+        {"unbend","sheet-state:from:sibling:edge",{}}};
+    sibling_state.display_owner_id="sibling";
+    mesh.edges={developed,later_result,sibling_state};
+    kernel::ViewerEdge source{{{-1,.75,0},{1,.75,0}},
+        {authored,"start:profile",{}}};
+    mesh.original_references.edges={source};
+
+    viewer::MeshView view;view.resize(640,640);view.set_mesh(mesh);
+    view.set_container_preview_provider([&](const auto& owner,const auto& path) {
+        check(owner==authored&&path.empty(),
+            "Sheet-state preview requested a different authored occurrence");
+        return std::vector<kernel::ViewerEdge>{source};
+    },[](const auto& owner,const auto& path) {
+        return owner==authored&&path.empty();
+    });
+    view.set_selection_contract({viewer::CandidateKind::Container});
+    view.set_display_mode(viewer::DisplayMode::ShadedWithEdges);
+    view.show();view.set_view_direction({0,0,-1});
+    for(auto* animation:view.findChildren<QVariantAnimation*>())
+        animation->setCurrentTime(animation->duration());
+    view.fit_all();application.processEvents();
+    const auto render=[&] {
+        application.processEvents();auto frame=view.grabFramebuffer();
+        check(!frame.isNull(),"Sheet-state correspondence has no framebuffer");
+        return frame;
+    };
+    const auto azure=[&](const QImage& frame,QPointF at) {
+        const double ratio=frame.width()/double(view.width());
+        for(int dy=-2;dy<=2;++dy)for(int dx=-2;dx<=2;++dx) {
+            const int x=qRound(at.x()*ratio)+dx,y=qRound(at.y()*ratio)+dy;
+            if(!frame.rect().contains(x,y))continue;
+            const auto color=frame.pixelColor(x,y);
+            if(color.red()<25&&color.green()>180&&color.blue()>235)return true;
+        }
+        return false;
+    };
+    const QPointF center(view.width()/2.,view.height()/2.);
+    const double pixels=1/view.world_tolerance_for_pixels(1);
+    QMouseEvent move(QEvent::MouseMove,center,
+        QPointF(view.mapToGlobal(center.toPoint())),Qt::NoButton,Qt::NoButton,
+        Qt::NoModifier);
+    QApplication::sendEvent(&view,&move);application.processEvents();
+    check(view.offered_candidate()&&
+        view.offered_candidate()->kind==viewer::CandidateKind::Container&&
+        view.offered_candidate()->owner_id==authored,
+        "Developed sheet face did not offer its authored feature");
+    auto frame=render();
+    const auto azure_band=[&](const QImage& image,QPointF at) {
+        for(int x=-qRound(.5*pixels);x<=qRound(.5*pixels);x+=2)
+            if(azure(image,at+QPointF(x,0)))return true;
+        return false;
+    };
+    const bool developed_visible=azure_band(frame,center);
+    const bool authored_visible=azure_band(frame,
+        center+QPointF(0,-.75*pixels));
+    if(!developed_visible||!authored_visible) {
+        frame.save("sheet-state-correspondence-failure.png");
+        throw std::runtime_error("Hover did not reveal both developed and authored wires: developed="+
+            std::to_string(developed_visible)+" authored="+
+            std::to_string(authored_visible)+" pixels="+
+            std::to_string(pixels)+" state_vertices="+
+            std::to_string(view.property("gpuSheetStateWireVertexCount").toInt())+
+            " source_vertices="+
+            std::to_string(view.property("gpuSourceWireVertexCount").toInt()));
+    }
+    check(view.property("gpuSheetStateWireVertexCount").toInt()==2&&
+        view.property("gpuSourceWireVertexCount").toInt()==2,
+        "Sheet-state correspondence included an unrelated result or sibling wire");
+    const auto builds=view.property("gpuSheetStateWireBuildCount").toULongLong();
+    const auto mesh_uploads=view.property("gpuMeshUploadCount").toULongLong();
+    for(int i=0;i<8;++i) {
+        auto camera=view.camera_state();camera[5]+=i%2;camera[6]-=i%3;
+        view.set_camera_state(camera);static_cast<void>(render());
+    }
+    check(view.property("gpuSheetStateWireBuildCount").toULongLong()==builds&&
+        view.property("gpuMeshUploadCount").toULongLong()==mesh_uploads,
+        "Sheet-state hover rebuilt or reuploaded calculated geometry");
+    view.clear_selection();static_cast<void>(render());
+    check(view.property("gpuSheetStateWireVertexCount").toInt()==0,
+        "Deselection retained the developed correspondence wire");
+    view.confirm_container(authored);static_cast<void>(render());
+    check(view.property("gpuSheetStateWireVertexCount").toInt()==2&&
+        view.property("gpuSheetStateWireBuildCount").toULongLong()==builds&&
+        view.property("selectedFeatureFaceTriangleCount").toULongLong()==0,
+        "Tree selection filled faces or rebuilt the developed wire");
+    view.set_container_inspection(authored);static_cast<void>(render());
+    check(view.property("gpuSheetStateWireVertexCount").toInt()==2&&
+        view.property("gpuSheetStateWireBuildCount").toULongLong()==builds,
+        "Double-click inspection lost or rebuilt the developed wire");
+    auto changed=mesh;
+    changed.edges.front().points.insert(changed.edges.front().points.begin()+1,
+        {0,.1,0});
+    view.set_mesh(changed,false);view.confirm_container(authored);
+    static_cast<void>(render());
+    check(view.property("gpuSheetStateWireVertexCount").toInt()==4&&
+        view.property("gpuSheetStateWireBuildCount").toULongLong()==builds+1,
+        "Changed sheet state reused stale correspondence ranges");
+    std::cout<<"Sheet-state hover/click/inspection: authored and developed wires, sibling isolation, no face fill, cached navigation passed\n";
+}
 void verify_occluded_selection(QApplication& application) {
     kernel::ViewerMesh mesh;
     mesh.vertices={{-.8,0,0},{.8,0,0},{0,1,0},{-1.5,-1.5,1},{1.5,-1.5,1},{1.5,1.5,1},{-1.5,1.5,1}};
@@ -369,6 +483,6 @@ int main(int argc,char** argv){QApplication application(argc,argv);try {
     std::cout<<"source="<<owner<<" edges="<<mesh.edges.size()<<" source_vertices="<<view.property("gpuSourceWireVertexCount").toInt()
         <<" initial_source_uploads="<<source_uploads<<" camera_frames=40 extra_source_uploads=0 extra_base_uploads=0 extra_color_builds=0 idle_median_ms="<<idle_times[idle_times.size()/2]<<" selected_median_ms="<<times[times.size()/2]<<" p90_ms="<<times[36]<<'\n';
     if(argc>2)render().save(QString::fromUtf8(argv[2]));
-    if(argc==1){verify_assembly_provider(application);verify_curved_hover(application);verify_occluded_occurrence(application);verify_occluded_selection(application);verify_import_batches(application);}
+    if(argc==1){verify_assembly_provider(application);verify_curved_hover(application);verify_occluded_occurrence(application);verify_occluded_selection(application);verify_import_batches(application);verify_sheet_state_correspondence(application);}
     return 0;
 }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}}

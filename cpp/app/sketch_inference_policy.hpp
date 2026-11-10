@@ -43,6 +43,20 @@ inline std::optional<SketchCrossAlignment> infer_segment_cross_alignment(
     if(std::hypot(aligned_end[0]-start[0],aligned_end[1]-start[1])<=1e-9)return std::nullopt;
     return SketchCrossAlignment{aligned_end,direction};
 }
+// A contact at the second endpoint owns its supporting curve, while H/V owns
+// the new segment direction. Prefer the segment's direct axis relation when
+// both it and an equivalent relation to unrelated geometry are offered.
+inline std::optional<sketcher::ConstraintKind>
+infer_snapped_line_endpoint_direction(std::array<double,2> start,
+        std::array<double,2> end,double tolerance,
+        const SketchInferenceSettings& settings) {
+    using K=sketcher::ConstraintKind;
+    if(settings.enabled(K::Horizontal)&&
+            std::abs(end[1]-start[1])<=tolerance)return K::Horizontal;
+    if(settings.enabled(K::Vertical)&&
+            std::abs(end[0]-start[0])<=tolerance)return K::Vertical;
+    return std::nullopt;
+}
 // A radial length snap remains on an axis only when the accepted start is
 // already on that axis. Other picked supports keep their exact endpoint.
 inline std::optional<std::array<double,2>> equal_length_axis_endpoint(

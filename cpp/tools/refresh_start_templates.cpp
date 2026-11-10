@@ -1025,6 +1025,105 @@ void upgrade_native_part_format_49_to_50(
     if(!evidence)throw std::runtime_error("Cannot write migration evidence");
 }
 
+void upgrade_native_part_format_50_to_51(
+        const std::filesystem::path& source,
+        const std::filesystem::path& output,
+        const std::filesystem::path& report) {
+    if(std::filesystem::absolute(source).lexically_normal()==
+            std::filesystem::absolute(output).lexically_normal())
+        throw std::runtime_error(
+            "Format migration output must be separate from its source");
+    std::ifstream input(source,std::ios::binary);
+    const std::string original((std::istreambuf_iterator<char>(input)),{});
+    if(!input&&!input.eof())throw std::runtime_error(
+        "Cannot read native Part for format migration");
+    auto migrated=original;
+    std::size_t converted_sheet_boundaries{};
+    std::size_t cursor{};
+    while(cursor<migrated.size()) {
+        const auto line_end=migrated.find('\n',cursor);
+        const auto next=line_end==std::string::npos?
+            migrated.size():line_end+1;
+        auto content_end=line_end==std::string::npos?
+            migrated.size():line_end;
+        if(content_end>cursor&&migrated[content_end-1]=='\r')--content_end;
+        const auto marker=migrated.find("\"type\":\"sheet_from_body\"",
+            cursor);
+        const auto spaced_marker=migrated.find(
+            "\"type\": \"sheet_from_body\"",cursor);
+        if(std::min(marker,spaced_marker)<content_end) {
+            const auto equals=migrated.find('=',cursor);
+            if(equals==std::string::npos||equals>=content_end)
+                throw std::runtime_error(
+                    "Sheet from Body migration found an invalid native field");
+            auto packet=nlohmann::json::parse(migrated.substr(
+                equals+1,content_end-equals-1));
+            if(packet.value("type",std::string{})!="sheet_from_body"||
+                    !packet.contains("sheet_from_body"))
+                throw std::runtime_error(
+                    "Sheet from Body migration found an unexpected packet");
+            auto& definition=packet.at("sheet_from_body");
+            if(definition.contains("child_bindings"))
+                throw std::runtime_error(
+                    "Format 50 Sheet from Body already contains format 51 bindings");
+            // Format-50 conversions were independent authored Flat/Bend
+            // sequences. Preserve that contract explicitly; only newly
+            // authored native-solid conversions may populate associations.
+            definition["child_bindings"]=nlohmann::json::array();
+            const auto replacement=packet.dump();
+            migrated.replace(equals+1,content_end-equals-1,replacement);
+            const auto length_delta=static_cast<std::ptrdiff_t>(
+                replacement.size())-static_cast<std::ptrdiff_t>(
+                    content_end-equals-1);
+            cursor=static_cast<std::size_t>(
+                static_cast<std::ptrdiff_t>(next)+length_delta);
+            ++converted_sheet_boundaries;
+            continue;
+        }
+        cursor=next;
+    }
+    constexpr std::string_view old_version="format_version=50";
+    std::size_t version_count{};
+    for(std::size_t position=migrated.find(old_version);
+            position!=std::string::npos;
+            position=migrated.find(old_version,position+1)) {
+        const bool line_start=position==0||migrated[position-1]=='\n';
+        const auto after=position+old_version.size();
+        const bool line_end=after==migrated.size()||
+            migrated[after]=='\n'||migrated[after]=='\r';
+        if(line_start&&line_end)++version_count;
+    }
+    if(version_count!=1)throw std::runtime_error(
+        "Expected exactly one native Part format 50 declaration");
+    const auto version=migrated.find(old_version);
+    migrated.replace(version,old_version.size(),"format_version=51");
+    // Associations change the authored definition fingerprint. Never carry a
+    // format-50 derived packet across the strict format boundary.
+    bool cache_removed{};
+    const auto cache=migrated.find("[CachedBodies]");
+    if(cache!=std::string::npos&&(cache==0||migrated[cache-1]=='\n')) {
+        const auto next_section=migrated.find("\n[",cache+1);
+        if(next_section==std::string::npos)
+            throw std::runtime_error("Native Part cache section is invalid");
+        migrated.erase(cache,next_section+1-cache);
+        cache_removed=true;
+    }
+    std::filesystem::create_directories(output.parent_path());
+    std::ofstream native(output,std::ios::binary);
+    native.write(migrated.data(),static_cast<std::streamsize>(migrated.size()));
+    native.close();
+    if(!native)throw std::runtime_error("Cannot write migrated native Part");
+    std::filesystem::create_directories(report.parent_path());
+    std::ofstream evidence(report);
+    evidence<<nlohmann::json{{"migration","part-format-50-to-51"},
+        {"format_upgraded",true},
+        {"stale_derived_cache_removed",cache_removed},
+        {"authored_definition_changed",converted_sheet_boundaries!=0},
+        {"independent_sheet_from_body_boundaries",
+            converted_sheet_boundaries}}.dump(2)<<'\n';
+    if(!evidence)throw std::runtime_error("Cannot write migration evidence");
+}
+
 void attach_verified_legacy_part_cache(
         const std::filesystem::path& current_authored,
         const std::filesystem::path& legacy_source,
@@ -1107,6 +1206,126 @@ void attach_verified_legacy_part_cache(
 int main(int argc,char** argv){try{
     using namespace zima;
     if(argc==4&&std::string_view(argv[1])==
+            "--recalculate-repository-part-assets") {
+        const auto output_root=std::filesystem::u8path(argv[2]);
+        const auto report_root=std::filesystem::u8path(argv[3]);
+        std::vector<std::filesystem::path> sources;
+        for(const auto& relative_root:{std::filesystem::path("config"),
+                std::filesystem::path("cpp/tests/fixtures")})
+            for(const auto& entry:
+                    std::filesystem::recursive_directory_iterator(
+                        relative_root)) {
+                if(!entry.is_regular_file())continue;
+                const auto extension=entry.path().extension();
+                if(extension==".prtz"||extension==".frmz"||
+                        extension==".tblz"||extension==".symz")
+                    sources.push_back(entry.path());
+            }
+        std::ranges::sort(sources);
+        kernel::OcctKernel engine;
+        std::size_t boundary_count{};
+        for(const auto& source:sources) {
+            auto authored=document::PartDocument::load(source);
+            const auto definition=authored.serialized();
+            auto calculated=engine.evaluate_history(
+                authored.kernel_operations());
+            for(const auto& boundary:calculated)
+                if(!boundary.calculation_errors.empty())
+                    throw std::runtime_error(
+                        "Factory native calculation contains an error: "+
+                        source.string());
+            const auto relative=std::filesystem::relative(
+                source,std::filesystem::current_path());
+            const auto output=output_root/relative;
+            std::filesystem::create_directories(output.parent_path());
+            authored.save(output,calculated);
+            std::vector<kernel::BodyResult> restored;
+            document::NativeCalculatedCachePtr native_cache;
+            const auto reopened=document::PartDocument::load(
+                output,&restored,&native_cache);
+            if(reopened.serialized()!=definition||
+                    restored.size()!=calculated.size()||
+                    (!calculated.empty()&&!native_cache))
+                throw std::runtime_error(
+                    "Factory native readback changed definition, boundaries or reusable cache: "+
+                    source.string());
+            for(std::size_t index=0;index<calculated.size();++index)
+                if(document::serialize_body_result(restored[index])!=
+                        document::serialize_body_result(calculated[index]))
+                    throw std::runtime_error(
+                        "Factory native readback lost calculated geometry or references: "+
+                        source.string());
+            auto evidence=report_root/relative;
+            evidence+=".json";
+            std::filesystem::create_directories(evidence.parent_path());
+            std::ofstream report(evidence);
+            report<<nlohmann::json{{"native_readback_exact",true},
+                {"authored_definition_unchanged",true},
+                {"calculated_boundaries",calculated.size()},
+                {"calculation_errors",0}}.dump(2)<<'\n';
+            if(!report)throw std::runtime_error(
+                "Cannot write repository recalculation evidence");
+            boundary_count+=calculated.size();
+        }
+        std::filesystem::create_directories(report_root);
+        std::ofstream summary(report_root/"summary.json");
+        summary<<nlohmann::json{{"operation",
+                "recalculate-repository-part-assets"},
+            {"asset_count",sources.size()},
+            {"calculated_boundaries",boundary_count},
+            {"native_readback_exact",true},
+            {"calculation_errors",0}}.dump(2)<<'\n';
+        if(!summary)throw std::runtime_error(
+            "Cannot write repository recalculation summary");
+        std::cout<<"Recalculated and reopened "<<sources.size()
+            <<" repository native Part assets\n";
+        return 0;
+    }
+    if(argc==4&&std::string_view(argv[1])==
+            "--upgrade-repository-part-format50-to51") {
+        const auto output_root=std::filesystem::u8path(argv[2]);
+        const auto report_root=std::filesystem::u8path(argv[3]);
+        std::vector<std::filesystem::path> sources;
+        for(const auto& relative_root:{std::filesystem::path("config"),
+                std::filesystem::path("cpp/tests/fixtures")}) {
+            for(const auto& entry:
+                    std::filesystem::recursive_directory_iterator(
+                        relative_root)) {
+                if(!entry.is_regular_file())continue;
+                const auto extension=entry.path().extension();
+                if(extension!=".prtz"&&extension!=".frmz"&&
+                        extension!=".tblz"&&extension!=".symz")continue;
+                std::ifstream input(entry.path(),std::ios::binary);
+                const std::string data((std::istreambuf_iterator<char>(input)),{});
+                if(data.find("format_version=50")!=std::string::npos)
+                    sources.push_back(entry.path());
+            }
+        }
+        std::ranges::sort(sources);
+        if(sources.empty())throw std::runtime_error(
+            "No repository native Part format 50 assets were found");
+        for(const auto& source:sources) {
+            const auto relative=std::filesystem::relative(
+                source,std::filesystem::current_path());
+            auto evidence=report_root/relative;
+            evidence+=".json";
+            upgrade_native_part_format_50_to_51(
+                source,output_root/relative,evidence);
+        }
+        std::filesystem::create_directories(report_root);
+        std::ofstream summary(report_root/"summary.json");
+        summary<<nlohmann::json{{"migration","part-format-50-to-51"},
+            {"asset_count",sources.size()},
+            {"all_outputs_separate_from_sources",true},
+            {"legacy_sheet_conversions_remain_independent",true}}.dump(2)
+            <<'\n';
+        if(!summary)throw std::runtime_error(
+            "Cannot write repository migration evidence");
+        std::cout<<"Staged "<<sources.size()
+            <<" repository native Part assets in format 51\n";
+        return 0;
+    }
+    if(argc==4&&std::string_view(argv[1])==
             "--upgrade-repository-part-format49-to50") {
         const auto output_root=std::filesystem::u8path(argv[2]);
         const auto report_root=std::filesystem::u8path(argv[3]);
@@ -1151,6 +1370,14 @@ int main(int argc,char** argv){try{
     if(argc==5&&std::string_view(argv[1])==
             "--upgrade-part-format49-to50") {
         upgrade_native_part_format_49_to_50(
+            std::filesystem::u8path(argv[2]),
+            std::filesystem::u8path(argv[3]),
+            std::filesystem::u8path(argv[4]));
+        return 0;
+    }
+    if(argc==5&&std::string_view(argv[1])==
+            "--upgrade-part-format50-to51") {
+        upgrade_native_part_format_50_to_51(
             std::filesystem::u8path(argv[2]),
             std::filesystem::u8path(argv[3]),
             std::filesystem::u8path(argv[4]));

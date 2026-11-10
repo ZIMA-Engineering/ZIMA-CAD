@@ -10,6 +10,7 @@
 #include <zima/workspace/family_operations.hpp>
 #include <zima/workspace/sketch_operations.hpp>
 #include <zima/workspace/sketch_reference_operations.hpp>
+#include <zima/workspace/sheet_exchange_operations.hpp>
 #include <zima/workspace/history_policy.hpp>
 #include <zima/document/viewer_packet_json.hpp>
 #include <zima/document/feature_material_wire.hpp>
@@ -855,10 +856,13 @@ calculate_part_reference_state(
             document.resolve_constructions(std::move(reference_geometry),state_views);
             phase("reference resolution");
         }
+        const bool sheet_from_body_changed=
+            refresh_sheet_from_body_associations(document,calculated,kernel);
+        phase("Sheet from Body associations");
         // A changed placement describes the next geometry pass. Projecting
         // this pass's old source mesh into that new Sketch frame can create
         // a false constraint conflict while the dependency chain is settling.
-        if(document.history!=history_before||document.constructions!=constructions_before||
+        if(sheet_from_body_changed||document.history!=history_before||document.constructions!=constructions_before||
             document.body_history.bodies()!=bodies_before||attached_flat_profiles()!=flat_profiles_before||
             sketch_frames()!=sketch_frames_before) {
             if(std::getenv("ZIMA_CPP_PROFILE_COMMAND"))std::fprintf(stderr,
@@ -869,6 +873,27 @@ calculate_part_reference_state(
                 int(attached_flat_profiles()!=flat_profiles_before),
                 int(sketch_frames()!=sketch_frames_before));
             may_reuse_local_sketch_references=false;
+            if(sheet_from_body_changed) {
+                // Generated children changed the dependent Body definition.
+                // Retain the already calculated source prefix, but never
+                // carry the conversion boundary itself into the settling
+                // pass: its multi-Body context fingerprint belongs to the old
+                // generated definitions even when the final boundary happens
+                // to compare equal.
+                const auto operations=
+                    group_solid_state_cached_operations(document,&calculated);
+                const auto conversion=std::ranges::find_if(operations,
+                    [&](const auto& operation) {
+                        const auto* feature=document.find_container(
+                            operation.owner_id);
+                        return feature&&feature->feature_kind==
+                            document::FeatureKind::SheetFromBody;
+                    });
+                if(conversion!=operations.end())
+                    calculated.resize(std::min(calculated.size(),
+                        static_cast<std::size_t>(
+                            conversion-operations.begin())));
+            }
             incremental_source=&calculated;continue;
         }
         const bool reuse_local_sketch_references=

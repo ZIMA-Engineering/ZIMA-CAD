@@ -892,6 +892,31 @@ void AssemblyWorkspaceWindow::add_part_tree_children(
         }
         profile_row->setExpanded(true);
     }
+    // Associative Sheet-from-Body children remain ordinary native Flats and
+    // Bends in calculation history. Present only the still-bound children
+    // under their conversion owner; detached children stay at Body level.
+    for(const auto& conversion:document.history) {
+        if(conversion.feature_kind!=
+                zima::document::FeatureKind::SheetFromBody)
+            continue;
+        auto* conversion_row=find_history_row(conversion.id);
+        if(!conversion_row)continue;
+        for(const auto& id:conversion.sheet_from_body.generated_features) {
+            const auto binding=std::ranges::find(
+                conversion.sheet_from_body.child_bindings,id,
+                &zima::document::SheetFromBodyChildBinding::feature_id);
+            if(binding==conversion.sheet_from_body.child_bindings.end()||
+                    binding->detached)
+                continue;
+            auto* child_row=find_history_row(id);
+            if(!child_row||child_row==conversion_row||!child_row->parent())
+                continue;
+            child_row->parent()->takeChild(
+                child_row->parent()->indexOfChild(child_row));
+            conversion_row->addChild(child_row);
+        }
+        conversion_row->setExpanded(true);
+    }
     const auto hidden_wires=hidden_surface_wires(document);
     const auto shade_wires=[&](auto&& self,QTreeWidgetItem* row)->void {
         const auto role=row->data(0,Qt::UserRole+3).toString();

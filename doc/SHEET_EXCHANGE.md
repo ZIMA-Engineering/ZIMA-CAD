@@ -48,13 +48,27 @@ the connection as a snapping error. This does not change shared placement or
 increase the 0.05 mm joining tolerance. Arbitrary noncylindrical transitions
 remain outside this recognition path.
 
-There are no retained references to the source solid. All continuation
-references point to newly authored sheet geometry. The new root keeps its
-position even when the source moves or is deleted. Source and target Body
-placements are accounted for independently, through the existing placement APIs.
-The command does not change the common placement contract or add a new persistent
-feature type. Generated Flats and Sheet Profiles use their ordinary Properties
-windows for later editing.
+Native-solid conversion creates one persisted Sheet-from-Body owner. It records
+the source Body, selected source-face role, source edge/surface signatures and
+stable bindings to each generated Flat/Bend child. Bound children are shown
+nested below the owner in the Tree. Source and target Body placements are
+accounted for independently through the existing placement APIs; the protected
+shared placement contract is unchanged.
+
+Changing an authored source dimension or cylindrical radius regenerates the
+conversion boundary and dependent target while retaining generated child and
+Sketch identities. Unchanged regeneration does not rewrite the document. If the
+required source face disappears, the conversion remains in history, keeps its
+last valid result and is marked unresolved for repair. A separate source Body
+remains editable and visible for ordinary hover/inspection, but its solid is not
+included in the destination material result. Same-Body conversion replaces the
+source material result at the conversion boundary.
+
+This association applies to native-solid Sheet-from-Body conversion. A STEP
+import is reconstructed as the same ordinary Flat/Bend history used before this
+change: it is not locked by a Sheet-from-Body owner and remains independent of
+the imported source after creation. Detach/explode UI for releasing individual
+associative children is not yet implemented.
 
 Straight boundaries remain segments. Circular boundaries become circles or
 circular arcs; slots use segments and circular arcs. Exact rational splines are
@@ -76,9 +90,11 @@ may need manual construction or finishing. Unsupported tangent transitions and
 unmatched faces on the discovered skin reject the entire pending conversion;
 no partial batch is committed. Existing geometry is not modified to remove corner
 fillets. Disconnected skins are not inferred from the selected starting face.
-Conversion is independent: changing or regenerating the source does not update
-the generated sheet. Relationships among the new native sheet features remain
-editable through their ordinary Properties windows.
+Native-solid conversion is associative within the supported recognition path.
+Imported STEP reconstruction remains independent. Relationships among ordinary
+import-generated sheet features remain editable through their normal Properties
+windows; bound native-solid children are regenerated from their persisted source
+bindings until a future detach operation releases them.
 
 ## DXF
 
@@ -120,8 +136,12 @@ atomic export writer. Failed preparation does not replace the previous file.
 
 `zima_cpp_sheet_exchange_tests` covers native slots and circular holes, both
 material directions, independently translated/rotated source and target Bodies,
-source independence, serialization/regeneration, native cylindrical continuation,
-Unbend/Bend Back, through Sheet Cut, and flat-pattern contour/volume checks.
+independent STEP reconstruction, associative native source edits,
+serialization/regeneration, native cylindrical continuation, Unbend/Bend Back,
+through Sheet Cut, and flat-pattern contour/volume checks. The associative
+matrix changes planar dimensions and cylindrical radii repeatedly, verifies
+stable child/Sketch identities, unchanged regeneration, last-valid recovery,
+two-level Undo/Redo, cold save/reopen and current boundary fingerprints.
 It also rejects a destination Body placed before its source. The GUI contract is
 `zima_cpp_sheet_exchange_ui_contract`; `ZIMA_VERIFY_SHEET_EXCHANGE` can select a
 private copy of a larger native fixture instead of the synthetic test solid.

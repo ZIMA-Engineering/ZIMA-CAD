@@ -374,6 +374,11 @@ void AssemblyWorkspaceWindow::preview_sketch_segment_ray(
         sketch_tangent_intent_pixels * viewer_->devicePixelRatioF());
     const double cursor_x = (*position)[0] - (*pending_segment_start_)[0];
     const double cursor_y = (*position)[1] - (*pending_segment_start_)[1];
+    const auto snapped_line_direction = endpoint_snap_kind ==
+            zima::sketcher::ConstraintKind::PointOnLine
+        ? infer_snapped_line_endpoint_direction(*pending_segment_start_,
+            *position,direction_tolerance,sketch_inference_settings_)
+        : std::nullopt;
     const auto line_relation_matches = [&](const std::string& support_id,
             const zima::sketcher::ConstraintKind relation) {
         const auto support = sketch_line_support_direction(support_id);
@@ -390,12 +395,14 @@ void AssemblyWorkspaceWindow::preview_sketch_segment_ray(
         return error <= direction_tolerance;
     };
     if ((endpoint_snap || pending_sketch_snap_kind_) &&
+        !snapped_line_direction &&
         !offered_parallel_reference.empty() &&
         automatic_constraint_enabled(zima::sketcher::ConstraintKind::Parallel) &&
         line_relation_matches(offered_parallel_reference,
             zima::sketcher::ConstraintKind::Parallel)) {
         inference.parallel_reference_id = offered_parallel_reference;
     } else if ((endpoint_snap || pending_sketch_snap_kind_) &&
+               !snapped_line_direction &&
                !offered_perpendicular_reference.empty() &&
                automatic_constraint_enabled(
                    zima::sketcher::ConstraintKind::Perpendicular) &&
@@ -463,12 +470,8 @@ void AssemblyWorkspaceWindow::preview_sketch_segment_ray(
         endpoint_snap_kind == zima::sketcher::ConstraintKind::PointOnLine) {
         // C fixes support, not the new line's direction. Keep compatible H/V
         // relative to its accepted first point in preview and confirmation.
-        if (automatic_constraint_enabled(zima::sketcher::ConstraintKind::Horizontal) &&
-            std::abs(cursor_y) <= direction_tolerance)
-            inference.kind = zima::sketcher::ConstraintKind::Horizontal;
-        else if (automatic_constraint_enabled(zima::sketcher::ConstraintKind::Vertical) &&
-                 std::abs(cursor_x) <= direction_tolerance)
-            inference.kind = zima::sketcher::ConstraintKind::Vertical;
+        inference.kind=snapped_line_direction;
+        if(inference.kind)inference.reference_point_id.clear();
     }
     const bool snapped_start_tangent=(endpoint_snap || pending_sketch_snap_kind_) &&
         automatic_constraint_enabled(zima::sketcher::ConstraintKind::Tangent) &&

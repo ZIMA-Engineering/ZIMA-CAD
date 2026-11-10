@@ -176,6 +176,185 @@ bool known_final_body_cache_format(std::string_view value) {
     return value==legacy_final_body_cache_format||value==final_body_cache_format;
 }
 
+nlohmann::json sheet_source_vector(kernel::Vec3 value) {
+    return nlohmann::json::array({value.x,value.y,value.z});
+}
+
+kernel::Vec3 load_sheet_source_vector(const nlohmann::json& value) {
+    if(!value.is_array()||value.size()!=3)throw std::runtime_error(
+        "Invalid Sheet from Body source vector");
+    kernel::Vec3 result{value.at(0).get<double>(),
+        value.at(1).get<double>(),value.at(2).get<double>()};
+    if(!std::isfinite(result.x)||!std::isfinite(result.y)||
+            !std::isfinite(result.z))
+        throw std::runtime_error(
+            "Invalid Sheet from Body source vector");
+    return result;
+}
+
+std::string_view sheet_source_face_role_name(SheetFromBodyFaceRole role) {
+    switch(role) {
+        case SheetFromBodyFaceRole::Skin:return "skin";
+        case SheetFromBodyFaceRole::OppositeSkin:return "opposite_skin";
+        case SheetFromBodyFaceRole::Adjacent:return "adjacent";
+        case SheetFromBodyFaceRole::BendInner:return "bend_inner";
+        case SheetFromBodyFaceRole::BendOuter:return "bend_outer";
+    }
+    throw std::runtime_error("Invalid Sheet from Body face role");
+}
+
+SheetFromBodyFaceRole load_sheet_source_face_role(
+        std::string_view role) {
+    if(role=="skin")return SheetFromBodyFaceRole::Skin;
+    if(role=="opposite_skin")return SheetFromBodyFaceRole::OppositeSkin;
+    if(role=="adjacent")return SheetFromBodyFaceRole::Adjacent;
+    if(role=="bend_inner")return SheetFromBodyFaceRole::BendInner;
+    if(role=="bend_outer")return SheetFromBodyFaceRole::BendOuter;
+    throw std::runtime_error("Invalid Sheet from Body face role");
+}
+
+std::string_view sheet_source_edge_role_name(SheetFromBodyEdgeRole role) {
+    switch(role) {
+        case SheetFromBodyEdgeRole::Boundary:return "boundary";
+        case SheetFromBodyEdgeRole::Entry:return "entry";
+        case SheetFromBodyEdgeRole::Exit:return "exit";
+    }
+    throw std::runtime_error("Invalid Sheet from Body edge role");
+}
+
+SheetFromBodyEdgeRole load_sheet_source_edge_role(
+        std::string_view role) {
+    if(role=="boundary")return SheetFromBodyEdgeRole::Boundary;
+    if(role=="entry")return SheetFromBodyEdgeRole::Entry;
+    if(role=="exit")return SheetFromBodyEdgeRole::Exit;
+    throw std::runtime_error("Invalid Sheet from Body edge role");
+}
+
+nlohmann::json serialize_sheet_source_reference(
+        const kernel::FaceReference& reference) {
+    return {{"owner_id",reference.owner_id},
+        {"semantic_key",reference.semantic_key},
+        {"instance_path",reference.instance_path}};
+}
+
+nlohmann::json serialize_sheet_source_reference(
+        const kernel::EdgeReference& reference) {
+    return {{"owner_id",reference.owner_id},
+        {"semantic_key",reference.semantic_key},
+        {"instance_path",reference.instance_path}};
+}
+
+kernel::FaceReference load_sheet_source_face_reference(
+        const nlohmann::json& value) {
+    return {value.at("owner_id").get<std::string>(),
+        value.at("semantic_key").get<std::string>(),
+        value.at("instance_path").get<std::string>()};
+}
+
+kernel::EdgeReference load_sheet_source_edge_reference(
+        const nlohmann::json& value) {
+    return {value.at("owner_id").get<std::string>(),
+        value.at("semantic_key").get<std::string>(),
+        value.at("instance_path").get<std::string>()};
+}
+
+nlohmann::json serialize_sheet_source_binding(
+        const SheetFromBodyChildBinding& binding) {
+    nlohmann::json faces=nlohmann::json::array();
+    for(const auto& face:binding.faces) {
+        const auto& surface=face.last_valid_surface;
+        faces.push_back({
+            {"reference",serialize_sheet_source_reference(face.reference)},
+            {"role",sheet_source_face_role_name(face.role)},
+            {"side",face.side},
+            {"surface",{{"kind",surface.kind==
+                    kernel::SurfaceGeometry::Kind::Plane?"plane":"cylinder"},
+                {"origin",sheet_source_vector(surface.origin)},
+                {"axis",sheet_source_vector(surface.axis)},
+                {"radial",sheet_source_vector(surface.radial)},
+                {"radius",surface.radius},
+                {"axial_min",surface.axial_min},
+                {"axial_max",surface.axial_max},
+                {"reversed",surface.reversed}}}});
+    }
+    nlohmann::json edges=nlohmann::json::array();
+    for(const auto& edge:binding.edges)
+        edges.push_back({
+            {"reference",serialize_sheet_source_reference(edge.reference)},
+            {"role",sheet_source_edge_role_name(edge.role)},
+            {"direction",edge.direction},
+            {"last_valid_endpoints",nlohmann::json::array({
+                sheet_source_vector(edge.last_valid_endpoints[0]),
+                sheet_source_vector(edge.last_valid_endpoints[1])})}});
+    return {{"feature_id",binding.feature_id},
+        {"region_id",binding.region_id},
+        {"kind",binding.bend?"bend":"flat"},
+        {"root",binding.root},
+        {"detached",binding.detached},
+        {"references_valid",binding.references_valid},
+        {"faces",std::move(faces)},
+        {"edges",std::move(edges)}};
+}
+
+SheetFromBodyChildBinding load_sheet_source_binding(
+        const nlohmann::json& value) {
+    SheetFromBodyChildBinding result;
+    result.feature_id=value.at("feature_id").get<std::string>();
+    result.region_id=value.at("region_id").get<std::string>();
+    const auto kind=value.at("kind").get<std::string>();
+    if(kind!="flat"&&kind!="bend")throw std::runtime_error(
+        "Invalid Sheet from Body child kind");
+    result.bend=kind=="bend";
+    result.root=value.at("root").get<bool>();
+    result.detached=value.at("detached").get<bool>();
+    result.references_valid=value.at("references_valid").get<bool>();
+    for(const auto& encoded:value.at("faces")) {
+        SheetFromBodyFaceBinding face;
+        face.reference=load_sheet_source_face_reference(
+            encoded.at("reference"));
+        face.role=load_sheet_source_face_role(
+            encoded.at("role").get<std::string>());
+        face.side=encoded.at("side").get<int>();
+        const auto& surface=encoded.at("surface");
+        const auto surface_kind=surface.at("kind").get<std::string>();
+        if(surface_kind!="plane"&&surface_kind!="cylinder")
+            throw std::runtime_error(
+                "Invalid Sheet from Body source surface kind");
+        face.last_valid_surface.kind=surface_kind=="plane"
+            ?kernel::SurfaceGeometry::Kind::Plane
+            :kernel::SurfaceGeometry::Kind::Cylinder;
+        face.last_valid_surface.origin=load_sheet_source_vector(
+            surface.at("origin"));
+        face.last_valid_surface.axis=load_sheet_source_vector(
+            surface.at("axis"));
+        face.last_valid_surface.radial=load_sheet_source_vector(
+            surface.at("radial"));
+        face.last_valid_surface.radius=surface.at("radius").get<double>();
+        face.last_valid_surface.axial_min=
+            surface.at("axial_min").get<double>();
+        face.last_valid_surface.axial_max=
+            surface.at("axial_max").get<double>();
+        face.last_valid_surface.reversed=surface.at("reversed").get<bool>();
+        result.faces.push_back(std::move(face));
+    }
+    for(const auto& encoded:value.at("edges")) {
+        SheetFromBodyEdgeBinding edge;
+        edge.reference=load_sheet_source_edge_reference(
+            encoded.at("reference"));
+        edge.role=load_sheet_source_edge_role(
+            encoded.at("role").get<std::string>());
+        edge.direction=encoded.at("direction").get<int>();
+        const auto& endpoints=encoded.at("last_valid_endpoints");
+        if(!endpoints.is_array()||endpoints.size()!=2)
+            throw std::runtime_error(
+                "Invalid Sheet from Body source edge endpoints");
+        edge.last_valid_endpoints={load_sheet_source_vector(endpoints.at(0)),
+            load_sheet_source_vector(endpoints.at(1))};
+        result.edges.push_back(std::move(edge));
+    }
+    return result;
+}
+
 bool supports_final_body_cache(
         const std::vector<zima::kernel::HistoryOperation>& operations,
         const zima::kernel::BodyResult& final) {
@@ -799,12 +978,12 @@ nlohmann::json read_part_ini(const std::filesystem::path& path,
     const auto ini = read_ini(path);
     profile.phase("INI scan");
     const auto native_format=ini_value(ini, "Document", "format_version");
-    if (native_format != "50") {
+    if (native_format != "51") {
         throw std::runtime_error("Unsupported ZIMA-CAD Part document format");
     }
     nlohmann::json root = {
         {"format", "zima-cad-cpp"},
-        {"format_version", 74},
+        {"format_version", 75},
         {"document_id", ini_required(ini, "Document", "document_id")},
         {"type", ini_value(ini, "Document", "type", "part")},
         {"name", ini_value(ini, "Document", "name", "Nový díl")},
@@ -1002,7 +1181,7 @@ NativeCalculatedCachePtr write_part_ini(
     NativeIoProfile profile("Part write");
     IniSections ini;
     ini["Document"] = {
-        {"format_version", "50"},
+        {"format_version", "51"},
         {"calculated_definition", "zima-part-definition-sha256-v1"},
         {"type", "part"},
         {"document_id", root.at("document_id").get<std::string>()},
@@ -9815,8 +9994,7 @@ void PartDocument::validate_sheet_from_body() const {
     for(const auto& conversion:history) {
         if(conversion.feature_kind!=FeatureKind::SheetFromBody)continue;
         const auto& definition=conversion.sheet_from_body;
-        if(definition.generated_features.empty()||
-           definition.source_body_id.empty()||
+        if(definition.source_body_id.empty()||
            !std::isfinite(definition.thickness)||
            definition.thickness<.001||definition.thickness>1000000||
            conversion.combine_mode!=CombineMode::Add||
@@ -9827,13 +10005,133 @@ void PartDocument::validate_sheet_from_body() const {
         if(!owner)throw std::invalid_argument(
             "Sheet from Body must remain in one Body");
         const auto* source_body=body_history.find(definition.source_body_id);
-        if(!source_body||!definition.replaces_body||source_body!=owner)
+        if(!source_body||
+                (definition.replaces_body?source_body!=owner:
+                    source_body==owner))
             throw std::invalid_argument(
                 "Invalid Sheet from Body source boundary");
+        if(!definition.replaces_body) {
+            const auto& bodies=body_history.order();
+            if(std::ranges::find(bodies,source_body->scope.id)>=
+                    std::ranges::find(bodies,owner->scope.id))
+                throw std::invalid_argument(
+                    "Sheet from Body source Body must precede its target Body");
+        }
         const auto boundary=std::ranges::find(owner->entries,conversion.id,
             &PartHistoryEntry::id);
         if(boundary==owner->entries.end())throw std::invalid_argument(
             "Sheet from Body is missing from Body history");
+        std::set<std::string> generated(definition.generated_features.begin(),
+            definition.generated_features.end());
+        if(generated.size()!=definition.generated_features.size()||
+                (!definition.child_bindings.empty()&&
+                 definition.child_bindings.size()!=generated.size()))
+            throw std::invalid_argument(
+                "Sheet from Body must bind every generated feature once");
+        std::set<std::string> bound_features;
+        std::set<std::string> regions;
+        std::size_t roots{};
+        const auto boundary_order=std::ranges::find(history_order,
+            conversion.id,&PartHistoryEntry::id);
+        const auto before_boundary=[&](const std::string& id) {
+            const auto entry=std::ranges::find(history_order,id,
+                &PartHistoryEntry::id);
+            return boundary_order!=history_order.end()&&
+                entry!=history_order.end()&&entry<boundary_order;
+        };
+        const auto valid_source_owner=[&](const auto& reference,
+                bool resolved) {
+            if(!reference.valid()||!reference.instance_path.empty())
+                return false;
+            if(!resolved)return true;
+            return body_owner_for_object(reference.owner_id)==source_body&&
+                before_boundary(reference.owner_id);
+        };
+        for(const auto& binding:definition.child_bindings) {
+            if(binding.feature_id.empty()||binding.region_id.empty()||
+                    !generated.contains(binding.feature_id)||
+                    !bound_features.insert(binding.feature_id).second||
+                    !regions.insert(binding.region_id).second||
+                    binding.faces.empty())
+                throw std::invalid_argument(
+                    "Invalid Sheet from Body child binding");
+            const auto* child=find_container(binding.feature_id);
+            if(!child||body_owner_for_object(child->id)!=owner||
+                    (binding.bend?child->feature_kind!=FeatureKind::Bend:
+                        child->feature_kind!=FeatureKind::Flat))
+                throw std::invalid_argument(
+                    "Sheet from Body child kind or ownership is invalid: "+
+                    binding.feature_id+" expected "+
+                    (binding.bend?"Bend":"Flat")+" actual "+
+                    (child?std::to_string(static_cast<int>(
+                        child->feature_kind)):"missing"));
+            const auto child_entry=std::ranges::find(owner->entries,
+                child->id,&PartHistoryEntry::id);
+            if(child_entry==owner->entries.end()||child_entry<=boundary)
+                throw std::invalid_argument(
+                    "Sheet from Body child must follow its conversion");
+            if(binding.root)++roots;
+            std::set<std::tuple<std::string,std::string,std::string,
+                int,int,double,double,double,double,double,double,double,
+                double,double,double,double,double,bool>> faces;
+            for(const auto& face:binding.faces) {
+                const auto& surface=face.last_valid_surface;
+                const auto finite=[](kernel::Vec3 value) {
+                    return std::isfinite(value.x)&&std::isfinite(value.y)&&
+                        std::isfinite(value.z);
+                };
+                if(!valid_source_owner(face.reference,
+                        binding.references_valid)||
+                        (face.side!=1&&face.side!=-1)||
+                        !finite(surface.origin)||!finite(surface.axis)||
+                        !finite(surface.radial)||
+                        surface.axis.x*surface.axis.x+
+                            surface.axis.y*surface.axis.y+
+                            surface.axis.z*surface.axis.z<=1e-24||
+                        !std::isfinite(surface.radius)||surface.radius<0||
+                        !std::isfinite(surface.axial_min)||
+                        !std::isfinite(surface.axial_max)||
+                        (surface.kind!=kernel::SurfaceGeometry::Kind::Plane&&
+                         surface.kind!=
+                            kernel::SurfaceGeometry::Kind::Cylinder)||
+                        !faces.emplace(face.reference.owner_id,
+                            face.reference.semantic_key,
+                            face.reference.instance_path,
+                            static_cast<int>(face.role),
+                            static_cast<int>(surface.kind),
+                            surface.origin.x,surface.origin.y,
+                            surface.origin.z,surface.axis.x,surface.axis.y,
+                            surface.axis.z,surface.radial.x,
+                            surface.radial.y,surface.radial.z,
+                            surface.radius,surface.axial_min,
+                            surface.axial_max,
+                            surface.reversed).second)
+                    throw std::invalid_argument(
+                        "Invalid Sheet from Body source face binding");
+            }
+            std::set<std::tuple<std::string,std::string,std::string>> edges;
+            for(const auto& edge:binding.edges) {
+                if(!valid_source_owner(edge.reference,
+                        binding.references_valid)||
+                        (edge.direction!=1&&edge.direction!=-1)||
+                        !edges.emplace(edge.reference.owner_id,
+                            edge.reference.semantic_key,
+                            edge.reference.instance_path).second)
+                    throw std::invalid_argument(
+                        "Invalid Sheet from Body source edge binding");
+                for(const auto point:edge.last_valid_endpoints)
+                    if(!std::isfinite(point.x)||!std::isfinite(point.y)||
+                            !std::isfinite(point.z))
+                        throw std::invalid_argument(
+                            "Invalid Sheet from Body source edge position");
+            }
+        }
+        if(!definition.child_bindings.empty()&&
+                (roots!=1||!definition.child_bindings.front().root||
+                 definition.child_bindings.front().feature_id!=
+                    definition.generated_features.front()))
+            throw std::invalid_argument(
+                "Sheet from Body must retain one root source region");
     }
 }
 
@@ -9950,6 +10248,35 @@ void PartDocument::erase_history_object(const std::string& id) {
             for(const auto& feature:next.history)
                 if(feature.sheet_profile_binding.parent_id==selected->id)
                     removed.insert(feature.id);
+    }
+    for(auto& conversion:next.history) {
+        if(conversion.feature_kind!=FeatureKind::SheetFromBody)continue;
+        auto& definition=conversion.sheet_from_body;
+        const auto binding=std::ranges::find(definition.child_bindings,id,
+            &SheetFromBodyChildBinding::feature_id);
+        if(binding!=definition.child_bindings.end()) {
+            definition.child_bindings.erase(binding);
+            std::erase(definition.generated_features,id);
+            // Deleting the material root deliberately leaves the conversion
+            // boundary active. It continues to exclude the source solid and
+            // therefore publishes the established empty-material state.
+            if(!definition.child_bindings.empty()&&
+                    std::ranges::none_of(definition.child_bindings,
+                        &SheetFromBodyChildBinding::root))
+                definition.child_bindings.front().root=true;
+            continue;
+        }
+        for(auto& source:definition.child_bindings) {
+            const bool lost_face=std::ranges::any_of(source.faces,
+                [&](const auto& face) {
+                    return removed.contains(face.reference.owner_id);
+                });
+            const bool lost_edge=std::ranges::any_of(source.edges,
+                [&](const auto& edge) {
+                    return removed.contains(edge.reference.owner_id);
+                });
+            if(lost_face||lost_edge)source.references_valid=false;
+        }
     }
     std::erase_if(next.history, [&](const auto& entry) { return removed.contains(entry.id); });
     std::erase_if(next.constructions, [&](const auto& entry) { return removed.contains(entry.id); });
@@ -10310,7 +10637,8 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
             operations.push_back({container.id, std::move(marker),
                 kernel::BooleanOperation::Add, container.suppressed,
                 boolean_tolerance, mesh_deflection});
-            operations.back().replaces_body = true;
+            operations.back().replaces_body =
+                container.sheet_from_body.replaces_body;
             continue;
         }
         const bool retained_frame_geometry=
@@ -12166,7 +12494,7 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
             : FeatureKind::DrillPoint;
         if(container.feature_kind==FeatureKind::DerivedCopy)container.derived_copy=source.at("derived_copy").get<DerivedCopyParameters>();
         container.id = source.at("id").get<std::string>();
-    container.value_locks = source.value("value_locks", std::set<std::string>{});
+        container.value_locks = source.value("value_locks", std::set<std::string>{});
         container.feature_id = source.at("feature_id").get<std::string>();
         container.feature_parent_id =
             source.at("feature_parent_id").get<std::string>();
@@ -12256,6 +12584,9 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
             const auto& definition=source.at("sheet_from_body");
             container.sheet_from_body.generated_features=
                 definition.at("generated_features").get<std::vector<std::string>>();
+            for(const auto& binding:definition.at("child_bindings"))
+                container.sheet_from_body.child_bindings.push_back(
+                    load_sheet_source_binding(binding));
             container.sheet_from_body.source_body_id=
                 definition.at("source_body_id").get<std::string>();
             container.sheet_from_body.thickness=
@@ -12264,8 +12595,7 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
                 definition.at("thickness_override").get<bool>();
             container.sheet_from_body.replaces_body=
                 definition.at("replaces_body").get<bool>();
-            if(container.sheet_from_body.generated_features.empty()||
-               container.sheet_from_body.source_body_id.empty()||
+            if(container.sheet_from_body.source_body_id.empty()||
                !std::isfinite(container.sheet_from_body.thickness)||
                container.sheet_from_body.thickness<.001||
                container.sheet_from_body.thickness>1000000)
@@ -13544,7 +13874,9 @@ nlohmann::json PartDocument::serialized(
             }
         } else if (container.feature_kind == FeatureKind::SheetFromBody) {
             const auto& conversion=container.sheet_from_body;
-            if(conversion.generated_features.empty()||
+            if(!conversion.child_bindings.empty()&&
+                    conversion.child_bindings.size()!=
+                        conversion.generated_features.size()||
                !std::isfinite(conversion.thickness)||
                conversion.thickness<.001||conversion.thickness>1000000||
                container.combine_mode!=CombineMode::Add)
@@ -13718,10 +14050,14 @@ nlohmann::json PartDocument::serialized(
             const auto& conversion=container.sheet_from_body;
             serialized["sheet_from_body"]={
                 {"generated_features",conversion.generated_features},
+                {"child_bindings",nlohmann::json::array()},
                 {"source_body_id",conversion.source_body_id},
                 {"thickness",conversion.thickness},
                 {"thickness_override",conversion.thickness_override},
                 {"replaces_body",conversion.replaces_body}};
+            for(const auto& binding:conversion.child_bindings)
+                serialized["sheet_from_body"]["child_bindings"].push_back(
+                    serialize_sheet_source_binding(binding));
         } else if (container.feature_kind == FeatureKind::SheetProfile) {
             const auto& profile = container.sheet_profile;
             if (profile.sketch_id.empty() || profile.start_point_id.empty() ||
@@ -14265,7 +14601,7 @@ nlohmann::json PartDocument::serialized(
     static_cast<void>(zima::document::parse_named_views(named_views));
     nlohmann::json root = {
         {"format", "zima-cad-cpp"},
-        {"format_version", 74},
+        {"format_version", 75},
         {"reference_errors", reference_errors},
         {"removed_reference_states",removed_reference_states},
         {"document_id", document_id},

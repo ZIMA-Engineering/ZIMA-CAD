@@ -67,6 +67,8 @@ int main() {
             };
             const auto line=reference("plane-line",ExternalReferenceKind::Face,{{49,10},{51,10}},true);
             const auto anchor=reference("anchor",ExternalReferenceKind::Point,{{0,3}});
+            const auto vertical_line=reference("vertical-plane-line",
+                ExternalReferenceKind::Face,{{-20,-10},{-20,20}},true);
             {
                 // The reported case is a side of an already completed H/V
                 // rectangle.  Both contacts must be solved as one intent so
@@ -238,6 +240,43 @@ int main() {
                     std::abs(std::hypot(q->x-p->x,q->y-p->y)-std::hypot(r->x-q->x,r->y-q->y))<1e-8&&
                     std::abs((q->x-p->x)*(r->x-q->x)+(q->y-p->y)*(r->y-q->y))<1e-7,
                     "EqualLength failed on perpendicular arms sliding along different axes");
+            }
+            for(const bool reverse:{false,true}) {
+                auto s=Sketch::create_default();
+                const auto base=s.add_segment(0,3,-8.31,3);
+                s.add_external_reference(anchor);
+                s.add_external_reference(vertical_line);
+                const auto base_first=s.segments.front().first_point_id;
+                const auto base_second=s.segments.front().second_point_id;
+                static_cast<void>(s.add_point_reference_constraint(
+                    base_first,anchor.id));
+                static_cast<void>(s.add_segment_constraint(
+                    base,ConstraintKind::Horizontal));
+                const auto created=s.add_segment(-8.31,3,-20,3,
+                    1.0e-6,false,true,true);
+                const auto segment=std::ranges::find(
+                    s.segments,created,&SketchSegment::id);
+                require(segment!=s.segments.end()&&
+                        segment->first_point_id==base_second,
+                    "Endpoint H/V regression did not reuse the native start point");
+                const auto first=segment->first_point_id;
+                const auto second=segment->second_point_id;
+                static_cast<void>(s.add_point_on_line_constraint(
+                    second,vertical_line.id));
+                static_cast<void>(s.add_point_pair_constraint(
+                    reverse?second:first,reverse?first:second,
+                    ConstraintKind::Horizontal));
+                require(std::ranges::any_of(s.constraints,[&](const auto& c) {
+                            return !c.suppressed&&
+                                c.kind==ConstraintKind::Horizontal&&
+                                ((c.first_point_id==first&&
+                                  c.second_point_id==second)||
+                                 (c.first_point_id==second&&
+                                  c.second_point_id==first));
+                        })&&
+                        std::abs(s.find_point(second)->x+20)<1e-8&&
+                        std::abs(s.find_point(second)->y-3)<1e-8,
+                    "Endpoint on an external vertical line lost its horizontal relation");
             }
             for(const bool reverse:{false,true}) {
                 auto s=Sketch::create_default();s.add_external_reference(line);

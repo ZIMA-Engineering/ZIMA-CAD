@@ -2228,6 +2228,18 @@ int main(int argc, char* argv[]) {
                 "Disabled automatic Horizontal still snapped the point");
             const auto vertical=infer_sketch_point_alignment(sketch,{17.05,40.0},0.1,settings);
             require(vertical && vertical->kind==K::Vertical,"Vertical inference was disabled together with Horizontal");
+            settings={};
+            require(infer_snapped_line_endpoint_direction(
+                        {-8.31,3.0},{-20.0,3.05},0.1,settings)==K::Horizontal&&
+                    infer_snapped_line_endpoint_direction(
+                        {-8.31,3.0},{-8.26,10.0},0.1,settings)==K::Vertical&&
+                    !infer_snapped_line_endpoint_direction(
+                        {-8.31,3.0},{-20.0,3.2},0.1,settings),
+                "Snapped line endpoint did not preserve direct H/V intent");
+            settings.disabled.insert(K::Horizontal);
+            require(!infer_snapped_line_endpoint_direction(
+                        {-8.31,3.0},{-20.0,3.05},0.1,settings),
+                "Disabled automatic Horizontal still owned a snapped endpoint");
             settings.disabled.insert(K::Coincident);settings.disabled.insert(K::EqualLength);
             require(!settings.enabled(K::PointOnLine) && !settings.enabled(K::PointReference) && !settings.enabled(K::EqualRadius),
                 "Automatic relation aliases ignored their activity toggle");
