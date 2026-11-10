@@ -1,5 +1,20 @@
 # Application updates
 
+Signed Windows [2026111002](releases/2026111002.md#windows-publication-acceptance)
+was published at `2026-11-10T18:23:38Z` from immutable source
+`ef47698916fd135a68b9e87495ee5ab1c7b8f947`. Imported STEP sheets now
+reconstruct ordered native Flat/Bend history from the selected planar face,
+including the reported compound-fillet ears as one Bend each. STEP semicircle
+pairs become native circles, first-Bend cold-start Boolean topology is valid,
+consecutive Sheet Profile bends retain their carried material side, and full
+occurrence wires remain visible through occlusion. Candidate and signed native
+smoke passed; candidate smoke loaded all 1,185 factory assets. The signed
+manifest binds 17,516 archive entries, exact source and the Windows runtime.
+All three anonymous public downloads match the accepted bytes and the packaged
+production updater reports the release as current. Native Linux execution
+remains a separate host gate. See the
+[publication evidence](verification/20261110-windows-1002-publication.json).
+
 Signed Windows [2026110802](releases/2026110802.md#windows-publication-acceptance)
 was published at `2026-11-08T18:05:06Z` from immutable source
 `5f3a6aa93c0d30370779770bc9e1cad5ee53d98b`. Shared exact curved Fillet and

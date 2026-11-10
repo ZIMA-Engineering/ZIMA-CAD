@@ -7,20 +7,22 @@ not the current feature backlog.
 
 ## Current release boundary
 
-Signed Windows [2026110802](releases/2026110802.md#windows-publication-acceptance)
+Signed Windows [2026111002](releases/2026111002.md#windows-publication-acceptance)
 is the latest published stable build. It was published at
-`2026-11-08T18:05:06Z` from immutable source
-`5f3a6aa93c0d30370779770bc9e1cad5ee53d98b` with Qt 6.11.0 and OCCT 8.0.1.
+`2026-11-10T18:23:38Z` from immutable source
+`ef47698916fd135a68b9e87495ee5ab1c7b8f947` with Qt 6.11.0 and OCCT 8.0.1.
 Candidate and signed native smoke each pass with all 1,185 factory assets;
-signature/trust, 17,506 archive entries and fresh anonymous public downloads
+signature/trust, 17,516 archive entries and fresh anonymous public downloads
 pass. Native Linux execution remains a separate host requirement. See the
-[publication evidence](verification/20261108-windows-0802-publication.json).
+[publication evidence](verification/20261110-windows-1002-publication.json).
 
-The release completes the curved Fillet/Chamfer terminal and route-membership
-corrections, analytical treatment previews and safe treatment deletion. Its
-native schema is unchanged.
+The release reconstructs imported STEP sheets as ordered native Flat/Bend
+history from the selected face, recovers the reported compound-fillet ears as
+one Bend each, authors matching semicircles as native circles, repairs the
+first-Bend cold-start topology and retains the material side through consecutive
+Sheet Profile bends. Its native schema is unchanged.
 
-The unpublished 2026110901 and 2026110902 source tags are superseded by published
+The unpublished 2026110901 and 2026110902 source tags were superseded by published
 Windows release [2026111001](releases/2026111001.md). It completes shared Feature-like
 Sheet Profile extents, active-Body and manually shown/copy Origin references in
 Sketcher, independent Pattern/Mirror topology and connected logical Fillet rails.
