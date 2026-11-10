@@ -792,6 +792,83 @@ static int verify_sheet_profile_ui(QApplication& application,
                             "dimension:");
                 }),
             "Tree double-click lost the attached first-Bend exception");
+
+        const auto edit_attached_bend_angle=[&](double angle) {
+            QTreeWidgetItem* master_row{};
+            for(QTreeWidgetItemIterator row(tree);*row;++row)
+                if((*row)->data(0,Qt::UserRole).toString().toStdString()==
+                        attached_master->id) {
+                    master_row=*row;break;
+                }
+            require(master_row,
+                "Attached Profile first Bend row disappeared before Properties edit");
+            window.show_tree_item_properties(master_row);flush();
+            auto* bend=window.findChild<QDialog*>("bendPropertiesDialog");
+            auto* angle_field=bend?
+                bend->findChild<QDoubleSpinBox*>("bendAngle"):nullptr;
+            require(bend&&angle_field,
+                "Attached Profile first Bend did not open its native Properties");
+            angle_field->setValue(angle);flush();
+            bend->findChild<QDialogButtonBox*>()->button(
+                QDialogButtonBox::Ok)->click();flush();
+            require(!window.findChild<QDialog*>("bendPropertiesDialog"),
+                "Attached Profile first Bend Properties did not close on OK");
+            window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
+            const auto edited=document::PartDocument::load(attached_path);
+            const auto parent=std::ranges::find(edited.history,
+                document::FeatureKind::SheetProfile,
+                &document::HistoryContainer::feature_kind);
+            require(parent!=edited.history.end(),
+                "Attached Profile parent disappeared after Bend Properties edit");
+            const auto driver=std::ranges::find(edited.sketches,
+                parent->sheet_profile.sketch_id,&sketcher::Sketch::id);
+            require(driver!=edited.sketches.end(),
+                "Attached Profile route disappeared after Bend Properties edit");
+            const auto angle_dimension=std::ranges::find(driver->dimensions,
+                angle_id,&sketcher::SketchDimension::id);
+            const auto length_dimension=std::ranges::find(driver->dimensions,
+                length_id,&sketcher::SketchDimension::id);
+            const auto route=document::sheet_profile_route(*driver,
+                parent->sheet_profile.start_point_id);
+            require(angle_dimension!=driver->dimensions.end()&&
+                    length_dimension!=driver->dimensions.end()&&
+                    std::abs(angle_dimension->value-angle)<1e-8&&
+                    std::abs(length_dimension->value-55)<1e-8&&
+                    std::abs(std::abs(route.spans.front().turn_degrees)-angle)<1e-8&&
+                    std::abs(route.spans.back().length-55)<1e-8,
+                "Attached Profile Bend Properties accumulated or restored an old route value");
+            const auto* master=edited.find_container(
+                parent->sheet_profile.master_feature_id);
+            const auto flat=std::ranges::find_if(edited.history,
+                [&](const auto& feature) {
+                    return feature.sheet_profile_binding.parent_id==parent->id&&
+                        feature.sheet_profile_binding.curve_id==
+                            route.spans.back().curve_id;
+                });
+            require(master&&flat!=edited.history.end()&&
+                    flat->feature_kind==document::FeatureKind::Flat&&
+                    flat->flat.direction==document::ExtrusionDirection::Reverse,
+                "Attached Profile Bend Properties flipped its following Flat");
+            const auto bend_end=sketcher::Sketch::from_serialized(
+                master->bend.auxiliary_sketches[1]);
+            const auto flat_sketch=std::ranges::find(edited.sketches,
+                flat->flat.sketch_id,&sketcher::Sketch::id);
+            const auto distance=[](kernel::Vec3 a,kernel::Vec3 b) {
+                return std::hypot(std::hypot(a.x-b.x,a.y-b.y),a.z-b.z);
+            };
+            const auto dot=[](kernel::Vec3 a,kernel::Vec3 b) {
+                return a.x*b.x+a.y*b.y+a.z*b.z;
+            };
+            require(flat_sketch!=edited.sketches.end()&&
+                    distance(flat_sketch->resolved_origin,
+                        bend_end.resolved_origin)<1e-8&&
+                    dot(flat_sketch->resolved_normal,
+                        bend_end.resolved_y_axis)<-1+1e-8,
+                "Attached Profile following Flat detached from its edited Bend");
+        };
+        edit_attached_bend_angle(60);
+        edit_attached_bend_angle(105);
+        edit_attached_bend_angle(60);
         std::cout<<"Sheet Profile dialog, attachment, dimensions, Tree, Explode and Undo/Redo passed\n";
         return 0;
     } catch(const std::exception& error) {

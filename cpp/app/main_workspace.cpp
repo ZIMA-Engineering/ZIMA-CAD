@@ -31,6 +31,7 @@
 #include <zima/document/placement_orientation.hpp>
 #include <zima/document/component_source.hpp>
 #include <zima/document/bend.hpp>
+#include <zima/document/sheet_profile.hpp>
 #include <zima/document/material_library.hpp>
 #include <zima/document/flat.hpp>
 #include <zima/workspace/native_documents.hpp>

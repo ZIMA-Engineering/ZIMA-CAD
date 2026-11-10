@@ -1,4 +1,5 @@
 #include <zima/workspace/sheet_profile_operations.hpp>
+#include <zima/workspace/bend_operations.hpp>
 #include <zima/workspace/flat_operations.hpp>
 #include <zima/workspace/history_deletion.hpp>
 #include <zima/workspace/history_policy.hpp>
@@ -100,6 +101,9 @@ void free_flat_bend_flat() {
     require(child(prepared,0).flat.thickness_override&&
         std::abs(child(prepared,0).flat.thickness-1)<1e-9,
         "First Flat did not own common Profile thickness");
+    require(child(prepared,2).flat.direction==
+            document::ExtrusionDirection::Reverse,
+        "Flat following a Profile Bend was extruded away from the Bend material");
     static_cast<void>(prepared.document.serialized());
     const auto reopened=document::PartDocument::from_serialized(
         prepared.document.serialized());
@@ -124,6 +128,9 @@ void free_flat_bend_flat() {
     require(child(regenerated,0).flat.direction==
         document::ExtrusionDirection::Reverse,
         "Profile material-side flip did not reverse its Flats");
+    require(child(regenerated,2).flat.direction==
+            document::ExtrusionDirection::Reverse,
+        "Profile side flip reapplied material direction after a Bend");
     calculate(regenerated.document);
 }
 
@@ -945,6 +952,90 @@ void attached_profile_seed_and_history() {
             state->session.document().serialized()==edited_complete,
         "Attached Profile dimension edit Redo changed its definition");
 
+    const auto edit_master_angle=[&](double angle) {
+        state=live.open_part(document_id);
+        const auto* current_parent=
+            state->session.document().find_container(profile.id);
+        require(current_parent,
+            "Attached Profile parent disappeared before master edit");
+        auto current_master=*state->session.document().find_container(
+            current_parent->sheet_profile.master_feature_id);
+        auto current_sketch=*std::ranges::find(
+            state->session.document().sketches,current_master.bend.sketch_id,
+            &sketcher::Sketch::id);
+        current_master.bend.angle_degrees=angle;
+        require(workspace::commit_bend(live,kernel,document_id,
+                current_master,current_sketch),
+            "Attached Profile master Bend angle edit did not commit");
+        state=live.open_part(document_id);
+        current_parent=state->session.document().find_container(profile.id);
+        const auto current_driver=std::ranges::find(
+            state->session.document().sketches,
+            current_parent->sheet_profile.sketch_id,&sketcher::Sketch::id);
+        require(current_driver!=state->session.document().sketches.end(),
+            "Attached Profile master edit lost its route Sketch");
+        const auto current_route=document::sheet_profile_route(*current_driver,
+            current_parent->sheet_profile.start_point_id);
+        const auto angle_dimension=std::ranges::find(
+            current_driver->dimensions,angle_dimension_id,
+            &sketcher::SketchDimension::id);
+        const auto length_dimension=std::ranges::find(
+            current_driver->dimensions,length_dimension_id,
+            &sketcher::SketchDimension::id);
+        require(angle_dimension!=current_driver->dimensions.end()&&
+                length_dimension!=current_driver->dimensions.end()&&
+                std::abs(angle_dimension->value-angle)<1e-8&&
+                std::abs(length_dimension->value-55)<1e-8&&
+                std::abs(std::abs(current_route.spans.front().turn_degrees)-
+                    angle)<1e-8&&
+                std::abs(current_route.spans.back().length-55)<1e-8,
+            "Repeated master Bend edit accumulated or restored an old Profile value");
+        const auto* regenerated_master=state->session.document().find_container(
+            current_parent->sheet_profile.master_feature_id);
+        const auto regenerated_flat=std::ranges::find_if(
+            state->session.document().history,[&](const auto& feature) {
+                return feature.sheet_profile_binding.parent_id==profile.id&&
+                    feature.sheet_profile_binding.curve_id==
+                        current_route.spans.back().curve_id;
+            });
+        require(regenerated_master&&
+                regenerated_flat!=state->session.document().history.end()&&
+                regenerated_flat->flat.direction==
+                    document::ExtrusionDirection::Reverse,
+            "Attached Profile master edit flipped the following Flat material side");
+        const auto bend_end=sketcher::Sketch::from_serialized(
+            regenerated_master->bend.auxiliary_sketches[1]);
+        const auto flat_sketch=std::ranges::find(
+            state->session.document().sketches,
+            regenerated_flat->flat.sketch_id,&sketcher::Sketch::id);
+        require(flat_sketch!=state->session.document().sketches.end()&&
+                close(flat_sketch->resolved_origin,bend_end.resolved_origin)&&
+                dot(flat_sketch->resolved_normal,
+                    bend_end.resolved_y_axis)<-1+1e-8,
+            "Attached Profile following Flat detached from the edited Bend end frame");
+        const auto reopened=document::PartDocument::from_serialized(
+            state->session.document().serialized());
+        const auto* reopened_parent=reopened.find_container(profile.id);
+        const auto reopened_driver=std::ranges::find(reopened.sketches,
+            reopened_parent->sheet_profile.sketch_id,&sketcher::Sketch::id);
+        const auto reopened_route=document::sheet_profile_route(*reopened_driver,
+            reopened_parent->sheet_profile.start_point_id);
+        require(std::abs(std::abs(reopened_route.spans.front().turn_degrees)-
+                    angle)<1e-8&&
+                std::abs(reopened_route.spans.back().length-55)<1e-8,
+            "Attached Profile repeated master edit changed after save/reopen");
+        return state->session.document().serialized();
+    };
+    static_cast<void>(edit_master_angle(60));
+    const auto before_last_master_edit=edit_master_angle(105);
+    const auto after_last_master_edit=edit_master_angle(60);
+    require(workspace::step_part_document_history(live,document_id,false)&&
+            state->session.document().serialized()==before_last_master_edit,
+        "Attached Profile repeated master edit Undo failed");
+    require(workspace::step_part_document_history(live,document_id,true)&&
+            state->session.document().serialized()==after_last_master_edit,
+        "Attached Profile repeated master edit Redo failed");
+
     require(workspace::calculated_operation_input(state->session)&&
             workspace::calculated_operation_input(state->session,profile.id)&&
             !workspace::calculated_operation_output(state->session,profile.id),
@@ -988,7 +1079,7 @@ void attached_profile_seed_and_history() {
     };
     require(undo_unfold&&
             authored_definition(undo_document)==
-                authored_definition(edited_complete)&&
+                authored_definition(after_last_master_edit)&&
             !state->session.document().find_container(unbend.id),
         "Attached Profile unfold Undo failed");
     require(workspace::step_part_document_history(live,document_id,true)&&
@@ -1007,7 +1098,7 @@ void attached_profile_seed_and_history() {
         &sketcher::Sketch::id);
     require(reopened_parent&&reopened_driver!=reopened.sketches.end(),
         "Reopened attached Profile lost its parent or route Sketch");
-    verify_seed_dimensions(*reopened_driver,3*thickness,55);
+    verify_seed_dimensions(*reopened_driver,3*thickness,55,false,60);
     const auto* reopened_master=reopened.find_container(
         reopened_parent->sheet_profile.master_feature_id);
     require(reopened_master&&reopened_master->feature_kind==

@@ -474,6 +474,32 @@ void update_master_bend_route(sketcher::Sketch& driver,
        edited.bend.angle_degrees<=0||edited.bend.angle_degrees>180)
         throw std::invalid_argument(
             "Sheet Profile master Bend radius or angle is invalid.");
+    const auto source_arc=std::ranges::find(driver.arcs,span.curve_id,
+        &sketcher::SketchArc::id);
+    if(source_arc==driver.arcs.end())throw std::invalid_argument(
+        "Sheet Profile master Bend arc is missing.");
+    // An attached Profile seed owns driving R and angle dimensions.  Editing
+    // its real first Bend must update those authoritative values together
+    // with the native points; otherwise the next constraint evaluation
+    // restores the old route and repeated edits appear as an accumulated
+    // displacement.  Unconstrained authored routes keep the coordinate-only
+    // path below.
+    for(auto& dimension:driver.dimensions) {
+        if(!dimension.driving||dimension.suppressed)continue;
+        if((dimension.kind==sketcher::DimensionKind::Radius||
+                dimension.kind==sketcher::DimensionKind::Diameter)&&
+                dimension.geometry_id==span.curve_id) {
+            dimension.value=dimension.kind==sketcher::DimensionKind::Diameter?
+                2*radius:radius;
+        } else if(dimension.kind==sketcher::DimensionKind::AngleThreePoint) {
+            const std::set<std::string> references{
+                dimension.first_point_id,dimension.second_point_id,
+                dimension.geometry_id};
+            if(references==std::set<std::string>{source_arc->start_point_id,
+                    source_arc->center_point_id,source_arc->end_point_id})
+                dimension.value=edited.bend.angle_degrees;
+        }
+    }
     const double sweep=static_cast<double>(turn)*
         edited.bend.angle_degrees*std::numbers::pi/180.;
     const std::array radial{
@@ -490,8 +516,6 @@ void update_master_bend_route(sketcher::Sketch& driver,
     transform_route_tail(driver,route,span.end,new_end,sweep-old_sweep);
     auto arc=std::ranges::find(driver.arcs,span.curve_id,
         &sketcher::SketchArc::id);
-    if(arc==driver.arcs.end())throw std::invalid_argument(
-        "Sheet Profile master Bend arc is missing.");
     auto* center_point=driver.find_point(arc->center_point_id);
     if(!center_point)throw std::invalid_argument(
         "Sheet Profile master Bend center is missing.");
@@ -633,6 +657,7 @@ PreparedSheetProfile prepare_sheet_profile(const document::PartDocument& before,
         const auto tangent=direction(driver,span.start_tangent);
         const auto left=unit(cross(width_axis,tangent));
         if(span.kind==document::SheetProfileSpanKind::Flat) {
+            const bool follows_bend=previous_bend_end.has_value();
             auto flat_origin=route_origin;
             auto flat_x=width_axis;
             auto flat_y=tangent;
@@ -655,9 +680,15 @@ PreparedSheetProfile prepare_sheet_profile(const document::PartDocument& before,
             child.feature.flat.sheet_attachment=false;
             child.feature.flat.thickness_override=true;
             child.feature.flat.thickness=thickness;
-            child.feature.flat.direction=profile.sheet_profile.material_side>0?
-                document::ExtrusionDirection::Forward:
-                document::ExtrusionDirection::Reverse;
+            // The Bend end frame already carries the physical material side:
+            // +Y points through the sheet while this Flat's normal is -Y.
+            // Applying the parent's side again flips the downstream sheet to
+            // the opposite side after editing an attached Bend.
+            child.feature.flat.direction=follows_bend?
+                document::ExtrusionDirection::Reverse:
+                (profile.sheet_profile.material_side>0?
+                    document::ExtrusionDirection::Forward:
+                    document::ExtrusionDirection::Reverse);
             numeric_frame(child.feature,child.sketch,flat_origin,
                 flat_x,flat_y,flat_normal);
             set_flat_profile(child.sketch,local_width[0],local_width[1],span.length,
