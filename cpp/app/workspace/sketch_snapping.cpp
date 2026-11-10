@@ -498,6 +498,39 @@ bool AssemblyWorkspaceWindow::accept_sketch_segment_ray(
             pending_sketch_snap_geometry_id_, {});
         pending_segment_start_snap_kind_ = std::exchange(
             pending_sketch_snap_kind_, std::nullopt);
+        if(sketch_polyline_active_&&pending_segment_start_snap_kind_==
+                zima::sketcher::ConstraintKind::Coincident) {
+            std::vector<std::string> tangent_supports;
+            const auto append=[&](const std::string& id) {
+                if(!id.empty()&&std::ranges::find(tangent_supports,id)==
+                        tangent_supports.end())
+                    tangent_supports.push_back(id);
+            };
+            if(const auto curve=sketch_keypoint_curve_id(
+                    pending_segment_start_snap_geometry_id_))append(*curve);
+            else {
+                const auto& point=pending_segment_start_snap_geometry_id_;
+                for(const auto& segment:sketch->segments)
+                    if(!segment.construction&&
+                       (segment.first_point_id==point||
+                        segment.second_point_id==point))append(segment.id);
+                for(const auto& arc:sketch->arcs)
+                    if(!arc.construction&&
+                       (arc.start_point_id==point||
+                        arc.end_point_id==point))append(arc.id);
+            }
+            // An open route endpoint has exactly one incoming support. At a
+            // junction the intended tangent is ambiguous and remains a
+            // deliberate next-segment choice.
+            if(tangent_supports.size()==1) {
+                pending_polyline_tangent_geometry_id_=tangent_supports.front();
+                // This seed exists so RMB can immediately create a tangent
+                // arc from a pre-existing open endpoint. Until the user
+                // chooses that arc, an ordinary first Polyline segment must
+                // keep its usual free-direction inference.
+                pending_polyline_tangent_arc_seed_only_=true;
+            }
+        }
         state_->setText(sketch_polyline_active_
             ? tr("Lomená čára: určete další bod.")
             : sketch_segment_construction_
@@ -996,6 +1029,7 @@ bool AssemblyWorkspaceWindow::accept_sketch_segment_ray(
     if (sketch_polyline_active_) {
         pending_segment_start_ = confirmed_position;
         pending_polyline_tangent_geometry_id_ = created_geometry_id;
+        pending_polyline_tangent_arc_seed_only_=false;
     }
     else pending_segment_start_.reset();
     pending_segment_start_snap_geometry_id_.clear();
@@ -1049,6 +1083,7 @@ AssemblyWorkspaceWindow::inferred_sketch_segment_end(
         // curve. Ordinary endpoint snap state is cleared after each segment,
         // so recover this support from the chain for preview and confirmation.
         if(sketch_polyline_active_&&!sketch_polyline_arc_mode_&&
+                !pending_polyline_tangent_arc_seed_only_&&
                 !pending_polyline_tangent_geometry_id_.empty())
             start_tangent_curves.push_back(pending_polyline_tangent_geometry_id_);
 

@@ -7,7 +7,8 @@ namespace zima::document {
 // Read-only parameter annotations shared by modeling inspection and Drawings.
 // Consume resolved placement data without solving references or bodies.
 inline bool has_primitive_parameter_dimensions(FeatureKind kind) {
-    return kind==FeatureKind::Thread||kind==FeatureKind::Loft;
+    return kind==FeatureKind::Hole||kind==FeatureKind::Thread||
+        kind==FeatureKind::Loft;
 }
 inline kernel::ViewerMesh primitive_parameter_dimensions(const HistoryContainer& feature) {
     kernel::ViewerMesh mesh;
@@ -224,6 +225,29 @@ inline kernel::ViewerMesh primitive_parameter_dimensions(const HistoryContainer&
                         container->thread.end_condition_forward == zima::document::EndCondition::Length)
                         cone_angle("drill_point_angle", container->hole.drill_point_angle_degrees,
                             container->thread.bore_length, diameter*0.5);
+                }
+                if (container->feature_kind == FeatureKind::Hole &&
+                        container->hole.thread_enabled &&
+                        container->hole.thread_end_condition ==
+                            zima::document::EndCondition::Length) {
+                    const bool referenced_work_plane =
+                        !placement_references_use_whole_origin(
+                            container->placement.references) &&
+                        std::any_of(container->placement.references.begin(),
+                            container->placement.references.end(),
+                            [](const auto& reference) {
+                                return !reference.orientation_only &&
+                                    reference.supports_offset &&
+                                    !reference.owner_id.empty();
+                            });
+                    const auto axial = [&](double distance) {
+                        return referenced_work_plane
+                            ? local(0,distance,0)
+                            : local(0,0,distance);
+                    };
+                    linear("thread_length", "Délka závitu = ", origin,
+                        axial(container->hole.thread_length), {8,8,0},
+                        container->hole.thread_length);
                 }
     return mesh;
 }

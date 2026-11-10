@@ -800,7 +800,8 @@ void inactive_profile_history(const kernel::OcctKernel& kernel) {
         for(const auto& point:before.back().mesh.original_references.points) {
             if(!point.reference.semantic_key.starts_with("start:")&&!point.reference.semantic_key.starts_with("end:")&&!point.reference.semantic_key.starts_with("profile:path-point:"))continue;
             const auto found=std::ranges::find_if(refs.points,[&](const auto& p){return p.reference==point.reference;});
-            check(found!=refs.points.end(),"Inactive side lost an endpoint point");
+            check(found!=refs.points.end(),
+                "Inactive side lost an endpoint point");
             near(found->position.z,0);
             auto follower=document::PartDocument::create_construction(document::ConstructionKind::Point);
             follower.definition=document::ConstructionDefinition::PointReference;
@@ -932,7 +933,8 @@ void native_feature_history(const kernel::OcctKernel& kernel) {
     check(with_follower.constructions.back().references==stored_reference,"Native save lost the dependent Point reference");
     check(part.history.front().feature_id==feature.feature_id,"Operation edit changed Feature identity");
     for(const auto& point:references.points)if(point.reference.semantic_key.starts_with("profile:path-point:")) {
-        check(std::ranges::any_of(disabled.back().mesh.original_references.points,[&](const auto& p){return p.reference==point.reference;}),
+        check(std::ranges::any_of(disabled.back().mesh.original_references.points,
+                [&](const auto& p){return p.reference==point.reference;}),
             "Native Feature operation edit lost an automatic endpoint");
     }
     for(const auto result:{document::ProfileResultType::Thin,document::ProfileResultType::Surface}) {
@@ -971,6 +973,106 @@ void native_feature_history(const kernel::OcctKernel& kernel) {
         const auto roundtrip=document::PartDocument::from_serialized(part.serialized(calculated));
         near(kernel.evaluate_history(roundtrip.kernel_operations()).back().volume,0);
     }
+}
+
+void logical_feature_rail_treatment(const kernel::OcctKernel& kernel) {
+    auto part=fixture(false);
+    auto& source=part.history.front();
+    source.feature_kind=document::FeatureKind::Feature;
+    source.feature=document::FeatureParameters{};
+    source.feature.sketch_id=part.sketches.front().id;
+    source.feature.sides[0].operation=
+        document::FeatureSideOperation::Extrusion;
+    source.feature.sides[0].length=12.;
+    source.feature.sides[1].operation=
+        document::FeatureSideOperation::None;
+    const auto source_id=source.id;
+    const auto one_side=kernel.evaluate_history(part.kernel_operations());
+    const auto rail=std::ranges::find_if(
+        one_side.back().mesh.original_references.edges,
+        [&](const auto& edge) {
+            constexpr std::string_view prefix="generated:";
+            if(edge.reference.owner_id!=source_id||
+                    !edge.reference.semantic_key.starts_with(prefix))
+                return false;
+            const auto parent=kernel::feature_side_parent(
+                std::string_view(edge.reference.semantic_key).substr(
+                    prefix.size()));
+            return parent&&parent->feature_id==source.feature_id&&
+                parent->side==kernel::FeatureSide::End;
+        });
+    check(rail!=one_side.back().mesh.original_references.edges.end(),
+        "One-sided Feature has no stable longitudinal rail");
+    const auto counterpart=kernel::feature_side_rail_counterpart(
+        rail->reference);
+    check(counterpart.has_value(),
+        "Feature rail has no opposite-side logical identity");
+    auto fillet=document::PartDocument::create_fillet_container(
+        {rail->reference});
+    fillet.edge_treatment.primary_size=1.;
+    fillet.edge_treatment.calculation_method=
+        document::EdgeTreatmentParameters::CalculationMethod::Zima;
+    part.history.push_back(fillet);
+    auto graph=part.body_history;
+    graph.insert({document::PartHistoryKind::Feature,fillet.id});
+    part.set_body_history(std::move(graph));
+    part.resolve_constructions();
+    const auto rounded_one=kernel.evaluate_history(part.kernel_operations());
+
+    auto two_sided=part;
+    auto* two_source=two_sided.find_container(source_id);
+    two_source->feature.sides[1].operation=
+        document::FeatureSideOperation::Extrusion;
+    two_source->feature.sides[1].length=7.;
+    const auto expanded=kernel.evaluate_history(two_sided.kernel_operations());
+    auto explicit_two=two_sided;
+    explicit_two.find_container(fillet.id)->edge_treatment.routes={{
+        rail->reference,*counterpart}};
+    const auto explicit_expanded=kernel.evaluate_history(
+        explicit_two.kernel_operations());
+    near(expanded.back().volume,explicit_expanded.back().volume);
+    near(expanded.back().surface_area,explicit_expanded.back().surface_area);
+    check(two_sided.find_container(fillet.id)->edge_treatment.routes==
+            std::vector<std::vector<kernel::EdgeReference>>{{rail->reference}},
+        "Expanding a Feature rail rewrote its persisted Fillet selection");
+
+    auto opposite_only=two_sided;
+    opposite_only.find_container(source_id)->feature.sides[0].operation=
+        document::FeatureSideOperation::None;
+    const auto surviving=kernel.evaluate_history(
+        opposite_only.kernel_operations());
+    auto explicit_surviving=opposite_only;
+    explicit_surviving.find_container(fillet.id)->edge_treatment.routes={{
+        *counterpart}};
+    const auto expected_surviving=kernel.evaluate_history(
+        explicit_surviving.kernel_operations());
+    near(surviving.back().volume,expected_surviving.back().volume);
+    near(surviving.back().surface_area,
+        expected_surviving.back().surface_area);
+
+    std::vector<kernel::BodyResult> restored;
+    const auto reopened=document::PartDocument::from_serialized(
+        two_sided.serialized(expanded),&restored);
+    check(reopened.find_container(fillet.id)->edge_treatment.routes==
+            std::vector<std::vector<kernel::EdgeReference>>{{rail->reference}},
+        "Native reopening rewrote a logical Feature rail selection");
+    const auto rebuilt=kernel.evaluate_history(reopened.kernel_operations());
+    near(rebuilt.back().volume,expanded.back().volume);
+    near(rebuilt.back().surface_area,expanded.back().surface_area);
+
+    document::DocumentSession session(part,rounded_one);
+    session.commit(two_sided,expanded);
+    check(session.undo()&&
+            session.document().find_container(source_id)->
+                feature.sides[1].operation==
+                    document::FeatureSideOperation::None,
+        "Logical Feature rail expansion lacks Undo");
+    check(session.redo()&&
+            session.document().find_container(source_id)->
+                feature.sides[1].operation==
+                    document::FeatureSideOperation::Extrusion,
+        "Logical Feature rail expansion lacks Redo");
+    std::cout<<"Feature rail Fillet: one/two/opposite branch, native reopen and Undo/Redo passed\n";
 }
 void bounded_feature_rotations(const kernel::OcctKernel& kernel) {
     auto baseline=fixture(true);baseline.history.front().revolution.angle_degrees=360;
@@ -1104,6 +1206,7 @@ int main(){try {
  axis_display_contract(kernel);
  mixed_feature_directions(kernel);
  bounded_feature_rotations(kernel);
+ logical_feature_rail_treatment(kernel);
  inactive_profile_history(kernel);
  inactive_profile_regions(kernel);
  inactive_cap_target(kernel);

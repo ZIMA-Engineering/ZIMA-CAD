@@ -57,6 +57,36 @@ inline std::optional<FeatureSideParent> feature_side_parent(std::string_view key
     return FeatureSideParent{*feature,side,*source};
 }
 
+// A longitudinal edge generated from one profile/Sketch point is one logical
+// Feature rail. A two-sided Feature represents it with one calculated fragment
+// per active side; a one-sided Feature has only the surviving fragment.  Keep
+// the authored Start/End edge key in the document and resolve its opposite-side
+// fragment transiently instead of rewriting persistent selections whenever a
+// branch is enabled or disabled.
+inline std::optional<EdgeReference> feature_side_rail_counterpart(
+        const EdgeReference& reference) {
+    constexpr std::string_view prefix="generated:";
+    if(!reference.valid()||!reference.semantic_key.starts_with(prefix))
+        return std::nullopt;
+    const auto parent=feature_side_parent(
+        std::string_view(reference.semantic_key).substr(prefix.size()));
+    if(!parent)return std::nullopt;
+    auto counterpart=*parent;
+    counterpart.side=counterpart.side==FeatureSide::Start
+        ?FeatureSide::End:FeatureSide::Start;
+    auto result=reference;
+    result.semantic_key=std::string(prefix)+
+        feature_side_parent_key(counterpart);
+    return result;
+}
+
+inline bool same_feature_side_rail(const EdgeReference& first,
+        const EdgeReference& second) {
+    if(first==second)return true;
+    const auto counterpart=feature_side_rail_counterpart(first);
+    return counterpart&&*counterpart==second;
+}
+
 // Scope the source parents of one side before constructing a FeatureGroup.
 // Geometry is unchanged; the OCCT adapter still derives caps, rims and swept
 // topology through its ordinary profile ancestry contract.

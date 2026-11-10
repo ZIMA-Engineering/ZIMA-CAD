@@ -206,6 +206,7 @@ bool AssemblyWorkspaceWindow::finish_active_reference_selection() {
     if (finish_drill_point_face_selection()) return true;
     if (finish_shell_face_selection()) return true;
     const bool handled = extrusion_target_dialog_ != nullptr ||
+        sheet_profile_target_dialog_ != nullptr ||
         primitive_reference_dialog_ != nullptr ||
         construction_reference_dialog_ != nullptr ||
         component_placement_dialog_ != nullptr || curve_axis_dialog_ != nullptr;
@@ -215,6 +216,10 @@ bool AssemblyWorkspaceWindow::finish_active_reference_selection() {
         extrusion_target_dialog_->finish_extrusion_target_entry(true);
     extrusion_target_dialog_ = nullptr;
     extrusion_target_assembly_cut_ = false;
+    if(sheet_profile_target_dialog_!=nullptr)
+        sheet_profile_target_dialog_->finish_sheet_profile_target_entry();
+    sheet_profile_target_dialog_=nullptr;
+    sheet_profile_target_frame_.reset();
 
     pending_primitive_reference_index_.reset();
     primitive_reference_auto_advance_ = false;
@@ -318,6 +323,7 @@ zima::kernel::ViewerMesh AssemblyWorkspaceWindow::active_part_origins(
     const auto& active = document.body_history.active_body_id();
     const auto* sketch = active_sketch();
     const bool owned_sketch = sketch && !sketch->owner_container_id.empty();
+    const auto* editing_body = owned_sketch ? sketch_body(*sketch) : nullptr;
     if (owned_sketch) {
         const auto& owner_id = sketch->owner_container_id;
         auto origins = document.history_origin_reference_geometry_before({});
@@ -348,7 +354,10 @@ zima::kernel::ViewerMesh AssemblyWorkspaceWindow::active_part_origins(
     const auto& source = body_dialog_preview_ ? *body_dialog_preview_ : document;
     for (const auto& body : source.body_history.bodies()) {
         const auto& id = body.scope.id;
-        if ((owned_sketch || (id != active && id != body_dialog_step_id_)) &&
+        const bool owns_active_sketch = editing_body &&
+            id == editing_body->scope.id;
+        if (((owned_sketch && !owns_active_sketch) ||
+             (!owned_sketch && id != active && id != body_dialog_step_id_)) &&
             !visible_local_origin_ids_.contains(id + ":origin")) continue;
         append_mesh(result, source.place_body_mesh(
             source.body_document(id).origin_viewer_mesh(), id));
@@ -1049,6 +1058,8 @@ void AssemblyWorkspaceWindow::start_primitive_reference_selection(
     end_placement_branch_selection();
     if (extrusion_target_dialog_ != nullptr)
         finish_extrusion_target_selection(false);
+    if(sheet_profile_target_dialog_!=nullptr)
+        finish_sheet_profile_target_selection();
     primitive_reference_auto_advance_ = auto_advance;
     primitive_reference_dialog_->set_active_reference_index(index);
     const bool orientation_reference = index >= 3;

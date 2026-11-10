@@ -320,8 +320,8 @@ void AssemblyWorkspaceWindow::align_active_sketch_view(bool fit_view) {
         frame_roll + sketch_view_quarter_turns_ * 90.0 + (sketch->drawing_template ? 180.0 : 0.0)),assembly_context&&!fit_view);
     if(fit_view) {
         // Fit the actual editing subject, not helper Origins or a distant
-        // passive body. An empty Sketch still fits available scene geometry;
-        // the viewer uses monitor-based scale for a genuinely empty scene.
+        // passive body. A genuinely empty Sketch starts at monitor-based
+        // metric scale around its own origin.
         auto display=place_sketch_mesh(*sketch,sketch->viewer_mesh());
         std::vector<zima::kernel::Vec3> points;
         for(const auto& edge:display.edges)if(!edge.infinite&&edge.reference.owner_id==sketch->id)
@@ -359,38 +359,21 @@ void AssemblyWorkspaceWindow::align_active_sketch_view(bool fit_view) {
             }
             viewer_->fit_points({center});
         } else if(points.empty()) {
-            const auto& scene=viewer_->mesh();
-            const bool has_model_context=!scene.triangles.empty()||
-                std::ranges::any_of(scene.edges,[&](const auto& edge) {
-                    return !edge.infinite&&!edge.points.empty()&&
-                        edge.reference.owner_id!=sketch->id&&
-                        !edge.reference.semantic_key.starts_with("origin:");
-                });
-            if(has_model_context) {
-                viewer_->fit_all();
-            } else {
-                // A genuinely empty Sketch has no geometric extent.  Frame a
-                // stable engineering-sized work area instead of falling back
-                // to monitor 1:1, which makes the user lose spatial context.
-                zima::kernel::ViewerMesh work_area;
-                zima::kernel::ViewerEdge diagonal;
-                diagonal.points={sketch->world_point(-250.,-250.),
-                    sketch->world_point(250.,250.)};
-                work_area.edges.push_back(std::move(diagonal));
-                auto placed=place_sketch_mesh(*sketch,std::move(work_area));
-                points=placed.edges.front().points;
-                if(assembly_context) {
-                    const auto path=part?resolve_active_occurrence(
-                        part->session.document().document_id).
-                            value_or(std::string{}):
-                        workspace_.active_occurrence_path();
-                    if(!path.empty())for(auto& point:points)
-                        point=workspace_.occurrence_point_to_scene(
-                            workspace_.displayed_document_id(),
-                            zima::assembly::InstancePath::decode(path),point);
-                }
-                viewer_->fit_points(points);
+            // Empty Sketches have no extent to fit. Start every one at the
+            // established monitor-based metric scale around its own origin;
+            // fitting the preceding body or an artificial +/-250 mm work area
+            // made the first dimensions arbitrary and often unusably small.
+            auto center=sketch->world_point(0.,0.);
+            if(assembly_context) {
+                const auto path=part?resolve_active_occurrence(
+                    part->session.document().document_id).
+                        value_or(std::string{}):
+                    workspace_.active_occurrence_path();
+                if(!path.empty())center=workspace_.occurrence_point_to_scene(
+                    workspace_.displayed_document_id(),
+                    zima::assembly::InstancePath::decode(path),center);
             }
+            viewer_->fit_points({center});
         } else viewer_->fit_points(points);
     }
     state_->setText(tr("Pohled je kolmý k rovině aktivní skici."));

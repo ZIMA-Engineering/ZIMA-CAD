@@ -1259,6 +1259,44 @@ int main() {
             require(zima::document::treatment_selection_wire(parameters,0,std::nullopt,input).size()==4 &&
                 zima::document::treatment_selection_wire(parameters,0,0,input).front().reference==refs[2],
                 "Treatment Tree wire does not distinguish route and segment");
+            const auto rail=[&](zima::kernel::FeatureSide side) {
+                return zima::kernel::EdgeReference{"feature-container",
+                    "generated:"+zima::kernel::feature_side_parent_key({
+                        "feature-id",side,"sketch-segment"}),{}};
+            };
+            const auto end_rail=rail(zima::kernel::FeatureSide::End);
+            const auto start_rail=rail(zima::kernel::FeatureSide::Start);
+            zima::kernel::ViewerMesh two_sided;
+            zima::kernel::ViewerEdge end_fragment,start_fragment;
+            end_fragment.reference=end_rail;
+            end_fragment.points={{0,0,0},{0,0,10}};
+            start_fragment.reference=start_rail;
+            start_fragment.points={{0,0,-7},{0,0,0}};
+            two_sided.edges={end_fragment,start_fragment};
+            zima::document::EdgeTreatmentParameters logical_rail;
+            logical_rail.routes={{end_rail}};
+            const auto expanded_rail=
+                zima::document::treatment_selection_wire(logical_rail,0,
+                    std::nullopt,two_sided);
+            require(expanded_rail.size()==2&&
+                    expanded_rail[0].reference==end_rail&&
+                    expanded_rail[1].reference==start_rail&&
+                    logical_rail.routes==
+                        std::vector<std::vector<zima::kernel::EdgeReference>>{
+                            {end_rail}},
+                "A persisted Feature rail did not expose both current side fragments without rewriting the document");
+            logical_rail.routes={{end_rail,start_rail}};
+            require(zima::document::treatment_selection_wire(logical_rail,0,
+                        std::nullopt,two_sided).size()==2,
+                "An explicitly stored two-sided rail was expanded twice");
+            logical_rail.routes={{end_rail}};
+            two_sided.edges.erase(two_sided.edges.begin());
+            const auto surviving_rail=
+                zima::document::treatment_selection_wire(logical_rail,0,
+                    std::nullopt,two_sided);
+            require(surviving_rail.size()==1&&
+                    surviving_rail.front().reference==start_rail,
+                "A logical Feature rail did not shrink to its surviving side fragment");
             auto previous_fillet=input.edges[1];
             previous_fillet.reference={"previous-fillet",
                 "fillet:edge:from:source",{}};
@@ -1965,7 +2003,7 @@ int main() {
             (std::istreambuf_iterator<char>(empty_serialized)),
             std::istreambuf_iterator<char>());
         require(empty_text.find("[Document]\n") != std::string::npos &&
-                    empty_text.find("format_version=49\n") != std::string::npos &&
+                    empty_text.find("format_version=50\n") != std::string::npos &&
                     empty_text.find("[DocumentUnits]\n") != std::string::npos &&
                     empty_text.find("[UserParameterValues]\n") != std::string::npos,
                 "Part persistence did not write the current native INI sections");

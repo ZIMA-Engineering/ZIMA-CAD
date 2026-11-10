@@ -159,7 +159,9 @@ void verify_flat_to_flat_attachment(std::filesystem::path directory) {
         check(attached.at("name")=="Tabule 02","Attached Flat did not receive the next numbered name");
         const auto attached_id=attached.at("container").get<std::string>();
         const auto* feature=state->session.document().find_container(attached_id);
-        check(feature&&feature->placement.reference_valid,"Flat-on-Flat placement is invalid");
+        check(feature&&feature->placement.reference_valid&&
+                feature->flat.direction==document::ExtrusionDirection::Reverse,
+            "Flat-on-Flat did not derive its one valid thickness side");
         const auto& profile=workspace::document_sketch(live,document_id,attached.at("sketch").get<std::string>());
         check(std::abs(dot(profile.resolved_normal,base_normal))>1-1e-7,
             "Flat-on-Flat rotated the Sketch plane by 90 degrees");

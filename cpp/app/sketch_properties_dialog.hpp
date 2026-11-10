@@ -9,6 +9,8 @@
 #include <zima/ui/properties_subwindow.hpp>
 
 #include <functional>
+#include <array>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -20,8 +22,12 @@ class QDoubleSpinBox;
 class QLabel;
 class QLineEdit;
 class QPushButton;
+class QAction;
+class QEvent;
 
 namespace zima::app {
+
+class FeatureParameterPanel;
 
 class SketchPropertiesDialog final : public zima::ui::PropertiesSubWindow,
                                      public PlacementReferenceDialog {
@@ -86,6 +92,26 @@ public:
         std::set<std::string>& locks,
         std::function<void(zima::document::SheetProfileParameters)> changed,
         std::function<void()> edit_sketch);
+    void set_sheet_profile_target_request(std::function<void()> callback) {
+        sheet_profile_target_request_=std::move(callback);
+    }
+    void set_sheet_profile_target_cancel(std::function<void()> callback) {
+        sheet_profile_target_cancel_=std::move(callback);
+    }
+    [[nodiscard]] bool sheet_profile_target_entry_active() const {
+        return sheet_profile_target_active_;
+    }
+    [[nodiscard]] std::size_t active_sheet_profile_target_side() const {
+        return sheet_profile_target_side_;
+    }
+    void set_sheet_profile_end_target(
+        zima::document::ExtrusionParameters::EndTarget,
+        std::optional<int> target_half_space = {});
+    void finish_sheet_profile_target_entry();
+    [[nodiscard]] zima::document::FeatureParameters
+        sheet_profile_width_parameters() const;
+    bool set_sheet_profile_signed_length(std::size_t side,double value,
+        bool baseline_reversed);
     [[nodiscard]] std::optional<zima::kernel::DimensionLayout> pending_dimension_layout(
         const zima::kernel::EdgeReference&) const;
     bool set_pending_dimension_layout(const zima::kernel::EdgeReference&, zima::kernel::DimensionLayout);
@@ -122,6 +148,7 @@ public:
 
 protected:
     bool submit() override;
+    bool eventFilter(QObject*,QEvent*) override;
 
 private:
     zima::sketcher::Sketch initial_;
@@ -143,6 +170,15 @@ private:
         sheet_profile_pending_;
     std::function<void(zima::document::SheetProfileParameters)>
         sheet_profile_changed_;
+    FeatureParameterPanel* sheet_profile_width_panel_{};
+    std::array<QLineEdit*,2> sheet_profile_target_fields_{};
+    std::array<QAction*,2> sheet_profile_target_clear_{};
+    std::function<void()> sheet_profile_target_request_;
+    std::function<void()> sheet_profile_target_cancel_;
+    std::size_t sheet_profile_target_side_{};
+    bool sheet_profile_target_active_{};
+    void request_sheet_profile_target(std::size_t side);
+    void refresh_sheet_profile_targets();
     void lock_flat_attachment_fields();
     void lock_bend_attachment_fields();
     void lock_sheet_profile_attachment_fields();

@@ -615,16 +615,23 @@ struct SheetFromBodyParameters {
 // circular spans drive ordinary Flat and Bend history containers immediately
 // following this parent. Generated children retain their normal native feature
 // identities; this definition is the single source of their linked geometry.
-// Width is authored by the first generated material feature (Flat or Bend)
-// and propagated to every other child during an explicit regeneration.
+// The persisted Feature extent owns the two stable width sides used by every
+// generated material feature.  Side 1 and Side 2 keep their identities when
+// the physical direction is reversed, exactly like an ordinary Feature.
+// The first generated Flat or Bend remains an ordinary editable master whose
+// exact endpoint interval propagates to the other children. An explicit edit
+// in Profile Properties resets that master interval from these parent values.
 struct SheetProfileParameters {
     std::string sketch_id;
     std::string start_point_id;
-    // First authored material span. Its ordinary Sketch dimensions own the
-    // common width without duplicating a width field in Profile Properties.
+    // First authored material span. Its ordinary Sketch dimensions expose the
+    // same common width for native downstream editing.
     std::string master_feature_id;
-    ExtrusionDirection width_direction{ExtrusionDirection::Symmetric};
-    double initial_width{50.0};
+    // Only None/Extrusion and Length/UpTo are meaningful for Profile width.
+    // The shared Feature definition deliberately retains the inactive side,
+    // symmetry and reversed-side state instead of translating them into one
+    // total width.  With symmetry, 50 mm therefore means 50 + 50 mm.
+    FeatureParameters width;
     // The first generated Bend owns the editable value. The parent persists
     // its common source so every generated Flat/Bend receives one thickness.
     double thickness{1.0};

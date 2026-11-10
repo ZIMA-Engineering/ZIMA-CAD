@@ -772,6 +772,93 @@ void AssemblyWorkspaceWindow::apply_extrusion_target_selection_contract() {
         });
 }
 
+void AssemblyWorkspaceWindow::apply_sheet_profile_target_selection_contract() {
+    if(sheet_profile_target_dialog_==nullptr||viewer_==nullptr)return;
+    const auto* part=workspace_.open_part(workspace_.active_document_id());
+    if(part==nullptr)return;
+    const auto path=resolve_active_occurrence(
+        part->session.document().document_id).value_or(std::string{});
+    viewer_->set_selection_contract({zima::viewer::CandidateKind::Face,
+        zima::viewer::CandidateKind::Plane,
+        zima::viewer::CandidateKind::SketchPoint});
+    viewer_->set_candidate_filter([path](const auto& candidate) {
+        const bool kind=candidate.kind==viewer::CandidateKind::Face||
+            candidate.kind==viewer::CandidateKind::SketchPoint||
+            (candidate.kind==viewer::CandidateKind::Plane&&
+             (candidate.semantic_key=="plane"||
+              candidate.semantic_key.starts_with("origin:plane:")));
+        return kind&&candidate.instance_path==path&&
+            placement_reference_candidate_has_stable_geometry(candidate);
+    });
+}
+
+void AssemblyWorkspaceWindow::accept_sheet_profile_target(
+        const zima::viewer::ViewerCandidate& candidate) {
+    auto* dialog=sheet_profile_target_dialog_;
+    auto* part=workspace_.open_part(workspace_.active_document_id());
+    if(dialog==nullptr||part==nullptr||!sheet_profile_target_frame_)return;
+    const auto active_path=resolve_active_occurrence(
+        part->session.document().document_id);
+    const bool kind=candidate.kind==zima::viewer::CandidateKind::Face||
+        candidate.kind==zima::viewer::CandidateKind::SketchPoint||
+        (candidate.kind==zima::viewer::CandidateKind::Plane&&
+         (candidate.semantic_key=="plane"||
+          candidate.semantic_key.starts_with("origin:plane:")));
+    if(!kind||!active_path||candidate.instance_path!=*active_path||
+       !placement_reference_candidate_has_stable_geometry(candidate)||
+       candidate.owner_id.empty()||candidate.semantic_key.empty()) {
+        state_->setText(tr("Vyberte bod, rovinu nebo rovinnou plochu."));
+        return;
+    }
+    try {
+        const auto source=placement_reference_source_candidate(candidate);
+        zima::document::ExtrusionParameters::EndTarget requested;
+        requested.reference={source.owner_id,source.semantic_key,{}};
+        requested.kind=candidate.kind==zima::viewer::CandidateKind::SketchPoint
+            ?zima::document::EndTargetKind::Point
+            :zima::document::EndTargetKind::Face;
+        requested.label=candidate.kind==zima::viewer::CandidateKind::SketchPoint
+            ?tr("Bod").toStdString():tr("Plocha").toStdString();
+        if(const auto* feature=part->session.document().find_container(
+                source.owner_id))
+            requested.label=feature->name+" / "+requested.label;
+        else for(const auto& sketch:part->session.document().sketches)
+            if(sketch.id==source.owner_id) {
+                requested.label=sketch.name+" / "+requested.label;break;
+            }
+        for(const auto& object:part->session.document().constructions)
+            if(object.entity_id==source.owner_id||object.id==source.owner_id) {
+                requested.label=object.name;break;
+            }
+        const auto target=zima::document::resolve_profile_target(
+            requested,primitive_reference_geometry_);
+        if(!target||target->kind==zima::document::EndTargetKind::Face)
+            throw std::invalid_argument(
+                "Vyberte bod, rovinu nebo rovinnou plochu.");
+        const auto half_space=zima::document::profile_target_half_space(
+            sheet_profile_target_frame_->resolved_origin,
+            sheet_profile_target_frame_->resolved_normal,*target);
+        if(!half_space)
+            throw std::invalid_argument(
+                "Cíl šířky profilu musí ležet mimo rovinu skici a cílová rovina musí být rovnoběžná se skicou.");
+        dialog->set_sheet_profile_end_target(*target,half_space);
+        finish_sheet_profile_target_selection();
+        state_->setText(tr("Cíl šířky profilu byl nastaven."));
+    } catch(const std::exception& error) {
+        state_->setText(tr(error.what()));
+    }
+}
+
+void AssemblyWorkspaceWindow::finish_sheet_profile_target_selection() {
+    if(sheet_profile_target_dialog_!=nullptr)
+        sheet_profile_target_dialog_->finish_sheet_profile_target_entry();
+    sheet_profile_target_dialog_=nullptr;
+    sheet_profile_target_frame_.reset();
+    viewer_->clear_selection();
+    pending_primitive_reference_index_.reset();
+    set_primitive_properties_dimension_selection();
+}
+
 void AssemblyWorkspaceWindow::accept_extrusion_target(
     const zima::viewer::ViewerCandidate& candidate) {
     const bool solid_face =

@@ -60,6 +60,7 @@ namespace zima::app {
 
 class CommandConsole;
 class PrimitivePropertiesDialog;
+class SketchPropertiesDialog;
 class ShaftThreadDialog;
 class PlacementReferenceDialog;
 class ConstructionPropertiesDialog;
@@ -487,6 +488,8 @@ private:
     std::vector<zima::kernel::FaceReference> pending_drill_point_faces_;
     PrimitivePropertiesDialog* extrusion_target_dialog_{};
     bool extrusion_target_assembly_cut_{};
+    SketchPropertiesDialog* sheet_profile_target_dialog_{};
+    std::shared_ptr<zima::sketcher::Sketch> sheet_profile_target_frame_;
     ConstructionPropertiesDialog* construction_reference_dialog_{};
     // Command-local carrier for an ordinary Curve editor nested in General Surface.
     std::function<zima::document::HistoryContainer(zima::document::ConstructionObject)> general_surface_curve_preview_;
@@ -591,6 +594,7 @@ private:
     bool sketch_polyline_active_{};
     bool sketch_polyline_arc_mode_{};
     std::string pending_polyline_tangent_geometry_id_;
+    bool pending_polyline_tangent_arc_seed_only_{};
     bool sketch_rectangle_active_{};
     bool sketch_slot_active_{};
     std::optional<std::array<double,2>> pending_slot_second_center_;
@@ -837,6 +841,10 @@ private:
     void apply_extrusion_target_selection_contract();
     void accept_extrusion_target(const zima::viewer::ViewerCandidate& candidate);
     void finish_extrusion_target_selection(bool clear_inspection=true);
+    void apply_sheet_profile_target_selection_contract();
+    void accept_sheet_profile_target(
+        const zima::viewer::ViewerCandidate& candidate);
+    void finish_sheet_profile_target_selection();
     QPointer<zima::ui::ContainerPlacementSection> placement_branch_section_;
     std::vector<zima::document::Placement> placement_branch_choices_;
     bool placement_branch_picking_{};

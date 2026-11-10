@@ -1,5 +1,6 @@
 #pragma once
 #include <zima/kernel/geometry_kernel.hpp>
+#include <zima/kernel/feature_side_identity.hpp>
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -38,7 +39,8 @@ inline std::optional<EdgeTreatmentChain> edge_treatment_chain(
     std::vector<std::array<Key,2>> connections;
     std::set<const ViewerEdge*> unique;
     for(const auto* edge:segments) {
-        if(!edge||edge->reference!=segments.front()->reference||!unique.insert(edge).second||
+        if(!edge||!same_feature_side_rail(edge->reference,
+                    segments.front()->reference)||!unique.insert(edge).second||
             edge->points.empty()||edge->edge_treatment_endpoint_references.size()!=2)return {};
         connections.emplace_back();
         for(std::size_t end=0;end<2;++end) {

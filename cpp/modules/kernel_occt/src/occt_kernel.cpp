@@ -13,6 +13,7 @@
 #include <BRepAlgoAPI_Check.hxx>
 #include <zima/kernel/profile_centerlines.hpp>
 #include <zima/kernel/feature_side_identity.hpp>
+#include <zima/kernel/edge_treatment_chain.hpp>
 #include <zima/kernel/feature_rotation_direction.hpp>
 #include <zima/kernel/drill_point_identity.hpp>
 #include <zima/kernel/inertia.hpp>
@@ -605,6 +606,21 @@ std::vector<ViewerAxis> axes_for_operation(
             return axes;
         } else if constexpr (std::is_same_v<Request, FeatureGroupRequest>) {
             auto axes = primitive.axes;
+            const auto stationary_revolution=std::ranges::find_if(
+                primitive.reference_profiles,[](const auto& profile) {
+                    return std::holds_alternative<RevolutionRequest>(profile);
+                });
+            if(endpoints&&stationary_revolution!=
+                    primitive.reference_profiles.end()) {
+                HistoryOperation stationary_source{operation.owner_id,
+                    std::get<RevolutionRequest>(*stationary_revolution)};
+                const auto generated=axes_for_operation(stationary_source,
+                    calculated_operand,{},false,nullptr);
+                if(!generated.empty())
+                    profile_centerlines::endpoints(*endpoints,
+                        operation.owner_id,"axis:primary",
+                        generated.front().point,generated.front().point);
+            }
             const bool has_primary = std::ranges::any_of(
                 axes, [](const auto& axis) {
                     return axis.reference.semantic_key == "axis:primary";
@@ -614,10 +630,14 @@ std::vector<ViewerAxis> axes_for_operation(
                     primitive.children, [](const auto& child) {
                         return std::holds_alternative<RevolutionRequest>(child);
                     });
-                if (revolution != primitive.children.end()) {
-                    const auto& request =
-                        std::get<RevolutionRequest>(*revolution);
-                    HistoryOperation axis_source{operation.owner_id, request};
+                const auto* request=revolution!=primitive.children.end()
+                    ?&std::get<RevolutionRequest>(*revolution)
+                    :stationary_revolution!=
+                            primitive.reference_profiles.end()
+                        ?&std::get<RevolutionRequest>(
+                            *stationary_revolution):nullptr;
+                if (request) {
+                    HistoryOperation axis_source{operation.owner_id, *request};
                     auto generated = axes_for_operation(axis_source,
                         calculated_operand, {}, false, endpoints);
                     axes.insert(axes.end(),
@@ -11490,6 +11510,37 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                 retained.history_reference_coverage = requested->second;
                 return retained;
             };
+            const auto retain_copy_solid=[&](const PrimitiveData& operand,const std::vector<ViewerAxis>& additional_axes=std::vector<ViewerAxis>{}) {
+                if(!context.requested_solids.contains(operation.owner_id))return;
+                copy_operands.insert_or_assign(operation.owner_id,operand);
+                auto solid=make_operation_result(operand.shape,operand.faces,operand.edges,operand.vertices,true,true,true);
+                const auto centerlines=centerlines_for_operation(operation);
+                const auto automatic_point_begin=solid.mesh.points.size();
+                solid.mesh.axes=axes_for_operation(operation,operand.shape,centerlines,false,&solid.mesh.points);
+                solid.mesh.original_references.points.insert(solid.mesh.original_references.points.end(),
+                    solid.mesh.points.begin()+automatic_point_begin,solid.mesh.points.end());
+                const auto endpoints = sweep_endpoints_for_operation(operation);
+                solid.mesh.points.insert(solid.mesh.points.end(), endpoints.begin(), endpoints.end());
+                solid.mesh.edges.insert(solid.mesh.edges.end(), centerlines.begin(), centerlines.end());
+                append_reference_geometry(solid.mesh.original_references, operand.profile_references);
+                solid.mesh.axes.insert(solid.mesh.axes.end(),operand.profile_references.axes.begin(),operand.profile_references.axes.end());
+                solid.mesh.edges.insert(solid.mesh.edges.end(),operand.profile_references.edges.begin(),operand.profile_references.edges.end());
+                solid.mesh.points.insert(solid.mesh.points.end(),operand.profile_references.points.begin(),operand.profile_references.points.end());
+                solid.mesh.axes.insert(solid.mesh.axes.end(),additional_axes.begin(),additional_axes.end());
+                solid.mesh.original_references.axes=solid.mesh.axes;
+                solid.source_fingerprint=fingerprint(operations,operation_index+1)+":solid:"+operation.owner_id;
+                const auto key=solid.source_fingerprint;
+                const auto forms=form_copy_operands.find(operation.owner_id);
+                auto [cached,inserted]=live_cache_->copy_sources.insert_or_assign(key,LiveCache::CopySource{
+                    operand,solid,forms==form_copy_operands.end()?std::vector<sheet_form_geometry::Instance>{}:forms->second});
+                static_cast<void>(cached);
+                if(inserted)live_cache_->copy_source_order.push_back(key);
+                while(live_cache_->copy_source_order.size()>kLiveShapeCacheLimit) {
+                    live_cache_->copy_sources.erase(live_cache_->copy_source_order.front());
+                    live_cache_->copy_source_order.pop_front();
+                }
+                context.source_solids.insert_or_assign(operation.owner_id,std::move(solid));
+            };
             const auto apply_edge_treatment = [&](const auto& treatment,bool publish=true) {
                 const bool trace_treatment=std::getenv("ZIMA_CPP_PROFILE_COMMAND")!=nullptr;
                 auto treatment_stamp=trace_treatment?std::chrono::steady_clock::now():std::chrono::steady_clock::time_point{};
@@ -11501,6 +11552,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                     treatment_stamp=now;
                 };
                 const TopoDS_Shape input_shape=result_shape;
+                const auto input_topology=owned_topology;
                 if (result_shape.IsNull()) {
                     throw std::invalid_argument(
                         "Fillet/Chamfer requires an input body");
@@ -11565,21 +11617,59 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                             "Chamfer parameters are outside their valid range");
                     }
                 }
-                const auto resolved_treatment_edges=[&](
-                        const EdgeReference& requested) {
+                const auto connected_logical_rail=[&](
+                        const std::vector<const OwnedEdge*>& values) {
+                    std::vector<ViewerEdge> edges;
+                    edges.reserve(values.size());
+                    for(const auto* owned:values) {
+                        if(!owned||owned->shape.ShapeType()!=TopAbs_EDGE)
+                            return false;
+                        TopoDS_Vertex first,last;
+                        TopExp::Vertices(TopoDS::Edge(owned->shape),
+                            first,last,true);
+                        if(first.IsNull()||last.IsNull())return false;
+                        const auto endpoint=[&](const TopoDS_Vertex& vertex)
+                                ->std::optional<VertexReference> {
+                            const auto found=std::ranges::find_if(
+                                owned_topology->vertices,[&](const auto& value) {
+                                    return value.shape.IsSame(vertex);
+                                });
+                            if(found==owned_topology->vertices.end()||
+                               !found->reference.valid())return {};
+                            return found->reference;
+                        };
+                        const auto first_reference=endpoint(first);
+                        const auto last_reference=endpoint(last);
+                        if(!first_reference||!last_reference)return false;
+                        const auto a=BRep_Tool::Pnt(first);
+                        const auto b=BRep_Tool::Pnt(last);
+                        ViewerEdge edge;
+                        edge.reference=owned->reference;
+                        edge.points={{a.X(),a.Y(),a.Z()},
+                                     {b.X(),b.Y(),b.Z()}};
+                        edge.edge_treatment_endpoint_references={
+                            *first_reference,*last_reference};
+                        edges.push_back(std::move(edge));
+                    }
+                    std::vector<const ViewerEdge*> pointers;
+                    pointers.reserve(edges.size());
+                    for(const auto& edge:edges)pointers.push_back(&edge);
+                    return edge_treatment_chain(pointers).has_value();
+                };
+                const auto resolved_treatment_identity=[&](
+                        const EdgeReference& identity) {
                     std::vector<const OwnedEdge*> exact,descendants;
                     const bool requested_treatment_edge=
-                        requested.semantic_key.starts_with(
+                        identity.semantic_key.starts_with(
                             "fillet:edge:from:")||
-                        requested.semantic_key.starts_with(
+                        identity.semantic_key.starts_with(
                             "chamfer:edge:from:");
                     for(const auto& owned:owned_topology->edges) {
-                        if(owned.reference.owner_id==requested.owner_id&&
-                           owned.reference.semantic_key==
-                               requested.semantic_key)
+                        if(owned.reference.owner_id==identity.owner_id&&
+                           owned.reference.semantic_key==identity.semantic_key)
                             exact.push_back(&owned);
                         else if(split_edge_descends_from(
-                                    owned.reference,requested)&&
+                                    owned.reference,identity)&&
                                 (requested_treatment_edge||
                                  (!owned.reference.semantic_key.starts_with(
                                       "fillet:edge:from:")&&
@@ -11587,12 +11677,40 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                                       "chamfer:edge:from:"))))
                             descendants.push_back(&owned);
                     }
+                    const auto unique=[](auto& values) {
+                        std::set<const OwnedEdge*> seen;
+                        std::erase_if(values,[&](const auto* value) {
+                            return !seen.insert(value).second;
+                        });
+                    };
+                    unique(exact);unique(descendants);
                     // Explicit split descendants are the actual surviving
                     // intervals. Prefer them if a transitional topology ever
                     // carries both the old parent alias and its children;
                     // otherwise use the unchanged edge. No geometric proximity,
                     // enumeration order or measured dimension participates.
                     return descendants.empty()?exact:descendants;
+                };
+                const auto resolved_treatment_edges=[&](
+                        const EdgeReference& requested) {
+                    auto result=resolved_treatment_identity(requested);
+                    if(const auto counterpart=
+                            feature_side_rail_counterpart(requested);
+                       counterpart&&std::ranges::find(treatment.edges,
+                            *counterpart)==treatment.edges.end()) {
+                        auto opposite=resolved_treatment_identity(*counterpart);
+                        if(result.empty())return opposite;
+                        auto combined=result;
+                        combined.insert(combined.end(),opposite.begin(),
+                            opposite.end());
+                        std::set<const OwnedEdge*> seen;
+                        std::erase_if(combined,[&](const auto* edge) {
+                            return !seen.insert(edge).second;
+                        });
+                        if(!opposite.empty()&&connected_logical_rail(combined))
+                            return combined;
+                    }
+                    return result;
                 };
                 std::vector<std::pair<TopoDS_Edge, EdgeReference>> selected;
                 std::vector<std::size_t> selected_requested_indices;
@@ -11779,6 +11897,8 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                                 index<treatment.edges.size();++index)
                             if(reference==treatment.edges[index]||
                                split_edge_descends_from(reference,
+                                   treatment.edges[index])||
+                               same_feature_side_rail(reference,
                                    treatment.edges[index]))
                                 return requested_routes[index];
                         return {};
@@ -12782,6 +12902,70 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                         surface.shape=trim.Shape();
                     }
                 }
+                if(publish&&context.requested_solids.contains(
+                        operation.owner_id)) {
+                    const auto material_delta=[&](const TopoDS_Shape& source,
+                            const std::shared_ptr<const LiveCache::Topology>& source_topology,
+                            const TopoDS_Shape& tool,
+                            const std::shared_ptr<const LiveCache::Topology>& tool_topology,
+                            std::string_view role) {
+                        BRepAlgoAPI_Cut algorithm;
+                        set_boolean_inputs(algorithm,source,tool);
+                        algorithm.SetToFillHistory(true);
+                        algorithm.SetNonDestructive(true);
+                        algorithm.SetFuzzyValue(std::max(1.0e-7,
+                            operation.boolean_tolerance));
+                        algorithm.Build();
+                        if(!algorithm.IsDone()||algorithm.Shape().IsNull())
+                            throw std::runtime_error(
+                                "Edge treatment copy delta failed");
+                        PrimitiveData delta;
+                        delta.shape=algorithm.Shape();
+                        if(!TopExp_Explorer(delta.shape,TopAbs_SOLID).More()) {
+                            delta.shape.Nullify();
+                            return delta;
+                        }
+                        if(!BRepCheck_Analyzer(delta.shape).IsValid())
+                            throw std::runtime_error(
+                                "Edge treatment copy delta produced an invalid solid");
+                        delta.faces=propagate_topology(algorithm,
+                            source_topology->faces,tool_topology->faces);
+                        delta.edges=propagate_topology(algorithm,
+                            source_topology->edges,tool_topology->edges);
+                        delta.vertices=propagate_topology(algorithm,
+                            source_topology->vertices,tool_topology->vertices);
+                        delta.faces=complete_boolean_faces(delta.shape,
+                            delta.faces,delta.edges,delta.vertices,
+                            operation.owner_id,role,operations);
+                        delta.edges=complete_boolean_edges(delta.shape,
+                            delta.faces,delta.edges,operation.owner_id,role);
+                        delta.vertices=complete_boolean_vertices(delta.shape,
+                            delta.faces,delta.edges,delta.vertices,
+                            operation.owner_id,role);
+                        return delta;
+                    };
+                    auto removed=material_delta(input_shape,input_topology,
+                        result_shape,owned_topology,
+                        "treatment-copy-removed");
+                    auto added=material_delta(result_shape,owned_topology,
+                        input_shape,input_topology,
+                        "treatment-copy-added");
+                    if(removed.shape.IsNull()&&added.shape.IsNull())
+                        throw std::runtime_error(
+                            "Edge treatment copy has no material change");
+                    PrimitiveData source=added.shape.IsNull()?removed:added;
+                    if(!removed.shape.IsNull())
+                        source.copy_phases.emplace_back(
+                            BooleanOperation::Subtract,
+                            std::make_shared<PrimitiveData>(
+                                std::move(removed)));
+                    if(!added.shape.IsNull())
+                        source.copy_phases.emplace_back(BooleanOperation::Add,
+                            std::make_shared<PrimitiveData>(
+                                std::move(added)));
+                    retain_copy_solid(source);
+                    treatment_phase("copy material delta");
+                }
                 if(!publish)return;
                 treatment_phase("thread surfaces");
                 boundaries.push_back(
@@ -12815,37 +12999,6 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                 remember_live_boundary(boundaries.back().source_fingerprint,
                     result_shape, owned_topology);
                 treatment_phase("reference publication and cache");
-            };
-            const auto retain_copy_solid=[&](const PrimitiveData& operand,const std::vector<ViewerAxis>& additional_axes=std::vector<ViewerAxis>{}) {
-                if(!context.requested_solids.contains(operation.owner_id))return;
-                copy_operands.insert_or_assign(operation.owner_id,operand);
-                auto solid=make_operation_result(operand.shape,operand.faces,operand.edges,operand.vertices,true,true,true);
-                const auto centerlines=centerlines_for_operation(operation);
-                const auto automatic_point_begin=solid.mesh.points.size();
-                solid.mesh.axes=axes_for_operation(operation,operand.shape,centerlines,false,&solid.mesh.points);
-                solid.mesh.original_references.points.insert(solid.mesh.original_references.points.end(),
-                    solid.mesh.points.begin()+automatic_point_begin,solid.mesh.points.end());
-                const auto endpoints = sweep_endpoints_for_operation(operation);
-                solid.mesh.points.insert(solid.mesh.points.end(), endpoints.begin(), endpoints.end());
-                solid.mesh.edges.insert(solid.mesh.edges.end(), centerlines.begin(), centerlines.end());
-                append_reference_geometry(solid.mesh.original_references, operand.profile_references);
-                solid.mesh.axes.insert(solid.mesh.axes.end(),operand.profile_references.axes.begin(),operand.profile_references.axes.end());
-                solid.mesh.edges.insert(solid.mesh.edges.end(),operand.profile_references.edges.begin(),operand.profile_references.edges.end());
-                solid.mesh.points.insert(solid.mesh.points.end(),operand.profile_references.points.begin(),operand.profile_references.points.end());
-                solid.mesh.axes.insert(solid.mesh.axes.end(),additional_axes.begin(),additional_axes.end());
-                solid.mesh.original_references.axes=solid.mesh.axes;
-                solid.source_fingerprint=fingerprint(operations,operation_index+1)+":solid:"+operation.owner_id;
-                const auto key=solid.source_fingerprint;
-                const auto forms=form_copy_operands.find(operation.owner_id);
-                auto [cached,inserted]=live_cache_->copy_sources.insert_or_assign(key,LiveCache::CopySource{
-                    operand,solid,forms==form_copy_operands.end()?std::vector<sheet_form_geometry::Instance>{}:forms->second});
-                static_cast<void>(cached);
-                if(inserted)live_cache_->copy_source_order.push_back(key);
-                while(live_cache_->copy_source_order.size()>kLiveShapeCacheLimit) {
-                    live_cache_->copy_sources.erase(live_cache_->copy_source_order.front());
-                    live_cache_->copy_source_order.pop_front();
-                }
-                context.source_solids.insert_or_assign(operation.owner_id,std::move(solid));
             };
             if (operation.owner_id.empty()) {
                 throw std::invalid_argument("History operation owner ID is required");

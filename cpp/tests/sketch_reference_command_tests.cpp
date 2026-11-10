@@ -283,9 +283,171 @@ void verify_frame_reference_retirement() {
     std::cout<<"Frame reference retirement: "<<cases<<" dimension/lock/mobility/orientation cases, repeated edits/drags, equations, native reopen and Undo/Redo passed\n";
 }
 
+void verify_origin_reference_lifetime(const fs::path& directory) {
+    auto part=document::PartDocument::create_default();
+    auto source=test::rectangular_feature(part,{20,16,12});
+    source.name="Movable source Origin";
+    source.placement.x=4;source.placement.y=5;
+    auto owner=document::PartDocument::create_sketch_container();
+    auto sketch=sketcher::Sketch::create_default();
+    sketch.owner_container_id=owner.id;
+    part.history={source,owner};part.sketches={sketch};
+    document::BodyHistoryGraph graph;
+    const auto body=graph.create_body("Origin reference lifetime");
+    graph.insert({document::PartHistoryKind::Feature,source.id});
+    graph.insert({document::PartHistoryKind::Feature,owner.id});
+    part.set_body_history(graph);part.resolve_constructions();
+
+    const auto body_origin=body+":origin";
+    const auto source_origin=source.container_origin.id;
+    const auto allowed=workspace::sketch_external_reference_source_owners(
+        part,sketch.id);
+    require(allowed.contains(body_origin)&&allowed.contains(source_origin),
+        "Sketch source boundary omits its Body or preceding feature Origin");
+
+    workspace::Workspace live;live.add_part(part,{});
+    auto body_reference=workspace::prepare_sketch_external_reference(live,
+        part.document_id,sketch,sketcher::ExternalReferenceKind::Point,
+        body_origin,"origin:point",{});
+    auto source_reference=workspace::prepare_sketch_external_reference(live,
+        part.document_id,sketch,sketcher::ExternalReferenceKind::Point,
+        source_origin,"origin:point",{});
+    require(!body_reference.broken&&!source_reference.broken&&
+            body_reference.cached_points==std::vector<std::array<double,2>>{{0,0}}&&
+            source_reference.cached_points==std::vector<std::array<double,2>>{{4,5}},
+        "Origin selection did not project into the owning Body Sketch frame");
+    const auto body_reference_id=body_reference.id;
+    const auto source_reference_id=source_reference.id;
+    sketch.add_external_reference(body_reference);
+    sketch.add_external_reference(source_reference);
+
+    const auto fixed_line=sketch.add_segment(0,0,4,5,1e-9,true,false,false);
+    const auto free_line=sketch.add_segment(0,0,10,0,1e-9,true,false,false);
+    const auto& fixed=*std::ranges::find(sketch.segments,fixed_line,
+        &sketcher::SketchSegment::id);
+    const auto& free=*std::ranges::find(sketch.segments,free_line,
+        &sketcher::SketchSegment::id);
+    const auto fixed_first=fixed.first_point_id;
+    const auto fixed_second=fixed.second_point_id;
+    const auto free_first=free.first_point_id;
+    const auto free_end=free.second_point_id;
+    const auto has_contact=[&](const std::string& point,const std::string& reference) {
+        return std::ranges::any_of(sketch.constraints,[&](const auto& constraint) {
+            return constraint.kind==sketcher::ConstraintKind::PointReference&&
+                constraint.first_point_id==point&&
+                constraint.second_point_id==reference;
+        });
+    };
+    const auto ensure_contact=[&](const std::string& point,const std::string& reference) {
+        const auto external=std::ranges::find(sketch.external_references,reference,
+            &sketcher::SketchExternalReference::id);
+        require(sketch.find_point(point)&&external!=sketch.external_references.end()&&
+                sketcher::is_external_point_kind(external->kind)&&
+                external->cached_points.size()==1,
+            "Origin contact fixture lost its native or external point");
+        if(!has_contact(point,reference))
+            static_cast<void>(sketch.add_point_reference_constraint(point,reference));
+    };
+    ensure_contact(fixed_first,body_reference_id);
+    ensure_contact(fixed_second,source_reference_id);
+    ensure_contact(free_first,body_reference_id);
+    require(has_contact(fixed_first,body_reference_id)&&
+            has_contact(fixed_second,source_reference_id)&&
+            has_contact(free_first,body_reference_id),
+        "Drawing on visible Origins did not create native point contacts");
+    auto length=sketch.create_segment_dimension(free_line,
+        sketcher::DimensionKind::Distance);
+    length.locked=true;sketch.apply_dimension(length);
+    for(const auto target:std::array<std::array<double,2>,3>{{
+            {0,10},{-10,0},{6,8}}}) {
+        const auto before=*sketch.find_point(free_end);
+        require(sketch.move_point(free_end,target[0],target[1]),
+            "Origin-anchored underconstrained endpoint did not drag");
+        const auto after=*sketch.find_point(free_end);
+        require(std::hypot(after.x-before.x,after.y-before.y)>1e-6&&
+                std::abs(std::hypot(after.x,after.y)-10)<1e-6,
+            "Origin-anchored drag violated its locked distance equation");
+    }
+    const auto fixed_before=sketch.serialized();
+    static_cast<void>(sketch.move_point(fixed_second,8,9));
+    require(sketch.serialized()==fixed_before,
+        "A fully Origin-constrained endpoint escaped during dragging");
+    part.sketches.front()=sketch;
+    require(!workspace::refresh_sketch_external_references(part,{}),
+        "Settled Origin references changed during an unchanged refresh");
+
+    for(const auto position:std::array<std::array<double,2>,3>{{
+            {7,-2},{-3,11},{4,5}}}) {
+        part.history.front().placement.x=position[0];
+        part.history.front().placement.y=position[1];
+        require(workspace::refresh_sketch_external_references(part,{}),
+            "Moved feature Origin did not refresh its Sketch reference");
+        const auto& current=part.sketches.front();
+        const auto reference=std::ranges::find(current.external_references,
+            source_reference_id,&sketcher::SketchExternalReference::id);
+        const auto endpoint=current.find_point(fixed_second);
+        require(reference!=current.external_references.end()&&!reference->broken&&
+                reference->cached_points==std::vector<std::array<double,2>>{{position}}&&
+                endpoint&&std::hypot(endpoint->x-position[0],endpoint->y-position[1])<1e-8,
+            "Feature Origin refresh lost identity or its dependent endpoint");
+    }
+
+    auto placed=*part.body_history.find(body);
+    placed.scope.placement.x=23;placed.scope.placement.y=-17;
+    placed.scope.placement.rotation_z=placed.scope.placement.absolute_rotation_z=35;
+    auto placed_graph=part.body_history;placed_graph.update_body(placed);
+    part.set_body_history(std::move(placed_graph));
+    require(!workspace::refresh_sketch_external_references(part,{}),
+        "Moving a Body changed its own Origin in Body-local Sketch coordinates");
+    const auto body_ref=std::ranges::find(part.sketches.front().external_references,
+        body_reference_id,&sketcher::SketchExternalReference::id);
+    require(body_ref!=part.sketches.front().external_references.end()&&
+            !body_ref->broken&&body_ref->cached_points==
+                std::vector<std::array<double,2>>{{0,0}},
+        "Body Origin did not remain at the Sketch local origin");
+
+    const auto retained=std::ranges::find(part.sketches.front().external_references,
+        source_reference_id,&sketcher::SketchExternalReference::id)->cached_points;
+    part.history.front().suppressed=true;
+    require(workspace::refresh_sketch_external_references(part,{})&&
+            std::ranges::find(part.sketches.front().external_references,
+                source_reference_id,&sketcher::SketchExternalReference::id)->broken&&
+            std::ranges::find(part.sketches.front().external_references,
+                source_reference_id,&sketcher::SketchExternalReference::id)->cached_points==retained,
+        "Missing feature Origin did not retain its last valid reference frame");
+    part.history.front().suppressed=false;
+    require(workspace::refresh_sketch_external_references(part,{})&&
+            !std::ranges::find(part.sketches.front().external_references,
+                source_reference_id,&sketcher::SketchExternalReference::id)->broken,
+        "Restored feature Origin did not repair its persisted reference");
+
+    document::DocumentSession transaction(part,{});
+    auto changed=part;changed.history.front().placement.x=13;
+    require(workspace::refresh_sketch_external_references(changed,{}),
+        "Undo fixture did not refresh the moved Origin");
+    const auto changed_serialized=changed.sketches.front().serialized();
+    transaction.commit(changed,{});
+    require(transaction.undo()&&transaction.document().sketches.front().serialized()==
+            part.sketches.front().serialized(),
+        "Origin reference Undo did not restore the previous projection");
+    require(transaction.redo()&&transaction.document().sketches.front().serialized()==
+            changed_serialized,
+        "Origin reference Redo did not restore the moved projection");
+
+    const auto path=directory/"sketch-origin-reference-lifetime.prtz";
+    transaction.document().save(path);
+    const auto reopened=document::PartDocument::load(path);
+    require(reopened.sketches.front().serialized()==changed_serialized&&
+            !std::ranges::find(reopened.sketches.front().external_references,
+                body_reference_id,&sketcher::SketchExternalReference::id)->broken,
+        "Native save/reopen changed Origin reference identity or cache");
+    std::cout<<"Body/feature Origin references: selection, repeated refresh, under/fully constrained dragging, last valid frame, save/reopen and Undo/Redo passed\n";
+}
+
 void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     verify_exact_descendant_reprojection();
     verify_frame_reference_retirement();
+    verify_origin_reference_lifetime(directory);
     {
         auto sketch=sketcher::Sketch::create_default();
         auto edge=sketcher::Sketch::create_external_reference(

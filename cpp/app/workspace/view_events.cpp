@@ -112,6 +112,12 @@ void AssemblyWorkspaceWindow::keyPressEvent(QKeyEvent* event) {
         event->accept();
         return;
     }
+    if(event->key()==Qt::Key_Escape&&sheet_profile_target_dialog_!=nullptr) {
+        finish_sheet_profile_target_selection();
+        state_->setText(tr("Výběr cíle šířky profilu byl zrušen."));
+        event->accept();
+        return;
+    }
     if (event->key() == Qt::Key_Delete && delete_selected_sketch_geometry()) {
         event->accept();
         return;

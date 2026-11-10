@@ -2201,8 +2201,53 @@ Cutter make_route_cutter(const std::vector<CutterJob>& jobs,
         throw std::runtime_error(
             "Planar edge Fillet could not construct one route wire");
 
+    // Corrected Frenet transport is singular when a planar route turns by an
+    // exact half revolution: its section can arrive on the return leg rotated
+    // by 180 degrees even though every selected edge and the analytical
+    // preview retain the same material sides.  Use the normal of one common
+    // oriented planar support as a fixed binormal whenever every route member
+    // owns a coplanar support face.  This keeps the angular relation to that
+    // material face constant through a semicircle.  Mixed/non-planar routes
+    // deliberately retain the established corrected-Frenet behaviour.
+    const auto planar_binormal=[&]() ->std::optional<gp_Dir> {
+        const auto oriented_plane=[](const TopoDS_Face& face)
+                ->std::optional<std::pair<gp_Pln,gp_Dir>> {
+            if(face.IsNull())return {};
+            const BRepAdaptor_Surface surface(face,true);
+            if(surface.GetType()!=GeomAbs_Plane)return {};
+            auto normal=surface.Plane().Axis().Direction();
+            if(face.Orientation()==TopAbs_REVERSED)normal.Reverse();
+            return std::pair{surface.Plane(),normal};
+        };
+        const auto coplanar=[](const gp_Pln& first,const gp_Pln& second) {
+            return first.Axis().Direction().IsParallel(
+                       second.Axis().Direction(),1.0e-9)&&
+                first.Distance(second.Location())<=1.0e-7;
+        };
+        const auto& seed=jobs[route.front()];
+        for(const auto* candidate:{&seed.first_face,&seed.second_face}) {
+            const auto plane=oriented_plane(*candidate);
+            if(!plane)continue;
+            bool common=true;
+            for(const auto index:route) {
+                bool found=false;
+                for(const auto* face:{&jobs[index].first_face,
+                                      &jobs[index].second_face}) {
+                    const auto support=oriented_plane(*face);
+                    if(support&&coplanar(plane->first,support->first)&&
+                       plane->second.Dot(support->second)>1.-1.0e-9) {
+                        found=true;break;
+                    }
+                }
+                if(!found) {common=false;break;}
+            }
+            if(common)return plane->second;
+        }
+        return {};
+    }();
     BRepOffsetAPI_MakePipeShell sweep(spine.Wire());
-    sweep.SetMode(false);
+    if(planar_binormal)sweep.SetMode(*planar_binormal);
+    else sweep.SetMode(false);
     sweep.SetTolerance(tolerance,tolerance,1.0e-6);
     sweep.Add(profile.midpoint_profile,false,false);
     sweep.Build();

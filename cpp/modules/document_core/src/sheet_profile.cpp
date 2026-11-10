@@ -1,4 +1,6 @@
 #include <zima/document/sheet_profile.hpp>
+#include <zima/document/part_document.hpp>
+#include <zima/document/feature_serialization.hpp>
 
 #include <algorithm>
 #include <cmath>
@@ -161,14 +163,63 @@ std::string initialize_attached_sheet_profile(
     const double outer_radius=2*thickness;
     const auto arc=sketch.add_arc(0,outer_radius,0,0,
         outer_radius,outer_radius);
-    const auto contact=sketch.arcs.front().end_point_id;
+    const auto seeded_arc=sketch.arcs.front();
+    const auto start=seeded_arc.start_point_id;
+    const auto center=seeded_arc.center_point_id;
+    const auto contact=seeded_arc.end_point_id;
     const auto line=sketch.add_segment(outer_radius,outer_radius,
         outer_radius,outer_radius+40);
+    static_cast<void>(sketch.add_point_reference_constraint(
+        start,"sketch_origin"));
+    static_cast<void>(sketch.add_point_on_line_constraint(
+        center,"sketch_axis:y"));
+    auto length=sketch.create_segment_dimension(line);
+    length.id=sketch.id+":profile:length";
+    length.placement=std::array{outer_radius+8,outer_radius+20};
+    sketch.apply_dimension(std::move(length));
+    auto radius=sketch.create_arc_radius_dimension(arc);
+    radius.id=sketch.id+":profile:radius";
+    radius.placement=std::array{outer_radius*.5,outer_radius*.5};
+    sketch.apply_dimension(std::move(radius));
+    auto angle=sketch.create_three_point_angle_dimension(
+        start,center,contact);
+    angle.id=sketch.id+":profile:angle";
+    angle.placement=std::array{outer_radius*.65,outer_radius*.35};
+    sketch.apply_dimension(std::move(angle));
     static_cast<void>(sketch.add_tangent_constraint(arc,line,contact));
-    const auto start=sketch.arcs.front().start_point_id;
-    if(auto* point=sketch.find_point(start))point->fixed=true;
     sketch.validate();
     return start;
+}
+
+void validate_sheet_profile_width(const SheetProfileParameters& profile) {
+    validate_feature_parameters(profile.width);
+    const auto& width=profile.width;
+    if(width.type!=FeatureType::Modeling||
+       width.sketch_id!=profile.sketch_id||
+       width.profile_source!=ProfileSource::Internal||
+       width.result_type!=ProfileResultType::Solid)
+        throw std::invalid_argument("Invalid Sheet Profile width definition.");
+    bool active{};
+    for(std::size_t index=0;index<width.sides.size();++index) {
+        const auto& stored=width.sides[index];
+        if((stored.operation!=FeatureSideOperation::None&&
+            stored.operation!=FeatureSideOperation::Extrusion)||
+           stored.targets.size()>1||stored.draft_angle_degrees!=0||
+           stored.rotation_extent!=FeatureRotationExtent::Angle||
+           stored.up_to.angle_correction_degrees!=0||
+           stored.up_to.primary_cap_source||
+           !stored.up_to.retained_patches.empty())
+            throw std::invalid_argument("Invalid Sheet Profile width side.");
+        const auto side=width.effective_side(index);
+        if(side.operation==FeatureSideOperation::None)continue;
+        active=true;
+        if(side.extrusion_extent==EndCondition::ThroughAll||
+           (side.extrusion_extent==EndCondition::UpTo&&
+            side.targets.size()!=1))
+            throw std::invalid_argument("Invalid Sheet Profile width ending.");
+    }
+    if(!active)
+        throw std::invalid_argument("Sheet Profile needs at least one width side.");
 }
 
 } // namespace zima::document

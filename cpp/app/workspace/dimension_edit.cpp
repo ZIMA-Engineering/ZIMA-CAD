@@ -14,6 +14,7 @@
 #include <zima/document/feature_direction.hpp>
 #include <zima/document/bend.hpp>
 #include <zima/workspace/bend_operations.hpp>
+#include <zima/workspace/sheet_profile_operations.hpp>
 #include <zima/workspace/sheet_form_operations.hpp>
 #include <zima/document/sheet_form_dimensions.hpp>
 #include "../numeric_expression_edit.hpp"
@@ -639,6 +640,16 @@ void AssemblyWorkspaceWindow::edit_dimension_inline(
                         else container->hole.drill_point_angle_degrees = next_value;
                         changed = true;
                     }
+                } else if (container->feature_kind == FeatureKind::Hole) {
+                    auto& hole=container->hole;
+                    if(key=="thread_length"&&hole.thread_enabled&&
+                            hole.thread_end_condition==
+                                zima::document::EndCondition::Length) {
+                        positive(hole.thread_length);
+                        if(hole.thread_length>hole.bore_length)
+                            throw std::runtime_error(
+                                "Délka závitu nesmí přesáhnout délku válcové části otvoru.");
+                    }
                 } else if (container->feature_kind == FeatureKind::Loft && key=="thickness"&&container->loft.result_type==document::ProfileResultType::Thin) {
                     positive(container->loft.thickness);
                 } else if (container->feature_kind == FeatureKind::HelicalSweep && key=="pitch") {
@@ -673,6 +684,34 @@ void AssemblyWorkspaceWindow::edit_dimension_inline(
                     } else if(key=="side0_up_to_angle_correction"||key=="side1_up_to_angle_correction") {
                         if(!std::isfinite(next_value)||std::abs(next_value)>=360)throw std::runtime_error("Invalid Feature definition.");
                         container->feature.sides[key=="side0_up_to_angle_correction"?0:1].up_to.angle_correction_degrees=next_value;changed=true;
+                    }
+                } else if(container->feature_kind==FeatureKind::SheetProfile&&
+                          !container->sheet_profile.sheet_attachment) {
+                    auto& width=container->sheet_profile.width;
+                    if(key=="direction") {
+                        if(!document::set_feature_direction(width,next_value))
+                            throw std::runtime_error(
+                                document::feature_direction_error);
+                        changed=true;
+                    } else if(key=="side0_length"||key=="side1_length") {
+                        if(next_value<0&&container->value_locks.contains(
+                                "direction"))
+                            throw std::runtime_error(tr(
+                                "Hodnota je zamčená. Nejprve ji odemkněte.").toStdString());
+                        if(std::abs(next_value)<1e-9||
+                           !document::set_feature_signed_length(width,
+                                key=="side0_length"?0:1,next_value))
+                            throw std::runtime_error(
+                                "Dimension must be positive");
+                        changed=true;
+                    } else if(key=="side0_up_to_length_correction"||
+                              key=="side1_up_to_length_correction") {
+                        if(!std::isfinite(next_value))
+                            throw std::runtime_error(
+                                "Invalid Feature definition.");
+                        width.sides[key=="side0_up_to_length_correction"?0:1]
+                            .up_to.length_correction=next_value;
+                        changed=true;
                     }
                 } else if (container->feature_kind == FeatureKind::Extrusion) {
                     if (key == "length_forward") positive(
@@ -734,8 +773,37 @@ void AssemblyWorkspaceWindow::edit_dimension_inline(
             }
             if (!changed) throw std::runtime_error(
                 "This dimension is not directly editable");
+            const auto profile_parent=std::ranges::find_if(next.history,
+                [&](const auto& feature) {
+                    return sketch_dimension&&
+                        feature.feature_kind==
+                            document::FeatureKind::SheetProfile&&
+                        feature.sheet_profile.sketch_id==candidate.owner_id;
+                });
             const auto* edited_feature=next.find_container(candidate.owner_id);
-            if(edited_feature && edited_feature->feature_kind==document::FeatureKind::Feature &&
+            if(profile_parent!=next.history.end()) {
+                const auto route=std::ranges::find(next.sketches,
+                    profile_parent->sheet_profile.sketch_id,
+                    &zima::sketcher::Sketch::id);
+                if(route==next.sketches.end())
+                    throw std::runtime_error(
+                        "Sheet Profile route Sketch no longer exists");
+                static_cast<void>(workspace::commit_sheet_profile(
+                    workspace_,kernel_,next.document_id,*profile_parent,*route));
+                construction_dimension_object_id_=profile_parent->id;
+            } else if(edited_feature&&edited_feature->feature_kind==
+                    document::FeatureKind::SheetProfile&&
+                    candidate.semantic_key.starts_with("parameter:")) {
+                const auto route=std::ranges::find(next.sketches,
+                    edited_feature->sheet_profile.sketch_id,
+                    &zima::sketcher::Sketch::id);
+                if(route==next.sketches.end())
+                    throw std::runtime_error(
+                        "Sheet Profile route Sketch no longer exists");
+                static_cast<void>(workspace::commit_sheet_profile(
+                    workspace_,kernel_,next.document_id,*edited_feature,*route));
+                construction_dimension_object_id_=edited_feature->id;
+            } else if(edited_feature && edited_feature->feature_kind==document::FeatureKind::Feature &&
                candidate.semantic_key.starts_with("parameter:")) {
                 workspace::commit_profile(workspace_,kernel_,next.document_id,*edited_feature,
                     workspace::ProfileEditMode::Replace);

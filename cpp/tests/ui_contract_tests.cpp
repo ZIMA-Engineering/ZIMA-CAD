@@ -771,19 +771,11 @@ void verify_sheet_attachment_dialog(QWidget& parent) {
                 return point.x>=-1e-9&&point.y>=-1e-9;
             }),
         "Attached Sheet Profile route is not tangent in positive X/Y");
-    const auto before=attached.second.references[2];
-    profile_dialog.findChild<QPushButton*>(
-        "sheetProfileOtherEndpoint")->click();
-    attached=profile_dialog.pending_value();
-    require(attached.second.references[2].semantic_key!=before.semantic_key,
-        "Sheet Profile endpoint switch failed");
-    profile_dialog.findChild<QPushButton*>(
-        "sheetProfileManualPlacement")->click();
-    require(!sheet_profile.sheet_profile.sheet_attachment&&
-            profile_dialog.findChild<QComboBox*>("sketchPlane")->isEnabled()&&
-            profile_dialog.findChild<QCheckBox*>(
-                "sheetProfileThicknessOverride")->isEnabled(),
-        "Sheet Profile manual placement did not restore controls");
+    require(!profile_dialog.findChild<QPushButton*>(
+                "sheetProfileOtherEndpoint")&&
+            !profile_dialog.findChild<QPushButton*>(
+                "sheetProfileManualPlacement"),
+        "Sheet Profile restored redundant endpoint/manual-placement buttons");
 }
 void verify_flat_attachment_dialog(QWidget& parent) {
     using namespace zima;
@@ -862,7 +854,11 @@ void verify_container_frame_dialog(QWidget& parent) {
         require(document::resolve_placement(solved,geometry),"Dialog draft failed to solve");
         require(document::orientation_constraint_remaining_dof(solved.references,geometry,true,{solved.x,solved.y,solved.z})==0,
             "Sketch/Bend/Flat/Holes dialog lost TOP");
-        const auto expected_plane=sequence==std::vector{g,f,n}
+        // A freshly picked first support plane is authored as TOP and keeps
+        // the established local XY Sketch plane. Point/curve and curve-first
+        // frames use FRONT/local XZ. A whole Origin is an explicit XY frame.
+        const auto expected_plane=sequence==std::vector{g,f,n}||
+                sequence.front()==f
             ?sketcher::SketchPlane::XY:sketcher::SketchPlane::XZ;
         if(!pending.first.plane_auto||pending.first.plane!=expected_plane)
             throw std::runtime_error(

@@ -8,6 +8,8 @@
 
 namespace zima::document {
 
+struct SheetProfileParameters;
+
 enum class SheetProfileSpanKind { Flat, Bend };
 
 struct SheetProfileSpan {
@@ -49,5 +51,10 @@ struct SheetProfileRoute {
 // Existing authored geometry is never replaced.
 [[nodiscard]] std::string initialize_attached_sheet_profile(
     zima::sketcher::Sketch&, double thickness);
+
+// Profile width intentionally consumes the ordinary Feature two-side model,
+// but only finite linear extrusion extents are meaningful for the common
+// width shared by all generated Flat/Bend children.
+void validate_sheet_profile_width(const SheetProfileParameters&);
 
 } // namespace zima::document

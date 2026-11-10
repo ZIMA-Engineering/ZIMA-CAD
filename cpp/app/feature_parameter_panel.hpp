@@ -233,6 +233,18 @@ public:
         connect(type_,&QComboBox::currentIndexChanged,this,[this]{normalize_rotations(0);});
         update_draft_notice();
     }
+    // Sheet Profile consumes the ordinary Feature side identities and
+    // direction controls.  Its common strip width is deliberately limited to
+    // linear Length/Up-to extents and one target per side.
+    void set_linear_extent_only() {
+        extent_only_=true;
+        plane_group_->hide();sketch_group_->hide();result_group_->hide();
+        for(auto& side:sides_)
+            while(side.mode->count()>2)
+                side.mode->removeItem(side.mode->count()-1);
+        refresh_type();
+        for(int i=0;i<2;++i)refresh_side(i);
+    }
     [[nodiscard]] document::FeatureParameters parameters() const {
         auto value=initial_;value.type=selected_type();
         value.profile_plane_offset=offset_->value()==offset_display_?initial_.profile_plane_offset:offset_->value();
@@ -323,7 +335,7 @@ public:
         document::prune_feature_up_to_patch_choices(value);sides_.at(side).limits->refresh();
     }
     QDoubleSpinBox* side_correction(std::size_t side) const {return sides_.at(side).correction;}
-    bool modeling_limits() const {return selected_type()==document::FeatureType::Modeling;}
+    bool modeling_limits() const {return !extent_only_&&selected_type()==document::FeatureType::Modeling;}
     void on_preview_notice_changed(std::function<void()> callback){notice_changed_=std::move(callback);}
     void update_draft_notice() {
         const bool visible=document::feature_up_to_requires_exact_preview(parameters());
@@ -422,7 +434,7 @@ private:
     QCheckBox *origin_axis_{}, *centroid_axis_{}, *individual_centroid_axes_{};
     QComboBox* result_{};
     QWidget* operations_{};
-    bool symmetric_{};
+    bool symmetric_{},extent_only_{};
     double offset_display_{},thickness_display_{};
     std::set<std::string>* locks_{};
     std::function<void()> locks_changed_;
@@ -467,12 +479,12 @@ private:
         // A native Axis is oriented by its placed Origin and endpoint
         // limits. Its hidden profile-plane state is an implementation detail,
         // not an editable work-plane row.
-        plane_group_->setVisible(type!=document::FeatureType::Point);
+        plane_group_->setVisible(!extent_only_&&type!=document::FeatureType::Point);
         plane_rows_->setRowVisible(plane_selector_,!axis);
         plane_rows_->setRowVisible(axis_direction_,axis);
         plane_rows_->setRowVisible(offset_,!axis);
-        sketch_group_->setVisible(modeling||type==document::FeatureType::Sketch);
-        result_group_->setVisible(modeling);
+        sketch_group_->setVisible(!extent_only_&&(modeling||type==document::FeatureType::Sketch));
+        result_group_->setVisible(!extent_only_&&modeling);
         options_row_->setVisible(lengths);
         symmetric_control_->setVisible(lengths);swap_->setVisible(lengths);
         origin_axis_->setVisible(modeling);centroid_axis_->setVisible(modeling);
@@ -481,7 +493,7 @@ private:
             auto& s=sides_[i];if(!s.box)continue;
             s.box->setVisible(lengths&&(i==0||!symmetric_));
             s.rows->setRowVisible(s.mode,modeling);
-            s.rows->setRowVisible(s.draft,modeling&&s.mode->currentIndex()==1);
+            s.rows->setRowVisible(s.draft,!extent_only_&&modeling&&s.mode->currentIndex()==1);
             s.rows->setRowVisible(s.end,lengths&&(type==document::FeatureType::Axis||s.mode->currentIndex()!=3));
             s.rows->setRowVisible(s.target_row,lengths&&(type==document::FeatureType::Axis||s.mode->currentIndex()!=3));
             refresh_limit_controls(i);
@@ -508,10 +520,11 @@ private:
         {const QSignalBlocker blocked(s.draft);s.draft->setValue(s.pending.draft_angle_degrees);s.displayed_draft=s.draft->value();}
         s.displayed_axis=selected_type()==document::FeatureType::Axis;
         const int mode=s.displayed_axis?1:saved_mode;
-        s.draft->setEnabled(selected_type()==document::FeatureType::Modeling&&mode==1);
-        s.rows->setRowVisible(s.draft,selected_type()==document::FeatureType::Modeling&&mode==1);
+        s.draft->setEnabled(!extent_only_&&selected_type()==document::FeatureType::Modeling&&mode==1);
+        s.rows->setRowVisible(s.draft,!extent_only_&&selected_type()==document::FeatureType::Modeling&&mode==1);
         s.end->clear();
         if(mode==2)s.end->addItems({tr("Úhel"),tr("Plná rotace"),tr("Až k")});
+        else if(extent_only_)s.end->addItems({tr("Délka"),tr("Až k")});
         else s.end->addItems({tr("Délka"),tr("Až k"),s.displayed_axis?tr("Nevytvářet"):tr("Skrz vše")});
         s.end->setCurrentIndex(s.displayed_axis?(!s.pending.axis_enabled?2:s.pending.extrusion_extent==document::EndCondition::UpTo?1:0):mode==2?static_cast<int>(s.pending.rotation_extent):static_cast<int>(s.pending.extrusion_extent));
         s.displayed_end=s.end->currentIndex();
@@ -562,8 +575,10 @@ private:
         const bool modeling=selected_type()==document::FeatureType::Modeling;
         const int mode=side.mode->currentIndex();const bool up_to=mode==1?side.end->currentIndex()==1:mode==2&&side.end->currentIndex()==2;
         const bool visible=modeling&&up_to&&(!symmetric_||index==0);
-        side.rows->setRowVisible(side.target_row,selected_type()==document::FeatureType::Axis);
-        side.rows->setRowVisible(side.limits,visible);side.rows->setRowVisible(side.correction,visible);
+        side.rows->setRowVisible(side.target_row,extent_only_?visible:
+            selected_type()==document::FeatureType::Axis);
+        side.rows->setRowVisible(side.limits,!extent_only_&&visible);
+        side.rows->setRowVisible(side.correction,visible);
         side.limits->setEnabled(visible);side.correction->setEnabled(visible);if(!visible)side.limits->finish_entry(true);
         side.box->setSizePolicy(QSizePolicy::Preferred,visible?QSizePolicy::Expanding:QSizePolicy::Preferred);
         const double value=side.correction->value()==side.displayed_correction?side.authored_correction:side.correction->value();

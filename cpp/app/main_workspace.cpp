@@ -5545,6 +5545,10 @@ int verify_application_tools_ui(QApplication& application,const std::filesystem:
                 !flat->findChild<QDoubleSpinBox*>("flatThickness")->isEnabled()&&
                 flat->findChild<QDoubleSpinBox*>("flatThickness")->value()==2.,
                 "Flat did not inherit and protect Revolved Sheet thickness");
+            check(!flat->findChild<QWidget*>("flatDirectionRow")->isVisible()&&
+                    flat->findChild<QComboBox*>("flatDirection")->currentData().toInt()==
+                        static_cast<int>(document::ExtrusionDirection::Reverse),
+                "Attached Flat still exposes an invalid thickness direction");
             const auto near=[](const auto& p,const auto& q){return std::hypot(p.x-q.x,p.y-q.y,p.z-q.z)<1e-7;};
             const auto cap=std::ranges::find_if(geometry.triangle_references,[&](const auto& face) {
                 return face.owner_id==source_id&&face.semantic_key==expected_refs[1].semantic_key;
@@ -5586,6 +5590,7 @@ int verify_application_tools_ui(QApplication& application,const std::filesystem:
             window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
             std::vector<kernel::BodyResult> continued_results;const auto continued=document::PartDocument::load(flat_path,&continued_results);
             check(continued.history.size()==3&&continued.history.back().flat.sheet_attachment&&
+                continued.history.back().flat.direction==document::ExtrusionDirection::Reverse&&
                 continued.history.back().placement.references.front().owner_id==source_id,
                 "Flat on Revolved Sheet did not persist its source attachment");
             check(std::abs(continued_results.back().volume-rotation_results.back().volume-40.*12.*2.)<1e-5,
@@ -7739,6 +7744,7 @@ int verify_inline_primitive_dimensions(QApplication& application, const std::fil
         {D::create_thread_container(),"bore_length",[](auto& c)->double&{return c.thread.bore_length;}},
         {D::create_thread_container(),"bore_diameter",[](auto& c)->double&{return c.thread.nominal_diameter;}},
         {D::create_thread_container(),"thread_length",[](auto& c)->double&{return c.thread.length_forward;}},
+        {D::create_hole_container(),"thread_length",[](auto& c)->double&{return c.hole.thread_length;}},
         {D::create_thread_container(),"chamfer_depth",[](auto& c)->double&{return c.thread.chamfer_depth;}},
         {D::create_thread_container(),"chamfer_angle",[](auto& c)->double&{return c.thread.chamfer_angle_degrees;}},
         {D::create_thread_container(),"drill_point_angle",[](auto& c)->double&{return c.hole.drill_point_angle_degrees;}},
@@ -7750,13 +7756,20 @@ int verify_inline_primitive_dimensions(QApplication& application, const std::fil
         for(const auto& unit:units_only?std::vector<std::string>{"mm","in"}:std::vector<std::string>{"mm"})for(auto test:cases) {
             if(units_only&&test.key!="bore_length")continue;
             std::cout<<"Inline primitive "<<static_cast<int>(test.feature.feature_kind)<<' '<<test.key<<std::endl;
-            if(test.feature.feature_kind==document::FeatureKind::Thread) test.feature.thread.enabled=test.key=="thread_length";
+            if(test.feature.feature_kind==document::FeatureKind::Thread)
+                test.feature.thread.enabled=test.key=="thread_length";
+            if(test.feature.feature_kind==document::FeatureKind::Hole) {
+                test.feature.hole.thread_enabled=true;
+                test.feature.hole.type=document::HoleType::MetricThread;
+            }
             test.field(test.feature)=5;
             auto document=D::create_default();
             document.document_units["Length"]=unit;
             if(units_only)test.field(test.feature)=5.123456789;
             document::BodyHistoryGraph graph;const auto body=graph.create_body("Dimension audit");
-            if(test.feature.feature_kind==document::FeatureKind::Thread || test.feature.feature_kind==document::FeatureKind::Shell) {
+            if(test.feature.feature_kind==document::FeatureKind::Thread ||
+                    test.feature.feature_kind==document::FeatureKind::Hole ||
+                    test.feature.feature_kind==document::FeatureKind::Shell) {
                 auto base=zima::test::rectangular_feature(document,{60,60,60});base.placement.x=-30;base.placement.y=-30;
                 document.history.push_back(base);graph.insert({document::PartHistoryKind::Feature,base.id});
             }

@@ -14,6 +14,7 @@
 #include <zima/document/container_origin_display.hpp>
 #include <zima/workspace/flat_operations.hpp>
 #include <zima/workspace/sheet_profile_operations.hpp>
+#include "../feature_view_cues.hpp"
 #include <cmath>
 #include <numbers>
 
@@ -273,6 +274,7 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
                 viewer_->set_constraint_reference_highlights({}, {});
                 viewer_->set_feature_preview_owners({});
                 viewer_->set_extent_manipulator(std::nullopt);
+                viewer_->set_operation_direction_indicators({});
                 viewer_->set_transient_edges({});
                 primitive_origin_preview_mesh_.reset(); parameter_dimension_preview_.reset();
                 dialog->hide(); properties_dialog_ = nullptr;
@@ -306,6 +308,23 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
                 [sketch_feature](auto value) {
                     sketch_feature->sheet_profile=std::move(value);
                 },[edit_owned_sketch]{edit_owned_sketch(std::nullopt);});
+            dialog->set_sheet_profile_target_request(
+                [this,dialog,prepared_sketch] {
+                    pending_primitive_reference_index_.reset();
+                    primitive_reference_auto_advance_=false;
+                    dialog->set_active_reference_index(std::nullopt);
+                    sheet_profile_target_dialog_=dialog;
+                    sheet_profile_target_frame_=prepared_sketch;
+                    tree_->setProperty("commandSelectionActive",true);
+                    viewer_->clear_selection();
+                    apply_sheet_profile_target_selection_contract();
+                    state_->setText(tr(
+                        "Vyberte bod, rovinu nebo rovinnou plochu."));
+                });
+            dialog->set_sheet_profile_target_cancel([this,dialog] {
+                if(sheet_profile_target_dialog_==dialog)
+                    finish_sheet_profile_target_selection();
+            });
         } else dialog->set_holes_mode(sketch_feature->holes.diameter,sketch_feature->value_locks,
             [sketch_feature](double diameter){sketch_feature->holes.diameter=diameter;},[edit_owned_sketch]{edit_owned_sketch(std::nullopt);},
             *diameter_layout,[diameter_layout](auto layout){*diameter_layout=std::move(layout);});
@@ -364,22 +383,32 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
             double baseline_offset{};
             zima::sketcher::SketchPlane plane{
                 zima::sketcher::SketchPlane::XY};
+            bool sheet_profile_reversed{};
+            bool baseline_sheet_profile_reversed{};
         };
         auto sketch_offset_drag = std::make_shared<SketchOffsetDragState>();
         viewer_->set_extent_manipulator_callbacks(
             [sketch_offset_drag](const std::string&) {
                 sketch_offset_drag->baseline_offset =
                     sketch_offset_drag->current_offset;
+                sketch_offset_drag->baseline_sheet_profile_reversed =
+                    sketch_offset_drag->sheet_profile_reversed;
             },
             [dialog, sketch_offset_drag](const std::string& key,
                     double coordinate) {
-                if (key != "sketch_plane_offset") return;
-                const double delta = zima::sketcher::
-                    plane_offset_delta_for_normal_displacement(
-                        sketch_offset_drag->plane, coordinate);
-                static_cast<void>(dialog->set_inline_parameter_value(
-                    "profile_offset",
-                    sketch_offset_drag->baseline_offset + delta));
+                if (key == "sketch_plane_offset") {
+                    const double delta = zima::sketcher::
+                        plane_offset_delta_for_normal_displacement(
+                            sketch_offset_drag->plane, coordinate);
+                    static_cast<void>(dialog->set_inline_parameter_value(
+                        "profile_offset",
+                        sketch_offset_drag->baseline_offset + delta));
+                    return;
+                }
+                if(key!="side0_length"&&key!="side1_length")return;
+                static_cast<void>(dialog->set_sheet_profile_signed_length(
+                    key=="side0_length"?0u:1u,coordinate,
+                    sketch_offset_drag->baseline_sheet_profile_reversed));
             }, [] {});
         const auto sheet_defaults=part?zima::document::sheet_metal_defaults(part->session.document()):zima::document::SheetMetalDefaults{};
         auto flat_profile_seeded=std::make_shared<bool>(false);
@@ -596,6 +625,7 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
             viewer_->set_feature_preview_owners(
                 {plane.entity_id, sketch.id});
             zima::kernel::ViewerMesh drilling_preview;
+            std::optional<FeatureViewCues> sheet_profile_cues;
             if (sketch_feature) {
                 try {
                     drilling_preview = sketch_feature->feature_kind==zima::document::FeatureKind::SheetProfile
@@ -649,14 +679,35 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
                     // OK retains the normal feature validation and message.
                 }
             }
+            if(sketch_feature&&sketch_feature->feature_kind==
+                    zima::document::FeatureKind::SheetProfile&&
+                    !sketch_feature->sheet_profile.sheet_attachment) {
+                auto extent=*sketch_feature;
+                extent.feature_kind=zima::document::FeatureKind::Feature;
+                extent.feature=sketch_feature->sheet_profile.width;
+                sheet_profile_cues=feature_view_cues(extent,resolved_sketch);
+                primitive_origin_preview_mesh_->dimensions.insert(
+                    primitive_origin_preview_mesh_->dimensions.end(),
+                    sheet_profile_cues->dimensions.dimensions.begin(),
+                    sheet_profile_cues->dimensions.dimensions.end());
+            }
             preserve_view_on_refresh_ = true;
             refresh_scene();
             if (sketch_feature) viewer_->set_transient_edges(std::move(drilling_preview.edges));
-            if(sketch_feature&&(sketch_feature->feature_kind==zima::document::FeatureKind::Flat||
+            if(sheet_profile_cues) {
+                sketch_offset_drag->sheet_profile_reversed=
+                    sketch_feature->sheet_profile.width.reversed_sides;
+                viewer_->set_extent_manipulators(
+                    std::move(sheet_profile_cues->handles));
+                viewer_->set_operation_direction_indicators(
+                    std::move(sheet_profile_cues->directions));
+            } else if(sketch_feature&&(sketch_feature->feature_kind==zima::document::FeatureKind::Flat||
                 sketch_feature->feature_kind==zima::document::FeatureKind::Bend||
                 sketch_feature->feature_kind==zima::document::FeatureKind::SheetProfile))
-                viewer_->set_extent_manipulator(std::nullopt);
-            else viewer_->set_extent_manipulator(offset_manipulator);
+                {viewer_->set_extent_manipulator(std::nullopt);
+                 viewer_->set_operation_direction_indicators({});}
+            else {viewer_->set_extent_manipulator(offset_manipulator);
+                  viewer_->set_operation_direction_indicators({});}
             if (!pending_primitive_reference_index_) {
                 set_primitive_properties_dimension_selection();
             }
@@ -693,6 +744,8 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
             viewer_->set_transient_dimensions({});
         }
         properties_dialog_ = nullptr;
+        sheet_profile_target_dialog_=nullptr;
+        sheet_profile_target_frame_.reset();
         primitive_reference_dialog_ = nullptr;
         primitive_parameter_owner_id_.clear();
         pending_primitive_reference_index_.reset();
@@ -706,6 +759,7 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
         viewer_->set_feature_preview_owners({});
         viewer_->set_transient_edges({});
         viewer_->set_extent_manipulator(std::nullopt);
+        viewer_->set_operation_direction_indicators({});
         viewer_->set_extent_manipulator_callbacks({}, {}, {});
         primitive_origin_preview_mesh_.reset();
         sketch_properties_preview_id_.clear();

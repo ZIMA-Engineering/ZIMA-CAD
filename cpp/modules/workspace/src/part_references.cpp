@@ -55,6 +55,52 @@ zima::kernel::ViewerReferenceGeometry reference_geometry_for_owners(
     }
     return selected;
 }
+
+void append_missing_reference_geometry(
+    zima::kernel::ViewerReferenceGeometry& target,
+    const zima::kernel::ViewerReferenceGeometry& source) {
+    const auto identity=[](const auto& value) {
+        return std::tuple{value.reference.owner_id,value.reference.semantic_key,
+            value.reference.instance_path};
+    };
+    const auto append_missing=[&](auto& destination,const auto& values) {
+        std::set<std::tuple<std::string,std::string,std::string>> identities;
+        for(const auto& value:destination)identities.insert(identity(value));
+        for(const auto& value:values)
+            if(identities.insert(identity(value)).second)destination.push_back(value);
+    };
+    append_missing(target.edges,source.edges);
+    append_missing(target.points,source.points);
+    append_missing(target.axes,source.axes);
+
+    std::set<std::tuple<std::string,std::string,std::string>> existing_faces;
+    for(const auto& reference:target.triangle_references)
+        existing_faces.emplace(reference.owner_id,reference.semantic_key,
+            reference.instance_path);
+    std::set<std::tuple<std::string,std::string,std::string>> missing_faces;
+    for(const auto& reference:source.triangle_references) {
+        const auto key=std::tuple{reference.owner_id,reference.semantic_key,
+            reference.instance_path};
+        if(!existing_faces.contains(key))missing_faces.insert(key);
+    }
+    for(std::size_t triangle=0;triangle<source.triangle_references.size();++triangle) {
+        const auto& reference=source.triangle_references[triangle];
+        if(!missing_faces.contains({reference.owner_id,reference.semantic_key,
+                reference.instance_path}))continue;
+        const auto source_offset=triangle*3;
+        if(source_offset+2>=source.triangles.size())
+            throw std::runtime_error("Reference face triangle packet is incomplete");
+        const auto target_offset=static_cast<std::uint32_t>(target.vertices.size());
+        for(std::size_t corner=0;corner<3;++corner) {
+            const auto vertex=source.triangles[source_offset+corner];
+            if(vertex>=source.vertices.size())
+                throw std::runtime_error("Reference face triangle index is invalid");
+            target.vertices.push_back(source.vertices[vertex]);
+            target.triangles.push_back(target_offset+static_cast<std::uint32_t>(corner));
+        }
+        target.triangle_references.push_back(reference);
+    }
+}
 }
 
 void append_reference_geometry(
@@ -110,6 +156,9 @@ std::set<std::string> sketch_external_reference_source_owners(
         const bool section=(!target && first_consumer==document.history.size() && draft_section) ||
             std::ranges::any_of(document.sections,[&](const auto& value){return value.sketch.id==sketch_id;});
         if (!target && !section) return owners;
+        // A Sketch in a Body may always use that Body's persisted Origin.
+        // Other Body Origins remain ordinary explicitly selected sources.
+        if (target) owners.insert(target->origin().id);
         const auto add_construction = [&](const auto& self, const auto& object) -> void {
             owners.insert(object.id); owners.insert(object.entity_id);
             owners.insert(object.container_origin.id);
@@ -145,6 +194,7 @@ std::set<std::string> sketch_external_reference_source_owners(
         }
         return owners;
     }
+    owners.insert(document.document_id + ":origin");
     for (std::size_t index = 0; index < first_consumer; ++index) {
         owners.insert(document.history[index].id);
     }
@@ -161,6 +211,15 @@ zima::kernel::ViewerReferenceGeometry sketch_external_reference_source_geometry(
     if (!calculated_boundaries.empty()) {
         source = calculated_boundaries.back().mesh.original_references;
     }
+    // Creation and every later regeneration must query the same persisted
+    // Origin universe.  Without these packets an Origin point/axis selected in
+    // the Sketcher was valid only until the next explicit regeneration.
+    append_missing_reference_geometry(source,
+        document.origin_viewer_mesh().original_references);
+    append_missing_reference_geometry(source,
+        document.body_origin_reference_geometry());
+    append_missing_reference_geometry(source,
+        document.history_origin_reference_geometry_before({}));
     append_reference_geometry(source,
         document.construction_viewer_mesh().original_references);
     // Standalone Sketches do not necessarily contribute a calculated Body.

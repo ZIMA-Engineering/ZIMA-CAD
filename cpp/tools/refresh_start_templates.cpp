@@ -792,10 +792,387 @@ void upgrade_native_part_format_48_to_49(
         {"authored_definition_changed",false}}.dump(2)<<'\n';
     if(!evidence)throw std::runtime_error("Cannot write migration evidence");
 }
+void upgrade_native_part_format_49_to_50(
+        const std::filesystem::path& source,
+        const std::filesystem::path& output,
+        const std::filesystem::path& report,
+        bool migrate_sheet_profiles=false) {
+    if(std::filesystem::absolute(source).lexically_normal()==
+            std::filesystem::absolute(output).lexically_normal())
+        throw std::runtime_error(
+            "Format migration output must be separate from its source");
+    std::ifstream input(source,std::ios::binary);
+    const std::string original((std::istreambuf_iterator<char>(input)),{});
+    if(!input&&!input.eof())throw std::runtime_error(
+        "Cannot read native Part for format migration");
+    // Sheet Profile changed its authored width contract in format 50. Factory
+    // assets currently contain no Sheet Profile, so a version-only transport
+    // migration is exact for them. The separate explicit user-document route
+    // below preserves the old physical interval: Forward [0,W], Reverse
+    // [-W,0], and Symmetric [-W/2,W/2]. Generic repository migration keeps
+    // rejecting such documents rather than silently choosing that conversion.
+    const bool has_sheet_profile=
+        original.find("\"type\":\"sheet_profile\"")!=std::string::npos||
+        original.find("\"type\": \"sheet_profile\"")!=std::string::npos;
+    if(has_sheet_profile&&!migrate_sheet_profiles)
+        throw std::runtime_error(
+            "Native Part contains Sheet Profile and requires an explicit authored migration");
+    auto migrated=original;
+    nlohmann::json profile_evidence=nlohmann::json::array();
+    if(migrate_sheet_profiles&&has_sheet_profile) {
+        std::size_t cursor{};
+        while(cursor<migrated.size()) {
+            const auto line_end=migrated.find('\n',cursor);
+            const auto next=line_end==std::string::npos?
+                migrated.size():line_end+1;
+            auto content_end=line_end==std::string::npos?
+                migrated.size():line_end;
+            if(content_end>cursor&&migrated[content_end-1]=='\r')
+                --content_end;
+            const auto marker=migrated.find("\"type\":\"sheet_profile\"",cursor);
+            const auto spaced_marker=migrated.find(
+                "\"type\": \"sheet_profile\"",cursor);
+            const auto first_marker=std::min(marker,spaced_marker);
+            if(first_marker<content_end) {
+                const auto equals=migrated.find('=',cursor);
+                if(equals==std::string::npos||equals>=content_end)
+                    throw std::runtime_error(
+                        "Sheet Profile migration found an invalid native field");
+                auto packet=nlohmann::json::parse(migrated.substr(
+                    equals+1,content_end-equals-1));
+                if(packet.value("type",std::string{})!="sheet_profile"||
+                        !packet.contains("sheet_profile"))
+                    throw std::runtime_error(
+                        "Sheet Profile migration found an unexpected packet");
+                auto& profile=packet.at("sheet_profile");
+                if(profile.contains("width")||
+                        !profile.contains("initial_width")||
+                        !profile.contains("width_direction"))
+                    throw std::runtime_error(
+                        "Sheet Profile migration found an unexpected width definition");
+                const double old_width=profile.at("initial_width").get<double>();
+                const auto old_direction=
+                    profile.at("width_direction").get<std::string>();
+                if(!std::isfinite(old_width)||old_width<.001||
+                        old_width>1000000||
+                        (old_direction!="forward"&&old_direction!="reverse"&&
+                         old_direction!="symmetric"))
+                    throw std::runtime_error(
+                        "Sheet Profile migration found invalid legacy width values");
+                const bool symmetric=old_direction=="symmetric";
+                const double side_length=symmetric?old_width/2:old_width;
+                if(side_length<.001)
+                    throw std::runtime_error(
+                        "Symmetric Sheet Profile is too narrow for format 50");
+                const auto side=[&](std::string_view operation) {
+                    return nlohmann::json{{"operation",operation},
+                        {"length",side_length},
+                        {"extrusion_extent","length"},
+                        {"angle_degrees",90.0},
+                        {"rotation_extent","angle"},
+                        {"draft_angle_degrees",0.0},
+                        {"targets",nlohmann::json::array()}};
+                };
+                nlohmann::json width={{"automatic_name",""},
+                    {"type","modeling"},
+                    {"sketch_id",profile.at("sketch_id")},
+                    {"axis_segment_id",""},
+                    {"profile_source","internal"},
+                    {"profile_plane_offset",0.0},
+                    {"result_type","solid"},
+                    {"thin_thickness",1.0},
+                    {"thin_mode","one_side"},
+                    {"symmetric",symmetric},
+                    {"origin_centerline",false},
+                    {"centroid_centerline",false},
+                    {"individual_centroid_centerlines",false},
+                    {"show_point",false},
+                    {"show_text",false},
+                    {"sides",nlohmann::json::array(
+                        {side("extrusion"),side("none")})}};
+                if(old_direction=="reverse")width["reversed_sides"]=true;
+                profile["width"]=std::move(width);
+                profile.erase("initial_width");
+                profile.erase("width_direction");
+                profile_evidence.push_back({
+                    {"container_id",packet.value("id",std::string{})},
+                    {"old_direction",old_direction},
+                    {"old_total_width",old_width},
+                    {"new_side_length",side_length},
+                    {"preserved_interval",old_direction=="forward"
+                        ?nlohmann::json::array({0.0,old_width})
+                        :old_direction=="reverse"
+                            ?nlohmann::json::array({-old_width,0.0})
+                            :nlohmann::json::array(
+                                {-old_width/2,old_width/2})}});
+                const auto replacement=packet.dump();
+                migrated.replace(equals+1,content_end-equals-1,replacement);
+                const auto length_delta=static_cast<std::ptrdiff_t>(
+                    replacement.size())-static_cast<std::ptrdiff_t>(
+                        content_end-equals-1);
+                cursor=static_cast<std::size_t>(
+                    static_cast<std::ptrdiff_t>(next)+length_delta);
+                continue;
+            }
+            cursor=next;
+        }
+        if(profile_evidence.empty())
+            throw std::runtime_error(
+                "Sheet Profile migration did not find its authored packet");
+    }
+    nlohmann::json derived_copy_evidence=nlohmann::json::array();
+    std::size_t derived_copy_entity_mirrors{};
+    if(migrate_sheet_profiles) {
+        std::size_t cursor{};
+        while(cursor<migrated.size()) {
+            const auto line_end=migrated.find('\n',cursor);
+            const auto next=line_end==std::string::npos?
+                migrated.size():line_end+1;
+            auto content_end=line_end==std::string::npos?
+                migrated.size():line_end;
+            if(content_end>cursor&&migrated[content_end-1]=='\r')
+                --content_end;
+            const auto marker=migrated.find("\"source_id\":",cursor);
+            if(marker<content_end) {
+                const auto equals=migrated.find('=',cursor);
+                if(equals==std::string::npos||equals>=content_end)
+                    throw std::runtime_error(
+                        "Derived-copy migration found an invalid native field");
+                auto packet=nlohmann::json::parse(migrated.substr(
+                    equals+1,content_end-equals-1));
+                nlohmann::json* definition{};
+                const bool authored_history=
+                    packet.value("type",std::string{})=="derived_copy"&&
+                    packet.contains("derived_copy");
+                if(authored_history)definition=&packet.at("derived_copy");
+                else if(packet.is_object()&&packet.contains("source_id")&&
+                        packet.contains("reference")&&
+                        packet.contains("subtract_source"))
+                    definition=&packet;
+                if(!definition||!definition->contains("source_id")||
+                        definition->contains("source_ids"))
+                    throw std::runtime_error(
+                        "Derived-copy migration found an unexpected definition");
+                const auto source_id=
+                    definition->at("source_id").get<std::string>();
+                if(source_id.empty())throw std::runtime_error(
+                    "Derived-copy migration found an empty source");
+                (*definition)["source_ids"]=
+                    nlohmann::json::array({source_id});
+                definition->erase("source_id");
+                if(authored_history)
+                    derived_copy_evidence.push_back({
+                        {"container_id",packet.value("id",std::string{})},
+                        {"source_ids",nlohmann::json::array({source_id})}});
+                else ++derived_copy_entity_mirrors;
+                const auto replacement=packet.dump();
+                migrated.replace(equals+1,content_end-equals-1,replacement);
+                const auto length_delta=static_cast<std::ptrdiff_t>(
+                    replacement.size())-static_cast<std::ptrdiff_t>(
+                        content_end-equals-1);
+                cursor=static_cast<std::size_t>(
+                    static_cast<std::ptrdiff_t>(next)+length_delta);
+                continue;
+            }
+            cursor=next;
+        }
+    }
+    constexpr std::string_view old_version="format_version=49";
+    std::size_t version_count{};
+    for(std::size_t position=migrated.find(old_version);
+            position!=std::string::npos;
+            position=migrated.find(old_version,position+1)) {
+        const bool line_start=position==0||migrated[position-1]=='\n';
+        const auto after=position+old_version.size();
+        const bool line_end=after==migrated.size()||
+            migrated[after]=='\n'||migrated[after]=='\r';
+        if(line_start&&line_end)++version_count;
+    }
+    if(version_count!=1)throw std::runtime_error(
+        "Expected exactly one native Part format 49 declaration");
+    const auto version=migrated.find(old_version);
+    migrated.replace(version,old_version.size(),"format_version=50");
+    // The internal authored packet version changed from 73 to 74. Its exact
+    // definition fingerprint therefore changes even when this particular asset
+    // has no Sheet Profile. Drop the optional derived cache and require the
+    // current implementation to calculate, save and reopen factory assets.
+    bool cache_removed{};
+    const auto cache=migrated.find("[CachedBodies]");
+    if(cache!=std::string::npos&&(cache==0||migrated[cache-1]=='\n')) {
+        const auto next_section=migrated.find("\n[",cache+1);
+        if(next_section==std::string::npos)
+            throw std::runtime_error("Native Part cache section is invalid");
+        migrated.erase(cache,next_section+1-cache);
+        cache_removed=true;
+    }
+    std::filesystem::create_directories(output.parent_path());
+    std::ofstream native(output,std::ios::binary);
+    native.write(migrated.data(),static_cast<std::streamsize>(migrated.size()));
+    native.close();
+    if(!native)throw std::runtime_error("Cannot write migrated native Part");
+    std::filesystem::create_directories(report.parent_path());
+    std::ofstream evidence(report);
+    evidence<<nlohmann::json{{"migration","part-format-49-to-50"},
+        {"format_upgraded",true},
+        {"stale_derived_cache_removed",cache_removed},
+        {"authored_definition_changed",!profile_evidence.empty()||
+            !derived_copy_evidence.empty()},
+        {"sheet_profile_present",has_sheet_profile},
+        {"sheet_profiles_migrated",std::move(profile_evidence)},
+        {"derived_copies_migrated",std::move(derived_copy_evidence)},
+        {"derived_copy_entity_mirrors_updated",
+            derived_copy_entity_mirrors}}.dump(2)<<'\n';
+    if(!evidence)throw std::runtime_error("Cannot write migration evidence");
+}
+
+void attach_verified_legacy_part_cache(
+        const std::filesystem::path& current_authored,
+        const std::filesystem::path& legacy_source,
+        const std::filesystem::path& output,
+        const std::filesystem::path& report) {
+    const auto normalized_output=
+        std::filesystem::absolute(output).lexically_normal();
+    if(normalized_output==
+            std::filesystem::absolute(current_authored).lexically_normal()||
+       normalized_output==
+            std::filesystem::absolute(legacy_source).lexically_normal())
+        throw std::runtime_error(
+            "Verified cache output must be separate from both sources");
+    std::ifstream authored_input(current_authored,std::ios::binary);
+    std::string authored((std::istreambuf_iterator<char>(authored_input)),{});
+    if(!authored_input&&!authored_input.eof())throw std::runtime_error(
+        "Cannot read current authored Part");
+    if(authored.find("format_version=50")==std::string::npos||
+            authored.find("[CachedBodies]")!=std::string::npos)
+        throw std::runtime_error(
+            "Expected a cacheless current-format authored Part");
+    const auto current=zima::document::PartDocument::load(current_authored);
+    const auto definition=current.serialized();
+    const auto fingerprint=definition.at(
+        "calculation_definition_fingerprint").get<std::string>();
+
+    std::ifstream legacy_input(legacy_source,std::ios::binary);
+    const std::string legacy((std::istreambuf_iterator<char>(legacy_input)),{});
+    if(!legacy_input&&!legacy_input.eof())throw std::runtime_error(
+        "Cannot read legacy cached Part");
+    const auto cache_start=legacy.find("[CachedBodies]");
+    if(cache_start==std::string::npos||
+            (cache_start!=0&&legacy[cache_start-1]!='\n'))
+        throw std::runtime_error("Legacy Part has no native calculated cache");
+    const auto next_section=legacy.find("\n[",cache_start+1);
+    const auto cache_end=next_section==std::string::npos?
+        legacy.size():next_section;
+    auto cache=legacy.substr(cache_start,cache_end-cache_start);
+    constexpr std::string_view key="definition_fingerprint=";
+    const auto fingerprint_start=cache.find(key);
+    if(fingerprint_start==std::string::npos||
+            cache.find(key,fingerprint_start+key.size())!=std::string::npos)
+        throw std::runtime_error(
+            "Legacy Part cache fingerprint declaration is invalid");
+    const auto value_start=fingerprint_start+key.size();
+    auto value_end=cache.find_first_of("\r\n",value_start);
+    if(value_end==std::string::npos)value_end=cache.size();
+    cache.replace(value_start,value_end-value_start,fingerprint);
+    if(!authored.empty()&&authored.back()!='\n')authored.push_back('\n');
+    authored.append(cache);
+    authored.push_back('\n');
+
+    std::filesystem::create_directories(output.parent_path());
+    std::ofstream candidate(output,std::ios::binary);
+    candidate.write(authored.data(),static_cast<std::streamsize>(authored.size()));
+    candidate.close();
+    if(!candidate)throw std::runtime_error(
+        "Cannot write current Part with verified legacy cache");
+    std::vector<zima::kernel::BodyResult> restored;
+    const auto reopened=zima::document::PartDocument::load(output,&restored);
+    if(reopened.serialized()!=definition||restored.empty())
+        throw std::runtime_error(
+            "Legacy calculated cache does not match the current authored Part");
+    std::filesystem::create_directories(report.parent_path());
+    std::ofstream evidence(report);
+    evidence<<nlohmann::json{{"native_readback_exact",true},
+        {"authored_definition_unchanged",true},
+        {"legacy_calculated_cache_verified",true},
+        {"definition_fingerprint",fingerprint},
+        {"calculated_boundaries",restored.size()},
+        {"calculation_errors",std::ranges::count_if(restored,
+            [](const auto& boundary) {
+                return !boundary.calculation_errors.empty();
+            })}}.dump(2)<<'\n';
+    if(!evidence)throw std::runtime_error(
+        "Cannot write verified legacy cache evidence");
+}
 }
 
 int main(int argc,char** argv){try{
     using namespace zima;
+    if(argc==4&&std::string_view(argv[1])==
+            "--upgrade-repository-part-format49-to50") {
+        const auto output_root=std::filesystem::u8path(argv[2]);
+        const auto report_root=std::filesystem::u8path(argv[3]);
+        std::vector<std::filesystem::path> sources;
+        for(const auto& relative_root:{std::filesystem::path("config"),
+                std::filesystem::path("cpp/tests/fixtures")}) {
+            for(const auto& entry:
+                    std::filesystem::recursive_directory_iterator(relative_root)) {
+                if(!entry.is_regular_file())continue;
+                const auto extension=entry.path().extension();
+                if(extension!=".prtz"&&extension!=".frmz"&&
+                        extension!=".tblz"&&extension!=".symz")continue;
+                std::ifstream input(entry.path(),std::ios::binary);
+                const std::string data((std::istreambuf_iterator<char>(input)),{});
+                if(data.find("format_version=49")!=std::string::npos)
+                    sources.push_back(entry.path());
+            }
+        }
+        std::ranges::sort(sources);
+        if(sources.empty())throw std::runtime_error(
+            "No repository native Part format 49 assets were found");
+        for(const auto& source:sources) {
+            const auto relative=std::filesystem::relative(
+                source,std::filesystem::current_path());
+            auto evidence=report_root/relative;
+            evidence+= ".json";
+            upgrade_native_part_format_49_to_50(
+                source,output_root/relative,evidence);
+        }
+        std::filesystem::create_directories(report_root);
+        std::ofstream summary(report_root/"summary.json");
+        summary<<nlohmann::json{{"migration","part-format-49-to-50"},
+            {"asset_count",sources.size()},
+            {"all_outputs_separate_from_sources",true},
+            {"sheet_profile_assets_rejected",true}}.dump(2)<<'\n';
+        if(!summary)throw std::runtime_error(
+            "Cannot write repository migration evidence");
+        std::cout<<"Staged "<<sources.size()
+            <<" repository native Part assets in format 50\n";
+        return 0;
+    }
+    if(argc==5&&std::string_view(argv[1])==
+            "--upgrade-part-format49-to50") {
+        upgrade_native_part_format_49_to_50(
+            std::filesystem::u8path(argv[2]),
+            std::filesystem::u8path(argv[3]),
+            std::filesystem::u8path(argv[4]));
+        return 0;
+    }
+    if(argc==5&&std::string_view(argv[1])==
+            "--upgrade-user-part-format49-to50") {
+        upgrade_native_part_format_49_to_50(
+            std::filesystem::u8path(argv[2]),
+            std::filesystem::u8path(argv[3]),
+            std::filesystem::u8path(argv[4]),true);
+        return 0;
+    }
+    if(argc==6&&std::string_view(argv[1])==
+            "--attach-verified-legacy-part-cache") {
+        attach_verified_legacy_part_cache(
+            std::filesystem::u8path(argv[2]),
+            std::filesystem::u8path(argv[3]),
+            std::filesystem::u8path(argv[4]),
+            std::filesystem::u8path(argv[5]));
+        return 0;
+    }
     if(argc==5&&std::string_view(argv[1])==
             "--upgrade-part-format48-to49") {
         upgrade_native_part_format_48_to_49(

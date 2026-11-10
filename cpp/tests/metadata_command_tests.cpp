@@ -73,7 +73,7 @@ void verify_parameter_inspection(const fs::path& directory) {
     const auto path=directory/"metadata-buffer.prtz";
     {
         std::ofstream output(path,std::ios::binary);
-        output<<"[Cache]\r\ndata="<<std::string(16*1024*1024,'x')<<"\r\n[Document]\r\nformat_version=49\r\ntype=part\r\n[UserParameters]\r\nOrder=NAME,EMPTY\r\n[UserParameterLabels]\r\nNAME\\cs=Příliš žluťoučký\r\n[UserParameterValues]\r\nData=";
+        output<<"[Cache]\r\ndata="<<std::string(16*1024*1024,'x')<<"\r\n[Document]\r\nformat_version=50\r\ntype=part\r\n[UserParameters]\r\nOrder=NAME,EMPTY\r\n[UserParameterLabels]\r\nNAME\\cs=Příliš žluťoučký\r\n[UserParameterValues]\r\nData=";
         output<<Json({{"NAME",{{"",std::string(65536,'x')+"=,\\ř"},{"ru","Проверка"}}},{"EMPTY",{{"",""}}}}).dump();
     }
     const auto data=document::read_native_user_parameters(path);

@@ -1,5 +1,6 @@
 #pragma once
 #include <zima/document/part_document.hpp>
+#include <zima/kernel/feature_side_identity.hpp>
 #include <algorithm>
 #include <cmath>
 #include <iterator>
@@ -94,22 +95,35 @@ inline std::vector<kernel::ViewerEdge> treatment_selection_wire(
     std::set<std::pair<bool,std::size_t>> appended;
     for (std::size_t i=0;i<selected.size();++i) {
         if (segment && i!=*segment) continue;
+        std::vector<kernel::EdgeReference> identities{selected[i]};
+        if(!segment)
+            if(const auto counterpart=
+                    kernel::feature_side_rail_counterpart(selected[i]);
+               counterpart&&std::ranges::find(selected,*counterpart)==
+                    selected.end())
+                identities.push_back(*counterpart);
         std::vector<std::size_t> exact,descendants;
         const bool selected_treatment_edge=
             selected[i].semantic_key.starts_with("fillet:edge:from:")||
             selected[i].semantic_key.starts_with("chamfer:edge:from:");
         for (std::size_t edge_index=0;edge_index<input.edges.size();++edge_index) {
             const auto& reference=input.edges[edge_index].reference;
-            if(reference==selected[i])exact.push_back(edge_index);
-            else if(kernel::edge_reference_matches_or_descends_from(
-                        reference,selected[i])&&
-                    (selected_treatment_edge||
-                     (!reference.semantic_key.starts_with(
-                          "fillet:edge:from:")&&
-                      !reference.semantic_key.starts_with(
-                          "chamfer:edge:from:"))))
-                descendants.push_back(edge_index);
+            for(const auto& identity:identities) {
+                if(reference==identity)exact.push_back(edge_index);
+                else if(kernel::edge_reference_matches_or_descends_from(
+                            reference,identity)&&
+                        (selected_treatment_edge||
+                         (!reference.semantic_key.starts_with(
+                              "fillet:edge:from:")&&
+                          !reference.semantic_key.starts_with(
+                              "chamfer:edge:from:"))))
+                    descendants.push_back(edge_index);
+            }
         }
+        std::ranges::sort(exact);exact.erase(
+            std::ranges::unique(exact).begin(),exact.end());
+        std::ranges::sort(descendants);descendants.erase(
+            std::ranges::unique(descendants).begin(),descendants.end());
         // A two-sided or later Boolean operation can split one persisted
         // authored edge into several current operational fragments.  Those
         // fragments are the real Fillet/Chamfer input and carry the current
@@ -133,7 +147,8 @@ inline std::vector<kernel::ViewerEdge> treatment_selection_wire(
                     edge_index<input.original_references.edges.size();
                     ++edge_index) {
                 const auto& edge=input.original_references.edges[edge_index];
-                if(edge.reference!=selected[i])continue;
+                if(std::ranges::find(identities,edge.reference)==
+                        identities.end())continue;
                 found_original=true;
                 // A compact saved rollback packet can retain the authored
                 // reference wire separately from the current Body wire.  The

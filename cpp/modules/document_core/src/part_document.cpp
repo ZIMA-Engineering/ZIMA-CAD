@@ -799,12 +799,12 @@ nlohmann::json read_part_ini(const std::filesystem::path& path,
     const auto ini = read_ini(path);
     profile.phase("INI scan");
     const auto native_format=ini_value(ini, "Document", "format_version");
-    if (native_format != "49") {
+    if (native_format != "50") {
         throw std::runtime_error("Unsupported ZIMA-CAD Part document format");
     }
     nlohmann::json root = {
         {"format", "zima-cad-cpp"},
-        {"format_version", 73},
+        {"format_version", 74},
         {"document_id", ini_required(ini, "Document", "document_id")},
         {"type", ini_value(ini, "Document", "type", "part")},
         {"name", ini_value(ini, "Document", "name", "Nový díl")},
@@ -1002,7 +1002,7 @@ NativeCalculatedCachePtr write_part_ini(
     NativeIoProfile profile("Part write");
     IniSections ini;
     ini["Document"] = {
-        {"format_version", "49"},
+        {"format_version", "50"},
         {"calculated_definition", "zima-part-definition-sha256-v1"},
         {"type", "part"},
         {"document_id", root.at("document_id").get<std::string>()},
@@ -3884,7 +3884,8 @@ HistoryContainer PartDocument::create_sheet_profile_container(
     container.container_origin = create_container_origin(container.id);
     container.name = "Profil";
     container.feature_kind = FeatureKind::SheetProfile;
-    container.sheet_profile.sketch_id = std::move(sketch_id);
+    container.sheet_profile.sketch_id = sketch_id;
+    container.sheet_profile.width.sketch_id = std::move(sketch_id);
     return container;
 }
 
@@ -8747,6 +8748,11 @@ void update_flat_sheet_attachment(HistoryContainer& feature,sketcher::Sketch& sk
         throw std::invalid_argument("Flat attachment orientation is derived from its sheet edge.");
     const auto side=bend_attachment_profile_direction(placement.references,geometry);
     if(!side)throw std::invalid_argument("Flat requires a planar sheet joining face.");
+    // The selected Side A skin is the authored attachment plane.  The new
+    // sheet must continue between that skin and the existing opposite skin;
+    // a forward or symmetric extrusion would place material on the wrong
+    // side of the joining surface.
+    feature.flat.direction=ExtrusionDirection::Reverse;
     feature.flat.thickness=edge->edge_treatment_side_references.front().sheet_thickness;
     const kernel::Vec3 rotation{placement.rotation_x,placement.rotation_y,placement.rotation_z};
     // Consume the ordinary reference frame: local Y is the edge, local Z
@@ -8895,7 +8901,9 @@ kernel::ExtrusionRequest flat_request(const HistoryContainer& feature,const sket
         throw std::invalid_argument("Flat must own its profile Sketch.");
     if(sketch.plane_offset!=0)
         throw std::invalid_argument("Flat profile must lie on its container plane.");
-    return extrusion_request(sketch,flat_thickness(feature,defaults),feature.flat.direction);
+    const auto direction=feature.flat.sheet_attachment?
+        ExtrusionDirection::Reverse:feature.flat.direction;
+    return extrusion_request(sketch,flat_thickness(feature,defaults),direction);
 }
 
 kernel::ViewerMesh flat_preview(const HistoryContainer& feature,const sketcher::Sketch& sketch,const SheetMetalDefaults& defaults) {
@@ -10984,6 +10992,18 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
                     else group.children.push_back(std::move(prepared));
                 }
             }
+            if(status==ProfileStatus::Closed&&!p.axis_segment_id.empty()&&
+                    std::ranges::none_of(group.children,[](const auto& child) {
+                        return std::holds_alternative<
+                            zima::kernel::RevolutionRequest>(child);
+                    })) {
+                auto axis=prepare(revolution_request(*sketch,
+                    p.axis_segment_id,360.,p.result_type,p.thin_thickness,
+                    p.thin_mode),0);
+                zima::kernel::profile_centerlines::endpoints(
+                    group.reference_points,container.id,"axis:primary",
+                    axis.axis_point,axis.axis_point);
+            }
             primitive=std::move(group);
         } else if (container.feature_kind == FeatureKind::Extrusion) {
             const auto sketch = std::find_if(sketches.begin(), sketches.end(),
@@ -11392,6 +11412,41 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
                         material.parent_owner_id=previous.owner_id;break;
                     }
                     if(!material.parent_owner_id.empty())break;
+                }
+            }
+            if(material.parent_owner_id.empty()&&
+                    !container.sheet_profile_binding.parent_id.empty()) {
+                const auto* profile=find_container(
+                    container.sheet_profile_binding.parent_id);
+                const auto driver=profile?std::ranges::find(sketches,
+                    profile->sheet_profile.sketch_id,&sketcher::Sketch::id):
+                    sketches.end();
+                if(profile&&driver!=sketches.end()) {
+                    const auto route=sheet_profile_route(*driver,
+                        profile->sheet_profile.start_point_id);
+                    const auto current=std::ranges::find(route.spans,
+                        container.sheet_profile_binding.curve_id,
+                        &SheetProfileSpan::curve_id);
+                    const auto* master=find_container(
+                        profile->sheet_profile.master_feature_id);
+                    const auto master_span=master?std::ranges::find(
+                        route.spans,master->sheet_profile_binding.curve_id,
+                        &SheetProfileSpan::curve_id):route.spans.end();
+                    if(current!=route.spans.end()&&
+                            master_span!=route.spans.end()&&
+                            current!=master_span) {
+                        const auto adjacent=current<master_span?
+                            std::next(current):std::prev(current);
+                        const auto sibling=std::ranges::find_if(history,
+                            [&](const auto& candidate) {
+                                return candidate.sheet_profile_binding.parent_id==
+                                        profile->id&&
+                                    candidate.sheet_profile_binding.curve_id==
+                                        adjacent->curve_id;
+                            });
+                        if(sibling!=history.end())
+                            material.parent_owner_id=sibling->id;
+                    }
                 }
             }
             operations.back().sheet_material=std::move(material);
@@ -12224,32 +12279,20 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
                 definition.at("start_point_id").get<std::string>();
             profile.master_feature_id =
                 definition.at("master_feature_id").get<std::string>();
-            profile.initial_width = definition.at("initial_width").get<double>();
+            profile.width = load_feature_parameters(definition.at("width"));
             profile.thickness = definition.at("thickness").get<double>();
             profile.thickness_override =
                 definition.at("thickness_override").get<bool>();
             profile.material_side = definition.at("material_side").get<int>();
             profile.sheet_attachment =
                 definition.at("sheet_attachment").get<bool>();
-            const auto direction =
-                definition.at("width_direction").get<std::string>();
-            if (direction != "forward" && direction != "reverse" &&
-                direction != "symmetric") {
-                throw std::runtime_error(
-                    "Invalid Sheet Profile width direction");
-            }
-            profile.width_direction = direction == "forward"
-                ? ExtrusionDirection::Forward
-                : direction == "reverse" ? ExtrusionDirection::Reverse
-                : ExtrusionDirection::Symmetric;
             if (profile.sketch_id.empty() || profile.start_point_id.empty() ||
-                !std::isfinite(profile.initial_width) ||
-                profile.initial_width < .001 ||
                 !std::isfinite(profile.thickness) ||
                 profile.thickness < .001 || profile.thickness > 1000000 ||
                 (profile.material_side != 1 && profile.material_side != -1)) {
                 throw std::runtime_error("Invalid Sheet Profile definition");
             }
+            validate_sheet_profile_width(profile);
         } else if (container.feature_kind == FeatureKind::Flat) {
             const auto& f=source.at("flat");auto& p=container.flat;
             p.sheet_attachment=f.at("sheet_attachment");
@@ -13512,14 +13555,13 @@ nlohmann::json PartDocument::serialized(
             if (profile.sketch_id.empty() ||
                 profile.start_point_id.empty() ||
                 profile.master_feature_id.empty() ||
-                !std::isfinite(profile.initial_width) ||
-                profile.initial_width < .001 ||
                 !std::isfinite(profile.thickness) ||
                 profile.thickness < .001 || profile.thickness > 1000000 ||
                 (profile.material_side != 1 && profile.material_side != -1) ||
                 container.combine_mode != CombineMode::Add) {
                 throw std::runtime_error("Invalid Sheet Profile parameters");
             }
+            validate_sheet_profile_width(profile);
         } else if (container.edge_treatment.routes.empty() ||
                    std::any_of(container.edge_treatment.routes.begin(),
                        container.edge_treatment.routes.end(),
@@ -13683,26 +13725,21 @@ nlohmann::json PartDocument::serialized(
         } else if (container.feature_kind == FeatureKind::SheetProfile) {
             const auto& profile = container.sheet_profile;
             if (profile.sketch_id.empty() || profile.start_point_id.empty() ||
-                !std::isfinite(profile.initial_width) ||
-                profile.initial_width < .001 ||
                 !std::isfinite(profile.thickness) ||
                 profile.thickness < .001 || profile.thickness > 1000000 ||
                 (profile.material_side != 1 && profile.material_side != -1)) {
                 throw std::runtime_error("Invalid Sheet Profile definition");
             }
+            validate_sheet_profile_width(profile);
             serialized["sheet_profile"] = {
                 {"sketch_id",profile.sketch_id},
                 {"start_point_id",profile.start_point_id},
                 {"master_feature_id",profile.master_feature_id},
-                {"initial_width",profile.initial_width},
+                {"width",serialize_feature_parameters(profile.width)},
                 {"thickness",profile.thickness},
                 {"thickness_override",profile.thickness_override},
                 {"material_side",profile.material_side},
-                {"sheet_attachment",profile.sheet_attachment},
-                {"width_direction",profile.width_direction ==
-                        ExtrusionDirection::Forward ? "forward"
-                    : profile.width_direction == ExtrusionDirection::Reverse
-                        ? "reverse" : "symmetric"}};
+                {"sheet_attachment",profile.sheet_attachment}};
         } else if (container.feature_kind == FeatureKind::Flat) {
             const auto& p=container.flat;
             serialized["flat"]={{"sketch_id",p.sketch_id},{"sheet_attachment",p.sheet_attachment},{"thickness",p.thickness},{"thickness_override",p.thickness_override},
@@ -14228,7 +14265,7 @@ nlohmann::json PartDocument::serialized(
     static_cast<void>(zima::document::parse_named_views(named_views));
     nlohmann::json root = {
         {"format", "zima-cad-cpp"},
-        {"format_version", 73},
+        {"format_version", 74},
         {"reference_errors", reference_errors},
         {"removed_reference_states",removed_reference_states},
         {"document_id", document_id},

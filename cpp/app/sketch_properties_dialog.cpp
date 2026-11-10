@@ -6,6 +6,7 @@
 #include <zima/ui/numeric_value_lock.hpp>
 #include <zima/ui/unit_spin_box.hpp>
 #include "sketch_button_style.hpp"
+#include "feature_parameter_panel.hpp"
 #include "sketch_properties_dialog.hpp"
 
 #include <QComboBox>
@@ -18,6 +19,8 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QPushButton>
+#include <QAction>
+#include <QMouseEvent>
 #include <QTableWidget>
 #include <QVBoxLayout>
 
@@ -173,14 +176,18 @@ void SketchPropertiesDialog::set_flat_mode(zima::document::FlatParameters initia
     offset_->setValue(0);
     findChild<QFormLayout*>("sketchPlaneForm")->setRowVisible(offset_,false);
     auto pending=std::make_shared<zima::document::FlatParameters>(initial);
+    if(pending->sheet_attachment)
+        pending->direction=zima::document::ExtrusionDirection::Reverse;
     flat_pending_=pending;flat_changed_=changed;
     auto* form=new QFormLayout;
+    form->setObjectName("flatForm");
     auto* direction=new QComboBox(this);direction->setObjectName("flatDirection");
     direction->addItem(tr("První strana"),static_cast<int>(zima::document::ExtrusionDirection::Forward));
     direction->addItem(tr("Druhá strana"),static_cast<int>(zima::document::ExtrusionDirection::Reverse));
     direction->addItem(tr("Symetricky"),static_cast<int>(zima::document::ExtrusionDirection::Symmetric));
     direction->setCurrentIndex(direction->findData(static_cast<int>(initial.direction)));
     auto* direction_row=new QWidget(this);
+    direction_row->setObjectName("flatDirectionRow");
     auto* direction_layout=new QHBoxLayout(direction_row);
     direction_layout->setContentsMargins(0,0,0,0);
     auto* direction_switch=new QPushButton(tr("Přepnout"),direction_row);
@@ -247,6 +254,44 @@ void SketchPropertiesDialog::set_sheet_profile_mode(
     sheet_profile_pending_=pending;
     sheet_profile_changed_=changed;
     auto* form=new QFormLayout;
+    form->setObjectName("sheetProfileForm");
+    sheet_profile_width_panel_=new FeatureParameterPanel(this,initial.width);
+    sheet_profile_width_panel_->setObjectName("sheetProfileWidthPanel");
+    sheet_profile_width_panel_->set_linear_extent_only();
+    sheet_profile_width_panel_->bind_side_locks(locks,[this]{notify_preview();});
+    form->addRow(sheet_profile_width_panel_);
+    for(std::size_t side=0;side<2;++side) {
+        auto* target=sheet_profile_width_panel_->target_control(side);
+        target->setObjectName(QString("sheetProfileSideTarget%1").arg(side));
+        target->setPlaceholderText(tr("Vyberte bod, rovinu nebo rovinnou plochu."));
+        target->installEventFilter(this);
+        auto* clear=new QAction(tr("Vymazat referenci"),target);
+        target->addAction(clear);
+        sheet_profile_target_fields_[side]=target;
+        sheet_profile_target_clear_[side]=clear;
+        connect(clear,&QAction::triggered,this,[this,side] {
+            if(!sheet_profile_width_panel_)return;
+            sheet_profile_width_panel_->set_single_target(side,std::nullopt);
+            sheet_profile_pending_->width=sheet_profile_width_panel_->parameters();
+            if(sheet_profile_target_active_&&sheet_profile_target_side_==side) {
+                finish_sheet_profile_target_entry();
+                if(sheet_profile_target_cancel_)sheet_profile_target_cancel_();
+            }
+            refresh_sheet_profile_targets();
+            sheet_profile_changed_(*sheet_profile_pending_);notify_preview();
+        });
+        auto* end=sheet_profile_width_panel_->findChild<QComboBox*>(
+            QString("featureSideEnd%1").arg(side));
+        connect(end,&QComboBox::currentIndexChanged,this,[this,side](int index) {
+            if(index==1&&sheet_profile_width_panel_->targets(side).empty())
+                request_sheet_profile_target(side);
+            else if(index!=1&&sheet_profile_target_active_&&
+                    sheet_profile_target_side_==side) {
+                finish_sheet_profile_target_entry();
+                if(sheet_profile_target_cancel_)sheet_profile_target_cancel_();
+            }
+        });
+    }
     auto* custom=new QCheckBox(tr("Nedržet se tloušťky plechu"),this);
     custom->setObjectName("sheetProfileThicknessOverride");
     custom->setChecked(initial.thickness_override);
@@ -269,6 +314,14 @@ void SketchPropertiesDialog::set_sheet_profile_mode(
     const auto publish=[this,pending,changed,refresh] {
         refresh();changed(*pending);notify_preview();
     };
+    sheet_profile_width_panel_->on_swap([this,pending,publish] {
+        sheet_profile_width_panel_->swap_sides();
+        pending->width=sheet_profile_width_panel_->parameters();publish();
+    });
+    sheet_profile_width_panel_->on_change([this,pending,publish] {
+        pending->width=sheet_profile_width_panel_->parameters();
+        refresh_sheet_profile_targets();publish();
+    });
     connect(custom,&QCheckBox::toggled,this,[=](bool enabled) {
         if(enabled)pending->thickness=thickness->value();
         pending->thickness_override=enabled;publish();
@@ -284,7 +337,93 @@ void SketchPropertiesDialog::set_sheet_profile_mode(
     form->addRow(note);
     content_layout()->insertLayout(content_layout()->indexOf(sketch_button_),form);
     edit_pending_sketch_=std::move(edit_sketch);
+    refresh_sheet_profile_targets();
     lock_sheet_profile_attachment_fields();
+}
+
+void SketchPropertiesDialog::refresh_sheet_profile_targets() {
+    if(!sheet_profile_width_panel_)return;
+    for(std::size_t side=0;side<2;++side) {
+        const auto& targets=sheet_profile_width_panel_->targets(side);
+        auto* field=sheet_profile_target_fields_[side];
+        if(!field)continue;
+        field->setText(targets.empty()?QString{}:QString::fromStdString(
+            targets.front().label.empty()
+                ?targets.front().reference.owner_id+" / "+
+                    targets.front().reference.semantic_key
+                :targets.front().label));
+        if(sheet_profile_target_clear_[side])
+            sheet_profile_target_clear_[side]->setEnabled(!targets.empty());
+        field->setStyleSheet(sheet_profile_target_active_&&
+                sheet_profile_target_side_==side
+            ?QStringLiteral("QLineEdit { border: 2px solid #18a84a; }")
+            :QString{});
+    }
+}
+
+void SketchPropertiesDialog::request_sheet_profile_target(std::size_t side) {
+    if(!sheet_profile_width_panel_||side>=2||
+       sheet_profile_pending_->sheet_attachment)return;
+    sheet_profile_target_side_=side;sheet_profile_target_active_=true;
+    refresh_sheet_profile_targets();
+    if(sheet_profile_target_request_)sheet_profile_target_request_();
+}
+
+void SketchPropertiesDialog::finish_sheet_profile_target_entry() {
+    sheet_profile_target_active_=false;refresh_sheet_profile_targets();
+}
+
+void SketchPropertiesDialog::set_sheet_profile_end_target(
+        zima::document::ExtrusionParameters::EndTarget target,
+        std::optional<int> target_half_space) {
+    if(!sheet_profile_width_panel_||!sheet_profile_target_active_)
+        throw std::invalid_argument("Sheet Profile width target entry is not active.");
+    auto width=sheet_profile_width_panel_->parameters();
+    const auto side=sheet_profile_target_side_;
+    if(target_half_space&&*target_half_space!=
+            (width.side_direction_sign(side)>0?1:-1)) {
+        if(side!=0)
+            throw std::invalid_argument(
+                "Sheet Profile Side 2 target must be opposite Side 1.");
+        if(!sheet_profile_width_panel_->set_direction(
+                -zima::document::feature_direction(width)))
+            throw std::invalid_argument(
+                "Sheet Profile width direction cannot face the selected target.");
+        width=sheet_profile_width_panel_->parameters();
+    }
+    sheet_profile_width_panel_->set_single_target(side,std::move(target));
+    sheet_profile_pending_->width=sheet_profile_width_panel_->parameters();
+    sheet_profile_changed_(*sheet_profile_pending_);
+    finish_sheet_profile_target_entry();notify_preview();
+}
+
+zima::document::FeatureParameters
+SketchPropertiesDialog::sheet_profile_width_parameters() const {
+    return sheet_profile_width_panel_
+        ?sheet_profile_width_panel_->parameters()
+        :zima::document::FeatureParameters{};
+}
+
+bool SketchPropertiesDialog::set_sheet_profile_signed_length(
+        std::size_t side,double value,bool baseline_reversed) {
+    if(!sheet_profile_width_panel_||sheet_profile_pending_->sheet_attachment||
+       !sheet_profile_width_panel_->set_signed_length(
+            side,value,baseline_reversed))return false;
+    sheet_profile_pending_->width=sheet_profile_width_panel_->parameters();
+    sheet_profile_changed_(*sheet_profile_pending_);notify_preview();return true;
+}
+
+bool SketchPropertiesDialog::eventFilter(QObject* watched,QEvent* event) {
+    if(event->type()==QEvent::MouseButtonPress) {
+        const auto* mouse=static_cast<QMouseEvent*>(event);
+        if(mouse->button()==Qt::LeftButton)
+            for(std::size_t side=0;side<2;++side)
+                if(watched==sheet_profile_target_fields_[side]) {
+                    request_sheet_profile_target(side);
+                    event->accept();return true;
+                }
+    }
+    return PropertiesSubWindow::eventFilter(watched,event);
 }
 
 void SketchPropertiesDialog::set_bend_mode(zima::document::BendParameters initial,
@@ -591,6 +730,17 @@ void SketchPropertiesDialog::lock_bend_attachment_fields() {
 void SketchPropertiesDialog::lock_flat_attachment_fields() {
     if(!flat_pending_)return;
     const bool automatic=flat_pending_->sheet_attachment;
+    if(automatic)flat_pending_->direction=
+        zima::document::ExtrusionDirection::Reverse;
+    if(auto* form=findChild<QFormLayout*>("flatForm"))
+        if(auto* direction=findChild<QWidget*>("flatDirectionRow"))
+            form->setRowVisible(direction,!automatic);
+    if(auto* direction=findChild<QComboBox*>("flatDirection")) {
+        const QSignalBlocker blocker(direction);
+        direction->setCurrentIndex(direction->findData(static_cast<int>(
+            flat_pending_->direction)));
+        direction->setEnabled(!automatic);
+    }
     plane_->setEnabled(!automatic);
     if(auto* form=findChild<QFormLayout*>("sketchPlaneForm"))form->setRowVisible(plane_selector_,!automatic);
     if(auto* box=findChild<QCheckBox*>("flatThicknessOverride"))box->setEnabled(!automatic);
@@ -619,6 +769,10 @@ void SketchPropertiesDialog::lock_flat_attachment_fields() {
 void SketchPropertiesDialog::lock_sheet_profile_attachment_fields() {
     if(!sheet_profile_pending_)return;
     const bool automatic=sheet_profile_pending_->sheet_attachment;
+    if(sheet_profile_width_panel_)
+        sheet_profile_width_panel_->setVisible(!automatic);
+    if(automatic&&sheet_profile_target_active_)
+        finish_sheet_profile_target_entry();
     plane_->setEnabled(!automatic);
     if(auto* form=findChild<QFormLayout*>("sketchPlaneForm"))
         form->setRowVisible(plane_selector_,!automatic);
@@ -846,7 +1000,7 @@ bool SketchPropertiesDialog::set_reference(std::size_t index,
         });
         if(edge!=reference_geometry_.edges.end()&&zima::kernel::sheet_edge_role(*edge)==zima::kernel::SheetEdgeRole::Boundary) {
             const auto refs=zima::document::flat_sheet_references(*edge);
-            if(!flat_pending_->sheet_attachment)flat_pending_->direction=zima::document::ExtrusionDirection::Reverse;
+            flat_pending_->direction=zima::document::ExtrusionDirection::Reverse;
             flat_pending_->sheet_attachment=true;flat_pending_->thickness_override=false;
             flat_pending_->thickness=edge->edge_treatment_side_references.front().sheet_thickness;
             if(auto* field=findChild<QComboBox*>("flatDirection")) {
@@ -960,6 +1114,18 @@ bool SketchPropertiesDialog::set_inline_parameter_value(
     if (key == "diameter") return set_field(holes_diameter_);
     if (key == "radius") return set_field(bend_radius_);
     if (key == "angle") return set_field(bend_angle_);
+    if ((key == "sheet_profile_side0_length"||key=="side0_length")&&
+            sheet_profile_width_panel_)
+        return set_field(sheet_profile_width_panel_->side_value(0));
+    if ((key == "sheet_profile_side1_length"||key=="side1_length")&&
+            sheet_profile_width_panel_)
+        return set_field(sheet_profile_width_panel_->side_value(1));
+    if(key=="direction"&&sheet_profile_width_panel_)
+        return set_field(sheet_profile_width_panel_->direction_control());
+    if(key=="side0_up_to_length_correction"&&sheet_profile_width_panel_)
+        return set_field(sheet_profile_width_panel_->side_correction(0));
+    if(key=="side1_up_to_length_correction"&&sheet_profile_width_panel_)
+        return set_field(sheet_profile_width_panel_->side_correction(1));
     constexpr std::string_view placement_prefix{"placement:"};
     if (!key.starts_with(placement_prefix)) return false;
     key.remove_prefix(placement_prefix.size());

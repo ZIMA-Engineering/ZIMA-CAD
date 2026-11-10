@@ -2,11 +2,16 @@
 #include <algorithm>
 namespace zima::workspace {
 namespace {
-bool solid_source(const document::HistoryContainer& feature) {
+bool solid_source(const document::HistoryContainer& feature,bool in_body) {
     using Kind=document::FeatureKind;
     switch(feature.feature_kind) {
-    case Kind::Sketch:case Kind::Fillet:case Kind::Chamfer:case Kind::Shell:
+    case Kind::Sketch:case Kind::Shell:
     case Kind::ShaftThread:case Kind::DrillPoint:return false;
+    // Edge treatments are changes to the accumulated Body, not standalone
+    // positive solids. The in-Body copy evaluator can retain and replay their
+    // exact added/removed material phases. A separate Body copy has only one
+    // Boolean role, so do not offer a treatment there as an ambiguous source.
+    case Kind::Fillet:case Kind::Chamfer:return in_body&&!feature.suppressed;
     default:return !feature.suppressed;
     }
 }
@@ -45,7 +50,7 @@ CopySources derived_copy_sources(const Workspace& live,const std::string& id,con
             result.context_bodies=graph.available_before(result.boundary);
             for(std::size_t index=0;index<result.body_cursor;++index) {
                 const auto* feature=document.find_container(feature_owner->entries[index].id);
-                if(feature&&solid_source(*feature))result.items.push_back({feature->id,feature->name,CopySourceKind::Solid,feature_owner->visible});
+                if(feature&&solid_source(*feature,true))result.items.push_back({feature->id,feature->name,CopySourceKind::Solid,feature_owner->visible});
             }
             return result;
         }
@@ -66,7 +71,7 @@ CopySources derived_copy_sources(const Workspace& live,const std::string& id,con
                 const auto count=active.empty()?body->entries.size():body->cursor;
                 for(std::size_t index=0;index<count;++index) {
                     const auto* feature=document.find_container(body->entries[index].id);
-                    if(feature&&solid_source(*feature)) {
+                    if(feature&&solid_source(*feature,!active.empty())) {
                         if(feature->combine_mode==document::CombineMode::Subtract&&
                             std::ranges::find(result.context_bodies,graph.copy_target_before(feature->id,result.boundary))==result.context_bodies.end())continue;
                         result.items.push_back({feature->id,feature->name,CopySourceKind::Solid,body->visible});

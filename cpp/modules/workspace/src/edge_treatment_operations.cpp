@@ -17,13 +17,44 @@ Groups group_edges(const std::vector<kernel::ViewerEdge>& edges) {
     Groups groups;for(const auto& edge:edges)if(edge.reference.valid()&&edge.reference.instance_path.empty())groups[key(edge.reference)].push_back(&edge);
     return groups;
 }
+std::vector<const kernel::ViewerEdge*> resolved_route_edges(const Groups& available,
+        const std::vector<kernel::EdgeReference>& route,
+        const kernel::EdgeReference& reference) {
+    const auto selected=[&](const kernel::EdgeReference& identity) {
+        std::vector<const kernel::ViewerEdge*> result;
+        const auto found=available.find(key(identity));
+        if(found==available.end())return result;
+        for(const auto* edge:found->second)
+            if(std::ranges::find(result,edge)==result.end())
+                result.push_back(edge);
+        return result;
+    };
+    auto result=selected(reference);
+    if(const auto counterpart=kernel::feature_side_rail_counterpart(reference);
+       counterpart&&std::ranges::find(route,*counterpart)==route.end()) {
+        auto opposite=selected(*counterpart);
+        if(result.empty())return opposite;
+        if(!opposite.empty()) {
+            auto combined=result;
+            for(const auto* edge:opposite)
+                if(std::ranges::find(combined,edge)==combined.end())
+                    combined.push_back(edge);
+            // Start/End are two persisted identities of one rail only when
+            // their actual endpoint graph is one open chain.  A same-source
+            // identity elsewhere in the Feature remains an independent edge.
+            if(kernel::edge_treatment_chain(combined))return combined;
+        }
+    }
+    return result;
+}
 std::vector<kernel::VertexReference> endpoints(const Groups& available,const std::vector<kernel::EdgeReference>& route) {
     std::map<Key,std::pair<kernel::VertexReference,std::vector<std::size_t>>> vertices;
     std::vector<std::vector<Key>> connections;std::set<Key> unique;
     for(const auto& ref:route) {
-        const auto found=available.find(key(ref));
-        if(!ref.valid()||!ref.instance_path.empty()||!unique.insert(key(ref)).second||found==available.end())return {};
-        const auto chain=kernel::edge_treatment_chain(found->second);
+        const auto found=resolved_route_edges(available,route,ref);
+        if(!ref.valid()||!ref.instance_path.empty()||
+                !unique.insert(key(ref)).second||found.empty())return {};
+        const auto chain=kernel::edge_treatment_chain(found);
         if(!chain||!chain->endpoints_complete||chain->endpoints.size()!=2)return {};
         connections.emplace_back();
         for(const auto& endpoint:chain->endpoints) {
@@ -123,18 +154,15 @@ bool commit_edge_treatment(Workspace& live,const kernel::OcctKernel& kernel,cons
         Groups route_available;
         std::vector<kernel::ViewerEdge> route_edges;
         for(const auto& ref:route) {
-            const auto current=available.find(key(ref));
-            const auto original=original_available.find(key(ref));
-            const auto* found=current!=available.end()?&current->second:
-                original_source_allowed&&
-                    !kernel::is_boolean_intersection_interval(ref)&&
-                    original!=original_available.end()
-                    ?&original->second:nullptr;
-            if(!ref.valid()||!ref.instance_path.empty()||found==nullptr||
-                (found->size()!=1&&!kernel::edge_treatment_chain(*found)))
+            auto found=resolved_route_edges(available,route,ref);
+            if(found.empty()&&original_source_allowed&&
+                    !kernel::is_boolean_intersection_interval(ref))
+                found=resolved_route_edges(original_available,route,ref);
+            if(!ref.valid()||!ref.instance_path.empty()||found.empty()||
+                (found.size()!=1&&!kernel::edge_treatment_chain(found)))
                 throw Error("invalid_reference","Select an unambiguous edge of the calculated input body.");
-            route_available.emplace(key(ref),*found);
-            for(const auto* edge:*found)route_edges.push_back(*edge);
+            route_available.emplace(key(ref),found);
+            for(const auto* edge:found)route_edges.push_back(*edge);
             if(!unique.insert(key(ref)).second)throw Error("invalid_reference","An input edge may belong to only one selected route.");
         }
         const auto start=i<parameters.route_start_vertices.size()?parameters.route_start_vertices[i]:kernel::VertexReference{};

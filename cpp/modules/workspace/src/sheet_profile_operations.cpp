@@ -5,12 +5,15 @@
 #include <zima/document/metadata.hpp>
 #include <zima/document/sheet_profile.hpp>
 #include <zima/document/sketch_placement.hpp>
+#include <zima/document/profile_targets.hpp>
 #include <zima/workspace/part_transactions.hpp>
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <map>
 #include <numbers>
+#include <ranges>
 #include <set>
 
 namespace zima::workspace {
@@ -52,17 +55,139 @@ void numeric_frame(document::HistoryContainer& feature,sketcher::Sketch& sketch,
     sketch.resolved_y_axis=y;sketch.resolved_normal=z;
 }
 
-std::pair<double,double> width_interval(double width,
-        document::ExtrusionDirection direction) {
-    if(!std::isfinite(width)||width<.001||width>1000000)
+double profile_width_side(document::FeatureParameters& width,
+        std::size_t index,V origin,V axis,
+        const kernel::ViewerReferenceGeometry& geometry) {
+    const auto source=width.symmetric?0:index;
+    auto& stored=width.sides[source];
+    const auto side=width.effective_side(index);
+    if(side.operation==document::FeatureSideOperation::None)return 0;
+    if(side.operation!=document::FeatureSideOperation::Extrusion)
+        throw std::invalid_argument("Sheet Profile width supports only extrusion sides.");
+    if(side.extrusion_extent==document::EndCondition::Length)
+        return side.length;
+    if(side.extrusion_extent!=document::EndCondition::UpTo||
+       side.targets.size()!=1)
+        throw std::invalid_argument("Select one Sheet Profile width target.");
+    const auto resolved=document::resolve_profile_target(
+        side.targets.front(),geometry);
+    if(!resolved)
         throw std::invalid_argument(
-            "Sheet Profile width must be between 0.001 and 1000000 mm.");
-    switch(direction) {
-    case document::ExtrusionDirection::Forward:return {0,width};
-    case document::ExtrusionDirection::Reverse:return {-width,0};
-    case document::ExtrusionDirection::Symmetric:return {-width/2,width/2};
+            "The original Sheet Profile width target is unavailable.");
+    if(resolved->kind==document::EndTargetKind::Face)
+        throw std::invalid_argument(
+            "Sheet Profile width needs a point, plane or planar face target.");
+    if(resolved->kind==document::EndTargetKind::Plane) {
+        const auto normal=unit(resolved->fallback_normal);
+        if(std::abs(std::abs(dot(normal,axis))-1)>1e-7)
+            throw std::invalid_argument(
+                "Sheet Profile width target plane must be parallel to the route Sketch plane.");
     }
-    throw std::invalid_argument("Invalid Sheet Profile width direction.");
+    stored.targets.front()=*resolved;
+    const auto sign=width.side_direction_sign(index);
+    const auto distance=document::axis_target_distance(origin,mul(axis,sign),
+        *resolved);
+    if(!distance)
+        throw std::invalid_argument(
+            "Sheet Profile width target is not on the selected side.");
+    const double corrected=*distance+side.up_to.length_correction;
+    if(!std::isfinite(corrected)||corrected<.001||corrected>1000000)
+        throw std::invalid_argument(
+            "Sheet Profile width target and correction must define 0.001 to 1000000 mm.");
+    return corrected;
+}
+
+std::pair<double,double> width_interval(document::SheetProfileParameters& profile,
+        const sketcher::Sketch& driver,
+        const kernel::ViewerReferenceGeometry& geometry) {
+    document::validate_sheet_profile_width(profile);
+    auto& width=profile.width;
+    const auto axis=unit(driver.normal());
+    const auto origin=driver.resolved_origin;
+    const double first=profile_width_side(width,0,origin,axis,geometry);
+    const double second=width.symmetric?first:
+        profile_width_side(width,1,origin,axis,geometry);
+    double low=0,high=0;
+    if(width.effective_side(0).operation!=
+            document::FeatureSideOperation::None) {
+        const double end=width.side_direction_sign(0)*first;
+        low=std::min(low,end);high=std::max(high,end);
+    }
+    if(width.effective_side(1).operation!=
+            document::FeatureSideOperation::None) {
+        const double end=width.side_direction_sign(1)*second;
+        low=std::min(low,end);high=std::max(high,end);
+    }
+    if(high-low<.001)
+        throw std::invalid_argument("Sheet Profile width is too small.");
+    return {low,high};
+}
+
+bool width_uses_up_to(const document::FeatureParameters& width) {
+    return std::ranges::any_of(std::views::iota(std::size_t{},std::size_t{2}),
+        [&](std::size_t index) {
+            const auto side=width.effective_side(index);
+            return side.operation==document::FeatureSideOperation::Extrusion&&
+                side.extrusion_extent==document::EndCondition::UpTo;
+        });
+}
+
+void store_length_interval(document::FeatureParameters& width,
+        double first,double last) {
+    if(last-first<.001)
+        throw std::invalid_argument("Sheet Profile width is too small.");
+    const auto magnitude=[&](std::size_t side) {
+        return width.side_direction_sign(side)>0?last:-first;
+    };
+    const double side0=magnitude(0),side1=magnitude(1);
+    const bool two=side0>=.001&&side1>=.001;
+    width.symmetric=two&&std::abs(side0-side1)<=
+        1e-9*std::max({1.,side0,side1});
+    for(std::size_t index=0;index<2;++index) {
+        auto& side=width.sides[index];
+        const double length=index?side1:side0;
+        side.operation=length>=.001?
+            document::FeatureSideOperation::Extrusion:
+            document::FeatureSideOperation::None;
+        if(length>=.001)side.length=length;
+        side.extrusion_extent=document::EndCondition::Length;
+        side.targets.clear();side.up_to={};side.draft_angle_degrees=0;
+    }
+    if(width.symmetric) {
+        width.sides[0].length=side0;
+        width.sides[1].operation=document::FeatureSideOperation::None;
+    }
+}
+
+std::pair<double,double> attached_width_interval(
+        const document::HistoryContainer& profile,
+        const sketcher::Sketch& driver,
+        const kernel::ViewerReferenceGeometry& geometry) {
+    const auto* edge=document::current_sheet_attachment_edge(
+        profile.placement.references,geometry);
+    if(!edge||edge->points.size()<2)
+        throw std::invalid_argument(
+            "Sheet Profile attachment edge has no usable width.");
+    const auto axis=unit(driver.normal());
+    double first=std::numeric_limits<double>::infinity();
+    double last=-std::numeric_limits<double>::infinity();
+    for(const auto point:edge->points) {
+        const double coordinate=dot(sub(point,driver.resolved_origin),axis);
+        first=std::min(first,coordinate);last=std::max(last,coordinate);
+    }
+    if(!std::isfinite(first)||!std::isfinite(last)||last-first<.001)
+        throw std::invalid_argument(
+            "Sheet Profile attachment edge is too short.");
+    const double tolerance=1e-7*std::max(1.,last-first);
+    if(std::abs(first)<=tolerance)first=0;
+    if(std::abs(last)<=tolerance)last=0;
+    // The persisted endpoint reference owns the Profile origin. A nonzero
+    // interval on both sides would mean that the resolved route no longer
+    // starts at that endpoint and must not be accepted as a valid attachment.
+    if(first!=0&&last!=0)
+        throw std::invalid_argument(
+            "Sheet Profile origin is not an attachment-edge endpoint.");
+    return {first,last};
 }
 
 std::optional<std::pair<double,double>> master_width_interval(
@@ -437,7 +562,7 @@ PreparedSheetProfile prepare_sheet_profile(const document::PartDocument& before,
             throw std::invalid_argument(
                 "Sheet Profile attachment orientation is derived from its sheet edge.");
     }
-    carrier.resolve_constructions(std::move(references));
+    carrier.resolve_constructions(references);
     profile=std::move(carrier.history.front());
     driver=std::move(carrier.sketches.front());
     // The attached route is authored as the outer branch. Its positive first
@@ -447,14 +572,34 @@ PreparedSheetProfile prepare_sheet_profile(const document::PartDocument& before,
     auto route=document::sheet_profile_route(driver,
         profile.sheet_profile.start_point_id);
     profile.sheet_profile.start_point_id=route.start_point_id;
+    if(route.spans.empty()||
+       (profile.sheet_profile.sheet_attachment&&
+        route.spans.front().kind!=document::SheetProfileSpanKind::Bend))
+        throw std::invalid_argument(
+            "An attached Sheet Profile must start with its driving Bend.");
     const std::size_t master_index=0;
+    const auto width_axis=unit(driver.normal());
 
-    auto interval=width_interval(profile.sheet_profile.initial_width,
-        profile.sheet_profile.width_direction);
-    if(existing)if(const auto authored=master_width_interval(before,*existing))
-        interval=*authored;
+    profile.sheet_profile.width.sketch_id=driver.id;
+    auto interval=profile.sheet_profile.sheet_attachment
+        ?attached_width_interval(profile,driver,references)
+        :width_interval(profile.sheet_profile,driver,references);
+    const bool width_edited=existing&&
+        profile.sheet_profile.width!=existing->sheet_profile.width;
+    if(!profile.sheet_profile.sheet_attachment&&existing&&!width_edited&&
+       !width_uses_up_to(profile.sheet_profile.width))
+        if(const auto authored=master_width_interval(before,*existing))
+            interval=*authored;
     const auto [width_first,width_last]=interval;
-    profile.sheet_profile.initial_width=width_last-width_first;
+    if(profile.sheet_profile.sheet_attachment) {
+        profile.sheet_profile.width.symmetric=false;
+        profile.sheet_profile.width.reversed_sides=width_last<=0;
+    }
+    if(profile.sheet_profile.sheet_attachment||
+       (existing&&!width_edited&&!width_uses_up_to(
+            profile.sheet_profile.width)))
+        store_length_interval(profile.sheet_profile.width,
+            width_first,width_last);
     const auto defaults=document::sheet_metal_defaults(before);
     if(profile.sheet_profile.sheet_attachment)
         profile.sheet_profile.thickness_override=false;
@@ -479,14 +624,33 @@ PreparedSheetProfile prepare_sheet_profile(const document::PartDocument& before,
             }
     }
     std::vector<Child> logical;logical.reserve(route.spans.size());
-    const auto width_axis=unit(driver.normal());
+    auto route_origin=driver.world_point(
+        route.spans.front().start[0],route.spans.front().start[1]);
+    std::optional<sketcher::Sketch> previous_bend_end;
     for(std::size_t index=0;index<route.spans.size();++index) {
         const auto& span=route.spans[index];
         auto child=child_for(before,profile,span,old_children);
         const auto tangent=direction(driver,span.start_tangent);
         const auto left=unit(cross(width_axis,tangent));
-        const auto start=driver.world_point(span.start[0],span.start[1]);
         if(span.kind==document::SheetProfileSpanKind::Flat) {
+            auto flat_origin=route_origin;
+            auto flat_x=width_axis;
+            auto flat_y=tangent;
+            auto flat_normal=left;
+            if(previous_bend_end) {
+                // A Bend end Sketch is a width/thickness section: X is the
+                // joining edge, Y is the sheet normal and its plane normal is
+                // the outgoing flange direction.  Convert those roles into
+                // the following Flat's width/length/surface-normal frame.
+                flat_origin=previous_bend_end->resolved_origin;
+                flat_x=previous_bend_end->resolved_x_axis;
+                flat_y=previous_bend_end->resolved_normal;
+                flat_normal=mul(previous_bend_end->resolved_y_axis,-1);
+            }
+            std::array local_width{
+                width_first*dot(width_axis,flat_x),
+                width_last*dot(width_axis,flat_x)};
+            std::ranges::sort(local_width);
             child.feature.flat.sketch_id=child.sketch.id;
             child.feature.flat.sheet_attachment=false;
             child.feature.flat.thickness_override=true;
@@ -494,11 +658,16 @@ PreparedSheetProfile prepare_sheet_profile(const document::PartDocument& before,
             child.feature.flat.direction=profile.sheet_profile.material_side>0?
                 document::ExtrusionDirection::Forward:
                 document::ExtrusionDirection::Reverse;
-            numeric_frame(child.feature,child.sketch,start,width_axis,tangent,left);
-            set_flat_profile(child.sketch,width_first,width_last,span.length,
+            numeric_frame(child.feature,child.sketch,flat_origin,
+                flat_x,flat_y,flat_normal);
+            set_flat_profile(child.sketch,local_width[0],local_width[1],span.length,
                 index==master_index);
             static_cast<void>(document::flat_request(child.feature,child.sketch,defaults));
+            route_origin=add(flat_origin,mul(flat_y,span.length));
+            previous_bend_end.reset();
         } else {
+            const bool attached_start=
+                profile.sheet_profile.sheet_attachment&&index==master_index;
             const int turn=span.turn_degrees>0?1:-1;
             const bool material_toward_center=
                 profile.sheet_profile.material_side==turn;
@@ -509,13 +678,13 @@ PreparedSheetProfile prepare_sheet_profile(const document::PartDocument& before,
                     "Sheet Profile thickness exceeds an outer Bend radius.");
             const auto material=mul(left,
                 static_cast<double>(profile.sheet_profile.material_side));
-            const auto outer_start=material_toward_center?start:
-                add(start,mul(material,thickness));
+            const auto outer_start=material_toward_center?route_origin:
+                add(route_origin,mul(material,thickness));
             const auto inward=mul(left,static_cast<double>(turn));
             const auto along=mul(width_axis,static_cast<double>(-turn));
             child.feature.bend.sketch_id=child.sketch.id;
-            child.feature.bend.sheet_attachment=false;
-            child.feature.bend.thickness_override=true;
+            child.feature.bend.sheet_attachment=attached_start;
+            child.feature.bend.thickness_override=!attached_start;
             child.feature.bend.thickness=thickness;
             child.feature.bend.radius_follows_thickness=false;
             child.feature.bend.radius=std::max(0.,inner_radius);
@@ -528,15 +697,42 @@ PreparedSheetProfile prepare_sheet_profile(const document::PartDocument& before,
                 child.feature.value_locks.insert("angle");
             }
             numeric_frame(child.feature,child.sketch,outer_start,along,inward,tangent);
+            if(attached_start) {
+                // The first generated Bend is the real edge-attached feature,
+                // not a detached numeric copy of the parent's preview frame.
+                // Retain the numeric frame for reference-free draft display,
+                // then consume exactly the same persisted references and
+                // native endpoint update path as the ordinary Bend command.
+                child.feature.placement=profile.placement;
+                child.sketch.plane_auto=true;
+                child.sketch.plane=sketcher::SketchPlane::XY;
+                child.sketch.plane_offset=0;
+            }
             std::array local_width{width_first*dot(width_axis,along),
                 width_last*dot(width_axis,along)};
             std::ranges::sort(local_width);
             set_bend_width(child.sketch,local_width[0],local_width[1]);
             document::prepare_bend_sketches(child.feature,child.sketch,defaults);
+            if(attached_start) {
+                // Resolve the real edge-attached Bend before constructing any
+                // downstream span.  The following Flat must consume the
+                // Bend's calculated end frame, not the parent's approximate
+                // route frame.
+                document::PartDocument bend_carrier;
+                bend_carrier.document_id=before.document_id;
+                bend_carrier.history={child.feature};
+                bend_carrier.sketches={child.sketch};
+                bend_carrier.resolve_constructions(references);
+                child.feature=std::move(bend_carrier.history.front());
+                child.sketch=std::move(bend_carrier.sketches.front());
+            }
             hide_generated_bend_dimensions(child.feature,child.sketch,
                 index==master_index);
             static_cast<void>(document::bend_request(child.feature,
                 child.sketch,defaults));
+            previous_bend_end=sketcher::Sketch::from_serialized(
+                child.feature.bend.auxiliary_sketches[1]);
+            route_origin=previous_bend_end->resolved_origin;
         }
         logical.push_back(std::move(child));
     }
@@ -590,7 +786,9 @@ PreparedSheetProfile prepare_sheet_profile(const document::PartDocument& before,
         next.sketches.push_back(logical[index].sketch);
     }
     next.set_body_history(std::move(graph));
-    next.resolve_constructions();
+    // The generated attached Bend must consume the same edge and endpoint
+    // packet as its parent before the first cyan preview is published.
+    next.resolve_constructions(std::move(references));
     next.validate_sheet_profiles();
     PreparedSheetProfile result{std::move(next),{}};
     for(const auto& child:logical)result.logical_children.push_back(child.feature.id);
@@ -678,13 +876,10 @@ bool commit_sheet_profile(Workspace& live,const kernel::OcctKernel& kernel,
         state->session.calculated_boundaries());
     auto prepared=prepare_sheet_profile(before,std::move(profile),
         std::move(driver),std::move(references));
+    if(prepared.document.serialized()==before.serialized())return false;
     PartCalculationPolicy policy;policy.reject_errors=true;
     auto calculated=calculate_part_with_resolved_references(kernel,
         prepared.document,&state->session.calculated_boundaries(),policy);
-    if(prepared.document.serialized()==before.serialized()) {
-        state->session.update_calculated_boundaries(std::move(calculated));
-        return false;
-    }
     commit_part_document(live,id,std::move(prepared.document),
         std::move(calculated));
     return true;
@@ -701,13 +896,10 @@ bool commit_sheet_profile_master_edit(Workspace& live,
         state->session.calculated_boundaries());
     auto prepared=prepare_sheet_profile_master_edit(before,std::move(edited),
         std::move(edited_sketch),std::move(references));
+    if(prepared.document.serialized()==before.serialized())return false;
     PartCalculationPolicy policy;policy.reject_errors=true;
     auto calculated=calculate_part_with_resolved_references(kernel,
         prepared.document,&state->session.calculated_boundaries(),policy);
-    if(prepared.document.serialized()==before.serialized()) {
-        state->session.update_calculated_boundaries(std::move(calculated));
-        return false;
-    }
     commit_part_document(live,id,std::move(prepared.document),
         std::move(calculated));
     return true;

@@ -23,6 +23,23 @@ std::set<std::string> y_copy_faces(const kernel::BodyResult& body) {
     std::set<std::string> result;for(const auto& ref:body.mesh.original_references.triangle_references)
         if(ref.semantic_key.starts_with("pattern:copy-x0-y1-z0:"))result.insert(ref.semantic_key);return result;
 }
+kernel::EdgeReference vertical_edge_at(const kernel::BodyResult& body,
+        double x,double y=0.) {
+    const auto found=std::ranges::find_if(
+        body.mesh.original_references.edges,[&](const auto& edge) {
+            if(edge.points.size()<2)return false;
+            double low=1e100,high=-1e100;
+            for(const auto& point:edge.points) {
+                if(std::abs(point.x-x)>1e-7||
+                        std::abs(point.y-y)>1e-7)return false;
+                low=std::min(low,point.z);high=std::max(high,point.z);
+            }
+            return high-low>9.999;
+        });
+    if(found==body.mesh.original_references.edges.end())
+        throw std::runtime_error("Treatment-copy fixture edge is missing");
+    return found->reference;
+}
 void verify_opening_axis_copy(const kernel::OcctKernel& kernel,fs::path dir,
         bool compare_existing_geometry=false) {
         auto opening_part=document::PartDocument::create_default();
@@ -258,8 +275,87 @@ void verify_in_body_copies(const kernel::OcctKernel& kernel,fs::path dir) {
     }
 }
 
+void verify_edge_treatment_copies(const kernel::OcctKernel& kernel,
+        fs::path dir) {
+    for(const bool fillet:{true,false})for(const bool pattern:{false,true}) {
+        auto doc=document::PartDocument::create_default();
+        document::BodyHistoryGraph graph;
+        const auto body=graph.create_body("Treatment copy body");
+        auto first=zima::test::rectangular_feature(doc,{10,10,10});
+        auto second=zima::test::rectangular_feature(doc,{10,10,10});
+        second.placement.x=20;
+        doc.history={first,second};
+        graph.insert({document::PartHistoryKind::Feature,first.id});
+        graph.insert({document::PartHistoryKind::Feature,second.id});
+        doc.set_body_history(graph);doc.resolve_constructions();
+        const auto stock=kernel.evaluate_history(doc.kernel_operations());
+        auto treatment=fillet?
+            document::PartDocument::create_fillet_container(
+                {vertical_edge_at(stock.back(),-5,-5)}):
+            document::PartDocument::create_chamfer_container(
+                {vertical_edge_at(stock.back(),-5,-5)});
+        treatment.edge_treatment.primary_size=1;
+        doc.insert_history_entry(document::PartHistoryKind::Feature,
+            treatment.id);
+        doc.history.push_back(treatment);doc.resolve_constructions();
+        const auto initial=kernel.evaluate_history(doc.kernel_operations());
+        workspace::Workspace live;const auto id=doc.document_id;
+        live.add_part(doc,initial);live.activate(id);
+        command_host::Host host(live,kernel,dir);
+        auto* part=live.open_part(id);
+        const auto choices=workspace::derived_copy_sources(live,id);
+        const auto source=std::ranges::find(
+            choices.items,treatment.id,&workspace::CopySource::id);
+        require(source!=choices.items.end(),
+            "Active Body did not offer Fillet/Chamfer as a copy source");
+        const auto* packets=part->session.calculated_boundaries().data();
+        require(!workspace::derived_copy_source_mesh(part->session,*source).
+                edges.empty()&&
+                packets==part->session.calculated_boundaries().data(),
+            "Treatment copy preview is missing or recalculated geometry");
+        const auto before=initial.back().body_outputs.at(body)->volume;
+        Json args={{"source",treatment.id}};
+        if(pattern)args["linear"]=Json::array({{{"axis","x"},
+            {"count",2},{"spacing_mm",20}}});
+        else {
+            args["local_plane"]="yz";
+            args["placement"]={{"x",10}};
+        }
+        const auto copy=run(host,pattern?"pattern.create":"mirror.create",
+            args).data.at("object").get<std::string>();
+        const auto volume=[&] {
+            return part->session.calculated_boundaries().back().
+                body_outputs.at(body)->volume;
+        };
+        near(volume(),2000-2*(2000-before));
+        require(part->session.document().find_container(copy)->
+                derived_copy.source_ids==
+                std::vector<std::string>{treatment.id},
+            "Treatment copy stored the wrong source");
+        const auto file=dir/(std::string(fillet?"fillet":"chamfer")+
+            (pattern?"-pattern.prtz":"-mirror.prtz"));
+        part->session.document().save(file,
+            part->session.calculated_boundaries());
+        std::vector<kernel::BodyResult> saved;
+        const auto reopened=document::PartDocument::load(file,&saved);
+        require(reopened.find_container(copy)->derived_copy.source_ids==
+                std::vector<std::string>{treatment.id},
+            "Save/reopen changed the treatment-copy source");
+        near(saved.back().body_outputs.at(body)->volume,volume());
+        run(host,"undo");near(volume(),before);
+        run(host,"redo");near(volume(),2000-2*(2000-before));
+        run(host,"body.activate",{{"body",""}});
+        require(std::ranges::none_of(
+            workspace::derived_copy_sources(live,id).items,
+            [&](const auto& item){return item.id==treatment.id;}),
+            "A treatment was offered as an ambiguous separate-Body source");
+    }
+    std::cout<<"Fillet/Chamfer Pattern/Mirror command, persistence and Undo/Redo passed\n";
+}
+
 void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     verify_in_body_copies(kernel,dir);
+    verify_edge_treatment_copies(kernel,dir);
     verify_solid_sources(kernel,dir);
     workspace::Workspace live;command_host::Options options;command_host::Interaction interaction;
     options.settings=[] {return command_host::Settings{{fs::absolute("config/templates"),"START_PART_mm.prtz","START_ASSEMBLY_mm.asmz","Body"},{}};};

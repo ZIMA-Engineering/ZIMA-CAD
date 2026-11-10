@@ -82,6 +82,25 @@ protected:
     }
 };
 
+std::string sheet_profile_interaction_owner(
+        const zima::document::PartDocument& document,
+        const std::string& owner_id) {
+    const auto* child=document.find_container(owner_id);
+    if(!child||child->sheet_profile_binding.parent_id.empty())return owner_id;
+    const auto* parent=document.find_container(
+        child->sheet_profile_binding.parent_id);
+    if(!parent||parent->feature_kind!=
+            zima::document::FeatureKind::SheetProfile)return owner_id;
+    // An edge-attached Profile deliberately exposes its first real Bend as
+    // the one independently inspectable segment.  Every other calculated
+    // Flat/Bend belongs to the parent Profile interaction as one model item.
+    const bool attached_master=
+        parent->sheet_profile.sheet_attachment&&
+        parent->sheet_profile.master_feature_id==child->id&&
+        child->feature_kind==zima::document::FeatureKind::Bend;
+    return attached_master?owner_id:parent->id;
+}
+
 } // namespace
 
 
@@ -288,6 +307,10 @@ void AssemblyWorkspaceWindow::create_layout() {
         }
         if (extrusion_target_dialog_ != nullptr) {
             accept_extrusion_target(candidate);
+            return;
+        }
+        if(sheet_profile_target_dialog_!=nullptr) {
+            accept_sheet_profile_target(candidate);
             return;
         }
         if (primitive_reference_dialog_ != nullptr &&
@@ -516,6 +539,7 @@ void AssemblyWorkspaceWindow::create_layout() {
                         owner&&(owner->feature_kind==document::FeatureKind::Sketch||
                             (owner->feature_kind==document::FeatureKind::Feature&&owner->feature.uses_sketch())))
                         owner_id=owner->id;
+                    owner_id=sheet_profile_interaction_owner(document,owner_id);
                 } else if(const auto* assembly=workspace_.open_assembly(workspace_.active_document_id())) {
                     const auto& document=assembly->session.document();
                     const auto sketch=std::ranges::find(document.sketches,owner_id,&sketcher::Sketch::id);
@@ -1618,17 +1642,19 @@ void AssemblyWorkspaceWindow::create_layout() {
             }
         } else if (candidate.kind == zima::viewer::CandidateKind::Container) {
             const auto* part=workspace_.open_part(workspace_.active_document_id());
-            const auto* body=part?part->session.document().body_history.find(candidate.owner_id):nullptr;
-            const auto* copy_feature=part?part->session.document().find_container(candidate.owner_id):nullptr;
+            const auto owner_id=part?sheet_profile_interaction_owner(
+                part->session.document(),candidate.owner_id):candidate.owner_id;
+            const auto* body=part?part->session.document().body_history.find(owner_id):nullptr;
+            const auto* copy_feature=part?part->session.document().find_container(owner_id):nullptr;
             if((body&&body->derived_copy&&body->derived_copy->pattern)||
                (copy_feature&&copy_feature->feature_kind==zima::document::FeatureKind::DerivedCopy&&copy_feature->derived_copy.pattern))
-                show_parameter_dimensions(candidate.owner_id);
+                show_parameter_dimensions(owner_id);
             else if((body&&body->derived_copy)||(copy_feature&&copy_feature->feature_kind==zima::document::FeatureKind::DerivedCopy))
-                show_derived_source(candidate.owner_id,false);
+                show_derived_source(owner_id,false);
             else {
                 // Dimensions and the blue inspection wire both belong to
                 // the authored definition, including in an unfolded state.
-                show_parameter_dimensions(candidate.owner_id);
+                show_parameter_dimensions(owner_id);
             }
         } else if (candidate.kind == zima::viewer::CandidateKind::Vertex) {
             const auto show_point_dimensions = [&](const auto& document) {
@@ -2365,6 +2391,15 @@ void AssemblyWorkspaceWindow::create_layout() {
             if(role=="model-symbol"){show_model_symbol_properties(owner);return;}
             const auto component=role=="part-opening-component"?item->data(0,Qt::UserRole+5).toString().toStdString():std::string{};
             if(role=="part-container-entity")owner=item->data(0,Qt::UserRole+6).toString().toStdString();
+            if(const auto* part=workspace_.open_part(
+                    workspace_.active_document_id())) {
+                const auto interaction_owner=sheet_profile_interaction_owner(
+                    part->session.document(),owner);
+                if(interaction_owner!=owner) {
+                    owner=interaction_owner;
+                    select_container(owner);
+                }
+            }
             synchronize_tree_selection();
             if(role.endsWith("-occurrence")&&!path.empty()) {
                 if(show_pattern_occurrence_dimensions(path))return;

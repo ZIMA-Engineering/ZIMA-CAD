@@ -575,12 +575,338 @@ static void multiple_copy_sources() {
     });
     std::cout<<"Multi-source Pattern/Mirror contracts passed\n";
 }
+static std::set<kernel::HistoryReferenceIdentity> unique_face_identities(
+    const kernel::BodyResult& body);
+static void edge_treatment_copies() {
+    const kernel::HistoryOperation first_stock{"treatment-stock-a",
+        zima::test::ProfilePrism{10,10,10}};
+    zima::test::ProfilePrism second_box{10,10,10};
+    second_box.translation.x=20;
+    const kernel::HistoryOperation second_stock{"treatment-stock-b",
+        second_box};
+    kernel::OcctKernel engine;
+    const auto untreated=engine.evaluate_history(
+        {first_stock,second_stock}).back();
+    const auto edge_at=[&](double x) {
+        const auto found=std::ranges::find_if(
+            untreated.mesh.original_references.edges,
+            [&](const auto& edge) {
+                if(edge.points.size()<2)return false;
+                double low=1e100,high=-1e100;
+                for(const auto& point:edge.points) {
+                    if(std::abs(point.x-x)>1e-7||
+                            std::abs(point.y)>1e-7)return false;
+                    low=std::min(low,point.z);high=std::max(high,point.z);
+                }
+                return low<1e-7&&high>10-1e-7;
+            });
+        require(found!=untreated.mesh.original_references.edges.end(),
+            "Treatment-copy fixture edge is missing");
+        return found->reference;
+    };
+    const auto source_edge=edge_at(0);
+    for(const bool fillet:{true,false}) {
+        const std::string source_id=fillet?"copy-fillet":"copy-chamfer";
+        const auto treatment=[&](std::string id,
+                std::vector<kernel::EdgeReference> edges) {
+            kernel::HistoryOperation result;result.owner_id=std::move(id);
+            if(fillet)result.primitive=kernel::FilletRequest{
+                std::move(edges),1.};
+            else result.primitive=kernel::ChamferRequest{
+                std::move(edges),1.};
+            return result;
+        };
+        const auto source=treatment(source_id,{source_edge});
+        for(const bool pattern:{false,true}) {
+            const auto target_edge=edge_at(pattern?20:30);
+            const auto direct=treatment("direct-treatment",
+                {source_edge,target_edge});
+            const auto expected=engine.evaluate_history(
+                {first_stock,second_stock,direct}).back();
+            kernel::HistoryOperation copy;copy.owner_id=pattern?
+                "treatment-pattern":"treatment-mirror";
+            kernel::BodyHistoryScope scope;scope.source_feature_id=source_id;
+            scope.combination=pattern?kernel::BodyCombination::Pattern:
+                kernel::BodyCombination::Mirror;
+            if(pattern) {
+                scope.pattern.count=2;
+                scope.pattern.linear[0].count=2;
+                scope.pattern.linear[0].spacing=20;
+            } else scope.mirror_plane={{15,0,0},{1,0,0}};
+            copy.feature_copy=scope;
+            const std::vector<kernel::HistoryOperation> history{
+                first_stock,second_stock,source,copy};
+            const auto calculated=engine.evaluate_history(history);
+            close(calculated.back().volume,expected.volume);
+            require(std::ranges::any_of(
+                calculated.back().mesh.original_references.
+                    triangle_references,
+                [&](const auto& reference) {
+                    return reference.owner_id==copy.owner_id&&
+                        (pattern?reference.semantic_key.starts_with(
+                            "pattern:copy-"):
+                            kernel::mirror_parent_reference(
+                                reference.semantic_key).has_value());
+                }),"Copied edge treatment lost its topology ancestry");
+            const auto restored=document::load_body_result(
+                document::serialize_body_result(calculated.back()));
+            require(unique_face_identities(restored)==
+                    unique_face_identities(calculated.back()),
+                "Copied edge-treatment identities changed after native readback");
+            auto changed=history;
+            if(fillet)
+                std::get<kernel::FilletRequest>(
+                    changed[2].primitive).radius_start=0.75;
+            else
+                std::get<kernel::ChamferRequest>(
+                    changed[2].primitive).distance_a=0.75;
+            const auto incremental=engine.evaluate_history_incremental(
+                changed,calculated);
+            kernel::OcctKernel cold;
+            const auto rebuilt=cold.evaluate_history(changed).back();
+            close(incremental.back().volume,rebuilt.volume);
+            close(incremental.back().surface_area,rebuilt.surface_area);
+            require(unique_face_identities(incremental.back())==
+                    unique_face_identities(rebuilt),
+                "Incremental treatment copy changed copied identities");
+        }
+    }
+    std::cout<<"Fillet/Chamfer Pattern/Mirror material and identity contracts passed\n";
+}
+static std::set<kernel::HistoryReferenceIdentity> unique_face_identities(
+        const kernel::BodyResult& body) {
+    std::set<kernel::HistoryReferenceIdentity> result;
+    for(const auto& face:body.mesh.original_references.triangle_references)
+        if(face.valid())result.emplace(face.owner_id,face.semantic_key,
+            face.instance_path);
+    return result;
+}
+static void parallel_copy_identity_matrix() {
+    document::BodyHistoryGraph graph;
+    const auto source_body=graph.create_body("Parallel copy source");
+    const std::string source_feature="parallel-copy-source-feature";
+    graph.insert({document::PartHistoryKind::Feature,source_feature});
+    const auto add_copy=[&](std::string id,bool pattern,double station) {
+        document::BodyHistory copy;copy.scope.id=std::move(id);
+        copy.name=pattern?"Parallel Pattern":"Parallel Mirror";
+        copy.derived_copy=document::DerivedCopyParameters{};
+        copy.derived_copy->source_ids={source_body};
+        copy.derived_copy->resolved_plane={{station,0,0},{1,0,0}};
+        if(pattern) {
+            kernel::PatternRequest request;
+            request.count=3;request.linear[0].count=3;
+            request.linear[0].spacing=std::abs(station);
+            request.linear[0].direction={station>0?1.:-1.,0,0};
+            copy.derived_copy->pattern=request;
+        }
+        return graph.create_derived_copy(std::move(copy));
+    };
+    const auto mirror_a=add_copy("parallel-mirror-a",false,20);
+    const auto mirror_b=add_copy("parallel-mirror-b",false,40);
+    const auto pattern_a=add_copy("parallel-pattern-a",true,25);
+    const auto pattern_b=add_copy("parallel-pattern-b",true,-35);
+    const std::array copy_ids{mirror_a,mirror_b,pattern_a,pattern_b};
+    require(document::BodyHistoryGraph::from_serialized(graph.serialized())==
+            graph,"Parallel copy Body identities did not round-trip");
+
+    kernel::OcctKernel engine;
+    const auto calculate=[&](double length) {
+        return engine.evaluate_history(graph.compile(
+            [&](const document::PartHistoryEntry& entry)
+                    ->std::optional<kernel::HistoryOperation> {
+                if(entry.id!=source_feature)return std::nullopt;
+                return kernel::HistoryOperation{entry.id,box(length)};
+            })).back();
+    };
+    const auto calculated=calculate(6);
+    require(calculated.body_outputs.size()==5&&
+            calculated.body_outputs.contains(source_body)&&
+            std::ranges::all_of(copy_ids,[&](const auto& id) {
+                return calculated.body_outputs.contains(id);
+            }),"Parallel Mirror/Pattern bodies do not have independent output identities");
+    const auto& source=calculated.body_outputs.at(source_body).get();
+    const auto source_faces=unique_face_identities(source).size();
+    require(source_faces>0,"Parallel copy source has no selectable faces");
+
+    std::set<kernel::HistoryReferenceIdentity> all_copy_faces;
+    std::map<std::string,std::set<std::string>> semantic_keys;
+    kernel::ViewerReferenceGeometry combined;
+    const auto append=[&](const kernel::ViewerReferenceGeometry& geometry) {
+        combined.triangle_references.insert(
+            combined.triangle_references.end(),
+            geometry.triangle_references.begin(),
+            geometry.triangle_references.end());
+        combined.edges.insert(combined.edges.end(),geometry.edges.begin(),
+            geometry.edges.end());
+        combined.points.insert(combined.points.end(),geometry.points.begin(),
+            geometry.points.end());
+        combined.axes.insert(combined.axes.end(),geometry.axes.begin(),
+            geometry.axes.end());
+    };
+    for(const auto& id:copy_ids) {
+        const auto& output=calculated.body_outputs.at(id).get();
+        append(output.mesh.original_references);
+        const auto faces=unique_face_identities(output);
+        require(faces.size()==(id==mirror_a||id==mirror_b?
+                    source_faces:2*source_faces),
+            "Parallel Mirror/Pattern lost or merged a copied face identity");
+        for(const auto& identity:faces) {
+            require(std::get<0>(identity)==id,
+                "Parallel copy face is owned by another copy command");
+            require(all_copy_faces.insert(identity).second,
+                "Parallel copy commands share one complete face identity");
+            semantic_keys[id].insert(std::get<1>(identity));
+        }
+        if(id==pattern_a||id==pattern_b) {
+            const auto& request=*graph.find(id)->derived_copy->pattern;
+            for(unsigned index=1;index<3;++index) {
+                const auto prefix="pattern:"+
+                    kernel::pattern_copy_id(request,index)+":";
+                require(std::ranges::count_if(faces,[&](const auto& identity) {
+                    return std::get<1>(identity).starts_with(prefix);
+                })==source_faces,
+                    "One Pattern occurrence lost its independent face identities");
+            }
+        }
+    }
+    require(semantic_keys.at(mirror_a)==semantic_keys.at(mirror_b),
+        "Equivalent Mirrors changed source topology ancestry instead of only ownership");
+    require(semantic_keys.at(pattern_a)==semantic_keys.at(pattern_b),
+        "Equivalent Pattern layouts changed source topology ancestry instead of only ownership");
+
+    for(const auto& id:copy_ids) {
+        const auto& faces=calculated.body_outputs.at(id)->mesh.
+            original_references.triangle_references;
+        const auto face=std::ranges::find_if(faces,[](const auto& value) {
+            return value.valid()&&value.surface&&
+                value.surface->kind==kernel::SurfaceGeometry::Kind::Plane;
+        });
+        require(face!=faces.end(),
+            "Parallel copy has no planar face for downstream binding");
+        require(std::ranges::count_if(combined.triangle_references,
+                [&](const auto& candidate) {
+                    return candidate.owner_id==face->owner_id&&
+                        candidate.semantic_key==face->semantic_key&&
+                        candidate.instance_path==face->instance_path;
+                })>0,"Downstream face identity is absent from its copy object");
+        document::ConstructionReference reference{{},face->owner_id,
+            face->semantic_key};reference.supports_offset=true;
+        document::Placement placement;placement.references={reference};
+        require(document::resolve_placement(placement,combined),
+            "A face of one parallel copy cannot be used as a downstream reference");
+        const auto projected=document::project_placement_surface(*face->surface,
+            {placement.x,placement.y,placement.z});
+        require(projected.has_value(),
+            "A downstream copy reference lost its exact surface support");
+        close(placement.x,projected->point.x);
+        close(placement.y,projected->point.y);
+        close(placement.z,projected->point.z);
+    }
+
+    const auto restored=document::load_body_result(
+        document::serialize_body_result(calculated));
+    for(const auto& id:copy_ids)
+        require(unique_face_identities(restored.body_outputs.at(id).get())==
+                unique_face_identities(calculated.body_outputs.at(id).get()),
+            "Parallel copy face identities changed after native result readback");
+    const auto regenerated=calculate(9);
+    for(const auto& id:copy_ids)
+        require(unique_face_identities(regenerated.body_outputs.at(id).get())==
+                unique_face_identities(calculated.body_outputs.at(id).get()),
+            "Changing source geometry renumbered a parallel copy face identity");
+    std::cout<<"Parallel Mirror/Pattern body, occurrence and face identities passed\n";
+}
+static void parallel_feature_copy_identity_matrix() {
+    const auto operations=[&](double length) {
+        kernel::HistoryOperation source{"parallel-feature-source",box(length)};
+        const auto mirror=[&](std::string id,kernel::MirrorPlane plane) {
+            kernel::HistoryOperation copy;copy.owner_id=std::move(id);
+            copy.operation=kernel::BooleanOperation::Add;
+            kernel::BodyHistoryScope scope;
+            scope.source_feature_id=source.owner_id;
+            scope.combination=kernel::BodyCombination::Mirror;
+            scope.mirror_plane=plane;copy.feature_copy=scope;return copy;
+        };
+        const auto pattern=[&](std::string id,kernel::Vec3 direction,
+                double spacing) {
+            kernel::HistoryOperation copy;copy.owner_id=std::move(id);
+            copy.operation=kernel::BooleanOperation::Add;
+            kernel::BodyHistoryScope scope;
+            scope.source_feature_id=source.owner_id;
+            scope.combination=kernel::BodyCombination::Pattern;
+            scope.pattern.count=3;scope.pattern.linear[0].count=3;
+            scope.pattern.linear[0].direction=direction;
+            scope.pattern.linear[0].spacing=spacing;
+            copy.feature_copy=scope;return copy;
+        };
+        return std::vector<kernel::HistoryOperation>{source,
+            mirror("parallel-feature-mirror-a",{{20,0,0},{1,0,0}}),
+            mirror("parallel-feature-mirror-b",{{0,20,0},{0,1,0}}),
+            pattern("parallel-feature-pattern-a",{1,0,0},50),
+            pattern("parallel-feature-pattern-b",{0,1,0},50)};
+    };
+    const std::array<std::string,4> copy_ids{
+        "parallel-feature-mirror-a","parallel-feature-mirror-b",
+        "parallel-feature-pattern-a","parallel-feature-pattern-b"};
+    kernel::OcctKernel engine;
+    const auto calculated=engine.evaluate_history(operations(6)).back();
+    const auto owner_faces=[&](const kernel::BodyResult& body,
+            const std::string& owner) {
+        auto identities=unique_face_identities(body);
+        std::erase_if(identities,[&](const auto& identity) {
+            return std::get<0>(identity)!=owner;
+        });
+        return identities;
+    };
+    const auto source_faces=owner_faces(calculated,
+        "parallel-feature-source").size();
+    require(source_faces>0,
+        "Parallel in-Body copy source has no selectable faces");
+    std::set<kernel::HistoryReferenceIdentity> all_copy_faces;
+    for(const auto& id:copy_ids) {
+        const auto faces=owner_faces(calculated,id);
+        const bool pattern=id.find("pattern")!=std::string::npos;
+        require(faces.size()==(pattern?2*source_faces:source_faces),
+            "Parallel in-Body copy lost or merged an authored face identity");
+        for(const auto& identity:faces)
+            require(all_copy_faces.insert(identity).second,
+                "Parallel in-Body copies share one complete face identity");
+        const auto face=std::ranges::find_if(
+            calculated.mesh.original_references.triangle_references,
+            [&](const auto& value) {
+                return value.owner_id==id&&value.surface&&
+                    value.surface->kind==kernel::SurfaceGeometry::Kind::Plane;
+            });
+        require(face!=calculated.mesh.original_references.
+                triangle_references.end(),
+            "Parallel in-Body copy has no face for downstream binding");
+        document::ConstructionReference reference{{},face->owner_id,
+            face->semantic_key};reference.supports_offset=true;
+        document::Placement placement;placement.references={reference};
+        require(document::resolve_placement(placement,
+                calculated.mesh.original_references),
+            "A parallel in-Body copy face cannot drive a later feature");
+    }
+    const auto restored=document::load_body_result(
+        document::serialize_body_result(calculated));
+    for(const auto& id:copy_ids)
+        require(owner_faces(restored,id)==owner_faces(calculated,id),
+            "Parallel in-Body copy identities changed after native readback");
+    const auto regenerated=engine.evaluate_history(operations(9)).back();
+    for(const auto& id:copy_ids)
+        require(owner_faces(regenerated,id)==owner_faces(calculated,id),
+            "A source edit renumbered parallel in-Body copy identities");
+    std::cout<<"Parallel in-Body Mirror/Pattern face identities passed\n";
+}
 int main(){try{
     copied_construction_axes();
     incremental_copy_sources();
     mirrored_construction_axes();
     derived_container_origins();
     multiple_copy_sources();
+    edge_treatment_copies();
+    parallel_copy_identity_matrix();
+    parallel_feature_copy_identity_matrix();
     kernel::HistoryOperation zero;zero.owner_id="signed-zero";zero.body.id="body";zero.primitive=zima::test::rectangular_request();
     auto signed_zero=zero;signed_zero.body.translation.y=-0.0;
     // Profile direction carries modeling intent; test only placement zero here.

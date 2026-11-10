@@ -1,6 +1,6 @@
 # Current project status
 
-Reviewed on 2026-11-09 against the current shared C++ implementation, focused
+Reviewed on 2026-11-10 against the current shared C++ implementation, focused
 native/GUI contracts and the live GitHub release list. Dated proposals and
 historical release records remain evidence for their original scope; they are
 not the current feature backlog.
@@ -20,14 +20,17 @@ The release completes the curved Fillet/Chamfer terminal and route-membership
 corrections, analytical treatment previews and safe treatment deletion. Its
 native schema is unchanged.
 
-The unpublished 2026110901 source tag is superseded by Windows candidate
-[2026110902](releases/2026110902.md). It attaches Sheet Profile with the exact
-Bend endpoint and trajectory frame, removes Profile-only manual attachment
-shortcuts, and includes Sweep Properties rollback ordering, Pattern/Mirror copy
-Origins, relation-preserving Trim, direct projected-view placement and faster
-Drawing display with distinct thin strokes. Its focused verification is recorded in
-[the 2026-11-09 matrix](verification/20261109-sheet-profile-and-properties-rollback.md).
-Packaging and public acceptance are not claimed until that record is updated.
+The unpublished 2026110901 and 2026110902 source tags are superseded by Windows
+candidate [2026111001](releases/2026111001.md). It completes shared Feature-like
+Sheet Profile extents, active-Body and manually shown/copy Origin references in
+Sketcher, independent Pattern/Mirror topology and connected logical Fillet rails.
+It advances native Part format to 50 and regenerates all affected repository
+assets. The batch also includes Sweep Properties rollback ordering,
+relation-preserving Trim, direct projected-view placement and faster Drawing
+display with distinct thin strokes. Its final Windows matrix is recorded in
+[the 2026-11-10 verification](verification/20261110-sheet-profile-width-and-part-format-50.md).
+Packaging and public acceptance are not claimed until the release record is
+updated.
 
 Windows and Linux use the same C++ modeling implementation and pin OCCT 8.0.1.
 The protected container-placement, geometry-side, reference-identity and
@@ -111,7 +114,7 @@ evidence. Published 2501 and every older signed release remain immutable.
 
 | Work | Current boundary / next step |
 | --- | --- |
-| Current correction/release batch | Windows 2026110802 is published. The 2026110901 tag was not published; superseding 2026110902 aligns Profile placement with Bend and has passed the linked focused matrix. It awaits clean committed-source packaging and publication acceptance. Native Linux verification remains separate. |
+| Current correction/release batch | Windows 2026110802 is published. The unpublished 2026110901/2026110902 tags are superseded by 2026111001, which completes Profile extents, Origin/reference persistence, copied topology, Fillet logical rails and native Part format 50. Its linked Windows matrix passes; clean committed-source packaging and publication acceptance remain. Native Linux verification is separate. |
 | Skeleton interaction | New Feature opening measures 0.280--0.353 s, Default Origin 0.272--0.280 s and the representative Sketch move about 6 ms. The 32-operation Skeleton opens in about 7.4 s; cold explicit regeneration measures about 68.9 s after physical analysis leaves the critical path, while exact Save adds about 30 s. A late Solid Fillet edit/Undo/Redo succeeds, but its dependent suffix remains about 26 s. Production parallel batching and immediate Escape cancellation remain gated on exact identity and cooperative OCCT cancellation. |
 | Remaining fasteners | Cast wing-nut studies and toothed/fan washers remain unfinished. Preserve source-dimension discrepancies and private user edits. Two-part locking nuts are excluded. See [library queue](FASTENER_REMAINING_WORK.md). |
 | Sketch intersection references | Native source/branch association and editor commands are implemented in the documented finite scope. Arbitrary curved arrangements and the native Linux matrix remain unverified. See [editor verification](verification/20261022-sketch-intersection-editor.md). |

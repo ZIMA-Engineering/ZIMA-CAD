@@ -30,7 +30,9 @@ struct DerivedCopyDefinition {
 // Read persisted data only. body_cursor is inside the active owning Body;
 // boundary limits the surrounding Part context. Editing stops before the copy.
 // Assembly sources are preceding, unsuppressed immediate occurrences.
-// An active Part Body offers only its own solid features before its cursor.
+// An active Part Body offers only its own solid features before its cursor,
+// including Fillet/Chamfer material changes that the in-Body evaluator can
+// replay. Treatments are not offered as separate Body-copy sources.
 // At Part level both available Bodies and their solid features are offered.
 [[nodiscard]] CopySources derived_copy_sources(const Workspace&,const std::string& document,const std::string& object={});
 [[nodiscard]] kernel::ViewerMesh derived_copy_source_mesh(const document::DocumentSession&,const CopySource&);

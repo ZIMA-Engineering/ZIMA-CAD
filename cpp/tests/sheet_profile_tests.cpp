@@ -2,15 +2,21 @@
 #include <zima/workspace/flat_operations.hpp>
 #include <zima/workspace/history_deletion.hpp>
 #include <zima/workspace/history_policy.hpp>
+#include <zima/workspace/operation_input.hpp>
 #include <zima/workspace/part_transactions.hpp>
+#include <zima/workspace/sheet_state_operations.hpp>
 
 #include <zima/document/bend.hpp>
 #include <zima/document/sheet_profile.hpp>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
+#include <filesystem>
 #include <iostream>
+#include <limits>
 #include <stdexcept>
+#include <tuple>
 
 namespace {
 using namespace zima;
@@ -29,8 +35,8 @@ struct Fixture {
         part.set_body_history(std::move(graph));
         profile=document::PartDocument::create_sheet_profile_container(driver.id);
         driver.owner_container_id=profile.id;driver.name=profile.name;
-        profile.sheet_profile.initial_width=20;
-        profile.sheet_profile.width_direction=document::ExtrusionDirection::Symmetric;
+        profile.sheet_profile.width.symmetric=true;
+        profile.sheet_profile.width.sides[0].length=10;
         profile.sheet_profile.thickness=1;
         profile.sheet_profile.thickness_override=true;
     }
@@ -46,6 +52,20 @@ const document::HistoryContainer& child(const workspace::PreparedSheetProfile& v
     const auto* result=value.document.find_container(value.logical_children.at(logical));
     if(!result)throw std::runtime_error("Prepared Sheet Profile child is missing");
     return *result;
+}
+
+std::pair<double,double> flat_width_interval(
+        const document::PartDocument& part,
+        const document::HistoryContainer& flat) {
+    require(flat.feature_kind==document::FeatureKind::Flat,
+        "Sheet Profile width probe is not a Flat");
+    const auto sketch=std::ranges::find(part.sketches,flat.flat.sketch_id,
+        &sketcher::Sketch::id);
+    require(sketch!=part.sketches.end()&&!sketch->points.empty(),
+        "Sheet Profile width probe lost its Flat Sketch");
+    const auto [first,last]=std::ranges::minmax_element(
+        sketch->points,{},&sketcher::SketchPoint::x);
+    return {first->x,last->x};
 }
 
 void calculate(const document::PartDocument& part) {
@@ -164,6 +184,150 @@ void arc_first_and_flat_only() {
             "Straight free Profile did not create one master Flat");
         calculate(prepared.document);
     }
+}
+
+void free_width_directions() {
+    struct WidthCase {bool reversed;bool symmetric;double length;
+        double expected_first;double expected_last;};
+    const std::array cases{
+        WidthCase{false,false,24,0,24},
+        WidthCase{true,false,24,-24,0},
+        WidthCase{false,true,12,-12,12}};
+    for(const auto& value:cases) {
+        Fixture fixture;
+        static_cast<void>(fixture.driver.add_segment(0,0,30,0));
+        auto& width=fixture.profile.sheet_profile.width;
+        width.reversed_sides=value.reversed;
+        width.symmetric=value.symmetric;
+        width.sides[0].operation=
+            document::FeatureSideOperation::Extrusion;
+        width.sides[0].length=value.length;
+        width.sides[1].operation=
+            document::FeatureSideOperation::None;
+        auto prepared=workspace::prepare_sheet_profile(fixture.part,
+            fixture.profile,fixture.driver);
+        const auto interval=flat_width_interval(prepared.document,
+            child(prepared,0));
+        require(std::abs(interval.first-value.expected_first)<1e-9&&
+                std::abs(interval.second-value.expected_last)<1e-9,
+            "Free Sheet Profile width direction produced the wrong interval");
+        const auto reopened=document::PartDocument::from_serialized(
+            prepared.document.serialized());
+        const auto* parent=reopened.find_container(fixture.profile.id);
+        require(parent&&parent->sheet_profile.width==width,
+            "Free Sheet Profile width direction did not survive save/reopen");
+    }
+
+    {
+        Fixture fixture;
+        static_cast<void>(fixture.driver.add_segment(0,0,30,0));
+        auto& width=fixture.profile.sheet_profile.width;
+        width.symmetric=false;width.reversed_sides=false;
+        width.sides[0].operation=document::FeatureSideOperation::Extrusion;
+        width.sides[0].length=24;
+        width.sides[1].operation=document::FeatureSideOperation::Extrusion;
+        width.sides[1].length=8;
+        const auto prepared=workspace::prepare_sheet_profile(fixture.part,
+            fixture.profile,fixture.driver);
+        const auto interval=flat_width_interval(prepared.document,
+            child(prepared,0));
+        require(std::abs(interval.first+8)<1e-9&&
+                std::abs(interval.second-24)<1e-9,
+            "Independent Sheet Profile width branches produced the wrong interval");
+    }
+
+    Fixture fixture;
+    static_cast<void>(fixture.driver.add_segment(0,0,30,0));
+    auto prepared=workspace::prepare_sheet_profile(fixture.part,
+        fixture.profile,fixture.driver);
+    auto edited=*prepared.document.find_container(fixture.profile.id);
+    edited.sheet_profile.width.symmetric=false;
+    edited.sheet_profile.width.reversed_sides=false;
+    edited.sheet_profile.width.sides[0].operation=
+        document::FeatureSideOperation::Extrusion;
+    edited.sheet_profile.width.sides[0].length=30;
+    edited.sheet_profile.width.sides[1].operation=
+        document::FeatureSideOperation::None;
+    const auto driver=*std::ranges::find(prepared.document.sketches,
+        edited.sheet_profile.sketch_id,&sketcher::Sketch::id);
+    auto regenerated=workspace::prepare_sheet_profile(prepared.document,
+        edited,driver);
+    const auto interval=flat_width_interval(regenerated.document,
+        child(regenerated,0));
+    require(std::abs(interval.first)<1e-9&&
+            std::abs(interval.second-30)<1e-9,
+        "Profile Properties width edit did not reset the master interval");
+    calculate(regenerated.document);
+}
+
+void free_up_to_targets() {
+    Fixture fixture;
+    static_cast<void>(fixture.driver.add_segment(0,0,30,0));
+    auto& width=fixture.profile.sheet_profile.width;
+    width.symmetric=false;width.reversed_sides=false;
+    width.sides[0].operation=document::FeatureSideOperation::Extrusion;
+    width.sides[0].extrusion_extent=document::EndCondition::UpTo;
+    document::ExtrusionParameters::EndTarget point;
+    point.kind=document::EndTargetKind::Point;
+    point.reference={"stop-sketch","point:forward",{}};
+    point.label="Forward point";
+    width.sides[0].targets={point};
+    width.sides[1].operation=document::FeatureSideOperation::Extrusion;
+    width.sides[1].extrusion_extent=document::EndCondition::UpTo;
+    document::ExtrusionParameters::EndTarget plane;
+    plane.kind=document::EndTargetKind::Face;
+    plane.reference={"stop-plane","plane",{}};
+    plane.label="Reverse plane";
+    width.sides[1].targets={plane};
+    width.sides[1].up_to.length_correction=3;
+
+    kernel::ViewerReferenceGeometry geometry;
+    geometry.points.push_back({{0,0,30},
+        {"stop-sketch","point:forward",{}},"Forward point"});
+    geometry.vertices={{-10,-10,-12},{10,-10,-12},{0,10,-12}};
+    geometry.triangles={0,1,2};
+    kernel::FaceReference plane_reference;
+    plane_reference.owner_id="stop-plane";
+    plane_reference.semantic_key="plane";
+    auto surface=std::make_shared<kernel::SurfaceGeometry>();
+    surface->kind=kernel::SurfaceGeometry::Kind::Plane;
+    surface->origin={0,0,-12};surface->axis={0,0,1};
+    plane_reference.surface=surface;
+    geometry.triangle_references={plane_reference};
+
+    const auto prepared=workspace::prepare_sheet_profile(fixture.part,
+        fixture.profile,fixture.driver,geometry);
+    const auto interval=flat_width_interval(prepared.document,
+        child(prepared,0));
+    require(std::abs(interval.first+15)<1e-9&&
+            std::abs(interval.second-30)<1e-9,
+        "Point/plane Up-to targets produced the wrong Profile interval");
+    const auto* parent=prepared.document.find_container(fixture.profile.id);
+    require(parent&&parent->sheet_profile.width.sides[0].targets.size()==1&&
+            parent->sheet_profile.width.sides[0].targets.front().kind==
+                document::EndTargetKind::Point&&
+            parent->sheet_profile.width.sides[1].targets.size()==1&&
+            parent->sheet_profile.width.sides[1].targets.front().kind==
+                document::EndTargetKind::Plane,
+        "Profile Up-to target kinds were not retained after resolution");
+    const auto reopened=document::PartDocument::from_serialized(
+        prepared.document.serialized());
+    require(reopened.find_container(fixture.profile.id)->sheet_profile.width==
+            parent->sheet_profile.width,
+        "Profile Up-to targets did not survive save/reopen");
+
+    auto invalid=fixture.profile;
+    auto invalid_surface=std::make_shared<kernel::SurfaceGeometry>(*surface);
+    invalid_surface->origin={-12,0,0};invalid_surface->axis={1,0,0};
+    geometry.vertices={{-12,-10,-10},{-12,10,-10},{-12,0,10}};
+    geometry.triangle_references.front().surface=invalid_surface;
+    bool rejected=false;
+    try {
+        static_cast<void>(workspace::prepare_sheet_profile(fixture.part,
+            invalid,fixture.driver,geometry));
+    } catch(const std::invalid_argument&) {rejected=true;}
+    require(rejected,
+        "Profile accepted an Up-to plane that intersects its route plane");
 }
 
 void master_edit_propagation() {
@@ -329,6 +493,90 @@ void attached_profile_seed_and_history() {
                 endpoint_index?current_edge.points.back():
                     current_edge.points.front()),
             "Attached Sheet Profile origin is not the selected Bend endpoint");
+
+        // The selected edge, rather than the free-Profile width setting,
+        // drives every generated span. Exercise both endpoint selections and
+        // the reversed ViewerEdge packet so an attached Flat cannot grow from
+        // the Bend origin in the opposite direction.
+        attached.sheet_profile.width.symmetric=false;
+        attached.sheet_profile.width.sides[0].length=7;
+        auto prepared=workspace::prepare_sheet_profile(part,attached,
+            profile_route,current_geometry);
+        require(prepared.logical_children.size()==2,
+            "Attached Profile edge-width matrix lost its Bend/Flat route");
+        const auto* stored_parent=prepared.document.find_container(attached.id);
+        const auto* stored_bend=prepared.document.find_container(
+            prepared.logical_children.front());
+        const auto* stored_flat=prepared.document.find_container(
+            prepared.logical_children.back());
+        require(stored_parent&&stored_bend&&stored_flat&&
+                stored_parent->sheet_profile.master_feature_id==stored_bend->id&&
+                stored_bend->feature_kind==document::FeatureKind::Bend&&
+                stored_flat->feature_kind==document::FeatureKind::Flat,
+            "Attached Profile did not select its first Bend as the driver");
+        const auto flat_sketch=std::ranges::find(prepared.document.sketches,
+            stored_flat->flat.sketch_id,&sketcher::Sketch::id);
+        require(flat_sketch!=prepared.document.sketches.end(),
+            "Attached Profile Flat lost its generated Sketch");
+        const auto [flat_first,flat_last]=std::ranges::minmax_element(
+            flat_sketch->points,{},&sketcher::SketchPoint::x);
+        double expected_first=std::numeric_limits<double>::infinity();
+        double expected_last=-std::numeric_limits<double>::infinity();
+        const auto coordinate=[&](kernel::Vec3 value) {
+            const kernel::Vec3 delta{
+                value.x-flat_sketch->resolved_origin.x,
+                value.y-flat_sketch->resolved_origin.y,
+                value.z-flat_sketch->resolved_origin.z};
+            return delta.x*flat_sketch->resolved_x_axis.x+
+                delta.y*flat_sketch->resolved_x_axis.y+
+                delta.z*flat_sketch->resolved_x_axis.z;
+        };
+        for(const auto point:current_edge.points) {
+            const double value=coordinate(point);
+            expected_first=std::min(expected_first,value);
+            expected_last=std::max(expected_last,value);
+        }
+        double route_first=std::numeric_limits<double>::infinity();
+        double route_last=-std::numeric_limits<double>::infinity();
+        for(const auto point:current_edge.points) {
+            const kernel::Vec3 delta{
+                point.x-resolved_route.resolved_origin.x,
+                point.y-resolved_route.resolved_origin.y,
+                point.z-resolved_route.resolved_origin.z};
+            const double value=
+                delta.x*resolved_route.resolved_normal.x+
+                delta.y*resolved_route.resolved_normal.y+
+                delta.z*resolved_route.resolved_normal.z;
+            route_first=std::min(route_first,value);
+            route_last=std::max(route_last,value);
+        }
+        require(std::abs(flat_first->x-expected_first)<1e-7&&
+                std::abs(flat_last->x-expected_last)<1e-7&&
+                !stored_parent->sheet_profile.width.symmetric&&
+                stored_parent->sheet_profile.width.sides[0].operation==
+                    document::FeatureSideOperation::Extrusion&&
+                stored_parent->sheet_profile.width.sides[1].operation==
+                    document::FeatureSideOperation::None&&
+                std::abs(stored_parent->sheet_profile.width.sides[0].length-
+                    (route_last-route_first))<1e-7&&
+                stored_parent->sheet_profile.width.side_direction_sign(0)==
+                    (std::abs(route_first)<1e-7?1.:-1.),
+            "Attached Profile Flat did not inherit the complete Bend edge width");
+        const auto bend_end=sketcher::Sketch::from_serialized(
+            stored_bend->bend.auxiliary_sketches[1]);
+        const kernel::Vec3 opposite_end_y{
+            -bend_end.resolved_y_axis.x,
+            -bend_end.resolved_y_axis.y,
+            -bend_end.resolved_y_axis.z};
+        require(close(bend_end.resolved_origin,
+                    flat_sketch->resolved_origin)&&
+                close(bend_end.resolved_x_axis,
+                    flat_sketch->resolved_x_axis)&&
+                close(bend_end.resolved_normal,
+                    flat_sketch->resolved_y_axis)&&
+                close(opposite_end_y,
+                    flat_sketch->resolved_normal),
+            "Attached Profile Flat frame does not follow its driving Bend end");
     };
     for(const auto& endpoint:boundary->edge_treatment_endpoint_references)
         verify_bend_route_frame(geometry,*boundary,endpoint);
@@ -356,11 +604,210 @@ void attached_profile_seed_and_history() {
     route.owner_container_id=profile.id;route.name=profile.name;
     profile.sheet_profile.start_point_id=
         document::initialize_attached_sheet_profile(route,thickness);
-    profile.sheet_profile.initial_width=30;
+    const auto radius_dimension_id=route.id+":profile:radius";
+    const auto length_dimension_id=route.id+":profile:length";
+    const auto angle_dimension_id=route.id+":profile:angle";
+    const auto verify_seed_dimensions=[&](const sketcher::Sketch& candidate,
+            double radius_value,double length_value,bool locked=false,
+            double angle_value=90.) {
+        const auto radius=std::ranges::find(candidate.dimensions,
+            radius_dimension_id,&sketcher::SketchDimension::id);
+        const auto length=std::ranges::find(candidate.dimensions,
+            length_dimension_id,&sketcher::SketchDimension::id);
+        const auto angle=std::ranges::find(candidate.dimensions,
+            angle_dimension_id,&sketcher::SketchDimension::id);
+        const bool valid=radius!=candidate.dimensions.end()&&
+                length!=candidate.dimensions.end()&&
+                angle!=candidate.dimensions.end()&&
+                radius->kind==sketcher::DimensionKind::Radius&&
+                length->kind==sketcher::DimensionKind::Distance&&
+                angle->kind==sketcher::DimensionKind::AngleThreePoint&&
+                radius->driving&&length->driving&&angle->driving&&
+                radius->locked==locked&&length->locked==locked&&
+                angle->locked==locked&&
+                std::abs(radius->value-radius_value)<1e-8&&
+                std::abs(length->value-length_value)<1e-8&&
+                std::abs(angle->value-angle_value)<1e-8;
+        if(!valid&&radius!=candidate.dimensions.end()&&
+                length!=candidate.dimensions.end()&&
+                angle!=candidate.dimensions.end())
+            std::cerr<<"Profile dimension state R="<<radius->value
+                <<" L="<<length->value<<" A="<<angle->value
+                <<" locks="<<radius->locked<<length->locked<<angle->locked
+                <<" expected="<<radius_value<<','<<length_value<<','
+                <<angle_value<<" lock="<<locked<<'\n';
+        require(valid,
+            "Profile seed lacks editable radius, angle or line-length dimensions");
+        const auto& first_arc=candidate.arcs.front();
+        require(std::ranges::any_of(candidate.constraints,[&](const auto& value) {
+                    return !value.suppressed&&value.kind==
+                            sketcher::ConstraintKind::PointReference&&
+                        value.first_point_id==first_arc.start_point_id&&
+                        value.second_point_id=="sketch_origin";
+                })&&
+                std::ranges::any_of(candidate.constraints,[&](const auto& value) {
+                    return !value.suppressed&&value.kind==
+                            sketcher::ConstraintKind::PointOnLine&&
+                        value.first_point_id==first_arc.center_point_id&&
+                        value.geometry_id=="sketch_axis:y";
+                }),
+            "Profile seed does not constrain its start to Origin and its arc centre to the axis");
+        const auto seeded=document::sheet_profile_route(candidate,
+            profile.sheet_profile.start_point_id);
+        require(seeded.spans.size()==2&&
+                seeded.spans.front().kind==
+                    document::SheetProfileSpanKind::Bend&&
+                seeded.spans.back().kind==
+                    document::SheetProfileSpanKind::Flat&&
+                std::abs(seeded.spans.front().radius-radius_value)<1e-8&&
+                std::abs(std::abs(seeded.spans.front().turn_degrees)-
+                    angle_value)<1e-8&&
+                std::abs(seeded.spans.back().length-length_value)<1e-8,
+            "Attached Profile dimensions do not drive its Bend/Flat route");
+    };
+    verify_seed_dimensions(route,2*thickness,40);
+    const auto dimension_mesh=route.viewer_mesh();
+    require(dimension_mesh.dimensions.size()==3&&
+            std::ranges::any_of(dimension_mesh.dimensions,
+                [](const auto& dimension) {
+                    return dimension.kind==kernel::ViewerDimensionKind::Radius&&
+                        dimension.label_prefix=="R";
+                })&&
+            std::ranges::any_of(dimension_mesh.dimensions,
+                [](const auto& dimension) {
+                    return dimension.kind==kernel::ViewerDimensionKind::Linear;
+                })&&
+            std::ranges::any_of(dimension_mesh.dimensions,
+                [](const auto& dimension) {
+                    return dimension.kind==kernel::ViewerDimensionKind::Angular&&
+                        std::abs(dimension.value-90)<1e-8;
+                }),
+        "Profile Sketch does not display R, angle and line-length dimensions");
+    auto tangent_extension=route;
+    const auto seeded_line=tangent_extension.segments.front();
+    const auto* seeded_end=tangent_extension.find_point(
+        seeded_line.second_point_id);
+    require(seeded_end,"Profile seed line has no final point");
+    const auto extension=tangent_extension.add_tangent_arc(
+        seeded_line.second_point_id,seeded_end->x+10,seeded_end->y+10,
+        seeded_line.id);
+    require(!extension.empty()&&document::sheet_profile_route(
+                tangent_extension,profile.sheet_profile.start_point_id).spans.size()==3,
+        "Profile final endpoint cannot continue as a tangent arc");
+    auto dimension_probe=route;
+    for(const double value:{3*thickness,2.5*thickness,2*thickness}) {
+        require(dimension_probe.set_dimension_value(radius_dimension_id,value),
+            "Attached Profile radius rejected a successive edit");
+        verify_seed_dimensions(dimension_probe,value,40);
+    }
+    for(const double value:{55.,25.,40.}) {
+        require(dimension_probe.set_dimension_value(length_dimension_id,value),
+            "Attached Profile line length rejected a successive edit");
+        verify_seed_dimensions(dimension_probe,2*thickness,value);
+    }
+    for(const double value:{75.,120.,90.}) {
+        require(dimension_probe.set_dimension_value(angle_dimension_id,value),
+            "Attached Profile angle rejected a successive edit");
+        verify_seed_dimensions(dimension_probe,2*thickness,40,false,value);
+    }
+    auto dragged=dimension_probe;
+    const auto line=dragged.segments.front();
+    const auto old_end=*dragged.find_point(line.second_point_id);
+    require(dragged.move_point(line.second_point_id,
+                old_end.x+4,old_end.y+3),
+        "Underconstrained attached Profile cannot rotate by dragging");
+    const auto* moved_end=dragged.find_point(line.second_point_id);
+    require(std::hypot(moved_end->x-old_end.x,moved_end->y-old_end.y)>1e-4,
+        "Accepted attached Profile drag did not move its endpoint");
+    const auto dragged_length=std::ranges::find(dragged.dimensions,
+        length_dimension_id,&sketcher::SketchDimension::id);
+    const auto dragged_angle=std::ranges::find(dragged.dimensions,
+        angle_dimension_id,&sketcher::SketchDimension::id);
+    require(dragged_length!=dragged.dimensions.end()&&
+            dragged_angle!=dragged.dimensions.end()&&
+            std::abs(dragged_length->value-40)>1e-4,
+        "Unlocked attached Profile length did not follow its endpoint drag");
+    verify_seed_dimensions(dragged,2*thickness,dragged_length->value,false,
+        dragged_angle->value);
+    require(dragged.set_dimension_value(length_dimension_id,40),
+        "Attached Profile line length could not be restored after dragging");
+    const auto restored_angle=std::ranges::find(dragged.dimensions,
+        angle_dimension_id,&sketcher::SketchDimension::id);
+    require(restored_angle!=dragged.dimensions.end(),
+        "Attached Profile drag lost its angle dimension");
+    verify_seed_dimensions(dragged,2*thickness,40,false,
+        restored_angle->value);
+    auto locked=dimension_probe;
+    for(const auto& id:{radius_dimension_id,length_dimension_id,
+            angle_dimension_id}) {
+        auto dimension=*std::ranges::find(locked.dimensions,id,
+            &sketcher::SketchDimension::id);
+        dimension.locked=true;locked.apply_dimension(std::move(dimension));
+    }
+    const auto locked_line=locked.segments.front();
+    const auto locked_old=*locked.find_point(locked_line.second_point_id);
+    const auto locked_definition=locked.serialized();
+    require(!locked.move_point(locked_line.second_point_id,
+                locked_old.x+3,locked_old.y+2)&&
+            locked.serialized()==locked_definition,
+        "Locked attached Profile escaped its dimensions while dragging");
+    verify_seed_dimensions(locked,2*thickness,40,true);
+    auto frozen=dimension_probe;
+    for(auto& point:frozen.points)point.fixed=true;
+    const auto frozen_definition=frozen.serialized();
+    require(!frozen.move_point(frozen.segments.front().second_point_id,80,80)&&
+            frozen.serialized()==frozen_definition&&
+            !frozen.set_dimension_value(radius_dimension_id,4*thickness)&&
+            frozen.serialized()==frozen_definition,
+        "Fully constrained attached Profile changed after an impossible edit");
+    verify_seed_dimensions(sketcher::Sketch::from_serialized(
+        dimension_probe.serialized()),2*thickness,40);
+    profile.sheet_profile.width.symmetric=false;
+    profile.sheet_profile.width.sides[0].length=30;
     profile.sheet_profile.thickness_override=false;
     profile.sheet_profile.sheet_attachment=true;
     profile.sheet_profile.material_side=-1; // Attachment derives this value.
     profile.placement.references=references;
+
+    const auto first_preview=workspace::prepare_sheet_profile(
+        part,profile,route,geometry);
+    require(first_preview.logical_children.size()==2,
+        "Attached Profile first preview lost its Bend/Flat route");
+    const auto* preview_master=first_preview.document.find_container(
+        first_preview.logical_children.front());
+    require(preview_master&&preview_master->feature_kind==
+            document::FeatureKind::Bend&&preview_master->bend.sheet_attachment,
+        "Attached Profile first preview has no attached Bend");
+    const auto preview_master_sketch=std::ranges::find(
+        first_preview.document.sketches,preview_master->bend.sketch_id,
+        &sketcher::Sketch::id);
+    require(preview_master_sketch!=first_preview.document.sketches.end(),
+        "Attached Profile first preview lost its Bend Sketch");
+    const auto preview_line=std::ranges::find_if(
+        preview_master_sketch->segments,
+        [](const auto& value){return !value.construction;});
+    require(preview_line!=preview_master_sketch->segments.end(),
+        "Attached Profile first preview lost its edge line");
+    const auto* preview_first=preview_master_sketch->find_point(
+        preview_line->first_point_id);
+    const auto* preview_last=preview_master_sketch->find_point(
+        preview_line->second_point_id);
+    require(preview_first&&preview_last,
+        "Attached Profile first preview lost its edge endpoints");
+    const auto preview_first_world=preview_master_sketch->world_point(
+        preview_first->x,preview_first->y);
+    const auto preview_last_world=preview_master_sketch->world_point(
+        preview_last->x,preview_last->y);
+    require((close(preview_first_world,boundary->points.front())&&
+                close(preview_last_world,boundary->points.back()))||
+            (close(preview_first_world,boundary->points.back())&&
+                close(preview_last_world,boundary->points.front())),
+        "Attached Profile first cyan preview does not span the complete selected edge");
+    const auto preview_driver=std::ranges::find(first_preview.document.sketches,
+        route.id,&sketcher::Sketch::id);
+    require(preview_driver!=first_preview.document.sketches.end(),
+        "Attached Profile first preview lost its route Sketch");
+    verify_seed_dimensions(*preview_driver,2*thickness,40);
 
     workspace::Workspace live;
     const auto document_id=part.document_id;
@@ -393,8 +840,46 @@ void attached_profile_seed_and_history() {
     const auto* master=state->session.document().find_container(
         stored->sheet_profile.master_feature_id);
     require(master&&master->feature_kind==document::FeatureKind::Bend&&
+            master->bend.sheet_attachment&&
+            !master->bend.thickness_override&&
+            master->placement.reference_valid&&
+            master->placement.references==stored->placement.references&&
+            std::abs(master->bend.thickness-thickness)<1e-8&&
             std::abs(master->bend.radius-thickness)<1e-8,
-        "Attached Sheet Profile first Bend is not R=T");
+        "Attached Sheet Profile first Bend is not attached to the source edge");
+    const auto master_sketch=std::ranges::find(
+        state->session.document().sketches,master->bend.sketch_id,
+        &sketcher::Sketch::id);
+    require(master_sketch!=state->session.document().sketches.end(),
+        "Attached Sheet Profile first Bend lost its owned Sketch");
+    const auto master_line=std::ranges::find_if(master_sketch->segments,
+        [](const auto& value){return !value.construction;});
+    require(master_line!=master_sketch->segments.end(),
+        "Attached Sheet Profile first Bend lost its start segment");
+    const auto* master_first=master_sketch->find_point(
+        master_line->first_point_id);
+    const auto* master_last=master_sketch->find_point(
+        master_line->second_point_id);
+    require(master_first&&master_last,
+        "Attached Sheet Profile first Bend lost its endpoints");
+    const auto master_first_world=master_sketch->world_point(
+        master_first->x,master_first->y);
+    const auto master_last_world=master_sketch->world_point(
+        master_last->x,master_last->y);
+    require((close(master_first_world,boundary->points.front())&&
+                close(master_last_world,boundary->points.back()))||
+            (close(master_first_world,boundary->points.back())&&
+                close(master_last_world,boundary->points.front())),
+        "Attached Sheet Profile Bend does not span the selected edge endpoints");
+    require(std::ranges::all_of(
+            boundary->edge_treatment_endpoint_references,[&](const auto& endpoint) {
+                return std::ranges::any_of(master_sketch->external_references,
+                    [&](const auto& external) {
+                        return external.source_owner_id==endpoint.owner_id&&
+                            external.source_semantic_key==endpoint.semantic_key&&
+                            external.source_instance_path==endpoint.instance_path;
+                    });
+            }),"Attached Sheet Profile Bend did not persist both endpoint links");
     const kernel::Vec3 rotation{stored->placement.rotation_x,
         stored->placement.rotation_y,stored->placement.rotation_z};
     const auto base_x=document::construction_direction_from_local_axis(
@@ -419,18 +904,128 @@ void attached_profile_seed_and_history() {
                 world_start.z-stored->placement.z)<1e-8,
         "Attached Sheet Profile does not start at the selected Bend endpoint");
 
+    auto edited_profile=*stored;
+    auto edited_route=*stored_route;
+    require(edited_route.set_dimension_value(radius_dimension_id,3*thickness)&&
+            edited_route.set_dimension_value(length_dimension_id,55),
+        "Attached Profile dimensions rejected a downstream edit");
+    require(workspace::commit_sheet_profile(live,kernel,document_id,
+            edited_profile,edited_route),
+        "Attached Profile dimension edit did not commit");
+    state=live.open_part(document_id);
+    const auto edited_complete=state->session.document().serialized();
+    const auto* edited_parent=state->session.document().find_container(profile.id);
+    const auto edited_driver=std::ranges::find(state->session.document().sketches,
+        route.id,&sketcher::Sketch::id);
+    require(edited_parent&&
+            edited_driver!=state->session.document().sketches.end(),
+        "Edited attached Profile lost its parent or route Sketch");
+    const auto edited_spans=document::sheet_profile_route(*edited_driver,
+        edited_parent->sheet_profile.start_point_id);
+    const auto* edited_master=state->session.document().find_container(
+        edited_parent->sheet_profile.master_feature_id);
+    const auto edited_flat=std::ranges::find_if(state->session.document().history,
+        [&](const auto& feature) {
+            return feature.sheet_profile_binding.parent_id==profile.id&&
+                feature.sheet_profile_binding.curve_id==
+                    edited_spans.spans.back().curve_id;
+        });
+    require(edited_master&&edited_master->bend.sheet_attachment&&
+            std::abs(edited_master->bend.radius-2*thickness)<1e-8&&
+            edited_flat!=state->session.document().history.end()&&
+            edited_flat->feature_kind==document::FeatureKind::Flat&&
+            std::abs(edited_spans.spans.back().length-55)<1e-8,
+        "Profile R/line dimensions did not regenerate its attached Bend/Flat");
+    const auto edited_master_id=edited_master->id;
+    const auto edited_flat_id=edited_flat->id;
     require(workspace::step_part_document_history(live,document_id,false)&&
-            !state->session.document().find_container(profile.id),
-        "Attached Sheet Profile Undo failed");
-    require(workspace::step_part_document_history(live,document_id,true)&&
             state->session.document().serialized()==complete,
-        "Attached Sheet Profile Redo changed its definition");
-    auto reopened=document::PartDocument::from_serialized(complete);
-    const auto recalculated=workspace::calculate_part_with_resolved_references(
+        "Attached Profile dimension edit Undo failed");
+    require(workspace::step_part_document_history(live,document_id,true)&&
+            state->session.document().serialized()==edited_complete,
+        "Attached Profile dimension edit Redo changed its definition");
+
+    require(workspace::calculated_operation_input(state->session)&&
+            workspace::calculated_operation_input(state->session,profile.id)&&
+            !workspace::calculated_operation_output(state->session,profile.id),
+        "Attached Profile parent incorrectly consumed a calculated Body row");
+    const auto material_regions=workspace::sheet_state_regions(
+        state->session.document(),{});
+    const auto master_region=std::ranges::find(material_regions,
+        edited_master_id,&kernel::SheetMaterialDefinition::owner_id);
+    const auto flat_region=std::ranges::find(material_regions,
+        edited_flat_id,&kernel::SheetMaterialDefinition::owner_id);
+    require(master_region!=material_regions.end()&&
+            flat_region!=material_regions.end()&&
+            flat_region->parent_owner_id==master_region->owner_id,
+        "Attached Profile material regions lost their Bend/Flat ancestry");
+
+    auto folded=state->session.calculated_boundaries().back();
+    kernel.ensure_body_properties(folded);
+    auto unbend=document::PartDocument::create_sketch_container();
+    unbend.feature_kind=document::FeatureKind::Unbend;
+    unbend.name="Unbend Profile";unbend.sheet_state.all=true;
+    require(workspace::commit_sheet_state(live,kernel,document_id,unbend),
+        "Attached Profile could not be unfolded");
+    state=live.open_part(document_id);
+    require(!state->session.calculated_boundaries().empty()&&
+            state->session.calculated_boundaries().back().calculation_errors.empty(),
+        "Attached Profile unfold produced a calculation error");
+    auto unfolded=state->session.calculated_boundaries().back();
+    kernel.ensure_body_properties(unfolded);
+    require(unfolded.volume>0&&
+            std::abs(unfolded.volume-folded.volume)<
+                std::max(1e-5,folded.volume*2e-4),
+        "Attached Profile unfold changed its material volume");
+    const auto unfolded_complete=state->session.document().serialized();
+    const bool undo_unfold=workspace::step_part_document_history(
+        live,document_id,false);
+    const auto undo_document=state->session.document().serialized();
+    const auto authored_definition=[](auto value) {
+        value.erase("calculation_definition_fingerprint");
+        value.erase("dimension_identifiers");
+        return value;
+    };
+    require(undo_unfold&&
+            authored_definition(undo_document)==
+                authored_definition(edited_complete)&&
+            !state->session.document().find_container(unbend.id),
+        "Attached Profile unfold Undo failed");
+    require(workspace::step_part_document_history(live,document_id,true)&&
+            state->session.document().serialized()==unfolded_complete,
+        "Attached Profile unfold Redo changed its definition");
+
+    const auto native_file=std::filesystem::path("build")/
+        ("zima-attached-profile-"+profile.id+".prtz");
+    state->session.document().save(native_file,
+        state->session.calculated_boundaries());
+    std::vector<kernel::BodyResult> reopened_cache;
+    auto reopened=document::PartDocument::load(native_file,&reopened_cache);
+    std::filesystem::remove(native_file);
+    const auto* reopened_parent=reopened.find_container(profile.id);
+    const auto reopened_driver=std::ranges::find(reopened.sketches,route.id,
+        &sketcher::Sketch::id);
+    require(reopened_parent&&reopened_driver!=reopened.sketches.end(),
+        "Reopened attached Profile lost its parent or route Sketch");
+    verify_seed_dimensions(*reopened_driver,3*thickness,55);
+    const auto* reopened_master=reopened.find_container(
+        reopened_parent->sheet_profile.master_feature_id);
+    require(reopened_master&&reopened_master->feature_kind==
+                document::FeatureKind::Bend&&
+            reopened_master->bend.sheet_attachment&&
+            reopened.find_container(unbend.id),
+        "Reopened attached Profile lost its edge attachment or Unbend");
+    auto recalculated=workspace::calculate_part_with_resolved_references(
         kernel,reopened);
     require(!recalculated.empty()&&
             recalculated.back().calculation_errors.empty(),
-        "Attached Sheet Profile failed cold save/reopen calculation");
+        "Unfolded attached Profile failed cold save/reopen calculation");
+    auto reopened_unfolded=recalculated.back();
+    kernel.ensure_body_properties(reopened_unfolded);
+    require(reopened_unfolded.volume>0&&
+            std::abs(reopened_unfolded.volume-unfolded.volume)<
+                std::max(1e-5,unfolded.volume*2e-4),
+        "Reopened attached Profile unfold changed its material volume");
 }
 
 void rejected_routes() {
@@ -471,6 +1066,8 @@ int main() {
     try {
         free_flat_bend_flat();
         arc_first_and_flat_only();
+        free_width_directions();
+        free_up_to_targets();
         master_edit_propagation();
         attached_profile_seed_and_history();
         group_history_contracts();

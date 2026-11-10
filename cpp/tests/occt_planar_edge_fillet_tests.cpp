@@ -597,6 +597,59 @@ struct TangentEndFixture {
     TopoDS_Face end_face;
 };
 
+struct HalfTurnRouteFixture {
+    TopoDS_Shape shape;
+    std::array<TopoDS_Edge,3> route;
+};
+
+HalfTurnRouteFixture half_turn_route_fixture() {
+    const gp_Pnt first(0,0,0),lower(100,0,0),upper(100,100,0),
+        last(0,100,0);
+    const auto lower_line=BRepBuilderAPI_MakeEdge(first,lower).Edge();
+    const auto half_circle=BRepBuilderAPI_MakeEdge(
+        gp_Circ(gp_Ax2(gp_Pnt(100,50,0),gp_Dir(0,0,1)),50.),
+        -std::numbers::pi/2.,std::numbers::pi/2.).Edge();
+    const auto upper_line=BRepBuilderAPI_MakeEdge(upper,last).Edge();
+    const auto closure=BRepBuilderAPI_MakeEdge(last,first).Edge();
+    BRepBuilderAPI_MakeWire wire;
+    for(const auto& edge:{lower_line,half_circle,upper_line,closure})
+        wire.Add(edge);
+    require(wire.IsDone(),
+        "Half-turn Fillet fixture could not construct its profile");
+    BRepBuilderAPI_MakeFace face(wire.Wire());
+    BRepPrimAPI_MakePrism prism(face.Face(),gp_Vec(0,0,20),false,true);
+    prism.Build();
+    require(prism.IsDone()&&
+            BRepCheck_Analyzer(prism.Shape(),true,true,false).IsValid(),
+        "Half-turn Fillet fixture could not construct its solid");
+    HalfTurnRouteFixture result{prism.Shape()};
+    const std::array starts{gp_Pnt(0,0,20),gp_Pnt(100,0,20),
+        gp_Pnt(100,100,20)};
+    const std::array ends{gp_Pnt(100,0,20),gp_Pnt(100,100,20),
+        gp_Pnt(0,100,20)};
+    for(TopExp_Explorer item(result.shape,TopAbs_EDGE);
+            item.More();item.Next()) {
+        const auto edge=TopoDS::Edge(item.Current());
+        const BRepAdaptor_Curve curve(edge);
+        const auto a=curve.Value(curve.FirstParameter());
+        const auto b=curve.Value(curve.LastParameter());
+        for(std::size_t index=0;index<result.route.size();++index) {
+            const bool expected=index==1
+                ?curve.GetType()==GeomAbs_Circle
+                :curve.GetType()==GeomAbs_Line;
+            if(expected&&((a.Distance(starts[index])<=1.0e-9&&
+                          b.Distance(ends[index])<=1.0e-9)||
+                         (a.Distance(ends[index])<=1.0e-9&&
+                          b.Distance(starts[index])<=1.0e-9)))
+                result.route[index]=edge;
+        }
+    }
+    require(std::ranges::none_of(result.route,
+                [](const auto& edge){return edge.IsNull();}),
+        "Half-turn Fillet fixture lost a top route edge");
+    return result;
+}
+
 TangentEndFixture tangent_end_fixture() {
     const gp_Pnt p0(0,0,0),p1(20,0,0),p2(25,5,0),
         p3(25,20,0),p4(0,20,0);
@@ -1475,6 +1528,36 @@ int main() try {
                 "Separately selected tangent line and arc changed route volume");
             near(area(separately_selected.Shape()),area(result.Shape()),
                 "Separately selected tangent line and arc changed route area");
+        }
+    }
+    {
+        std::cerr<<"fillet-test: exact planar half turn\n";
+        const auto fixture=half_turn_route_fixture();
+        const std::array route_sizes{fixture.route.size()};
+        for(const double radius:{1.,6.,12.}) {
+            const auto result=zima::kernel::occt_planar_edge_fillet(
+                fixture.shape,fixture.route,radius,1.0e-7,{},
+                zima::kernel::OcctPlanarEdgeFilletEndMode::
+                    AutomaticBodyEnvelope,route_sizes);
+            auto reversed_route=fixture.route;
+            std::ranges::reverse(reversed_route);
+            const auto reversed=zima::kernel::occt_planar_edge_fillet(
+                fixture.shape,reversed_route,radius,1.0e-7,{},
+                zima::kernel::OcctPlanarEdgeFilletEndMode::
+                    AutomaticBodyEnvelope,route_sizes);
+            require(result.history&&reversed.history&&
+                    BRepCheck_Analyzer(result.Shape(),true,true,false).
+                        IsValid()&&
+                    BRepCheck_Analyzer(reversed.Shape(),true,true,false).
+                        IsValid()&&
+                    result.fillet_faces.size()==fixture.route.size()&&
+                    std::ranges::all_of(result.fillet_faces,
+                        [](const auto& faces){return !faces.empty();}),
+                "ZIMA Fillet lost its exact planar half-turn route");
+            near(volume(reversed.Shape()),volume(result.Shape()),
+                "Half-turn ZIMA Fillet volume depends on route orientation");
+            near(area(reversed.Shape()),area(result.Shape()),
+                "Half-turn ZIMA Fillet area depends on route orientation");
         }
     }
     std::cout<<"Custom planar edge Fillet: convex/concave 90-degree, inner/outer two/three-branch and staggered-step nodes, through-notch and side-pocket terminals, mixed CUT/FUSE order, batch, 60-degree, perpendicular/angled/tangent Up To ends, exact plane/circle, circle/circle, ellipse/circle and spline/circle rolling supports, cylinder/sphere ancestry and rejection checks passed\n";

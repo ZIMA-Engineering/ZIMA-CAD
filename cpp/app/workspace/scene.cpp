@@ -647,6 +647,22 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
                     if(!body_id.empty())display=document.place_body_mesh(std::move(display),body_id);
                     mesh.dimensions.insert(mesh.dimensions.end(),display.dimensions.begin(),display.dimensions.end());
                 });
+                if(active_sketch_id_.empty()&&container->feature_kind==
+                        zima::document::FeatureKind::SheetProfile) {
+                    const auto route=std::ranges::find(document.sketches,
+                        container->sheet_profile.sketch_id,
+                        &zima::sketcher::Sketch::id);
+                    if(route!=document.sketches.end()) {
+                        auto display=route->viewer_mesh();
+                        const auto* body=document.body_owner_for_object(
+                            container->id);
+                        if(body)display=document.place_body_mesh(
+                            std::move(display),body->scope.id);
+                        mesh.dimensions.insert(mesh.dimensions.end(),
+                            display.dimensions.begin(),
+                            display.dimensions.end());
+                    }
+                }
                 const auto placement_reference_geometry =
                     parameter_dimension_preview_ &&
                             parameter_dimension_preview_->id == container->id
@@ -658,11 +674,22 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
                     if(const auto* body=document.body_owner_for_object(container->id))annotations=document.place_body_mesh(std::move(annotations),body->scope.id);
                     mesh.dimensions.insert(mesh.dimensions.end(),annotations.dimensions.begin(),annotations.dimensions.end());
                 }
-                auto placement_dimensions = container->feature_kind==zima::document::FeatureKind::SheetForm
-                    ? zima::document::sheet_form_placement_dimensions(*container,placement_reference_geometry)
-                    : zima::document::container_placement_dimensions(
-                        container->id, container->placement,
-                        placement_reference_geometry);
+                // A generated Profile Flat/Bend owns a numeric Placement only
+                // as the internal 2D-route-to-3D frame.  Its translation and
+                // Euler angles are derived, not authored parameters.  Showing
+                // them on inspection makes the child look independently
+                // editable and obscures the real Profile dimensions.
+                auto placement_dimensions =
+                    (container->feature_kind==
+                            zima::document::FeatureKind::SheetProfile||
+                     !container->sheet_profile_binding.parent_id.empty())
+                        ? std::vector<zima::kernel::ViewerDimension>{}
+                    : container->feature_kind==zima::document::FeatureKind::SheetForm
+                        ? zima::document::sheet_form_placement_dimensions(
+                            *container,placement_reference_geometry)
+                        : zima::document::container_placement_dimensions(
+                            container->id, container->placement,
+                            placement_reference_geometry);
                 {
                     const auto* body = document.body_owner_for_object(container->id);
                     if (!body && parameter_dimension_preview_)
@@ -781,6 +808,27 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
                                 if(const auto* body=document.body_owner_for_object(container->id))
                                     display=document.place_body_mesh(std::move(display),body->scope.id);
                             mesh.dimensions.insert(mesh.dimensions.end(),display.dimensions.begin(),display.dimensions.end());
+                        }
+                    }
+                } else if(container->feature_kind==FeatureKind::SheetProfile&&
+                          !container->sheet_profile.sheet_attachment) {
+                    if(!primitive_origin_preview_mesh_) {
+                        const auto sketch=std::ranges::find(document.sketches,
+                            container->sheet_profile.sketch_id,
+                            &zima::sketcher::Sketch::id);
+                        if(sketch!=document.sketches.end()) {
+                            auto extent=*container;
+                            extent.feature_kind=FeatureKind::Feature;
+                            extent.feature=container->sheet_profile.width;
+                            auto display=feature_view_cues(extent,*sketch).dimensions;
+                            if(!parameter_dimension_preview_)
+                                if(const auto* body=document.body_owner_for_object(
+                                        container->id))
+                                    display=document.place_body_mesh(
+                                        std::move(display),body->scope.id);
+                            mesh.dimensions.insert(mesh.dimensions.end(),
+                                display.dimensions.begin(),
+                                display.dimensions.end());
                         }
                     }
                 } else if (container->feature_kind == FeatureKind::Extrusion) {
