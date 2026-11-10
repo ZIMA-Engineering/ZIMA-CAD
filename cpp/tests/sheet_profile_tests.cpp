@@ -920,6 +920,146 @@ void attached_profile_seed_and_history() {
             state->session.document().serialized(),
         "Unchanged attached Profile preparation is not idempotent");
 
+    // Propagate the physical joining edge through the complete generated
+    // chain. In particular, an offset on the first Bend must reach the start
+    // edge of the second and third Bend instead of restarting each Bend from
+    // the original attachment edge.
+    auto chain_route=*stored_route;
+    const auto append_tangent_flat=[&](double arc_dx,double arc_dy,
+            double flat_dx,double flat_dy) {
+        const auto current=document::sheet_profile_route(chain_route,
+            profile.sheet_profile.start_point_id);
+        const auto& final=current.spans.back();
+        const auto* end=chain_route.find_point(final.end_point_id);
+        require(end,"Extended Profile route has no final point");
+        const auto arc_id=chain_route.add_tangent_arc(final.end_point_id,
+            end->x+arc_dx,end->y+arc_dy,final.curve_id);
+        const auto arc=std::ranges::find(chain_route.arcs,arc_id,
+            &sketcher::SketchArc::id);
+        require(arc!=chain_route.arcs.end(),
+            "Extended Profile route lost its tangent arc");
+        const auto arc_end=arc->start_point_id==final.end_point_id?
+            arc->end_point_id:arc->start_point_id;
+        const auto* point=chain_route.find_point(arc_end);
+        require(point,"Extended Profile tangent arc has no final point");
+        const auto segment_id=chain_route.add_segment(point->x,point->y,
+            point->x+flat_dx,point->y+flat_dy);
+        static_cast<void>(chain_route.add_tangent_constraint(
+            arc_id,segment_id));
+    };
+    append_tangent_flat(10,10,20,0);
+    append_tangent_flat(10,-10,0,-20);
+    const auto extended_spans=document::sheet_profile_route(chain_route,
+        profile.sheet_profile.start_point_id);
+    require(extended_spans.spans.size()==6&&
+            std::ranges::count(extended_spans.spans,
+                document::SheetProfileSpanKind::Bend,
+                &document::SheetProfileSpan::kind)==3,
+        "Extended Profile regression route does not contain three Bends");
+    workspace::Workspace chain_live;
+    chain_live.add_part(state->session.document(),
+        state->session.calculated_boundaries());
+    chain_live.activate(document_id);
+    require(workspace::commit_sheet_profile(chain_live,kernel,document_id,
+            *stored,chain_route),
+        "Extended Profile chain did not commit");
+    auto* chain_state=chain_live.open_part(document_id);
+    const auto* chain_parent=chain_state->session.document().find_container(
+        profile.id);
+    const auto* chain_master=chain_state->session.document().find_container(
+        chain_parent->sheet_profile.master_feature_id);
+    auto chain_start=*std::ranges::find(
+        chain_state->session.document().sketches,chain_master->bend.sketch_id,
+        &sketcher::Sketch::id);
+    auto changed_chain_master=*chain_master;
+    require(chain_start.set_dimension_value(
+                chain_start.id+":position:first",6)&&
+            workspace::commit_bend(chain_live,kernel,document_id,
+                changed_chain_master,chain_start),
+        "Extended Profile first Bend offset did not commit");
+    chain_state=chain_live.open_part(document_id);
+    const auto& chained=chain_state->session.document();
+    const auto* regenerated_chain=chained.find_container(profile.id);
+    const auto regenerated_driver=std::ranges::find(chained.sketches,route.id,
+        &sketcher::Sketch::id);
+    require(regenerated_chain&&regenerated_driver!=chained.sketches.end(),
+        "Extended Profile regeneration lost its parent or route");
+    const auto regenerated_spans=document::sheet_profile_route(
+        *regenerated_driver,regenerated_chain->sheet_profile.start_point_id);
+    const auto world_edge=[](const sketcher::Sketch& sketch,
+            const sketcher::SketchSegment& segment) {
+        const auto* first=sketch.find_point(segment.first_point_id);
+        const auto* last=sketch.find_point(segment.second_point_id);
+        require(first&&last,"Extended Profile joining edge lost an endpoint");
+        return std::array{sketch.world_point(first->x,first->y),
+            sketch.world_point(last->x,last->y)};
+    };
+    const auto width_interval=[&](const std::array<kernel::Vec3,2>& edge) {
+        const auto coordinate=[&](kernel::Vec3 point) {
+            return point.x*regenerated_driver->resolved_normal.x+
+                point.y*regenerated_driver->resolved_normal.y+
+                point.z*regenerated_driver->resolved_normal.z;
+        };
+        std::array result{coordinate(edge[0]),coordinate(edge[1])};
+        std::ranges::sort(result);return result;
+    };
+    const auto same_width=[&](const std::array<kernel::Vec3,2>& first,
+            const std::array<kernel::Vec3,2>& last) {
+        const auto first_interval=width_interval(first);
+        const auto last_interval=width_interval(last);
+        return std::abs(first_interval[0]-last_interval[0])<1e-8&&
+            std::abs(first_interval[1]-last_interval[1])<1e-8;
+    };
+    std::optional<std::array<kernel::Vec3,2>> outgoing_edge;
+    std::size_t checked_bends{};
+    for(const auto& span:regenerated_spans.spans) {
+        const auto feature=std::ranges::find_if(chained.history,
+            [&](const auto& value) {
+                return value.sheet_profile_binding.parent_id==profile.id&&
+                    value.sheet_profile_binding.curve_id==span.curve_id;
+            });
+        require(feature!=chained.history.end(),
+            "Extended Profile route lost a generated child");
+        std::array<kernel::Vec3,2> input,output;
+        if(feature->feature_kind==document::FeatureKind::Bend) {
+            ++checked_bends;
+            const auto start_sketch=std::ranges::find(chained.sketches,
+                feature->bend.sketch_id,&sketcher::Sketch::id);
+            require(start_sketch!=chained.sketches.end(),
+                "Extended Profile Bend lost its start Sketch");
+            const auto start_segment=std::ranges::find_if(
+                start_sketch->segments,
+                [](const auto& value){return !value.construction;});
+            require(start_segment!=start_sketch->segments.end(),
+                "Extended Profile Bend lost its start edge");
+            input=world_edge(*start_sketch,*start_segment);
+            const auto end_sketch=sketcher::Sketch::from_serialized(
+                feature->bend.auxiliary_sketches[1]);
+            const auto end_segment=std::ranges::find_if(end_sketch.segments,
+                [](const auto& value){return !value.construction;});
+            require(end_segment!=end_sketch.segments.end(),
+                "Extended Profile Bend lost its end edge");
+            output=world_edge(end_sketch,*end_segment);
+        } else {
+            const auto flat_sketch=std::ranges::find(chained.sketches,
+                feature->flat.sketch_id,&sketcher::Sketch::id);
+            require(flat_sketch!=chained.sketches.end()&&
+                    flat_sketch->segments.size()==4,
+                "Extended Profile Flat lost its rectangular Sketch");
+            input=world_edge(*flat_sketch,flat_sketch->segments[0]);
+            output=world_edge(*flat_sketch,flat_sketch->segments[2]);
+        }
+        require(!outgoing_edge||same_width(*outgoing_edge,input),
+            "Extended Profile child restarted from an earlier joining edge");
+        outgoing_edge=output;
+    }
+    require(checked_bends==3&&
+            !chain_state->session.calculated_boundaries().empty()&&
+            chain_state->session.calculated_boundaries().back().
+                calculation_errors.empty(),
+        "Extended Profile offset did not produce one valid complete chain");
+    calculate(chained);
+
     // The next Flat is bounded by the Bend's actual end edge, not by the
     // original attachment edge. Both a start-edge offset and an end extension
     // therefore have to change its generated width in the same transaction.

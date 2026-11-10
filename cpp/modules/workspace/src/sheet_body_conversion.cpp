@@ -859,7 +859,7 @@ void split_outline(sketcher::Sketch& sketch,const kernel::ViewerMesh& mesh,
     }
 }
 void bind_flat_outline_to_attachment(sketcher::Sketch& sketch,
-        double endpoint_tolerance) {
+        double endpoint_tolerance,bool translate_adjacent_sides) {
     const auto endpoint=[&](const char* suffix) {
         return std::ranges::find(sketch.external_references,sketch.id+suffix,
             &sketcher::SketchExternalReference::id);
@@ -924,6 +924,10 @@ void bind_flat_outline_to_attachment(sketcher::Sketch& sketch,
         if(!joining)throw std::invalid_argument(
             "Flat profile conflicts with its sheet endpoint references.");
         const std::array delta{target[0]-joining->x,target[1]-joining->y};
+        if(!translate_adjacent_sides) {
+            joining->x=target[0];joining->y=target[1];
+            return;
+        }
         std::string remote_id;
         for(const auto& segment:sketch.segments) {
             if(segment.construction||segment.id==joining_segment_id)continue;
@@ -1003,7 +1007,8 @@ V bend_inner_end(const document::HistoryContainer& feature,
 }
 bool apply_measured_bend_corner_corrections(document::PartDocument& part,
         const std::vector<Node>& nodes,
-        const std::vector<std::string>& authored) {
+        const std::vector<std::string>& authored,
+        bool clear_meeting_extensions=false) {
     struct Correction {
         std::array<std::optional<double>,2> setback;
     };
@@ -1122,15 +1127,27 @@ bool apply_measured_bend_corner_corrections(document::PartDocument& part,
                         "Sheet conversion found conflicting Bend corner ends.");
                 existing=value;
             };
-            store(authored[first_index],first_end,first_setback);
-            store(authored[second_index],second_end,second_setback);
+            store(authored[first_index],first_end,
+                clear_meeting_extensions?
+                    std::max(0.,first_extensions[first_end]):
+                    first_setback);
+            store(authored[second_index],second_end,
+                clear_meeting_extensions?
+                    std::max(0.,second_extensions[second_end]):
+                    second_setback);
         }
     }
     for(const auto& [id,correction]:corrections) {
         auto* feature=part.find_container(id);
         auto extensions=document::bend_profile_extensions(*feature);
         for(std::size_t end=0;end<2;++end)
-            if(correction.setback[end])extensions[end]-=*correction.setback[end];
+            if(correction.setback[end]) {
+                extensions[end]-=*correction.setback[end];
+                if(clear_meeting_extensions) {
+                    feature->bend.corner[end]=true;
+                    feature->bend.corner_gap=0;
+                }
+            }
         document::set_bend_profile_extensions(
             *feature,extensions[0],extensions[1]);
     }
@@ -1460,14 +1477,17 @@ SheetBodyConversion prepare_sheet_from_body(const document::PartDocument& source
         depth[i]=depth[*nodes[i].parent]+1;
         maximum_depth=std::max(maximum_depth,depth[i]);
     }
+    bool imported_corner_fallback_used{};
     for(std::size_t current_depth=1;current_depth<=maximum_depth;
             ++current_depth) {
-        const auto geometry=construction_reference_source_geometry(
+        const auto wave_geometry=construction_reference_source_geometry(
             result.calculated);
         const auto local_geometry=source.sketch_reference_geometry_for(
-            local_context,geometry);
+            local_context,wave_geometry);
         auto wave_document=result.document;
         bool wave_changed{};
+        const auto wave_created_size=result.created.size();
+        const auto wave_skipped=result.skipped;
     for(std::size_t i=1;i<nodes.size();++i) {
         if(depth[i]!=current_depth)continue;
         const auto& node=nodes[i];
@@ -1504,7 +1524,8 @@ SheetBodyConversion prepare_sheet_from_body(const document::PartDocument& source
                 return std::max({std::sqrt(dot(across,across)),
                     std::min(std::abs(offset),
                         std::abs(std::abs(offset)-thickness)),
-                    std::abs(along)});
+                    std::max(0.,std::abs(along)-
+                        (imported_corner_fallback_used?thickness:0.))});
             };
             const double error=std::min(std::max(mismatch(a,edge.points.front()),mismatch(b,edge.points.back())),
                 std::max(mismatch(b,edge.points.front()),mismatch(a,edge.points.back())));
@@ -1546,7 +1567,7 @@ SheetBodyConversion prepare_sheet_from_body(const document::PartDocument& source
             next.find_container(result.container_id)->
                 sheet_from_body.generated_features.push_back(added.id);
         try {
-            next.resolve_constructions(geometry);
+            next.resolve_constructions(wave_geometry);
         } catch(const std::exception& error) {
             throw std::invalid_argument("Sheet conversion node "+
                 std::to_string(i)+" at wave "+
@@ -1564,8 +1585,9 @@ SheetBodyConversion prepare_sheet_from_body(const document::PartDocument& source
             // normally authored attached Flat.  Merely storing the placement
             // edge leaves the outline behind when corner closure shortens a
             // Bend end and can reverse the apparent segment orientation.
-            bind_flat_outline_to_attachment(
-                placed,imported_step_source?0.:thickness);
+            bind_flat_outline_to_attachment(placed,
+                imported_step_source&&!imported_corner_fallback_used?
+                    0.:thickness,!imported_step_source);
         }else {
             document::prepare_bend_sketches(next.history.back(),placed,document::sheet_metal_defaults(next));
             // The imported cylinder may widen or narrow between its two
@@ -1635,12 +1657,40 @@ SheetBodyConversion prepare_sheet_from_body(const document::PartDocument& source
         result.created.push_back(added.id);authored[i]=added.id;
     }
         if(wave_changed) {
-            result.document=std::move(wave_document);
             PartCalculationPolicy policy;policy.reject_errors=true;
             try {
-                result.calculated=calculate_part_with_resolved_references(
-                    kernel,result.document,&result.calculated,policy);
+                auto calculated=calculate_part_with_resolved_references(
+                    kernel,wave_document,&result.calculated,policy);
+                result.document=std::move(wave_document);
+                result.calculated=std::move(calculated);
             } catch(const std::exception& error) {
+                if(imported_step_source&&!imported_corner_fallback_used&&
+                        current_depth>1) {
+                    try {
+                        // Finished STEP sheet endpoints are normally exact and
+                        // retain their supplier-authored spans. A multi-branch
+                        // corner can nevertheless be a welded solid junction
+                        // that no sequential native Add can represent without
+                        // a sheet seam. Retry only after the exact wave fails:
+                        // roll back its transient children, close the existing
+                        // Bend corner with native endpoint identities, then
+                        // rebuild that wave against the shortened End edges.
+                        result.created.resize(wave_created_size);
+                        result.skipped=wave_skipped;
+                        for(std::size_t i=1;i<nodes.size();++i)
+                            if(depth[i]==current_depth)authored[i].clear();
+                        if(apply_measured_bend_corner_corrections(
+                                result.document,nodes,authored,true)) {
+                            result.calculated=
+                                calculate_part_with_resolved_references(
+                                    kernel,result.document,&result.calculated,
+                                    policy);
+                            imported_corner_fallback_used=true;
+                            --current_depth;
+                            continue;
+                        }
+                    } catch(const std::exception&) {}
+                }
                 throw std::invalid_argument("Sheet conversion wave "+
                     std::to_string(current_depth)+" failed: "+error.what());
             }
@@ -1848,7 +1898,8 @@ SheetBodyConversion prepare_sheet_from_body(const document::PartDocument& source
             position-target_group.begin());
         split_outline(placed_flat,mesh,nodes[target_index].face,
             target_incoming,region);
-        bind_flat_outline_to_attachment(placed_flat,thickness);
+        bind_flat_outline_to_attachment(placed_flat,thickness,
+            !imported_step_source);
         auto flat_calculated=calculate_part_with_resolved_references(
             kernel,flat_next,&result.calculated,policy);
         result.document=std::move(flat_next);

@@ -296,8 +296,7 @@ void restore_attached_profile_bend_offsets(sketcher::Sketch& sketch,
     }
 }
 
-std::array<double,2> bend_end_width_interval(
-        const sketcher::Sketch& sketch) {
+std::array<V,2> bend_end_width_edge(const sketcher::Sketch& sketch) {
     const auto segment=std::ranges::find_if(sketch.segments,
         [](const auto& value){return !value.construction;});
     if(segment==sketch.segments.end())
@@ -308,11 +307,25 @@ std::array<double,2> bend_end_width_interval(
     if(!first||!last)
         throw std::invalid_argument(
             "Generated Sheet Profile Bend end point is missing.");
-    std::array result{first->x,last->x};
-    std::ranges::sort(result);
-    if(result[1]-result[0]<.001)
+    const std::array result{
+        sketch.world_point(first->x,first->y),
+        sketch.world_point(last->x,last->y)};
+    if(std::sqrt(dot(sub(result[1],result[0]),sub(result[1],result[0])))<.001)
         throw std::invalid_argument(
             "Generated Sheet Profile Bend end edge is too short.");
+    return result;
+}
+
+std::array<double,2> project_width_edge(const std::array<V,2>& edge,
+        V origin,V axis) {
+    std::array result{
+        dot(sub(edge[0],origin),axis),
+        dot(sub(edge[1],origin),axis)};
+    std::ranges::sort(result);
+    if(!std::isfinite(result[0])||!std::isfinite(result[1])||
+       result[1]-result[0]<.001)
+        throw std::invalid_argument(
+            "Generated Sheet Profile joining edge is too short.");
     return result;
 }
 
@@ -704,6 +717,9 @@ PreparedSheetProfile prepare_sheet_profile(const document::PartDocument& before,
     std::vector<Child> logical;logical.reserve(route.spans.size());
     auto route_origin=driver.world_point(
         route.spans.front().start[0],route.spans.front().start[1]);
+    std::array<V,2> incoming_width_edge{
+        add(route_origin,mul(width_axis,width_first)),
+        add(route_origin,mul(width_axis,width_last))};
     std::optional<sketcher::Sketch> previous_bend_end;
     for(std::size_t index=0;index<route.spans.size();++index) {
         const auto& span=route.spans[index];
@@ -726,11 +742,8 @@ PreparedSheetProfile prepare_sheet_profile(const document::PartDocument& before,
                 flat_y=previous_bend_end->resolved_normal;
                 flat_normal=mul(previous_bend_end->resolved_y_axis,-1);
             }
-            auto local_width=previous_bend_end
-                ?bend_end_width_interval(*previous_bend_end)
-                :std::array{width_first*dot(width_axis,flat_x),
-                    width_last*dot(width_axis,flat_x)};
-            if(!previous_bend_end)std::ranges::sort(local_width);
+            const auto local_width=project_width_edge(incoming_width_edge,
+                flat_origin,flat_x);
             child.feature.flat.sketch_id=child.sketch.id;
             child.feature.flat.sheet_attachment=false;
             child.feature.flat.thickness_override=true;
@@ -750,6 +763,9 @@ PreparedSheetProfile prepare_sheet_profile(const document::PartDocument& before,
                 index==master_index);
             static_cast<void>(document::flat_request(child.feature,child.sketch,defaults));
             route_origin=add(flat_origin,mul(flat_y,span.length));
+            incoming_width_edge={
+                add(route_origin,mul(flat_x,local_width[0])),
+                add(route_origin,mul(flat_x,local_width[1]))};
             previous_bend_end.reset();
         } else {
             const bool attached_start=
@@ -794,9 +810,8 @@ PreparedSheetProfile prepare_sheet_profile(const document::PartDocument& before,
                 child.sketch.plane=sketcher::SketchPlane::XY;
                 child.sketch.plane_offset=0;
             }
-            std::array local_width{width_first*dot(width_axis,along),
-                width_last*dot(width_axis,along)};
-            std::ranges::sort(local_width);
+            const auto local_width=project_width_edge(incoming_width_edge,
+                outer_start,along);
             const auto offsets=attached_start
                 ?attached_profile_bend_offsets(child.sketch)
                 :std::array<double,2>{};
@@ -827,6 +842,7 @@ PreparedSheetProfile prepare_sheet_profile(const document::PartDocument& before,
                 child.sketch,defaults));
             previous_bend_end=sketcher::Sketch::from_serialized(
                 child.feature.bend.auxiliary_sketches[1]);
+            incoming_width_edge=bend_end_width_edge(*previous_bend_end);
             route_origin=previous_bend_end->resolved_origin;
         }
         logical.push_back(std::move(child));
