@@ -986,6 +986,19 @@ void attached_profile_seed_and_history() {
     const double flat_width=flat_max->x-flat_min->x;
     require(master_width>60&&std::abs(flat_width-master_width)<1e-8,
         "Source Flat resize updated the Profile Bend but not its following Flat");
+    const auto resized_bend_end=sketcher::Sketch::from_serialized(
+        resized_master->bend.auxiliary_sketches[1]);
+    require(close(resized_flat_sketch->resolved_origin,
+                resized_bend_end.resolved_origin)&&
+            close(resized_flat_sketch->resolved_x_axis,
+                resized_bend_end.resolved_x_axis)&&
+            close(resized_flat_sketch->resolved_y_axis,
+                resized_bend_end.resolved_normal)&&
+            close(resized_flat_sketch->resolved_normal,
+                kernel::Vec3{-resized_bend_end.resolved_y_axis.x,
+                    -resized_bend_end.resolved_y_axis.y,
+                    -resized_bend_end.resolved_y_axis.z}),
+        "Source Flat resize left the following Profile Flat on the old Bend path");
     auto resized_references=workspace::construction_reference_source_geometry(
         resize_state->session.calculated_boundaries());
     const auto resized_prepared=workspace::prepare_sheet_profile(
@@ -995,16 +1008,152 @@ void attached_profile_seed_and_history() {
             resized_document.serialized(),
         "Source Flat resize left stale attached Profile children");
     const auto resized_complete=resized_document.serialized();
+
+    // Moving the selected source edge changes the complete Profile path, not
+    // merely its width. The downstream Flat must move with the attached Bend.
+    auto moved_stock=*resize_state->session.document().find_container(stock.id);
+    auto moved_outline=*std::ranges::find(
+        resize_state->session.document().sketches,outline.id,
+        &sketcher::Sketch::id);
+    for(auto& point:moved_outline.points) {
+        point.x+=12;point.y+=8;
+    }
+    require(workspace::commit_flat(resize_live,kernel,document_id,
+            moved_stock,moved_outline),
+        "Moving the source Flat path did not commit");
+    resize_state=resize_live.open_part(document_id);
+    const auto& moved_document=resize_state->session.document();
+    const auto* moved_parent=moved_document.find_container(profile.id);
+    const auto moved_driver=std::ranges::find(moved_document.sketches,route.id,
+        &sketcher::Sketch::id);
+    require(moved_parent&&moved_driver!=moved_document.sketches.end(),
+        "Moving the source Flat path lost the attached Profile");
+    const auto moved_route=document::sheet_profile_route(*moved_driver,
+        moved_parent->sheet_profile.start_point_id);
+    const auto* moved_master=moved_document.find_container(
+        moved_parent->sheet_profile.master_feature_id);
+    const auto moved_flat=std::ranges::find_if(moved_document.history,
+        [&](const auto& feature) {
+            return feature.sheet_profile_binding.parent_id==profile.id&&
+                feature.sheet_profile_binding.curve_id==
+                    moved_route.spans.back().curve_id;
+        });
+    require(moved_master&&moved_flat!=moved_document.history.end(),
+        "Moving the source Flat path lost the Profile Bend/Flat children");
+    const auto moved_flat_sketch=std::ranges::find(moved_document.sketches,
+        moved_flat->flat.sketch_id,&sketcher::Sketch::id);
+    const auto moved_bend_end=sketcher::Sketch::from_serialized(
+        moved_master->bend.auxiliary_sketches[1]);
+    const double moved_path_distance=std::hypot(std::hypot(
+        moved_bend_end.resolved_origin.x-resized_bend_end.resolved_origin.x,
+        moved_bend_end.resolved_origin.y-resized_bend_end.resolved_origin.y),
+        moved_bend_end.resolved_origin.z-resized_bend_end.resolved_origin.z);
+    require(moved_path_distance>1&&
+            moved_flat_sketch!=moved_document.sketches.end()&&
+            close(moved_flat_sketch->resolved_origin,
+                moved_bend_end.resolved_origin)&&
+            close(moved_flat_sketch->resolved_x_axis,
+                moved_bend_end.resolved_x_axis)&&
+            close(moved_flat_sketch->resolved_y_axis,
+                moved_bend_end.resolved_normal)&&
+            close(moved_flat_sketch->resolved_normal,
+                kernel::Vec3{-moved_bend_end.resolved_y_axis.x,
+                    -moved_bend_end.resolved_y_axis.y,
+                    -moved_bend_end.resolved_y_axis.z}),
+        "Moving the source Flat updated the Profile Bend but not its following Flat path");
+    auto moved_references=workspace::construction_reference_source_geometry(
+        resize_state->session.calculated_boundaries());
+    const auto moved_prepared=workspace::prepare_sheet_profile(moved_document,
+        *moved_parent,*moved_driver,std::move(moved_references));
+    require(moved_prepared.document.serialized()==moved_document.serialized(),
+        "Moving the source Flat left stale attached Profile children");
+    const auto moved_complete=moved_document.serialized();
     require(workspace::step_part_document_history(resize_live,document_id,
                 false)&&
             resize_live.open_part(document_id)->session.document().serialized()==
-                complete,
-        "Source Flat resize Undo did not restore the complete attached Profile");
+                resized_complete,
+        "Source Flat path move Undo did not restore the resized Profile");
     require(workspace::step_part_document_history(resize_live,document_id,
                 true)&&
             resize_live.open_part(document_id)->session.document().serialized()==
-                resized_complete,
-        "Source Flat resize Redo changed the regenerated attached Profile");
+                moved_complete,
+        "Source Flat path move Redo changed the regenerated Profile");
+    resize_state=resize_live.open_part(document_id);
+
+    // Changing the source sheet thickness moves the attached Bend end even
+    // when the authored outer route remains unchanged. The following Flat
+    // must inherit both the new thickness and that new end frame.
+    auto thicker_stock=*resize_state->session.document().find_container(
+        stock.id);
+    auto thicker_outline=*std::ranges::find(
+        resize_state->session.document().sketches,outline.id,
+        &sketcher::Sketch::id);
+    thicker_stock.flat.thickness=4;
+    require(workspace::commit_flat(resize_live,kernel,document_id,
+            thicker_stock,thicker_outline),
+        "Changing the source Flat thickness did not commit");
+    resize_state=resize_live.open_part(document_id);
+    const auto& thicker_document=resize_state->session.document();
+    const auto* thicker_parent=thicker_document.find_container(profile.id);
+    const auto thicker_driver=std::ranges::find(thicker_document.sketches,
+        route.id,&sketcher::Sketch::id);
+    require(thicker_parent&&thicker_driver!=thicker_document.sketches.end()&&
+            std::abs(thicker_parent->sheet_profile.thickness-4)<1e-8,
+        "Source thickness change did not reach the attached Profile");
+    const auto thicker_route=document::sheet_profile_route(*thicker_driver,
+        thicker_parent->sheet_profile.start_point_id);
+    const auto* thicker_master=thicker_document.find_container(
+        thicker_parent->sheet_profile.master_feature_id);
+    const auto thicker_flat=std::ranges::find_if(thicker_document.history,
+        [&](const auto& feature) {
+            return feature.sheet_profile_binding.parent_id==profile.id&&
+                feature.sheet_profile_binding.curve_id==
+                    thicker_route.spans.back().curve_id;
+        });
+    require(thicker_master&&thicker_flat!=thicker_document.history.end()&&
+            std::abs(thicker_master->bend.thickness-4)<1e-8&&
+            std::abs(thicker_flat->flat.thickness-4)<1e-8,
+        "Source thickness updated the Profile Bend but not its following Flat");
+    const auto thicker_flat_sketch=std::ranges::find(
+        thicker_document.sketches,thicker_flat->flat.sketch_id,
+        &sketcher::Sketch::id);
+    const auto thicker_bend_end=sketcher::Sketch::from_serialized(
+        thicker_master->bend.auxiliary_sketches[1]);
+    require(thicker_flat_sketch!=thicker_document.sketches.end()&&
+            close(thicker_flat_sketch->resolved_origin,
+                thicker_bend_end.resolved_origin)&&
+            close(thicker_flat_sketch->resolved_x_axis,
+                thicker_bend_end.resolved_x_axis)&&
+            close(thicker_flat_sketch->resolved_y_axis,
+                thicker_bend_end.resolved_normal)&&
+            close(thicker_flat_sketch->resolved_normal,
+                kernel::Vec3{-thicker_bend_end.resolved_y_axis.x,
+                    -thicker_bend_end.resolved_y_axis.y,
+                    -thicker_bend_end.resolved_y_axis.z}),
+        "Source thickness left the following Profile Flat on the old Bend path");
+    auto thicker_references=workspace::construction_reference_source_geometry(
+        resize_state->session.calculated_boundaries());
+    const auto thicker_prepared=workspace::prepare_sheet_profile(
+        thicker_document,*thicker_parent,*thicker_driver,
+        std::move(thicker_references));
+    require(thicker_prepared.document.serialized()==
+            thicker_document.serialized(),
+        "Source thickness change left stale attached Profile children");
+    require(!resize_state->session.calculated_boundaries().empty()&&
+            resize_state->session.calculated_boundaries().back().
+                calculation_errors.empty(),
+        "Source thickness change broke the calculated attached Profile");
+    const auto thicker_complete=thicker_document.serialized();
+    require(workspace::step_part_document_history(resize_live,document_id,
+                false)&&
+            resize_live.open_part(document_id)->session.document().serialized()==
+                moved_complete,
+        "Source thickness Undo did not restore the moved attached Profile");
+    require(workspace::step_part_document_history(resize_live,document_id,
+                true)&&
+            resize_live.open_part(document_id)->session.document().serialized()==
+                thicker_complete,
+        "Source thickness Redo changed the regenerated attached Profile");
     resize_state=resize_live.open_part(document_id);
     const auto resized_file=std::filesystem::path("build")/
         ("zima-attached-profile-resize-"+profile.id+".prtz");

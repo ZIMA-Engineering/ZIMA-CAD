@@ -809,6 +809,134 @@ static int verify_sheet_profile_ui(QApplication& application,
                 attached_saved.serialized(),
             "Unchanged attached Profile Properties committed a shifted definition");
 
+        // Exercise the user's actual edit path through source Flat Properties.
+        // A thickness change moves the attached Bend end; the generated Flat
+        // must consume the new end frame instead of retaining the old route.
+        QTreeWidgetItem* stock_row{};
+        for(QTreeWidgetItemIterator row(tree);*row;++row)
+            if((*row)->data(0,Qt::UserRole).toString().toStdString()==
+                    stock.id) {
+                stock_row=*row;break;
+            }
+        require(stock_row,"Attached Profile source Flat is missing from Tree");
+        window.show_tree_item_properties(stock_row);flush();
+        auto* stock_dialog=dynamic_cast<app::SketchPropertiesDialog*>(
+            window.findChild<QDialog*>("flatPropertiesDialog"));
+        auto* stock_thickness=stock_dialog?
+            stock_dialog->findChild<QDoubleSpinBox*>("flatThickness"):nullptr;
+        require(stock_dialog&&stock_thickness,
+            "Attached Profile source Flat Properties did not open");
+        stock_thickness->setValue(4);flush();
+        stock_dialog->findChild<QDialogButtonBox*>()->button(
+            QDialogButtonBox::Ok)->click();flush();
+        window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
+        const auto source_edited=document::PartDocument::load(attached_path);
+        const auto source_edited_parent=std::ranges::find(source_edited.history,
+            attached_parent->id,&document::HistoryContainer::id);
+        require(source_edited_parent!=source_edited.history.end()&&
+                std::abs(source_edited_parent->sheet_profile.thickness-4)<1e-8,
+            "Source Flat thickness did not reach the attached Profile");
+        const auto source_edited_driver=std::ranges::find(
+            source_edited.sketches,source_edited_parent->sheet_profile.sketch_id,
+            &sketcher::Sketch::id);
+        require(source_edited_driver!=source_edited.sketches.end(),
+            "Source Flat thickness change lost the Profile route");
+        const auto source_edited_route=document::sheet_profile_route(
+            *source_edited_driver,
+            source_edited_parent->sheet_profile.start_point_id);
+        const auto* source_edited_master=source_edited.find_container(
+            source_edited_parent->sheet_profile.master_feature_id);
+        const auto source_edited_flat=std::ranges::find_if(
+            source_edited.history,[&](const auto& feature) {
+                return feature.sheet_profile_binding.parent_id==
+                        source_edited_parent->id&&
+                    feature.sheet_profile_binding.curve_id==
+                        source_edited_route.spans.back().curve_id;
+            });
+        require(source_edited_master&&
+                source_edited_flat!=source_edited.history.end()&&
+                std::abs(source_edited_master->bend.thickness-4)<1e-8&&
+                std::abs(source_edited_flat->flat.thickness-4)<1e-8,
+            "Source Flat thickness updated the Profile Bend but not its following Flat");
+        const auto source_edited_flat_sketch=std::ranges::find(
+            source_edited.sketches,source_edited_flat->flat.sketch_id,
+            &sketcher::Sketch::id);
+        const auto source_edited_bend_end=sketcher::Sketch::from_serialized(
+            source_edited_master->bend.auxiliary_sketches[1]);
+        const auto frame_distance=[](kernel::Vec3 a,kernel::Vec3 b) {
+            return std::hypot(std::hypot(a.x-b.x,a.y-b.y),a.z-b.z);
+        };
+        const auto frame_dot=[](kernel::Vec3 a,kernel::Vec3 b) {
+            return a.x*b.x+a.y*b.y+a.z*b.z;
+        };
+        require(source_edited_flat_sketch!=source_edited.sketches.end()&&
+                frame_distance(source_edited_flat_sketch->resolved_origin,
+                    source_edited_bend_end.resolved_origin)<1e-8&&
+                frame_dot(source_edited_flat_sketch->resolved_x_axis,
+                    source_edited_bend_end.resolved_x_axis)>1-1e-8&&
+                frame_dot(source_edited_flat_sketch->resolved_y_axis,
+                    source_edited_bend_end.resolved_normal)>1-1e-8&&
+                frame_dot(source_edited_flat_sketch->resolved_normal,
+                    source_edited_bend_end.resolved_y_axis)<-1+1e-8,
+            "Source Flat thickness left the following Profile Flat on the old path");
+
+        // A right click on any generated Profile span represents the parent
+        // Profile as one feature and reuses its ordinary Tree actions.
+        view->fit_all();flush();
+        std::optional<QPointF> profile_context_hit;
+        for(int y=4;y<view->height()&&!profile_context_hit;y+=4)
+            for(int x=4;x<view->width()&&!profile_context_hit;x+=4) {
+                const auto candidates=view->selection_candidates_at(
+                    QPointF(x,y));
+                if(std::ranges::any_of(candidates,[&](const auto& candidate) {
+                        return candidate.kind==viewer::CandidateKind::Container&&
+                            candidate.owner_id==source_edited_flat->id;
+                    }))profile_context_hit=QPointF(x,y);
+            }
+        require(profile_context_hit.has_value(),
+            "Following Profile Flat is not selectable for its View context menu");
+        const auto send_profile_context_mouse=[&](QEvent::Type type,
+                Qt::MouseButton button,Qt::MouseButtons buttons) {
+            QMouseEvent event(type,*profile_context_hit,
+                QPointF(view->mapToGlobal(profile_context_hit->toPoint())),
+                button,buttons,Qt::NoModifier);
+            QApplication::sendEvent(view,&event);flush();
+        };
+        send_profile_context_mouse(QEvent::MouseMove,
+            Qt::NoButton,Qt::NoButton);
+        send_profile_context_mouse(QEvent::MouseButtonPress,
+            Qt::LeftButton,Qt::LeftButton);
+        send_profile_context_mouse(QEvent::MouseButtonRelease,
+            Qt::LeftButton,Qt::NoButton);
+        QMouseEvent context_press(QEvent::MouseButtonPress,
+            *profile_context_hit,
+            QPointF(view->mapToGlobal(profile_context_hit->toPoint())),
+            Qt::RightButton,Qt::RightButton,Qt::NoModifier);
+        bool complete_profile_menu=false;
+        QTimer::singleShot(0,&window,[&] {
+            auto* menu=qobject_cast<QMenu*>(QApplication::activePopupWidget());
+            if(!menu)return;
+            const auto action=[&](const char* name) {
+                return menu->findChild<QAction*>(name);
+            };
+            complete_profile_menu=action("editHistoryObject")&&
+                action("historyObjectProperties")&&
+                action("suppressHistoryObject")&&
+                action("deleteHistoryObject")&&
+                action("renameTreeItemAction");
+            menu->close();
+        });
+        QApplication::sendEvent(view,&context_press);
+        QMouseEvent context_release(QEvent::MouseButtonRelease,
+            *profile_context_hit,
+            QPointF(view->mapToGlobal(profile_context_hit->toPoint())),
+            Qt::RightButton,Qt::NoButton,Qt::NoModifier);
+        QApplication::sendEvent(view,&context_release);flush();
+        require(complete_profile_menu&&tree->currentItem()&&
+                tree->currentItem()->data(0,Qt::UserRole).toString().toStdString()==
+                    source_edited_parent->id,
+            "Profile View context menu did not expose its complete parent actions");
+
         // The first real edge-attached Bend is the only generated child that
         // remains directly inspectable.  It exposes R/angle, never its
         // derived placement Euler angles.

@@ -901,7 +901,16 @@ void AssemblyWorkspaceWindow::create_layout() {
     viewer_->set_context_menu_callback(
         [this](const auto& candidate, const QPoint& global_position) {
             if(section_dialog_&&section_dialog_->isVisible())return;
-            if (!part_element_context_menu_enabled(candidate.owner_id)) return;
+            std::string context_owner_id=candidate.owner_id;
+            if(candidate.kind==zima::viewer::CandidateKind::Container)
+                if(const auto* part=workspace_.open_part(
+                        workspace_.active_document_id()))
+                    if(const auto* child=part->session.document().find_container(
+                            context_owner_id);
+                        child&&!child->sheet_profile_binding.parent_id.empty())
+                        context_owner_id=
+                            child->sheet_profile_binding.parent_id;
+            if (!part_element_context_menu_enabled(context_owner_id)) return;
             if(candidate.kind==zima::viewer::CandidateKind::Symbol && !properties_dialog_) {
                 const auto id=candidate.semantic_key.substr(7);QMenu menu(this);
                 auto* properties=menu.addAction(resource_icon("properties"),tr("Vlastnosti…"));auto* remove=menu.addAction(resource_icon("delete"),tr("Odstranit"));
@@ -1145,7 +1154,7 @@ void AssemblyWorkspaceWindow::create_layout() {
                 return;
             }
             if (candidate.kind == zima::viewer::CandidateKind::Container) {
-                auto* item = find_container_item(candidate.owner_id);
+                auto* item = find_container_item(context_owner_id);
                 if (item == nullptr) return;
                 // A confirmed View target is one exact object, even if an
                 // unrelated Tree multi-selection was previously active.
@@ -1550,8 +1559,34 @@ void AssemblyWorkspaceWindow::create_layout() {
         [this] { return cancel_current_sketch_step(true); });
     viewer_->set_single_candidate_right_click_callback({});
     viewer_->set_candidate_right_click_callback(
-        [this](const auto&, std::size_t candidate_index,
+        [this](const auto& candidate, std::size_t candidate_index,
                std::size_t candidate_count) {
+            // Ordinary feature selection intentionally keeps only the
+            // authored preview wire, not a calculated confirmed candidate.
+            // A selected Profile nevertheless owns all of its generated
+            // Bend/Flat spans, so RMB over any such span opens the parent's
+            // established Tree menu instead of cycling into a child row.
+            if(!properties_dialog_&&active_sketch_id_.empty())
+                if(const auto* part=workspace_.open_part(
+                        workspace_.active_document_id()))
+                    if(auto* item=tree_->currentItem();item&&
+                            item->data(0,Qt::UserRole+3).toString()==
+                                QStringLiteral("part-container")) {
+                        const auto id=item->data(0,Qt::UserRole).toString().
+                            toStdString();
+                        const auto* selected=
+                            part->session.document().find_container(id);
+                        if(selected&&selected->feature_kind==
+                                document::FeatureKind::SheetProfile&&
+                            sheet_profile_interaction_owner(
+                                part->session.document(),candidate.owner_id)==id) {
+                            const auto global=viewer_->mapToGlobal(
+                                viewer_->last_pointer_position());
+                            if(tree_context_menu_)tree_context_menu_(item,
+                                tree_->viewport()->mapFromGlobal(global));
+                            return true;
+                        }
+                    }
             // Once the first Rectangle corner is confirmed, RMB changes the
             // command state to orientation-axis entry.  This must outrank the
             // shared overlapping-candidate cycle: the corner itself, an axis
@@ -2842,6 +2877,8 @@ void AssemblyWorkspaceWindow::create_layout() {
                 menu.setObjectName("partHistoryMenu");
                 auto* edit = menu.addAction(resource_icon("edit"),tr("Upravit"));
                 auto* properties = menu.addAction(resource_icon("properties"),tr("Vlastnosti…"));
+                edit->setObjectName("editHistoryObject");
+                properties->setObjectName("historyObjectProperties");
                 const bool command_boundary=container->feature_kind==
                     zima::document::FeatureKind::SheetFromBody;
                 edit->setEnabled(!command_boundary);
