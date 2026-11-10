@@ -1,0 +1,78 @@
+{
+  "release": {
+    "tag": "ZIMA-CAD-2026111001",
+    "commit": "a34bf57cb72f560509904b5c8e0e9c6837b1dbc7",
+    "published_at": "2026-11-10T05:26:56Z",
+    "url": "https://github.com/ZIMA-Engineering/ZIMA-CAD/releases/tag/ZIMA-CAD-2026111001",
+    "draft": false,
+    "prerelease": false,
+    "latest": true
+  },
+  "candidate": {
+    "build_kind": "committed-candidate",
+    "archive_size": 963474453,
+    "archive_sha256": "e5fd06e4bc9e0fc8a97cb60c0e7a63db4eaa713b8df1d0b35d03e53edf0936eb",
+    "windows_smoke": "passed",
+    "native_factory_assets_loaded": 1185,
+    "native_factory_asset_failures": 0
+  },
+  "signed_release": {
+    "archive_name": "ZIMA-CAD-2026111001.zip",
+    "archive_size": 964290868,
+    "archive_sha256": "52aaa1a2020fe9896d00d3f10b96fa2887ed0de9c0c82663676358d9ad7470d5",
+    "archive_file_count": 17513,
+    "archive_unpacked_size": 3225609477,
+    "checksums_sha256": "f50874bd6c237e5118ec055c7fd54ec4355dec7f0ffe0a453460a0576c17b8b7",
+    "source_tree_sha256": "97d966f64def4559775c7420d6c9a432bd8ef52f4264157e13cd667460b0b1c6",
+    "windows_smoke": "passed",
+    "linux_smoke": "not-run",
+    "publisher_key_id": "zcp-8fa1f825cbde5d81",
+    "manifest_sha256": "6c0b29a698bdc299ec2f196fbc5095c68dd77000094012f6c894333abe88709e",
+    "signature_file_sha256": "1323bf9f16039b044581e5592f336ff63a397e1984d660fc4cb84066fb156aed"
+  },
+  "public_assets": [
+    {
+      "name": "ZIMA-CAD-2026111001.zip",
+      "size": 964290868,
+      "sha256": "52aaa1a2020fe9896d00d3f10b96fa2887ed0de9c0c82663676358d9ad7470d5",
+      "github_digest_matches": true,
+      "anonymous_download_matches": true
+    },
+    {
+      "name": "update-manifest.json",
+      "size": 703,
+      "sha256": "6c0b29a698bdc299ec2f196fbc5095c68dd77000094012f6c894333abe88709e",
+      "github_digest_matches": true,
+      "anonymous_download_matches": true
+    },
+    {
+      "name": "update-manifest.sig",
+      "size": 176,
+      "sha256": "1323bf9f16039b044581e5592f336ff63a397e1984d660fc4cb84066fb156aed",
+      "github_digest_matches": true,
+      "anonymous_download_matches": true
+    }
+  ],
+  "updater_discovery": {
+    "installed_version": "2026111001",
+    "status": "current",
+    "public_manifest_signature_verified": true,
+    "download_performed": false,
+    "installation_performed": false
+  },
+  "focused_verification": {
+    "tests_passed": 22,
+    "tests_failed": 0,
+    "sheet_profile_extents_and_ui": "passed",
+    "active_body_and_copy_origin_references": "passed",
+    "pattern_mirror_topology_identity": "passed",
+    "fillet_chamfer_logical_rails": "passed",
+    "native_format_50_assets_and_metadata": "passed",
+    "localization_contract": "passed"
+  },
+  "limits": [
+    "The separate workspace-startup contract retains its pre-existing second-active-Body Tree/View menu assertion after its preceding checks pass.",
+    "The complete repository-wide regression matrix is not claimed green.",
+    "Native Linux compilation and execution were not run on the Windows host."
+  ]
+}

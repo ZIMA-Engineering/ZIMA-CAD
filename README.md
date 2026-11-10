@@ -57,20 +57,18 @@ See [native distribution](doc/NATIVE_DISTRIBUTION.md),
 [updates](doc/UPDATES.md) and the [user manual](doc/USER_MANUAL.md).
 
 The latest published signed Windows release is
-[2026110802](https://github.com/ZIMA-Engineering/ZIMA-CAD/releases/tag/ZIMA-CAD-2026110802).
-Its clean committed-source package, signature, candidate and signed native smoke,
-all 1,185 factory native assets and fresh anonymous public downloads are verified.
-It completes the curved Fillet/Chamfer terminal and route-membership corrections,
-the analytical treatment preview and safe history-treatment deletion. The shared
-Windows/Linux source remains pinned to OCCT 8.0.1. See the
-[release record](doc/releases/2026110802.md) and
-[publication evidence](doc/verification/20261108-windows-0802-publication.json).
-The unpublished 2026110901 and 2026110902 source tags are superseded by the
-[2026111001 Windows candidate](doc/releases/2026111001.md). It completes shared
+[2026111001](https://github.com/ZIMA-Engineering/ZIMA-CAD/releases/tag/ZIMA-CAD-2026111001).
+Its clean committed-source package, trusted signature, candidate and signed
+native smoke, all 1,185 factory native assets, production-updater discovery and
+fresh anonymous public downloads are verified. It supersedes the unpublished
+2026110901 and 2026110902 source tags and completes shared
 Profile extents, active-Body and copied-Origin Sketch references, independent
 Pattern/Mirror topology, resilient logical Fillet rails and the native Part
 format-50 factory refresh, together with the preceding Sweep rollback, Sketch
-Trim, projected-view and interactive Drawing corrections.
+Trim, projected-view and interactive Drawing corrections. The shared
+Windows/Linux source remains pinned to OCCT 8.0.1. See the
+[release record](doc/releases/2026111001.md) and
+[publication evidence](doc/verification/20261110-windows-1001-publication.json).
 The [current status](doc/PROJECT_STATUS.md) separates released scope and remaining
 work. Linux verification follows the separate handoff.
 

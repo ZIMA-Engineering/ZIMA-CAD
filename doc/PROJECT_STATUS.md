@@ -20,8 +20,8 @@ The release completes the curved Fillet/Chamfer terminal and route-membership
 corrections, analytical treatment previews and safe treatment deletion. Its
 native schema is unchanged.
 
-The unpublished 2026110901 and 2026110902 source tags are superseded by Windows
-candidate [2026111001](releases/2026111001.md). It completes shared Feature-like
+The unpublished 2026110901 and 2026110902 source tags are superseded by published
+Windows release [2026111001](releases/2026111001.md). It completes shared Feature-like
 Sheet Profile extents, active-Body and manually shown/copy Origin references in
 Sketcher, independent Pattern/Mirror topology and connected logical Fillet rails.
 It advances native Part format to 50 and regenerates all affected repository
@@ -29,8 +29,11 @@ assets. The batch also includes Sweep Properties rollback ordering,
 relation-preserving Trim, direct projected-view placement and faster Drawing
 display with distinct thin strokes. Its final Windows matrix is recorded in
 [the 2026-11-10 verification](verification/20261110-sheet-profile-width-and-part-format-50.md).
-Packaging and public acceptance are not claimed until the release record is
-updated.
+The clean committed-source candidate and signed archive passed Windows smoke;
+all three public assets match their GitHub digests and fresh anonymous downloads.
+The production updater also verified the public signature and reported the build
+as current. See the
+[publication evidence](verification/20261110-windows-1001-publication.json).
 
 Windows and Linux use the same C++ modeling implementation and pin OCCT 8.0.1.
 The protected container-placement, geometry-side, reference-identity and
@@ -114,7 +117,7 @@ evidence. Published 2501 and every older signed release remain immutable.
 
 | Work | Current boundary / next step |
 | --- | --- |
-| Current correction/release batch | Windows 2026110802 is published. The unpublished 2026110901/2026110902 tags are superseded by 2026111001, which completes Profile extents, Origin/reference persistence, copied topology, Fillet logical rails and native Part format 50. Its linked Windows matrix passes; clean committed-source packaging and publication acceptance remain. Native Linux verification is separate. |
+| Current correction/release batch | Windows 2026111001 is published and supersedes the unpublished 2026110901/2026110902 tags. It completes Profile extents, Origin/reference persistence, copied topology, Fillet logical rails and native Part format 50. Clean committed-source and signed smoke, factory assets, GitHub digests, anonymous downloads and production-updater discovery pass. Native Linux verification is separate. |
 | Skeleton interaction | New Feature opening measures 0.280--0.353 s, Default Origin 0.272--0.280 s and the representative Sketch move about 6 ms. The 32-operation Skeleton opens in about 7.4 s; cold explicit regeneration measures about 68.9 s after physical analysis leaves the critical path, while exact Save adds about 30 s. A late Solid Fillet edit/Undo/Redo succeeds, but its dependent suffix remains about 26 s. Production parallel batching and immediate Escape cancellation remain gated on exact identity and cooperative OCCT cancellation. |
 | Remaining fasteners | Cast wing-nut studies and toothed/fan washers remain unfinished. Preserve source-dimension discrepancies and private user edits. Two-part locking nuts are excluded. See [library queue](FASTENER_REMAINING_WORK.md). |
 | Sketch intersection references | Native source/branch association and editor commands are implemented in the documented finite scope. Arbitrary curved arrangements and the native Linux matrix remain unverified. See [editor verification](verification/20261022-sketch-intersection-editor.md). |
