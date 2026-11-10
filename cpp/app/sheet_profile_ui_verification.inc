@@ -683,6 +683,9 @@ static int verify_sheet_profile_ui(QApplication& application,
                 std::abs(returned_angle->value-75.)<1e-8&&
                 std::abs(returned_length->value-55.)<1e-8,
             "Returning from attached Profile Sketcher shifted R, angle or length");
+        const auto attached_created_preview=view->transient_edges();
+        require(!attached_created_preview.empty(),
+            "Attached Profile has no accepted creation preview");
         dialog->findChild<QDialogButtonBox*>()->button(
             QDialogButtonBox::Ok)->click();flush();
         require(!window.findChild<QDialog*>("sheetProfilePropertiesDialog"),
@@ -718,6 +721,93 @@ static int verify_sheet_profile_ui(QApplication& application,
                 std::abs(saved_length->value-55.)<1e-8&&
                 std::abs(saved_angle->value-75.)<1e-8,
             "Attached Profile GUI dimension edits did not persist");
+
+        std::vector<kernel::ViewerEdge> attached_stored_preview;
+        const auto attached_defaults=document::sheet_metal_defaults(
+            attached_saved);
+        for(const auto& child:attached_saved.history) {
+            if(child.sheet_profile_binding.parent_id!=attached_parent->id)
+                continue;
+            const auto& child_sketch_id=child.feature_kind==
+                    document::FeatureKind::Bend
+                ?child.bend.sketch_id:child.flat.sketch_id;
+            const auto child_sketch=std::ranges::find(
+                attached_saved.sketches,child_sketch_id,&sketcher::Sketch::id);
+            require(child_sketch!=attached_saved.sketches.end(),
+                "Saved attached Profile child lost its Sketch");
+            auto child_preview=child.feature_kind==document::FeatureKind::Bend
+                ?document::bend_preview(child,*child_sketch,attached_defaults)
+                :document::flat_preview(child,*child_sketch,attached_defaults);
+            attached_stored_preview.insert(attached_stored_preview.end(),
+                std::make_move_iterator(child_preview.edges.begin()),
+                std::make_move_iterator(child_preview.edges.end()));
+        }
+        require(!attached_stored_preview.empty(),
+            "Saved attached Profile has no authored Bend/Flat preview");
+
+        // Reopening the parent Profile is an inspection until the user
+        // changes a value. Its first preview must therefore be the same
+        // authored route and Bend/Flat wire that was accepted on creation.
+        // In particular, resolving an already attached route a second time
+        // must not add the source Flat width to the Bend offset.
+        const auto same_wire=[](const auto& first,const auto& second) {
+            if(first.size()!=second.size())return false;
+            for(std::size_t edge=0;edge<first.size();++edge) {
+                if(first[edge].points.size()!=second[edge].points.size())
+                    return false;
+                for(std::size_t point=0;point<first[edge].points.size();
+                        ++point) {
+                    const auto a=first[edge].points[point];
+                    const auto b=second[edge].points[point];
+                    if(std::hypot(std::hypot(a.x-b.x,a.y-b.y),a.z-b.z)>
+                            1e-8)
+                        return false;
+                }
+            }
+            return true;
+        };
+        QTreeWidgetItem* attached_parent_row{};
+        for(QTreeWidgetItemIterator row(tree);*row;++row)
+            if((*row)->data(0,Qt::UserRole).toString().toStdString()==
+                    attached_parent->id) {
+                attached_parent_row=*row;break;
+            }
+        require(attached_parent_row,
+            "Attached Profile parent is missing before Properties reopen");
+        window.show_tree_item_properties(attached_parent_row);flush();
+        dialog=dynamic_cast<app::SketchPropertiesDialog*>(
+            window.findChild<QDialog*>("sheetProfilePropertiesDialog"));
+        require(dialog&&dialog->isVisible(),
+            "Attached Profile parent Properties did not reopen");
+        const auto reopened_pending=dialog->pending_value();
+        require(reopened_pending.first.serialized()==attached_route->serialized(),
+            "Opening attached Profile Properties changed its route or frame");
+        require(same_wire(view->transient_edges(),attached_stored_preview),
+            "Opening attached Profile Properties shifted its Bend/Flat preview");
+        dialog->reject();flush();
+        window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
+        require(document::PartDocument::load(attached_path).serialized()==
+                attached_saved.serialized(),
+            "Cancelling reopened attached Profile Properties changed the document");
+
+        attached_parent_row=nullptr;
+        for(QTreeWidgetItemIterator row(tree);*row;++row)
+            if((*row)->data(0,Qt::UserRole).toString().toStdString()==
+                    attached_parent->id) {
+                attached_parent_row=*row;break;
+            }
+        require(attached_parent_row,
+            "Attached Profile parent disappeared after reopen Cancel");
+        window.show_tree_item_properties(attached_parent_row);flush();
+        dialog=dynamic_cast<app::SketchPropertiesDialog*>(
+            window.findChild<QDialog*>("sheetProfilePropertiesDialog"));
+        require(dialog,"Attached Profile parent did not reopen for no-op OK");
+        dialog->findChild<QDialogButtonBox*>()->button(
+            QDialogButtonBox::Ok)->click();flush();
+        window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
+        require(document::PartDocument::load(attached_path).serialized()==
+                attached_saved.serialized(),
+            "Unchanged attached Profile Properties committed a shifted definition");
 
         // The first real edge-attached Bend is the only generated child that
         // remains directly inspectable.  It exposes R/angle, never its

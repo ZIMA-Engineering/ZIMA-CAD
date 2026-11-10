@@ -85,6 +85,12 @@ bool commit_flat(Workspace& live,const kernel::OcctKernel& kernel,const std::str
     append_reference_geometry(references,next.construction_viewer_mesh().original_references);
     next.resolve_constructions(std::move(references));
     auto calculated=calculate_part_with_resolved_references(kernel,next,&state->session.calculated_boundaries(),policy);
+    const auto dependent_references=
+        construction_reference_source_geometry(calculated);
+    if(refresh_attached_sheet_profiles_from_source(next,container,
+            dependent_references))
+        calculated=calculate_part_with_resolved_references(kernel,next,
+            &calculated,policy);
     if(!next.find_container(container)->placement.reference_valid)throw std::invalid_argument("Flat placement references cannot be resolved.");
     if(next.serialized()==before.serialized()) {
         state->session.update_calculated_boundaries(std::move(calculated));return false;

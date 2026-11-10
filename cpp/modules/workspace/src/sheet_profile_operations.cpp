@@ -262,6 +262,39 @@ void set_bend_width(sketcher::Sketch& sketch,double first,double last) {
     sketch.validate();
 }
 
+std::array<bool,2> attached_profile_bend_offset_signs(
+        const sketcher::Sketch& sketch) {
+    std::array<bool,2> result{};
+    for(std::size_t index=0;index<result.size();++index) {
+        const auto suffix=index?":position:last":":position:first";
+        const auto dimension=std::ranges::find(sketch.dimensions,
+            sketch.id+suffix,&sketcher::SketchDimension::id);
+        if(dimension!=sketch.dimensions.end())
+            result[index]=std::signbit(dimension->value);
+    }
+    return result;
+}
+
+void reset_attached_profile_bend_offsets(sketcher::Sketch& sketch,
+        const std::array<bool,2>& negative) {
+    // The generated first Bend always consumes the complete selected edge.
+    // update_bend_sheet_profile() interprets these dimensions as offsets from
+    // the two native edge endpoints, not as absolute width coordinates.  A
+    // repeated Profile preparation used to write the edge width into one of
+    // them through set_bend_width(), moving the Bend by that complete width
+    // when Properties was merely reopened.
+    for(std::size_t index=0;index<negative.size();++index) {
+        const auto suffix=index?":position:last":":position:first";
+        const auto dimension=std::ranges::find(sketch.dimensions,
+            sketch.id+suffix,&sketcher::SketchDimension::id);
+        if(dimension==sketch.dimensions.end())
+            throw std::invalid_argument(
+                "Generated Sheet Profile Bend offset dimension is missing.");
+        dimension->value=std::copysign(0.0,negative[index]?-1.0:1.0);
+        dimension->solution_side=std::signbit(dimension->value)?-1:1;
+    }
+}
+
 void set_flat_profile(sketcher::Sketch& sketch,double first,double last,
         double length,bool width_driver) {
     if(last-first<.001||length<.001)
@@ -742,7 +775,12 @@ PreparedSheetProfile prepare_sheet_profile(const document::PartDocument& before,
             std::array local_width{width_first*dot(width_axis,along),
                 width_last*dot(width_axis,along)};
             std::ranges::sort(local_width);
+            const auto offset_signs=attached_start
+                ?attached_profile_bend_offset_signs(child.sketch)
+                :std::array<bool,2>{};
             set_bend_width(child.sketch,local_width[0],local_width[1]);
+            if(attached_start)
+                reset_attached_profile_bend_offsets(child.sketch,offset_signs);
             document::prepare_bend_sketches(child.feature,child.sketch,defaults);
             if(attached_start) {
                 // Resolve the real edge-attached Bend before constructing any
@@ -756,6 +794,10 @@ PreparedSheetProfile prepare_sheet_profile(const document::PartDocument& before,
                 bend_carrier.resolve_constructions(references);
                 child.feature=std::move(bend_carrier.history.front());
                 child.sketch=std::move(bend_carrier.sketches.front());
+                // Persist the end frame derived from the real attachment
+                // result. Downstream Profile spans consume this exact frame.
+                document::prepare_bend_sketches(child.feature,child.sketch,
+                    defaults);
             }
             hide_generated_bend_dimensions(child.feature,child.sketch,
                 index==master_index);
@@ -824,6 +866,46 @@ PreparedSheetProfile prepare_sheet_profile(const document::PartDocument& before,
     PreparedSheetProfile result{std::move(next),{}};
     for(const auto& child:logical)result.logical_children.push_back(child.feature.id);
     return result;
+}
+
+bool refresh_attached_sheet_profiles_from_source(
+        document::PartDocument& current,const std::string& source_container_id,
+        const kernel::ViewerReferenceGeometry& references) {
+    const auto* source=current.find_container(source_container_id);
+    if(!source)return false;
+    const std::array source_owners{source->id,source->feature_id,
+        source->container_origin.id};
+    std::vector<std::string> dependents;
+    for(const auto& feature:current.history) {
+        if(feature.feature_kind!=document::FeatureKind::SheetProfile||
+           !feature.sheet_profile.sheet_attachment||
+           !feature.placement.reference_valid)
+            continue;
+        const auto* owner=current.body_owner_for_object(feature.id);
+        if(!owner||owner->scope.id!=current.body_history.active_body_id())
+            continue;
+        if(std::ranges::any_of(feature.placement.references,
+                [&](const auto& reference) {
+                    return std::ranges::find(source_owners,
+                        reference.owner_id)!=source_owners.end();
+                }))
+            dependents.push_back(feature.id);
+    }
+    bool changed=false;
+    for(const auto& id:dependents) {
+        const auto* profile=current.find_container(id);
+        if(!profile||!profile->placement.reference_valid)continue;
+        const auto driver=std::ranges::find(current.sketches,
+            profile->sheet_profile.sketch_id,&sketcher::Sketch::id);
+        if(driver==current.sketches.end())
+            throw std::invalid_argument(
+                "Attached Sheet Profile driver Sketch is missing.");
+        auto prepared=prepare_sheet_profile(current,*profile,*driver,
+            references);
+        if(prepared.document.serialized()==current.serialized())continue;
+        current=std::move(prepared.document);changed=true;
+    }
+    return changed;
 }
 
 PreparedSheetProfile prepare_sheet_profile_master_edit(

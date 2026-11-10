@@ -911,6 +911,128 @@ void attached_profile_seed_and_history() {
                 world_start.z-stored->placement.z)<1e-8,
         "Attached Sheet Profile does not start at the selected Bend endpoint");
 
+    auto stable_references=workspace::construction_reference_source_geometry(
+        state->session.calculated_boundaries());
+    const auto stable_profile=workspace::prepare_sheet_profile(
+        state->session.document(),*stored,*stored_route,
+        std::move(stable_references));
+    require(stable_profile.document.serialized()==
+            state->session.document().serialized(),
+        "Unchanged attached Profile preparation is not idempotent");
+
+    // A Profile attached to a Flat remains one dependent feature. Resizing
+    // the source must update both its real attached Bend and every generated
+    // downstream span before Properties is reopened.
+    auto resize_document=state->session.document();
+    auto resize_boundaries=state->session.calculated_boundaries();
+    workspace::Workspace resize_live;
+    resize_live.add_part(std::move(resize_document),
+        std::move(resize_boundaries));
+    resize_live.activate(document_id);
+    auto* resize_state=resize_live.open_part(document_id);
+    auto resized_stock=*resize_state->session.document().find_container(
+        stock.id);
+    auto resized_outline=*std::ranges::find(
+        resize_state->session.document().sketches,outline.id,
+        &sketcher::Sketch::id);
+    for(auto& point:resized_outline.points) {
+        if(std::abs(point.x-60)<1e-9)point.x=90;
+        if(std::abs(point.y-40)<1e-9)point.y=70;
+    }
+    require(workspace::commit_flat(resize_live,kernel,document_id,
+            resized_stock,resized_outline),
+        "Resizing the source Flat did not commit");
+    resize_state=resize_live.open_part(document_id);
+    const auto& resized_document=resize_state->session.document();
+    const auto* resized_parent=resized_document.find_container(profile.id);
+    const auto resized_driver=std::ranges::find(resized_document.sketches,
+        route.id,&sketcher::Sketch::id);
+    require(resized_parent&&resized_driver!=resized_document.sketches.end(),
+        "Source Flat resize lost the attached Profile");
+    const auto resized_route=document::sheet_profile_route(*resized_driver,
+        resized_parent->sheet_profile.start_point_id);
+    const auto* resized_master=resized_document.find_container(
+        resized_parent->sheet_profile.master_feature_id);
+    const auto resized_flat=std::ranges::find_if(resized_document.history,
+        [&](const auto& feature) {
+            return feature.sheet_profile_binding.parent_id==profile.id&&
+                feature.sheet_profile_binding.curve_id==
+                    resized_route.spans.back().curve_id;
+        });
+    require(resized_master&&resized_flat!=resized_document.history.end()&&
+            resized_master->feature_kind==document::FeatureKind::Bend&&
+            resized_flat->feature_kind==document::FeatureKind::Flat,
+        "Source Flat resize lost the Profile Bend/Flat children");
+    const auto resized_master_sketch=std::ranges::find(
+        resized_document.sketches,resized_master->bend.sketch_id,
+        &sketcher::Sketch::id);
+    const auto resized_flat_sketch=std::ranges::find(
+        resized_document.sketches,resized_flat->flat.sketch_id,
+        &sketcher::Sketch::id);
+    require(resized_master_sketch!=resized_document.sketches.end()&&
+            resized_flat_sketch!=resized_document.sketches.end(),
+        "Source Flat resize lost a generated Profile Sketch");
+    const auto resized_master_line=std::ranges::find_if(
+        resized_master_sketch->segments,
+        [](const auto& value){return !value.construction;});
+    const auto* resized_master_first=resized_master_sketch->find_point(
+        resized_master_line->first_point_id);
+    const auto* resized_master_last=resized_master_sketch->find_point(
+        resized_master_line->second_point_id);
+    const double master_width=std::abs(
+        resized_master_last->x-resized_master_first->x);
+    const auto [flat_min,flat_max]=std::ranges::minmax_element(
+        resized_flat_sketch->points,{},&sketcher::SketchPoint::x);
+    const double flat_width=flat_max->x-flat_min->x;
+    require(master_width>60&&std::abs(flat_width-master_width)<1e-8,
+        "Source Flat resize updated the Profile Bend but not its following Flat");
+    auto resized_references=workspace::construction_reference_source_geometry(
+        resize_state->session.calculated_boundaries());
+    const auto resized_prepared=workspace::prepare_sheet_profile(
+        resized_document,*resized_parent,*resized_driver,
+        std::move(resized_references));
+    require(resized_prepared.document.serialized()==
+            resized_document.serialized(),
+        "Source Flat resize left stale attached Profile children");
+    const auto resized_complete=resized_document.serialized();
+    require(workspace::step_part_document_history(resize_live,document_id,
+                false)&&
+            resize_live.open_part(document_id)->session.document().serialized()==
+                complete,
+        "Source Flat resize Undo did not restore the complete attached Profile");
+    require(workspace::step_part_document_history(resize_live,document_id,
+                true)&&
+            resize_live.open_part(document_id)->session.document().serialized()==
+                resized_complete,
+        "Source Flat resize Redo changed the regenerated attached Profile");
+    resize_state=resize_live.open_part(document_id);
+    const auto resized_file=std::filesystem::path("build")/
+        ("zima-attached-profile-resize-"+profile.id+".prtz");
+    resize_state->session.document().save(resized_file,
+        resize_state->session.calculated_boundaries());
+    std::vector<kernel::BodyResult> resized_reopened_cache;
+    const auto resized_reopened=document::PartDocument::load(resized_file,
+        &resized_reopened_cache);
+    std::filesystem::remove(resized_file);
+    const auto* reopened_resized_parent=
+        resized_reopened.find_container(profile.id);
+    const auto reopened_resized_driver=std::ranges::find(
+        resized_reopened.sketches,route.id,&sketcher::Sketch::id);
+    require(reopened_resized_parent&&
+            reopened_resized_driver!=resized_reopened.sketches.end()&&
+            !resized_reopened_cache.empty()&&
+            resized_reopened_cache.back().calculation_errors.empty(),
+        "Reopened source-resized attached Profile lost its definition or Body");
+    auto reopened_resized_references=
+        workspace::construction_reference_source_geometry(
+            resized_reopened_cache);
+    const auto reopened_resized_prepared=workspace::prepare_sheet_profile(
+        resized_reopened,*reopened_resized_parent,*reopened_resized_driver,
+        std::move(reopened_resized_references));
+    require(reopened_resized_prepared.document.serialized()==
+            resized_reopened.serialized(),
+        "Save/reopen made the source-resized attached Profile stale");
+
     auto edited_profile=*stored;
     auto edited_route=*stored_route;
     require(edited_route.set_dimension_value(radius_dimension_id,3*thickness)&&

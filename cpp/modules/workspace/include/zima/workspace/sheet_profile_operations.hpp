@@ -18,6 +18,13 @@ struct PreparedSheetProfile {
     const document::PartDocument&, document::HistoryContainer,
     sketcher::Sketch, kernel::ViewerReferenceGeometry references = {});
 
+// After an explicit source-feature edit, rebuild only directly attached
+// Profiles whose edge reference belongs to that source. Returns false without
+// rebuilding anything when no valid dependent Profile exists.
+[[nodiscard]] bool refresh_attached_sheet_profiles_from_source(
+    document::PartDocument&, const std::string& source_container_id,
+    const kernel::ViewerReferenceGeometry&);
+
 // Reconcile edits made through the ordinary first Flat/Bend editor back into
 // the parent route, then regenerate the stable child group. Non-master
 // generated children are edited through the parent Profile Sketch instead.
