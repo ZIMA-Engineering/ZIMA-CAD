@@ -920,6 +920,137 @@ void attached_profile_seed_and_history() {
             state->session.document().serialized(),
         "Unchanged attached Profile preparation is not idempotent");
 
+    // The next Flat is bounded by the Bend's actual end edge, not by the
+    // original attachment edge. Both a start-edge offset and an end extension
+    // therefore have to change its generated width in the same transaction.
+    const auto span_interval=[](const sketcher::Sketch& sketch) {
+        const auto segment=std::ranges::find_if(sketch.segments,
+            [](const auto& value){return !value.construction;});
+        require(segment!=sketch.segments.end(),
+            "Profile span has no material edge");
+        const auto* first=sketch.find_point(segment->first_point_id);
+        const auto* last=sketch.find_point(segment->second_point_id);
+        require(first&&last,"Profile span edge has no endpoints");
+        std::array result{first->x,last->x};
+        std::ranges::sort(result);return result;
+    };
+    const auto following_flat=std::ranges::find_if(
+        state->session.document().history,[&](const auto& feature) {
+            return feature.sheet_profile_binding.parent_id==profile.id&&
+                feature.sheet_profile_binding.curve_id==
+                    spans.spans.back().curve_id;
+        });
+    require(following_flat!=state->session.document().history.end(),
+        "Attached Profile following Flat is missing before width edits");
+    const auto master_id=master->id;
+    const auto following_flat_id=following_flat->id;
+    const auto initial_end=sketcher::Sketch::from_serialized(
+        master->bend.auxiliary_sketches[1]);
+    const auto initial_end_interval=span_interval(initial_end);
+    workspace::Workspace width_live;
+    width_live.add_part(state->session.document(),
+        state->session.calculated_boundaries());
+    width_live.activate(document_id);
+    auto* width_state=width_live.open_part(document_id);
+    auto offset_master=*width_state->session.document().find_container(
+        master_id);
+    auto offset_start=*std::ranges::find(width_state->session.document().sketches,
+        offset_master.bend.sketch_id,&sketcher::Sketch::id);
+    require(offset_start.set_dimension_value(
+                offset_start.id+":position:first",6),
+        "Attached Profile first Bend offset rejected an edit");
+    require(workspace::commit_bend(width_live,kernel,document_id,
+            offset_master,offset_start),
+        "Attached Profile first Bend offset did not commit");
+    width_state=width_live.open_part(document_id);
+    const auto* offset_result=width_state->session.document().find_container(
+        master_id);
+    const auto* offset_flat=width_state->session.document().find_container(
+        following_flat_id);
+    const auto offset_result_start=std::ranges::find(
+        width_state->session.document().sketches,
+        offset_result->bend.sketch_id,&sketcher::Sketch::id);
+    const auto offset_result_flat=std::ranges::find(
+        width_state->session.document().sketches,
+        offset_flat->flat.sketch_id,&sketcher::Sketch::id);
+    const auto offset_end=sketcher::Sketch::from_serialized(
+        offset_result->bend.auxiliary_sketches[1]);
+    const auto offset_end_interval=span_interval(offset_end);
+    const auto offset_flat_interval=span_interval(*offset_result_flat);
+    const auto offset_dimension=std::ranges::find(
+        offset_result_start->dimensions,
+        offset_result_start->id+":position:first",
+        &sketcher::SketchDimension::id);
+    require(offset_result&&offset_flat&&
+            offset_result_start!=width_state->session.document().sketches.end()&&
+            offset_result_flat!=width_state->session.document().sketches.end()&&
+            offset_dimension!=offset_result_start->dimensions.end()&&
+            std::abs(offset_dimension->value-6)<1e-8&&
+            std::abs(offset_end_interval[0]-offset_flat_interval[0])<1e-8&&
+            std::abs(offset_end_interval[1]-offset_flat_interval[1])<1e-8&&
+            std::abs((offset_end_interval[1]-offset_end_interval[0])-
+                (initial_end_interval[1]-initial_end_interval[0]))>1,
+        "Following Profile Flat retained the Bend's initial width after an endpoint offset");
+    const auto offset_complete=width_state->session.document().serialized();
+
+    auto extended_master=*offset_result;
+    auto extended_start=*offset_result_start;
+    auto extended_end=sketcher::Sketch::from_serialized(
+        extended_master.bend.auxiliary_sketches[1]);
+    require(extended_end.set_dimension_value(
+                extended_end.id+":difference:first",4),
+        "Attached Profile Bend end extension rejected an edit");
+    document::accept_bend_sketch(extended_master,extended_start,1,
+        std::move(extended_end),document::sheet_metal_defaults(
+            width_state->session.document()));
+    require(workspace::commit_bend(width_live,kernel,document_id,
+            extended_master,extended_start),
+        "Attached Profile Bend end extension did not commit");
+    width_state=width_live.open_part(document_id);
+    const auto* extended_result=width_state->session.document().find_container(
+        master_id);
+    const auto* extended_flat=width_state->session.document().find_container(
+        following_flat_id);
+    const auto extended_result_flat=std::ranges::find(
+        width_state->session.document().sketches,
+        extended_flat->flat.sketch_id,&sketcher::Sketch::id);
+    const auto extended_result_end=sketcher::Sketch::from_serialized(
+        extended_result->bend.auxiliary_sketches[1]);
+    const auto extended_end_interval=span_interval(extended_result_end);
+    const auto extended_flat_interval=span_interval(*extended_result_flat);
+    require(extended_result&&extended_flat&&
+            extended_result_flat!=width_state->session.document().sketches.end()&&
+            std::abs(extended_end_interval[0]-extended_flat_interval[0])<1e-8&&
+            std::abs(extended_end_interval[1]-extended_flat_interval[1])<1e-8&&
+            std::abs((extended_end_interval[1]-extended_end_interval[0])-
+                (offset_end_interval[1]-offset_end_interval[0]))>1,
+        "Following Profile Flat retained the Bend's initial width after an end extension");
+    const auto extended_complete=width_state->session.document().serialized();
+    require(workspace::step_part_document_history(width_live,document_id,false)&&
+            width_state->session.document().serialized()==offset_complete,
+        "Profile Bend end-width Undo did not restore the endpoint offset");
+    require(workspace::step_part_document_history(width_live,document_id,true)&&
+            width_state->session.document().serialized()==extended_complete,
+        "Profile Bend end-width Redo changed the regenerated following Flat");
+    const auto width_file=std::filesystem::path("build")/
+        ("zima-profile-end-width-"+profile.id+".prtz");
+    width_state->session.document().save(width_file,
+        width_state->session.calculated_boundaries());
+    std::vector<kernel::BodyResult> width_cache;
+    const auto width_reopened=document::PartDocument::load(width_file,
+        &width_cache);
+    std::filesystem::remove(width_file);
+    const auto* width_parent=width_reopened.find_container(profile.id);
+    const auto width_driver=std::ranges::find(width_reopened.sketches,
+        width_parent->sheet_profile.sketch_id,&sketcher::Sketch::id);
+    auto width_references=workspace::construction_reference_source_geometry(
+        width_cache);
+    require(width_driver!=width_reopened.sketches.end()&&
+            workspace::prepare_sheet_profile(width_reopened,*width_parent,
+                *width_driver,std::move(width_references)).document.serialized()==
+                width_reopened.serialized(),
+        "Profile Bend end width changed after save/reopen");
+
     // A Profile attached to a Flat remains one dependent feature. Resizing
     // the source must update both its real attached Bend and every generated
     // downstream span before Properties is reopened.

@@ -419,7 +419,17 @@ static int verify_sheet_profile_ui(QApplication& application,
         auto stock_outline=sketcher::Sketch::create_default();
         stock_outline.owner_container_id=stock.id;
         stock.flat.sketch_id=stock_outline.id;
-        static_cast<void>(stock_outline.add_rectangle(0,0,60,40));
+        const auto stock_edges=stock_outline.add_rectangle(0,0,60,40);
+        auto stock_width=stock_outline.create_segment_dimension(
+            stock_edges[0],sketcher::DimensionKind::DistanceX);
+        stock_width.id=stock_outline.id+":source-width";
+        stock_width.placement=std::array{30.,-10.};
+        stock_outline.apply_dimension(std::move(stock_width));
+        auto stock_height=stock_outline.create_segment_dimension(
+            stock_edges[1],sketcher::DimensionKind::DistanceY);
+        stock_height.id=stock_outline.id+":source-height";
+        stock_height.placement=std::array{70.,20.};
+        stock_outline.apply_dimension(std::move(stock_height));
         attached_part.insert_history_entry(
             document::PartHistoryKind::Feature,stock.id);
         attached_part.history.push_back(stock);
@@ -937,6 +947,126 @@ static int verify_sheet_profile_ui(QApplication& application,
                     source_edited_parent->id,
             "Profile View context menu did not expose its complete parent actions");
 
+        const auto edit_inspected_dimension=[&](const std::string& owner,
+                const std::string& dimension_id,double value) {
+            const auto& dimensions=view->mesh().dimensions;
+            const auto shown=std::ranges::find_if(dimensions,
+                [&](const auto& dimension) {
+                    return dimension.reference.owner_id==owner&&
+                        dimension.reference.semantic_key==
+                            "dimension:"+dimension_id;
+                });
+            require(shown!=dimensions.end(),
+                "Inspected Profile dependency dimension is missing in View");
+            viewer::ViewerCandidate candidate;
+            candidate.kind=viewer::CandidateKind::Dimension;
+            candidate.owner_id=shown->reference.owner_id;
+            candidate.semantic_key=shown->reference.semantic_key;
+            candidate.instance_path=shown->reference.instance_path;
+            candidate.geometry_index=std::distance(dimensions.begin(),shown);
+            window.edit_dimension_inline(candidate);flush();
+            auto* editor=view->findChild<QLineEdit*>(
+                "inlineDimensionValueEdit");
+            require(editor,
+                "Profile dependency dimension editor did not open");
+            editor->setText(QString::number(value));
+            QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,
+                Qt::NoModifier);
+            QApplication::sendEvent(editor,&enter);flush();
+        };
+        const auto material_interval=[](const sketcher::Sketch& sketch) {
+            const auto segment=std::ranges::find_if(sketch.segments,
+                [](const auto& value){return !value.construction;});
+            if(segment==sketch.segments.end())
+                throw std::runtime_error("Profile material edge is missing");
+            const auto* first=sketch.find_point(segment->first_point_id);
+            const auto* last=sketch.find_point(segment->second_point_id);
+            if(!first||!last)
+                throw std::runtime_error("Profile material edge endpoint is missing");
+            std::array result{first->x,last->x};
+            std::ranges::sort(result);return result;
+        };
+
+        // Exercise the user's direct 3D dimension path. It must use the Flat
+        // transaction, recalculate the selected boundary and regenerate its
+        // dependent Profile instead of changing only the source Sketch.
+        const auto* selected_source_edge=document::current_sheet_attachment_edge(
+            source_edited_parent->placement.references,
+            view->mesh().original_references);
+        require(selected_source_edge&&selected_source_edge->points.size()>=2,
+            "Attached Profile source edge is unavailable before dimension edit");
+        const auto edge_first=selected_source_edge->points.front();
+        const auto edge_last=selected_source_edge->points.back();
+        const double selected_source_length=std::hypot(std::hypot(
+            edge_last.x-edge_first.x,edge_last.y-edge_first.y),
+            edge_last.z-edge_first.z);
+        const bool source_width=selected_source_length>50;
+        const auto source_dimension_id=stock_outline.id+
+            (source_width?":source-width":":source-height");
+        const double source_dimension_value=source_width?80.:70.;
+        window.show_parameter_dimensions(stock.id);flush();
+        edit_inspected_dimension(stock_outline.id,source_dimension_id,
+            source_dimension_value);
+        window.findChild<QAction*>("undoAction")->trigger();flush();
+        window.findChild<QAction*>("redoAction")->trigger();flush();
+        window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
+        const auto source_dimension_edited=document::PartDocument::load(
+            attached_path);
+        const auto edited_source_sketch=std::ranges::find(
+            source_dimension_edited.sketches,stock_outline.id,
+            &sketcher::Sketch::id);
+        const auto edited_source_dimension=std::ranges::find(
+            edited_source_sketch->dimensions,source_dimension_id,
+            &sketcher::SketchDimension::id);
+        const auto* dimension_parent=source_dimension_edited.find_container(
+            source_edited_parent->id);
+        const auto dimension_driver=std::ranges::find(
+            source_dimension_edited.sketches,
+            dimension_parent->sheet_profile.sketch_id,&sketcher::Sketch::id);
+        const auto dimension_route=document::sheet_profile_route(
+            *dimension_driver,dimension_parent->sheet_profile.start_point_id);
+        const auto* dimension_master=source_dimension_edited.find_container(
+            dimension_parent->sheet_profile.master_feature_id);
+        const auto dimension_flat=std::ranges::find_if(
+            source_dimension_edited.history,[&](const auto& feature) {
+                return feature.sheet_profile_binding.parent_id==
+                        dimension_parent->id&&
+                    feature.sheet_profile_binding.curve_id==
+                        dimension_route.spans.back().curve_id;
+            });
+        const auto dimension_master_start=std::ranges::find(
+            source_dimension_edited.sketches,dimension_master->bend.sketch_id,
+            &sketcher::Sketch::id);
+        const auto dimension_flat_sketch=std::ranges::find(
+            source_dimension_edited.sketches,dimension_flat->flat.sketch_id,
+            &sketcher::Sketch::id);
+        const auto dimension_end=sketcher::Sketch::from_serialized(
+            dimension_master->bend.auxiliary_sketches[1]);
+        const auto dimension_end_interval=material_interval(dimension_end);
+        const auto dimension_flat_interval=material_interval(
+            *dimension_flat_sketch);
+        require(edited_source_sketch!=source_dimension_edited.sketches.end()&&
+                edited_source_dimension!=edited_source_sketch->dimensions.end()&&
+                dimension_parent&&dimension_driver!=
+                    source_dimension_edited.sketches.end()&&
+                dimension_master&&dimension_flat!=
+                    source_dimension_edited.history.end()&&
+                dimension_master_start!=
+                    source_dimension_edited.sketches.end()&&
+                dimension_flat_sketch!=
+                    source_dimension_edited.sketches.end()&&
+                std::abs(edited_source_dimension->value-
+                    source_dimension_value)<1e-8&&
+                std::abs((dimension_end_interval[1]-
+                    dimension_end_interval[0])-source_dimension_value)<1e-8&&
+                std::abs(dimension_end_interval[0]-
+                    dimension_flat_interval[0])<1e-8&&
+                std::abs(dimension_end_interval[1]-
+                    dimension_flat_interval[1])<1e-8,
+            "Direct source Flat dimension edit did not regenerate the complete attached Profile");
+        window.findChild<QAction*>("undoAction")->trigger();flush();
+        static_cast<void>(window.finish_parameter_dimensions());flush();
+
         // The first real edge-attached Bend is the only generated child that
         // remains directly inspectable.  It exposes R/angle, never its
         // derived placement Euler angles.
@@ -1087,6 +1217,100 @@ static int verify_sheet_profile_ui(QApplication& application,
         edit_attached_bend_angle(60);
         edit_attached_bend_angle(105);
         edit_attached_bend_angle(60);
+        const auto verify_following_end_width=[&](
+                const document::PartDocument& edited) {
+            const auto* parent=edited.find_container(attached_parent->id);
+            require(parent,
+                "Attached Profile parent disappeared during end-width edit");
+            const auto* master=edited.find_container(
+                parent->sheet_profile.master_feature_id);
+            const auto driver=std::ranges::find(edited.sketches,
+                parent->sheet_profile.sketch_id,&sketcher::Sketch::id);
+            require(master&&driver!=edited.sketches.end(),
+                "Attached Profile Bend or route disappeared during end-width edit");
+            const auto route=document::sheet_profile_route(*driver,
+                parent->sheet_profile.start_point_id);
+            const auto flat=std::ranges::find_if(edited.history,
+                [&](const auto& feature) {
+                    return feature.sheet_profile_binding.parent_id==parent->id&&
+                        feature.sheet_profile_binding.curve_id==
+                            route.spans.back().curve_id;
+                });
+            require(flat!=edited.history.end()&&
+                    flat->feature_kind==document::FeatureKind::Flat,
+                "Attached Profile following Flat disappeared during end-width edit");
+            const auto flat_sketch=std::ranges::find(edited.sketches,
+                flat->flat.sketch_id,&sketcher::Sketch::id);
+            require(flat_sketch!=edited.sketches.end(),
+                "Attached Profile following Flat lost its Sketch");
+            const auto end=sketcher::Sketch::from_serialized(
+                master->bend.auxiliary_sketches[1]);
+            const auto end_interval=material_interval(end);
+            const auto flat_interval=material_interval(*flat_sketch);
+            require(std::abs(end_interval[0]-flat_interval[0])<1e-8&&
+                    std::abs(end_interval[1]-flat_interval[1])<1e-8,
+                "Following Profile Flat width is not tied to the Bend end edge");
+            return end_interval;
+        };
+        const auto before_end_width=document::PartDocument::load(attached_path);
+        const auto initial_end_width=verify_following_end_width(before_end_width);
+        const auto* initial_width_parent=before_end_width.find_container(
+            attached_parent->id);
+        const auto* initial_width_master=before_end_width.find_container(
+            initial_width_parent->sheet_profile.master_feature_id);
+        const auto initial_width_start=std::ranges::find(
+            before_end_width.sketches,initial_width_master->bend.sketch_id,
+            &sketcher::Sketch::id);
+        require(initial_width_start!=before_end_width.sketches.end(),
+            "Attached Profile first Bend lost its start Sketch");
+        window.show_parameter_dimensions(initial_width_master->id);flush();
+        edit_inspected_dimension(initial_width_start->id,
+            initial_width_start->id+":position:first",6);
+        window.findChild<QAction*>("undoAction")->trigger();flush();
+        window.findChild<QAction*>("redoAction")->trigger();flush();
+        window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
+        const auto offset_edited=document::PartDocument::load(attached_path);
+        const auto offset_end_width=verify_following_end_width(offset_edited);
+        const auto* offset_parent=offset_edited.find_container(
+            attached_parent->id);
+        const auto* offset_master=offset_edited.find_container(
+            offset_parent->sheet_profile.master_feature_id);
+        const auto offset_start=std::ranges::find(offset_edited.sketches,
+            offset_master->bend.sketch_id,&sketcher::Sketch::id);
+        const auto offset_dimension=std::ranges::find(
+            offset_start->dimensions,offset_start->id+":position:first",
+            &sketcher::SketchDimension::id);
+        require(offset_start!=offset_edited.sketches.end()&&
+                offset_dimension!=offset_start->dimensions.end()&&
+                std::abs(offset_dimension->value-6)<1e-8&&
+                std::abs((offset_end_width[1]-offset_end_width[0])-
+                    (initial_end_width[1]-initial_end_width[0]))>1,
+            "First Bend endpoint offset did not regenerate the following Profile Flat");
+
+        const auto offset_end=sketcher::Sketch::from_serialized(
+            offset_master->bend.auxiliary_sketches[1]);
+        window.show_parameter_dimensions(offset_master->id);flush();
+        edit_inspected_dimension(offset_end.id,
+            offset_end.id+":difference:first",4);
+        window.findChild<QAction*>("undoAction")->trigger();flush();
+        window.findChild<QAction*>("redoAction")->trigger();flush();
+        window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
+        const auto end_edited=document::PartDocument::load(attached_path);
+        const auto accepted_end_width=verify_following_end_width(end_edited);
+        const auto* accepted_parent=end_edited.find_container(
+            attached_parent->id);
+        const auto* accepted_master=end_edited.find_container(
+            accepted_parent->sheet_profile.master_feature_id);
+        const auto accepted_end=sketcher::Sketch::from_serialized(
+            accepted_master->bend.auxiliary_sketches[1]);
+        const auto accepted_difference=std::ranges::find(
+            accepted_end.dimensions,accepted_end.id+":difference:first",
+            &sketcher::SketchDimension::id);
+        require(accepted_difference!=accepted_end.dimensions.end()&&
+                std::abs(accepted_difference->value-4)<1e-8&&
+                std::abs((accepted_end_width[1]-accepted_end_width[0])-
+                    (offset_end_width[1]-offset_end_width[0]))>1,
+            "Bend end extension did not regenerate the following Profile Flat");
         std::cout<<"Sheet Profile dialog, attachment, dimensions, Tree, Explode and Undo/Redo passed\n";
         return 0;
     } catch(const std::exception& error) {

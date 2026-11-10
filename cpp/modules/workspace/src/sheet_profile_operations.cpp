@@ -262,37 +262,58 @@ void set_bend_width(sketcher::Sketch& sketch,double first,double last) {
     sketch.validate();
 }
 
-std::array<bool,2> attached_profile_bend_offset_signs(
+std::array<double,2> attached_profile_bend_offsets(
         const sketcher::Sketch& sketch) {
-    std::array<bool,2> result{};
+    std::array<double,2> result{};
     for(std::size_t index=0;index<result.size();++index) {
         const auto suffix=index?":position:last":":position:first";
         const auto dimension=std::ranges::find(sketch.dimensions,
             sketch.id+suffix,&sketcher::SketchDimension::id);
         if(dimension!=sketch.dimensions.end())
-            result[index]=std::signbit(dimension->value);
+            result[index]=dimension->value;
     }
     return result;
 }
 
-void reset_attached_profile_bend_offsets(sketcher::Sketch& sketch,
-        const std::array<bool,2>& negative) {
+void restore_attached_profile_bend_offsets(sketcher::Sketch& sketch,
+        const std::array<double,2>& offsets) {
     // The generated first Bend always consumes the complete selected edge.
     // update_bend_sheet_profile() interprets these dimensions as offsets from
     // the two native edge endpoints, not as absolute width coordinates.  A
     // repeated Profile preparation used to write the edge width into one of
     // them through set_bend_width(), moving the Bend by that complete width
-    // when Properties was merely reopened.
-    for(std::size_t index=0;index<negative.size();++index) {
+    // when Properties was merely reopened. Preserve only their independently
+    // authored endpoint offsets across the width refresh.
+    for(std::size_t index=0;index<offsets.size();++index) {
         const auto suffix=index?":position:last":":position:first";
         const auto dimension=std::ranges::find(sketch.dimensions,
             sketch.id+suffix,&sketcher::SketchDimension::id);
         if(dimension==sketch.dimensions.end())
             throw std::invalid_argument(
                 "Generated Sheet Profile Bend offset dimension is missing.");
-        dimension->value=std::copysign(0.0,negative[index]?-1.0:1.0);
+        dimension->value=offsets[index];
         dimension->solution_side=std::signbit(dimension->value)?-1:1;
     }
+}
+
+std::array<double,2> bend_end_width_interval(
+        const sketcher::Sketch& sketch) {
+    const auto segment=std::ranges::find_if(sketch.segments,
+        [](const auto& value){return !value.construction;});
+    if(segment==sketch.segments.end())
+        throw std::invalid_argument(
+            "Generated Sheet Profile Bend end edge is missing.");
+    const auto* first=sketch.find_point(segment->first_point_id);
+    const auto* last=sketch.find_point(segment->second_point_id);
+    if(!first||!last)
+        throw std::invalid_argument(
+            "Generated Sheet Profile Bend end point is missing.");
+    std::array result{first->x,last->x};
+    std::ranges::sort(result);
+    if(result[1]-result[0]<.001)
+        throw std::invalid_argument(
+            "Generated Sheet Profile Bend end edge is too short.");
+    return result;
 }
 
 void set_flat_profile(sketcher::Sketch& sketch,double first,double last,
@@ -705,10 +726,11 @@ PreparedSheetProfile prepare_sheet_profile(const document::PartDocument& before,
                 flat_y=previous_bend_end->resolved_normal;
                 flat_normal=mul(previous_bend_end->resolved_y_axis,-1);
             }
-            std::array local_width{
-                width_first*dot(width_axis,flat_x),
-                width_last*dot(width_axis,flat_x)};
-            std::ranges::sort(local_width);
+            auto local_width=previous_bend_end
+                ?bend_end_width_interval(*previous_bend_end)
+                :std::array{width_first*dot(width_axis,flat_x),
+                    width_last*dot(width_axis,flat_x)};
+            if(!previous_bend_end)std::ranges::sort(local_width);
             child.feature.flat.sketch_id=child.sketch.id;
             child.feature.flat.sheet_attachment=false;
             child.feature.flat.thickness_override=true;
@@ -775,12 +797,12 @@ PreparedSheetProfile prepare_sheet_profile(const document::PartDocument& before,
             std::array local_width{width_first*dot(width_axis,along),
                 width_last*dot(width_axis,along)};
             std::ranges::sort(local_width);
-            const auto offset_signs=attached_start
-                ?attached_profile_bend_offset_signs(child.sketch)
-                :std::array<bool,2>{};
+            const auto offsets=attached_start
+                ?attached_profile_bend_offsets(child.sketch)
+                :std::array<double,2>{};
             set_bend_width(child.sketch,local_width[0],local_width[1]);
             if(attached_start)
-                reset_attached_profile_bend_offsets(child.sketch,offset_signs);
+                restore_attached_profile_bend_offsets(child.sketch,offsets);
             document::prepare_bend_sketches(child.feature,child.sketch,defaults);
             if(attached_start) {
                 // Resolve the real edge-attached Bend before constructing any

@@ -14,6 +14,7 @@
 #include <zima/document/feature_direction.hpp>
 #include <zima/document/bend.hpp>
 #include <zima/workspace/bend_operations.hpp>
+#include <zima/workspace/flat_operations.hpp>
 #include <zima/workspace/sheet_profile_operations.hpp>
 #include <zima/workspace/sheet_form_operations.hpp>
 #include <zima/document/sheet_form_dimensions.hpp>
@@ -781,6 +782,39 @@ void AssemblyWorkspaceWindow::edit_dimension_inline(
                         feature.sheet_profile.sketch_id==candidate.owner_id;
                 });
             const auto* edited_feature=next.find_container(candidate.owner_id);
+            const document::HistoryContainer* dimension_feature{};
+            const sketcher::Sketch* dimension_feature_sketch{};
+            if(sketch_dimension) {
+                const auto primary=std::ranges::find(next.sketches,
+                    candidate.owner_id,&sketcher::Sketch::id);
+                if(primary!=next.sketches.end()) {
+                    dimension_feature=next.find_container(
+                        primary->owner_container_id);
+                    dimension_feature_sketch=&*primary;
+                }
+                if(!dimension_feature)
+                    for(const auto& feature:next.history) {
+                        bool owns_dimension{};
+                        document::visit_feature_sketches(feature,
+                            [&](const auto& data,std::size_t) {
+                                owns_dimension=owns_dimension||
+                                    sketcher::Sketch::from_serialized(data).id==
+                                        candidate.owner_id;
+                            });
+                        if(!owns_dimension)continue;
+                        dimension_feature=&feature;
+                        const auto sketch_id=feature.feature_kind==
+                                document::FeatureKind::Bend
+                            ?feature.bend.sketch_id:
+                            feature.feature_kind==document::FeatureKind::Flat
+                                ?feature.flat.sketch_id:std::string{};
+                        const auto primary=std::ranges::find(next.sketches,
+                            sketch_id,&sketcher::Sketch::id);
+                        if(primary!=next.sketches.end())
+                            dimension_feature_sketch=&*primary;
+                        break;
+                    }
+            }
             if(profile_parent!=next.history.end()) {
                 const auto route=std::ranges::find(next.sketches,
                     profile_parent->sheet_profile.sketch_id,
@@ -803,6 +837,20 @@ void AssemblyWorkspaceWindow::edit_dimension_inline(
                 static_cast<void>(workspace::commit_sheet_profile(
                     workspace_,kernel_,next.document_id,*edited_feature,*route));
                 construction_dimension_object_id_=edited_feature->id;
+            } else if(dimension_feature&&dimension_feature_sketch&&
+                    dimension_feature->feature_kind==
+                        document::FeatureKind::Flat) {
+                static_cast<void>(workspace::commit_flat(workspace_,kernel_,
+                    next.document_id,*dimension_feature,
+                    *dimension_feature_sketch));
+                construction_dimension_object_id_=dimension_feature->id;
+            } else if(dimension_feature&&dimension_feature_sketch&&
+                    dimension_feature->feature_kind==
+                        document::FeatureKind::Bend) {
+                static_cast<void>(workspace::commit_bend(workspace_,kernel_,
+                    next.document_id,*dimension_feature,
+                    *dimension_feature_sketch));
+                construction_dimension_object_id_=dimension_feature->id;
             } else if(edited_feature && edited_feature->feature_kind==document::FeatureKind::Feature &&
                candidate.semantic_key.starts_with("parameter:")) {
                 workspace::commit_profile(workspace_,kernel_,next.document_id,*edited_feature,
