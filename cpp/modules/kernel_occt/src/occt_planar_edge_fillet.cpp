@@ -432,6 +432,27 @@ gp_Dir inward_direction(const TopoDS_Edge& edge,
     return gp_Dir(direction);
 }
 
+bool lies_on_source_surface(const TopoDS_Face& candidate,
+        const TopoDS_Face& source,double tolerance) {
+    const auto source_surface=BRep_Tool::Surface(source);
+    const auto candidate_surface=BRep_Tool::Surface(candidate);
+    if(source_surface==candidate_surface)return true;
+    double first_u{},last_u{},first_v{},last_v{};
+    BRepTools::UVBounds(candidate,first_u,last_u,first_v,last_v);
+    if(!std::isfinite(first_u)||!std::isfinite(last_u)||
+       !std::isfinite(first_v)||!std::isfinite(last_v))return false;
+    for(const double fraction:{.2,.5,.8}) {
+        gp_Pnt sample;
+        candidate_surface->D0(
+            std::lerp(first_u,last_u,fraction),
+            std::lerp(first_v,last_v,fraction),sample);
+        GeomAPI_ProjectPointOnSurf projection(sample,source_surface);
+        if(projection.NbPoints()==0||
+           projection.LowerDistance()>100.*tolerance)return false;
+    }
+    return true;
+}
+
 void clip_fillet_tool_with_halfspace(TopoDS_Shape& tool,
         std::vector<TopoDS_Face>& treatment_faces,
         const TopoDS_Solid& half_space,double tolerance) {
@@ -461,32 +482,13 @@ void clip_fillet_tool_with_halfspace(TopoDS_Shape& tool,
         for(const auto& descendant:common.Generated(treatment_face))
             append(descendant);
     }
-    const auto lies_on_source_surface=[&](const TopoDS_Face& candidate,
-            const TopoDS_Face& source) {
-        const auto source_surface=BRep_Tool::Surface(source);
-        const auto candidate_surface=BRep_Tool::Surface(candidate);
-        if(source_surface==candidate_surface)return true;
-        double first_u{},last_u{},first_v{},last_v{};
-        BRepTools::UVBounds(candidate,first_u,last_u,first_v,last_v);
-        if(!std::isfinite(first_u)||!std::isfinite(last_u)||
-           !std::isfinite(first_v)||!std::isfinite(last_v))return false;
-        for(const double fraction:{.2,.5,.8}) {
-            gp_Pnt sample;
-            candidate_surface->D0(
-                std::lerp(first_u,last_u,fraction),
-                std::lerp(first_v,last_v,fraction),sample);
-            GeomAPI_ProjectPointOnSurf projection(sample,source_surface);
-            if(projection.NbPoints()==0||
-               projection.LowerDistance()>100.*tolerance)return false;
-        }
-        return true;
-    };
     if(clipped_faces.empty())
         for(int index=1;index<=result_faces.Extent();++index) {
             const auto candidate=TopoDS::Face(result_faces.FindKey(index));
             if(std::ranges::any_of(treatment_faces,
                     [&](const auto& source) {
-                        return lies_on_source_surface(candidate,source);
+                        return lies_on_source_surface(candidate,source,
+                            tolerance);
                     }))append(candidate);
         }
     if(clipped_faces.empty())
@@ -530,6 +532,53 @@ void clip_fillet_tool(TopoDS_Shape& tool,
             "Planar edge Fillet could not construct an end half-space");
     clip_fillet_tool_with_halfspace(tool,treatment_faces,
         half_space.Solid(),tolerance);
+}
+
+void fuse_fillet_tools(TopoDS_Shape& tool,
+        std::vector<TopoDS_Face>& treatment_faces,
+        const TopoDS_Shape& addition,
+        std::span<const TopoDS_Face> addition_faces,double tolerance) {
+    BRepAlgoAPI_Fuse fuse(tool,addition);
+    fuse.SetNonDestructive(true);
+    fuse.SetFuzzyValue(tolerance);
+    fuse.Build();
+    if(!fuse.IsDone()||fuse.Shape().IsNull()||
+       !BRepCheck_Analyzer(fuse.Shape()).IsValid())
+        throw std::runtime_error(
+            "Planar edge Fillet could not fuse its route extension");
+    TopTools_IndexedMapOfShape result_faces;
+    TopExp::MapShapes(fuse.Shape(),TopAbs_FACE,result_faces);
+    std::vector<TopoDS_Face> fused_faces;
+    const auto append=[&](const TopoDS_Shape& shape) {
+        if(shape.ShapeType()!=TopAbs_FACE||
+           !result_faces.Contains(shape))return;
+        const auto candidate=TopoDS::Face(shape);
+        if(std::ranges::none_of(fused_faces,[&](const auto& current) {
+                return current.IsSame(candidate);
+            }))fused_faces.push_back(candidate);
+    };
+    const std::array face_sets{
+        std::span<const TopoDS_Face>(treatment_faces),addition_faces};
+    for(const auto faces:face_sets)
+        for(const auto& face:faces) {
+            append(face);
+            for(const auto& descendant:fuse.Modified(face))
+                append(descendant);
+            for(const auto& descendant:fuse.Generated(face))
+                append(descendant);
+        }
+    if(fused_faces.empty())for(int index=1;index<=result_faces.Extent();++index) {
+        const auto candidate=TopoDS::Face(result_faces.FindKey(index));
+        for(const auto faces:face_sets)
+            if(std::ranges::any_of(faces,[&](const auto& source) {
+                    return lies_on_source_surface(candidate,source,
+                        tolerance);
+                })) {append(candidate);break;}
+    }
+    if(fused_faces.empty())throw std::runtime_error(
+        "Planar edge Fillet route fuse lost its circular face");
+    tool=fuse.Shape();
+    treatment_faces=std::move(fused_faces);
 }
 
 void clip_fillet_tool_to_surface(TopoDS_Shape& tool,
@@ -1938,27 +1987,22 @@ Cutter make_route_cutter(const std::vector<CutterJob>& jobs,
         current=endpoints(ordered.back())[1];
     }
 
-    // Construct the exact profile on an analytic route member and let the
-    // pipe carry it over the remaining connected curve.  A circle is the
-    // strongest anchor because it establishes radial transport; otherwise a
-    // line avoids imposing a false circle model on a following ellipse or
-    // another OCCT curve produced by an earlier feature intersection.
-    std::optional<std::size_t> circular_anchor,line_anchor;
-    for(const auto index:route) {
-        const auto kind=BRepAdaptor_Curve(jobs[index].edge).GetType();
-        if(kind==GeomAbs_Circle&&!circular_anchor)circular_anchor=index;
-        if(kind==GeomAbs_Line&&!line_anchor)line_anchor=index;
-    }
-    const auto anchor=circular_anchor.value_or(line_anchor.value_or(
-        route[route.size()/2]));
+    // The pipe section must belong to the first vertex of the complete open
+    // spine.  OCCT accepts a section from an interior route member, but then
+    // it can build only the suffix after that member (notably when a small
+    // Fillet arc precedes another turn).  Start with the first member's exact
+    // local profile; below it is transported from that edge's midpoint to the
+    // actual spine start. Terminal extensions are built separately so their
+    // clipping planes cannot erase an earlier returning part of the route.
+    const auto anchor=route.front();
     auto profile=make_cutter(jobs[anchor].edge,jobs[anchor].first_face,
         jobs[anchor].second_face,radius,tolerance,jobs[anchor].material,
         {},true);
 
     const auto start_vertex=endpoints(ordered.front())[0];
-    const auto end_vertex=endpoints(ordered.back())[1];
     const gp_Pnt start_point=BRep_Tool::Pnt(start_vertex);
-    const gp_Pnt end_point=BRep_Tool::Pnt(end_vertex);
+    const gp_Pnt end_point=BRep_Tool::Pnt(
+        endpoints(ordered.back())[1]);
     const auto outward_tangent=[&](const TopoDS_Edge& edge,bool start) {
         const BRepAdaptor_Curve curve(edge);
         gp_Pnt first_point,last_point;
@@ -2184,22 +2228,38 @@ Cutter make_route_cutter(const std::vector<CutterJob>& jobs,
         first_extension,last_extension);
 
     BRepBuilderAPI_MakeWire spine;
-    if(first_extension>0.) {
-        const auto extended=BRepBuilderAPI_MakeVertex(
-            start_point.Translated(gp_Vec(start_outward)*first_extension)).
-                Vertex();
-        spine.Add(BRepBuilderAPI_MakeEdge(extended,start_vertex).Edge());
-    }
     for(const auto& edge:ordered)spine.Add(edge);
-    if(last_extension>0.) {
-        const auto extended=BRepBuilderAPI_MakeVertex(
-            end_point.Translated(gp_Vec(end_outward)*last_extension)).
-                Vertex();
-        spine.Add(BRepBuilderAPI_MakeEdge(end_vertex,extended).Edge());
-    }
     if(!spine.IsDone())
         throw std::runtime_error(
             "Planar edge Fillet could not construct one route wire");
+
+    const auto anchor_path=edge_path(jobs[anchor].edge,tolerance);
+    const double to_route_start=start_point.Distance(anchor_path.first)<=
+            start_point.Distance(anchor_path.last)
+        ?-.5*anchor_path.length:.5*anchor_path.length;
+    const auto move_profile=[&](Cutter& target,const gp_Trsf& placement) {
+        BRepBuilderAPI_Transform moved(target.midpoint_profile,
+            placement,true);
+        moved.Build();
+        if(!moved.IsDone()||moved.Shape().IsNull())
+            throw std::runtime_error(
+                "Planar edge Fillet could not place its route profile");
+        const auto circular=moved.ModifiedShape(
+            target.midpoint_circular_edge);
+        if(circular.IsNull()||circular.ShapeType()!=TopAbs_EDGE)
+            throw std::runtime_error(
+                "Planar edge Fillet lost its route profile ancestry");
+        target.midpoint_profile=TopoDS::Wire(moved.Shape());
+        target.midpoint_circular_edge=TopoDS::Edge(circular);
+    };
+    if(anchor_path.kind==EdgeFilletPathKind::Linear) {
+        gp_Trsf placement;
+        placement.SetTranslation(gp_Vec(anchor_path.middle,start_point));
+        move_profile(profile,placement);
+    } else {
+        move_profile(profile,path_rotation(anchor_path,
+            to_route_start/anchor_path.path_radius));
+    }
 
     // Corrected Frenet transport is singular when a planar route turns by an
     // exact half revolution: its section can arrive on the return leg rotated
@@ -2249,7 +2309,7 @@ Cutter make_route_cutter(const std::vector<CutterJob>& jobs,
     if(planar_binormal)sweep.SetMode(*planar_binormal);
     else sweep.SetMode(false);
     sweep.SetTolerance(tolerance,tolerance,1.0e-6);
-    sweep.Add(profile.midpoint_profile,false,false);
+    sweep.Add(profile.midpoint_profile,start_vertex,false,false);
     sweep.Build();
     if(!sweep.IsDone()||!sweep.MakeSolid()||sweep.Shape().IsNull()||
        !BRepCheck_Analyzer(sweep.Shape()).IsValid())
@@ -2260,25 +2320,89 @@ Cutter make_route_cutter(const std::vector<CutterJob>& jobs,
             profile.midpoint_circular_edge))
         if(generated.ShapeType()==TopAbs_FACE)
             circular_faces.push_back(TopoDS::Face(generated));
+    // PipeShell can omit earlier faces from Generated(section_edge) when a
+    // returning spine contains several analytic transitions. Recover every
+    // non-planar lateral face which is not one of the source support
+    // surfaces; end caps are planar, while the circular section always
+    // produces a curved treatment surface.
+    for(TopExp_Explorer item(sweep.Shape(),TopAbs_FACE);
+            item.More();item.Next()) {
+        const auto candidate=TopoDS::Face(item.Current());
+        if(BRepAdaptor_Surface(candidate,true).GetType()==GeomAbs_Plane||
+           std::ranges::any_of(route,[&](const auto index) {
+               return lies_on_source_surface(candidate,
+                          jobs[index].first_face,tolerance)||
+                   lies_on_source_surface(candidate,
+                          jobs[index].second_face,tolerance);
+           })||
+           std::ranges::any_of(circular_faces,[&](const auto& current) {
+               return current.IsSame(candidate);
+           }))continue;
+        circular_faces.push_back(candidate);
+    }
     if(circular_faces.empty())
         throw std::runtime_error(
             "Planar edge Fillet route sweep omitted its circular face");
     profile.solid=sweep.Shape();
     profile.circular_faces=std::move(circular_faces);
-    for(const auto& face:terminal_faces[0])
-        clip_fillet_tool(profile.solid,profile.circular_faces,face,
-            start_preceding,tolerance);
-    for(const auto& face:terminal_faces[1])
-        clip_fillet_tool(profile.solid,profile.circular_faces,face,
-            end_preceding,tolerance);
-    if(first_extension>tolerance&&trim_to_curved_first)
-        for(const auto& face:curved_terminal_faces[0])
-            clip_fillet_tool_to_surface(profile.solid,
-                profile.circular_faces,face,start_preceding,tolerance);
-    if(last_extension>tolerance&&trim_to_curved_last)
-        for(const auto& face:curved_terminal_faces[1])
-            clip_fillet_tool_to_surface(profile.solid,
-                profile.circular_faces,face,end_preceding,tolerance);
+    const auto add_terminal_extension=[&](const CutterJob& job,
+            const gp_Pnt& endpoint,const gp_Dir& outward,double extension,
+            std::span<const TopoDS_Face> planar_faces,
+            std::span<const TopoDS_Face> curved_faces,
+            const gp_Pnt& preceding,bool trim_curved) {
+        if(extension<=tolerance)return;
+        auto tail=make_cutter(job.edge,job.first_face,job.second_face,
+            radius,tolerance,job.material,{},true);
+        const auto path=edge_path(job.edge,tolerance);
+        const double to_endpoint=endpoint.Distance(path.first)<=
+                endpoint.Distance(path.last)
+            ?-.5*path.length:.5*path.length;
+        if(path.kind==EdgeFilletPathKind::Linear) {
+            gp_Trsf placement;
+            placement.SetTranslation(gp_Vec(path.middle,endpoint));
+            move_profile(tail,placement);
+        } else {
+            move_profile(tail,path_rotation(path,
+                to_endpoint/path.path_radius));
+        }
+        BRepBuilderAPI_MakeFace section(tail.midpoint_profile);
+        if(!section.IsDone())throw std::runtime_error(
+            "Planar edge Fillet could not construct its route extension section");
+        GProp_GProps section_properties;
+        BRepGProp::SurfaceProperties(section.Face(),section_properties);
+        const gp_Pnt extension_inside=section_properties.CentreOfMass().
+            Translated(gp_Vec(outward)*std::min(extension*.25,radius));
+        BRepPrimAPI_MakePrism prism(section.Face(),
+            gp_Vec(outward)*extension,false,true);
+        prism.Build();
+        if(!prism.IsDone()||prism.Shape().IsNull()||
+           !BRepCheck_Analyzer(prism.Shape()).IsValid())
+            throw std::runtime_error(
+                "Planar edge Fillet could not construct a valid route extension");
+        tail.solid=prism.Shape();
+        tail.circular_faces.clear();
+        for(const auto& generated:prism.Generated(
+                tail.midpoint_circular_edge))
+            if(generated.ShapeType()==TopAbs_FACE)
+                tail.circular_faces.push_back(TopoDS::Face(generated));
+        if(tail.circular_faces.empty())throw std::runtime_error(
+            "Planar edge Fillet route extension omitted its circular face");
+        for(const auto& face:planar_faces) {
+            clip_fillet_tool(tail.solid,tail.circular_faces,face,
+                extension_inside,tolerance);
+        }
+        if(trim_curved)for(const auto& face:curved_faces)
+            clip_fillet_tool_to_surface(tail.solid,tail.circular_faces,
+                face,preceding,tolerance);
+        fuse_fillet_tools(profile.solid,profile.circular_faces,
+            tail.solid,tail.circular_faces,tolerance);
+    };
+    add_terminal_extension(start_job,start_point,start_outward,
+        first_extension,terminal_faces[0],curved_terminal_faces[0],
+        start_preceding,trim_to_curved_first);
+    add_terminal_extension(end_job,end_point,end_outward,last_extension,
+        terminal_faces[1],curved_terminal_faces[1],end_preceding,
+        trim_to_curved_last);
     profile.source_jobs.assign(route.begin(),route.end());
     return profile;
 }

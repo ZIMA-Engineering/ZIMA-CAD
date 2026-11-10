@@ -7,11 +7,13 @@
 #include <BRepAlgoAPI_Fuse.hxx>
 #include <BRepCheck_Analyzer.hxx>
 #include <BRepClass_FaceClassifier.hxx>
+#include <BRepExtrema_DistShapeShape.hxx>
 #include <BRepFilletAPI_MakeFillet.hxx>
 #include <BRepGProp.hxx>
 #include <BRepBuilderAPI_MakeEdge.hxx>
 #include <BRepBuilderAPI_MakeFace.hxx>
 #include <BRepBuilderAPI_MakeWire.hxx>
+#include <BRepBuilderAPI_MakeVertex.hxx>
 #include <BRepPrimAPI_MakeBox.hxx>
 #include <BRepPrimAPI_MakeCylinder.hxx>
 #include <BRepPrimAPI_MakePrism.hxx>
@@ -601,6 +603,77 @@ struct HalfTurnRouteFixture {
     TopoDS_Shape shape;
     std::array<TopoDS_Edge,3> route;
 };
+
+struct ReturningTerminalRouteFixture {
+    TopoDS_Shape shape;
+    std::array<TopoDS_Edge,5> route;
+};
+
+ReturningTerminalRouteFixture returning_terminal_route_fixture() {
+    constexpr double small_radius=10.,turn_radius=30.;
+    const gp_Pnt p0(0,0,0),p1(100,0,0);
+    const gp_Pnt small_center(100,10,0);
+    const gp_Pnt p2(small_center.X()+small_radius*.5,
+        small_center.Y()-small_radius*std::sqrt(3.)/2.,0);
+    const gp_Pnt p3(p2.X()+100.*std::sqrt(3.)/2.,p2.Y()+50.,0);
+    const gp_Pnt turn_center(p3.X()-turn_radius*.5,
+        p3.Y()+turn_radius*std::sqrt(3.)/2.,0);
+    const gp_Pnt p4(turn_center.X()-turn_radius*.5,
+        turn_center.Y()+turn_radius*std::sqrt(3.)/2.,0);
+    const gp_Pnt p5(p4.X()-70.*std::sqrt(3.)/2.,p4.Y()-35.,0);
+    const gp_Pnt p6(0,p5.Y(),0);
+    const std::array profile{
+        BRepBuilderAPI_MakeEdge(p0,p1).Edge(),
+        BRepBuilderAPI_MakeEdge(gp_Circ(gp_Ax2(small_center,
+            gp_Dir(0,0,1)),small_radius),-std::numbers::pi/2.,
+            -std::numbers::pi/3.).Edge(),
+        BRepBuilderAPI_MakeEdge(p2,p3).Edge(),
+        BRepBuilderAPI_MakeEdge(gp_Circ(gp_Ax2(turn_center,
+            gp_Dir(0,0,1)),turn_radius),-std::numbers::pi/3.,
+            2.*std::numbers::pi/3.).Edge(),
+        BRepBuilderAPI_MakeEdge(p4,p5).Edge(),
+        BRepBuilderAPI_MakeEdge(p5,p6).Edge(),
+        BRepBuilderAPI_MakeEdge(p6,p0).Edge()};
+    BRepBuilderAPI_MakeWire wire;
+    for(const auto& edge:profile)wire.Add(edge);
+    require(wire.IsDone(),
+        "Returning-terminal Fillet fixture could not construct its profile");
+    BRepBuilderAPI_MakeFace face(wire.Wire());
+    BRepPrimAPI_MakePrism prism(face.Face(),gp_Vec(0,0,20),false,true);
+    prism.Build();
+    require(prism.IsDone()&&
+            BRepCheck_Analyzer(prism.Shape(),true,true,false).IsValid(),
+        "Returning-terminal Fillet fixture could not construct its solid");
+    ReturningTerminalRouteFixture result{prism.Shape()};
+    const std::array starts{p0,p1,p2,p3,p4};
+    const std::array ends{p1,p2,p3,p4,p5};
+    for(TopExp_Explorer item(result.shape,TopAbs_EDGE);
+            item.More();item.Next()) {
+        const auto edge=TopoDS::Edge(item.Current());
+        const BRepAdaptor_Curve curve(edge);
+        const auto first=curve.Value(curve.FirstParameter());
+        const auto last=curve.Value(curve.LastParameter());
+        if(std::abs(first.Z()-20.)>1.0e-9||
+           std::abs(last.Z()-20.)>1.0e-9)continue;
+        for(std::size_t index=0;index<result.route.size();++index) {
+            const bool expected=(index==1||index==3)
+                ?curve.GetType()==GeomAbs_Circle
+                :curve.GetType()==GeomAbs_Line;
+            const gp_Pnt expected_first(starts[index].X(),
+                starts[index].Y(),20.);
+            const gp_Pnt expected_last(ends[index].X(),ends[index].Y(),20.);
+            if(expected&&((first.Distance(expected_first)<=1.0e-9&&
+                          last.Distance(expected_last)<=1.0e-9)||
+                         (first.Distance(expected_last)<=1.0e-9&&
+                          last.Distance(expected_first)<=1.0e-9)))
+                result.route[index]=edge;
+        }
+    }
+    require(std::ranges::none_of(result.route,
+                [](const auto& edge){return edge.IsNull();}),
+        "Returning-terminal Fillet fixture lost a top route edge");
+    return result;
+}
 
 HalfTurnRouteFixture half_turn_route_fixture() {
     const gp_Pnt first(0,0,0),lower(100,0,0),upper(100,100,0),
@@ -1559,6 +1632,47 @@ int main() try {
             near(area(reversed.Shape()),area(result.Shape()),
                 "Half-turn ZIMA Fillet area depends on route orientation");
         }
+    }
+    {
+        std::cerr<<"fillet-test: returning tangent terminal\n";
+        const auto fixture=returning_terminal_route_fixture();
+        const std::array route_sizes{fixture.route.size()};
+        constexpr double radius=5.;
+        const auto verify=[&](const auto& route) {
+            const auto result=zima::kernel::occt_planar_edge_fillet(
+                fixture.shape,route,radius,1.0e-7,{},
+                zima::kernel::OcctPlanarEdgeFilletEndMode::
+                    AutomaticBodyEnvelope,route_sizes);
+            require(result.history&&result.metrics.cutter_solids==1&&
+                    BRepCheck_Analyzer(result.Shape(),true,true,false).
+                        IsValid()&&
+                    result.fillet_faces.size()==fixture.route.size()&&
+                    std::ranges::all_of(result.fillet_faces,
+                        [](const auto& faces){return !faces.empty();}),
+                "ZIMA Fillet lost its returning tangent-terminal route");
+            const double expected=radius*(std::sqrt(2.)-1.);
+            for(const auto& edge:fixture.route) {
+                const BRepAdaptor_Curve curve(edge);
+                const auto midpoint=curve.Value((curve.FirstParameter()+
+                    curve.LastParameter())/2.);
+                BRepExtrema_DistShapeShape distance(
+                    BRepBuilderAPI_MakeVertex(midpoint).Vertex(),
+                    result.Shape());
+                distance.Perform();
+                require(distance.IsDone()&&
+                        std::abs(distance.Value()-expected)<1.0e-6,
+                    "A returning route member remained unfilleted after terminal trimming");
+            }
+            return result;
+        };
+        const auto forward=verify(fixture.route);
+        auto reversed_route=fixture.route;
+        std::ranges::reverse(reversed_route);
+        const auto reversed=verify(reversed_route);
+        near(volume(reversed.Shape()),volume(forward.Shape()),
+            "Returning-terminal ZIMA Fillet volume depends on route orientation");
+        near(area(reversed.Shape()),area(forward.Shape()),
+            "Returning-terminal ZIMA Fillet area depends on route orientation");
     }
     std::cout<<"Custom planar edge Fillet: convex/concave 90-degree, inner/outer two/three-branch and staggered-step nodes, through-notch and side-pocket terminals, mixed CUT/FUSE order, batch, 60-degree, perpendicular/angled/tangent Up To ends, exact plane/circle, circle/circle, ellipse/circle and spline/circle rolling supports, cylinder/sphere ancestry and rejection checks passed\n";
     return 0;
