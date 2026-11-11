@@ -57,18 +57,17 @@ See [native distribution](doc/NATIVE_DISTRIBUTION.md),
 [updates](doc/UPDATES.md) and the [user manual](doc/USER_MANUAL.md).
 
 The latest published signed Windows release is
-[2026111101](https://github.com/ZIMA-Engineering/ZIMA-CAD/releases/tag/ZIMA-CAD-2026111101).
+[2026111102](https://github.com/ZIMA-Engineering/ZIMA-CAD/releases/tag/ZIMA-CAD-2026111102).
 Its clean committed-source package, trusted signature, candidate and signed
 native smoke, all 1,185 factory native assets, production-updater discovery and
-fresh anonymous public downloads are verified. It corrects Pattern/Mirror source
-appearance, opposite-side Sheet Cut Up-to entry and imported-sheet cut editing,
-and adds presentation-only embedded images to ordinary Sketches. Tangent shared
-points avoid redundant Coincident, overlapping dimension values keep click
-priority and the full ZIMA-CAD name appears on the empty workspace. The retained
-STEP-to-sheet reconstruction passes the reported rounded-ear and 74-circle case.
-The shared Windows/Linux source remains pinned to OCCT 8.0.1. See the
-[release record](doc/releases/2026111101.md) and
-[publication evidence](doc/verification/20261111-windows-1101-publication.json).
+fresh anonymous public downloads are verified. It adds Line Bend about a finite
+Sketch segment and extends associative Sheet from Body with selected source
+faces, RIP Sketches and partial or complete Tree detachment. The approved Part
+format is 52; all 1,058 repository-owned Part-based assets were regenerated,
+reopened and verified with the shared implementation. The shared Windows/Linux
+source remains pinned to OCCT 8.0.1. See the
+[release record](doc/releases/2026111102.md) and
+[publication evidence](doc/verification/20261111-windows-1102-publication.json).
 The [current status](doc/PROJECT_STATUS.md) separates released scope and remaining
 work. Linux verification follows the separate handoff.
 

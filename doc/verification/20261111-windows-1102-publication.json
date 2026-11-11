@@ -1,0 +1,78 @@
+{
+  "release": {
+    "tag": "ZIMA-CAD-2026111102",
+    "commit": "bc764875b1e26dcdeebabc456688b505de784e82",
+    "published_at": "2026-11-11T16:30:43Z",
+    "url": "https://github.com/ZIMA-Engineering/ZIMA-CAD/releases/tag/ZIMA-CAD-2026111102",
+    "draft": false,
+    "prerelease": false,
+    "latest": true
+  },
+  "candidate": {
+    "build_kind": "release-candidate",
+    "archive_size": 963838258,
+    "archive_sha256": "ad5bc855bff106dfeba18e12c5221bad151b89481311e4bfaf826489352cf632",
+    "windows_smoke": "passed",
+    "native_factory_assets_loaded": 1185,
+    "native_factory_asset_failures": 0
+  },
+  "signed_release": {
+    "archive_name": "ZIMA-CAD-2026111102.zip",
+    "archive_size": 964655740,
+    "archive_sha256": "d430515afee93bfd75fcd5d1bd010163ade5ef0e70637146cf0e91ec4a40656b",
+    "archive_file_count": 17531,
+    "archive_unpacked_size": 3226687366,
+    "checksums_sha256": "8f819fcea633a2ab9e8998ee95a84844f6577ef88719649b1d51ec835c493132",
+    "source_tree_sha256": "b68735327c8c0cc285fc57a27b5bab7a0275a92cb3a3c3e44e0fb9113c789db3",
+    "windows_smoke": "passed",
+    "linux_smoke": "not-run",
+    "publisher_key_id": "zcp-8fa1f825cbde5d81",
+    "manifest_sha256": "b50c36b464976ec97b9ff2924caf0f322a400bb90ab4f521f6c05a070bfbb2a7",
+    "signature_file_sha256": "33f2d6054ae9bd8c80804ba1956998f82496cf534c804716c07d5e859efc1f0d"
+  },
+  "public_assets": [
+    {
+      "name": "ZIMA-CAD-2026111102.zip",
+      "size": 964655740,
+      "sha256": "d430515afee93bfd75fcd5d1bd010163ade5ef0e70637146cf0e91ec4a40656b",
+      "github_digest_matches": true,
+      "draft_download_matches": true,
+      "anonymous_download_matches": true
+    },
+    {
+      "name": "update-manifest.json",
+      "size": 703,
+      "sha256": "b50c36b464976ec97b9ff2924caf0f322a400bb90ab4f521f6c05a070bfbb2a7",
+      "github_digest_matches": true,
+      "draft_download_matches": true,
+      "anonymous_download_matches": true
+    },
+    {
+      "name": "update-manifest.sig",
+      "size": 176,
+      "sha256": "33f2d6054ae9bd8c80804ba1956998f82496cf534c804716c07d5e859efc1f0d",
+      "github_digest_matches": true,
+      "draft_download_matches": true,
+      "anonymous_download_matches": true
+    }
+  ],
+  "verification": {
+    "focused_native_and_gui_contracts_passed": 14,
+    "focused_native_and_gui_contracts_failed": 0,
+    "publisher_package_tests_passed": 31,
+    "publisher_package_tests_skipped": 2,
+    "part_based_assets_migrated": 1058,
+    "history_boundaries_recalculated": 5477,
+    "asset_recalculation_errors": 0,
+    "cached_asset_parity_checks": 1042,
+    "native_part_ini_format": 52,
+    "native_part_packet_format": 76,
+    "public_archive_safe_extraction": "passed",
+    "public_binary_identity": "passed",
+    "public_updater_status": "current"
+  },
+  "limits": [
+    "The complete repository-wide regression matrix is not claimed green.",
+    "Native Linux compilation and execution were not run on the Windows host."
+  ]
+}

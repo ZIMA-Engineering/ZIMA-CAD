@@ -7,24 +7,22 @@ not the current feature backlog.
 
 ## Current release boundary
 
-Signed Windows [2026111101](releases/2026111101.md#windows-publication-acceptance)
+Signed Windows [2026111102](releases/2026111102.md#windows-publication-acceptance)
 is the latest published stable build. It was published at
-`2026-11-11T07:09:23Z` from immutable source
-`5236ad141e0f42816664e82f961f3b2466751065` with Qt 6.11.0 and OCCT 8.0.1.
+`2026-11-11T16:30:43Z` from immutable source
+`bc764875b1e26dcdeebabc456688b505de784e82` with Qt 6.11.0 and OCCT 8.0.1.
 Candidate and signed native smoke each pass with all 1,185 factory assets;
-signature/trust, 17,521 archive entries and fresh anonymous public downloads
+signature/trust, 17,531 archive entries and fresh anonymous public downloads
 pass. Native Linux execution remains a separate host requirement. See the
-[publication evidence](verification/20261111-windows-1101-publication.json).
+[publication evidence](verification/20261111-windows-1102-publication.json).
 
-The release preserves source Part and Body appearance on Pattern/Mirror copies,
-repairs opposite-side Sheet Cut Up-to entry and resumes ordinary subtractive
-Feature edits from the exact persisted imported-sheet prefix. Ordinary Sketches
-can own presentation-only embedded images with placement, rotation, opacity,
-visibility and selection locking. Shared-point tangency avoids redundant
-Coincident, dimension values retain click priority over overlapping relation
-markers and the empty workspace uses the complete ZIMA-CAD name. The native
-format version remains 51; optional image fields do not require factory asset or
-start-template regeneration.
+The release adds Line Bend about one finite straight Sketch segment with either
+fixed side, reverse direction and ordinary sheet parameters. Associative Sheet
+from Body accepts selected planar/cylindrical source faces and RIP Sketches;
+generated Flat/Bend children can be detached individually or all at once while
+preserving the calculated sheet result. Native Part format is 52. All 1,058
+repository-owned Part-based assets were migrated with the current shared C++
+writer, recalculated, saved and reopened with zero errors.
 
 The unpublished 2026110901 and 2026110902 source tags were superseded by published
 Windows release [2026111001](releases/2026111001.md). It completes shared Feature-like

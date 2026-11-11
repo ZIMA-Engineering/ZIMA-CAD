@@ -1,5 +1,18 @@
 # Application updates
 
+Signed Windows [2026111102](releases/2026111102.md#windows-publication-acceptance)
+was published at `2026-11-11T16:30:43Z` from immutable source
+`bc764875b1e26dcdeebabc456688b505de784e82`. It adds Line Bend about a finite
+Sketch segment and extends associative Sheet from Body with selected source
+faces, RIP Sketches and partial or complete Tree detachment. Part native format
+52 and all 1,058 repository-owned Part-based assets are current. Candidate and
+signed native smoke passed with all 1,185 factory assets. The signed manifest
+binds 17,531 archive entries, exact source and the Windows runtime. All three
+authenticated draft and anonymous public downloads match the accepted bytes;
+the production updater verifies the public signature and reports the release as
+current. Native Linux execution remains a separate host gate. See the
+[publication evidence](verification/20261111-windows-1102-publication.json).
+
 Signed Windows [2026111101](releases/2026111101.md#windows-publication-acceptance)
 was published at `2026-11-11T07:09:23Z` from immutable source
 `5236ad141e0f42816664e82f961f3b2466751065`. It corrects Pattern/Mirror source

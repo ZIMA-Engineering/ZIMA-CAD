@@ -1,5 +1,19 @@
 # Native versioned distribution
 
+Signed Windows [2026111102](releases/2026111102.md#windows-publication-acceptance)
+was published at `2026-11-11T16:30:43Z` from immutable source
+`bc764875b1e26dcdeebabc456688b505de784e82`. Line Bend and the expanded
+associative Sheet from Body workflow, including RIP inputs and partial/full
+detachment, passed their finite contracts. Native Part format 52 is current and
+all 1,058 repository-owned Part-based assets were regenerated and reopened.
+Candidate and signed native smoke passed; candidate smoke loaded all 1,185
+factory assets. The signed manifest binds 17,531 archive entries, exact source
+and the Windows runtime. All three authenticated draft and anonymous public
+downloads match the accepted bytes, and the production updater reports the
+public build as current. Native Linux execution remains a separate host gate.
+See the
+[publication evidence](verification/20261111-windows-1102-publication.json).
+
 Signed Windows [2026111101](releases/2026111101.md#windows-publication-acceptance)
 was published at `2026-11-11T07:09:23Z` from immutable source
 `5236ad141e0f42816664e82f961f3b2466751065`. Pattern/Mirror occurrence
