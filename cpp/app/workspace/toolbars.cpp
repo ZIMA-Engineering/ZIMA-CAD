@@ -461,6 +461,16 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
                 connect(bend,&QAction::triggered,this,[this]{show_sketch_properties({},false,true);});
             }
             bend->setEnabled(!properties_dialog_);add_command(bend);
+            auto* line_bend=findChild<QAction*>("lineBendAction");
+            if(!line_bend) {
+                line_bend=new QAction(resource_icon("bend"),
+                    tr("Ohyb podle čáry"),this);
+                line_bend->setObjectName("lineBendAction");
+                connect(line_bend,&QAction::triggered,this,[this] {
+                    show_sketch_properties({},false,false,false,false,true);
+                });
+            }
+            line_bend->setEnabled(!properties_dialog_);add_command(line_bend);
             auto* profile=findChild<QAction*>("sheetProfileAction");
             if(!profile) {
                 profile=new QAction(resource_icon("sheet-profile"),tr("Profil"),this);

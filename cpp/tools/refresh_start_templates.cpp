@@ -1124,6 +1124,59 @@ void upgrade_native_part_format_50_to_51(
     if(!evidence)throw std::runtime_error("Cannot write migration evidence");
 }
 
+void upgrade_native_part_format_51_to_52(
+        const std::filesystem::path& source,
+        const std::filesystem::path& output,
+        const std::filesystem::path& report) {
+    if(std::filesystem::absolute(source).lexically_normal()==
+            std::filesystem::absolute(output).lexically_normal())
+        throw std::runtime_error(
+            "Format migration output must be separate from its source");
+    std::ifstream input(source,std::ios::binary);
+    const std::string original((std::istreambuf_iterator<char>(input)),{});
+    if(!input&&!input.eof())throw std::runtime_error(
+        "Cannot read native Part for format migration");
+    auto migrated=original;
+    constexpr std::string_view old_version="format_version=51";
+    std::size_t version_count{};
+    for(std::size_t position=migrated.find(old_version);
+            position!=std::string::npos;
+            position=migrated.find(old_version,position+1)) {
+        const bool line_start=position==0||migrated[position-1]=='\n';
+        const auto after=position+old_version.size();
+        const bool line_end=after==migrated.size()||
+            migrated[after]=='\n'||migrated[after]=='\r';
+        if(line_start&&line_end)++version_count;
+    }
+    if(version_count!=1)throw std::runtime_error(
+        "Expected exactly one native Part format 51 declaration");
+    const auto version=migrated.find(old_version);
+    migrated.replace(version,old_version.size(),"format_version=52");
+    // Line Bend and Sheet-from-Body RIP data extend the authored definition.
+    // Never carry a format-51 derived packet across the strict boundary.
+    bool cache_removed{};
+    const auto cache=migrated.find("[CachedBodies]");
+    if(cache!=std::string::npos&&(cache==0||migrated[cache-1]=='\n')) {
+        const auto next_section=migrated.find("\n[",cache+1);
+        if(next_section==std::string::npos)
+            throw std::runtime_error("Native Part cache section is invalid");
+        migrated.erase(cache,next_section+1-cache);
+        cache_removed=true;
+    }
+    std::filesystem::create_directories(output.parent_path());
+    std::ofstream native(output,std::ios::binary);
+    native.write(migrated.data(),static_cast<std::streamsize>(migrated.size()));
+    native.close();
+    if(!native)throw std::runtime_error("Cannot write migrated native Part");
+    std::filesystem::create_directories(report.parent_path());
+    std::ofstream evidence(report);
+    evidence<<nlohmann::json{{"migration","part-format-51-to-52"},
+        {"format_upgraded",true},
+        {"stale_derived_cache_removed",cache_removed},
+        {"authored_definition_changed",false}}.dump(2)<<'\n';
+    if(!evidence)throw std::runtime_error("Cannot write migration evidence");
+}
+
 void attach_verified_legacy_part_cache(
         const std::filesystem::path& current_authored,
         const std::filesystem::path& legacy_source,
@@ -1205,6 +1258,49 @@ void attach_verified_legacy_part_cache(
 
 int main(int argc,char** argv){try{
     using namespace zima;
+    if(argc==4&&std::string_view(argv[1])==
+            "--upgrade-repository-part-format51-to52") {
+        const auto output_root=std::filesystem::u8path(argv[2]);
+        const auto report_root=std::filesystem::u8path(argv[3]);
+        std::vector<std::filesystem::path> sources;
+        for(const auto& relative_root:{std::filesystem::path("config"),
+                std::filesystem::path("cpp/tests/fixtures")}) {
+            for(const auto& entry:
+                    std::filesystem::recursive_directory_iterator(
+                        relative_root)) {
+                if(!entry.is_regular_file())continue;
+                const auto extension=entry.path().extension();
+                if(extension!=".prtz"&&extension!=".frmz"&&
+                        extension!=".tblz"&&extension!=".symz")continue;
+                std::ifstream input(entry.path(),std::ios::binary);
+                const std::string data((std::istreambuf_iterator<char>(input)),{});
+                if(data.find("format_version=51")!=std::string::npos)
+                    sources.push_back(entry.path());
+            }
+        }
+        std::ranges::sort(sources);
+        if(sources.empty())throw std::runtime_error(
+            "No repository native Part format 51 assets were found");
+        for(const auto& source:sources) {
+            const auto relative=std::filesystem::relative(
+                source,std::filesystem::current_path());
+            auto evidence=report_root/relative;
+            evidence+=".json";
+            upgrade_native_part_format_51_to_52(
+                source,output_root/relative,evidence);
+        }
+        std::filesystem::create_directories(report_root);
+        std::ofstream summary(report_root/"summary.json");
+        summary<<nlohmann::json{{"migration","part-format-51-to-52"},
+            {"asset_count",sources.size()},
+            {"all_outputs_separate_from_sources",true},
+            {"authored_definitions_unchanged",true}}.dump(2)<<'\n';
+        if(!summary)throw std::runtime_error(
+            "Cannot write repository migration evidence");
+        std::cout<<"Staged "<<sources.size()
+            <<" repository native Part assets in format 52\n";
+        return 0;
+    }
     if(argc==4&&std::string_view(argv[1])==
             "--recalculate-repository-part-assets") {
         const auto output_root=std::filesystem::u8path(argv[2]);
@@ -1378,6 +1474,14 @@ int main(int argc,char** argv){try{
     if(argc==5&&std::string_view(argv[1])==
             "--upgrade-part-format50-to51") {
         upgrade_native_part_format_50_to_51(
+            std::filesystem::u8path(argv[2]),
+            std::filesystem::u8path(argv[3]),
+            std::filesystem::u8path(argv[4]));
+        return 0;
+    }
+    if(argc==5&&std::string_view(argv[1])==
+            "--upgrade-part-format51-to52") {
+        upgrade_native_part_format_51_to_52(
             std::filesystem::u8path(argv[2]),
             std::filesystem::u8path(argv[3]),
             std::filesystem::u8path(argv[4]));

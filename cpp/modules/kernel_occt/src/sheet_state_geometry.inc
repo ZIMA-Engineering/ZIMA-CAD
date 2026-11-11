@@ -311,6 +311,134 @@ PrimitiveData transform(const PrimitiveData& original_input,const std::vector<Tr
     result.vertices=complete_boolean_vertices(result.shape,result.faces,result.edges,result.vertices,owner,"sheet-join");
     return result;
 }
+
+PrimitiveData line_bend(const PrimitiveData& input,const LineBendRequest& request,
+        const std::string& owner) {
+    if(input.shape.IsNull())throw std::invalid_argument(
+        "Line Bend requires an input body.");
+    if(!std::isfinite(request.radius)||!std::isfinite(request.neutral_radius)||
+            !std::isfinite(request.angle)||!std::isfinite(request.thickness)||
+            !std::isfinite(request.tolerance)||request.radius<=0||
+            request.neutral_radius<=0||request.angle<=1e-9||
+            request.angle>=std::numbers::pi*2-1e-7||request.thickness<=0||
+            request.tolerance<1e-6||request.tolerance>1||
+            !std::isfinite(request.along_min)||
+            !std::isfinite(request.along_max)||
+            request.along_max-request.along_min<1e-6)
+        throw std::invalid_argument("Invalid Line Bend parameters.");
+    const auto length=[](Vec3 value) {
+        return std::sqrt(value.x*value.x+value.y*value.y+
+            value.z*value.z);
+    };
+    const auto normalized=[&](Vec3 value) {
+        const double magnitude=length(value);
+        if(magnitude<1e-12)throw std::invalid_argument(
+            "Line Bend has a degenerate frame.");
+        return Vec3{value.x/magnitude,value.y/magnitude,
+            value.z/magnitude};
+    };
+    const auto along=normalized(request.along);
+    const auto tangent=normalized(request.tangent);
+    const auto radial=normalized(request.radial);
+    if(std::abs(sheet_material::dot(along,tangent))>1e-8||
+            std::abs(sheet_material::dot(along,radial))>1e-8||
+            std::abs(sheet_material::dot(tangent,radial))>1e-8)
+        throw std::invalid_argument("Line Bend frame is not orthogonal.");
+    SheetMaterialDefinition before;
+    before.kind=SheetMaterialDefinition::Kind::Cylinder;
+    before.owner_id=owner;before.feature_owner_id=owner;
+    before.origin=request.origin;before.along=along;
+    before.tangent=tangent;before.radial=radial;
+    before.radius=request.radius;
+    before.neutral_radius=request.neutral_radius;
+    before.angle=request.angle;before.thickness=request.thickness;
+    before.unfolded=true;
+    auto after=before;after.unfolded=false;
+    const Transition transition{before,after};
+    const double material_length=request.angle*request.neutral_radius;
+
+    TopTools_ListOfShape arguments,tools;arguments.Append(input.shape);
+    std::vector<OwnedFace> partition_faces;
+    const auto add_plane=[&](Vec3 point,Vec3 normal,std::string role) {
+        const auto plane=BRepBuilderAPI_MakeFace(gp_Pln(
+            gp_Pnt(point.x,point.y,point.z),
+            gp_Dir(normal.x,normal.y,normal.z))).Face();
+        tools.Append(plane);partition_faces.push_back({plane,
+            FaceReference{owner,"line-bend:partition:"+std::move(role)}});
+    };
+    add_plane(request.origin,tangent,"fixed");
+    add_plane(sheet_material::add(request.origin,
+        sheet_material::mul(tangent,material_length)),tangent,"moving");
+    add_plane(sheet_material::add(request.origin,
+        sheet_material::mul(along,request.along_min)),along,"first");
+    add_plane(sheet_material::add(request.origin,
+        sheet_material::mul(along,request.along_max)),along,"last");
+    BRepAlgoAPI_Splitter splitter;splitter.SetArguments(arguments);
+    splitter.SetTools(tools);splitter.SetNonDestructive(true);
+    splitter.SetToFillHistory(true);splitter.SetFuzzyValue(1e-7);
+    splitter.Build();
+    if(!splitter.IsDone())throw std::runtime_error(
+        "Line Bend material partition failed.");
+    auto faces=propagate_topology(splitter,input.faces,
+        std::vector<OwnedFace>{});
+    for(auto& face:propagate_topology(splitter,
+            std::vector<OwnedFace>{},partition_faces))
+        if(std::ranges::none_of(faces,[&](const auto& source) {
+                return source.shape.IsSame(face.shape);
+            }))faces.push_back(std::move(face));
+    const auto edges=complete_boolean_edges(splitter.Shape(),faces,
+        propagate_topology(splitter,input.edges,std::vector<OwnedEdge>{}),
+        owner,"line-bend-partition");
+    const auto vertices=complete_boolean_vertices(splitter.Shape(),faces,
+        edges,propagate_topology(splitter,input.vertices,
+            std::vector<OwnedVertex>{}),owner,"line-bend-partition");
+
+    PrimitiveData result;
+    for(TopExp_Explorer solid(splitter.Shape(),TopAbs_SOLID);
+            solid.More();solid.Next()) {
+        PrimitiveData piece;piece.shape=solid.Current();
+        TopTools_IndexedMapOfShape members;TopExp::MapShapes(piece.shape,members);
+        for(const auto& face:faces)if(members.Contains(face.shape))
+            piece.faces.push_back(face);
+        for(const auto& edge:edges)if(members.Contains(edge.shape))
+            piece.edges.push_back(edge);
+        for(const auto& vertex:vertices)if(members.Contains(vertex.shape))
+            piece.vertices.push_back(vertex);
+        GProp_GProps properties;BRepGProp::VolumeProperties(
+            piece.shape,properties);
+        const auto center=properties.CentreOfMass();
+        const auto coordinate=sheet_material::coordinates(before,
+            {center.X(),center.Y(),center.Z()});
+        const bool within_segment=
+            coordinate.along>=request.along_min-request.tolerance&&
+            coordinate.along<=request.along_max+request.tolerance;
+        if(within_segment&&coordinate.length>=-request.tolerance) {
+            const bool continuation=
+                coordinate.length>material_length+request.tolerance;
+            piece=deform(piece,transition,continuation,
+                request.tolerance);
+        }
+        if(result.shape.IsNull())result=std::move(piece);
+        else {
+            BRepAlgoAPI_Fuse fuse;set_boolean_inputs(fuse,result.shape,
+                piece.shape);fuse.SetToFillHistory(true);
+            fuse.SetFuzzyValue(request.tolerance/8);fuse.Build();
+            if(!fuse.IsDone())throw std::runtime_error(
+                "Line Bend region joining failed.");
+            result.faces=propagate_topology(fuse,result.faces,piece.faces);
+            result.edges=propagate_topology(fuse,result.edges,piece.edges);
+            result.vertices=propagate_topology(fuse,result.vertices,
+                piece.vertices);result.shape=fuse.Shape();
+        }
+    }
+    if(result.shape.IsNull()||!BRepCheck_Analyzer(result.shape).IsValid())
+        throw std::runtime_error("Line Bend did not produce a valid body.");
+    result.edges=complete_boolean_edges(result.shape,result.faces,result.edges,
+        owner,"line-bend-join");
+    result.vertices=complete_boolean_vertices(result.shape,result.faces,
+        result.edges,result.vertices,owner,"line-bend-join");
+    return result;
+}
 void identify(PrimitiveData& result,const std::string& owner) {
     // The state operation still owns the derived topology identity needed by
     // later references.  Ordinary View selection, however, must pass through

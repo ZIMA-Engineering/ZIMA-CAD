@@ -14,6 +14,7 @@
 #include <zima/document/feature_direction.hpp>
 #include <zima/document/bend.hpp>
 #include <zima/workspace/bend_operations.hpp>
+#include <zima/workspace/line_bend_operations.hpp>
 #include <zima/workspace/flat_operations.hpp>
 #include <zima/workspace/sheet_profile_operations.hpp>
 #include <zima/workspace/sheet_form_operations.hpp>
@@ -849,6 +850,13 @@ void AssemblyWorkspaceWindow::edit_dimension_inline(
                         document::FeatureKind::Bend) {
                 static_cast<void>(workspace::commit_bend(workspace_,kernel_,
                     next.document_id,*dimension_feature,
+                    *dimension_feature_sketch));
+                construction_dimension_object_id_=dimension_feature->id;
+            } else if(dimension_feature&&dimension_feature_sketch&&
+                    dimension_feature->feature_kind==
+                        document::FeatureKind::LineBend) {
+                static_cast<void>(workspace::commit_line_bend(workspace_,
+                    kernel_,next.document_id,*dimension_feature,
                     *dimension_feature_sketch));
                 construction_dimension_object_id_=dimension_feature->id;
             } else if(edited_feature && edited_feature->feature_kind==document::FeatureKind::Feature &&

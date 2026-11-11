@@ -49,7 +49,7 @@ enum class NativeCalculatedCacheReuse {
 };
 
 enum class CombineMode { Add, Subtract };
-enum class FeatureKind { Sketch, Extrusion, Revolution, Sweep3D, ImportedStep, Fillet, Chamfer, Shell, Hole, Thread, DrillPoint, ShaftThread, HelicalSweep, Sweep2D, Holes, Bend, Flat, SheetFromBody, SheetProfile, TwistedSheet, Unbend, BendBack, DerivedCopy, SheetTransition, Feature, BoundarySurface, Straighten, RestoreShape, SurfaceSewing, GeneralSurface, SurfaceIntersection, SurfaceTrim, SurfaceThicken, SheetForm, Loft };
+enum class FeatureKind { Sketch, Extrusion, Revolution, Sweep3D, ImportedStep, Fillet, Chamfer, Shell, Hole, Thread, DrillPoint, ShaftThread, HelicalSweep, Sweep2D, Holes, Bend, LineBend, Flat, SheetFromBody, SheetProfile, TwistedSheet, Unbend, BendBack, DerivedCopy, SheetTransition, Feature, BoundarySurface, Straighten, RestoreShape, SurfaceSewing, GeneralSurface, SurfaceIntersection, SurfaceTrim, SurfaceThicken, SheetForm, Loft };
 [[nodiscard]] inline bool is_solid_state(FeatureKind kind) {
     return kind==FeatureKind::Straighten||kind==FeatureKind::RestoreShape;
 }
@@ -667,6 +667,15 @@ struct SheetFromBodyParameters {
     std::vector<std::string> generated_features;
     std::vector<SheetFromBodyChildBinding> child_bindings;
     std::string source_body_id;
+    SheetFromBodyFaceBinding source_face;
+    // Empty keeps the complete connected-sheet behavior. Otherwise these
+    // explicitly selected source supports limit conversion to the root and
+    // the connecting paths required to reach the included regions.
+    std::vector<SheetFromBodyFaceBinding> included_faces;
+    // Optional ordinary Sketches whose complete non-construction geometry
+    // defines conversion seams. The Sketches remain independently editable
+    // history objects; this boundary owns only their stable input references.
+    std::vector<std::string> rip_sketches;
     double thickness{1.0};
     bool thickness_override{};
     bool replaces_body{};
@@ -756,6 +765,23 @@ struct BendParameters {
     bool k_factor_override{};
     bool radius_follows_thickness{};
     bool operator==(const BendParameters&) const = default;
+};
+
+// Deforms an already calculated planar sheet around one ordinary Sketch
+// segment. The segment direction and fixed_side retain the two independently
+// authored side choices; reverse selects the physical bend side.
+struct LineBendParameters {
+    std::string sketch_id;
+    std::string segment_id;
+    double radius{5.0};
+    double angle_degrees{90.0};
+    double thickness{1.0};
+    double k_factor{0.5};
+    bool thickness_override{};
+    bool k_factor_override{};
+    int fixed_side{1};
+    bool reverse{};
+    bool operator==(const LineBendParameters&) const = default;
 };
 
 struct SheetStateParameters {
@@ -872,6 +898,7 @@ struct HistoryContainer {
     HoleParameters hole;
     HolesParameters holes;
     BendParameters bend;
+    LineBendParameters line_bend;
     FlatParameters flat;
     SheetFromBodyParameters sheet_from_body;
     SheetProfileParameters sheet_profile;

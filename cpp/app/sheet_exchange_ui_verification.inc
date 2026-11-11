@@ -94,6 +94,39 @@ int verify_sheet_exchange_ui(QApplication& application,const std::filesystem::pa
             action->trigger();flush();auto* current=dialog();check(current->windowType()==Qt::SubWindow,"Conversion dialog is not an internal window");
             auto* references=current->findChild<QTableWidget*>("sheetSourceFace");
             check(references->horizontalHeaderItem(1)->text()==settings.qt_translations.value("Výchozí rovinná plocha"),"Conversion face label is untranslated");
+            auto* included=current->findChild<QTableWidget*>("sheetIncludedFaces");
+            auto* rips=current->findChild<QTableWidget*>("sheetRipSketches");
+            check(included&&rips&&included->rowCount()==12&&rips->rowCount()==3,
+                "Sheet from Body did not create the agreed initial reference slots");
+            check(included->horizontalHeaderItem(1)->text()==
+                    settings.qt_translations.value("Zahrnuté plochy")&&
+                    rips->horizontalHeaderItem(1)->text()==
+                    settings.qt_translations.value("RIP skici"),
+                "Sheet from Body additional reference labels are untranslated");
+            included->cellClicked(11,1);current->set_face_reference(seed,3);flush();
+            check(included->rowCount()==13&&current->included_faces().size()==1,
+                "Sheet from Body included-face slots did not expand");
+            auto* included_indicator=included->cellWidget(11,0);
+            auto* included_remove=qobject_cast<QPushButton*>(
+                included_indicator->property("_removeWidget").value<QObject*>());
+            check(included_remove&&included_remove->isVisible(),
+                "Assigned included face has no remove action");
+            included_remove->click();flush();
+            check(current->included_faces().empty()&&current->face_entry(),
+                "Removing an included face did not restore its input");
+            rips->cellClicked(2,1);current->set_rip_reference(
+                "sheet-ui:rip",QStringLiteral("RIP Sketch"));flush();
+            check(rips->rowCount()==4&&current->rip_sketches()==
+                    std::vector<std::string>{"sheet-ui:rip"},
+                "Sheet from Body RIP slots did not expand");
+            auto* rip_indicator=rips->cellWidget(2,0);
+            auto* rip_remove=qobject_cast<QPushButton*>(
+                rip_indicator->property("_removeWidget").value<QObject*>());
+            check(rip_remove&&rip_remove->isVisible(),
+                "Assigned RIP Sketch has no remove action");
+            rip_remove->click();flush();
+            check(current->rip_sketches().empty()&&current->rip_entry(),
+                "Removing a RIP Sketch did not restore its input");
             auto* override=current->findChild<QCheckBox*>("sheetSourceThicknessOverride");
             auto* thickness=current->findChild<QDoubleSpinBox*>("sheetSourceThickness");
             check(override&&thickness&&override->text()==settings.qt_translations.value("Nedržet se tloušťky plechu")&&
@@ -193,6 +226,98 @@ int verify_sheet_exchange_ui(QApplication& application,const std::filesystem::pa
         check(window.findChild<QAction*>("sheetFromBodyAction")->isEnabled(),"Conversion unavailable in the active editable Body");
         window.findChild<QAction*>("undoAction")->trigger();flush();check(save().history.size()==original,"Conversion Undo did not remove the whole batch");
         window.findChild<QAction*>("redoAction")->trigger();flush();check(save().history.size()==saved.history.size(),"Conversion Redo lost features");
+        const auto tree_row=[&](const std::string& id)
+                ->QTreeWidgetItem* {
+            for(QTreeWidgetItemIterator it(tree);*it;++it)
+                if((*it)->data(0,Qt::UserRole).toString().toStdString()==id)
+                    return *it;
+            return nullptr;
+        };
+        const auto run_tree_action=[&](const std::string& id,
+                const char* object_name) {
+            auto* item=tree_row(id);
+            check(item,"Sheet from Body explode Tree row is missing");
+            tree->setCurrentItem(item);tree->scrollToItem(item);flush();
+            bool available{};
+            const auto name=QString::fromLatin1(object_name);
+            QTimer::singleShot(0,&window,[&,name] {
+                auto* menu=qobject_cast<QMenu*>(
+                    QApplication::activePopupWidget());
+                if(!menu)return;
+                auto* command=menu->findChild<QAction*>(name);
+                available=command&&command->isEnabled();
+                if(!available){menu->close();return;}
+                menu->setActiveAction(command);
+                QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,
+                    Qt::NoModifier);
+                QApplication::sendEvent(menu,&enter);
+            });
+            QMetaObject::invokeMethod(tree,"customContextMenuRequested",
+                Qt::DirectConnection,
+                Q_ARG(QPoint,tree->visualItemRect(item).center()));
+            flush();check(available,
+                "Sheet from Body explode context action is unavailable");
+        };
+        const auto& generated=conversion->sheet_from_body.generated_features;
+        check(!generated.empty(),
+            "Sheet from Body has no generated part to explode");
+        run_tree_action(generated.front(),
+            "explodeSheetFromBodyPartAction");
+        const auto partial=save();
+        const auto partial_parent=std::ranges::find_if(partial.history,
+            [&](const auto& feature){return feature.id==conversion->id;});
+        check(partial_parent!=partial.history.end(),
+            "Partial explode removed the Sheet from Body owner");
+        const auto partial_binding=std::ranges::find(
+            partial_parent->sheet_from_body.child_bindings,
+            generated.front(),
+            &document::SheetFromBodyChildBinding::feature_id);
+        check(partial_binding!=partial_parent->sheet_from_body.
+                child_bindings.end()&&partial_binding->detached&&
+                tree_row(generated.front())&&
+                tree_row(generated.front())->parent()==tree_row(target_id),
+            "Partial explode did not detach its generated Tree part");
+        window.findChild<QAction*>("undoAction")->trigger();flush();
+        const auto partial_restored=save();
+        const auto restored_parent=std::ranges::find_if(
+            partial_restored.history,
+            [&](const auto& feature){return feature.id==conversion->id;});
+        check(restored_parent!=partial_restored.history.end()&&
+                std::ranges::none_of(
+                    restored_parent->sheet_from_body.child_bindings,
+                    [](const auto& binding){return binding.detached;})&&
+                tree_row(generated.front())->parent()==
+                    tree_row(conversion->id),
+            "Partial explode Undo did not restore association nesting");
+
+        run_tree_action(conversion->id,
+            "explodeSheetFromBodyAllAction");
+        const auto fully_exploded=save();
+        check(std::ranges::none_of(fully_exploded.history,
+                [&](const auto& feature){return feature.id==conversion->id;})&&
+                !tree_row(conversion->id)&&
+                std::ranges::all_of(generated,[&](const auto& id) {
+                    return tree_row(id)&&tree_row(id)->parent()==
+                        tree_row(target_id);
+                }),
+            "Complete explode did not retain every native part at Body level");
+        if(same_body)
+            check(std::ranges::all_of(
+                    fully_exploded.history.begin(),
+                    fully_exploded.history.begin()+
+                        static_cast<std::ptrdiff_t>(original),
+                    [](const auto& feature){return feature.suppressed;}),
+                "Same-Body explode restored the source solid material");
+        window.findChild<QAction*>("undoAction")->trigger();flush();
+        const auto all_restored=save();
+        check(std::ranges::any_of(all_restored.history,
+                [&](const auto& feature){return feature.id==conversion->id;})&&
+                tree_row(conversion->id)&&
+                std::ranges::all_of(generated,[&](const auto& id) {
+                    return tree_row(id)&&tree_row(id)->parent()==
+                        tree_row(conversion->id);
+                }),
+            "Complete explode Undo did not restore the conversion group");
         const auto unchanged=save().serialized();
         for(const auto kind:{document::FeatureKind::Flat,document::FeatureKind::Bend}) {
             const auto feature=std::find_if(saved.history.begin()+original,saved.history.end(),
@@ -259,4 +384,132 @@ int verify_sheet_exchange_ui(QApplication& application,const std::filesystem::pa
         window.grab().save(QString::fromStdString((directory/"sheet-conversion-result.png").string()));
         std::cout<<"Sheet exchange GUI: native picker, all languages, Cancel, middle-button OK, Undo/Redo and DXF passed\n";return 0;
     }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}
+}
+
+int verify_line_bend_ui(QApplication& application,
+        const std::filesystem::path& directory) {
+    using namespace zima;
+    const auto check=[](bool value,const char* message) {
+        if(!value)throw std::runtime_error(message);
+    };
+    const auto flush=[&] {
+        application.processEvents();
+        QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
+        application.processEvents();
+    };
+    try {
+        auto part=document::PartDocument::create_default();
+        const auto body=part.body_history.create_body("Line Bend UI");
+        auto flat=document::PartDocument::create_sketch_container();
+        flat.feature_kind=document::FeatureKind::Flat;
+        flat.name="Flat";flat.flat.thickness_override=true;
+        flat.flat.thickness=2;
+        flat.flat.direction=document::ExtrusionDirection::Reverse;
+        auto profile=sketcher::Sketch::create_default();
+        profile.owner_container_id=flat.id;profile.name=flat.name;
+        flat.flat.sketch_id=profile.id;
+        static_cast<void>(profile.add_rectangle(-50,-40,50,40));
+        part.insert_history_entry(document::PartHistoryKind::Feature,flat.id);
+        part.history.push_back(flat);part.sketches.push_back(profile);
+        kernel::OcctKernel kernel;
+        const auto calculated=workspace::calculate_part_with_resolved_references(
+            kernel,part);
+        const auto path=directory/"line-bend-ui.prtz";
+        part.save(path,calculated);
+
+        app::AssemblyWorkspaceWindow window(
+            QString::fromStdString(directory.string()));
+        window.resize(1300,900);window.show();
+        check(window.open_document_path(
+            QString::fromStdString(path.string())),
+            "Line Bend fixture did not open");
+        flush();
+        check(activate_test_body(application,window,body),
+            "Line Bend fixture Body could not activate");
+        window.findChild<QAction*>("applicationModeAction2")->trigger();
+        flush();
+        auto* action=window.findChild<QAction*>("lineBendAction");
+        check(action&&action->isEnabled()&&!action->icon().isNull(),
+            "Line Bend toolbar action is missing");
+        action->trigger();flush();
+        auto* dialog=dynamic_cast<app::SketchPropertiesDialog*>(
+            window.findChild<QDialog*>("lineBendPropertiesDialog"));
+        check(dialog&&dialog->isVisible()&&dialog->windowType()==Qt::SubWindow,
+            "Line Bend Properties did not open as an internal window");
+        const auto draft=dialog->pending_value().first;
+        check(dialog->mutate_sketch(draft.id,[](auto& sketch) {
+            static_cast<void>(sketch.add_segment(-50,0,50,0));
+        }),"Line Bend draft could not accept its bend line");
+        auto* radius=dialog->findChild<QDoubleSpinBox*>("lineBendRadius");
+        auto* angle=dialog->findChild<QDoubleSpinBox*>("lineBendAngle");
+        auto* fixed=dialog->findChild<QComboBox*>("lineBendFixedSide");
+        auto* reverse=dialog->findChild<QCheckBox*>("lineBendReverse");
+        check(radius&&angle&&fixed&&reverse,
+            "Line Bend parameter controls are incomplete");
+        radius->setValue(6);angle->setValue(75);
+        fixed->setCurrentIndex(fixed->findData(-1));reverse->setChecked(true);
+        dialog->buttons()->button(QDialogButtonBox::Ok)->click();flush();
+        check(!window.findChild<QDialog*>("lineBendPropertiesDialog"),
+            "Line Bend OK did not close Properties");
+        const auto save=[&] {
+            window.findChild<QAction*>("saveDocumentAction")->trigger();
+            flush();return document::PartDocument::load(path);
+        };
+        auto saved=save();
+        const auto bend=std::ranges::find_if(saved.history,
+            [](const auto& feature) {
+                return feature.feature_kind==document::FeatureKind::LineBend;
+            });
+        check(bend!=saved.history.end()&&bend->line_bend.radius==6&&
+                bend->line_bend.angle_degrees==75&&
+                bend->line_bend.fixed_side==-1&&bend->line_bend.reverse&&
+                !bend->line_bend.segment_id.empty(),
+            "Line Bend parameters did not persist");
+        auto* view=dynamic_cast<viewer::MeshView*>(
+            window.findChild<QOpenGLWidget*>());
+        check(view&&!view->mesh().triangles.empty(),
+            "Line Bend produced no displayed sheet result");
+        auto* tree=window.findChild<QTreeWidget*>("documentTree");
+        QTreeWidgetItem* row{};
+        for(QTreeWidgetItemIterator item(tree);*item;++item)
+            if((*item)->data(0,Qt::UserRole).toString().toStdString()==
+                    bend->id){row=*item;break;}
+        check(row&&!row->icon(0).isNull(),
+            "Line Bend is absent from the Tree or has no icon");
+        const auto unchanged=saved.serialized();
+        window.show_tree_item_properties(row);flush();
+        dialog=dynamic_cast<app::SketchPropertiesDialog*>(
+            window.findChild<QDialog*>("lineBendPropertiesDialog"));
+        check(dialog&&dialog->isVisible(),
+            "Stored Line Bend cannot reopen for unchanged confirmation");
+        dialog->buttons()->button(QDialogButtonBox::Ok)->click();flush();
+        check(save().serialized()==unchanged,
+            "Unchanged Line Bend OK changed the document");
+        row=nullptr;
+        for(QTreeWidgetItemIterator item(tree);*item;++item)
+            if((*item)->data(0,Qt::UserRole).toString().toStdString()==
+                    bend->id){row=*item;break;}
+        check(row,"Line Bend Tree row was not restored after unchanged OK");
+        window.show_tree_item_properties(row);flush();
+        dialog=dynamic_cast<app::SketchPropertiesDialog*>(
+            window.findChild<QDialog*>("lineBendPropertiesDialog"));
+        check(dialog&&dialog->isVisible(),
+            "Stored Line Bend cannot reopen for editing");
+        dialog->findChild<QLineEdit*>("sketchName")->setText("Cancelled");
+        dialog->buttons()->button(QDialogButtonBox::Cancel)->click();flush();
+        check(save().serialized()==unchanged,
+            "Line Bend Cancel changed the document");
+        window.findChild<QAction*>("undoAction")->trigger();flush();
+        check(std::ranges::none_of(save().history,[](const auto& feature) {
+                return feature.feature_kind==document::FeatureKind::LineBend;
+            }),"Line Bend Undo did not remove the feature");
+        window.findChild<QAction*>("redoAction")->trigger();flush();
+        check(std::ranges::any_of(save().history,[](const auto& feature) {
+                return feature.feature_kind==document::FeatureKind::LineBend;
+            }),"Line Bend Redo did not restore the feature");
+        std::cout<<"Line Bend GUI: create, edit Cancel, save/reopen and Undo/Redo passed\n";
+        return 0;
+    } catch(const std::exception& error) {
+        std::cerr<<error.what()<<'\n';return 1;
+    }
 }

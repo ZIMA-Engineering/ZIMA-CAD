@@ -113,6 +113,7 @@ SettingsChange set_file_settings(Workspace& live,const kernel::OcctKernel& kerne
         if(values.sheet_metal)document::set_sheet_metal_defaults(next,*values.sheet_metal);
         bool calculate=before.sheet_metal!=values.sheet_metal&&std::ranges::any_of(next.history,[](const auto& feature) {
             return feature.feature_kind==document::FeatureKind::Flat||feature.feature_kind==document::FeatureKind::Bend||
+                feature.feature_kind==document::FeatureKind::LineBend||
                 (feature.feature_kind==document::FeatureKind::Revolution&&feature.revolution.sheet_metal);
         });
         if(precision_changed||cut_tolerance_changed) {

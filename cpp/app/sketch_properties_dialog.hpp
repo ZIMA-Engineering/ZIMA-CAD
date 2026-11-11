@@ -84,6 +84,10 @@ public:
         std::set<std::string>& locks, std::function<void(zima::document::BendParameters)> changed,
         std::function<void()> edit_sketch, std::function<void(std::size_t)> edit_bend_sketch = {});
     void set_pending_bend_parameters(zima::document::BendParameters);
+    void set_line_bend_mode(zima::document::LineBendParameters,
+        const zima::document::SheetMetalDefaults&,std::set<std::string>& locks,
+        std::function<void(zima::document::LineBendParameters)> changed,
+        std::function<void()> edit_sketch);
     void set_flat_mode(zima::document::FlatParameters, const zima::document::SheetMetalDefaults&,
         std::set<std::string>& locks, std::function<void(zima::document::FlatParameters)> changed,
         std::function<void()> edit_sketch);
@@ -164,6 +168,7 @@ private:
     QDoubleSpinBox* bend_angle_{};
     bool bend_seed_from_edge_{};
     std::shared_ptr<zima::document::BendParameters> bend_pending_;
+    std::shared_ptr<zima::document::LineBendParameters> line_bend_pending_;
     std::shared_ptr<zima::document::FlatParameters> flat_pending_;
     std::function<void(zima::document::FlatParameters)> flat_changed_;
     std::shared_ptr<zima::document::SheetProfileParameters>

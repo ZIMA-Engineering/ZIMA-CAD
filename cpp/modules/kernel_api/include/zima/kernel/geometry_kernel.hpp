@@ -1077,6 +1077,42 @@ struct SheetStateRequest {
     bool operator==(const SheetStateRequest&) const = default;
 };
 
+// Transient Sheet-from-Body preprocessing. Every curve is the exact native
+// non-construction geometry of an explicitly selected ordinary Sketch. The
+// kernel imprints the swept curve surfaces into the source solid without
+// removing material; the conversion then treats those imprints as seams.
+struct SheetRipCurve {
+    std::string sketch_id;
+    std::string source_id;
+    Vec3 normal{0,0,1};
+    ExtrusionRequest::ProfileLoop profile{ExtrusionRequest::PolygonProfile{}};
+    bool operator==(const SheetRipCurve&) const = default;
+};
+struct SheetRipRequest {
+    std::vector<SheetRipCurve> curves;
+    double tolerance{0.05};
+    bool operator==(const SheetRipRequest&) const = default;
+};
+
+// A calculated sheet is partitioned at the two tangent planes of this
+// material frame. Geometry on the fixed side remains unchanged, the bend band
+// is mapped to the cylinder, and the continuation moves rigidly. The finite
+// along interval limits the operation to the authored Sketch segment.
+struct LineBendRequest {
+    Vec3 origin;
+    Vec3 along{1,0,0};
+    Vec3 tangent{0,1,0};
+    Vec3 radial{0,0,1};
+    double along_min{};
+    double along_max{};
+    double radius{6.0};
+    double neutral_radius{5.5};
+    double angle{1.5707963267948966};
+    double thickness{1.0};
+    double tolerance{0.05};
+    bool operator==(const LineBendRequest&) const = default;
+};
+
 struct SolidStateRequest {
     bool restore{};
     bool all{true};
@@ -1188,7 +1224,7 @@ struct SheetFormRequest {
 using PrimitiveRequest = std::variant<
     ExtrusionRequest, RevolutionRequest, FeatureGroupRequest,
     Sweep3DRequest, StepRequest, FilletRequest, ChamferRequest, ShellRequest,
-    ThreadSurfaceRequest, DrillPointRequest, SheetStateRequest, BoundarySurfaceRequest,
+    ThreadSurfaceRequest, DrillPointRequest, SheetStateRequest, SheetRipRequest, LineBendRequest, BoundarySurfaceRequest,
     SolidStateRequest, SurfaceSewingRequest, SurfaceIntersectionRequest, SurfaceTrimRequest, SurfaceThickenRequest, SheetFormRequest, LoftRequest>;
 
 // Transient material-frame transfer for a source end-section attachment.

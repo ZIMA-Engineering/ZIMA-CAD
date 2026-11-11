@@ -2,7 +2,9 @@
 // document mutations and is used only during an explicit calculation.
 bool native_history_enabled=!context.preview_wire&&!has_forms&&std::ranges::none_of(operations,[](const auto& operation) {
     return std::holds_alternative<ThreadSurfaceRequest>(operation.primitive)||
-        std::holds_alternative<SheetStateRequest>(operation.primitive);
+        std::holds_alternative<SheetStateRequest>(operation.primitive)||
+        std::holds_alternative<SheetRipRequest>(operation.primitive)||
+        std::holds_alternative<LineBendRequest>(operation.primitive);
 });
 const bool native_history_output_enabled=!compact_dependency_boundaries;
 std::vector<KernelHistoryFrame> native_frames;

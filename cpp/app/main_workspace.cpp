@@ -10865,6 +10865,7 @@ int verify_startup_contract(
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_OPENING_AXIS_DIRECTION")) return verify_opening_axis_direction_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_ARC_ONLY_BEND")) return verify_arc_only_bend_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SHEET_EXCHANGE")) return verify_sheet_exchange_ui(application,test_directory);
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_LINE_BEND_ONLY")) return verify_line_bend_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SHEET_TRANSITION")) return verify_sheet_transition_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_EQUAL_ENDPOINT_ONLY")) return verify_sketch_equal_endpoint_ui(application,test_directory);
     if(qEnvironmentVariableIsSet("ZIMA_VERIFY_SHELL_VALUE_ONLY"))return verify_shell_value_label_ui(application,test_directory);

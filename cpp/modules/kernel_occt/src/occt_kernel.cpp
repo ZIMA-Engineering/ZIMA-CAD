@@ -2773,7 +2773,9 @@ PrimitiveData make_extrusion_data(
     }
     auto profiles=make_body_profiles(request,normal,circle_radial_direction);
     std::vector<TopoDS_Wire> wires;
-    for(const auto& profile:profiles)wires.push_back(profile.wire);
+    for(const auto& profile:profiles) {
+        wires.push_back(profile.wire);
+    }
     TopoDS_Shape face=profile_base(wires,request.surface_result);
     const double direction_length = std::sqrt(
         request.direction.x * request.direction.x +
@@ -3887,6 +3889,7 @@ Sweep3DRequest expand_profile_twist(const Sweep3DRequest& source,
 #include "solid_state_replay.inc"
 #include "sheet_cut_clearance.inc"
 #include "sheet_state_geometry.inc"
+#include "sheet_rip_geometry.inc"
 #include "sheet_state_sources.inc"
 
 PrimitiveData select_sheet_clearance_projection(const TopoDS_Face& face,
@@ -10591,6 +10594,8 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
             context.final_boundary_first&&
             std::ranges::none_of(operations,[](const auto& operation) {
                 return std::holds_alternative<SheetStateRequest>(operation.primitive)||
+                    std::holds_alternative<SheetRipRequest>(operation.primitive)||
+                    std::holds_alternative<LineBendRequest>(operation.primitive)||
                     std::holds_alternative<SolidStateRequest>(operation.primitive);
             });
         const auto& retained_final_first_boundaries=
@@ -13765,6 +13770,90 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                 boundaries.push_back(std::move(boundary));remember_live_boundary(boundaries.back().source_fingerprint,result_shape,owned_topology);
                 continue;
             }
+            if(const auto* rip=std::get_if<SheetRipRequest>(
+                    &operation.primitive)) {
+                [&] {
+                    PrimitiveData input{result_shape,owned_topology->faces,
+                        owned_topology->edges,owned_topology->vertices};
+                    auto changed=sheet_rip_geometry::apply(input,*rip,
+                        operation.owner_id);
+                    retain_originals(changed.faces,changed.edges,
+                        changed.vertices);
+                    retain_copy_solid(changed);
+                    auto source=make_operation_result(changed.shape,
+                        changed.faces,changed.edges,changed.vertices,true,
+                        false,true);
+                    append_reference_geometry(original_references,
+                        std::move(source.mesh.original_references));
+                    result_shape=changed.shape;
+                    auto topology=std::make_shared<LiveCache::Topology>();
+                    topology->faces=std::move(changed.faces);
+                    topology->edges=std::move(changed.edges);
+                    topology->vertices=std::move(changed.vertices);
+                    owned_topology=std::move(topology);
+                    auto boundary=make_published_result(result_shape,
+                        owned_topology->faces,owned_topology->edges,
+                        owned_topology->vertices,true,persist_boundary_shape);
+                    boundary.source_fingerprint=fingerprint(operations,
+                        operation_index+1);
+                    boundary.mesh.original_references=original_references;
+                    if(!boundaries.empty())
+                        boundary.sheet_cuts=boundaries.back().sheet_cuts;
+                    boundaries.push_back(std::move(boundary));
+                    remember_live_boundary(
+                        boundaries.back().source_fingerprint,result_shape,
+                        owned_topology);
+                }();
+                continue;
+            }
+            if(const auto* line_bend=std::get_if<LineBendRequest>(
+                    &operation.primitive)) {
+                [&] {
+                    PrimitiveData input{result_shape,owned_topology->faces,
+                        owned_topology->edges,owned_topology->vertices};
+                    auto changed=sheet_state_geometry::line_bend(input,
+                        *line_bend,operation.owner_id);
+                    sheet_state_geometry::identify(changed,
+                        operation.owner_id);
+                    ViewerAxis axis;
+                    axis.point=sheet_material::add(line_bend->origin,
+                        sheet_material::mul(line_bend->along,
+                            (line_bend->along_min+line_bend->along_max)*.5));
+                    axis.direction=line_bend->along;
+                    axis.display_length=
+                        line_bend->along_max-line_bend->along_min+2;
+                    axis.reference={operation.owner_id,"line-bend:axis",{}};
+                    retain_originals(changed.faces,changed.edges,
+                        changed.vertices);
+                    retain_copy_solid(changed,{axis});
+                    auto source=make_operation_result(changed.shape,
+                        changed.faces,changed.edges,changed.vertices,true,
+                        false,true);
+                    source.mesh.original_references.axes.push_back(axis);
+                    append_reference_geometry(original_references,
+                        std::move(source.mesh.original_references));
+                    result_shape=changed.shape;
+                    auto topology=std::make_shared<LiveCache::Topology>();
+                    topology->faces=std::move(changed.faces);
+                    topology->edges=std::move(changed.edges);
+                    topology->vertices=std::move(changed.vertices);
+                    owned_topology=std::move(topology);
+                    auto boundary=make_published_result(result_shape,
+                        owned_topology->faces,owned_topology->edges,
+                        owned_topology->vertices,true,persist_boundary_shape);
+                    boundary.source_fingerprint=fingerprint(operations,
+                        operation_index+1);
+                    boundary.mesh.original_references=original_references;
+                    boundary.mesh.axes.push_back(axis);
+                    if(!boundaries.empty())
+                        boundary.sheet_cuts=boundaries.back().sheet_cuts;
+                    boundaries.push_back(std::move(boundary));
+                    remember_live_boundary(
+                        boundaries.back().source_fingerprint,result_shape,
+                        owned_topology);
+                }();
+                continue;
+            }
             if(const auto* state=std::get_if<SheetStateRequest>(&operation.primitive)) {
                 auto regions=sheet_material::regions_before(operations,operation_index);
                 static_cast<void>(sheet_material::change(regions,*state));
@@ -15318,9 +15407,11 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                             std::max(0.0, maximum_reverse_projection) + margin;
                     }
                     auto extrusion_data = make_extrusion_data(
-                        primitive, operation.owner_id, exact_target,
+                        primitive,
+                        operation.owner_id, exact_target,
                         through_all_forward_span, through_all_reverse_span, std::nullopt, operation.boolean_tolerance, exact_reverse,
-                        original_ordered_targets(primitive.ordered_end_limit),&resolved_up_to);
+                        original_ordered_targets(primitive.ordered_end_limit),
+                        &resolved_up_to);
                     if(primitive.sheet_cut) {
                         if(operation.operation!=BooleanOperation::Subtract||primitive.surface_result)
                             throw std::runtime_error("Sheet Cut must remove material from an existing sheet.");

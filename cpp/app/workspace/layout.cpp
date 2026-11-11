@@ -3,6 +3,7 @@
 #include <zima/workspace/opening_component_operations.hpp>
 #include <zima/workspace/edge_treatment_operations.hpp>
 #include "workspace_internal.hpp"
+#include <zima/workspace/sheet_exchange_operations.hpp>
 #include <zima/workspace/sheet_profile_operations.hpp>
 #include "../sketch_external_reference_selection.hpp"
 #include "tool_button_style.hpp"
@@ -235,6 +236,7 @@ void AssemblyWorkspaceWindow::create_layout() {
                 if(authored_sketch_profile(*feature)||feature->feature_kind==document::FeatureKind::Feature||
                     feature->feature_kind==document::FeatureKind::DerivedCopy||feature->feature_kind==document::FeatureKind::Loft||
                     feature->feature_kind==document::FeatureKind::Flat||feature->feature_kind==document::FeatureKind::Bend||
+                    feature->feature_kind==document::FeatureKind::LineBend||
                     feature->feature_kind==document::FeatureKind::SheetTransition||
                     feature->feature_kind==document::FeatureKind::Fillet||
                     feature->feature_kind==document::FeatureKind::Chamfer)return true;
@@ -2910,11 +2912,43 @@ void AssemblyWorkspaceWindow::create_layout() {
                     menu.addSeparator();
                 }
                 QAction* explode_profile{};
+                QAction* explode_sheet_from_body_all{};
+                QAction* explode_sheet_from_body_part{};
+                std::string sheet_from_body_parent;
                 if(container->feature_kind==
                         zima::document::FeatureKind::SheetProfile) {
                     explode_profile=menu.addAction(
                         resource_icon("sheet-profile"),tr("Rozložit Profil"));
                     explode_profile->setObjectName("explodeSheetProfileAction");
+                } else if(container->feature_kind==
+                        zima::document::FeatureKind::SheetFromBody) {
+                    sheet_from_body_parent=id;
+                    explode_sheet_from_body_all=menu.addAction(
+                        resource_icon("sheet-profile"),tr("Rozložit vše"));
+                    explode_sheet_from_body_all->setObjectName(
+                        "explodeSheetFromBodyAllAction");
+                } else {
+                    for(const auto& candidate:
+                            part->session.document().history) {
+                        if(candidate.feature_kind!=zima::document::
+                                FeatureKind::SheetFromBody)continue;
+                        const auto binding=std::ranges::find(
+                            candidate.sheet_from_body.child_bindings,id,
+                            &zima::document::SheetFromBodyChildBinding::
+                                feature_id);
+                        if(binding!=candidate.sheet_from_body.
+                                child_bindings.end()&&!binding->detached) {
+                            sheet_from_body_parent=candidate.id;
+                            break;
+                        }
+                    }
+                    if(!sheet_from_body_parent.empty()) {
+                        explode_sheet_from_body_part=menu.addAction(
+                            resource_icon("sheet-profile"),
+                            tr("Rozložit část"));
+                        explode_sheet_from_body_part->setObjectName(
+                            "explodeSheetFromBodyPartAction");
+                    }
                 }
                 auto* suppress = menu.addAction(resource_icon(container->suppressed ? "restore" : "suppress"), container->suppressed ? tr("Obnovit") : tr("Potlačit"));
                 suppress->setObjectName("suppressHistoryObject");
@@ -2948,6 +2982,19 @@ void AssemblyWorkspaceWindow::create_layout() {
                     try {
                         static_cast<void>(workspace::explode_sheet_profile(
                             workspace_,kernel_,workspace_.active_document_id(),id));
+                        preserve_view_on_refresh_=true;
+                        refresh_tabs();refresh_scene();
+                    } catch(const std::exception& error) {
+                        state_->setText(tr(error.what()));
+                    }
+                } else if(selected==explode_sheet_from_body_all||
+                        selected==explode_sheet_from_body_part) {
+                    try {
+                        static_cast<void>(workspace::explode_sheet_from_body(
+                            workspace_,kernel_,workspace_.active_document_id(),
+                            sheet_from_body_parent,
+                            selected==explode_sheet_from_body_part?
+                                std::optional<std::string>{id}:std::nullopt));
                         preserve_view_on_refresh_=true;
                         refresh_tabs();refresh_scene();
                     } catch(const std::exception& error) {

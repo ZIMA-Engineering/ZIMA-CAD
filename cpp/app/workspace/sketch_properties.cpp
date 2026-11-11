@@ -10,6 +10,8 @@
 #include <zima/document/holes.hpp>
 #include <zima/document/bend.hpp>
 #include <zima/workspace/bend_operations.hpp>
+#include <zima/document/line_bend.hpp>
+#include <zima/workspace/line_bend_operations.hpp>
 #include <zima/document/flat.hpp>
 #include <zima/document/container_origin_display.hpp>
 #include <zima/workspace/flat_operations.hpp>
@@ -24,12 +26,13 @@ using namespace workspace_detail;
 
 void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_id,
         bool holes_mode, bool bend_mode, bool flat_mode,
-        bool sheet_profile_mode) {
+        bool sheet_profile_mode, bool line_bend_mode) {
     if (properties_dialog_ != nullptr) return;
     auto* part = workspace_.open_part(workspace_.active_document_id());
     auto* assembly = workspace_.open_assembly(workspace_.active_document_id());
     if (part == nullptr && assembly == nullptr) return;
-    if ((holes_mode || bend_mode || flat_mode || sheet_profile_mode) && !part)
+    if ((holes_mode || bend_mode || flat_mode || sheet_profile_mode ||
+            line_bend_mode) && !part)
         return;
     const auto& sketches = part != nullptr
         ? part->session.document().sketches : assembly->session.document().sketches;
@@ -38,7 +41,7 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
     const bool edit_mode = found != sketches.end();
     if (!sketch_id.empty() && !edit_mode) return;
     if(edit_mode && !holes_mode && !bend_mode && !flat_mode &&
-       !sheet_profile_mode) {
+       !sheet_profile_mode && !line_bend_mode) {
         const auto* owner=part ? part->session.document().find_container(found->owner_container_id)
             : assembly->session.document().find_sketch_container(found->owner_container_id);
         if(!owner && assembly)if(const auto* cut=assembly->session.document().find_cut(found->owner_container_id))owner=&cut->definition;
@@ -68,6 +71,8 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
         const auto* owner = part->session.document().find_container(initial.owner_container_id);
         holes_mode = holes_mode || (owner && owner->feature_kind == zima::document::FeatureKind::Holes);
         bend_mode = bend_mode || (owner && owner->feature_kind == zima::document::FeatureKind::Bend);
+        line_bend_mode=line_bend_mode||
+            (owner&&owner->feature_kind==zima::document::FeatureKind::LineBend);
         flat_mode = flat_mode || (owner && owner->feature_kind == zima::document::FeatureKind::Flat);
         sheet_profile_mode = sheet_profile_mode ||
             (owner && owner->feature_kind ==
@@ -111,6 +116,26 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
             const auto defaults=zima::document::sheet_metal_defaults(part->session.document());
             zima::document::prepare_bend_sketches(value,initial,defaults);
             initial.name=value.name;sketch_feature=std::make_shared<zima::document::HistoryContainer>(std::move(value));
+        } else if(line_bend_mode) {
+            if(owner&&owner->feature_kind!=
+                    zima::document::FeatureKind::LineBend)return;
+            auto value=owner?*owner:*new_sketch_container;
+            if(!owner) {
+                value.feature_kind=zima::document::FeatureKind::LineBend;
+                value.name=part->session.document().next_numbered_name(
+                    tr("Ohyb podle čáry").toStdString(),value.id);
+                value.line_bend.sketch_id=initial.id;
+                const auto defaults=zima::document::sheet_metal_defaults(
+                    part->session.document());
+                value.line_bend.thickness=
+                    defaults.thickness_mm.value_or(1);
+                value.line_bend.k_factor=defaults.k_factor;
+                value.line_bend.radius=
+                    defaults.thickness_mm.value_or(1);
+            }
+            initial.name=value.name;
+            sketch_feature=std::make_shared<
+                zima::document::HistoryContainer>(std::move(value));
         } else if (sheet_profile_mode) {
             if(owner&&owner->feature_kind!=
                     zima::document::FeatureKind::SheetProfile)return;
@@ -199,6 +224,10 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
                     static_cast<void>(workspace::commit_flat(workspace_,kernel_,owner_id,std::move(value),std::move(committed)));
                 else if(value.feature_kind==zima::document::FeatureKind::Bend)
                     static_cast<void>(workspace::commit_bend(workspace_,kernel_,owner_id,std::move(value),std::move(committed)));
+                else if(value.feature_kind==zima::document::FeatureKind::LineBend)
+                    static_cast<void>(workspace::commit_line_bend(workspace_,
+                        kernel_,owner_id,std::move(value),
+                        std::move(committed)));
                 else if(value.feature_kind==zima::document::FeatureKind::SheetProfile)
                     static_cast<void>(workspace::commit_sheet_profile(
                         workspace_,kernel_,owner_id,std::move(value),
@@ -301,6 +330,14 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
                 }
                 return false;
             };
+        } else if(line_bend_mode) {
+            dialog->set_line_bend_mode(sketch_feature->line_bend,
+                zima::document::sheet_metal_defaults(
+                    part->session.document()),
+                sketch_feature->value_locks,
+                [sketch_feature](auto value) {
+                    sketch_feature->line_bend=std::move(value);
+                },[edit_owned_sketch]{edit_owned_sketch(std::nullopt);});
         } else if(sheet_profile_mode) {
             dialog->set_sheet_profile_mode(sketch_feature->sheet_profile,
                 zima::document::sheet_metal_defaults(part->session.document()),
@@ -480,6 +517,7 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
             if (!sketch.owner_container_id.empty()) {
                 auto preview_container =
                     sketch_feature && (sketch_feature->feature_kind == zima::document::FeatureKind::Bend||
+                        sketch_feature->feature_kind == zima::document::FeatureKind::LineBend||
                         sketch_feature->feature_kind == zima::document::FeatureKind::Flat||
                         sketch_feature->feature_kind == zima::document::FeatureKind::SheetProfile)
                     ? *sketch_feature : zima::document::PartDocument::create_sketch_container();
@@ -667,6 +705,8 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
                         ?zima::document::flat_preview(*sketch_feature,resolved_sketch,sheet_defaults)
                         :sketch_feature->feature_kind==zima::document::FeatureKind::Bend
                         ?zima::document::bend_preview(*sketch_feature,resolved_sketch,sheet_defaults)
+                        :sketch_feature->feature_kind==zima::document::FeatureKind::LineBend
+                        ?zima::kernel::ViewerMesh{}
                         :zima::document::holes_preview(*sketch_feature, resolved_sketch);
                     primitive_origin_preview_mesh_->axes.insert(
                         primitive_origin_preview_mesh_->axes.end(),
@@ -703,6 +743,7 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
                     std::move(sheet_profile_cues->directions));
             } else if(sketch_feature&&(sketch_feature->feature_kind==zima::document::FeatureKind::Flat||
                 sketch_feature->feature_kind==zima::document::FeatureKind::Bend||
+                sketch_feature->feature_kind==zima::document::FeatureKind::LineBend||
                 sketch_feature->feature_kind==zima::document::FeatureKind::SheetProfile))
                 {viewer_->set_extent_manipulator(std::nullopt);
                  viewer_->set_operation_direction_indicators({});}

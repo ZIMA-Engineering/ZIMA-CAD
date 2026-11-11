@@ -12,6 +12,7 @@
 #include <zima/document/native_read_capture.hpp>
 #include <zima/document/holes.hpp>
 #include <zima/document/bend.hpp>
+#include <zima/document/line_bend.hpp>
 #include <zima/document/flat.hpp>
 #include <zima/document/sheet_profile.hpp>
 #include <zima/document/sheet_state.hpp>
@@ -258,25 +259,57 @@ kernel::EdgeReference load_sheet_source_edge_reference(
         value.at("instance_path").get<std::string>()};
 }
 
+nlohmann::json serialize_sheet_source_face_binding(
+        const SheetFromBodyFaceBinding& face) {
+    const auto& surface=face.last_valid_surface;
+    return {
+        {"reference",serialize_sheet_source_reference(face.reference)},
+        {"role",sheet_source_face_role_name(face.role)},
+        {"side",face.side},
+        {"surface",{{"kind",surface.kind==
+                kernel::SurfaceGeometry::Kind::Plane?"plane":"cylinder"},
+            {"origin",sheet_source_vector(surface.origin)},
+            {"axis",sheet_source_vector(surface.axis)},
+            {"radial",sheet_source_vector(surface.radial)},
+            {"radius",surface.radius},
+            {"axial_min",surface.axial_min},
+            {"axial_max",surface.axial_max},
+            {"reversed",surface.reversed}}}};
+}
+
+SheetFromBodyFaceBinding load_sheet_source_face_binding(
+        const nlohmann::json& encoded) {
+    SheetFromBodyFaceBinding face;
+    face.reference=load_sheet_source_face_reference(encoded.at("reference"));
+    face.role=load_sheet_source_face_role(
+        encoded.at("role").get<std::string>());
+    face.side=encoded.at("side").get<int>();
+    const auto& surface=encoded.at("surface");
+    const auto surface_kind=surface.at("kind").get<std::string>();
+    if(surface_kind!="plane"&&surface_kind!="cylinder")
+        throw std::runtime_error(
+            "Invalid Sheet from Body source surface kind");
+    face.last_valid_surface.kind=surface_kind=="plane"
+        ?kernel::SurfaceGeometry::Kind::Plane
+        :kernel::SurfaceGeometry::Kind::Cylinder;
+    face.last_valid_surface.origin=load_sheet_source_vector(
+        surface.at("origin"));
+    face.last_valid_surface.axis=load_sheet_source_vector(
+        surface.at("axis"));
+    face.last_valid_surface.radial=load_sheet_source_vector(
+        surface.at("radial"));
+    face.last_valid_surface.radius=surface.at("radius").get<double>();
+    face.last_valid_surface.axial_min=surface.at("axial_min").get<double>();
+    face.last_valid_surface.axial_max=surface.at("axial_max").get<double>();
+    face.last_valid_surface.reversed=surface.at("reversed").get<bool>();
+    return face;
+}
+
 nlohmann::json serialize_sheet_source_binding(
         const SheetFromBodyChildBinding& binding) {
     nlohmann::json faces=nlohmann::json::array();
-    for(const auto& face:binding.faces) {
-        const auto& surface=face.last_valid_surface;
-        faces.push_back({
-            {"reference",serialize_sheet_source_reference(face.reference)},
-            {"role",sheet_source_face_role_name(face.role)},
-            {"side",face.side},
-            {"surface",{{"kind",surface.kind==
-                    kernel::SurfaceGeometry::Kind::Plane?"plane":"cylinder"},
-                {"origin",sheet_source_vector(surface.origin)},
-                {"axis",sheet_source_vector(surface.axis)},
-                {"radial",sheet_source_vector(surface.radial)},
-                {"radius",surface.radius},
-                {"axial_min",surface.axial_min},
-                {"axial_max",surface.axial_max},
-                {"reversed",surface.reversed}}}});
-    }
+    for(const auto& face:binding.faces)
+        faces.push_back(serialize_sheet_source_face_binding(face));
     nlohmann::json edges=nlohmann::json::array();
     for(const auto& edge:binding.edges)
         edges.push_back({
@@ -308,35 +341,8 @@ SheetFromBodyChildBinding load_sheet_source_binding(
     result.root=value.at("root").get<bool>();
     result.detached=value.at("detached").get<bool>();
     result.references_valid=value.at("references_valid").get<bool>();
-    for(const auto& encoded:value.at("faces")) {
-        SheetFromBodyFaceBinding face;
-        face.reference=load_sheet_source_face_reference(
-            encoded.at("reference"));
-        face.role=load_sheet_source_face_role(
-            encoded.at("role").get<std::string>());
-        face.side=encoded.at("side").get<int>();
-        const auto& surface=encoded.at("surface");
-        const auto surface_kind=surface.at("kind").get<std::string>();
-        if(surface_kind!="plane"&&surface_kind!="cylinder")
-            throw std::runtime_error(
-                "Invalid Sheet from Body source surface kind");
-        face.last_valid_surface.kind=surface_kind=="plane"
-            ?kernel::SurfaceGeometry::Kind::Plane
-            :kernel::SurfaceGeometry::Kind::Cylinder;
-        face.last_valid_surface.origin=load_sheet_source_vector(
-            surface.at("origin"));
-        face.last_valid_surface.axis=load_sheet_source_vector(
-            surface.at("axis"));
-        face.last_valid_surface.radial=load_sheet_source_vector(
-            surface.at("radial"));
-        face.last_valid_surface.radius=surface.at("radius").get<double>();
-        face.last_valid_surface.axial_min=
-            surface.at("axial_min").get<double>();
-        face.last_valid_surface.axial_max=
-            surface.at("axial_max").get<double>();
-        face.last_valid_surface.reversed=surface.at("reversed").get<bool>();
-        result.faces.push_back(std::move(face));
-    }
+    for(const auto& encoded:value.at("faces"))
+        result.faces.push_back(load_sheet_source_face_binding(encoded));
     for(const auto& encoded:value.at("edges")) {
         SheetFromBodyEdgeBinding edge;
         edge.reference=load_sheet_source_edge_reference(
@@ -978,12 +984,12 @@ nlohmann::json read_part_ini(const std::filesystem::path& path,
     const auto ini = read_ini(path);
     profile.phase("INI scan");
     const auto native_format=ini_value(ini, "Document", "format_version");
-    if (native_format != "51") {
+    if (native_format != "52") {
         throw std::runtime_error("Unsupported ZIMA-CAD Part document format");
     }
     nlohmann::json root = {
         {"format", "zima-cad-cpp"},
-        {"format_version", 75},
+        {"format_version", 76},
         {"document_id", ini_required(ini, "Document", "document_id")},
         {"type", ini_value(ini, "Document", "type", "part")},
         {"name", ini_value(ini, "Document", "name", "Nový díl")},
@@ -1181,7 +1187,7 @@ NativeCalculatedCachePtr write_part_ini(
     NativeIoProfile profile("Part write");
     IniSections ini;
     ini["Document"] = {
-        {"format_version", "51"},
+        {"format_version", "52"},
         {"calculated_definition", "zima-part-definition-sha256-v1"},
         {"type", "part"},
         {"document_id", root.at("document_id").get<std::string>()},
@@ -6386,6 +6392,7 @@ zima::kernel::ViewerMesh PartDocument::construction_viewer_mesh(
         const bool profile_feature =
             container.feature_kind == FeatureKind::Feature ||
             container.feature_kind == FeatureKind::Flat || container.feature_kind == FeatureKind::Bend ||
+            container.feature_kind == FeatureKind::LineBend ||
             container.feature_kind == FeatureKind::Holes ||
             container.feature_kind == FeatureKind::Extrusion ||
             container.feature_kind == FeatureKind::Revolution;
@@ -6413,6 +6420,7 @@ zima::kernel::ViewerMesh PartDocument::construction_viewer_mesh(
         if (profile_feature) {
             const auto sketch_id = container.feature_kind == FeatureKind::Flat ? container.flat.sketch_id :
                 container.feature_kind == FeatureKind::Bend ? container.bend.sketch_id :
+                container.feature_kind == FeatureKind::LineBend ? container.line_bend.sketch_id :
                 container.feature_kind == FeatureKind::Holes ? container.holes.sketch_id :
                 container.feature_kind == FeatureKind::Feature ? container.feature.sketch_id : container.feature_kind == FeatureKind::Extrusion
                 ? container.extrusion.sketch_id : container.revolution.sketch_id;
@@ -6704,7 +6712,8 @@ void PartDocument::resolve_constructions(
                 [&](const auto& container) {
                     return container.id == sketch.owner_container_id;
                 });
-            if (owner == history.end() || !owner->placement.reference_valid ||
+            if (owner == history.end() || owner->suppressed ||
+                    !owner->placement.reference_valid ||
                     removed_reference_states.contains(owner->id)) continue;
             boundary_references.enter(owner->id,source_geometry);
             const bool sheet_rotation=owner->feature_kind==FeatureKind::Revolution&&owner->revolution.sheet_metal;
@@ -10044,9 +10053,67 @@ void PartDocument::validate_sheet_from_body() const {
             if(!reference.valid()||!reference.instance_path.empty())
                 return false;
             if(!resolved)return true;
+            if(!definition.rip_sketches.empty()&&
+                    reference.owner_id=="sheet-from-body:rip-analysis:"+
+                        definition.source_body_id)
+                return true;
             return body_owner_for_object(reference.owner_id)==source_body&&
                 before_boundary(reference.owner_id);
         };
+        const auto valid_face_definition=[&](
+                const SheetFromBodyFaceBinding& face) {
+            const auto& surface=face.last_valid_surface;
+            const auto finite=[](kernel::Vec3 value) {
+                return std::isfinite(value.x)&&std::isfinite(value.y)&&
+                    std::isfinite(value.z);
+            };
+            return valid_source_owner(face.reference,true)&&
+                (face.side==1||face.side==-1)&&
+                finite(surface.origin)&&finite(surface.axis)&&
+                finite(surface.radial)&&
+                surface.axis.x*surface.axis.x+
+                    surface.axis.y*surface.axis.y+
+                    surface.axis.z*surface.axis.z>1e-24&&
+                std::isfinite(surface.radius)&&surface.radius>=0&&
+                std::isfinite(surface.axial_min)&&
+                std::isfinite(surface.axial_max)&&
+                (surface.kind==kernel::SurfaceGeometry::Kind::Plane||
+                 surface.kind==kernel::SurfaceGeometry::Kind::Cylinder);
+        };
+        const bool associative=!definition.child_bindings.empty();
+        if(associative) {
+            if(!valid_face_definition(definition.source_face))
+                throw std::invalid_argument(
+                    "Invalid Sheet from Body root source face");
+            std::set<std::tuple<std::string,std::string,std::string>>
+                included_face_ids;
+            for(const auto& face:definition.included_faces)
+                if(!valid_face_definition(face)||
+                        !included_face_ids.emplace(face.reference.owner_id,
+                            face.reference.semantic_key,
+                            face.reference.instance_path).second||
+                        face.reference==definition.source_face.reference)
+                    throw std::invalid_argument(
+                        "Invalid Sheet from Body included source face");
+            std::set<std::string> rip_ids;
+            for(const auto& id:definition.rip_sketches) {
+                const auto sketch=std::ranges::find(sketches,id,
+                    &sketcher::Sketch::id);
+                const auto* sketch_owner=sketch==sketches.end()?nullptr:
+                    body_owner_for_object(sketch->owner_container_id);
+                if(id.empty()||!rip_ids.insert(id).second||
+                        sketch==sketches.end()||sketch->suppressed||
+                        sketch_owner!=source_body||
+                        !before_boundary(sketch->owner_container_id))
+                    throw std::invalid_argument(
+                        "Invalid Sheet from Body RIP Sketch reference");
+            }
+        } else if(definition.source_face.reference.valid()||
+                !definition.included_faces.empty()||
+                !definition.rip_sketches.empty()) {
+            throw std::invalid_argument(
+                "A non-associative Sheet from Body marker cannot own source bindings");
+        }
         for(const auto& binding:definition.child_bindings) {
             if(binding.feature_id.empty()||binding.region_id.empty()||
                     !generated.contains(binding.feature_id)||
@@ -10127,11 +10194,13 @@ void PartDocument::validate_sheet_from_body() const {
             }
         }
         if(!definition.child_bindings.empty()&&
-                (roots!=1||!definition.child_bindings.front().root||
+                (roots<1||
+                 (definition.rip_sketches.empty()&&roots!=1)||
+                 !definition.child_bindings.front().root||
                  definition.child_bindings.front().feature_id!=
                     definition.generated_features.front()))
             throw std::invalid_argument(
-                "Sheet from Body must retain one root source region");
+                "Sheet from Body must retain its root source regions");
     }
 }
 
@@ -10778,6 +10847,13 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
             const auto sketch=std::ranges::find(sketches,container.bend.sketch_id,&zima::sketcher::Sketch::id);
             if(sketch==sketches.end())throw std::runtime_error("Bend source Sketch is missing.");
             primitive=bend_request(container,*sketch,sheet_metal_defaults(*this));
+        } else if (container.feature_kind == FeatureKind::LineBend) {
+            const auto sketch=std::ranges::find(sketches,
+                container.line_bend.sketch_id,&zima::sketcher::Sketch::id);
+            if(sketch==sketches.end())throw std::runtime_error(
+                "Line Bend source Sketch is missing.");
+            primitive=line_bend_request(container,*sketch,
+                sheet_metal_defaults(*this));
         } else if (container.feature_kind == FeatureKind::Holes) {
             const auto sketch = std::ranges::find(sketches, container.holes.sketch_id, &zima::sketcher::Sketch::id);
             if (sketch == sketches.end()) throw std::runtime_error("Otvory nemají zdrojovou skicu.");
@@ -11674,7 +11750,9 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
             container.combine_mode == CombineMode::Subtract
                 ? zima::kernel::BooleanOperation::Subtract
                 : zima::kernel::BooleanOperation::Add,
-            container.suppressed || (container.feature_kind==FeatureKind::Bend && container.bend.angle_degrees==0),
+            container.suppressed ||
+                (container.feature_kind==FeatureKind::Bend &&
+                    container.bend.angle_degrees==0),
             boolean_tolerance,
             feature_mesh_deflection,
         });
@@ -11684,6 +11762,12 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
         } else if(container.feature_kind==FeatureKind::Bend) {
             operations.back().sheet_operation=kernel::SheetOperation::Bend;
             operations.back().sheet_thickness=resolved_bend_parameters(container,sheet_metal_defaults(*this)).thickness;
+        } else if(container.feature_kind==FeatureKind::LineBend) {
+            operations.back().sheet_operation=kernel::SheetOperation::Bend;
+            operations.back().sheet_thickness=
+                container.line_bend.thickness_override?
+                    container.line_bend.thickness:
+                    sheet_metal_defaults(*this).thickness_mm.value_or(1.);
         } else if(container.feature_kind==FeatureKind::Revolution&&container.revolution.sheet_metal) {
             operations.back().sheet_operation=kernel::SheetOperation::Revolution;
             operations.back().sheet_thickness=container.revolution.thin_thickness;
@@ -11718,6 +11802,11 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
                     :kernel::Vec3{0,0,0},rotation);
                 material.origin={center.x+container.placement.x,
                     center.y+container.placement.y,center.z+container.placement.z};
+            } else if(container.feature_kind==FeatureKind::LineBend) {
+                const auto sketch=std::ranges::find(sketches,
+                    container.line_bend.sketch_id,&sketcher::Sketch::id);
+                material=line_bend_material_definition(container,*sketch,
+                    sheet_metal_defaults(*this));
             } else {
                 const auto sketch_id=container.feature_kind==FeatureKind::Flat?container.flat.sketch_id:
                     container.feature_kind==FeatureKind::Bend?container.bend.sketch_id:container.revolution.sketch_id;
@@ -12452,7 +12541,7 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
             type != "imported_step" &&
             type != "fillet" && type != "chamfer" &&
             type != "derived_copy" && type != "shell" && type != "twisted_sheet" && type != "sheet_transition" && type != "boundary_surface" && type != "surface_sewing" && type != "surface_thicken" && type != "surface_intersection" && type != "surface_trim" && type != "general_surface" && type != "unbend" && type != "bend_back" && type != "straighten" && type != "restore_shape" &&
-            type != "flat" && type != "sheet_from_body" && type != "sheet_profile" && type != "bend" && type != "holes" && type != "hole" && type != "thread" && type != "shaft_thread" &&
+            type != "flat" && type != "sheet_from_body" && type != "sheet_profile" && type != "bend" && type != "line_bend" && type != "holes" && type != "hole" && type != "thread" && type != "shaft_thread" &&
             type != "drill_point" && type != "sheet_form" && type != "loft") {
             throw std::runtime_error("Unsupported history feature type");
         }
@@ -12487,6 +12576,7 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
             : type == "derived_copy" ? FeatureKind::DerivedCopy
             : type == "bend_back" ? FeatureKind::BendBack
             : type == "bend" ? FeatureKind::Bend
+            : type == "line_bend" ? FeatureKind::LineBend
             : type == "holes" ? FeatureKind::Holes
             : type == "hole" ? FeatureKind::Hole
             : type == "shaft_thread" ? FeatureKind::ShaftThread
@@ -12589,6 +12679,13 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
                     load_sheet_source_binding(binding));
             container.sheet_from_body.source_body_id=
                 definition.at("source_body_id").get<std::string>();
+            container.sheet_from_body.source_face=
+                load_sheet_source_face_binding(definition.at("source_face"));
+            for(const auto& face:definition.at("included_faces"))
+                container.sheet_from_body.included_faces.push_back(
+                    load_sheet_source_face_binding(face));
+            container.sheet_from_body.rip_sketches=
+                definition.at("rip_sketches").get<std::vector<std::string>>();
             container.sheet_from_body.thickness=
                 definition.at("thickness").get<double>();
             container.sheet_from_body.thickness_override=
@@ -12649,6 +12746,19 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
                 if(sketch.owner_container_id!=container.id)throw std::runtime_error("Bend Sketch has the wrong owner.");
             }
             static_cast<void>(resolved_bend_parameters(container,sheet_metal_defaults(document)));
+        } else if (container.feature_kind == FeatureKind::LineBend) {
+            const auto& b=source.at("line_bend");
+            auto& p=container.line_bend;
+            p.sketch_id=b.at("sketch_id");
+            p.segment_id=b.at("segment_id");
+            p.radius=b.at("radius");
+            p.angle_degrees=b.at("angle");
+            p.thickness=b.at("thickness");
+            p.k_factor=b.at("k_factor");
+            p.thickness_override=b.at("thickness_override");
+            p.k_factor_override=b.at("k_factor_override");
+            p.fixed_side=b.at("fixed_side");
+            p.reverse=b.at("reverse");
         } else if (container.feature_kind == FeatureKind::Holes) {
             container.holes.sketch_id = source.at("sketch_id");
             container.holes.diameter = source.at("diameter");
@@ -13652,6 +13762,13 @@ nlohmann::json PartDocument::serialized(
                     throw std::runtime_error("Invalid Bend Sketch ownership.");
             }
             static_cast<void>(bend_request(container,*sketch,sheet_metal_defaults(*this)));
+        } else if (container.feature_kind == FeatureKind::LineBend) {
+            const auto sketch=std::ranges::find(sketches,
+                container.line_bend.sketch_id,&zima::sketcher::Sketch::id);
+            if(sketch==sketches.end())throw std::runtime_error(
+                "Line Bend source Sketch is missing.");
+            static_cast<void>(line_bend_request(container,*sketch,
+                sheet_metal_defaults(*this)));
         } else if (container.feature_kind == FeatureKind::Holes) {
             const auto sketch = std::ranges::find(sketches, container.holes.sketch_id, &zima::sketcher::Sketch::id);
             if (sketch == sketches.end()) throw std::runtime_error("Otvory nemají zdrojovou skicu.");
@@ -13927,6 +14044,7 @@ nlohmann::json PartDocument::serialized(
                 : container.feature_kind == FeatureKind::SheetFromBody ? "sheet_from_body"
                 : container.feature_kind == FeatureKind::SheetProfile ? "sheet_profile"
                 : container.feature_kind == FeatureKind::Bend ? "bend"
+                : container.feature_kind == FeatureKind::LineBend ? "line_bend"
                 : container.feature_kind == FeatureKind::Unbend ? "unbend"
                 : container.feature_kind == FeatureKind::Straighten ? "straighten"
                 : container.feature_kind == FeatureKind::RestoreShape ? "restore_shape"
@@ -14052,12 +14170,19 @@ nlohmann::json PartDocument::serialized(
                 {"generated_features",conversion.generated_features},
                 {"child_bindings",nlohmann::json::array()},
                 {"source_body_id",conversion.source_body_id},
+                {"source_face",serialize_sheet_source_face_binding(
+                    conversion.source_face)},
+                {"included_faces",nlohmann::json::array()},
+                {"rip_sketches",conversion.rip_sketches},
                 {"thickness",conversion.thickness},
                 {"thickness_override",conversion.thickness_override},
                 {"replaces_body",conversion.replaces_body}};
             for(const auto& binding:conversion.child_bindings)
                 serialized["sheet_from_body"]["child_bindings"].push_back(
                     serialize_sheet_source_binding(binding));
+            for(const auto& face:conversion.included_faces)
+                serialized["sheet_from_body"]["included_faces"].push_back(
+                    serialize_sheet_source_face_binding(face));
         } else if (container.feature_kind == FeatureKind::SheetProfile) {
             const auto& profile = container.sheet_profile;
             if (profile.sketch_id.empty() || profile.start_point_id.empty() ||
@@ -14089,6 +14214,15 @@ nlohmann::json PartDocument::serialized(
                 {"sheet_attachment",p.sheet_attachment}};
             if(p.corner[0]||p.corner[1]||p.corner_gap!=.05)
                 serialized["bend"]["corner_closure"]={{"ends",p.corner},{"gap",p.corner_gap}};
+        } else if (container.feature_kind == FeatureKind::LineBend) {
+            const auto& p=container.line_bend;
+            serialized["line_bend"]={{"sketch_id",p.sketch_id},
+                {"segment_id",p.segment_id},{"radius",p.radius},
+                {"angle",p.angle_degrees},{"thickness",p.thickness},
+                {"k_factor",p.k_factor},
+                {"thickness_override",p.thickness_override},
+                {"k_factor_override",p.k_factor_override},
+                {"fixed_side",p.fixed_side},{"reverse",p.reverse}};
         } else if (container.feature_kind == FeatureKind::Holes) {
             serialized["sketch_id"] = container.holes.sketch_id;
             serialized["diameter"] = container.holes.diameter;
@@ -14601,7 +14735,7 @@ nlohmann::json PartDocument::serialized(
     static_cast<void>(zima::document::parse_named_views(named_views));
     nlohmann::json root = {
         {"format", "zima-cad-cpp"},
-        {"format_version", 75},
+        {"format_version", 76},
         {"reference_errors", reference_errors},
         {"removed_reference_states",removed_reference_states},
         {"document_id", document_id},

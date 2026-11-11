@@ -43,23 +43,56 @@ void AssemblyWorkspaceWindow::show_sheet_from_body() {
                     current_faces.emplace(face.owner_id,face.semantic_key);
         const auto& order=source.body_history.order();const auto target_position=std::ranges::find(order,target->scope.id);
         auto offered=std::make_shared<std::map<std::pair<std::string,std::string>,kernel::FaceReference>>();
+        auto offered_root=std::make_shared<std::set<std::pair<std::string,std::string>>>();
         for(const auto& face:geometry.triangle_references) {
             const auto* owner=source.body_owner_for_object(face.owner_id);
-            if(owner&&owner->visible&&current_faces.contains({face.owner_id,face.semantic_key})&&(target->entries.empty()?std::ranges::find(order,owner->scope.id)<target_position:owner->scope.id==target->scope.id)&&face.instance_path.empty()&&face.surface&&face.surface->kind==kernel::SurfaceGeometry::Kind::Plane)
-                offered->emplace(std::pair{face.owner_id,face.semantic_key},face);
+            if(!owner||!owner->visible||!current_faces.contains({face.owner_id,face.semantic_key})||
+                    !(target->entries.empty()?std::ranges::find(order,owner->scope.id)<target_position:owner->scope.id==target->scope.id)||
+                    !face.instance_path.empty()||!face.surface||
+                    (face.surface->kind!=kernel::SurfaceGeometry::Kind::Plane&&
+                     face.surface->kind!=kernel::SurfaceGeometry::Kind::Cylinder))continue;
+            offered->emplace(std::pair{face.owner_id,face.semantic_key},face);
+            if(face.surface->kind==kernel::SurfaceGeometry::Kind::Plane)
+                offered_root->emplace(face.owner_id,face.semantic_key);
         }
-        if(offered->empty())throw std::invalid_argument("Show a calculated planar face in the active Body, or activate an empty Body after the source Body.");
+        if(offered_root->empty())throw std::invalid_argument("Show a calculated planar face in the active Body, or activate an empty Body after the source Body.");
+        // A RIP input is one complete, independently editable ordinary Sketch.
+        // Index both its displayed Sketch identity and its owning history
+        // container, because the viewer packet may expose either identity.
+        using RipCandidate=std::tuple<std::string,QString,std::string>;
+        auto offered_rips=std::make_shared<std::map<std::string,RipCandidate>>();
+        const auto has_ordinary_geometry=[](const auto& sketch) {
+            const auto ordinary=[](const auto& values) {
+                return std::ranges::any_of(values,[](const auto& value){return !value.construction;});
+            };
+            return ordinary(sketch.segments)||ordinary(sketch.circles)||ordinary(sketch.arcs)||
+                ordinary(sketch.ellipses)||ordinary(sketch.elliptical_arcs)||ordinary(sketch.bsplines);
+        };
+        for(const auto& sketch:source.sketches) {
+            const auto* feature=source.find_container(sketch.owner_container_id);
+            const auto* owner=source.body_owner_for_object(sketch.owner_container_id);
+            if(sketch.suppressed||!feature||feature->suppressed||feature->feature_kind!=document::FeatureKind::Sketch||
+                    !owner||!owner->visible||!has_ordinary_geometry(sketch)||
+                    !(target->entries.empty()?std::ranges::find(order,owner->scope.id)<target_position:
+                        owner->scope.id==target->scope.id&&
+                        std::ranges::find(target->entries,feature->id,&document::PartHistoryEntry::id)<
+                            target->entries.begin()+static_cast<std::ptrdiff_t>(target->cursor)))continue;
+            const RipCandidate candidate{sketch.id,QString::fromStdString(sketch.name),owner->scope.id};
+            offered_rips->emplace(sketch.id,candidate);
+            offered_rips->emplace(feature->id,candidate);
+        }
         auto* dialog=new SheetFromBodyDialog(document::sheet_metal_defaults(source).thickness_mm.value_or(1.),
             [this,document_id](auto face,double thickness,
-                    bool thickness_override) {
+                    bool thickness_override,auto included_faces,auto rip_sketches) {
                 auto* state=workspace_.open_part(document_id);if(!state)throw std::invalid_argument("Sheet from Body requires a calculated source body.");
                 workspace::SheetBodyConversion result;
                 begin_status_operation(tr("Vytvářím plech z tělesa…"));
                 try {
-                    run_background_task([source=state->session.document(),cache=state->session.calculated_boundaries(),face,thickness,thickness_override,&result]{
+                    run_background_task([source=state->session.document(),cache=state->session.calculated_boundaries(),face,thickness,thickness_override,included_faces=std::move(included_faces),rip_sketches=std::move(rip_sketches),&result]{
                         kernel::OcctKernel kernel;result=workspace::prepare_sheet_from_body(
                             source,cache,face,thickness,kernel,
-                            thickness_override);
+                            thickness_override,std::move(included_faces),
+                            std::move(rip_sketches));
                     });
                     if(auto* conversion=result.document.find_container(
                             result.container_id))
@@ -76,24 +109,58 @@ void AssemblyWorkspaceWindow::show_sheet_from_body() {
                 }catch(...){finish_status_operation(tr("Převod tělesa na plech se nezdařil."),false);throw;}
             },this);
         properties_dialog_=dialog;properties_dialog_instance_path_=*path;track_tree_edit(dialog);
-        const auto candidate_face=[offered,path=*path](const viewer::ViewerCandidate& candidate)->std::optional<kernel::FaceReference> {
+        const auto candidate_face=[this,offered,offered_root,dialog,document_id,path=*path](const viewer::ViewerCandidate& candidate)->std::optional<kernel::FaceReference> {
             if(candidate.kind!=viewer::CandidateKind::Face||candidate.instance_path!=path)return {};
-            const auto found=offered->find({candidate.owner_id,candidate.semantic_key});return found==offered->end()?std::nullopt:std::optional{found->second};
+            const auto key=std::pair{candidate.owner_id,candidate.semantic_key};
+            const auto found=offered->find(key);if(found==offered->end())return {};
+            if(dialog->entry_kind()==SheetFromBodyDialog::EntryKind::SourceFace)
+                return offered_root->contains(key)?std::optional{found->second}:std::nullopt;
+            if(dialog->entry_kind()!=SheetFromBodyDialog::EntryKind::IncludedFace||!dialog->selected())return {};
+            const auto* state=workspace_.open_part(document_id);
+            if(!state)return {};
+            const auto& document=state->session.document();
+            return document.body_owner_for_object(found->second.owner_id)==
+                document.body_owner_for_object(dialog->selected()->owner_id)?std::optional{found->second}:std::nullopt;
         };
-        dialog->changed=[this,dialog,candidate_face,path=*path] {
-            viewer_->set_original_face_selection(true);viewer_->set_selection_contract({viewer::CandidateKind::Face});
-            viewer_->set_candidate_filter([dialog,candidate_face](const auto& candidate){return dialog->active()&&candidate_face(candidate).has_value();});
-            std::set<viewer::EdgeKey> highlights;
-            if(dialog->inspected()&&dialog->selected())highlights.insert({dialog->selected()->owner_id,dialog->selected()->semantic_key,path});
-            viewer_->set_constraint_reference_highlights({},std::move(highlights));
+        const auto candidate_rip=[this,offered_rips,dialog,document_id,path=*path](const viewer::ViewerCandidate& candidate)->std::optional<RipCandidate> {
+            if((candidate.kind!=viewer::CandidateKind::SketchSegment&&candidate.kind!=viewer::CandidateKind::SketchCurve)||
+                    candidate.instance_path!=path||!dialog->selected())return {};
+            const auto found=offered_rips->find(candidate.owner_id);if(found==offered_rips->end())return {};
+            const auto* state=workspace_.open_part(document_id);if(!state)return {};
+            const auto& document=state->session.document();
+            const auto* source_body=document.body_owner_for_object(dialog->selected()->owner_id);
+            return source_body&&source_body->scope.id==std::get<2>(found->second)?std::optional{found->second}:std::nullopt;
+        };
+        dialog->changed=[this,dialog,candidate_face,candidate_rip,document_id,path=*path] {
+            viewer_->set_original_face_selection(dialog->face_entry());
+            viewer_->set_selection_contract(dialog->face_entry()?std::vector<viewer::CandidateKind>{viewer::CandidateKind::Face}:
+                dialog->rip_entry()?std::vector<viewer::CandidateKind>{viewer::CandidateKind::SketchSegment,viewer::CandidateKind::SketchCurve}:
+                std::vector<viewer::CandidateKind>{});
+            viewer_->set_candidate_filter([dialog,candidate_face,candidate_rip](const auto& candidate){return dialog->active()&&
+                (dialog->face_entry()?candidate_face(candidate).has_value():dialog->rip_entry()&&candidate_rip(candidate).has_value());},false);
+            std::set<viewer::EdgeKey> highlights;for(const auto& face:dialog->inspected_faces())
+                highlights.insert({face.owner_id,face.semantic_key,path});
+            std::set<std::string> rip_owners;
+            if(const auto* state=workspace_.open_part(document_id))for(const auto& id:dialog->inspected_rips()) {
+                rip_owners.insert(id);
+                const auto sketch=std::ranges::find(state->session.document().sketches,id,&sketcher::Sketch::id);
+                if(sketch!=state->session.document().sketches.end())rip_owners.insert(sketch->owner_container_id);
+            }
+            viewer_->set_constraint_reference_highlights(std::move(rip_owners),std::move(highlights));
             tree_->setProperty("commandSelectionActive",dialog->active());
         };
-        feature_reference_pick_=[this,dialog,candidate_face,document_id](const auto& candidate) {
-            if(!dialog->active())return;const auto face=candidate_face(candidate);if(!face)return;
-            double thickness=0;
-            if(const auto* part=workspace_.open_part(document_id);part&&!part->session.calculated_boundaries().empty())
-                thickness=workspace::suggest_sheet_thickness(workspace_,document_id,part->session.calculated_boundaries().back().mesh,*face);
-            dialog->set_reference(*face,thickness);viewer_->clear_selection();
+        feature_reference_pick_=[this,dialog,candidate_face,candidate_rip,document_id](const auto& candidate) {
+            if(!dialog->active())return;
+            if(dialog->face_entry()) {
+                const auto face=candidate_face(candidate);if(!face)return;double thickness=0;
+                if(const auto* part=workspace_.open_part(document_id);part&&!part->session.calculated_boundaries().empty())
+                    thickness=workspace::suggest_sheet_thickness(workspace_,document_id,part->session.calculated_boundaries().back().mesh,*face);
+                dialog->set_face_reference(*face,thickness);
+            } else if(dialog->rip_entry()) {
+                const auto rip=candidate_rip(candidate);if(!rip)return;
+                dialog->set_rip_reference(std::get<0>(*rip),std::get<1>(*rip));
+            }
+            viewer_->clear_selection();
         };
         feature_reference_end_=[dialog]{dialog->end_entry();};
         connect(dialog,&QDialog::finished,this,[this,dialog] {

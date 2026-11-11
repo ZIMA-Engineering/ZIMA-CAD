@@ -66,6 +66,15 @@ Slots feature_slots(document::HistoryContainer& f) {
         if(!f.bend.radius_follows_thickness)result.emplace("radius",&f.bend.radius);
         return result;
     }
+    case FeatureKind::LineBend: {
+        Slots result{{"angle",&f.line_bend.angle_degrees},
+            {"radius",&f.line_bend.radius}};
+        if(f.line_bend.thickness_override)
+            result.emplace("thickness",&f.line_bend.thickness);
+        if(f.line_bend.k_factor_override)
+            result.emplace("k_factor",&f.line_bend.k_factor);
+        return result;
+    }
     case FeatureKind::Holes: return {{"diameter",&f.holes.diameter}};
     case FeatureKind::Hole: return {{"diameter",&f.hole.diameter},{"bore_length",&f.hole.bore_length},{"entrance_chamfer",&f.hole.entrance_chamfer},{"exit_chamfer",&f.hole.exit_chamfer},{"drill_point_angle",&f.hole.drill_point_angle_degrees},{"thread_diameter",&f.hole.thread_nominal_diameter},{"thread_pitch",&f.hole.thread_pitch},{"thread_length",&f.hole.thread_length}};
     case FeatureKind::Thread: return {{"bore_diameter",&f.thread.nominal_diameter},{"bore_length",&f.thread.bore_length},{"thread_length",&f.thread.length_forward},{"length_reverse",&f.thread.length_reverse},{"chamfer_depth",&f.thread.chamfer_depth},{"chamfer_angle",&f.thread.chamfer_angle_degrees},{"drill_point_angle",&f.hole.drill_point_angle_degrees}};
@@ -133,7 +142,9 @@ template<class Doc> void add_feature_references(std::vector<FamilyReference>& ou
     else for(const auto& [key,value]:feature_slots(f))add(key,*value);
     if(f.feature_kind==FeatureKind::Feature&&(f.feature.type==document::FeatureType::Axis||f.feature.type==document::FeatureType::Modeling))
         add("direction",document::feature_direction(f.feature));
-    if(f.feature_kind==FeatureKind::Sketch || f.feature_kind==FeatureKind::Holes || f.feature_kind==FeatureKind::Bend)
+    if(f.feature_kind==FeatureKind::Sketch || f.feature_kind==FeatureKind::Holes ||
+            f.feature_kind==FeatureKind::Bend||
+            f.feature_kind==FeatureKind::LineBend)
         for(const auto& sketch:doc.sketches)if(sketch.owner_container_id==f.id)add("profile_offset",sketch.plane_offset);
 }
 template<class Doc> void add_sketch_references(std::vector<FamilyReference>& out,const Doc& doc,const sketcher::Sketch& sketch) {
@@ -161,7 +172,10 @@ void assign_feature(document::HistoryContainer& f,const std::string& key,double 
     const bool zero_bend_angle=f.feature_kind==FeatureKind::Bend&&(key=="angle"||key=="radius")&&value==0;
     const bool up_to_correction=f.feature_kind==FeatureKind::Feature&&(key.ends_with("_up_to_length_correction")||key.ends_with("_up_to_angle_correction"));
     const bool signed_value=key=="profile_offset"||key.ends_with("draft_angle")||up_to_correction||(f.feature_kind==FeatureKind::SheetTransition&&key.starts_with("end_"));
-    if(!signed_value && value<=0&&!zero_bend_angle)throw std::invalid_argument("Family feature dimensions must be positive.");
+    const bool zero_line_bend_k=f.feature_kind==FeatureKind::LineBend&&
+        key=="k_factor"&&value==0;
+    if(!signed_value && value<=0&&!zero_bend_angle&&!zero_line_bend_k)
+        throw std::invalid_argument("Family feature dimensions must be positive.");
     if(key.ends_with("draft_angle")&&std::abs(value)>=90)throw std::invalid_argument("Draft angle must be between -90 and 90 degrees.");
     if(up_to_correction&&key.ends_with("_angle_correction")&&std::abs(value)>=360)
         throw std::invalid_argument("The family angle is outside its allowed range.");
@@ -172,7 +186,9 @@ void assign_feature(document::HistoryContainer& f,const std::string& key,double 
             "The family angle is outside its allowed range.":"Revolution angle must be in (0, 360]");
     }
     if((f.feature_kind==FeatureKind::Revolution&&(key=="angle"||key=="length_reverse")&&value>360) ||
-        (f.feature_kind==FeatureKind::Bend&&key=="angle"&&value>180) ||
+        ((f.feature_kind==FeatureKind::Bend||
+          f.feature_kind==FeatureKind::LineBend)&&key=="angle"&&value>180) ||
+        (f.feature_kind==FeatureKind::LineBend&&key=="k_factor"&&value>1) ||
         (key=="treatment_angle"&&value>=90) || ((key=="drill_point_angle"||key=="chamfer_angle")&&value>=180))
         throw std::invalid_argument("The family angle is outside its allowed range.");
     *found->second=value;
@@ -203,7 +219,10 @@ template<class Doc> bool assign_dimension(Doc& doc,const FamilyColumn& binding,d
     if constexpr(requires {doc.history;}) {
         for(auto& f:doc.history)if(f.id==binding.owner_id && binding.semantic_key.starts_with("parameter:")) {
             const auto key=binding.semantic_key.substr(10);
-            if(key=="profile_offset" && (f.feature_kind==FeatureKind::Sketch||f.feature_kind==FeatureKind::Holes||f.feature_kind==FeatureKind::Bend)) {
+            if(key=="profile_offset" && (f.feature_kind==FeatureKind::Sketch||
+                    f.feature_kind==FeatureKind::Holes||
+                    f.feature_kind==FeatureKind::Bend||
+                    f.feature_kind==FeatureKind::LineBend)) {
                 for(auto& sketch:doc.sketches)if(sketch.owner_container_id==f.id){sketch.plane_offset=value;return true;}
                 throw std::invalid_argument("The family profile Sketch is missing.");
             }
@@ -317,7 +336,9 @@ template<class Doc> std::map<std::string,RelationDimension> dimension_inputs(con
             add(f.id,"parameter:thread_designation",f.thread.nominal_diameter,false,false);
             add(f.id,"parameter:pitch",f.thread.pitch,false,false);
         }
-        if(f.feature_kind==FeatureKind::Sketch||f.feature_kind==FeatureKind::Holes||f.feature_kind==FeatureKind::Bend)
+        if(f.feature_kind==FeatureKind::Sketch||f.feature_kind==FeatureKind::Holes||
+                f.feature_kind==FeatureKind::Bend||
+                f.feature_kind==FeatureKind::LineBend)
             for(const auto& sketch:doc.sketches)if(sketch.owner_container_id==f.id)slot("profile_offset",sketch.plane_offset);
     };
     const auto sketch=[&](const sketcher::Sketch& s) {

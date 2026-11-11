@@ -263,6 +263,8 @@ add_library(zima_document_core
     modules/document_core/src/hole_profiles.cpp
     modules/document_core/src/holes.cpp
     modules/document_core/src/bend.cpp
+    modules/document_core/src/line_bend.cpp
+    modules/document_core/src/sheet_rip.cpp
     modules/document_core/src/sheet_profile.cpp
     modules/document_core/src/sheet_state.cpp
     modules/document_core/src/sheet_form_definition.cpp
@@ -396,6 +398,7 @@ add_library(zima_workspace modules/workspace/src/workspace.cpp
     modules/workspace/src/sheet_state_operations.cpp
     modules/workspace/src/solid_state_operations.cpp
     modules/workspace/src/sheet_exchange_operations.cpp
+    modules/workspace/src/line_bend_operations.cpp
     modules/workspace/src/sheet_body_conversion.cpp
     modules/workspace/src/flat_operations.cpp
     modules/workspace/src/opening_component_operations.cpp
@@ -2818,6 +2821,9 @@ if(ZIMA_BUILD_TESTS)
     add_test(NAME zima_cpp_transition_study_ui_contract COMMAND zima-transition-study --verify)
     set_tests_properties(zima_cpp_transition_study_ui_contract PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." RUN_SERIAL TRUE TIMEOUT 90)
     target_link_libraries(zima_cpp_sheet_exchange_tests PRIVATE zima_workspace zima_kernel_occt TKTopAlgo Qt6::Core)
+    if(MSVC)
+        target_link_options(zima_cpp_sheet_exchange_tests PRIVATE /STACK:8388608)
+    endif()
     add_test(NAME zima_cpp_sheet_exchange_tests COMMAND zima_cpp_sheet_exchange_tests)
     set_tests_properties(zima_cpp_sheet_exchange_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
     file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/sheet-exchange-ui-contract")
@@ -2831,6 +2837,13 @@ if(ZIMA_BUILD_TESTS)
         --working-directory "${CMAKE_BINARY_DIR}/sheet-same-body-ui-contract")
     set_tests_properties(zima_cpp_sheet_same_body_ui_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_SHEET_EXCHANGE=1;ZIMA_VERIFY_SHEET_SAME_BODY=1"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 120 RUN_SERIAL TRUE)
+    file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/line-bend-ui-contract")
+    add_test(NAME zima_cpp_line_bend_ui_contract COMMAND zima-cad-cpp
+        --verify-startup
+        --working-directory "${CMAKE_BINARY_DIR}/line-bend-ui-contract")
+    set_tests_properties(zima_cpp_line_bend_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_LINE_BEND_ONLY=1"
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 120 RUN_SERIAL TRUE)
     add_executable(zima_cpp_sheet_state_tests tests/sheet_state_tests.cpp)
     add_executable(zima_cpp_sheet_state_cone_tests tests/sheet_state_cone_tests.cpp)

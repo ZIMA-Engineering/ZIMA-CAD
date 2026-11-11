@@ -907,6 +907,36 @@ std::string encode_history_fingerprint(
                 u64(2);byte(primitive.unfold);byte(primitive.all);
                 u64(std::bit_cast<std::uint64_t>(primitive.tolerance));
                 u64(primitive.owners.size());for(const auto& owner:primitive.owners){u64(owner.size());for(unsigned char c:owner)byte(c);}
+            } else if constexpr (std::is_same_v<Request, SheetRipRequest>) {
+                u64(1); // Exact transient Sheet-from-Body RIP schema.
+                u64(std::bit_cast<std::uint64_t>(primitive.tolerance));
+                u64(primitive.curves.size());
+                for(const auto& curve:primitive.curves) {
+                    for(const auto* value:{&curve.sketch_id,&curve.source_id}) {
+                        u64(value->size());for(unsigned char c:*value)byte(c);
+                    }
+                    for(const double value:{curve.normal.x,curve.normal.y,
+                            curve.normal.z})
+                        u64(std::bit_cast<std::uint64_t>(value));
+                    HistoryOperation nested;
+                    ExtrusionRequest profile;
+                    profile.outer_profile=curve.profile;
+                    profile.direction=curve.normal;
+                    nested.primitive=std::move(profile);
+                    const auto digest=history_fingerprint({nested},1);
+                    u64(digest.size());for(unsigned char c:digest)byte(c);
+                }
+            } else if constexpr (std::is_same_v<Request, LineBendRequest>) {
+                u64(1); // Native line-bend material-map schema.
+                for(const auto& vector:{primitive.origin,primitive.along,
+                        primitive.tangent,primitive.radial})
+                    for(const double value:{vector.x,vector.y,vector.z})
+                        u64(std::bit_cast<std::uint64_t>(value));
+                for(const double value:{primitive.along_min,
+                        primitive.along_max,primitive.radius,
+                        primitive.neutral_radius,primitive.angle,
+                        primitive.thickness,primitive.tolerance})
+                    u64(std::bit_cast<std::uint64_t>(value));
             } else if constexpr (std::is_same_v<Request, DrillPointRequest>) {
                 // Source-parent topology replaces selection-order identities.
                 // Explicit calculation must not reuse the former derived cache.

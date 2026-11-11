@@ -10,11 +10,13 @@
 #include <zima/document/bend.hpp>
 #include <zima/document/metadata.hpp>
 #include <zima/document/solid_state_calculation.hpp>
+#include <zima/document/sheet_rip.hpp>
 #include <zima/workspace/model_calculation.hpp>
 #include <zima/workspace/history_operations.hpp>
 #include <zima/workspace/history_deletion.hpp>
 #include <zima/workspace/part_transactions.hpp>
 #include <zima/workspace/sheet_state_operations.hpp>
+#include <zima/workspace/line_bend_operations.hpp>
 #include <zima/kernel/sheet_material.hpp>
 #include <zima/kernel/calculated_body_shape.hpp>
 #include <TopExp_Explorer.hxx>
@@ -35,10 +37,294 @@ void near(double a,double b,double tolerance=1e-5){if(std::abs(a-b)>tolerance)th
 double measured_volume(const kernel::OcctKernel& engine,const kernel::BodySnapshot& snapshot) {
     auto body=snapshot.get();engine.ensure_body_properties(body);return body.volume;
 }
+void rip_contract(kernel::OcctKernel& engine) {
+    // RIP consumes every exact ordinary native curve while construction
+    // geometry remains inert. Open curves split the sheet into branches;
+    // closed curves retain both the inside and outside material regions.
+    auto exact=sketcher::Sketch::create_default();
+    const std::vector<std::string> expected{
+        exact.add_segment(0,1,10,1),
+        exact.add_circle(3,3,1),
+        exact.add_arc(5,3,6,3,5,4),
+        exact.add_ellipse(7,3,8.5,3,7,3.5),
+        exact.add_elliptical_arc(2,6,3.5,6,2,6.5,3.5,6,2,6.5),
+        exact.add_bspline({{5,6},{6,7},{8,5},{9,6}},3)};
+    static_cast<void>(exact.add_segment(0,7,10,7,1e-6,true));
+    if(exact.segments.size()!=2||exact.circles.size()!=1||
+            exact.arcs.size()!=1||exact.ellipses.size()!=1||
+            exact.elliptical_arcs.size()!=1||exact.bsplines.size()!=1)
+        throw std::runtime_error("Invalid native RIP curve fixture");
+    const auto request=document::sheet_rip_request({&exact},.05);
+    if(request.curves.size()!=expected.size()) {
+        std::string actual_ids;
+        for(const auto& curve:request.curves)
+            actual_ids+=" "+curve.source_id;
+        throw std::runtime_error(
+            "RIP did not consume every ordinary native Sketch curve exactly once: expected "+
+            std::to_string(expected.size())+", actual "+
+            std::to_string(request.curves.size())+"; ids:"+actual_ids);
+    }
+    for(const auto& id:expected)
+        check(std::ranges::count(request.curves,id,
+                &kernel::SheetRipCurve::source_id)==1,
+            "RIP changed or omitted a native Sketch curve identity");
+    check(std::ranges::none_of(request.curves,[](const auto& curve) {
+            return curve.source_id.empty();
+        }),"RIP emitted an unidentified native Sketch curve");
+    bool duplicate_rejected{};
+    try {static_cast<void>(document::sheet_rip_request(
+        {&exact,&exact},.05));}
+    catch(const std::invalid_argument&) {duplicate_rejected=true;}
+    check(duplicate_rejected,
+        "RIP accepted the same Sketch reference more than once");
+
+    const auto split=[&](sketcher::Sketch sketch,const char* owner) {
+        const auto rip=document::sheet_rip_request({&sketch},.01);
+        test::ProfilePrism stock{10,8,6};
+        const auto result=engine.evaluate_history({
+            {std::string(owner)+":stock",stock},
+            {owner,rip}}).back();
+        check(result.calculation_errors.empty(),
+            "RIP partition produced a calculation error");
+        near(measured_volume(engine,result),480,.0001);
+        const auto shape=kernel::read_calculated_body_shape(result);
+        unsigned solids{};
+        for(TopExp_Explorer it(shape,TopAbs_SOLID);it.More();it.Next())
+            ++solids;
+        check(solids>=2,
+            "RIP did not create independent material branches");
+    };
+    auto open=sketcher::Sketch::create_default();
+    static_cast<void>(open.add_segment(0,4,10,4));
+    split(std::move(open),"rip-open");
+    auto closed=sketcher::Sketch::create_default();
+    static_cast<void>(closed.add_circle(5,4,2));
+    split(std::move(closed),"rip-closed");
+}
+void rip_conversion_contract(kernel::OcctKernel& engine) {
+    auto part=document::PartDocument::create_default();
+    const auto body=part.body_history.create_body("RIP source");
+    auto flat=document::PartDocument::create_sketch_container();
+    flat.feature_kind=document::FeatureKind::Flat;
+    flat.flat.thickness_override=true;
+    flat.flat.thickness=2;
+    flat.flat.direction=document::ExtrusionDirection::Reverse;
+    auto profile=sketcher::Sketch::create_default();
+    profile.owner_container_id=flat.id;
+    flat.flat.sketch_id=profile.id;
+    static_cast<void>(profile.add_rectangle(-50,-40,50,40));
+    part.insert_history_entry(document::PartHistoryKind::Feature,flat.id);
+    part.history.push_back(flat);
+    part.sketches.push_back(profile);
+
+    auto rip_feature=document::PartDocument::create_sketch_container();
+    rip_feature.feature_kind=document::FeatureKind::Sketch;
+    auto rip=sketcher::Sketch::create_default();
+    rip.owner_container_id=rip_feature.id;
+    static_cast<void>(rip.add_segment(-50,0,50,0));
+    part.insert_history_entry(document::PartHistoryKind::Feature,
+        rip_feature.id);
+    part.history.push_back(rip_feature);
+    part.sketches.push_back(rip);
+
+    const auto cache=workspace::calculate_part_with_resolved_references(
+        engine,part);
+    const auto& faces=cache.back().body_outputs.at(body)->mesh.
+        original_references.triangle_references;
+    const auto seed=std::ranges::find_if(faces,[&](const auto& face) {
+        return face.owner_id==flat.id&&face.sheet_role==
+                kernel::SheetFaceRole::SideA&&face.surface&&
+            face.surface->kind==kernel::SurfaceGeometry::Kind::Plane;
+    });
+    check(seed!=faces.end(),"RIP conversion fixture has no source skin");
+    const double source_volume=measured_volume(engine,
+        cache.back().body_outputs.at(body));
+    const auto converted=workspace::prepare_sheet_from_body(part,cache,
+        *seed,2,engine,true,{},std::vector<std::string>{rip.id});
+    const auto* boundary=converted.document.find_container(
+        converted.container_id);
+    check(boundary&&boundary->sheet_from_body.rip_sketches==
+            std::vector<std::string>{rip.id},
+        "Sheet from Body did not persist its RIP Sketch reference");
+    check(converted.created.size()==2&&
+            std::ranges::count_if(boundary->sheet_from_body.child_bindings,
+                [](const auto& binding){return binding.root;})==2,
+        "RIP conversion did not author both material root regions");
+    check(!converted.created.empty()&&
+            converted.calculated.back().calculation_errors.empty(),
+        "Sheet from Body did not calculate through its RIP Sketch");
+    near(measured_volume(engine,
+        converted.calculated.back().body_outputs.at(body)),source_volume,.001);
+    auto reopened=document::PartDocument::from_serialized(
+        converted.document.serialized());
+    const auto cold=workspace::calculate_part_with_resolved_references(
+        engine,reopened);
+    check(cold.back().calculation_errors.empty(),
+        "RIP Sheet from Body failed cold regeneration");
+    near(measured_volume(engine,cold.back().body_outputs.at(body)),
+        source_volume,.001);
+}
+void line_bend_contract(kernel::OcctKernel& engine) {
+    auto part=document::PartDocument::create_default();
+    const auto body=part.body_history.create_body("Line Bend sheet");
+    auto flat=document::PartDocument::create_sketch_container();
+    flat.feature_kind=document::FeatureKind::Flat;
+    flat.flat.thickness_override=true;
+    flat.flat.thickness=2;
+    flat.flat.direction=document::ExtrusionDirection::Reverse;
+    auto profile=sketcher::Sketch::create_default();
+    profile.owner_container_id=flat.id;
+    flat.flat.sketch_id=profile.id;
+    static_cast<void>(profile.add_rectangle(-50,-40,50,40));
+    part.insert_history_entry(document::PartHistoryKind::Feature,flat.id);
+    part.history.push_back(flat);
+    part.sketches.push_back(profile);
+
+    auto bend=document::PartDocument::create_sketch_container();
+    bend.feature_kind=document::FeatureKind::LineBend;
+    bend.line_bend.radius=5;
+    bend.line_bend.angle_degrees=90;
+    bend.line_bend.thickness_override=true;
+    bend.line_bend.thickness=2;
+    bend.line_bend.k_factor_override=true;
+    bend.line_bend.k_factor=.5;
+    bend.line_bend.fixed_side=1;
+    auto line=sketcher::Sketch::create_default();
+    line.owner_container_id=bend.id;
+    bend.line_bend.sketch_id=line.id;
+    bend.line_bend.segment_id=line.add_segment(-50,0,50,0);
+    part.insert_history_entry(document::PartHistoryKind::Feature,bend.id);
+    part.history.push_back(bend);
+    part.sketches.push_back(line);
+
+    const auto calculated=workspace::calculate_part_with_resolved_references(
+        engine,part);
+    check(calculated.back().calculation_errors.empty(),
+        "Line Bend produced a calculation error");
+    near(measured_volume(engine,calculated.back().body_outputs.at(body)),
+        16000,.01);
+    const auto& mesh=calculated.back().body_outputs.at(body)->mesh;
+    check(std::ranges::any_of(mesh.triangle_references,[&](const auto& face) {
+            return face.owner_id==bend.id&&face.surface&&
+                face.surface->kind==kernel::SurfaceGeometry::Kind::Cylinder;
+        }),"Line Bend did not publish its cylindrical material region");
+    {
+        workspace::Workspace live;live.add_part(part);
+        auto* state=live.open_part(part.document_id);
+        state->session.update_calculated_boundaries(calculated);
+        const auto revision=state->session.revision();
+        const auto* cache=state->session.calculated_boundaries().data();
+        check(!workspace::commit_line_bend(live,engine,part.document_id,
+                bend,line)&&state->session.revision()==revision&&
+                state->session.calculated_boundaries().data()==cache,
+            "Unchanged Line Bend recalculated geometry or created Undo");
+        auto invalid=line;
+        static_cast<void>(invalid.add_segment(-50,10,50,10));
+        bool rejected{};
+        try {static_cast<void>(workspace::commit_line_bend(live,engine,
+            part.document_id,bend,std::move(invalid)));}
+        catch(const std::invalid_argument&) {rejected=true;}
+        check(rejected&&state->session.revision()==revision&&
+                state->session.calculated_boundaries().data()==cache,
+            "Invalid Line Bend partly changed history or geometry");
+    }
+    auto reopened=document::PartDocument::from_serialized(part.serialized());
+    const auto* restored=reopened.find_container(bend.id);
+    check(restored&&restored->feature_kind==document::FeatureKind::LineBend&&
+            restored->line_bend==bend.line_bend,
+        "Line Bend parameters changed during native round trip");
+    const auto cold=workspace::calculate_part_with_resolved_references(
+        engine,reopened);
+    check(cold.back().calculation_errors.empty(),
+        "Line Bend failed cold regeneration");
+    near(measured_volume(engine,cold.back().body_outputs.at(body)),16000,.01);
+
+    const auto verify_variant=[&](int fixed_side,bool reverse,
+            bool inner_tab) {
+        auto variant=document::PartDocument::create_default();
+        const auto variant_body=variant.body_history.create_body(
+            inner_tab?"Inner Line Bend tab":"Line Bend direction variant");
+        auto variant_flat=document::PartDocument::create_sketch_container();
+        variant_flat.feature_kind=document::FeatureKind::Flat;
+        variant_flat.flat.thickness_override=true;
+        variant_flat.flat.thickness=2;
+        variant_flat.flat.direction=document::ExtrusionDirection::Reverse;
+        auto variant_profile=sketcher::Sketch::create_default();
+        variant_profile.owner_container_id=variant_flat.id;
+        variant_flat.flat.sketch_id=variant_profile.id;
+        if(inner_tab) {
+            const std::array<std::array<double,2>,8> outline{{
+                {-50,-40},{50,-40},{50,0},{20,0},
+                {20,40},{-20,40},{-20,0},{-50,0}}};
+            for(std::size_t i=0;i<outline.size();++i) {
+                const auto& first=outline[i];
+                const auto& last=outline[(i+1)%outline.size()];
+                static_cast<void>(variant_profile.add_segment(
+                    first[0],first[1],last[0],last[1]));
+            }
+        } else static_cast<void>(variant_profile.add_rectangle(
+            -50,-40,50,40));
+        variant.insert_history_entry(document::PartHistoryKind::Feature,
+            variant_flat.id);
+        variant.history.push_back(variant_flat);
+        variant.sketches.push_back(variant_profile);
+
+        auto variant_bend=document::PartDocument::create_sketch_container();
+        variant_bend.feature_kind=document::FeatureKind::LineBend;
+        variant_bend.line_bend.radius=5;
+        variant_bend.line_bend.angle_degrees=75;
+        variant_bend.line_bend.thickness_override=true;
+        variant_bend.line_bend.thickness=2;
+        variant_bend.line_bend.k_factor_override=true;
+        variant_bend.line_bend.k_factor=.5;
+        variant_bend.line_bend.fixed_side=fixed_side;
+        variant_bend.line_bend.reverse=reverse;
+        auto variant_line=sketcher::Sketch::create_default();
+        variant_line.owner_container_id=variant_bend.id;
+        variant_bend.line_bend.sketch_id=variant_line.id;
+        variant_bend.line_bend.segment_id=inner_tab?
+            variant_line.add_segment(-20,0,20,0):
+            variant_line.add_segment(-50,0,50,0);
+        variant.insert_history_entry(document::PartHistoryKind::Feature,
+            variant_bend.id);
+        variant.history.push_back(variant_bend);
+        variant.sketches.push_back(variant_line);
+
+        const auto result=workspace::calculate_part_with_resolved_references(
+            engine,variant);
+        check(result.back().calculation_errors.empty(),inner_tab?
+            "Finite inner Line Bend produced a calculation error":
+            "Line Bend side/direction variant produced a calculation error");
+        near(measured_volume(engine,
+            result.back().body_outputs.at(variant_body)),
+            inner_tab?11200.:16000.,.2);
+        check(std::ranges::any_of(
+                result.back().body_outputs.at(variant_body)->mesh.
+                    triangle_references,
+                [&](const auto& face) {
+                    return face.owner_id==variant_bend.id&&face.surface&&
+                        face.surface->kind==
+                            kernel::SurfaceGeometry::Kind::Cylinder;
+                }),inner_tab?
+            "Finite inner Line Bend has no cylindrical material region":
+            "Line Bend side/direction variant has no cylindrical region");
+    };
+    for(const int fixed_side:{-1,1})for(const bool reverse:{false,true})
+        verify_variant(fixed_side,reverse,false);
+    // The segment endpoints lie on the two re-entrant edges of a tongue.
+    // This is a finite internal bend: material outside its along interval
+    // remains fixed, while the tongue is the moving continuation.
+    verify_variant(-1,false,true);
+    verify_variant(-1,true,true);
+}
 void contract(bool include_oblique_corners = true) {
     kernel::OcctKernel kernel;
-    if(!std::getenv("ZIMA_CPP_SHEET_SKIP_CORNER_REJECTION")) {
-        auto part=document::PartDocument::create_default();const auto body=part.body_history.create_body("Rounded solid");
+    rip_contract(kernel);
+    rip_conversion_contract(kernel);
+    line_bend_contract(kernel);
+    {
+        auto part=document::PartDocument::create_default();
+        const auto body=part.body_history.create_body("Rounded solid");
         auto box=test::rectangular_feature(part,{100,80,20});
         part.insert_history_entry(document::PartHistoryKind::Feature,box.id);part.history.push_back(box);
         auto cache=workspace::calculate_part_with_resolved_references(kernel,part);
@@ -1848,6 +2134,9 @@ void contract(bool include_oblique_corners = true) {
         const auto* replacement=converted.document.find_container(
             converted.container_id);
         check(replacement&&replacement->sheet_from_body.child_bindings.empty()&&
+                !replacement->sheet_from_body.source_face.reference.valid()&&
+                replacement->sheet_from_body.included_faces.empty()&&
+                replacement->sheet_from_body.rip_sketches.empty()&&
                 replacement->sheet_from_body.generated_features==
                     converted.created,
             "Imported STEP conversion became an associative solid conversion");
@@ -1994,15 +2283,105 @@ void contract(bool include_oblique_corners = true) {
                 measured_volume(kernel,cache.back().body_outputs.at(source)),.01);
             const auto dxf=workspace::prepare_sheet_dxf(same.document,cold,kernel);
             check(dxf.export_options.bend_axis_ids.size()==1,"Same-Body DXF retained source bend material");
+            {
+                workspace::Workspace live;
+                live.add_part(same.document);
+                auto* state=live.open_part(same.document.document_id);
+                state->session.update_calculated_boundaries(same.calculated);
+                const auto detached_id=same.created.at(1);
+                const auto revision=state->session.revision();
+                check(workspace::explode_sheet_from_body(live,kernel,
+                        same.document.document_id,same.container_id,
+                        detached_id)&&state->session.revision()==revision+1,
+                    "Partial Sheet from Body explode was not one transaction");
+                const auto* partially_exploded=state->session.document().
+                    find_container(same.container_id);
+                const auto detached=std::ranges::find(
+                    partially_exploded->sheet_from_body.child_bindings,
+                    detached_id,
+                    &document::SheetFromBodyChildBinding::feature_id);
+                check(detached!=partially_exploded->sheet_from_body.
+                        child_bindings.end()&&detached->detached&&
+                        state->session.document().find_container(detached_id),
+                    "Partial Sheet from Body explode lost its native child");
+                near(measured_volume(kernel,state->session.
+                    calculated_boundaries().back().body_outputs.at(source)),
+                    measured_volume(kernel,same.calculated.back().
+                        body_outputs.at(source)),.01);
+                const auto no_op_revision=state->session.revision();
+                const auto* no_op_cache=state->session.
+                    calculated_boundaries().data();
+                check(!workspace::explode_sheet_from_body(live,kernel,
+                        same.document.document_id,same.container_id,
+                        detached_id)&&
+                        state->session.revision()==no_op_revision&&
+                        state->session.calculated_boundaries().data()==
+                            no_op_cache,
+                    "Repeated partial explode recalculated or created Undo");
+                check(state->session.undo(),
+                    "Partial Sheet from Body explode has no Undo");
+                const auto* restored=state->session.document().find_container(
+                    same.container_id);
+                check(restored&&std::ranges::none_of(
+                        restored->sheet_from_body.child_bindings,
+                        [](const auto& binding){return binding.detached;}),
+                    "Undo did not restore the Sheet from Body association");
+
+                const auto all_revision=state->session.revision();
+                check(workspace::explode_sheet_from_body(live,kernel,
+                        same.document.document_id,same.container_id)&&
+                        state->session.revision()!=all_revision,
+                    "Complete Sheet from Body explode was not one transaction");
+                const auto& exploded=state->session.document();
+                check(!exploded.find_container(same.container_id)&&
+                        std::ranges::all_of(same.created,[&](const auto& id) {
+                            return exploded.find_container(id)!=nullptr;
+                        })&&exploded.find_container(flat.id)->suppressed&&
+                        exploded.find_container(bend.id)->suppressed&&
+                        exploded.find_container(wall.id)->suppressed,
+                    "Complete same-Body explode restored source material or lost generated features");
+                const double exploded_volume=measured_volume(kernel,
+                    state->session.calculated_boundaries().back().
+                        body_outputs.at(source));
+                near(exploded_volume,measured_volume(kernel,
+                    same.calculated.back().body_outputs.at(source)),.01);
+                auto exploded_reopened=document::PartDocument::
+                    from_serialized(exploded.serialized());
+                const auto exploded_cold=workspace::
+                    calculate_part_with_resolved_references(
+                        kernel,exploded_reopened);
+                near(measured_volume(kernel,exploded_cold.back().
+                        body_outputs.at(source)),exploded_volume,.01);
+                check(state->session.undo()&&state->session.document().
+                        find_container(same.container_id)&&
+                        !state->session.document().find_container(flat.id)->
+                            suppressed,
+                    "Undo did not restore complete Sheet from Body explode");
+            }
         }
         const auto target=part.body_history.create_body("Converted");
-        auto converted=workspace::prepare_sheet_from_body(part,cache,*seed,2,kernel);
-        check(converted.created.size()==3&&converted.skipped==0,"Converter failed to follow the cylinder and its next wall");
         const auto source_bend_face=std::ranges::find_if(faces,[&](const auto& face) {
             return face.owner_id==bend.id&&face.sheet_role==kernel::SheetFaceRole::SideA&&face.surface&&
                 face.surface->kind==kernel::SurfaceGeometry::Kind::Cylinder;
         });
         check(source_bend_face!=faces.end(),"Bent source has no outer cylindrical sheet face");
+        const auto limited=workspace::prepare_sheet_from_body(
+            part,cache,*seed,2,kernel,true,{*source_bend_face});
+        check(limited.created.size()==3&&
+                limited.document.find_container(limited.created.front())->
+                    feature_kind==document::FeatureKind::Flat&&
+                limited.document.find_container(limited.created[1])->
+                    feature_kind==document::FeatureKind::Bend&&
+                limited.document.find_container(limited.created.back())->
+                    feature_kind==document::FeatureKind::Flat,
+            "Included Sheet-from-Body Bend did not retain its complete transition");
+        const auto* limited_boundary=limited.document.find_container(
+            limited.container_id);
+        check(limited_boundary&&limited_boundary->sheet_from_body.
+                included_faces.size()==1,
+            "Included Sheet-from-Body face was not persisted");
+        auto converted=workspace::prepare_sheet_from_body(part,cache,*seed,2,kernel);
+        check(converted.created.size()==3&&converted.skipped==0,"Converter failed to follow the cylinder and its next wall");
         const double expected_radius=source_bend_face->surface->radius-
             (source_bend_face->surface->reversed?0:2);
         int flats=0,bends=0;
@@ -2018,6 +2397,34 @@ void contract(bool include_oblique_corners = true) {
             }
         }
         check(flats==2&&bends==1,"Sheet from Body merged a flat wall into the Bend");
+        {
+            workspace::Workspace live;
+            live.add_part(converted.document);
+            auto* state=live.open_part(converted.document.document_id);
+            state->session.update_calculated_boundaries(
+                converted.calculated);
+            check(workspace::explode_sheet_from_body(live,kernel,
+                    converted.document.document_id,
+                    converted.container_id),
+                "Cross-Body Sheet from Body could not be exploded");
+            const auto& exploded=state->session.document();
+            check(!exploded.find_container(converted.container_id)&&
+                    !exploded.find_container(flat.id)->suppressed&&
+                    !exploded.find_container(bend.id)->suppressed&&
+                    !exploded.find_container(wall.id)->suppressed&&
+                    std::ranges::all_of(converted.created,
+                        [&](const auto& id) {
+                            return exploded.find_container(id)!=nullptr;
+                        }),
+                "Cross-Body explode changed its source or lost generated features");
+            near(measured_volume(kernel,state->session.
+                    calculated_boundaries().back().body_outputs.at(target)),
+                measured_volume(kernel,converted.calculated.back().
+                    body_outputs.at(target)),.01);
+            check(state->session.undo()&&state->session.document().
+                    find_container(converted.container_id),
+                "Cross-Body Sheet from Body explode has no Undo");
+        }
         {
             // Every generated region remains tied to the native source face,
             // including analytic bend radius changes. Child and Sketch IDs

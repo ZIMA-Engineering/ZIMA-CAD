@@ -92,6 +92,14 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
         if(edit_generated_profile_span(part,feature))return;
         show_sketch_properties(feature?feature->bend.sketch_id:std::string{},false,true);return;
     }
+    if(feature_kind==zima::document::FeatureKind::LineBend) {
+        const auto* part=workspace_.open_part(workspace_.active_document_id());
+        const auto* feature=part?
+            part->session.document().find_container(container_id):nullptr;
+        show_sketch_properties(feature?feature->line_bend.sketch_id:
+            std::string{},false,false,false,false,true);
+        return;
+    }
     if (feature_kind == zima::document::FeatureKind::SheetProfile) {
         const auto* part=workspace_.open_part(workspace_.active_document_id());
         const auto* feature=part?

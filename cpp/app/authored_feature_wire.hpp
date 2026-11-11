@@ -87,13 +87,17 @@ inline std::vector<kernel::ViewerEdge> authored_feature_wire(
     case FeatureKind::Revolution:
         wire.edges=doc.revolution_preview_edges(*feature);return place(std::move(wire));
     case FeatureKind::Bend:
+    case FeatureKind::LineBend:
     case FeatureKind::Flat:
     case FeatureKind::Holes: {
         const auto id=feature->feature_kind==FeatureKind::Bend?feature->bend.sketch_id:
+            feature->feature_kind==FeatureKind::LineBend?feature->line_bend.sketch_id:
             feature->feature_kind==FeatureKind::Flat?feature->flat.sketch_id:feature->holes.sketch_id;
         const auto sketch=std::ranges::find(doc.sketches,id,&sketcher::Sketch::id);
         if(sketch==doc.sketches.end())return {};
         if(feature->feature_kind==FeatureKind::Bend)wire=document::bend_preview(*feature,*sketch,document::sheet_metal_defaults(doc));
+        else if(feature->feature_kind==FeatureKind::LineBend)
+            wire.edges=sketch->viewer_mesh().edges;
         else if(feature->feature_kind==FeatureKind::Flat)wire=document::flat_preview(*feature,*sketch,document::sheet_metal_defaults(doc));
         else wire=document::holes_preview(*feature,*sketch);
         return place(std::move(wire));

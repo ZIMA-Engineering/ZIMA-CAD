@@ -9,7 +9,8 @@ inline bool has_origin_display_controls(FeatureKind kind) {
     case FeatureKind::Sweep2D: case FeatureKind::Sweep3D: case FeatureKind::HelicalSweep:
     case FeatureKind::Hole: case FeatureKind::Thread: case FeatureKind::ImportedStep:
     case FeatureKind::TwistedSheet: case FeatureKind::SheetTransition: case FeatureKind::SheetForm:
-    case FeatureKind::Flat: case FeatureKind::Bend: case FeatureKind::Holes:
+    case FeatureKind::Flat: case FeatureKind::Bend: case FeatureKind::LineBend:
+    case FeatureKind::Holes:
     case FeatureKind::Loft: case FeatureKind::GeneralSurface:
         return true;
     default: return false;

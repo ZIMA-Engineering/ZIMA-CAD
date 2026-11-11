@@ -581,6 +581,99 @@ void SketchPropertiesDialog::set_pending_bend_parameters(zima::document::BendPar
     notify_preview();
 }
 
+void SketchPropertiesDialog::set_line_bend_mode(
+        zima::document::LineBendParameters initial,
+        const zima::document::SheetMetalDefaults& defaults,
+        std::set<std::string>& locks,
+        std::function<void(zima::document::LineBendParameters)> changed,
+        std::function<void()> edit_sketch) {
+    set_internal_title(tr("Vlastnosti ohybu podle čáry"));
+    setObjectName("lineBendPropertiesDialog");
+    auto pending=std::make_shared<zima::document::LineBendParameters>(initial);
+    line_bend_pending_=pending;
+    auto* form=new QFormLayout;
+    form->setObjectName("lineBendForm");
+    using Quantity=zima::ui::InputQuantity;
+    const auto field=[&](const char* name,double value,double minimum,
+            double maximum,Quantity quantity) {
+        auto* spin=new zima::ui::UnitDoubleSpinBox(quantity,this);
+        spin->setObjectName(name);spin->set_display_decimals(6);
+        spin->setRange(minimum,maximum);spin->setValue(value);return spin;
+    };
+    auto* radius=field("lineBendRadius",initial.radius,.000001,
+        1000000,Quantity::Length);
+    auto* angle=field("lineBendAngle",initial.angle_degrees,.000001,
+        180,Quantity::Angle);
+    zima::ui::bind_numeric_value_lock(radius,"radius",locks,
+        [this]{notify_preview();});
+    zima::ui::bind_numeric_value_lock(angle,"angle",locks,
+        [this]{notify_preview();});
+    form->addRow(tr("Vnitřní poloměr"),radius);
+    form->addRow(tr("Úhel ohybu"),angle);
+    auto* fixed=new QComboBox(this);fixed->setObjectName("lineBendFixedSide");
+    fixed->addItem(tr("Levá strana"),1);
+    fixed->addItem(tr("Pravá strana"),-1);
+    fixed->setCurrentIndex(fixed->findData(initial.fixed_side));
+    fixed->setToolTip(tr(
+        "Strana je určena ve směru od prvního ke druhému bodu čáry."));
+    form->addRow(tr("Pevná strana"),fixed);
+    auto* reverse=new QCheckBox(tr("Obrátit směr ohybu"),this);
+    reverse->setObjectName("lineBendReverse");
+    reverse->setChecked(initial.reverse);form->addRow(reverse);
+    const auto publish=[this,pending,changed]{changed(*pending);notify_preview();};
+    connect(radius,&QDoubleSpinBox::valueChanged,this,
+        [pending,publish](double value){pending->radius=value;publish();});
+    connect(angle,&QDoubleSpinBox::valueChanged,this,
+        [pending,publish](double value){pending->angle_degrees=value;publish();});
+    connect(fixed,&QComboBox::currentIndexChanged,this,
+        [pending,publish,fixed](int){pending->fixed_side=fixed->currentData().toInt();publish();});
+    connect(reverse,&QCheckBox::toggled,this,
+        [pending,publish](bool value){pending->reverse=value;publish();});
+    const auto override_field=[&](bool thickness) {
+        auto* row=new QWidget(this);auto* layout=new QHBoxLayout(row);
+        layout->setContentsMargins(0,0,0,0);
+        auto* override=new QCheckBox(tr("Vlastní hodnota"),row);
+        override->setObjectName(thickness?"lineBendThicknessOverride":
+            "lineBendKFactorOverride");
+        const double inherited=thickness?
+            defaults.thickness_mm.value_or(1):defaults.k_factor;
+        const bool local=thickness?initial.thickness_override:
+            initial.k_factor_override;
+        auto* spin=field(thickness?"lineBendThickness":"lineBendKFactor",
+            local?(thickness?initial.thickness:initial.k_factor):inherited,
+            thickness?.000001:0,thickness?1000000:1,
+            thickness?Quantity::Length:Quantity::Scalar);
+        override->setChecked(local);spin->setEnabled(local);
+        layout->addWidget(override);layout->addWidget(spin,1);
+        form->addRow(thickness?tr("Tloušťka materiálu"):tr("K faktor"),row);
+        zima::ui::bind_numeric_value_lock(spin,
+            thickness?"thickness":"k_factor",locks,[this]{notify_preview();});
+        connect(spin,&QDoubleSpinBox::valueChanged,this,
+            [pending,publish,thickness](double value) {
+                if(thickness)pending->thickness=value;
+                else pending->k_factor=value;
+                publish();
+            });
+        connect(override,&QCheckBox::toggled,this,
+            [pending,publish,spin,inherited,thickness](bool enabled) {
+                if(thickness)pending->thickness_override=enabled;
+                else pending->k_factor_override=enabled;
+                const QSignalBlocker blocker(spin);
+                spin->setValue(enabled?(thickness?pending->thickness:
+                    pending->k_factor):inherited);
+                spin->setEnabled(enabled);publish();
+            });
+    };
+    override_field(true);override_field(false);
+    auto* note=new QLabel(tr(
+        "Skica musí obsahovat právě jednu běžnou přímou úsečku. Jedna strana plechu zůstane pevná."),this);
+    note->setWordWrap(true);form->addRow(note);
+    content_layout()->insertLayout(content_layout()->indexOf(sketch_button_),
+        form);
+    sketch_button_->setText(tr("Čára ohybu…"));
+    edit_pending_sketch_=std::move(edit_sketch);
+}
+
 std::optional<zima::kernel::DimensionLayout> SketchPropertiesDialog::pending_dimension_layout(
     const zima::kernel::EdgeReference& reference) const {
     if (!holes_diameter_ || reference.owner_id != initial_.owner_container_id ||

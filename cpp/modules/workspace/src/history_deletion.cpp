@@ -18,7 +18,8 @@ HistoryDependencyCollector dependencies(const document::PartDocument& doc,bool i
         }
     }
     for(const auto& f:doc.history) {
-        graph.use(f.id,f.holes.sketch_id);graph.use(f.id,f.flat.sketch_id);graph.use(f.id,f.bend.sketch_id);
+        graph.use(f.id,f.holes.sketch_id);graph.use(f.id,f.flat.sketch_id);
+        graph.use(f.id,f.bend.sketch_id);graph.use(f.id,f.line_bend.sketch_id);
         if(f.feature_kind==document::FeatureKind::DerivedCopy){
             for(const auto& source:f.derived_copy.source_ids)
                 graph.use(f.id,source);
@@ -148,6 +149,7 @@ void detach_deleted_history_references(document::PartDocument& doc,const History
         if(lost_placement)f.placement.reference_valid=false;
         id(f.feature.sketch_id);id(f.extrusion.sketch_id);id(f.revolution.sketch_id);
         id(f.holes.sketch_id);id(f.flat.sketch_id);id(f.bend.sketch_id);
+        id(f.line_bend.sketch_id);
         for(auto& side:f.feature.sides)targets(side.targets);
         targets(f.extrusion.end_targets_forward);targets(f.extrusion.end_targets_reverse);
         if(local(f.extrusion.target_face)){f.extrusion.target_face={};f.extrusion.target_surface_triangles.clear();}

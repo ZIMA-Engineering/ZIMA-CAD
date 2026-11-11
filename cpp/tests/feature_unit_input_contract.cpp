@@ -167,7 +167,7 @@ void placement_and_pattern_inputs(QApplication& application,QWidget& parent,doub
     double saved_thickness{};
     bool sheet_override{};
     auto* sheet=new app::SheetFromBodyDialog(.123456789,
-        [&](auto,double thickness,bool override_value) {
+        [&](auto,double thickness,bool override_value,auto,auto) {
             saved_thickness=thickness;sheet_override=override_value;
         },&parent);
     sheet->setLocale(QLocale::c());sheet->set_reference({"source","face",{}},.123456789);
