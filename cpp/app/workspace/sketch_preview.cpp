@@ -1496,7 +1496,17 @@ bool AssemblyWorkspaceWindow::accept_sketch_circle_ray(
                     rim_point_id=apply_sketch_point_snap(target, rim_point_id,
                         rim_snap.first, rim_snap.second);
                 }
-                if (tangent) {
+                const bool tangent_support_owns_point=tangent&&(
+                    std::ranges::any_of(target.segments,[&](const auto& segment) {
+                        return segment.id==tangent->support_id&&
+                            (segment.first_point_id==rim_point_id||
+                             segment.second_point_id==rim_point_id);
+                    })||std::ranges::any_of(target.arcs,[&](const auto& arc) {
+                        return arc.id==tangent->support_id&&
+                            (arc.start_point_id==rim_point_id||
+                             arc.end_point_id==rim_point_id);
+                    }));
+                if (tangent&&!tangent_support_owns_point) {
                     apply_sketch_point_snap(target, rim_point_id,
                         tangent->support_id,
                         tangent->contact_kind);

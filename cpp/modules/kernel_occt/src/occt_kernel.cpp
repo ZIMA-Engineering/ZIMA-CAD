@@ -10483,8 +10483,16 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
     const bool has_terminal_reusable_prefix=
         authored_reusable_prefix>0&&
         authored_reusable_prefix+1>=operations.size();
+    const bool has_persisted_continuation_prefix=
+        authored_reusable_prefix>0&&
+        authored_reusable_prefix<operations.size()&&
+        !previous_boundaries[authored_reusable_prefix-1].
+            kernel_shape.empty()&&
+        previous_boundaries[authored_reusable_prefix-1].kernel_shape!=
+            kernel_body_compound;
     if(!context.direct_batch_active&&
-       (previous_boundaries.empty()||has_sheet_material)&&
+       (previous_boundaries.empty()||
+        (has_sheet_material&&!has_persisted_continuation_prefix))&&
        !has_terminal_reusable_prefix&&
        !cached_sheet_state_prefix&&
        !std::getenv("ZIMA_CPP_DISABLE_DIRECT_BATCH_REGEN")) {
@@ -10974,17 +10982,25 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                 reusable_prefix<operations.size()&&
                 !live_cache_->boundaries.contains(
                     previous_boundaries[reusable_prefix-1].
-                        source_fingerprint)&&
-                context.dependency_key.empty()) {
+                        source_fingerprint)) {
             const std::vector<HistoryOperation> suffix(
                 operations.begin()+static_cast<std::ptrdiff_t>(
                     reusable_prefix),operations.end());
             const bool suffix_needs_original_edges=
                 std::ranges::any_of(suffix,
                     operation_needs_original_edges);
+            std::set<std::string> prefix_owners;
+            for(std::size_t index=0;index<reusable_prefix;++index)
+                prefix_owners.insert(operations[index].owner_id);
             const bool needs_copy_source=std::ranges::any_of(
-                suffix,[](const auto& operation) {
-                    return operation.feature_copy.has_value();
+                suffix,[&](const auto& operation) {
+                    if(!operation.feature_copy)return false;
+                    return std::ranges::any_of(
+                        authored_copy_feature_ids(
+                            *operation.feature_copy),
+                        [&](const auto& source) {
+                            return prefix_owners.contains(source);
+                        });
                 });
             const auto required_original_faces=
                 extrusion_references(suffix);

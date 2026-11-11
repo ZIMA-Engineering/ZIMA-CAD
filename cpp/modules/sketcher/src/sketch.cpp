@@ -2386,6 +2386,13 @@ double unwrap_near(double value, double reference) {
 
 }  // namespace
 
+Sketch::Sketch() = default;
+Sketch::Sketch(const Sketch&) = default;
+Sketch::Sketch(Sketch&&) noexcept = default;
+Sketch& Sketch::operator=(const Sketch&) = default;
+Sketch& Sketch::operator=(Sketch&&) noexcept = default;
+Sketch::~Sketch() = default;
+
 Sketch Sketch::create_default() {
     Sketch sketch;
     sketch.id = make_id();
@@ -2444,6 +2451,11 @@ void Sketch::validate() const {
     }
     { std::set<std::string> ids;for(const auto& symbol:symbols){symbol.validate();if(!ids.insert(symbol.id).second)throw std::invalid_argument("Duplicate symbol identity");
         if(symbol.anchor_point_id.empty()||!find_point(symbol.anchor_point_id))throw std::invalid_argument("Invalid symbol placement");} }
+    { std::set<std::string> ids;for(const auto& image:reference_images) {
+        image.validate();
+        if(!ids.insert(image.id).second)
+            throw std::invalid_argument("Duplicate Sketch image identity");
+    } }
     validate_curve_dependencies();
     for(const auto& entry:dimension_layouts)kernel::validate_dimension_layout(entry.layout);
     const bool owns_point_lookup = !point_lookup_active_;
@@ -16626,6 +16638,26 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh(
         rendered.participant_semantic_keys={"point:"+radius->vertex_id,
             "segment:"+radius->first_segment_id,"segment:"+radius->second_segment_id};
     }
+    const auto append_image=[&](const TemplateImage& image) {
+        image.validate();if(!image.visible)return;
+        zima::kernel::ViewerImage rendered;
+        rendered.reference={id,"template_image:"+image.id,{}};
+        rendered.data_base64=image.data_base64;
+        rendered.format=image.format;
+        rendered.opacity=image.opacity;
+        const auto corners=image.corners();
+        for(std::size_t i=0;i<4;++i)
+            rendered.corners[i]=world_point(corners[i][0],corners[i][1]);
+        if(!image.selection_locked) {
+            zima::kernel::ViewerEdge boundary;
+            boundary.reference=rendered.reference;boundary.overlay=true;
+            boundary.points.assign(rendered.corners.begin(),rendered.corners.end());
+            boundary.points.push_back(rendered.corners.front());
+            result.edges.push_back(std::move(boundary));
+        }
+        result.images.push_back(std::move(rendered));
+    };
+    for(const auto& image:reference_images)append_image(image);
     if (drawing_template) {
         for (auto& edge : result.edges) {
             const auto separator = edge.reference.semantic_key.find(':');
@@ -16636,15 +16668,7 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh(
                     : found != drawing_template->pens.end() && found->second == "RED" ? "#FF0000"
                     : found != drawing_template->pens.end() && found->second == "YELLOW" ? "#E6C85C" : "#4DD811";
         }
-        for (const auto& image : drawing_template->images) {
-            image.validate();zima::kernel::ViewerImage rendered;
-            rendered.reference={id,"template_image:"+image.id,{}};rendered.data_base64=image.data_base64;rendered.format=image.format;
-            const auto corners=image.corners();
-            for(std::size_t i=0;i<4;++i)rendered.corners[i]=world_point(corners[i][0],corners[i][1]);
-            zima::kernel::ViewerEdge boundary;boundary.reference=rendered.reference;boundary.overlay=true;
-            boundary.points.assign(rendered.corners.begin(),rendered.corners.end());boundary.points.push_back(rendered.corners.front());
-            result.edges.push_back(std::move(boundary));result.images.push_back(std::move(rendered));
-        }
+        for(const auto& image:drawing_template->images)append_image(image);
         for (const auto& r : drawing_template->repeat_regions) {
             zima::kernel::ViewerEdge edge;
             edge.points = {world_point(r.x,r.y),world_point(r.x+r.width,r.y),
@@ -16989,6 +17013,10 @@ nlohmann::json Sketch::serialized_json() const {
             {"reverse",v.arrows_reversed},{"hide_center",v.radius_center_line_hidden},{"radius_rotation",v.radius_rotation_degrees}});
     }
     root["symbols"]=symbols;
+    if(!reference_images.empty()) {
+        for(const auto& image:reference_images)image.validate();
+        root["reference_images"]=reference_images;
+    }
     if (drawing_template) {
         const auto& data = *drawing_template;
         nlohmann::json regions = nlohmann::json::array();
@@ -17011,6 +17039,8 @@ Sketch Sketch::from_serialized_json(const nlohmann::json& root) {
     }
     Sketch sketch;
     sketch.symbols=root.value("symbols",std::vector<SymbolInstance>{});
+    sketch.reference_images=root.value(
+        "reference_images",std::vector<TemplateImage>{});
     if (root.contains("drawing_template")) {
         const auto& data = root.at("drawing_template");
         sketch.drawing_template.emplace();

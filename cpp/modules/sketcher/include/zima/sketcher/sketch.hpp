@@ -444,12 +444,22 @@ struct SketchTemplateData {
 
 class Sketch {
 public:
+    Sketch();
+    Sketch(const Sketch&);
+    Sketch(Sketch&&) noexcept;
+    Sketch& operator=(const Sketch&);
+    Sketch& operator=(Sketch&&) noexcept;
+    ~Sketch();
     std::string id;
     // The single history container that owns this Sketch. The same owner is
     // retained when the container is transformed in-place into Extrusion or
     // Revolution.
     std::string owner_container_id;
     std::optional<SketchTemplateData> drawing_template;
+    // Embedded, presentation-only images for ordinary Sketch authoring. Keep
+    // them owned by the Sketch so copies used by transactional edits remain
+    // self-contained; they never enter constraints, profiles or calculation.
+    std::vector<TemplateImage> reference_images;
     std::string name{"Skica"};
     bool suppressed{};
     SketchPlane plane{SketchPlane::XY};

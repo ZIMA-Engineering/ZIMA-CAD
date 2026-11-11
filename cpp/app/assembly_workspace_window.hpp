@@ -169,6 +169,7 @@ private:
     const SectionPreviewCache& cached_section_preview(const zima::kernel::ViewerMesh&,const zima::document::SectionDefinition&);
     std::string section_document_id_;
     const zima::sketcher::Sketch* template_sketch() const;
+    const zima::sketcher::Sketch* image_sketch() const;
     void save_template_document(bool copy);
     void start_template_region();
     bool template_region_ray(const zima::kernel::Vec3&, const zima::kernel::Vec3&, bool commit);

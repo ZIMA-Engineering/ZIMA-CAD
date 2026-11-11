@@ -263,8 +263,11 @@ void SheetRenderer::paint_sheet(QPainter& painter,double zoom,QPointF origin,boo
         const auto& layout=*layout_cache_;
         if(!printing)title_targets_=layout.edit_targets;
         for(const auto& image:layout.images) {
+            if(!image.visible)continue;
             QPolygonF target;for(const auto& point:image.corners())target<<screen({point[0],point[1]});
+            painter.save();painter.setOpacity(image.opacity);
             zima::viewer::paint_embedded_image(painter,image.data_base64,image.format,target);
+            painter.restore();
         }
         draw_template(layout.lines,layout.texts,layout.circles);
         stamp("template");

@@ -11,7 +11,8 @@ using Image=sketcher::TemplateImage;using Region=sketcher::SketchRepeatRegion;
 Json properties(const Image& v) {
     return {{"image",v.id},{"name",v.name},{"format",v.format},{"embedded_bytes_base64",v.data_base64.size()},
         {"x_mm",v.x},{"y_mm",v.y},{"width_mm",v.width},{"height_mm",v.height},{"intrinsic_size",{v.pixel_width,v.pixel_height}},
-        {"horizontal",v.horizontal},{"vertical",v.vertical},{"lock_aspect",v.lock_aspect},{"value_locks",v.value_locks},{"corners_mm",v.corners()}};
+        {"horizontal",v.horizontal},{"vertical",v.vertical},{"lock_aspect",v.lock_aspect},{"value_locks",v.value_locks},{"corners_mm",v.corners()},
+        {"rotation_deg",v.rotation_degrees},{"opacity",v.opacity},{"visible",v.visible},{"selection_locked",v.selection_locked}};
 }
 Json properties(const Region& v) {
     return {{"region",v.id},{"x_mm",v.x},{"y_mm",v.y},{"width_mm",v.width},{"height_mm",v.height},
@@ -38,6 +39,10 @@ void patch(Image& next,const Image& before,const Json& args,bool replaced) {
     numeric(next,before,args,"width",&Image::width);numeric(next,before,args,"height",&Image::height);
     if(args.contains("horizontal"))next.horizontal=args.at("horizontal");if(args.contains("vertical"))next.vertical=args.at("vertical");
     if(args.contains("lock_aspect"))next.lock_aspect=args.at("lock_aspect").get<bool>();
+    if(args.contains("rotation_deg"))next.rotation_degrees=args.at("rotation_deg").get<double>();
+    if(args.contains("opacity"))next.opacity=args.at("opacity").get<double>();
+    if(args.contains("visible"))next.visible=args.at("visible").get<bool>();
+    if(args.contains("selection_locked"))next.selection_locked=args.at("selection_locked").get<bool>();
     if(next.lock_aspect&&(replaced||args.contains("width_mm")||args.contains("height_mm")||(args.contains("lock_aspect")&&!before.lock_aspect))) {
         const double ratio=next.pixel_width/next.pixel_height;
         const auto agrees=[](double a,double b){return std::abs(a-b)<=1e-9*std::max({1.0,std::abs(a),std::abs(b)});};
@@ -98,6 +103,8 @@ void Host::register_template_object_commands() {
             fields.push_back({"value_locks",false,Type::Array});fields.push_back({"document",false});
             if constexpr(std::is_same_v<Value,Image>) {
                 fields.push_back({"path",create});fields.push_back({"horizontal",false});fields.push_back({"vertical",false});fields.push_back({"lock_aspect",false,Type::Boolean});
+                fields.push_back({"rotation_deg",false,Type::Number});fields.push_back({"opacity",false,Type::Number});
+                fields.push_back({"visible",false,Type::Boolean});fields.push_back({"selection_locked",false,Type::Boolean});
             }else {fields.push_back({"direction",false});fields.push_back({"step_mm",false,Type::Number});}
             add({prefix+(create?".create":".set"),tr("Create or edit an embedded template object with one Undo step."),fields,true},[this,key,create,read,commit](const Json& args){
                 const auto checked=target(args);if(!checked.ok)return checked;const auto id=workspace_.active_document_id();

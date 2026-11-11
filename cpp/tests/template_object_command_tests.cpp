@@ -14,6 +14,67 @@ void require(bool value,const char* message){if(!value)throw std::runtime_error(
 std::string text(const fs::path& p){const auto raw=p.generic_u8string();return {raw.begin(),raw.end()};}
 Json request(const char* command,Json args=Json::object()){return {{"command",command},{"arguments",std::move(args)}};}
 void near(double a,double b){require(std::abs(a-b)<1e-9,"Incorrect template numeric result");}
+void verify_sketch_reference_image(const fs::path& directory,
+        sketcher::TemplateImage image) {
+    auto document=document::PartDocument::create_default();
+    auto sketch=sketcher::Sketch::create_default();
+    static_cast<void>(sketch.add_segment(0,0,20,0));
+    static_cast<void>(sketch.add_segment(20,0,20,10));
+    static_cast<void>(sketch.add_segment(20,10,0,10));
+    static_cast<void>(sketch.add_segment(0,10,0,0));
+    const auto sketch_id=sketch.id;
+    auto geometry=Json::parse(sketch.serialized());
+    document.sketches.push_back(std::move(sketch));
+    const auto document_id=document.document_id;
+    workspace::Workspace live;live.add_part(std::move(document));
+    auto* state=live.open_part(document_id);
+    image.id="ordinary-reference-image";image.name="Ordinary reference";
+    image.template_coordinates=false;image.rotation_degrees=0;
+    const auto unrotated=image.corners();
+    require(unrotated[1][0]>unrotated[0][0],
+        "Ordinary Sketch image retained reversed title-block X coordinates");
+    image.rotation_degrees=27.5;image.opacity=.45;image.selection_locked=true;
+    require(workspace::commit_template_image(live,document_id,{},image,
+        sketch_id),"Ordinary Sketch image create did nothing");
+    const auto& committed=state->session.document().sketches.front();
+    require(committed.reference_images==std::vector{image},
+        "Ordinary Sketch image content changed");
+    auto unchanged=Json::parse(committed.serialized());
+    unchanged.erase("reference_images");
+    require(unchanged==geometry,
+        "Reference image changed Sketch geometry, constraints or profile data");
+    require(state->session.calculated_boundaries().empty(),
+        "Reference image calculated model geometry");
+    const auto mesh=committed.viewer_mesh();
+    require(mesh.images.size()==1&&
+        mesh.images.front().reference.semantic_key==
+            "template_image:"+image.id&&mesh.images.front().opacity==image.opacity&&
+        std::ranges::none_of(mesh.edges,[&](const auto& edge) {
+            return edge.reference.semantic_key=="template_image:"+image.id;
+        }),
+        "Ordinary Sketch image has no viewer presentation");
+    require(state->session.undo()&&
+        state->session.document().sketches.front().reference_images.empty(),
+        "Ordinary Sketch image Undo failed");
+    require(state->session.redo()&&
+        state->session.document().sketches.front().reference_images==
+            std::vector{image},
+        "Ordinary Sketch image Redo failed");
+    const auto path=directory/"ordinary-reference-image.prtz";
+    state->session.document().save(path,state->session.calculated_boundaries());
+    std::vector<kernel::BodyResult> reopened_boundaries;
+    const auto reopened=document::PartDocument::load(path,&reopened_boundaries);
+    require(reopened.sketches.front().reference_images==std::vector{image}&&
+        reopened_boundaries.empty(),
+        "Ordinary Sketch image did not survive native save/reopen");
+    require(workspace::remove_template_image(live,document_id,image.id)&&
+        state->session.document().sketches.front().reference_images.empty(),
+        "Ordinary Sketch image removal failed");
+    require(state->session.undo()&&
+        state->session.document().sketches.front().reference_images==
+            std::vector{image},
+        "Ordinary Sketch image removal Undo failed");
+}
 void verify(fs::path directory) {
     QImage raster(4,2,QImage::Format_ARGB32);raster.fill(Qt::red);
     const auto png=directory/"logo.png",svg=directory/"logo.svg",bad=directory/"invalid.png";
@@ -77,6 +138,8 @@ void verify(fs::path directory) {
     const auto& content=loaded.drawing_template->images.front().data_base64;
     QSvgRenderer renderer(QByteArray::fromBase64(QByteArray::fromStdString(content)));require(renderer.isValid(),"Embedded SVG requires source file after reopening");
     require(run("template.image.get",{{"image",image_id}}).at("format")=="svg"&&run("template.region.get",{{"region",region_id}}).at("value_locks")==Json::array({"step"}),"Read reopened objects lost metadata");
+    verify_sketch_reference_image(directory,
+        loaded.drawing_template->images.front());
 }
 }
-int main(int argc,char** argv){QCoreApplication application(argc,argv);try{const auto root=fs::canonical(fs::temp_directory_path());const auto dir=root/("zima-template-objects-"+document::PartDocument::create_default().document_id);require(fs::create_directory(dir),"Cannot create fixture directory");verify(dir);require(dir.parent_path()==root,"Invalid cleanup root");fs::remove_all(dir);std::cout<<"Template images and regions: geometry, locks, replacement, errors, native files and Undo/Redo passed\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}
+int main(int argc,char** argv){QCoreApplication application(argc,argv);try{const auto root=fs::canonical(fs::temp_directory_path());const auto dir=root/("zima-template-objects-"+document::PartDocument::create_default().document_id);require(fs::create_directory(dir),"Cannot create fixture directory");verify(dir);require(dir.parent_path()==root,"Invalid cleanup root");fs::remove_all(dir);std::cout<<"Template and ordinary Sketch images: visual-only geometry, locks, replacement, errors, native files and Undo/Redo passed\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

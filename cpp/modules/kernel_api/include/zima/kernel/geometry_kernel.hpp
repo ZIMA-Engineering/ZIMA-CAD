@@ -498,6 +498,7 @@ struct ViewerImage {
     EdgeReference reference;
     std::string data_base64;
     std::string format{"png"};
+    double opacity{1.0};
 };
 
 // Tight geometric envelope. Annotations, origins and construction datums never

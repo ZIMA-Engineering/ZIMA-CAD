@@ -35,9 +35,18 @@ protected:
         painter.setOpacity(0.10);
         auto brand_font = font();
         brand_font.setBold(true);
-        brand_font.setPixelSize(std::clamp(std::min(width(), height()) / 3, 60, 260));
+        int pixel_size = std::clamp(std::min(width(), height()) / 3, 60, 260);
+        brand_font.setPixelSize(pixel_size);
+        const QString brand = QStringLiteral("ZIMA-CAD");
+        const double available_width = width() * 0.82;
+        const double text_width = QFontMetricsF(brand_font).horizontalAdvance(brand);
+        if (text_width > available_width && text_width > 0.0) {
+            pixel_size = std::max(24,
+                static_cast<int>(pixel_size * available_width / text_width));
+        }
+        brand_font.setPixelSize(pixel_size);
         painter.setFont(brand_font);
-        painter.drawText(rect(), Qt::AlignCenter, QStringLiteral("ZC"));
+        painter.drawText(rect(), Qt::AlignCenter, brand);
     }
 
 private:

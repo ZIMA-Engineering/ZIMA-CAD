@@ -48,6 +48,9 @@ int verify_sheet_cut_skin_ui(QApplication& application,AssemblyWorkspaceWindow& 
             check(dialog(),"Sheet Cut Properties missing");
             auto* mode=dialog()->findChild<QComboBox*>("extrusionForwardEndCondition");
             check(mode,"Sheet Cut extent control missing");mode->setCurrentIndex(mode->findData("up_to"));flush();
+            auto* direction=dialog()->findChild<QComboBox*>("extrusionDirection");
+            check(direction,"Sheet Cut direction control missing");
+            direction->setCurrentIndex(direction->findData(from_top?"forward":"reverse"));flush();
             auto* field=dialog()->findChild<QLineEdit*>("extrusionForwardEndTarget");check(field,"Sheet Cut end reference missing");
             const auto click=[&](QWidget* widget,QPointF point,Qt::MouseButton button) {
                 for(const auto type:{QEvent::MouseButtonPress,QEvent::MouseButtonRelease}) {
@@ -72,6 +75,9 @@ int verify_sheet_cut_skin_ui(QApplication& application,AssemblyWorkspaceWindow& 
             click(view,*position,Qt::LeftButton);
             check(dialog()->pending_value().extrusion.end_targets_forward.size()==1&&
                 dialog()->pending_value().extrusion.end_targets_forward.front().reference==target,"Sheet Cut View pick lost native skin identity");
+            check(dialog()->pending_value().extrusion.direction==(from_top?
+                    document::ExtrusionDirection::Reverse:document::ExtrusionDirection::Forward),
+                "Opposite Sheet Cut Up-to target did not reverse the actual picked direction");
             dialog()->buttons()->button(QDialogButtonBox::Ok)->click();flush();check(!dialog(),"Exact skin-to-skin Sheet Cut OK failed");
             window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
             std::vector<kernel::BodyResult> cache;const auto saved=document::PartDocument::load(path,&cache);

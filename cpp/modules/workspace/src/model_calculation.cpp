@@ -189,6 +189,19 @@ static kernel::HistoryOutputPolicy history_output_policy(
                 feature.feature_kind==document::FeatureKind::Chamfer||
                 feature.feature_kind==document::FeatureKind::DrillPoint)
             result.input_boundary_consumers.insert(feature.id);
+    // A subtraction consumes the complete Body immediately before its tool.
+    // Keep that exact input as a native continuation checkpoint. Without it,
+    // reopening a Part whose sheet was assembled by a direct additive block
+    // must rebuild every preceding Flat and Bend before an ordinary Feature
+    // cut can be edited. The checkpoint is also the actual rollback scene, so
+    // it preserves geometry and reference identity rather than caching a
+    // separately approximated operand.
+    for(std::size_t index=1;index<operations.size();++index)
+        if(!operations[index].suppressed&&
+                operations[index].operation==
+                    kernel::BooleanOperation::Subtract)
+            result.retained_output_owners.insert(
+                operations[index-1].owner_id);
     // A Solid State boundary owns the transformed reference view consumed by
     // later placement and by a subsequent Restore.  The forward OCCT shape is
     // enough to continue geometry calculation, but the compact dependency

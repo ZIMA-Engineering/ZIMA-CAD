@@ -652,6 +652,11 @@ int benchmark_native_operation_edit(const std::filesystem::path& source,
         require(value.feature.result_type==document::ProfileResultType::Thin,
             "Native thickness edit needs a thin Feature");
         value.feature.thin_thickness+=.1;
+    } else if(edit_kind=="length") {
+        require(value.feature.sides[0].operation==
+                document::FeatureSideOperation::Extrusion,
+            "Native length edit needs an extrusion side");
+        value.feature.sides[0].length+=.1;
     } else if(edit_kind=="sketch-dimension") {
         const auto& document=live.open_part(document_id)->session.document();
         const auto sketch=std::ranges::find(document.sketches,value.feature.sketch_id,&sketcher::Sketch::id);
@@ -717,6 +722,34 @@ int resave_native_part(const std::filesystem::path& source,
         <<source.generic_string()<<" output="<<destination.generic_string()
         <<" boundaries="<<calculated.size()<<" input_bytes="<<fs::file_size(source)
         <<" output_bytes="<<fs::file_size(destination)<<std::endl;
+    return 0;
+}
+
+int recalculate_native_part(const std::filesystem::path& source,
+        const std::filesystem::path& destination) {
+    using namespace zima;namespace fs=std::filesystem;
+    require(!fs::exists(destination),
+        "Native recalculation destination already exists");
+    std::vector<kernel::BodyResult> previous;
+    auto model=document::PartDocument::load(source,&previous);
+    const auto definition=model.serialized();
+    kernel::OcctKernel kernel;
+    auto calculated=workspace::calculate_part_with_resolved_references(
+        kernel,model,&previous);
+    require(!calculated.empty()&&
+            calculated.back().calculation_errors.empty(),
+        "Native recalculation failed");
+    model.save(destination,calculated);
+    std::vector<kernel::BodyResult> reopened;
+    const auto restored=document::PartDocument::load(destination,&reopened);
+    require(restored.serialized()==definition,
+        "Native recalculation changed the authored document definition");
+    require(!reopened.empty()&&reopened.back().source_fingerprint==
+            calculated.back().source_fingerprint,
+        "Native recalculation did not persist the calculated result");
+    std::cout<<"Native Part recalculated and verified input="
+        <<source.generic_string()<<" output="<<destination.generic_string()
+        <<" boundaries="<<calculated.size()<<std::endl;
     return 0;
 }
 

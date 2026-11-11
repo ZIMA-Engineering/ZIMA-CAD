@@ -944,7 +944,7 @@ void AssemblyWorkspaceWindow::accept_extrusion_target(
                     preview.history.push_back(pending);
                 }
                 preview.resolve_constructions(primitive_reference_geometry_);
-                profile=std::ranges::find(preview.sketches,pending.feature.sketch_id,
+                profile=std::ranges::find(preview.sketches,sketch_id,
                     &zima::sketcher::Sketch::id);
                 if(profile==preview.sketches.end())return;
                 const auto half_space=zima::document::profile_target_half_space(

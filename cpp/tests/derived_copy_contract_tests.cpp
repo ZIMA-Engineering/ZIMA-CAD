@@ -1078,7 +1078,10 @@ int main(){try{
     const auto patterned_result=kernel.evaluate_history(operations).back();close(patterned_result.body_outputs.at(pattern_id)->volume,315);
     require(patterned_result.body_inputs.contains(pattern_id),"Pattern has no selectable body result");
     require(document::BodyHistoryGraph::from_serialized(pattern_graph.serialized()).find(pattern_id)->derived_copy==patterned.derived_copy,"Pattern mode/axis not persisted");
-    auto patterned_assembly=assembly;auto group=mirror;group.occurrence_id="pattern-group";group.name="Pole";
+    auto patterned_assembly=assembly;
+    patterned_assembly.components.front().appearance.body.color="#5A7FC2";
+    patterned_assembly.components.front().body_color="#5A7FC2";
+    auto group=mirror;group.occurrence_id="pattern-group";group.name="Pole";
     group.derived_copy->pattern=kernel::PatternRequest{};group.derived_copy->reference={{},"pattern-group:origin","origin:axis:z"};
     patterned_assembly.components.push_back(group);patterned_assembly.calculate_derived_copies(kernel);
     const auto* calculated_group=patterned_assembly.find_occurrence(group.occurrence_id);
@@ -1087,6 +1090,17 @@ int main(){try{
     for(const auto& r:scene.triangle_references)if(r.instance_path.starts_with(assembly::InstancePath{}.child(group.occurrence_id).encoded()))copy_paths.insert(r.instance_path);
     require(copy_paths.size()==3,"Pattern copies share one selectable occurrence path");
     workspace::Workspace workspace;workspace.add_assembly(patterned_assembly);
+    const auto appearance_revision=workspace.open_assembly(patterned_assembly.document_id)->session.revision();
+    const auto appearance_generation=workspace.open_assembly(patterned_assembly.document_id)->session.data_generation();
+    for(const auto& path:copy_paths) {
+        const auto appearance=workspace.occurrence_appearance(
+            patterned_assembly.document_id,assembly::InstancePath::decode(path));
+        require(appearance&&appearance->body.color=="#5A7FC2",
+            "Pattern occurrence did not inherit its source Part appearance");
+    }
+    require(workspace.open_assembly(patterned_assembly.document_id)->session.revision()==appearance_revision&&
+        workspace.open_assembly(patterned_assembly.document_id)->session.data_generation()==appearance_generation,
+        "Pattern appearance lookup changed the Assembly");
     require(workspace.derived_source_path(patterned_assembly.document_id,assembly::InstancePath{}.child(group.occurrence_id).child("copy-x1-y0-z0"))==assembly::InstancePath{}.child(component.occurrence_id),"Pattern edit did not return to its exact source");
     const auto pattern_file=std::filesystem::temp_directory_path()/"zima-pattern-contract.asmz";patterned_assembly.save(pattern_file);
     const auto reloaded=assembly::AssemblyDocument::load(pattern_file);std::filesystem::remove(pattern_file);

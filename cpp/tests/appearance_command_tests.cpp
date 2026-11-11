@@ -262,6 +262,74 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     run(host,"appearance.set",{{"style",{{"color","#336699"}}}});
     run(host,"activate",{{"document",assembly_id}});
     require(run(host,"appearance.get",{{"instance_path",path},{"body",body}}).data.at("style").at("color")=="#336699","Open source appearance required saving or regeneration");
+    auto patterned=assembly::AssemblyDocument::create_part_occurrence(
+        "Paint pattern",source,dir/"paint-source.prtz",{});
+    patterned.occurrence_id="paint-pattern";
+    patterned.derived_copy=document::DerivedCopyParameters{
+        {first},{{},patterned.occurrence_id+":origin","origin:axis:z"}};
+    patterned.derived_copy->pattern=kernel::PatternRequest{};
+    auto patterned_document=owner->session.document();
+    patterned_document.components.push_back(std::move(patterned));
+    patterned_document.calculate_derived_copies(kernel);
+    owner->session.commit(std::move(patterned_document));
+    std::set<std::string> pattern_paths;
+    const auto pattern_prefix=assembly::InstancePath{}.child("paint-pattern").encoded();
+    for(const auto& reference:owner->session.document().build_scene().triangle_references)
+        if(reference.instance_path.starts_with(pattern_prefix))pattern_paths.insert(reference.instance_path);
+    require(pattern_paths.size()==3,"Appearance fixture Pattern did not expose each copy path");
+    const auto pattern_revision=owner->session.revision();
+    const auto pattern_generation=owner->session.data_generation();
+    for(const auto& copy_path:pattern_paths) {
+        const auto inherited=live.occurrence_appearance(
+            assembly_id,assembly::InstancePath::decode(copy_path));
+        require(inherited&&inherited->bodies.at(body).color=="#336699",
+            "Pattern copy did not inherit the current source Part Body style");
+    }
+    require(owner->session.revision()==pattern_revision&&
+        owner->session.data_generation()==pattern_generation,
+        "Pattern appearance lookup changed the Assembly");
+    const auto pattern_source_file=dir/"paint-pattern-source.prtz";
+    const auto* current_source=live.open_part(source);
+    static_cast<void>(current_source->session.document().save(
+        pattern_source_file,current_source->session.calculated_boundaries()));
+    auto persisted_pattern=assembly::AssemblyDocument::create_default();
+    auto persisted_source=assembly::AssemblyDocument::create_part_occurrence(
+        "Persisted source",source,pattern_source_file,
+        current_source->session.calculated_boundaries().back());
+    persisted_source.source_name=current_source->session.document().name;
+    persisted_source.body_color=current_source->session.document().body_color;
+    persisted_source.appearance=workspace::part_appearance(
+        current_source->session.document());
+    const auto persisted_source_id=persisted_source.occurrence_id;
+    persisted_pattern.components.push_back(std::move(persisted_source));
+    auto persisted_copies=assembly::AssemblyDocument::create_part_occurrence(
+        "Persisted pattern",source,pattern_source_file,{});
+    persisted_copies.occurrence_id="persisted-paint-pattern";
+    persisted_copies.derived_copy=document::DerivedCopyParameters{
+        {persisted_source_id},{{},persisted_copies.occurrence_id+":origin","origin:axis:z"}};
+    persisted_copies.derived_copy->pattern=kernel::PatternRequest{};
+    persisted_pattern.components.push_back(std::move(persisted_copies));
+    persisted_pattern.calculate_derived_copies(kernel);
+    const auto pattern_file=dir/"paint-pattern.asmz";
+    static_cast<void>(persisted_pattern.save(pattern_file));
+    std::set<std::string> persisted_paths;
+    const auto persisted_prefix=assembly::InstancePath{}.child(
+        "persisted-paint-pattern").encoded();
+    for(const auto& reference:persisted_pattern.build_scene().triangle_references)
+        if(reference.instance_path.starts_with(persisted_prefix))
+            persisted_paths.insert(reference.instance_path);
+    require(persisted_paths.size()==3,
+        "Persisted appearance Pattern did not expose each copy path");
+    workspace::Workspace reopened_pattern;
+    reopened_pattern.add_assembly(
+        assembly::AssemblyDocument::load(pattern_file),pattern_file);
+    reopened_pattern.refresh_source_geometry();
+    for(const auto& copy_path:persisted_paths) {
+        const auto inherited=reopened_pattern.occurrence_appearance(
+            persisted_pattern.document_id,assembly::InstancePath::decode(copy_path));
+        require(inherited&&inherited->bodies.at(body).color=="#336699",
+            "Reopened Pattern copy lost the source Part Body style");
+    }
     run(host,"new",{{"type","part"},{"name","paint-copies"}});
     zima::test::rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"length_mm","10"},{"width_mm","20"},{"height_mm","30"}});
     const auto copy_part=live.active_document_id();const auto source_body=live.open_part(copy_part)->session.document().body_history.active_body_id();

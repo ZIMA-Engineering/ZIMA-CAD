@@ -107,6 +107,11 @@ void AssemblyWorkspaceWindow::populate_sketch_tree(
             item->setSelected(selected_template_image_==image.id);
         }
     }
+    for(const auto& image:sketch.reference_images) {
+        auto* item=new QTreeWidgetItem(tree_,{tr("Obrázek — %1").arg(QString::fromStdString(image.name))});item->setIcon(0,resource_icon("template-image"));
+        item->setData(0,Qt::UserRole,QString::fromStdString(image.id));item->setData(0,Qt::UserRole+3,"template-image");
+        item->setSelected(selected_template_image_==image.id);
+    }
     for(const auto& symbol:sketch.symbols) {
         auto* item=new QTreeWidgetItem(tree_,{tr("Symbol")});item->setIcon(0,resource_icon("symbol"));
         item->setData(0,Qt::UserRole,QString::fromStdString(symbol.id));item->setData(0,Qt::UserRole+3,"sketch-symbol");

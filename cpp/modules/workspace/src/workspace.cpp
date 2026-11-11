@@ -645,6 +645,18 @@ std::optional<kernel::Appearance> Workspace::occurrence_appearance(
     const std::string& top_id, const assembly::InstancePath& path) const {
     const auto* top = open_assembly(top_id);
     if (!top || path.occurrence_ids.empty()) return std::nullopt;
+    // Pattern and Mirror display paths identify virtual derived occurrences,
+    // not source documents that can be traversed like nested Assemblies. Use
+    // the same persisted source-path resolution as activation so every copy
+    // inherits the current source Part appearance without regenerating either
+    // its geometry or the owning Assembly.
+    try {
+        const auto source_path = derived_source_path(top_id, path);
+        if (source_path != path) return occurrence_appearance(top_id, source_path);
+    } catch (const std::invalid_argument&) {
+        // Preserve the read-only query contract for stale/invalid scene paths.
+        return std::nullopt;
+    }
     const auto* source = &top->session.document();
     auto owner_file = top->path;
     for (std::size_t i = 0; i < path.occurrence_ids.size(); ++i) {

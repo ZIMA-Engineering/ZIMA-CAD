@@ -567,6 +567,7 @@ int main(int argc,char** argv){try{
 if(argc==4&&std::string_view(argv[1])=="--save-native-assembly-definition")return save_native_assembly_definition(fs::u8path(argv[2]),fs::u8path(argv[3]));
 if(argc==4&&std::string_view(argv[1])=="--refresh-native-factory")return refresh_native_factory(fs::absolute(fs::u8path(argv[2])),fs::absolute(fs::u8path(argv[3])));
 if(argc==4&&std::string_view(argv[1])=="--resave-native-part")return resave_native_part(fs::absolute(fs::u8path(argv[2])),fs::absolute(fs::u8path(argv[3])));
+if(argc==4&&std::string_view(argv[1])=="--recalculate-native-part")return recalculate_native_part(fs::absolute(fs::u8path(argv[2])),fs::absolute(fs::u8path(argv[3])));
 if(argc==3&&std::string_view(argv[1])=="--native-io-performance")return benchmark_native_io(fs::absolute(fs::u8path(argv[2])));
 if(argc==3&&std::string_view(argv[1])=="--native-close-performance")return benchmark_native_close(fs::absolute(fs::u8path(argv[2])));
 if(argc==3&&std::string_view(argv[1])=="--native-history-description")return describe_native_history(fs::absolute(fs::u8path(argv[2])));

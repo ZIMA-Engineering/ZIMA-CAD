@@ -1653,6 +1653,7 @@ std::vector<ViewerCandidate> MeshView::selection_candidates_at(
     const std::size_t persisted_dimension_count = impl_->mesh.dimensions.size();
     const std::size_t displayed_dimension_count =
         persisted_dimension_count + impl_->transient_dimensions.size();
+    std::set<std::size_t> direct_dimension_text_hits;
     for (std::size_t index = 0; index < displayed_dimension_count; ++index) {
         const auto& dimension = index < persisted_dimension_count
             ? impl_->mesh.dimensions[index]
@@ -1670,6 +1671,7 @@ std::vector<ViewerCandidate> MeshView::selection_candidates_at(
         }
         QTransform text_transform;text_transform.translate(layout.text_baseline.x(),layout.text_baseline.y());text_transform.rotate(layout.text_angle);
         auto text_bounds=text_transform.mapRect(dimension_text_box(font(),text,0,kernel::dimension_is_basic(dimension)));
+        if (text_bounds.contains(position)) direct_dimension_text_hits.insert(index);
         text_bounds.adjust(-hit_radius,-hit_radius,hit_radius,hit_radius);
         // A dimension is an editable annotation, not selectable model
         // geometry. Offer it only over its visible text; witness/leader/arc
@@ -1728,7 +1730,21 @@ std::vector<ViewerCandidate> MeshView::selection_candidates_at(
             return candidate.kind == CandidateKind::SketchConstraint &&
                 candidate.geometry_index == index;
         });
-        candidates.insert(candidates.begin(), ViewerCandidate{
+        // A relation glyph may overlap the actual value text (for example T
+        // at the end of a radial dimension).  Inside the unexpanded text box
+        // the editable value owns the ordinary click; the relation remains in
+        // the same list for RMB cycling.  In the surrounding hit tolerance the
+        // relation keeps its existing direct-selection priority.
+        const auto insertion = direct_dimension_text_hits.empty()
+            ? candidates.begin()
+            : std::find_if(candidates.begin(), candidates.end(),
+                [&](const auto& candidate) {
+                    return candidate.kind != CandidateKind::SketchPoint &&
+                        (candidate.kind != CandidateKind::Dimension ||
+                         !direct_dimension_text_hits.contains(
+                             candidate.geometry_index));
+                });
+        candidates.insert(insertion, ViewerCandidate{
             CandidateKind::SketchConstraint, 0.0, index,
             marker.reference.owner_id, marker.reference.semantic_key,
             marker.reference.instance_path});
@@ -3925,7 +3941,9 @@ void MeshView::paintGL() {
         paint_normal_text(painter,impl_->mesh.edges,impl_->transient_edges,project,impl_->show_sketches,impl_->show_symbols);
         for(const auto& image:impl_->mesh.images) {
             QPolygonF target;for(const auto& p:image.corners)target<<project(p);
+            painter.save();painter.setOpacity(image.opacity);
             paint_embedded_image(painter,image.data_base64,image.format,target);
+            painter.restore();
             const auto matches=[&](const auto& c){return c && c->kind==CandidateKind::TemplateImage && c->owner_id==image.reference.owner_id && c->semantic_key==image.reference.semantic_key;};
             if(matches(impl_->confirmed_candidate)||matches(hovered_candidate())) {
                 painter.setPen(QPen(matches(impl_->confirmed_candidate)?interaction::selected:interaction::hover,2));painter.setBrush(Qt::NoBrush);painter.drawPolygon(target);
@@ -4881,7 +4899,9 @@ if (impl_->show_origins) {
         paint_normal_text(painter,impl_->mesh.edges,impl_->transient_edges,project,impl_->show_sketches,impl_->show_symbols);
         for(const auto& image:impl_->mesh.images) {
             QPolygonF target;for(const auto& p:image.corners)target<<project(p);
+            painter.save();painter.setOpacity(image.opacity);
             paint_embedded_image(painter,image.data_base64,image.format,target);
+            painter.restore();
             const auto matches=[&](const auto& c){return c && c->kind==CandidateKind::TemplateImage && c->owner_id==image.reference.owner_id && c->semantic_key==image.reference.semantic_key;};
             if(matches(impl_->confirmed_candidate)||matches(hovered_candidate())) {
                 painter.setPen(QPen(matches(impl_->confirmed_candidate)?interaction::selected:interaction::hover,2));painter.setBrush(Qt::NoBrush);painter.drawPolygon(target);

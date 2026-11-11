@@ -555,7 +555,6 @@ int verify_sketch_common_tangent_ui(QApplication& application,const std::filesys
         const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
         int count{};
         for(int method=0;method<4;++method)for(bool reverse:{false,true})for(double side:{-1.,1.})for(double branch:{-1.,1.}) {
-
             auto part=document::PartDocument::create_default();auto feature=document::PartDocument::create_sketch_container();
             auto sketch=sketcher::Sketch::create_default();sketch.owner_container_id=feature.id;
             auto first=sketch.add_circle(-12,-8,3);const auto second=sketch.add_circle(20,9,5);
@@ -573,6 +572,11 @@ int verify_sketch_common_tangent_ui(QApplication& application,const std::filesys
             check(row,"Common tangent Sketch missing");window.show_tree_item_properties(row);flush();window.findChild<QPushButton*>("sketchOpenButton")->click();flush();
             QEventLoop animation;QTimer::singleShot(950,&animation,&QEventLoop::quit);animation.exec();
             auto* view=dynamic_cast<viewer::MeshView*>(window.findChild<QOpenGLWidget*>());check(view,"Common tangent View missing");
+            // Make the 3 mm circle larger than the ordinary 9 px point hit
+            // area. Otherwise a synthetic click on its rim legitimately
+            // selects the centre point and does not exercise curve contact.
+            view->fit_points({sketch.world_point(-20,-16),
+                sketch.world_point(28,17)});flush();
             const auto local=[&](QPointF pixel){const auto ray=view->ray_at(pixel);check(ray.has_value(),"Common tangent ray missing");const auto q=sketch.intersect_ray(ray->first,ray->second);check(q.has_value(),"Common tangent plane missing");return *q;};
             const auto o=local({0,0}),u=local({100,0}),v=local({0,100});const double ux=(u[0]-o[0])/100,uy=(u[1]-o[1])/100,vx=(v[0]-o[0])/100,vy=(v[1]-o[1])/100,det=ux*vy-uy*vx;
             const auto screen=[&](std::array<double,2> p){return QPointF(((p[0]-o[0])*vy-(p[1]-o[1])*vx)/det,(ux*(p[1]-o[1])-uy*(p[0]-o[0]))/det);};

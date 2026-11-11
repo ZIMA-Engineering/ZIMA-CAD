@@ -877,7 +877,7 @@ nlohmann::json serialize_body_result(const zima::kernel::BodyResult& result, boo
         for(const auto& image:result.mesh.images) {
             auto corners=nlohmann::json::array();for(const auto& p:image.corners)corners.push_back(serialize_vec3(p));
             packet["images"].push_back({{"corners",corners},{"owner",image.reference.owner_id},
-                {"key",image.reference.semantic_key},{"instance_path",image.reference.instance_path},{"data_base64",image.data_base64},{"format",image.format}});
+                {"key",image.reference.semantic_key},{"instance_path",image.reference.instance_path},{"data_base64",image.data_base64},{"format",image.format},{"opacity",image.opacity}});
         }
     }
     packet["annotation_frames"]=annotation_frames_json(result.mesh.annotation_frames);
@@ -1195,6 +1195,7 @@ zima::kernel::BodyResult load_body_result(const nlohmann::json& source,
             stored_string(row.at("key"),shared_strings),row.at("instance_path")};
         image.data_base64=stored_string(row.at("data_base64"),shared_strings);
         image.format=row.at("format");
+        image.opacity=row.value("opacity",1.0);
         result.mesh.images.push_back(std::move(image));
     }
     result.mesh.annotation_frames=annotation_frames_from_json(source.value("annotation_frames",nlohmann::json::array()));

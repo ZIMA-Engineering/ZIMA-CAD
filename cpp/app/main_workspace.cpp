@@ -1869,7 +1869,73 @@ int verify_template_commands(QApplication& application,zima::app::AssemblyWorksp
         }
     }
     app::apply_application_translations(application, original_language);
-    std::cout<<"Template opening, editing, region priority, shared confirmation, persistence and five UI languages passed\n";return 0;
+    // The same embedded-image editor is available in an ordinary Sketch. Its
+    // image is presentation-only and uses the Sketch's conventional +X axis,
+    // not the drawing-template right-to-left coordinate convention.
+    auto ordinary=document::PartDocument::create_default();
+    auto ordinary_owner=document::PartDocument::create_sketch_container();
+    auto ordinary_sketch=sketcher::Sketch::create_default();
+    ordinary_sketch.owner_container_id=ordinary_owner.id;
+    static_cast<void>(ordinary_sketch.add_segment(0,0,25,0));
+    const auto ordinary_sketch_id=ordinary_sketch.id;
+    ordinary.history={ordinary_owner};ordinary.sketches={ordinary_sketch};
+    document::BodyHistoryGraph ordinary_bodies;
+    const auto ordinary_body=ordinary_bodies.create_body("Reference image test");
+    ordinary_bodies.insert({document::PartHistoryKind::Feature,ordinary_owner.id});
+    ordinary.set_body_history(ordinary_bodies);
+    const auto ordinary_path=directory/"ordinary-sketch-image.prtz";
+    ordinary.save(ordinary_path);
+    if(!verify(window.open_document_path(QString::fromStdString(ordinary_path.string())),
+            "Ordinary image Sketch cannot open"))return 1;
+    flush();
+    tree=window.findChild<QTreeWidget*>("documentTree");QTreeWidgetItem* ordinary_row{};
+    for(QTreeWidgetItemIterator it(tree);*it;++it)
+        if((*it)->data(0,Qt::UserRole).toString().toStdString()==ordinary_sketch_id&&
+            (*it)->data(0,Qt::UserRole+3).toString()=="part-sketch") {ordinary_row=*it;break;}
+    if(!verify(ordinary_row,"Ordinary reference-image Sketch is missing from Tree"))return 1;
+    window.show_tree_item_properties(ordinary_row);flush();
+    auto* open_ordinary=window.findChild<QPushButton*>("sketchOpenButton");
+    if(!verify(open_ordinary,"Ordinary reference-image Sketch cannot be edited"))return 1;
+    open_ordinary->click();flush();
+    image_action=window.findChild<QAction*>("templateImageAction");
+    if(!verify(image_action&&image_action->isEnabled(),
+            "Image command is unavailable in an ordinary Sketch"))return 1;
+    const auto ordinary_image_path=directory/"ordinary-reference.png";
+    if(!verify(logo.save(QString::fromStdString(ordinary_image_path.string())),
+            "Cannot create ordinary Sketch image input"))return 1;
+    chosen_image_path=QString::fromStdString(ordinary_image_path.string());
+    choose_image.start(100);image_action->trigger();choose_image.stop();flush();
+    dialog=window.findChild<QDialog*>("templateImageDialog");
+    if(!verify(dialog,"Ordinary Sketch image did not open shared Properties"))return 1;
+    dialog->findChild<QDoubleSpinBox*>("templateImageValue0")->setValue(5);
+    dialog->findChild<QDoubleSpinBox*>("templateImageValue1")->setValue(6);
+    dialog->findChild<QDoubleSpinBox*>("templateImageValue2")->setValue(50);
+    dialog->findChild<QDoubleSpinBox*>("templateImageRotation")->setValue(17.5);
+    dialog->findChild<QDoubleSpinBox*>("templateImageOpacity")->setValue(35);
+    dialog->findChild<QCheckBox*>("templateImageSelectionLocked")->setChecked(true);
+    dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+    std::filesystem::remove(ordinary_image_path);
+    QTreeWidgetItem* image_row{};
+    for(QTreeWidgetItemIterator it(tree);*it;++it)
+        if((*it)->data(0,Qt::UserRole+3).toString()=="template-image") {image_row=*it;break;}
+    if(!verify(image_row,"Embedded ordinary Sketch image is missing from Tree"))return 1;
+    auto* finish=window.findChild<QAction*>("finishSketchAction");
+    if(!verify(finish&&finish->isEnabled(),"Ordinary image Sketch cannot finish"))return 1;
+    finish->trigger();flush();save=window.findChild<QAction*>("saveDocumentAction");save->trigger();flush();
+    std::vector<kernel::BodyResult> ordinary_cache;
+    const auto stored_ordinary=document::PartDocument::load(ordinary_path,&ordinary_cache);
+    const auto& stored_sketch=stored_ordinary.sketches.front();
+    if(!verify(stored_sketch.segments.size()==1&&stored_sketch.reference_images.size()==1,
+            "Ordinary image changed Sketch geometry or was not saved"))return 1;
+    const auto& stored_image=stored_sketch.reference_images.front();
+    if(!verify(!stored_image.template_coordinates&&stored_image.rotation_degrees==17.5&&
+            stored_image.opacity==.35&&stored_image.selection_locked&&stored_image.visible&&
+            ordinary_cache.empty(),
+            "Ordinary image lost coordinates, rotation, opacity, lock or visual-only state"))return 1;
+    const auto corners=stored_image.corners();
+    if(!verify(corners[1][0]>corners[0][0],
+            "Ordinary image still uses reversed title-block X coordinates"))return 1;
+    std::cout<<"Template and ordinary Sketch images: editing, visual-only persistence, selection lock, rotation, opacity and five UI languages passed\n";return 0;
 }
 
 int verify_sweep2d_command(QApplication& application,zima::app::AssemblyWorkspaceWindow& window,

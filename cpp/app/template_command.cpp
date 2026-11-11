@@ -33,7 +33,7 @@ public:
     TemplateImageDialog(Image initial,bool placed,std::function<void(const Image&)> preview,
         std::function<void(Image)> commit,QWidget* parent)
         :PropertiesSubWindow(tr("Vlastnosti obrázku"),parent),initial_(std::move(initial)),placed_(placed),preview_(std::move(preview)),commit_(std::move(commit)) {
-        setObjectName("templateImageDialog");setAttribute(Qt::WA_DeleteOnClose);set_initial_size({420,420});
+        setObjectName("templateImageDialog");setAttribute(Qt::WA_DeleteOnClose);set_initial_size({420,540});
         auto* form=new QFormLayout;
         file_=new QLabel(QString::fromStdString(initial_.name),this);file_->setWordWrap(true);form->addRow(tr("Obrázek"),file_);
         auto* replace=new QPushButton(tr("Vybrat soubor…"),this);replace->setObjectName("templateImageReplace");form->addRow({},replace);
@@ -53,14 +53,28 @@ public:
         vertical_=new QComboBox(this);vertical_->setObjectName("templateImageVertical");
         vertical_->addItem(tr("Dole"),"bottom");vertical_->addItem(tr("Uprostřed"),"middle");vertical_->addItem(tr("Nahoře"),"top");
         vertical_->setCurrentIndex(vertical_->findData(QString::fromStdString(initial_.vertical)));form->addRow(tr("Svislé zarovnání"),vertical_);
+        rotation_=new QDoubleSpinBox(this);rotation_->setObjectName("templateImageRotation");
+        rotation_->setDecimals(zima::ui::numeric_decimal_places(parent));rotation_->setRange(-36000,36000);
+        rotation_->setSuffix(" deg");rotation_->setValue(initial_.rotation_degrees);form->addRow(tr("Natočení"),rotation_);
+        opacity_=new QDoubleSpinBox(this);opacity_->setObjectName("templateImageOpacity");
+        opacity_->setDecimals(1);opacity_->setRange(0,100);opacity_->setSuffix(" %");
+        opacity_->setValue(initial_.opacity*100);form->addRow(tr("Krytí"),opacity_);
+        visible_=new QCheckBox(tr("Zobrazit obrázek"),this);visible_->setObjectName("templateImageVisible");
+        visible_->setChecked(initial_.visible);form->addRow({},visible_);
+        selection_locked_=new QCheckBox(tr("Uzamknout výběr obrázku"),this);selection_locked_->setObjectName("templateImageSelectionLocked");
+        selection_locked_->setChecked(initial_.selection_locked);form->addRow({},selection_locked_);
         content_layout()->addLayout(form);
-        note_=new QLabel(tr("Klikněte do skici na bod umístění, nebo zadejte souřadnice. Obrázek je uložen přímo v razítku."),this);note_->setWordWrap(true);content_layout()->addWidget(note_);
+        note_=new QLabel(tr("Klikněte do skici na bod umístění, nebo zadejte souřadnice. Obrázek je uložen přímo v dokumentu a slouží pouze jako vizuální reference."),this);note_->setWordWrap(true);content_layout()->addWidget(note_);
         for(std::size_t i=0;i<4;++i)connect(fields_[i],&QDoubleSpinBox::valueChanged,this,[this,i]{
             if(i<2)placed_=true;else resize_other(i);update_preview();
         });
         connect(lock_,&QCheckBox::toggled,this,[this]{resize_other(2);update_preview();});
         connect(horizontal_,&QComboBox::currentIndexChanged,this,[this]{update_preview();});
         connect(vertical_,&QComboBox::currentIndexChanged,this,[this]{update_preview();});
+        connect(rotation_,&QDoubleSpinBox::valueChanged,this,[this]{update_preview();});
+        connect(opacity_,&QDoubleSpinBox::valueChanged,this,[this]{update_preview();});
+        connect(visible_,&QCheckBox::toggled,this,[this]{update_preview();});
+        connect(selection_locked_,&QCheckBox::toggled,this,[this]{update_preview();});
         connect(replace,&QPushButton::clicked,this,[this]{
             const auto path=open_file(this,tr("Vybrat obrázek"),{},tr("Obrázky (*.svg *.png *.jpg *.jpeg *.bmp *.webp)"));if(path.isEmpty())return;
             try {const auto image=zima::drawing_render::read_template_image(std::filesystem::path(path.toStdU16String()));initial_.name=image.name;initial_.data_base64=image.data_base64;initial_.format=image.format;
@@ -80,7 +94,9 @@ protected:
 private:
     Image pending() const {
         auto image=initial_;image.x=fields_[0]->value();image.y=fields_[1]->value();image.width=fields_[2]->value();image.height=fields_[3]->value();
-        image.horizontal=horizontal_->currentData().toString().toStdString();image.vertical=vertical_->currentData().toString().toStdString();image.lock_aspect=lock_->isChecked();return image;
+        image.horizontal=horizontal_->currentData().toString().toStdString();image.vertical=vertical_->currentData().toString().toStdString();image.lock_aspect=lock_->isChecked();
+        image.rotation_degrees=rotation_->value();image.opacity=opacity_->value()/100.0;
+        image.visible=visible_->isChecked();image.selection_locked=selection_locked_->isChecked();return image;
     }
     void resize_other(std::size_t changed) {
         if(!lock_->isChecked() || (fields_[2]->isReadOnly() && fields_[3]->isReadOnly()))return;
@@ -94,7 +110,9 @@ private:
     }
     void update_preview() {if(placed_&&preview_)preview_(pending());}
     Image initial_;bool placed_{};std::function<void(const Image&)> preview_;std::function<void(Image)> commit_;
-    std::array<QDoubleSpinBox*,4> fields_{};QCheckBox* lock_{};QComboBox* horizontal_{};QComboBox* vertical_{};QLabel* file_{};QLabel* note_{};
+    std::array<QDoubleSpinBox*,4> fields_{};QDoubleSpinBox* rotation_{};QDoubleSpinBox* opacity_{};
+    QCheckBox* lock_{};QCheckBox* visible_{};QCheckBox* selection_locked_{};
+    QComboBox* horizontal_{};QComboBox* vertical_{};QLabel* file_{};QLabel* note_{};
 };
 class RepeatRegionDialog final : public zima::ui::PropertiesSubWindow {
 public:
@@ -138,6 +156,13 @@ const zima::sketcher::Sketch* AssemblyWorkspaceWindow::template_sketch() const {
         return found!=sketches.end()&&found->drawing_template?&*found:nullptr;
     }
     const auto& sketch=part->session.document().sketches.front();return sketch.drawing_template?&sketch:nullptr;
+}
+const zima::sketcher::Sketch* AssemblyWorkspaceWindow::image_sketch() const {
+    const auto* part=workspace_.open_part(workspace_.active_document_id());
+    if(!part||active_sketch_id_.empty())return nullptr;
+    const auto found=std::ranges::find(part->session.document().sketches,
+        active_sketch_id_,&zima::sketcher::Sketch::id);
+    return found==part->session.document().sketches.end()?nullptr:&*found;
 }
 void AssemblyWorkspaceWindow::save_template_document(bool copy) {
     const auto id=workspace_.active_document_id();auto* part=workspace_.open_part(id);
@@ -202,23 +227,29 @@ void AssemblyWorkspaceWindow::select_template_region(const std::string& id) {
     state_->setText(tr("Vybrána oblast kusovníku. Dvojklik otevře vlastnosti."));
 }
 void AssemblyWorkspaceWindow::start_template_image() {
-    const auto* sketch=template_sketch();if(!sketch||sketch->drawing_template->kind!="title_block"||properties_dialog_)return;
+    const auto* sketch=image_sketch();if(!sketch||properties_dialog_)return;
     const auto path=open_file(this,tr("Vybrat obrázek"),QString::fromStdString(working_directory_.string()),tr("Obrázky (*.svg *.png *.jpg *.jpeg *.bmp *.webp)"),application_settings_.translations);
     if(path.isEmpty())return;
-    try {auto image=zima::drawing_render::read_template_image(std::filesystem::path(path.toStdU16String()));cancel_sketch_segment();clear_selected_sketch_geometry();viewer_->clear_selection();show_template_image_properties({},std::move(image));}
+    try {auto image=zima::drawing_render::read_template_image(std::filesystem::path(path.toStdU16String()));
+        image.template_coordinates=sketch->drawing_template.has_value();
+        cancel_sketch_segment();clear_selected_sketch_geometry();viewer_->clear_selection();show_template_image_properties({},std::move(image));}
     catch(const std::exception& e){QMessageBox::warning(this,tr("Obrázek"),QString::fromUtf8(e.what()));}
 }
 void AssemblyWorkspaceWindow::show_template_image_properties(const std::string& id,std::optional<zima::sketcher::TemplateImage> initial) {
-    const auto* sketch=template_sketch();if(!sketch||properties_dialog_)return;
-    if(!initial){const auto found=std::ranges::find(sketch->drawing_template->images,id,&zima::sketcher::TemplateImage::id);if(found==sketch->drawing_template->images.end())return;initial=*found;}
+    const auto* sketch=image_sketch();if(!sketch||properties_dialog_)return;
+    const auto& images=sketch->drawing_template?
+        sketch->drawing_template->images:sketch->reference_images;
+    if(!initial){const auto found=std::ranges::find(images,id,&zima::sketcher::TemplateImage::id);if(found==images.end())return;initial=*found;}
     const auto owner=workspace_.active_document_id();
     auto* dialog=new TemplateImageDialog(*initial,!id.empty(),[this,owner,id](const auto& image){
-        if(workspace_.active_document_id()!=owner)return;const auto* current=template_sketch();if(!current)return;
-        auto preview=*current;auto& images=preview.drawing_template->images;
-        const auto found=std::ranges::find(images,id,&zima::sketcher::TemplateImage::id);
-        if(found==images.end())images.push_back(image);else *found=image;show_sketch_drag_preview(preview);
+        if(workspace_.active_document_id()!=owner)return;const auto* current=image_sketch();if(!current)return;
+        auto preview=*current;
+        auto& values=preview.drawing_template?
+            preview.drawing_template->images:preview.reference_images;
+        const auto found=std::ranges::find(values,id,&zima::sketcher::TemplateImage::id);
+        if(found==values.end())values.push_back(image);else *found=image;show_sketch_drag_preview(preview);
     },[this,owner,id,sketch_id=sketch->id](auto image){
-        auto* part=workspace_.open_part(owner);if(!part)throw std::runtime_error(QObject::tr("Šablona již není otevřená.").toStdString());
+        auto* part=workspace_.open_part(owner);if(!part)throw std::runtime_error(QObject::tr("Dokument již není otevřený.").toStdString());
         static_cast<void>(workspace::commit_template_image(workspace_,owner,id,std::move(image),sketch_id));
     },this);
     properties_dialog_=dialog;template_image_anchor_=[dialog](double x,double y){dialog->set_anchor(x,y);};
@@ -227,11 +258,11 @@ void AssemblyWorkspaceWindow::show_template_image_properties(const std::string& 
 }
 bool AssemblyWorkspaceWindow::template_image_ray(const zima::kernel::Vec3& origin,const zima::kernel::Vec3& direction) {
     if(!template_image_anchor_)return false;
-    if(const auto* sketch=template_sketch())if(const auto point=sketch->intersect_ray(origin,direction))template_image_anchor_((*point)[0],(*point)[1]);
+    if(const auto* sketch=image_sketch())if(const auto point=sketch->intersect_ray(origin,direction))template_image_anchor_((*point)[0],(*point)[1]);
     return true;
 }
 void AssemblyWorkspaceWindow::remove_template_image(const std::string& id) {
-    auto* part=workspace_.open_part(workspace_.active_document_id());if(!part||!template_sketch()||properties_dialog_)return;
+    auto* part=workspace_.open_part(workspace_.active_document_id());if(!part||!image_sketch()||properties_dialog_)return;
     static_cast<void>(workspace::remove_template_image(workspace_,workspace_.active_document_id(),id));selected_template_image_.clear();viewer_->clear_selection();preserve_view_on_refresh_=true;refresh_tabs();refresh_scene();
 }
 void AssemblyWorkspaceWindow::select_template_image(const std::string& id) {

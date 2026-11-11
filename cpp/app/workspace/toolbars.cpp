@@ -253,13 +253,14 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
                 template_region_action_->setObjectName("templateRepeatRegionAction");
                 connect(template_region_action_,&QAction::triggered,this,[this]{start_template_region();});
             }
-            if(!template_image_action_) {
-                template_image_action_=new QAction(resource_icon("template-image"),tr("Obrázek"),this);
-                template_image_action_->setObjectName("templateImageAction");
-                connect(template_image_action_,&QAction::triggered,this,[this]{start_template_image();});
-            }
-            add_command(template_region_action_);add_command(template_image_action_);add_group_separator();
+            add_command(template_region_action_);add_group_separator();
         }
+        if(!template_image_action_) {
+            template_image_action_=new QAction(resource_icon("template-image"),tr("Obrázek"),this);
+            template_image_action_->setObjectName("templateImageAction");
+            connect(template_image_action_,&QAction::triggered,this,[this]{start_template_image();});
+        }
+        add_command(template_image_action_);add_group_separator();
         add_command(sketch_normal_view_action_,false);
         add_command(sketch_flip_view_action_,false);
         add_command(sketch_rotate_view_action_,false);
