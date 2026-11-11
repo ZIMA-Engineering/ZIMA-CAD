@@ -1,28 +1,30 @@
 # Current project status
 
-Reviewed on 2026-11-10 against the current shared C++ implementation, focused
+Reviewed on 2026-11-11 against the current shared C++ implementation, focused
 native/GUI contracts and the live GitHub release list. Dated proposals and
 historical release records remain evidence for their original scope; they are
 not the current feature backlog.
 
 ## Current release boundary
 
-Signed Windows [2026111003](releases/2026111003.md#windows-publication-acceptance)
+Signed Windows [2026111101](releases/2026111101.md#windows-publication-acceptance)
 is the latest published stable build. It was published at
-`2026-11-10T23:44:49Z` from immutable source
-`c107847a039a329b4b2db9bc0a0833dd3c3f2218` with Qt 6.11.0 and OCCT 8.0.1.
+`2026-11-11T07:09:23Z` from immutable source
+`5236ad141e0f42816664e82f961f3b2466751065` with Qt 6.11.0 and OCCT 8.0.1.
 Candidate and signed native smoke each pass with all 1,185 factory assets;
-signature/trust, 17,518 archive entries and fresh anonymous public downloads
+signature/trust, 17,521 archive entries and fresh anonymous public downloads
 pass. Native Linux execution remains a separate host requirement. See the
-[publication evidence](verification/20261111-windows-1003-publication.json).
+[publication evidence](verification/20261111-windows-1101-publication.json).
 
-The release makes native-solid Sheet from Body associative while preserving an
-editable, result-excluded source Body and stable generated Flat/Bend identities.
-It retains the imported STEP reconstruction, single-Bend ear recovery, native
-circles, cold first Bend and consecutive Sheet Profile material side, and adds
-developed-state source wires plus corrected Sketcher external-contact relation
-inference. Part native format is 51 and all 1,058 repository-owned Part assets
-were regenerated and reopened with the changed implementation.
+The release preserves source Part and Body appearance on Pattern/Mirror copies,
+repairs opposite-side Sheet Cut Up-to entry and resumes ordinary subtractive
+Feature edits from the exact persisted imported-sheet prefix. Ordinary Sketches
+can own presentation-only embedded images with placement, rotation, opacity,
+visibility and selection locking. Shared-point tangency avoids redundant
+Coincident, dimension values retain click priority over overlapping relation
+markers and the empty workspace uses the complete ZIMA-CAD name. The native
+format version remains 51; optional image fields do not require factory asset or
+start-template regeneration.
 
 The unpublished 2026110901 and 2026110902 source tags were superseded by published
 Windows release [2026111001](releases/2026111001.md). It completes shared Feature-like

@@ -1,5 +1,18 @@
 # Native versioned distribution
 
+Signed Windows [2026111101](releases/2026111101.md#windows-publication-acceptance)
+was published at `2026-11-11T07:09:23Z` from immutable source
+`5236ad141e0f42816664e82f961f3b2466751065`. Pattern/Mirror occurrence
+appearance, opposite-side Sheet Cut Up-to entry, imported-sheet cut continuation,
+ordinary Sketch reference images and the focused Sketcher interaction repairs
+passed their finite contracts. Candidate and signed native smoke passed;
+candidate smoke loaded all 1,185 factory assets. The signed manifest binds
+17,521 archive entries, exact source and the Windows runtime. All three anonymous
+public downloads match the accepted bytes and production updater signature
+verification reports the build as current. Native Linux execution remains a
+separate host gate. See the
+[publication evidence](verification/20261111-windows-1101-publication.json).
+
 Signed Windows [2026111003](releases/2026111003.md#windows-publication-acceptance)
 was published at `2026-11-10T23:44:49Z` from immutable source
 `c107847a039a329b4b2db9bc0a0833dd3c3f2218`. The associative Sheet from Body,

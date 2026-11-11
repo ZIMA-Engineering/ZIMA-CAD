@@ -1,0 +1,83 @@
+{
+  "release": {
+    "tag": "ZIMA-CAD-2026111101",
+    "commit": "5236ad141e0f42816664e82f961f3b2466751065",
+    "published_at": "2026-11-11T07:09:23Z",
+    "url": "https://github.com/ZIMA-Engineering/ZIMA-CAD/releases/tag/ZIMA-CAD-2026111101",
+    "draft": false,
+    "prerelease": false,
+    "latest": true
+  },
+  "candidate": {
+    "build_kind": "committed-candidate",
+    "archive_size": 963685025,
+    "archive_sha256": "0a0b22068df89919d548d6f4d4220d7a7035014aab9c30137d697ff568958d03",
+    "windows_smoke": "passed",
+    "native_factory_assets_loaded": 1185,
+    "native_factory_asset_failures": 0
+  },
+  "signed_release": {
+    "archive_name": "ZIMA-CAD-2026111101.zip",
+    "archive_size": 964502122,
+    "archive_sha256": "23e75d4daebcdcd0715dbeb7ebb46e80adeccb9e68853bc5d4bdf1a945595d35",
+    "archive_file_count": 17521,
+    "archive_unpacked_size": 3226240838,
+    "checksums_sha256": "d7810b6fc315ed77fa8a641e3a0122aa11c6627fdb42b200b880c9fec65208e0",
+    "source_tree_sha256": "b846d4a0c11f278919e60f2329e914ae3bdeb3e9b392826667e41a59972c93a1",
+    "windows_smoke": "passed",
+    "linux_smoke": "not-run",
+    "publisher_key_id": "zcp-8fa1f825cbde5d81",
+    "manifest_sha256": "52073c08a7da5a8b730ea8a9156957d900d6ee76a9594c5c11d3a1f78f7b7a59",
+    "signature_file_sha256": "ad84302ef706e2c9e2e5a4a0ee302531b9c2bf822597126ab453f084ef443c1e"
+  },
+  "public_assets": [
+    {
+      "name": "ZIMA-CAD-2026111101.zip",
+      "size": 964502122,
+      "sha256": "23e75d4daebcdcd0715dbeb7ebb46e80adeccb9e68853bc5d4bdf1a945595d35",
+      "github_digest_matches": true,
+      "draft_download_matches": true,
+      "anonymous_download_matches": true
+    },
+    {
+      "name": "update-manifest.json",
+      "size": 703,
+      "sha256": "52073c08a7da5a8b730ea8a9156957d900d6ee76a9594c5c11d3a1f78f7b7a59",
+      "github_digest_matches": true,
+      "draft_download_matches": true,
+      "anonymous_download_matches": true
+    },
+    {
+      "name": "update-manifest.sig",
+      "size": 176,
+      "sha256": "ad84302ef706e2c9e2e5a4a0ee302531b9c2bf822597126ab453f084ef443c1e",
+      "github_digest_matches": true,
+      "draft_download_matches": true,
+      "anonymous_download_matches": true
+    }
+  ],
+  "updater_discovery": {
+    "installed_version": "2026111101",
+    "status": "current",
+    "public_manifest_signature_verified": true,
+    "download_performed": false,
+    "installation_performed": false
+  },
+  "focused_verification": {
+    "test_executables_passed": 19,
+    "test_executables_failed": 0,
+    "pattern_mirror_appearance": "passed",
+    "sheet_cut_opposite_up_to": "passed",
+    "sheet_cut_continuation_performance": "passed",
+    "ordinary_sketch_reference_images": "passed",
+    "shared_point_tangency": "passed",
+    "dimension_click_priority": "passed",
+    "localization_contract": "passed",
+    "reported_17_prtz_cold_regeneration": "passed"
+  },
+  "limits": [
+    "The complete repository-wide regression matrix is not claimed green.",
+    "The pre-existing zima_cpp_model_calculation_tests endpoint-face assertion remains failing.",
+    "Native Linux compilation and execution were not run on the Windows host."
+  ]
+}
