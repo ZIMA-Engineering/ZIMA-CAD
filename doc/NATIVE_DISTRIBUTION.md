@@ -1,5 +1,17 @@
 # Native versioned distribution
 
+Signed Windows [2026111103](releases/2026111103.md#windows-publication-acceptance)
+was published at `2026-11-11T19:45:33Z` from immutable source
+`52c62def31d09bcec1b9e5d001d53e53da840c1e`. Ordered multiple Sheet Profile
+Up To targets, exact nearest-planar target switches and independent generated
+Bend end corrections passed their finite contracts. Candidate and signed native
+smoke passed; candidate smoke loaded all 1,185 factory assets. The signed
+manifest binds 17,534 archive entries, exact source and the Windows runtime.
+All three GitHub digests and fresh anonymous public downloads match the accepted
+bytes. The production updater trusts the public installation and reports it as
+current. Native Linux execution remains a separate host gate. See the
+[publication evidence](verification/20261111-windows-1103-publication.json).
+
 Signed Windows [2026111102](releases/2026111102.md#windows-publication-acceptance)
 was published at `2026-11-11T16:30:43Z` from immutable source
 `bc764875b1e26dcdeebabc456688b505de784e82`. Line Bend and the expanded

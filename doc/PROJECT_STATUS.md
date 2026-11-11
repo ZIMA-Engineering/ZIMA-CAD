@@ -7,31 +7,24 @@ not the current feature backlog.
 
 ## Current release boundary
 
-Signed Windows [2026111102](releases/2026111102.md#windows-publication-acceptance)
+Signed Windows [2026111103](releases/2026111103.md#windows-publication-acceptance)
 is the latest published stable build. It was published at
-`2026-11-11T16:30:43Z` from immutable source
-`bc764875b1e26dcdeebabc456688b505de784e82` with Qt 6.11.0 and OCCT 8.0.1.
+`2026-11-11T19:45:33Z` from immutable source
+`52c62def31d09bcec1b9e5d001d53e53da840c1e` with Qt 6.11.0 and OCCT 8.0.1.
 Candidate and signed native smoke each pass with all 1,185 factory assets;
-signature/trust, 17,531 archive entries and fresh anonymous public downloads
+signature/trust, 17,534 archive entries and fresh anonymous public downloads
 pass. Native Linux execution remains a separate host requirement. See the
-[publication evidence](verification/20261111-windows-1102-publication.json).
+[publication evidence](verification/20261111-windows-1103-publication.json).
 
-The release adds Line Bend about one finite straight Sketch segment with either
-fixed side, reverse direction and ordinary sheet parameters. Associative Sheet
-from Body accepts selected planar/cylindrical source faces and RIP Sketches;
-generated Flat/Bend children can be detached individually or all at once while
-preserving the calculated sheet result. Native Part format is 52. All 1,058
-repository-owned Part-based assets were migrated with the current shared C++
-writer, recalculated, saved and reopened with zero errors.
-
-After that release, free Sheet Profile gained the shared ordered multi-target
-Up To editor, exact nearest-plane switches inside straight Flats, and restricted
+The release gives free Sheet Profile the shared ordered multi-target Up To
+editor, exact nearest-plane switches inside straight Flats, and restricted
 end-profile correction editing on every generated Bend. The following Flat
 inherits the corrected Bend edge; route and material parameters remain parent
-owned. The focused Windows contracts pass, but this work is not a published
-build yet and native Linux execution remains open. Exact circle, ellipse, spline
-and mixed analytic target boundaries are still planned rather than claimed.
-See the [focused verification](verification/20261111-sheet-profile-multiple-targets-and-bend-corrections.md).
+owned. Exact circle, ellipse, spline and mixed analytic target boundaries are
+still planned rather than claimed. The release also retains the Line Bend and
+associative Sheet from Body workflow from 2026111102. Native Part format remains
+52; all 1,058 repository-owned Part-based assets remain current. See the
+[focused verification](verification/20261111-sheet-profile-multiple-targets-and-bend-corrections.md).
 
 The unpublished 2026110901 and 2026110902 source tags were superseded by published
 Windows release [2026111001](releases/2026111001.md). It completes shared Feature-like
