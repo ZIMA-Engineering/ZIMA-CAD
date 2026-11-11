@@ -7,26 +7,16 @@ not the current feature backlog.
 
 ## Current release boundary
 
-Signed Windows [2026111103](releases/2026111103.md#windows-publication-acceptance)
+Signed Windows [2026111104](releases/2026111104.md#windows-publication-acceptance)
 is the latest published stable build. It was published at
-`2026-11-11T19:45:33Z` from immutable source
-`52c62def31d09bcec1b9e5d001d53e53da840c1e` with Qt 6.11.0 and OCCT 8.0.1.
+`2026-11-11T22:38:13Z` from immutable source
+`56581a3fa3540e1e21b548d0e021344c30a16aca` with Qt 6.11.0 and OCCT 8.0.1.
 Candidate and signed native smoke each pass with all 1,185 factory assets;
-signature/trust, 17,534 archive entries and fresh anonymous public downloads
+signature/trust, 17,537 archive entries and fresh anonymous public downloads
 pass. Native Linux execution remains a separate host requirement. See the
-[publication evidence](verification/20261111-windows-1103-publication.json).
+[publication evidence](verification/20261111-windows-1104-publication.json).
 
-The release gives free Sheet Profile the shared ordered multi-target Up To
-editor, exact nearest-plane switches inside straight Flats, and restricted
-end-profile correction editing on every generated Bend. The following Flat
-inherits the corrected Bend edge; route and material parameters remain parent
-owned. Exact circle, ellipse, spline and mixed analytic target boundaries are
-still planned rather than claimed. The release also retains the Line Bend and
-associative Sheet from Body workflow from 2026111102. Native Part format remains
-52; all 1,058 repository-owned Part-based assets remain current. See the
-[focused verification](verification/20261111-sheet-profile-multiple-targets-and-bend-corrections.md).
-
-The 2026111104 source correction reorganizes Sheet Profile Properties without
+The release reorganizes Sheet Profile Properties without
 changing its parameters: Sketch is beside the work-plane selector, thickness is
 anchored above the side editor, irrelevant extent-only controls are hidden, and
 dynamic Up To content uses a bounded scroll area. The New Document dialog keeps
@@ -34,8 +24,13 @@ its complete duplicate-file error above the actions. Shared middle-button OK is
 queued until event dispatch completes so a successful command can safely rebuild
 the watched View; Drawing Dimension keeps its creation-finish state through that
 queued action. Nineteen focused Windows suites pass, including all five catalogs
-and 630 dialog/language/size combinations. Publication and native Linux execution
-remain separate gates. See the [finite verification](verification/20261111-properties-layout-and-confirmation.md).
+and 630 dialog/language/size combinations. The release retains ordered
+multi-target Sheet Profile extents, generated Bend end corrections, Line Bend
+and the associative Sheet from Body workflow from the preceding releases.
+Native Part format remains 52; all 1,058 repository-owned Part-based assets
+remain current. Exact circle, ellipse, spline and mixed analytic target
+boundaries remain planned rather than claimed. See the
+[finite verification](verification/20261111-properties-layout-and-confirmation.md).
 
 The unpublished 2026110901 and 2026110902 source tags were superseded by published
 Windows release [2026111001](releases/2026111001.md). It completes shared Feature-like

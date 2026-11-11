@@ -1,6 +1,8 @@
 # Application updates
 
-Windows source build 2026111104 corrects Sheet Profile Properties layout and
+Signed Windows [2026111104](releases/2026111104.md#windows-publication-acceptance)
+was published at `2026-11-11T22:38:13Z` from immutable source
+`56581a3fa3540e1e21b548d0e021344c30a16aca`. It corrects Sheet Profile Properties layout and
 shared confirmation lifetime. The Profile-owned Sketch button is beside the
 work-plane selector, thickness remains above both sides, extent-only controls
 that have no host row are hidden, and the dynamic Up To editor scrolls without
@@ -9,9 +11,11 @@ duplicate-file error. Middle-button double-click confirmation runs after current
 event dispatch so a command may safely replace its View; Drawing Dimension
 retains its finish-command state through that deferred click. Nineteen focused
 Windows suites pass, including five-language translation validation and 630
-dialog/language/size combinations. This is source acceptance, not yet signed
-publication or native Linux acceptance. See the
-[verification record](verification/20261111-properties-layout-and-confirmation.md).
+dialog/language/size combinations. Candidate and signed Windows smoke,
+production trust, all GitHub digests and fresh anonymous public downloads pass;
+native Linux execution remains a separate gate. See the
+[verification record](verification/20261111-properties-layout-and-confirmation.md)
+and [publication evidence](verification/20261111-windows-1104-publication.json).
 
 Signed Windows [2026111103](releases/2026111103.md#windows-publication-acceptance)
 was published at `2026-11-11T19:45:33Z` from immutable source

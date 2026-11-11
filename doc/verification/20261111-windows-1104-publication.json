@@ -1,0 +1,75 @@
+{
+  "release": {
+    "tag": "ZIMA-CAD-2026111104",
+    "commit": "56581a3fa3540e1e21b548d0e021344c30a16aca",
+    "published_at": "2026-11-11T22:38:13Z",
+    "url": "https://github.com/ZIMA-Engineering/ZIMA-CAD/releases/tag/ZIMA-CAD-2026111104",
+    "draft": false,
+    "prerelease": false,
+    "latest": true
+  },
+  "candidate": {
+    "build_kind": "committed-candidate",
+    "archive_size": 963878438,
+    "archive_sha256": "3a5df9e6eac1208ee7e928015bdc79b82ed0d853a65e1342818ae32a35d127fb",
+    "windows_smoke": "passed",
+    "native_factory_assets_loaded": 1185,
+    "native_factory_asset_failures": 0
+  },
+  "signed_release": {
+    "archive_name": "ZIMA-CAD-2026111104.zip",
+    "archive_size": 964696241,
+    "archive_sha256": "9200cb472ffd300dc132a8205c5c84ff084891080259b55ecb4756518763353a",
+    "archive_file_count": 17537,
+    "archive_unpacked_size": 3226828049,
+    "checksums_sha256": "69e746ebe1bd6ae5ff658fb581b700afd11b4efb7c38e509a230c7d1ea9863c4",
+    "source_tree_sha256": "96edb1220be781d281978b8a7f71efcac240450a31193daa5bc7547a7102148d",
+    "windows_smoke": "passed",
+    "linux_smoke": "not-run",
+    "publisher_key_id": "zcp-8fa1f825cbde5d81",
+    "manifest_sha256": "379a9c7c58297fee4a07158e07c6bacdfb8b49b1ca95802cd1433c64cbf80738",
+    "signature_file_sha256": "f5369bcc36bd6584d45b02e1d352f3c42e733419d32a17d5ccd427792c57798f"
+  },
+  "public_assets": [
+    {
+      "name": "ZIMA-CAD-2026111104.zip",
+      "size": 964696241,
+      "sha256": "9200cb472ffd300dc132a8205c5c84ff084891080259b55ecb4756518763353a",
+      "github_digest_matches": true,
+      "anonymous_download_matches": true
+    },
+    {
+      "name": "update-manifest.json",
+      "size": 703,
+      "sha256": "379a9c7c58297fee4a07158e07c6bacdfb8b49b1ca95802cd1433c64cbf80738",
+      "github_digest_matches": true,
+      "anonymous_download_matches": true
+    },
+    {
+      "name": "update-manifest.sig",
+      "size": 176,
+      "sha256": "f5369bcc36bd6584d45b02e1d352f3c42e733419d32a17d5ccd427792c57798f",
+      "github_digest_matches": true,
+      "anonymous_download_matches": true
+    }
+  ],
+  "verification": {
+    "focused_native_and_gui_contracts_passed": 19,
+    "focused_native_and_gui_contracts_failed": 0,
+    "publisher_package_tests_total": 31,
+    "publisher_package_tests_passed": 29,
+    "publisher_package_tests_skipped": 2,
+    "publisher_package_tests_failed": 0,
+    "native_factory_assets_loaded": 1185,
+    "native_factory_asset_failures": 0,
+    "signed_archive_safe_extraction": "passed",
+    "public_archive_matches_accepted_signed_archive": "passed",
+    "public_updater_trust": "passed",
+    "public_updater_status": "current"
+  },
+  "limits": [
+    "The complete repository-wide regression matrix is not claimed green.",
+    "Native Linux compilation and execution were not run on the Windows host.",
+    "Exact circle, ellipse, spline and mixed analytic Sheet Profile target boundaries remain planned follow-up work."
+  ]
+}

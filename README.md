@@ -141,26 +141,19 @@ See [native distribution](doc/NATIVE_DISTRIBUTION.md),
 [updates](doc/UPDATES.md) and the [user manual](doc/USER_MANUAL.md).
 
 The latest published signed Windows release is
-[2026111103](https://github.com/ZIMA-Engineering/ZIMA-CAD/releases/tag/ZIMA-CAD-2026111103).
+[2026111104](https://github.com/ZIMA-Engineering/ZIMA-CAD/releases/tag/ZIMA-CAD-2026111104).
 Its clean committed-source package, trusted signature, candidate and signed
 native smoke, all 1,185 factory native assets, production-updater status and
-fresh anonymous public downloads are verified. Free Sheet Profile width now
-supports ordered multiple Up To targets with nearest valid station limits and
-exact planar target switches inside straight Flats. Every generated Profile
-Bend exposes its existing independent end corrections, and the following Flat
-inherits the corrected physical edge. The approved Part format remains 52; the
+fresh anonymous public downloads are verified. Sheet Profile Properties keeps
+its Sketch and thickness controls in the shared order while a bounded dynamic
+area contains expanded Up To tables. New Document keeps its complete duplicate
+file message visible. Shared middle-button confirmation now defers OK until the
+current event dispatch is complete. The approved Part format remains 52; the
 shared Windows/Linux source remains pinned to OCCT 8.0.1. See the
-[release record](doc/releases/2026111103.md) and
-[publication evidence](doc/verification/20261111-windows-1103-publication.json).
+[release record](doc/releases/2026111104.md) and
+[publication evidence](doc/verification/20261111-windows-1104-publication.json).
 The [current status](doc/PROJECT_STATUS.md) separates released scope and remaining
 work. Linux verification follows the separate handoff.
-
-Post-release source corrects the Sheet Profile Properties layout, including its
-dynamic **Up To** table, and keeps the complete duplicate-file message visible
-in **New Document**. Shared middle-button confirmation now finishes event
-dispatch before a successful command may rebuild its View. These corrections
-are recorded for Windows build 2026111104; immutable package acceptance remains
-separate until publication.
 
 The measured
 [performance record](doc/performance/20261028-background-analysis-and-history-cache.md)

@@ -1,5 +1,18 @@
 # Native versioned distribution
 
+Signed Windows [2026111104](releases/2026111104.md#windows-publication-acceptance)
+was published at `2026-11-11T22:38:13Z` from immutable source
+`56581a3fa3540e1e21b548d0e021344c30a16aca`. Sheet Profile Properties,
+New Document validation and shared middle-button confirmation passed their
+focused GUI contracts, including the 630-case five-language dialog matrix.
+Candidate and signed native smoke passed; candidate smoke loaded all 1,185
+factory assets. The signed manifest binds 17,537 archive entries, exact source
+and the Windows runtime. All three GitHub digests and fresh anonymous public
+downloads match the accepted bytes. The production updater trusts the public
+installation and reports it as current. Native Linux execution remains a
+separate host gate. See the
+[publication evidence](verification/20261111-windows-1104-publication.json).
+
 Signed Windows [2026111103](releases/2026111103.md#windows-publication-acceptance)
 was published at `2026-11-11T19:45:33Z` from immutable source
 `52c62def31d09bcec1b9e5d001d53e53da840c1e`. Ordered multiple Sheet Profile
