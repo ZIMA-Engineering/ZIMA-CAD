@@ -19,7 +19,9 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QPushButton>
+#include <QScrollArea>
 #include <QTableWidget>
+#include <QTimer>
 #include <QVBoxLayout>
 
 #include <algorithm>
@@ -251,29 +253,10 @@ void SketchPropertiesDialog::set_sheet_profile_mode(
     auto pending=std::make_shared<zima::document::SheetProfileParameters>(initial);
     sheet_profile_pending_=pending;
     sheet_profile_changed_=changed;
-    auto* form=new QFormLayout;
-    form->setObjectName("sheetProfileForm");
     sheet_profile_width_panel_=new FeatureParameterPanel(this,initial.width);
     sheet_profile_width_panel_->setObjectName("sheetProfileWidthPanel");
     sheet_profile_width_panel_->set_linear_extent_only(true);
     sheet_profile_width_panel_->bind_side_locks(locks,[this]{notify_preview();});
-    form->addRow(sheet_profile_width_panel_);
-    for(std::size_t side=0;side<2;++side) {
-        auto* limits=sheet_profile_width_panel_->limit_table(side);
-        limits->on_pick([this,side]{request_sheet_profile_target(side);});
-        limits->on_inspection([this]{notify_preview();});
-        auto* end=sheet_profile_width_panel_->findChild<QComboBox*>(
-            QString("featureSideEnd%1").arg(side));
-        connect(end,&QComboBox::currentIndexChanged,this,[this,side,limits](int index) {
-            if(index==1&&sheet_profile_width_panel_->targets(side).empty())
-                limits->begin_entry(0);
-            else if(index!=1&&sheet_profile_target_active_&&
-                    sheet_profile_target_side_==side) {
-                finish_sheet_profile_target_entry();
-                if(sheet_profile_target_cancel_)sheet_profile_target_cancel_();
-            }
-        });
-    }
     auto* custom=new QCheckBox(tr("Nedržet se tloušťky plechu"),this);
     custom->setObjectName("sheetProfileThicknessOverride");
     custom->setChecked(initial.thickness_override);
@@ -293,8 +276,113 @@ void SketchPropertiesDialog::set_sheet_profile_mode(
     refresh();
     zima::ui::bind_numeric_value_lock(thickness,"thickness",locks,
         [this]{notify_preview();});
-    const auto publish=[this,pending,changed,refresh] {
-        refresh();changed(*pending);notify_preview();
+    // Keep the profile-owned Sketch beside its work-plane choice. The base
+    // Sketch dialog keeps the established full-width button for other modes.
+    content_layout()->removeWidget(sketch_button_);
+    if(auto* plane_row=qobject_cast<QHBoxLayout*>(plane_selector_->layout())) {
+        sketch_button_->setFixedHeight(30);
+        sketch_button_->setMinimumWidth(92);
+        sketch_button_->setSizePolicy(QSizePolicy::Fixed,QSizePolicy::Fixed);
+        plane_row->addWidget(sketch_button_);
+    }
+
+    auto* thickness_form=new QFormLayout;
+    thickness_form->setObjectName("sheetProfileForm");
+    thickness_form->addRow(custom);
+    thickness_form->addRow(tr("Tloušťka"),thickness);
+    auto* note=new QLabel(
+        tr("Bez zaškrtnutí se použije tloušťka vybraného plechu nebo nastavení plechu v dílu."),this);
+    note->setWordWrap(true);
+    thickness_form->addRow(note);
+
+    auto* width_scroll=new QScrollArea(this);
+    width_scroll->setObjectName("sheetProfileWidthScroll");
+    width_scroll->setFrameShape(QFrame::NoFrame);
+    width_scroll->setWidgetResizable(true);
+    width_scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    width_scroll->setWidget(sheet_profile_width_panel_);
+    const int insertion=content_layout()->indexOf(error_);
+    content_layout()->insertLayout(insertion,thickness_form);
+    content_layout()->insertWidget(insertion+1,width_scroll,1);
+    // The same variable Feature area used by ordinary Feature Properties
+    // scrolls independently. Placement and thickness rows remain anchored;
+    // normal surplus window height stays below the complete form.
+    const auto fit_profile_controls=[this,width_scroll] {
+        for(auto* group:sheet_profile_width_panel_->findChildren<QGroupBox*>()) {
+            group->setMinimumHeight(0);
+            if(group->layout()) {
+                group->layout()->invalidate();
+                group->layout()->activate();
+            }
+            group->setMinimumHeight(group->sizeHint().height());
+            group->updateGeometry();
+        }
+        sheet_profile_width_panel_->setMinimumHeight(0);
+        sheet_profile_width_panel_->layout()->invalidate();
+        const int natural=sheet_profile_width_panel_->layout()->sizeHint().height();
+        sheet_profile_width_panel_->setMinimumHeight(natural);
+        sheet_profile_width_panel_->setMinimumWidth(0);
+        const int natural_width=sheet_profile_width_panel_->layout()->minimumSize().width();
+        sheet_profile_width_panel_->setMinimumWidth(natural_width);
+        const int available_width=parentWidget()?parentWidget()->width()-20:1400;
+        width_scroll->setMinimumWidth(std::min(
+            natural_width+style()->pixelMetric(QStyle::PM_ScrollBarExtent),
+            std::max(180,available_width-60)));
+        width_scroll->setMinimumHeight(std::min(180,natural+4));
+        width_scroll->setMaximumHeight(
+            sheet_profile_width_panel_->active_limit_tables()?QWIDGETSIZE_MAX:natural+4);
+        if(layout())layout()->activate();
+        if(isVisible()) {
+            const int available=parentWidget()?parentWidget()->height()-20:1000;
+            width_scroll->setMinimumHeight(natural+4);
+            content_layout()->invalidate();content_layout()->activate();
+            if(layout()){layout()->invalidate();layout()->activate();}
+            const int desired=sizeHint().height();
+            if(desired>available) {
+                width_scroll->setMinimumHeight(std::max(std::min(180,natural+4),
+                    natural+4-(desired-available)));
+                content_layout()->invalidate();content_layout()->activate();
+                if(layout()){layout()->invalidate();layout()->activate();}
+            }
+            const auto margins=layout()->contentsMargins();
+            const int desired_width=content_layout()->minimumSize().width()+
+                margins.left()+margins.right()+
+                style()->pixelMetric(QStyle::PM_ScrollBarExtent);
+            resize(std::min(available_width,std::max({width(),
+                minimumSizeHint().width(),desired_width})),
+                std::min(available,sizeHint().height()));
+        }
+    };
+    const auto schedule_fit=[this,fit_profile_controls] {
+        QTimer::singleShot(0,this,fit_profile_controls);
+    };
+    for(std::size_t side=0;side<2;++side) {
+        auto* limits=sheet_profile_width_panel_->limit_table(side);
+        limits->on_pick([this,side]{request_sheet_profile_target(side);});
+        limits->on_inspection([this]{notify_preview();});
+        auto* end=sheet_profile_width_panel_->findChild<QComboBox*>(
+            QString("featureSideEnd%1").arg(side));
+        connect(end,&QComboBox::currentIndexChanged,this,
+            [this,side,limits,schedule_fit](int index) {
+                if(index==1&&sheet_profile_width_panel_->targets(side).empty())
+                    limits->begin_entry(0);
+                else if(index!=1&&sheet_profile_target_active_&&
+                        sheet_profile_target_side_==side) {
+                    finish_sheet_profile_target_entry();
+                    if(sheet_profile_target_cancel_)sheet_profile_target_cancel_();
+                }
+                schedule_fit();
+            });
+        connect(sheet_profile_width_panel_->findChild<QComboBox*>(
+                QString("featureSideMode%1").arg(side)),
+            &QComboBox::currentIndexChanged,this,
+            [schedule_fit](int){schedule_fit();});
+    }
+    connect(sheet_profile_width_panel_->findChild<QCheckBox*>("featureSymmetric"),
+        &QCheckBox::toggled,this,[schedule_fit](bool){schedule_fit();});
+    sheet_profile_width_panel_->on_preview_notice_changed(schedule_fit);
+    const auto publish=[this,pending,changed,refresh,schedule_fit] {
+        refresh();changed(*pending);notify_preview();schedule_fit();
     };
     sheet_profile_width_panel_->on_swap([this,pending,publish] {
         sheet_profile_width_panel_->swap_sides();
@@ -311,16 +399,10 @@ void SketchPropertiesDialog::set_sheet_profile_mode(
     connect(thickness,&QDoubleSpinBox::valueChanged,this,[=](double value) {
         pending->thickness=value;changed(*pending);notify_preview();
     });
-    form->addRow(custom);
-    form->addRow(tr("Tloušťka"),thickness);
-    auto* note=new QLabel(
-        tr("Bez zaškrtnutí se použije tloušťka vybraného plechu nebo nastavení plechu v dílu."),this);
-    note->setWordWrap(true);
-    form->addRow(note);
-    content_layout()->insertLayout(content_layout()->indexOf(sketch_button_),form);
     edit_pending_sketch_=std::move(edit_sketch);
     refresh_sheet_profile_targets();
     lock_sheet_profile_attachment_fields();
+    schedule_fit();
 }
 
 void SketchPropertiesDialog::refresh_sheet_profile_targets() {

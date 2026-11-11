@@ -23,6 +23,7 @@
 #include <QScrollBar>
 #include <QDialogButtonBox>
 #include <QDir>
+#include <QGroupBox>
 #include <filesystem>
 #include <iostream>
 #include <memory>
@@ -93,6 +94,58 @@ int verify_part_dialog_layout(QApplication& application, QWidget& parent) {
                             active->mapTo(dialog.get(),active->rect().center()).x()>=
                                 visible->mapTo(dialog.get(),visible->rect().center()).x())
                         errors<<"Active Body and Visible are not beside each other";
+                }
+                if(name.startsWith("sheet-profile")) {
+                    auto* profile_scroll=dialog->findChild<QScrollArea*>(
+                        "sheetProfileWidthScroll");
+                    auto* options=dialog->findChild<QWidget*>(
+                        "featureExtentOptions");
+                    auto* side_mode=dialog->findChild<QComboBox*>(
+                        "featureSideMode0");
+                    auto* side=qobject_cast<QGroupBox*>(
+                        side_mode?side_mode->parentWidget():nullptr);
+                    auto* thickness=dialog->findChild<QDoubleSpinBox*>(
+                        "sheetProfileThickness");
+                    auto* sketch=dialog->findChild<QPushButton*>(
+                        "sketchOpenButton");
+                    auto* plane=dialog->findChild<QWidget*>(
+                        "sketchPlaneSelector");
+                    const auto mapped=[&](const QWidget* widget) {
+                        return QRect(widget->mapTo(dialog.get(),QPoint{}),
+                            widget->size());
+                    };
+                    if(!profile_scroll||!options||!side||!thickness||
+                            !sketch||!plane||sketch->parentWidget()!=plane||
+                            mapped(thickness).bottom()>=
+                                mapped(profile_scroll).top()||
+                            mapped(options).bottom()>=mapped(side).top())
+                        errors<<"Sheet Profile rows overlap or are out of order";
+                    for(const auto* object:{"featureType","featureOriginAxis",
+                            "featureCentroidAxis",
+                            "featureIndividualCentroidAxes"})
+                        if(auto* control=dialog->findChild<QWidget*>(object);
+                                !control||control->isVisible())
+                            errors<<QString(object)+
+                                ": extent-only control is visible";
+                    if(name.endsWith("up-to")) {
+                        auto* targets=dialog->findChild<QTableWidget*>(
+                            "featureSideTargets0");
+                        if(!targets||!targets->isVisible()||
+                                !mapped(side).contains(mapped(targets)))
+                            errors<<"Sheet Profile Up To table is clipped";
+                    }
+                    if(options) {
+                        const auto controls=options->findChildren<QWidget*>(
+                            QString{},Qt::FindDirectChildrenOnly);
+                        for(int first=0;first<controls.size();++first)
+                            if(controls[first]->isVisible())
+                                for(int second=first+1;
+                                        second<controls.size();++second)
+                                    if(controls[second]->isVisible()&&
+                                            controls[first]->geometry().intersects(
+                                                controls[second]->geometry()))
+                                        errors<<"Sheet Profile direction controls overlap";
+                    }
                 }
                 if(!parent.rect().contains(dialog->geometry()))errors<<"window exceeds parent";
                 for(auto* widget:dialog->findChildren<QWidget*>()) {
@@ -215,6 +268,20 @@ int verify_part_dialog_layout(QApplication& application, QWidget& parent) {
                 if(mode==1)dialog->set_bend_mode({}, {},locks,[](auto){},[]{});
                 if(mode==2)dialog->set_flat_mode({}, {},locks,[](auto){},[]{});
                 check(dialog,mode==0?"holes":mode==1?"bend":"flat");
+            }
+            for(bool up_to:{false,true}) {
+                auto route=sketcher::Sketch::create_default();
+                auto profile=Part::create_sheet_profile_container(route.id);
+                profile.sheet_profile.width.sides[0].extrusion_extent=
+                    up_to?document::EndCondition::UpTo:
+                        document::EndCondition::Length;
+                std::set<std::string> locks;
+                auto* dialog=new app::SketchPropertiesDialog(route,{},false,{},
+                    [](auto,auto,auto){},&parent);
+                dialog->set_sheet_profile_mode(profile.sheet_profile,{},locks,
+                    [](auto){},[]{});
+                check(dialog,up_to?"sheet-profile-up-to":
+                    "sheet-profile-length");
             }
             for(bool unbend:{false,true}) {
                 auto feature=Part::create_sketch_container();

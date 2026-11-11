@@ -26,6 +26,17 @@ associative Sheet from Body workflow from 2026111102. Native Part format remains
 52; all 1,058 repository-owned Part-based assets remain current. See the
 [focused verification](verification/20261111-sheet-profile-multiple-targets-and-bend-corrections.md).
 
+The 2026111104 source correction reorganizes Sheet Profile Properties without
+changing its parameters: Sketch is beside the work-plane selector, thickness is
+anchored above the side editor, irrelevant extent-only controls are hidden, and
+dynamic Up To content uses a bounded scroll area. The New Document dialog keeps
+its complete duplicate-file error above the actions. Shared middle-button OK is
+queued until event dispatch completes so a successful command can safely rebuild
+the watched View; Drawing Dimension keeps its creation-finish state through that
+queued action. Nineteen focused Windows suites pass, including all five catalogs
+and 630 dialog/language/size combinations. Publication and native Linux execution
+remain separate gates. See the [finite verification](verification/20261111-properties-layout-and-confirmation.md).
+
 The unpublished 2026110901 and 2026110902 source tags were superseded by published
 Windows release [2026111001](releases/2026111001.md). It completes shared Feature-like
 Sheet Profile extents, active-Body and manually shown/copy Origin references in

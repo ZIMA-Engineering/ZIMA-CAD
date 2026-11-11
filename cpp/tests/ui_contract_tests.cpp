@@ -2210,6 +2210,7 @@ int main(int argc, char* argv[]) {
             QMouseEvent double_middle(QEvent::MouseButtonDblClick,QPointF(40,40),QPointF(40,40),QPointF(40,40),
                 Qt::MiddleButton,Qt::MiddleButton,Qt::NoModifier);
             QApplication::sendEvent(&parent,&double_middle);
+            application.processEvents();
             require(committed==1 && !dialog->isVisible(),"Shaft thread did not confirm over the owner View");
             QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
         }
@@ -2956,6 +2957,28 @@ int main(int argc, char* argv[]) {
         application.processEvents();
         require(view_middle_commits == 1,
                 "Middle-button double-click over the owning view did not invoke OK");
+
+        int rebuilding_middle_commits = 0;
+        QPointer<QWidget> replaced_view = new QWidget(&parent);
+        replaced_view->show();
+        auto* rebuilding_dialog = new zima::app::PrimitivePropertiesDialog(
+            confirmation_feature, false, false,
+            [&](zima::document::HistoryContainer) {
+                ++rebuilding_middle_commits;
+                delete replaced_view.data();
+            }, &parent);
+        rebuilding_dialog->show();
+        application.processEvents();
+        QMouseEvent rebuilding_middle_double_click(
+            QEvent::MouseButtonDblClick,
+            QPointF(20.0, 20.0), QPointF(20.0, 20.0),
+            QPointF(20.0, 20.0), Qt::MiddleButton,
+            Qt::MiddleButton, Qt::NoModifier);
+        QApplication::sendEvent(replaced_view.data(),
+            &rebuilding_middle_double_click);
+        application.processEvents();
+        require(rebuilding_middle_commits == 1 && !replaced_view,
+            "Middle-button confirmation did not survive rebuilding its watched View");
 
         // Geometry may grow without Fit All: clipping must follow the current
         // mesh while the user's camera remains unchanged (Part or Skeleton).

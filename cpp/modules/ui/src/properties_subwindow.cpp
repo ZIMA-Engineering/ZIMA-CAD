@@ -557,7 +557,10 @@ bool PropertiesSubWindow::eventFilter(QObject* watched, QEvent* event) {
         if (mouse->button() == Qt::MiddleButton) {
             if (auto* ok = buttons_->button(QDialogButtonBox::Ok);
                 ok != nullptr && ok->isEnabled()) {
-                ok->click();
+                // Confirmation may rebuild the owning View. Finish dispatching
+                // this mouse event before a submit callback can delete the
+                // watched widget; Qt cancels the queued call if OK disappears.
+                QTimer::singleShot(0,ok,&QPushButton::click);
                 return true;
             }
         }

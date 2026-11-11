@@ -34,6 +34,7 @@ public:
         name_ = new QLineEdit(content);
         name_->setObjectName("newDocumentFileName");
         connect(name_, &QLineEdit::textEdited, this, [this, naming](const QString& text) {
+            if(error_)error_->clear();
             // Keep an unfinished trailing space while converting it to an underscore.
             const auto convert = [&naming](QString input) {
                 input = naming.normalize(input + QLatin1Char('|'));
@@ -77,7 +78,10 @@ public:
         error_->setObjectName("newDocumentError");
         error_->setWordWrap(true);
         error_->setStyleSheet(QStringLiteral("color:#F08A85;"));
-        error_->hide();
+        // Reserve a status area before validation. A hidden label did not
+        // contribute to the initial height, so a duplicate-file message could
+        // appear below the visible content on shorter workspaces.
+        error_->setMinimumHeight(3*error_->fontMetrics().lineSpacing());
         layout->addWidget(error_);
         content_layout()->addWidget(content);
         setAttribute(Qt::WA_DeleteOnClose);

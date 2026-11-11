@@ -60,6 +60,17 @@ static int verify_sheet_profile_ui(QApplication& application,
             "featureSideMode0");
         auto* second_mode=dialog->findChild<QComboBox*>(
             "featureSideMode1");
+        auto* width_scroll=dialog->findChild<QWidget*>(
+            "sheetProfileWidthScroll");
+        auto* extent_options=dialog->findChild<QWidget*>(
+            "featureExtentOptions");
+        auto* first_side=first_mode?first_mode->parentWidget():nullptr;
+        auto* dof=dialog->findChild<QLabel*>("containerPlacementDofLabel");
+        auto* sketch=dialog->findChild<QPushButton*>("sketchOpenButton");
+        auto* plane_selector=dialog->findChild<QWidget*>("sketchPlaneSelector");
+        const auto mapped=[dialog](const QWidget* widget) {
+            return QRect(widget->mapTo(dialog,QPoint{}),widget->size());
+        };
         require(custom&&!custom->isChecked()&&thickness&&
             !thickness->isEnabled()&&std::abs(thickness->value()-2.5)<1e-9,
             "New Sheet Profile does not inherit the Part sheet thickness");
@@ -71,6 +82,12 @@ static int verify_sheet_profile_ui(QApplication& application,
                 first_mode&&first_mode->currentIndex()==1&&
                 second_mode&&second_mode->currentIndex()==0,
             "Free Sheet Profile does not expose the shared one-side Feature extent");
+        require(width_scroll&&extent_options&&first_side&&dof&&sketch&&
+                plane_selector&&sketch->parentWidget()==plane_selector&&
+                mapped(dof).bottom()<mapped(custom).top()&&
+                mapped(thickness).bottom()<mapped(width_scroll).top()&&
+                mapped(extent_options).bottom()<mapped(first_side).top(),
+            "Sheet Profile controls are not ordered below placement without overlap");
         auto* first_end=dialog->findChild<QComboBox*>("featureSideEnd0");
         auto* first_targets=dialog->findChild<QTableWidget*>(
             "featureSideTargets0");
@@ -80,6 +97,10 @@ static int verify_sheet_profile_ui(QApplication& application,
         require(first_targets->isVisible()&&first_targets->rowCount()>=3&&
                 dialog->sheet_profile_target_entry_active(),
             "Sheet Profile Up-to did not arm the multi-target reference table");
+        require(width_symmetric->width()>=width_symmetric->sizeHint().width()&&
+                mapped(extent_options).bottom()<mapped(first_side).top()&&
+                mapped(first_targets).bottom()<mapped(first_side).bottom(),
+            "Expanded Sheet Profile Up-to compressed or overlapped Feature controls");
         document::ExtrusionParameters::EndTarget first_limit;
         first_limit.kind=document::EndTargetKind::Plane;
         first_limit.reference={"profile-limit:first","face",{}};
@@ -120,6 +141,14 @@ static int verify_sheet_profile_ui(QApplication& application,
         require(!first_targets->isVisible()&&
                 !dialog->sheet_profile_target_entry_active(),
             "Leaving Sheet Profile Up-to retained its target selection mode");
+        for(int repeat=0;repeat<2;++repeat) {
+            first_end->setCurrentIndex(1);flush();
+            require(first_targets->isVisible()&&
+                    width_symmetric->width()>=width_symmetric->sizeHint().width()&&
+                    mapped(extent_options).bottom()<mapped(first_side).top(),
+                "Repeated Sheet Profile Up-to expansion broke its layout");
+            first_end->setCurrentIndex(0);flush();
+        }
         require(!dialog->findChild<QComboBox*>("sheetProfileMaterialSide")&&
             !dialog->findChild<QPushButton*>(
                 "sheetProfileMaterialSideSwitch")&&

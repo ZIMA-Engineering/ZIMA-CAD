@@ -10,6 +10,16 @@ analytic target boundaries remain the next boundary-representation extension;
 they must not be approximated from display tessellation. See the
 [verification record](verification/20261111-sheet-profile-multiple-targets-and-bend-corrections.md).
 
+The immediate GUI follow-up is complete in source for build 2026111104. Sheet
+Profile Properties now keeps Sketch beside the work-plane selector, anchors
+thickness above both sides, bounds the variable extent editor and hides controls
+that do not belong to its extent-only host. New Document reserves visible space
+for duplicate-file errors. Shared middle-button confirmation is deferred until
+the current event dispatch finishes, while Drawing Dimension retains its
+end-command intent through that deferred confirmation. Nineteen focused suites,
+including 630 five-language/resizing dialog combinations, pass on Windows. See
+the [finite correction record](verification/20261111-properties-layout-and-confirmation.md).
+
 Use [current project status](PROJECT_STATUS.md) for implemented capabilities,
 development changes awaiting release and the actual remaining queue. Family Table,
 multibody Parts, Sketch dragging/Trim/offsets, native text/symbol editing,

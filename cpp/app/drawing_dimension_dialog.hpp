@@ -6,8 +6,8 @@
 #include <QMouseEvent>
 #include <QPushButton>
 #include <QSignalBlocker>
-#include <QScopedValueRollback>
 #include <QTableWidget>
+#include <QTimer>
 #include <zima/drawing/measurement_dimension.hpp>
 #include <zima/sketcher/sketch.hpp>
 #include <zima/kernel/stable_id.hpp>
@@ -463,9 +463,18 @@ class DrawingDimensionDialog final : public ui::PropertiesSubWindow {
             (widget == parentWidget() || parentWidget()->isAncestorOf(widget))) {
             if(creating_&&event->type()==QEvent::MouseButtonDblClick&&
                 static_cast<QMouseEvent*>(event)->button()==Qt::MiddleButton) {
-                QScopedValueRollback<bool> finishing(finishing_command_,true);
+                finishing_command_=true;
                 if(!bindings_complete()){reject();return true;}
-                return PropertiesSubWindow::eventFilter(watched,event);
+                const bool handled=PropertiesSubWindow::eventFilter(watched,event);
+                if(!handled)finishing_command_=false;
+                else QTimer::singleShot(0,this,[this] {
+                    // Shared confirmation runs on the next event-loop turn so
+                    // its submit callback may safely rebuild the watched View.
+                    // Retain the command-ending intent through that click, but
+                    // restore it when validation keeps the dialog open.
+                    if(isVisible())finishing_command_=false;
+                });
+                return handled;
             }
             if (event->type() == QEvent::MouseButtonPress) {
                 const auto *mouse = static_cast<QMouseEvent *>(event);

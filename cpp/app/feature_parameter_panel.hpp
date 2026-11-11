@@ -127,6 +127,7 @@ public:
         content_->addWidget(result_group);
         auto* symmetric=new QCheckBox(tr("Symetricky"),this);symmetric_control_=symmetric;symmetric->setObjectName("featureSymmetric");
         options_row_=new QWidget(this);
+        options_row_->setObjectName("featureExtentOptions");
         auto* options=new QHBoxLayout(options_row_);
         options->setContentsMargins(0,0,0,0);
         options->addWidget(symmetric);options->addSpacing(16);
@@ -479,6 +480,10 @@ private:
         const bool modeling=type==document::FeatureType::Modeling;
         const bool axis=type==document::FeatureType::Axis;
         const bool lengths=modeling||type==document::FeatureType::Axis;
+        // In extent-only hosts the type and authored-profile axis controls do
+        // not belong to a host layout. Leaving them visible paints all of them
+        // at their default position over the direction row.
+        type_->setVisible(!extent_only_);
         plane_group_->setTitle(axis?tr("Osa"):tr("Rovina"));
         plane_label_->setText(tr("Výchozí rovina"));
         axis_direction_label_->setText(tr("Směr osy"));
@@ -493,8 +498,9 @@ private:
         result_group_->setVisible(!extent_only_&&modeling);
         options_row_->setVisible(lengths);
         symmetric_control_->setVisible(lengths);swap_->setVisible(lengths);
-        origin_axis_->setVisible(modeling);centroid_axis_->setVisible(modeling);
-        individual_centroid_axes_->setVisible(modeling);
+        origin_axis_->setVisible(!extent_only_&&modeling);
+        centroid_axis_->setVisible(!extent_only_&&modeling);
+        individual_centroid_axes_->setVisible(!extent_only_&&modeling);
         for(int i=0;i<2;++i) {
             auto& s=sides_[i];if(!s.box)continue;
             s.box->setVisible(lengths&&(i==0||!symmetric_));

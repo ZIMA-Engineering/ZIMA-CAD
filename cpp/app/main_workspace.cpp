@@ -5055,7 +5055,9 @@ int verify_application_tools_ui(QApplication& application,const std::filesystem:
         part.history={feature};part.sketches={sketch};document::BodyHistoryGraph graph;
         const auto body=graph.create_body("Application tools");graph.insert({document::PartHistoryKind::Feature,feature.id});part.set_body_history(graph);part.resolve_constructions();
         kernel::OcctKernel kernel;const auto path=directory/"application-tools.prtz";part.save(path,kernel.evaluate_history(part.kernel_operations()));
-        const auto other_path=directory/"application-other.prtz";document::PartDocument::create_default().save(other_path);
+        const auto other_path=directory/"application-other.prtz";
+        auto other_part=document::PartDocument::create_default();document::BodyHistoryGraph other_graph;
+        static_cast<void>(other_graph.create_body("Other application"));other_part.set_body_history(other_graph);other_part.save(other_path);
         const auto drawing_path=directory/"application-drawing.drwz";drawing::DrawingDocument::create_default().save(drawing_path);
         const auto assembly_path=directory/"application-assembly.asmz";assembly::AssemblyDocument::create_default().save(assembly_path);
         app::AssemblyWorkspaceWindow window(QString::fromStdString(directory.string()));window.resize(1200,900);window.show();
@@ -5104,7 +5106,9 @@ int verify_application_tools_ui(QApplication& application,const std::filesystem:
         check(window.grab().save("build/sheet-metal-settings.png"),"Sheet properties screenshot failed");
         auto* model_view=window.findChild<QOpenGLWidget*>();const QPointF click(50,50);
         QMouseEvent middle(QEvent::MouseButtonDblClick,click,QPointF(model_view->mapToGlobal(click.toPoint())),Qt::MiddleButton,Qt::MiddleButton,Qt::NoModifier);
-        QApplication::sendEvent(model_view,&middle);flush();check(!settings_dialog(),"View middle-button double-click did not confirm sheet settings");
+        QApplication::sendEvent(model_view,&middle);
+        flush();
+        check(!settings_dialog(),"View middle-button double-click did not confirm sheet settings");
         check(selector()->isEnabled(),"Sheet settings left application selector disabled");
         selector()->click();flush();
         check(modeling->isChecked()&&menu->actions().contains(modeling_feature),"Cannot return to Modeling after confirming sheet settings");
@@ -5116,11 +5120,13 @@ int verify_application_tools_ui(QApplication& application,const std::filesystem:
         window.findChild<QAction*>("fileSettingsAction")->trigger();flush();file=settings_dialog();
         check(file->findChild<QDoubleSpinBox*>("sheetMetalThickness")->value()==2.5&&file->findChild<QDoubleSpinBox*>("sheetMetalKFactor")->value()==.42,"File Settings disagrees with Sheet properties");
         file->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();
-        check(selector()->isEnabled(),"Cancelling File Settings left application selector disabled");
+        auto* selector_after_cancel=selector();
+        check(selector_after_cancel&&selector_after_cancel->isEnabled(),"Cancelling File Settings removed or disabled the application selector");
         window.findChild<QAction*>("regenerateDocumentAction")->trigger();flush();
         check(sheet->isChecked()&&sheet_button()->isChecked(),"Refresh lost Sheet Metal choice");
         check(window.open_document_path(QString::fromStdString(other_path.string())),"Other Part failed to open");flush();
-        check(modeling->isChecked()&&selector()->isChecked(),"New Part inherited another Part application");
+        auto* other_selector=selector();
+        check(modeling->isChecked()&&other_selector&&other_selector->isChecked(),"New Part inherited another Part application or lost its Modeling selector");
         tabs->setCurrentIndex(0);flush();check(sheet->isChecked(),"Tab switch lost per-document application");
         selector()->click();flush();check(selector()->isChecked()&&!sheet_button()->isChecked()&&menu->actions().contains(modeling_feature),"Mode button failed to sync Applications menu");
         window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
@@ -5635,10 +5641,15 @@ int verify_application_tools_ui(QApplication& application,const std::filesystem:
                 const auto world=frame.world_point(ref.cached_points[0][0],ref.cached_points[0][1]);
                 check(near(world,a)||near(world,b),"Flat external point moved off its Revolved Sheet endpoint");
             }
+            check(frame.segments.size()==4,
+                "Flat did not seed one editable continuation profile from the Revolved Sheet endpoints");
             check(flat->mutate_sketch(frame.id,[](auto& s) {
-                const auto first=s.external_references[0].cached_points.front(),last=s.external_references[1].cached_points.front();
-                static_cast<void>(s.add_rectangle(std::min(first[0],last[0]),0,std::max(first[0],last[0]),12));
-            }),"Cannot draw Flat continuation from Revolved Sheet endpoints");
+                const auto height=std::ranges::find_if(s.dimensions,[](const auto& dimension) {
+                    return dimension.driving&&dimension.kind==sketcher::DimensionKind::DistanceY;
+                });
+                if(height==s.dimensions.end()||!s.set_dimension_value(height->id,12.))
+                    throw std::runtime_error("Cannot edit the seeded Flat continuation length");
+            }),"Cannot resize the seeded Flat continuation from Revolved Sheet endpoints");
             flat->findChild<QPushButton*>("sketchOpenButton")->click();flush();
             for(bool x:{false,true}) {
                 const auto& axes=view->mesh().axes;
@@ -5823,37 +5834,10 @@ int verify_application_tools_ui(QApplication& application,const std::filesystem:
         const auto attached=flat->pending_value();
         check(attached.second.references.size()==3&&attached.first.external_references.size()==2,
             "Sheet Profile edge did not auto-fill Flat references and external endpoints");
+        check(attached.first.segments.size()==4,
+            "Attached Flat did not seed one editable rectangle from the Bend endpoints");
         flat->findChild<QPushButton*>("sketchOpenButton")->click();flush();
         check(!flat->isVisible(),"Attached Flat did not enter Sketcher");
-        {
-            QEventLoop animation;QTimer::singleShot(950,&animation,&QEventLoop::quit);animation.exec();
-            auto camera=flat_view->camera_state();camera[7]=100;flat_view->set_camera_state(camera);flush();
-            const auto local=[&](QPointF p) {
-                const auto ray=flat_view->ray_at(p);check(ray.has_value(),"Attached Flat ray missing");
-                const auto hit=attached.first.intersect_ray(ray->first,ray->second);
-                check(hit.has_value(),"Attached Flat camera not facing its Sketch");return *hit;
-            };
-            const auto a=local({0,0}),b=local({100,0}),c=local({0,100});
-            const auto ux=(b[0]-a[0])/100,uy=(b[1]-a[1])/100,vx=(c[0]-a[0])/100,vy=(c[1]-a[1])/100;
-            const auto determinant=ux*vy-uy*vx;
-            const auto screen=[&](std::array<double,2> p) {return QPointF(((p[0]-a[0])*vy-(p[1]-a[1])*vx)/determinant,
-                (ux*(p[1]-a[1])-uy*(p[0]-a[0]))/determinant);};
-            const auto mouse=[&](std::array<double,2> p,QEvent::Type type,Qt::MouseButton button) {
-                const auto at=screen(p);QMouseEvent event(type,at,QPointF(flat_view->mapToGlobal(at.toPoint())),button,
-                    type==QEvent::MouseButtonPress?button:Qt::NoButton,Qt::NoModifier);QApplication::sendEvent(flat_view,&event);flush();
-            };
-            auto endpoints=attached.first.external_references;
-            std::ranges::sort(endpoints,{},[](const auto& r){return r.cached_points.front()[0];});
-            const auto first=endpoints.front().cached_points.front(),last=endpoints.back().cached_points.front();
-            window.findChild<QAction*>("sketchRectangleAction")->trigger();flush();
-            mouse(first,QEvent::MouseMove,Qt::NoButton);mouse(first,QEvent::MouseButtonPress,Qt::LeftButton);mouse(first,QEvent::MouseButtonRelease,Qt::LeftButton);
-            const std::array opposite{last[0]+.1,first[1]+12.};mouse(opposite,QEvent::MouseMove,Qt::NoButton);
-            const auto contact=attached.first.world_point(last[0],last[1]);
-            check(std::ranges::any_of(flat_view->transient_labels(),[&](const auto& label){return label.second=="C"&&
-                std::hypot(label.first.x-contact.x,label.first.y-contact.y,label.first.z-contact.z)<1e-7;}),
-                "Attached Flat lower rectangle corner did not offer C at the second Bend endpoint");
-            mouse(opposite,QEvent::MouseButtonPress,Qt::LeftButton);mouse(opposite,QEvent::MouseButtonRelease,Qt::LeftButton);
-        }
         for(const auto& ref:attached.first.external_references) {
             check(app::workspace_detail::sketch_external_reference_id_from_key("external_point:"+ref.id)==ref.id,
                 "External Flat endpoint key was truncated during snapping");

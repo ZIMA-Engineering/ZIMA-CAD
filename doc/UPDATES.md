@@ -1,5 +1,18 @@
 # Application updates
 
+Windows source build 2026111104 corrects Sheet Profile Properties layout and
+shared confirmation lifetime. The Profile-owned Sketch button is beside the
+work-plane selector, thickness remains above both sides, extent-only controls
+that have no host row are hidden, and the dynamic Up To editor scrolls without
+overlapping the side controls. New Document reserves enough height for a full
+duplicate-file error. Middle-button double-click confirmation runs after current
+event dispatch so a command may safely replace its View; Drawing Dimension
+retains its finish-command state through that deferred click. Nineteen focused
+Windows suites pass, including five-language translation validation and 630
+dialog/language/size combinations. This is source acceptance, not yet signed
+publication or native Linux acceptance. See the
+[verification record](verification/20261111-properties-layout-and-confirmation.md).
+
 Signed Windows [2026111103](releases/2026111103.md#windows-publication-acceptance)
 was published at `2026-11-11T19:45:33Z` from immutable source
 `52c62def31d09bcec1b9e5d001d53e53da840c1e`. Free Sheet Profile width now uses

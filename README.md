@@ -155,6 +155,13 @@ shared Windows/Linux source remains pinned to OCCT 8.0.1. See the
 The [current status](doc/PROJECT_STATUS.md) separates released scope and remaining
 work. Linux verification follows the separate handoff.
 
+Post-release source corrects the Sheet Profile Properties layout, including its
+dynamic **Up To** table, and keeps the complete duplicate-file message visible
+in **New Document**. Shared middle-button confirmation now finishes event
+dispatch before a successful command may rebuild its View. These corrections
+are recorded for Windows build 2026111104; immutable package acceptance remains
+separate until publication.
+
 The measured
 [performance record](doc/performance/20261028-background-analysis-and-history-cache.md)
 also preserves the parallel-history redesign gate. A representative late Solid

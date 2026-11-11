@@ -137,6 +137,23 @@ int verify_new_document_options(QApplication& application) {
             };
             create("part","model");
             check_origin();
+            window.findChild<QAction*>("newDocumentAction")->trigger();flush();
+            auto* duplicate=window.findChild<QDialog*>("newDocumentDialog");
+            check(duplicate,"Duplicate-file New Document dialog missing");
+            duplicate->findChild<QLineEdit*>("newDocumentFileName")->setText("model");
+            duplicate->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+            auto* duplicate_error=duplicate->findChild<QLabel*>("newDocumentError");
+            auto* content_scroll=duplicate->findChild<QScrollArea*>("propertiesContentScrollArea");
+            auto* actions=duplicate->findChild<QDialogButtonBox*>();
+            const QRect error_in_view(duplicate_error->mapTo(content_scroll->viewport(),QPoint{}),
+                duplicate_error->size());
+            const QRect error_in_dialog(duplicate_error->mapTo(duplicate,QPoint{}),duplicate_error->size());
+            const QRect actions_in_dialog(actions->mapTo(duplicate,QPoint{}),actions->size());
+            check(duplicate_error->isVisible()&&!duplicate_error->text().isEmpty()&&
+                    content_scroll->viewport()->rect().contains(error_in_view)&&
+                    error_in_dialog.bottom()<actions_in_dialog.top(),
+                "Duplicate-file New Document message is clipped or covered");
+            duplicate->reject();flush();
             check(window.findChild<QAction*>("materialAction")->isEnabled(),"Part material action is disabled");
             check(window.findChild<QAction*>("sketchAction")->isEnabled()&&window.findChild<QAction*>("featurePrototypeAction")->isEnabled(),
                   "Part start template must activate its Body and enable normal modeling commands");
