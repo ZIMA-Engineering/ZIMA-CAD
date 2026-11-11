@@ -71,6 +71,55 @@ static int verify_sheet_profile_ui(QApplication& application,
                 first_mode&&first_mode->currentIndex()==1&&
                 second_mode&&second_mode->currentIndex()==0,
             "Free Sheet Profile does not expose the shared one-side Feature extent");
+        auto* first_end=dialog->findChild<QComboBox*>("featureSideEnd0");
+        auto* first_targets=dialog->findChild<QTableWidget*>(
+            "featureSideTargets0");
+        require(first_end&&first_targets,
+            "Sheet Profile lost its shared ordered Up-to target table");
+        first_end->setCurrentIndex(1);flush();
+        require(first_targets->isVisible()&&first_targets->rowCount()>=3&&
+                dialog->sheet_profile_target_entry_active(),
+            "Sheet Profile Up-to did not arm the multi-target reference table");
+        document::ExtrusionParameters::EndTarget first_limit;
+        first_limit.kind=document::EndTargetKind::Plane;
+        first_limit.reference={"profile-limit:first","face",{}};
+        first_limit.label="First Profile limit";
+        first_limit.fallback_origin={0,0,10};
+        document::ExtrusionParameters::EndTarget second_limit=first_limit;
+        second_limit.reference={"profile-limit:second","face",{}};
+        second_limit.label="Second Profile limit";
+        second_limit.fallback_origin={0,0,20};
+        dialog->set_sheet_profile_end_target(first_limit,1);flush();
+        first_targets->cellClicked(1,3);flush();
+        require(dialog->sheet_profile_target_entry_active(),
+            "Second Sheet Profile target row did not arm reference entry");
+        dialog->set_sheet_profile_end_target(second_limit,1);flush();
+        require(dialog->sheet_profile_width_parameters().sides[0].targets.size()==2&&
+                !first_targets->cellWidget(0,4)->findChild<QComboBox*>()->isEnabled()&&
+                !first_targets->cellWidget(0,5)->findChild<QComboBox*>()->isEnabled(),
+            "Sheet Profile did not retain two independent envelope targets");
+        auto* inspect_first=first_targets->cellWidget(0,6)->
+            findChild<QToolButton*>();
+        require(inspect_first,"Sheet Profile target inspection eye is missing");
+        inspect_first->click();flush();
+        require(std::ranges::any_of(dialog->highlighted_reference_entries(),
+                [&](const auto& reference) {
+                    return reference.owner_id=="profile-limit:first";
+                }),
+            "Sheet Profile target inspection is not independent of entry");
+        for(int remaining=2;remaining>0;--remaining) {
+            auto* remove=first_targets->cellWidget(0,2)->
+                findChild<QPushButton*>();
+            require(remove,"Sheet Profile target remove control is missing");
+            remove->click();flush();
+            require(static_cast<int>(dialog->sheet_profile_width_parameters().
+                    sides[0].targets.size())==remaining-1,
+                "Sheet Profile target removal did not update the ordered table");
+        }
+        first_end->setCurrentIndex(0);flush();
+        require(!first_targets->isVisible()&&
+                !dialog->sheet_profile_target_entry_active(),
+            "Leaving Sheet Profile Up-to retained its target selection mode");
         require(!dialog->findChild<QComboBox*>("sheetProfileMaterialSide")&&
             !dialog->findChild<QPushButton*>(
                 "sheetProfileMaterialSideSwitch")&&
@@ -362,6 +411,79 @@ static int verify_sheet_profile_ui(QApplication& application,
                 profile_row=*row;break;
             }
         require(profile_row,"Sheet Profile row disappeared after Cancel");
+
+        // Every non-master generated Bend exposes only its existing end
+        // profile corrections. The parent route continues to own radius,
+        // angle, placement and material values.
+        const auto generated_bend=std::ranges::find_if(saved.history,
+            [&](const auto& feature) {
+                return feature.sheet_profile_binding.parent_id==
+                        parent_feature->id&&
+                    feature.feature_kind==document::FeatureKind::Bend;
+            });
+        require(generated_bend!=saved.history.end(),
+            "Free Profile has no generated Bend for correction editing");
+        QTreeWidgetItem* bend_row{};
+        for(QTreeWidgetItemIterator row(tree);*row;++row)
+            if((*row)->data(0,Qt::UserRole).toString().toStdString()==
+                    generated_bend->id) {
+                bend_row=*row;break;
+            }
+        require(bend_row,
+            "Generated Profile Bend is missing from the Tree");
+        window.show_tree_item_properties(bend_row);flush();
+        auto* bend_dialog=dynamic_cast<app::SketchPropertiesDialog*>(
+            window.findChild<QDialog*>("bendPropertiesDialog"));
+        require(bend_dialog&&bend_dialog->isVisible()&&
+                bend_dialog->findChild<QPushButton*>(
+                    "bendEndSketchButton")->isEnabled()&&
+                !bend_dialog->findChild<QPushButton*>(
+                    "bendPathSketchButton")->isEnabled()&&
+                !bend_dialog->findChild<QPushButton*>(
+                    "sketchOpenButton")->isEnabled()&&
+                !bend_dialog->findChild<QDoubleSpinBox*>(
+                    "bendRadius")->isEnabled(),
+            "Generated Profile Bend exposes more than end corrections");
+        const auto generated_end=sketcher::Sketch::from_serialized(
+            generated_bend->bend.auxiliary_sketches[1]);
+        require(bend_dialog->mutate_sketch(generated_end.id,
+                [&](auto& end) {
+                    require(end.set_dimension_value(
+                            end.id+":difference:first",3),
+                        "Generated Profile Bend rejected its end correction");
+                }),
+            "Generated Profile Bend end Sketch is not editable");
+        bend_dialog->findChild<QDialogButtonBox*>()->button(
+            QDialogButtonBox::Ok)->click();flush();
+        require(!window.findChild<QDialog*>("bendPropertiesDialog"),
+            "Generated Profile Bend correction was rejected on OK");
+        window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
+        const auto corrected_free=document::PartDocument::load(path);
+        const auto* corrected_bend=corrected_free.find_container(
+            generated_bend->id);
+        require(corrected_bend&&
+                std::abs(document::bend_profile_extensions(
+                    *corrected_bend)[0]-3)<1e-8,
+            "Generated Profile Bend correction did not commit");
+        window.findChild<QAction*>("undoAction")->trigger();flush();
+        window.findChild<QAction*>("redoAction")->trigger();flush();
+        window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
+        const auto corrected_after_redo=document::PartDocument::load(path);
+        const auto* corrected_bend_after_redo=
+            corrected_after_redo.find_container(generated_bend->id);
+        require(corrected_bend_after_redo&&
+                std::abs(document::bend_profile_extensions(
+                    *corrected_bend_after_redo)[0]-3)<1e-8,
+            "Generated Profile Bend correction changed after Undo/Redo");
+
+        profile_row=nullptr;
+        for(QTreeWidgetItemIterator row(tree);*row;++row)
+            if((*row)->data(0,Qt::UserRole).toString().toStdString()==
+                    parent_feature->id) {
+                profile_row=*row;break;
+            }
+        require(profile_row,
+            "Sheet Profile row disappeared after Bend correction Undo/Redo");
 
         bool exploded{};
         QTimer::singleShot(0,&window,[&] {
@@ -900,7 +1022,8 @@ static int verify_sheet_profile_ui(QApplication& application,
                     QPointF(x,y));
                 if(std::ranges::any_of(candidates,[&](const auto& candidate) {
                         return candidate.kind==viewer::CandidateKind::Container&&
-                            candidate.owner_id==source_edited_flat->id;
+                            (candidate.owner_id==source_edited_flat->id||
+                             candidate.owner_id==source_edited_flat->flat.sketch_id);
                     }))profile_context_hit=QPointF(x,y);
             }
         require(profile_context_hit.has_value(),
@@ -1076,10 +1199,12 @@ static int verify_sheet_profile_ui(QApplication& application,
             for(int x=4;x<view->width()&&!master_hit;x+=4) {
                 const auto candidates=view->selection_candidates_at(
                     QPointF(x,y));
-                if(std::ranges::any_of(candidates,[&](const auto& candidate) {
-                        return candidate.kind==viewer::CandidateKind::Container&&
-                            candidate.owner_id==attached_master->id;
-                    }))master_hit=QPointF(x,y);
+                if(!candidates.empty()&&
+                   candidates.front().kind==viewer::CandidateKind::Container&&
+                   (candidates.front().owner_id==attached_master->id||
+                    candidates.front().owner_id==
+                        attached_master->bend.sketch_id))
+                    master_hit=QPointF(x,y);
             }
         require(master_hit.has_value(),
             "Attached Profile first Bend is not selectable in View");

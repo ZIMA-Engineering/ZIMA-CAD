@@ -61,6 +61,26 @@ sketcher::SketchDimension& difference(sketcher::Sketch& sketch,bool last) {
 double extension(const sketcher::SketchDimension& dimension,bool last) {
     return dimension.value*dimension.solution_side*(last?1:-1);
 }
+std::array<double,2> end_profile_interval(const HistoryContainer& feature) {
+    if(feature.bend.auxiliary_sketches[1].empty())
+        throw std::invalid_argument("Bend end profile is missing.");
+    const auto sketch=sketcher::Sketch::from_serialized(
+        feature.bend.auxiliary_sketches[1]);
+    const auto segment=std::ranges::find_if(sketch.segments,
+        [](const auto& value){return !value.construction;});
+    if(segment==sketch.segments.end())
+        throw std::invalid_argument("Bend end profile segment is missing.");
+    const auto* first=sketch.find_point(segment->first_point_id);
+    const auto* last=sketch.find_point(segment->second_point_id);
+    if(!first||!last)
+        throw std::invalid_argument("Bend end profile endpoint is missing.");
+    std::array result{first->x,last->x};
+    std::ranges::sort(result);
+    if(!std::isfinite(result[0])||!std::isfinite(result[1])||
+       result[1]-result[0]<.001)
+        throw std::invalid_argument("Bend end width must be at least 0.001 mm.");
+    return result;
+}
 V path_point(const BendFrame& f,const BendParameters& p,double fraction) {
     const double angle=p.angle_degrees*std::numbers::pi/180;
     return add(add(f.anchor,scale(f.inward,(p.radius+p.thickness)*(1-std::cos(angle*fraction)))),
@@ -532,17 +552,20 @@ void prepare_bend_sketches(HistoryContainer& feature,const sketcher::Sketch& sta
         end.segments.push_back(sketcher::Sketch::create_segment(end.id+":endpoint:first",end.id+":endpoint:last"));
         end.segments.push_back(sketcher::Sketch::create_segment(end.id+":reference:first",end.id+":reference:last",true));
     }
+    const bool target_driven_reference=
+        !feature.sheet_profile_binding.parent_id.empty()&&!data[1].empty();
     for(bool last:{false,true}) {
-        const double x=f.first_coordinate+(last?f.width:0);const auto& d=difference(end,last);
+        const double start_x=f.first_coordinate+(last?f.width:0);
+        const auto& d=difference(end,last);
         auto* reference=end.find_point(end.id+(last?":reference:last":":reference:first"));
         auto* point=end.find_point(end.id+(last?":endpoint:last":":endpoint:first"));
         if(!reference||!point)throw std::invalid_argument("Bend end profile endpoint is missing.");
-        reference->x=x;reference->y=0;reference->fixed=true;reference->construction=true;
-        point->x=x+d.value*d.solution_side;point->y=0;
+        if(!target_driven_reference)reference->x=start_x;
+        reference->y=0;reference->fixed=true;reference->construction=true;
+        point->x=reference->x+d.value*d.solution_side;point->y=0;
     }
-    if(f.width+extension(difference(end,false),false)+extension(difference(end,true),true)<.001)
-        throw std::invalid_argument("Bend end width must be at least 0.001 mm.");
     end.validate();data[1]=end.serialized();
+    static_cast<void>(end_profile_interval(feature));
 }
 std::array<double,2> bend_profile_extensions(const HistoryContainer& feature) {
     auto end=sketcher::Sketch::from_serialized(feature.bend.auxiliary_sketches[1]);
@@ -555,6 +578,30 @@ void set_bend_profile_extensions(HistoryContainer& feature,double first,double l
         auto& d=difference(end,side);d.value=std::abs(v);d.solution_side=(side?1:-1)*(v<0?-1:1);
     }
     feature.bend.auxiliary_sketches[1]=end.serialized();
+}
+std::array<double,2> bend_end_profile_interval(const HistoryContainer& feature) {
+    return end_profile_interval(feature);
+}
+void set_bend_end_profile_reference_interval(HistoryContainer& feature,
+        double first,double last) {
+    if(!std::isfinite(first)||!std::isfinite(last)||last-first<.001)
+        throw std::invalid_argument(
+            "Bend end reference width must be at least 0.001 mm.");
+    auto end=sketcher::Sketch::from_serialized(
+        feature.bend.auxiliary_sketches[1]);
+    for(bool side:{false,true}) {
+        auto* reference=end.find_point(end.id+
+            (side?":reference:last":":reference:first"));
+        auto* point=end.find_point(end.id+
+            (side?":endpoint:last":":endpoint:first"));
+        if(!reference||!point)
+            throw std::invalid_argument("Bend end profile endpoint is missing.");
+        reference->x=side?last:first;reference->y=0;
+        const auto& delta=difference(end,side);
+        point->x=reference->x+delta.value*delta.solution_side;point->y=0;
+    }
+    end.validate();feature.bend.auxiliary_sketches[1]=end.serialized();
+    static_cast<void>(end_profile_interval(feature));
 }
 void accept_bend_sketch(HistoryContainer& feature,const sketcher::Sketch& start,std::size_t stage,
     sketcher::Sketch edited,const SheetMetalDefaults& defaults) {
@@ -606,7 +653,10 @@ kernel::FeatureGroupRequest bend_request(const HistoryContainer& input,const ske
     group.axes.push_back({add(axis_start,scale(f.along,f.width*.5)),f.along,f.width+2,
         {feature.id,child(feature,"axis",f.segment),{}},"Osa rotace ohybu"});
     if(p.angle_degrees==0)return group; // Explicit zero-material history boundary.
-    const auto extension=bend_profile_extensions(feature);
+    const auto end_interval=end_profile_interval(feature);
+    const std::array extension{
+        f.first_coordinate-end_interval[0],
+        end_interval[1]-(f.first_coordinate+f.width)};
     if(p.radius==0&&(std::abs(extension[0])>1e-9||std::abs(extension[1])>1e-9))
         throw std::invalid_argument("Zero inner radius currently requires matching start and end profiles.");
     const auto path=sketcher::Sketch::from_serialized(feature.bend.auxiliary_sketches[0]);
@@ -622,7 +672,8 @@ kernel::FeatureGroupRequest bend_request(const HistoryContainer& input,const ske
         const double a=last?p.angle_degrees*std::numbers::pi/180:0;
         const auto inward=add(scale(f.inward,std::cos(a)),scale(f.normal,-std::sin(a)));
         const auto normal=cross(f.along,inward);const auto origin=request.path_points[last?1:0];
-        const double x1=f.first_coordinate-(last?extension[0]:0),x2=f.first_coordinate+f.width+(last?extension[1]:0);
+        const double x1=last?end_interval[0]:f.first_coordinate;
+        const double x2=last?end_interval[1]:f.first_coordinate+f.width;
         BendFrame section_frame=f;section_frame.first=add(origin,scale(f.along,x1));section_frame.last=add(origin,scale(f.along,x2));section_frame.inward=inward;
         kernel::ExtrusionRequest source;profile(source,feature,section_frame,p.thickness);
         kernel::Sweep3DRequest::Section section;section.profile_id=source.profile_region_id;
@@ -678,7 +729,10 @@ kernel::SheetMaterialDefinition bend_material_definition(const HistoryContainer&
 kernel::ViewerMesh bend_preview(const HistoryContainer& input,const sketcher::Sketch& sketch,const SheetMetalDefaults& defaults) {
     auto feature=input;prepare_bend_sketches(feature,sketch,defaults);
     const auto request=bend_request(feature,sketch,defaults);const auto p=resolved_bend_parameters(feature,defaults);const auto f=frame(feature,sketch);
-    const auto extension=bend_profile_extensions(feature);
+    const auto end_interval=end_profile_interval(feature);
+    const std::array extension{
+        f.first_coordinate-end_interval[0],
+        end_interval[1]-(f.first_coordinate+f.width)};
     kernel::ViewerMesh mesh;mesh.axes=request.axes;
     const double angle=p.angle_degrees*std::numbers::pi/180;
     const auto point=[&](double along,bool inner,double fraction) {

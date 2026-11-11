@@ -832,12 +832,24 @@ void AssemblyWorkspaceWindow::accept_sheet_profile_target(
             }
         const auto target=zima::document::resolve_profile_target(
             requested,primitive_reference_geometry_);
-        if(!target||target->kind==zima::document::EndTargetKind::Face)
+        if(!target)
             throw std::invalid_argument(
                 "Vyberte bod, rovinu nebo rovinnou plochu.");
-        const auto half_space=zima::document::profile_target_half_space(
+        auto half_space=zima::document::profile_target_half_space(
             sheet_profile_target_frame_->resolved_origin,
             sheet_profile_target_frame_->resolved_normal,*target);
+        if(!half_space) {
+            const auto origin=sheet_profile_target_frame_->resolved_origin;
+            const auto normal=sheet_profile_target_frame_->resolved_normal;
+            const auto forward=zima::document::axis_target_distance(origin,
+                normal,*target);
+            const zima::kernel::Vec3 reverse{
+                -normal.x,-normal.y,-normal.z};
+            const auto backward=zima::document::axis_target_distance(origin,
+                reverse,*target);
+            if(forward&&!backward)half_space=1;
+            else if(backward&&!forward)half_space=-1;
+        }
         if(!half_space)
             throw std::invalid_argument(
                 "Cíl šířky profilu musí ležet mimo rovinu skici a cílová rovina musí být rovnoběžná se skicou.");

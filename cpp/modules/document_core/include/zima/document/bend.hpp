@@ -37,6 +37,11 @@ void prepare_bend_sketches(HistoryContainer&,const sketcher::Sketch&,const Sheet
 void accept_bend_sketch(HistoryContainer&,const sketcher::Sketch&,std::size_t,sketcher::Sketch,const SheetMetalDefaults&);
 [[nodiscard]] std::array<double,2> bend_profile_extensions(const HistoryContainer&);
 void set_bend_profile_extensions(HistoryContainer&,double first,double last);
+// Local-X material interval at the calculated Bend end.  Profile-owned Bends
+// use a target-driven reference interval plus the ordinary signed endpoint
+// differences; ordinary Bends retain their start interval as the reference.
+[[nodiscard]] std::array<double,2> bend_end_profile_interval(const HistoryContainer&);
+void set_bend_end_profile_reference_interval(HistoryContainer&,double first,double last);
 [[nodiscard]] kernel::FeatureGroupRequest bend_request(const HistoryContainer&, const sketcher::Sketch&, const SheetMetalDefaults&);
 [[nodiscard]] kernel::SheetMaterialDefinition bend_material_definition(const HistoryContainer&,const sketcher::Sketch&,const SheetMetalDefaults&);
 [[nodiscard]] kernel::ViewerMesh bend_preview(const HistoryContainer&, const sketcher::Sketch&, const SheetMetalDefaults&);

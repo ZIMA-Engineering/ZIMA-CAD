@@ -1,4 +1,88 @@
-# ZIMA-CAD
+# ZIMA-CAD — A Different Philosophy of Parametric CAD
+
+**I'm not trying to copy SolidWorks or any other CAD system. I'm building
+ZIMA-CAD based on my own experience as a mechanical design engineer.**
+
+My main goal is simple: **dependent features should not break just because the
+geometry they reference changes.**
+
+### 1. Features that survive broken dependencies
+
+Imagine creating Extrude 1 and then placing Extrude 2 on one of its faces.
+
+Now delete Extrude 1.
+
+In ZIMA-CAD, Extrude 2 does not have to disappear or fail. It remains in the
+model, retains its last placement, and simply loses the missing references.
+
+You can reconnect it to completely different geometry whenever you want.
+
+This is one of the fundamental principles of ZIMA-CAD.
+
+### 2. Topology based on original geometry
+
+ZIMA-CAD has its own topology reference system, independent of OpenCascade's
+face and edge numbering.
+
+For example, if Extrude 2 is attached to a face of Extrude 1, you can modify the
+extrusion directions while keeping Extrude 2 attached to the correct original
+face.
+
+This is particularly useful when changing the direction or construction of
+shafts and other mechanical components.
+
+### 3. Independent extrusion directions
+
+An extrusion can have two independently controlled directions.
+
+One direction can be straight while the other uses rotation. The system is
+designed to handle these configurations within the same feature.
+
+### 4. One universal Feature command
+
+Instead of treating every geometric operation as a completely separate object
+type, ZIMA-CAD uses a unified **Feature** concept.
+
+A Feature can represent a point, axis, sketch, solid extrusion, thin extrusion,
+or surface.
+
+Its type can be changed later without having to recreate the entire element
+from scratch.
+
+### 5. Powerful construction references
+
+ZIMA-CAD supports associative construction axes derived from sketch geometry,
+including automatic axes of circles.
+
+It also allows reference placement using geometric centers, including the
+combined centroid of multiple closed regions or the centroid of individual
+closed regions.
+
+These capabilities provide considerable flexibility when constructing complex
+mechanical parts.
+
+### 6. Familiar CAD interaction, different foundations
+
+ZIMA-CAD still offers the familiar workflow expected from a modern mechanical
+CAD system:
+
+- Double-clicking features to display and edit driving dimensions
+- Parametric sketches and relationships
+- Family Tables and Relations
+- Associative technical drawings
+- Bills of materials (BOM) and drawing title blocks
+- Localized engineering parameters and metadata, including part name, date,
+  raw stock, material, and other properties
+
+### My vision
+
+I believe a mechanical CAD system should allow engineers to change their minds
+during the design process without constantly repairing broken feature histories.
+
+**The model should adapt to the engineer — not force the engineer to rebuild the
+model.**
+
+That is the philosophy behind ZIMA-CAD.
 
 ZIMA-CAD is developed as a C++/Qt application with OCCT used only for explicit
 solid-model calculations. The active implementation lives in [`cpp/`](cpp/).

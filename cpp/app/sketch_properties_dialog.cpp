@@ -19,8 +19,6 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QPushButton>
-#include <QAction>
-#include <QMouseEvent>
 #include <QTableWidget>
 #include <QVBoxLayout>
 
@@ -257,34 +255,18 @@ void SketchPropertiesDialog::set_sheet_profile_mode(
     form->setObjectName("sheetProfileForm");
     sheet_profile_width_panel_=new FeatureParameterPanel(this,initial.width);
     sheet_profile_width_panel_->setObjectName("sheetProfileWidthPanel");
-    sheet_profile_width_panel_->set_linear_extent_only();
+    sheet_profile_width_panel_->set_linear_extent_only(true);
     sheet_profile_width_panel_->bind_side_locks(locks,[this]{notify_preview();});
     form->addRow(sheet_profile_width_panel_);
     for(std::size_t side=0;side<2;++side) {
-        auto* target=sheet_profile_width_panel_->target_control(side);
-        target->setObjectName(QString("sheetProfileSideTarget%1").arg(side));
-        target->setPlaceholderText(tr("Vyberte bod, rovinu nebo rovinnou plochu."));
-        target->installEventFilter(this);
-        auto* clear=new QAction(tr("Vymazat referenci"),target);
-        target->addAction(clear);
-        sheet_profile_target_fields_[side]=target;
-        sheet_profile_target_clear_[side]=clear;
-        connect(clear,&QAction::triggered,this,[this,side] {
-            if(!sheet_profile_width_panel_)return;
-            sheet_profile_width_panel_->set_single_target(side,std::nullopt);
-            sheet_profile_pending_->width=sheet_profile_width_panel_->parameters();
-            if(sheet_profile_target_active_&&sheet_profile_target_side_==side) {
-                finish_sheet_profile_target_entry();
-                if(sheet_profile_target_cancel_)sheet_profile_target_cancel_();
-            }
-            refresh_sheet_profile_targets();
-            sheet_profile_changed_(*sheet_profile_pending_);notify_preview();
-        });
+        auto* limits=sheet_profile_width_panel_->limit_table(side);
+        limits->on_pick([this,side]{request_sheet_profile_target(side);});
+        limits->on_inspection([this]{notify_preview();});
         auto* end=sheet_profile_width_panel_->findChild<QComboBox*>(
             QString("featureSideEnd%1").arg(side));
-        connect(end,&QComboBox::currentIndexChanged,this,[this,side](int index) {
+        connect(end,&QComboBox::currentIndexChanged,this,[this,side,limits](int index) {
             if(index==1&&sheet_profile_width_panel_->targets(side).empty())
-                request_sheet_profile_target(side);
+                limits->begin_entry(0);
             else if(index!=1&&sheet_profile_target_active_&&
                     sheet_profile_target_side_==side) {
                 finish_sheet_profile_target_entry();
@@ -343,33 +325,26 @@ void SketchPropertiesDialog::set_sheet_profile_mode(
 
 void SketchPropertiesDialog::refresh_sheet_profile_targets() {
     if(!sheet_profile_width_panel_)return;
-    for(std::size_t side=0;side<2;++side) {
-        const auto& targets=sheet_profile_width_panel_->targets(side);
-        auto* field=sheet_profile_target_fields_[side];
-        if(!field)continue;
-        field->setText(targets.empty()?QString{}:QString::fromStdString(
-            targets.front().label.empty()
-                ?targets.front().reference.owner_id+" / "+
-                    targets.front().reference.semantic_key
-                :targets.front().label));
-        if(sheet_profile_target_clear_[side])
-            sheet_profile_target_clear_[side]->setEnabled(!targets.empty());
-        field->setStyleSheet(sheet_profile_target_active_&&
-                sheet_profile_target_side_==side
-            ?QStringLiteral("QLineEdit { border: 2px solid #18a84a; }")
-            :QString{});
-    }
+    for(std::size_t side=0;side<2;++side)
+        sheet_profile_width_panel_->limit_table(side)->refresh();
 }
 
 void SketchPropertiesDialog::request_sheet_profile_target(std::size_t side) {
     if(!sheet_profile_width_panel_||side>=2||
        sheet_profile_pending_->sheet_attachment)return;
+    auto* limits=sheet_profile_width_panel_->limit_table(side);
+    if(!limits->active_row())
+        limits->begin_entry(sheet_profile_width_panel_->targets(side).size(),
+            false);
     sheet_profile_target_side_=side;sheet_profile_target_active_=true;
     refresh_sheet_profile_targets();
     if(sheet_profile_target_request_)sheet_profile_target_request_();
 }
 
 void SketchPropertiesDialog::finish_sheet_profile_target_entry() {
+    if(sheet_profile_width_panel_)
+        for(std::size_t side=0;side<2;++side)
+            sheet_profile_width_panel_->limit_table(side)->finish_entry();
     sheet_profile_target_active_=false;refresh_sheet_profile_targets();
 }
 
@@ -391,7 +366,8 @@ void SketchPropertiesDialog::set_sheet_profile_end_target(
                 "Sheet Profile width direction cannot face the selected target.");
         width=sheet_profile_width_panel_->parameters();
     }
-    sheet_profile_width_panel_->set_single_target(side,std::move(target));
+    sheet_profile_width_panel_->limit_table(side)->assign(std::move(target),
+        false);
     sheet_profile_pending_->width=sheet_profile_width_panel_->parameters();
     sheet_profile_changed_(*sheet_profile_pending_);
     finish_sheet_profile_target_entry();notify_preview();
@@ -411,19 +387,6 @@ bool SketchPropertiesDialog::set_sheet_profile_signed_length(
             side,value,baseline_reversed))return false;
     sheet_profile_pending_->width=sheet_profile_width_panel_->parameters();
     sheet_profile_changed_(*sheet_profile_pending_);notify_preview();return true;
-}
-
-bool SketchPropertiesDialog::eventFilter(QObject* watched,QEvent* event) {
-    if(event->type()==QEvent::MouseButtonPress) {
-        const auto* mouse=static_cast<QMouseEvent*>(event);
-        if(mouse->button()==Qt::LeftButton)
-            for(std::size_t side=0;side<2;++side)
-                if(watched==sheet_profile_target_fields_[side]) {
-                    request_sheet_profile_target(side);
-                    event->accept();return true;
-                }
-    }
-    return PropertiesSubWindow::eventFilter(watched,event);
 }
 
 void SketchPropertiesDialog::set_bend_mode(zima::document::BendParameters initial,
@@ -579,6 +542,26 @@ void SketchPropertiesDialog::set_bend_mode(zima::document::BendParameters initia
 void SketchPropertiesDialog::set_pending_bend_parameters(zima::document::BendParameters value) {
     if(set_bend_parameters_)set_bend_parameters_(std::move(value));
     notify_preview();
+}
+
+void SketchPropertiesDialog::set_profile_bend_correction_only() {
+    name_->setEnabled(false);plane_selector_->setEnabled(false);
+    offset_->setEnabled(false);sketch_button_->setEnabled(false);
+    placement_->reference_table()->setEnabled(false);
+    if(auto* table=placement_->orientation_table())table->setEnabled(false);
+    for(auto* field:placement_->translation_fields())if(field)field->setEnabled(false);
+    for(auto* field:placement_->rotation_fields())if(field)field->setEnabled(false);
+    for(auto* field:placement_->rotation_offset_fields())if(field)field->setEnabled(false);
+    const std::array<const char*,15> owned{
+        "bendHem","bendRadiusOverride","bendRadius","bendAngle",
+        "bendOtherEndpoint","bendManualPlacement","bendThicknessOverride",
+        "bendThickness","bendKFactorOverride","bendKFactor",
+        "bendCornerFirst","bendCornerLast","bendCornerGap",
+        "bendPathSketchButton","sketchOpenButton"};
+    for(const auto* name:owned)
+        if(auto* widget=findChild<QWidget*>(name))widget->setEnabled(false);
+    if(auto* end=findChild<QPushButton*>("bendEndSketchButton"))
+        end->setEnabled(true);
 }
 
 void SketchPropertiesDialog::set_line_bend_mode(
@@ -1008,7 +991,18 @@ void SketchPropertiesDialog::refresh_resolved_placement() {
 
 std::vector<zima::document::ConstructionReference>
 SketchPropertiesDialog::highlighted_reference_entries() const {
-    return placement_->highlighted_reference_entries();
+    auto result=placement_->highlighted_reference_entries();
+    if(sheet_profile_width_panel_)
+        for(std::size_t side=0;side<2;++side)
+            for(const auto& reference:
+                    sheet_profile_width_panel_->limit_table(side)->inspected()) {
+                zima::document::ConstructionReference entry;
+                entry.instance_path=reference.instance_path;
+                entry.owner_id=reference.owner_id;
+                entry.semantic_key=reference.semantic_key;
+                result.push_back(std::move(entry));
+            }
+    return result;
 }
 
 std::vector<zima::document::ConstructionReference>

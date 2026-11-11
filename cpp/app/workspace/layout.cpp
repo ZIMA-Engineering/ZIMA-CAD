@@ -95,8 +95,17 @@ protected:
 std::string sheet_profile_interaction_owner(
         const zima::document::PartDocument& document,
         const std::string& owner_id) {
-    const auto* child=document.find_container(owner_id);
-    if(!child||child->sheet_profile_binding.parent_id.empty())return owner_id;
+    auto resolved_owner=owner_id;
+    if(!document.find_container(resolved_owner)) {
+        const auto sketch=std::ranges::find(document.sketches,owner_id,
+            &zima::sketcher::Sketch::id);
+        if(sketch!=document.sketches.end()&&
+           document.find_container(sketch->owner_container_id))
+            resolved_owner=sketch->owner_container_id;
+    }
+    const auto* child=document.find_container(resolved_owner);
+    if(!child||child->sheet_profile_binding.parent_id.empty())
+        return resolved_owner;
     const auto* parent=document.find_container(
         child->sheet_profile_binding.parent_id);
     if(!parent||parent->feature_kind!=
@@ -108,7 +117,7 @@ std::string sheet_profile_interaction_owner(
         parent->sheet_profile.sheet_attachment&&
         parent->sheet_profile.master_feature_id==child->id&&
         child->feature_kind==zima::document::FeatureKind::Bend;
-    return attached_master?owner_id:parent->id;
+    return attached_master?resolved_owner:parent->id;
 }
 
 } // namespace
@@ -916,11 +925,8 @@ void AssemblyWorkspaceWindow::create_layout() {
             if(candidate.kind==zima::viewer::CandidateKind::Container)
                 if(const auto* part=workspace_.open_part(
                         workspace_.active_document_id()))
-                    if(const auto* child=part->session.document().find_container(
-                            context_owner_id);
-                        child&&!child->sheet_profile_binding.parent_id.empty())
-                        context_owner_id=
-                            child->sheet_profile_binding.parent_id;
+                    context_owner_id=sheet_profile_interaction_owner(
+                        part->session.document(),context_owner_id);
             if (!part_element_context_menu_enabled(context_owner_id)) return;
             if(candidate.kind==zima::viewer::CandidateKind::Symbol && !properties_dialog_) {
                 const auto id=candidate.semantic_key.substr(7);QMenu menu(this);

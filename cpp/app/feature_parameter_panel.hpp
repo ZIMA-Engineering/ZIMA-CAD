@@ -235,13 +235,18 @@ public:
     }
     // Sheet Profile consumes the ordinary Feature side identities and
     // direction controls.  Its common strip width is deliberately limited to
-    // linear Length/Up-to extents and one target per side.
-    void set_linear_extent_only() {
+    // linear Length/Up-to extents. Sheet Profile additionally reuses the
+    // ordinary ordered multi-target table so its Flat envelope can consume
+    // several faces or planes without introducing a second reference UI.
+    void set_linear_extent_only(bool multiple_targets=false) {
         extent_only_=true;
+        extent_multiple_targets_=multiple_targets;
         plane_group_->hide();sketch_group_->hide();result_group_->hide();
         for(auto& side:sides_)
             while(side.mode->count()>2)
                 side.mode->removeItem(side.mode->count()-1);
+        if(multiple_targets)
+            for(auto& side:sides_)side.limits->set_envelope_targets(true);
         refresh_type();
         for(int i=0;i<2;++i)refresh_side(i);
     }
@@ -335,7 +340,8 @@ public:
         document::prune_feature_up_to_patch_choices(value);sides_.at(side).limits->refresh();
     }
     QDoubleSpinBox* side_correction(std::size_t side) const {return sides_.at(side).correction;}
-    bool modeling_limits() const {return !extent_only_&&selected_type()==document::FeatureType::Modeling;}
+    bool modeling_limits() const {return (!extent_only_||extent_multiple_targets_)&&
+        selected_type()==document::FeatureType::Modeling;}
     void on_preview_notice_changed(std::function<void()> callback){notice_changed_=std::move(callback);}
     void update_draft_notice() {
         const bool visible=document::feature_up_to_requires_exact_preview(parameters());
@@ -434,7 +440,7 @@ private:
     QCheckBox *origin_axis_{}, *centroid_axis_{}, *individual_centroid_axes_{};
     QComboBox* result_{};
     QWidget* operations_{};
-    bool symmetric_{},extent_only_{};
+    bool symmetric_{},extent_only_{},extent_multiple_targets_{};
     double offset_display_{},thickness_display_{};
     std::set<std::string>* locks_{};
     std::function<void()> locks_changed_;
@@ -575,9 +581,9 @@ private:
         const bool modeling=selected_type()==document::FeatureType::Modeling;
         const int mode=side.mode->currentIndex();const bool up_to=mode==1?side.end->currentIndex()==1:mode==2&&side.end->currentIndex()==2;
         const bool visible=modeling&&up_to&&(!symmetric_||index==0);
-        side.rows->setRowVisible(side.target_row,extent_only_?visible:
+        side.rows->setRowVisible(side.target_row,extent_only_&&!extent_multiple_targets_?visible:
             selected_type()==document::FeatureType::Axis);
-        side.rows->setRowVisible(side.limits,!extent_only_&&visible);
+        side.rows->setRowVisible(side.limits,(!extent_only_||extent_multiple_targets_)&&visible);
         side.rows->setRowVisible(side.correction,visible);
         side.limits->setEnabled(visible);side.correction->setEnabled(visible);if(!visible)side.limits->finish_entry(true);
         side.box->setSizePolicy(QSizePolicy::Preferred,visible?QSizePolicy::Expanding:QSizePolicy::Preferred);

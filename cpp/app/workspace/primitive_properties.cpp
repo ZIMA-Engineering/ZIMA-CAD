@@ -66,6 +66,11 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                 zima::document::FeatureKind::SheetProfile)
             return false;
         if(parent->sheet_profile.master_feature_id==feature->id)return false;
+        // Every generated Bend owns its ordinary end-profile correction.
+        // Flats still route to the parent path because they have no
+        // independently editable native parameters.
+        if(feature->feature_kind==zima::document::FeatureKind::Bend)
+            return false;
         selected_sketch_segment_id_.clear();selected_sketch_arc_id_.clear();
         if(feature->feature_kind==zima::document::FeatureKind::Bend)
             selected_sketch_arc_id_=feature->sheet_profile_binding.curve_id;

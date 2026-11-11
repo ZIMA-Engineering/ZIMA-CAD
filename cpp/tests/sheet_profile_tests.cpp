@@ -46,6 +46,13 @@ struct Fixture {
         static_cast<void>(driver.add_arc(20,radius,20,0,20+radius,radius));
         static_cast<void>(driver.add_segment(20+radius,radius,20+radius,25));
     }
+    void two_bends() {
+        static_cast<void>(driver.add_segment(0,0,20,0));
+        static_cast<void>(driver.add_arc(20,5,20,0,25,5));
+        static_cast<void>(driver.add_segment(25,5,25,25));
+        static_cast<void>(driver.add_arc(20,25,25,25,20,30));
+        static_cast<void>(driver.add_segment(20,30,0,30));
+    }
 };
 
 const document::HistoryContainer& child(const workspace::PreparedSheetProfile& value,
@@ -337,6 +344,135 @@ void free_up_to_targets() {
         "Profile accepted an Up-to plane that intersects its route plane");
 }
 
+void multiple_up_to_targets_and_bend_corrections() {
+    {
+        Fixture fixture;
+        static_cast<void>(fixture.driver.add_segment(0,0,30,0));
+        auto& width=fixture.profile.sheet_profile.width;
+        width.symmetric=false;width.reversed_sides=false;
+        width.sides[0].operation=document::FeatureSideOperation::Extrusion;
+        width.sides[0].extrusion_extent=document::EndCondition::UpTo;
+        width.sides[1].operation=document::FeatureSideOperation::None;
+        document::ExtrusionParameters::EndTarget first,second;
+        first.kind=second.kind=document::EndTargetKind::Face;
+        first.reference={"profile-stop:first","face",{}};
+        second.reference={"profile-stop:second","face",{}};
+        first.label="First stop";second.label="Second stop";
+        width.sides[0].targets={first,second};
+
+        kernel::ViewerReferenceGeometry geometry;
+        // Two infinite target planes exchange which one is nearest at x=10.
+        // The generated Flat must retain that interior switch as a real
+        // broken boundary instead of connecting only endpoint samples.
+        geometry.vertices={{0,-50,10},{40,-50,30},{0,50,10},
+            {0,-50,20},{40,-50,0},{0,50,20}};
+        geometry.triangles={0,1,2,3,4,5};
+        kernel::FaceReference first_reference{
+            "profile-stop:first","face",{}};
+        kernel::FaceReference second_reference{
+            "profile-stop:second","face",{}};
+        auto first_surface=std::make_shared<kernel::SurfaceGeometry>();
+        first_surface->kind=kernel::SurfaceGeometry::Kind::Plane;
+        first_surface->origin={0,0,10};
+        first_surface->axis={-.5,0,1};
+        auto second_surface=std::make_shared<kernel::SurfaceGeometry>();
+        second_surface->kind=kernel::SurfaceGeometry::Kind::Plane;
+        second_surface->origin={0,0,20};
+        second_surface->axis={.5,0,1};
+        first_reference.surface=std::move(first_surface);
+        second_reference.surface=std::move(second_surface);
+        geometry.triangle_references={std::move(first_reference),
+            std::move(second_reference)};
+        const auto prepared=workspace::prepare_sheet_profile(fixture.part,
+            fixture.profile,fixture.driver,geometry);
+        const auto& flat=child(prepared,0);
+        const auto sketch=std::ranges::find(prepared.document.sketches,
+            flat.flat.sketch_id,&sketcher::Sketch::id);
+        require(sketch!=prepared.document.sketches.end(),
+            "Multi-target Profile Flat lost its Sketch");
+        const auto* start_last=sketch->find_point(
+            sketch->id+":profile:point:1");
+        const auto* switch_last=sketch->find_point(
+            sketch->id+":profile:point:2");
+        const auto* end_last=sketch->find_point(
+            sketch->id+":profile:point:3");
+        require(sketch->points.size()==5&&sketch->segments.size()==5&&
+                start_last&&switch_last&&end_last&&
+                std::abs(start_last->x-10)<1e-8&&
+                std::abs(switch_last->x-15)<1e-8&&
+                std::abs(switch_last->y-10)<1e-8&&
+                std::abs(end_last->x-5)<1e-8&&
+                std::abs(end_last->y-30)<1e-8,
+            "Multiple Up-to planes did not produce their exact broken envelope");
+        const auto* parent=prepared.document.find_container(fixture.profile.id);
+        require(parent&&parent->sheet_profile.width.sides[0].targets.size()==2,
+            "Multiple Profile Up-to targets were not retained");
+        const auto reopened=document::PartDocument::from_serialized(
+            prepared.document.serialized());
+        require(reopened.find_container(fixture.profile.id)->
+                sheet_profile.width.sides[0].targets.size()==2,
+            "Multiple Profile Up-to targets did not survive save/reopen");
+        calculate(prepared.document);
+    }
+
+    {
+        Fixture fixture;fixture.two_bends();
+        auto prepared=workspace::prepare_sheet_profile(fixture.part,
+            fixture.profile,fixture.driver);
+        require(prepared.logical_children.size()==5&&
+                child(prepared,1).feature_kind==document::FeatureKind::Bend&&
+                child(prepared,3).feature_kind==document::FeatureKind::Bend,
+            "Two-Bend Profile did not preserve its logical route");
+        auto edited=child(prepared,3);
+        const auto edited_start=*std::ranges::find(prepared.document.sketches,
+            edited.bend.sketch_id,&sketcher::Sketch::id);
+        document::set_bend_profile_extensions(edited,2,3);
+        const auto regenerated=workspace::prepare_sheet_profile_master_edit(
+            prepared.document,edited,edited_start);
+        require(regenerated.logical_children==prepared.logical_children,
+            "Bend correction changed stable Profile child identities");
+        const auto* corrected=regenerated.document.find_container(
+            prepared.logical_children[3]);
+        const auto* untouched=regenerated.document.find_container(
+            prepared.logical_children[1]);
+        require(corrected&&untouched&&
+                document::bend_profile_extensions(*corrected)==
+                    std::array<double,2>{2,3}&&
+                document::bend_profile_extensions(*untouched)==
+                    std::array<double,2>{0,0},
+            "A Profile Bend correction was not independent");
+        const auto& following=child(regenerated,4);
+        const auto following_sketch=std::ranges::find(
+            regenerated.document.sketches,following.flat.sketch_id,
+            &sketcher::Sketch::id);
+        const auto corrected_end=sketcher::Sketch::from_serialized(
+            corrected->bend.auxiliary_sketches[1]);
+        const auto corrected_interval=document::bend_end_profile_interval(
+            *corrected);
+        const auto following_interval=flat_width_interval(
+            regenerated.document,following);
+        require(following_sketch!=regenerated.document.sketches.end()&&
+                std::abs(corrected_interval[0]-following_interval.first)<1e-8&&
+                std::abs(corrected_interval[1]-following_interval.second)<1e-8,
+            "Following Profile Flat did not inherit its Bend correction");
+        require(document::PartDocument::from_serialized(
+                regenerated.document.serialized()).find_container(
+                    corrected->id)->bend.auxiliary_sketches[1]==
+                corrected->bend.auxiliary_sketches[1],
+            "Profile Bend correction did not survive save/reopen");
+        calculate(regenerated.document);
+
+        bool rejected=false;
+        try {
+            auto invalid=*corrected;invalid.bend.radius+=1;
+            static_cast<void>(workspace::prepare_sheet_profile_master_edit(
+                regenerated.document,invalid,*following_sketch));
+        } catch(const std::invalid_argument&) {rejected=true;}
+        require(rejected,
+            "A non-master Profile Bend accepted an edit beyond its end corrections");
+    }
+}
+
 void master_edit_propagation() {
     {
         Fixture fixture;fixture.line_arc_line();
@@ -360,15 +496,15 @@ void master_edit_propagation() {
             "Master Flat length did not propagate to the Profile route");
         bool rejected=false;
         try {
-            auto later=child(regenerated,1);
+            auto later=child(regenerated,2);
             const auto later_sketch=*std::ranges::find(
-                regenerated.document.sketches,later.bend.sketch_id,
+                regenerated.document.sketches,later.flat.sketch_id,
                 &sketcher::Sketch::id);
             static_cast<void>(workspace::prepare_sheet_profile_master_edit(
                 regenerated.document,later,later_sketch));
         } catch(const std::invalid_argument&) {rejected=true;}
         require(rejected,
-            "A non-master Profile child accepted independent native editing");
+            "A non-master Profile Flat accepted independent native editing");
         calculate(regenerated.document);
     }
     {
@@ -1725,6 +1861,7 @@ int main() {
         arc_first_and_flat_only();
         free_width_directions();
         free_up_to_targets();
+        multiple_up_to_targets_and_bend_corrections();
         master_edit_propagation();
         attached_profile_seed_and_history();
         group_history_contracts();

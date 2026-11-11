@@ -24,6 +24,15 @@ preserving the calculated sheet result. Native Part format is 52. All 1,058
 repository-owned Part-based assets were migrated with the current shared C++
 writer, recalculated, saved and reopened with zero errors.
 
+After that release, free Sheet Profile gained the shared ordered multi-target
+Up To editor, exact nearest-plane switches inside straight Flats, and restricted
+end-profile correction editing on every generated Bend. The following Flat
+inherits the corrected Bend edge; route and material parameters remain parent
+owned. The focused Windows contracts pass, but this work is not a published
+build yet and native Linux execution remains open. Exact circle, ellipse, spline
+and mixed analytic target boundaries are still planned rather than claimed.
+See the [focused verification](verification/20261111-sheet-profile-multiple-targets-and-bend-corrections.md).
+
 The unpublished 2026110901 and 2026110902 source tags were superseded by published
 Windows release [2026111001](releases/2026111001.md). It completes shared Feature-like
 Sheet Profile extents, active-Body and manually shown/copy Origin references in

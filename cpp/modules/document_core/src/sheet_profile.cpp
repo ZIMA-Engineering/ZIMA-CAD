@@ -204,7 +204,7 @@ void validate_sheet_profile_width(const SheetProfileParameters& profile) {
         const auto& stored=width.sides[index];
         if((stored.operation!=FeatureSideOperation::None&&
             stored.operation!=FeatureSideOperation::Extrusion)||
-           stored.targets.size()>1||stored.draft_angle_degrees!=0||
+           stored.draft_angle_degrees!=0||
            stored.rotation_extent!=FeatureRotationExtent::Angle||
            stored.up_to.angle_correction_degrees!=0||
            stored.up_to.primary_cap_source||
@@ -215,7 +215,7 @@ void validate_sheet_profile_width(const SheetProfileParameters& profile) {
         active=true;
         if(side.extrusion_extent==EndCondition::ThroughAll||
            (side.extrusion_extent==EndCondition::UpTo&&
-            side.targets.size()!=1))
+            side.targets.empty()))
             throw std::invalid_argument("Invalid Sheet Profile width ending.");
     }
     if(!active)

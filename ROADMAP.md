@@ -1,5 +1,13 @@
 # ZIMA-CAD Roadmap
 
+Post-2026111102 local work extends Sheet Profile width with multiple Up To
+targets, exact switches between planar targets inside a Flat and independent
+end-profile correction on every generated Bend. The remaining analytic-boundary
+step is to preserve exact circle, ellipse, spline and mixed target intersections
+as native Flat boundary curves; display tessellation must not be promoted into
+authored geometry. See the
+[focused verification](doc/verification/20261111-sheet-profile-multiple-targets-and-bend-corrections.md).
+
 The 2026-10-24 Loft follow-up completes parent-local owned Sketch placement,
 missing-reference snapshots, owned parameter identifiers and numeric helper
 labels. See [the follow-up verification](doc/verification/20261024-loft-parent-origin.md)

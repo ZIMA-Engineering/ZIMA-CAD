@@ -864,6 +864,36 @@ matrix covers creation, endpoint switching, manual detachment, calculation,
 Undo/Redo, save/reopen and cold regeneration; native Linux execution remains a
 separate host gate.
 
+### Multiple width targets and generated-Bend corrections (2026-11-11)
+
+A free Profile width may now retain multiple **Up To** targets on either side.
+The Properties window uses the shared ordered target table with independent
+inspection and removal. During explicit Profile preparation, every route station
+uses the nearest valid ray hit on that side. Multiple planar targets are treated
+as exact affine limits along each straight Flat: when the nearest plane changes
+inside the span, the generated Flat owns the resulting broken boundary instead
+of replacing it with one endpoint-to-endpoint line. Target identities and their
+resolved fallback geometry survive native save/reopen without a format change.
+
+Every generated Bend owns its existing end-profile endpoint corrections. A
+non-master generated Bend therefore opens a restricted Bend Properties view:
+only the end-profile Sketch is editable; route, placement, start width, radius,
+angle, thickness, K factor and corner options remain owned by the parent Profile.
+The correction is relative to the target-driven reference width, and the
+following Flat consumes the corrected physical edge. Corrections on successive
+Bends remain independent and preserve child identities through regeneration,
+Undo/Redo and save/reopen. Generated Flats still route editing through the
+parent Profile.
+
+The exact internal switch calculation currently applies to planar targets.
+Finite or curved face targets are still evaluated through their persisted ray
+geometry at the generated span stations; a curved Flat boundary made from an
+exact circle, ellipse, spline or mixed analytic chain is a separate extension.
+The implementation deliberately does not turn display tessellation into an
+approximate authored curve. Bend geometry remains one ordinary Bend with the
+two established end corrections; this extension does not make Bend itself a
+general curved boundary.
+
 ## Sheet Revolution
 
 The Sheet Metal toolbar and Insert menu expose **Revolution** (`Rotace`). It

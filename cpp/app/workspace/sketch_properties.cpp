@@ -320,6 +320,14 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
             dialog->set_bend_mode(sketch_feature->bend,defaults,
             sketch_feature->value_locks,[sketch_feature](auto p){sketch_feature->bend=std::move(p);},
             [edit_owned_sketch]{edit_owned_sketch(std::nullopt);},[edit_owned_sketch](auto stage){edit_owned_sketch(stage);});
+            if(!sketch_feature->sheet_profile_binding.parent_id.empty()) {
+                const auto* parent=part->session.document().find_container(
+                    sketch_feature->sheet_profile_binding.parent_id);
+                if(parent&&parent->feature_kind==
+                        zima::document::FeatureKind::SheetProfile&&
+                   parent->sheet_profile.master_feature_id!=sketch_feature->id)
+                    dialog->set_profile_bend_correction_only();
+            }
             dialog->bend_sketch_mutator=[dialog,sketch_feature,prepared_sketch,defaults](const auto& id,const auto& mutation) {
                 auto next=*sketch_feature;zima::document::prepare_bend_sketches(next,*prepared_sketch,defaults);
                 for(std::size_t stage=0;stage<2;++stage) {

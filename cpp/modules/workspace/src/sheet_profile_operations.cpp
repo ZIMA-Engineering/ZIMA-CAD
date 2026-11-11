@@ -67,29 +67,23 @@ double profile_width_side(document::FeatureParameters& width,
     if(side.extrusion_extent==document::EndCondition::Length)
         return side.length;
     if(side.extrusion_extent!=document::EndCondition::UpTo||
-       side.targets.size()!=1)
-        throw std::invalid_argument("Select one Sheet Profile width target.");
-    const auto resolved=document::resolve_profile_target(
-        side.targets.front(),geometry);
-    if(!resolved)
-        throw std::invalid_argument(
-            "The original Sheet Profile width target is unavailable.");
-    if(resolved->kind==document::EndTargetKind::Face)
-        throw std::invalid_argument(
-            "Sheet Profile width needs a point, plane or planar face target.");
-    if(resolved->kind==document::EndTargetKind::Plane) {
-        const auto normal=unit(resolved->fallback_normal);
-        if(std::abs(std::abs(dot(normal,axis))-1)>1e-7)
-            throw std::invalid_argument(
-                "Sheet Profile width target plane must be parallel to the route Sketch plane.");
-    }
-    stored.targets.front()=*resolved;
+       side.targets.empty())
+        throw std::invalid_argument("Select a Sheet Profile width target.");
     const auto sign=width.side_direction_sign(index);
-    const auto distance=document::axis_target_distance(origin,mul(axis,sign),
-        *resolved);
+    std::optional<double> distance;
+    for(auto& requested:stored.targets) {
+        const auto resolved=document::resolve_profile_target(requested,geometry);
+        if(!resolved)
+            throw std::invalid_argument(
+                "An original Sheet Profile width target is unavailable.");
+        requested=*resolved;
+        const auto hit=document::axis_target_distance(origin,mul(axis,sign),
+            requested);
+        if(hit&&(!distance||*hit<*distance))distance=hit;
+    }
     if(!distance)
         throw std::invalid_argument(
-            "Sheet Profile width target is not on the selected side.");
+            "No Sheet Profile width target is on the selected side at this station.");
     const double corrected=*distance+side.up_to.length_correction;
     if(!std::isfinite(corrected)||corrected<.001||corrected>1000000)
         throw std::invalid_argument(
@@ -98,12 +92,11 @@ double profile_width_side(document::FeatureParameters& width,
 }
 
 std::pair<double,double> width_interval(document::SheetProfileParameters& profile,
-        const sketcher::Sketch& driver,
+        V origin,V axis,
         const kernel::ViewerReferenceGeometry& geometry) {
     document::validate_sheet_profile_width(profile);
     auto& width=profile.width;
-    const auto axis=unit(driver.normal());
-    const auto origin=driver.resolved_origin;
+    axis=unit(axis);
     const double first=profile_width_side(width,0,origin,axis,geometry);
     const double second=width.symmetric?first:
         profile_width_side(width,1,origin,axis,geometry);
@@ -121,6 +114,95 @@ std::pair<double,double> width_interval(document::SheetProfileParameters& profil
     if(high-low<.001)
         throw std::invalid_argument("Sheet Profile width is too small.");
     return {low,high};
+}
+
+using FlatEnvelope=std::array<std::vector<std::array<double,2>>,2>;
+
+FlatEnvelope flat_width_envelope(document::SheetProfileParameters& profile,
+        V origin,V length_axis,V width_axis,V local_width_axis,double length,
+        const kernel::ViewerReferenceGeometry& geometry) {
+    std::vector<double> stations{0.,length};
+    auto& width=profile.width;
+    for(std::size_t side_index=0;side_index<2;++side_index) {
+        const auto source=width.symmetric?0:side_index;
+        auto& stored=width.sides[source];
+        const auto side=width.effective_side(side_index);
+        if(side.operation!=document::FeatureSideOperation::Extrusion||
+           side.extrusion_extent!=document::EndCondition::UpTo)
+            continue;
+        struct Line {double start{},end{};};
+        std::vector<Line> planes;
+        const auto sign=width.side_direction_sign(side_index);
+        for(auto& requested:stored.targets) {
+            const auto resolved=document::resolve_profile_target(
+                requested,geometry);
+            if(!resolved)
+                throw std::invalid_argument(
+                    "An original Sheet Profile width target is unavailable.");
+            requested=*resolved;
+            if(requested.kind!=document::EndTargetKind::Plane)continue;
+            const auto denominator=dot(requested.fallback_normal,
+                mul(width_axis,sign));
+            if(std::abs(denominator)<1e-10)continue;
+            const auto distance=[&](double station) {
+                return dot(sub(requested.fallback_origin,
+                    add(origin,mul(length_axis,station))),
+                    requested.fallback_normal)/denominator+
+                    side.up_to.length_correction;
+            };
+            planes.push_back({distance(0),distance(length)});
+        }
+        // Every plane contributes an affine distance along a straight Flat.
+        // Pair intersections are therefore the only possible switches of the
+        // exact nearest-target envelope. Non-planar faces retain their
+        // endpoint chord until an exact analytic face/plane intersection path
+        // is available; never infer such a curve from display tessellation.
+        for(std::size_t first=0;first<planes.size();++first)
+            for(std::size_t second=first+1;second<planes.size();++second) {
+                const double a=planes[first].start-planes[second].start;
+                const double b=(planes[first].end-planes[first].start)-
+                    (planes[second].end-planes[second].start);
+                if(std::abs(b)<1e-12)continue;
+                const double station=-a*length/b;
+                if(station>1e-9&&station<length-1e-9)
+                    stations.push_back(station);
+            }
+    }
+    std::ranges::sort(stations);
+    stations.erase(std::unique(stations.begin(),stations.end(),
+        [&](double first,double second) {
+            return std::abs(first-second)<=1e-9*std::max(1.,length);
+        }),stations.end());
+    FlatEnvelope result;
+    for(const double station:stations) {
+        const auto station_origin=add(origin,mul(length_axis,station));
+        const auto interval=width_interval(profile,station_origin,width_axis,
+            geometry);
+        const std::array positions{interval.first,interval.second};
+        for(std::size_t side=0;side<2;++side) {
+            const auto point=add(station_origin,mul(width_axis,positions[side]));
+            result[side].push_back({dot(sub(point,origin),local_width_axis),
+                station});
+        }
+    }
+    const auto remove_collinear=[](auto& chain) {
+        for(std::size_t index=1;index+1<chain.size();) {
+            const auto& first=chain[index-1];
+            const auto& middle=chain[index];
+            const auto& last=chain[index+1];
+            const double cross_value=(middle[0]-first[0])*
+                    (last[1]-first[1])-
+                (middle[1]-first[1])*(last[0]-first[0]);
+            const double scale=std::max({1.,std::abs(first[0]),
+                std::abs(middle[0]),std::abs(last[0]),
+                std::abs(last[1]-first[1])});
+            if(std::abs(cross_value)<=1e-9*scale*scale)
+                chain.erase(chain.begin()+static_cast<std::ptrdiff_t>(index));
+            else ++index;
+        }
+    };
+    remove_collinear(result[0]);remove_collinear(result[1]);
+    return result;
 }
 
 bool width_uses_up_to(const document::FeatureParameters& width) {
@@ -262,6 +344,25 @@ void set_bend_width(sketcher::Sketch& sketch,double first,double last) {
     sketch.validate();
 }
 
+std::array<double,2> bend_start_interval(const sketcher::Sketch& sketch) {
+    const auto segment=std::ranges::find_if(sketch.segments,
+        [](const auto& value){return !value.construction;});
+    if(segment==sketch.segments.end())
+        throw std::invalid_argument(
+            "Generated Sheet Profile Bend start edge is missing.");
+    const auto* first=sketch.find_point(segment->first_point_id);
+    const auto* last=sketch.find_point(segment->second_point_id);
+    if(!first||!last)
+        throw std::invalid_argument(
+            "Generated Sheet Profile Bend start point is missing.");
+    std::array result{first->x,last->x};
+    std::ranges::sort(result);
+    if(result[1]-result[0]<.001)
+        throw std::invalid_argument(
+            "Generated Sheet Profile Bend start edge is too short.");
+    return result;
+}
+
 std::array<double,2> attached_profile_bend_offsets(
         const sketcher::Sketch& sketch) {
     std::array<double,2> result{};
@@ -329,9 +430,10 @@ std::array<double,2> project_width_edge(const std::array<V,2>& edge,
     return result;
 }
 
-void set_flat_profile(sketcher::Sketch& sketch,double first,double last,
-        double length,bool width_driver) {
-    if(last-first<.001||length<.001)
+void set_flat_profile(sketcher::Sketch& sketch,double start_first,
+        double start_last,double end_first,double end_last,double length,
+        bool width_driver) {
+    if(start_last-start_first<.001||end_last-end_first<.001||length<.001)
         throw std::invalid_argument("Sheet Profile Flat dimensions are too small.");
     sketch.points.clear();sketch.segments.clear();sketch.circles.clear();
     sketch.arcs.clear();sketch.ellipses.clear();sketch.elliptical_arcs.clear();
@@ -340,7 +442,7 @@ void set_flat_profile(sketcher::Sketch& sketch,double first,double last,
     sketch.dimensions.clear();sketch.dimension_layouts.clear();
     sketch.corner_radii.clear();sketch.offsets.clear();sketch.curve_trims.clear();
     const std::array<std::pair<double,double>,4> values{{
-        {first,0},{last,0},{last,length},{first,length}}};
+        {start_first,0},{start_last,0},{end_last,length},{end_first,length}}};
     for(std::size_t index=0;index<values.size();++index) {
         auto point=sketcher::Sketch::create_point(values[index].first,
             values[index].second);
@@ -366,15 +468,19 @@ void set_flat_profile(sketcher::Sketch& sketch,double first,double last,
     stabilize(sketch.add_point_on_line_constraint(
         sketch.points[1].id,"sketch_axis:x"),
         ":profile:constraint:base:last");
-    stabilize(sketch.add_point_pair_constraint(sketch.points[1].id,
-        sketch.points[2].id,sketcher::ConstraintKind::Vertical),
-        ":profile:constraint:right");
+    const bool tapered=std::abs(start_first-end_first)>1e-10||
+        std::abs(start_last-end_last)>1e-10;
+    if(!tapered)
+        stabilize(sketch.add_point_pair_constraint(sketch.points[1].id,
+            sketch.points[2].id,sketcher::ConstraintKind::Vertical),
+            ":profile:constraint:right");
     stabilize(sketch.add_point_pair_constraint(sketch.points[2].id,
         sketch.points[3].id,sketcher::ConstraintKind::Horizontal),
         ":profile:constraint:top");
-    stabilize(sketch.add_point_pair_constraint(sketch.points[3].id,
-        sketch.points[0].id,sketcher::ConstraintKind::Vertical),
-        ":profile:constraint:left");
+    if(!tapered)
+        stabilize(sketch.add_point_pair_constraint(sketch.points[3].id,
+            sketch.points[0].id,sketcher::ConstraintKind::Vertical),
+            ":profile:constraint:left");
     for(const auto& [index,suffix]:
             std::array<std::pair<std::size_t,const char*>,2>{{
                 {0,":position:first"},{1,":position:last"}}}) {
@@ -384,10 +490,58 @@ void set_flat_profile(sketcher::Sketch& sketch,double first,double last,
         dimension.placement=std::array{values[index].first,index?8.:-8.};
         sketch.dimensions.push_back(std::move(dimension));
     }
+    if(tapered)
+        for(const auto& [index,suffix]:
+                std::array<std::pair<std::size_t,const char*>,2>{{
+                    {3,":position:end:first"},{2,":position:end:last"}}}) {
+            auto dimension=sketch.create_point_dimension("sketch_origin",
+                sketch.points[index].id,sketcher::DimensionKind::DistanceX);
+            dimension.id=sketch.id+suffix;dimension.locked=true;
+            dimension.suppressed=true;
+            dimension.placement=std::array{values[index].first,index==2?8.:-8.};
+            sketch.dimensions.push_back(std::move(dimension));
+        }
     auto height=sketch.create_point_dimension(sketch.points[1].id,
         sketch.points[2].id,sketcher::DimensionKind::DistanceY);
     height.id=sketch.id+":profile:length";height.locked=true;
     height.suppressed=true;sketch.dimensions.push_back(std::move(height));
+    sketch.validate();
+}
+
+void set_flat_envelope_profile(sketcher::Sketch& sketch,
+        const FlatEnvelope& envelope) {
+    if(envelope[0].size()<2||envelope[1].size()<2||
+       std::abs(envelope[0].front()[1]-envelope[1].front()[1])>1e-8||
+       std::abs(envelope[0].back()[1]-envelope[1].back()[1])>1e-8)
+        throw std::invalid_argument(
+            "Sheet Profile Flat target envelope is invalid.");
+    sketch.points.clear();sketch.segments.clear();sketch.circles.clear();
+    sketch.arcs.clear();sketch.ellipses.clear();sketch.elliptical_arcs.clear();
+    sketch.bsplines.clear();sketch.constraints.clear();
+    sketch.dimensions.clear();sketch.dimension_layouts.clear();
+    sketch.corner_radii.clear();sketch.offsets.clear();sketch.curve_trims.clear();
+    std::vector<std::array<double,2>> values;
+    values.reserve(envelope[0].size()+envelope[1].size());
+    values.push_back(envelope[0].front());
+    values.insert(values.end(),envelope[1].begin(),envelope[1].end());
+    for(auto item=envelope[0].rbegin();item!=envelope[0].rend()-1;++item)
+        values.push_back(*item);
+    if(values.size()<4)
+        throw std::invalid_argument(
+            "Sheet Profile Flat target envelope is too small.");
+    for(std::size_t index=0;index<values.size();++index) {
+        auto point=sketcher::Sketch::create_point(values[index][0],
+            values[index][1]);
+        point.id=sketch.id+":profile:point:"+std::to_string(index);
+        point.fixed=true;sketch.points.push_back(std::move(point));
+    }
+    for(std::size_t index=0;index<values.size();++index) {
+        auto segment=sketcher::Sketch::create_segment(
+            sketch.points[index].id,
+            sketch.points[(index+1)%values.size()].id);
+        segment.id=sketch.id+":profile:segment:"+std::to_string(index);
+        sketch.segments.push_back(std::move(segment));
+    }
     sketch.validate();
 }
 
@@ -397,9 +551,14 @@ void hide_generated_bend_dimensions(document::HistoryContainer& feature,
         if(dimension.id==start.id+":position:first"||
            dimension.id==start.id+":position:last")
             dimension.suppressed=!width_driver;
-    for(auto& serialized:feature.bend.auxiliary_sketches) {
+    for(std::size_t stage=0;stage<feature.bend.auxiliary_sketches.size();
+            ++stage) {
+        auto& serialized=feature.bend.auxiliary_sketches[stage];
         auto sketch=sketcher::Sketch::from_serialized(serialized);
-        for(auto& dimension:sketch.dimensions)dimension.suppressed=!width_driver;
+        // Every generated Bend owns only its end-profile corner corrections.
+        // The route/path and start width remain visible solely on the master.
+        for(auto& dimension:sketch.dimensions)
+            dimension.suppressed=!width_driver&&stage==0;
         serialized=sketch.serialized();
     }
 }
@@ -674,7 +833,8 @@ PreparedSheetProfile prepare_sheet_profile(const document::PartDocument& before,
     profile.sheet_profile.width.sketch_id=driver.id;
     auto interval=profile.sheet_profile.sheet_attachment
         ?attached_width_interval(profile,driver,references)
-        :width_interval(profile.sheet_profile,driver,references);
+        :width_interval(profile.sheet_profile,driver.resolved_origin,
+            width_axis,references);
     const bool width_edited=existing&&
         profile.sheet_profile.width!=existing->sheet_profile.width;
     if(!profile.sheet_profile.sheet_attachment&&existing&&!width_edited&&
@@ -717,9 +877,17 @@ PreparedSheetProfile prepare_sheet_profile(const document::PartDocument& before,
     std::vector<Child> logical;logical.reserve(route.spans.size());
     auto route_origin=driver.world_point(
         route.spans.front().start[0],route.spans.front().start[1]);
-    std::array<V,2> incoming_width_edge{
-        add(route_origin,mul(width_axis,width_first)),
-        add(route_origin,mul(width_axis,width_last))};
+    const bool station_targets=!profile.sheet_profile.sheet_attachment&&
+        width_uses_up_to(profile.sheet_profile.width);
+    const auto nominal_width_edge=[&](V origin) {
+        const auto station=station_targets
+            ?width_interval(profile.sheet_profile,origin,width_axis,references)
+            :std::pair{width_first,width_last};
+        return std::array<V,2>{
+            add(origin,mul(width_axis,station.first)),
+            add(origin,mul(width_axis,station.second))};
+    };
+    auto incoming_width_edge=nominal_width_edge(route_origin);
     std::optional<sketcher::Sketch> previous_bend_end;
     double carried_outer_offset=0.;
     for(std::size_t index=0;index<route.spans.size();++index) {
@@ -760,13 +928,34 @@ PreparedSheetProfile prepare_sheet_profile(const document::PartDocument& before,
                     document::ExtrusionDirection::Reverse);
             numeric_frame(child.feature,child.sketch,flat_origin,
                 flat_x,flat_y,flat_normal);
-            set_flat_profile(child.sketch,local_width[0],local_width[1],span.length,
+            const auto flat_end_origin=add(flat_origin,mul(flat_y,span.length));
+            const auto nominal_end=station_targets
+                ?nominal_width_edge(flat_end_origin)
+                :std::array<V,2>{
+                    add(incoming_width_edge[0],mul(flat_y,span.length)),
+                    add(incoming_width_edge[1],mul(flat_y,span.length))};
+            const auto local_end_width=project_width_edge(nominal_end,
+                flat_origin,flat_x);
+            if(station_targets) {
+                auto envelope=flat_width_envelope(profile.sheet_profile,
+                    flat_origin,flat_y,width_axis,flat_x,span.length,
+                    references);
+                // A preceding Bend owns its two endpoint corrections. Keep
+                // that exact shared edge while subsequent envelope stations
+                // continue to follow their selected Up-to faces.
+                envelope[0].front()[0]=local_width[0];
+                envelope[1].front()[0]=local_width[1];
+                if(envelope[0].size()>2||envelope[1].size()>2)
+                    set_flat_envelope_profile(child.sketch,envelope);
+                else set_flat_profile(child.sketch,local_width[0],
+                    local_width[1],local_end_width[0],local_end_width[1],
+                    span.length,index==master_index);
+            } else set_flat_profile(child.sketch,local_width[0],local_width[1],
+                local_end_width[0],local_end_width[1],span.length,
                 index==master_index);
             static_cast<void>(document::flat_request(child.feature,child.sketch,defaults));
-            route_origin=add(flat_origin,mul(flat_y,span.length));
-            incoming_width_edge={
-                add(route_origin,mul(flat_x,local_width[0])),
-                add(route_origin,mul(flat_x,local_width[1]))};
+            route_origin=flat_end_origin;
+            incoming_width_edge=nominal_end;
             previous_bend_end.reset();
         } else {
             const bool attached_start=
@@ -842,6 +1031,17 @@ PreparedSheetProfile prepare_sheet_profile(const document::PartDocument& before,
                 document::prepare_bend_sketches(child.feature,child.sketch,
                     defaults);
             }
+            auto nominal_end=sketcher::Sketch::from_serialized(
+                child.feature.bend.auxiliary_sketches[1]);
+            const auto local_end_width=station_targets
+                ?project_width_edge(nominal_width_edge(
+                    nominal_end.resolved_origin),nominal_end.resolved_origin,
+                    nominal_end.resolved_x_axis)
+                :bend_start_interval(child.sketch);
+            document::set_bend_end_profile_reference_interval(child.feature,
+                local_end_width[0],local_end_width[1]);
+            document::prepare_bend_sketches(child.feature,child.sketch,
+                defaults);
             hide_generated_bend_dimensions(child.feature,child.sketch,
                 index==master_index);
             static_cast<void>(document::bend_request(child.feature,
@@ -966,10 +1166,13 @@ PreparedSheetProfile prepare_sheet_profile_master_edit(
             "Only a generated Sheet Profile Flat or Bend can use master editing.");
     const auto* parent=before.find_container(
         existing->sheet_profile_binding.parent_id);
-    if(!parent||parent->feature_kind!=document::FeatureKind::SheetProfile||
-       parent->sheet_profile.master_feature_id!=existing->id)
+    if(!parent||parent->feature_kind!=document::FeatureKind::SheetProfile)
         throw std::invalid_argument(
             "Edit this generated feature through its parent Profile Sketch.");
+    const bool master=parent->sheet_profile.master_feature_id==existing->id;
+    if(!master&&existing->feature_kind!=document::FeatureKind::Bend)
+        throw std::invalid_argument(
+            "Edit this generated Flat through its parent Profile Sketch.");
     const auto old_sketch=std::ranges::find(before.sketches,
         edited_sketch.id,&sketcher::Sketch::id);
     if(old_sketch==before.sketches.end()||
@@ -979,6 +1182,25 @@ PreparedSheetProfile prepare_sheet_profile_master_edit(
        edited.container_origin!=existing->container_origin)
         throw std::invalid_argument(
             "Sheet Profile master edit must preserve native identities.");
+
+    if(!master) {
+        edited.placement=existing->placement;
+        edited.sheet_profile_binding=existing->sheet_profile_binding;
+        auto allowed=*existing;
+        allowed.bend.auxiliary_sketches[1]=edited.bend.auxiliary_sketches[1];
+        if(edited!=allowed||edited_sketch.serialized()!=old_sketch->serialized())
+            throw std::invalid_argument(
+                "A generated Profile Bend permits only its end corrections.");
+        auto intermediate=before;
+        *intermediate.find_container(edited.id)=std::move(edited);
+        auto* pending_parent=intermediate.find_container(parent->id);
+        const auto driver=std::ranges::find(intermediate.sketches,
+            pending_parent->sheet_profile.sketch_id,&sketcher::Sketch::id);
+        if(driver==intermediate.sketches.end())
+            throw std::invalid_argument("Sheet Profile driver Sketch is missing.");
+        return prepare_sheet_profile(intermediate,*pending_parent,*driver,
+            std::move(references));
+    }
 
     auto intermediate=before;
     // Placement and material direction belong to the parent route. The native

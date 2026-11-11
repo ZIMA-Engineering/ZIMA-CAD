@@ -1,5 +1,17 @@
 # Application updates
 
+The post-2026111102 development batch extends free Sheet Profile width to the
+shared multi-target Up To table. Every station chooses the nearest valid target,
+and multiple planar limits create an exact broken Flat envelope when the active
+limit changes inside a span. Every generated Bend now exposes only its existing
+end-profile corrections; a following Flat inherits that corrected edge while
+the parent Profile retains all other parameters. Focused backend and real GUI
+contracts cover calculation, stable child identities, native save/reopen and
+Undo/Redo. The public README now begins with the project's parametric-CAD
+philosophy. This paragraph records development status, not a published release;
+Windows packaging and native Linux execution remain separate gates. See the
+[verification record](verification/20261111-sheet-profile-multiple-targets-and-bend-corrections.md).
+
 Signed Windows [2026111102](releases/2026111102.md#windows-publication-acceptance)
 was published at `2026-11-11T16:30:43Z` from immutable source
 `bc764875b1e26dcdeebabc456688b505de784e82`. It adds Line Bend about a finite

@@ -60,14 +60,23 @@ public:
     void on_pick(std::function<void()> callback){pick_=std::move(callback);}
     void on_change(std::function<void()> callback){changed_=std::move(callback);}
     void on_inspection(std::function<void()> callback){inspection_=std::move(callback);}
-    void begin_entry(std::size_t row) {
-        active_=std::min(row,side_.targets.size());refresh_states();if(pick_)pick_();
+    void begin_entry(std::size_t row,bool request_pick=true) {
+        active_=std::min(row,side_.targets.size());refresh_states();
+        if(request_pick&&pick_)pick_();
     }
     void finish_entry(bool clear_inspection=false) {
         active_.reset();const bool cleared=clear_inspection&&!inspected_.empty();
         if(clear_inspection)inspected_.clear();refresh_states();if(cleared&&inspection_)inspection_();
     }
     const std::vector<kernel::FaceReference>& inspected() const {return inspected_;}
+    void set_envelope_targets(bool enabled) {
+        envelope_targets_=enabled;
+        if(enabled) {
+            side_.up_to.primary_cap_source.reset();
+            side_.up_to.retained_patches.clear();
+        }
+        refresh();
+    }
     void assign(document::ExtrusionParameters::EndTarget target,bool notify=true) {
         const auto row=std::min(active_.value_or(0),side_.targets.size());
         for(std::size_t i=0;i<side_.targets.size();++i)if(i!=row&&side_.targets[i].reference==target.reference)
@@ -76,7 +85,8 @@ public:
         if(count>1&&(target.kind==document::EndTargetKind::Point||std::ranges::any_of(side_.targets,[&](const auto& source){
             return &source!= (row<side_.targets.size()?&side_.targets[row]:nullptr)&&source.kind==document::EndTargetKind::Point;})))
             throw std::invalid_argument("Multiple Up To limits require faces or planes.");
-        if(count>1&&side_.targets.size()==1&&!side_.up_to.primary_cap_source)
+        if(!envelope_targets_&&count>1&&side_.targets.size()==1&&
+           !side_.up_to.primary_cap_source)
             side_.up_to.primary_cap_source=side_.targets.front().reference;
         if(row==side_.targets.size())side_.targets.push_back(std::move(target));else side_.targets[row]=std::move(target);
         document::prune_feature_up_to_patch_choices(side_);active_.reset();refresh();
@@ -103,7 +113,8 @@ public:
             if(populated){field->set_reference(QString::fromStdString(source.owner_id+" / "+source.semantic_key));field->setToolTip(field->text()+"\n"+QString::fromStdString(source.instance_path));}
             table_->setItem(row,3,field);
             for(bool next:{false,true}) {
-                const int column=next?5:4;const bool adjacent=populated&&(next?static_cast<std::size_t>(row+1)<count:row>0);
+                const int column=next?5:4;const bool adjacent=!envelope_targets_&&
+                    populated&&(next?static_cast<std::size_t>(row+1)<count:row>0);
                 auto* choice=new QComboBox(table_);choice->addItems({QStringLiteral("A"),QStringLiteral("+"),QStringLiteral("−")});choice->setFixedWidth(40);
                 choice->setProperty("featureLimitChoice",true);
                 choice->setItemData(0,tr("Automaticky"),Qt::ToolTipRole);choice->setItemData(1,tr("Kladná strana sousední plochy"),Qt::ToolTipRole);
@@ -143,7 +154,7 @@ private:
     std::optional<std::size_t> active_;std::optional<kernel::FaceReference> ordering_;
     std::vector<kernel::FaceReference> inspected_;std::vector<QToolButton*> eyes_;
     std::function<void()> pick_,changed_,inspection_;
-    bool dirty_{true};
+    bool dirty_{true},envelope_targets_{};
     void headers() {
         table_->setHorizontalHeaderLabels({QString{},QStringLiteral("#"),QString{},tr("Reference"),QStringLiteral("←"),QStringLiteral("→"),QString{}});
     }

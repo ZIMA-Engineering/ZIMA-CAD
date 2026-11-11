@@ -2,6 +2,14 @@
 
 ## Current work index - 2026-10-26
 
+Update 2026-11-11: Sheet Profile now reuses the shared multi-target Up To table,
+calculates exact internal switches between planar target envelopes and permits
+only the existing end-profile corrections on every generated Bend. The focused
+Windows backend and GUI contracts pass. Exact circle, ellipse, spline and mixed
+analytic target boundaries remain the next boundary-representation extension;
+they must not be approximated from display tessellation. See the
+[verification record](verification/20261111-sheet-profile-multiple-targets-and-bend-corrections.md).
+
 Use [current project status](PROJECT_STATUS.md) for implemented capabilities,
 development changes awaiting release and the actual remaining queue. Family Table,
 multibody Parts, Sketch dragging/Trim/offsets, native text/symbol editing,
