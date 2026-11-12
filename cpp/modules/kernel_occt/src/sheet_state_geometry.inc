@@ -352,6 +352,7 @@ PrimitiveData line_bend(const PrimitiveData& input,const LineBendRequest& reques
     before.radius=request.radius;
     before.neutral_radius=request.neutral_radius;
     before.angle=request.angle;before.thickness=request.thickness;
+    before.continuation=1;
     before.unfolded=true;
     auto after=before;after.unfolded=false;
     const Transition transition{before,after};
@@ -394,6 +395,7 @@ PrimitiveData line_bend(const PrimitiveData& input,const LineBendRequest& reques
             std::vector<OwnedVertex>{}),owner,"line-bend-partition");
 
     PrimitiveData result;
+    bool deformed{};
     for(TopExp_Explorer solid(splitter.Shape(),TopAbs_SOLID);
             solid.More();solid.Next()) {
         PrimitiveData piece;piece.shape=solid.Current();
@@ -413,8 +415,19 @@ PrimitiveData line_bend(const PrimitiveData& input,const LineBendRequest& reques
             coordinate.along>=request.along_min-request.tolerance&&
             coordinate.along<=request.along_max+request.tolerance;
         if(within_segment&&coordinate.length>=-request.tolerance) {
+            deformed=true;
             const bool continuation=
                 coordinate.length>material_length+request.tolerance;
+            // The cylindrical zone and its moving straight continuation are
+            // one transformable Line Bend material domain. The fixed side
+            // and material outside a finite authored segment retain their
+            // previous sheet owner.
+            for(auto& face:piece.faces)
+                if(face.reference.sheet_role==SheetFaceRole::SideA||
+                        face.reference.sheet_role==SheetFaceRole::SideB) {
+                    face.reference.sheet_owner=owner;
+                    face.reference.sheet_thickness=request.thickness;
+                }
             piece=deform(piece,transition,continuation,
                 request.tolerance);
         }
@@ -431,7 +444,8 @@ PrimitiveData line_bend(const PrimitiveData& input,const LineBendRequest& reques
                 piece.vertices);result.shape=fuse.Shape();
         }
     }
-    if(result.shape.IsNull()||!BRepCheck_Analyzer(result.shape).IsValid())
+    if(!deformed||result.shape.IsNull()||
+            !BRepCheck_Analyzer(result.shape).IsValid())
         throw std::runtime_error("Line Bend did not produce a valid body.");
     result.edges=complete_boolean_edges(result.shape,result.faces,result.edges,
         owner,"line-bend-join");
@@ -463,6 +477,27 @@ void identify(PrimitiveData& result,const std::string& owner) {
     for(auto& item:result.vertices) {
         auto& reference=item.reference;
         reference.semantic_key="sheet-state:from:"+reference.owner_id+":"+reference.semantic_key;
+        reference.owner_id=owner;
+    }
+}
+void identify_feature(PrimitiveData& result,const std::string& owner) {
+    // Line Bend is an authored modeling feature, not a transparent state
+    // change. Its current topology and ordinary presentation therefore both
+    // belong to the Line Bend so later commands can reference what the user
+    // actually selected.
+    const auto identify=[&](auto& item) {
+        auto& reference=item.reference;
+        reference.semantic_key="sheet-state:from:"+reference.owner_id+":"+
+            reference.semantic_key;
+        reference.owner_id=owner;
+        reference.display_owner_id=owner;
+    };
+    for(auto& item:result.faces)identify(item);
+    for(auto& item:result.edges)identify(item);
+    for(auto& item:result.vertices) {
+        auto& reference=item.reference;
+        reference.semantic_key="sheet-state:from:"+reference.owner_id+":"+
+            reference.semantic_key;
         reference.owner_id=owner;
     }
 }

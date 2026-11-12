@@ -86,6 +86,44 @@ void copy_wire_matrix() {
     }
     std::cout<<"Mirror/Pattern authored wire: local/placed Body and incomplete downstream geometry passed"<<std::endl;
 }
+void line_bend_wire(const kernel::OcctKernel& engine) {
+    auto part=document::PartDocument::create_default();
+    const auto body=part.body_history.create_body("Line Bend authored wire");
+    auto flat=document::PartDocument::create_sketch_container();
+    flat.feature_kind=document::FeatureKind::Flat;
+    flat.flat.thickness_override=true;flat.flat.thickness=2;
+    flat.flat.direction=document::ExtrusionDirection::Reverse;
+    auto profile=sketcher::Sketch::create_default();
+    profile.owner_container_id=flat.id;flat.flat.sketch_id=profile.id;
+    static_cast<void>(profile.add_rectangle(-50,-40,50,40));
+    part.insert_history_entry(document::PartHistoryKind::Feature,flat.id);
+    part.history.push_back(flat);part.sketches.push_back(profile);
+    auto bend=document::PartDocument::create_sketch_container();
+    bend.feature_kind=document::FeatureKind::LineBend;
+    bend.line_bend.radius=5;bend.line_bend.angle_degrees=90;
+    bend.line_bend.thickness_override=true;bend.line_bend.thickness=2;
+    bend.line_bend.k_factor_override=true;bend.line_bend.k_factor=.5;
+    auto line=sketcher::Sketch::create_default();
+    line.owner_container_id=bend.id;bend.line_bend.sketch_id=line.id;
+    bend.line_bend.segment_id=line.add_segment(-50,0,50,0);
+    part.insert_history_entry(document::PartHistoryKind::Feature,bend.id);
+    part.history.push_back(bend);part.sketches.push_back(line);
+    const auto calculated=engine.evaluate_history(part.kernel_operations());
+    require(!calculated.empty()&&calculated.back().calculation_errors.empty(),
+        "Line Bend authored-wire fixture did not calculate");
+    document::DocumentSession session(part,calculated);
+    const auto wire=app::authored_feature_wire(session,bend.id);
+    require(wire.size()>1&&std::ranges::all_of(wire,[&](const auto& edge) {
+            return edge.reference.owner_id==bend.id;
+        })&&std::ranges::any_of(wire,[](const auto& edge) {
+            return edge.points.size()>3;
+        }),"Line Bend selection reused only its source line or the old Flat wire");
+    const auto& output=calculated.back().body_outputs.at(body)->mesh;
+    require(std::ranges::all_of(output.triangle_references,
+            [&](const auto& face) {
+                return face.display_owner_id==bend.id;
+            }),"Line Bend faces do not present the authored Line Bend owner");
+}
 void actual_sketch_wire(const std::filesystem::path& path) {
     std::vector<kernel::BodyResult> bodies;const auto doc=document::PartDocument::load(path,&bodies);
     const auto before=doc.serialized();document::DocumentSession session(doc,bodies);unsigned checked{};
@@ -476,7 +514,7 @@ int main(int argc,char** argv) {
     try{
         if(argc>1&&std::string_view(argv[1])=="--sketch-profile-wire"){sketch_wire_matrix();copy_wire_matrix();return 0;}
         if(const auto* file=std::getenv("ZIMA_SKETCH_WIRE_REVIEW_FILE")){actual_sketch_wire(std::filesystem::u8path(file));return 0;}
-        kernel::OcctKernel engine;rectangular_matrix(engine);
+        kernel::OcctKernel engine;line_bend_wire(engine);rectangular_matrix(engine);
         rolling_edge_treatment_preview();
         revolution_matrix(engine);rounded_profile_matrix(engine);
         if(const auto* file=std::getenv("ZIMA_THIN_REVIEW_FILE"))review_fillets(engine,std::filesystem::u8path(file));

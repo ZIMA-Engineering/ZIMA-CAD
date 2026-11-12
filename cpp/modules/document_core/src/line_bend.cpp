@@ -1,4 +1,5 @@
 #include <zima/document/line_bend.hpp>
+#include <zima/kernel/sheet_material.hpp>
 #include <algorithm>
 #include <cmath>
 #include <numbers>
@@ -67,13 +68,18 @@ Resolved resolve(const HistoryContainer& feature,const sketcher::Sketch& sketch,
     const double radius=parameters.reverse?parameters.radius:
         parameters.radius+thickness;
     kernel::LineBendRequest request;
-    request.origin=a;request.along=along;request.tangent=tangent;
+    request.along=along;request.tangent=tangent;
     request.radial=radial;request.along_min=0;
     request.along_max=std::sqrt(dot(sub(b,a),sub(b,a)));
     request.radius=radius;
     request.neutral_radius=parameters.radius+k_factor*thickness;
     request.angle=parameters.angle_degrees*std::numbers::pi/180;
     request.thickness=thickness;
+    // The authored line is the press-brake tool centre in the developed
+    // sheet.  Keep half of the bend allowance on each side of it instead of
+    // starting the cylindrical material region at the line.
+    request.origin=sub(a,scale(tangent,
+        request.angle*request.neutral_radius*.5));
     kernel::SheetMaterialDefinition material;
     material.kind=kernel::SheetMaterialDefinition::Kind::Cylinder;
     material.owner_id=feature.id;material.feature_owner_id=feature.id;
@@ -82,6 +88,7 @@ Resolved resolve(const HistoryContainer& feature,const sketcher::Sketch& sketch,
     material.radius=request.radius;
     material.neutral_radius=request.neutral_radius;
     material.angle=request.angle;material.thickness=thickness;
+    material.continuation=1;
     material.unfolded=false;
     material.curved_source_id=segment->id;
     return {request,material};
@@ -95,5 +102,91 @@ kernel::SheetMaterialDefinition line_bend_material_definition(
         const HistoryContainer& feature,const sketcher::Sketch& sketch,
         const SheetMetalDefaults& defaults) {
     return resolve(feature,sketch,defaults).material;
+}
+kernel::ViewerMesh line_bend_preview(const HistoryContainer& feature,
+        const sketcher::Sketch& sketch,const SheetMetalDefaults& defaults,
+        const kernel::ViewerMesh& input) {
+    const auto resolved=resolve(feature,sketch,defaults);
+    auto before=resolved.material;before.unfolded=true;
+    const auto& after=resolved.material;
+    const double material_length=after.angle*after.neutral_radius;
+    const auto map=[&](V point) {
+        auto coordinate=kernel::sheet_material::coordinates(before,point);
+        if(coordinate.along<resolved.request.along_min-1e-8||
+                coordinate.along>resolved.request.along_max+1e-8||
+                coordinate.length<-1e-8)
+            return point;
+        coordinate.continuation=coordinate.length>material_length+1e-8;
+        return kernel::sheet_material::point(after,coordinate);
+    };
+    kernel::ViewerMesh result;
+    const int samples=std::max(1,static_cast<int>(
+        std::ceil(feature.line_bend.angle_degrees/3)));
+    std::size_t edge_index{};
+    double minimum_depth=INFINITY,maximum_depth=-INFINITY;
+    for(const auto& source:input.edges) {
+        if(source.construction||source.overlay||source.parameter_seam||
+                source.points.size()<2)continue;
+        kernel::ViewerEdge edge;
+        edge.reference={feature.id,
+            "preview:boundary:"+std::to_string(edge_index++),{}};
+        for(std::size_t segment=1;segment<source.points.size();++segment) {
+            const auto first=source.points[segment-1];
+            const auto last=source.points[segment];
+            const auto c0=kernel::sheet_material::coordinates(before,first);
+            const auto c1=kernel::sheet_material::coordinates(before,last);
+            minimum_depth=std::min({minimum_depth,c0.depth,c1.depth});
+            maximum_depth=std::max({maximum_depth,c0.depth,c1.depth});
+            std::vector<double> stations{0,1};
+            const auto split=[&](double from,double to,double boundary) {
+                if(std::abs(to-from)<1e-12)return;
+                const double station=(boundary-from)/(to-from);
+                if(station>1e-9&&station<1-1e-9)
+                    stations.push_back(station);
+            };
+            split(c0.along,c1.along,resolved.request.along_min);
+            split(c0.along,c1.along,resolved.request.along_max);
+            split(c0.length,c1.length,0);
+            split(c0.length,c1.length,material_length);
+            for(int sample=1;sample<samples;++sample)
+                split(c0.length,c1.length,
+                    material_length*sample/samples);
+            std::ranges::sort(stations);
+            stations.erase(std::unique(stations.begin(),stations.end(),
+                [](double lhs,double rhs){return std::abs(lhs-rhs)<1e-10;}),
+                stations.end());
+            for(const double station:stations) {
+                if(segment>1&&station==0)continue;
+                edge.points.push_back(map(add(first,scale(sub(last,first),
+                    station))));
+            }
+        }
+        if(edge.points.size()>1)result.edges.push_back(std::move(edge));
+    }
+    if(std::isfinite(minimum_depth)&&std::isfinite(maximum_depth)) {
+        for(const double depth:{minimum_depth,maximum_depth})
+            for(const double length:{0.,material_length}) {
+                kernel::ViewerEdge edge;
+                edge.reference={feature.id,
+                    "preview:bend-boundary:"+std::to_string(edge_index++),{}};
+                edge.points={
+                    map(kernel::sheet_material::point(before,
+                        {resolved.request.along_min,length,depth,false})),
+                    map(kernel::sheet_material::point(before,
+                        {resolved.request.along_max,length,depth,false}))};
+                result.edges.push_back(std::move(edge));
+            }
+    }
+    kernel::ViewerAxis axis;
+    axis.point=add(sub(resolved.request.origin,
+            scale(resolved.request.radial,resolved.request.radius)),
+        scale(resolved.request.along,
+            (resolved.request.along_min+resolved.request.along_max)*.5));
+    axis.direction=resolved.request.along;
+    axis.display_length=resolved.request.along_max-
+        resolved.request.along_min+2;
+    axis.reference={feature.id,"line-bend:axis",{}};
+    result.axes.push_back(std::move(axis));
+    return result;
 }
 }

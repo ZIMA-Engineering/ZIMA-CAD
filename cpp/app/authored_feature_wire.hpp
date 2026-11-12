@@ -6,6 +6,7 @@
 #include <zima/document/document_session.hpp>
 #include <zima/document/feature_up_to.hpp>
 #include <zima/document/bend.hpp>
+#include <zima/document/line_bend.hpp>
 #include <zima/document/flat.hpp>
 #include <zima/document/holes.hpp>
 #include <zima/document/sheet_transition.hpp>
@@ -97,7 +98,8 @@ inline std::vector<kernel::ViewerEdge> authored_feature_wire(
         if(sketch==doc.sketches.end())return {};
         if(feature->feature_kind==FeatureKind::Bend)wire=document::bend_preview(*feature,*sketch,document::sheet_metal_defaults(doc));
         else if(feature->feature_kind==FeatureKind::LineBend)
-            wire.edges=sketch->viewer_mesh().edges;
+            wire=document::line_bend_preview(*feature,*sketch,
+                document::sheet_metal_defaults(doc),input_mesh);
         else if(feature->feature_kind==FeatureKind::Flat)wire=document::flat_preview(*feature,*sketch,document::sheet_metal_defaults(doc));
         else wire=document::holes_preview(*feature,*sketch);
         return place(std::move(wire));

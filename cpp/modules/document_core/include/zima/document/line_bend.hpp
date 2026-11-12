@@ -9,4 +9,7 @@ namespace zima::document {
 [[nodiscard]] kernel::SheetMaterialDefinition line_bend_material_definition(
     const HistoryContainer&,const sketcher::Sketch&,
     const SheetMetalDefaults&);
+[[nodiscard]] kernel::ViewerMesh line_bend_preview(
+    const HistoryContainer&,const sketcher::Sketch&,
+    const SheetMetalDefaults&,const kernel::ViewerMesh& input);
 }

@@ -817,6 +817,25 @@ void verify_flat_attachment_dialog(QWidget& parent) {
     dialog.findChild<QPushButton*>("flatManualPlacement")->click();
     require(!flat.flat.sheet_attachment&&dialog.findChild<QComboBox*>("sketchPlane")->isEnabled(),"Flat manual placement did not restore controls");
 }
+void verify_line_bend_dialog(QWidget& parent) {
+    using namespace zima;
+    auto feature=document::PartDocument::create_sketch_container();
+    feature.feature_kind=document::FeatureKind::LineBend;
+    auto sketch=sketcher::Sketch::create_default();
+    sketch.owner_container_id=feature.id;
+    sketch.plane_offset=12;
+    feature.line_bend.sketch_id=sketch.id;
+    std::set<std::string> locks;
+    app::SketchPropertiesDialog dialog(sketch,{},false,{},
+        [](auto,auto,bool){},&parent);
+    dialog.set_line_bend_mode(feature.line_bend,{},locks,[](auto){},[]{});
+    dialog.set_preview_callback([](auto,auto){});
+    dialog.show();QApplication::processEvents();
+    const auto* offset=dialog.findChild<QDoubleSpinBox*>("sketchPlaneOffset");
+    require(offset&&!offset->isVisible()&&std::abs(offset->value())<1e-12&&
+            std::abs(dialog.pending_value().first.plane_offset)<1e-12,
+        "Line Bend exposes or retains a redundant Sketch plane offset");
+}
 
 void verify_container_frame_dialog(QWidget& parent) {
     using namespace zima;
@@ -2134,6 +2153,7 @@ int main(int argc, char* argv[]) {
         verify_container_frame_dialog(parent);
         verify_sheet_attachment_dialog(parent);
         verify_flat_attachment_dialog(parent);
+        verify_line_bend_dialog(parent);
         verify_sketch_reference_tree();
         {
             using namespace zima::app;

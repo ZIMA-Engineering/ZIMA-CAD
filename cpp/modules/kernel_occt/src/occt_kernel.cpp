@@ -14800,10 +14800,13 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                         owned_topology->edges,owned_topology->vertices};
                     auto changed=sheet_state_geometry::line_bend(input,
                         *line_bend,operation.owner_id);
-                    sheet_state_geometry::identify(changed,
+                    sheet_state_geometry::identify_feature(changed,
                         operation.owner_id);
                     ViewerAxis axis;
-                    axis.point=sheet_material::add(line_bend->origin,
+                    axis.point=sheet_material::add(
+                        sheet_material::sub(line_bend->origin,
+                            sheet_material::mul(line_bend->radial,
+                                line_bend->radius)),
                         sheet_material::mul(line_bend->along,
                             (line_bend->along_min+line_bend->along_max)*.5));
                     axis.direction=line_bend->along;

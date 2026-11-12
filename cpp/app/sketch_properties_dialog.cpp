@@ -663,6 +663,8 @@ void SketchPropertiesDialog::set_line_bend_mode(
         std::function<void()> edit_sketch) {
     set_internal_title(tr("Vlastnosti ohybu podle čáry"));
     setObjectName("lineBendPropertiesDialog");
+    offset_->setValue(0);
+    findChild<QFormLayout*>("sketchPlaneForm")->setRowVisible(offset_,false);
     auto pending=std::make_shared<zima::document::LineBendParameters>(initial);
     line_bend_pending_=pending;
     auto* form=new QFormLayout;

@@ -404,6 +404,17 @@ inline std::vector<ViewerAxis> bend_lines(const std::vector<HistoryOperation>& o
                 {owner,"sheet-bend-line:from:"+region.owner_id+":"+revolve->outer_edge_source_ids.front(),{}},"Osa ohybu"});
             continue;
         }
+        if(const auto* line_bend=std::get_if<LineBendRequest>(
+                &source->primitive)) {
+            const Coordinate middle{
+                (line_bend->along_min+line_bend->along_max)/2,
+                region.angle*region.neutral_radius/2,0,false};
+            result.push_back({point(region,middle),region.along,
+                line_bend->along_max-line_bend->along_min,
+                {owner,"sheet-bend-line:from:"+region.owner_id+":"+
+                    region.curved_source_id,{}},"Osa ohybu"});
+            continue;
+        }
         const auto* group=std::get_if<FeatureGroupRequest>(&source->primitive);
         const Sweep3DRequest* sweep=nullptr;
         if(group)for(const auto& child:group->children)if(const auto* candidate=std::get_if<Sweep3DRequest>(&child))

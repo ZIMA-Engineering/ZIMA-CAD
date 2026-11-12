@@ -457,7 +457,9 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
             }, [] {});
         const auto sheet_defaults=part?zima::document::sheet_metal_defaults(part->session.document()):zima::document::SheetMetalDefaults{};
         auto flat_profile_seeded=std::make_shared<bool>(false);
-        dialog->set_preview_callback([this, dialog, edit_mode, flat_profile_seeded, owner_id, sketch_offset_drag, prepared_sketch, sketch_feature, sheet_defaults](
+        dialog->set_preview_callback([this, dialog, part, edit_mode,
+                flat_profile_seeded, owner_id, sketch_offset_drag,
+                prepared_sketch, sketch_feature, sheet_defaults](
                 const zima::sketcher::Sketch& sketch,
                 const zima::document::Placement& pending_placement) {
             auto placement = pending_placement;
@@ -714,7 +716,16 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
                         :sketch_feature->feature_kind==zima::document::FeatureKind::Bend
                         ?zima::document::bend_preview(*sketch_feature,resolved_sketch,sheet_defaults)
                         :sketch_feature->feature_kind==zima::document::FeatureKind::LineBend
-                        ?zima::kernel::ViewerMesh{}
+                        ?[&] {
+                            const auto* input=part?
+                                zima::workspace::calculated_operation_input(
+                                    part->session,edit_mode?
+                                        sketch_feature->id:std::string{}):
+                                nullptr;
+                            return input?zima::document::line_bend_preview(
+                                *sketch_feature,resolved_sketch,sheet_defaults,
+                                input->mesh):zima::kernel::ViewerMesh{};
+                        }()
                         :zima::document::holes_preview(*sketch_feature, resolved_sketch);
                     primitive_origin_preview_mesh_->axes.insert(
                         primitive_origin_preview_mesh_->axes.end(),

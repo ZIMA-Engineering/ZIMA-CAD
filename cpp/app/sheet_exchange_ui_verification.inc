@@ -795,6 +795,11 @@ int verify_line_bend_ui(QApplication& application,
             window.findChild<QDialog*>("lineBendPropertiesDialog"));
         check(dialog&&dialog->isVisible()&&dialog->windowType()==Qt::SubWindow,
             "Line Bend Properties did not open as an internal window");
+        auto* plane_offset=dialog->findChild<QDoubleSpinBox*>(
+            "sketchPlaneOffset");
+        check(plane_offset&&!plane_offset->isVisible()&&
+                std::abs(plane_offset->value())<1e-12,
+            "Line Bend exposes or retains a redundant Sketch plane offset");
         const auto draft=dialog->pending_value().first;
         check(dialog->mutate_sketch(draft.id,[](auto& sketch) {
             static_cast<void>(sketch.add_segment(-50,0,50,0));

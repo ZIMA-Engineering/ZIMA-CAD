@@ -8,6 +8,7 @@
 #include <zima/document/flat.hpp>
 #include <zima/document/profile_status.hpp>
 #include <zima/document/bend.hpp>
+#include <zima/document/line_bend.hpp>
 #include <zima/document/metadata.hpp>
 #include <zima/document/solid_state_calculation.hpp>
 #include <zima/document/sheet_rip.hpp>
@@ -117,7 +118,6 @@ void rip_conversion_contract(kernel::OcctKernel& engine) {
     part.insert_history_entry(document::PartHistoryKind::Feature,flat.id);
     part.history.push_back(flat);
     part.sketches.push_back(profile);
-
     auto rip_feature=document::PartDocument::create_sketch_container();
     rip_feature.feature_kind=document::FeatureKind::Sketch;
     auto rip=sketcher::Sketch::create_default();
@@ -180,6 +180,8 @@ void line_bend_contract(kernel::OcctKernel& engine) {
     part.insert_history_entry(document::PartHistoryKind::Feature,flat.id);
     part.history.push_back(flat);
     part.sketches.push_back(profile);
+    const auto flat_calculated=
+        workspace::calculate_part_with_resolved_references(engine,part);
 
     auto bend=document::PartDocument::create_sketch_container();
     bend.feature_kind=document::FeatureKind::LineBend;
@@ -205,10 +207,107 @@ void line_bend_contract(kernel::OcctKernel& engine) {
     near(measured_volume(engine,calculated.back().body_outputs.at(body)),
         16000,.01);
     const auto& mesh=calculated.back().body_outputs.at(body)->mesh;
+    const auto request=document::line_bend_request(bend,line,
+        document::sheet_metal_defaults(part));
+    auto material=document::line_bend_material_definition(bend,line,
+        document::sheet_metal_defaults(part));
+    const double material_length=request.angle*request.neutral_radius;
+    material.unfolded=true;
+    const auto authored_center=line.world_point(-50,0);
+    near(kernel::sheet_material::coordinates(material,authored_center).length,
+        material_length*.5,1e-8);
+    check(std::ranges::all_of(mesh.triangle_references,
+            [&](const auto& face) {
+                return face.owner_id==bend.id&&
+                    face.display_owner_id==bend.id;
+            })&&std::ranges::all_of(mesh.edges,[&](const auto& edge) {
+                return edge.reference.owner_id==bend.id&&
+                    edge.display_owner_id==bend.id;
+            }),"Line Bend result still selects an earlier sheet feature");
     check(std::ranges::any_of(mesh.triangle_references,[&](const auto& face) {
             return face.owner_id==bend.id&&face.surface&&
-                face.surface->kind==kernel::SurfaceGeometry::Kind::Cylinder;
+                face.surface->kind==kernel::SurfaceGeometry::Kind::Cylinder&&
+                face.sheet_owner==bend.id;
         }),"Line Bend did not publish its cylindrical material region");
+    const auto axis=std::ranges::find_if(mesh.axes,[&](const auto& value) {
+        return value.reference.owner_id==bend.id&&
+            value.reference.semantic_key=="line-bend:axis";
+    });
+    check(axis!=mesh.axes.end(),"Line Bend did not publish its bend axis");
+    const auto expected_axis=kernel::sheet_material::add(
+        kernel::sheet_material::sub(request.origin,
+            kernel::sheet_material::mul(request.radial,request.radius)),
+        kernel::sheet_material::mul(request.along,
+            (request.along_min+request.along_max)*.5));
+    near(std::hypot(axis->point.x-expected_axis.x,
+        axis->point.y-expected_axis.y,axis->point.z-expected_axis.z),0,1e-8);
+    const auto& flat_mesh=flat_calculated.back().body_outputs.at(body)->mesh;
+    const auto preview=document::line_bend_preview(bend,line,
+        document::sheet_metal_defaults(part),flat_mesh);
+    check(preview.edges.size()>flat_mesh.edges.size()&&
+            std::ranges::all_of(preview.edges,[&](const auto& edge) {
+                return edge.reference.owner_id==bend.id;
+            })&&std::ranges::any_of(preview.edges,[](const auto& edge) {
+                return edge.points.size()>3;
+            }),"Line Bend authored preview is not the complete bent sheet wire");
+    {
+        auto state_part=part;
+        auto unbend=document::PartDocument::create_sketch_container();
+        unbend.feature_kind=document::FeatureKind::Unbend;
+        unbend.name="Line Bend Unbend";
+        unbend.sheet_state.all=true;
+        state_part.insert_history_entry(document::PartHistoryKind::Feature,
+            unbend.id);
+        state_part.history.push_back(unbend);
+        auto state=workspace::calculate_part_with_resolved_references(
+            engine,state_part);
+        check(state.back().calculation_errors.empty(),
+            "Line Bend cannot be unbent");
+        near(measured_volume(engine,state.back().body_outputs.at(body)),
+            16000,.01);
+        auto bend_back=document::PartDocument::create_sketch_container();
+        bend_back.feature_kind=document::FeatureKind::BendBack;
+        bend_back.name="Line Bend Bend Back";
+        bend_back.sheet_state.all=true;
+        state_part.insert_history_entry(document::PartHistoryKind::Feature,
+            bend_back.id);
+        state_part.history.push_back(bend_back);
+        state=workspace::calculate_part_with_resolved_references(
+            engine,state_part,&state);
+        check(state.back().calculation_errors.empty(),
+            "Unbent Line Bend cannot be bent back");
+        near(measured_volume(engine,state.back().body_outputs.at(body)),
+            16000,.01);
+    }
+    {
+        auto chained=part;
+        auto next=document::PartDocument::create_sketch_container();
+        next.feature_kind=document::FeatureKind::LineBend;
+        next.line_bend.radius=4;
+        next.line_bend.angle_degrees=45;
+        next.line_bend.thickness_override=true;
+        next.line_bend.thickness=2;
+        next.line_bend.k_factor_override=true;
+        next.line_bend.k_factor=.5;
+        auto next_line=sketcher::Sketch::create_default();
+        next_line.owner_container_id=next.id;
+        next.line_bend.sketch_id=next_line.id;
+        next.line_bend.segment_id=next_line.add_segment(-50,20,50,20);
+        document::ConstructionReference current_edge;
+        current_edge.owner_id=bend.id;
+        current_edge.semantic_key=mesh.edges.front().reference.semantic_key;
+        next.placement.references.push_back(std::move(current_edge));
+        chained.insert_history_entry(document::PartHistoryKind::Feature,
+            next.id);
+        chained.history.push_back(next);
+        chained.sketches.push_back(next_line);
+        const auto operations=chained.kernel_operations();
+        const auto operation=std::ranges::find(operations,next.id,
+            &kernel::HistoryOperation::owner_id);
+        check(operation!=operations.end()&&operation->sheet_material&&
+                operation->sheet_material->parent_owner_id==bend.id,
+            "A chained Line Bend does not attach to the current Line Bend edge");
+    }
     {
         workspace::Workspace live;live.add_part(part);
         auto* state=live.open_part(part.document_id);
@@ -253,10 +352,11 @@ void line_bend_contract(kernel::OcctKernel& engine) {
         auto variant_profile=sketcher::Sketch::create_default();
         variant_profile.owner_container_id=variant_flat.id;
         variant_flat.flat.sketch_id=variant_profile.id;
+        const double relief=75*std::numbers::pi/180*(5+1)*.5;
         if(inner_tab) {
             const std::array<std::array<double,2>,8> outline{{
-                {-50,-40},{50,-40},{50,0},{20,0},
-                {20,40},{-20,40},{-20,0},{-50,0}}};
+                {-50,-40},{50,-40},{50,-relief},{20,-relief},
+                {20,40},{-20,40},{-20,-relief},{-50,-relief}}};
             for(std::size_t i=0;i<outline.size();++i) {
                 const auto& first=outline[i];
                 const auto& last=outline[(i+1)%outline.size()];
@@ -291,6 +391,28 @@ void line_bend_contract(kernel::OcctKernel& engine) {
         variant.history.push_back(variant_bend);
         variant.sketches.push_back(variant_line);
 
+        const auto variant_request=document::line_bend_request(variant_bend,
+            variant_line,document::sheet_metal_defaults(variant));
+        auto variant_material=document::line_bend_material_definition(
+            variant_bend,variant_line,
+            document::sheet_metal_defaults(variant));
+        auto variant_before=variant_material;
+        variant_before.unfolded=true;
+        const double variant_length=variant_request.angle*
+            variant_request.neutral_radius;
+        const kernel::sheet_material::Coordinate moving_point{
+            (variant_request.along_min+variant_request.along_max)*.5,
+            variant_length+10,0,true};
+        const auto original=kernel::sheet_material::point(variant_before,
+            moving_point);
+        const auto folded=kernel::sheet_material::point(variant_material,
+            moving_point);
+        const auto displacement=kernel::sheet_material::sub(folded,original);
+        const double normal_displacement=kernel::sheet_material::dot(
+            displacement,variant_line.resolved_normal);
+        check(reverse?normal_displacement>1e-6:normal_displacement<-1e-6,
+            "Line Bend reverse direction does not follow the authored tool side");
+
         const auto result=workspace::calculate_part_with_resolved_references(
             engine,variant);
         check(result.back().calculation_errors.empty(),inner_tab?
@@ -298,15 +420,16 @@ void line_bend_contract(kernel::OcctKernel& engine) {
             "Line Bend side/direction variant produced a calculation error");
         near(measured_volume(engine,
             result.back().body_outputs.at(variant_body)),
-            inner_tab?11200.:16000.,.2);
-        check(std::ranges::any_of(
+            inner_tab?11200.-120*relief:16000.,.2);
+        const bool has_cylinder=std::ranges::any_of(
                 result.back().body_outputs.at(variant_body)->mesh.
                     triangle_references,
                 [&](const auto& face) {
                     return face.owner_id==variant_bend.id&&face.surface&&
                         face.surface->kind==
                             kernel::SurfaceGeometry::Kind::Cylinder;
-                }),inner_tab?
+                });
+        check(has_cylinder,inner_tab?
             "Finite inner Line Bend has no cylindrical material region":
             "Line Bend side/direction variant has no cylindrical region");
     };

@@ -11837,7 +11837,9 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
             }
             for(const auto& reference:container.placement.references) {
                 const auto* parent=find_container(reference.owner_id);
-                if(parent&&(parent->feature_kind==FeatureKind::Flat||parent->feature_kind==FeatureKind::Bend||
+                if(parent&&(parent->feature_kind==FeatureKind::Flat||
+                        parent->feature_kind==FeatureKind::Bend||
+                        parent->feature_kind==FeatureKind::LineBend||
                         parent->feature_kind==FeatureKind::TwistedSheet||
                         (parent->feature_kind==FeatureKind::Revolution&&parent->revolution.sheet_metal))) {
                     material.parent_owner_id=parent->id;break;
