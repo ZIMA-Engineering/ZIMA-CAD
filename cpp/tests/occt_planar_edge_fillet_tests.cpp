@@ -1668,6 +1668,25 @@ int main() try {
                 require(crossed.IsDone()&&crossed_area<=1.0e-7,
                     "A route Fillet crossed its tangent terminal plane");
             }
+        const auto beyond_terminal=BRepPrimAPI_MakeBox(
+            gp_Pnt(7.5,7.5,21.0001),gp_Pnt(13.5,13.5,24.)).Shape();
+        const auto changed_beyond_terminal=[&](const TopoDS_Shape& left,
+                const TopoDS_Shape& right) {
+            BRepAlgoAPI_Cut difference(left,right);
+            difference.SetNonDestructive(true);
+            difference.Build();
+            require(difference.IsDone(),
+                "Tangent terminal change comparison failed");
+            BRepAlgoAPI_Common beyond(difference.Shape(),beyond_terminal);
+            beyond.SetNonDestructive(true);
+            beyond.Build();
+            require(beyond.IsDone(),
+                "Tangent terminal extension comparison failed");
+            return volume(beyond.Shape());
+        };
+        require(changed_beyond_terminal(result.shape,first.shape)<=1.0e-7&&
+                changed_beyond_terminal(first.shape,result.shape)<=1.0e-7,
+            "A tangent route extension left a planar wedge beyond its endpoint");
     }
     {
         std::cerr<<"fillet-test: exact planar half turn\n";

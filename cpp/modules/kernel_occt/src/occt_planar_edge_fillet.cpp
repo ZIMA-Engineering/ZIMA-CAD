@@ -2463,6 +2463,19 @@ Cutter make_route_cutter(const std::vector<CutterJob>& jobs,
             std::span<const TopoDS_Face> curved_faces,
             const gp_Pnt& preceding,bool trim_curved) {
         if(extension<=tolerance)return;
+        // A local plane tangent to the route can trim the radial section, but
+        // it can never bound a prism extruded along that tangent.  The base
+        // PipeShell already ends at the authored route endpoint, so the whole
+        // auxiliary tail belongs beyond that endpoint and must be discarded.
+        // Oblique and remote terminals still need the tail below to reach
+        // their exact intersection.
+        if(std::ranges::any_of(planar_faces,[&](const auto& face) {
+                const BRepAdaptor_Surface support(face,true);
+                return support.GetType()==GeomAbs_Plane&&
+                    support.Plane().Distance(endpoint)<=tolerance&&
+                    std::abs(support.Plane().Axis().Direction().Dot(
+                        outward))<=1.0e-8;
+            }))return;
         auto tail=make_cutter(job.edge,job.first_face,job.second_face,
             radius,tolerance,job.material,{},true);
         const auto path=edge_path(job.edge,tolerance);
