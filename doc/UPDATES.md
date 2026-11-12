@@ -1,5 +1,18 @@
 # Application updates
 
+Signed Windows [2026111203](releases/2026111203.md#windows-publication-acceptance)
+was published at `2026-11-12T19:59:08Z` from immutable source
+`b6f100d1f3a3e36b0bc582bf5832fdf1c0e645ee`. Two-route Fillet junctions no
+longer add an unselected synthetic connector. Separate routes retain their exact
+circular ends, while overlapping routes are trimmed by their true cylinder
+intersection. The lightweight azure preview follows the same rule for straight
+terminal routes; curved-support and three-route behavior remain unchanged.
+Twelve focused native, GUI and localization contracts pass. Candidate and signed
+Windows smoke, all 1,185 factory assets, 31 packaging/publisher tests, production
+trust, GitHub digests and fresh anonymous public downloads pass. Native Linux
+execution and direct `RADIUS2.prtz` verification remain separate gates. See the
+[publication evidence](verification/20261112-windows-1203-publication.json).
+
 Signed Windows [2026111202](releases/2026111202.md#windows-publication-acceptance)
 was published at `2026-11-12T15:54:56Z` from immutable source
 `bc7a94171e5ea3b1cf7e328c4e43b9fa7ea8d8a5`. It adds Planar Surface from

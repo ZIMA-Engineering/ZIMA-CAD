@@ -1,5 +1,17 @@
 # Native versioned distribution
 
+Signed Windows [2026111203](releases/2026111203.md#windows-publication-acceptance)
+was published at `2026-11-12T19:59:08Z` from immutable source
+`b6f100d1f3a3e36b0bc582bf5832fdf1c0e645ee`. Exact two-route Fillet junction
+trimming and matching straight-route azure preview passed their focused
+contracts. Candidate and signed native smoke passed; candidate smoke loaded all
+1,185 factory assets. The signed manifest binds 17,549 archive entries, exact
+source and the Windows runtime. All three GitHub digests and fresh anonymous
+public downloads match the accepted bytes. The production updater trusts the
+public installation and reports it as current. Native Linux execution and direct
+`RADIUS2.prtz` verification remain separate gates. See the
+[publication evidence](verification/20261112-windows-1203-publication.json).
+
 Signed Windows [2026111202](releases/2026111202.md#windows-publication-acceptance)
 was published at `2026-11-12T15:54:56Z` from immutable source
 `bc7a94171e5ea3b1cf7e328c4e43b9fa7ea8d8a5`. Planar Surface, robust STEP
