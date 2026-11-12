@@ -35,6 +35,16 @@ namespace {
 // against a userData() of an empty QString.
 constexpr const char* kNoPlaneReference = "";
 
+void place_sketch_button_beside_work_plane(QWidget* plane_selector,
+        QPushButton* sketch_button) {
+    if(!plane_selector||!sketch_button)return;
+    auto* plane_row=qobject_cast<QHBoxLayout*>(plane_selector->layout());
+    if(!plane_row)return;
+    sketch_button->setFixedHeight(30);
+    sketch_button->setMinimumWidth(92);
+    sketch_button->setSizePolicy(QSizePolicy::Fixed,QSizePolicy::Fixed);
+    plane_row->addWidget(sketch_button);
+}
 
 }  // namespace
 
@@ -235,7 +245,11 @@ void SketchPropertiesDialog::set_flat_mode(zima::document::FlatParameters initia
         placement_->initialize_from_references(placement_->combined_references(3),[](const auto& key){return QString::fromStdString(key);});
         lock_flat_attachment_fields();refresh_resolved_placement();notify_preview();
     });
-    content_layout()->insertLayout(content_layout()->indexOf(sketch_button_),form);
+    // Keep the Flat-owned Sketch beside the work-plane View field, matching
+    // Sheet Profile while preserving the ordinary Sketch dialog layout.
+    content_layout()->removeWidget(sketch_button_);
+    place_sketch_button_beside_work_plane(plane_selector_,sketch_button_);
+    content_layout()->insertLayout(content_layout()->indexOf(error_),form);
     edit_pending_sketch_=std::move(edit_sketch);
     lock_flat_attachment_fields();
 }
@@ -276,15 +290,10 @@ void SketchPropertiesDialog::set_sheet_profile_mode(
     refresh();
     zima::ui::bind_numeric_value_lock(thickness,"thickness",locks,
         [this]{notify_preview();});
-    // Keep the profile-owned Sketch beside its work-plane choice. The base
-    // Sketch dialog keeps the established full-width button for other modes.
+    // Keep the profile-owned Sketch beside its work-plane View field. The
+    // ordinary Sketch dialog keeps its established full-width button.
     content_layout()->removeWidget(sketch_button_);
-    if(auto* plane_row=qobject_cast<QHBoxLayout*>(plane_selector_->layout())) {
-        sketch_button_->setFixedHeight(30);
-        sketch_button_->setMinimumWidth(92);
-        sketch_button_->setSizePolicy(QSizePolicy::Fixed,QSizePolicy::Fixed);
-        plane_row->addWidget(sketch_button_);
-    }
+    place_sketch_button_beside_work_plane(plane_selector_,sketch_button_);
 
     auto* thickness_form=new QFormLayout;
     thickness_form->setObjectName("sheetProfileForm");

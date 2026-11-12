@@ -95,6 +95,23 @@ int verify_part_dialog_layout(QApplication& application, QWidget& parent) {
                                 visible->mapTo(dialog.get(),visible->rect().center()).x())
                         errors<<"Active Body and Visible are not beside each other";
                 }
+                if(name=="flat") {
+                    auto* sketch=dialog->findChild<QPushButton*>(
+                        "sketchOpenButton");
+                    auto* plane=dialog->findChild<QWidget*>(
+                        "sketchPlaneSelector");
+                    auto* view=dialog->findChild<QTableWidget*>(
+                        "sketchPlaneView");
+                    const auto mapped=[&](const QWidget* widget) {
+                        return QRect(widget->mapTo(dialog.get(),QPoint{}),
+                            widget->size());
+                    };
+                    if(!sketch||!plane||!view||
+                            sketch->parentWidget()!=plane||
+                            mapped(view).right()>=mapped(sketch).left()||
+                            mapped(view).intersects(mapped(sketch)))
+                        errors<<"Flat Sketch is not placed after the View work-plane field";
+                }
                 if(name.startsWith("sheet-profile")) {
                     auto* profile_scroll=dialog->findChild<QScrollArea*>(
                         "sheetProfileWidthScroll");
