@@ -33,6 +33,7 @@
     <file alias="icons/export-pdf.svg">../../resources/icons/export-pdf.svg</file>
     <file alias="icons/export-dxf.svg">../../resources/icons/export-dxf.svg</file>
     <file alias="icons/bend.svg">../../resources/icons/bend.svg</file>
+    <file alias="icons/line-bend.svg">../../resources/icons/line-bend.svg</file>
     <file alias="icons/sheet-profile.svg">../../resources/icons/sheet-profile.svg</file>
     <file alias="icons/flat.svg">../../resources/icons/flat.svg</file>
     <file alias="icons/sheet-from-body.svg">../../resources/icons/sheet-from-body.svg</file>
@@ -68,6 +69,8 @@
     <file alias="branding/ZIMA-Engineering.svg">../../resources/branding/ZIMA-Engineering.svg</file>
     <file alias="icons/new.svg">../../resources/icons/new.svg</file>
     <file alias="icons/open.svg">../../resources/icons/open.svg</file>
+    <file alias="icons/import.svg">../../resources/icons/import.svg</file>
+    <file alias="icons/export.svg">../../resources/icons/export.svg</file>
     <file alias="icons/save.svg">../../resources/icons/save.svg</file>
     <file alias="icons/save-as.svg">../../resources/icons/save-as.svg</file>
     <file alias="icons/parameters.svg">../../resources/icons/parameters.svg</file>

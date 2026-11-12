@@ -10291,6 +10291,29 @@ void PartDocument::validate_sheet_profiles() const {
     }
 }
 
+const SheetFromBodyChildBinding*
+PartDocument::sheet_from_body_binding_for_child(const std::string& id,
+        const HistoryContainer** parent) const {
+    if(parent)*parent=nullptr;
+    for(const auto& candidate:history) {
+        if(candidate.feature_kind!=FeatureKind::SheetFromBody)continue;
+        const auto binding=std::ranges::find(
+            candidate.sheet_from_body.child_bindings,id,
+            &SheetFromBodyChildBinding::feature_id);
+        if(binding==candidate.sheet_from_body.child_bindings.end()||
+                binding->detached)
+            continue;
+        if(parent)*parent=&candidate;
+        return &*binding;
+    }
+    return nullptr;
+}
+
+bool PartDocument::sheet_from_body_child_bound(
+        const std::string& id) const {
+    return sheet_from_body_binding_for_child(id)!=nullptr;
+}
+
 void PartDocument::erase_history_object(const std::string& id) {
     if (id.empty()) throw std::invalid_argument("Cannot delete an empty object ID");
     if(body_history.find(id)||body_history.find_boolean(id)) {
@@ -10717,8 +10740,7 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
               !container.placement.reference_valid));
         if(removed_reference_states.contains(container.id)&&
                 (container.feature_kind==FeatureKind::Fillet||
-                    container.feature_kind==FeatureKind::Chamfer||
-                    container.feature_kind==FeatureKind::Shell)) {
+                    container.feature_kind==FeatureKind::Chamfer)) {
             zima::kernel::HistoryOperation failed{container.id,
                 zima::kernel::FeatureGroupRequest{},
                 zima::kernel::BooleanOperation::Add,false,
@@ -11889,7 +11911,8 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
             // from their owned definition and last valid frame; any real
             // geometry dependency that is still indispensable will fail at
             // its ordinary operation boundary and recover there.
-            if(operation.feature_copy&&
+            if(container->feature_kind==FeatureKind::DerivedCopy&&
+                    operation.feature_copy&&
                     operation.feature_copy->source_feature_id.empty()) {
                 operation.feature_copy.reset();
                 operation.primitive=kernel::FeatureGroupRequest{};

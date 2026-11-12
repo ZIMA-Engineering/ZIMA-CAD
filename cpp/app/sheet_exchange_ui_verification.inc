@@ -11,6 +11,9 @@ int verify_sheet_exchange_ui(QApplication& application,const std::filesystem::pa
         else {
             static_cast<void>(part.body_history.create_body("Source"));
             auto box=test::rectangular_feature(part,{100,80,3});
+            auto size=part.sketches.back().create_segment_dimension(
+                part.sketches.back().segments.front().id);
+            part.sketches.back().apply_dimension(size);
             part.insert_history_entry(document::PartHistoryKind::Feature,box.id);part.history.push_back(box);
             cache=workspace::calculate_part_with_resolved_references(kernel,part);
             if(!same_body)static_cast<void>(part.body_history.create_body("Sheet"));
@@ -190,6 +193,129 @@ int verify_sheet_exchange_ui(QApplication& application,const std::filesystem::pa
                             static_cast<int>(index),
                     "Generated feature is not nested under its Sheet from Body boundary");
             }
+            std::set<std::string> source_owners;
+            for(const auto& binding:
+                    conversion->sheet_from_body.child_bindings)
+                for(const auto& face:binding.faces)
+                    if(face.reference.valid())
+                        source_owners.insert(face.reference.owner_id);
+            bool source_offered=false;
+            for(int y=10;y<view->height()&&!source_offered;y+=20)
+                for(int x=10;x<view->width()&&!source_offered;x+=20)
+                    source_offered=std::ranges::any_of(
+                        view->selection_candidates_at(QPointF(x,y)),
+                        [&](const auto& candidate) {
+                            return candidate.kind==
+                                    viewer::CandidateKind::Container&&
+                                source_owners.contains(candidate.owner_id);
+                        });
+            check(source_offered,
+                "Converted sheet hover cannot cycle to an associated source feature");
+            const auto source_owner=*source_owners.begin();
+            const auto* source_feature=saved.find_container(source_owner);
+            check(source_feature,
+                "Associated source feature is absent from the document");
+            const auto source_sketch_id=
+                test::rectangular_sketch_id(*source_feature);
+            const auto source_sketch=std::ranges::find(saved.sketches,
+                source_sketch_id,&sketcher::Sketch::id);
+            check(source_sketch!=saved.sketches.end(),
+                "Associated source feature has no editable Sketch");
+            const auto source_dimension=std::ranges::find_if(
+                source_sketch->dimensions,[](const auto& dimension) {
+                    return dimension.driving&&!dimension.suppressed;
+                });
+            check(source_dimension!=source_sketch->dimensions.end(),
+                "Associated source Sketch has no driving dimension");
+            QTreeWidgetItem* source_row=nullptr;
+            for(QTreeWidgetItemIterator it(tree);*it;++it)
+                if((*it)->data(0,Qt::UserRole).toString().toStdString()==
+                        source_owner&&
+                    (*it)->data(0,Qt::UserRole+3).toString()==
+                        QStringLiteral("part-container")){
+                    source_row=*it;
+                    break;
+                }
+            check(source_row,
+                "Associated source feature cannot be reached in the Tree");
+            window.show_tree_item_properties(source_row);flush();
+            app::PrimitivePropertiesDialog* source_properties=nullptr;
+            for(auto* candidate:window.findChildren<QDialog*>())
+                if(candidate->isVisible())
+                    if(auto* primitive=dynamic_cast<
+                            app::PrimitivePropertiesDialog*>(candidate)){
+                        source_properties=primitive;
+                        break;
+                    }
+            check(source_properties&&source_properties->isVisible(),
+                "Associated source feature Properties did not open");
+            const auto semantic="dimension:"+source_dimension->id;
+            const auto shown=std::ranges::find_if(view->mesh().dimensions,
+                [&](const auto& dimension) {
+                    return dimension.reference.owner_id==source_sketch_id&&
+                        dimension.reference.semantic_key==semantic;
+                });
+            check(shown!=view->mesh().dimensions.end(),
+                "Source Sketch dimension is absent while Properties is open");
+            viewer::ViewerCandidate dimension_candidate;
+            dimension_candidate.kind=viewer::CandidateKind::Dimension;
+            dimension_candidate.owner_id=source_sketch_id;
+            dimension_candidate.semantic_key=semantic;
+            dimension_candidate.geometry_index=static_cast<std::size_t>(
+                shown-view->mesh().dimensions.begin());
+            window.edit_dimension_inline(dimension_candidate);flush();
+            auto* inline_edit=view->findChild<QLineEdit*>(
+                "inlineDimensionValueEdit");
+            check(inline_edit&&inline_edit->isVisible(),
+                "Source Sketch dimension cannot be edited from open Properties");
+            const double edited_value=source_dimension->value+1;
+            inline_edit->setText(QString::number(edited_value,'g',17));
+            QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);
+            QApplication::sendEvent(inline_edit,&enter);flush();
+            auto* source_buttons=source_properties->findChild<
+                QDialogButtonBox*>();
+            check(source_buttons&&source_buttons->button(
+                    QDialogButtonBox::Ok)->isEnabled(),
+                "Source feature cannot confirm its edited Sketch dimension");
+            source_buttons->button(QDialogButtonBox::Ok)->click();flush();
+            const auto source_edited=save();
+            const auto edited_sketch=std::ranges::find(
+                source_edited.sketches,source_sketch_id,
+                &sketcher::Sketch::id);
+            const auto edited_dimension=edited_sketch==
+                    source_edited.sketches.end()?nullptr:
+                [&]() -> const sketcher::SketchDimension* {
+                    const auto value=std::ranges::find(
+                        edited_sketch->dimensions,source_dimension->id,
+                        &sketcher::SketchDimension::id);
+                    return value==edited_sketch->dimensions.end()?nullptr:
+                        &*value;
+                }();
+            const auto* edited_parent=source_edited.find_container(
+                conversion->id);
+            check(edited_dimension&&
+                    std::abs(edited_dimension->value-edited_value)<1e-7&&
+                    edited_parent&&edited_parent->sheet_from_body.
+                        generated_features==conversion->sheet_from_body.
+                            generated_features,
+                "Source dimension edit did not preserve the associated sheet");
+            window.findChild<QAction*>("undoAction")->trigger();flush();
+            const auto source_restored=save();
+            const auto restored_sketch=std::ranges::find(
+                source_restored.sketches,source_sketch_id,
+                &sketcher::Sketch::id);
+            const auto restored_dimension=restored_sketch==
+                    source_restored.sketches.end()?nullptr:
+                [&]() -> const sketcher::SketchDimension* {
+                    const auto value=std::ranges::find(
+                        restored_sketch->dimensions,source_dimension->id,
+                        &sketcher::SketchDimension::id);
+                    return value==restored_sketch->dimensions.end()?nullptr:
+                        &*value;
+                }();
+            check(restored_dimension&&std::abs(restored_dimension->value-
+                    source_dimension->value)<1e-7,
+                "Undo did not restore the source Sketch dimension");
         } else {
             check(conversion!=saved.history.end()&&
                     !conversion->sheet_from_body.replaces_body&&
@@ -258,6 +384,27 @@ int verify_sheet_exchange_ui(QApplication& application,const std::filesystem::pa
             flush();check(available,
                 "Sheet from Body explode context action is unavailable");
         };
+        const auto tree_action_enabled=[&](const std::string& id,
+                const char* object_name) {
+            auto* item=tree_row(id);
+            check(item,"Sheet from Body context Tree row is missing");
+            tree->setCurrentItem(item);tree->scrollToItem(item);flush();
+            bool available{};
+            const auto name=QString::fromLatin1(object_name);
+            QTimer::singleShot(0,&window,[&,name] {
+                auto* menu=qobject_cast<QMenu*>(
+                    QApplication::activePopupWidget());
+                if(!menu)return;
+                if(auto* command=menu->findChild<QAction*>(name))
+                    available=command->isEnabled();
+                menu->close();
+            });
+            QMetaObject::invokeMethod(tree,"customContextMenuRequested",
+                Qt::DirectConnection,
+                Q_ARG(QPoint,tree->visualItemRect(item).center()));
+            flush();
+            return available;
+        };
         const auto& generated=conversion->sheet_from_body.generated_features;
         check(!generated.empty(),
             "Sheet from Body has no generated part to explode");
@@ -274,9 +421,13 @@ int verify_sheet_exchange_ui(QApplication& application,const std::filesystem::pa
             &document::SheetFromBodyChildBinding::feature_id);
         check(partial_binding!=partial_parent->sheet_from_body.
                 child_bindings.end()&&partial_binding->detached&&
-                tree_row(generated.front())&&
-                tree_row(generated.front())->parent()==tree_row(target_id),
-            "Partial explode did not detach its generated Tree part");
+                std::ranges::all_of(partial_parent->sheet_from_body.
+                    child_bindings,[&](const auto& binding) {
+                        const auto* row=tree_row(binding.feature_id);
+                        return binding.detached&&row&&row->parent()==
+                            tree_row(target_id);
+                    }),
+            "Partial explode did not detach its complete generated Tree branch");
         window.findChild<QAction*>("undoAction")->trigger();flush();
         const auto partial_restored=save();
         const auto restored_parent=std::ranges::find_if(
@@ -293,9 +444,15 @@ int verify_sheet_exchange_ui(QApplication& application,const std::filesystem::pa
         run_tree_action(conversion->id,
             "explodeSheetFromBodyAllAction");
         const auto fully_exploded=save();
-        check(std::ranges::none_of(fully_exploded.history,
-                [&](const auto& feature){return feature.id==conversion->id;})&&
-                !tree_row(conversion->id)&&
+        const auto fully_exploded_parent=std::ranges::find_if(
+            fully_exploded.history,
+            [&](const auto& feature){return feature.id==conversion->id;});
+        check(fully_exploded_parent!=fully_exploded.history.end()&&
+                std::ranges::all_of(fully_exploded_parent->sheet_from_body.
+                    child_bindings,[](const auto& binding) {
+                        return binding.detached;
+                    })&&tree_row(conversion->id)&&
+                tree_row(conversion->id)->childCount()==0&&
                 std::ranges::all_of(generated,[&](const auto& id) {
                     return tree_row(id)&&tree_row(id)->parent()==
                         tree_row(target_id);
@@ -325,12 +482,23 @@ int verify_sheet_exchange_ui(QApplication& application,const std::filesystem::pa
             if(feature==saved.history.end())continue;
             QTreeWidgetItem* row=nullptr;
             for(QTreeWidgetItemIterator it(tree);*it;++it)if((*it)->data(0,Qt::UserRole).toString().toStdString()==feature->id){row=*it;break;}
-            check(row,"Generated feature is absent from the Tree");window.show_tree_item_properties(row);flush();
+            check(row,"Generated feature is absent from the Tree");
+            check(!tree_action_enabled(feature->id,
+                        "historyObjectProperties")&&
+                    !tree_action_enabled(feature->id,
+                        "suppressHistoryObject")&&
+                    !tree_action_enabled(feature->id,
+                        "deleteHistoryObject")&&
+                    tree_action_enabled(feature->id,
+                        "editHistoryObject")==
+                        (kind==document::FeatureKind::Bend),
+                "Bound Sheet from Body child exposes invalid Tree actions");
+            window.show_tree_item_properties(row);flush();
             auto* properties=window.findChild<QDialog*>(kind==document::FeatureKind::Flat?"flatPropertiesDialog":"bendPropertiesDialog");
-            check(properties&&properties->isVisible(),"Generated native feature cannot reopen for editing");
-            properties->findChild<QLineEdit*>("sketchName")->setText("cancelled edit");
-            properties->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();
-            check(save().serialized()==unchanged,"Generated feature Cancel changed the document");
+            check(!properties||!properties->isVisible(),
+                "Bound Sheet from Body child opened independent Properties");
+            check(save().serialized()==unchanged,
+                "Blocked generated feature Properties changed the document");
         }
         const auto before=save().serialized();dxf=window.findChild<QAction*>("sheetDxfAction");dxf->trigger();flush();
         const auto directory_name=app::ApplicationSettings::load().drawing_dxf_directory;
@@ -369,21 +537,199 @@ int verify_sheet_exchange_ui(QApplication& application,const std::filesystem::pa
                 check(!row(id), "The selected Sheet from Body history row was not deleted");
             };
             const auto& generated = conversion->sheet_from_body.generated_features;
-            remove(generated.front());
-            check(row(conversion->id), "Deleting the first Flat removed the divider");
-            for (const auto& id : generated | std::views::drop(1))
-                check(row(id) && row(id)->foreground(0).color() == QColor(210, 75, 65),
-                    "Deleting the first Flat did not retain its invalid dependent");
-            window.findChild<QAction*>("undoAction")->trigger();flush();
-            check(row(generated.front()), "Flat deletion Undo did not restore its Tree row");
+            check(!tree_action_enabled(generated.front(),
+                        "deleteHistoryObject")&&
+                    !tree_action_enabled(generated.front(),
+                        "suppressHistoryObject"),
+                "Bound Sheet from Body child can be deleted or suppressed");
             remove(conversion->id);
             for (const auto& id : generated)
-                check(row(id), "Deleting the divider removed a generated feature from the Tree");
-            check(!view->mesh().triangles.empty(), "Deleting the divider did not restore the original Body");
+                check(!row(id), "Deleting Sheet from Body retained a bound generated child");
+            check(!view->mesh().triangles.empty(), "Deleting Sheet from Body did not restore the original Body");
         }
         window.grab().save(QString::fromStdString((directory/"sheet-conversion-result.png").string()));
         std::cout<<"Sheet exchange GUI: native picker, all languages, Cancel, middle-button OK, Undo/Redo and DXF passed\n";return 0;
     }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}
+}
+
+int verify_surface_shell_source_ui(QApplication& application,
+        const std::filesystem::path& directory) {
+    using namespace zima;
+    const auto check=[](bool value,const char* message) {
+        if(!value)throw std::runtime_error(message);
+    };
+    const auto flush=[&] {
+        application.processEvents();
+        QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
+        application.processEvents();
+    };
+    try {
+        auto part=document::PartDocument::create_default();
+        const auto source_body=part.body_history.create_body("Surface source");
+        auto source=test::rectangular_feature(part,{30,20,10});
+        source.name="Surface source";
+        part.insert_history_entry(document::PartHistoryKind::Feature,
+            source.id);
+        part.history.push_back(source);
+        part.resolve_constructions();
+        kernel::OcctKernel kernel;
+        auto calculated=workspace::calculate_part_with_resolved_references(
+            kernel,part);
+        const auto destination=part.body_history.create_body("Surface result");
+        {
+            auto body=*part.body_history.find(destination);
+            body.scope.placement.x=-37.;
+            body.scope.placement.y=19.;
+            body.scope.placement.z=6.;
+            body.scope.placement.rotation_x=-13.;
+            body.scope.placement.rotation_z=23.;
+            body.scope.placement.absolute_rotation_x=-13.;
+            body.scope.placement.absolute_rotation_z=23.;
+            part.body_history.update_body(body);
+        }
+        part.body_history.activate(destination);
+        const auto path=directory/"surface-shell-source-ui.prtz";
+        part.save(path,calculated);
+
+        app::AssemblyWorkspaceWindow window(
+            QString::fromStdString(directory.string()));
+        window.resize(1300,900);window.show();
+        check(window.open_document_path(QString::fromStdString(path.string())),
+            "Surface extraction fixture did not open");
+        flush();
+        check(activate_test_body(application,window,destination),
+            "Surface extraction destination Body could not activate");
+        const auto created=window.execute_console_command(
+            QString::fromStdString(commands::Json{
+                {"command","surface_shell.create"},
+                {"arguments",{{"source_body",source_body}}}}.dump()));
+        check(created.ok,"Surface extraction could not be created");
+        flush();
+        auto* view=dynamic_cast<viewer::MeshView*>(
+            window.findChild<QOpenGLWidget*>("modelWorkspace"));
+        check(view&&!view->mesh().triangles.empty(),
+            "Surface extraction produced no visible result");
+        bool source_offered=false;
+        for(int step:{30,5})
+            for(int y=5;y<view->height()&&!source_offered;y+=step)
+                for(int x=5;x<view->width()&&!source_offered;x+=step)
+                    source_offered=std::ranges::any_of(
+                        view->selection_candidates_at(QPointF(x,y)),
+                        [&](const auto& candidate) {
+                            return candidate.kind==
+                                    viewer::CandidateKind::Container&&
+                                candidate.owner_id==source.id;
+                        });
+        check(source_offered,
+            "Extracted surface hover cannot reach its original solid feature");
+        const auto extracted=created.data.at("container").get<std::string>();
+        const auto available=window.execute_console_command(
+            QString::fromStdString(commands::Json{
+                {"command","edge_treatment.edges"},
+                {"arguments",commands::Json::object()}}.dump()));
+        check(available.ok,"Extracted surface edges cannot be queried");
+        const auto& edge_items=available.data.at("items");
+        const auto edge=std::ranges::find_if(edge_items,[&](const auto& item) {
+            return item.at("owner").template get<std::string>()==extracted&&
+                !item.value("ambiguous",false);
+        });
+        check(edge!=edge_items.end(),
+            "Extracted surface offers no stable edge for a Fillet");
+        const commands::Json routes=commands::Json::array({
+            {{"edges",commands::Json::array({
+                {{"owner",edge->at("owner")},{"key",edge->at("key")}}
+            })}}
+        });
+        const auto fillet_created=window.execute_console_command(
+            QString::fromStdString(commands::Json{
+                {"command","fillet.create"},
+                {"arguments",{{"routes",routes},{"radius_mm",1.}}}}.dump()));
+        check(fillet_created.ok,"Extracted surface Fillet could not be created");
+        const auto fillet=fillet_created.data.at("container").get<std::string>();
+        flush();
+        std::optional<QPointF> fillet_pick;
+        std::size_t fillet_candidate{};
+        for(int step:{24,5})
+            for(int y=5;y<view->height()&&!fillet_pick;y+=step)
+                for(int x=5;x<view->width()&&!fillet_pick;x+=step) {
+                    const auto candidates=view->selection_candidates_at(
+                        QPointF(x,y));
+                    for(std::size_t index=0;index<candidates.size();++index)
+                        if(candidates[index].kind==
+                                viewer::CandidateKind::Container&&
+                            candidates[index].owner_id==fillet) {
+                            fillet_pick=QPointF(x,y);
+                            fillet_candidate=index;
+                            break;
+                        }
+                }
+        check(fillet_pick.has_value(),
+            "Rounded extracted surface does not offer its Fillet container");
+        const auto send=[&](QEvent::Type type,Qt::MouseButton button,
+                Qt::MouseButtons buttons) {
+            QMouseEvent event(type,*fillet_pick,
+                QPointF(view->mapToGlobal(fillet_pick->toPoint())),button,
+                buttons,Qt::NoModifier);
+            QApplication::sendEvent(view,&event);flush();
+        };
+        send(QEvent::MouseMove,Qt::NoButton,Qt::NoButton);
+        for(std::size_t index=0;index<fillet_candidate;++index) {
+            send(QEvent::MouseButtonPress,Qt::RightButton,Qt::RightButton);
+            send(QEvent::MouseButtonRelease,Qt::RightButton,Qt::NoButton);
+        }
+        static_cast<void>(view->grabFramebuffer());
+        check(view->offered_candidate()&&
+                view->offered_candidate()->owner_id==fillet&&
+                view->property("gpuSourceWireVertexCount").toULongLong()>0,
+            "Rounded extracted surface hover omitted its authored Fillet wire");
+        window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
+        std::vector<kernel::BodyResult> reopened_cache;
+        const auto reopened=document::PartDocument::load(path,&reopened_cache);
+        check(!reopened_cache.empty()&&
+                reopened_cache.back().body_outputs.contains(source_body)&&
+                reopened_cache.back().body_outputs.contains(destination)&&
+                std::ranges::find(
+                    reopened_cache.back().kernel_compound_bodies,source_body)!=
+                    reopened_cache.back().kernel_compound_bodies.end()&&
+                std::ranges::find(
+                    reopened_cache.back().kernel_compound_bodies,destination)!=
+                    reopened_cache.back().kernel_compound_bodies.end(),
+            "Surface extraction discarded or changed its independent source Body");
+        const document::DocumentSession session(reopened,reopened_cache);
+        check(!app::authored_feature_wire(session,source.id).empty(),
+            "Original solid has no authored wire for hover inspection");
+        const auto fillet_wire=app::authored_feature_wire(session,fillet);
+        check(fillet_wire.size()>=4,
+            "Saved extracted-surface Fillet retained only its route instead of the complete authored preview wire");
+        zima::kernel::Vec3 low{1e100,1e100,1e100};
+        zima::kernel::Vec3 high{-1e100,-1e100,-1e100};
+        for(std::size_t triangle=0;
+                triangle<view->mesh().triangle_references.size();++triangle) {
+            const auto& reference=view->mesh().triangle_references[triangle];
+            if(reference.owner_id!=fillet&&
+                    reference.display_owner_id!=fillet)continue;
+            for(std::size_t corner=0;corner<3;++corner) {
+                const auto& point=view->mesh().vertices[
+                    view->mesh().triangles[3*triangle+corner]];
+                low={std::min(low.x,point.x),std::min(low.y,point.y),
+                    std::min(low.z,point.z)};
+                high={std::max(high.x,point.x),std::max(high.y,point.y),
+                    std::max(high.z,point.z)};
+            }
+        }
+        check(low.x<high.x&&low.y<high.y&&low.z<high.z,
+            "Rounded extracted surface has no owned display bounds");
+        for(const auto& wire:fillet_wire)
+            for(const auto& point:wire.points)
+                check(point.x>=low.x-1e-6&&point.x<=high.x+1e-6&&
+                    point.y>=low.y-1e-6&&point.y<=high.y+1e-6&&
+                    point.z>=low.z-1e-6&&point.z<=high.z+1e-6,
+                    "Extracted-surface Fillet wire is displaced from its result");
+        std::cout<<"Surface extraction GUI: source-solid hover, transformed Fillet hover wire and independent physical result passed\n";
+        return 0;
+    } catch(const std::exception& error) {
+        std::cerr<<error.what()<<'\n';return 1;
+    }
 }
 
 int verify_line_bend_ui(QApplication& application,
@@ -431,6 +777,19 @@ int verify_line_bend_ui(QApplication& application,
         auto* action=window.findChild<QAction*>("lineBendAction");
         check(action&&action->isEnabled()&&!action->icon().isNull(),
             "Line Bend toolbar action is missing");
+        const auto line_bend_icon=action->icon().pixmap(48,48).toImage();
+        const auto ordinary_bend_icon=window.findChild<QAction*>(
+            "bendAction")->icon().pixmap(48,48).toImage();
+        std::size_t cyan_pixels{};
+        for(int y=0;y<line_bend_icon.height();++y)
+            for(int x=0;x<line_bend_icon.width();++x) {
+                const auto color=line_bend_icon.pixelColor(x,y);
+                if(color.alpha()>100&&color.blue()>180&&
+                        color.green()>120&&color.red()<80)
+                    ++cyan_pixels;
+            }
+        check(cyan_pixels>30&&line_bend_icon!=ordinary_bend_icon,
+            "Line Bend does not use its azure V-and-sheet icon");
         action->trigger();flush();
         auto* dialog=dynamic_cast<app::SketchPropertiesDialog*>(
             window.findChild<QDialog*>("lineBendPropertiesDialog"));

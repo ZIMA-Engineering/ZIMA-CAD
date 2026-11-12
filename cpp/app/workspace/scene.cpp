@@ -21,6 +21,7 @@
 #include <zima/document/sheet_form_definition.hpp>
 #include <zima/document/sheet_form_dimensions.hpp>
 #include <zima/document/component_source.hpp>
+#include <zima/kernel/surface_shell_identity.hpp>
 #include "../sketch_point_pick_priority.hpp"
 #include "../surface_wire_visibility.hpp"
 #include "../sketch_external_reference_kind.hpp"
@@ -158,6 +159,93 @@ void AssemblyWorkspaceWindow::run_background_physical_analysis() {
     },-1);
 }
 
+void append_sheet_from_body_source_pick_aliases(
+        zima::kernel::ViewerMesh& mesh,
+        const zima::document::PartDocument& document) {
+    auto& geometry=mesh.original_references;
+    const auto triangle_count=geometry.triangle_references.size();
+    if(triangle_count==0||geometry.triangles.size()<triangle_count*3)return;
+    for(const auto& conversion:document.history) {
+        if(conversion.feature_kind!=
+                zima::document::FeatureKind::SheetFromBody)
+            continue;
+        for(const auto& binding:
+                conversion.sheet_from_body.child_bindings) {
+            if(binding.detached)continue;
+            std::vector<zima::kernel::FaceReference> sources;
+            for(const auto& face:binding.faces)
+                if(face.reference.valid()&&
+                        std::ranges::find(sources,face.reference)==
+                            sources.end())
+                    sources.push_back(face.reference);
+            if(sources.empty())continue;
+            for(std::size_t triangle=0;triangle<triangle_count;++triangle) {
+                const auto& generated=geometry.triangle_references[triangle];
+                const auto& owner=generated.display_owner_id.empty()?
+                    generated.sheet_owner:generated.display_owner_id;
+                if(owner!=binding.feature_id||
+                        (generated.sheet_role!=
+                            zima::kernel::SheetFaceRole::SideA&&
+                         generated.sheet_role!=
+                            zima::kernel::SheetFaceRole::SideB))
+                    continue;
+                for(auto source:sources) {
+                    source.instance_path=generated.instance_path;
+                    source.sheet_owner=source.owner_id;
+                    source.display_owner_id=source.owner_id;
+                    source.sheet_role=generated.sheet_role;
+                    const auto offset=triangle*3;
+                    geometry.triangles.insert(geometry.triangles.end(),{
+                        geometry.triangles[offset],
+                        geometry.triangles[offset+1],
+                        geometry.triangles[offset+2]});
+                    geometry.triangle_references.push_back(
+                        std::move(source));
+                }
+            }
+        }
+    }
+}
+
+void append_surface_shell_source_pick_aliases(
+        zima::kernel::ViewerMesh& mesh,
+        const zima::document::PartDocument& document) {
+    auto& geometry=mesh.original_references;
+    const auto triangle_count=geometry.triangle_references.size();
+    if(triangle_count==0||geometry.triangles.size()<triangle_count*3)return;
+    std::set<std::string> extractions;
+    for(const auto& feature:document.history)
+        if(feature.feature_kind==zima::document::FeatureKind::Shell&&
+                !feature.suppressed&&feature.shell.thickness==0.)
+            extractions.insert(feature.id);
+    if(extractions.empty())return;
+    for(std::size_t triangle=0;triangle<triangle_count;++triangle) {
+        const auto& generated=geometry.triangle_references[triangle];
+        const auto& owner=generated.display_owner_id.empty()?
+            generated.owner_id:generated.display_owner_id;
+        if(!extractions.contains(owner))continue;
+        const auto source=zima::kernel::surface_shell_parent(
+            generated.semantic_key);
+        if(!source||!document.find_container(source->first))continue;
+        auto alias=generated;
+        alias.owner_id=source->first;
+        alias.semantic_key=source->second;
+        alias.display_owner_id=source->first;
+        alias.sheet_owner=source->first;
+        // Reuse the existing hidden container-pick layer. This is a transient
+        // scene alias, not persisted sheet topology; one ordinary side marker
+        // makes the exact coincident source face reachable through the visible
+        // extracted surface without changing the displayed geometry.
+        alias.sheet_role=zima::kernel::SheetFaceRole::SideA;
+        alias.surface_result=false;
+        const auto offset=triangle*3;
+        geometry.triangles.insert(geometry.triangles.end(),{
+            geometry.triangles[offset],geometry.triangles[offset+1],
+            geometry.triangles[offset+2]});
+        geometry.triangle_references.push_back(std::move(alias));
+    }
+}
+
 
 void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMesh()> assembly_preview) {
     if(!sketch_intersection_choices_.empty() && (!sketch_external_intersection_active_ ||
@@ -172,6 +260,14 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
         if(const auto* displayed=workspace_.open_part(workspace_.displayed_document_id()))
             zima::document::associate_compound_sheet_display_owners(
                 displayed->session.document(),mesh);
+        if(const auto* displayed=workspace_.open_part(
+                workspace_.displayed_document_id()))
+            append_sheet_from_body_source_pick_aliases(
+                mesh,displayed->session.document());
+        if(const auto* displayed=workspace_.open_part(
+                workspace_.displayed_document_id()))
+            append_surface_shell_source_pick_aliases(
+                mesh,displayed->session.document());
         if(properties_dialog_&&active_sketch_id_.empty()) {
             std::set<std::string> editing_profiles;
             if(property_owned_sketch_draft_)editing_profiles.insert(property_owned_sketch_draft_->id);
@@ -630,7 +726,10 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
                     mesh.dimensions.insert(mesh.dimensions.end(),internal.dimensions.begin(),internal.dimensions.end());
                 }
                 if(active_sketch_id_.empty()&&container->feature_kind!=zima::document::FeatureKind::Loft)zima::document::visit_feature_sketches(*container,[&](const auto& data,std::size_t stage){
-                    if(container->feature_kind==zima::document::FeatureKind::Bend&&stage==0&&container->bend.angle_degrees==0)return;
+                    if(container->feature_kind==zima::document::FeatureKind::Bend&&
+                       stage==0&&(container->bend.angle_degrees==0||
+                           document.sheet_from_body_child_bound(
+                               container->id)))return;
                     const auto sketch=zima::sketcher::Sketch::from_serialized(data);
                     // Properties already publishes these annotations in the
                     // pending Sketch frame. Do not overlay the saved frame.
@@ -682,7 +781,8 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
                 auto placement_dimensions =
                     (container->feature_kind==
                             zima::document::FeatureKind::SheetProfile||
-                     !container->sheet_profile_binding.parent_id.empty())
+                     !container->sheet_profile_binding.parent_id.empty()||
+                     document.sheet_from_body_child_bound(container->id))
                         ? std::vector<zima::kernel::ViewerDimension>{}
                     : container->feature_kind==zima::document::FeatureKind::SheetForm
                         ? zima::document::sheet_form_placement_dimensions(
@@ -2060,10 +2160,20 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
             const auto active_body = document.body_history.active_body_id();
             std::map<std::string,std::string> owners;
             std::set<std::string> visible_bodies;
+            std::set<std::string> surface_shell_sources;
             for (const auto& body : document.body_history.bodies())
             {
                 if(body.visible&&!body.suppressed)visible_bodies.insert(body.scope.id);
                 for (const auto& entry : body.entries) owners.emplace(entry.id, body.scope.id);
+            }
+            for(const auto& feature:document.history) {
+                if(feature.feature_kind!=zima::document::FeatureKind::Shell||
+                        feature.suppressed||feature.shell.thickness!=0.||
+                        feature.shell.source_body.empty())continue;
+                if(const auto* source=document.body_history.find(
+                        feature.shell.source_body))
+                    for(const auto& entry:source->entries)
+                        surface_shell_sources.insert(entry.id);
             }
             // Original-reference packets also contain native child Sketches.
             // Resolve their Body once here, not during every pointer movement.
@@ -2071,10 +2181,19 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
                 if(const auto* body=document.body_owner_for_object(sketch.id))
                     owners.emplace(sketch.id,body->scope.id);
             viewer_->set_candidate_filter([active_body, owners = std::move(owners),
-                    visible_bodies=std::move(visible_bodies)](const auto& candidate) {
+                    visible_bodies=std::move(visible_bodies),
+                    surface_shell_sources=std::move(surface_shell_sources)](
+                    const auto& candidate) {
                 const auto owner = owners.find(candidate.owner_id);
-                return owner == owners.end() || (visible_bodies.contains(owner->second) &&
-                    (active_body.empty() || owner->second == active_body));
+                if(owner==owners.end())return true;
+                if(!visible_bodies.contains(owner->second))return false;
+                if(active_body.empty()||owner->second==active_body)return true;
+                // A zero-thickness Shell in another Body intentionally keeps
+                // its exact source-face aliases pickable through the derived
+                // surface. Other geometry in an inactive Body remains under
+                // the ordinary active-Body selection contract.
+                return candidate.kind==zima::viewer::CandidateKind::Container&&
+                    surface_shell_sources.contains(candidate.owner_id);
             }, false);
         }
         // set_mesh() intentionally resets stale picking state. Dimension

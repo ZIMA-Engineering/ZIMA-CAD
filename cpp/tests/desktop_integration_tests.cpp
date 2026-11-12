@@ -5,6 +5,7 @@
 #include <QFileInfo>
 #include <QImageReader>
 #include <QImage>
+#include <QIcon>
 #include <QSettings>
 #include <QTemporaryDir>
 #include <QXmlStreamReader>
@@ -15,6 +16,7 @@
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QPushButton>
+#include <algorithm>
 #include <iostream>
 #include <memory>
 #include <stdexcept>
@@ -81,8 +83,57 @@ int main(int argc,char** argv) {
         registry.setValue("UserChoice/ProgId","Other.CAD");registry.sync();
         check(!registered(c),"Portable mode registered itself");
         install(c);check(registered(c),"Registration incomplete");
+        const auto check_application_icon=[](const QImage& image) {
+            std::size_t white{},cyan{};
+            for(int y=0;y<image.height();++y)
+                for(int x=0;x<image.width();++x) {
+                    const auto color=image.pixelColor(x,y);
+                    if(color.alpha()<100)continue;
+                    const auto spread=std::max({color.red(),color.green(),
+                        color.blue()})-std::min({color.red(),color.green(),
+                        color.blue()});
+                    if(spread<20&&color.lightness()>200)++white;
+                    if(color.red()<80&&color.green()>120&&
+                            color.blue()>180)++cyan;
+                }
+            const auto minimum=static_cast<std::size_t>(
+                image.width()*image.height()/50);
+            check(white>minimum&&cyan>minimum,
+                "Windows application icon lost its filled Z or azure C");
+        };
+        auto application_icon_path=registry.value(
+            "ZIMA-CAD/Desktop/"+c.id+
+            "/Capabilities/ApplicationIcon").toString();
+        if(application_icon_path.startsWith('"')&&
+                application_icon_path.endsWith('"'))
+            application_icon_path=application_icon_path.mid(
+                1,application_icon_path.size()-2);
+        check(QFileInfo(application_icon_path).fileName().startsWith("app-")&&
+                QFileInfo(application_icon_path).suffix()=="ico",
+            "Windows application icon is not content-addressed");
+        QFile application_icon_file(application_icon_path);
+        check(application_icon_file.open(QIODevice::ReadOnly),
+            "Registered application icon missing");
+        const auto application_icon_bytes=application_icon_file.readAll();
+        application_icon_file.close();
+        check(application_icon_bytes.left(6)==
+                QByteArray::fromHex("000001000100"),
+            "Registered application icon header is invalid");
+        check_application_icon(QImage::fromData(
+            application_icon_bytes.mid(22),"PNG"));
+        const QIcon executable_icon(QFileInfo(__FILE__).absolutePath()+
+            "/../app/windows/app-icon.ico");
+        check(!executable_icon.isNull(),"Embedded Windows icon is missing");
+        check_application_icon(executable_icon.pixmap(48,48).toImage());
         check(registry.value("Classes/.prtz/.").toString()=="Other.CAD","Default overwritten");
         check(registry.value("UserChoice/ProgId").toString()=="Other.CAD","UserChoice overwritten");
+        const auto application_shortcut=c.programs+"/ZIMA-CAD-"+c.id+".lnk";
+        check(QFile::remove(application_shortcut)&&
+                QFile::link(c.launcher,application_shortcut),
+            "Cannot prepare an obsolete application shortcut");
+        check(!registered(c),"Obsolete shortcut identity was not detected");
+        install(c);check(registered(c),
+            "Register or repair did not rewrite the application shortcut");
         for(const auto* ext:{"prtz","asmz","drwz","frmz","tblz","symz"}) {
             QFile icon(c.data+"/zima-cad/desktop/"+c.id+'/'+ext+".ico");
             check(icon.open(QIODevice::ReadOnly),"Document icon missing");

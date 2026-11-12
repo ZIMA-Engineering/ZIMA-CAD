@@ -7,6 +7,7 @@
 #include <zima/workspace/sketch_operations.hpp>
 #include <zima/workspace/metadata_operations.hpp>
 #include <zima/interchange/step_model.hpp>
+#include <zima/interchange/model_import.hpp>
 #include <zima/interchange/dxf.hpp>
 #include <zima/document/file_path.hpp>
 #include <fstream>
@@ -43,16 +44,31 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     workspace::Workspace live;command_host::Options settings;settings.settings=[] {return command_host::Settings{{fs::absolute("config/templates"),"START_PART_mm.prtz","START_ASSEMBLY_mm.asmz","Body"},{}};};
     command_host::Host host(live,kernel,dir,settings);run(host,"new",{{"type","part"},{"name","export-source"}});const auto part_id=live.active_document_id();
     const auto box=zima::test::rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"length_mm","10"},{"width_mm","20"},{"height_mm","30"}}).data.at("container").get<std::string>();
-    auto* part=live.open_part(part_id);const auto revision=part->session.revision(),generation=part->session.data_generation();const auto shape=part->session.calculated_boundaries().back().kernel_shape;
+    auto* part=live.open_part(part_id);
+    auto colored=part->session.document();
+    const auto* colored_body=colored.body_owner_for_object(box);
+    require(colored_body,"Export fixture has no owning Body");
+    colored.appearance.bodies[colored_body->scope.id].color="#336699";
+    part->session.commit(std::move(colored),
+        part->session.calculated_boundaries());
+    const auto revision=part->session.revision(),generation=part->session.data_generation();const auto shape=part->session.calculated_boundaries().back().kernel_shape;
     const auto step=dir/fs::path(u8"kvádr export.step"),stl=dir/fs::path(u8"kvádr export.stl");
     const auto report=run(host,"export.step",{{"path",document::path_to_utf8(step)}}).data;
     require(report.at("bytes")==fs::file_size(step) && report.at("source_revision")==revision && report.at("model_changed")==false && std::abs(step_volume(step)-6000)<1e-5,"STEP export changed volume or returned an invalid receipt");
     run(host,"export.stl",{{"path",document::path_to_utf8(stl)}});require(std::abs(stl_volume(stl)-6000)<1e-5,"STL triangulation changed the closed volume");
+    const auto stl_colors=interchange::import_stl_part(
+        document::PartDocument::create_default(),{},stl);
+    require(std::ranges::any_of(stl_colors.document.appearance.bodies,
+            [](const auto& entry) {
+                return entry.second.color=="#336699";
+            }),
+        "STL export lost the source Body color");
     const auto iges=dir/fs::path(u8"kvádr export.iges");
     const auto iges_report=run(host,"export.iges",{{"path",document::path_to_utf8(iges)}}).data;
     const auto iges_volume=[&](const fs::path& path){return kernel.import_iges(document::path_to_utf8(path),"iges-export-roundtrip",.1).volume;};
+    const auto first_iges_volume=iges_volume(iges);
     require(iges_report.at("bytes")==fs::file_size(iges)&&iges_report.at("source_revision")==revision&&
-        iges_report.at("model_changed")==false&&std::abs(iges_volume(iges)-6000)<1e-5,"IGES export changed volume or receipt");
+        iges_report.at("model_changed")==false&&std::abs(first_iges_volume-6000)<1e-5,"IGES export changed volume or receipt");
     const auto iges_before=bytes(iges);
     require(host.execute({{"command","export.iges"},{"arguments",{{"path",document::path_to_utf8(iges)}}}}).code=="file_exists"&&
         bytes(iges)==iges_before,"Unrequested IGES export overwrote a file");
@@ -115,7 +131,10 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
         static_cast<void>(workspace::export_file(isolated,export_id,without_iges));
         static_cast<void>(workspace::export_file(isolated,export_id,with_iges,
             {.include_skeletons=true}));
-        require(std::abs(iges_volume(without_iges)-12000)<1e-5&&std::abs(iges_volume(with_iges)-24000)<1e-5,
+        const auto without_iges_volume=iges_volume(without_iges);
+        const auto with_iges_volume=iges_volume(with_iges);
+        require(std::abs(without_iges_volume-12000)<1e-5&&
+                std::abs(with_iges_volume-24000)<1e-5,
             "Nested IGES Skeleton option did not exclude by default and include on request");
         require(isolated.open_assembly(export_id)->session.revision()==revision,
             "Skeleton export option changed the Assembly revision");

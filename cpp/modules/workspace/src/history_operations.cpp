@@ -27,6 +27,9 @@ bool set_part_history_suppressed(Workspace& live,const std::string& document_id,
     auto* state=live.open_part(document_id);
     if(!state)throw HistoryOperationError("unsupported_document","Part document is not open");
     auto& part=*state;
+    if(part.session.document().sheet_from_body_child_bound(id))
+        throw HistoryOperationError("bound_sheet_from_body_child",
+            "Detach this Sheet from Body part before editing it independently.");
     const auto current=part_history_suppressed(part.session.document(),id);
     require_editable(part.session.document(),id);
     if (current==suppressed) return false;
@@ -64,6 +67,9 @@ bool move_part_history(Workspace& live,const std::string& document_id,const kern
              !moved->sheet_profile_binding.parent_id.empty()))
         throw HistoryOperationError("atomic_history_group",
             "This generated sheet group cannot be reordered independently.");
+    if(original.sheet_from_body_child_bound(id))
+        throw HistoryOperationError("bound_sheet_from_body_child",
+            "Detach this Sheet from Body part before editing it independently.");
     const bool body_step = original.body_history.find(id) || original.body_history.find_boolean(id);
     const auto* owner = original.body_history.owner(id);
     std::vector<std::string> order;
@@ -187,6 +193,13 @@ void delete_part_history(Workspace& live,const std::string& document_id,
         const auto deletion=plan_history_deletion(next,id);
         detach_deleted_history_references(next,deletion);
         next.erase_history_object(id);
+        // A selected history group owns every object in deletion.removed.
+        // Erase the parent first so its generated children are no longer
+        // protected as independently selected bound objects, then remove any
+        // children not already erased by the parent's native group contract.
+        for(const auto& owned:deletion.removed)
+            if(owned!=id&&exists(next,owned))
+                next.erase_history_object(owned);
     }
     // Flats and Bends are independent authored material tools. Rebuild their
     // shared Body with the direct parallel Add block after a deletion instead

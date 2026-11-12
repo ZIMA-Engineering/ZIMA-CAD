@@ -6,6 +6,17 @@
 #include <algorithm>
 #include <stdexcept>
 namespace zima::interchange {
+namespace {
+void apply_imported_appearance(document::PartDocument& document,
+        const std::string& body_id,kernel::Appearance appearance) {
+    if(!appearance.body.color.empty())
+        document.appearance.bodies[body_id]=appearance.body;
+    for(auto& group:appearance.groups) {
+        group.body_id=body_id;
+        document.appearance.groups.push_back(std::move(group));
+    }
+}
+}
 DxfPartImport import_dxf_part(document::PartDocument doc,
         const std::vector<kernel::BodyResult>& previous, const std::filesystem::path& source,
         const std::string& active_sketch_id, double ambiguous_unit_scale_to_mm,
@@ -41,16 +52,52 @@ StepImportedPart import_iges_part(document::PartDocument doc,
     auto container = document::PartDocument::create_imported_step_container(absolute, {}, document::path_to_utf8(source.stem()));
     container.imported_step.mesh_deflection=mesh_deflection;
     kernel::OcctKernel kernel;
-    auto frozen = kernel.import_iges(document::path_to_utf8(absolute), container.id,
+    auto imported = kernel.import_iges_model(document::path_to_utf8(absolute), container.id,
         mesh_deflection.value_or(document::precision_value(doc.document_precision, "mesh_deflection", 0.1)));
-    container.imported_step.frozen_brep = std::make_shared<const std::string>(std::move(frozen.kernel_shape));
-    container.imported_step.topology = std::move(frozen.imported_step_topology);
+    container.imported_step.frozen_brep = std::make_shared<const std::string>(
+        std::move(imported.body.kernel_shape));
+    container.imported_step.topology =
+        std::move(imported.body.imported_step_topology);
     auto graph = doc.body_history;
     const auto body_id=document::create_origin_bound_body(graph, doc.document_id, document::path_to_utf8(source.stem()));
     graph.insert({document::PartHistoryKind::Feature, container.id});
     graph.move_body(body_id,0);
     doc.history.push_back(std::move(container)); doc.set_body_history(std::move(graph));
+    apply_imported_appearance(doc,body_id,std::move(imported.appearance));
     auto calculated = kernel.evaluate_history_incremental(doc.kernel_operations(), previous);
     return {std::move(doc), std::move(calculated), {}};
+}
+
+StepImportedPart import_stl_part(document::PartDocument doc,
+        const std::vector<kernel::BodyResult>& previous,
+        const std::filesystem::path& source,
+        std::optional<double> mesh_deflection) {
+    if(mesh_deflection&&(!std::isfinite(*mesh_deflection)||
+            *mesh_deflection<=0))
+        throw std::invalid_argument(
+            "Import mesh deflection must be positive");
+    const auto absolute=std::filesystem::absolute(source);
+    auto container=document::PartDocument::create_imported_step_container(
+        absolute,{},document::path_to_utf8(source.stem()));
+    container.imported_step.mesh_deflection=mesh_deflection;
+    kernel::OcctKernel kernel;
+    auto imported=kernel.import_stl_model(document::path_to_utf8(absolute),
+        container.id,mesh_deflection.value_or(document::precision_value(
+            doc.document_precision,"mesh_deflection",0.1)));
+    container.imported_step.frozen_brep=std::make_shared<const std::string>(
+        std::move(imported.body.kernel_shape));
+    container.imported_step.topology=
+        std::move(imported.body.imported_step_topology);
+    auto graph=doc.body_history;
+    const auto body_id=document::create_origin_bound_body(graph,
+        doc.document_id,document::path_to_utf8(source.stem()));
+    graph.insert({document::PartHistoryKind::Feature,container.id});
+    graph.move_body(body_id,0);
+    doc.history.push_back(std::move(container));
+    doc.set_body_history(std::move(graph));
+    apply_imported_appearance(doc,body_id,std::move(imported.appearance));
+    auto calculated=kernel.evaluate_history_incremental(
+        doc.kernel_operations(),previous);
+    return {std::move(doc),std::move(calculated),{}};
 }
 }

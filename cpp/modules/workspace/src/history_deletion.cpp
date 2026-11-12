@@ -20,6 +20,9 @@ HistoryDependencyCollector dependencies(const document::PartDocument& doc,bool i
     for(const auto& f:doc.history) {
         graph.use(f.id,f.holes.sketch_id);graph.use(f.id,f.flat.sketch_id);
         graph.use(f.id,f.bend.sketch_id);graph.use(f.id,f.line_bend.sketch_id);
+        if(f.feature_kind==document::FeatureKind::Shell&&
+                !f.shell.source_body.empty())
+            graph.use(f.id,f.shell.source_body);
         if(f.feature_kind==document::FeatureKind::DerivedCopy){
             for(const auto& source:f.derived_copy.source_ids)
                 graph.use(f.id,source);
@@ -89,10 +92,17 @@ HistoryDeletionPlan plan_history_deletion(const document::PartDocument& doc,cons
         if(!selected->sheet_profile_binding.parent_id.empty())
             throw std::invalid_argument(
                 "Edit or delete this generated feature through its parent Profile.");
+        if(doc.sheet_from_body_child_bound(id))
+            throw std::invalid_argument(
+                "Detach this Sheet from Body part before editing it independently.");
         if(selected->feature_kind==document::FeatureKind::SheetProfile)
             for(const auto& feature:doc.history)
                 if(feature.sheet_profile_binding.parent_id==selected->id)
                     plan.removed.insert(feature.id);
+        if(selected->feature_kind==document::FeatureKind::SheetFromBody)
+            for(const auto& binding:selected->sheet_from_body.child_bindings)
+                if(!binding.detached)
+                    plan.removed.insert(binding.feature_id);
     }
     const auto graph=dependencies(doc,true);
     // A self-contained retained feature is a dependency boundary.  It loses
@@ -167,7 +177,10 @@ void detach_deleted_history_references(document::PartDocument& doc,const History
                 if(i<f.edge_treatment.route_start_vertices.size())
                     f.edge_treatment.route_start_vertices.erase(f.edge_treatment.route_start_vertices.begin()+i);
             }
-        refs(f.shell.removed_faces);refs(f.drill_point.bottom_faces);refs(f.surface_sewing.faces);
+        refs(f.shell.removed_faces);
+        if(!f.shell.source_body.empty()&&lost(f.shell.source_body))
+            f.shell.source_body.clear();
+        refs(f.drill_point.bottom_faces);refs(f.surface_sewing.faces);
         for(auto& face:f.surface_intersection.faces)reference(face);
         reference(f.surface_trim.target);
         reference(f.surface_thicken.face);

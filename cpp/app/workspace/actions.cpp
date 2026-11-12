@@ -5,10 +5,32 @@
 #include <zima/workspace/document_operations.hpp>
 #include "tool_button_style.hpp"
 #include "toolbar_style.hpp"
+#include "../command_button_paint.hpp"
 
 namespace zima::app {
 using namespace workspace_detail;
 
+namespace {
+class ApplicationLogoLabel final : public QLabel {
+public:
+    explicit ApplicationLogoLabel(QWidget* parent):QLabel(parent) {
+        setObjectName(QStringLiteral("applicationLogo"));
+        setAlignment(Qt::AlignCenter);
+        setContentsMargins(8,2,12,2);
+        refresh();
+    }
+protected:
+    void changeEvent(QEvent* event) override {
+        QLabel::changeEvent(event);
+        if(event->type()==QEvent::PaletteChange)refresh();
+    }
+private:
+    void refresh() {
+        setPixmap(application_icon().pixmap(QSize(34,34)));
+        setFixedSize(54,38);
+    }
+};
+}
 
 void AssemblyWorkspaceWindow::create_actions() {
     const auto t = [this](const char* key, const char* fallback) {
@@ -34,16 +56,14 @@ void AssemblyWorkspaceWindow::create_actions() {
     connect(open_document_action_, &QAction::triggered, this,
         [this] { open_document(); });
     file->addAction(open_document_action_);
-    auto* import_action = make_action(t("menu.file.import", "Importovat…"), "open");
-    import_action->setObjectName("importDocumentAction");
-    import_action->setShortcut(QKeySequence(Qt::Key_F3));
-    connect(import_action, &QAction::triggered, this, [this] { import_file(); });
-    file->addAction(import_action);
-    export_action_ = make_action(t("menu.file.export", "Exportovat…"), "save");
+    import_action_ = make_action(t("menu.file.import", "Importovat…"), "import");
+    import_action_->setObjectName("importDocumentAction");
+    import_action_->setShortcut(QKeySequence(Qt::Key_F6));
+    connect(import_action_, &QAction::triggered, this, [this] { import_file(); });
+    export_action_ = make_action(t("menu.file.export", "Exportovat…"), "export");
     export_action_->setObjectName("exportDocumentAction");
-    export_action_->setShortcut(QKeySequence(Qt::Key_F4));
+    export_action_->setShortcut(QKeySequence(Qt::Key_F7));
     connect(export_action_, &QAction::triggered, this, [this] { export_file(); });
-    file->addAction(export_action_);
     close_document_action_ = make_action(t("menu.file.close", "Zavřít"), "close");
     close_document_action_->setObjectName("closeDocumentAction");
     close_document_action_->setShortcuts({QKeySequence(Qt::Key_F10), QKeySequence(Qt::Key_F9), QKeySequence::Close});
@@ -51,7 +71,7 @@ void AssemblyWorkspaceWindow::create_actions() {
         [this] { close_document(); });
     save_action_ = make_action(t("menu.file.save", "Uložit"), "save");
     save_action_->setObjectName("saveDocumentAction");
-    save_action_->setShortcuts({QKeySequence(Qt::Key_F6), QKeySequence::Save});
+    save_action_->setShortcuts({QKeySequence(Qt::Key_F3), QKeySequence::Save});
     save_action_->setShortcutContext(Qt::ApplicationShortcut);
     connect(save_action_, &QAction::triggered, this,
         [this] { save_active_document(); });
@@ -60,11 +80,13 @@ void AssemblyWorkspaceWindow::create_actions() {
         t("menu.file.save_as", "Uložit jako..."), "save-as");
     save_as_action_->setObjectName("saveDocumentAsAction");
     save_as_action_->setToolTip(tr("Uložit kopii dokumentu včetně navázaného modelu nebo výkresů; původní dokument zůstane otevřený."));
-    save_as_action_->setShortcuts({QKeySequence(Qt::Key_F7), QKeySequence::SaveAs});
+    save_as_action_->setShortcuts({QKeySequence(Qt::Key_F4), QKeySequence::SaveAs});
     save_as_action_->setEnabled(false);
     connect(save_as_action_, &QAction::triggered, this,
         [this] { save_active_document_as(); });
     file->addAction(save_as_action_);
+    file->addAction(import_action_);
+    file->addAction(export_action_);
     rename_document_action_ = make_action(
         t("menu.file.rename", "Přejmenovat…"), "rename");
     rename_document_action_->setObjectName("renameDocumentAction");
@@ -321,7 +343,7 @@ void AssemblyWorkspaceWindow::create_actions() {
     for (std::size_t index = 0; index < application_actions_.size(); ++index) {
         auto* action = new QAction(application_names[index],this);
         action->setIcon(resource_icon(QString::fromLatin1(application_icons[index])));
-        if(static_cast<ApplicationMode>(index)!=ApplicationMode::Piping&&static_cast<ApplicationMode>(index)!=ApplicationMode::Surface)
+        if(static_cast<ApplicationMode>(index)!=ApplicationMode::Piping)
             applications->addAction(action);
         else action->setVisible(false);
         action->setObjectName(
@@ -932,10 +954,17 @@ void AssemblyWorkspaceWindow::create_actions() {
     // feedback as the View and application toolbars instead of leaving the
     // icon buttons visually inert.
     main_toolbar_->setStyleSheet(command_button_style() + toolbar_separator_style());
-    main_toolbar_->addAction(new_document_action_);
-    main_toolbar_->addAction(open_document_action_);
-    main_toolbar_->addAction(save_action_);
-    main_toolbar_->addAction(save_as_action_);
+    // Reuse the File menu actions directly so the document strip always has
+    // the complete command set with identical enablement, shortcuts and
+    // behavior. Sharing the menu separator also keeps its administrative
+    // commands visually distinct without creating toolbar-only actions.
+    for (auto* action : file->actions()) {
+        main_toolbar_->addAction(action);
+        if (!action->isSeparator())
+            if (auto* button=qobject_cast<QToolButton*>(
+                    main_toolbar_->widgetForAction(action)))
+                button->setStyleSheet(command_button_style());
+    }
     main_toolbar_->addSeparator();
     main_toolbar_->addAction(undo_action_);
     main_toolbar_->addAction(redo_action_);
@@ -952,14 +981,11 @@ void AssemblyWorkspaceWindow::create_actions() {
     auto* toolbar_spacer = new QWidget(main_toolbar_);
     toolbar_spacer->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
     main_toolbar_->addWidget(toolbar_spacer);
-    auto* logo = new QLabel(QStringLiteral(
-        "ZIMA<span style=\"color:#00D1FF\">-CAD</span>"), main_toolbar_);
-    auto logo_font = logo->font();
-    logo_font.setBold(true);
-    logo_font.setPointSizeF(std::max(11.0, logo_font.pointSizeF()));
-    logo->setFont(logo_font);
-    logo->setContentsMargins(8, 2, 12, 2);
-    main_toolbar_->addWidget(logo);
+    main_toolbar_->addWidget(new ApplicationLogoLabel(main_toolbar_));
+    for(auto* action:main_toolbar_->actions())
+        if(auto* button=qobject_cast<QToolButton*>(
+                main_toolbar_->widgetForAction(action)))
+            new IconOnlyCommandButtonPaint(button);
     addToolBar(Qt::TopToolBarArea, main_toolbar_);
 
     view_toolbar_ = new QToolBar(tr("Pohled"), this);

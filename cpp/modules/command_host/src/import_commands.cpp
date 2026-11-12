@@ -99,7 +99,9 @@ void Host::register_import_commands() {
           catch (const workspace::PlacementEditError& error) { return Result::failure(error.code, tr(error.what())); }
           catch (const std::exception& error) { return Result::failure("import_rejected", tr(error.what())); }
     });
-    for (const auto format : {interchange::Format::Step, interchange::Format::Iges, interchange::Format::Dxf}) {
+    for (const auto format : {interchange::Format::Step,
+            interchange::Format::Iges,interchange::Format::Stl,
+            interchange::Format::Dxf}) {
         const bool dxf=format==interchange::Format::Dxf;
         std::vector<commands::Argument> args={{"path",true}};
         if (dxf) {
@@ -107,7 +109,10 @@ void Host::register_import_commands() {
             args.push_back({"maximum_entities",false,Type::Integer});
         } else args.push_back({"mesh_deflection_mm",false,Type::Number});
         args.push_back({"output_directory",false});args.push_back({"document",false});
-        dispatcher_.add({dxf?"import.dxf":format==interchange::Format::Step?"import.step":"import.iges",
+        const auto command=dxf?"import.dxf":
+            format==interchange::Format::Step?"import.step":
+            format==interchange::Format::Iges?"import.iges":"import.stl";
+        dispatcher_.add({command,
             tr("Import a source file into the active Part or Assembly through the shared model transaction."),args,true},
             [this,format,dxf](const Json& a) {
                 const auto check=target(a);if(!check.ok)return check;

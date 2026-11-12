@@ -3,6 +3,7 @@
 #include <zima/kernel/kernel_shape_archive.hpp>
 #include <zima/kernel/immutable_vector.hpp>
 #include <zima/kernel/ordered_up_to_diagnostic.hpp>
+#include <zima/kernel/appearance.hpp>
 
 #include <cstdint>
 #include <cmath>
@@ -1445,12 +1446,16 @@ struct StepProduct {
     std::vector<StepProduct> children;
     Vec3 translation;
     Vec3 rotation_degrees;
+    // Captured presentation metadata. Exchange export consumes this snapshot
+    // without reopening or regenerating the source document.
+    Appearance appearance;
 };
 
 struct PlacedBody {
     BodyResult body;
     Vec3 translation;
     Vec3 rotation_degrees;
+    Appearance appearance;
 };
 
 

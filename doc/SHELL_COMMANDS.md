@@ -73,6 +73,7 @@ between the two command types.
 
 ```json
 {"command":"surface_shell.create","arguments":{"faces":[]}}
+{"command":"surface_shell.create","arguments":{"source_body":"SOURCE-BODY-ID","faces":[]}}
 {"command":"surface_shell.set","arguments":{"container":"SURFACE-SHELL-ID","faces":[{"owner":"SOURCE-ID","key":"FACE-KEY"}]}}
 ```
 
@@ -82,6 +83,25 @@ native child key retains each face/edge/point's original owner and key. Unrelate
 surfaces retain their owners. An unchanged set creates neither calculation nor
 Undo entry. Zero is stored in the existing native Shell thickness field; no new
 document field or required sidecar is introduced.
+
+An empty destination Body may retain a one-way dependency on a preceding source
+Body. The source solid remains an independent physical result; the extracted
+skin has zero mass. Source and destination Body placements are independent.
+Every source point is transformed from source-local coordinates through the
+Part frame into destination-local coordinates, so its displayed world position
+remains exactly coincident with the source even when either Body is translated
+or rotated. Placement-only changes use rigid transforms and do not require an
+OCCT shape calculation. A source-shape edit explicitly regenerates the surface.
+
+Suppressing the source Body removes only its physical result while retaining
+the calculated dependency input and the active extracted surface. Deleting the
+source removes the reference, reports the unresolved dependency and preserves
+the surface's last valid BRep and frame for inspection and repair. Save/reopen
+and Undo/Redo retain this state; Undo restores both the source link and live
+regeneration. Ordinary hover through the extracted surface can reach the
+original source feature. A downstream surface Fillet uses the destination-local
+input and applies the destination placement exactly once to its complete
+authored preview wire.
 
 Shell format, document extensions, and start-template structure are unchanged.
 Parameters/identities remain in `.prtz`, with no required sidecars.

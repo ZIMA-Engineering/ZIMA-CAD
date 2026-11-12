@@ -231,6 +231,15 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
         near(test::measured_volume(kernel,result.body_outputs.at(source_body).get()),source_volume);
         near(test::measured_volume(kernel,result.body_outputs.at(destination).get()),0.);
         near(test::measured_surface_area(kernel,result.body_outputs.at(destination).get()),skin_area);
+        near(test::measured_volume(kernel,result),source_volume);
+        near(test::measured_surface_area(kernel,result),
+            test::measured_surface_area(kernel,
+                result.body_outputs.at(source_body).get())+skin_area);
+        require(std::ranges::find(result.kernel_compound_bodies,source_body)!=
+                    result.kernel_compound_bodies.end()&&
+                std::ranges::find(result.kernel_compound_bodies,destination)!=
+                    result.kernel_compound_bodies.end(),
+            "Surface extraction in another Body changed or removed its associative source Body");
         require(std::ranges::all_of(result.body_outputs.at(destination)->mesh.triangle_references,[&](const auto& ref){return ref.owner_id==extract&&ref.surface_result;}),"Extracted surface lost native ancestry/owner");
     };
     check_branches(1000.,400.);
@@ -248,6 +257,39 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     require(reorder_rejected,"Dependent surface Body moved before its solid source");
     run(host,"undo");require(!state->session.document().find_container(extract),"External extraction did not Undo in one step");
     run(host,"redo");require(*state->session.document().find_container(extract)==extraction,"External extraction Redo lost source or surface identities");
+    run(host,"body.suppress",{{"body",source_body},{"suppressed",true}});
+    const auto& suppressed_result=state->session.calculated_boundaries().back();
+    require(suppressed_result.body_outputs.contains(source_body)&&
+            suppressed_result.body_outputs.contains(destination)&&
+            std::ranges::find(suppressed_result.kernel_compound_bodies,
+                source_body)==suppressed_result.kernel_compound_bodies.end()&&
+            std::ranges::find(suppressed_result.kernel_compound_bodies,
+                destination)!=suppressed_result.kernel_compound_bodies.end(),
+        "Suppressing a source Body removed or suppressed its dependent surface Body");
+    near(test::measured_surface_area(kernel,
+        suppressed_result.body_outputs.at(destination).get()),400.);
+    run(host,"save");
+    std::vector<kernel::BodyResult> suppressed_cache;
+    const auto suppressed_reopened=document::PartDocument::load(
+        directory/"surface-shell-other-body.prtz",&suppressed_cache);
+    require(suppressed_reopened.body_history.find(source_body)->suppressed&&
+            !suppressed_cache.empty()&&
+            suppressed_cache.back().body_outputs.contains(source_body)&&
+            suppressed_cache.back().body_outputs.contains(destination)&&
+            std::ranges::find(suppressed_cache.back().kernel_compound_bodies,
+                source_body)==suppressed_cache.back().kernel_compound_bodies.end()&&
+            std::ranges::find(suppressed_cache.back().kernel_compound_bodies,
+                destination)!=suppressed_cache.back().kernel_compound_bodies.end(),
+        "Suppressed source and active dependent surface did not survive save/reopen");
+    run(host,"undo");
+    require(!state->session.document().body_history.find(source_body)->suppressed,
+        "Source Body suppression Undo failed");
+    run(host,"redo");
+    require(state->session.document().body_history.find(source_body)->suppressed&&
+            state->session.calculated_boundaries().back().body_outputs.contains(destination),
+        "Source Body suppression Redo lost its dependent surface");
+    run(host,"body.suppress",{{"body",source_body},{"suppressed",false}});
+    check_branches(1000.,400.);
     run(host,"body.activate",{{"body",source_body}});
     test::resize_rectangular_commands([&](const char* n,Json a){return run(host,n,std::move(a));},{{"container",source_box},{"length_mm","12"}});
     check_branches(1200.,440.);
@@ -282,6 +324,39 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     auto suppressed=linked_reopened;suppressed.find_container(source_box)->suppressed=true;
     const auto missing_input=workspace::calculate_part_with_resolved_references(kernel,suppressed,&linked_saved);
     require(suppressed.find_container(extract)&&missing_input.back().calculation_errors.contains(extract),"Suppressed source aborts the Part or loses dependent definition/error");
+    const auto frozen_surface=state->session.calculated_boundaries().back().
+        body_outputs.at(destination)->kernel_shape;
+    run(host,"body.activate",{{"body",destination}});
+    const auto deleted=host.execute({{"command","history.delete"},
+        {"arguments",{{"object",source_body}}}});
+    require(!deleted.ok&&deleted.code=="calculation_errors",
+        "Deleting a referenced source Body did not retain a repairable diagnostic");
+    const auto& dead=state->session.calculated_boundaries().back();
+    require(!state->session.document().body_history.find(source_body)&&
+            state->session.document().find_container(extract)&&
+            state->session.document().find_container(extract)->shell.source_body.empty()&&
+            state->session.document().removed_reference_states.contains(extract)&&
+            dead.body_outputs.contains(destination)&&
+            dead.body_outputs.at(destination)->kernel_shape==frozen_surface&&
+            dead.calculation_errors.contains(extract),
+        "Deleting a source Body removed or recalculated its dead dependent surface");
+    run(host,"save");
+    std::vector<kernel::BodyResult> dead_cache;
+    const auto dead_reopened=document::PartDocument::load(
+        directory/"surface-shell-other-body.prtz",&dead_cache);
+    require(dead_reopened.find_container(extract)&&
+            dead_reopened.removed_reference_states.contains(extract)&&
+            !dead_cache.empty()&&dead_cache.back().body_outputs.contains(destination)&&
+            dead_cache.back().body_outputs.at(destination)->kernel_shape==frozen_surface,
+        "Dead dependent surface did not survive save/reopen");
+    run(host,"undo");
+    check_branches(1200.,440.);
+    require(state->session.document().find_container(extract)->shell.source_body==source_body,
+        "Source Body deletion Undo did not restore the associative surface link");
+    const auto redone=host.execute({{"command","redo"},{"arguments",Json::object()}});
+    require(redone.ok&&!state->session.document().body_history.find(source_body)&&
+            state->session.calculated_boundaries().back().body_outputs.at(destination)->kernel_shape==frozen_surface,
+        "Source Body deletion Redo did not restore the dead surface");
 }
 }
 namespace {

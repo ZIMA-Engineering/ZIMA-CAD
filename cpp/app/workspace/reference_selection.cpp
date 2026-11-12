@@ -37,6 +37,41 @@ document::ConstructionReference prepare_placement_pick(PlacementReferenceDialog*
     ref.measured_offset=measured;
     return ref;
 }
+
+bool sheet_reference_owner_available(
+        const document::PartDocument& document,
+        const PlacementReferenceDialog* dialog,std::size_t index,
+        const std::string& candidate_owner) {
+    const auto* sheet=dynamic_cast<const SketchPropertiesDialog*>(dialog);
+    const auto* primitive=dynamic_cast<const PrimitivePropertiesDialog*>(dialog);
+    const bool sheet_edge=(sheet&&sheet->is_sheet_edge_feature())||
+        (primitive&&primitive->is_sheet_edge_feature());
+    if(index!=0||!sheet_edge)return true;
+    const auto* body=document.body_history.find(
+        document.body_history.active_body_id());
+    if(!body)return true;
+    std::size_t insertion=std::min(body->cursor,body->entries.size());
+    for(std::size_t row=0;row<body->entries.size();++row)
+        if(dialog->owns_reference_owner(body->entries[row].id)) {
+            insertion=row;break;
+        }
+    std::optional<std::size_t> conversion;
+    for(std::size_t row=0;row<insertion;++row)
+        if(const auto* feature=document.find_container(
+                body->entries[row].id);feature&&
+                feature->feature_kind==
+                    document::FeatureKind::SheetFromBody)
+            conversion=row;
+    if(!conversion)return true;
+    const auto* candidate_body=document.body_owner_for_object(
+        candidate_owner);
+    if(candidate_body!=body)return false;
+    const auto candidate=std::ranges::find(body->entries,candidate_owner,
+        &document::PartHistoryEntry::id);
+    return candidate!=body->entries.end()&&
+        static_cast<std::size_t>(candidate-body->entries.begin())>
+            *conversion;
+}
 }
 
 zima::assembly::MateReferenceKind AssemblyWorkspaceWindow::component_reference_kind(
@@ -1131,6 +1166,13 @@ void AssemblyWorkspaceWindow::start_primitive_reference_selection(
         if (primitive_reference_dialog_ == nullptr ||
             primitive_reference_dialog_->owns_reference_owner(candidate.owner_id))
             return false;
+        if(active_part)
+            if(const auto* part=workspace_.open_part(
+                    workspace_.active_document_id());part&&
+                    !sheet_reference_owner_available(
+                        part->session.document(),primitive_reference_dialog_,
+                        index,candidate.owner_id))
+                return false;
         auto local_path = candidate.instance_path;
         try {
             auto path = zima::assembly::InstancePath::decode(
@@ -1415,6 +1457,12 @@ void AssemblyWorkspaceWindow::accept_primitive_reference(
     if (body_index ? !body_index->contains(document::ConstructionReference{local_path,candidate.owner_id,candidate.semantic_key})
                    : !placement_reference_exists(candidate,primitive_reference_geometry_,local_path)) return;
     const std::size_t selected_index = *pending_primitive_reference_index_;
+    if(const auto* part=workspace_.open_part(
+            workspace_.active_document_id());part&&
+            !sheet_reference_owner_available(part->session.document(),
+                primitive_reference_dialog_,selected_index,
+                candidate.owner_id))
+        return;
     const auto* form_dialog=dynamic_cast<const PrimitivePropertiesDialog*>(primitive_reference_dialog_);
     profile.phase("confirm source lookup");
     const bool form_placement=form_dialog&&form_dialog->is_sheet_form();

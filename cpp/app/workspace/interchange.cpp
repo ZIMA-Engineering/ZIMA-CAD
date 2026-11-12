@@ -15,8 +15,8 @@ void AssemblyWorkspaceWindow::import_file() {
         application_settings_.text("menu.file.import", tr("Importovat")),
         QString::fromStdString(working_directory_.string()),
         application_settings_.text("file.filter.import",
-            tr("Podporované importní formáty (*.step *.stp *.igs *.iges *.dxf);;"
-               "STEP (*.step *.stp);;IGES (*.igs *.iges);;DXF (*.dxf)")),
+            tr("Podporované importní formáty (*.step *.stp *.igs *.iges *.stl *.dxf);;"
+               "STEP (*.step *.stp);;IGES (*.igs *.iges);;STL (*.stl);;DXF (*.dxf)")),
         application_settings_.translations);
     if (path.isEmpty()) return;
     import_selected_file(path);
@@ -35,7 +35,8 @@ void AssemblyWorkspaceWindow::import_selected_file(const QString& path, std::opt
                 format, zima::interchange::Direction::Import, context)));
         return;
     }
-    if (!mesh_deflection && (format == zima::interchange::Format::Step || format == zima::interchange::Format::Iges)) {
+    if (!mesh_deflection && (format == zima::interchange::Format::Step ||
+            format == zima::interchange::Format::Iges)) {
         try {
             const auto precision=context==zima::interchange::Context::Part
                 ? new_part_from_template(application_settings_).document_precision
@@ -106,8 +107,12 @@ void AssemblyWorkspaceWindow::import_selected_file(const QString& path, std::opt
                         if (!warnings.contains(QString::fromStdString(warning))) warnings << QString::fromStdString(warning);
                     QMessageBox::information(this, tr("Upozornění importu DXF"), warnings.join("\n"));
                 }
-            } else finish_status_operation(format == zima::interchange::Format::Step
-                ? tr("STEP importován: %1 těles").arg(report.body_ids.size()) : tr("IGES importován"));
+            } else if(format==zima::interchange::Format::Step)
+                finish_status_operation(tr("STEP importován: %1 těles").arg(
+                    report.body_ids.size()));
+            else if(format==zima::interchange::Format::Iges)
+                finish_status_operation(tr("IGES importován"));
+            else finish_status_operation(tr("STL importován"));
         } catch (const std::exception& error) {
             finish_status_operation(tr("Import selhal"), false);
             QMessageBox::warning(this, tr("Import selhal"), tr(error.what()));

@@ -114,16 +114,25 @@
 #include <STEPControl_Reader.hxx>
 #include <IGESControl_Reader.hxx>
 #include <IGESControl_Writer.hxx>
+#include <IGESCAFControl_Reader.hxx>
+#include <IGESCAFControl_Writer.hxx>
+#include <IGESCAFControl.hxx>
+#include <IGESData_IGESEntity.hxx>
 #include <IGESData_IGESModel.hxx>
+#include <IGESGraph_Color.hxx>
+#include <IGESSolid_Face.hxx>
 #include <STEPControl_Writer.hxx>
 #include <XSControl_TransferReader.hxx>
 #include <XSControl_WorkSession.hxx>
 #include <TransferBRep.hxx>
+#include <TransferBRep_ShapeMapper.hxx>
+#include <Transfer_TransientListBinder.hxx>
 #include <Interface_InterfaceModel.hxx>
 #include <StepShape_FaceSurface.hxx>
 #include <StepShape_EdgeCurve.hxx>
 #include <StepShape_VertexPoint.hxx>
 #include <StlAPI_Writer.hxx>
+#include <StlAPI_Reader.hxx>
 #include <STEPCAFControl_Reader.hxx>
 #include <STEPCAFControl_Writer.hxx>
 #include <TDataStd_Name.hxx>
@@ -133,7 +142,13 @@
 #include <XCAFPrs_DocumentExplorer.hxx>
 #include <XCAFDoc_DocumentTool.hxx>
 #include <XCAFDoc_ShapeTool.hxx>
+#include <XCAFDoc_ColorTool.hxx>
+#include <XCAFDoc_ColorType.hxx>
+#include <Quantity_Color.hxx>
+#include <Quantity_ColorRGBA.hxx>
 #include <TDF_Tool.hxx>
+#include <TDF_ChildIterator.hxx>
+#include <TDF_LabelSequence.hxx>
 #include <GProp_GProps.hxx>
 #include <GCPnts_TangentialDeflection.hxx>
 #include <GC_MakeArcOfCircle.hxx>
@@ -152,6 +167,7 @@
 #include <GeomConvert_CompCurveToBSplineCurve.hxx>
 #include <GeomConvert.hxx>
 #include <Geom_Surface.hxx>
+#include <Geom_SurfaceOfRevolution.hxx>
 #include <Geom_SurfaceOfLinearExtrusion.hxx>
 #include <GeomAPI_Interpolate.hxx>
 #include <GeomAPI_PointsToBSplineSurface.hxx>
@@ -175,6 +191,7 @@
 #include <TColStd_Array1OfInteger.hxx>
 #include <TColStd_Array1OfReal.hxx>
 #include <GeomAbs_CurveType.hxx>
+#include <ElCLib.hxx>
 #include <Poly_Triangulation.hxx>
 #include <Standard_Failure.hxx>
 #include <TopExp_Explorer.hxx>
@@ -3278,6 +3295,182 @@ std::string step_shape_locator(const TopoDS_Shape& shape) {
     return result;
 }
 
+std::optional<Quantity_ColorRGBA> exchange_color(
+        const std::string& value) {
+    if((value.size()!=7&&value.size()!=9)||value.front()!='#')
+        return std::nullopt;
+    // ZIMA also accepts Qt's #AARRGGBB form. STEP/IGES surface styles do not
+    // carry the application's transparency contract, so retain its RGB part.
+    const std::size_t rgb_offset=value.size()==9?3:1;
+    const auto byte=[&](std::size_t offset)->std::optional<unsigned> {
+        unsigned result{};
+        const auto parsed=std::from_chars(value.data()+offset,
+            value.data()+offset+2,result,16);
+        if(parsed.ec!=std::errc{}||parsed.ptr!=value.data()+offset+2)
+            return std::nullopt;
+        return result;
+    };
+    const auto red=byte(rgb_offset),green=byte(rgb_offset+2),
+        blue=byte(rgb_offset+4);
+    if(!red||!green||!blue)return std::nullopt;
+    return Quantity_ColorRGBA(Quantity_Color(*red/255.,*green/255.,
+        *blue/255.,Quantity_TOC_sRGB),1.f);
+}
+
+std::string exchange_color(const Quantity_ColorRGBA& value) {
+    double red{},green{},blue{};
+    value.GetRGB().Values(red,green,blue,Quantity_TOC_sRGB);
+    const auto byte=[](double channel) {
+        return static_cast<unsigned>(std::lround(
+            std::clamp(channel,0.,1.)*255.));
+    };
+    constexpr char digits[]="0123456789ABCDEF";
+    std::string result="#000000";
+    for(const auto [offset,channel]:std::array{
+            std::pair{1U,byte(red)},std::pair{3U,byte(green)},
+            std::pair{5U,byte(blue)}}) {
+        result[offset]=digits[(channel>>4)&0xfU];
+        result[offset+1]=digits[channel&0xfU];
+    }
+    return result;
+}
+
+std::optional<Quantity_ColorRGBA> xcaf_color(
+        const Handle(XCAFDoc_ColorTool)& colors,const TDF_Label& label) {
+    Quantity_ColorRGBA value;
+    if(!label.IsNull()&&(
+            XCAFDoc_ColorTool::GetColor(label,XCAFDoc_ColorSurf,value)||
+            XCAFDoc_ColorTool::GetColor(label,XCAFDoc_ColorGen,value)||
+            XCAFDoc_ColorTool::GetColor(label,XCAFDoc_ColorCurv,value)))
+        return value;
+    return std::nullopt;
+}
+
+std::optional<Quantity_ColorRGBA> xcaf_color(
+        const Handle(XCAFDoc_ColorTool)& colors,const TopoDS_Shape& shape) {
+    Quantity_ColorRGBA value;
+    if(!colors.IsNull()&&(
+            colors->GetColor(shape,XCAFDoc_ColorSurf,value)||
+            colors->GetColor(shape,XCAFDoc_ColorGen,value)||
+            colors->GetColor(shape,XCAFDoc_ColorCurv,value)))
+        return value;
+    return std::nullopt;
+}
+
+std::optional<Quantity_ColorRGBA> iges_color(
+        const Handle(IGESData_IGESEntity)& entity) {
+    if(entity.IsNull())return std::nullopt;
+    if(entity->DefColor()==IGESData_DefValue) {
+        const auto rank=entity->RankColor();
+        if(rank<=0)return std::nullopt;
+        const auto value=IGESCAFControl::DecodeColor(rank);
+        return Quantity_ColorRGBA(value,1.f);
+    }
+    if(entity->DefColor()!=IGESData_DefReference)
+        return std::nullopt;
+    const auto value=Handle(IGESGraph_Color)::DownCast(entity->Color());
+    if(value.IsNull())return std::nullopt;
+    double red{},green{},blue{};
+    value->RGBIntensity(red,green,blue);
+    return Quantity_ColorRGBA(Quantity_Color(red/100.,green/100.,blue/100.,
+        Quantity_TOC_sRGB),1.f);
+}
+
+Appearance imported_xcaf_appearance(TDocStd_Document* document,
+        const TDF_Label& definition,const PrimitiveData& data,
+        const std::string& owner_id) {
+    Appearance result;
+    result.body.color.clear();
+    if(!document)return result;
+    const auto shapes=XCAFDoc_DocumentTool::ShapeTool(document->Main());
+    const auto colors=XCAFDoc_DocumentTool::ColorTool(document->Main());
+    TDF_Label shape_definition=definition;
+    if(!shape_definition.IsNull()&&
+            XCAFDoc_ShapeTool::IsReference(shape_definition)) {
+        TDF_Label referred;
+        if(XCAFDoc_ShapeTool::GetReferredShape(shape_definition,referred))
+            shape_definition=referred;
+    }
+    if(const auto base=xcaf_color(colors,shape_definition))
+        result.body.color=exchange_color(*base);
+    std::map<std::string,std::optional<Quantity_ColorRGBA>> source_face_colors;
+    if(!shape_definition.IsNull()) {
+        TDF_LabelSequence subshapes;
+        XCAFDoc_ShapeTool::GetSubShapes(shape_definition,subshapes);
+        for(Standard_Integer index=1;index<=subshapes.Length();++index) {
+            const auto& label=subshapes.Value(index);
+            const auto shape=shapes->GetShape(label);
+            if(shape.IsNull()||shape.ShapeType()!=TopAbs_FACE)continue;
+            source_face_colors.insert_or_assign(step_shape_locator(shape),
+                xcaf_color(colors,label));
+        }
+    }
+    // IGESCAF may attach a face style below an intermediate imported label
+    // instead of registering that label as a direct subshape of OneShape().
+    // Walk the document label tree as a fallback so an explicit face override
+    // is retained without depending on that writer-specific hierarchy.
+    for(TDF_ChildIterator labels(document->Main(),true);labels.More();
+            labels.Next()) {
+        const auto& label=labels.Value();
+        const auto color=xcaf_color(colors,label);
+        if(!color)continue;
+        const auto shape=shapes->GetShape(label);
+        if(shape.IsNull()||shape.ShapeType()!=TopAbs_FACE)continue;
+        source_face_colors.insert_or_assign(step_shape_locator(shape),color);
+    }
+    std::map<std::string,std::vector<std::string>> groups;
+    for(const auto& face:data.faces) {
+        auto color=xcaf_color(colors,face.shape);
+        if(!color&&!shape_definition.IsNull()) {
+            TDF_Label face_label;
+            if(shapes->FindSubShape(shape_definition,face.shape,face_label))
+                color=xcaf_color(colors,face_label);
+            if(!color) {
+                const auto definition_shape=shapes->GetShape(shape_definition);
+                for(TopExp_Explorer candidates(definition_shape,TopAbs_FACE);
+                        candidates.More()&&!color;candidates.Next()) {
+                    const auto candidate=candidates.Current();
+                    if(!(candidate.IsSame(face.shape)||
+                            candidate.IsPartner(face.shape)))continue;
+                    if(shapes->FindSubShape(shape_definition,candidate,
+                            face_label))
+                        color=xcaf_color(colors,face_label);
+                }
+            }
+            if(!color) {
+                const auto source=source_face_colors.find(
+                    step_shape_locator(face.shape));
+                if(source!=source_face_colors.end())color=source->second;
+            }
+        }
+        if(color)
+            groups[exchange_color(*color)].push_back(
+                owner_id+"::"+face.reference.semantic_key);
+    }
+    if(result.body.color.empty()&&!groups.empty()) {
+        const auto colored_faces=std::accumulate(groups.begin(),groups.end(),
+            std::size_t{},[](std::size_t count,const auto& group) {
+                return count+group.second.size();
+            });
+        if(colored_faces==data.faces.size()) {
+            const auto base=std::ranges::max_element(groups,{},
+                [](const auto& group){return group.second.size();});
+            result.body.color=base->first;
+            groups.erase(base);
+        }
+    }
+    std::size_t index{};
+    for(auto& [color,faces]:groups) {
+        SurfaceGroup group;
+        group.id="imported-color-"+std::to_string(++index);
+        group.name="Imported color "+std::to_string(index);
+        group.style.color=color;
+        group.faces=std::move(faces);
+        result.groups.push_back(std::move(group));
+    }
+    return result;
+}
+
 template <typename Owned>
 void capture_step_topology_kind(
     const STEPControl_Reader& reader, const TopoDS_Shape& imported,
@@ -6165,7 +6358,55 @@ std::optional<SurfaceGeometry> analytic_surface(const TopoDS_Face& face) {
             ++rims;
         }
         result.complete_profile=wires==1&&rectangular&&rims==2&&std::abs(result.u_max-result.u_min-2*std::numbers::pi)<1e-9;
-    } else return std::nullopt;
+    } else {
+        // IGES can encode an exact cylinder as a surface of revolution rather
+        // than as entity 192. Recover its analytical support for reference
+        // axes and downstream constraints; this does not approximate or
+        // replace the imported trimmed B-Rep face.
+        const auto support=BRep_Tool::Surface(face);
+        const auto revolution=occ::down_cast<Geom_SurfaceOfRevolution>(
+            support);
+        if(!revolution.IsNull()&&std::isfinite(surface.FirstVParameter())&&
+                std::isfinite(surface.LastVParameter())) {
+            GeomAdaptor_Curve meridian(revolution->BasisCurve(),
+                surface.FirstVParameter(),surface.LastVParameter());
+            const auto axis=revolution->Axis();
+            if(meridian.GetType()==GeomAbs_Line&&
+                    meridian.Line().Direction().IsParallel(
+                        axis.Direction(),1e-10)) {
+                const gp_Lin axis_line(axis);
+                const auto first=meridian.Value(surface.FirstVParameter());
+                const auto last=meridian.Value(surface.LastVParameter());
+                const auto foot=ElCLib::Value(
+                    ElCLib::Parameter(axis_line,first),axis_line);
+                gp_Vec radial(foot,first);
+                if(radial.SquareMagnitude()>1e-18) {
+                    result.kind=SurfaceGeometry::Kind::Cylinder;
+                    result.radius=radial.Magnitude();radial.Normalize();
+                    frame=gp_Ax3(axis.Location(),axis.Direction(),
+                        gp_Dir(radial));
+                    result.axial_min=ElCLib::Parameter(axis_line,first);
+                    result.axial_max=ElCLib::Parameter(axis_line,last);
+                    if(result.axial_min>result.axial_max)
+                        std::swap(result.axial_min,result.axial_max);
+                }
+            }
+        }
+        if(result.kind!=SurfaceGeometry::Kind::Cylinder) {
+            GeomConvert_SurfToAnaSurf conversion(support);
+            const auto converted=conversion.ConvertToAnalytical(1e-7,
+                surface.FirstUParameter(),surface.LastUParameter(),
+                surface.FirstVParameter(),surface.LastVParameter());
+            if(converted.IsNull())return std::nullopt;
+            GeomAdaptor_Surface analytic(converted);
+            if(analytic.GetType()!=GeomAbs_Cylinder)return std::nullopt;
+            result.kind=SurfaceGeometry::Kind::Cylinder;
+            const auto cylinder=analytic.Cylinder();frame=cylinder.Position();
+            result.radius=cylinder.Radius();
+            result.axial_min=surface.FirstVParameter();
+            result.axial_max=surface.LastVParameter();
+        }
+    }
     // OCCT face orientation is relative to the surface parameterization.
     // An indirect frame reverses its natural normal (common for an extruded
     // circle), so TopAbs_REVERSED alone does not mean an internal cylinder.
@@ -8521,14 +8762,71 @@ ViewerReferenceGeometry OcctKernel::intersect_face_plane(
 
 BodyResult OcctKernel::import_iges(const std::string& path,
         const std::string& owner_id, double mesh_deflection) const {
+    return import_iges_model(path,owner_id,mesh_deflection).body;
+}
+
+ImportedModel OcctKernel::import_iges_model(const std::string& path,
+        const std::string& owner_id, double mesh_deflection) const {
     if (owner_id.empty() || !std::isfinite(mesh_deflection) || mesh_deflection <= 0)
         throw std::invalid_argument("Invalid IGES import parameters");
-    IGESControl_Reader reader;
-    if (reader.ReadFile(path.c_str()) != IFSelect_RetDone || reader.TransferRoots() == 0)
+    Handle(TDocStd_Document) document;
+    const auto application=XCAFApp_Application::GetApplication();
+    application->NewDocument("BinXCAF",document);
+    IGESCAFControl_Reader reader;
+    try {
+    if (reader.ReadFile(path.c_str()) != IFSelect_RetDone ||
+            !reader.Transfer(document))
         throw std::runtime_error("OCCT IGES import failed");
     PrimitiveData data; data.shape = reader.OneShape();
     if (data.shape.IsNull() || !BRepCheck_Analyzer(data.shape).IsValid())
         throw std::runtime_error("IGES did not produce valid geometry");
+    const auto definition=XCAFDoc_DocumentTool::ShapeTool(
+        document->Main())->FindShape(data.shape,true);
+    const auto promote_closed=[](const TopoDS_Shape& input) {
+        TopTools_IndexedMapOfShape existing;
+        TopExp::MapShapes(input,TopAbs_SOLID,existing);
+        if(!existing.IsEmpty())return std::pair{input,false};
+        // IGES commonly represents a closed B-Rep as trimmed faces even when
+        // the source was a solid. Promote only an exactly closed, valid shell;
+        // open surface and wire imports retain their original dimensionality.
+        BRepBuilderAPI_Sewing sewing(1e-6,true,true,true,false);
+        sewing.Add(input);sewing.Perform();
+        if(sewing.SewedShape().IsNull()||sewing.NbFreeEdges()!=0||
+                sewing.NbMultipleEdges()!=0)
+            return std::pair{input,false};
+        TopTools_IndexedMapOfShape shells;
+        TopExp::MapShapes(sewing.SewedShape(),TopAbs_SHELL,shells);
+        if(shells.IsEmpty())return std::pair{input,false};
+        BRep_Builder builder;TopoDS_Compound compound;
+        builder.MakeCompound(compound);
+        for(int index=1;index<=shells.Size();++index) {
+            BRepBuilderAPI_MakeSolid solid(
+                TopoDS::Shell(shells.FindKey(index)));
+            auto closed=solid.Solid();
+            BRepLib::OrientClosedSolid(closed);
+            if(closed.IsNull()||!BRepCheck_Analyzer(closed).IsValid())
+                return std::pair{input,false};
+            builder.Add(compound,closed);
+        }
+        if(!BRepCheck_Analyzer(compound).IsValid())
+            return std::pair{input,false};
+        return std::pair<TopoDS_Shape,bool>{compound,true};
+    };
+    TopTools_IndexedMapOfShape imported_solids;
+    TopExp::MapShapes(data.shape,TopAbs_SOLID,imported_solids);
+    if(imported_solids.IsEmpty()&&
+            (data.shape.ShapeType()==TopAbs_COMPOUND||
+             data.shape.ShapeType()==TopAbs_COMPSOLID)) {
+        BRep_Builder builder;TopoDS_Compound promoted;
+        builder.MakeCompound(promoted);bool changed=false;
+        for(TopoDS_Iterator child(data.shape);child.More();child.Next()) {
+            auto [shape,closed]=promote_closed(child.Value());
+            builder.Add(promoted,shape);changed|=closed;
+        }
+        if(changed)data.shape=promoted;
+        else data.shape=promote_closed(data.shape).first;
+    } else if(imported_solids.IsEmpty())
+        data.shape=promote_closed(data.shape).first;
     const auto model = reader.IGESModel();
     const auto transfer = reader.WS()->TransferReader()->TransientProcess();
     // Identity is anchored in the source IGES directory entry, never in OCCT
@@ -8538,6 +8836,64 @@ BodyResult OcctKernel::import_iges(const std::string& path,
         struct Candidate { TopoDS_Shape shape; int source{}; int specificity{}; std::string locator; };
         std::map<std::string, Candidate> candidates;
         TopTools_IndexedMapOfShape actual; TopExp::MapShapes(data.shape, kind, actual);
+        // Sewing a face-only IGES B-Rep creates new TShapes. Retain the
+        // source directory-entry identity by matching such copies through
+        // their exact geometric locator. Orientation is deliberately removed
+        // for this bridge because MakeSolid may reverse a face or edge while
+        // closing the shell; the final owned shape retains that orientation.
+        std::map<std::string,std::vector<int>> unoriented_actual;
+        for(int index=1;index<=actual.Size();++index) {
+            auto shape=actual.FindKey(index);
+            shape.Orientation(TopAbs_FORWARD);
+            unoriented_actual[step_shape_locator(shape)].push_back(index);
+        }
+        const auto geometrically_same=[&](const TopoDS_Shape& left,
+                const TopoDS_Shape& right) {
+            Bnd_Box left_box,right_box;
+            BRepBndLib::Add(left,left_box);BRepBndLib::Add(right,right_box);
+            if(left_box.IsVoid()!=right_box.IsVoid())return false;
+            double scale=1.;
+            if(!left_box.IsVoid()) {
+                Standard_Real lx0{},ly0{},lz0{},lx1{},ly1{},lz1{};
+                Standard_Real rx0{},ry0{},rz0{},rx1{},ry1{},rz1{};
+                left_box.Get(lx0,ly0,lz0,lx1,ly1,lz1);
+                right_box.Get(rx0,ry0,rz0,rx1,ry1,rz1);
+                scale=std::max({scale,std::abs(lx0),std::abs(ly0),
+                    std::abs(lz0),std::abs(lx1),std::abs(ly1),
+                    std::abs(lz1),std::abs(rx0),std::abs(ry0),
+                    std::abs(rz0),std::abs(rx1),std::abs(ry1),
+                    std::abs(rz1)});
+                const auto close=[&](double a,double b) {
+                    return std::abs(a-b)<=1e-7*scale;
+                };
+                if(!close(lx0,rx0)||!close(ly0,ry0)||!close(lz0,rz0)||
+                        !close(lx1,rx1)||!close(ly1,ry1)||
+                        !close(lz1,rz1))return false;
+            }
+            if(kind==TopAbs_VERTEX)
+                return BRep_Tool::Pnt(TopoDS::Vertex(left)).Distance(
+                    BRep_Tool::Pnt(TopoDS::Vertex(right)))<=1e-7*scale;
+            GProp_GProps left_properties,right_properties;
+            if(kind==TopAbs_EDGE) {
+                if(BRepAdaptor_Curve(TopoDS::Edge(left)).GetType()!=
+                        BRepAdaptor_Curve(TopoDS::Edge(right)).GetType())
+                    return false;
+                BRepGProp::LinearProperties(left,left_properties);
+                BRepGProp::LinearProperties(right,right_properties);
+            } else if(kind==TopAbs_FACE) {
+                if(BRepAdaptor_Surface(TopoDS::Face(left)).GetType()!=
+                        BRepAdaptor_Surface(TopoDS::Face(right)).GetType())
+                    return false;
+                BRepGProp::SurfaceProperties(left,left_properties);
+                BRepGProp::SurfaceProperties(right,right_properties);
+            } else return false;
+            const auto mass_scale=std::max({1.,std::abs(
+                left_properties.Mass()),std::abs(right_properties.Mass())});
+            return std::abs(left_properties.Mass()-
+                       right_properties.Mass())<=1e-8*mass_scale&&
+                left_properties.CentreOfMass().Distance(
+                    right_properties.CentreOfMass())<=1e-7*scale;
+        };
         // One immutable runtime shape may be reached through many IGES source
         // parents. Compute its exact locator once, including collision counting.
         std::vector<std::optional<std::string>> locators(static_cast<std::size_t>(actual.Size())+1);
@@ -8552,7 +8908,24 @@ BodyResult OcctKernel::import_iges(const std::string& path,
             if (source_shape.IsNull()) continue;
             TopTools_IndexedMapOfShape children; TopExp::MapShapes(source_shape, kind, children);
             for (int j = 1; j <= children.Size(); ++j) {
-                const auto runtime_index = actual.FindIndex(children.FindKey(j));
+                auto runtime_index = actual.FindIndex(children.FindKey(j));
+                if(runtime_index==0) {
+                    auto source_child=children.FindKey(j);
+                    source_child.Orientation(TopAbs_FORWARD);
+                    const auto matched=unoriented_actual.find(
+                        step_shape_locator(source_child));
+                    if(matched!=unoriented_actual.end()&&
+                            matched->second.size()==1)
+                        runtime_index=matched->second.front();
+                }
+                if(runtime_index==0) {
+                    std::vector<int> matches;
+                    for(int index=1;index<=actual.Size();++index)
+                        if(geometrically_same(children.FindKey(j),
+                                actual.FindKey(index)))
+                            matches.push_back(index);
+                    if(matches.size()==1)runtime_index=matches.front();
+                }
                 if (runtime_index == 0) continue;
                 const auto& child = actual.FindKey(runtime_index);
                 const auto& locator = locator_for(runtime_index);
@@ -8584,7 +8957,261 @@ BodyResult OcctKernel::import_iges(const std::string& path,
     auto result = make_result(data.shape, data.faces, data.edges, data.vertices,
         false, true, !data.imported_step_topology.empty(), {}, mesh_deflection);
     persist_imported_topology(data, result);
-    return result;
+    auto appearance=imported_xcaf_appearance(document.get(),definition,data,
+        owner_id);
+    // Some IGES producers (including OCCT's own IGESCAF writer) attach an
+    // overridden face color to the source directory entity, while the XCAF
+    // document reconstructed by the reader exposes only the inherited body
+    // color. Recover those explicit styles by the same geometry locator used
+    // for stable imported topology. A more specific entity wins over a solid
+    // or compound that merely supplies the inherited color.
+    struct IgesFaceColor {
+        int specificity{};
+        Quantity_ColorRGBA color;
+    };
+    std::map<std::string,IgesFaceColor> iges_face_colors;
+    for(int index=1;index<=model->NbEntities();++index) {
+        const auto entity=Handle(IGESData_IGESEntity)::DownCast(
+            model->Value(index));
+        const auto color=iges_color(entity);
+        if(!color)continue;
+        const auto source_key=std::string{"iges:face:de:"}+
+            std::to_string(2*model->Number(entity)-1);
+        for(const auto& face:data.faces) {
+            if(face.reference.semantic_key!=source_key&&
+                    !face.reference.semantic_key.starts_with(
+                        source_key+":child:"))continue;
+            auto actual=face.shape;
+            actual.Orientation(TopAbs_FORWARD);
+            iges_face_colors.insert_or_assign(step_shape_locator(actual),
+                IgesFaceColor{-1,*color});
+        }
+        const auto source=TransferBRep::ShapeResult(transfer,entity);
+        if(source.IsNull())continue;
+        TopTools_IndexedMapOfShape faces;
+        TopExp::MapShapes(source,TopAbs_FACE,faces);
+        const auto specificity=static_cast<int>(faces.Size());
+        if(specificity==0)continue;
+        for(int face_index=1;face_index<=faces.Size();++face_index) {
+            auto face=faces.FindKey(face_index);
+            face.Orientation(TopAbs_FORWARD);
+            const auto locator=step_shape_locator(face);
+            const auto found=iges_face_colors.find(locator);
+            if(found==iges_face_colors.end()||
+                    specificity<found->second.specificity)
+                iges_face_colors.insert_or_assign(locator,
+                    IgesFaceColor{specificity,*color});
+        }
+    }
+    std::set<std::string> styled_faces;
+    for(const auto& group:appearance.groups)
+        styled_faces.insert(group.faces.begin(),group.faces.end());
+    std::map<std::string,std::vector<std::string>> recovered_groups;
+    for(const auto& face:data.faces) {
+        const auto key=owner_id+"::"+face.reference.semantic_key;
+        if(styled_faces.contains(key))continue;
+        auto oriented=face.shape;
+        oriented.Orientation(TopAbs_FORWARD);
+        const auto found=iges_face_colors.find(step_shape_locator(oriented));
+        if(found==iges_face_colors.end())continue;
+        const auto color=exchange_color(found->second.color);
+        if(color==appearance.body.color)continue;
+        recovered_groups[color].push_back(key);
+    }
+    if(appearance.body.color.empty()&&!recovered_groups.empty()) {
+        const auto base=std::max_element(recovered_groups.begin(),
+            recovered_groups.end(),[](const auto& left,const auto& right) {
+                return left.second.size()<right.second.size();
+            });
+        appearance.body.color=base->first;
+        recovered_groups.erase(base);
+    }
+    for(auto& [color,faces]:recovered_groups) {
+        const auto suffix=appearance.groups.size()+1;
+        appearance.groups.push_back({"imported-color-"+
+            std::to_string(suffix),"Imported color "+
+            std::to_string(suffix),{},SurfaceStyle{color},
+            std::move(faces)});
+    }
+    application->Close(document);
+    return {std::move(result),std::move(appearance)};
+    } catch(const Standard_Failure& failure) {
+        application->Close(document);
+        throw std::runtime_error(failure.GetMessageString());
+    } catch(...) {
+        application->Close(document);
+        throw;
+    }
+}
+
+ImportedModel OcctKernel::import_stl_model(const std::string& path,
+        const std::string& owner_id,double mesh_deflection) const {
+    if(owner_id.empty()||!std::isfinite(mesh_deflection)||
+            mesh_deflection<=0)
+        throw std::invalid_argument("Invalid STL import parameters");
+    const auto source=std::filesystem::u8path(path);
+    std::ifstream stream(source,std::ios::binary);
+    if(!stream)throw std::runtime_error("STL import failed");
+
+    Appearance appearance;
+    appearance.body.color.clear();
+    std::vector<std::optional<std::string>> facet_colors;
+    std::array<unsigned char,80> header{};
+    stream.read(reinterpret_cast<char*>(header.data()),header.size());
+    std::array<unsigned char,4> count_bytes{};
+    stream.read(reinterpret_cast<char*>(count_bytes.data()),count_bytes.size());
+    const auto little_u32=[](const unsigned char* data) {
+        return static_cast<std::uint32_t>(data[0])|
+            static_cast<std::uint32_t>(data[1])<<8|
+            static_cast<std::uint32_t>(data[2])<<16|
+            static_cast<std::uint32_t>(data[3])<<24;
+    };
+    const auto count=little_u32(count_bytes.data());
+    std::error_code size_error;
+    const auto bytes=std::filesystem::file_size(source,size_error);
+    const bool binary=!size_error&&bytes>=84&&
+        static_cast<std::uint64_t>(count)<=
+            (std::numeric_limits<std::uint64_t>::max()-84)/50&&
+        bytes==84+static_cast<std::uint64_t>(count)*50;
+    if(binary) {
+        const std::array<unsigned char,6> marker{'C','O','L','O','R','='};
+        const auto color_marker=std::search(header.begin(),header.end(),
+            marker.begin(),marker.end());
+        const bool magics=color_marker!=header.end()&&
+            std::distance(color_marker,header.end())>=10;
+        const auto byte_hex=[](unsigned red,unsigned green,unsigned blue) {
+            constexpr char digits[]="0123456789ABCDEF";
+            std::string value="#000000";
+            for(const auto [offset,channel]:std::array{
+                    std::pair{1U,red},std::pair{3U,green},
+                    std::pair{5U,blue}}) {
+                value[offset]=digits[(channel>>4)&0xfU];
+                value[offset+1]=digits[channel&0xfU];
+            }
+            return value;
+        };
+        const auto expand=[](unsigned value) {
+            return (value<<3)|(value>>2);
+        };
+        if(magics) {
+            const auto color=std::next(color_marker,6);
+            appearance.body.color=byte_hex(color[0],color[1],color[2]);
+        }
+        facet_colors.resize(count);
+        stream.clear();stream.seekg(84,std::ios::beg);
+        std::array<unsigned char,50> facet{};
+        for(std::uint32_t index=0;index<count;++index) {
+            if(!stream.read(reinterpret_cast<char*>(facet.data()),
+                    facet.size()))
+                throw std::runtime_error("STL facet data is truncated");
+            const std::uint16_t attribute=static_cast<std::uint16_t>(
+                facet[48]|static_cast<unsigned>(facet[49])<<8);
+            if(magics) {
+                if((attribute&0x8000U)==0)
+                    facet_colors[index]=byte_hex(
+                        expand(attribute&0x1fU),
+                        expand((attribute>>5)&0x1fU),
+                        expand((attribute>>10)&0x1fU));
+            } else if(attribute&0x8000U) {
+                facet_colors[index]=byte_hex(
+                    expand((attribute>>10)&0x1fU),
+                    expand((attribute>>5)&0x1fU),
+                    expand(attribute&0x1fU));
+            }
+        }
+    }
+
+    stream.clear();stream.seekg(0,std::ios::beg);
+    PrimitiveData data;
+    StlAPI_Reader reader;
+    if(!reader.Read(data.shape,stream)||data.shape.IsNull()||
+            !BRepCheck_Analyzer(data.shape).IsValid())
+        throw std::runtime_error("STL did not produce valid geometry");
+    std::map<std::string,std::string> facet_color_by_locator;
+    if(!facet_colors.empty()) {
+        TopTools_IndexedMapOfShape source_faces;
+        TopExp::MapShapes(data.shape,TopAbs_FACE,source_faces);
+        for(std::size_t index=0;index<std::min(facet_colors.size(),
+                static_cast<std::size_t>(source_faces.Size()));++index)
+            if(facet_colors[index])
+                facet_color_by_locator.insert_or_assign(
+                    step_shape_locator(source_faces.FindKey(
+                        static_cast<int>(index+1))),
+                    *facet_colors[index]);
+    }
+    // OCCT's STL reader returns triangle faces. Sew exact shared triangle
+    // boundaries and promote closed shells to solids so ordinary Part volume,
+    // Booleans and native save/reopen use the same body contract as STEP/IGES.
+    // An open mesh remains a surface result instead of being fabricated into
+    // a closed volume.
+    BRepBuilderAPI_Sewing sewing(1e-7,true,true,true,false);
+    sewing.Add(data.shape);sewing.Perform();
+    if(!sewing.SewedShape().IsNull()&&sewing.NbFreeEdges()==0&&
+            sewing.NbMultipleEdges()==0) {
+        TopTools_IndexedMapOfShape shells;
+        TopExp::MapShapes(sewing.SewedShape(),TopAbs_SHELL,shells);
+        if(shells.Size()==1) {
+            BRepBuilderAPI_MakeSolid solid(
+                TopoDS::Shell(shells.FindKey(1)));
+            auto closed=solid.Solid();
+            BRepLib::OrientClosedSolid(closed);
+            if(!closed.IsNull()&&BRepCheck_Analyzer(closed).IsValid())
+                data.shape=closed;
+        } else if(shells.Size()>1) {
+            BRep_Builder builder;TopoDS_Compound compound;
+            builder.MakeCompound(compound);bool valid=true;
+            for(int index=1;index<=shells.Size();++index) {
+                BRepBuilderAPI_MakeSolid solid(
+                    TopoDS::Shell(shells.FindKey(index)));
+                auto closed=solid.Solid();
+                BRepLib::OrientClosedSolid(closed);
+                if(closed.IsNull()||
+                        !BRepCheck_Analyzer(closed).IsValid()){
+                    valid=false;break;
+                }
+                builder.Add(compound,closed);
+            }
+            if(valid&&BRepCheck_Analyzer(compound).IsValid())
+                data.shape=compound;
+        }
+    }
+    using Kind=StepRequest::TopologyIdentity::Kind;
+    const auto capture=[&](auto& owned,TopAbs_ShapeEnum kind,
+            Kind identity_kind,const char* role) {
+        TopTools_IndexedMapOfShape members;
+        TopExp::MapShapes(data.shape,kind,members);
+        for(int position=1;position<=members.Size();++position) {
+            const auto shape=members.FindKey(position);
+            const auto key=std::string("stl:")+role+":"+
+                std::to_string(position-1);
+            using Reference=std::decay_t<decltype(owned.front().reference)>;
+            owned.push_back({shape,Reference{owner_id,key,{}}});
+            data.imported_step_topology.push_back(
+                {identity_kind,key,step_shape_locator(shape)});
+        }
+    };
+    capture(data.faces,TopAbs_FACE,Kind::Face,"face");
+    capture(data.edges,TopAbs_EDGE,Kind::Edge,"edge");
+    capture(data.vertices,TopAbs_VERTEX,Kind::Vertex,"vertex");
+    auto result=make_result(data.shape,data.faces,data.edges,data.vertices,
+        false,true,!data.imported_step_topology.empty(),{},mesh_deflection);
+    persist_imported_topology(data,result);
+    std::map<std::string,std::vector<std::string>> groups;
+    for(const auto& face:data.faces)
+        if(const auto color=facet_color_by_locator.find(
+                step_shape_locator(face.shape));
+                color!=facet_color_by_locator.end())
+            groups[color->second].push_back(owner_id+"::"+
+                face.reference.semantic_key);
+    std::size_t group_index{};
+    for(auto& [color,faces]:groups) {
+        SurfaceGroup group;
+        group.id="stl-color-"+std::to_string(++group_index);
+        group.name="STL color "+std::to_string(group_index);
+        group.style.color=color;group.faces=std::move(faces);
+        appearance.groups.push_back(std::move(group));
+    }
+    return {std::move(result),std::move(appearance)};
 }
 
 std::vector<BodyResult> OcctKernel::import_step_components(
@@ -8635,8 +9262,28 @@ std::vector<FrozenStepComponent> OcctKernel::freeze_step_components(
         const auto data=make_step_data(request,owner,documents,source);
         BodyResult archive;
         persist_imported_topology(data,archive);
+        Appearance appearance;
+        appearance.body.color.clear();
+        const StepSourceDocument* color_source=source;
+        if(!color_source)
+            if(const auto found=documents.find(request.source_path);
+                    found!=documents.end())
+                color_source=found->second.get();
+        if(color_source) {
+            TDF_Label definition;
+            if(!request.component_path.empty())
+                TDF_Tool::Label(color_source->document()->GetData(),
+                    request.component_path.c_str(),definition,false);
+            if(definition.IsNull())
+                definition=XCAFDoc_DocumentTool::ShapeTool(
+                    color_source->document()->Main())->FindShape(
+                        data.shape,true);
+            appearance=imported_xcaf_appearance(color_source->document(),
+                definition,data,owner);
+        }
         results.push_back({archive.kernel_shape.shared_data(),
-            std::move(archive.imported_step_topology)});
+            std::move(archive.imported_step_topology),
+            std::move(appearance)});
     }
     return results;
 }
@@ -8710,14 +9357,243 @@ BodyResult OcctKernel::subtract_bodies(
     return result;
 }
 
+namespace {
+const SurfaceStyle* exchange_face_style(const Appearance& appearance,
+        const FaceReference& reference) {
+    const auto key=reference.owner_id+"::"+reference.semantic_key;
+    for(auto group=appearance.groups.rbegin();
+            group!=appearance.groups.rend();++group)
+        if(std::ranges::find(group->faces,key)!=group->faces.end())
+            return &group->style;
+    if(const auto owner=appearance.owner_bodies.find(reference.owner_id);
+            owner!=appearance.owner_bodies.end())
+        if(const auto body=appearance.bodies.find(owner->second);
+                body!=appearance.bodies.end())
+            return &body->second;
+    return nullptr;
+}
+
+void apply_exchange_appearance(
+        const Handle(XCAFDoc_ShapeTool)& shapes,
+        const Handle(XCAFDoc_ColorTool)& colors,
+        const TDF_Label& label,const PrimitiveData* geometry,
+        const Appearance& appearance,const gp_Trsf* placement=nullptr,
+        const BRepBuilderAPI_Transform* physical_transform=nullptr) {
+    const auto base=exchange_color(appearance.body.color.empty()?
+        std::string{"#B9C2CC"}:appearance.body.color);
+    if(base) {
+        colors->SetColor(label,*base,XCAFDoc_ColorGen);
+        colors->SetColor(label,*base,XCAFDoc_ColorSurf);
+    }
+    if(!geometry||(appearance.groups.empty()&&
+            appearance.bodies.empty()))return;
+    for(const auto& face:geometry->faces) {
+        const auto* style=exchange_face_style(appearance,face.reference);
+        if(!style)continue;
+        const auto color=exchange_color(style->color);
+        if(!color)continue;
+        const auto current=physical_transform?
+            physical_transform->ModifiedShape(face.shape):placement?
+            face.shape.Moved(TopLoc_Location(*placement)):face.shape;
+        auto subshape=shapes->AddSubShape(label,current);
+        if(subshape.IsNull()&&placement) {
+            // A located copy can have a different TShape from the face held
+            // by PrimitiveData even though both describe the same exported
+            // boundary. Resolve the unique face in the actual label shape;
+            // IGESCAF otherwise silently drops its override color.
+            auto expected=current;
+            expected.Orientation(TopAbs_FORWARD);
+            const auto expected_locator=step_shape_locator(expected);
+            std::optional<TopoDS_Shape> matched;
+            bool ambiguous=false;
+            for(TopExp_Explorer candidates(shapes->GetShape(label),
+                    TopAbs_FACE);candidates.More();candidates.Next()) {
+                auto candidate=candidates.Current();
+                candidate.Orientation(TopAbs_FORWARD);
+                if(step_shape_locator(candidate)!=expected_locator)continue;
+                if(matched) {ambiguous=true;break;}
+                matched=candidate;
+            }
+            if(matched&&!ambiguous)
+                subshape=shapes->AddSubShape(label,*matched);
+        }
+        if(subshape.IsNull())continue;
+        colors->SetColor(subshape,*color,XCAFDoc_ColorGen);
+        colors->SetColor(subshape,*color,XCAFDoc_ColorSurf);
+    }
+}
+
+void populate_exchange_document(const Handle(TDocStd_Document)& document,
+        const StepProduct& root) {
+    XCAFDoc_DocumentTool::SetLengthUnit(document,0.001);
+    const auto shapes=XCAFDoc_DocumentTool::ShapeTool(document->Main());
+    const auto colors=XCAFDoc_DocumentTool::ColorTool(document->Main());
+    std::map<std::string,TDF_Label> definitions;
+    std::set<std::string> visiting;
+    const auto name=[](const TDF_Label& label,const std::string& text) {
+        TDataStd_Name::Set(label,
+            TCollection_ExtendedString(text.c_str(),true));
+    };
+    const auto add=[&](auto&& self,const StepProduct& product)->TDF_Label {
+        if(product.definition_id.empty())
+            throw std::invalid_argument("STEP product identity is empty");
+        if(visiting.contains(product.definition_id))
+            throw std::invalid_argument("Cyclic STEP product structure");
+        if(const auto found=definitions.find(product.definition_id);
+                found!=definitions.end())return found->second;
+        visiting.insert(product.definition_id);
+        TDF_Label label;
+        if(product.children.empty()) {
+            if(product.body.kernel_shape.empty())
+                throw std::runtime_error(
+                    "STEP product has no calculated geometry");
+            std::optional<PrimitiveData> geometry;
+            if(!product.body.kernel_faces.empty())
+                geometry=placed_bound_face_geometry(product.body,true);
+            const auto shape=geometry?geometry->shape:
+                read_kernel_shape(product.body);
+            label=shapes->AddShape(shape,false);
+            apply_exchange_appearance(shapes,colors,label,
+                geometry?&*geometry:nullptr,
+                product.appearance);
+        } else {
+            label=shapes->NewShape();
+            for(const auto& child:product.children) {
+                const auto definition=self(self,child);
+                const auto occurrence=shapes->AddComponent(label,definition,
+                    TopLoc_Location(primitive_transform(child.translation,
+                        child.rotation_degrees)));
+                name(occurrence,child.name);
+            }
+        }
+        name(label,product.name);
+        definitions.emplace(product.definition_id,label);
+        visiting.erase(product.definition_id);
+        return label;
+    };
+    static_cast<void>(add(add,root));
+    shapes->UpdateAssemblies();
+}
+
+void populate_flat_exchange_document(
+        const Handle(TDocStd_Document)& document,const StepProduct& root) {
+    XCAFDoc_DocumentTool::SetLengthUnit(document,0.001);
+    const auto shapes=XCAFDoc_DocumentTool::ShapeTool(document->Main());
+    const auto colors=XCAFDoc_DocumentTool::ColorTool(document->Main());
+    std::set<std::string> visiting;
+    const auto add=[&](auto&& self,const StepProduct& product,
+            const gp_Trsf& parent,std::size_t depth)->void {
+        if(depth>256||!visiting.insert(product.definition_id).second)
+            throw std::runtime_error(
+                "The component dependency graph is too large or too deep.");
+        const auto world=parent*primitive_transform(product.translation,
+            product.rotation_degrees);
+        if(product.children.empty()) {
+            if(product.body.kernel_shape.empty())
+                throw std::runtime_error(
+                    "An exported component has no calculated body; invoke Regenerate first.");
+            std::optional<PrimitiveData> geometry;
+            if(!product.body.kernel_faces.empty())
+                geometry=placed_bound_face_geometry(product.body,true);
+            const auto local=geometry?geometry->shape:
+                read_kernel_shape(product.body);
+            TopoDS_Shape placed=local;
+            std::unique_ptr<BRepBuilderAPI_Transform> physical_transform;
+            if(world.Form()!=gp_Identity) {
+                physical_transform=std::make_unique<BRepBuilderAPI_Transform>(
+                    local,world,true);
+                physical_transform->Build();
+                if(!physical_transform->IsDone()||
+                        physical_transform->Shape().IsNull())
+                    throw std::runtime_error(
+                        "IGES component placement failed");
+                placed=physical_transform->Shape();
+            }
+            const auto label=shapes->AddShape(placed,false);
+            TDataStd_Name::Set(label,TCollection_ExtendedString(
+                product.name.c_str(),true));
+            apply_exchange_appearance(shapes,colors,label,
+                geometry?&*geometry:nullptr,product.appearance,
+                nullptr,physical_transform.get());
+        } else for(const auto& child:product.children)
+            self(self,child,world,depth+1);
+        visiting.erase(product.definition_id);
+    };
+    add(add,root,gp_Trsf{},0);
+}
+
+void apply_iges_face_overrides(IGESCAFControl_Writer& writer,
+        const Handle(TDocStd_Document)& document) {
+    const auto shapes=XCAFDoc_DocumentTool::ShapeTool(document->Main());
+    const auto colors=XCAFDoc_DocumentTool::ColorTool(document->Main());
+    const auto process=writer.TransferProcess();
+    std::map<std::string,Handle(IGESGraph_Color)> palette;
+    const auto apply=[&](const Handle(Standard_Transient)& value,
+            const Handle(IGESGraph_Color)& color_entity,int rank) {
+        const auto entity=Handle(IGESData_IGESEntity)::DownCast(value);
+        if(entity.IsNull())return false;
+        entity->InitColor(color_entity,rank);
+        const auto face=Handle(IGESSolid_Face)::DownCast(entity);
+        if(!face.IsNull()&&!face->Surface().IsNull())
+            face->Surface()->InitColor(color_entity,rank);
+        return true;
+    };
+    for(TDF_ChildIterator labels(document->Main(),true);labels.More();
+            labels.Next()) {
+        const auto& label=labels.Value();
+        const auto shape=shapes->GetShape(label);
+        if(shape.IsNull()||shape.ShapeType()!=TopAbs_FACE)continue;
+        const auto color=xcaf_color(colors,label);
+        if(!color)continue;
+        int rank=IGESCAFControl::EncodeColor(color->GetRGB());
+        Handle(IGESGraph_Color) color_entity;
+        if(rank==0) {
+            const auto key=exchange_color(*color);
+            const auto found=palette.find(key);
+            if(found!=palette.end())color_entity=found->second;
+            else {
+                double red{},green{},blue{};
+                color->GetRGB().Values(red,green,blue,
+                    Quantity_TOC_sRGB);
+                color_entity=new IGESGraph_Color;
+                color_entity->Init(red*100.,green*100.,blue*100.,
+                    new TCollection_HAsciiString("ZIMA-CAD face color"));
+                writer.AddEntity(color_entity);
+                palette.emplace(key,color_entity);
+            }
+        }
+        const auto mapper=TransferBRep::ShapeMapper(process,shape);
+        Handle(IGESData_IGESEntity) direct;
+        if(process->FindTypedTransient(mapper,
+                STANDARD_TYPE(IGESData_IGESEntity),direct)) {
+            apply(direct,color_entity,rank);
+            continue;
+        }
+        const auto binder=process->Find(mapper);
+        const auto list=Handle(Transfer_TransientListBinder)::DownCast(
+            binder);
+        if(list.IsNull())continue;
+        for(int index=1;index<=list->NbTransients();++index)
+            apply(list->Transient(index),color_entity,rank);
+    }
+}
+}
+
 void OcctKernel::export_step(
     const std::vector<PlacedBody>& bodies, const std::string& path) const {
-    STEPControl_Writer writer;
-    if (writer.Transfer(placed_compound(bodies), STEPControl_AsIs) !=
-            IFSelect_RetDone ||
-        writer.Write(path.c_str()) != IFSelect_RetDone) {
-        throw std::runtime_error("STEP export failed");
+    StepProduct root;root.definition_id="zima-export-root";
+    root.name="ZIMA-CAD export";
+    for(std::size_t index=0;index<bodies.size();++index) {
+        StepProduct child;
+        child.definition_id="zima-export-body-"+std::to_string(index);
+        child.name="Body "+std::to_string(index+1);
+        child.body=bodies[index].body;
+        child.translation=bodies[index].translation;
+        child.rotation_degrees=bodies[index].rotation_degrees;
+        child.appearance=bodies[index].appearance;
+        root.children.push_back(std::move(child));
     }
+    export_step(root,path);
 }
 
 void OcctKernel::export_step(const StepProduct& root, const std::string& path) const {
@@ -8725,36 +9601,9 @@ void OcctKernel::export_step(const StepProduct& root, const std::string& path) c
     const auto application = XCAFApp_Application::GetApplication();
     application->NewDocument("BinXCAF", document);
     try {
-        XCAFDoc_DocumentTool::SetLengthUnit(document, 0.001); // ZIMA geometry is in mm.
-        const auto shapes = XCAFDoc_DocumentTool::ShapeTool(document->Main());
-        std::map<std::string, TDF_Label> definitions;
-        std::set<std::string> visiting;
-        const auto name = [](const TDF_Label& label, const std::string& text) {
-            TDataStd_Name::Set(label, TCollection_ExtendedString(text.c_str(), true));
-        };
-        const auto add = [&](auto&& self, const StepProduct& product) -> TDF_Label {
-            if (product.definition_id.empty()) throw std::invalid_argument("STEP product identity is empty");
-            if (visiting.contains(product.definition_id)) throw std::invalid_argument("Cyclic STEP product structure");
-            if (const auto found=definitions.find(product.definition_id);found!=definitions.end())return found->second;
-            visiting.insert(product.definition_id);
-            TDF_Label label;
-            if (product.children.empty()) {
-                if(product.body.kernel_shape.empty())throw std::runtime_error("STEP product has no calculated geometry");
-                label=shapes->AddShape(read_kernel_shape(product.body),false);
-            } else {
-                label=shapes->NewShape();
-                for(const auto& child:product.children) {
-                    const auto definition=self(self,child);
-                    const auto occurrence=shapes->AddComponent(label,definition,
-                        TopLoc_Location(primitive_transform(child.translation,child.rotation_degrees)));
-                    name(occurrence,child.name);
-                }
-            }
-            name(label,product.name);definitions.emplace(product.definition_id,label);
-            visiting.erase(product.definition_id);return label;
-        };
-        static_cast<void>(add(add,root));shapes->UpdateAssemblies();
+        populate_exchange_document(document,root);
         STEPCAFControl_Writer writer;writer.SetNameMode(true);
+        writer.SetColorMode(true);
         if(!writer.Transfer(document,STEPControl_AsIs)||writer.Write(path.c_str())!=IFSelect_RetDone)
             throw std::runtime_error("STEP product export failed");
         application->Close(document);
@@ -8763,68 +9612,179 @@ void OcctKernel::export_step(const StepProduct& root, const std::string& path) c
     } catch(...) { application->Close(document);throw; }
 }
 
-namespace {
-void write_iges_shape(const TopoDS_Shape& shape,const std::string& path) {
-    IGESControl_Writer writer("MM",1);
-    if(shape.IsNull()||!writer.AddShape(shape))throw std::runtime_error("IGES export failed");
-    std::ofstream output(std::filesystem::u8path(path),std::ios::binary);
-    if(!output||!writer.Write(output))throw std::runtime_error("IGES export failed");
-    output.close();if(!output)throw std::runtime_error("IGES export failed");
-}
-}
 void OcctKernel::export_iges(const std::vector<PlacedBody>& bodies,const std::string& path) const {
-    write_iges_shape(placed_compound(bodies),path);
+    StepProduct root;root.definition_id="zima-export-root";
+    root.name="ZIMA-CAD export";
+    for(std::size_t index=0;index<bodies.size();++index) {
+        StepProduct child;
+        child.definition_id="zima-export-body-"+std::to_string(index);
+        child.name="Body "+std::to_string(index+1);
+        child.body=bodies[index].body;
+        child.translation=bodies[index].translation;
+        child.rotation_degrees=bodies[index].rotation_degrees;
+        child.appearance=bodies[index].appearance;
+        root.children.push_back(std::move(child));
+    }
+    export_iges(root,path);
 }
 void OcctKernel::export_iges(const StepProduct& root, const std::string& path) const {
-    // Consume the same captured visible products as STEP. Compose full rigid
-    // transforms before flattening IGES geometry; never reopen dependencies.
-    TopoDS_Compound compound;BRep_Builder builder;builder.MakeCompound(compound);
-    std::set<std::string> visiting;bool populated=false;
-    const auto add=[&](auto&& self,const StepProduct& product,const gp_Trsf& parent,std::size_t depth)->void {
-        if(depth>256||!visiting.insert(product.definition_id).second)
-            throw std::runtime_error("The component dependency graph is too large or too deep.");
-        const auto world=parent*primitive_transform(product.translation,product.rotation_degrees);
-        if(product.children.empty()) {
-            if(product.body.kernel_shape.empty())
-                throw std::runtime_error("An exported component has no calculated body; invoke Regenerate first.");
-            BRepBuilderAPI_Transform placed(read_kernel_shape(product.body),world,false);
-            placed.Build();if(!placed.IsDone()||placed.Shape().IsNull())throw std::runtime_error("IGES export failed");
-            builder.Add(compound,placed.Shape());populated=true;
-        }else for(const auto& child:product.children)self(self,child,world,depth+1);
-        visiting.erase(product.definition_id);
-    };
-    add(add,root,gp_Trsf{},0);
-    if(!populated)throw std::runtime_error("There are no visible calculated bodies to export.");
-    // The stream overload supports native Unicode filesystem paths on Windows
-    // and Linux without changing document geometry or process-wide units.
-    write_iges_shape(compound,path);
+    Handle(TDocStd_Document) document;
+    const auto application=XCAFApp_Application::GetApplication();
+    application->NewDocument("BinXCAF",document);
+    try {
+        // IGES has no dependable assembly-instance contract across readers.
+        // Export placed leaf solids as free shapes, as before color support,
+        // and use XCAF only to attach body and exact face colors.
+        populate_flat_exchange_document(document,root);
+        IGESCAFControl_Writer writer;
+        writer.SetNameMode(true);writer.SetColorMode(true);
+        if(!writer.Transfer(document))
+            throw std::runtime_error("IGES product export failed");
+        apply_iges_face_overrides(writer,document);
+        std::ofstream output(std::filesystem::u8path(path),std::ios::binary);
+        if(!output||!writer.Write(output))
+            throw std::runtime_error("IGES product export failed");
+        output.close();
+        if(!output)throw std::runtime_error("IGES product export failed");
+        application->Close(document);
+    } catch(const Standard_Failure& failure) {
+        application->Close(document);
+        throw std::runtime_error(failure.GetMessageString());
+    } catch(...) {
+        application->Close(document);throw;
+    }
 }
 
 void OcctKernel::export_stl(
     const std::vector<PlacedBody>& bodies, const std::string& path) const {
-    auto shape = placed_compound(bodies);
-    BRepMesh_IncrementalMesh mesher(shape, 0.1, false, 0.5, true);
-    mesher.Perform();
-    if (!mesher.IsDone()) {
-        throw std::runtime_error("STL triangulation failed");
+    if(bodies.empty())throw std::runtime_error("STL export has no geometry");
+    struct PreparedBody {
+        TopoDS_Shape shape;
+        PrimitiveData geometry;
+        gp_Trsf placement;
+        const Appearance* appearance{};
+    };
+    std::vector<PreparedBody> prepared;
+    std::uint64_t triangle_count{};
+    for(const auto& body:bodies) {
+        auto shape=read_kernel_shape(body.body);
+        BRepMesh_IncrementalMesh mesher(shape,0.1,false,0.5,true);
+        mesher.Perform();
+        if(!mesher.IsDone())
+            throw std::runtime_error("STL triangulation failed");
+        for(TopExp_Explorer explorer(shape,TopAbs_FACE);explorer.More();
+                explorer.Next()) {
+            TopLoc_Location location;
+            const auto triangles=BRep_Tool::Triangulation(
+                TopoDS::Face(explorer.Current()),location);
+            if(!triangles.IsNull())
+                triangle_count+=static_cast<std::uint64_t>(
+                    triangles->NbTriangles());
+        }
+        if(triangle_count>std::numeric_limits<std::uint32_t>::max())
+            throw std::runtime_error("STL has too many facets");
+        PrimitiveData geometry;
+        if(!body.body.kernel_faces.empty())
+            geometry=placed_bound_face_geometry(body.body,true);
+        prepared.push_back({std::move(shape),std::move(geometry),
+            primitive_transform(body.translation,body.rotation_degrees),
+            &body.appearance});
     }
-    StlAPI_Writer writer;
-    writer.ASCIIMode() = false;
-#ifdef _WIN32
-    // OCCT's filename overload opens a narrow std::ofstream on Windows.
-    // Open the UTF-8 path through filesystem instead and use its stream API.
-    std::ofstream output(std::filesystem::u8path(path), std::ios::binary);
-    if (!output || !writer.Write(shape, output)) {
-        throw std::runtime_error("STL export failed");
+    if(triangle_count==0)throw std::runtime_error("STL export has no facets");
+
+    const auto rgb=[](const std::string& value) {
+        std::array<unsigned,3> result{185,194,204};
+        if((value.size()!=7&&value.size()!=9)||value.front()!='#')
+            return result;
+        const std::size_t offset=value.size()==9?3:1;
+        for(std::size_t channel=0;channel<3;++channel) {
+            unsigned parsed{};
+            const auto begin=value.data()+offset+channel*2;
+            const auto converted=std::from_chars(begin,begin+2,parsed,16);
+            if(converted.ec!=std::errc{}||converted.ptr!=begin+2)
+                return std::array<unsigned,3>{185,194,204};
+            result[channel]=parsed;
+        }
+        return result;
+    };
+    auto default_rgb=rgb(bodies.front().appearance.body.color);
+    std::array<unsigned char,80> header{};
+    const std::string title="ZIMA-CAD binary STL COLOR=";
+    std::copy(title.begin(),title.end(),header.begin());
+    const std::array<unsigned char,6> color_marker{
+        'C','O','L','O','R','='};
+    const auto marker=std::search(header.begin(),header.end(),
+        color_marker.begin(),color_marker.end());
+    if(marker!=header.end()) {
+        const auto offset=static_cast<std::size_t>(marker-header.begin())+6;
+        header[offset]=static_cast<unsigned char>(default_rgb[0]);
+        header[offset+1]=static_cast<unsigned char>(default_rgb[1]);
+        header[offset+2]=static_cast<unsigned char>(default_rgb[2]);
+        header[offset+3]=255;
     }
+    std::ofstream output(std::filesystem::u8path(path),std::ios::binary);
+    if(!output)throw std::runtime_error("STL export failed");
+    output.write(reinterpret_cast<const char*>(header.data()),header.size());
+    const auto write_u32=[&](std::uint32_t value) {
+        const std::array<unsigned char,4> bytes{
+            static_cast<unsigned char>(value),
+            static_cast<unsigned char>(value>>8),
+            static_cast<unsigned char>(value>>16),
+            static_cast<unsigned char>(value>>24)};
+        output.write(reinterpret_cast<const char*>(bytes.data()),bytes.size());
+    };
+    const auto write_u16=[&](std::uint16_t value) {
+        const std::array<unsigned char,2> bytes{
+            static_cast<unsigned char>(value),
+            static_cast<unsigned char>(value>>8)};
+        output.write(reinterpret_cast<const char*>(bytes.data()),bytes.size());
+    };
+    const auto write_float=[&](double value) {
+        write_u32(std::bit_cast<std::uint32_t>(static_cast<float>(value)));
+    };
+    write_u32(static_cast<std::uint32_t>(triangle_count));
+    for(const auto& body:prepared)
+        for(TopExp_Explorer explorer(body.shape,TopAbs_FACE);explorer.More();
+                explorer.Next()) {
+            const auto face=TopoDS::Face(explorer.Current());
+            const FaceReference* reference{};
+            for(const auto& candidate:body.geometry.faces)
+                if(candidate.shape.IsSame(face)) {
+                    reference=&candidate.reference;break;
+                }
+            const auto* style=reference?
+                exchange_face_style(*body.appearance,*reference):nullptr;
+            const auto color=rgb(style?style->color:
+                body.appearance->body.color);
+            const auto five=[](unsigned value) {
+                return static_cast<std::uint16_t>(
+                    std::lround(value*31./255.));
+            };
+            const auto attribute=static_cast<std::uint16_t>(
+                five(color[0])|(five(color[1])<<5)|(five(color[2])<<10));
+            TopLoc_Location location;
+            const auto triangulation=BRep_Tool::Triangulation(face,location);
+            if(triangulation.IsNull())continue;
+            const auto transform=body.placement*location.Transformation();
+            for(int index=1;index<=triangulation->NbTriangles();++index) {
+                int first{},second{},third{};
+                triangulation->Triangle(index).Get(first,second,third);
+                if(face.Orientation()==TopAbs_REVERSED)
+                    std::swap(second,third);
+                const auto a=triangulation->Node(first).Transformed(transform);
+                const auto b=triangulation->Node(second).Transformed(transform);
+                const auto c=triangulation->Node(third).Transformed(transform);
+                gp_Vec normal(a,b);normal.Cross(gp_Vec(a,c));
+                if(normal.SquareMagnitude()>1e-30)normal.Normalize();
+                else normal.SetCoord(0,0,0);
+                for(const auto value:{normal.X(),normal.Y(),normal.Z(),
+                        a.X(),a.Y(),a.Z(),b.X(),b.Y(),b.Z(),
+                        c.X(),c.Y(),c.Z()})write_float(value);
+                write_u16(attribute);
+            }
+        }
     output.close();
-    if (!output) throw std::runtime_error("STL export failed");
-#else
-    // POSIX filenames are UTF-8 bytes. OCCT 7.9 exposes the filename API only.
-    if (!writer.Write(shape, path.c_str())) {
-        throw std::runtime_error("STL export failed");
-    }
-#endif
+    if(!output)throw std::runtime_error("STL export failed");
 }
 
 std::vector<BodyResult> OcctKernel::evaluate_history(
@@ -9208,11 +10168,22 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history_recovering(
             publish_recovery_state(valid);
         } catch (const std::exception& error) {
             context.original_faces=valid_originals;
-            auto input = valid.empty() ? BodyResult{} : valid.back();
+            // A retained feature whose reference was explicitly deleted owns
+            // no newly calculable operand, but it must keep its last valid
+            // geometry for display and repair. Body-local previous boundaries
+            // preserve the same feature order, so this row is the exact prior
+            // result of that retained definition rather than an unrelated
+            // global history prefix.
+            auto input = valid.empty()&&
+                    !operations[index].reported_error.empty()&&
+                    index<previous_boundaries.size()
+                ?previous_boundaries[index]
+                :(valid.empty()?BodyResult{}:valid.back());
             if(const auto* ordered=dynamic_cast<const OrderedUpToError*>(&error))
                 ordered_failures[index]={ordered->failure,ordered->row,
                     ordered->other_row};
-            failed[index]=error.what();
+            failed[index]=operations[index].reported_error.empty()
+                ?error.what():operations[index].reported_error;
             // A failed definition remains an authored red history node, but
             // it is a no-op for material flow. Later independent containers
             // therefore continue from the last valid Body. Any container that
@@ -9221,7 +10192,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history_recovering(
             executable[index].suppressed=true;
             input.source_fingerprint=history_fingerprint(operations,index+1)+
                 context.dependency_key;
-            input.calculation_errors[operations[index].owner_id]=error.what();
+            input.calculation_errors[operations[index].owner_id]=failed[index];
             if(const auto ordered=ordered_failures.find(index);
                     ordered!=ordered_failures.end())
                 input.ordered_up_to_failures[operations[index].owner_id]=
@@ -9739,6 +10710,12 @@ std::vector<BodyResult> OcctKernel::evaluate_body_histories(
                     auto published=previous_boundaries[boundaries.size()];
                     published.calculation_provenance=
                         boundary.calculation_provenance;
+                    // Body-only state such as result suppression is absent
+                    // from the local branch fingerprint but belongs to the
+                    // complete history fingerprint. The geometry packet is
+                    // still reusable; its top-level definition stamp is not.
+                    published.source_fingerprint=history_fingerprint(
+                        operations,boundaries.size()+1);
                     boundaries.push_back(std::move(published));
                 } else {
                     auto published=boundary;

@@ -87,6 +87,7 @@
 #include "drawing_window.hpp"
 #include <zima/drawing/measurement_dimension.hpp>
 #include "resource_icon.hpp"
+#include "authored_feature_wire.hpp"
 #include "tree_reference_state.hpp"
 
 #include <zima/ui/reference_cell.hpp>
@@ -5059,28 +5060,88 @@ int verify_application_tools_ui(QApplication& application,const std::filesystem:
         auto other_part=document::PartDocument::create_default();document::BodyHistoryGraph other_graph;
         static_cast<void>(other_graph.create_body("Other application"));other_part.set_body_history(other_graph);other_part.save(other_path);
         const auto drawing_path=directory/"application-drawing.drwz";drawing::DrawingDocument::create_default().save(drawing_path);
-        const auto assembly_path=directory/"application-assembly.asmz";assembly::AssemblyDocument::create_default().save(assembly_path);
+        const auto assembly_path=directory/"application-assembly.asmz";
+        auto assembly_document=assembly::AssemblyDocument::create_default();
+        const auto assembly_occurrence=assembly::AssemblyDocument::create_part_occurrence(
+            "Application Part",part.document_id,path.filename(),
+            kernel.evaluate_history(part.kernel_operations()).back());
+        assembly_document.components={assembly_occurrence};
+        assembly_document.save(assembly_path);
+        const auto assembly_occurrence_path=assembly::InstancePath{{
+            assembly_occurrence.occurrence_id}}.encoded();
         app::AssemblyWorkspaceWindow window(QString::fromStdString(directory.string()));window.resize(1200,900);window.show();
         check(window.open_document_path(QString::fromStdString(path.string())),"Application fixture failed to open");flush();
         check(activate_test_body(application,window,body),"Cannot activate application fixture body");flush();
         auto* tabs=window.findChild<QTabBar*>("documentTabs");auto* menu=window.findChild<QMenu*>("insertMenu");
-        auto* modeling=window.findChild<QAction*>("applicationModeAction0");auto* sheet=window.findChild<QAction*>("applicationModeAction2");
+        auto* modeling=window.findChild<QAction*>("applicationModeAction0");
+        auto* assembly=window.findChild<QAction*>("applicationModeAction1");
+        auto* sheet=window.findChild<QAction*>("applicationModeAction2");
+        auto* surface=window.findChild<QAction*>("applicationModeAction3");
         auto* extrusion=window.findChild<QAction*>("extrusionAction");
         auto* modeling_feature=window.findChild<QAction*>("featurePrototypeAction");
         const auto selector=[&]{return window.findChild<QToolButton*>("modelingModeButton");};
+        const auto assembly_button=[&]{return window.findChild<QToolButton*>("assemblyModeButton");};
         const auto sheet_button=[&]{return window.findChild<QToolButton*>("sheetMetalModeButton");};
-        check(tabs&&menu&&modeling&&sheet&&extrusion&&selector()&&sheet_button(),"Application controls missing");
+        const auto surface_button=[&]{return window.findChild<QToolButton*>("surfaceModeButton");};
+        check(tabs&&menu&&modeling&&assembly&&sheet&&surface&&extrusion&&selector()&&
+            assembly_button()&&sheet_button()&&surface_button(),"Application controls missing");
         check(selector()->defaultAction()==modeling&&sheet_button()->defaultAction()==sheet&&
-            !selector()->icon().isNull()&&!sheet_button()->icon().isNull()&&selector()->y()<sheet_button()->y(),
-            "Application mode buttons lost their action, icon or vertical order");
+            !selector()->icon().isNull()&&!sheet_button()->icon().isNull()&&
+            selector()->parentWidget()==sheet_button()->parentWidget()&&
+            selector()->parentWidget()->objectName()=="applicationModeSelector"&&
+            selector()->y()==sheet_button()->y()&&selector()->x()<sheet_button()->x()&&
+            selector()->height()==26&&sheet_button()->height()==26&&
+            surface_button()->height()==26&&
+            !assembly_button()->isVisible()&&surface_button()->isVisible()&&
+            std::abs(selector()->parentWidget()->geometry().right()-
+                selector()->parentWidget()->parentWidget()->rect().right())<=1&&
+            !window.findChild<QToolBar*>("toolsToolbar")->actions().contains(modeling)&&
+            !window.findChild<QToolBar*>("toolsToolbar")->actions().contains(sheet),
+            "Part application buttons are not a fixed right-aligned toolbar group");
+        window.resize(900,700);flush();
+        check(selector()->isVisible()&&sheet_button()->isVisible()&&
+            surface_button()->isVisible()&&!assembly_button()->isVisible()&&
+            selector()->height()==26&&sheet_button()->height()==26&&
+            surface_button()->height()==26&&
+            std::abs(selector()->parentWidget()->geometry().right()-
+                selector()->parentWidget()->parentWidget()->rect().right())<=1,
+            "Compact width hid or moved Part application buttons");
+        window.resize(1200,900);flush();
         for(const bool dark:{false,true,false}) {
             auto settings=app::ApplicationSettings{};settings.theme=dark?"dark":"light";
             app::apply_application_appearance(application,settings);flush();
-            check(!selector()->icon().pixmap(24,24).isNull()&&!sheet_button()->icon().pixmap(24,24).isNull(),"Mode icons disappeared after a live theme change");
+            check(!selector()->icon().pixmap(24,24).isNull()&&
+                !sheet_button()->icon().pixmap(24,24).isNull()&&
+                !surface_button()->icon().pixmap(24,24).isNull(),
+                "Mode icons disappeared after a live theme change");
             window.grab().save(QString::fromStdString((directory/(dark?"application-modes-dark.png":"application-modes-light.png")).string()));
         }
         modeling->trigger();flush();
         check(modeling_feature&&menu->actions().contains(modeling_feature)&&modeling->isChecked(),"Modeling Insert commands missing");
+        surface_button()->click();flush();
+        auto* application_toolbar=window.findChild<QToolBar*>("toolsToolbar");
+        const std::array surface_commands{
+            "generalSurfaceAction","boundarySurfaceAction",
+            "surfaceSewingAction","surfaceIntersectionAction",
+            "surfaceTrimAction","surfaceFromSolidAction",
+            "surfaceThickenAction"};
+        check(surface_button()->isChecked()&&surface->isChecked()&&
+            std::ranges::all_of(surface_commands,[&](const char* name) {
+                auto* action=window.findChild<QAction*>(name);
+                return action&&application_toolbar->actions().contains(action)&&
+                    menu->actions().contains(action);
+            })&&std::ranges::none_of(std::array{
+                    "featurePrototypeAction","curve3DAction","sweep2dAction",
+                    "sweep3DAction","helicalSweepAction","loftAction"},
+                [&](const char* name) {
+                    return menu->actions().contains(window.findChild<QAction*>(name));
+                })&&!menu->actions().contains(window.findChild<QAction*>("threadAction"))&&
+            application_toolbar->actions().indexOf(window.findChild<QAction*>("filletAction"))>
+                application_toolbar->actions().indexOf(window.findChild<QAction*>("surfaceThickenAction"))&&
+            application_toolbar->actions().indexOf(window.findChild<QAction*>("chamferAction"))>
+                application_toolbar->actions().indexOf(window.findChild<QAction*>("filletAction")),
+            "Surface application is not limited to its ordered surface command group");
+        selector()->click();flush();
         sheet_button()->click();flush();
         check(sheet_button()->isChecked()&&!selector()->isChecked()&&!menu->actions().contains(extrusion),"Button did not switch application and Insert commands");
         auto* sheet_properties=window.findChild<QAction*>("sheetMetalPropertiesAction");auto* toolbar=window.findChild<QToolBar*>("toolsToolbar");
@@ -5154,7 +5215,23 @@ int verify_application_tools_ui(QApplication& application,const std::filesystem:
         check(window.open_document_path(QString::fromStdString(drawing_path.string())),"Drawing fixture failed to open");flush();
         check(menu->actions().contains(window.findChild<QAction*>("insertDrawingViewAction"))&&!menu->actions().contains(extrusion),"Drawing Insert contains wrong commands");
         check(window.open_document_path(QString::fromStdString(assembly_path.string())),"Assembly fixture failed to open");flush();
-        check(menu->actions().contains(window.findChild<QAction*>("insertComponentAction")),"Assembly Insert lost component insertion");
+        check(menu->actions().contains(window.findChild<QAction*>("insertComponentAction"))&&
+            assembly&&assembly->isChecked()&&assembly->isEnabled()&&
+            !selector()->parentWidget()->isVisible()&&!selector()->isVisible()&&
+            !assembly_button()->isVisible()&&!sheet_button()->isVisible()&&
+            !surface_button()->isVisible()&&!modeling->isEnabled()&&
+            !sheet->isEnabled()&&!surface->isEnabled(),
+            "An active Assembly exposes the Part application switcher");
+        check(window.activate_occurrence_for_test(assembly_occurrence_path),
+            "Cannot activate the application-switcher Part occurrence");flush();
+        check(selector()->parentWidget()->isVisible()&&selector()->isVisible()&&
+            sheet_button()->isVisible()&&surface_button()->isVisible()&&
+            !assembly_button()->isVisible()&&modeling->isChecked()&&
+            modeling->isEnabled()&&sheet->isEnabled()&&surface->isEnabled(),
+            "Activating a Part occurrence did not expose its Part applications");
+        window.deactivate_active_occurrence_for_test();flush();
+        check(assembly->isChecked()&&!selector()->parentWidget()->isVisible(),
+            "Returning to the Assembly retained the Part application switcher");
         // Flat creation and editing use the same transient container/Sketch dialog.
         auto flat_part=document::PartDocument::create_default();document::BodyHistoryGraph flat_graph;
         const auto flat_body=flat_graph.create_body("Flat body");flat_part.set_body_history(flat_graph);
@@ -10682,14 +10759,84 @@ int verify_startup_contract(
     if(qEnvironmentVariableIsSet("ZIMA_VERIFY_COPY_SAVE_ONLY"))return verify_derived_copy_save(application,window,test_directory);
     if(qEnvironmentVariableIsSet("ZIMA_VERIFY_COMPACT_WINDOW_ONLY")) {
         window.show();
+        auto* document_toolbar=window.findChild<QToolBar*>("mainToolbar");
+        if(!verify(document_toolbar!=nullptr,"Document toolbar is missing"))return 1;
+        if(!verify(!window.findChild<QAction*>("importDocumentAction")->isEnabled(),
+                "Import must be disabled without an active document"))return 1;
+        for(const auto& [name,key]:std::array{
+                std::pair{"newDocumentAction",Qt::Key_F1},
+                std::pair{"openDocumentAction",Qt::Key_F2},
+                std::pair{"saveDocumentAction",Qt::Key_F3},
+                std::pair{"saveDocumentAsAction",Qt::Key_F4},
+                std::pair{"importDocumentAction",Qt::Key_F6},
+                std::pair{"exportDocumentAction",Qt::Key_F7}}) {
+            const auto* action=window.findChild<QAction*>(name);
+            if(!verify(action&&action->shortcuts().contains(QKeySequence(key)),
+                    "File command function-key order is incorrect"))return 1;
+        }
+        int previous_file_action=-1;
+        QColor document_hover_color;
+        for(const auto* name:{"newDocumentAction","openDocumentAction",
+                "saveDocumentAction","saveDocumentAsAction",
+                "importDocumentAction","exportDocumentAction",
+                "renameDocumentAction","closeDocumentAction",
+                "deleteCurrentFileAction","workingDirectoryAction"}) {
+            auto* action=window.findChild<QAction*>(name);
+            const int position=document_toolbar->actions().indexOf(action);
+            auto* button=action?qobject_cast<QToolButton*>(
+                document_toolbar->widgetForAction(action)):nullptr;
+            if(!verify(action&&position>previous_file_action&&
+                    !action->icon().isNull()&&button&&
+                    button->styleSheet().contains("hover:enabled"),
+                    "Document toolbar does not contain the complete ordered File command set"))return 1;
+            if(action->isEnabled()) {
+                QEvent leave(QEvent::Leave);QApplication::sendEvent(button,&leave);
+                application.processEvents();const auto ordinary=button->grab().toImage();
+                const QPointF local(2,2);
+                QEnterEvent enter(local,local,
+                    QPointF(button->mapToGlobal(local.toPoint())));
+                QApplication::sendEvent(button,&enter);
+                application.processEvents();const auto hovered=button->grab().toImage();
+                if(!verify(ordinary!=hovered,
+                        "An enabled document command has no rendered hover feedback"))return 1;
+                const auto sample=hovered.pixelColor(2,2);
+                if(!document_hover_color.isValid())document_hover_color=sample;
+                if(!verify(sample==document_hover_color,
+                        "Document commands do not share the New button hover appearance"))return 1;
+                QApplication::sendEvent(button,&leave);
+            }
+            previous_file_action=position;
+        }
         for(const auto* kind:{"part","assembly","drawing"}) {
             const auto result=window.execute_console_command(QString("new %1 compact-%1").arg(kind));
             if(!verify(result.ok,"Compact layout fixture failed"))return 1;
+            if(QString::fromLatin1(kind)=="part") {
+                auto* import_action=window.findChild<QAction*>("importDocumentAction");
+                auto* action=window.findChild<QAction*>("exportDocumentAction");
+                auto* button=qobject_cast<QToolButton*>(
+                    document_toolbar->widgetForAction(action));
+                if(!verify(import_action&&import_action->isEnabled()&&
+                        action&&action->isEnabled()&&button,
+                        "Import or Export did not become available for an active document"))return 1;
+                QEvent leave(QEvent::Leave);QApplication::sendEvent(button,&leave);
+                application.processEvents();const auto ordinary=button->grab().toImage();
+                const QPointF local(2,2);QEnterEvent enter(local,local,
+                    QPointF(button->mapToGlobal(local.toPoint())));
+                QApplication::sendEvent(button,&enter);application.processEvents();
+                const auto hovered=button->grab().toImage();
+                if(!verify(ordinary!=hovered&&
+                        hovered.pixelColor(2,2)==document_hover_color,
+                        "Enabled Export does not share the New button hover appearance"))return 1;
+                QApplication::sendEvent(button,&leave);
+            }
             for(const QSize size:{QSize(1024,680),QSize(800,600)}) {
                 window.resize(size);
                 for(int i=0;i<5;++i)application.processEvents();
                 auto* tools=window.findChild<QToolBar*>("toolsToolbar");
                 if(!verify(window.size()==size,"Workspace grew beyond the requested laptop size"))return 1;
+                if(!verify(document_toolbar->isVisible()&&window.rect().contains(
+                        QRect(document_toolbar->mapTo(&window,QPoint()),document_toolbar->size())),
+                        "Document commands extend outside the compact window"))return 1;
                 if(!verify(tools&&tools->isVisible()&&window.rect().contains(QRect(tools->mapTo(&window,QPoint()),tools->size())),"Commands extend outside the window"))return 1;
             }
         }
@@ -10700,9 +10847,13 @@ int verify_startup_contract(
         application.processEvents();
         auto* view=dynamic_cast<zima::viewer::MeshView*>(window.findChild<QOpenGLWidget*>("modelWorkspace"));
         if(!verify(view!=nullptr,"Missing theme viewer"))return 1;
+        auto* logo=window.findChild<QLabel*>("applicationLogo");
+        if(!verify(logo&&logo->isVisible()&&!logo->pixmap().isNull(),
+                "Adaptive ZC toolbar logo is missing"))return 1;
         const auto saved=application.palette();
         for(bool dark:{false,true,false}) {
             auto palette=saved;palette.setColor(QPalette::Window,dark?QColor(32,32,32):QColor(245,245,245));
+            palette.setColor(QPalette::WindowText,dark?Qt::white:Qt::black);
             application.setPalette(palette);application.processEvents();
             const auto theme=zima::viewer::view_theme(palette);
             view->update();application.processEvents();
@@ -10712,11 +10863,27 @@ int verify_startup_contract(
             if(!verify((theme.top.lightness()<128)==dark,"View theme does not follow desktop palette"))return 1;
             if(!verify(std::abs(theme.foreground.lightness()-theme.bottom.lightness())>140,"View neutral strokes lack contrast"))return 1;
             if(dark&&!verify(theme.bottom==QColor(23,27,33)&&theme.top==QColor(59,70,84),"Dark view gradient changed"))return 1;
+            const auto icon=zima::app::application_icon().pixmap(64,64).toImage();
+            std::size_t neutral{},cyan{};
+            for(int y=0;y<icon.height();++y)
+                for(int x=0;x<icon.width();++x) {
+                    const auto color=icon.pixelColor(x,y);
+                    if(color.alpha()<100)continue;
+                    if(std::max({color.red(),color.green(),color.blue()})-
+                            std::min({color.red(),color.green(),color.blue()})<20&&
+                            (dark?color.lightness()>200:color.lightness()<60))
+                        ++neutral;
+                    if(color.blue()>180&&color.green()>120&&color.red()<80)
+                        ++cyan;
+                }
+            if(!verify(neutral>20&&cyan>20&&
+                    !window.windowIcon().isNull()&&
+                    !logo->pixmap().isNull(),
+                "ZC logo does not keep an adaptive Z and azure C"))return 1;
         }
         application.setPalette(saved);
         if(qEnvironmentVariableIsSet("ZIMA_ICON_PREVIEW")) {
-            QImage icon(256,256,QImage::Format_ARGB32_Premultiplied);icon.fill(Qt::transparent);
-            QSvgRenderer renderer(QStringLiteral(":/zima/branding/app-icon.svg"));QPainter painter(&icon);renderer.render(&painter);painter.end();
+            const auto icon=zima::app::application_icon().pixmap(256,256).toImage();
             if(!verify(icon.save(qEnvironmentVariable("ZIMA_ICON_PREVIEW")),"Cannot save icon preview"))return 1;
         }
         std::cout<<"Compact Part/Assembly/Drawing layout and live view theme passed\n";
@@ -10849,6 +11016,7 @@ int verify_startup_contract(
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_OPENING_AXIS_DIRECTION")) return verify_opening_axis_direction_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_ARC_ONLY_BEND")) return verify_arc_only_bend_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SHEET_EXCHANGE")) return verify_sheet_exchange_ui(application,test_directory);
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SURFACE_SHELL_SOURCE_ONLY")) return verify_surface_shell_source_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_LINE_BEND_ONLY")) return verify_line_bend_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SHEET_TRANSITION")) return verify_sheet_transition_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_EQUAL_ENDPOINT_ONLY")) return verify_sketch_equal_endpoint_ui(application,test_directory);
@@ -11290,9 +11458,9 @@ int verify_startup_contract(
     if (!verify(export_document != nullptr && !export_document->isEnabled() &&
                     parameters != nullptr && !parameters->isEnabled(),
                 "document-only commands must be disabled without a document") ||
-        !verify(import_document != nullptr && import_document->isEnabled() &&
+        !verify(import_document != nullptr && !import_document->isEnabled() &&
                     working_directory->isEnabled() && about->isEnabled(),
-                "document-independent commands must remain available") ||
+                "Import must require a document while independent commands remain available") ||
         !verify(standard_views != nullptr &&
                     !standard_views->menuAction()->isEnabled() &&
                     appearance_action != nullptr &&
@@ -15171,6 +15339,7 @@ int main(int argc, char* argv[]) {
 
     application.setApplicationName("ZIMA-CAD");
     application.setDesktopFileName("zima-cad");
+    zima::app::desktop::apply_process_identity();
     application.setWindowIcon(zima::app::application_icon());
     if (const int result = zima::app::desktop::command_line(); result >= 0) return result;
     const auto arguments = application.arguments();

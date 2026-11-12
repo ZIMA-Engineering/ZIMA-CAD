@@ -219,6 +219,8 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     command_host::Host host(live,kernel,dir,options);
     auto source=document::PartDocument::create_default();source.name="Box source";auto box=zima::test::rectangular_feature(source);zima::test::resize_rectangular_feature(source,box,{10,20,30});source.history.push_back(box);
     const auto body=kernel.evaluate_history(source.kernel_operations());kernel.export_step(interchange::step_product(source,body),document::path_to_utf8(dir/fs::path(u8"kvádr.step")));
+    kernel.export_stl(std::vector<kernel::PlacedBody>{{body.back(),{},{}}},
+        document::path_to_utf8(dir/fs::path(u8"kvádr.stl")));
     IGESControl_Writer writer("MM",1);writer.AddShape(BRepPrimAPI_MakeBox(10,20,30).Shape());require(writer.Write(document::path_to_utf8(dir/fs::path(u8"kvádr.igs")).c_str()),"Cannot write IGES fixture");
     auto profile=sketcher::Sketch::create_default();static_cast<void>(profile.add_rectangle(0,0,20,10));
     const auto dxf_path=dir/fs::path(u8"obrys žluťoučký.dxf");interchange::export_dxf(dxf_path,profile);
@@ -228,7 +230,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
         require(snapshot(live.open_part(id)->session.document())==before && live.open_part(id)->session.revision()==revision,"Rejected import partly committed");
     };
     // Import ahead of calculated modeling Bodies as one reversible transaction.
-    for(const char* format:{"step","iges"}) {
+    for(const char* format:{"step","iges","stl"}) {
         run(host,"new",{{"type","part"},{"name",std::string("order-")+format}});
         zima::test::rectangular_commands([&](const char* n,commands::Json args){return run(host,n,std::move(args));},
             {{"length_mm","3"},{"width_mm","4"},{"height_mm","5"}});
@@ -236,7 +238,9 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
         const auto original=snapshot(target->session.document());
         const auto old_order=target->session.document().body_history.order();
         const auto command=std::string("import.")+format;
-        const auto imported=run(host,command.c_str(),{{"path",format==std::string("step")?"kvádr.step":"kvádr.igs"}}).data;
+        const auto imported=run(host,command.c_str(),{{"path",
+            format==std::string("iges")?"kvádr.igs":
+                std::string("kvádr.")+format}}).data;
         const auto added=imported.at("bodies")[0].get<std::string>();
         auto expected=old_order;expected.insert(expected.begin(),added);
         require(target->session.document().body_history.order()==expected,"Import did not prepend new Body");

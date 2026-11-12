@@ -39,8 +39,12 @@ PartImportReport import_part(Workspace& live, const std::string& document_id,
     const auto* part = live.open_part(document_id);
     if (!part) throw ImportOperationError("unsupported_document", "This import requires an open Part.");
     const auto format = interchange::format_from_path(source);
-    if (format != interchange::Format::Dxf && format != interchange::Format::Step && format != interchange::Format::Iges)
-        throw ImportOperationError("unsupported_format", "Part import supports STEP, IGES and DXF.");
+    if (format != interchange::Format::Dxf &&
+        format != interchange::Format::Step &&
+        format != interchange::Format::Iges &&
+        format != interchange::Format::Stl)
+        throw ImportOperationError("unsupported_format",
+            "Part import supports STEP, IGES, STL and DXF.");
     if (!std::filesystem::is_regular_file(source))
         throw ImportOperationError("file_not_found", "The import source file does not exist.");
     if (!options.sketch_id.empty() && format != interchange::Format::Dxf)
@@ -71,9 +75,13 @@ PartImportReport import_part(Workspace& live, const std::string& document_id,
         } else if (format == interchange::Format::Step) {
             imported = interchange::import_step_part(std::move(document), previous, source, options.mesh_deflection);
             report.body_calculated = true;
-        } else {
+        } else if(format==interchange::Format::Iges) {
             imported = interchange::import_iges_part(std::move(document), previous, source, options.mesh_deflection);
             report.body_calculated = true;
+        } else {
+            imported=interchange::import_stl_part(std::move(document),
+                previous,source,options.mesh_deflection);
+            report.body_calculated=true;
         }
     };
     if (runner) runner(std::move(task)); else task();

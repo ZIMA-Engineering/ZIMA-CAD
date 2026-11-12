@@ -36,6 +36,7 @@ void AssemblyWorkspaceWindow::update_document_area_visibility() {
     selection_action_->setEnabled(has_document);
     selection_filter_combo_->setEnabled(has_document &&
         !workspace_.open_drawing(workspace_.active_document_id()));
+    import_action_->setEnabled(has_document);
     export_action_->setEnabled(has_document);
     parameters_action_->setEnabled(has_document);
     const bool has_editable_model = has_document &&
@@ -67,6 +68,7 @@ void AssemblyWorkspaceWindow::update_document_area_visibility() {
 void AssemblyWorkspaceWindow::update_application_actions() {
     if(section_action_)section_action_->setEnabled(workspace_.active_document_id()==workspace_.displayed_document_id()&&!workspace_.open_drawing(workspace_.displayed_document_id())&&!properties_dialog_&&active_sketch_id_.empty()&&!template_sketch());
     for (auto* action : application_actions_) action->setEnabled(false);
+    if(application_mode_selector_)application_mode_selector_->hide();
     if (workspace_.size() == 0 || active_browser_ || active_file_manager_ || active_preview_) return;
     const auto owner=workspace_.active_document_id();
     const auto saved=document_application_modes_.find(owner);
@@ -80,26 +82,39 @@ void AssemblyWorkspaceWindow::update_application_actions() {
         const bool active_body = !part->session.document().body_history.active_body_id().empty();
         application_actions_[static_cast<std::size_t>(ApplicationMode::Modeling)]
             ->setEnabled(true);
-        if (active_body)
+        if (active_body) {
             application_actions_[static_cast<std::size_t>(ApplicationMode::SheetMetal)]
                 ->setEnabled(true);
-        else
+            application_actions_[static_cast<std::size_t>(ApplicationMode::Surface)]
+                ->setEnabled(true);
+        } else
             active_application_ = ApplicationMode::Modeling;
         if (!application_actions_[static_cast<std::size_t>(active_application_)]
                  ->isEnabled()) {
             active_application_ = ApplicationMode::Modeling;
         }
     } else if (workspace_.open_assembly(workspace_.active_document_id()) != nullptr) {
-        for (const auto mode : {ApplicationMode::Modeling, ApplicationMode::Assembly,
-                                ApplicationMode::SheetMetal}) {
-            application_actions_[static_cast<std::size_t>(mode)]->setEnabled(true);
-        }
-        if (!application_actions_[static_cast<std::size_t>(active_application_)]
-                 ->isEnabled()) {
-            active_application_ = ApplicationMode::Assembly;
-        }
+        application_actions_[static_cast<std::size_t>(ApplicationMode::Assembly)]
+            ->setEnabled(true);
+        active_application_ = ApplicationMode::Assembly;
     }
     application_actions_[static_cast<std::size_t>(active_application_)]->setChecked(true);
+    if(application_mode_selector_) {
+        const auto* part=workspace_.open_part(workspace_.active_document_id());
+        const bool part_context=part&&
+            !part->session.document().body_history.active_body_id().empty();
+        if(modeling_mode_button_)
+            modeling_mode_button_->setVisible(part_context);
+        if(assembly_mode_button_)
+            assembly_mode_button_->hide();
+        if(sheet_metal_mode_button_)
+            sheet_metal_mode_button_->setVisible(part_context);
+        if(surface_mode_button_)
+            surface_mode_button_->setVisible(part_context);
+        application_mode_selector_->setVisible(
+            part_context&&
+            !workspace_.open_drawing(workspace_.displayed_document_id()));
+    }
     if(properties_dialog_ || !active_sketch_id_.empty() || section_dialog_)
         for(auto* action:application_actions_)action->setEnabled(false);
 }
@@ -147,21 +162,7 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
         !toolbar_part->session.document().body_history.active_body_id().empty();
     const bool part_root = toolbar_part && !toolbar_body &&
         !drawing && active_sketch_id_.empty();
-    if(!drawing && active_sketch_id_.empty() && toolbar_body) {
-        for(const auto mode:{ApplicationMode::Modeling,ApplicationMode::SheetMetal}) {
-            const auto index=static_cast<std::size_t>(mode);
-            auto* action=application_actions_[index];
-            tools_toolbar_->addAction(action);
-            if(auto* button=qobject_cast<QToolButton*>(tools_toolbar_->widgetForAction(action))) {
-                button->setObjectName(mode==ApplicationMode::Modeling
-                    ? "modelingModeButton" : "sheetMetalModeButton");
-                button->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
-                button->setFont(tree_->font());
-                button->setMinimumWidth(146);
-            }
-        }
-        tools_toolbar_->addSeparator();
-    } else if (!part_root) {
+    if (!part_root) {
         auto* heading = new QLabel(heading_text, tools_toolbar_);
         heading->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
         heading->setFont(tree_->font());
@@ -375,6 +376,21 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
         add_command(holes_action_);
         add_command(shaft_thread_action_);
         add_command(drill_point_action_);
+        if (active_body) {
+            add_group_separator();
+            add_command(mirror_action_);
+            add_command(pattern_action_);
+        }
+        add_symbol_group();
+        return;
+    }
+    if (active_application_ == ApplicationMode::Surface) {
+        const auto* modeling_part=workspace_.open_part(
+            workspace_.active_document_id());
+        const auto* boundary_body=modeling_part?
+            modeling_part->session.document().body_history.find(
+                modeling_part->session.document().body_history.active_body_id()):nullptr;
+        add_command(selection_action_);
         add_group_separator();
         auto* general=findChild<QAction*>("generalSurfaceAction");
         if(!general){general=new QAction(resource_icon("boundary-surface"),tr("Obecná plocha"),this);
@@ -410,7 +426,10 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
         if(!thicken){thicken=new QAction(resource_icon("surface-thicken"),tr("Zesílit plochu"),this);
             thicken->setObjectName("surfaceThickenAction");connect(thicken,&QAction::triggered,this,[this]{show_surface_thicken_properties();});}
         thicken->setEnabled(boundary_body&&!boundary_body->derived_copy&&!properties_dialog_);add_command(thicken);
-        if (active_body) {
+        add_group_separator();
+        add_command(fillet_action_);
+        add_command(chamfer_action_);
+        if (boundary_body) {
             add_group_separator();
             add_command(mirror_action_);
             add_command(pattern_action_);
@@ -463,7 +482,7 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
             bend->setEnabled(!properties_dialog_);add_command(bend);
             auto* line_bend=findChild<QAction*>("lineBendAction");
             if(!line_bend) {
-                line_bend=new QAction(resource_icon("bend"),
+                line_bend=new QAction(resource_icon("line-bend"),
                     tr("Ohyb podle čáry"),this);
                 line_bend->setObjectName("lineBendAction");
                 connect(line_bend,&QAction::triggered,this,[this] {
@@ -527,6 +546,9 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
             if(!dxf){dxf=new QAction(resource_icon("export-dxf"),tr("DXF"),this);dxf->setObjectName("sheetDxfAction");
                 connect(dxf,&QAction::triggered,this,[this]{export_sheet_dxf();});}
             dxf->setEnabled(!properties_dialog_);add_command(dxf);
+            add_group_separator();
+            mirror_action_->setEnabled(!properties_dialog_);add_command(mirror_action_);
+            pattern_action_->setEnabled(!properties_dialog_);add_command(pattern_action_);
             add_symbol_group();
             return;
         }

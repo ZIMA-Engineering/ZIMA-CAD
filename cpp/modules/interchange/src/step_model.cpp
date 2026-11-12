@@ -1,5 +1,6 @@
 #include <zima/document/file_path.hpp>
 #include <zima/document/body_origin_attachment.hpp>
+#include <zima/document/component_source.hpp>
 #include <zima/interchange/step_model.hpp>
 #include <zima/interchange/step.hpp>
 #include <zima/document/precision.hpp>
@@ -17,7 +18,7 @@
 #include <cstdlib>
 namespace zima::interchange {
 namespace {
-void insert_body(document::PartDocument& doc, document::HistoryContainer container,
+std::string insert_body(document::PartDocument& doc, document::HistoryContainer container,
         const StepPart& node, bool global, std::size_t import_index = 0) {
     auto graph=doc.body_history;
     if(graph.bodies().empty()&&!doc.history.empty()) {
@@ -40,6 +41,16 @@ void insert_body(document::PartDocument& doc, document::HistoryContainer contain
     }
     if(global)graph.move_body(id,import_index);
     doc.history.push_back(std::move(container));doc.set_body_history(std::move(graph));
+    return id;
+}
+void apply_imported_appearance(document::PartDocument& doc,
+        const std::string& body_id,kernel::Appearance appearance) {
+    if(!appearance.body.color.empty())
+        doc.appearance.bodies[body_id]=appearance.body;
+    for(auto& group:appearance.groups) {
+        group.body_id=body_id;
+        doc.appearance.groups.push_back(std::move(group));
+    }
 }
 std::string shape_key(const kernel::BodyResult& body) {
     std::ostringstream key;
@@ -53,6 +64,17 @@ std::string shape_key(const kernel::BodyResult& body) {
     }
     return key.str();
 }
+std::string appearance_key(const kernel::Appearance& appearance) {
+    std::ostringstream key;
+    key<<appearance.body.color;
+    for(const auto& [id,style]:appearance.bodies)
+        key<<'|'<<id<<'='<<style.color;
+    for(const auto& group:appearance.groups) {
+        key<<'|'<<group.id<<'='<<group.body_id<<'='<<group.style.color;
+        for(const auto& face:group.faces)key<<':'<<face;
+    }
+    return std::to_string(std::hash<std::string>{}(key.str()));
+}
 void identify_assembly(kernel::StepProduct& product) {
     std::ostringstream identity;identity<<product.definition_id<<std::setprecision(17);
     for(const auto& child:product.children)identity<<'|'<<child.definition_id<<':'
@@ -61,7 +83,8 @@ void identify_assembly(kernel::StepProduct& product) {
     product.definition_id=identity.str();
 }
 std::optional<kernel::StepProduct> snapshot_product(const assembly::OccurrenceSnapshot& node,
-        const kernel::BodyResult& body, bool include_skeletons) {
+        const kernel::BodyResult& body,bool include_skeletons,
+        const kernel::Appearance& appearance) {
     if(!node.visible||node.manually_suppressed||node.dependency_suppressed)return std::nullopt;
     if(!include_skeletons&&assembly::is_skeleton(node))return std::nullopt;
     kernel::StepProduct product;product.name=node.name;product.definition_id=node.source_document_id;
@@ -81,7 +104,9 @@ std::optional<kernel::StepProduct> snapshot_product(const assembly::OccurrenceSn
             if(found==body.body_outputs.end())throw StepProductError(
                 StepProductError::Code::CalculationRequired,
                 "Podsestava nemá uloženou geometrii komponent pro STEP. Proveďte Regenerovat.");
-            if(auto value=snapshot_product(child,found->second,include_skeletons))product.children.push_back(std::move(*value));
+            if(auto value=snapshot_product(child,found->second,
+                    include_skeletons,appearance))
+                product.children.push_back(std::move(*value));
         }
         if(product.children.empty())return std::nullopt;
         identify_assembly(product);
@@ -89,7 +114,9 @@ std::optional<kernel::StepProduct> snapshot_product(const assembly::OccurrenceSn
         if(body.kernel_shape.empty())throw StepProductError(
             StepProductError::Code::CalculationRequired,
             "STEP díl nemá vypočtené těleso. Proveďte Regenerovat.");
-        product.body=body;product.definition_id+=':'+shape_key(body);
+        product.body=body;product.definition_id+=':'+shape_key(body)+
+            ":appearance:"+appearance_key(appearance);
+        product.appearance=appearance;
     }
     return product;
 }
@@ -123,7 +150,10 @@ StepImportedPart import_step_part(document::PartDocument doc,
         auto container=std::move(containers.at(index));
         container.imported_step.frozen_brep=std::move(frozen.at(index).brep);
         container.imported_step.topology=std::move(frozen.at(index).topology);
-        insert_body(doc,std::move(container),node,true,index);++index;
+        const auto body_id=insert_body(doc,std::move(container),node,true,index);
+        apply_imported_appearance(doc,body_id,
+            std::move(frozen.at(index).appearance));
+        ++index;
     }
     phase("source disposal and history ownership");
     auto calculated=kernel.evaluate_history_incremental(doc.kernel_operations(),previous);
@@ -157,7 +187,10 @@ StepAssemblyImport import_step_assembly(const std::filesystem::path& source,
         auto container=std::move(containers[i]);
         container.imported_step.frozen_brep=std::move(frozen[i].brep);
         container.imported_step.topology=std::move(frozen[i].topology);
-        insert_body(doc,std::move(container),*unique_parts[i],false);
+        const auto body_id=insert_body(doc,std::move(container),
+            *unique_parts[i],false);
+        apply_imported_appearance(doc,body_id,
+            std::move(frozen[i].appearance));
         auto calculated=kernel.evaluate_history(doc.kernel_operations());
         result.parts.push_back({std::move(doc),std::move(calculated),directory/("part-"+std::to_string(i+1)+".prtz")});
     }
@@ -227,13 +260,20 @@ kernel::StepProduct step_product(const document::PartDocument& doc,const std::ve
     if(calculated.empty())throw std::runtime_error("Part nemá vypočtené těleso. Proveďte Regenerovat.");
     kernel::StepProduct root;root.name=doc.name;root.definition_id=doc.document_id;
     const auto& output=calculated.back();
-    if(doc.body_history.bodies().empty())root.body=output;
+    const auto captured_appearance=document::component_appearance(doc);
+    if(doc.body_history.bodies().empty()) {
+        root.body=output;root.appearance=captured_appearance;
+    }
     else for(const auto& id:doc.body_history.available_before(doc.body_history.order().size())) {
         if(const auto* body=doc.body_history.find(id);body&&(!body->visible||body->suppressed))continue;
         if(const auto* boolean=doc.body_history.find_boolean(id);boolean&&(!boolean->visible||boolean->suppressed))continue;
         const auto found=output.body_outputs.find(id);if(found==output.body_outputs.end())continue;
         if(found->second->kernel_shape.empty())continue;
         kernel::StepProduct child;child.definition_id=id;child.body=found->second;
+        child.appearance=captured_appearance;
+        if(const auto style=captured_appearance.bodies.find(id);
+                style!=captured_appearance.bodies.end())
+            child.appearance.body=style->second;
         if(const auto* body=doc.body_history.find(id))child.name=body->name;
         else {const auto& booleans=doc.body_history.booleans();const auto b=std::ranges::find(booleans,id,&document::BodyBoolean::id);child.name=b==booleans.end()?doc.name:b->name;}
         root.children.push_back(std::move(child));
@@ -245,7 +285,15 @@ kernel::StepProduct step_product(const assembly::AssemblyDocument& doc,bool incl
     kernel::StepProduct root;root.name=doc.name;root.definition_id=doc.document_id;
     for(const auto& node:doc.occurrence_snapshot()) {
         const auto* component=doc.find_occurrence(node.occurrence_id);
-        if(auto product=snapshot_product(node,component->calculated_source,include_skeletons))root.children.push_back(std::move(*product));
+        auto appearance=component->appearance_override.value_or(
+            component->appearance);
+        if(component->body_color_override)
+            appearance.body.color=*component->body_color_override;
+        else if(!component->body_color.empty())
+            appearance.body.color=component->body_color;
+        if(auto product=snapshot_product(node,component->calculated_source,
+                include_skeletons,appearance))
+            root.children.push_back(std::move(*product));
     }
     if(root.children.empty())throw StepProductError(
         StepProductError::Code::EmptyGeometry,

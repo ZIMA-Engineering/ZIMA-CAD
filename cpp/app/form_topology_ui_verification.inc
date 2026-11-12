@@ -188,6 +188,7 @@ if(qEnvironmentVariableIsSet("ZIMA_VERIFY_FORM_TOPOLOGY")) {
         view->set_inspected_faces({});
         finish(false);
     }
+    window.findChild<QAction*>("applicationModeAction3")->trigger();flush();
     auto* fillet=window.findChild<QAction*>("filletAction");
     auto* surfaces=window.findChild<QAction*>("surfaceFromSolidAction");
     check(fillet&&fillet->isEnabled()&&surfaces&&surfaces->isEnabled(),"FORM modeling actions are disabled");

@@ -14,4 +14,8 @@ DxfPartImport import_dxf_part(document::PartDocument document,
     double ambiguous_unit_scale_to_mm = 1.0, std::size_t maximum_entities = 100000);
 StepImportedPart import_iges_part(document::PartDocument document,
     const std::vector<kernel::BodyResult>& previous, const std::filesystem::path& source, std::optional<double> mesh_deflection = {});
+StepImportedPart import_stl_part(document::PartDocument document,
+    const std::vector<kernel::BodyResult>& previous,
+    const std::filesystem::path& source,
+    std::optional<double> mesh_deflection = {});
 }

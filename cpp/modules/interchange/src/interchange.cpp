@@ -21,7 +21,8 @@ Format format_from_path(const std::filesystem::path& path) {
 bool supports(Format format, Direction direction, Context context) {
     if (direction == Direction::Import) {
         if (format == Format::Dxf) return true;
-        if (format == Format::Step || format == Format::Iges) return context != Context::Sketch;
+        if (format == Format::Step || format == Format::Iges ||
+            format == Format::Stl) return context != Context::Sketch;
         return false;
     }
     if (format == Format::Dxf) return context == Context::Sketch;
@@ -35,7 +36,7 @@ std::string unsupported_reason(Format format, Direction direction, Context conte
     if (supports(format, direction, context)) return {};
     if (format == Format::Unknown) return "Neznámý formát souboru";
     if (direction == Direction::Import &&
-        (format == Format::Stl || format == Format::Png || format == Format::Jpeg)) {
+        (format == Format::Png || format == Format::Jpeg)) {
         return "Tento formát je určen pouze pro export";
     }
     if (context == Context::Sketch) return "3D formát nelze použít uvnitř skici";

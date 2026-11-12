@@ -97,11 +97,15 @@ void AssemblyWorkspaceWindow::show_tree_item_properties(QTreeWidgetItem* item) {
     const auto kind = item->data(0, Qt::UserRole + 3).toString();
     const auto id = item->data(0, Qt::UserRole).toString().toStdString();
     if(kind==QStringLiteral("part-container"))
-        if(const auto* part=workspace_.open_part(workspace_.active_document_id()))
-            if(const auto* container=part->session.document().find_container(id);
-                    container&&container->feature_kind==
-                        zima::document::FeatureKind::SheetFromBody)
+        if(const auto* part=workspace_.open_part(workspace_.active_document_id())) {
+            const auto& document=part->session.document();
+            if(const auto* container=document.find_container(id);
+                    container&&(
+                        container->feature_kind==
+                            zima::document::FeatureKind::SheetFromBody||
+                        document.sheet_from_body_child_bound(id)))
                 return;
+        }
     if(kind=="mirror-source"){show_derived_source(id,true);return;}
     if(kind=="part-occurrence"||kind=="assembly-occurrence") {
         const auto* owner=workspace_.open_assembly(item->data(0,Qt::UserRole+4).toString().toStdString());

@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" role="img" aria-labelledby="title">
+  <title id="title">Line bend</title>
+  <g fill="none" stroke="#00D1FF" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M4 5l8 10 8-10"/>
+    <path d="M4 19h16"/>
+  </g>
+</svg>

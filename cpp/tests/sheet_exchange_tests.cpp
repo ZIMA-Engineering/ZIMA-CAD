@@ -14,6 +14,7 @@
 #include <zima/workspace/model_calculation.hpp>
 #include <zima/workspace/history_operations.hpp>
 #include <zima/workspace/history_deletion.hpp>
+#include <zima/workspace/history_policy.hpp>
 #include <zima/workspace/part_transactions.hpp>
 #include <zima/workspace/sheet_state_operations.hpp>
 #include <zima/workspace/line_bend_operations.hpp>
@@ -767,8 +768,11 @@ void contract(bool include_oblique_corners = true) {
         workspace::Workspace live;
         const auto document_id=converted.document.document_id;
         live.add_part(converted.document,converted.calculated);
+        check(workspace::explode_sheet_from_body(live,kernel,document_id,
+                converted.container_id,middle_bend),
+            "Middle Bend could not be released before independent deletion");
         const auto deletion_plan=workspace::plan_history_deletion(
-            converted.document,middle_bend);
+            live.open_part(document_id)->session.document(),middle_bend);
         check(deletion_plan.removed==std::set<std::string>{middle_bend}&&
                 deletion_plan.affected.size()==1&&
                 converted.document.find_container(
@@ -1186,6 +1190,20 @@ void contract(bool include_oblique_corners = true) {
         workspace::Workspace live;
         const auto document_id = reopened.document_id;
         live.add_part(std::move(reopened), cold);
+        check(workspace::explode_sheet_from_body(live,kernel,document_id,
+                converted.container_id,*bend),
+            "Generated Bend branch could not be released before deletion");
+        const auto* released_parent=live.open_part(document_id)->session.
+            document().find_container(converted.container_id);
+        const auto released_branch=workspace::part_history_dependency_closure(
+            converted.document,*bend,true);
+        check(released_parent&&std::ranges::all_of(
+                released_parent->sheet_from_body.child_bindings,
+                [&](const auto& binding) {
+                    return binding.detached==
+                        released_branch.contains(binding.feature_id);
+                }),
+            "Releasing a generated Bend did not release its dependent children");
         workspace::delete_part_history(live, document_id, kernel, *bend);
         const auto& deleted = live.open_part(document_id)->session;
         check(deleted.document().find_container(converted.container_id) &&
@@ -1236,6 +1254,9 @@ void contract(bool include_oblique_corners = true) {
                     section->dimensions == original_section.dimensions,
                 "The invalid Bend lost its start frame or endpoint dimensions");
         };
+        check(workspace::explode_sheet_from_body(live,kernel,document_id,
+                converted.container_id,converted.created.front()),
+            "Source Flat branch could not be released before independent deletion");
         workspace::delete_part_history(live, document_id, kernel, converted.created.front());
         check_retained_bend(deleted.document());
         const auto bend_path = deleted_path.parent_path() / "missing-bend-source.prtz";
@@ -1426,6 +1447,10 @@ void contract(bool include_oblique_corners = true) {
             deletion_ids.push_back(converted.container_id);
         auto& deletion_session=deletion_live.open_part(
             deletion_document)->session;
+        check(workspace::explode_sheet_from_body(deletion_live,kernel,
+                deletion_document,converted.container_id,
+                converted.created.front()),
+            "Oblique generated branch could not be released before batch deletion");
         const auto deletion_revision=deletion_session.revision();
         const auto deletion_started=std::chrono::steady_clock::now();
         workspace::delete_part_history(deletion_live,deletion_document,kernel,
@@ -1812,9 +1837,49 @@ void contract(bool include_oblique_corners = true) {
                         }),
                     "Missing source did not retain and mark last-valid generated sheets");
             }
+            {
+                workspace::Workspace cascade;
+                const auto cascade_id=same.document.document_id;
+                cascade.add_part(same.document,same.calculated);
+                const auto plan=workspace::plan_history_deletion(
+                    same.document,same.container_id);
+                check(plan.removed.contains(same.container_id)&&
+                        std::ranges::all_of(same.created,[&](const auto& id) {
+                            return plan.removed.contains(id);
+                        }),
+                    "Sheet from Body deletion plan did not include its bound children");
+                workspace::delete_part_history(cascade,cascade_id,kernel,
+                    same.container_id);
+                auto& cascade_session=cascade.open_part(cascade_id)->session;
+                check(!cascade_session.document().find_container(
+                            same.container_id)&&
+                        std::ranges::none_of(same.created,[&](const auto& id) {
+                            return cascade_session.document().find_container(id);
+                        }),
+                    "Deleting Sheet from Body retained a bound generated child");
+                check(workspace::step_part_document_history(cascade,
+                            cascade_id,false)&&
+                        cascade_session.document().find_container(
+                            same.container_id)&&
+                        std::ranges::all_of(same.created,[&](const auto& id) {
+                            return cascade_session.document().find_container(id);
+                        }),
+                    "Sheet from Body cascade deletion Undo did not restore the group");
+                check(workspace::step_part_document_history(cascade,
+                            cascade_id,true)&&
+                        !cascade_session.document().find_container(
+                            same.container_id)&&
+                        std::ranges::none_of(same.created,[&](const auto& id) {
+                            return cascade_session.document().find_container(id);
+                        }),
+                    "Sheet from Body cascade deletion Redo retained a child");
+            }
             workspace::Workspace live;const auto document_id=reopened.document_id;
             live.add_part(std::move(reopened),std::move(cold));
             auto* session=&live.open_part(document_id)->session;
+            check(workspace::explode_sheet_from_body(live,kernel,document_id,
+                    same.container_id,same.created.front()),
+                "Generated root Flat could not be released before deletion");
             workspace::delete_part_history(live, document_id, kernel, same.created.front());
             check(session->document().find_container(same.container_id) &&
                     !session->document().find_container(same.created.front()) &&
@@ -1950,6 +2015,10 @@ void contract(bool include_oblique_corners = true) {
         workspace::Workspace conversion_live;
         const auto conversion_document_id=reopened.document_id;
         conversion_live.add_part(reopened,recalculated);
+        check(workspace::explode_sheet_from_body(conversion_live,kernel,
+                conversion_document_id,converted.container_id,
+                converted.created.front()),
+            "Cross-Body root Flat could not be released before deletion");
         workspace::delete_part_history(conversion_live,
             conversion_document_id,kernel,converted.created.front());
         auto& conversion_session=conversion_live.open_part(
@@ -2289,6 +2358,9 @@ void contract(bool include_oblique_corners = true) {
                 auto* state=live.open_part(same.document.document_id);
                 state->session.update_calculated_boundaries(same.calculated);
                 const auto detached_id=same.created.at(1);
+                const auto released_branch=
+                    workspace::part_history_dependency_closure(
+                        same.document,detached_id,true);
                 const auto revision=state->session.revision();
                 check(workspace::explode_sheet_from_body(live,kernel,
                         same.document.document_id,same.container_id,
@@ -2302,8 +2374,14 @@ void contract(bool include_oblique_corners = true) {
                     &document::SheetFromBodyChildBinding::feature_id);
                 check(detached!=partially_exploded->sheet_from_body.
                         child_bindings.end()&&detached->detached&&
+                        std::ranges::all_of(partially_exploded->
+                            sheet_from_body.child_bindings,
+                            [&](const auto& binding) {
+                                return binding.detached==released_branch.
+                                    contains(binding.feature_id);
+                            })&&
                         state->session.document().find_container(detached_id),
-                    "Partial Sheet from Body explode lost its native child");
+                    "Partial Sheet from Body explode did not release its complete generated branch");
                 near(measured_volume(kernel,state->session.
                     calculated_boundaries().back().body_outputs.at(source)),
                     measured_volume(kernel,same.calculated.back().
@@ -2333,13 +2411,28 @@ void contract(bool include_oblique_corners = true) {
                         state->session.revision()!=all_revision,
                     "Complete Sheet from Body explode was not one transaction");
                 const auto& exploded=state->session.document();
-                check(!exploded.find_container(same.container_id)&&
+                const auto* exploded_parent=exploded.find_container(
+                    same.container_id);
+                check(exploded_parent&&
+                        std::ranges::all_of(exploded_parent->sheet_from_body.
+                            child_bindings,[](const auto& binding) {
+                                return binding.detached;
+                            })&&
                         std::ranges::all_of(same.created,[&](const auto& id) {
                             return exploded.find_container(id)!=nullptr;
                         })&&exploded.find_container(flat.id)->suppressed&&
                         exploded.find_container(bend.id)->suppressed&&
                         exploded.find_container(wall.id)->suppressed,
                     "Complete same-Body explode restored source material or lost generated features");
+                const auto complete_revision=state->session.revision();
+                const auto* complete_cache=state->session.
+                    calculated_boundaries().data();
+                check(!workspace::explode_sheet_from_body(live,kernel,
+                        same.document.document_id,same.container_id)&&
+                        state->session.revision()==complete_revision&&
+                        state->session.calculated_boundaries().data()==
+                            complete_cache,
+                    "Repeated complete explode recalculated or created Undo");
                 const double exploded_volume=measured_volume(kernel,
                     state->session.calculated_boundaries().back().
                         body_outputs.at(source));
@@ -2408,7 +2501,13 @@ void contract(bool include_oblique_corners = true) {
                     converted.container_id),
                 "Cross-Body Sheet from Body could not be exploded");
             const auto& exploded=state->session.document();
-            check(!exploded.find_container(converted.container_id)&&
+            const auto* exploded_parent=exploded.find_container(
+                converted.container_id);
+            check(exploded_parent&&
+                    std::ranges::all_of(exploded_parent->sheet_from_body.
+                        child_bindings,[](const auto& binding) {
+                            return binding.detached;
+                        })&&
                     !exploded.find_container(flat.id)->suppressed&&
                     !exploded.find_container(bend.id)->suppressed&&
                     !exploded.find_container(wall.id)->suppressed&&

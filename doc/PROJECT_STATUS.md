@@ -1,6 +1,6 @@
 # Current project status
 
-Reviewed on 2026-11-11 against the current shared C++ implementation, focused
+Reviewed on 2026-11-12 against the current shared C++ implementation, focused
 native/GUI contracts and the live GitHub release list. Dated proposals and
 historical release records remain evidence for their original scope; they are
 not the current feature backlog.
@@ -31,6 +31,25 @@ Native Part format remains 52; all 1,058 repository-owned Part-based assets
 remain current. Exact circle, ellipse, spline and mixed analytic target
 boundaries remain planned rather than claimed. See the
 [finite verification](verification/20261111-properties-layout-and-confirmation.md).
+
+The current post-release candidate keeps the associative Sheet-from-Body marker
+after complete release, protects bound generated children from independent
+editing/deletion, releases the selected generated branch with all dependent
+children, and makes original source features reachable for hover and driving
+dimension edits. STEP/IGES import and export now preserve body and exact face
+colors; binary STL import/export supports the Magics color extension and accepts
+VisCAM/SolidView facet colors. STL import is available through the same Part,
+Assembly, GUI and command transaction path. These changes do not alter the native
+Part format or the shared OCCT 8.0.1 pin. Windows publication and native Linux
+verification remain separate acceptance gates until recorded by a release.
+
+Cross-Body Surfaces-from-solid now keeps the source solid as an independent
+physical result and maps the extracted zero-mass skin exactly through distinct
+source and destination Body placements. Source suppression retains the live
+dependent surface; source deletion retains the last valid surface and reports
+its missing link. Original source features remain reachable through hover, and
+surface Fillet inspection uses the complete authored wire in the correct Body
+frame. Save/reopen and Undo/Redo cover the linked and retained states.
 
 The unpublished 2026110901 and 2026110902 source tags were superseded by published
 Windows release [2026111001](releases/2026111001.md). It completes shared Feature-like
@@ -76,7 +95,7 @@ Linux verification. The linked guides give supported cases and finite checks.
 | Assemblies | Part/subassembly insertion, exact nested activation, mates and placement, source editing, Assembly cuts, occurrence identities and explicit dependency regeneration | [Assembly references](ASSEMBLY_REFERENCES.md), [activation](COMPONENT_ACTIVATION_COMMANDS.md) |
 | Drawings | Sheets and views, projected/section/detail workflows in their documented scope, associative dimensions/chains, Show/Erase, frames/title blocks, BOM regions/balloons, symbols, PDF/DXF/image output | [Drawings](DRAWINGS.md), [manual](USER_MANUAL.md) |
 | Engineering data | Parameters, Relations, materials, units, physical properties and measurements, native engineering tables and fastener libraries | [Relations](RELATIONS.md), [properties](PHYSICAL_PROPERTIES.md), [library status](FASTENER_REMAINING_WORK.md) |
-| Exchange and automation | STEP/IGES/DXF import/export, supported STL output, shared GUI/CLI commands and context-aware AI console | [Coverage](CAD_COMMAND_COVERAGE.md), [AI console](AI_CONSOLE.md) |
+| Exchange and automation | STEP/IGES/STL/DXF import/export, STEP/IGES body and face colors, binary STL color extensions, shared GUI/CLI commands and context-aware AI console | [Import](IMPORT_COMMANDS.md), [export](EXPORT_COMMANDS.md), [AI console](AI_CONSOLE.md) |
 | User interface | Czech, English, German, French and Russian; light/dark themes, internal Properties and native file management | [Manual](USER_MANUAL.md), [localization](LOCALIZATION.md), [File Manager](FILE_MANAGER.md) |
 | Distribution | Native Windows portable releases, version-owned runtime/resources/source and authenticated updater; Linux has separate native-host acceptance | [Distribution](NATIVE_DISTRIBUTION.md), [updates](UPDATES.md), [Linux](LINUX_RELEASE_HANDOFF.md) |
 

@@ -74,7 +74,9 @@ bool AssemblyWorkspaceWindow::tree_item_reorder_enabled(QTreeWidgetItem* item) c
     const auto kind=item->data(0,Qt::UserRole+3).toString();
     const auto id=item->data(0,Qt::UserRole).toString().toStdString();
     if (const auto* part=workspace_.open_part(workspace_.active_document_id())) {
-        const auto& graph = part->session.document().body_history;
+        const auto& document=part->session.document();
+        if(document.sheet_from_body_child_bound(id))return false;
+        const auto& graph = document.body_history;
         if (kind=="part-body" || kind=="part-body-boolean")
             return workspace_.displayed_document_id()==workspace_.active_document_id() &&
                 (graph.find(id) || graph.find_boolean(id));
@@ -83,7 +85,7 @@ bool AssemblyWorkspaceWindow::tree_item_reorder_enabled(QTreeWidgetItem* item) c
             const auto* owner=graph.owner(id);
             if (!owner || owner->scope.id!=graph.active_body_id()) return false;
         }
-        return std::ranges::any_of(part->session.document().history_order,[&](const auto& entry){return entry.id==id;});
+        return std::ranges::any_of(document.history_order,[&](const auto& entry){return entry.id==id;});
     }
     if (const auto* assembly=workspace_.open_assembly(workspace_.active_document_id())) {
         if (kind=="part-occurrence" || kind=="assembly-occurrence")

@@ -19,6 +19,7 @@
 #include <set>
 #include <chrono>
 #include <iomanip>
+#include "profile_solid_fixture.hpp"
 using namespace zima;
 void require(bool value,const char* message) { if(!value)throw std::runtime_error(message); }
 int main(int argc,char** argv) {
@@ -69,6 +70,15 @@ int main(int argc,char** argv) {
     require(interchange::supports(interchange::Format::Iges,interchange::Direction::Export,interchange::Context::Part),"IGES Part export unavailable");
     require(interchange::supports(interchange::Format::Iges,interchange::Direction::Export,interchange::Context::Assembly),"IGES Assembly export unavailable");
     require(!interchange::supports(interchange::Format::Iges,interchange::Direction::Export,interchange::Context::Sketch),"IGES Sketch export incorrectly enabled");
+    require(interchange::supports(interchange::Format::Stl,
+        interchange::Direction::Import,interchange::Context::Part),
+        "STL Part import unavailable");
+    require(interchange::supports(interchange::Format::Stl,
+        interchange::Direction::Import,interchange::Context::Assembly),
+        "STL Assembly import unavailable");
+    require(!interchange::supports(interchange::Format::Stl,
+        interchange::Direction::Import,interchange::Context::Sketch),
+        "STL import incorrectly enabled inside Sketcher");
     auto source=sketcher::Sketch::create_default();
     source.add_segment(0,0,20,0);source.add_segment(20,0,20,10);source.add_segment(20,10,0,10);source.add_segment(0,10,0,0);
     interchange::export_dxf(temp/"rectangle.dxf",source);
@@ -197,11 +207,66 @@ int main(int argc,char** argv) {
     require(wire_writer.Write((temp/"wire.igs").string().c_str()),"Wire IGES write");
     auto wire=interchange::import_iges_part(document::PartDocument::create_default(),{},temp/"wire.igs");
     require(wire.calculated.back().mesh.triangles.empty() && !wire.calculated.back().mesh.edges.empty(),"Wire IGES lost or fabricated a solid");
+    // STEP and IGES carry XCAF body/face styles. Binary STL has no official
+    // color standard, so ZIMA writes the common Magics extension and accepts
+    // both Magics and VisCAM/SolidView colors on import.
+    auto colored_body=test::profile_body(kernel,{17,19,23});
+    require(!colored_body.mesh.original_references.triangle_references.empty(),
+        "Colored exchange fixture has no stable face");
+    kernel::Appearance colored;
+    colored.body.color="#123456";
+    const auto& colored_face=
+        colored_body.mesh.original_references.triangle_references.front();
+    colored.groups.push_back({"exchange-face","Exchange face",{},
+        kernel::SurfaceStyle{"#E04020",.55,0},
+        {colored_face.owner_id+"::"+colored_face.semantic_key}});
+    const kernel::PlacedBody placed{colored_body,{11,-7,3},{9,-13,27},
+        colored};
+    const auto has_style=[](const document::PartDocument& imported,
+            const std::string& expected_body,bool exact_face) {
+        const bool body=std::ranges::any_of(imported.appearance.bodies,
+            [&](const auto& value) {
+                return value.second.color==expected_body;
+            });
+        const bool face=std::ranges::any_of(imported.appearance.groups,
+            [&](const auto& group) {
+                return !group.faces.empty()&&(!exact_face||
+                    group.style.color=="#E04020");
+            });
+        return body&&face;
+    };
+    const auto colored_step=temp/"colored.step";
+    kernel.export_step(std::vector<kernel::PlacedBody>{placed},
+        document::path_to_utf8(colored_step));
+    auto step_colors=interchange::import_step_part(
+        document::PartDocument::create_default(),{},colored_step);
+    require(has_style(step_colors.document,"#123456",true),
+        "STEP body or exact face color did not round-trip");
+    const auto colored_iges=temp/"colored.iges";
+    kernel.export_iges(std::vector<kernel::PlacedBody>{placed},
+        document::path_to_utf8(colored_iges));
+    auto iges_colors=interchange::import_iges_part(
+        document::PartDocument::create_default(),{},colored_iges);
+    require(has_style(iges_colors.document,"#123456",true),
+        "IGES body or exact face color did not round-trip");
+    const auto colored_stl=temp/"colored.stl";
+    kernel.export_stl(std::vector<kernel::PlacedBody>{placed},
+        document::path_to_utf8(colored_stl));
+    auto stl_colors=interchange::import_stl_part(
+        document::PartDocument::create_default(),{},colored_stl);
+    require(has_style(stl_colors.document,"#123456",false),
+        "Binary STL body or facet color did not round-trip");
+    stl_colors.document.save(temp/"colored-stl.prtz",
+        stl_colors.calculated);
+    const auto reopened_colors=document::PartDocument::load(
+        temp/"colored-stl.prtz");
+    require(reopened_colors.appearance==stl_colors.document.appearance,
+        "Imported STL colors did not survive native save/reopen");
     // Invalid IGES never changes the input transaction.
     write("bad.igs","invalid IGES");bool rejected_iges=false;
     try{interchange::import_iges_part(saved,regenerated,temp/"bad.igs");}catch(const std::exception&){rejected_iges=true;}
     require(rejected_iges && saved.history.size()==1,"Invalid IGES mutated target");
     std::filesystem::remove_all(temp);
-    std::cout<<"IGES/DXF model contracts passed\n";return 0;
+    std::cout<<"STEP/IGES/STL color and model import contracts passed\n";return 0;
  } catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}
 }

@@ -33,6 +33,7 @@ class QActionGroup;
 class QComboBox;
 class QColor;
 class QDialog;
+class QEvent;
 class QLabel;
 class QKeyEvent;
 class QCloseEvent;
@@ -273,6 +274,11 @@ private:
     QToolBar* main_toolbar_{};
     QToolBar* view_toolbar_{};
     QToolBar* tools_toolbar_{};
+    QWidget* application_mode_selector_{};
+    QToolButton* modeling_mode_button_{};
+    QToolButton* assembly_mode_button_{};
+    QToolButton* sheet_metal_mode_button_{};
+    QToolButton* surface_mode_button_{};
     QComboBox* standard_view_combo_{};
     QLineEdit* inline_dimension_edit_{};
     QComboBox* selection_filter_combo_{};
@@ -401,6 +407,7 @@ private:
     QAction* relations_action_{};
     QAction* family_table_action_{};
     QAction* file_settings_action_{};
+    QAction* import_action_{};
     QAction* export_action_{};
     QAction* settings_action_{};
     QMenu* standard_views_menu_{};
@@ -1331,6 +1338,7 @@ private:
         const std::string& part_document_id) const;
 
 protected:
+    void changeEvent(QEvent* event) override;
     void closeEvent(QCloseEvent* event) override;
     void keyPressEvent(QKeyEvent* event) override;
 };

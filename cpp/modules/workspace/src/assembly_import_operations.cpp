@@ -66,8 +66,12 @@ AssemblyImportReport import_assembly(Workspace& live,const std::string& owner,
     const auto* target=live.open_assembly(owner);
     if(!target)throw ImportOperationError("unsupported_document","This import requires an open Assembly.");
     const auto format=interchange::format_from_path(source);
-    if(format!=interchange::Format::Step && format!=interchange::Format::Iges && format!=interchange::Format::Dxf)
-        throw ImportOperationError("unsupported_format","Assembly import supports STEP, IGES and DXF.");
+    if(format!=interchange::Format::Step &&
+       format!=interchange::Format::Iges &&
+       format!=interchange::Format::Stl &&
+       format!=interchange::Format::Dxf)
+        throw ImportOperationError("unsupported_format",
+            "Assembly import supports STEP, IGES, STL and DXF.");
     if(!std::filesystem::is_regular_file(source))
         throw ImportOperationError("file_not_found","The import source file does not exist.");
     if(!options.geometry.sketch_id.empty())
@@ -93,7 +97,9 @@ AssemblyImportReport import_assembly(Workspace& live,const std::string& owner,
         if(encoded.ec!=std::errc{})throw std::invalid_argument("Cannot encode Sheet Cut tolerance.");
         const std::string cut_tolerance_text(tolerance,encoded.ptr);
         std::optional<document::PartDocument> defaults;
-        if(templates && (format==interchange::Format::Step || format==interchange::Format::Iges)) {
+        if(templates && (format==interchange::Format::Step ||
+                format==interchange::Format::Iges ||
+                format==interchange::Format::Stl)) {
             defaults=part_from_template(*templates);
         }
         if(format==interchange::Format::Step) {
@@ -104,7 +110,12 @@ AssemblyImportReport import_assembly(Workspace& live,const std::string& owner,
             auto doc=templates?part_from_template(*templates):document::PartDocument::create_default();
             doc.name=document::path_to_utf8(source.stem());doc.document_precision=precision;doc.document_units=units;
             interchange::StepImportedPart part;
-            if(format==interchange::Format::Iges)part=interchange::import_iges_part(std::move(doc),{},source,geometry.mesh_deflection);
+            if(format==interchange::Format::Iges)
+                part=interchange::import_iges_part(std::move(doc),{},source,
+                    geometry.mesh_deflection);
+            else if(format==interchange::Format::Stl)
+                part=interchange::import_stl_part(std::move(doc),{},source,
+                    geometry.mesh_deflection);
             else {
                 auto result=interchange::import_dxf_part(std::move(doc),{},source,{},geometry.unitless_scale_mm,geometry.maximum_entities);
                 part=std::move(result.part);report.dxf=std::move(result.report);report.sketch_id=std::move(result.sketch_id);

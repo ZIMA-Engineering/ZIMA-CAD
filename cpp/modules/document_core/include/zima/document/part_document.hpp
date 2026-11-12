@@ -998,6 +998,14 @@ public:
     void validate_sheet_profiles() const;
     [[nodiscard]] zima::kernel::ViewerMesh place_body_mesh(zima::kernel::ViewerMesh mesh, const std::string& body_id) const;
     [[nodiscard]] const BodyHistory* body_owner_for_object(const std::string& id) const;
+    // Returns the live associative owner only while the generated Flat/Bend
+    // remains bound. Detached children deliberately behave like ordinary
+    // native sheet features everywhere else in the application.
+    [[nodiscard]] const SheetFromBodyChildBinding*
+        sheet_from_body_binding_for_child(const std::string& id,
+            const HistoryContainer** parent = nullptr) const;
+    [[nodiscard]] bool sheet_from_body_child_bound(
+        const std::string& id) const;
     [[nodiscard]] zima::kernel::ViewerReferenceGeometry sketch_reference_geometry_for(
         const zima::sketcher::Sketch& sketch,
         zima::kernel::ViewerReferenceGeometry geometry) const;

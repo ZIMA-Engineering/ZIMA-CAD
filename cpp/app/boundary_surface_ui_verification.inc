@@ -17,6 +17,7 @@ int verify_boundary_surface_ui(QApplication& application,AssemblyWorkspaceWindow
         const auto path=directory/"boundary-surface-ui.prtz";part.save(path);
         check(window.open_document_path(QString::fromStdString(path.string())),"Boundary source document cannot open");flush();
         const auto activated=window.execute_console_command(QString::fromStdString(commands::Json{{"command","body.activate"},{"arguments",{{"body",body}}}}.dump()));check(activated.ok,"Boundary Body cannot activate");flush();
+        window.findChild<QAction*>("applicationModeAction3")->trigger();flush();
         auto* action=window.findChild<QAction*>("boundarySurfaceAction");check(action&&action->isEnabled()&&!action->icon().isNull(),"Boundary command or icon missing");
         auto* tree=window.findChild<QTreeWidget*>("documentTree");
         const auto row=[&](const std::string& id)->QTreeWidgetItem*{for(QTreeWidgetItemIterator it(tree);*it;++it)if((*it)->data(0,Qt::UserRole).toString().toStdString()==id&&(*it)->data(0,Qt::UserRole+3)!="part-sketch-plane")return *it;return nullptr;};
@@ -397,6 +398,7 @@ int verify_boundary_surface_ui(QApplication& application,AssemblyWorkspaceWindow
             const auto name="surface-shell-ui-"+document::PartDocument::create_default().document_id;
             run("new",{{"type","part"},{"name",name}});
             const auto box=zima::test::gui_rectangular_profile(window,10,10,10).data.at("container").get<std::string>();flush();
+            window.findChild<QAction*>("applicationModeAction3")->trigger();flush();
             auto* skin_action=window.findChild<QAction*>("surfaceFromSolidAction");
             check(skin_action&&skin_action->isEnabled()&&!skin_action->icon().isNull(),"Surface extraction action or icon missing");
             const auto skin_dialog=[&]()->PrimitivePropertiesDialog* {
@@ -459,6 +461,7 @@ int verify_boundary_surface_ui(QApplication& application,AssemblyWorkspaceWindow
                 linked.save(linked_file,fixture_kernel.evaluate_history(linked.kernel_operations()));
                 check(window.open_document_path(QString::fromStdString(linked_file.string())),"Linked surface fixture cannot open");flush();
                 run("body.activate",{{"body",target}});view->fit_all();flush();
+                window.findChild<QAction*>("applicationModeAction3")->trigger();flush();
                 check(skin_action->isEnabled(),"Surface extraction is disabled in an empty later Body");
                 const auto click_face=[&](const std::string& owner) {
                     std::optional<QPointF> position;

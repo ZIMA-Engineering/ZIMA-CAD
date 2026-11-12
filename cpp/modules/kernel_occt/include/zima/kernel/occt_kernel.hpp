@@ -57,6 +57,12 @@ private:
 struct FrozenStepComponent {
     std::shared_ptr<const std::string> brep;
     ImmutableVector<StepRequest::TopologyIdentity> topology;
+    Appearance appearance;
+};
+
+struct ImportedModel {
+    BodyResult body;
+    Appearance appearance;
 };
 
 // Derived native support data for an explicitly selected Fillet/Chamfer edge.
@@ -206,6 +212,10 @@ public:
     [[nodiscard]] BodyResult compound_bodies(
         const std::vector<PlacedBody>& bodies) const override;
     [[nodiscard]] BodyResult import_iges(const std::string& path,
+        const std::string& owner_id, double mesh_deflection = 0.1) const;
+    [[nodiscard]] ImportedModel import_iges_model(const std::string& path,
+        const std::string& owner_id, double mesh_deflection = 0.1) const;
+    [[nodiscard]] ImportedModel import_stl_model(const std::string& path,
         const std::string& owner_id, double mesh_deflection = 0.1) const;
     [[nodiscard]] std::vector<BodyResult> import_step_components(
         const std::vector<StepRequest>& requests, double mesh_deflection = 0.1) const;

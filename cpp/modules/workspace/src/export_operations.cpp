@@ -4,6 +4,7 @@
 #include <zima/interchange/step_model.hpp>
 #include <zima/interchange/dxf.hpp>
 #include <zima/document/file_path.hpp>
+#include <zima/document/component_source.hpp>
 #ifdef _WIN32
 #include <windows.h>
 #else
@@ -105,7 +106,32 @@ ExportReport export_file(const Workspace& live,const std::string& document_id,
     } else {
         if(part) {
             if(part->session.calculated_boundaries().empty())throw ExportOperationError("calculation_required", "The Part has no calculated body; invoke Regenerate first.");
-            data=std::vector<kernel::PlacedBody>{{part->session.calculated_boundaries().back(),{}, {}}};
+            const auto& document=part->session.document();
+            const auto& output=part->session.calculated_boundaries().back();
+            const auto captured=document::component_appearance(document);
+            std::vector<kernel::PlacedBody> bodies;
+            if(document.body_history.bodies().empty())
+                bodies.push_back({output,{},{},captured});
+            else for(const auto& id:document.body_history.available_before(
+                    document.body_history.order().size())) {
+                if(const auto* body=document.body_history.find(id);
+                        body&&(!body->visible||body->suppressed))continue;
+                if(const auto* boolean=document.body_history.find_boolean(id);
+                        boolean&&(!boolean->visible||boolean->suppressed))
+                    continue;
+                const auto found=output.body_outputs.find(id);
+                if(found==output.body_outputs.end()||
+                        found->second->kernel_shape.empty())continue;
+                auto appearance=captured;
+                if(const auto style=captured.bodies.find(id);
+                        style!=captured.bodies.end())
+                    appearance.body=style->second;
+                bodies.push_back({found->second,{},{},
+                    std::move(appearance)});
+            }
+            if(bodies.empty())throw ExportOperationError("empty_geometry",
+                "There are no visible calculated bodies to export.");
+            data=std::move(bodies);
         } else {
             std::vector<assembly::PartOccurrence> components;
             const auto& doc=assembly->session.document();const auto suppressed=doc.effectively_suppressed_occurrences();
@@ -134,8 +160,13 @@ ExportReport export_file(const Workspace& live,const std::string& document_id,
                     // Materialize only the captured, already calculated hierarchy,
                     // on the export worker. This never reads or regenerates sources.
                     const auto& p=component.placement;
+                    auto appearance=component.appearance_override.value_or(
+                        component.appearance);
+                    if(component.body_color_override)
+                        appearance.body.color=*component.body_color_override;
                     bodies.push_back({assembly::calculate_component_body(component,kernel),
-                        {p.x,p.y,p.z},{p.rotation_x,p.rotation_y,p.rotation_z}});
+                        {p.x,p.y,p.z},{p.rotation_x,p.rotation_y,p.rotation_z},
+                        std::move(appearance)});
                 }
                 if(format==interchange::Format::Iges)kernel.export_iges(bodies,document::path_to_utf8(file));
                 else kernel.export_stl(bodies,document::path_to_utf8(file));

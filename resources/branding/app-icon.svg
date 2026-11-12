@@ -3,7 +3,8 @@
   <!-- Compact ZIMA-CAD monogram for window and application icons. -->
   <path
     d="M8 22H62V38L29 90H62V106H8V90L41 38H8Z"
-    fill="#26313B" stroke="#F3F6F8" stroke-width="2.5" stroke-linejoin="round"
+    fill="currentColor"
+    stroke="#26313B" stroke-width="2.5" stroke-linejoin="round"
   />
   <path
     d="M124 22H86Q66 22 66 42V86Q66 106 86 106H116V90H88Q82 90 82 84V44Q82 38 88 38H114Z"

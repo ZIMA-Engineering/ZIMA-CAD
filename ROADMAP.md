@@ -1,5 +1,16 @@
 # ZIMA-CAD Roadmap
 
+The 2026-11-12 release candidate completes Tree protection and branch-aware
+release for associative Sheet-from-Body output, source-feature hover and driving
+dimension editing, and colored STEP/IGES/binary-STL interchange. A partial
+release of a generated Flat/Bend includes every generated descendant that
+depends on it. Complete release retains the conversion boundary as the history
+divider. Cross-Body Surfaces-from-solid preserves independent source material,
+exact source/destination placement mapping and a last-valid surface after source
+deletion. The native Part format and shared Windows/Linux OCCT 8.0.1 modeling
+implementation are unchanged; Windows publication and Linux-host verification
+remain separate gates.
+
 Windows 2026111103 publishes multiple Sheet Profile Up To targets, exact planar
 switches inside a Flat and independent end-profile correction on every generated
 Bend. The following 2026111104 correction aligns and bounds the Sheet Profile

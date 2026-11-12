@@ -82,6 +82,12 @@ AssemblyWorkspaceWindow::AssemblyWorkspaceWindow(const QString& working_director
     if(application_settings_.browser.open_on_start)QTimer::singleShot(0,this,[this]{open_browser();});
 }
 
+void AssemblyWorkspaceWindow::changeEvent(QEvent* event) {
+    QMainWindow::changeEvent(event);
+    if(event->type()==QEvent::PaletteChange)
+        setWindowIcon(application_icon());
+}
+
 AssemblyWorkspaceWindow::~AssemblyWorkspaceWindow() {
     // File Manager pages are owned by file_manager_stack_. Let Qt destroy that
     // subtree with the central widget; deleting QFileSystemModel pages while

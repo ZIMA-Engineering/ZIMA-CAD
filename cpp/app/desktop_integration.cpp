@@ -22,12 +22,19 @@
 #include <QTimer>
 #include <QUrl>
 #include <QVBoxLayout>
+#include <QScopeGuard>
+#include <array>
 #include <iostream>
+#include <optional>
 #include <stdexcept>
 #ifdef Q_OS_WIN
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <shlobj.h>
+#include <shobjidl.h>
+#include <propsys.h>
+#include <propkey.h>
+#include <propvarutil.h>
 #endif
 
 namespace zima::app::desktop {
@@ -49,15 +56,32 @@ QString desktop_value(QString value) {
 QByteArray read(const QString& path) { QFile f(path); if(!f.open(QIODevice::ReadOnly))return {};return f.readAll(); }
 void write(const QString& path,const QByteArray& data) {
     if(!QDir().mkpath(QFileInfo(path).absolutePath()))fail("create directory");
-    QSaveFile f(path);if(!f.open(QIODevice::WriteOnly)||f.write(data)!=data.size()||!f.commit())fail("write asset");
+    QSaveFile f(path);
+    // Desktop assets are derived and can always be regenerated. Permit Qt's
+    // direct-write fallback when Windows prevents an atomic replacement (for
+    // example while the shell or a sandbox has the icon directory open).
+    f.setDirectWriteFallback(true);
+    if(f.open(QIODevice::WriteOnly)&&f.write(data)==data.size()&&f.commit())return;
+    f.cancelWriting();
+    QFile direct(path);
+    if(direct.open(QIODevice::WriteOnly|QIODevice::Truncate)&&
+            direct.write(data)==data.size()&&direct.flush())return;
+    fail("write asset");
 }
 QString owner(const Context& c) { return QDir::cleanPath(QFileInfo(c.launcher).absoluteFilePath()); }
 bool owns(const Context& c) { return read(asset_root(c)+"/owner")==owner(c).toUtf8(); }
 void erase(const QString& path) { if(QFileInfo::exists(path)&&!QFile::remove(path))fail(); }
 QByteArray icon_data(const QString& resource) {
 #ifdef Q_OS_WIN
+    auto svg=read(resource);
+    if(svg.isEmpty())fail("load icon");
+    // Windows shell icons are not palette-aware. Use the high-contrast
+    // system variant of the shared logo so the Z remains filled on the dark
+    // taskbar; the in-application icon still follows the live Qt palette.
+    if(resource.endsWith(QStringLiteral("/branding/app-icon.svg")))
+        svg.replace("currentColor","#F3F6F8");
     QByteArray png;QBuffer buffer(&png);buffer.open(QIODevice::WriteOnly);
-    QSvgRenderer renderer(resource);if(!renderer.isValid())fail("load icon");
+    QSvgRenderer renderer(svg);if(!renderer.isValid())fail("load icon");
     QImage image(256,256,QImage::Format_ARGB32);image.fill(Qt::transparent);
     {QPainter painter(&image);renderer.render(&painter);}
     if(!image.save(&buffer,"PNG"))fail("encode icon");
@@ -69,6 +93,19 @@ QByteArray icon_data(const QString& resource) {
     const auto bytes=read(resource);if(bytes.isEmpty())fail();return bytes;
 #endif
 }
+QString application_icon_asset(const Context& c) {
+#ifdef Q_OS_WIN
+    // A content-addressed icon location makes Windows discard the shell icon
+    // cache whenever branding changes, while the installation identity stays
+    // stable. Register/repair rewrites the shortcut to this exact asset.
+    const auto digest=QCryptographicHash::hash(
+        icon_data(":/zima/branding/app-icon.svg"),
+        QCryptographicHash::Sha256).toHex().left(12);
+    return asset_root(c)+"/app-"+QString::fromLatin1(digest)+".ico";
+#else
+    return asset_root(c)+"/app.svg";
+#endif
+}
 QString icon_suffix() {
 #ifdef Q_OS_WIN
     return ".ico";
@@ -78,7 +115,7 @@ QString icon_suffix() {
 }
 QMap<QString,QByteArray> assets(const Context& c) {
     QMap<QString,QByteArray> result;
-    result.insert(asset_root(c)+"/app"+icon_suffix(),icon_data(":/zima/branding/app-icon.svg"));
+    result.insert(application_icon_asset(c),icon_data(":/zima/branding/app-icon.svg"));
     for(const auto& t:types)result.insert(asset_root(c)+'/'+t.extension+icon_suffix(),icon_data(":/zima/icons/"+QString(t.icon)+".svg"));
 #ifndef Q_OS_WIN
     result.insert(c.data+"/applications/zima-cad-"+c.id+".desktop",desktop_entry(c));
@@ -88,12 +125,88 @@ QMap<QString,QByteArray> assets(const Context& c) {
     return result;
 }
 #ifdef Q_OS_WIN
+QString application_user_model_id(const Context& c) {
+    return "ZIMA.CAD."+c.id;
+}
+struct ShortcutData {
+    QString target;
+    QString icon;
+    QString application_id;
+};
+struct ComScope {
+    HRESULT status=CoInitializeEx(nullptr,COINIT_APARTMENTTHREADED);
+    ~ComScope(){if(status==S_OK||status==S_FALSE)CoUninitialize();}
+    [[nodiscard]] bool usable() const {
+        return SUCCEEDED(status)||status==RPC_E_CHANGED_MODE;
+    }
+};
+std::optional<ShortcutData> shortcut_data(const QString& path) {
+    if(!QFileInfo::exists(path))return std::nullopt;
+    ComScope com;if(!com.usable())return std::nullopt;
+    IShellLinkW* link{};
+    if(FAILED(CoCreateInstance(CLSID_ShellLink,nullptr,CLSCTX_INPROC_SERVER,
+            IID_PPV_ARGS(&link))))return std::nullopt;
+    const auto release_link=qScopeGuard([&]{link->Release();});
+    IPersistFile* file{};
+    if(FAILED(link->QueryInterface(IID_PPV_ARGS(&file))))return std::nullopt;
+    const auto release_file=qScopeGuard([&]{file->Release();});
+    const auto native=QDir::toNativeSeparators(path).toStdWString();
+    if(FAILED(file->Load(native.c_str(),STGM_READ)))return std::nullopt;
+    std::array<wchar_t,32768> target{},icon{};int icon_index{};
+    if(FAILED(link->GetPath(target.data(),static_cast<int>(target.size()),
+            nullptr,SLGP_RAWPATH))||
+        FAILED(link->GetIconLocation(icon.data(),static_cast<int>(icon.size()),
+            &icon_index)))return std::nullopt;
+    IPropertyStore* properties{};
+    if(FAILED(link->QueryInterface(IID_PPV_ARGS(&properties))))return std::nullopt;
+    const auto release_properties=qScopeGuard([&]{properties->Release();});
+    PROPVARIANT value;PropVariantInit(&value);
+    const auto clear_value=qScopeGuard([&]{PropVariantClear(&value);});
+    if(FAILED(properties->GetValue(PKEY_AppUserModel_ID,&value)))return std::nullopt;
+    ShortcutData result;
+    result.target=QString::fromWCharArray(target.data());
+    result.icon=QString::fromWCharArray(icon.data());
+    if(value.vt==VT_LPWSTR&&value.pwszVal)
+        result.application_id=QString::fromWCharArray(value.pwszVal);
+    return result;
+}
+void write_shortcut(const Context& c) {
+    if(!QDir().mkpath(c.programs))fail("create shortcut directory");
+    ComScope com;if(!com.usable())fail("initialize shortcut writer");
+    IShellLinkW* link{};
+    if(FAILED(CoCreateInstance(CLSID_ShellLink,nullptr,CLSCTX_INPROC_SERVER,
+            IID_PPV_ARGS(&link))))fail("create shortcut");
+    const auto release_link=qScopeGuard([&]{link->Release();});
+    const auto target=QDir::toNativeSeparators(owner(c)).toStdWString();
+    const auto working=QDir::toNativeSeparators(
+        QFileInfo(c.launcher).absolutePath()).toStdWString();
+    const auto icon=QDir::toNativeSeparators(
+        application_icon_asset(c)).toStdWString();
+    if(FAILED(link->SetPath(target.c_str()))||
+        FAILED(link->SetWorkingDirectory(working.c_str()))||
+        FAILED(link->SetDescription(L"ZIMA-CAD"))||
+        FAILED(link->SetIconLocation(icon.c_str(),0)))fail("configure shortcut");
+    IPropertyStore* properties{};
+    if(FAILED(link->QueryInterface(IID_PPV_ARGS(&properties))))
+        fail("open shortcut properties");
+    const auto release_properties=qScopeGuard([&]{properties->Release();});
+    const auto app_id=application_user_model_id(c).toStdWString();
+    PROPVARIANT value;PropVariantInit(&value);value.vt=VT_LPWSTR;
+    value.pwszVal=const_cast<wchar_t*>(app_id.c_str());
+    if(FAILED(properties->SetValue(PKEY_AppUserModel_ID,value))||
+        FAILED(properties->Commit()))fail("write shortcut identity");
+    IPersistFile* file{};
+    if(FAILED(link->QueryInterface(IID_PPV_ARGS(&file))))fail("save shortcut");
+    const auto release_file=qScopeGuard([&]{file->Release();});
+    const auto path=QDir::toNativeSeparators(shortcut(c)).toStdWString();
+    if(FAILED(file->Save(path.c_str(),TRUE)))fail("save shortcut");
+}
 QMap<QString,QString> registry_values(const Context& c) {
     const auto base=capabilities(c);QMap<QString,QString> result;
     result[base+"/Owner"]=owner(c);
     result[base+"/Capabilities/ApplicationName"]=registration_name(c);
     result[base+"/Capabilities/ApplicationDescription"]="ZIMA-CAD";
-    result[base+"/Capabilities/ApplicationIcon"]='"'+QDir::toNativeSeparators(asset_root(c)+"/app.ico")+'"';
+    result[base+"/Capabilities/ApplicationIcon"]='"'+QDir::toNativeSeparators(application_icon_asset(c))+'"';
     result["RegisteredApplications/"+registration_name(c)]="Software\\"+QString(base+"/Capabilities").replace('/','\\');
     for(const auto& t:types) {
         const auto id=progid(c,t),key="Classes/"+id;
@@ -144,6 +257,12 @@ Context current_context() {
 #endif
     return c;
 }
+void apply_process_identity() {
+#ifdef Q_OS_WIN
+    const auto id=application_user_model_id(current_context()).toStdWString();
+    SetCurrentProcessExplicitAppUserModelID(id.c_str());
+#endif
+}
 QString desktop_exec(QString path) {
     path.replace('%',"%%");path.replace('\\',"\\\\\\\\");path.replace('"',"\\\\\"");
     path.replace('`',"\\\\`");path.replace('$',"\\\\$");
@@ -168,7 +287,13 @@ bool registered(const Context& c) {
     QSettings registry(c.registry,c.registry_format);
     const auto values=registry_values(c);
     for(auto it=values.cbegin();it!=values.cend();++it)if(!registry.contains(it.key())||registry.value(it.key()).toString()!=it.value())return false;
-    if(QDir::cleanPath(QFileInfo(shortcut(c)).symLinkTarget()).compare(owner(c),Qt::CaseInsensitive)!=0)return false;
+    const auto link=shortcut_data(shortcut(c));
+    if(!link||QDir::cleanPath(QFileInfo(link->target).absoluteFilePath()).compare(
+            owner(c),Qt::CaseInsensitive)!=0||
+        QDir::cleanPath(QFileInfo(link->icon).absoluteFilePath()).compare(
+            QDir::cleanPath(QFileInfo(application_icon_asset(c)).absoluteFilePath()),
+            Qt::CaseInsensitive)!=0||
+        link->application_id!=application_user_model_id(c))return false;
 #endif
     return true;
 }
@@ -185,8 +310,12 @@ void install(const Context& c) {
         const auto existing=registry.value("Classes/"+progid(c,t)+"/Owner").toString();
         if(!existing.isEmpty()&&existing!=owner(c))fail("handler belongs to another installation");
     }
-    if(QFileInfo::exists(shortcut(c))&&QFileInfo(shortcut(c)).symLinkTarget().compare(owner(c),Qt::CaseInsensitive)!=0)
-        fail("shortcut belongs to another installation");
+    if(QFileInfo::exists(shortcut(c))&&!owns(c)) {
+        const auto existing=shortcut_data(shortcut(c));
+        if(!existing||QDir::cleanPath(QFileInfo(existing->target).absoluteFilePath()).compare(
+                owner(c),Qt::CaseInsensitive)!=0)
+            fail("shortcut belongs to another installation");
+    }
 #endif
     write(marker,owner(c).toUtf8());
     const auto files=assets(c);
@@ -195,9 +324,7 @@ void install(const Context& c) {
     const auto values=registry_values(c);
     for(auto it=values.cbegin();it!=values.cend();++it)registry.setValue(it.key(),it.value());
     registry.sync();if(registry.status()!=QSettings::NoError)fail("write registry");
-    if(!QFileInfo::exists(shortcut(c))) {
-        if(!QDir().mkpath(c.programs)||!QFile::link(c.launcher,shortcut(c)))fail("create shortcut");
-    }
+    write_shortcut(c);
 #endif
     refresh(c);
     if(!registered(c))fail("verify registration");
@@ -218,7 +345,9 @@ void remove(const Context& c) {
             registry.remove("RegisteredApplications/"+registration_name(c));
     }
     registry.sync();if(registry.status()!=QSettings::NoError)fail();
-    if(QFileInfo(shortcut(c)).symLinkTarget().compare(owner(c),Qt::CaseInsensitive)==0)erase(shortcut(c));
+    if(const auto link=shortcut_data(shortcut(c));link&&
+            QDir::cleanPath(QFileInfo(link->target).absoluteFilePath()).compare(
+                owner(c),Qt::CaseInsensitive)==0)erase(shortcut(c));
 #endif
     const auto files=assets(c);
     for(auto it=files.cbegin();it!=files.cend();++it) {

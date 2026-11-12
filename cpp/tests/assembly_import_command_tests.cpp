@@ -59,6 +59,11 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     auto repeated=group;repeated.name="Repeated subassembly";repeated.translation={0,50,0};
     kernel::StepProduct root;root.definition_id="root";root.name="Test assembly";root.children={group,repeated};
     const auto source=dir/fs::path(u8"sestava česká.step");kernel.export_step(root,document::path_to_utf8(source));
+    kernel::Appearance stl_appearance;
+    stl_appearance.body.color="#336699";
+    const auto stl=dir/fs::path(u8"kvádr barevný.stl");
+    kernel.export_stl(std::vector<kernel::PlacedBody>{{part.body,{},{},
+        stl_appearance}},document::path_to_utf8(stl));
     run(host,"new",{{"type","assembly"},{"name","owner"}});const auto owner=live.active_document_id();
     const auto before_size=live.size();const auto revision=live.open_assembly(owner)->session.revision();
     const auto result=run(host,"import.step",{{"path",document::path_to_utf8(source)},{"output_directory","step-native"},{"mesh_deflection_mm",2.0}}).data;
@@ -164,6 +169,23 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     for(const auto& [key,value]:live.open_assembly(owner)->session.document().document_precision)
         require(saved_iges.document_precision.at(key)==value,"IGES import changed inherited Assembly precision");
     require(std::abs(live.open_part(iges_result.at("parts")[0].get<std::string>())->session.calculated_boundaries().back().volume-1000)<1e-4,"Assembly IGES changed source scale");
+    const auto stl_result=run(host,"import.stl",{{"path",
+        document::path_to_utf8(stl)}}).data;
+    require(stl_result.at("parts").size()==1&&
+        stl_result.at("assemblies").empty(),
+        "STL did not create exactly one Part");
+    const auto stl_native=fs::u8path(
+        stl_result.at("files")[0].get<std::string>());
+    const auto stl_document=document::PartDocument::load(stl_native);
+    verify_defaults(stl_document);
+    require(std::abs(live.open_part(stl_result.at("parts")[0].
+            get<std::string>())->session.calculated_boundaries().back().
+            volume-6000)<1e-4&&
+            std::ranges::any_of(stl_document.appearance.bodies,
+                [](const auto& value) {
+                    return value.second.color=="#336699";
+                }),
+        "Assembly STL import lost closed volume or body color");
     require(live.open_assembly(parent_id)->session.revision()==parent_revision &&
         std::abs(live.open_assembly(parent_id)->session.document().components.front().calculated_source->volume-24000)<1e-5,
         "Import implicitly regenerated a parent Assembly");

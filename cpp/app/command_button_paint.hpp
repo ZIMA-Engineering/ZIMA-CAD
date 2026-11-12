@@ -11,6 +11,61 @@
 #include <QToolButton>
 
 namespace zima::app {
+// The document toolbar uses compact icon-only buttons. Paint their offer,
+// press and checked states explicitly so every command has the same visible
+// response as New on native Windows styles as well as on Linux styles.
+class IconOnlyCommandButtonPaint final : public QObject {
+public:
+    explicit IconOnlyCommandButtonPaint(QToolButton* button)
+        : QObject(button),button_(button) {
+        button_->installEventFilter(this);
+    }
+protected:
+    bool eventFilter(QObject*,QEvent* event) override {
+        if(event->type()==QEvent::Enter||event->type()==QEvent::HoverEnter) {
+            hovered_=true;button_->update();return false;
+        }
+        if(event->type()==QEvent::Leave||event->type()==QEvent::HoverLeave||
+                event->type()==QEvent::Hide||
+                event->type()==QEvent::WindowDeactivate) {
+            hovered_=false;button_->update();return false;
+        }
+        if(event->type()!=QEvent::Paint)return false;
+        const bool enabled=button_->isEnabled();
+        const bool hovered=enabled&&hovered_;
+        const bool pressed=enabled&&button_->isDown();
+        const bool checked=enabled&&button_->isChecked();
+        QPainter painter(button_);
+        const auto palette=button_->palette();
+        if(checked) {
+            painter.setPen(QColor("#008DAA"));
+            painter.setBrush(QColor("#00D1FF"));
+        } else if(pressed) {
+            painter.setPen(palette.color(QPalette::Dark));
+            painter.setBrush(palette.color(QPalette::Mid));
+        } else if(hovered) {
+            painter.setPen(palette.color(QPalette::Mid));
+            painter.setBrush(palette.color(QPalette::Midlight));
+        } else {
+            painter.setPen(Qt::NoPen);painter.setBrush(Qt::NoBrush);
+        }
+        if(checked||pressed||hovered)
+            painter.drawRoundedRect(button_->rect().adjusted(1,1,-2,-2),2,2);
+        const auto extent=button_->iconSize();
+        const QRect icon_rect(
+            (button_->width()-extent.width())/2,
+            (button_->height()-extent.height())/2,
+            extent.width(),extent.height());
+        button_->icon().paint(&painter,icon_rect,Qt::AlignCenter,
+            !enabled?QIcon::Disabled:hovered?QIcon::Active:QIcon::Normal,
+            checked?QIcon::On:QIcon::Off);
+        return true;
+    }
+private:
+    QToolButton* button_;
+    bool hovered_{};
+};
+
 // One event-driven guard for the last hovered command, not a per-button
 // application filter or polling timer. Toolbar replacement / opening a child
 // window can deprive a button of Leave or release; the next pointer movement

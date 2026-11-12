@@ -7,17 +7,21 @@ int verify_general_surface_ui(QApplication& application,AssemblyWorkspaceWindow&
         const auto path=directory/"general-surface-ui.prtz";part.save(path);
         check(window.open_document_path(QString::fromStdString(path.string())),"Cannot open General Surface Body");flush();
         check(window.execute_console_command(QString::fromStdString(commands::Json{{"command","body.activate"},{"arguments",{{"body",body}}}}.dump())).ok,"Cannot activate General Surface Body");flush();
-        auto* action=window.findChild<QAction*>("generalSurfaceAction");check(action&&action->isEnabled(),"General Surface action missing");
         auto* surface_mode=window.findChild<QAction*>("applicationModeAction3");
-        check(surface_mode&&!surface_mode->isVisible()&&!surface_mode->isEnabled(),"Surface commands still expose a separate application");
+        check(surface_mode&&surface_mode->isVisible()&&surface_mode->isEnabled(),"Surface application is unavailable");
+        surface_mode->trigger();flush();
+        auto* action=window.findChild<QAction*>("generalSurfaceAction");check(action&&action->isEnabled(),"General Surface action missing");
         bool grouped=false;
         for(auto* toolbar:window.findChildren<QToolBar*>()) {
             const auto actions=toolbar->actions();const auto position=actions.indexOf(action);
-            if(position<2)continue;
-            grouped=actions[position-1]->isSeparator()&&actions[position-2]->objectName()=="drillPointAction";
+            if(position<1)continue;
+            const auto fillet=window.findChild<QAction*>("filletAction");
+            const auto chamfer=window.findChild<QAction*>("chamferAction");
+            grouped=actions[position-1]->isSeparator()&&fillet&&chamfer&&
+                actions.indexOf(fillet)>position&&actions.indexOf(chamfer)>actions.indexOf(fillet);
             if(grouped)break;
         }
-        check(grouped,"Surface group is not below Drill Point with the common separator");
+        check(grouped,"Surface group is not inside the Surface application");
         const auto editor=[&]{return dynamic_cast<GeneralSurfaceDialog*>(window.findChild<QWidget*>("generalSurfaceDialog"));};
         auto* tree=window.findChild<QTreeWidget*>("documentTree");
         auto* view=dynamic_cast<viewer::MeshView*>(window.findChild<QWidget*>("modelWorkspace"));check(view,"General Surface View missing");

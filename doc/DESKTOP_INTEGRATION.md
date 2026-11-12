@@ -106,6 +106,21 @@ real installed release. No actual user associations were changed by verification
 KDE/GNOME execution and file-manager acceptance remain outstanding as described
 in [the Linux handoff](LINUX_RELEASE_HANDOFF.md).
 
+The 2026-11-12 branding update keeps one shared ZC SVG for Windows and Linux.
+The live application icon resolves the filled Z to the current light/dark Qt
+palette, while Windows derives a filled light-Z ICO with a dark boundary for
+the executable, taskbar and per-user registration. This avoids the former dark
+fill appearing as an outline-only Z on a dark taskbar. The registration contract
+also decodes the generated application ICO and checks both the filled neutral Z
+and the azure C; the Windows resource ICO is checked by the same pixel contract.
+Windows application ICO assets use a content-addressed filename, and every
+Register or repair operation rewrites the Start-menu shortcut with that icon and
+the installation's stable AppUserModelID. The running process publishes the same
+identity before creating its first window. Consequently a branding change gets
+a fresh shell-cache key without changing the installation identity; an obsolete
+shortcut is detected and repaired instead of being retained merely because its
+target executable still exists.
+
 The 2026-09-28 follow-up added the missing `.symz` Symbol handler and icon to
 the shared registration list and updated all five translations. The native
 Windows application and desktop-integration test targets built successfully.

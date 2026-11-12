@@ -2,7 +2,7 @@
 
 ## Stage scope
 
-Import menus and `import.step`, `import.iges`, `import.dxf` share
+Import menus and `import.step`, `import.iges`, `import.stl`, `import.dxf` share
 `workspace::import_part` for Part and `workspace::import_assembly` for Assembly.
 Targeted DXF into an existing sketch uses `workspace::import_sketch`; GUI drafts and
 committed command targets share `prepare_sketch_dxf`. Geometry conversion stays in
@@ -17,10 +17,11 @@ Assemblies. Exports: [EXPORT_COMMANDS.md](EXPORT_COMMANDS.md).
 
 - `import.step path [mesh_deflection_mm] [output_directory]`
 - `import.iges path [mesh_deflection_mm] [output_directory]`
+- `import.stl path [mesh_deflection_mm] [output_directory]`
 - `import.dxf path [sketch] [unitless_scale_mm] [maximum_entities] [output_directory]`
 
 All accept optional `document` to verify active-document identity. Extensions must
-match commands (`.stp/.step`, `.igs/.iges`, `.dxf`, case-insensitive). Relative paths
+match commands (`.stp/.step`, `.igs/.iges`, `.stl`, `.dxf`, case-insensitive). Relative paths
 use the command working directory. Paths/saved names are UTF-8, including on Windows.
 
 `mesh_deflection_mm` is positive and finite: display-mesh deflection in millimetres,
@@ -55,18 +56,24 @@ open identity, revision, data generation and active Body before one combined
 model/result commit and one Undo step. Failure, close/reopen or concurrent target
 changes preserve current data.
 
-DXF preserves the last calculated body. STEP/IGES explicitly calculate imported
+DXF preserves the last calculated body. STEP/IGES/STL explicitly calculate imported
 geometry. None regenerates parent Assemblies or automatically saves the native
-document; `save` remains explicit. STEP/IGES geometry and original topology identity
+document; `save` remains explicit. STEP/IGES/STL geometry and original topology identity
 live inside `.prtz`, so after saving the source interchange file is unnecessary for
 reopening or regeneration.
+
+STEP and IGES import XCAF body and exact face colors. Binary STL imports the
+common Magics header/facet extension and also accepts VisCAM/SolidView facet
+colors. STL has no official color standard, so color interoperability depends on
+the producer using one of those conventions. Imported presentation styles are
+stored in the native document and survive save/reopen without the source file.
 
 CLI separates OCCT diagnostics onto stderr, leaving exactly one result JSON line
 per command on stdout.
 
 ## Part verification
 
-`zima_cpp_import_command_tests` checks a 10×20×30 mm box (6000 mm³) from STEP/IGES,
+`zima_cpp_import_command_tests` checks a 10×20×30 mm box (6000 mm³) from STEP/IGES/STL,
 saved accuracy, Undo/Redo, source STEP deletion followed by regeneration, a 20×10 mm
 DXF rectangle, authoritative header units, Czech names, invalid input and late jobs.
 Process tests run real CLI with an invalid Qt platform and check all three formats
@@ -85,7 +92,7 @@ occurrence. STEP preserves real product hierarchy; repeated components share one
 source Part/subassembly while retaining occurrence identities. Solids and surfaces
 inside one STEP product do not become separate components.
 
-IGES/DXF without `sketch` create one Part from the current Part template, containing
+IGES/STL/DXF without `sketch` create one Part from the current Part template, containing
 an imported Body or native owned sketch respectively. DXF with `sketch` adds geometry
 directly to an existing Assembly sketch. New sources inherit owning-Assembly accuracy
 and display units; STEP coordinates and geometry calculations remain mm.
@@ -94,7 +101,7 @@ and display units; STEP coordinates and geometry calculations remain mm.
 under an existing parent; import never overwrites existing sources. Relative paths
 use the console working directory. Omission creates unique `<source_name>_zima`,
 then `_1`, `_2`, etc., beside the target Assembly or in the working directory for
-an unsaved Assembly. GUI uses the same layout for STEP/IGES/DXF, containing only
+an unsaved Assembly. GUI uses the same layout for STEP/IGES/STL/DXF, containing only
 `.prtz` and `.asmz`, without required manifests or extra formats.
 
 ```json

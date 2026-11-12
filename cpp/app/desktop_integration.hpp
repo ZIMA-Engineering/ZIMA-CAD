@@ -15,6 +15,10 @@ struct Context {
     bool installed = false;
 };
 Context current_context();
+// Apply the stable per-installation desktop identity before creating windows.
+// It is a no-op on platforms whose desktop identity is supplied by the
+// desktop-entry file.
+void apply_process_identity();
 QString installation_id(QString path);
 QString desktop_exec(QString path);
 QByteArray mime_package();

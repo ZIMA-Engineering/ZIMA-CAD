@@ -2,6 +2,7 @@
 #include <zima/workspace/model_calculation.hpp>
 #include <zima/workspace/measurement_operations.hpp>
 #include <zima/workspace/part_transactions.hpp>
+#include <zima/workspace/history_policy.hpp>
 #include <zima/document/bend.hpp>
 #include <zima/document/flat.hpp>
 #include <zima/document/sheet_rip.hpp>
@@ -3568,25 +3569,29 @@ bool explode_sheet_from_body(Workspace& live,const kernel::OcctKernel& kernel,
             throw std::invalid_argument(
                 "The selected feature is not a bound Sheet from Body part.");
         if(binding->detached)return false;
-        binding->detached=true;
+        const auto descendants=part_history_dependency_closure(
+            next,*child_id,true);
+        bool changed=false;
+        for(auto& candidate:
+                next_conversion->sheet_from_body.child_bindings)
+            if(descendants.contains(candidate.feature_id))
+                changed|=!std::exchange(candidate.detached,true);
+        if(!changed)return false;
         // Detaching changes only the association owner and Tree nesting. The
-        // native Flat/Bend definition and its calculated material are byte-for-
-        // byte unchanged, so publishing the current cache avoids an unrelated
-        // OCCT replay and still creates exactly one Undo transaction.
+        // selected native Flat/Bend and every generated consumer keep their
+        // calculated material byte-for-byte unchanged. Publishing the current
+        // cache avoids an unrelated OCCT replay and still creates exactly one
+        // Undo transaction for the complete released branch.
         commit_part_document(live,id,std::move(next),
             state->session.calculated_boundaries());
         return true;
     } else {
-        auto graph=next.body_history;
-        auto body=*graph.find(owner->scope.id);
+        const auto body=*next.body_history.find(owner->scope.id);
         const auto row=std::ranges::find(body.entries,conversion_id,
             &document::PartHistoryEntry::id);
         if(row==body.entries.end())
             throw std::invalid_argument(
                 "Sheet from Body is missing from Body history");
-        const auto index=static_cast<std::size_t>(
-            row-body.entries.begin());
-
         if(next_conversion->sheet_from_body.replaces_body) {
             // The conversion marker is an empty replacement operation: it
             // removes the same-Body source solid before the generated sheet
@@ -3598,12 +3603,12 @@ bool explode_sheet_from_body(Workspace& live,const kernel::OcctKernel& kernel,
                     if(auto* source=next.find_container(entry->id))
                         source->suppressed=true;
         }
-        // A complete explode removes the association owner, so every retained
-        // native child must also be able to regenerate without its former
-        // attachment lookup. Freeze the already resolved authored frame into
-        // the ordinary numeric placement. Sequential Sketch endpoint contacts
-        // remain valid native child-to-child dependencies, while no Flat/Bend
-        // asks the removed conversion boundary to resolve its placement again.
+        // A complete explode releases every generated child but retains this
+        // command boundary in the Tree. It remains the explicit divider
+        // between the suppressed source construction and the independent
+        // native sheet features. Freeze the already resolved authored frame
+        // into ordinary numeric placement so no child asks the retained
+        // association marker to resolve its placement again.
         for(const auto& generated:
                 next_conversion->sheet_from_body.generated_features) {
             auto* child=next.find_container(generated);
@@ -3626,25 +3631,17 @@ bool explode_sheet_from_body(Workspace& live,const kernel::OcctKernel& kernel,
             else if(child->feature_kind==document::FeatureKind::Bend)
                 child->bend.sheet_attachment=false;
         }
-        std::erase_if(next.history,[&](const auto& feature) {
-            return feature.id==conversion_id;
-        });
-        std::erase_if(next.sketches,[&](const auto& sketch) {
-            return sketch.owner_container_id==conversion_id;
-        });
-        body.entries.erase(row);
-        if(index<body.cursor)--body.cursor;
-        graph.update_body(std::move(body));
-        next.set_body_history(std::move(graph));
+        bool changed=false;
+        for(auto& binding:next_conversion->sheet_from_body.child_bindings)
+            changed|=!std::exchange(binding.detached,true);
+        if(!changed)return false;
     }
 
     PartCalculationPolicy policy;
     policy.reject_errors=true;
-    // Removing the replacement marker changes native operation indices. A
-    // previous incremental boundary can consequently identify the right
-    // generated feature at the wrong input boundary. Rebuild this explicit
-    // one-time explode operation cold, then settle the unchanged attachment
-    // references against those correctly indexed boundaries.
+    // Source suppression and frozen child frames change the executable input
+    // boundary. Rebuild this explicit one-time explode operation cold, then
+    // settle the retained native references against the calculated result.
     auto calculated=calculate_part(kernel,next,nullptr,policy);
     calculated=calculate_part_with_resolved_references(kernel,next,
         &calculated,policy);

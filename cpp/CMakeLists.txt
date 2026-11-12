@@ -710,7 +710,7 @@ endif()
 add_library(zima_desktop_integration app/desktop_integration.cpp)
 target_link_libraries(zima_desktop_integration PUBLIC zima_ui Qt6::Widgets Qt6::Svg)
 if(WIN32)
-    target_link_libraries(zima_desktop_integration PRIVATE shell32 ole32)
+    target_link_libraries(zima_desktop_integration PRIVATE shell32 ole32 propsys)
 endif()
 target_link_libraries(zima-cad-cpp PRIVATE zima_drawing_render zima_symbols zima_desktop_integration)
 install(TARGETS zima-cad-cpp RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
@@ -2837,6 +2837,13 @@ if(ZIMA_BUILD_TESTS)
         --working-directory "${CMAKE_BINARY_DIR}/sheet-same-body-ui-contract")
     set_tests_properties(zima_cpp_sheet_same_body_ui_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_SHEET_EXCHANGE=1;ZIMA_VERIFY_SHEET_SAME_BODY=1"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 120 RUN_SERIAL TRUE)
+    file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/surface-shell-source-ui-contract")
+    add_test(NAME zima_cpp_surface_shell_source_ui_contract COMMAND zima-cad-cpp
+        --verify-startup
+        --working-directory "${CMAKE_BINARY_DIR}/surface-shell-source-ui-contract")
+    set_tests_properties(zima_cpp_surface_shell_source_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_SURFACE_SHELL_SOURCE_ONLY=1"
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 120 RUN_SERIAL TRUE)
     file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/line-bend-ui-contract")
     add_test(NAME zima_cpp_line_bend_ui_contract COMMAND zima-cad-cpp

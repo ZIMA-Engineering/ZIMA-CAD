@@ -1793,26 +1793,56 @@ void AssemblyWorkspaceWindow::create_layout() {
     }
     workspace_stack_->addWidget(drawing_workspace_);
 
-    auto* view_panel = new QWidget;
-    auto* view_layout = new QVBoxLayout(view_panel);
-    view_layout->setContentsMargins(0, 0, 0, 0);
-    view_layout->setSpacing(0);
-    view_layout->addWidget(view_toolbar_);
-    view_layout->addWidget(workspace_stack_, 1);
-
-    auto* tools_panel = new QWidget;
-    auto* tools_layout = new QVBoxLayout(tools_panel);
-    tools_layout->setContentsMargins(0, 0, 0, 0);
-    tools_layout->setSpacing(0);
-    tools_layout->addSpacing(view_toolbar_->sizeHint().height());
-    tools_layout->addWidget(tools_toolbar_, 1);
-
+    auto* view_strip=new QWidget;
+    view_strip->setObjectName("viewToolbarStrip");
+    auto* view_strip_layout=new QHBoxLayout(view_strip);
+    view_strip_layout->setContentsMargins(0,0,0,0);
+    view_strip_layout->setSpacing(0);
+    view_strip_layout->addWidget(view_toolbar_,1);
+    application_mode_selector_=new QWidget(view_strip);
+    application_mode_selector_->setObjectName("applicationModeSelector");
+    application_mode_selector_->setSizePolicy(
+        QSizePolicy::Preferred,QSizePolicy::Fixed);
+    application_mode_selector_->setStyleSheet(
+        QStringLiteral("QWidget#applicationModeSelector {"
+            "border-left:1px solid palette(mid); padding-left:5px;}")+
+        command_button_style());
+    auto* mode_layout=new QHBoxLayout(application_mode_selector_);
+    mode_layout->setContentsMargins(6,0,3,0);
+    mode_layout->setSpacing(2);
+    const auto mode_button=[&](ApplicationMode mode,const char* name) {
+        auto* button=new QToolButton(application_mode_selector_);
+        button->setDefaultAction(application_actions_[
+            static_cast<std::size_t>(mode)]);
+        button->setObjectName(QString::fromLatin1(name));
+        button->setAutoRaise(true);
+        button->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+        button->setIconSize(QSize(16,16));
+        button->setMinimumWidth(112);
+        button->setFixedHeight(26);
+        button->setSizePolicy(QSizePolicy::Preferred,QSizePolicy::Fixed);
+        mode_layout->addWidget(button);
+        return button;
+    };
+    modeling_mode_button_=mode_button(
+        ApplicationMode::Modeling,"modelingModeButton");
+    assembly_mode_button_=mode_button(
+        ApplicationMode::Assembly,"assemblyModeButton");
+    sheet_metal_mode_button_=mode_button(
+        ApplicationMode::SheetMetal,"sheetMetalModeButton");
+    surface_mode_button_=mode_button(
+        ApplicationMode::Surface,"surfaceModeButton");
+    application_mode_selector_->hide();
+    view_strip_layout->addWidget(
+        application_mode_selector_,0,Qt::AlignRight|Qt::AlignVCenter);
     auto* workspace_panel = new QWidget(document_splitter_);
-    auto* workspace_layout = new QHBoxLayout(workspace_panel);
+    auto* workspace_layout = new QGridLayout(workspace_panel);
     workspace_layout->setContentsMargins(0, 0, 0, 0);
     workspace_layout->setSpacing(0);
-    workspace_layout->addWidget(view_panel, 1);
-    workspace_layout->addWidget(tools_panel);
+    workspace_layout->addWidget(view_strip,0,0,1,2);
+    workspace_layout->addWidget(workspace_stack_,1,0);
+    workspace_layout->addWidget(tools_toolbar_,1,1);
+    workspace_layout->setColumnStretch(0,1);
     document_splitter_->addWidget(tree_);
     document_splitter_->addWidget(workspace_panel);
     document_splitter_->setStretchFactor(0, 0);
@@ -2896,10 +2926,23 @@ void AssemblyWorkspaceWindow::create_layout() {
                 auto* properties = menu.addAction(resource_icon("properties"),tr("Vlastnosti…"));
                 edit->setObjectName("editHistoryObject");
                 properties->setObjectName("historyObjectProperties");
+                const zima::document::HistoryContainer*
+                    sheet_from_body_owner{};
+                const auto* sheet_from_body_binding=
+                    part->session.document().
+                        sheet_from_body_binding_for_child(
+                            id,&sheet_from_body_owner);
+                const bool bound_sheet_flat=sheet_from_body_binding&&
+                    container->feature_kind==
+                        zima::document::FeatureKind::Flat;
+                const bool bound_sheet_bend=sheet_from_body_binding&&
+                    container->feature_kind==
+                        zima::document::FeatureKind::Bend;
                 const bool command_boundary=container->feature_kind==
                     zima::document::FeatureKind::SheetFromBody;
-                edit->setEnabled(!command_boundary);
-                properties->setEnabled(!command_boundary);
+                edit->setEnabled(!command_boundary&&!bound_sheet_flat);
+                properties->setEnabled(!command_boundary&&
+                    !bound_sheet_flat&&!bound_sheet_bend);
                 if(std::ranges::any_of(
                         zima::workspace::sheet_state_regions(part->session.document()),
                         [&](const auto& region) {
@@ -2933,21 +2976,15 @@ void AssemblyWorkspaceWindow::create_layout() {
                         resource_icon("sheet-profile"),tr("Rozložit vše"));
                     explode_sheet_from_body_all->setObjectName(
                         "explodeSheetFromBodyAllAction");
+                    explode_sheet_from_body_all->setEnabled(
+                        std::ranges::any_of(
+                            container->sheet_from_body.child_bindings,
+                            [](const auto& binding) {
+                                return !binding.detached;
+                            }));
                 } else {
-                    for(const auto& candidate:
-                            part->session.document().history) {
-                        if(candidate.feature_kind!=zima::document::
-                                FeatureKind::SheetFromBody)continue;
-                        const auto binding=std::ranges::find(
-                            candidate.sheet_from_body.child_bindings,id,
-                            &zima::document::SheetFromBodyChildBinding::
-                                feature_id);
-                        if(binding!=candidate.sheet_from_body.
-                                child_bindings.end()&&!binding->detached) {
-                            sheet_from_body_parent=candidate.id;
-                            break;
-                        }
-                    }
+                    if(sheet_from_body_owner)
+                        sheet_from_body_parent=sheet_from_body_owner->id;
                     if(!sheet_from_body_parent.empty()) {
                         explode_sheet_from_body_part=menu.addAction(
                             resource_icon("sheet-profile"),
@@ -2960,6 +2997,9 @@ void AssemblyWorkspaceWindow::create_layout() {
                 suppress->setObjectName("suppressHistoryObject");
                 auto* remove = menu.addAction(resource_icon("delete"),tr("Odstranit"));
                 remove->setObjectName("deleteHistoryObject");
+                suppress->setEnabled(!sheet_from_body_binding&&
+                    !command_boundary);
+                remove->setEnabled(!sheet_from_body_binding);
                 const auto* selected = exec_tree_menu(menu,item,position);
                 if (selected == edit) {
                     show_parameter_dimensions(id);

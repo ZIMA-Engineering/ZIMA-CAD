@@ -35,6 +35,12 @@ Results contain `document`, absolute UTF-8 `path`, `source_revision`, `bytes`,
 header and uses mm coordinates. Existing STL tessellation uses 0.1 mm deflection
 and 0.5 rad angular limit, without changing model display or saved meshes.
 
+STEP and IGES export body and exact face presentation colors through XCAF.
+Binary STL uses the common Magics `COLOR=` header and per-facet attributes.
+Because STL has no official color standard, another application must support
+that extension to display the colors. The exporter accepts both `#RRGGBB` and
+Qt `#AARRGGBB` source styles and writes only their RGB component.
+
 Document authoring units do not rescale export geometry. STEP and Sketch DXF
 continue to carry millimetre coordinates and their corresponding unit metadata
 when the source uses cm, m or inches. Nested Assembly placements remain canonical
@@ -84,7 +90,7 @@ resurrecting its uncut child occurrences. A visible incomplete occurrence return
 `empty_geometry`. Export still performs no regeneration or document transaction.
 
 STL supports Parts and nested/repeated Assembly occurrences, flattening them into
-one mesh without names/product hierarchy. Sketch DXF supports segments, axes,
+one colored mesh without names/product hierarchy. Sketch DXF supports segments, axes,
 standalone points, circles, circular/elliptical arcs, ellipses and B-splines, including
 saved offsets/trims and owned profiles. Corner rounds export as exact circular arcs
 with tangent-trimmed segments. Text exports saved closed outlines as `LWPOLYLINE`,
@@ -116,10 +122,10 @@ existing target files. Without `overwrite`, concurrent target creation during ex
 is also rejected. Temporary files are cleaned after success/failure; no permanent
 sidecar format is introduced.
 
-STL uses OCCT streams and `filesystem::path` because OCCT 8's filename overload
-opened a narrow `std::ofstream` and failed on Czech Windows directories. STEP/STL/DXF
-have Czech-path regressions. Real CLI routes OCCT messages to stderr, keeping JSON
-on stdout.
+STL uses a bounded binary stream writer and `filesystem::path`; this preserves
+Unicode paths and publishes the chosen color extension without changing the
+calculated model. STEP/STL/DXF have Czech-path regressions. Real CLI routes OCCT
+messages to stderr, keeping JSON on stdout.
 
 ## Verification
 

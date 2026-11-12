@@ -112,6 +112,8 @@ void install_dialog_button_icons() {
 }
 
 static QIcon raster_resource_icon(const QString& name, bool surface) {
+    if(name=="application-logo")
+        return svg_icon(QStringLiteral(":/zima/branding/app-icon.svg"),true);
     if (name == "origin-document") return svg_icon(QStringLiteral(":/zima/icons/origin.svg"),true,true);
     if (name == "origin-feature") {
         static QHash<QString,QIcon> origins;
@@ -207,7 +209,9 @@ QIcon resource_icon(const QString& name,bool surface) {
 }
 
 QIcon application_icon() {
-    return svg_icon(QStringLiteral(":/zima/branding/app-icon.svg"), false);
+    static QIcon icon(new PaletteIconEngine(
+        QStringLiteral("application-logo"),false));
+    return icon;
 }
 
 QIcon resource_tree_icon(const QString& name, bool surface) {

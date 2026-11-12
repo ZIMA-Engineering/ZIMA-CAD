@@ -64,11 +64,28 @@ remains editable and visible for ordinary hover/inspection, but its solid is not
 included in the destination material result. Same-Body conversion replaces the
 source material result at the conversion boundary.
 
+Ordinary hover over a converted wall can cycle to the associated original
+source feature. Opening that source feature's Properties exposes its authored
+driving dimensions; committing an edit regenerates the associated sheet through
+the existing explicit history transaction. Bound generated Flats cannot open
+independent Properties or expose their driving dimensions. Bound generated
+Bends remain selectable for their supported non-source editing path, but source
+angle/radius dimensions are hidden. Bound children cannot be deleted,
+suppressed or reordered independently.
+
+The Tree context menu can release one generated Flat/Bend or release the entire
+conversion. Releasing one child also releases every generated descendant that
+depends on it, as one Undo/Redo transaction. Releasing all children retains the
+Sheet-from-Body boundary as the explicit divider between suppressed source
+construction and independent native sheet features. A released child is an
+ordinary Flat/Bend again and can be edited, suppressed, reordered or deleted
+through the normal history rules. Repeating an already completed release is a
+no-op and does not calculate geometry or create Undo.
+
 This association applies to native-solid Sheet-from-Body conversion. A STEP
 import is reconstructed as the same ordinary Flat/Bend history used before this
 change: it is not locked by a Sheet-from-Body owner and remains independent of
-the imported source after creation. Detach/explode UI for releasing individual
-associative children is not yet implemented.
+the imported source after creation.
 
 Straight boundaries remain segments. Circular boundaries become circles or
 circular arcs; slots use segments and circular arcs. Exact rational splines are
@@ -94,7 +111,7 @@ Native-solid conversion is associative within the supported recognition path.
 Imported STEP reconstruction remains independent. Relationships among ordinary
 import-generated sheet features remain editable through their normal Properties
 windows; bound native-solid children are regenerated from their persisted source
-bindings until a future detach operation releases them.
+bindings until an explicit Tree release makes the selected branch independent.
 
 ## DXF
 
