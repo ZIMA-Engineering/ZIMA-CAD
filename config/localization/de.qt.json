@@ -1612,6 +1612,8 @@
   "Importuji %1…": "%1 wird importiert…",
   "DXF importováno: %1 entit": "DXF importiert: %1 Entitäten",
   "Upozornění importu DXF": "DXF-Importwarnung",
+  "Upozornění importu STEP": "STEP-Importwarnung",
+  "Následující neplatné STEP díly byly přeskočeny:\n%1": "Die folgenden ungültigen STEP-Teile wurden übersprungen:\n%1",
   "Import selhal": "Import fehlgeschlagen",
   "IGES importován": "IGES importiert",
   "STL importován": "STL importiert",

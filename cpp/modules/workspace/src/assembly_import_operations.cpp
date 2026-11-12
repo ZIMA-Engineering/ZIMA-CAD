@@ -104,6 +104,7 @@ AssemblyImportReport import_assembly(Workspace& live,const std::string& owner,
         }
         if(format==interchange::Format::Step) {
             imported=interchange::import_step_assembly(source,directory.path,precision,geometry.mesh_deflection);
+            report.skipped_step_parts=imported->skipped_parts;
             for(auto& part:imported->parts)part.document.document_units=units;
             for(auto& assembly:imported->assemblies)assembly.document.document_units=units;
         } else {

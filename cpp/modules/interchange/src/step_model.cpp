@@ -170,19 +170,31 @@ StepAssemblyImport import_step_assembly(const std::filesystem::path& source,
     if(nodes.empty())throw std::runtime_error("STEP neobsahuje produktovou strukturu");
     StepAssemblyImport result;
     std::map<std::string,std::size_t> parts,assemblies;
+    std::set<std::string> definitions;
     std::vector<const StepPart*> unique_parts;
     std::vector<document::HistoryContainer> containers;
     std::vector<kernel::StepRequest> requests;
-    for(const auto& node:nodes)if(!node.assembly&&!parts.contains(node.definition_id)) {
-        parts[node.definition_id]=unique_parts.size();unique_parts.push_back(&node);
+    for(const auto& node:nodes)if(!node.assembly&&definitions.insert(node.definition_id).second) {
+        unique_parts.push_back(&node);
         auto container=document::PartDocument::create_imported_step_container(absolute,node.definition_id,node.name);
         container.imported_step.mesh_deflection=mesh_deflection;
         requests.push_back({document::path_to_utf8(absolute),node.definition_id,{},{},container.id});containers.push_back(std::move(container));
     }
     kernel::OcctKernel kernel;
-    auto frozen=kernel.freeze_step_components(requests,prepared.get());
+    auto frozen=kernel.freeze_step_components(requests,prepared.get(),true);
     prepared.reset();
     for(std::size_t i=0;i<unique_parts.size();++i) {
+        if(!frozen[i].error.empty()) {
+            const auto occurrences=std::ranges::count(
+                nodes,unique_parts[i]->definition_id,&StepPart::definition_id);
+            result.skipped_parts.push_back({unique_parts[i]->definition_id,
+                unique_parts[i]->definition_name.empty()?unique_parts[i]->name:
+                    unique_parts[i]->definition_name,
+                std::move(frozen[i].error),
+                static_cast<std::size_t>(occurrences)});
+            continue;
+        }
+        parts[unique_parts[i]->definition_id]=result.parts.size();
         auto doc=document::PartDocument::create_default();doc.name=unique_parts[i]->definition_name;doc.document_precision=precision;
         auto container=std::move(containers[i]);
         container.imported_step.frozen_brep=std::move(frozen[i].brep);
@@ -210,24 +222,34 @@ StepAssemblyImport import_step_assembly(const std::filesystem::path& source,
         return value;
     };
     std::set<std::string> visiting;
-    std::function<assembly::PartOccurrence(const StepPart&)> occurrence;
+    std::set<std::string> empty_assemblies;
+    std::function<std::optional<assembly::PartOccurrence>(const StepPart&)> occurrence;
     occurrence=[&](const StepPart& node) {
         assembly::PartOccurrence child;
         if(node.assembly) {
+            if(empty_assemblies.contains(node.definition_id))
+                return std::optional<assembly::PartOccurrence>{};
             if(visiting.contains(node.definition_id))throw std::runtime_error("Cyklická STEP sestava");
             if(!assemblies.contains(node.definition_id)) {
                 visiting.insert(node.definition_id);
                 auto doc=assembly::AssemblyDocument::create_default();doc.name=node.definition_name;doc.document_precision=precision;
-                for(const auto& nested:nodes)if(nested.parent_path==node.component_path)doc.components.push_back(occurrence(nested));
+                for(const auto& nested:nodes)if(nested.parent_path==node.component_path)
+                    if(auto value=occurrence(nested))
+                        doc.components.push_back(std::move(*value));
                 visiting.erase(node.definition_id);
-                if(doc.components.empty())throw std::runtime_error("Prázdná STEP podsestava");
+                if(doc.components.empty()) {
+                    empty_assemblies.insert(node.definition_id);
+                    return std::optional<assembly::PartOccurrence>{};
+                }
                 const auto index=result.assemblies.size();assemblies[node.definition_id]=index;
                 result.assemblies.push_back({std::move(doc),directory/("assembly-"+std::to_string(index+1)+".asmz")});
             }
             const auto& generated=result.assemblies.at(assemblies.at(node.definition_id));
             child=assembled(generated,node.name);
         } else {
-            const auto& generated=result.parts.at(parts.at(node.definition_id));
+            const auto part=parts.find(node.definition_id);
+            if(part==parts.end())return std::optional<assembly::PartOccurrence>{};
+            const auto& generated=result.parts.at(part->second);
             auto found=source_snapshots.find(generated.document.document_id);
             if(found==source_snapshots.end()) {
                 auto snapshot=generated.calculated.back();
@@ -237,10 +259,12 @@ StepAssemblyImport import_step_assembly(const std::filesystem::path& source,
             }
             child=assembly::AssemblyDocument::create_part_occurrence(node.name,generated.document.document_id,generated.path,found->second);
         }
-        child.placement={node.x,node.y,node.z,node.rotation_x,node.rotation_y,node.rotation_z};return child;
+        child.placement={node.x,node.y,node.z,node.rotation_x,node.rotation_y,node.rotation_z};
+        return std::optional<assembly::PartOccurrence>{std::move(child)};
     };
     std::vector<assembly::PartOccurrence> roots;
-    for(const auto& node:nodes)if(node.parent_path.empty())roots.push_back(occurrence(node));
+    for(const auto& node:nodes)if(node.parent_path.empty())
+        if(auto value=occurrence(node))roots.push_back(std::move(*value));
     // A single assembly at identity already is the STEP document root.
     if(roots.size()==1&&roots.front().source_kind==assembly::ComponentSourceKind::Assembly&&
             roots.front().placement==assembly::ComponentPlacement{}) {
@@ -251,7 +275,7 @@ StepAssemblyImport import_step_assembly(const std::filesystem::path& source,
         root.components=std::move(roots);result.root_index=result.assemblies.size();
         result.assemblies.push_back({std::move(root),directory/"step-root.asmz"});
     }
-    if(result.parts.empty())throw std::runtime_error("STEP neobsahuje žádné díly");
+    if(result.parts.empty())throw std::runtime_error("STEP neobsahuje žádné platné díly");
     const auto& root=result.assemblies.at(result.root_index);
     result.root_occurrence=assembled(root,root.document.name);
     return result;

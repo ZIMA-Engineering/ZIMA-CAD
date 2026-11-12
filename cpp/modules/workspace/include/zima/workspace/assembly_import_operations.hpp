@@ -15,6 +15,7 @@ struct AssemblyImportReport {
     std::string occurrence_id, source_document_id, sketch_id;
     std::vector<std::string> part_ids, assembly_ids;
     std::vector<std::filesystem::path> files;
+    std::vector<interchange::StepSkippedPart> skipped_step_parts;
     interchange::DxfImportResult dxf;
 };
 // Creates native source files in the destination directory, then inserts one

@@ -19,9 +19,16 @@ struct StepImportedAssembly {
     assembly::AssemblyDocument document;
     std::filesystem::path path;
 };
+struct StepSkippedPart {
+    std::string definition_id;
+    std::string name;
+    std::string reason;
+    std::size_t occurrences{};
+};
 struct StepAssemblyImport {
     std::vector<StepImportedPart> parts;
     std::vector<StepImportedAssembly> assemblies; // dependencies before owners
+    std::vector<StepSkippedPart> skipped_parts;
     std::size_t root_index{};
     assembly::PartOccurrence root_occurrence;
 };

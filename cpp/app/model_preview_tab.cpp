@@ -23,7 +23,7 @@
 namespace zima::app {
 StepPreviewData load_step_preview(const QString& path){
     const auto bytes=path.toUtf8();if(QStringList{"igs","iges"}.contains(QFileInfo(path).suffix().toLower())){kernel::OcctKernel kernel;StepPreviewNode node;node.source.name=QFileInfo(path).fileName().toStdString();node.source.component_path="iges";node.mesh=kernel.import_iges(bytes.toStdString(),"preview-iges").mesh;StepPreviewData result;result.nodes.push_back(std::move(node));return result;}kernel::StepSourceDocument source(bytes.toStdString());
-    const auto nodes=interchange::inspect_step_parts(source,100000);
+    const auto nodes=interchange::inspect_step_parts(source);
     kernel::OcctKernel kernel;std::vector<kernel::StepRequest> requests;std::map<std::string,std::size_t> definitions;
     for(const auto& node:nodes)if(!node.assembly&&!definitions.contains(node.definition_id)){
         definitions[node.definition_id]=requests.size();requests.push_back({bytes.toStdString(),node.definition_id,{},{},node.definition_id});

@@ -9251,7 +9251,8 @@ std::vector<BodyResult> OcctKernel::import_step_components(
 }
 
 std::vector<FrozenStepComponent> OcctKernel::freeze_step_components(
-    const std::vector<StepRequest>& requests,const StepSourceDocument* source) const {
+    const std::vector<StepRequest>& requests,const StepSourceDocument* source,
+    bool retain_invalid) const {
     std::unordered_map<std::string, StepDocumentCache> documents;
     std::vector<FrozenStepComponent> results;
     results.reserve(requests.size());
@@ -9259,31 +9260,40 @@ std::vector<FrozenStepComponent> OcctKernel::freeze_step_components(
         const auto& request=requests[index];
         const std::string owner=request.reference_owner_id.empty()
             ? "step-import:"+std::to_string(index):request.reference_owner_id;
-        const auto data=make_step_data(request,owner,documents,source);
-        BodyResult archive;
-        persist_imported_topology(data,archive);
-        Appearance appearance;
-        appearance.body.color.clear();
-        const StepSourceDocument* color_source=source;
-        if(!color_source)
-            if(const auto found=documents.find(request.source_path);
-                    found!=documents.end())
-                color_source=found->second.get();
-        if(color_source) {
-            TDF_Label definition;
-            if(!request.component_path.empty())
-                TDF_Tool::Label(color_source->document()->GetData(),
-                    request.component_path.c_str(),definition,false);
-            if(definition.IsNull())
-                definition=XCAFDoc_DocumentTool::ShapeTool(
-                    color_source->document()->Main())->FindShape(
-                        data.shape,true);
-            appearance=imported_xcaf_appearance(color_source->document(),
-                definition,data,owner);
+        try {
+            const auto data=make_step_data(request,owner,documents,source);
+            BodyResult archive;
+            persist_imported_topology(data,archive);
+            Appearance appearance;
+            appearance.body.color.clear();
+            const StepSourceDocument* color_source=source;
+            if(!color_source)
+                if(const auto found=documents.find(request.source_path);
+                        found!=documents.end())
+                    color_source=found->second.get();
+            if(color_source) {
+                TDF_Label definition;
+                if(!request.component_path.empty())
+                    TDF_Tool::Label(color_source->document()->GetData(),
+                        request.component_path.c_str(),definition,false);
+                if(definition.IsNull())
+                    definition=XCAFDoc_DocumentTool::ShapeTool(
+                        color_source->document()->Main())->FindShape(
+                            data.shape,true);
+                appearance=imported_xcaf_appearance(color_source->document(),
+                    definition,data,owner);
+            }
+            results.push_back({archive.kernel_shape.shared_data(),
+                std::move(archive.imported_step_topology),
+                std::move(appearance),{}});
+        } catch(const std::runtime_error& error) {
+            if(!retain_invalid)throw;
+            results.push_back({{},{},{},error.what()});
+        } catch(const Standard_Failure& error) {
+            if(!retain_invalid)throw;
+            const auto* message=error.GetMessageString();
+            results.push_back({{},{},{},message?message:"OCCT STEP component failure"});
         }
-        results.push_back({archive.kernel_shape.shared_data(),
-            std::move(archive.imported_step_topology),
-            std::move(appearance)});
     }
     return results;
 }

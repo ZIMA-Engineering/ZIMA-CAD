@@ -58,6 +58,10 @@ struct FrozenStepComponent {
     std::shared_ptr<const std::string> brep;
     ImmutableVector<StepRequest::TopologyIdentity> topology;
     Appearance appearance;
+    // Set only by the tolerant assembly-import path.  A failed definition
+    // retains its vector position so callers can omit every occurrence of
+    // that definition without losing the remaining request mapping.
+    std::string error;
 };
 
 struct ImportedModel {
@@ -223,7 +227,8 @@ public:
     // history evaluation, which prepares the final viewer and properties once.
     [[nodiscard]] std::vector<FrozenStepComponent> freeze_step_components(
         const std::vector<StepRequest>& requests,
-        const StepSourceDocument* source = nullptr) const;
+        const StepSourceDocument* source = nullptr,
+        bool retain_invalid = false) const;
     [[nodiscard]] BodyResult subtract_bodies(
         const BodyResult& target,
         const BodyResult& cutter,

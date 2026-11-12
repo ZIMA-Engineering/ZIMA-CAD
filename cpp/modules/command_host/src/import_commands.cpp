@@ -152,10 +152,14 @@ void Host::register_import_commands() {
                         const auto imported=workspace::import_assembly(workspace_,doc,source,settings,[this](auto task){io(std::move(task));});
                         change_=Change{ChangeKind::Model,doc,true};
                         Json files=Json::array();for(const auto& file:imported.files)files.push_back(document::path_to_utf8(file));
+                        Json skipped=Json::array();for(const auto& part:imported.skipped_step_parts)
+                            skipped.push_back({{"definition",part.definition_id},{"name",part.name},
+                                {"reason",part.reason},{"occurrences",part.occurrences}});
                         return Result::success({{"document",doc},{"source",document::path_to_utf8(source)},
                             {"directory",document::path_to_utf8(imported.directory)},{"files",std::move(files)},
                             {"occurrence",imported.occurrence_id},{"source_document",imported.source_document_id},
                             {"parts",imported.part_ids},{"assemblies",imported.assembly_ids},{"sketch",imported.sketch_id},
+                            {"skipped_parts",std::move(skipped)},
                             {"source_entities",imported.dxf.source_entities},{"imported_entities",imported.dxf.imported_entities},
                             {"warnings",imported.dxf.warnings},{"changed",true},{"revision",workspace_.open_assembly(doc)->session.revision()}});
                     }

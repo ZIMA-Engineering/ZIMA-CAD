@@ -129,6 +129,14 @@ void AssemblyWorkspaceWindow::import_selected_file(const QString& path, std::opt
             std::filesystem::u8path(path.toStdString()),options,[](auto task){run_background_task(std::move(task));});
         refresh_tabs();refresh_scene();
         finish_status_operation(tr("Import dokončen: %1 dílů, %2 podsestav").arg(report.part_ids.size()).arg(report.assembly_ids.size()));
+        if(!report.skipped_step_parts.empty()) {
+            QStringList parts;
+            for(const auto& part:report.skipped_step_parts)
+                parts<<QString::fromStdString(part.name+" ["+part.definition_id+"]");
+            QMessageBox::information(this,tr("Upozornění importu STEP"),
+                tr("Následující neplatné STEP díly byly přeskočeny:\n%1")
+                    .arg(parts.join("\n")));
+        }
         if(!report.dxf.warnings.empty()) {
             QStringList warnings;for(const auto& warning:report.dxf.warnings)
                 if(!warnings.contains(QString::fromStdString(warning)))warnings << QString::fromStdString(warning);

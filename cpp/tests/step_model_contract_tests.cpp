@@ -336,6 +336,52 @@ int main(int argc,char** argv) {
         std::set<std::string> definitions;std::size_t leaves{};
         for(const auto& node:nodes)if(!node.assembly){++leaves;definitions.insert(node.definition_id);}
         require(leaves==5&&definitions.size()==2,"STEP lost repeated products or the hierarchy");
+        const auto valid_node=std::ranges::find_if(nodes,
+            [](const auto& node){return !node.assembly;});
+        require(valid_node!=nodes.end(),"STEP fixture has no leaf definition");
+        kernel::StepSourceDocument tolerant_source(document::path_to_utf8(source));
+        const kernel::StepRequest valid_request{document::path_to_utf8(source),
+            valid_node->definition_id,{},{},"tolerant-valid"};
+        auto missing_request=valid_request;
+        missing_request.component_path="0:999999";
+        missing_request.reference_owner_id="tolerant-invalid";
+        auto repeated_request=valid_request;
+        repeated_request.reference_owner_id="tolerant-after-invalid";
+        const auto tolerant=kernel.freeze_step_components(
+            {valid_request,missing_request,repeated_request},
+            &tolerant_source,true);
+        require(tolerant.size()==3&&tolerant[0].error.empty()&&
+                tolerant[0].brep&&!tolerant[0].brep->empty()&&
+                !tolerant[1].error.empty()&&!tolerant[1].brep&&
+                tolerant[2].error.empty()&&tolerant[2].brep&&
+                !tolerant[2].brep->empty(),
+            "Tolerant STEP capture did not isolate an invalid definition");
+        bool strict_definition=false;
+        try {static_cast<void>(kernel.freeze_step_components(
+            {missing_request},&tolerant_source));}
+        catch(const std::runtime_error&) {strict_definition=true;}
+        require(strict_definition,
+            "Ordinary STEP capture silently accepted an invalid definition");
+        kernel::StepProduct repeated;repeated.definition_id="large-root";
+        repeated.name="Large repeated assembly";repeated.children.reserve(1001);
+        for(std::size_t index=0;index<1001;++index) {
+            auto instance=a;instance.name="Repeated "+std::to_string(index+1);
+            instance.translation={static_cast<double>(index),0,0};
+            repeated.children.push_back(std::move(instance));
+        }
+        const auto repeated_source=directory/"large-repeated.step";
+        kernel.export_step(repeated,repeated_source.string());
+        const auto repeated_nodes=interchange::inspect_step_parts(repeated_source);
+        std::set<std::string> repeated_definitions;std::size_t repeated_leaves{};
+        for(const auto& node:repeated_nodes)if(!node.assembly) {
+            ++repeated_leaves;repeated_definitions.insert(node.definition_id);
+        }
+        require(repeated_leaves==1001&&repeated_definitions.size()==1,
+            "Large STEP repeated definitions were rejected or duplicated");
+        bool bounded=false;
+        try {static_cast<void>(interchange::inspect_step_parts(repeated_source,1000));}
+        catch(const std::runtime_error&) {bounded=true;}
+        require(bounded,"Explicit STEP product-node safety bound was ignored");
         for(const auto& node:nodes)if(!node.assembly) {
             check_freeze_preparation(kernel,{document::path_to_utf8(source),node.definition_id,{},{},"freeze-proof"});
             break;
