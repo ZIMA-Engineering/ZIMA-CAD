@@ -31,6 +31,7 @@
 #include <TopExp_Explorer.hxx>
 #include <TopTools_IndexedDataMapOfShapeListOfShape.hxx>
 #include <TopTools_IndexedMapOfShape.hxx>
+#include <TopTools_ListOfShape.hxx>
 #include <TopoDS.hxx>
 
 #include <algorithm>
@@ -240,7 +241,6 @@ void verify_node(const TopoDS_Shape& input,
     const auto custom=zima::kernel::occt_planar_edge_fillet(
         input,edges,radius,1.0e-7,{},
         zima::kernel::OcctPlanarEdgeFilletEndMode::Perpendicular,routes);
-    const auto reference=reference_fillet(input,edges,radius);
     require(custom.history&&
             BRepCheck_Analyzer(custom.shape,true,true,false).IsValid()&&
             custom.fillet_faces.size()==edges.size()&&
@@ -271,10 +271,63 @@ void verify_node(const TopoDS_Shape& input,
         "ZIMA Fillet node volume depends on selection order");
     near(area(reversed.shape),area(custom.shape),
         "ZIMA Fillet node area depends on selection order");
-    near(volume(custom.shape),volume(reference),
-        "ZIMA Fillet node volume differs from OCCT");
-    near(area(custom.shape),area(reference),
-        "ZIMA Fillet node area differs from OCCT");
+    if(edges.size()==2) {
+        TopTools_ListOfShape arguments,tools;
+        arguments.Append(input);
+        for(const auto& domain:custom.removal_domains)
+            tools.Append(domain);
+        TopoDS_Shape direct;
+        if(volume(custom.shape)<volume(input)) {
+            BRepAlgoAPI_Cut operation;
+            operation.SetArguments(arguments);operation.SetTools(tools);
+            operation.SetNonDestructive(true);operation.SetRunParallel(false);
+            operation.Build();
+            require(operation.IsDone()&&!operation.Shape().IsNull(),
+                "Direct two-route Fillet CUT failed");
+            direct=operation.Shape();
+        } else {
+            BRepAlgoAPI_Fuse operation;
+            operation.SetArguments(arguments);operation.SetTools(tools);
+            operation.SetNonDestructive(true);operation.SetRunParallel(false);
+            operation.Build();
+            require(operation.IsDone()&&!operation.Shape().IsNull(),
+                "Direct two-route Fillet FUSE failed");
+            direct=operation.Shape();
+        }
+        require(BRepCheck_Analyzer(direct,true,true,false).IsValid(),
+            "Direct two-route Fillet reference is invalid");
+        near(volume(custom.shape),volume(direct),
+            "Two-route Fillet added an unselected node connector");
+        near(area(custom.shape),area(direct),
+            "Two-route Fillet changed an analytical route end");
+        BRepAlgoAPI_Common overlap(custom.removal_domains[0],
+            custom.removal_domains[1]);
+        overlap.Build();
+        require(overlap.IsDone(),
+            "Two-route Fillet domains could not be intersected");
+        if(volume(overlap.Shape())<=1.0e-9)
+            for(const auto& faces:custom.fillet_faces) {
+                bool exact_end{};
+                for(const auto& face:faces) {
+                    if(BRepAdaptor_Surface(face,true).GetType()!=
+                            GeomAbs_Cylinder)continue;
+                    std::size_t circles{};
+                    for(TopExp_Explorer boundary(face,TopAbs_EDGE);
+                            boundary.More();boundary.Next())
+                        circles+=BRepAdaptor_Curve(TopoDS::Edge(
+                            boundary.Current())).GetType()==GeomAbs_Circle;
+                    exact_end|=circles>=2;
+                }
+                require(exact_end,
+                    "Separated two-route Fillet lost a circular end section");
+            }
+    } else {
+        const auto reference=reference_fillet(input,edges,radius);
+        near(volume(custom.shape),volume(reference),
+            "ZIMA Fillet node volume differs from OCCT");
+        near(area(custom.shape),area(reference),
+            "ZIMA Fillet node area differs from OCCT");
+    }
 }
 
 TopoDS_Shape reference_fillet(const TopoDS_Shape& input,

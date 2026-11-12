@@ -173,73 +173,6 @@ NodeConnector make_fillet_corner_connector(
     return {connector.Shape(),center,std::move(jobs),adds_material};
 }
 
-NodeConnector make_step_fillet_connector(const TopoDS_Vertex& vertex,
-        gp_Dir first_branch,gp_Dir second_branch,gp_Dir third_branch,
-        double radius,double tolerance,std::vector<std::size_t> jobs,
-        bool adds_material) {
-    for(const auto pair:std::array{
-            std::pair{first_branch,second_branch},
-            std::pair{first_branch,third_branch},
-            std::pair{second_branch,third_branch}})
-        if(std::abs(pair.first.Dot(pair.second))>1.0e-7)
-            throw std::invalid_argument(
-                "ZIMA Fillet requires an orthogonal step node");
-    first_branch.Reverse();
-    second_branch.Reverse();
-    std::array axes{first_branch,second_branch,third_branch};
-    if(gp_Vec(axes[0]).Crossed(gp_Vec(axes[1])).Dot(
-            gp_Vec(axes[2]))<0.)
-        std::swap(axes[1],axes[2]);
-    const auto origin=BRep_Tool::Pnt(vertex);
-    BRepPrimAPI_MakeBox corner(gp_Ax2(origin,axes[2],axes[0]),
-        radius,radius,radius);
-    const auto cylinder=[&](const gp_Dir& axis,const gp_Dir& first_offset,
-            const gp_Dir& second_offset) {
-        const auto center=origin.Translated(radius*(
-            gp_Vec(first_offset)+gp_Vec(second_offset)));
-        return BRepPrimAPI_MakeCylinder(gp_Ax2(center,axis),radius,
-            radius).Shape();
-    };
-    const auto first_cylinder=cylinder(first_branch,second_branch,
-        third_branch);
-    const auto second_cylinder=cylinder(second_branch,first_branch,
-        third_branch);
-    BRepAlgoAPI_Cut first_cut(corner.Shape(),first_cylinder);
-    first_cut.SetNonDestructive(true);first_cut.SetRunParallel(false);
-    first_cut.SetFuzzyValue(tolerance);first_cut.Build();
-    if(!first_cut.IsDone()||first_cut.Shape().IsNull())
-        throw std::runtime_error(
-            "ZIMA Fillet could not construct its step-node domain");
-    BRepAlgoAPI_Cut second_cut(first_cut.Shape(),second_cylinder);
-    second_cut.SetNonDestructive(true);second_cut.SetRunParallel(false);
-    second_cut.SetFuzzyValue(tolerance);second_cut.Build();
-    if(!second_cut.IsDone()||second_cut.Shape().IsNull()||
-            !BRepCheck_Analyzer(second_cut.Shape()).IsValid())
-        throw std::runtime_error(
-            "ZIMA Fillet could not construct a valid step-node connector");
-    return {second_cut.Shape(),std::nullopt,std::move(jobs),
-        adds_material};
-}
-
-int fillet_material_octants(const TopoDS_Solid& material,
-        const gp_Pnt& origin,const std::array<gp_Dir,3>& directions,
-        double probe,double tolerance) {
-    int inside{};
-    for(const int first:{-1,1})for(const int second:{-1,1})
-        for(const int third:{-1,1}) {
-            const auto point=origin.Translated(probe*(
-                first*gp_Vec(directions[0])+
-                second*gp_Vec(directions[1])+
-                third*gp_Vec(directions[2])));
-            BRepClass3d_SolidClassifier classifier(material,point,tolerance);
-            if(classifier.State()==TopAbs_IN)++inside;
-            else if(classifier.State()!=TopAbs_OUT)
-                throw std::invalid_argument(
-                    "ZIMA Fillet could not classify a step node");
-        }
-    return inside;
-}
-
 EdgePath edge_path(const TopoDS_Edge& edge,double tolerance) {
     const BRepAdaptor_Curve curve(edge);
     EdgePath result;
@@ -2930,36 +2863,11 @@ OcctPlanarEdgeFilletResult occt_planar_edge_fillet(
                 }))
                 throw std::invalid_argument(
                     "ZIMA Fillet node spans more than one material solid");
-            std::vector<TopoDS_Edge> unselected;
-            for(TopExp_Explorer item(material,TopAbs_EDGE);
-                    item.More();item.Next()) {
-                const auto edge=TopoDS::Edge(item.Current());
-                TopTools_IndexedMapOfShape vertices;
-                TopExp::MapShapes(edge,TopAbs_VERTEX,vertices);
-                if(!vertices.Contains(node.vertex)||
-                        std::ranges::any_of(node.jobs,
-                            [&](const auto job) {
-                                return jobs[job].edge.IsSame(edge);
-                            }))continue;
-                if(std::ranges::none_of(unselected,
-                        [&](const auto& current) {
-                            return current.IsSame(edge);
-                        }))unselected.push_back(edge);
-            }
-            if(unselected.size()==1) {
-                const auto third=node_outgoing_tangent(unselected.front(),
-                    node.vertex,tolerance);
-                const std::array branches{directions[0],directions[1],third};
-                const int occupied=fillet_material_octants(material,
-                    BRep_Tool::Pnt(node.vertex),branches,
-                    std::max(100.*tolerance,radius*.05),tolerance);
-                if((adds_material&&occupied==5)||
-                        (!adds_material&&occupied==3)) {
-                    node_connectors.push_back(make_step_fillet_connector(
-                        node.vertex,directions[0],directions[1],third,
-                        radius,tolerance,node.jobs,adds_material));
-                }
-            }
+            // Two independent routes retain their own exact circular end
+            // sections at the shared node.  Do not invent a third connector:
+            // it creates a planar tongue that belongs to neither selected
+            // Fillet and makes the calculated Body disagree with the
+            // lightweight analytical preview.
         }
     }
     OcctPlanarEdgeFilletResult result;
@@ -3019,10 +2927,10 @@ OcctPlanarEdgeFilletResult occt_planar_edge_fillet(
     // Three rolling bands leave the trihedral node corner outside their
     // pairwise cylindrical domains. Its exact connector is the local
     // radius-sized corner box minus the sphere centred one radius along all
-    // three outgoing branches. A two-branch step uses the same local box
-    // minus both perpendicular rolling cylinders. Applying either connector
-    // after the bands works identically as a signed CUT for an outer node and
-    // a signed FUSE for an inner node.
+    // three outgoing branches. Applying that connector after the bands works
+    // identically as a signed CUT for an outer node and a signed FUSE for an
+    // inner node. Two independent routes deliberately keep their exact
+    // circular ends and therefore have no connector here.
     for(const auto& connector:node_connectors) {
         NCollection_List<TopoDS_Shape> arguments,tools;
         arguments.Append(current);tools.Append(connector.solid);

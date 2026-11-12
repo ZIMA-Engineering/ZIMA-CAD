@@ -366,6 +366,74 @@ void rolling_edge_treatment_preview() {
         "Rolling-support preview fell back to the old tangent-line cage");
     std::cout<<"Rolling-support Fillet preview: calculated plane/circle sections and exact lightweight boundary contacts passed\n";
 }
+void independent_fillet_node_preview() {
+    using Vec3=kernel::Vec3;
+    kernel::ViewerEdge first,second;
+    first.reference={"node-preview","first",{}};
+    first.points={{0,0,0},{20,0,0}};
+    first.edge_treatment_side_directions={
+        std::vector<Vec3>{{0,-1,0},{0,-1,0}},
+        std::vector<Vec3>{{0,0,1},{0,0,1}}};
+    second.reference={"node-preview","second",{}};
+    second.points={{0,0,0},{0,20,0}};
+    second.edge_treatment_side_directions={
+        std::vector<Vec3>{{-1,0,0},{-1,0,0}},
+        std::vector<Vec3>{{0,0,1},{0,0,1}}};
+    document::EdgeTreatmentParameters parameters;
+    parameters.primary_size=2.;
+    const auto preview=app::workspace_detail::edge_treatment_preview_wire(
+        {{{first}},{{second}}},parameters,document::FeatureKind::Fillet,
+        "node-preview",nullptr);
+    require(preview.edges.size()==8,
+        "Independent Fillet-node preview invented or omitted a connector");
+    const auto& first_end=preview.edges[2];
+    const auto& second_end=preview.edges[6];
+    const auto shared_distance=std::hypot(std::hypot(
+        first_end.points.back().x-second_end.points.back().x,
+        first_end.points.back().y-second_end.points.back().y),
+        first_end.points.back().z-second_end.points.back().z);
+    require(first_end.points.size()>2&&second_end.points.size()>2&&
+            shared_distance<1.0e-9,
+        "Independent Fillet-node preview lost its shared circular endpoint");
+    for(const auto& point:first_end.points)
+        require(std::abs(point.x)<1.0e-9&&
+                std::abs(std::hypot(point.y+2.,point.z-2.)-2.)<1.0e-9,
+            "First Fillet-node preview end is not its exact circular arc");
+    for(const auto& point:second_end.points)
+        require(std::abs(point.y)<1.0e-9&&
+                std::abs(std::hypot(point.x+2.,point.z-2.)-2.)<1.0e-9,
+            "Second Fillet-node preview end is not its exact circular arc");
+    first.edge_treatment_side_directions[0]=
+        std::vector<Vec3>{{0,1,0},{0,1,0}};
+    second.edge_treatment_side_directions[0]=
+        std::vector<Vec3>{{1,0,0},{1,0,0}};
+    const auto intersecting=app::workspace_detail::
+        edge_treatment_preview_wire({{{first}},{{second}}},parameters,
+            document::FeatureKind::Fillet,"node-preview",nullptr);
+    require(intersecting.edges.size()==7&&
+            intersecting.edges.back().points.size()>2,
+        "Intersecting Fillet-node preview did not replace two end arcs with one intersection");
+    const auto& intersection=intersecting.edges.back().points;
+    const auto node_distance=[](const Vec3& point) {
+        return std::hypot(std::hypot(point.x,point.y),point.z-2.);
+    };
+    const auto rail_distance=[](const Vec3& point) {
+        return std::hypot(std::hypot(point.x-2.,point.y-2.),point.z);
+    };
+    require((node_distance(intersection.front())<1.0e-8&&
+                rail_distance(intersection.back())<1.0e-8)||
+            (node_distance(intersection.back())<1.0e-8&&
+                rail_distance(intersection.front())<1.0e-8),
+        "Intersecting Fillet-node preview ends do not match its two cylinders");
+    for(const auto& point:intersection)
+        require(std::abs(point.x-point.y)<1.0e-8&&
+                std::abs(std::pow(point.y-2.,2)+
+                    std::pow(point.z-2.,2)-4.)<1.0e-7&&
+                std::abs(std::pow(point.x-2.,2)+
+                    std::pow(point.z-2.,2)-4.)<1.0e-7,
+            "Fillet-node preview intersection is not on both analytical cylinders");
+    std::cout<<"Independent Fillet node preview: separated circular ends and intersecting-cylinder trim passed\n";
+}
 void revolution_matrix(const kernel::OcctKernel& engine) {
     unsigned cases{};
     for(auto plane:{sketcher::SketchPlane::XY,sketcher::SketchPlane::XZ})
@@ -544,7 +612,7 @@ int main(int argc,char** argv) {
         if(const auto* file=std::getenv("ZIMA_SKETCH_WIRE_REVIEW_FILE")){actual_sketch_wire(std::filesystem::u8path(file));return 0;}
         kernel::OcctKernel engine;line_bend_wire(engine);
         planar_surface_wire_and_cues(engine);rectangular_matrix(engine);
-        rolling_edge_treatment_preview();
+        rolling_edge_treatment_preview();independent_fillet_node_preview();
         revolution_matrix(engine);rounded_profile_matrix(engine);
         if(const auto* file=std::getenv("ZIMA_THIN_REVIEW_FILE"))review_fillets(engine,std::filesystem::u8path(file));
         return 0;}
