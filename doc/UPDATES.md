@@ -1,5 +1,18 @@
 # Application updates
 
+Signed Windows [2026111202](releases/2026111202.md#windows-publication-acceptance)
+was published at `2026-11-12T15:54:56Z` from immutable source
+`bc7a94171e5ea3b1cf7e328c4e43b9fa7ea8d8a5`. It adds Planar Surface from
+Sketch, robust partial STEP assembly import and the unambiguous centred Line
+Bend workflow. The completed Fillet correction fully discards an auxiliary
+tail when a local planar terminal is tangent to the authored route endpoint,
+while retaining extensions for oblique, remote and curved terminals. The
+reported `RADIUS.prtz` copy recalculates without errors and reads back exactly.
+Candidate and signed Windows smoke, all 1,185 factory assets, production trust,
+GitHub digests and fresh anonymous public downloads pass. Native Linux execution
+remains a separate gate. See the
+[publication evidence](verification/20261112-windows-1202-publication.json).
+
 Signed Windows [2026111104](releases/2026111104.md#windows-publication-acceptance)
 was published at `2026-11-11T22:38:13Z` from immutable source
 `56581a3fa3540e1e21b548d0e021344c30a16aca`. It corrects Sheet Profile Properties layout and
