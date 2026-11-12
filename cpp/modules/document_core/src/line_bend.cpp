@@ -50,7 +50,7 @@ Resolved resolve(const HistoryContainer& feature,const sketcher::Sketch& sketch,
     if(!std::isfinite(parameters.radius)||parameters.radius<=0||
             parameters.radius>1000000||
             !std::isfinite(parameters.angle_degrees)||
-            parameters.angle_degrees<=0||parameters.angle_degrees>=360||
+            parameters.angle_degrees<0||parameters.angle_degrees>180||
             !std::isfinite(thickness)||thickness<.001||thickness>1000000||
             !std::isfinite(k_factor)||k_factor<0||k_factor>1||
             (parameters.fixed_side!=1&&parameters.fixed_side!=-1))
@@ -64,9 +64,10 @@ Resolved resolve(const HistoryContainer& feature,const sketcher::Sketch& sketch,
     // persisted segment direction. The material tangent always points from
     // the fixed region into the moving region.
     const V tangent=scale(left,-parameters.fixed_side);
-    const V radial=scale(normal,parameters.reverse?-1:1);
-    const double radius=parameters.reverse?parameters.radius:
-        parameters.radius+thickness;
+    // The Sketch plane side is the single authored bend direction. The
+    // segment direction and fixed_side select which sheet region moves.
+    const V radial=scale(normal,-1);
+    const double radius=parameters.radius;
     kernel::LineBendRequest request;
     request.along=along;request.tangent=tangent;
     request.radial=radial;request.along_min=0;
@@ -112,9 +113,7 @@ kernel::ViewerMesh line_bend_preview(const HistoryContainer& feature,
     const double material_length=after.angle*after.neutral_radius;
     const auto map=[&](V point) {
         auto coordinate=kernel::sheet_material::coordinates(before,point);
-        if(coordinate.along<resolved.request.along_min-1e-8||
-                coordinate.along>resolved.request.along_max+1e-8||
-                coordinate.length<-1e-8)
+        if(coordinate.length<-1e-8)
             return point;
         coordinate.continuation=coordinate.length>material_length+1e-8;
         return kernel::sheet_material::point(after,coordinate);
@@ -144,8 +143,6 @@ kernel::ViewerMesh line_bend_preview(const HistoryContainer& feature,
                 if(station>1e-9&&station<1-1e-9)
                     stations.push_back(station);
             };
-            split(c0.along,c1.along,resolved.request.along_min);
-            split(c0.along,c1.along,resolved.request.along_max);
             split(c0.length,c1.length,0);
             split(c0.length,c1.length,material_length);
             for(int sample=1;sample<samples;++sample)
@@ -187,6 +184,24 @@ kernel::ViewerMesh line_bend_preview(const HistoryContainer& feature,
         resolved.request.along_min+2;
     axis.reference={feature.id,"line-bend:axis",{}};
     result.axes.push_back(std::move(axis));
+    const V center=result.axes.back().point;
+    const double dimension_radius=resolved.request.radius+
+        resolved.request.thickness+std::max(5.,resolved.request.thickness*2);
+    const V start=add(center,scale(resolved.request.radial,dimension_radius));
+    const double sine=std::sin(resolved.request.angle);
+    const double cosine=std::cos(resolved.request.angle);
+    const V end=add(center,scale(add(
+        scale(resolved.request.radial,cosine),
+        scale(resolved.request.tangent,sine)),dimension_radius));
+    kernel::ViewerDimension angle{center,center,start,end,
+        feature.line_bend.angle_degrees,
+        {feature.id,"parameter:angle",{}},"","°"};
+    angle.kind=kernel::ViewerDimensionKind::Angular;
+    angle.plane_normal=unit(cross(resolved.request.radial,
+        resolved.request.tangent));
+    angle.sweep_degrees=feature.line_bend.angle_degrees;
+    angle.value_lock_key="angle";
+    result.dimensions.push_back(std::move(angle));
     return result;
 }
 }

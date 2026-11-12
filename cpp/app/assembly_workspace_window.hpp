@@ -965,7 +965,7 @@ private:
     void show_sketch_properties(const std::string& sketch_id = {},
         bool holes_mode = false, bool bend_mode = false,
         bool flat_mode = false, bool sheet_profile_mode = false,
-        bool line_bend_mode = false);
+        bool line_bend_mode = false, bool planar_surface_mode = false);
     void show_sweep_profile_sketch(
         ConstructionPropertiesDialog* sweep_dialog,
         std::size_t profile_index);

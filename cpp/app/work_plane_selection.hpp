@@ -5,7 +5,9 @@
 #include <QComboBox>
 #include <QHeaderView>
 #include <QHBoxLayout>
+#include <QPushButton>
 #include <QSignalBlocker>
+#include <QSizePolicy>
 #include <QTableWidget>
 #include <QToolButton>
 #include <QWidget>
@@ -114,5 +116,18 @@ inline QWidget* compact_work_plane_selector(QComboBox* combo,
         selector,[combo](int){sync_compact_work_plane_selector(combo);});
     sync_compact_work_plane_selector(combo);
     return selector;
+}
+
+// Sketch-owned modeling commands share one compact work-plane row: plane
+// presets, the View reference field and finally the button opening Sketcher.
+inline void place_sketch_button_beside_work_plane(QWidget* plane_selector,
+        QPushButton* sketch_button) {
+    if(!plane_selector||!sketch_button)return;
+    auto* plane_row=qobject_cast<QHBoxLayout*>(plane_selector->layout());
+    if(!plane_row)return;
+    sketch_button->setFixedHeight(30);
+    sketch_button->setMinimumWidth(92);
+    sketch_button->setSizePolicy(QSizePolicy::Fixed,QSizePolicy::Fixed);
+    plane_row->addWidget(sketch_button);
 }
 }

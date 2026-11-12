@@ -769,7 +769,7 @@ struct BendParameters {
 
 // Deforms an already calculated planar sheet around one ordinary Sketch
 // segment. The segment direction and fixed_side retain the two independently
-// authored side choices; reverse selects the physical bend side.
+// authored side choices. The Sketch plane side is the physical bend side.
 struct LineBendParameters {
     std::string sketch_id;
     std::string segment_id;
@@ -780,7 +780,6 @@ struct LineBendParameters {
     bool thickness_override{};
     bool k_factor_override{};
     int fixed_side{1};
-    bool reverse{};
     bool operator==(const LineBendParameters&) const = default;
 };
 

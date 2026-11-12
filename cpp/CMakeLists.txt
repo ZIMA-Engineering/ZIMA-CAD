@@ -2661,6 +2661,12 @@ if(ZIMA_BUILD_TESTS)
     set_tests_properties(zima_cpp_boundary_surface_ui_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_BOUNDARY_SURFACE_ONLY=1"
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 120 RUN_SERIAL TRUE)
+    file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/planar-surface-ui-contract")
+    add_test(NAME zima_cpp_planar_surface_ui_contract COMMAND zima-cad-cpp --verify-startup
+        --working-directory "${CMAKE_BINARY_DIR}/planar-surface-ui-contract")
+    set_tests_properties(zima_cpp_planar_surface_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_PLANAR_SURFACE_ONLY=1"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 120 RUN_SERIAL TRUE)
     add_executable(zima_cpp_boundary_surface_dialog_tests tests/boundary_surface_dialog_tests.cpp)
     file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/loft-ui-contract")
     add_test(NAME zima_cpp_loft_ui_contract COMMAND zima-cad-cpp --verify-startup

@@ -158,7 +158,12 @@ int verify_new_document_options(QApplication& application) {
             check(window.findChild<QAction*>("sketchAction")->isEnabled()&&window.findChild<QAction*>("featurePrototypeAction")->isEnabled(),
                   "Part start template must activate its Body and enable normal modeling commands");
             check(window.findChild<QToolButton*>("modelingModeButton")->isChecked(),"Modeling selection was ignored");
+            auto* surface_mode=window.findChild<QToolButton*>("surfaceModeButton");
+            check(surface_mode&&surface_mode->isEnabled(),"New Part template must enable the Surface workspace for its active Body");
+            surface_mode->click();flush();
+            check(window.findChild<QAction*>("planarSurfaceAction")&&window.findChild<QAction*>("planarSurfaceAction")->isEnabled(),"New Part template must enable Planar Surface in its active Body");
             check(window.findChild<QAction*>("surfaceThickenAction")&&window.findChild<QAction*>("surfaceThickenAction")->isEnabled(),"New Part template must enable Thicken Surface in its active Body");
+            window.findChild<QToolButton*>("modelingModeButton")->click();flush();
             const auto model=document::PartDocument::load(std::filesystem::u8path(directory.filePath("model.prtz").toStdString()));
             check(model.document_units.at("Length")==length.toStdString()&&model.document_units.at("Angle")=="rad","New document ignored configured units in favor of template units");
             check(model.history.empty()&&model.body_history.bodies().size()==1&&!model.body_history.active_body_id().empty(),"New Part template context changed");

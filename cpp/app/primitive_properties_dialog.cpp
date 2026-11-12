@@ -1231,7 +1231,10 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
         own_sketch_button_->setObjectName("primitiveOwnSketchButton");
         own_sketch_button_->setMinimumHeight(40);
         style_sketch_button(own_sketch_button_);
-        form->addRow(own_sketch_button_);
+        if(initial.extrusion.sheet_cut)
+            place_sketch_button_beside_work_plane(
+                profile_plane_selector_,own_sketch_button_);
+        else form->addRow(own_sketch_button_);
         connect(own_sketch_button_, &QPushButton::clicked, this, [this] {
             auto pending = values();
             accept();
@@ -1946,14 +1949,27 @@ void PrimitivePropertiesDialog::set_edge_groups(std::vector<EdgeGroup> groups) {
 
 void PrimitivePropertiesDialog::set_edge_groups(std::vector<EdgeGroup> groups,
         std::vector<std::vector<zima::kernel::ViewerEdge>> displayed_fragments) {
+    const auto previous_groups=initial_.edge_treatment.routes;
+    const auto previous_end_faces=initial_.edge_treatment.route_end_faces;
     edge_groups_ = std::move(groups);
     edge_display_fragments_=std::move(displayed_fragments);
     edge_display_fragments_.resize(edge_groups_.size());
     initial_.edge_treatment.routes = edge_groups_;
-    // Terminal material profiles are solver-owned. Keep only empty reserved
-    // persistence slots until the next agreed native-format revision; no
-    // dialog or command can author a manual terminal face.
+    // Properties does not currently author terminal-face choices, but it must
+    // preserve an exact persisted choice for an unchanged route. A route edit
+    // changes its endpoint contract and therefore clears only that route's
+    // terminal choice instead of silently discarding all existing choices.
     initial_.edge_treatment.route_end_faces.assign(edge_groups_.size(),{});
+    for(std::size_t index=0;index<edge_groups_.size();++index) {
+        const auto previous=std::ranges::find(previous_groups,
+            edge_groups_[index]);
+        if(previous==previous_groups.end())continue;
+        const auto previous_index=static_cast<std::size_t>(
+            previous-previous_groups.begin());
+        if(previous_index<previous_end_faces.size())
+            initial_.edge_treatment.route_end_faces[index]=
+                previous_end_faces[previous_index];
+    }
     if (edge_list_ == nullptr) return;
     edge_list_->clear();
     if(treatment_method_occt_) {

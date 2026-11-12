@@ -103,9 +103,16 @@ struct FeatureParameters {
         } else if(type!=FeatureType::Modeling) value.operation=FeatureSideOperation::None;
         return value;
     }
+    [[nodiscard]] bool planar_surface() const {
+        return type==FeatureType::Modeling &&
+            result_type==ProfileResultType::Surface &&
+            effective_side(0).operation==FeatureSideOperation::None &&
+            effective_side(1).operation==FeatureSideOperation::None;
+    }
     [[nodiscard]] bool sketch_only() const {
         return type!=FeatureType::Modeling ||
-            (effective_side(0).operation==FeatureSideOperation::None &&
+            (!planar_surface() &&
+             effective_side(0).operation==FeatureSideOperation::None &&
              effective_side(1).operation==FeatureSideOperation::None);
     }
     [[nodiscard]] bool shows_sketch() const {

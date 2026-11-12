@@ -264,6 +264,7 @@ Q_NEVER_INLINE static int verify_sketch_roles(QApplication& application, Assembl
 #include "feature_selection_ui_verification.inc"
 #include "feature_side_reversal_ui_verification.inc"
 #include "boundary_surface_ui_verification.inc"
+#include "planar_surface_ui_verification.inc"
 #include "sheet_cut_skin_ui_verification.inc"
 #include "surface_wire_visibility_ui_verification.inc"
 #include "general_surface_ui_verification.inc"

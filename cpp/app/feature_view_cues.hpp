@@ -1,5 +1,6 @@
 #pragma once
 #include <zima/document/feature_direction.hpp>
+#include "feature_view_cue_policy.hpp"
 #include "workspace/workspace_internal.hpp"
 #include <zima/kernel/dimension_layout.hpp>
 #include <zima/kernel/feature_rotation_direction.hpp>
@@ -24,7 +25,7 @@ inline FeatureViewCues feature_view_cues(const document::HistoryContainer& featu
     const auto start=sketch.resolved_origin,normal=sketch.resolved_normal;
     const auto add=[](kernel::Vec3 a,kernel::Vec3 b){return kernel::Vec3{a.x+b.x,a.y+b.y,a.z+b.z};};
     const auto scale=[](kernel::Vec3 a,double b){return kernel::Vec3{a.x*b,a.y*b,a.z*b};};
-    if(p.type==document::FeatureType::Axis||p.type==document::FeatureType::Modeling) {
+    if(shows_feature_direction_label(p)) {
         kernel::ViewerDimension direction;
         direction.reference={feature.id,"parameter:direction",{}};
         direction.value=document::feature_direction(p);direction.label_only=true;direction.unit_suffix="";

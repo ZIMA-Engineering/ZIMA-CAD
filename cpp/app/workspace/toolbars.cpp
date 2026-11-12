@@ -392,6 +392,10 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
                 modeling_part->session.document().body_history.active_body_id()):nullptr;
         add_command(selection_action_);
         add_group_separator();
+        auto* planar=findChild<QAction*>("planarSurfaceAction");
+        if(!planar){planar=new QAction(resource_icon("boundary-surface"),tr("Planární plocha"),this);
+            planar->setObjectName("planarSurfaceAction");connect(planar,&QAction::triggered,this,[this]{show_sketch_properties({},false,false,false,false,false,true);});}
+        planar->setEnabled(boundary_body&&!boundary_body->derived_copy&&!properties_dialog_);add_command(planar);
         auto* general=findChild<QAction*>("generalSurfaceAction");
         if(!general){general=new QAction(resource_icon("boundary-surface"),tr("Obecná plocha"),this);
             general->setObjectName("generalSurfaceAction");connect(general,&QAction::triggered,this,[this]{show_sweep_properties(zima::document::FeatureKind::GeneralSurface,{});});}

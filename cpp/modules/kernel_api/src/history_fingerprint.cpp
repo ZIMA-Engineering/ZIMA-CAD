@@ -184,6 +184,8 @@ std::string encode_history_fingerprint(
                     for(unsigned char c:std::string_view("sheet-cut-rim-ancestry-v1"))byte(c);
                 if(primitive.sheet_cut)u64(std::bit_cast<std::uint64_t>(primitive.sheet_cut_tolerance));
                 if(primitive.surface_result) {byte(0xf1);for(const auto c:primitive.open_profile_end_id)byte(c);}
+                if(primitive.planar_profile)
+                    for(const unsigned char c:std::string_view("planar-profile-v1"))byte(c);
                 // Exact profile bounds reject an inclined plane crossing away from seam vertices.
                 if (primitive.extent == ExtrusionRequest::Extent::UpToPlane) byte(2);
                 if (primitive.extent == ExtrusionRequest::Extent::UpToPlane ||

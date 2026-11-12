@@ -800,18 +800,55 @@ int verify_line_bend_ui(QApplication& application,
         check(plane_offset&&!plane_offset->isVisible()&&
                 std::abs(plane_offset->value())<1e-12,
             "Line Bend exposes or retains a redundant Sketch plane offset");
+        auto* sketch_button=dialog->findChild<QPushButton*>(
+            "sketchOpenButton");
+        auto* plane_selector=dialog->findChild<QWidget*>(
+            "sketchPlaneSelector");
+        auto* plane_view=dialog->findChild<QTableWidget*>(
+            "sketchPlaneView");
+        const auto mapped=[&](const QWidget* widget) {
+            return QRect(widget->mapTo(dialog,QPoint{}),widget->size());
+        };
+        check(sketch_button&&plane_selector&&plane_view&&
+                sketch_button->parentWidget()==plane_selector&&
+                mapped(plane_view).right()<mapped(sketch_button).left(),
+            "Line Bend Sketch button is not after the View work-plane field");
         const auto draft=dialog->pending_value().first;
         check(dialog->mutate_sketch(draft.id,[](auto& sketch) {
             static_cast<void>(sketch.add_segment(-50,0,50,0));
         }),"Line Bend draft could not accept its bend line");
+        auto* view=dynamic_cast<viewer::MeshView*>(
+            window.findChild<QOpenGLWidget*>());
+        check(view&&!view->transient_edges().empty(),
+            "Line Bend did not preview its completed bend line");
+        sketch_button->click();flush();
+        auto* finish_sketch=window.findChild<QAction*>("finishSketchAction");
+        check(finish_sketch&&finish_sketch->isEnabled(),
+            "Line Bend could not enter its owned Sketch");
+        finish_sketch->trigger();flush();
+        dialog=dynamic_cast<app::SketchPropertiesDialog*>(
+            window.findChild<QDialog*>("lineBendPropertiesDialog"));
+        check(dialog&&dialog->isVisible()&&!view->transient_edges().empty(),
+            "Line Bend lost its cyan preview after returning from Sketcher");
+        check(std::ranges::any_of(view->mesh().dimensions,
+                [&](const auto& dimension) {
+                    return dimension.reference.owner_id==
+                            draft.owner_container_id&&
+                        dimension.reference.semantic_key==
+                            "parameter:angle"&&
+                        dimension.kind==
+                            kernel::ViewerDimensionKind::Angular;
+                }),"Line Bend preview does not show its bend angle");
         auto* radius=dialog->findChild<QDoubleSpinBox*>("lineBendRadius");
         auto* angle=dialog->findChild<QDoubleSpinBox*>("lineBendAngle");
         auto* fixed=dialog->findChild<QComboBox*>("lineBendFixedSide");
-        auto* reverse=dialog->findChild<QCheckBox*>("lineBendReverse");
-        check(radius&&angle&&fixed&&reverse,
+        check(radius&&angle&&fixed&&
+                !dialog->findChild<QCheckBox*>("lineBendReverse"),
             "Line Bend parameter controls are incomplete");
+        angle->setValue(0);check(std::abs(angle->value())<1e-12,
+            "Line Bend does not accept the zero-degree state");
         radius->setValue(6);angle->setValue(75);
-        fixed->setCurrentIndex(fixed->findData(-1));reverse->setChecked(true);
+        fixed->setCurrentIndex(fixed->findData(-1));
         dialog->buttons()->button(QDialogButtonBox::Ok)->click();flush();
         check(!window.findChild<QDialog*>("lineBendPropertiesDialog"),
             "Line Bend OK did not close Properties");
@@ -826,11 +863,9 @@ int verify_line_bend_ui(QApplication& application,
             });
         check(bend!=saved.history.end()&&bend->line_bend.radius==6&&
                 bend->line_bend.angle_degrees==75&&
-                bend->line_bend.fixed_side==-1&&bend->line_bend.reverse&&
+                bend->line_bend.fixed_side==-1&&
                 !bend->line_bend.segment_id.empty(),
             "Line Bend parameters did not persist");
-        auto* view=dynamic_cast<viewer::MeshView*>(
-            window.findChild<QOpenGLWidget*>());
         check(view&&!view->mesh().triangles.empty(),
             "Line Bend produced no displayed sheet result");
         auto* tree=window.findChild<QTreeWidget*>("documentTree");

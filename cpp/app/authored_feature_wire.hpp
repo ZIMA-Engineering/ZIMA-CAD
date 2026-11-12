@@ -79,6 +79,23 @@ inline std::vector<kernel::ViewerEdge> authored_feature_wire(
     switch(feature->feature_kind) {
     case FeatureKind::Feature:
         if(feature->feature.type!=document::FeatureType::Modeling)break;
+        if(feature->feature.planar_surface()) {
+            const auto sketch=std::ranges::find(doc.sketches,
+                feature->feature.sketch_id,&sketcher::Sketch::id);
+            if(sketch==doc.sketches.end()||sketch->suppressed)return {};
+            wire=sketch->viewer_mesh();
+            sketch->filter_hidden_3d_geometry(wire);
+            std::erase_if(wire.edges,[](const auto& edge) {
+                return !native_sketch_profile_edge(edge);
+            });
+            for(auto& edge:wire.edges) {
+                edge.display_owner_id=feature->id;
+                edge.reference.owner_id=feature->id;
+                edge.reference.semantic_key=
+                    "surface-preview:"+edge.reference.semantic_key;
+            }
+            return place(std::move(wire));
+        }
         // Ordered clipping is calculated only on OK. Reuse its own first
         // stored operand wire below, before later body Booleans can add edges.
         if(document::feature_uses_extended_up_to(feature->feature))break;

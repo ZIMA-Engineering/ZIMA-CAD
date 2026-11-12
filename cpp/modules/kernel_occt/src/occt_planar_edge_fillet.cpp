@@ -434,18 +434,25 @@ gp_Dir inward_direction(const TopoDS_Edge& edge,
 
 bool lies_on_source_surface(const TopoDS_Face& candidate,
         const TopoDS_Face& source,double tolerance) {
-    const auto source_surface=BRep_Tool::Surface(source);
-    const auto candidate_surface=BRep_Tool::Surface(candidate);
-    if(source_surface==candidate_surface)return true;
+    TopLoc_Location source_location,candidate_location;
+    const auto source_surface=BRep_Tool::Surface(source,source_location);
+    const auto candidate_surface=BRep_Tool::Surface(candidate,
+        candidate_location);
+    if(source_surface.IsNull()||candidate_surface.IsNull())return false;
+    if(source_surface==candidate_surface&&
+       source_location==candidate_location)return true;
     double first_u{},last_u{},first_v{},last_v{};
     BRepTools::UVBounds(candidate,first_u,last_u,first_v,last_v);
     if(!std::isfinite(first_u)||!std::isfinite(last_u)||
        !std::isfinite(first_v)||!std::isfinite(last_v))return false;
+    const BRepAdaptor_Surface candidate_support(candidate,true);
+    const auto to_source=source_location.Transformation().Inverted();
     for(const double fraction:{.2,.5,.8}) {
         gp_Pnt sample;
-        candidate_surface->D0(
+        candidate_support.D0(
             std::lerp(first_u,last_u,fraction),
             std::lerp(first_v,last_v,fraction),sample);
+        sample.Transform(to_source);
         GeomAPI_ProjectPointOnSurf projection(sample,source_surface);
         if(projection.NbPoints()==0||
            projection.LowerDistance()>100.*tolerance)return false;
@@ -522,16 +529,49 @@ void clip_fillet_tool(TopoDS_Shape& tool,
         const TopoDS_Face& face,const gp_Pnt& inside,double tolerance) {
     if(face.IsNull())return;
     const BRepAdaptor_Surface end_support(face,true);
-    BRepBuilderAPI_MakeFace end_plane(end_support.Plane());
-    if(!end_plane.IsDone())
+    const auto plane=end_support.Plane();
+    Bnd_Box bounds;
+    BRepBndLib::Add(tool,bounds);
+    if(bounds.IsVoid()||bounds.IsWhole())
         throw std::runtime_error(
-            "Planar edge Fillet could not construct an end plane");
-    BRepPrimAPI_MakeHalfSpace half_space(end_plane.Face(),inside);
-    if(!half_space.IsDone())
+            "Planar edge Fillet could not bound its end trim");
+    double x0{},y0{},z0{},x1{},y1{},z1{};
+    bounds.Get(x0,y0,z0,x1,y1,z1);
+    const gp_Pnt center((x0+x1)/2.,(y0+y1)/2.,(z0+z1)/2.);
+    const double diagonal=gp_Pnt(x0,y0,z0).Distance(
+        gp_Pnt(x1,y1,z1));
+    if(!std::isfinite(diagonal))
         throw std::runtime_error(
-            "Planar edge Fillet could not construct an end half-space");
+            "Planar edge Fillet end trim has invalid bounds");
+    auto retained_normal=plane.Axis().Direction();
+    const double inside_side=gp_Vec(plane.Location(),inside).Dot(
+        gp_Vec(retained_normal));
+    if(std::abs(inside_side)<=tolerance)
+        throw std::runtime_error(
+            "Planar edge Fillet end trim has no retained side");
+    if(inside_side<0.)retained_normal.Reverse();
+    const auto plane_normal=plane.Axis().Direction();
+    const double center_offset=gp_Vec(plane.Location(),center).Dot(
+        gp_Vec(plane_normal));
+    const auto projected=center.Translated(-center_offset*
+        gp_Vec(plane_normal));
+    const double extent=std::max(1.,plane.Distance(center)+diagonal+
+        100.*tolerance);
+    const gp_Ax2 centered_frame(projected,retained_normal,
+        plane.Position().XDirection());
+    const auto corner=projected.Translated(
+        -extent*gp_Vec(centered_frame.XDirection())-
+        extent*gp_Vec(centered_frame.YDirection()));
+    const gp_Ax2 retained_frame(corner,retained_normal,
+        centered_frame.XDirection());
+    BRepPrimAPI_MakeBox retained_region(retained_frame,2.*extent,
+        2.*extent,2.*extent);
+    retained_region.Build();
+    if(!retained_region.IsDone()||retained_region.Shape().IsNull())
+        throw std::runtime_error(
+            "Planar edge Fillet could not construct its end trim");
     clip_fillet_tool_with_halfspace(tool,treatment_faces,
-        half_space.Solid(),tolerance);
+        retained_region.Solid(),tolerance);
 }
 
 void fuse_fillet_tools(TopoDS_Shape& tool,
@@ -1931,6 +1971,54 @@ Cutter make_cutter(const TopoDS_Edge& edge,
         midpoint_profile.circular_edge,{}};
 }
 
+bool route_stays_in_retained_halfspace(
+        std::span<const TopoDS_Edge> route,const TopoDS_Face& terminal,
+        const gp_Pnt& retained_point,double tolerance) {
+    if(terminal.IsNull())return false;
+    const BRepAdaptor_Surface support(terminal,true);
+    if(support.GetType()!=GeomAbs_Plane)return false;
+    const auto plane=support.Plane();
+    const gp_Vec normal(plane.Axis().Direction());
+    const auto signed_distance=[&](const gp_Pnt& point) {
+        return gp_Vec(plane.Location(),point).Dot(normal);
+    };
+    const double retained_distance=signed_distance(retained_point);
+    const double boundary_tolerance=10.*tolerance;
+    if(std::abs(retained_distance)<=boundary_tolerance)return false;
+    const double retained_sign=retained_distance>0.?1.:-1.;
+    for(const auto& edge:route) {
+        const auto path=edge_path(edge,tolerance);
+        double minimum=std::min(
+            retained_sign*signed_distance(path.first),
+            retained_sign*signed_distance(path.last));
+        if(path.kind==EdgeFilletPathKind::Circular) {
+            const BRepAdaptor_Curve curve(edge);
+            const auto circle=curve.Circle();
+            const auto axes=circle.Position();
+            const double constant=retained_sign*
+                signed_distance(circle.Location());
+            const double cosine=retained_sign*circle.Radius()*
+                gp_Vec(axes.XDirection()).Dot(normal);
+            const double sine=retained_sign*circle.Radius()*
+                gp_Vec(axes.YDirection()).Dot(normal);
+            const double amplitude=std::hypot(cosine,sine);
+            if(amplitude>boundary_tolerance) {
+                const double period=2.*std::numbers::pi;
+                const double first=curve.FirstParameter();
+                const double last=curve.LastParameter();
+                const double base=std::atan2(sine,cosine)+
+                    std::numbers::pi;
+                const double critical=base+period*std::ceil(
+                    (first-base)/period);
+                if(critical<=last+1.0e-12)
+                    minimum=std::min(minimum,constant-amplitude);
+            }
+        }
+        if(minimum<-boundary_tolerance)return false;
+    }
+    return true;
+}
+
 Cutter make_route_cutter(const std::vector<CutterJob>& jobs,
         std::span<const std::size_t> route,double radius,double tolerance,
         std::span<const OcctPlanarEdgeEndFaces> end_faces,
@@ -2345,6 +2433,30 @@ Cutter make_route_cutter(const std::vector<CutterJob>& jobs,
             "Planar edge Fillet route sweep omitted its circular face");
     profile.solid=sweep.Shape();
     profile.circular_faces=std::move(circular_faces);
+    // A terminal plane can be tangent or oblique to the route.  Clipping only
+    // the overgrown tail leaves the complete PipeShell section straddling that
+    // plane at the authored endpoint.  Trim the base sweep as well whenever
+    // the complete selected centre line lies in the retained half-space.  The
+    // exact line/circle extrema check deliberately rejects a plane crossed by
+    // an earlier returning member, preserving that member while the separate
+    // terminal extension below is still clipped.  Multiple safe faces are
+    // applied successively, forming their exact half-space intersection.
+    const auto clip_base_terminal=[&](
+            std::span<const TopoDS_Face> faces,
+            const gp_Pnt& retained_point) {
+        for(const auto& face:faces)
+            if(route_stays_in_retained_halfspace(ordered,face,
+                    retained_point,tolerance))
+                clip_fillet_tool(profile.solid,profile.circular_faces,
+                    face,retained_point,tolerance);
+    };
+    // An automatic subtractive tool is clipped by the final Body CUT itself.
+    // Keeping its complete base sweep also avoids coincident trim faces at a
+    // tangent cap.  An explicitly selected end face remains authoritative.
+    if(profile.adds_material||explicit_first)
+        clip_base_terminal(terminal_faces[0],start_preceding);
+    if(profile.adds_material||explicit_last)
+        clip_base_terminal(terminal_faces[1],end_preceding);
     const auto add_terminal_extension=[&](const CutterJob& job,
             const gp_Pnt& endpoint,const gp_Dir& outward,double extension,
             std::span<const TopoDS_Face> planar_faces,

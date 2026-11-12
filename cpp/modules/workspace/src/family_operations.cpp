@@ -169,7 +169,9 @@ void assign_feature(document::HistoryContainer& f,const std::string& key,double 
     if(primitive_definition(f.feature_kind)){assign_primitive_dimensions(f,{{key,value}});return;}
     auto slots=feature_slots(f);const auto found=slots.find(key);
     if(found==slots.end())throw std::invalid_argument("The family dimension is not editable.");
-    const bool zero_bend_angle=f.feature_kind==FeatureKind::Bend&&(key=="angle"||key=="radius")&&value==0;
+    const bool zero_bend_angle=((f.feature_kind==FeatureKind::Bend&&
+        (key=="angle"||key=="radius"))||
+        (f.feature_kind==FeatureKind::LineBend&&key=="angle"))&&value==0;
     const bool up_to_correction=f.feature_kind==FeatureKind::Feature&&(key.ends_with("_up_to_length_correction")||key.ends_with("_up_to_angle_correction"));
     const bool signed_value=key=="profile_offset"||key.ends_with("draft_angle")||up_to_correction||(f.feature_kind==FeatureKind::SheetTransition&&key.starts_with("end_"));
     const bool zero_line_bend_k=f.feature_kind==FeatureKind::LineBend&&

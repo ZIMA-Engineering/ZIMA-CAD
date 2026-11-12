@@ -132,6 +132,12 @@ void validate_profile_definition(const document::HistoryContainer& value) {
         }
         if (value.is_surface_result() && value.combine_mode == document::CombineMode::Subtract)
             throw ProfileOperationError("invalid_arguments", "A surface cannot subtract material.");
+        if(value.feature.planar_surface() &&
+                (value.feature.profile_source!=document::ProfileSource::Internal ||
+                 value.combine_mode!=document::CombineMode::Add ||
+                 !std::isfinite(value.feature.profile_plane_offset)))
+            throw ProfileOperationError("invalid_arguments",
+                "A planar surface requires an owned profile and a finite plane offset.");
         for (std::size_t i=0; i<2; ++i) {
             const auto& side=value.feature.effective_side(i);
             if(value.feature.type==document::FeatureType::Axis&&!side.axis_enabled)continue;

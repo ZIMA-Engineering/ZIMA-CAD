@@ -131,6 +131,24 @@ TopoDS_Edge straight_edge_between(const TopoDS_Shape& shape,
     return {};
 }
 
+TopoDS_Edge circular_edge_between(const TopoDS_Shape& shape,
+        const gp_Pnt& first,const gp_Pnt& second,double radius,
+        double tolerance=1.0e-7) {
+    for(TopExp_Explorer item(shape,TopAbs_EDGE);item.More();item.Next()) {
+        const auto edge=TopoDS::Edge(item.Current());
+        const BRepAdaptor_Curve curve(edge);
+        if(curve.GetType()!=GeomAbs_Circle||
+           std::abs(curve.Circle().Radius()-radius)>tolerance)
+            continue;
+        const auto a=curve.Value(curve.FirstParameter());
+        const auto b=curve.Value(curve.LastParameter());
+        if((a.Distance(first)<=tolerance&&b.Distance(second)<=tolerance)||
+           (a.Distance(second)<=tolerance&&b.Distance(first)<=tolerance))
+            return edge;
+    }
+    return {};
+}
+
 TopoDS_Shape blind_pocket() {
     BRepAlgoAPI_Cut cut(BRepPrimAPI_MakeBox(30,30,30).Shape(),
         BRepPrimAPI_MakeBox(gp_Pnt(9,9,18),
@@ -1602,6 +1620,54 @@ int main() try {
             near(area(separately_selected.Shape()),area(result.Shape()),
                 "Separately selected tangent line and arc changed route area");
         }
+    }
+    {
+        std::cerr<<"fillet-test: preceding-radius tangent plane\n";
+        const auto pocket=blind_pocket();
+        const auto first_edge=straight_edge_between(pocket,
+            {9,9,18},{9,21,18});
+        require(!first_edge.IsNull(),
+            "Preceding-radius terminal fixture lost its first route");
+        const auto first=zima::kernel::occt_planar_edge_fillet(
+            pocket,std::array{first_edge},3.,1.0e-7,{},
+            zima::kernel::OcctPlanarEdgeFilletEndMode::Perpendicular);
+        require(first.history&&
+                BRepCheck_Analyzer(first.shape,true,true,false).IsValid(),
+            "Preceding-radius terminal fixture could not make its first Fillet");
+        const gp_Pnt arc_terminal(9,9,21);
+        const gp_Pnt shared(12,9,18);
+        const auto arc=circular_edge_between(first.shape,arc_terminal,
+            shared,3.);
+        const auto line=straight_edge_between(first.shape,shared,
+            {21,9,18});
+        require(!arc.IsNull(),
+            "Preceding-radius terminal fixture lost its circular route member");
+        require(!line.IsNull(),
+            "Preceding-radius terminal fixture lost its straight route member");
+        const std::array route{arc,line};
+        const std::array route_sizes{route.size()};
+        const auto result=zima::kernel::occt_planar_edge_fillet(
+            first.shape,route,1.,1.0e-7,{},
+            zima::kernel::OcctPlanarEdgeFilletEndMode::
+                AutomaticBodyEnvelope,route_sizes);
+        require(result.history&&result.metrics.cutter_solids==1&&
+                BRepCheck_Analyzer(result.shape,true,true,false).IsValid()&&
+                result.fillet_faces.size()==route.size()&&
+                std::ranges::all_of(result.fillet_faces,
+                    [](const auto& faces){return !faces.empty();}),
+            "Second Fillet lost its preceding-radius arc-line route");
+        const auto forbidden=BRepPrimAPI_MakeBox(
+            gp_Pnt(0,8,18.0001),gp_Pnt(8.9999,10,23)).Shape();
+        for(const auto& route_faces:result.fillet_faces)
+            for(const auto& face:route_faces) {
+                BRepAlgoAPI_Common crossed(face,forbidden);
+                crossed.SetNonDestructive(true);
+                crossed.Build();
+                const double crossed_area=crossed.IsDone()
+                    ?area(crossed.Shape()):1.0;
+                require(crossed.IsDone()&&crossed_area<=1.0e-7,
+                    "A route Fillet crossed its tangent terminal plane");
+            }
     }
     {
         std::cerr<<"fillet-test: exact planar half turn\n";

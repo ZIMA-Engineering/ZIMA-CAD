@@ -358,6 +358,53 @@ PrimitiveData line_bend(const PrimitiveData& input,const LineBendRequest& reques
     const Transition transition{before,after};
     const double material_length=request.angle*request.neutral_radius;
 
+    // A press-brake line ends at free sheet boundaries (or at the two relief
+    // boundaries of an isolated tongue). Extending endpoint planes through a
+    // continuous sheet cut off triangular wedges for oblique lines and left
+    // artificial topology that later Bends could not reference. Validate the
+    // authored extent instead; the only material partitions are the two
+    // tangent planes of the real bend band.
+    const double segment_length=request.along_max-request.along_min;
+    const double probe=std::min(segment_length*.1,
+        std::max(request.tolerance*8,request.thickness*.25));
+    if(probe<=request.tolerance*2)throw std::invalid_argument(
+        "Line Bend segment must end at sheet boundaries.");
+    const auto inside=[&](Vec3 point) {
+        const gp_Pnt probe_point(point.x,point.y,point.z);
+        for(TopExp_Explorer solid(input.shape,TopAbs_SOLID);
+                solid.More();solid.Next()) {
+            BRepClass3d_SolidClassifier classifier(
+                TopoDS::Solid(solid.Current()),probe_point,
+                request.tolerance/8);
+            if(classifier.State()==TopAbs_IN||
+                    classifier.State()==TopAbs_ON)return true;
+        }
+        return false;
+    };
+    const auto boundary_endpoint=[&](Vec3 point,Vec3 inward) {
+        for(const double depth:{0.,request.thickness*.25,
+                -request.thickness*.25,request.thickness*.75,
+                -request.thickness*.75}) {
+            const auto layer=sheet_material::add(point,
+                sheet_material::mul(radial,depth));
+            if(inside(sheet_material::add(layer,
+                    sheet_material::mul(inward,probe)))&&
+               !inside(sheet_material::sub(layer,
+                    sheet_material::mul(inward,probe))))return true;
+        }
+        return false;
+    };
+    const auto authored_first=sheet_material::add(request.origin,
+        sheet_material::add(sheet_material::mul(tangent,material_length*.5),
+            sheet_material::mul(along,request.along_min)));
+    const auto authored_last=sheet_material::add(request.origin,
+        sheet_material::add(sheet_material::mul(tangent,material_length*.5),
+            sheet_material::mul(along,request.along_max)));
+    if(!boundary_endpoint(authored_first,along)||
+            !boundary_endpoint(authored_last,sheet_material::mul(along,-1)))
+        throw std::invalid_argument(
+            "Line Bend segment must end at sheet boundaries.");
+
     TopTools_ListOfShape arguments,tools;arguments.Append(input.shape);
     std::vector<OwnedFace> partition_faces;
     const auto add_plane=[&](Vec3 point,Vec3 normal,std::string role) {
@@ -370,10 +417,6 @@ PrimitiveData line_bend(const PrimitiveData& input,const LineBendRequest& reques
     add_plane(request.origin,tangent,"fixed");
     add_plane(sheet_material::add(request.origin,
         sheet_material::mul(tangent,material_length)),tangent,"moving");
-    add_plane(sheet_material::add(request.origin,
-        sheet_material::mul(along,request.along_min)),along,"first");
-    add_plane(sheet_material::add(request.origin,
-        sheet_material::mul(along,request.along_max)),along,"last");
     BRepAlgoAPI_Splitter splitter;splitter.SetArguments(arguments);
     splitter.SetTools(tools);splitter.SetNonDestructive(true);
     splitter.SetToFillHistory(true);splitter.SetFuzzyValue(1e-7);
@@ -411,17 +454,13 @@ PrimitiveData line_bend(const PrimitiveData& input,const LineBendRequest& reques
         const auto center=properties.CentreOfMass();
         const auto coordinate=sheet_material::coordinates(before,
             {center.X(),center.Y(),center.Z()});
-        const bool within_segment=
-            coordinate.along>=request.along_min-request.tolerance&&
-            coordinate.along<=request.along_max+request.tolerance;
-        if(within_segment&&coordinate.length>=-request.tolerance) {
+        if(coordinate.length>=-request.tolerance) {
             deformed=true;
             const bool continuation=
                 coordinate.length>material_length+request.tolerance;
             // The cylindrical zone and its moving straight continuation are
-            // one transformable Line Bend material domain. The fixed side
-            // and material outside a finite authored segment retain their
-            // previous sheet owner.
+            // one transformable Line Bend material domain. Relief boundaries,
+            // rather than artificial endpoint planes, isolate a finite tongue.
             for(auto& face:piece.faces)
                 if(face.reference.sheet_role==SheetFaceRole::SideA||
                         face.reference.sheet_role==SheetFaceRole::SideB) {

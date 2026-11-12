@@ -35,17 +35,6 @@ namespace {
 // against a userData() of an empty QString.
 constexpr const char* kNoPlaneReference = "";
 
-void place_sketch_button_beside_work_plane(QWidget* plane_selector,
-        QPushButton* sketch_button) {
-    if(!plane_selector||!sketch_button)return;
-    auto* plane_row=qobject_cast<QHBoxLayout*>(plane_selector->layout());
-    if(!plane_row)return;
-    sketch_button->setFixedHeight(30);
-    sketch_button->setMinimumWidth(92);
-    sketch_button->setSizePolicy(QSizePolicy::Fixed,QSizePolicy::Fixed);
-    plane_row->addWidget(sketch_button);
-}
-
 }  // namespace
 
 SketchPropertiesDialog::SketchPropertiesDialog(
@@ -177,6 +166,13 @@ void SketchPropertiesDialog::set_holes_mode(double diameter,
     connect(field, &QDoubleSpinBox::valueChanged, this,
         [this, changed=std::move(changed)](double value) { changed(value); notify_preview(); });
     edit_pending_sketch_ = std::move(edit_sketch);
+}
+
+void SketchPropertiesDialog::set_planar_surface_mode(
+        std::function<void()> edit_sketch) {
+    set_internal_title(tr("Vlastnosti plochy"));
+    setObjectName("planarSurfacePropertiesDialog");
+    edit_pending_sketch_=std::move(edit_sketch);
 }
 
 void SketchPropertiesDialog::set_flat_mode(zima::document::FlatParameters initial,
@@ -678,8 +674,10 @@ void SketchPropertiesDialog::set_line_bend_mode(
     };
     auto* radius=field("lineBendRadius",initial.radius,.000001,
         1000000,Quantity::Length);
-    auto* angle=field("lineBendAngle",initial.angle_degrees,.000001,
+    auto* angle=field("lineBendAngle",initial.angle_degrees,0,
         180,Quantity::Angle);
+    line_bend_radius_=radius;
+    line_bend_angle_=angle;
     zima::ui::bind_numeric_value_lock(radius,"radius",locks,
         [this]{notify_preview();});
     zima::ui::bind_numeric_value_lock(angle,"angle",locks,
@@ -693,9 +691,6 @@ void SketchPropertiesDialog::set_line_bend_mode(
     fixed->setToolTip(tr(
         "Strana je určena ve směru od prvního ke druhému bodu čáry."));
     form->addRow(tr("Pevná strana"),fixed);
-    auto* reverse=new QCheckBox(tr("Obrátit směr ohybu"),this);
-    reverse->setObjectName("lineBendReverse");
-    reverse->setChecked(initial.reverse);form->addRow(reverse);
     const auto publish=[this,pending,changed]{changed(*pending);notify_preview();};
     connect(radius,&QDoubleSpinBox::valueChanged,this,
         [pending,publish](double value){pending->radius=value;publish();});
@@ -703,8 +698,6 @@ void SketchPropertiesDialog::set_line_bend_mode(
         [pending,publish](double value){pending->angle_degrees=value;publish();});
     connect(fixed,&QComboBox::currentIndexChanged,this,
         [pending,publish,fixed](int){pending->fixed_side=fixed->currentData().toInt();publish();});
-    connect(reverse,&QCheckBox::toggled,this,
-        [pending,publish](bool value){pending->reverse=value;publish();});
     const auto override_field=[&](bool thickness) {
         auto* row=new QWidget(this);auto* layout=new QHBoxLayout(row);
         layout->setContentsMargins(0,0,0,0);
@@ -747,6 +740,8 @@ void SketchPropertiesDialog::set_line_bend_mode(
     content_layout()->insertLayout(content_layout()->indexOf(sketch_button_),
         form);
     sketch_button_->setText(tr("Čára ohybu…"));
+    content_layout()->removeWidget(sketch_button_);
+    place_sketch_button_beside_work_plane(plane_selector_,sketch_button_);
     edit_pending_sketch_=std::move(edit_sketch);
 }
 
@@ -1292,8 +1287,10 @@ bool SketchPropertiesDialog::set_inline_parameter_value(
     };
     if (key == "profile_offset") return !bend_pending_&&set_field(offset_);
     if (key == "diameter") return set_field(holes_diameter_);
-    if (key == "radius") return set_field(bend_radius_);
-    if (key == "angle") return set_field(bend_angle_);
+    if (key == "radius") return set_field(
+        line_bend_pending_?line_bend_radius_:bend_radius_);
+    if (key == "angle") return set_field(
+        line_bend_pending_?line_bend_angle_:bend_angle_);
     if ((key == "sheet_profile_side0_length"||key=="side0_length")&&
             sheet_profile_width_panel_)
         return set_field(sheet_profile_width_panel_->side_value(0));

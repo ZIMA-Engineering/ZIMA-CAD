@@ -2559,6 +2559,91 @@ TopoDS_Shape profile_base(const std::vector<TopoDS_Wire>& wires,bool surface) {
     return builder.Face();
 }
 
+PrimitiveData make_planar_surface_data(
+        const ExtrusionRequest& request,const std::string& owner) {
+    if(!request.planar_profile || !request.surface_result || request.wall ||
+            !request.open_profile_end_id.empty())
+        throw std::invalid_argument("Invalid planar surface request");
+    const double direction_length=std::hypot(std::hypot(
+        request.direction.x,request.direction.y),request.direction.z);
+    if(!std::isfinite(direction_length)||direction_length<=1e-12)
+        throw std::invalid_argument(
+            "Planar surface direction must be finite and non-zero");
+    const Vec3 axis_direction{request.direction.x/direction_length,
+        request.direction.y/direction_length,
+        request.direction.z/direction_length};
+    PrimitiveData result;
+    TopoDS_Compound compound;BRep_Builder builder;builder.MakeCompound(compound);
+    const auto append_region=[&](const ExtrusionRequest& region) {
+        if(region.profile_region_id.empty())
+            throw std::runtime_error(
+                "Planar surface profile is missing its persisted region identity");
+        auto profiles=make_body_profiles(region,region.direction);
+        std::vector<TopoDS_Wire> wires;
+        for(const auto& profile:profiles)wires.push_back(profile.wire);
+        auto face=profile_base(wires,false);
+        builder.Add(compound,face);
+        FaceReference face_reference{owner,
+            profile_cap_semantic_key("surface",region.profile_region_id),{}};
+        face_reference.surface_result=true;
+        result.faces.push_back({face,face_reference});
+        const auto circle_axis=[&](const ExtrusionRequest::ProfileLoop& loop,
+                const std::vector<std::string>& sources) {
+            const auto* circle=std::get_if<
+                ExtrusionRequest::CircleProfile>(&loop);
+            if(!circle)return;
+            if(sources.size()!=1||sources.front().empty())
+                throw std::runtime_error(
+                    "Planar surface circle provenance mismatch");
+            result.profile_references.axes.push_back({circle->center,
+                axis_direction,2.*circle->radius,
+                {owner,"axis:circle:"+sources.front(),{}},{}});
+        };
+        circle_axis(region.outer_profile,region.outer_edge_source_ids);
+        for(std::size_t index=0;index<region.inner_profiles.size();++index)
+            circle_axis(region.inner_profiles[index],
+                region.inner_edge_source_ids[index]);
+        for(const auto& profile:profiles) {
+            if(profile.edges.size()!=profile.curve_ids.size() ||
+                    (!profile.point_ids.empty()&&
+                     profile.point_ids.size()!=profile.edges.size()))
+                throw std::runtime_error(
+                    "Planar surface profile provenance group mismatch");
+            for(std::size_t index=0;index<profile.edges.size();++index) {
+                if(profile.curve_ids[index].empty())
+                    throw std::runtime_error(
+                        "Planar surface curve provenance is empty");
+                result.edges.push_back({profile.edges[index],
+                    {owner,"surface:"+profile.curve_ids[index],{}}});
+                if(!profile.point_ids.empty()&&!profile.point_ids[index].empty())
+                    result.vertices.push_back({
+                        TopExp::FirstVertex(profile.edges[index],true),
+                        {owner,"surface:"+profile.point_ids[index],{}}});
+            }
+        }
+    };
+    append_region(request);
+    for(const auto& region:request.additional_profile_regions) {
+        auto child=request;
+        child.additional_profile_regions.clear();
+        child.profile_region_id=region.region_id;
+        child.outer_boundary_id=region.outer_boundary_id;
+        child.inner_boundary_ids=region.inner_boundary_ids;
+        child.outer_profile=region.outer_profile;
+        child.inner_profiles=region.inner_profiles;
+        child.outer_edge_source_ids=region.outer_edge_source_ids;
+        child.inner_edge_source_ids=region.inner_edge_source_ids;
+        child.outer_vertex_source_ids=region.outer_vertex_source_ids;
+        child.inner_vertex_source_ids=region.inner_vertex_source_ids;
+        append_region(child);
+    }
+    result.shape=compound;
+    if(result.faces.empty()||!BRepCheck_Analyzer(result.shape).IsValid())
+        throw std::runtime_error(
+            "OCCT planar surface failed or produced an invalid face");
+    return result;
+}
+
 template<class Builder>
 void append_surface_end_point(PrimitiveData& result,Builder& builder,
     const TopoDS_Vertex& vertex,const std::string& owner,const std::string& source,
@@ -14937,6 +15022,9 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                     if constexpr (std::is_same_v<Child,
                                       ExtrusionRequest>) {
                         validate_extrusion(value);
+                        if(value.planar_profile)
+                            return make_planar_surface_data(
+                                value,operation.owner_id);
                         const auto exact_target=has_forward_limit(value)?original_target(forward_limit(value)):std::nullopt;
                         const auto exact_reverse=value.reverse_limit?original_target(limit_view(*value.reverse_limit)):std::nullopt;
                         double forward_span = 2'000'000.0;
@@ -16396,12 +16484,16 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                         through_all_reverse_span =
                             std::max(0.0, maximum_reverse_projection) + margin;
                     }
-                    auto extrusion_data = make_extrusion_data(
-                        primitive,
-                        operation.owner_id, exact_target,
-                        through_all_forward_span, through_all_reverse_span, std::nullopt, operation.boolean_tolerance, exact_reverse,
-                        original_ordered_targets(primitive.ordered_end_limit),
-                        &resolved_up_to);
+                    auto extrusion_data = primitive.planar_profile
+                        ? make_planar_surface_data(primitive,operation.owner_id)
+                        : make_extrusion_data(primitive,
+                            operation.owner_id, exact_target,
+                            through_all_forward_span, through_all_reverse_span,
+                            std::nullopt, operation.boolean_tolerance,
+                            exact_reverse,
+                            original_ordered_targets(
+                                primitive.ordered_end_limit),
+                            &resolved_up_to);
                     if(primitive.sheet_cut) {
                         if(operation.operation!=BooleanOperation::Subtract||primitive.surface_result)
                             throw std::runtime_error("Sheet Cut must remove material from an existing sheet.");
@@ -16434,6 +16526,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                         // and existing standalone axis identities are unchanged.
                         std::visit([&](const auto& request) {
                             if constexpr(std::is_same_v<std::decay_t<decltype(request)>,ExtrusionRequest>) {
+                                if(request.planar_profile)return;
                                 HistoryOperation axis_source{operation.owner_id,request};
                                 auto axes=axes_for_operation(axis_source,child_data.shape,{},true,&child_data.profile_references.points);
                                 child_data.profile_references.axes.insert(child_data.profile_references.axes.end(),

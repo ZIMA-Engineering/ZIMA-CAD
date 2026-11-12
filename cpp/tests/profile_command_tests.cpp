@@ -171,6 +171,73 @@ void surfaces(const kernel::OcctKernel& kernel,fs::path directory) {
         f.run("undo");near(f.volume(),0);f.run("redo");require(f.volume()>0,"Surface type Redo did not restore Thin");
         f.set_feature(id,[](auto& p){p["result_type"]="surface";});near(f.volume(),0);f.run("save");
     }
+    Fixture f(kernel,directory);
+    f.run("new",{{"type","part"},{"name","planar-surface-command"}});
+    auto sketch=sketcher::Sketch::create_default();
+    static_cast<void>(sketch.add_rectangle(-10,-5,10,5));
+    const auto circle=sketch.add_circle(0,0,2);
+    static_cast<void>(sketch.add_rectangle(20,-2,25,2));
+    sketch.plane_offset=7;
+    auto surface=document::PartDocument::create_feature_container(sketch.id);
+    surface.name="Planar surface";surface.feature.automatic_name=surface.name;
+    surface.feature.result_type=document::ProfileResultType::Surface;
+    surface.feature.profile_plane_offset=sketch.plane_offset;
+    for(auto& side:surface.feature.sides)
+        side.operation=document::FeatureSideOperation::None;
+    sketch.owner_container_id=surface.id;
+    workspace::commit_profile(f.live,kernel,f.doc().document_id,surface,
+        workspace::ProfileEditMode::Create,sketch);
+    const auto id=surface.id;
+    const auto area=[&] {
+        auto measured=f.part().session.calculated_boundaries().back();
+        kernel.ensure_body_properties(measured);return measured.surface_area;
+    };
+    near(f.volume(),0);
+    near(area(),220-4*std::numbers::pi);
+    f.run("undo");
+    require(!f.doc().find_container(id)&&f.doc().sketches.empty(),
+        "Planar surface Undo retained its owned Sketch or feature");
+    f.run("redo");
+    near(area(),220-4*std::numbers::pi);
+    auto edited=*f.doc().find_container(id);
+    auto draft=*std::ranges::find(f.doc().sketches,edited.feature.sketch_id,
+        &sketcher::Sketch::id);
+    edited.feature.profile_plane_offset=3;draft.plane_offset=3;
+    workspace::commit_profile(f.live,kernel,f.doc().document_id,edited,
+        workspace::ProfileEditMode::Replace,draft);
+    const auto& axes=f.part().session.calculated_boundaries().back().mesh
+        .original_references.axes;
+    const auto axis=std::ranges::find_if(axes,[&](const auto& value) {
+        return value.reference.owner_id==id&&
+            value.reference.semantic_key=="axis:circle:"+circle;
+    });
+    require(axis!=axes.end()&&std::abs(axis->point.z-3)<1e-8,
+        "Planar surface offset did not move its circle axis");
+    const auto revision=f.part().session.revision();
+    const auto* cache=f.part().session.calculated_boundaries().data();
+    const auto current=*f.doc().find_container(id);
+    const auto current_sketch=*std::ranges::find(f.doc().sketches,
+        current.feature.sketch_id,&sketcher::Sketch::id);
+    workspace::commit_profile(f.live,kernel,f.doc().document_id,current,
+        workspace::ProfileEditMode::Replace,current_sketch);
+    require(f.part().session.revision()==revision&&
+            f.part().session.calculated_boundaries().data()==cache,
+        "Unchanged planar surface recalculated or created an Undo step");
+    f.run("save");std::vector<kernel::BodyResult> calculated;
+    const auto reopened=document::PartDocument::load(
+        directory/"planar-surface-command.prtz",&calculated);
+    require(reopened.find_container(id)&&
+            reopened.find_container(id)->feature.planar_surface()&&
+            reopened.find_container(id)->feature.profile_plane_offset==3,
+        "Planar surface native reopen lost its command definition");
+    auto measured=calculated.back();kernel.ensure_body_properties(measured);
+    near(measured.surface_area,220-4*std::numbers::pi);
+    f.run("undo");
+    require(f.doc().find_container(id)->feature.profile_plane_offset==7,
+        "Planar surface edit Undo lost its previous offset");
+    f.run("redo");
+    require(f.doc().find_container(id)->feature.profile_plane_offset==3,
+        "Planar surface edit Redo lost its changed offset");
 }
 
 // A shared edge is a valid multi-solid result, not a failed extrusion.

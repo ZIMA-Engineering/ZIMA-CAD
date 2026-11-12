@@ -1,4 +1,5 @@
 #include "../app/authored_feature_wire.hpp"
+#include "../app/feature_view_cue_policy.hpp"
 #include "thin_wire_verification.hpp"
 #include <zima/workspace/profile_operations.hpp>
 #include <zima/workspace/edge_treatment_operations.hpp>
@@ -123,6 +124,33 @@ void line_bend_wire(const kernel::OcctKernel& engine) {
             [&](const auto& face) {
                 return face.display_owner_id==bend.id;
             }),"Line Bend faces do not present the authored Line Bend owner");
+}
+void planar_surface_wire_and_cues(const kernel::OcctKernel& engine) {
+    auto part=document::PartDocument::create_default();
+    auto sketch=sketcher::Sketch::create_default();
+    static_cast<void>(sketch.add_rectangle(-10,-5,20,10));
+    auto feature=document::PartDocument::create_feature_container(sketch.id);
+    feature.feature.result_type=document::ProfileResultType::Surface;
+    feature.feature.profile_plane_offset=3;
+    for(auto& side:feature.feature.sides)
+        side.operation=document::FeatureSideOperation::None;
+    sketch.owner_container_id=feature.id;sketch.plane_offset=3;
+    part.history={feature};part.sketches={sketch};
+    document::BodyHistoryGraph graph;
+    static_cast<void>(graph.create_body("Planar surface wire"));
+    graph.insert({document::PartHistoryKind::Feature,feature.id});
+    part.set_body_history(graph);part.resolve_constructions();
+    const auto calculated=engine.evaluate_history(part.kernel_operations());
+    require(!calculated.empty()&&calculated.back().calculation_errors.empty(),
+        "Planar surface cue fixture did not calculate");
+    document::DocumentSession session(part,calculated);
+    const auto wire=app::authored_feature_wire(session,feature.id);
+    require(wire.size()==4&&std::ranges::all_of(wire,[&](const auto& edge) {
+        return edge.reference.owner_id==feature.id&&
+            edge.reference.semantic_key.starts_with("surface-preview:");
+    }),"Planar surface selection did not use its authored Sketch boundary");
+    require(!app::workspace_detail::shows_feature_direction_label(feature.feature),
+        "Planar surface inspection exposed an extrusion direction label");
 }
 void actual_sketch_wire(const std::filesystem::path& path) {
     std::vector<kernel::BodyResult> bodies;const auto doc=document::PartDocument::load(path,&bodies);
@@ -514,7 +542,8 @@ int main(int argc,char** argv) {
     try{
         if(argc>1&&std::string_view(argv[1])=="--sketch-profile-wire"){sketch_wire_matrix();copy_wire_matrix();return 0;}
         if(const auto* file=std::getenv("ZIMA_SKETCH_WIRE_REVIEW_FILE")){actual_sketch_wire(std::filesystem::u8path(file));return 0;}
-        kernel::OcctKernel engine;line_bend_wire(engine);rectangular_matrix(engine);
+        kernel::OcctKernel engine;line_bend_wire(engine);
+        planar_surface_wire_and_cues(engine);rectangular_matrix(engine);
         rolling_edge_treatment_preview();
         revolution_matrix(engine);rounded_profile_matrix(engine);
         if(const auto* file=std::getenv("ZIMA_THIN_REVIEW_FILE"))review_fillets(engine,std::filesystem::u8path(file));

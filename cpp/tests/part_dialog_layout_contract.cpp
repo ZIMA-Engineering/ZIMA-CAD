@@ -95,13 +95,16 @@ int verify_part_dialog_layout(QApplication& application, QWidget& parent) {
                                 visible->mapTo(dialog.get(),visible->rect().center()).x())
                         errors<<"Active Body and Visible are not beside each other";
                 }
-                if(name=="flat") {
+                if(name=="flat"||name=="line-bend"||name=="sheet-cut") {
+                    const bool primitive=name=="sheet-cut";
                     auto* sketch=dialog->findChild<QPushButton*>(
-                        "sketchOpenButton");
+                        primitive?"primitiveOwnSketchButton":
+                            "sketchOpenButton");
                     auto* plane=dialog->findChild<QWidget*>(
-                        "sketchPlaneSelector");
+                        primitive?"profilePlaneSelector":
+                            "sketchPlaneSelector");
                     auto* view=dialog->findChild<QTableWidget*>(
-                        "sketchPlaneView");
+                        primitive?"profilePlaneView":"sketchPlaneView");
                     const auto mapped=[&](const QWidget* widget) {
                         return QRect(widget->mapTo(dialog.get(),QPoint{}),
                             widget->size());
@@ -110,7 +113,8 @@ int verify_part_dialog_layout(QApplication& application, QWidget& parent) {
                             sketch->parentWidget()!=plane||
                             mapped(view).right()>=mapped(sketch).left()||
                             mapped(view).intersects(mapped(sketch)))
-                        errors<<"Flat Sketch is not placed after the View work-plane field";
+                        errors<<name+
+                            ": Sketch is not placed after the View work-plane field";
                 }
                 if(name.startsWith("sheet-profile")) {
                     auto* profile_scroll=dialog->findChild<QScrollArea*>(
@@ -219,6 +223,11 @@ int verify_part_dialog_layout(QApplication& application, QWidget& parent) {
                 auto feature=revolve?Part::create_revolution_container("profile"):Part::create_extrusion_container("profile");
                 check(new app::PrimitivePropertiesDialog(feature,false,true,[](auto){},&parent),revolve?"revolution":"extrusion");
             }
+            auto sheet_cut=Part::create_extrusion_container("profile");
+            sheet_cut.extrusion.sheet_cut=true;
+            sheet_cut.combine_mode=document::CombineMode::Subtract;
+            check(new app::PrimitivePropertiesDialog(sheet_cut,false,true,
+                [](auto){},&parent),"sheet-cut");
             check(new app::PrimitivePropertiesDialog(Part::create_shell_container(),false,true,[](auto){},&parent),"shell");
             auto skin=Part::create_shell_container();skin.shell.thickness=0.;skin.name="Surfaces from solid";
             check(new app::PrimitivePropertiesDialog(skin,false,true,[](auto){},&parent),"surface-from-solid");
@@ -278,13 +287,16 @@ int verify_part_dialog_layout(QApplication& application, QWidget& parent) {
                 if(pattern){parameters.pattern.emplace();parameters.pattern->circular=mode==2;}
                 check(new app::DerivedCopyDialog(Part::create_twisted_sheet_container(),parameters,[](auto,auto){},&parent),mode==0?"mirror":mode==1?"linear-pattern":"circular-pattern");
             }
-            for(int mode=0;mode<3;++mode) {
+            for(int mode=0;mode<4;++mode) {
                 std::set<std::string> locks;
                 auto* dialog=new app::SketchPropertiesDialog(sketcher::Sketch::create_default(),{},false,{},[](auto,auto,auto){},&parent);
                 if(mode==0)dialog->set_holes_mode(5,locks,[](double){},[]{});
                 if(mode==1)dialog->set_bend_mode({}, {},locks,[](auto){},[]{});
                 if(mode==2)dialog->set_flat_mode({}, {},locks,[](auto){},[]{});
-                check(dialog,mode==0?"holes":mode==1?"bend":"flat");
+                if(mode==3)dialog->set_line_bend_mode({}, {},locks,
+                    [](auto){},[]{});
+                check(dialog,mode==0?"holes":mode==1?"bend":
+                    mode==2?"flat":"line-bend");
             }
             for(bool up_to:{false,true}) {
                 auto route=sketcher::Sketch::create_default();

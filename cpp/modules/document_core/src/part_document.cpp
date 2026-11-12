@@ -1669,7 +1669,8 @@ void assign_regions(zima::kernel::ExtrusionRequest& request,
 
 zima::kernel::ExtrusionRequest extrusion_request(
     const zima::sketcher::Sketch& sketch, double height,
-    ExtrusionDirection direction_mode) {
+    ExtrusionDirection direction_mode,
+    bool separate_linear_and_circular_profiles = false) {
     if(std::ranges::any_of(sketch.offsets,[](const auto& c){return c.broken;}) || std::ranges::any_of(sketch.curve_trims,[](const auto& c){return c.broken;}))
         throw std::runtime_error("Sketch contains an unresolved offset or trim intersection");
     require_positive(height, "extrusion height");
@@ -1679,7 +1680,8 @@ zima::kernel::ExtrusionRequest extrusion_request(
                 return !value.suppressed && value.radius > 1.0e-9;
             })) {
         return extrusion_request(
-            sketch.evaluated_profile_sketch(), height, direction_mode);
+            sketch.evaluated_profile_sketch(), height, direction_mode,
+            separate_linear_and_circular_profiles);
     }
     zima::kernel::ExtrusionRequest request;
     const auto normal = sketch.normal();
@@ -1874,13 +1876,20 @@ zima::kernel::ExtrusionRequest extrusion_request(
         }
     }
     const bool multiple_curved_loops=curve_groups.size()>1;
-    if ((has_modeling_text && has_ordinary_profile) || mixed_ellipses || multiple_curved_loops) {
+    const bool mixed_linear_and_circular =
+        separate_linear_and_circular_profiles && !profile_segments.empty() &&
+        !profile_circles.empty() && profile_arcs.empty() &&
+        profile_ellipses.empty() && profile_elliptical_arcs.empty() &&
+        profile_splines.empty();
+    if ((has_modeling_text && has_ordinary_profile) || mixed_ellipses ||
+            multiple_curved_loops || mixed_linear_and_circular) {
         // Compose exact loops through the same nesting/ancestry contract used
         // by text and ordinary geometry. Ellipses remain analytic kernel loops.
         std::vector<zima::kernel::ExtrusionRequest> partial_requests;
         auto ordinary_sketch = sketch;
         ordinary_sketch.texts.clear();
         if(mixed_ellipses)ordinary_sketch.ellipses.clear();
+        if(mixed_linear_and_circular)ordinary_sketch.circles.clear();
         if(multiple_curved_loops) {
             for(const auto& group:curve_groups) {
                 auto one=ordinary_sketch;
@@ -1890,6 +1899,14 @@ zima::kernel::ExtrusionRequest extrusion_request(
             }
         }else if(has_nonelliptic_profile || (!mixed_ellipses&&!profile_ellipses.empty()))
             partial_requests.push_back(extrusion_request(ordinary_sketch,height,direction_mode));
+        if(mixed_linear_and_circular) {
+            auto circles=sketch;
+            circles.segments.clear();circles.arcs.clear();circles.ellipses.clear();
+            circles.elliptical_arcs.clear();circles.bsplines.clear();
+            circles.texts.clear();
+            partial_requests.push_back(
+                extrusion_request(circles,height,direction_mode));
+        }
         auto isolated=sketch;
         isolated.segments.clear();isolated.circles.clear();isolated.arcs.clear();
         isolated.ellipses.clear();isolated.elliptical_arcs.clear();isolated.bsplines.clear();
@@ -11194,7 +11211,8 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
             zima::kernel::FeatureGroupRequest group;
             group.allow_empty=p.sketch_only();
             std::array<double,2> rotation_angles{};
-            const auto status=group.allow_empty?profile_status(*sketch):ProfileStatus::Closed;
+            const auto status=(group.allow_empty||p.planar_surface())?
+                profile_status(*sketch):ProfileStatus::Closed;
             const auto prepare=[&](auto request,std::size_t side) {
                 if(sketch->owner_container_id!=container.id)apply_container_placement(request,container.placement);
                 request.centerlines={p.type==FeatureType::Modeling&&p.origin_centerline,p.type==FeatureType::Modeling&&p.centroid_centerline,
@@ -11284,7 +11302,15 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
                             "Cíle obou větví Až k musí ležet na opačných stranách roviny skici.");
                 }
             }
-            if(p.type==FeatureType::Modeling || p.type==FeatureType::Sketch)
+            if(p.planar_surface()) {
+                auto request=extrusion_request(*sketch,1.,
+                    ExtrusionDirection::Forward,true);
+                request.surface_result=true;
+                request.planar_profile=true;
+                if(sketch->owner_container_id!=container.id)
+                    apply_container_placement(request,container.placement);
+                group.children.push_back(std::move(request));
+            } else if(p.type==FeatureType::Modeling || p.type==FeatureType::Sketch)
             for(std::size_t side=0;side<2;++side) {
                 const auto& settings=p.effective_side(side);
                 if(group.allow_empty && (status==ProfileStatus::Empty || status==ProfileStatus::Invalid)) {
@@ -11692,11 +11718,11 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
                 route_edge_counts.push_back(selected_route.size());
                 contour_starts.insert(contour_starts.end(),
                     selected_route.size(), start);
-                // Terminal material faces are derived from the current local
-                // Body neighborhood by the ZIMA solver. Reserved persisted
-                // slots are intentionally ignored so an old manual choice
-                // cannot override regenerated geometry.
-                route_end_faces.emplace_back();
+                const auto& ends=route<
+                        container.edge_treatment.route_end_faces.size()
+                    ?container.edge_treatment.route_end_faces[route]
+                    :EdgeTreatmentParameters::RouteEndFaces{};
+                route_end_faces.push_back({ends.first,ends.last});
             }
             primitive = zima::kernel::FilletRequest{
                 std::move(calculation_edges),
@@ -11731,8 +11757,11 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
                 calculation_edges.insert(calculation_edges.end(),
                     selected_route.begin(),selected_route.end());
                 route_edge_counts.push_back(selected_route.size());
-                // See Fillet above: route terminals are solver-owned.
-                route_end_faces.emplace_back();
+                const auto& ends=route_index<
+                        container.edge_treatment.route_end_faces.size()
+                    ?container.edge_treatment.route_end_faces[route_index]
+                    :EdgeTreatmentParameters::RouteEndFaces{};
+                route_end_faces.push_back({ends.first,ends.last});
             }
             primitive = zima::kernel::ChamferRequest{
                 std::move(calculation_edges),
@@ -11774,7 +11803,9 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
                 : zima::kernel::BooleanOperation::Add,
             container.suppressed ||
                 (container.feature_kind==FeatureKind::Bend &&
-                    container.bend.angle_degrees==0),
+                    container.bend.angle_degrees==0)||
+                (container.feature_kind==FeatureKind::LineBend&&
+                    container.line_bend.angle_degrees==0),
             boolean_tolerance,
             feature_mesh_deflection,
         });
@@ -12783,7 +12814,6 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
             p.thickness_override=b.at("thickness_override");
             p.k_factor_override=b.at("k_factor_override");
             p.fixed_side=b.at("fixed_side");
-            p.reverse=b.at("reverse");
         } else if (container.feature_kind == FeatureKind::Holes) {
             container.holes.sketch_id = source.at("sketch_id");
             container.holes.diameter = source.at("diameter");
@@ -14247,7 +14277,7 @@ nlohmann::json PartDocument::serialized(
                 {"k_factor",p.k_factor},
                 {"thickness_override",p.thickness_override},
                 {"k_factor_override",p.k_factor_override},
-                {"fixed_side",p.fixed_side},{"reverse",p.reverse}};
+                {"fixed_side",p.fixed_side}};
         } else if (container.feature_kind == FeatureKind::Holes) {
             serialized["sketch_id"] = container.holes.sketch_id;
             serialized["diameter"] = container.holes.diameter;

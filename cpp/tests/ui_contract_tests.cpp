@@ -1945,8 +1945,12 @@ int main(int argc, char* argv[]) {
             const std::vector<zima::kernel::EdgeReference> edges{
                 {"source","edge-a",{}},{"source","edge-b",{}}};
             zima::document::HistoryContainer committed;
+            auto fillet_definition=
+                zima::document::PartDocument::create_fillet_container(edges);
+            fillet_definition.edge_treatment.route_end_faces[0].first={
+                "source","terminal-face",{}};
             auto* fillet=new zima::app::PrimitivePropertiesDialog(
-                zima::document::PartDocument::create_fillet_container(edges),
+                fillet_definition,
                 false,false,[&](auto value) {
                     committed=std::move(value);
                 },&parent);
@@ -1989,8 +1993,12 @@ int main(int argc, char* argv[]) {
                         zima::document::FeatureKind::Fillet&&
                     committed.edge_treatment.calculation_method==
                         zima::document::EdgeTreatmentParameters::
-                            CalculationMethod::Automatic,
-                "Fillet Properties did not commit the ZIMA calculation path");
+                            CalculationMethod::Automatic&&
+                    committed.edge_treatment.route_end_faces.size()==1&&
+                    committed.edge_treatment.route_end_faces[0].first==
+                        fillet_definition.edge_treatment.
+                            route_end_faces[0].first,
+                "Fillet Properties did not commit the ZIMA calculation path or preserve its terminal face");
 
             committed={};
             auto* chamfer=new zima::app::PrimitivePropertiesDialog(

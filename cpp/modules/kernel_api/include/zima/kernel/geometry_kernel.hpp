@@ -751,6 +751,10 @@ struct ExtrusionRequest {
     // forward target across its source profile (unified Feature symmetry).
     bool mirror_forward_limit{};
     bool surface_result{};
+    // Fill the closed profile regions directly in their Sketch plane instead
+    // of sweeping their boundary wires. This is a transient calculation
+    // choice; the native document stores the planar-surface Feature convention.
+    bool planar_profile{};
     std::string open_profile_end_id;
 };
 
@@ -1097,8 +1101,9 @@ struct SheetRipRequest {
 
 // A calculated sheet is partitioned at the two tangent planes of this
 // material frame. Geometry on the fixed side remains unchanged, the bend band
-// is mapped to the cylinder, and the continuation moves rigidly. The finite
-// along interval limits the operation to the authored Sketch segment.
+// is mapped to the cylinder, and the continuation moves rigidly. The authored
+// along interval defines the press-brake axis and must terminate at actual
+// sheet boundaries; it never introduces perpendicular cuts into the material.
 struct LineBendRequest {
     Vec3 origin;
     Vec3 along{1,0,0};

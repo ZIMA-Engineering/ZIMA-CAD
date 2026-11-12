@@ -46,6 +46,16 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
     if(feature_kind==zima::document::FeatureKind::SurfaceTrim){show_surface_trim_properties(container_id);return;}
     if(feature_kind==zima::document::FeatureKind::SurfaceIntersection){show_surface_intersection_properties(container_id);return;}
     if(feature_kind==zima::document::FeatureKind::GeneralSurface){show_sweep_properties(feature_kind,container_id);return;}
+    if(feature_kind==zima::document::FeatureKind::Feature) {
+        const auto* part=workspace_.open_part(workspace_.active_document_id());
+        const auto* feature=part?
+            part->session.document().find_container(container_id):nullptr;
+        if(feature&&feature->feature.planar_surface()) {
+            show_sketch_properties(feature->feature.sketch_id,
+                false,false,false,false,false,true);
+            return;
+        }
+    }
     if(feature_kind==zima::document::FeatureKind::DerivedCopy) {
         show_derived_copy_properties(container_id);return;
     }

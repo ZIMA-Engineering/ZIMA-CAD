@@ -338,9 +338,148 @@ void line_bend_contract(kernel::OcctKernel& engine) {
     check(cold.back().calculation_errors.empty(),
         "Line Bend failed cold regeneration");
     near(measured_volume(engine,cold.back().body_outputs.at(body)),16000,.01);
+    {
+        auto zero=part;
+        zero.find_container(bend.id)->line_bend.angle_degrees=0;
+        const auto operations=zero.kernel_operations();
+        const auto operation=std::ranges::find(operations,bend.id,
+            &kernel::HistoryOperation::owner_id);
+        check(operation!=operations.end()&&operation->suppressed,
+            "Zero-degree Line Bend is not a straight inactive state");
+        const auto zero_result=
+            workspace::calculate_part_with_resolved_references(
+                engine,zero,&calculated);
+        check(zero_result.back().calculation_errors.empty(),
+            "Zero-degree Line Bend produced a calculation error");
+        near(measured_volume(engine,
+            zero_result.back().body_outputs.at(body)),16000,.01);
+    }
 
-    const auto verify_variant=[&](int fixed_side,bool reverse,
-            bool inner_tab) {
+    {
+        // POKUS.PRTZ regression: the authored line crosses the complete
+        // rectangular sheet obliquely. Endpoint partition planes previously
+        // cut two large triangular wedges from this exact arrangement.
+        constexpr double width=163.77951049804688;
+        constexpr double height=94.25962829589844;
+        auto oblique=document::PartDocument::create_default();
+        const auto oblique_body=oblique.body_history.create_body(
+            "Oblique Line Bend");
+        auto oblique_flat=document::PartDocument::create_sketch_container();
+        oblique_flat.feature_kind=document::FeatureKind::Flat;
+        oblique_flat.flat.thickness_override=true;
+        oblique_flat.flat.thickness=1;
+        oblique_flat.flat.direction=document::ExtrusionDirection::Reverse;
+        auto oblique_profile=sketcher::Sketch::create_default();
+        oblique_profile.owner_container_id=oblique_flat.id;
+        oblique_flat.flat.sketch_id=oblique_profile.id;
+        static_cast<void>(oblique_profile.add_rectangle(0,0,width,height));
+        oblique.insert_history_entry(document::PartHistoryKind::Feature,
+            oblique_flat.id);
+        oblique.history.push_back(oblique_flat);
+        oblique.sketches.push_back(oblique_profile);
+        const auto oblique_flat_result=
+            workspace::calculate_part_with_resolved_references(engine,oblique);
+
+        auto oblique_bend=document::PartDocument::create_sketch_container();
+        oblique_bend.feature_kind=document::FeatureKind::LineBend;
+        oblique_bend.line_bend.radius=1;
+        oblique_bend.line_bend.angle_degrees=90;
+        oblique_bend.line_bend.thickness_override=true;
+        oblique_bend.line_bend.thickness=1;
+        oblique_bend.line_bend.k_factor_override=true;
+        oblique_bend.line_bend.k_factor=.3183;
+        oblique_bend.line_bend.fixed_side=1;
+        auto oblique_line=sketcher::Sketch::create_default();
+        oblique_line.owner_container_id=oblique_bend.id;
+        oblique_bend.line_bend.sketch_id=oblique_line.id;
+        oblique_bend.line_bend.segment_id=oblique_line.add_segment(
+            101.05405093447132,0,69.12366156353653,height);
+        oblique.insert_history_entry(document::PartHistoryKind::Feature,
+            oblique_bend.id);
+        oblique.history.push_back(oblique_bend);
+        oblique.sketches.push_back(oblique_line);
+
+        const auto oblique_result=
+            workspace::calculate_part_with_resolved_references(engine,oblique);
+        check(oblique_result.back().calculation_errors.empty(),
+            "Oblique Line Bend reproduced from POKUS.PRTZ failed");
+        const double oblique_segment_length=std::hypot(
+            101.05405093447132-69.12366156353653,height);
+        const double oblique_expected_volume=width*height+
+            oblique_segment_length*(std::numbers::pi/2)*
+                (.5-oblique_bend.line_bend.k_factor);
+        const double oblique_valid_volume=measured_volume(engine,
+            oblique_result.back().body_outputs.at(oblique_body));
+        near(oblique_valid_volume,oblique_expected_volume,.05);
+        const auto& oblique_mesh=
+            oblique_result.back().body_outputs.at(oblique_body)->mesh;
+        check(std::ranges::none_of(oblique_mesh.edges,[](const auto& edge) {
+                return edge.reference.semantic_key.find(
+                    "line-bend:partition:first")!=std::string::npos||
+                    edge.reference.semantic_key.find(
+                    "line-bend:partition:last")!=std::string::npos;
+            }),"Oblique Line Bend retained an artificial endpoint seam");
+        std::size_t straight_boundaries{},attachable_boundaries{};
+        for(const auto& edge:oblique_mesh.edges) {
+            if(kernel::sheet_edge_role(edge)!=
+                    kernel::SheetEdgeRole::Boundary||edge.points.size()<2)
+                continue;
+            const auto delta=kernel::sheet_material::sub(
+                edge.points.back(),edge.points.front());
+            const double edge_length=std::sqrt(
+                kernel::sheet_material::dot(delta,delta));
+            if(edge_length<1e-6)continue;
+            const auto direction=kernel::sheet_material::mul(
+                delta,1/edge_length);
+            if(std::ranges::any_of(edge.points,[&](const auto& point) {
+                    return std::sqrt(kernel::sheet_material::dot(
+                        kernel::sheet_material::cross(
+                            kernel::sheet_material::sub(
+                                point,edge.points.front()),direction),
+                        kernel::sheet_material::cross(
+                            kernel::sheet_material::sub(
+                                point,edge.points.front()),direction)))>1e-6;
+                }))continue;
+            ++straight_boundaries;
+            try {
+                static_cast<void>(document::bend_sheet_references(edge));
+                ++attachable_boundaries;
+            } catch(const std::invalid_argument&) {}
+        }
+        check(straight_boundaries>=4&&
+                attachable_boundaries==straight_boundaries,
+            "A straight boundary after an oblique Line Bend is not prepared for a following Bend");
+        const auto oblique_preview=document::line_bend_preview(oblique_bend,
+            oblique_line,document::sheet_metal_defaults(oblique),
+            oblique_flat_result.back().body_outputs.at(oblique_body)->mesh);
+        check(std::ranges::any_of(oblique_preview.dimensions,
+                [&](const auto& dimension) {
+                    return dimension.reference.owner_id==oblique_bend.id&&
+                        dimension.reference.semantic_key=="parameter:angle"&&
+                        dimension.kind==kernel::ViewerDimensionKind::Angular&&
+                        std::abs(dimension.value-90)<1e-9;
+                }),"Line Bend preview has no editable angle dimension");
+
+        auto invalid=oblique;
+        auto* invalid_bend=invalid.find_container(oblique_bend.id);
+        auto invalid_line=*std::ranges::find(invalid.sketches,
+            oblique_line.id,&sketcher::Sketch::id);
+        invalid_line.segments.clear();invalid_line.points.clear();
+        invalid_bend->line_bend.segment_id=invalid_line.add_segment(
+            40,40,80,40);
+        *std::ranges::find(invalid.sketches,oblique_line.id,
+            &sketcher::Sketch::id)=std::move(invalid_line);
+        const auto rejected=workspace::calculate_part_with_resolved_references(
+            engine,invalid,&oblique_result);
+        check(rejected.back().calculation_errors.contains(oblique_bend.id)&&
+                rejected.back().body_outputs.contains(oblique_body),
+            "A Line Bend ending inside continuous material was not rejected safely");
+        near(measured_volume(engine,
+            rejected.back().body_outputs.at(oblique_body)),
+            width*height,.05);
+    }
+
+    const auto verify_variant=[&](int fixed_side,bool inner_tab) {
         auto variant=document::PartDocument::create_default();
         const auto variant_body=variant.body_history.create_body(
             inner_tab?"Inner Line Bend tab":"Line Bend direction variant");
@@ -379,7 +518,6 @@ void line_bend_contract(kernel::OcctKernel& engine) {
         variant_bend.line_bend.k_factor_override=true;
         variant_bend.line_bend.k_factor=.5;
         variant_bend.line_bend.fixed_side=fixed_side;
-        variant_bend.line_bend.reverse=reverse;
         auto variant_line=sketcher::Sketch::create_default();
         variant_line.owner_container_id=variant_bend.id;
         variant_bend.line_bend.sketch_id=variant_line.id;
@@ -410,8 +548,8 @@ void line_bend_contract(kernel::OcctKernel& engine) {
         const auto displacement=kernel::sheet_material::sub(folded,original);
         const double normal_displacement=kernel::sheet_material::dot(
             displacement,variant_line.resolved_normal);
-        check(reverse?normal_displacement>1e-6:normal_displacement<-1e-6,
-            "Line Bend reverse direction does not follow the authored tool side");
+        check(normal_displacement>1e-6,
+            "Line Bend direction does not follow its Sketch plane side");
 
         const auto result=workspace::calculate_part_with_resolved_references(
             engine,variant);
@@ -433,13 +571,12 @@ void line_bend_contract(kernel::OcctKernel& engine) {
             "Finite inner Line Bend has no cylindrical material region":
             "Line Bend side/direction variant has no cylindrical region");
     };
-    for(const int fixed_side:{-1,1})for(const bool reverse:{false,true})
-        verify_variant(fixed_side,reverse,false);
-    // The segment endpoints lie on the two re-entrant edges of a tongue.
-    // This is a finite internal bend: material outside its along interval
-    // remains fixed, while the tongue is the moving continuation.
-    verify_variant(-1,false,true);
-    verify_variant(-1,true,true);
+    for(const int fixed_side:{-1,1})
+        verify_variant(fixed_side,false);
+    // The segment endpoints lie on the two re-entrant relief edges. Those
+    // material boundaries isolate the finite moving tongue without endpoint
+    // planes cutting the rest of the sheet.
+    verify_variant(-1,true);
 }
 void contract(bool include_oblique_corners = true) {
     kernel::OcctKernel kernel;

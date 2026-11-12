@@ -75,6 +75,7 @@ public:
         const std::function<void(zima::sketcher::Sketch&)>& mutation);
     std::function<bool(const std::string&,const std::function<void(zima::sketcher::Sketch&)>&)> bend_sketch_mutator;
     [[nodiscard]] auto pending_value() const { return current_values(); }
+    void set_planar_surface_mode(std::function<void()> edit_sketch);
     void set_holes_mode(double diameter, std::set<std::string>& locks, std::function<void(double)> changed,
         std::function<void()> edit_sketch, std::optional<zima::kernel::DimensionLayout> layout = {},
         std::function<void(zima::kernel::DimensionLayout)> layout_changed = {});
@@ -167,6 +168,8 @@ private:
     QDoubleSpinBox* holes_diameter_{};
     QDoubleSpinBox* bend_radius_{};
     QDoubleSpinBox* bend_angle_{};
+    QDoubleSpinBox* line_bend_radius_{};
+    QDoubleSpinBox* line_bend_angle_{};
     bool bend_seed_from_edge_{};
     std::shared_ptr<zima::document::BendParameters> bend_pending_;
     std::shared_ptr<zima::document::LineBendParameters> line_bend_pending_;

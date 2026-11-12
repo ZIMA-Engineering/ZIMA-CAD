@@ -4,6 +4,7 @@ class QApplication;
 namespace zima::app {
 class AssemblyWorkspaceWindow;
 int verify_boundary_surface_ui(QApplication&,AssemblyWorkspaceWindow&,const std::filesystem::path&);
+int verify_planar_surface_ui(QApplication&,AssemblyWorkspaceWindow&,const std::filesystem::path&);
 int verify_sheet_cut_skin_ui(QApplication&,AssemblyWorkspaceWindow&,const std::filesystem::path&);
 int verify_loft_ui(QApplication&,AssemblyWorkspaceWindow&,const std::filesystem::path&);
 int verify_general_surface_ui(QApplication&,AssemblyWorkspaceWindow&,const std::filesystem::path&);
