@@ -261,7 +261,7 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
             template_image_action_->setObjectName("templateImageAction");
             connect(template_image_action_,&QAction::triggered,this,[this]{start_template_image();});
         }
-        add_command(template_image_action_);add_group_separator();
+        add_group_separator();
         add_command(sketch_normal_view_action_,false);
         add_command(sketch_flip_view_action_,false);
         add_command(sketch_rotate_view_action_,false);
@@ -292,6 +292,7 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
         add_command(sketch_universal_dimension_action_);
         add_command(sketch_text_action_);
         add_command(symbol_action_);
+        add_command(template_image_action_);
         add_group_separator();
         const auto* template_part=workspace_.open_part(workspace_.active_document_id());
         if(!template_sketch()||(template_part&&template_part->native_drawing_template))add_command(finish_sketch_action_,false);

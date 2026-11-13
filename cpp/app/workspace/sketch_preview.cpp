@@ -598,17 +598,41 @@ void AssemblyWorkspaceWindow::preview_sketch_segment_ray(
         }
     }
     if (!inference.parallel_reference_id.empty()) {
-        const auto reference = std::find_if(
-            sketch->segments.begin(), sketch->segments.end(),
-            [&](const auto& value) {
-                return value.id == inference.parallel_reference_id;
-            });
-        if (reference != sketch->segments.end()) {
-            const auto* first = sketch->find_point(reference->first_point_id);
-            const auto* second = sketch->find_point(reference->second_point_id);
+        const auto source_mesh = sketch->viewer_mesh();
+        const auto support_key = inference.parallel_reference_id ==
+                "sketch_axis:x" ||
+                inference.parallel_reference_id == "sketch_axis:y"
+            ? inference.parallel_reference_id
+            : std::any_of(sketch->segments.begin(), sketch->segments.end(),
+                  [&](const auto& value) {
+                      return value.id == inference.parallel_reference_id;
+                  })
+                ? "segment:" + inference.parallel_reference_id
+                : "external_edge:" + inference.parallel_reference_id;
+        if (const auto support = std::find_if(
+                source_mesh.edges.begin(), source_mesh.edges.end(),
+                [&](const auto& value) {
+                    return value.reference.semantic_key == support_key ||
+                        value.reference.semantic_key ==
+                            "external_axis:" + inference.parallel_reference_id;
+                }); support != source_mesh.edges.end()) {
+            auto reference = *support;
+            reference.reference = {
+                active_sketch_id_, "inference:reference", {}};
+            preview_edges.push_back(std::move(reference));
+        } else if (const auto axis = std::find_if(
+                source_mesh.axes.begin(), source_mesh.axes.end(),
+                [&](const auto& value) {
+                    return value.reference.semantic_key == support_key;
+                }); axis != source_mesh.axes.end()) {
+            const double half = axis->display_length * 0.5;
             preview_edges.push_back({{
-                sketch->world_point(first->x, first->y),
-                sketch->world_point(second->x, second->y)},
+                {axis->point.x - axis->direction.x * half,
+                 axis->point.y - axis->direction.y * half,
+                 axis->point.z - axis->direction.z * half},
+                {axis->point.x + axis->direction.x * half,
+                 axis->point.y + axis->direction.y * half,
+                 axis->point.z + axis->direction.z * half}},
                 {active_sketch_id_, "inference:reference", {}}});
         }
     }

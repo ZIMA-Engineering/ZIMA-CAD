@@ -8,16 +8,19 @@
 #include <TopExp.hxx>
 #include <TopExp_Explorer.hxx>
 #include <TopLoc_Location.hxx>
+#include <TopTools_IndexedDataMapOfShapeListOfShape.hxx>
 #include <TopTools_IndexedMapOfShape.hxx>
 #include <TopoDS.hxx>
 #include <TopoDS_Face.hxx>
 #include <TopoDS_Solid.hxx>
 #include <TopoDS_Vertex.hxx>
 #include <gp_Dir.hxx>
+#include <gp_Pln.hxx>
 #include <gp_Pnt.hxx>
 #include <gp_Vec.hxx>
 
 #include <algorithm>
+#include <cmath>
 #include <ranges>
 #include <span>
 #include <vector>
@@ -98,6 +101,87 @@ inline std::vector<TopoDS_Face> local_curved_terminal_faces(
         double tolerance) {
     return local_terminal_faces(material,first_support,second_support,
         endpoint,tolerance,true);
+}
+
+inline std::vector<TopoDS_Face> remote_terminal_faces_through_local_curve(
+        const TopoDS_Solid& material,const TopoDS_Face& first_support,
+        const TopoDS_Face& second_support,const gp_Pnt& endpoint,
+        const gp_Dir& outward,double tolerance) {
+    TopTools_IndexedDataMapOfShapeListOfShape edge_faces;
+    TopExp::MapShapesAndAncestors(material,TopAbs_EDGE,TopAbs_FACE,
+        edge_faces);
+    struct Candidate {
+        TopoDS_Face face;
+        gp_Pln plane;
+        double distance{};
+        int support_adjacency{};
+    };
+    std::vector<Candidate> candidates;
+    // Follow the exact local curved terminal already classified for this
+    // endpoint. A previous Fillet can be split into multiple Boolean faces,
+    // so each adjacent planar cap is considered independently.
+    const auto local_curves=local_curved_terminal_faces(material,
+        first_support,second_support,endpoint,tolerance);
+    for(const auto& curved:local_curves) {
+        for(TopExp_Explorer edge_item(curved,TopAbs_EDGE);
+                edge_item.More();edge_item.Next()) {
+            const auto edge=TopoDS::Edge(edge_item.Current());
+            const int edge_index=edge_faces.FindIndex(edge);
+            if(!edge_index)continue;
+            for(const auto& adjacent_shape:
+                    edge_faces.FindFromIndex(edge_index)) {
+                const auto adjacent=TopoDS::Face(adjacent_shape);
+                if(adjacent.IsSame(curved)||
+                   adjacent.IsSame(first_support)||
+                   adjacent.IsSame(second_support))continue;
+                const BRepAdaptor_Surface support(adjacent,true);
+                if(support.GetType()!=GeomAbs_Plane)continue;
+                const auto plane=support.Plane();
+                const auto normal=plane.Axis().Direction();
+                const double incidence=normal.Dot(outward);
+                if(std::abs(incidence)<=1.0e-8)continue;
+                const double distance=gp_Vec(endpoint,plane.Location()).Dot(
+                    gp_Vec(normal))/incidence;
+                if(distance<=tolerance)continue;
+                const gp_Pnt intersection=endpoint.Translated(
+                    gp_Vec(outward)*distance);
+                // The preceding radius can trim away the point where the
+                // route centre line meets this plane. Topological adjacency
+                // is authoritative; an on-face hit strengthens equal choices.
+                BRepClass_FaceClassifier at_intersection(adjacent,
+                    intersection,10.*tolerance);
+                const int adjacency=
+                    (terminal_face_meets_support_at_endpoint(adjacent,
+                        first_support,intersection,10.*tolerance)?1:0)+
+                    (terminal_face_meets_support_at_endpoint(adjacent,
+                        second_support,intersection,10.*tolerance)?1:0)+
+                    ((at_intersection.State()==TopAbs_IN||
+                      at_intersection.State()==TopAbs_ON)?1:0);
+                const auto duplicate=std::ranges::find_if(candidates,
+                    [&](const auto& candidate) {
+                        return candidate.face.IsSame(adjacent);
+                    });
+                if(duplicate==candidates.end())
+                    candidates.push_back(
+                        {adjacent,plane,distance,adjacency});
+            }
+        }
+    }
+    if(candidates.empty())return {};
+    const auto selected=std::ranges::min_element(candidates,
+        [](const auto& first,const auto& second) {
+            if(first.support_adjacency!=second.support_adjacency)
+                return first.support_adjacency>second.support_adjacency;
+            return first.distance<second.distance;
+        });
+    std::vector<TopoDS_Face> result;
+    for(const auto& candidate:candidates)
+        if(candidate.support_adjacency==selected->support_adjacency&&
+           candidate.plane.Axis().Direction().IsParallel(
+               selected->plane.Axis().Direction(),1.0e-9)&&
+           candidate.plane.Distance(selected->plane.Location())<=tolerance)
+            result.push_back(candidate.face);
+    return result;
 }
 
 inline bool removal_profile_continues_past_curved_terminal(

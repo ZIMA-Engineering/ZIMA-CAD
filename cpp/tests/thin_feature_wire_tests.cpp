@@ -1005,6 +1005,15 @@ void diagnose_edge_treatment(const kernel::OcctKernel& engine,
     std::cout<<feature->name<<" input edges="<<input->mesh.edges.size()
         <<" preview="<<preview.edges.size()<<'/'<<preview_points
         <<" authored="<<authored.size()<<'/'<<authored_points<<'\n';
+    for(std::size_t index=0;index<preview.edges.size();++index) {
+        const auto& edge=preview.edges[index];
+        if(edge.points.empty())continue;
+        std::cout<<"  preview "<<index<<" points="<<edge.points.size()
+            <<" from=("<<edge.points.front().x<<','
+            <<edge.points.front().y<<','<<edge.points.front().z
+            <<") to=("<<edge.points.back().x<<','
+            <<edge.points.back().y<<','<<edge.points.back().z<<")\n";
+    }
     for(const auto& [id,error]:
             session.calculated_boundaries().back().calculation_errors)
         std::cout<<"Calculation error "<<id<<": "<<error<<'\n';

@@ -667,8 +667,16 @@ bool ContainerPlacementSection::set_reference(std::size_t index,
         return false;
     }
     if(index<3)for(auto& ref:references_){ref.solution_branch=0;ref.branch_sources.clear();}
+    bool seed_from_picked_position=seed && picked.has_value();
     if(seed && index==0 && !references_[0].use_axis) {
         const auto* surface=surface_resolver_?surface_resolver_(references_[0]):nullptr;
+        if(surface && surface->kind==zima::kernel::SurfaceGeometry::Kind::Plane &&
+            !planar_face_capture_policy_) {
+            // An ordinary planar support defines the local frame, but its
+            // arbitrary pick point must not translate the container in-plane.
+            // resolve_placement() projects the existing origin onto the plane.
+            seed_from_picked_position=false;
+        }
         bool capture=surface && surface->kind!=zima::kernel::SurfaceGeometry::Kind::Plane;
         if(!capture && branch_geometry_) {
             const auto& ref=references_[0];
@@ -687,7 +695,7 @@ bool ContainerPlacementSection::set_reference(std::size_t index,
         if(capture)empty_reference_locks_[1]=empty_reference_locks_[2]=true;
     }
     if(error_text)error_text->clear();
-    if(seed && picked)for(std::size_t axis=0;axis<3;++axis) {
+    if(seed_from_picked_position && picked)for(std::size_t axis=0;axis<3;++axis) {
         const char* key=axis==0?"x":axis==1?"y":"z";
         if(!value_locks_.contains(key) && std::isfinite((*picked)[axis])) {
             const QSignalBlocker blocked(translation_[axis]);

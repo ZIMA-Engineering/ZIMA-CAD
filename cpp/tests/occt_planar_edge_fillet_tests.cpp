@@ -1204,6 +1204,9 @@ int main() try {
                 second_inner.analytic_removal_domains.front().
                     axial_extension>1.0e-7,
             "Smaller additive Fillet did not reach its curved terminal intersection");
+        require(second_inner.analytic_removal_domains.front().
+                    axial_extension<=4.+1.0e-6,
+            "Remote cap pulled the smaller additive Fillet beyond its local profile span");
         for(const double radius:{4.,6.}) {
             const auto large_inner_exact=
                 zima::kernel::occt_planar_edge_fillet(
@@ -1220,6 +1223,10 @@ int main() try {
                     volume(large_inner_curved.shape)<
                         volume(large_inner_exact.shape)-1.0e-6,
                 "Large additive Fillet was not clipped exactly by the preceding radius");
+            require(large_inner_curved.analytic_removal_domains.size()==1&&
+                    large_inner_curved.analytic_removal_domains.front().
+                        axial_extension<=4.*radius+1.0e-6,
+                "Remote cap pulled the large additive Fillet beyond its local profile span");
         }
         const std::array connected_route{std::size_t{2}};
         const auto split_outer=split_outer_prism();

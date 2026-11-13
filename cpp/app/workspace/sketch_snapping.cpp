@@ -1310,6 +1310,51 @@ AssemblyWorkspaceWindow::inferred_sketch_segment_end(
             candidate.midpoint_line_reference_id = reference_id;
             midpoint_lines.push_back({distance, std::move(candidate)});
         };
+        const auto offer_directional_relations =
+            [&](const std::string& reference_id, const double rx,
+                    const double ry, const bool preserve_axis_inference) {
+                const double length = std::hypot(rx, ry);
+                if (length <= 1.0e-12) return;
+                const double ux = rx / length;
+                const double uy = ry / length;
+                // Exact horizontal/vertical external references keep the
+                // established H/V inference instead of adding a redundant
+                // pair relation to read-only reference geometry.
+                if (preserve_axis_inference &&
+                    (std::abs(ux) <= 1.0e-9 || std::abs(uy) <= 1.0e-9)) {
+                    return;
+                }
+                const double perpendicular_error = std::abs(
+                    cursor_x * ux + cursor_y * uy);
+                const double normal_along = cursor_x * -uy + cursor_y * ux;
+                const bool already_offered_start_support =
+                    pending_segment_start_snap_kind_ ==
+                        zima::sketcher::ConstraintKind::PointOnLine &&
+                    pending_segment_start_snap_geometry_id_ == reference_id;
+                if (!already_offered_start_support &&
+                    std::abs(normal_along) > 1.0e-9 &&
+                    perpendicular_error <= direction_tolerance) {
+                    SketchSegmentInference candidate{{
+                        (*pending_segment_start_)[0] + normal_along * -uy,
+                        (*pending_segment_start_)[1] + normal_along * ux},
+                        std::nullopt, {}};
+                    candidate.perpendicular_reference_id = reference_id;
+                    perpendiculars.push_back(std::move(candidate));
+                }
+                const double along = cursor_x * ux + cursor_y * uy;
+                const double normal_distance =
+                    std::abs(cursor_x * uy - cursor_y * ux);
+                if (std::abs(along) <= 1.0e-9 ||
+                    normal_distance > direction_tolerance) {
+                    return;
+                }
+                SketchSegmentInference candidate{{
+                    (*pending_segment_start_)[0] + along * ux,
+                    (*pending_segment_start_)[1] + along * uy},
+                    std::nullopt, {}};
+                candidate.parallel_reference_id = reference_id;
+                parallels.push_back({normal_distance, std::move(candidate)});
+            };
         offer_midpoint_on_line(
             "sketch_axis:x", {0.0, 0.0}, {1.0, 0.0}, false);
         offer_midpoint_on_line(
@@ -1322,37 +1367,15 @@ AssemblyWorkspaceWindow::inferred_sketch_segment_end(
             const double ry = second->y - first->y;
             offer_midpoint_on_line(reference.id, {first->x, first->y},
                 {rx, ry}, true);
-            const double length = std::hypot(rx, ry);
-            if (length <= 1.0e-12) continue;
-            const double ux = rx / length;
-            const double uy = ry / length;
-            const double perpendicular_error = std::abs(
-                cursor_x * ux + cursor_y * uy);
-            const double normal_along = cursor_x * -uy + cursor_y * ux;
-            const bool already_offered_start_support =
-                pending_segment_start_snap_kind_ ==
-                    zima::sketcher::ConstraintKind::PointOnLine &&
-                pending_segment_start_snap_geometry_id_ == reference.id;
-            if (!already_offered_start_support &&
-                std::abs(normal_along) > 1.0e-9 &&
-                perpendicular_error <= direction_tolerance) {
-                SketchSegmentInference candidate{{
-                    (*pending_segment_start_)[0] + normal_along * -uy,
-                    (*pending_segment_start_)[1] + normal_along * ux},
-                    std::nullopt, {}};
-                candidate.perpendicular_reference_id = reference.id;
-                perpendiculars.push_back(std::move(candidate));
-            }
-            const double along = cursor_x * ux + cursor_y * uy;
-            const double normal_distance = std::abs(cursor_x * uy - cursor_y * ux);
-            if (std::abs(along) <= 1.0e-9 ||
-                normal_distance > direction_tolerance) continue;
-            SketchSegmentInference candidate{{
-                (*pending_segment_start_)[0] + along * ux,
-                (*pending_segment_start_)[1] + along * uy},
-                std::nullopt, {}};
-            candidate.parallel_reference_id = reference.id;
-            parallels.push_back({normal_distance, std::move(candidate)});
+            offer_directional_relations(reference.id, rx, ry, false);
+        }
+        for (const auto& reference : sketch->external_references) {
+            if (reference.broken) continue;
+            const auto line =
+                zima::sketcher::external_reference_line(reference);
+            if (!line) continue;
+            offer_directional_relations(reference.id,
+                line->second[0], line->second[1], true);
         }
     }
     if (dy <= direction_tolerance) {

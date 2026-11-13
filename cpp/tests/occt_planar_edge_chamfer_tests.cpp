@@ -12,6 +12,7 @@
 #include <BRepClass_FaceClassifier.hxx>
 #include <BRepGProp.hxx>
 #include <BRepFilletAPI_MakeChamfer.hxx>
+#include <BRepFilletAPI_MakeFillet.hxx>
 #include <BRepPrimAPI_MakeBox.hxx>
 #include <BRepPrimAPI_MakeCylinder.hxx>
 #include <BRepPrimAPI_MakePrism.hxx>
@@ -539,6 +540,224 @@ int main() try {
     require(disconnected_rejected,
         "A x B Chamfer accepted disconnected route members");
 
+    {
+        // A preceding Fillet replaces one sharp corner of the top perimeter
+        // by a circular member.  Chamfering that tangent line-arc-line route
+        // is one continuous sweep, not three independent straight prisms.
+        constexpr double length=120.,width=80.,height=30.,fillet_radius=3.;
+        const auto sharp=BRepPrimAPI_MakeBox(length,width,height).Shape();
+        const auto vertical=vertical_edges(sharp,height);
+        const auto corner=std::ranges::find_if(vertical,
+            [](const auto& edge) {
+                TopoDS_Vertex first,last;
+                TopExp::Vertices(edge,first,last,true);
+                const auto point=BRep_Tool::Pnt(first);
+                return std::abs(point.X())<=1.0e-9&&
+                    std::abs(point.Y())<=1.0e-9;
+            });
+        require(corner!=vertical.end(),
+            "Curved Chamfer fixture lost its sharp vertical corner");
+        BRepFilletAPI_MakeFillet round(sharp);
+        round.Add(fillet_radius,*corner);
+        round.Build();
+        require(round.IsDone()&&!round.Shape().IsNull()&&
+                BRepCheck_Analyzer(round.Shape(),true,true,false).IsValid(),
+            "Curved Chamfer fixture Fillet failed");
+
+        TopoDS_Edge arc;
+        for(TopExp_Explorer item(round.Shape(),TopAbs_EDGE);
+                item.More();item.Next()) {
+            const auto edge=TopoDS::Edge(item.Current());
+            const BRepAdaptor_Curve curve(edge);
+            if(curve.GetType()!=GeomAbs_Circle)continue;
+            TopoDS_Vertex first,last;
+            TopExp::Vertices(edge,first,last,true);
+            if(!first.IsNull()&&!last.IsNull()&&
+               std::abs(BRep_Tool::Pnt(first).Z()-height)<=1.0e-7&&
+               std::abs(BRep_Tool::Pnt(last).Z()-height)<=1.0e-7) {
+                require(arc.IsNull()||arc.IsSame(edge),
+                    "Curved Chamfer fixture has an ambiguous top arc");
+                arc=edge;
+            }
+        }
+        require(!arc.IsNull(),
+            "Curved Chamfer fixture lost its top circular route member");
+        TopTools_IndexedMapOfShape arc_vertices;
+        TopExp::MapShapes(arc,TopAbs_VERTEX,arc_vertices);
+        std::vector<TopoDS_Edge> route;
+        for(TopExp_Explorer item(round.Shape(),TopAbs_EDGE);
+                item.More();item.Next()) {
+            const auto edge=TopoDS::Edge(item.Current());
+            const BRepAdaptor_Curve curve(edge);
+            if(edge.IsSame(arc)||curve.GetType()!=GeomAbs_Line)continue;
+            TopTools_IndexedMapOfShape vertices;
+            TopExp::MapShapes(edge,TopAbs_VERTEX,vertices);
+            const bool shares_arc=std::ranges::any_of(
+                std::views::iota(1,vertices.Extent()+1),[&](int index) {
+                    return arc_vertices.Contains(vertices.FindKey(index));
+                });
+            const bool on_top=std::ranges::all_of(
+                std::views::iota(1,vertices.Extent()+1),[&](int index) {
+                    return std::abs(BRep_Tool::Pnt(TopoDS::Vertex(
+                        vertices.FindKey(index))).Z()-height)<=1.0e-7;
+                });
+            if(shares_arc&&on_top&&std::ranges::none_of(route,
+                    [&](const auto& current){return current.IsSame(edge);}))
+                route.push_back(edge);
+        }
+        require(route.size()==2,
+            "Curved Chamfer fixture lost its two tangent line members");
+        route.insert(route.begin()+1,arc);
+        const auto curved=zima::kernel::occt_planar_edge_chamfer(
+            round.Shape(),route,2.,1.0e-7);
+        require(BRepCheck_Analyzer(curved.Shape(),true,true,false).IsValid()&&
+                curved.chamfer_faces.size()==route.size()&&
+                std::ranges::all_of(curved.chamfer_faces,
+                    [](const auto& faces){return !faces.empty();}),
+            "Tangent line-arc-line ZIMA Chamfer route is invalid");
+        const auto curved_automatic=
+            zima::kernel::occt_planar_edge_chamfer(round.Shape(),route,2.,
+                1.0e-7,{}, {},zima::kernel::OcctPlanarEdgeEndMode::
+                    AutomaticBodyEnvelope);
+        require(BRepCheck_Analyzer(curved_automatic.Shape(),true,true,false).
+                    IsValid()&&
+                curved_automatic.chamfer_faces.size()==route.size()&&
+                std::ranges::all_of(curved_automatic.chamfer_faces,
+                    [](const auto& faces){return !faces.empty();}),
+            "Automatic tangent line-arc-line ZIMA Chamfer route is invalid");
+        near(volume(curved.Shape()),volume(curved_automatic.Shape()),
+            "Automatic tangent line-arc-line ZIMA Chamfer changed volume");
+        near(area(curved.Shape()),area(curved_automatic.Shape()),
+            "Automatic tangent line-arc-line ZIMA Chamfer changed area");
+        const auto collapsed_round=
+            zima::kernel::occt_planar_edge_chamfer(round.Shape(),route,4.,
+                1.0e-7,{}, {},zima::kernel::OcctPlanarEdgeEndMode::
+                    AutomaticBodyEnvelope);
+        require(BRepCheck_Analyzer(collapsed_round.Shape(),true,true,false).
+                    IsValid()&&
+                collapsed_round.chamfer_faces.size()==route.size()&&
+                std::ranges::all_of(collapsed_round.chamfer_faces,
+                    [](const auto& faces){return !faces.empty();}),
+            "Chamfer beyond a preceding Fillet radius is invalid");
+        require(volume(collapsed_round.Shape())<volume(round.Shape()),
+            "Chamfer beyond a preceding Fillet radius removed no material");
+        std::reverse(route.begin(),route.end());
+        const auto curved_reversed=zima::kernel::occt_planar_edge_chamfer(
+            round.Shape(),route,2.,1.0e-7);
+        require(BRepCheck_Analyzer(curved_reversed.Shape(),true,true,false).
+                    IsValid(),
+            "Reversed tangent line-arc-line ZIMA Chamfer route is invalid");
+        near(volume(curved.Shape()),volume(curved_reversed.Shape()),
+            "Tangent line-arc-line ZIMA Chamfer depends on selection order");
+        near(area(curved.Shape()),area(curved_reversed.Shape()),
+            "Tangent line-arc-line ZIMA Chamfer area depends on selection order");
+        const auto collapsed_round_reversed=
+            zima::kernel::occt_planar_edge_chamfer(round.Shape(),route,4.,
+                1.0e-7,{}, {},zima::kernel::OcctPlanarEdgeEndMode::
+                    AutomaticBodyEnvelope);
+        require(BRepCheck_Analyzer(collapsed_round_reversed.Shape(),true,true,
+                    false).IsValid(),
+            "Reversed Chamfer beyond a preceding Fillet radius is invalid");
+        near(volume(collapsed_round.Shape()),
+            volume(collapsed_round_reversed.Shape()),
+            "Collapsed-round Chamfer depends on selection order");
+        near(area(collapsed_round.Shape()),area(collapsed_round_reversed.Shape()),
+            "Collapsed-round Chamfer area depends on selection order");
+    }
+
+    {
+        // The virtual-corner reconstruction must use the tangent-line
+        // intersection itself; it must not assume that the rounded corner is
+        // rectangular.
+        constexpr double height=30.,fillet_radius=3.;
+        const auto sharp=triangular_prism(60.,80.,height);
+        const auto vertical=vertical_edges(sharp,height);
+        const auto corner=std::ranges::find_if(vertical,
+            [](const auto& edge) {
+                TopoDS_Vertex first,last;
+                TopExp::Vertices(edge,first,last,true);
+                const auto point=BRep_Tool::Pnt(first);
+                return std::abs(point.X())<=1.0e-9&&
+                    std::abs(point.Y())<=1.0e-9;
+            });
+        require(corner!=vertical.end(),
+            "Angled curved Chamfer fixture lost its vertical corner");
+        BRepFilletAPI_MakeFillet round(sharp);
+        round.Add(fillet_radius,*corner);
+        round.Build();
+        require(round.IsDone()&&!round.Shape().IsNull()&&
+                BRepCheck_Analyzer(round.Shape(),true,true,false).IsValid(),
+            "Angled curved Chamfer fixture Fillet failed");
+
+        TopoDS_Edge arc;
+        for(TopExp_Explorer item(round.Shape(),TopAbs_EDGE);
+                item.More();item.Next()) {
+            const auto edge=TopoDS::Edge(item.Current());
+            const BRepAdaptor_Curve curve(edge);
+            if(curve.GetType()!=GeomAbs_Circle)continue;
+            TopoDS_Vertex first,last;
+            TopExp::Vertices(edge,first,last,true);
+            if(!first.IsNull()&&!last.IsNull()&&
+               std::abs(BRep_Tool::Pnt(first).Z()-height)<=1.0e-7&&
+               std::abs(BRep_Tool::Pnt(last).Z()-height)<=1.0e-7) {
+                require(arc.IsNull()||arc.IsSame(edge),
+                    "Angled curved Chamfer fixture has an ambiguous top arc");
+                arc=edge;
+            }
+        }
+        require(!arc.IsNull(),
+            "Angled curved Chamfer fixture lost its top arc");
+        TopTools_IndexedMapOfShape arc_vertices;
+        TopExp::MapShapes(arc,TopAbs_VERTEX,arc_vertices);
+        std::vector<TopoDS_Edge> route;
+        for(TopExp_Explorer item(round.Shape(),TopAbs_EDGE);
+                item.More();item.Next()) {
+            const auto edge=TopoDS::Edge(item.Current());
+            const BRepAdaptor_Curve curve(edge);
+            if(edge.IsSame(arc)||curve.GetType()!=GeomAbs_Line)continue;
+            TopTools_IndexedMapOfShape vertices;
+            TopExp::MapShapes(edge,TopAbs_VERTEX,vertices);
+            const bool shares_arc=std::ranges::any_of(
+                std::views::iota(1,vertices.Extent()+1),[&](int index) {
+                    return arc_vertices.Contains(vertices.FindKey(index));
+                });
+            const bool on_top=std::ranges::all_of(
+                std::views::iota(1,vertices.Extent()+1),[&](int index) {
+                    return std::abs(BRep_Tool::Pnt(TopoDS::Vertex(
+                        vertices.FindKey(index))).Z()-height)<=1.0e-7;
+                });
+            if(shares_arc&&on_top&&std::ranges::none_of(route,
+                    [&](const auto& current){return current.IsSame(edge);}))
+                route.push_back(edge);
+        }
+        require(route.size()==2,
+            "Angled curved Chamfer fixture lost its tangent lines");
+        route.insert(route.begin()+1,arc);
+        const auto collapsed_round=
+            zima::kernel::occt_planar_edge_chamfer(round.Shape(),route,4.,
+                1.0e-7,{}, {},zima::kernel::OcctPlanarEdgeEndMode::
+                    AutomaticBodyEnvelope);
+        require(BRepCheck_Analyzer(collapsed_round.Shape(),true,true,false).
+                    IsValid()&&
+                collapsed_round.chamfer_faces.size()==route.size()&&
+                std::ranges::all_of(collapsed_round.chamfer_faces,
+                    [](const auto& faces){return !faces.empty();}),
+            "Non-right Chamfer beyond a preceding Fillet radius is invalid");
+        require(volume(collapsed_round.Shape())<volume(round.Shape()),
+            "Non-right collapsed-round Chamfer removed no material");
+        std::reverse(route.begin(),route.end());
+        const auto reversed=
+            zima::kernel::occt_planar_edge_chamfer(round.Shape(),route,4.,
+                1.0e-7,{}, {},zima::kernel::OcctPlanarEdgeEndMode::
+                    AutomaticBodyEnvelope);
+        require(BRepCheck_Analyzer(reversed.Shape(),true,true,false).IsValid(),
+            "Reversed non-right collapsed-round Chamfer is invalid");
+        near(volume(collapsed_round.Shape()),volume(reversed.Shape()),
+            "Non-right collapsed-round Chamfer depends on selection order");
+        near(area(collapsed_round.Shape()),area(reversed.Shape()),
+            "Non-right collapsed-round Chamfer area depends on selection order");
+    }
+
     constexpr double concave_height=25.;
     const auto concave=concave_prism(concave_height);
     const auto concave_edges=vertical_edges(concave,concave_height);
@@ -693,7 +912,7 @@ int main() try {
             "Subtractive Chamfer did not reach its cylindrical Body envelope");
     }
 
-    std::cout<<"Custom planar edge Chamfer: convex/concave A x A, inner/outer two/three-branch and staggered-step nodes, through-notch and side-pocket terminals, mixed CUT/FUSE order, A x B, A + angle, FLIP, batch, perpendicular/angled/curved ends and exact ancestry checks passed\n";
+    std::cout<<"Custom planar edge Chamfer: convex/concave A x A, tangent line-arc-line routes, inner/outer two/three-branch and staggered-step nodes, through-notch and side-pocket terminals, mixed CUT/FUSE order, A x B, A + angle, FLIP, batch, perpendicular/angled/curved ends and exact ancestry checks passed\n";
     return 0;
 } catch(const std::exception& error) {
     std::cerr<<error.what()<<'\n';return 1;

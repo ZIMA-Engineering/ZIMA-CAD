@@ -71,6 +71,7 @@ namespace {
 
 using edge_treatment_terminals::terminal_face_meets_support_at_endpoint;
 using edge_treatment_terminals::local_curved_terminal_faces;
+using edge_treatment_terminals::remote_terminal_faces_through_local_curve;
 using edge_treatment_terminals::
     removal_profile_continues_past_curved_terminal;
 using edge_treatment_terminals::
@@ -673,90 +674,6 @@ bool compound_curved_terminal(std::span<const TopoDS_Face> faces,
                     faces[first],faces[second],tolerance))
                 return true;
     return false;
-}
-
-std::vector<TopoDS_Face> remote_terminal_faces_through_local_curve(
-        const TopoDS_Solid& material,const TopoDS_Face& first_support,
-        const TopoDS_Face& second_support,const gp_Pnt& endpoint,
-        const gp_Dir& outward,double tolerance) {
-    TopTools_IndexedDataMapOfShapeListOfShape edge_faces;
-    TopExp::MapShapesAndAncestors(material,TopAbs_EDGE,TopAbs_FACE,
-        edge_faces);
-    struct Candidate {
-        TopoDS_Face face;
-        gp_Pln plane;
-        double distance{};
-        int support_adjacency{};
-    };
-    std::vector<Candidate> candidates;
-    // Follow exactly the local curved terminal already classified for this
-    // route endpoint.  One Fillet face can continue both supports, but Boolean
-    // descendants and Fillet-to-Fillet contacts can represent the same local
-    // end with two different faces.  Requiring one face to touch both supports
-    // misses that compound case and lets an overgrown cutter cross the Body.
-    const auto local_curves=local_curved_terminal_faces(material,
-        first_support,second_support,endpoint,tolerance);
-    for(const auto& curved:local_curves) {
-        for(TopExp_Explorer edge_item(curved,TopAbs_EDGE);
-                edge_item.More();edge_item.Next()) {
-            const auto edge=TopoDS::Edge(edge_item.Current());
-            const int edge_index=edge_faces.FindIndex(edge);
-            if(!edge_index)continue;
-            for(const auto& adjacent_shape:
-                    edge_faces.FindFromIndex(edge_index)) {
-                const auto adjacent=TopoDS::Face(adjacent_shape);
-                if(adjacent.IsSame(curved)||
-                   adjacent.IsSame(first_support)||
-                   adjacent.IsSame(second_support))continue;
-                const BRepAdaptor_Surface support(adjacent,true);
-                if(support.GetType()!=GeomAbs_Plane)continue;
-                const auto plane=support.Plane();
-                const auto normal=plane.Axis().Direction();
-                const double incidence=normal.Dot(outward);
-                if(std::abs(incidence)<=1.0e-8)continue;
-                const double distance=gp_Vec(endpoint,plane.Location()).Dot(
-                    gp_Vec(normal))/incidence;
-                if(distance<=tolerance)continue;
-                const gp_Pnt intersection=endpoint.Translated(
-                    gp_Vec(outward)*distance);
-                // The previous radius may have trimmed away the point where
-                // the new route's centre line meets this plane.  Topological
-                // adjacency to that radius is therefore authoritative; an
-                // on-face hit merely strengthens otherwise equal candidates.
-                BRepClass_FaceClassifier at_intersection(adjacent,
-                    intersection,10.*tolerance);
-                const int adjacency=
-                    (terminal_face_meets_support_at_endpoint(adjacent,
-                        first_support,intersection,10.*tolerance)?1:0)+
-                    (terminal_face_meets_support_at_endpoint(adjacent,
-                        second_support,intersection,10.*tolerance)?1:0)+
-                    ((at_intersection.State()==TopAbs_IN||
-                      at_intersection.State()==TopAbs_ON)?1:0);
-                const auto duplicate=std::ranges::find_if(candidates,
-                    [&](const auto& candidate) {
-                        return candidate.face.IsSame(adjacent);
-                    });
-                if(duplicate==candidates.end())
-                    candidates.push_back(
-                        {adjacent,plane,distance,adjacency});
-            }
-        }
-    }
-    if(candidates.empty())return {};
-    const auto selected=std::ranges::min_element(candidates,
-        [](const auto& first,const auto& second) {
-            if(first.support_adjacency!=second.support_adjacency)
-                return first.support_adjacency>second.support_adjacency;
-            return first.distance<second.distance;
-        });
-    std::vector<TopoDS_Face> result;
-    for(const auto& candidate:candidates)
-        if(candidate.support_adjacency==selected->support_adjacency&&
-           candidate.plane.Axis().Direction().IsParallel(
-               selected->plane.Axis().Direction(),1.0e-9)&&
-           candidate.plane.Distance(selected->plane.Location())<=tolerance)
-            result.push_back(candidate.face);
-    return result;
 }
 
 std::vector<TopoDS_Face> automatic_terminal_faces(
@@ -1787,10 +1704,8 @@ Cutter make_cutter(const TopoDS_Edge& edge,
         last_outward,envelope_last);
     first_extension=std::max(first_extension,node_extensions.first);
     last_extension=std::max(last_extension,node_extensions.last);
-    // A preceding curved face is an actual trimming surface regardless of
-    // whether its nominal radius is larger or smaller than this Fillet.  The
-    // two surfaces decide their intersection; comparing radii alone leaves a
-    // false flat cap whenever a smaller Fillet runs into a larger one.
+    double first_preview_extension=first_extension;
+    double last_preview_extension=last_extension;
     const bool trim_to_curved_first=!continue_first&&!explicit_first&&
         !curved_terminal_faces[0].empty()&&
         (!route_crossing_first.empty()||!compound_curved_first);
@@ -1802,6 +1717,10 @@ Cutter make_cutter(const TopoDS_Edge& edge,
         curved_terminal_caps[0]=remote_terminal_faces_through_local_curve(
             material,first_face,second_face,path.first,first_outward,
             tolerance);
+        // The actual construction must reach the remote cap so that the
+        // analytical surface and the cap can trim the same overgrown tool.
+        // Keep the visible analytic preview local to the endpoint profile.
+        first_preview_extension=std::max(first_preview_extension,cross_span);
         first_extension=std::max(first_extension,cross_span);
         first_extension=std::max(first_extension,end_extension(
             curved_terminal_caps[0],path.first,first_outward,false));
@@ -1810,6 +1729,7 @@ Cutter make_cutter(const TopoDS_Edge& edge,
         curved_terminal_caps[1]=remote_terminal_faces_through_local_curve(
             material,first_face,second_face,path.last,last_outward,
             tolerance);
+        last_preview_extension=std::max(last_preview_extension,cross_span);
         last_extension=std::max(last_extension,cross_span);
         last_extension=std::max(last_extension,end_extension(
             curved_terminal_caps[1],path.last,last_outward,false));
@@ -1824,7 +1744,8 @@ Cutter make_cutter(const TopoDS_Edge& edge,
             path.path_radius>2.*std::numbers::pi-1.0e-10)
         throw std::invalid_argument(
             "Planar edge Fillet circular end extension overlaps itself");
-    const double extension=std::max(first_extension,last_extension);
+    const double preview_extension=std::max(
+        first_preview_extension,last_preview_extension);
     const gp_Pnt origin=transported(path,anchor_point,
         -anchor_offset-first_extension);
     const gp_Dir extended_first_inward(transported(path,
@@ -1904,7 +1825,7 @@ Cutter make_cutter(const TopoDS_Edge& edge,
         clip_fillet_tool(tool,circular_faces,face,interior,tolerance);
     for(const auto& face:curved_terminal_caps[1])
         clip_fillet_tool(tool,circular_faces,face,interior,tolerance);
-    return {tool,std::move(circular_faces),analytic_domain(extension),
+    return {tool,std::move(circular_faces),analytic_domain(preview_extension),
         adds_material,midpoint_profile.wire,
         midpoint_profile.circular_edge,{}};
 }
@@ -2240,6 +2161,8 @@ Cutter make_route_cutter(const std::vector<CutterJob>& jobs,
         start_outward,start_job.material,envelope_first);
     double last_extension=extension(terminal_faces[1],end_point,
         end_outward,end_job.material,envelope_last);
+    double first_preview_extension=first_extension;
+    double last_preview_extension=last_extension;
     const bool trim_to_curved_first=!continue_first&&!explicit_first&&
         !compound_curved_first&&!curved_terminal_faces[0].empty();
     const bool trim_to_curved_last=!continue_last&&!explicit_last&&
@@ -2249,6 +2172,9 @@ Cutter make_route_cutter(const std::vector<CutterJob>& jobs,
         curved_terminal_caps[0]=remote_terminal_faces_through_local_curve(
             start_job.material,start_job.first_face,start_job.second_face,
             start_point,start_outward,tolerance);
+        // The sweep must reach the cap used to trim the finished tool, while
+        // the analytic preview remains local to the selected route endpoint.
+        first_preview_extension=std::max(first_preview_extension,cross_span);
         first_extension=std::max(first_extension,cross_span);
         first_extension=std::max(first_extension,extension(
             curved_terminal_caps[0],start_point,start_outward,
@@ -2258,6 +2184,7 @@ Cutter make_route_cutter(const std::vector<CutterJob>& jobs,
         curved_terminal_caps[1]=remote_terminal_faces_through_local_curve(
             end_job.material,end_job.first_face,end_job.second_face,
             end_point,end_outward,tolerance);
+        last_preview_extension=std::max(last_preview_extension,cross_span);
         last_extension=std::max(last_extension,cross_span);
         last_extension=std::max(last_extension,extension(
             curved_terminal_caps[1],end_point,end_outward,
@@ -2270,7 +2197,7 @@ Cutter make_route_cutter(const std::vector<CutterJob>& jobs,
                     [&](const auto& face) {return face.IsSame(cap);}))
                 terminal_clip_faces[end].push_back(cap);
     profile.analytic_domain.axial_extension=std::max(
-        first_extension,last_extension);
+        first_preview_extension,last_preview_extension);
 
     BRepBuilderAPI_MakeWire spine;
     for(const auto& edge:ordered)spine.Add(edge);

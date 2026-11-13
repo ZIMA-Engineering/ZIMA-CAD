@@ -238,13 +238,46 @@ void planar_face_capture() {
     section.set_surface_resolver([&](const auto& reference) {
         return document::placement_surface(reference,geometry);
     });
+    document::Placement initial;
+    initial.x=411.;initial.y=222.;initial.z=100.;
+    section.initialize_numeric_values(initial);
     auto first=plane("planar-face");
     first.picked_position=std::array{459.,199.,262.637};
     require(section.set_reference(0,first,QStringLiteral("Planar face"),nullptr),
         "Ordinary planar View face input failed");
+    auto pending=section.numeric_placement();
+    near(pending.x,initial.x,"Ordinary planar support copied the arbitrary picked X");
+    near(pending.y,initial.y,"Ordinary planar support copied the arbitrary picked Y");
+    near(pending.z,initial.z,"Ordinary planar support copied the arbitrary picked Z");
+    auto ordinary=pending;
+    ordinary.references=section.combined_references(3);
+    require(document::resolve_placement(ordinary,geometry),
+        "Ordinary planar support did not resolve");
+    near(ordinary.x,initial.x,"Ordinary planar support changed the in-plane X");
+    near(ordinary.y,initial.y,"Ordinary planar support changed the in-plane Y");
+    near(ordinary.z,262.637,"Ordinary planar support did not project onto its plane");
     require(section.set_reference(1,plane("ordinary-planar-limit"),{},nullptr),
         "Ordinary container unexpectedly armed Thread-only planar capture");
     section.initialize_from_references({},{});
+    require(section.set_reference(0,first,QStringLiteral("Planar face"),nullptr),
+        "Ordinary planar support could not be restored before replacement");
+    section.initialize_numeric_values(ordinary);
+    auto replacement=plane("planar-x");
+    replacement.picked_position=std::array{400.,999.,888.};
+    require(section.set_reference(0,replacement,QStringLiteral("Replacement plane"),nullptr),
+        "Ordinary planar support replacement failed");
+    auto replaced=section.numeric_placement();
+    near(replaced.x,ordinary.x,"Replacing the planar support copied the picked X");
+    near(replaced.y,ordinary.y,"Replacing the planar support copied the picked Y");
+    near(replaced.z,ordinary.z,"Replacing the planar support copied the picked Z");
+    replaced.references=section.combined_references(3);
+    require(document::resolve_placement(replaced,geometry),
+        "Replaced ordinary planar support did not resolve");
+    near(replaced.x,400.,"Replaced ordinary support did not project onto its plane");
+    near(replaced.y,ordinary.y,"Replaced ordinary support changed the first in-plane coordinate");
+    near(replaced.z,ordinary.z,"Replaced ordinary support changed the second in-plane coordinate");
+    section.initialize_from_references({},{});
+    section.initialize_numeric_values({});
     section.set_planar_face_capture_policy(true);
     require(section.set_reference(0,first,QStringLiteral("Planar face"),nullptr),
         "Thread planar View face input failed");
