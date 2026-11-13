@@ -1,0 +1,96 @@
+{
+  "release": {
+    "tag": "ZIMA-CAD-2026111301",
+    "commit": "66677e0721af6e941e1d63023f04f921378e48ef",
+    "implementation_commit": "50689430eb490343d02ed67f810e34049eaf0e7e",
+    "published_at": "2026-11-13T07:25:01Z",
+    "url": "https://github.com/ZIMA-Engineering/ZIMA-CAD/releases/tag/ZIMA-CAD-2026111301",
+    "draft": false,
+    "prerelease": false,
+    "latest": true
+  },
+  "candidate": {
+    "build_kind": "release-candidate",
+    "archive_size": 964088963,
+    "archive_sha256": "d6afafe5ea3144a9332e1c8cd5b3279f0a73ab0a73b97ef75098ec607a756360",
+    "windows_smoke": "passed",
+    "native_factory_assets_loaded": 1185,
+    "native_factory_asset_failures": 0
+  },
+  "signed_release": {
+    "archive_name": "ZIMA-CAD-2026111301.zip",
+    "archive_size": 964907485,
+    "archive_sha256": "29068600285fcc76b446761596a286a1cdf102954e8f97149725448cd2e973ee",
+    "archive_file_count": 17551,
+    "archive_unpacked_size": 3227531595,
+    "checksums_sha256": "0c4212ed8f1e742245a4a596fa857f5b0fc0ca844c25ba81af85ccd03972bc14",
+    "source_tree_sha256": "ed00892583f8056a4999ec69b5ca8c93113c12d94a1eb78a9df3d0a5b49c40d6",
+    "windows_smoke": "passed",
+    "linux_smoke": "not-run",
+    "publisher_key_id": "zcp-8fa1f825cbde5d81",
+    "manifest_sha256": "8be0905c05d63350a168a4f5e005d0f31980038ead17de9e7208efaa92c2514a",
+    "signature_file_sha256": "b52538e45d38f1e0a7bc47dd9d16efaad0790bb507569c08aec5776ce8cceec2"
+  },
+  "public_assets": [
+    {
+      "name": "ZIMA-CAD-2026111301.zip",
+      "size": 964907485,
+      "sha256": "29068600285fcc76b446761596a286a1cdf102954e8f97149725448cd2e973ee",
+      "github_digest_matches": true,
+      "anonymous_download_matches": true
+    },
+    {
+      "name": "update-manifest.json",
+      "size": 703,
+      "sha256": "8be0905c05d63350a168a4f5e005d0f31980038ead17de9e7208efaa92c2514a",
+      "github_digest_matches": true,
+      "anonymous_download_matches": true
+    },
+    {
+      "name": "update-manifest.sig",
+      "size": 176,
+      "sha256": "b52538e45d38f1e0a7bc47dd9d16efaad0790bb507569c08aec5776ce8cceec2",
+      "github_digest_matches": true,
+      "anonymous_download_matches": true
+    }
+  ],
+  "verification": {
+    "focused_native_gui_and_localization_contracts_passed": 9,
+    "focused_native_gui_and_localization_contracts_failed": 0,
+    "radius_example_cli_regeneration": "passed",
+    "readius2_example_cli_regeneration": "passed",
+    "zima_fillet_terminal_trimming": "passed",
+    "zima_chamfer_terminal_trimming": "passed",
+    "larger_successive_radius": "passed",
+    "spline_supported_route": "passed",
+    "stable_owned_edge_and_vertex_identity": "passed",
+    "invalid_dependent_fillet_edit_recovery": "passed",
+    "origin_entry_one_shot": "passed",
+    "publisher_package_tests_total": 31,
+    "publisher_package_tests_passed": 29,
+    "publisher_package_tests_skipped": 2,
+    "publisher_package_tests_failed": 0,
+    "native_factory_assets_loaded": 1185,
+    "native_factory_asset_failures": 0,
+    "signed_archive_safe_extraction": "passed",
+    "public_archive_matches_accepted_signed_archive": "passed",
+    "public_updater_trust": "passed",
+    "public_updater_status": "current"
+  },
+  "contracts": {
+    "native_document_format_changed": false,
+    "user_visible_text_changed": false,
+    "localization_review": "passed-no-catalog-change",
+    "shared_cpp_implementation": true,
+    "qt_version": "6.11.0",
+    "occt_version": "8.0.1"
+  },
+  "limits": [
+    "The complete repository-wide regression matrix is not claimed green.",
+    "The broad run retained an existing portable-settings factory-source mismatch.",
+    "The browser UI test produced no result and the file-manager UI test encountered a QtWebEngine GLES failure or hang on this host.",
+    "Native Linux compilation and execution were not run on the Windows host.",
+    "The focused geometry matrix does not claim every possible high-valence or curved terminal solution.",
+    "Large-assembly interaction performance remains future work."
+  ]
+}

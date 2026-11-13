@@ -1,5 +1,20 @@
 # Application updates
 
+Signed Windows [2026111301](releases/2026111301.md#windows-publication-acceptance)
+was published at `2026-11-13T07:25:01Z` from immutable source
+`66677e0721af6e941e1d63023f04f921378e48ef`. ZIMA Fillet and Chamfer now trim
+their constructed treatment at the actual terminal material domain instead of
+leaving an extended sweep, tooth or tongue. The correction covers the reported
+non-orthogonal, larger-successive-radius and spline-route cases; the azure
+Fillet preview follows the corrected route. Resulting ZIMA edges and endpoints
+publish stable owned references, and editing an invalid dependent Fillet no
+longer crashes after an upstream Fillet fails. Origin reference entry releases
+after a successful pick. Nine focused contracts, both supplied radius examples,
+candidate and signed Windows smoke, all 1,185 factory assets, 31
+packaging/publisher tests, production trust, GitHub digests and fresh anonymous
+downloads pass. Native Linux execution remains a separate gate. See the
+[publication evidence](verification/20261113-windows-1301-publication.json).
+
 Signed Windows [2026111203](releases/2026111203.md#windows-publication-acceptance)
 was published at `2026-11-12T19:59:08Z` from immutable source
 `b6f100d1f3a3e36b0bc582bf5832fdf1c0e645ee`. Two-route Fillet junctions no

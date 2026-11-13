@@ -1,5 +1,18 @@
 # Native versioned distribution
 
+Signed Windows [2026111301](releases/2026111301.md#windows-publication-acceptance)
+was published at `2026-11-13T07:25:01Z` from immutable source
+`66677e0721af6e941e1d63023f04f921378e48ef`. ZIMA Fillet/Chamfer terminal
+trimming, spline-route handling, owned result references, invalid dependent
+Fillet recovery and one-shot Origin entry passed nine focused contracts.
+Candidate and signed native smoke passed; candidate smoke loaded all 1,185
+factory assets. The signed manifest binds 17,551 archive entries, exact source
+and the Windows runtime. All three GitHub digests and fresh anonymous public
+downloads match the accepted bytes. The production updater trusts the public
+installation and reports it as current. Native Linux execution remains a
+separate host gate. See the
+[publication evidence](verification/20261113-windows-1301-publication.json).
+
 Signed Windows [2026111203](releases/2026111203.md#windows-publication-acceptance)
 was published at `2026-11-12T19:59:08Z` from immutable source
 `b6f100d1f3a3e36b0bc582bf5832fdf1c0e645ee`. Exact two-route Fillet junction
