@@ -5836,9 +5836,23 @@ resolve_edge_treatment_contours(
     std::string_view feature_id) {
     TopTools_IndexedMapOfShape requested_shapes;
     for (const auto& [edge, reference] : requested) {
-        static_cast<void>(reference);
-        requested_shapes.Add(edge);
-        if (algorithm.Contour(edge) <= 0) {
+        if (algorithm.Contour(edge) > 0) {
+            requested_shapes.Add(edge);
+            continue;
+        }
+        // A persisted logical edge can have several current split
+        // descendants after a later treatment.  A zero-angle continuation
+        // at the split is not a Fillet/Chamfer contour, while its sibling is
+        // the real surviving sharp interval carrying the same identity.
+        // Ignore only that proven duplicate.  A standalone invalid edge, or
+        // an identity with no treatmentable descendant, must still fail.
+        const bool has_treatmentable_sibling=std::ranges::any_of(requested,
+            [&](const auto& candidate) {
+                return candidate.second==reference&&
+                    !candidate.first.IsSame(edge)&&
+                    algorithm.Contour(candidate.first)>0;
+            });
+        if (!has_treatmentable_sibling) {
             throw std::runtime_error(std::string("OCCT did not create a ") +
                 std::string(operation_name) + " contour");
         }
@@ -5922,7 +5936,8 @@ std::vector<OwnedEdge> complete_edge_treatment_edges(
     const std::vector<OwnedEdge>& input_edges,
     const std::vector<std::pair<TopoDS_Edge, EdgeReference>>& selected,
     const std::string& treatment_owner,
-    std::string_view role) {
+    std::string_view role,
+    bool own_split_descendants = false) {
     const TopologyReferenceIndex<FaceReference, OwnedFace> face_references(faces);
     TopTools_IndexedDataMapOfShapeListOfShape edge_faces;
     TopExp::MapShapesAndAncestors(
@@ -5931,6 +5946,19 @@ std::vector<OwnedEdge> complete_edge_treatment_edges(
     TopExp::MapShapesAndAncestors(
         result_shape, TopAbs_VERTEX, TopAbs_FACE, vertex_faces);
     const auto selected_parents = selected_edge_parent_tokens(selected);
+
+    TopTools_IndexedMapOfShape actual_edges;
+    TopExp::MapShapes(result_shape, TopAbs_EDGE, actual_edges);
+    std::map<std::string, TopTools_IndexedMapOfShape> descendants;
+    if (own_split_descendants) {
+        for (const auto& candidate : propagated_edges) {
+            if (candidate.reference.valid() &&
+                actual_edges.Contains(candidate.shape)) {
+                descendants[encoded_topology_reference(candidate.reference)]
+                    .Add(candidate.shape);
+            }
+        }
+    }
 
     using EdgeEndpointKey = std::array<double, 6>;
     const auto endpoint_key = [](const TopoDS_Edge& edge)
@@ -6005,7 +6033,12 @@ std::vector<OwnedEdge> complete_edge_treatment_edges(
             }
             inherited_references.push_back(propagated.reference);
         }
-        if (!inherited_references.empty()) {
+        const bool split_inherited_reference =
+            own_split_descendants && inherited_references.size() == 1 &&
+            descendants.at(encoded_topology_reference(
+                inherited_references.front())).Extent() > 1;
+        if (!inherited_references.empty() &&
+            !split_inherited_reference) {
             // A direct Add block can retain several authored parents on one
             // physical edge. OCCT history proves that every alias below has
             // this exact descendant, so keep them all instead of replacing
@@ -6035,8 +6068,18 @@ std::vector<OwnedEdge> complete_edge_treatment_edges(
             }
         }
         std::string semantic_key(role);
-        semantic_key += ":from:" +
-            encoded_topology_ancestry(selected_parents);
+        if (split_inherited_reference) {
+            // OCCT history locates all descendants, but one persisted ID may
+            // not name several selectable physical edges. ZIMA owns each
+            // final child from the durable parent plus final base/treatment
+            // face ancestry; transient overgrown tool fragments never enter
+            // the reference.
+            semantic_key += ":split-edge:from:" +
+                encoded_topology_reference(inherited_references.front());
+        } else {
+            semantic_key += ":from:" +
+                encoded_topology_ancestry(selected_parents);
+        }
         semantic_key += ":between:" +
             encoded_topology_ancestry(adjacent_faces);
         semantic_key += ":ends:" +
@@ -6053,12 +6096,26 @@ std::vector<OwnedVertex> complete_edge_treatment_vertices(
     const std::vector<OwnedVertex>& propagated_vertices,
     const std::vector<std::pair<TopoDS_Edge, EdgeReference>>& selected,
     const std::string& treatment_owner,
-    std::string_view role) {
+    std::string_view role,
+    bool own_split_descendants = false) {
     const TopologyReferenceIndex<EdgeReference, OwnedEdge> edge_references(edges);
     TopTools_IndexedDataMapOfShapeListOfShape vertex_edges;
     TopExp::MapShapesAndAncestors(
         result_shape, TopAbs_VERTEX, TopAbs_EDGE, vertex_edges);
     const auto selected_parents = selected_edge_parent_tokens(selected);
+
+    TopTools_IndexedMapOfShape actual_vertices;
+    TopExp::MapShapes(result_shape, TopAbs_VERTEX, actual_vertices);
+    std::map<std::string, TopTools_IndexedMapOfShape> descendants;
+    if (own_split_descendants) {
+        for (const auto& candidate : propagated_vertices) {
+            if (candidate.reference.valid() &&
+                actual_vertices.Contains(candidate.shape)) {
+                descendants[encoded_topology_reference(candidate.reference)]
+                    .Add(candidate.shape);
+            }
+        }
+    }
 
     std::vector<OwnedVertex> result;
     TopTools_IndexedMapOfShape visited;
@@ -6077,7 +6134,12 @@ std::vector<OwnedVertex> complete_edge_treatment_vertices(
             }
             inherited_references.push_back(propagated.reference);
         }
-        if (!inherited_references.empty()) {
+        const bool split_inherited_reference =
+            own_split_descendants && inherited_references.size() == 1 &&
+            descendants.at(encoded_topology_reference(
+                inherited_references.front())).Extent() > 1;
+        if (!inherited_references.empty() &&
+            !split_inherited_reference) {
             for (const auto& inherited : inherited_references) {
                 result.push_back({vertex, inherited});
             }
@@ -6086,8 +6148,13 @@ std::vector<OwnedVertex> complete_edge_treatment_vertices(
         const auto incident_edges = referenced_ancestor_tokens(
             vertex_edges, vertex, edge_references);
         std::string semantic_key(role);
-        semantic_key += ":from:" +
-            encoded_topology_ancestry(selected_parents);
+        if (split_inherited_reference) {
+            semantic_key += ":split-vertex:from:" +
+                encoded_topology_reference(inherited_references.front());
+        } else {
+            semantic_key += ":from:" +
+                encoded_topology_ancestry(selected_parents);
+        }
         semantic_key += ":at:" +
             encoded_topology_ancestry(incident_edges);
         result.push_back({vertex,
@@ -13059,6 +13126,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                         const std::string& treatment_owner,
                         std::string_view treatment_role,
                         bool preserve_exact_result,
+                        bool own_split_descendants,
                         const char* invalid_body_message) {
                     const auto role=[&](std::string_view topology) {
                         auto value=std::string(treatment_role);
@@ -13125,13 +13193,13 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                     auto completed_edges=complete_edge_treatment_edges(
                         result_shape,unified.faces,unified.edges,
                         owned_topology->edges,parents,treatment_owner,
-                        role("edge"));
+                        role("edge"),own_split_descendants);
                     treatment_phase("complete edges");
                     auto completed_vertices=
                         complete_edge_treatment_vertices(
                             result_shape,completed_edges,
                             unified.vertices,parents,treatment_owner,
-                            role("vertex"));
+                            role("vertex"),own_split_descendants);
                     treatment_phase("complete vertices");
                     owned_topology=
                         std::make_shared<LiveCache::Topology>(
@@ -13226,9 +13294,10 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                         selected_requested_indices;
                     const auto accept_fillet_result=[&](auto& built,
                             const auto& parents,
-                            const std::string& treatment_owner) {
+                            const std::string& treatment_owner,
+                            bool custom_zima = false) {
                         accept_edge_treatment_result(built,parents,
-                            treatment_owner,"fillet",true,
+                            treatment_owner,"fillet",true,custom_zima,
                             "OCCT Fillet produced an invalid body");
                     };
                     bool custom_planar_accepted=false;
@@ -13420,7 +13489,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                                 custom.metrics.boolean_ms,
                                 custom.metrics.validation_ms);
                             accept_fillet_result(custom,custom_parents,
-                                operation.owner_id);
+                                operation.owner_id,true);
                             custom_planar_accepted=true;
                             treatment_phase("custom planar build");
                         } catch(const std::exception& error) {
@@ -13764,10 +13833,11 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                     const auto accept_chamfer_result=[&](auto& algorithm,
                             const auto& parents,
                             const std::string& treatment_owner,
-                            bool preserve_exact_result) {
+                            bool preserve_exact_result,
+                            bool custom_zima = false) {
                         accept_edge_treatment_result(algorithm,parents,
                             treatment_owner,"chamfer",
-                            preserve_exact_result,
+                            preserve_exact_result,custom_zima,
                             "OCCT Chamfer produced an invalid body");
                     };
                     TopTools_IndexedDataMapOfShapeListOfShape edge_faces;
@@ -13868,7 +13938,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                                 OcctPlanarEdgeEndMode::
                                     AutomaticBodyEnvelope);
                             accept_chamfer_result(custom,custom_parents,
-                                operation.owner_id,true);
+                                operation.owner_id,true,true);
                             custom_chamfer_accepted=true;
                         } catch(const std::exception& error) {
                             if(trace_treatment)std::fprintf(stderr,

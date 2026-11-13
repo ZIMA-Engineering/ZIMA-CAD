@@ -28,6 +28,7 @@
 #include <TopoDS.hxx>
 #include <TopoDS_Solid.hxx>
 #include <ShapeUpgrade_UnifySameDomain.hxx>
+#include <gp_Pln.hxx>
 
 #include <algorithm>
 #include <array>
@@ -255,7 +256,8 @@ Tool make_tool(const TopoDS_Edge& edge,const TopoDS_Face& first_face,
         const TopoDS_Solid& material,
         const OcctPlanarEdgeEndFaces& end_faces,
         OcctPlanarEdgeEndMode end_mode,
-        std::array<bool,2> route_ends) {
+        std::array<bool,2> route_ends,
+        const std::array<TopoDS_Face,2>& node_end_faces) {
     const BRepAdaptor_Curve curve(edge);
     if(curve.GetType()!=GeomAbs_Line)
         throw std::invalid_argument(
@@ -323,6 +325,10 @@ Tool make_tool(const TopoDS_Edge& edge,const TopoDS_Face& first_face,
     std::array<std::vector<TopoDS_Face>,2> terminal_faces;
     if(!end_faces.first.IsNull())terminal_faces[0].push_back(end_faces.first);
     if(!end_faces.last.IsNull())terminal_faces[1].push_back(end_faces.last);
+    if(!node_end_faces[0].IsNull())
+        terminal_faces[0].push_back(node_end_faces[0]);
+    if(!node_end_faces[1].IsNull())
+        terminal_faces[1].push_back(node_end_faces[1]);
     const bool automatic_first=end_mode==
         OcctPlanarEdgeEndMode::AutomaticBodyEnvelope&&
         end_faces.first.IsNull()&&route_ends[0];
@@ -701,6 +707,51 @@ OcctPlanarEdgeChamferResult occt_planar_edge_chamfer(
                 "A x B and A + angle Chamfer require one connected route");
     }
 
+    // Equal-distance Chamfer branches use the same swept triangular profile.
+    // At a selected two-branch node, extend both profiles through the node and
+    // cut them by their equal-distance bisector plane. This makes the profile
+    // end itself own the trimming geometry, including for additive Chamfers,
+    // instead of relying on a later overlapping connector to hide an open end.
+    std::vector<std::array<TopoDS_Face,2>> node_end_faces(
+        selections.size());
+    if(mode==OcctPlanarEdgeChamferMode::EqualDistance) {
+        const auto assign_node_face=[&](std::size_t selection_index,
+                const TopoDS_Vertex& vertex,const TopoDS_Face& face) {
+            const BRepAdaptor_Curve curve(selections[selection_index].edge);
+            const auto point=BRep_Tool::Pnt(vertex);
+            const auto first=curve.Value(curve.FirstParameter());
+            const auto last=curve.Value(curve.LastParameter());
+            auto& target=point.Distance(first)<=point.Distance(last)
+                ?node_end_faces[selection_index][0]
+                :node_end_faces[selection_index][1];
+            if(!target.IsNull())
+                throw std::invalid_argument(
+                    "ZIMA Chamfer branch has more than one node trim");
+            target=face;
+        };
+        for(const auto& node:selected_nodes) {
+            if(node.tools.size()!=2)continue;
+            const auto first_index=node.tools[0];
+            const auto second_index=node.tools[1];
+            if(!selection_materials[first_index].IsSame(
+                    selection_materials[second_index]))continue;
+            const auto first_direction=outgoing_tangent(
+                selections[first_index].edge,node.vertex,tolerance);
+            const auto second_direction=outgoing_tangent(
+                selections[second_index].edge,node.vertex,tolerance);
+            if(first_direction.IsParallel(second_direction,
+                    std::max(1.0e-9,tolerance)))continue;
+            gp_Vec normal(first_direction);
+            normal-=gp_Vec(second_direction);
+            if(normal.SquareMagnitude()<=1.0e-18)continue;
+            BRepBuilderAPI_MakeFace miter(gp_Pln(
+                BRep_Tool::Pnt(node.vertex),gp_Dir(normal)));
+            if(!miter.IsDone()||miter.Face().IsNull())continue;
+            assign_node_face(first_index,node.vertex,miter.Face());
+            assign_node_face(second_index,node.vertex,miter.Face());
+        }
+    }
+
     std::vector<Tool> tools;
     tools.reserve(selections.size());
     for(std::size_t selection_index=0;
@@ -723,7 +774,8 @@ OcctPlanarEdgeChamferResult occt_planar_edge_chamfer(
             selection_materials[selection_index],
             end_faces.empty()?OcctPlanarEdgeEndFaces{}:
                 end_faces[selection_index],end_mode,
-            {is_route_end(first_vertex),is_route_end(last_vertex)});
+            {is_route_end(first_vertex),is_route_end(last_vertex)},
+            node_end_faces[selection_index]);
         tools.push_back(std::move(tool));
     }
 

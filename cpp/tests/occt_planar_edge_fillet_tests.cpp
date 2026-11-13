@@ -236,7 +236,7 @@ TopoDS_Shape reference_fillet(const TopoDS_Shape& input,
 
 void verify_node(const TopoDS_Shape& input,
         std::vector<TopoDS_Edge> edges,double radius,
-        const char* message) {
+        const char* message,bool compare_reference=false) {
     std::vector<std::size_t> routes(edges.size(),1);
     const auto custom=zima::kernel::occt_planar_edge_fillet(
         input,edges,radius,1.0e-7,{},
@@ -296,16 +296,23 @@ void verify_node(const TopoDS_Shape& input,
         }
         require(BRepCheck_Analyzer(direct,true,true,false).IsValid(),
             "Direct two-route Fillet reference is invalid");
-        near(volume(custom.shape),volume(direct),
-            "Two-route Fillet added an unselected node connector");
-        near(area(custom.shape),area(direct),
-            "Two-route Fillet changed an analytical route end");
-        BRepAlgoAPI_Common overlap(custom.removal_domains[0],
-            custom.removal_domains[1]);
-        overlap.Build();
-        require(overlap.IsDone(),
-            "Two-route Fillet domains could not be intersected");
-        if(volume(overlap.Shape())<=1.0e-9)
+        if(compare_reference) {
+            const auto reference=reference_fillet(input,edges,radius);
+            near(volume(custom.shape),volume(reference),
+                "Two-route cylinder-intersection node volume differs from OCCT");
+            near(area(custom.shape),area(reference),
+                "Two-route cylinder-intersection node area differs from OCCT");
+        } else {
+            near(volume(custom.shape),volume(direct),
+                "Separated two-route Fillet added a node connector");
+            near(area(custom.shape),area(direct),
+                "Separated two-route Fillet changed an analytical route end");
+            BRepAlgoAPI_Common overlap(custom.removal_domains[0],
+                custom.removal_domains[1]);
+            overlap.Build();
+            require(overlap.IsDone(),
+                "Two-route Fillet domains could not be intersected");
+            if(volume(overlap.Shape())<=1.0e-9)
             for(const auto& faces:custom.fillet_faces) {
                 bool exact_end{};
                 for(const auto& face:faces) {
@@ -321,6 +328,7 @@ void verify_node(const TopoDS_Shape& input,
                 require(exact_end,
                     "Separated two-route Fillet lost a circular end section");
             }
+        }
     } else {
         const auto reference=reference_fillet(input,edges,radius);
         near(volume(custom.shape),volume(reference),
@@ -675,6 +683,11 @@ struct HalfTurnRouteFixture {
     std::array<TopoDS_Edge,3> route;
 };
 
+struct SplineRouteFixture {
+    TopoDS_Shape shape;
+    std::array<TopoDS_Edge,3> route;
+};
+
 struct ReturningTerminalRouteFixture {
     TopoDS_Shape shape;
     std::array<TopoDS_Edge,5> route;
@@ -791,6 +804,67 @@ HalfTurnRouteFixture half_turn_route_fixture() {
     require(std::ranges::none_of(result.route,
                 [](const auto& edge){return edge.IsNull();}),
         "Half-turn Fillet fixture lost a top route edge");
+    return result;
+}
+
+SplineRouteFixture spline_route_fixture() {
+    constexpr double height=20.;
+    const gp_Pnt p0(0,0,0),p1(40,0,0),p2(80,30,0),
+        p3(120,30,0),p4(120,80,0),p5(0,80,0);
+    TColgp_Array1OfPnt poles(1,4);
+    poles.SetValue(1,p1);
+    poles.SetValue(2,gp_Pnt(55,0,0));
+    poles.SetValue(3,gp_Pnt(65,30,0));
+    poles.SetValue(4,p2);
+    TColStd_Array1OfReal knots(1,2);
+    knots.SetValue(1,0.);knots.SetValue(2,1.);
+    TColStd_Array1OfInteger multiplicities(1,2);
+    multiplicities.SetValue(1,4);multiplicities.SetValue(2,4);
+    const Handle(Geom_BSplineCurve) spline=new Geom_BSplineCurve(
+        poles,knots,multiplicities,3,false);
+    const std::array profile{
+        BRepBuilderAPI_MakeEdge(p0,p1).Edge(),
+        BRepBuilderAPI_MakeEdge(spline).Edge(),
+        BRepBuilderAPI_MakeEdge(p2,p3).Edge(),
+        BRepBuilderAPI_MakeEdge(p3,p4).Edge(),
+        BRepBuilderAPI_MakeEdge(p4,p5).Edge(),
+        BRepBuilderAPI_MakeEdge(p5,p0).Edge()};
+    BRepBuilderAPI_MakeWire wire;
+    for(const auto& edge:profile)wire.Add(edge);
+    require(wire.IsDone(),
+        "B-spline route Fillet fixture could not construct its profile");
+    BRepBuilderAPI_MakeFace face(wire.Wire());
+    BRepPrimAPI_MakePrism prism(face.Face(),gp_Vec(0,0,height),false,true);
+    prism.Build();
+    require(prism.IsDone()&&
+            BRepCheck_Analyzer(prism.Shape(),true,true,false).IsValid(),
+        "B-spline route Fillet fixture could not construct its solid");
+
+    SplineRouteFixture result{prism.Shape()};
+    const std::array starts{gp_Pnt(p0.X(),p0.Y(),height),
+        gp_Pnt(p1.X(),p1.Y(),height),gp_Pnt(p2.X(),p2.Y(),height)};
+    const std::array ends{gp_Pnt(p1.X(),p1.Y(),height),
+        gp_Pnt(p2.X(),p2.Y(),height),gp_Pnt(p3.X(),p3.Y(),height)};
+    for(TopExp_Explorer item(result.shape,TopAbs_EDGE);
+            item.More();item.Next()) {
+        const auto edge=TopoDS::Edge(item.Current());
+        const BRepAdaptor_Curve curve(edge);
+        const auto first=curve.Value(curve.FirstParameter());
+        const auto last=curve.Value(curve.LastParameter());
+        for(std::size_t index=0;index<result.route.size();++index) {
+            const bool expected=index==1
+                ?curve.GetType()==GeomAbs_BSplineCurve
+                :curve.GetType()==GeomAbs_Line;
+            if(expected&&((first.Distance(starts[index])<=1.0e-9&&
+                          last.Distance(ends[index])<=1.0e-9)||
+                         (first.Distance(ends[index])<=1.0e-9&&
+                          last.Distance(starts[index])<=1.0e-9)))
+                result.route[index]=edge;
+        }
+    }
+    require(std::ranges::none_of(result.route,
+                [](const auto& edge){return edge.IsNull();}),
+        "B-spline route Fillet fixture lost a top route edge");
     return result;
 }
 
@@ -1123,28 +1197,30 @@ int main() try {
                 !second_inner.fillet_faces.empty()&&
                 !second_inner.fillet_faces.front().empty(),
             "Second additive Fillet ending at an earlier radius is invalid");
-        near(volume(second_inner.shape),volume(second_inner_exact.shape),
-            "Second additive Fillet crossed the start of an earlier arc");
-        near(area(second_inner.shape),area(second_inner_exact.shape),
-            "Second additive Fillet changed the earlier arc boundary");
+        require(volume(second_inner.shape)<
+                volume(second_inner_exact.shape)-1.0e-6,
+            "Smaller additive Fillet was not trimmed by the preceding radius");
         require(second_inner.analytic_removal_domains.size()==1&&
                 second_inner.analytic_removal_domains.front().
-                    axial_extension<=1.0e-7,
-            "Second additive Fillet continued to a remote end face");
-        const auto large_inner_exact=
-            zima::kernel::occt_planar_edge_fillet(
-                first_inner.shape,std::array{approaching_inner},4.,1.0e-7,
-                {},zima::kernel::OcctPlanarEdgeFilletEndMode::Perpendicular);
-        const auto large_inner_curved=
-            zima::kernel::occt_planar_edge_fillet(
-                first_inner.shape,std::array{approaching_inner},4.,1.0e-7,
-                {},zima::kernel::OcctPlanarEdgeFilletEndMode::
-                    AutomaticBodyEnvelope);
-        require(BRepCheck_Analyzer(large_inner_curved.shape,true,true,
-                    false).IsValid()&&
-                volume(large_inner_curved.shape)<
-                    volume(large_inner_exact.shape)-1.0e-6,
-            "Large additive Fillet was not clipped exactly by the preceding radius");
+                    axial_extension>1.0e-7,
+            "Smaller additive Fillet did not reach its curved terminal intersection");
+        for(const double radius:{4.,6.}) {
+            const auto large_inner_exact=
+                zima::kernel::occt_planar_edge_fillet(
+                    first_inner.shape,std::array{approaching_inner},radius,
+                    1.0e-7,{},zima::kernel::OcctPlanarEdgeFilletEndMode::
+                        Perpendicular);
+            const auto large_inner_curved=
+                zima::kernel::occt_planar_edge_fillet(
+                    first_inner.shape,std::array{approaching_inner},radius,
+                    1.0e-7,{},zima::kernel::OcctPlanarEdgeFilletEndMode::
+                        AutomaticBodyEnvelope);
+            require(BRepCheck_Analyzer(large_inner_curved.shape,true,true,
+                        false).IsValid()&&
+                    volume(large_inner_curved.shape)<
+                        volume(large_inner_exact.shape)-1.0e-6,
+                "Large additive Fillet was not clipped exactly by the preceding radius");
+        }
         const std::array connected_route{std::size_t{2}};
         const auto split_outer=split_outer_prism();
         const auto split_outer_vertical=straight_edge_between(split_outer,
@@ -1227,13 +1303,13 @@ int main() try {
                 std::ranges::all_of(
                     split_inner_automatic.analytic_removal_domains,
                     [](const auto& domain) {
-                        return domain.axial_extension<=1.0e-7;
+                        return domain.axial_extension>1.0e-7;
                     }),
-            "Connected additive Fillet route continued beyond the earlier arc");
-        near(volume(split_inner_automatic.shape),volume(split_inner_exact.shape),
-            "Connected additive Fillet crossed the start of an earlier arc");
-        near(area(split_inner_automatic.shape),area(split_inner_exact.shape),
-            "Connected additive Fillet changed the earlier arc boundary");
+            "Connected additive Fillet route did not reach its curved terminal intersection");
+        near(volume(split_inner_automatic.shape),volume(second_inner.shape),
+            "Splitting an additive Fillet route changed its curved terminal volume");
+        near(area(split_inner_automatic.shape),area(second_inner.shape),
+            "Splitting an additive Fillet route changed its curved terminal area");
         near(volume(split_inner_exact.shape),volume(second_inner_exact.shape),
             "Splitting an additive Fillet route changed its exact-stop volume");
         near(area(split_inner_exact.shape),area(second_inner_exact.shape),
@@ -1360,6 +1436,77 @@ int main() try {
                 volume(convex_automatic.shape)<
                     volume(convex_flat.shape)-1.0e-6,
             "Subtractive Fillet did not reach its cylindrical Body envelope");
+        constexpr double split_axis_delta=2.2e-8;
+        const auto upper_cylinder=BRepPrimAPI_MakeCylinder(
+            gp_Ax2(gp_Pnt(split_axis_delta,-split_axis_delta,50.),
+                gp_Dir(0.,0.,1.)),100.-split_axis_delta,50.).Shape();
+        BRepAlgoAPI_Common upper_cap(upper_cylinder,
+            BRepPrimAPI_MakeBox(gp_Pnt(-10.,0.,50.),
+                gp_Pnt(10.,120.,100.)).Shape());
+        upper_cap.SetNonDestructive(true);
+        upper_cap.Build();
+        require(upper_cap.IsDone()&&!upper_cap.Shape().IsNull(),
+            "Split subtractive cylindrical cap fixture failed");
+        BRepAlgoAPI_Fuse stepped_cylinder(
+            BRepPrimAPI_MakeCylinder(100.,50.).Shape(),upper_cap.Shape());
+        stepped_cylinder.SetNonDestructive(true);
+        stepped_cylinder.SetFuzzyValue(1.0e-7);
+        stepped_cylinder.Build();
+        require(stepped_cylinder.IsDone()&&
+                BRepCheck_Analyzer(stepped_cylinder.Shape(),true,true,
+                    false).IsValid(),
+            "Split subtractive cylindrical Body fixture failed");
+        const auto split_circle_end=[&](double x) {
+            const auto radius=100.-split_axis_delta;
+            return -split_axis_delta+std::sqrt(radius*radius-
+                (x-split_axis_delta)*(x-split_axis_delta));
+        };
+        const auto top_route=straight_edge_between(
+            stepped_cylinder.Shape(),{10.,0.,100.},
+            {10.,split_circle_end(10.),100.},1.0e-6);
+        require(!top_route.IsNull(),
+            "Split cylindrical Body lost its preceding top Fillet route");
+        const auto top_result=zima::kernel::occt_planar_edge_fillet(
+            stepped_cylinder.Shape(),std::array{top_route},7.,1.0e-7,
+            {},zima::kernel::OcctPlanarEdgeFilletEndMode::
+                AutomaticBodyEnvelope);
+        require(BRepCheck_Analyzer(top_result.shape,true,true,false).IsValid(),
+            "Split cylindrical Body preceding top Fillet is invalid");
+        const auto vertical_route=straight_edge_between(top_result.shape,
+            {-10.,split_circle_end(-10.),50.},
+            {-10.,split_circle_end(-10.),100.},1.0e-6);
+        require(!vertical_route.IsNull(),
+            "Split cylindrical Body lost its preceding vertical Fillet route");
+        const auto vertical_result=zima::kernel::occt_planar_edge_fillet(
+            top_result.shape,std::array{vertical_route},5.,1.0e-7,{},
+            zima::kernel::OcctPlanarEdgeFilletEndMode::
+                AutomaticBodyEnvelope);
+        require(BRepCheck_Analyzer(vertical_result.shape,true,true,false).
+                    IsValid(),
+            "Split cylindrical Body preceding vertical Fillet is invalid");
+        const auto stepped_route=straight_edge_between(
+            vertical_result.shape,{10.,0.,50.},
+            {10.,split_circle_end(10.),50.},1.0e-6);
+        require(!stepped_route.IsNull(),
+            "Split subtractive cylindrical Body lost its Fillet route");
+        const auto stepped_result=zima::kernel::occt_planar_edge_fillet(
+            vertical_result.shape,std::array{stepped_route},8.,1.0e-7,
+            {},zima::kernel::OcctPlanarEdgeFilletEndMode::
+                AutomaticBodyEnvelope);
+        require(BRepCheck_Analyzer(stepped_result.shape,true,true,false).
+                    IsValid(),
+            "Split subtractive cylindrical Body Fillet is invalid");
+        int envelope_faces{};
+        for(TopExp_Explorer item(stepped_result.shape,TopAbs_FACE);
+                item.More();item.Next()) {
+            const auto face=TopoDS::Face(item.Current());
+            const BRepAdaptor_Surface surface(face,true);
+            if(surface.GetType()==GeomAbs_Cylinder&&
+               std::abs(surface.Cylinder().Radius()-100.)<=1.0e-7)
+                ++envelope_faces;
+        }
+        require(envelope_faces==1,
+            "Split cylindrical terminal retained a Fillet tongue or seam");
         TopoDS_Edge adjacent;
         for(TopExp_Explorer item(box,TopAbs_EDGE);item.More();item.Next()) {
             const auto candidate=TopoDS::Edge(item.Current());
@@ -1397,7 +1544,7 @@ int main() try {
             "Box fixture lost its three-branch outer node");
         verify_node(box,std::vector<TopoDS_Edge>(
             outer_node.begin(),outer_node.begin()+2),2.,
-            "Two-branch outer ZIMA Fillet node is invalid");
+            "Two-branch outer ZIMA Fillet node is invalid",true);
         verify_node(box,outer_node,2.,
             "Three-branch outer ZIMA Fillet node is invalid");
         const auto stepped=staggered_boxes();
@@ -1410,11 +1557,21 @@ int main() try {
         require(shoulder_node.size()==2,
             "Staggered-box fixture lost its two shoulder branches");
         verify_node(stepped,shoulder_node,2.,
-            "Staggered-box ZIMA Fillet shoulder node is invalid");
+            "Staggered-box ZIMA Fillet shoulder node is invalid",true);
     }
     {
         std::cerr<<"fillet-test: wedge\n";
         const auto wedge=triangular_prism(60.,30.,35.);
+        auto angled_node=edges_at_point(wedge,{0,0,0});
+        std::erase_if(angled_node,[](const auto& edge) {
+            const BRepAdaptor_Curve curve(edge);
+            return std::abs(curve.Value(curve.FirstParameter()).Z()-
+                curve.Value(curve.LastParameter()).Z())>1.0e-9;
+        });
+        require(angled_node.size()==2,
+            "Wedge fixture lost its two non-right node branches");
+        verify_node(wedge,angled_node,2.5,
+            "Non-right two-branch ZIMA Fillet node is invalid",true);
         const auto vertical=vertical_edges(wedge,35.);
         require(vertical.size()==3,
             "Wedge fixture did not expose three vertical edges");
@@ -1480,7 +1637,7 @@ int main() try {
             "Blind-pocket fixture lost its three-branch inner node");
         verify_node(pocket,std::vector<TopoDS_Edge>(
             inner_node.begin(),inner_node.begin()+2),2.,
-            "Two-branch inner ZIMA Fillet node is invalid");
+            "Two-branch inner ZIMA Fillet node is invalid",true);
         verify_node(pocket,inner_node,2.,
             "Three-branch inner ZIMA Fillet node is invalid");
         const auto through=through_notch();
@@ -1612,6 +1769,33 @@ int main() try {
         std::cerr<<"fillet-test: straight B-spline path\n";
         const auto fixture=straight_spline_fixture();
         verify_result(fixture.shape,{fixture.edge},1.5);
+    }
+    {
+        std::cerr<<"fillet-test: connected curved B-spline route\n";
+        const auto fixture=spline_route_fixture();
+        const std::array route_sizes{fixture.route.size()};
+        const auto verify=[&](const auto& route) {
+            const auto result=zima::kernel::occt_planar_edge_fillet(
+                fixture.shape,route,4.,1.0e-7,{},
+                zima::kernel::OcctPlanarEdgeFilletEndMode::
+                    AutomaticBodyEnvelope,route_sizes);
+            require(result.history&&result.metrics.cutter_solids==1&&
+                    BRepCheck_Analyzer(result.Shape(),true,true,false).
+                        IsValid()&&
+                    result.fillet_faces.size()==fixture.route.size()&&
+                    std::ranges::all_of(result.fillet_faces,
+                        [](const auto& faces){return !faces.empty();}),
+                "Connected curved B-spline Fillet route lost its valid Body, faces or history");
+            return result;
+        };
+        const auto result=verify(fixture.route);
+        auto reversed_route=fixture.route;
+        std::ranges::reverse(reversed_route);
+        const auto reversed=verify(reversed_route);
+        near(volume(reversed.Shape()),volume(result.Shape()),
+            "Connected curved B-spline Fillet volume depends on route orientation");
+        near(area(reversed.Shape()),area(result.Shape()),
+            "Connected curved B-spline Fillet area depends on route orientation");
     }
     {
         std::cerr<<"fillet-test: angled end\n";

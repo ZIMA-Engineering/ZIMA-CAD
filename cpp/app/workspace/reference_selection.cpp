@@ -641,6 +641,10 @@ void AssemblyWorkspaceWindow::toggle_local_origin_visibility(
         if (!address) return;
         if (!visible_occurrence_origin_paths_.erase(candidate.instance_path))
             visible_occurrence_origin_paths_.insert(candidate.instance_path);
+        // Whole-Origin entry is a one-shot chooser.  Restore the placement
+        // row that was active before the button was pressed so the revealed
+        // Origin can immediately supply an individual point/axis/plane.
+        set_local_origin_selection_mode(false);
         preserve_view_on_refresh_ = true;
         refresh_scene();
         return;
@@ -658,6 +662,7 @@ void AssemblyWorkspaceWindow::toggle_local_origin_visibility(
         if(visible_local_origin_ids_.contains(id))visible_local_origin_ids_.insert(container->sheet_transition.end_origin_id);
         else visible_local_origin_ids_.erase(container->sheet_transition.end_origin_id);
     }
+    set_local_origin_selection_mode(false);
     preserve_view_on_refresh_ = true;
     refresh_scene();
 }

@@ -11,6 +11,7 @@
 #include <iostream>
 #include <set>
 #include <cmath>
+#include <numbers>
 
 using namespace zima;
 namespace {
@@ -364,7 +365,77 @@ void rolling_edge_treatment_preview() {
             {circle[index].x,circle[index].y,5.}));
     require(curved_distance<1.0e-6&&curved_contact.x>.05,
         "Rolling-support preview fell back to the old tangent-line cage");
-    std::cout<<"Rolling-support Fillet preview: calculated plane/circle sections and exact lightweight boundary contacts passed\n";
+
+    kernel::ViewerMesh terminal_mesh;
+    kernel::FaceReference first_support{"terminal-preview","first",{}};
+    kernel::FaceReference second_support{"terminal-preview","second",{}};
+    kernel::FaceReference terminal_face{"preceding-fillet","radius-14",{}};
+    auto terminal_surface=std::make_shared<kernel::SurfaceGeometry>();
+    terminal_surface->kind=kernel::SurfaceGeometry::Kind::Cylinder;
+    terminal_surface->origin={0,14,0};
+    terminal_surface->axis={1,0,0};
+    terminal_surface->radial={0,-1,0};
+    terminal_surface->radius=14;
+    terminal_face.surface=terminal_surface;
+    std::vector<Vec3> terminal_circle;
+    for(std::size_t index=0;index<=samples;++index) {
+        const double angle=std::acos(-1.)-
+            (std::acos(-1.)/2.)*static_cast<double>(index)/samples;
+        terminal_circle.push_back({0,14.+14.*std::cos(angle),
+            14.*std::sin(angle)});
+    }
+    for(std::size_t index=1;index<terminal_circle.size();++index) {
+        const auto vertex=static_cast<std::uint32_t>(
+            terminal_mesh.vertices.size());
+        for(const double x:{0.,10.}) {
+            terminal_mesh.vertices.push_back({x,
+                terminal_circle[index-1].y,
+                terminal_circle[index-1].z});
+            terminal_mesh.vertices.push_back({x,terminal_circle[index].y,
+                terminal_circle[index].z});
+        }
+        terminal_mesh.triangles.insert(terminal_mesh.triangles.end(),{
+            vertex,vertex+1,vertex+3,vertex,vertex+3,vertex+2});
+        terminal_mesh.triangle_references.push_back(terminal_face);
+        terminal_mesh.triangle_references.push_back(terminal_face);
+    }
+    kernel::ViewerEdge first_boundary;
+    first_boundary.points=terminal_circle;
+    first_boundary.edge_treatment_side_references={terminal_face,
+        first_support};
+    kernel::ViewerEdge second_boundary;
+    second_boundary.points={{0,0,0},{10,0,0}};
+    second_boundary.edge_treatment_side_references={terminal_face,
+        second_support};
+    terminal_mesh.edges={first_boundary,second_boundary};
+    kernel::ViewerEdge terminal_route;
+    terminal_route.reference={"terminal-preview","route",{}};
+    terminal_route.points={{0,0,0},{0,0,20}};
+    terminal_route.edge_treatment_side_references={first_support,
+        second_support};
+    terminal_route.edge_treatment_side_directions={
+        std::vector<Vec3>{{1,0,0},{1,0,0}},
+        std::vector<Vec3>{{0,1,0},{0,1,0}}};
+    const auto terminal_preview=app::workspace_detail::
+        edge_treatment_preview_wire({{{terminal_route}}},parameters,
+            document::FeatureKind::Fillet,"terminal-preview",
+            &terminal_mesh);
+    require(terminal_preview.edges.size()==4&&
+            terminal_preview.edges[2].points.size()>2,
+        "Fillet preview lost its earlier curved terminal");
+    const auto& terminal_intersection=terminal_preview.edges[2];
+    require(terminal_intersection.points.front().z<1.0e-6&&
+            terminal_intersection.points.back().z>10.,
+        "Smaller Fillet preview retained a flat end against the larger radius");
+    for(const auto& point:terminal_intersection.points)
+        require(std::abs(std::hypot(point.y-14.,point.z)-14.)<1.0e-2,
+            "Fillet preview terminal is not on the preceding cylinder");
+    require(terminal_preview.edges[0].points.front()==
+                terminal_intersection.points.front()&&
+            terminal_preview.edges[1].points.front()==
+                terminal_intersection.points.back(),
+        "Fillet preview rails do not end on the preceding radius");
+    std::cout<<"Rolling-support Fillet preview: calculated plane/circle sections, curved R5-to-R14 terminal and exact lightweight boundary contacts passed\n";
 }
 void independent_fillet_node_preview() {
     using Vec3=kernel::Vec3;
@@ -384,25 +455,28 @@ void independent_fillet_node_preview() {
     const auto preview=app::workspace_detail::edge_treatment_preview_wire(
         {{{first}},{{second}}},parameters,document::FeatureKind::Fillet,
         "node-preview",nullptr);
-    require(preview.edges.size()==8,
-        "Independent Fillet-node preview invented or omitted a connector");
-    const auto& first_end=preview.edges[2];
-    const auto& second_end=preview.edges[6];
-    const auto shared_distance=std::hypot(std::hypot(
-        first_end.points.back().x-second_end.points.back().x,
-        first_end.points.back().y-second_end.points.back().y),
-        first_end.points.back().z-second_end.points.back().z);
-    require(first_end.points.size()>2&&second_end.points.size()>2&&
-            shared_distance<1.0e-9,
-        "Independent Fillet-node preview lost its shared circular endpoint");
-    for(const auto& point:first_end.points)
-        require(std::abs(point.x)<1.0e-9&&
-                std::abs(std::hypot(point.y+2.,point.z-2.)-2.)<1.0e-9,
-            "First Fillet-node preview end is not its exact circular arc");
-    for(const auto& point:second_end.points)
-        require(std::abs(point.y)<1.0e-9&&
-                std::abs(std::hypot(point.x+2.,point.z-2.)-2.)<1.0e-9,
-            "Second Fillet-node preview end is not its exact circular arc");
+    require(preview.edges.size()==7&&
+            preview.edges.back().points.size()>2,
+        "Behind-node Fillet preview did not replace two end arcs with one intersection");
+    const auto& behind_intersection=preview.edges.back().points;
+    const auto behind_node_distance=[](const Vec3& point) {
+        return std::hypot(std::hypot(point.x,point.y),point.z-2.);
+    };
+    const auto behind_rail_distance=[](const Vec3& point) {
+        return std::hypot(std::hypot(point.x+2.,point.y+2.),point.z);
+    };
+    require((behind_node_distance(behind_intersection.front())<1.0e-8&&
+                behind_rail_distance(behind_intersection.back())<1.0e-8)||
+            (behind_node_distance(behind_intersection.back())<1.0e-8&&
+                behind_rail_distance(behind_intersection.front())<1.0e-8),
+        "Behind-node Fillet preview did not reach its two exact trim ends");
+    for(const auto& point:behind_intersection)
+        require(std::abs(point.x-point.y)<1.0e-8&&
+                std::abs(std::pow(point.y+2.,2)+
+                    std::pow(point.z-2.,2)-4.)<1.0e-7&&
+                std::abs(std::pow(point.x+2.,2)+
+                    std::pow(point.z-2.,2)-4.)<1.0e-7,
+            "Behind-node Fillet preview intersection is not on both cylinders");
     first.edge_treatment_side_directions[0]=
         std::vector<Vec3>{{0,1,0},{0,1,0}};
     second.edge_treatment_side_directions[0]=
@@ -432,7 +506,63 @@ void independent_fillet_node_preview() {
                 std::abs(std::pow(point.x-2.,2)+
                     std::pow(point.z-2.,2)-4.)<1.0e-7,
             "Fillet-node preview intersection is not on both analytical cylinders");
-    std::cout<<"Independent Fillet node preview: separated circular ends and intersecting-cylinder trim passed\n";
+    first.edge_treatment_side_directions[0]=
+        std::vector<Vec3>{{0,-1,0},{0,-1,0}};
+    second.edge_treatment_side_directions[0]=
+        std::vector<Vec3>{{-1,0,0},{-1,0,0}};
+    second.edge_treatment_side_directions[1]=
+        std::vector<Vec3>{{0,0,-1},{0,0,-1}};
+    const auto separated=app::workspace_detail::
+        edge_treatment_preview_wire({{{first}},{{second}}},parameters,
+            document::FeatureKind::Fillet,"node-preview",nullptr);
+    require(separated.edges.size()==8,
+        "Skew Fillet-node preview invented an intersection");
+    const auto& first_end=separated.edges[2];
+    const auto& second_end=separated.edges[6];
+    require(first_end.points.size()>2&&second_end.points.size()>2,
+        "Skew Fillet-node preview lost its exact circular ends");
+    for(const auto& point:first_end.points)
+        require(std::abs(point.x)<1.0e-9&&
+                std::abs(std::hypot(point.y+2.,point.z-2.)-2.)<1.0e-9,
+            "First skew Fillet-node preview end is not its exact circular arc");
+    for(const auto& point:second_end.points)
+        require(std::abs(point.y)<1.0e-9&&
+                std::abs(std::hypot(point.x+2.,point.z+2.)-2.)<1.0e-9,
+            "Second skew Fillet-node preview end is not its exact circular arc");
+    constexpr double angle=std::numbers::pi/3.;
+    const Vec3 angled_axis{std::cos(angle),std::sin(angle),0.};
+    first.edge_treatment_side_directions[1]=
+        std::vector<Vec3>{{0,0,1},{0,0,1}};
+    second.points={{0,0,0},{20.*angled_axis.x,20.*angled_axis.y,0}};
+    second.edge_treatment_side_directions[0]=
+        std::vector<Vec3>{{-angled_axis.y,angled_axis.x,0},
+            {-angled_axis.y,angled_axis.x,0}};
+    second.edge_treatment_side_directions[1]=
+        std::vector<Vec3>{{0,0,1},{0,0,1}};
+    const auto angled=app::workspace_detail::
+        edge_treatment_preview_wire({{{first}},{{second}}},parameters,
+            document::FeatureKind::Fillet,"node-preview",nullptr);
+    require(angled.edges.size()==7&&angled.edges.back().points.size()>2,
+        "Non-right Fillet-node preview did not create its cylinder intersection");
+    const auto axis_distance=[](const Vec3& point,const Vec3& origin,
+            const Vec3& axis) {
+        const Vec3 delta{point.x-origin.x,point.y-origin.y,
+            point.z-origin.z};
+        const double progress=delta.x*axis.x+delta.y*axis.y+
+            delta.z*axis.z;
+        return std::hypot(std::hypot(delta.x-progress*axis.x,
+            delta.y-progress*axis.y),delta.z-progress*axis.z);
+    };
+    const Vec3 first_center{0,-2,2};
+    const Vec3 second_center{-2.*angled_axis.y,
+        2.*angled_axis.x,2};
+    for(const auto& point:angled.edges.back().points)
+        require(std::abs(axis_distance(point,first_center,{1,0,0})-2.)<
+                    1.0e-7&&
+                std::abs(axis_distance(point,second_center,angled_axis)-2.)<
+                    1.0e-7,
+            "Non-right Fillet-node preview is not on both analytical cylinders");
+    std::cout<<"Independent Fillet node preview: right/non-right cylinder trims and skew circular ends passed\n";
 }
 void revolution_matrix(const kernel::OcctKernel& engine) {
     unsigned cases{};
@@ -477,6 +607,13 @@ void review_fillets(const kernel::OcctKernel& engine,const std::filesystem::path
     static_cast<void>(workspace::regenerate_part(regenerated,engine,source.document_id));
     source=regenerated.open_part(source.document_id)->session.document();
     calculated=regenerated.open_part(source.document_id)->session.calculated_boundaries();
+    if(!calculated.back().calculation_errors.empty()) {
+        for(const auto& feature:source.history)
+            std::cout<<"History "<<feature.name<<" ["<<feature.id
+                <<"] kind="<<static_cast<int>(feature.feature_kind)<<'\n';
+        for(const auto& [id,error]:calculated.back().calculation_errors)
+            std::cout<<"Calculation error "<<id<<": "<<error<<'\n';
+    }
     require(calculated.back().calculation_errors.empty(),"Actual review document still fails explicit regeneration");
     const auto review_file=file.parent_path()/"review-regenerated.prtz";
     source.save(review_file,calculated);
@@ -554,6 +691,344 @@ void review_fillets(const kernel::OcctKernel& engine,const std::filesystem::path
         }
     }
 }
+void review_edge_treatment_preview(const kernel::OcctKernel& engine,
+        const std::filesystem::path& file) {
+    std::vector<kernel::BodyResult> calculated;
+    auto source=document::PartDocument::load(file,&calculated);
+    workspace::Workspace live;
+    live.add_part(source,calculated);
+    live.activate(source.document_id);
+    static_cast<void>(workspace::regenerate_part(live,engine,
+        source.document_id));
+    const auto& session=live.open_part(source.document_id)->session;
+    const auto target=std::find_if(session.document().history.rbegin(),
+        session.document().history.rend(),[](const auto& feature) {
+            return feature.feature_kind==document::FeatureKind::Fillet;
+        });
+    require(target!=session.document().history.rend(),
+        "Actual preview review has no Fillet");
+    const auto& feature=*target;
+    const auto* input=workspace::calculated_operation_input(session,
+        feature.id);
+    require(input,"Actual Fillet preview lost its rollback input");
+    std::vector<std::vector<kernel::ViewerEdge>> groups;
+    for(std::size_t route=0;route<feature.edge_treatment.routes.size();
+            ++route)
+        groups.push_back(document::treatment_selection_wire(
+            feature.edge_treatment,route,std::nullopt,input->mesh));
+    require(groups.size()==1,
+        "Actual preview review expected one Fillet route");
+    const auto paths=app::workspace_detail::
+        ordered_edge_treatment_preview_paths(
+            document::actual_edge_treatment_intervals(groups.front()));
+    require(paths.size()==1&&paths.front().edges.size()==1&&
+            paths.front().edges.front().points.size()>=2,
+        "Actual preview review lost its one-edge route");
+    const auto preview=app::workspace_detail::edge_treatment_preview_wire(
+        groups,feature.edge_treatment,feature.feature_kind,feature.id,
+        &input->mesh);
+    require(preview.edges.size()==4,
+        "Actual Fillet preview did not retain two rails and two terminal curves");
+    const auto& route=paths.front().edges.front();
+    const auto start_axis=kernel::dimension_unit({
+        route.points[1].x-route.points.front().x,
+        route.points[1].y-route.points.front().y,
+        route.points[1].z-route.points.front().z});
+    const auto end_axis=kernel::dimension_unit({
+        route.points.back().x-route.points[route.points.size()-2].x,
+        route.points.back().y-route.points[route.points.size()-2].y,
+        route.points.back().z-route.points[route.points.size()-2].z});
+    const auto axial_span=[](const kernel::ViewerEdge& wire,
+            const kernel::Vec3& node,const kernel::Vec3& axis) {
+        double minimum=1.0e100,maximum=-1.0e100;
+        for(const auto& point:wire.points) {
+            const double value=(point.x-node.x)*axis.x+
+                (point.y-node.y)*axis.y+(point.z-node.z)*axis.z;
+            minimum=std::min(minimum,value);
+            maximum=std::max(maximum,value);
+        }
+        return maximum-minimum;
+    };
+    const double first_span=axial_span(preview.edges[2],
+        route.points.front(),start_axis);
+    const double last_span=axial_span(preview.edges[3],
+        route.points.back(),end_axis);
+    require(first_span>1.0e-3&&last_span>1.0e-3,
+        "Actual Fillet preview retained a flat cap at an earlier radius");
+    std::cout<<"Actual Fillet preview "<<feature.name<<": first curved span="
+        <<first_span<<" mm, last curved span="<<last_span<<" mm passed\n";
+}
+void diagnose_edge_treatment(const kernel::OcctKernel& engine,
+        const std::filesystem::path& file,const std::string& feature_name) {
+    std::vector<kernel::BodyResult> calculated;
+    auto source=document::PartDocument::load(file,&calculated);
+    const auto requested=std::ranges::find_if(source.history,
+        [&](const auto& candidate) {
+            return candidate.name==feature_name||candidate.id==feature_name;
+        });
+    if(requested!=source.history.end()) {
+        if(const auto* value=std::getenv(
+                "ZIMA_EDGE_TREATMENT_DIAGNOSTIC_PRIMARY_SIZE"))
+            requested->edge_treatment.primary_size=std::strtod(value,nullptr);
+        if(std::getenv("ZIMA_EDGE_TREATMENT_DIAGNOSTIC_MOVE_LAST")) {
+            auto graph=source.body_history;
+            const auto* owner=graph.owner(requested->id);
+            require(owner,"Diagnostic edge treatment has no Body owner");
+            auto body=*owner;
+            const auto entry=std::ranges::find(body.entries,requested->id,
+                &document::PartHistoryEntry::id);
+            require(entry!=body.entries.end(),
+                "Diagnostic edge treatment is missing from its Body");
+            const auto moved=*entry;
+            body.entries.erase(entry);
+            body.entries.push_back(moved);
+            body.cursor=body.entries.size();
+            graph.update_body(std::move(body));
+            source.set_body_history(std::move(graph));
+        }
+    }
+    if(const auto* input_name=std::getenv(
+            "ZIMA_EDGE_TREATMENT_DIAGNOSTIC_LIST_INPUT")) {
+        const auto input_feature=std::ranges::find_if(source.history,
+            [&](const auto& candidate) {
+                return candidate.name==input_name||candidate.id==input_name;
+            });
+        require(input_feature!=source.history.end(),
+            "Requested diagnostic input feature is missing");
+        auto graph=source.body_history;
+        const auto* owner=graph.owner(input_feature->id);
+        require(owner,"Requested diagnostic input has no Body owner");
+        auto body=*owner;
+        const auto entry=std::ranges::find(body.entries,input_feature->id,
+            &document::PartHistoryEntry::id);
+        require(entry!=body.entries.end(),
+            "Requested diagnostic input is missing from its Body");
+        body.cursor=static_cast<std::size_t>(entry-body.entries.begin());
+        graph.update_body(std::move(body));
+        source.set_body_history(std::move(graph));
+        // The persisted calculated cache describes the document's saved final
+        // cursor.  A diagnostic rollback must calculate the requested history
+        // boundary instead of publishing that later cached body first.
+        calculated.clear();
+    }
+    workspace::Workspace live;
+    live.add_part(source,calculated);
+    live.activate(source.document_id);
+    static_cast<void>(workspace::regenerate_part(live,engine,
+        source.document_id));
+    auto* state=live.open_part(source.document_id);
+    require(state,"Diagnostic Part is not open");
+    if(const auto* value=std::getenv(
+            "ZIMA_EDGE_TREATMENT_DIAGNOSTIC_TRY_SIZE")) {
+        const auto* owner=std::getenv(
+            "ZIMA_EDGE_TREATMENT_DIAGNOSTIC_TRY_EDGE_OWNER");
+        const auto* suffix=std::getenv(
+            "ZIMA_EDGE_TREATMENT_DIAGNOSTIC_TRY_EDGE_SUFFIX");
+        require(owner&&suffix,
+            "Diagnostic edge owner and semantic suffix are required");
+        const auto* input=workspace::calculated_operation_input(state->session);
+        require(input,"Diagnostic edge treatment has no cursor input");
+        const auto edge=std::ranges::find_if(input->mesh.edges,
+            [&](const auto& candidate) {
+                return candidate.reference.owner_id==owner&&
+                    candidate.reference.semantic_key.ends_with(suffix);
+            });
+        require(edge!=input->mesh.edges.end(),
+            "Diagnostic edge treatment target edge is missing");
+        auto treatment=document::PartDocument::create_fillet_container(
+            {edge->reference});
+        treatment.name="Diagnostic Fillet";
+        treatment.edge_treatment.primary_size=std::strtod(value,nullptr);
+        treatment.edge_treatment.secondary_size=
+            treatment.edge_treatment.primary_size;
+        treatment.edge_treatment.calculation_method=
+            document::EdgeTreatmentParameters::CalculationMethod::Zima;
+        require(workspace::commit_edge_treatment(live,engine,
+            source.document_id,treatment,
+            workspace::EdgeTreatmentEditMode::Create),
+            "Diagnostic edge treatment did not commit");
+        state=live.open_part(source.document_id);
+        require(state,"Diagnostic Part disappeared after commit");
+        const auto& result=state->session.calculated_boundaries().back();
+        std::cout<<"Diagnostic Fillet R="
+            <<treatment.edge_treatment.primary_size<<" errors="
+            <<result.calculation_errors.size()<<" edges="
+            <<result.mesh.edges.size()<<'\n';
+        for(const auto& [id,error]:result.calculation_errors)
+            std::cout<<"Calculation error "<<id<<": "<<error<<'\n';
+        return;
+    }
+    const auto& session=state->session;
+    const auto& document=session.document();
+    if(const auto* input_name=std::getenv(
+            "ZIMA_EDGE_TREATMENT_DIAGNOSTIC_LIST_INPUT")) {
+        const auto input_feature=std::ranges::find_if(document.history,
+            [&](const auto& candidate) {
+                return candidate.name==input_name||candidate.id==input_name;
+            });
+        require(input_feature!=document.history.end(),
+            "Requested diagnostic input feature is missing");
+        const auto* boundary=workspace::calculated_operation_input(session);
+        if((!boundary||boundary->mesh.edges.empty())) {
+            const auto* body=document.body_history.owner(input_feature->id);
+            require(body,"Requested diagnostic input has no Body owner");
+            const auto entry=std::ranges::find(body->entries,
+                input_feature->id,&document::PartHistoryEntry::id);
+            require(entry!=body->entries.end()&&entry!=body->entries.begin(),
+                "Requested diagnostic input has no predecessor");
+            boundary=workspace::calculated_operation_output(session,
+                std::prev(entry)->id);
+        }
+        require(boundary,"Requested diagnostic input has no boundary");
+        std::cout<<"Input before "<<input_feature->name<<" edges="
+            <<boundary->mesh.edges.size()<<'\n';
+        for(std::size_t index=0;index<boundary->mesh.edges.size();++index) {
+            const auto& edge=boundary->mesh.edges[index];
+            if(edge.points.empty())continue;
+            std::cout<<"  "<<index<<" points="<<edge.points.size()
+                <<" from=("<<edge.points.front().x<<','
+                <<edge.points.front().y<<','<<edge.points.front().z
+                <<") to=("<<edge.points.back().x<<','
+                <<edge.points.back().y<<','<<edge.points.back().z
+                <<") ref="<<edge.reference.owner_id<<" | "
+                <<edge.reference.semantic_key<<'\n';
+        }
+        return;
+    }
+    std::cout<<"History edge treatments:\n";
+    for(const auto& candidate:document.history)
+        if(candidate.feature_kind==document::FeatureKind::Fillet||
+                candidate.feature_kind==document::FeatureKind::Chamfer)
+            std::cout<<"  "<<candidate.name<<" | "<<candidate.id<<'\n';
+    if(feature_name=="*") {
+        for(const auto& candidate:document.history)
+            if(candidate.feature_kind==document::FeatureKind::Fillet||
+                    candidate.feature_kind==document::FeatureKind::Chamfer)
+                diagnose_edge_treatment(engine,file,candidate.id);
+        return;
+    }
+    const auto feature=std::ranges::find_if(document.history,
+        [&](const auto& candidate) {
+            return candidate.name==feature_name||candidate.id==feature_name;
+        });
+    require(feature!=document.history.end(),
+        "Requested edge treatment is missing");
+    require(feature->feature_kind==document::FeatureKind::Fillet||
+            feature->feature_kind==document::FeatureKind::Chamfer,
+        "Requested feature is not an edge treatment");
+    std::cout<<feature->name<<" kind="
+        <<(feature->feature_kind==document::FeatureKind::Fillet?
+            "Fillet":"Chamfer")<<" primary="
+        <<feature->edge_treatment.primary_size<<" secondary="
+        <<feature->edge_treatment.secondary_size<<" mode="
+        <<(feature->feature_kind==document::FeatureKind::Fillet?
+            static_cast<int>(feature->edge_treatment.fillet_mode):
+            static_cast<int>(feature->edge_treatment.chamfer_mode))<<'\n';
+    const auto* input=workspace::calculated_operation_input(session,
+        feature->id);
+    require(input,"Requested edge treatment has no rollback input");
+    std::vector<std::vector<kernel::ViewerEdge>> groups;
+    for(std::size_t route=0;route<feature->edge_treatment.routes.size();
+            ++route) {
+        groups.push_back(document::treatment_selection_wire(
+            feature->edge_treatment,route,std::nullopt,input->mesh));
+        std::cout<<feature->name<<" route "<<route<<": stored="
+            <<feature->edge_treatment.routes[route].size()<<" resolved="
+            <<groups.back().size()<<'\n';
+        for(std::size_t index=0;
+                index<feature->edge_treatment.routes[route].size();++index) {
+            const auto& reference=feature->edge_treatment.routes[route][index];
+            std::cout<<"  stored "<<index<<' '<<reference.owner_id<<" | "
+                <<reference.semantic_key.substr(0,120)<<'\n';
+        }
+        const auto surface_kind=[](const kernel::FaceReference& face) {
+            if(!face.surface)return '?';
+            switch(face.surface->kind) {
+            case kernel::SurfaceGeometry::Kind::Plane:return 'P';
+            case kernel::SurfaceGeometry::Kind::Cylinder:return 'C';
+            case kernel::SurfaceGeometry::Kind::Cone:return 'N';
+            case kernel::SurfaceGeometry::Kind::Torus:return 'T';
+            }
+            return '?';
+        };
+        for(std::size_t index=0;index<groups.back().size();++index) {
+            const auto& edge=groups.back()[index];
+            double minimum_dot=2.,maximum_dot=-2.;
+            if(edge.edge_treatment_side_directions.size()==2&&
+                    edge.edge_treatment_side_directions[0].size()==
+                        edge.points.size()&&
+                    edge.edge_treatment_side_directions[1].size()==
+                        edge.points.size())
+                for(std::size_t point=0;point<edge.points.size();++point) {
+                    const auto& first=edge.edge_treatment_side_directions[0][point];
+                    const auto& second=edge.edge_treatment_side_directions[1][point];
+                    const double first_length=std::hypot(
+                        std::hypot(first.x,first.y),first.z);
+                    const double second_length=std::hypot(
+                        std::hypot(second.x,second.y),second.z);
+                    if(first_length>1.0e-12&&second_length>1.0e-12) {
+                        const double dot=(first.x*second.x+first.y*second.y+
+                            first.z*second.z)/(first_length*second_length);
+                        minimum_dot=std::min(minimum_dot,dot);
+                        maximum_dot=std::max(maximum_dot,dot);
+                    }
+                }
+            std::cout<<"  edge "<<index<<" points="<<edge.points.size()
+                <<" guides="<<edge.edge_treatment_side_references.size()<<'/'
+                <<edge.edge_treatment_side_directions.size()<<" surfaces=";
+            for(const auto& face:edge.edge_treatment_side_references)
+                std::cout<<surface_kind(face);
+            if(minimum_dot<=1.)std::cout<<" dot="<<minimum_dot<<".."
+                <<maximum_dot;
+            if(!edge.points.empty())
+                std::cout<<" from=("<<edge.points.front().x<<','
+                    <<edge.points.front().y<<','<<edge.points.front().z
+                    <<") to=("<<edge.points.back().x<<','
+                    <<edge.points.back().y<<','<<edge.points.back().z<<')';
+            std::cout<<" ref="<<edge.reference.owner_id<<" | "
+                <<edge.reference.semantic_key.substr(0,120);
+            std::cout<<'\n';
+        }
+        const auto paths=app::workspace_detail::
+            ordered_edge_treatment_preview_paths(groups.back());
+        std::cout<<"  ordered paths="<<paths.size();
+        for(const auto& path:paths)std::cout<<' '<<path.edges.size();
+        std::cout<<'\n';
+    }
+    const auto preview=app::workspace_detail::edge_treatment_preview_wire(
+        groups,feature->edge_treatment,feature->feature_kind,feature->id,
+        &input->mesh);
+    const auto authored=app::authored_feature_wire(session,feature->id);
+    std::size_t preview_points{},authored_points{};
+    for(const auto& edge:preview.edges)preview_points+=edge.points.size();
+    for(const auto& edge:authored)authored_points+=edge.points.size();
+    std::cout<<feature->name<<" input edges="<<input->mesh.edges.size()
+        <<" preview="<<preview.edges.size()<<'/'<<preview_points
+        <<" authored="<<authored.size()<<'/'<<authored_points<<'\n';
+    for(const auto& [id,error]:
+            session.calculated_boundaries().back().calculation_errors)
+        std::cout<<"Calculation error "<<id<<": "<<error<<'\n';
+    if(feature->feature_kind==document::FeatureKind::Fillet&&
+            std::getenv("ZIMA_EDGE_TREATMENT_COMPARE_CHAMFER")) {
+        auto comparison=document;
+        const auto replacement=std::ranges::find(
+            comparison.history,feature->id,&document::HistoryContainer::id);
+        require(replacement!=comparison.history.end(),
+            "Chamfer comparison lost its source feature");
+        replacement->feature_kind=document::FeatureKind::Chamfer;
+        replacement->edge_treatment.chamfer_mode=
+            document::EdgeTreatmentParameters::ChamferMode::EqualDistance;
+        replacement->edge_treatment.secondary_size=
+            replacement->edge_treatment.primary_size;
+        const auto compared=engine.evaluate_history(
+            comparison.kernel_operations());
+        require(!compared.empty(),"Chamfer comparison produced no boundary");
+        std::cout<<"Chamfer comparison errors="
+            <<compared.back().calculation_errors.size()<<'\n';
+        for(const auto& [id,error]:compared.back().calculation_errors)
+            std::cout<<"  "<<id<<": "<<error<<'\n';
+    }
+}
 void rounded_profile_matrix(const kernel::OcctKernel& engine) {
     unsigned cases{};
     for(auto plane:{sketcher::SketchPlane::XY,sketcher::SketchPlane::XZ})
@@ -610,6 +1085,19 @@ int main(int argc,char** argv) {
     try{
         if(argc>1&&std::string_view(argv[1])=="--sketch-profile-wire"){sketch_wire_matrix();copy_wire_matrix();return 0;}
         if(const auto* file=std::getenv("ZIMA_SKETCH_WIRE_REVIEW_FILE")){actual_sketch_wire(std::filesystem::u8path(file));return 0;}
+        if(const auto* file=std::getenv(
+                "ZIMA_EDGE_TREATMENT_PREVIEW_REVIEW_FILE")) {
+            kernel::OcctKernel engine;
+            if(const auto* feature=std::getenv(
+                    "ZIMA_EDGE_TREATMENT_DIAGNOSTIC_FEATURE")) {
+                diagnose_edge_treatment(engine,std::filesystem::u8path(file),
+                    feature);
+                return 0;
+            }
+            review_edge_treatment_preview(engine,
+                std::filesystem::u8path(file));
+            return 0;
+        }
         kernel::OcctKernel engine;line_bend_wire(engine);
         planar_surface_wire_and_cues(engine);rectangular_matrix(engine);
         rolling_edge_treatment_preview();independent_fillet_node_preview();

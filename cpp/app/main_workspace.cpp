@@ -3943,6 +3943,107 @@ int verify_history_recovery_ui(QApplication& application, const std::filesystem:
                 loaded.back().calculation_errors.contains(broken.id), "Earlier edit or later diagnostic did not persist")) return 1;
     window.close(); flush();
     }
+    {
+    auto part = PartDocument::create_default();
+    auto stock = zima::test::rectangular_feature(part,{20,20,20});
+    const zima::kernel::EdgeReference stock_edge{stock.id,
+        zima::test::profile_key(part,stock,
+            "edge:x_max:y_min:z_max--x_max:y_min:z_min"),{}};
+    auto first = PartDocument::create_fillet_container({stock_edge});
+    first.edge_treatment.primary_size = 2;
+    first.edge_treatment.calculation_method =
+        EdgeTreatmentParameters::CalculationMethod::Zima;
+    part.history = {stock,first};
+    zima::kernel::OcctKernel kernel;
+    const auto first_calculated = zima::workspace::calculate_part(kernel,part);
+    std::optional<HistoryContainer> second;
+    for (const auto& edge : first_calculated.back().mesh.edges) {
+        if (edge.reference.owner_id != first.id) continue;
+        auto candidate = PartDocument::create_fillet_container({edge.reference});
+        candidate.edge_treatment.primary_size = .4;
+        candidate.edge_treatment.calculation_method =
+            EdgeTreatmentParameters::CalculationMethod::Zima;
+        auto candidate_part = part;
+        candidate_part.history.push_back(candidate);
+        const auto calculated = zima::workspace::calculate_part(
+            kernel,candidate_part,&first_calculated);
+        if (calculated.back().calculation_errors.empty()) {
+            second = std::move(candidate);
+            part = std::move(candidate_part);
+            break;
+        }
+    }
+    if (!verify(second.has_value(),
+            "History recovery fixture found no dependent Fillet edge")) return 1;
+    BodyHistoryGraph graph;
+    static_cast<void>(graph.create_body("Invalid dependency recovery"));
+    graph.insert({PartHistoryKind::Feature,stock.id});
+    graph.insert({PartHistoryKind::Feature,first.id});
+    graph.insert({PartHistoryKind::Feature,second->id});
+    part.set_body_history(graph);
+    const auto complete = zima::workspace::calculate_part(kernel,part);
+    const auto path = directory / "history-recovery-dependent-fillet.prtz";
+    part.save(path,complete);
+
+    zima::app::AssemblyWorkspaceWindow window(
+        QString::fromStdString(directory.string()));
+    window.resize(1100,850); window.show();
+    const auto flush = [&] {
+        application.processEvents();
+        QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
+        application.processEvents();
+    };
+    if (!verify(window.open_document_path(QString::fromStdString(path.string())),
+            "Cannot open dependent invalid Fillet fixture")) return 1;
+    flush();
+    QStringList prompts;
+    QTimer prompt_guard;
+    QObject::connect(&prompt_guard,&QTimer::timeout,[&] {
+        if (auto* box=qobject_cast<QMessageBox*>(
+                QApplication::activeModalWidget())) {
+            prompts.push_back(box->text());
+            box->accept();
+        }
+    });
+    prompt_guard.start(20);
+    const auto failed_edit = window.execute_console_command(
+        QString::fromStdString(nlohmann::json{{"command","fillet.set"},
+            {"arguments",{{"container",first.id},{"radius_mm",1000}}}}.dump()));
+    if (!failed_edit.ok) std::cerr << failed_edit.message << std::endl;
+    if (!verify(failed_edit.ok,
+            "GUI fixture could not invalidate the first Fillet")) return 1;
+    flush();
+    const auto invalidation_prompts = prompts.size();
+    auto* tree = window.findChild<QTreeWidget*>("documentTree");
+    auto* view = dynamic_cast<zima::viewer::MeshView*>(
+        window.findChild<QOpenGLWidget*>("modelWorkspace"));
+    QTreeWidgetItem* dependent = nullptr;
+    for (QTreeWidgetItemIterator it(tree); *it; ++it)
+        if ((*it)->data(0,Qt::UserRole).toString().toStdString() == second->id) {
+            dependent = *it;
+            break;
+        }
+    if (!verify(dependent && dependent->text(0).contains("nevypočítáno"),
+            "Dependent invalid Fillet is missing from the Tree")) return 1;
+    window.show_tree_item_properties(dependent); flush();
+    if (!verify(prompts.size() == invalidation_prompts,
+            "Editing a dependent invalid Fillet displayed another blocking error")) return 1;
+    zima::app::PrimitivePropertiesDialog* dialog = nullptr;
+    for (auto* candidate : window.findChildren<QDialog*>())
+        if (auto* primitive = dynamic_cast<zima::app::PrimitivePropertiesDialog*>(candidate);
+                primitive && primitive->isVisible()) {
+            dialog = primitive;
+            break;
+        }
+    if (!verify(dialog && dialog->container_id() == second->id && view &&
+                !view->mesh().triangles.empty(),
+            "Dependent invalid Fillet Properties lost its cached rollback Body")) return 1;
+    QPointer<QDialog> dialog_guard(dialog);
+    dialog->buttons()->button(QDialogButtonBox::Cancel)->click(); flush();
+    if (!verify(!dialog_guard || !dialog_guard->isVisible(),
+            "Dependent invalid Fillet Properties did not cancel safely")) return 1;
+    window.close(); flush();
+    }
     return 0;
 }
 
@@ -4195,8 +4296,8 @@ int verify_body_history_ui(QApplication& application, const std::filesystem::pat
     origin_button->click();flush();
     auto* other_body_row=row("part-body",b);
     tree->itemClicked(other_body_row,0);flush();
-    if (!verify(origin_extent(b+":origin")>0,"Origin mode could not reveal another Body origin")) return 1;
-    origin_button->click();flush();
+    if (!verify(origin_extent(b+":origin")>0&&!origin_button->isChecked(),
+            "Origin selection did not reveal another Body origin and return to reference entry")) return 1;
     tree->setCurrentItem(row("document-origin",a+":origin"));flush();
     if (!verify(origin_point_dialog->references_without(99).size()>=3,
             "Feature did not accept the owning Body Origin shortcut")) return 1;

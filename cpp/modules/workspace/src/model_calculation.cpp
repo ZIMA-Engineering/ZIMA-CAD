@@ -1438,6 +1438,18 @@ bool materialize_part_history_input_boundary(Workspace& workspace,
         }
     }
     if(preceding_owner.empty())return false;
+    // A failed predecessor has no exact output that can be materialized as
+    // the edited container's input.  Its published history row deliberately
+    // carries the last valid Body together with the calculation error so the
+    // dependent definition remains visible and repairable.  Recalculating the
+    // same invalid prefix would only throw from a Tree Properties action.
+    // Keep the cached last-valid rollback body; the dependent references stay
+    // unresolved and its preview remains empty until the predecessor recovers.
+    if(const auto rollback=part->session.rollback_boundary(container_id);
+            rollback&&rollback->input_body&&
+            rollback->input_body->calculation_errors.contains(
+                preceding_owner))
+        return false;
     const auto operations=group_solid_state_cached_operations(
         document,&part->session.calculated_boundaries());
     std::optional<std::size_t> operation_count;

@@ -534,8 +534,26 @@ void zima_fragment_survival() {
                 incremental.back().calculation_errors==
                     cold.back().calculation_errors,
             "Adding a ZIMA treatment to a calculated Body changed cold/incremental error state");
-        if(incremental.back().calculation_errors.empty())
+        if(incremental.back().calculation_errors.empty()) {
             near(incremental.back().volume,cold.back().volume,1.0e-5);
+            const auto references=[](const auto& values) {
+                std::set<std::tuple<std::string,std::string,std::string>> result;
+                for(const auto& value:values) {
+                    require(value.reference.valid(),
+                        "ZIMA treatment published anonymous final topology");
+                    require(result.emplace(value.reference.owner_id,
+                                value.reference.semantic_key,
+                                value.reference.instance_path).second,
+                        "ZIMA treatment assigned one identity to several final topology items");
+                }
+                return result;
+            };
+            require(references(incremental.back().mesh.edges)==
+                        references(cold.back().mesh.edges)&&
+                    references(incremental.back().mesh.points)==
+                        references(cold.back().mesh.points),
+                "ZIMA treatment changed final edge or endpoint identity between incremental and cold calculation");
+        }
         return std::pair{survivors,incremental};
     };
     const auto [two_fragments,two]=evaluate(10,10,treatment);
@@ -544,7 +562,12 @@ void zima_fragment_survival() {
             std::ranges::any_of(two.back().mesh.triangle_references,
                 [](const auto& face) {
                     return face.owner_id=="fragment-fillet";
-                }),
+                })&&
+            std::ranges::any_of(two.back().mesh.edges,[](const auto& edge) {
+                return edge.reference.owner_id=="fragment-fillet"&&
+                    edge.reference.semantic_key.find(":split-edge:from:")!=
+                        std::string::npos;
+            }),
         "ZIMA Fillet did not follow both surviving fragments");
     const auto [one_fragment,one]=evaluate(0,20,treatment);
     require(one_fragment==1&&one.size()==3&&
@@ -571,6 +594,12 @@ void zima_fragment_survival() {
                 chamfer_result.back().mesh.triangle_references,
                 [](const auto& face) {
                     return face.owner_id=="fragment-chamfer";
+                })&&
+            std::ranges::any_of(chamfer_result.back().mesh.edges,
+                [](const auto& edge) {
+                    return edge.reference.owner_id=="fragment-chamfer"&&
+                        edge.reference.semantic_key.find(
+                            ":split-edge:from:")!=std::string::npos;
                 }),
         "ZIMA Chamfer did not use the retained original edge supports");
     std::cout<<"ZIMA fragment survival: Fillet two/one/zero and Chamfer source descendants passed\n";

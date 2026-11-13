@@ -167,6 +167,22 @@ TopoDS_Shape concave_prism(double height) {
     return prism.Shape();
 }
 
+TopoDS_Shape triangular_prism(double angle_degrees,double length,
+        double height) {
+    const double angle=angle_degrees*std::numbers::pi/180.;
+    const gp_Pnt origin(0,0,0),first(length,0,0),
+        second(length*std::cos(angle),length*std::sin(angle),0);
+    BRepBuilderAPI_MakeWire wire;
+    wire.Add(BRepBuilderAPI_MakeEdge(origin,first).Edge());
+    wire.Add(BRepBuilderAPI_MakeEdge(first,second).Edge());
+    wire.Add(BRepBuilderAPI_MakeEdge(second,origin).Edge());
+    BRepBuilderAPI_MakeFace face(wire.Wire());
+    BRepPrimAPI_MakePrism prism(face.Face(),gp_Vec(0,0,height),false,true);
+    prism.Build();
+    require(prism.IsDone(),"Triangular prism fixture failed");
+    return prism.Shape();
+}
+
 TopoDS_Shape blind_pocket() {
     BRepAlgoAPI_Cut cut(BRepPrimAPI_MakeBox(30,30,30).Shape(),
         BRepPrimAPI_MakeBox(gp_Pnt(9,9,18),
@@ -406,6 +422,17 @@ int main() try {
         "Staggered-box fixture lost its two shoulder branches");
     verify_node(stepped,shoulder_node,2.,
         "Staggered-box ZIMA Chamfer shoulder node is invalid");
+    const auto wedge=triangular_prism(60.,30.,35.);
+    auto angled_node=edges_at_point(wedge,{0,0,0});
+    std::erase_if(angled_node,[](const auto& edge) {
+        const BRepAdaptor_Curve curve(edge);
+        return std::abs(curve.Value(curve.FirstParameter()).Z()-
+            curve.Value(curve.LastParameter()).Z())>1.0e-9;
+    });
+    require(angled_node.size()==2,
+        "Wedge fixture lost its two non-right node branches");
+    verify_node(wedge,angled_node,2.5,
+        "Non-right two-branch ZIMA Chamfer node is invalid");
     TopTools_IndexedDataMapOfShapeListOfShape box_edge_faces;
     TopExp::MapShapesAndAncestors(box,TopAbs_EDGE,TopAbs_FACE,
         box_edge_faces);

@@ -186,6 +186,37 @@ inline std::vector<kernel::ViewerEdge> treatment_selection_wire(
             if(found_original)continue;
         }
     }
+    const auto has_finite_material_wedge=[](const kernel::ViewerEdge& edge) {
+        if(edge.edge_treatment_side_directions.size()!=2||
+           edge.edge_treatment_side_directions[0].size()!=edge.points.size()||
+           edge.edge_treatment_side_directions[1].size()!=edge.points.size())
+            return true;
+        for(std::size_t point=0;point<edge.points.size();++point) {
+            const auto& first=edge.edge_treatment_side_directions[0][point];
+            const auto& second=edge.edge_treatment_side_directions[1][point];
+            const double first_length=std::hypot(
+                std::hypot(first.x,first.y),first.z);
+            const double second_length=std::hypot(
+                std::hypot(second.x,second.y),second.z);
+            if(first_length<=1.0e-12||second_length<=1.0e-12)return true;
+            const double cosine=(first.x*second.x+first.y*second.y+
+                first.z*second.z)/(first_length*second_length);
+            if(cosine>-1.0+1.0e-8)return true;
+        }
+        return false;
+    };
+    // Later operations can split one persisted logical edge at a tangent
+    // continuation.  When another descendant with the exact same identity
+    // still has a finite material wedge, the antiparallel zero-angle sibling
+    // is not a Fillet/Chamfer interval and must not become a preview branch.
+    // Preserve a standalone invalid selection so calculation can reject it.
+    std::erase_if(result,[&](const auto& edge) {
+        if(has_finite_material_wedge(edge))return false;
+        return std::ranges::any_of(result,[&](const auto& candidate) {
+            return candidate.reference==edge.reference&&
+                has_finite_material_wedge(candidate);
+        });
+    });
     return result;
 }
 

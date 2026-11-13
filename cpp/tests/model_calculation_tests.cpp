@@ -1,4 +1,5 @@
 #include "profile_solid_fixture.hpp"
+#include <zima/document/edge_treatment_selection.hpp>
 #include <zima/workspace/model_calculation.hpp>
 #include <zima/workspace/body_operations.hpp>
 #include <zima/workspace/edge_treatment_operations.hpp>
@@ -886,6 +887,79 @@ void verify_independent_history_continues_after_failure(
                 contains(broken.id),
         "An existing failed container could not be saved and reopened");
 }
+void verify_failed_predecessor_rollback_remains_editable(
+        const kernel::OcctKernel& kernel) {
+    auto part=document::PartDocument::create_default();
+    auto stock=test::rectangular_feature(part,{20,20,20});
+    const kernel::EdgeReference stock_edge{stock.id,
+        test::profile_key(part,stock,
+            "edge:x_max:y_min:z_max--x_max:y_min:z_min"),{}};
+    auto first=document::PartDocument::create_fillet_container({stock_edge});
+    first.edge_treatment.primary_size=2.;
+    first.edge_treatment.calculation_method=
+        document::EdgeTreatmentParameters::CalculationMethod::Zima;
+    part.history={stock,first};
+    const auto first_calculated=workspace::calculate_part(kernel,part);
+    require(first_calculated.back().calculation_errors.empty(),
+        "Failed-predecessor fixture could not calculate its first Fillet");
+
+    std::optional<document::HistoryContainer> second;
+    std::vector<kernel::BodyResult> complete;
+    for(const auto& edge:first_calculated.back().mesh.edges) {
+        if(edge.reference.owner_id!=first.id)continue;
+        auto candidate=document::PartDocument::create_fillet_container(
+            {edge.reference});
+        candidate.edge_treatment.primary_size=.4;
+        candidate.edge_treatment.calculation_method=
+            document::EdgeTreatmentParameters::CalculationMethod::Zima;
+        auto candidate_part=part;
+        candidate_part.history.push_back(candidate);
+        auto candidate_calculated=workspace::calculate_part(
+            kernel,candidate_part,&first_calculated);
+        if(candidate_calculated.back().calculation_errors.empty()) {
+            second=std::move(candidate);
+            part=std::move(candidate_part);
+            complete=std::move(candidate_calculated);
+            break;
+        }
+    }
+    require(second&&complete.size()==3,
+        "Failed-predecessor fixture found no dependent Fillet edge");
+    const auto second_route=second->edge_treatment.routes;
+
+    auto failed=part;
+    failed.history[1].edge_treatment.primary_size=1000.;
+    auto failed_calculated=workspace::calculate_part(
+        kernel,failed,&complete);
+    require(failed_calculated.back().calculation_errors.contains(first.id)&&
+            failed_calculated.back().calculation_errors.contains(second->id),
+        "Invalid first Fillet did not mark its dependent Fillet invalid");
+
+    workspace::Workspace live;
+    live.add_part(failed,std::move(failed_calculated));
+    auto* state=live.open_part(failed.document_id);
+    const auto revision=state->session.revision();
+    const auto generation=state->session.data_generation();
+    const auto authored=state->session.document().serialized();
+    const auto rollback=state->session.rollback_boundary(second->id);
+    require(rollback&&rollback->input_body&&
+            rollback->input_body->calculation_errors.contains(first.id)&&
+            !rollback->input_body->mesh.triangles.empty(),
+        "Dependent Fillet lost the cached last-valid rollback Body");
+    require(!workspace::materialize_part_history_input_boundary(
+            live,kernel,failed.document_id,second->id),
+        "Invalid predecessor unexpectedly materialized an exact rollback Body");
+    require(state->session.revision()==revision&&
+            state->session.data_generation()==generation&&
+            state->session.document().serialized()==authored&&
+            state->session.document().find_container(second->id)->
+                edge_treatment.routes==second_route,
+        "Opening a dependent invalid Fillet changed its authored state or cache");
+    require(document::treatment_selection_wire(
+            state->session.document().find_container(second->id)->
+                edge_treatment,0,std::nullopt,rollback->input_body->mesh).empty(),
+        "Dependent invalid Fillet guessed a replacement edge on the last-valid Body");
+}
 void verify_retained_edge_treatment_boundary(const kernel::OcctKernel& kernel){
     auto part=document::PartDocument::create_default();
     auto stock=test::rectangular_feature(part,{10,10,10});
@@ -999,6 +1073,7 @@ int main(){try{
     verify_history_boundary_placement_isolation(kernel);
     verify_failed_source_reference_is_reported_downstream(kernel);
     verify_independent_history_continues_after_failure(kernel);
+    verify_failed_predecessor_rollback_remains_editable(kernel);
     verify_edge_treatment_preserves_history_boundary_placement(kernel);
     verify_recovery_policy(kernel);
     verify_deferred_history_boundary(kernel);verify_retained_edge_treatment_boundary(kernel);
