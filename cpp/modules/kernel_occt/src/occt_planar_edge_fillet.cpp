@@ -3210,6 +3210,17 @@ OcctPlanarEdgeFilletResult occt_planar_edge_fillet(
             return end_faces[job_index].rounded_last;
         return false;
     };
+    const auto arc_at=[&](std::size_t job_index,
+            const TopoDS_Vertex& vertex) {
+        if(end_faces.empty())return false;
+        TopoDS_Vertex first,last;
+        TopExp::Vertices(jobs[job_index].edge,first,last,true);
+        if(!first.IsNull()&&first.IsSame(vertex))
+            return end_faces[job_index].arc_first;
+        if(!last.IsNull()&&last.IsSame(vertex))
+            return end_faces[job_index].arc_last;
+        return false;
+    };
     // Two independent plane/plane branches meet where their rolling-cylinder
     // axes intersect. Extend each real branch only to that intersection and
     // trim both tools by their equal-distance bisector plane. The complete
@@ -3229,6 +3240,8 @@ OcctPlanarEdgeFilletResult occt_planar_edge_fillet(
                 "Fillet rounded node (%.9g,%.9g,%.9g) jobs=%zu,%zu rejected: %s\n",
                 point.X(),point.Y(),point.Z(),first_job,second_job,reason);
         };
+        if(arc_at(first_job,node.vertex)&&arc_at(second_job,node.vertex))
+            continue;
         if(!rounded_at(first_job,node.vertex)||
            !rounded_at(second_job,node.vertex)) {
             trace_rejection("endpoint mode");
@@ -3494,8 +3507,51 @@ OcctPlanarEdgeFilletResult occt_planar_edge_fillet(
                 throw std::invalid_argument(
                     "ZIMA Fillet node spans more than one material solid");
             // Qualifying two-route plane/plane nodes were extended and mitered
-            // directly above. Other endpoint arrangements retain their
-            // perpendicular circular ends.
+            // directly above. A persisted arc node revolves the first strip's
+            // end profile about the corner edge onto the second strip's end;
+            // other arrangements retain their perpendicular circular ends.
+            if(arc_at(node.jobs[0],node.vertex)&&
+               arc_at(node.jobs[1],node.vertex)&&*job_adds_material[
+                    node.jobs.front()]) {
+                const auto origin=BRep_Tool::Pnt(node.vertex);
+                const gp_Vec d1(directions[0]),d2(directions[1]);
+                const gp_Vec n_first=d2-d1*d1.Dot(d2);
+                const gp_Vec n_second=d1-d2*d1.Dot(d2);
+                const gp_Vec axis=n_first.Crossed(n_second);
+                if(n_first.Magnitude()<=1.0e-9||n_second.Magnitude()<=1.0e-9||
+                        axis.Magnitude()<=1.0e-12)
+                    throw std::invalid_argument(
+                        "ZIMA Fillet arc node needs non-parallel branches");
+                const double sweep=n_first.Angle(n_second);
+                TopoDS_Face profile;
+                for(const auto& cutter:cutters) {
+                    if(std::ranges::find(cutter.source_jobs,node.jobs[0])==
+                            cutter.source_jobs.end())continue;
+                    for(TopExp_Explorer faces(cutter.solid,TopAbs_FACE);
+                            faces.More();faces.Next()) {
+                        const auto face=TopoDS::Face(faces.Current());
+                        const BRepAdaptor_Surface surface(face,true);
+                        if(surface.GetType()!=GeomAbs_Plane)continue;
+                        const auto plane=surface.Plane();
+                        if(!plane.Axis().Direction().IsParallel(
+                                directions[0],1.0e-9)||
+                           std::abs(gp_Vec(origin,plane.Location()).Dot(d1))>
+                                std::max(10.*tolerance,1.0e-7))continue;
+                        profile=face;
+                        break;
+                    }
+                }
+                if(profile.IsNull())
+                    throw std::invalid_argument(
+                        "ZIMA Fillet arc node has no end profile");
+                BRepPrimAPI_MakeRevol revolve(profile,
+                    gp_Ax1(origin,gp_Dir(axis)),sweep);
+                if(!revolve.IsDone()||revolve.Shape().IsNull())
+                    throw std::runtime_error(
+                        "ZIMA Fillet could not construct an arc node");
+                node_connectors.push_back({revolve.Shape(),std::nullopt,
+                    node.jobs,true});
+            }
         }
     }
     OcctPlanarEdgeFilletResult result;

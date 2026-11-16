@@ -295,7 +295,7 @@ struct EdgeTreatmentParameters {
     enum class FilletMode { Constant, Linear };
     enum class ChamferMode { EqualDistance, TwoDistances, DistanceAngle };
     enum class CalculationMethod { Automatic, Zima, Occt };
-    enum class RouteEndMode { NoCut, Cut };
+    enum class RouteEndMode { NoCut, Cut, RoundedJoin, RoundedArc };
     // One persisted user route contains every original edge selected by one
     // contour operation. Keeping the grouping in ZIMA data means reopening
     // Properties never has to guess it from current OCCT topology.
@@ -307,10 +307,10 @@ struct EdgeTreatmentParameters {
         // prepared in Properties.
         zima::kernel::VertexReference first_vertex;
         zima::kernel::VertexReference last_vertex;
-        // NoCut keeps the perpendicular cap at the selected route endpoint.
-        // Cut explicitly asks the ZIMA solver to infer/use the adjacent Body
-        // envelope.  The safe persisted default never sweeps through material
-        // merely because a farther face happens to be available.
+        // An empty route slot has no identified physical endpoint and remains
+        // NoCut so incomplete command input stays valid. Once the View resolves
+        // an open endpoint, Properties assigns the established automatic Cut
+        // default. NoCut then represents an explicit user choice.
         RouteEndMode first_mode{RouteEndMode::NoCut};
         RouteEndMode last_mode{RouteEndMode::NoCut};
         // Explicit faces are reserved for an authored exact Up To boundary.

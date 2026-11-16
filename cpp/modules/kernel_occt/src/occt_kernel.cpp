@@ -1,6 +1,7 @@
 #include <IntCurvesFace_ShapeIntersector.hxx>
 #include "ordered_up_to.hpp"
 #include "kernel_history_version.hpp"
+#include "occt_edge_treatment_terminals.hpp"
 #include <zima/kernel/ordered_up_to_resolution.hpp>
 #include <BRepOffsetAPI_MakeFilling.hxx>
 #include <GeomFill_Gordon.hxx>
@@ -8058,6 +8059,142 @@ OcctKernel::inspect_edge_treatment_supports(const BodyResult& body,
     return result;
 }
 
+std::vector<FaceReference> OcctKernel::inspect_edge_treatment_end_choices(
+        const BodyResult& body,std::span<const EdgeReference> route,
+        const VertexReference& endpoint) const {
+    if(body.kernel_shape==kernel_body_compound)
+        throw std::invalid_argument(
+            "Edge end inspection requires one calculated Body");
+    if(body.kernel_shape.empty())
+        throw std::invalid_argument(
+            "Edge end inspection requires a native Body snapshot");
+    if(route.empty()||std::ranges::any_of(route,[](const auto& reference) {
+            return !reference.valid()||!reference.instance_path.empty();
+        })||!endpoint.valid()||!endpoint.instance_path.empty())
+        throw std::invalid_argument(
+            "Edge end inspection received an invalid route endpoint");
+
+    const auto native=placed_bound_face_geometry(body,true);
+    std::vector<TopoDS_Vertex> endpoint_vertices;
+    for(const auto& owned:native.vertices)
+        if(owned.reference==endpoint&&
+           std::ranges::none_of(endpoint_vertices,[&](const auto& current) {
+               return current.IsSame(owned.shape);
+           }))endpoint_vertices.push_back(TopoDS::Vertex(owned.shape));
+    if(endpoint_vertices.size()!=1)
+        throw std::runtime_error(endpoint_vertices.empty()
+            ?"The route endpoint is missing from its native Body snapshot"
+            :"The route endpoint is ambiguous in its native Body snapshot");
+    const auto endpoint_vertex=endpoint_vertices.front();
+
+    const auto selected=[&](const EdgeReference& candidate) {
+        return std::ranges::any_of(route,[&](const auto& requested) {
+            return candidate==requested||
+                split_edge_descends_from(candidate,requested)||
+                split_edge_descends_from(requested,candidate);
+        });
+    };
+    std::vector<TopoDS_Edge> terminal_edges;
+    for(const auto& owned:native.edges) {
+        if(!selected(owned.reference))continue;
+        const auto edge=TopoDS::Edge(owned.shape);
+        TopoDS_Vertex first,last;
+        TopExp::Vertices(edge,first,last,true);
+        if((!first.IsNull()&&first.IsSame(endpoint_vertex))||
+           (!last.IsNull()&&last.IsSame(endpoint_vertex)))
+            if(std::ranges::none_of(terminal_edges,[&](const auto& current) {
+                    return current.IsSame(edge);
+                }))terminal_edges.push_back(edge);
+    }
+    if(terminal_edges.size()!=1)
+        throw std::runtime_error(terminal_edges.empty()
+            ?"The selected route does not contain its endpoint"
+            :"The selected route branches at its endpoint");
+    const auto terminal_edge=terminal_edges.front();
+
+    TopTools_IndexedDataMapOfShapeListOfShape edge_faces;
+    TopExp::MapShapesAndAncestors(native.shape,TopAbs_EDGE,TopAbs_FACE,
+        edge_faces);
+    const int face_index=edge_faces.FindIndex(terminal_edge);
+    std::vector<TopoDS_Face> supports;
+    if(face_index)for(TopTools_ListIteratorOfListOfShape iterator(
+            edge_faces.FindFromIndex(face_index));iterator.More();
+            iterator.Next()) {
+        const auto face=TopoDS::Face(iterator.Value());
+        if(std::ranges::none_of(supports,[&](const auto& current) {
+                return current.IsSame(face);
+            }))supports.push_back(face);
+    }
+    if(supports.size()!=2)
+        throw std::runtime_error(
+            "The route endpoint edge does not have exactly two support faces");
+
+    TopoDS_Solid material;
+    for(TopExp_Explorer item(native.shape,TopAbs_SOLID);item.More();
+            item.Next()) {
+        const auto solid=TopoDS::Solid(item.Current());
+        TopTools_IndexedMapOfShape edges;
+        TopExp::MapShapes(solid,TopAbs_EDGE,edges);
+        if(!edges.Contains(terminal_edge))continue;
+        if(!material.IsNull()&&!material.IsSame(solid))
+            throw std::runtime_error(
+                "The route endpoint belongs to multiple material solids");
+        material=solid;
+    }
+    if(material.IsNull())
+        throw std::runtime_error(
+            "The route endpoint has no material solid");
+
+    const BRepAdaptor_Curve curve(terminal_edge);
+    const auto first_point=curve.Value(curve.FirstParameter());
+    const auto last_point=curve.Value(curve.LastParameter());
+    const auto endpoint_point=BRep_Tool::Pnt(endpoint_vertex);
+    const bool at_first=endpoint_point.Distance(first_point)<=
+        endpoint_point.Distance(last_point);
+    gp_Pnt derivative_point;gp_Vec derivative;
+    curve.D1(at_first?curve.FirstParameter():curve.LastParameter(),
+        derivative_point,derivative);
+    if(derivative.SquareMagnitude()<=1.0e-18)
+        throw std::runtime_error(
+            "The route endpoint has no usable tangent direction");
+    if(at_first)derivative.Reverse();
+    const gp_Dir outward(derivative);
+    const double tolerance=1.0e-7;
+
+    std::vector<std::vector<TopoDS_Face>> groups;
+    if(auto local=edge_treatment_terminals::local_terminal_faces(material,
+            supports[0],supports[1],endpoint_point,tolerance,false);
+       !local.empty())groups.push_back(std::move(local));
+    auto remote=edge_treatment_terminals::
+        remote_terminal_face_choices_through_local_curve(material,
+            supports[0],supports[1],endpoint_point,outward,tolerance);
+    groups.insert(groups.end(),std::make_move_iterator(remote.begin()),
+        std::make_move_iterator(remote.end()));
+
+    const auto representative=[&](const auto& faces)
+            ->std::optional<FaceReference> {
+        std::vector<FaceReference> aliases;
+        for(const auto& face:faces)
+            for(const auto& owned:native.faces)
+                if(owned.shape.IsSame(face)&&owned.reference.valid()&&
+                   owned.reference.instance_path.empty()&&
+                   std::ranges::find(aliases,owned.reference)==aliases.end())
+                    aliases.push_back(owned.reference);
+        std::ranges::sort(aliases,[](const auto& first,const auto& second) {
+            return std::tie(first.owner_id,first.semantic_key)<
+                std::tie(second.owner_id,second.semantic_key);
+        });
+        return aliases.empty()?std::nullopt:
+            std::optional<FaceReference>{aliases.front()};
+    };
+    std::vector<FaceReference> result;
+    for(const auto& group:groups)
+        if(const auto reference=representative(group);reference&&
+           std::ranges::find(result,*reference)==result.end())
+            result.push_back(*reference);
+    return result;
+}
+
 
 struct OcctKernel::NativeFaceSource {
     const BodyResult* source{};
@@ -13047,28 +13184,19 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                             actual.push_back(seed);
                     return actual;
                 };
-                if constexpr (!std::is_same_v<Treatment,FilletRequest>) {
-                    if(auto actual=actual_intersection_selection();
-                       !actual.empty())selected=std::move(actual);
-                } else if(treatment.mode==FilletRequest::Mode::Constant&&
-                          treatment.calculation_method==
-                              EdgeTreatmentCalculationMethod::Occt) {
-                    if(auto actual=actual_intersection_selection();
-                       !actual.empty())selected=std::move(actual);
+                if constexpr (std::is_same_v<Treatment,FilletRequest>) {
+                    if(treatment.mode==FilletRequest::Mode::Constant&&
+                       treatment.calculation_method==
+                           EdgeTreatmentCalculationMethod::Occt) {
+                        if(auto actual=actual_intersection_selection();
+                           !actual.empty())selected=std::move(actual);
+                    }
                 }
                 std::vector<OcctPlanarEdgeEndFaces> custom_end_faces(
                     selected.size());
-                const auto route_for=[&](const EdgeReference& reference)
-                        ->std::optional<std::size_t> {
-                    for(std::size_t index=0;
-                            index<treatment.edges.size();++index)
-                        if(reference==treatment.edges[index]||
-                           split_edge_descends_from(reference,
-                               treatment.edges[index])||
-                           same_feature_side_rail(reference,
-                               treatment.edges[index]))
-                            return requested_routes[index];
-                    return {};
+                const auto selected_route=[&](std::size_t edge_index) {
+                    return requested_routes.at(
+                        selected_requested_indices.at(edge_index));
                 };
                 if(!treatment.route_end_faces.empty()&&
                    treatment.calculation_method!=
@@ -13086,6 +13214,10 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                             const VertexReference& endpoint,
                             EdgeTreatmentRouteEndMode mode) {
                         if(mode==EdgeTreatmentRouteEndMode::NoCut)return;
+                        const bool arc=
+                            mode==EdgeTreatmentRouteEndMode::RoundedArc;
+                        const bool rounded=arc||
+                            mode==EdgeTreatmentRouteEndMode::RoundedJoin;
                         if(!endpoint.valid()||!endpoint.instance_path.empty())
                             throw std::invalid_argument(
                                 "Fillet/Chamfer Cut endpoint is invalid");
@@ -13098,10 +13230,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                         std::size_t matches{};
                         for(std::size_t edge_index=0;
                                 edge_index<selected.size();++edge_index) {
-                            const auto selected_route=route_for(
-                                selected[edge_index].second);
-                            if(!selected_route||*selected_route!=route)
-                                continue;
+                            if(selected_route(edge_index)!=route)continue;
                             TopoDS_Vertex first,last;
                             TopExp::Vertices(selected[edge_index].first,
                                 first,last,true);
@@ -13113,13 +13242,25 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                                         });
                             };
                             if(same(first)) {
-                                custom_end_faces[edge_index].automatic_first=
-                                    true;
+                                if(rounded) {
+                                    custom_end_faces[edge_index].rounded_first=
+                                        true;
+                                    custom_end_faces[edge_index].arc_first=arc;
+                                }
+                                else
+                                    custom_end_faces[edge_index].automatic_first=
+                                        true;
                                 ++matches;
                             }
                             if(same(last)) {
-                                custom_end_faces[edge_index].automatic_last=
-                                    true;
+                                if(rounded) {
+                                    custom_end_faces[edge_index].rounded_last=
+                                        true;
+                                    custom_end_faces[edge_index].arc_last=arc;
+                                }
+                                else
+                                    custom_end_faces[edge_index].automatic_last=
+                                        true;
                                 ++matches;
                             }
                         }
@@ -13139,59 +13280,81 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                 if(has_authored_end_faces) {
                     for(std::size_t route=0;
                             route<treatment.route_end_faces.size();++route) {
-                        for(const auto* authored:{
-                                &treatment.route_end_faces[route].first,
-                                &treatment.route_end_faces[route].last}) {
-                            if(!authored->valid())continue;
-                            if(!authored->instance_path.empty())
+                        const auto& route_ends=
+                            treatment.route_end_faces[route];
+                        struct AuthoredEnd {
+                            const FaceReference* face;
+                            const VertexReference* vertex;
+                            EdgeTreatmentRouteEndMode mode;
+                        };
+                        for(const auto authored:{
+                                AuthoredEnd{&route_ends.first,
+                                    &route_ends.first_vertex,
+                                    route_ends.first_mode},
+                                AuthoredEnd{&route_ends.last,
+                                    &route_ends.last_vertex,
+                                    route_ends.last_mode}}) {
+                            if(!authored.face->valid())continue;
+                            if(!authored.face->instance_path.empty())
                                 throw std::invalid_argument(
                                     "Fillet/Chamfer end face must be a local persisted reference");
-                            struct Match {std::size_t edge;bool first;
-                                TopoDS_Face face;};
-                            std::vector<Match> matches;
+                            if(authored.mode!=
+                                    EdgeTreatmentRouteEndMode::Cut||
+                               !authored.vertex->valid()||
+                               !authored.vertex->instance_path.empty())
+                                throw std::invalid_argument(
+                                    "Fillet/Chamfer selected end face requires one valid Cut endpoint");
+                            std::vector<TopoDS_Face> faces;
                             for(const auto& owned:owned_topology->faces) {
-                                if(owned.reference!=*authored)continue;
+                                if(owned.reference!=*authored.face)continue;
                                 const auto face=TopoDS::Face(owned.shape);
-                                const BRepAdaptor_Surface surface(face,true);
-                                if(surface.GetType()!=GeomAbs_Plane)continue;
-                                for(std::size_t edge_index=0;
-                                        edge_index<selected.size();++edge_index) {
-                                    const auto selected_route=route_for(
-                                        selected[edge_index].second);
-                                    if(!selected_route||*selected_route!=route)
-                                        continue;
-                                    const BRepAdaptor_Curve curve(
-                                        selected[edge_index].first);
-                                    for(const bool first_endpoint:{true,false}) {
-                                        const auto parameter=first_endpoint
-                                            ?curve.FirstParameter():
-                                             curve.LastParameter();
-                                        const auto endpoint=curve.Value(parameter);
-                                        if(surface.Plane().Distance(endpoint)>
-                                                std::max(1.0e-7,
-                                                    operation.boolean_tolerance))
-                                            continue;
-                                        BRepClass_FaceClassifier classifier(
-                                            face,endpoint,
-                                            std::max(1.0e-7,
-                                                operation.boolean_tolerance));
-                                        if(classifier.State()==TopAbs_IN||
-                                           classifier.State()==TopAbs_ON)
-                                            matches.push_back({edge_index,
-                                                first_endpoint,face});
-                                    }
-                                }
+                                if(std::ranges::none_of(faces,
+                                        [&](const auto& current) {
+                                            return current.IsSame(face);
+                                        }))faces.push_back(face);
+                            }
+                            if(faces.size()!=1)
+                                throw std::invalid_argument(
+                                    "Fillet/Chamfer selected end face is unresolved or ambiguous");
+                            std::vector<TopoDS_Vertex> vertices;
+                            for(const auto& owned:owned_topology->vertices)
+                                if(owned.reference==*authored.vertex&&
+                                   owned.shape.ShapeType()==TopAbs_VERTEX&&
+                                   std::ranges::none_of(vertices,
+                                       [&](const auto& current) {
+                                           return current.IsSame(owned.shape);
+                                       }))vertices.push_back(
+                                           TopoDS::Vertex(owned.shape));
+                            struct Match {std::size_t edge;bool first;};
+                            std::vector<Match> matches;
+                            for(std::size_t edge_index=0;
+                                    edge_index<selected.size();++edge_index) {
+                                if(selected_route(edge_index)!=route)continue;
+                                TopoDS_Vertex first,last;
+                                TopExp::Vertices(selected[edge_index].first,
+                                    first,last,true);
+                                const auto same=[&](const TopoDS_Vertex& value) {
+                                    return !value.IsNull()&&
+                                        std::ranges::any_of(vertices,
+                                            [&](const auto& candidate) {
+                                                return candidate.IsSame(value);
+                                            });
+                                };
+                                if(same(first))matches.push_back(
+                                    {edge_index,true});
+                                if(same(last))matches.push_back(
+                                    {edge_index,false});
                             }
                             if(matches.size()!=1)
                                 throw std::invalid_argument(
-                                    "Fillet/Chamfer end face must contain exactly one endpoint of its route");
+                                    "Fillet/Chamfer selected end face must identify exactly one open route endpoint");
                             auto& target=custom_end_faces[matches.front().edge];
                             auto& slot=matches.front().first
                                 ?target.first:target.last;
-                            if(!slot.IsNull()&&!slot.IsSame(matches.front().face))
+                            if(!slot.IsNull()&&!slot.IsSame(faces.front()))
                                 throw std::invalid_argument(
                                     "Fillet/Chamfer route endpoint has conflicting end faces");
-                            slot=matches.front().face;
+                            slot=faces.front();
                         }
                     }
                 }
@@ -13286,6 +13449,11 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                 };
                 if constexpr (std::is_same_v<Treatment, FilletRequest>) {
                     treatment_phase("selection");
+                    const bool zima_only=treatment.calculation_method==
+                        EdgeTreatmentCalculationMethod::Zima;
+                    if(zima_only&&treatment.mode!=FilletRequest::Mode::Constant)
+                        throw std::invalid_argument(
+                            "ZIMA Fillet currently supports only a constant radius; use OCCT for a variable radius");
                     BRepFilletAPI_MakeFillet algorithm(result_shape);
                     // FORM's internal transitions use exact rational circular
                     // parameterization; ordinary Fillet keeps its established
@@ -13301,7 +13469,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                         vertex_references(feature_endpoint_vertices(result_shape,
                             owned_topology->faces,owned_topology->edges,owned_topology->vertices));
                     for (std::size_t selected_index = 0;
-                         selected_index < selected.size(); ++selected_index) {
+                         !zima_only&&selected_index < selected.size(); ++selected_index) {
                         const auto& [edge, reference] = selected[selected_index];
                         static_cast<void>(reference);
                         // OCCT expands one seed to its tangent contour. The
@@ -13367,8 +13535,8 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                     const auto selected_seed_requests=
                         selected_requested_indices;
                     const auto requires_support_driven_blend=[&] {
-                        if(treatment.calculation_method==
-                                EdgeTreatmentCalculationMethod::Occt||
+                        if(treatment.calculation_method!=
+                                EdgeTreatmentCalculationMethod::Automatic||
                            treatment.mode!=FilletRequest::Mode::Constant||
                            has_authored_end_faces||
                            treatment.route_edge_counts.empty())return false;
@@ -13467,11 +13635,6 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                             "Fillet",operation.owner_id);
                         treatment_phase("contours");
                     }
-                    if(treatment.calculation_method==
-                            EdgeTreatmentCalculationMethod::Zima&&
-                       treatment.mode!=FilletRequest::Mode::Constant)
-                        throw std::invalid_argument(
-                            "ZIMA Fillet currently supports only a constant radius; use OCCT for a variable radius");
                     if(try_custom_planar) {
                         try {
                             std::vector<TopoDS_Edge> custom_edges;
@@ -14131,7 +14294,8 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                             algorithm,parents,treatment_owner,true);
                         return true;
                     };
-                    const auto selected_seeds=selected;
+                    auto selected_seeds=actual_intersection_selection();
+                    if(selected_seeds.empty())selected_seeds=selected;
                     if(!build_chamfer(
                             selected_seeds,operation.owner_id)) {
                         std::vector<std::pair<

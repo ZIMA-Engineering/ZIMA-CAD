@@ -85,6 +85,14 @@ struct OcctPlanarEdgeEndFaces {
     // route endpoints.
     bool automatic_first{true};
     bool automatic_last{true};
+    // A persisted shared-node choice requests the existing exact rolling
+    // corner connector. Direct kernel calls retain the historical automatic
+    // node behaviour when no authored end-face array is supplied.
+    bool rounded_first{};
+    bool rounded_last{};
+    // Toroidal elbow instead of the sharp miter at a two-branch node.
+    bool arc_first{};
+    bool arc_last{};
 };
 
 // Optional exact source support for a persisted original edge. The selected

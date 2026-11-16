@@ -537,6 +537,7 @@ void AssemblyWorkspaceWindow::refresh_edge_treatment_preview() {
             std::vector<zima::workspace::EdgeTreatmentEndCutChoice>
                 cut_choices;
             bool rounded_join_valid{};
+            bool rounded_arc_valid{};
             if(const auto* part=workspace_.open_part(
                     workspace_.active_document_id())) {
                 try {
@@ -558,12 +559,18 @@ void AssemblyWorkspaceWindow::refresh_edge_treatment_preview() {
                    route_ends.size()==2) {
                     auto rounded=pending;
                     auto uncut=pending;
+                    auto arc=pending;
                     for(const auto [route,first]:route_ends) {
                         auto& ends=rounded.edge_treatment.
                             route_end_faces[route];
                         (first?ends.first_mode:ends.last_mode)=
                             Mode::RoundedJoin;
                         (first?ends.first:ends.last)={};
+                        auto& arc_ends=arc.edge_treatment.
+                            route_end_faces[route];
+                        (first?arc_ends.first_mode:arc_ends.last_mode)=
+                            Mode::RoundedArc;
+                        (first?arc_ends.first:arc_ends.last)={};
                         auto& uncut_ends=uncut.edge_treatment.
                             route_end_faces[route];
                         (first?uncut_ends.first_mode:uncut_ends.last_mode)=
@@ -571,35 +578,42 @@ void AssemblyWorkspaceWindow::refresh_edge_treatment_preview() {
                         (first?uncut_ends.first:uncut_ends.last)={};
                     }
                     try {
-                        const auto result=zima::workspace::
+                        const auto without_join=zima::workspace::
                             edge_treatment_preview_mesh(part->session,
-                                kernel_,rounded);
-                        rounded_join_valid=true;
-                        try {
-                            const auto without_join=zima::workspace::
-                                edge_treatment_preview_mesh(part->session,
-                                    kernel_,uncut);
-                            rounded_join_valid=
-                                result.vertices!=without_join.vertices||
+                                kernel_,uncut);
+                        const auto differs=[&](const auto& result) {
+                            return result.vertices!=without_join.vertices||
                                 result.triangles!=without_join.triangles;
-                            if(std::getenv("ZIMA_CPP_FILLET_NODE_PROFILE"))
-                                std::fprintf(stderr,
-                                    "Rounded probe: rounded v=%zu t=%zu uncut v=%zu t=%zu valid=%d\n",
-                                    result.vertices.size(),
-                                    result.triangles.size(),
-                                    without_join.vertices.size(),
-                                    without_join.triangles.size(),
-                                    rounded_join_valid?1:0);
+                        };
+                        try {
+                            rounded_join_valid=differs(zima::workspace::
+                                edge_treatment_preview_mesh(part->session,
+                                    kernel_,rounded));
                         } catch(const std::exception& error) {
                             if(std::getenv("ZIMA_CPP_FILLET_NODE_PROFILE"))
                                 std::fprintf(stderr,
-                                    "Uncut probe failed: %s\n",error.what());
+                                    "Rounded join preview failed: %s\n",
+                                    error.what());
                         }
+                        try {
+                            rounded_arc_valid=differs(zima::workspace::
+                                edge_treatment_preview_mesh(part->session,
+                                    kernel_,arc));
+                        } catch(const std::exception& error) {
+                            if(std::getenv("ZIMA_CPP_FILLET_NODE_PROFILE"))
+                                std::fprintf(stderr,
+                                    "Arc node preview failed: %s\n",
+                                    error.what());
+                        }
+                        if(std::getenv("ZIMA_CPP_FILLET_NODE_PROFILE"))
+                            std::fprintf(stderr,
+                                "Node probe: spike=%d arc=%d\n",
+                                rounded_join_valid?1:0,
+                                rounded_arc_valid?1:0);
                     } catch(const std::exception& error) {
                         if(std::getenv("ZIMA_CPP_FILLET_NODE_PROFILE"))
                             std::fprintf(stderr,
-                                "Rounded join preview failed: %s\n",
-                                error.what());
+                                "Uncut probe failed: %s\n",error.what());
                     }
                 }
             }
@@ -608,7 +622,9 @@ void AssemblyWorkspaceWindow::refresh_edge_treatment_preview() {
             const bool joined_node=route_ends.size()>=2;
             QAction* rounded_join=rounded_join_valid
                 ?menu.addAction(tr("Špička")):nullptr;
-            QAction* no_cut=joined_node&&rounded_join
+            QAction* rounded_arc=rounded_arc_valid
+                ?menu.addAction(tr("Zaoblení")):nullptr;
+            QAction* no_cut=joined_node&&(rounded_join||rounded_arc)
                 ?nullptr:menu.addAction(tr("Bez řezu"));
             std::vector<QAction*> cut_actions;
             cut_actions.reserve(cut_choices.size());
@@ -619,6 +635,9 @@ void AssemblyWorkspaceWindow::refresh_edge_treatment_preview() {
             if(no_cut)no_cut->setCheckable(true);
             for(auto* action:cut_actions)action->setCheckable(true);
             if(rounded_join)rounded_join->setCheckable(true);
+            if(rounded_arc)rounded_arc->setCheckable(true);
+            if(rounded_arc)rounded_arc->setChecked(std::ranges::all_of(
+                current,[](Mode mode){return mode==Mode::RoundedArc;}));
             if(no_cut)no_cut->setChecked(std::ranges::all_of(current,
                 [](Mode mode){return mode==Mode::NoCut;}));
             for(std::size_t choice=0;choice<cut_actions.size();++choice) {
@@ -650,6 +669,9 @@ void AssemblyWorkspaceWindow::refresh_edge_treatment_preview() {
             else if(rounded_join&&chosen==rounded_join)
                 edge_treatment_dialog_->set_edge_route_end_modes(
                     route_ends,Mode::RoundedJoin);
+            else if(rounded_arc&&chosen==rounded_arc)
+                edge_treatment_dialog_->set_edge_route_end_modes(
+                    route_ends,Mode::RoundedArc);
             return true;
         });
     for (auto& dimension : preview.dimensions) dimension.reference.instance_path = instance_path;

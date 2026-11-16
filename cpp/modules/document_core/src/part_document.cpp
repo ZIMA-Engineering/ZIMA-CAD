@@ -836,6 +836,8 @@ const char* edge_treatment_route_end_mode_name(
     switch(mode) {
     case Mode::NoCut:return "no_cut";
     case Mode::Cut:return "cut";
+    case Mode::RoundedJoin:return "rounded_join";
+    case Mode::RoundedArc:return "rounded_arc";
     }
     throw std::invalid_argument("Invalid edge-treatment route-end mode");
 }
@@ -845,6 +847,8 @@ EdgeTreatmentParameters::RouteEndMode edge_treatment_route_end_mode(
     using Mode=EdgeTreatmentParameters::RouteEndMode;
     if(name=="no_cut")return Mode::NoCut;
     if(name=="cut")return Mode::Cut;
+    if(name=="rounded_join")return Mode::RoundedJoin;
+    if(name=="rounded_arc")return Mode::RoundedArc;
     throw std::runtime_error(
         "Invalid persisted edge-treatment route-end mode");
 }
@@ -856,6 +860,8 @@ zima::kernel::EdgeTreatmentRouteEndMode kernel_route_end_mode(
     switch(mode) {
     case DocumentMode::NoCut:return KernelMode::NoCut;
     case DocumentMode::Cut:return KernelMode::Cut;
+    case DocumentMode::RoundedJoin:return KernelMode::RoundedJoin;
+    case DocumentMode::RoundedArc:return KernelMode::RoundedArc;
     }
     throw std::invalid_argument("Invalid edge-treatment route-end mode");
 }
@@ -882,11 +888,11 @@ bool valid_edge_treatment_values(
                         !ends.first_vertex.instance_path.empty())||
                     (ends.last_vertex.valid()&&
                         !ends.last_vertex.instance_path.empty())||
-                    (ends.first_mode==
-                            EdgeTreatmentParameters::RouteEndMode::Cut&&
+                    (ends.first_mode!=
+                            EdgeTreatmentParameters::RouteEndMode::NoCut&&
                         !ends.first_vertex.valid())||
-                    (ends.last_mode==
-                            EdgeTreatmentParameters::RouteEndMode::Cut&&
+                    (ends.last_mode!=
+                            EdgeTreatmentParameters::RouteEndMode::NoCut&&
                         !ends.last_vertex.valid())||
                     (ends.first.valid() &&
                         !ends.first.instance_path.empty()) ||
@@ -1024,7 +1030,7 @@ nlohmann::json read_part_ini(const std::filesystem::path& path,
     const auto ini = read_ini(path);
     profile.phase("INI scan");
     const auto native_format=ini_value(ini, "Document", "format_version");
-    if (native_format != "53") {
+    if (native_format != "54") {
         throw std::runtime_error("Unsupported ZIMA-CAD Part document format");
     }
     nlohmann::json root = {
@@ -1227,7 +1233,7 @@ NativeCalculatedCachePtr write_part_ini(
     NativeIoProfile profile("Part write");
     IniSections ini;
     ini["Document"] = {
-        {"format_version", "53"},
+        {"format_version", "54"},
         {"calculated_definition", "zima-part-definition-sha256-v1"},
         {"type", "part"},
         {"document_id", root.at("document_id").get<std::string>()},

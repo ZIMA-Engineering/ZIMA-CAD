@@ -914,7 +914,7 @@ struct FeatureGroupRequest {
 };
 
 enum class EdgeTreatmentCalculationMethod { Automatic, Zima, Occt };
-enum class EdgeTreatmentRouteEndMode { NoCut, Cut };
+enum class EdgeTreatmentRouteEndMode { NoCut, Cut, RoundedJoin, RoundedArc };
 
 struct EdgeTreatmentRouteEndFaces {
     VertexReference first_vertex;

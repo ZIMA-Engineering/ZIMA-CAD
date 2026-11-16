@@ -47,8 +47,12 @@ Parameters parse_routes(const Json& values) {
             const auto name=value.value(key,std::string("no_cut"));
             if(name=="no_cut")return Parameters::RouteEndMode::NoCut;
             if(name=="cut")return Parameters::RouteEndMode::Cut;
+            if(name=="rounded_join")
+                return Parameters::RouteEndMode::RoundedJoin;
+            if(name=="rounded_arc")
+                return Parameters::RouteEndMode::RoundedArc;
             throw Error("invalid_arguments",
-                "Route endpoint mode must be no_cut or cut.");
+                "Route endpoint mode must be no_cut, cut, rounded_join or rounded_arc.");
         };
         result.route_end_faces.push_back({
             value.contains("first_vertex")&&!value.at("first_vertex").is_null()
@@ -80,7 +84,7 @@ const char* calculation_method_name(
 Parameters::CalculationMethod calculation_method(
         const std::string& name) {
     using Method=Parameters::CalculationMethod;
-    if(name=="zima")return Method::Automatic;
+    if(name=="zima")return Method::Zima;
     if(name=="occt")return Method::Occt;
     throw Error("invalid_arguments",
         "Calculation method must be zima or occt.");
@@ -100,9 +104,15 @@ Json details(const workspace::PartState& state,const document::HistoryContainer&
             {"last_vertex",ends.last_vertex.valid()
                 ?reference(ends.last_vertex):Json(nullptr)},
             {"first_mode",ends.first_mode==Parameters::RouteEndMode::Cut
-                ?"cut":"no_cut"},
+                ?"cut":ends.first_mode==Parameters::RouteEndMode::RoundedJoin
+                    ?"rounded_join":ends.first_mode==
+                        Parameters::RouteEndMode::RoundedArc
+                    ?"rounded_arc":"no_cut"},
             {"last_mode",ends.last_mode==Parameters::RouteEndMode::Cut
-                ?"cut":"no_cut"},
+                ?"cut":ends.last_mode==Parameters::RouteEndMode::RoundedJoin
+                    ?"rounded_join":ends.last_mode==
+                        Parameters::RouteEndMode::RoundedArc
+                    ?"rounded_arc":"no_cut"},
             {"first_face",ends.first.valid()?reference(ends.first):Json(nullptr)},
             {"last_face",ends.last.valid()?reference(ends.last):Json(nullptr)}});
     }
