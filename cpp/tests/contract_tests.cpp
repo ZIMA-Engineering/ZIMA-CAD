@@ -1219,6 +1219,25 @@ int main() {
                     fillet_owned_edge_count == fillet_boundary_edge_count,
                 "Single-edge Fillet did not persist exactly its four-edge "
                 "surface boundary, or stole identity from surviving Box edges");
+        const auto fillet_owned_points = std::ranges::count_if(
+            fillet_boundaries.back().mesh.points, [](const auto& point) {
+                return point.reference.owner_id == "fillet";
+            });
+        require(fillet_owned_points >= 2 &&
+                    std::ranges::all_of(
+                        fillet_boundaries.back().mesh.points,
+                        [&](const auto& point) {
+                            if (point.reference.owner_id != "fillet") return true;
+                            return !point.always_visible &&
+                                std::ranges::any_of(
+                                    fillet_boundaries.back().mesh.
+                                        original_references.points,
+                                    [&](const auto& original) {
+                                        return original.reference ==
+                                            point.reference;
+                                    });
+                        }),
+                "Fillet endpoints are not retained as selectable native reference points");
         const std::vector<zima::kernel::HistoryOperation> edited_fillet_history{
             {"box", zima::test::ProfilePrism{100.0, 80.0, 50.0},
              zima::kernel::BooleanOperation::Add},
@@ -2021,7 +2040,7 @@ int main() {
             (std::istreambuf_iterator<char>(empty_serialized)),
             std::istreambuf_iterator<char>());
         require(empty_text.find("[Document]\n") != std::string::npos &&
-                    empty_text.find("format_version=53\n") != std::string::npos &&
+                    empty_text.find("format_version=54\n") != std::string::npos &&
                     empty_text.find("[DocumentUnits]\n") != std::string::npos &&
                     empty_text.find("[UserParameterValues]\n") != std::string::npos,
                 "Part persistence did not write the current native INI sections");
@@ -4286,7 +4305,7 @@ int main() {
         parity_document.history.back().edge_treatment.route_end_faces = {{
             parity_edge->edge_treatment_endpoint_references.front(),
             parity_edge->edge_treatment_endpoint_references.back(),
-            zima::document::EdgeTreatmentParameters::RouteEndMode::Cut,
+            zima::document::EdgeTreatmentParameters::RouteEndMode::RoundedJoin,
             zima::document::EdgeTreatmentParameters::RouteEndMode::NoCut,
             {},{}}};
         parity_fillet.edge_treatment.route_end_faces =

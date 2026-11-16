@@ -768,7 +768,8 @@ std::vector<zima::kernel::FaceReference>
 edge_preview_curved_terminal_faces(
         const zima::kernel::ViewerMesh& mesh,
         const zima::kernel::ViewerEdge& route,
-        const zima::kernel::Vec3& node) {
+        const zima::kernel::Vec3& node,
+        const zima::kernel::Vec3& inward_axis,double profile_reach) {
     std::vector<zima::kernel::FaceReference> result;
     const auto support=[&](const auto& face) {
         return std::ranges::any_of(route.edge_treatment_side_references,
@@ -805,6 +806,36 @@ edge_preview_curved_terminal_faces(
         for(const auto& face:edge.edge_treatment_side_references)
             append(face);
     }
+    // The physical terminal can be a compound envelope: an earlier radius
+    // followed by one or more planes or spline faces. Walk that exact local
+    // face adjacency only as far as the new profile can reach. The preview
+    // then intersects all encountered boundaries, matching the successive
+    // exact half-space/surface cuts used by the final calculation.
+    const double tolerance=1.0e-6*std::max(1.,profile_reach);
+    const auto within_reach=[&](const auto& edge) {
+        return std::ranges::any_of(edge.points,[&](const auto& point) {
+            const auto relative=edge_preview_difference(point,node);
+            const double axial=edge_preview_dot(relative,inward_axis);
+            return axial>tolerance&&axial<profile_reach-tolerance&&
+                edge_preview_length(relative)<=2.*profile_reach+tolerance;
+        });
+    };
+    for(std::size_t current=0;current<result.size();++current) {
+        for(const auto& edge:mesh.edges) {
+            if(!within_reach(edge)||
+               std::ranges::none_of(edge.edge_treatment_side_references,
+                    [&](const auto& face) {
+                        return edge_preview_same_face(face,result[current]);
+                    }))continue;
+            for(const auto& face:edge.edge_treatment_side_references) {
+                if(!face.valid()||support(face)||
+                   std::ranges::any_of(result,[&](const auto& candidate) {
+                       return edge_preview_same_face(candidate,face);
+                   }))continue;
+                result.push_back(face);
+            }
+        }
+    }
     return result;
 }
 
@@ -815,16 +846,22 @@ edge_preview_curved_terminal_intersection(
     using Vec3=zima::kernel::Vec3;
     if(terminal.curved_terminal_faces.empty()||
        terminal.section.wire.points.size()<3)return {};
-    std::vector<FilletPreviewCylinder> cylinders;
-    for(const auto& face:terminal.curved_terminal_faces)
+    std::vector<std::pair<std::size_t,FilletPreviewCylinder>> cylinders;
+    for(std::size_t face_index=0;
+            face_index<terminal.curved_terminal_faces.size();++face_index)
         for(auto& cylinder:edge_preview_terminal_cylinders(
-                mesh,face,terminal.node))
-            cylinders.push_back(std::move(cylinder));
-    const auto candidate_face=[&](const auto& face) {
-        return std::ranges::any_of(terminal.curved_terminal_faces,
-            [&](const auto& candidate) {
+                mesh,terminal.curved_terminal_faces[face_index],
+                terminal.node))
+            cylinders.emplace_back(face_index,std::move(cylinder));
+    const auto candidate_face=[&](const auto& face)
+            ->std::optional<std::size_t> {
+        const auto found=std::ranges::find_if(
+            terminal.curved_terminal_faces,[&](const auto& candidate) {
                 return edge_preview_same_face(candidate,face);
             });
+        if(found==terminal.curved_terminal_faces.end())return {};
+        return static_cast<std::size_t>(std::distance(
+            terminal.curved_terminal_faces.begin(),found));
     };
     const auto cross=[](const Vec3& first,const Vec3& second) {
         return Vec3{first.y*second.z-first.z*second.y,
@@ -833,11 +870,14 @@ edge_preview_curved_terminal_intersection(
     };
     std::vector<Vec3> result;
     result.reserve(terminal.section.wire.points.size());
-    std::optional<double> previous_parameter;
+    std::vector<std::optional<double>> previous_parameters(
+        terminal.curved_terminal_faces.size());
     for(const auto& origin:terminal.section.wire.points) {
         struct Candidate {Vec3 point;double parameter{};};
-        std::vector<Candidate> candidates;
-        std::vector<Candidate> analytical_extensions;
+        std::vector<std::vector<Candidate>> candidates(
+            terminal.curved_terminal_faces.size());
+        std::vector<std::vector<Candidate>> analytical_extensions(
+            terminal.curved_terminal_faces.size());
         const double axial_tolerance=1.0e-6*std::max(
             {1.,terminal.extent,terminal.backward_extent});
         const auto within_terminal=[&](double parameter) {
@@ -846,8 +886,9 @@ edge_preview_curved_terminal_intersection(
         };
         for(std::size_t triangle=0;
                 triangle<mesh.triangle_references.size();++triangle) {
-            if(!candidate_face(mesh.triangle_references[triangle])||
-               3*triangle+2>=mesh.triangles.size())continue;
+            const auto face_index=candidate_face(
+                mesh.triangle_references[triangle]);
+            if(!face_index||3*triangle+2>=mesh.triangles.size())continue;
             std::array<Vec3,3> vertices;
             bool valid=true;
             for(std::size_t corner=0;corner<3;++corner) {
@@ -884,9 +925,9 @@ edge_preview_curved_terminal_intersection(
             constexpr double tolerance=1.0e-6;
             if(v<-tolerance||w<-tolerance||v+w>1.+tolerance)continue;
             if(within_terminal(parameter))
-                candidates.push_back({point,parameter});
+                candidates[*face_index].push_back({point,parameter});
         }
-        for(const auto& cylinder:cylinders) {
+        for(const auto& [face_index,cylinder]:cylinders) {
             const auto subtract_axis=[](const Vec3& value,
                     const Vec3& axis) {
                 return edge_preview_difference(value,edge_preview_offset(
@@ -924,9 +965,10 @@ edge_preview_curved_terminal_intersection(
                         cylinder.first_radial,
                         cylinder.last_radial)) {
                     if(within_terminal(parameter))
-                        candidates.push_back({point,parameter});
+                        candidates[face_index].push_back({point,parameter});
                 } else if(within_terminal(parameter))
-                    analytical_extensions.push_back({point,parameter});
+                    analytical_extensions[face_index].push_back(
+                        {point,parameter});
             }
         }
         // A Boolean split can end the locally published cylinder boundary at
@@ -934,16 +976,30 @@ edge_preview_curved_terminal_intersection(
         // continues under the prospective Fillet.  Prefer intersections on
         // the trimmed face, but allow that local cylinder continuation when
         // it is the only bounded contact along the selected route.
-        if(candidates.empty())candidates=std::move(analytical_extensions);
-        if(candidates.empty())return {};
-        const auto chosen=std::ranges::min_element(candidates,{},
-            [&](const auto& candidate) {
-                return previous_parameter?
-                    std::abs(candidate.parameter-*previous_parameter):
-                    std::abs(candidate.parameter);
-            });
-        result.push_back(chosen->point);
-        previous_parameter=chosen->parameter;
+        std::vector<Candidate> boundaries;
+        for(std::size_t face_index=0;face_index<candidates.size();
+                ++face_index) {
+            if(candidates[face_index].empty())
+                candidates[face_index]=
+                    std::move(analytical_extensions[face_index]);
+            if(candidates[face_index].empty())continue;
+            const auto chosen=std::ranges::min_element(
+                candidates[face_index],{},[&](const auto& candidate) {
+                    return previous_parameters[face_index]
+                        ?std::abs(candidate.parameter-
+                            *previous_parameters[face_index])
+                        :std::abs(candidate.parameter);
+                });
+            boundaries.push_back(*chosen);
+            previous_parameters[face_index]=chosen->parameter;
+        }
+        if(boundaries.empty())return {};
+        // The retained cutter lies inward of every encountered boundary.
+        // Along this route-axis ray their intersection therefore starts at
+        // the furthest local hit, not whichever surface happened to be
+        // visited first.
+        result.push_back(std::ranges::max_element(boundaries,{},
+            &Candidate::parameter)->point);
     }
     return result;
 }
@@ -1181,6 +1237,34 @@ void edge_preview_clip_terminal_rails(
     }
 }
 
+std::vector<EdgeTreatmentTerminalNode> edge_treatment_terminal_nodes(
+        const std::vector<EdgeTreatmentPreviewGeometry::TerminalLabel>& labels) {
+    struct NodeWithVertex {
+        EdgeTreatmentTerminalNode node;
+        zima::kernel::VertexReference vertex;
+    };
+    std::vector<NodeWithVertex> grouped;
+    grouped.reserve(labels.size());
+    for(const auto& label:labels) {
+        auto existing=label.vertex.valid()
+            ?std::ranges::find_if(grouped,[&](const auto& candidate) {
+                return candidate.vertex==label.vertex;
+            }):grouped.end();
+        if(existing==grouped.end()) {
+            grouped.push_back({{label.point,label.text,
+                {{label.route,label.first}}},label.vertex});
+            continue;
+        }
+        existing->node.text+='-';
+        existing->node.text+=label.text;
+        existing->node.route_ends.emplace_back(label.route,label.first);
+    }
+    std::vector<EdgeTreatmentTerminalNode> result;
+    result.reserve(grouped.size());
+    for(auto& entry:grouped)result.push_back(std::move(entry.node));
+    return result;
+}
+
 EdgeTreatmentPreviewGeometry edge_treatment_preview_wire(
     const std::vector<std::vector<zima::kernel::ViewerEdge>>& groups,
     const zima::document::EdgeTreatmentParameters& parameters,
@@ -1393,7 +1477,8 @@ EdgeTreatmentPreviewGeometry edge_treatment_preview_wire(
                             edge_offset+1,edge_offset+2,true,
                             input_mesh?edge_preview_curved_terminal_faces(
                                 *input_mesh,path.edges.front(),
-                                path.edges.front().points.front()):
+                                path.edges.front().points.front(),
+                                sweep->first,radius_at(0.)):
                                 std::vector<zima::kernel::FaceReference>{}});
                 }
                 if(!last_section->curved_support) {
@@ -1405,7 +1490,8 @@ EdgeTreatmentPreviewGeometry edge_treatment_preview_wire(
                             edge_offset+1,edge_offset+3,false,
                             input_mesh?edge_preview_curved_terminal_faces(
                                 *input_mesh,path.edges.back(),
-                                path.edges.back().points.back()):
+                                path.edges.back().points.back(),
+                                sweep->first,radius_at(path_length)):
                                 std::vector<zima::kernel::FaceReference>{}});
                 }
             }
@@ -1526,6 +1612,14 @@ EdgeTreatmentPreviewGeometry edge_treatment_preview_wire(
         }
     };
     if(!fillet_terminals.empty()) {
+        using EndMode=
+            zima::document::EdgeTreatmentParameters::RouteEndMode;
+        const auto terminal_mode=[&](const FilletPreviewTerminal& terminal) {
+            if(terminal.group>=parameters.route_end_faces.size())
+                return EndMode::NoCut;
+            const auto& ends=parameters.route_end_faces[terminal.group];
+            return terminal.at_start?ends.first_mode:ends.last_mode;
+        };
         std::vector<bool> remove_edge(result.edges.size());
         std::vector<bool> consumed(fillet_terminals.size());
         std::vector<zima::kernel::ViewerEdge> intersections;
@@ -1541,7 +1635,11 @@ EdgeTreatmentPreviewGeometry edge_treatment_preview_wire(
             for(const auto terminal:node)consumed[terminal]=true;
             bool joined{};
             if(node.size()==2&&fillet_terminals[node[0]].group!=
-                    fillet_terminals[node[1]].group) {
+                    fillet_terminals[node[1]].group&&
+               terminal_mode(fillet_terminals[node[0]])==
+                    EndMode::RoundedJoin&&
+               terminal_mode(fillet_terminals[node[1]])==
+                    EndMode::RoundedJoin) {
                 edge_preview_extend_fillet_node(fillet_terminals[node[0]],
                     fillet_terminals[node[1]]);
                 auto intersection=edge_preview_fillet_intersection(
@@ -1562,8 +1660,9 @@ EdgeTreatmentPreviewGeometry edge_treatment_preview_wire(
             }
             if(joined||!input_mesh)continue;
             for(const auto terminal:node)
-                static_cast<void>(edge_preview_clip_curved_terminal(
-                    result.edges,fillet_terminals[terminal],*input_mesh));
+                if(terminal_mode(fillet_terminals[terminal])==EndMode::Cut)
+                    static_cast<void>(edge_preview_clip_curved_terminal(
+                        result.edges,fillet_terminals[terminal],*input_mesh));
         }
         // Terminal clipping above changes the rail endpoints. Capture those
         // final analytical contacts before compacting replaced section wires;

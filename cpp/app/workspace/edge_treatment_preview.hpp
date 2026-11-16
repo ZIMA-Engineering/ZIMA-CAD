@@ -34,6 +34,18 @@ struct EdgeTreatmentPreviewGeometry {
     std::vector<zima::kernel::Vec3> terminal_contacts;
 };
 
+struct EdgeTreatmentTerminalNode {
+    zima::kernel::Vec3 point;
+    std::string text;
+    std::vector<std::pair<std::size_t,bool>> route_ends;
+};
+
+// A physical vertex can terminate several independently selected routes.
+// Present that connected topology as one interactive node (for example
+// 1.2-2.1-3.1) while retaining every route end as a separate persisted owner.
+std::vector<EdgeTreatmentTerminalNode> edge_treatment_terminal_nodes(
+    const std::vector<EdgeTreatmentPreviewGeometry::TerminalLabel>& labels);
+
 std::vector<EdgeTreatmentPreviewPath> ordered_edge_treatment_preview_paths(
     std::vector<zima::kernel::ViewerEdge> edges);
 

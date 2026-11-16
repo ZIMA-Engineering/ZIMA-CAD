@@ -158,11 +158,11 @@ const zima::sketcher::Sketch* AssemblyWorkspaceWindow::template_sketch() const {
     const auto& sketch=part->session.document().sketches.front();return sketch.drawing_template?&sketch:nullptr;
 }
 const zima::sketcher::Sketch* AssemblyWorkspaceWindow::image_sketch() const {
-    const auto* part=workspace_.open_part(workspace_.active_document_id());
-    if(!part||active_sketch_id_.empty())return nullptr;
-    const auto found=std::ranges::find(part->session.document().sketches,
-        active_sketch_id_,&zima::sketcher::Sketch::id);
-    return found==part->session.document().sketches.end()?nullptr:&*found;
+    // Reference images belong to every active Sketch, including the transient
+    // owned profile used while a new feature is still in Properties.  Looking
+    // only in the committed Part document made the command silently return
+    // before opening its file chooser in that common Sketcher workflow.
+    return active_sketch();
 }
 void AssemblyWorkspaceWindow::save_template_document(bool copy) {
     const auto id=workspace_.active_document_id();auto* part=workspace_.open_part(id);
@@ -249,8 +249,23 @@ void AssemblyWorkspaceWindow::show_template_image_properties(const std::string& 
         const auto found=std::ranges::find(values,id,&zima::sketcher::TemplateImage::id);
         if(found==values.end())values.push_back(image);else *found=image;show_sketch_drag_preview(preview);
     },[this,owner,id,sketch_id=sketch->id](auto image){
-        auto* part=workspace_.open_part(owner);if(!part)throw std::runtime_error(QObject::tr("Dokument již není otevřený.").toStdString());
-        static_cast<void>(workspace::commit_template_image(workspace_,owner,id,std::move(image),sketch_id));
+        if(workspace_.active_document_id()!=owner||active_sketch_id_!=sketch_id)return;
+        if(auto* part=workspace_.open_part(owner);
+            part&&std::ranges::any_of(part->session.document().sketches,
+                [&](const auto& value){return value.id==sketch_id;})) {
+            static_cast<void>(workspace::commit_template_image(
+                workspace_,owner,id,std::move(image),sketch_id));
+            return;
+        }
+        image.validate();
+        static_cast<void>(mutate_active_sketch([&](auto& target){
+            auto& values=target.drawing_template?
+                target.drawing_template->images:target.reference_images;
+            const auto found=std::ranges::find(values,id,
+                &zima::sketcher::TemplateImage::id);
+            if(found==values.end())values.push_back(std::move(image));
+            else *found=std::move(image);
+        }));
     },this);
     properties_dialog_=dialog;template_image_anchor_=[dialog](double x,double y){dialog->set_anchor(x,y);};
     viewer_->set_selection_contract({});
@@ -262,8 +277,19 @@ bool AssemblyWorkspaceWindow::template_image_ray(const zima::kernel::Vec3& origi
     return true;
 }
 void AssemblyWorkspaceWindow::remove_template_image(const std::string& id) {
-    auto* part=workspace_.open_part(workspace_.active_document_id());if(!part||!image_sketch()||properties_dialog_)return;
-    static_cast<void>(workspace::remove_template_image(workspace_,workspace_.active_document_id(),id));selected_template_image_.clear();viewer_->clear_selection();preserve_view_on_refresh_=true;refresh_tabs();refresh_scene();
+    const auto owner=workspace_.active_document_id();const auto* sketch=image_sketch();
+    if(!sketch||properties_dialog_)return;
+    if(auto* part=workspace_.open_part(owner);
+        part&&std::ranges::any_of(part->session.document().sketches,
+            [&](const auto& value){return value.id==sketch->id;}))
+        static_cast<void>(workspace::remove_template_image(workspace_,owner,id));
+    else static_cast<void>(mutate_active_sketch([&](auto& target){
+        auto& values=target.drawing_template?
+            target.drawing_template->images:target.reference_images;
+        std::erase_if(values,[&](const auto& image){return image.id==id;});
+    }));
+    selected_template_image_.clear();viewer_->clear_selection();
+    preserve_view_on_refresh_=true;refresh_tabs();refresh_scene();
 }
 void AssemblyWorkspaceWindow::select_template_image(const std::string& id) {
     clear_selected_sketch_geometry();selected_template_image_=id;const QSignalBlocker blocked(tree_);tree_->clearSelection();

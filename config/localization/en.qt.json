@@ -2821,6 +2821,12 @@
   "Sheet from Body does not exist.": "Sheet from Body does not exist.",
   "Activate the Body owning this Sheet from Body.": "Activate the Body owning this Sheet from Body.",
   "The selected feature is not a bound Sheet from Body part.": "The selected feature is not a bound Sheet from Body part.",
+  "Zaoblený přechod": "Rounded transition",
+  "Řez %1": "Cut %1",
+  "Edge treatment preview did not produce an exact result wire.": "Edge treatment preview did not produce an exact result wire.",
   "zima::app::AssemblyWorkspaceWindow|Bez řezu": "No cut",
-  "zima::app::AssemblyWorkspaceWindow|Řez": "Cut"
+  "zima::app::AssemblyWorkspaceWindow|Řez": "Cut",
+  "zima::app::AssemblyWorkspaceWindow|Řez %1": "Cut %1",
+  "zima::app::AssemblyWorkspaceWindow|Edge treatment preview did not produce an exact result wire.": "Edge treatment preview did not produce an exact result wire.",
+  "zima::app::AssemblyWorkspaceWindow|Zaoblený přechod": "Rounded transition"
 }

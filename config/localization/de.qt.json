@@ -2821,6 +2821,12 @@
   "Sheet from Body does not exist.": "Blech aus Körper ist nicht vorhanden.",
   "Activate the Body owning this Sheet from Body.": "Aktivieren Sie den Körper, dem dieses Blech aus Körper gehört.",
   "The selected feature is not a bound Sheet from Body part.": "Das ausgewählte Element ist kein gebundener Teil von Blech aus Körper.",
+  "Zaoblený přechod": "Abgerundeter Übergang",
+  "Řez %1": "Schnitt %1",
+  "Edge treatment preview did not produce an exact result wire.": "Die Vorschau der Kantenbearbeitung hat keine exakte Ergebnisgeometrie erzeugt.",
   "zima::app::AssemblyWorkspaceWindow|Bez řezu": "Ohne Schnitt",
-  "zima::app::AssemblyWorkspaceWindow|Řez": "Schnitt"
+  "zima::app::AssemblyWorkspaceWindow|Řez": "Schnitt",
+  "zima::app::AssemblyWorkspaceWindow|Řez %1": "Schnitt %1",
+  "zima::app::AssemblyWorkspaceWindow|Edge treatment preview did not produce an exact result wire.": "Die Vorschau der Kantenbearbeitung hat keine exakte Ergebnisgeometrie erzeugt.",
+  "zima::app::AssemblyWorkspaceWindow|Zaoblený přechod": "Abgerundeter Übergang"
 }

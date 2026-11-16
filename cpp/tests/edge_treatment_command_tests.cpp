@@ -72,6 +72,39 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     const double corner=1-std::numbers::pi/4;
     near(measured_volume(),400000-corner*4*50);
     auto original=*state->session.document().find_container(id);
+    const auto* choice_input=workspace::calculated_operation_input(
+        state->session,id);
+    require(choice_input,
+        "Endpoint-cut choice test has no exact operation input");
+    const auto choice_endpoints=workspace::edge_treatment_route_endpoints(
+        choice_input->mesh.edges,original.edge_treatment.routes.front());
+    require(choice_endpoints.size()==2,
+        "Endpoint-cut choice test did not resolve two route endpoints");
+    auto choice_definition=original;
+    auto& choice_end=choice_definition.edge_treatment.route_end_faces.front();
+    choice_end.first_vertex=choice_endpoints.front();
+    choice_end.first_mode=
+        document::EdgeTreatmentParameters::RouteEndMode::Cut;
+    const auto choice_revision=state->session.revision();
+    const auto choice_generation=state->session.data_generation();
+    const auto* choice_cache=state->session.calculated_boundaries().data();
+    const auto choice_history=state->session.document().history;
+    const auto cut_choices=workspace::edge_treatment_end_cut_choices(
+        state->session,kernel,choice_definition,{{0,true}});
+    require(cut_choices.size()==1&&cut_choices.front().faces.size()==1,
+        "Equivalent local endpoint cuts were not reduced to one exact choice");
+    auto replay_choice=choice_definition;
+    replay_choice.edge_treatment.route_end_faces.front().first=
+        cut_choices.front().faces.front();
+    const auto choice_preview=workspace::edge_treatment_preview_mesh(
+        state->session,kernel,replay_choice);
+    require(!choice_preview.edges.empty(),
+        "An offered endpoint cut could not replay its exact preview");
+    require(state->session.revision()==choice_revision&&
+            state->session.data_generation()==choice_generation&&
+            state->session.calculated_boundaries().data()==choice_cache&&
+            state->session.document().history==choice_history,
+        "Endpoint-cut choice enumeration mutated the live document");
     run(host,"undo");
     require(run(host,"fillet.get",{{"container",id}}).data.at("routes").
             at(0)==cut_route,
@@ -93,6 +126,12 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
         "Fillet command accepted the removed Automatic method name");
     run(host,"fillet.get",{{"container",id}});require(!run(host,"fillet.set",{{"container",id},{"radius_mm",2}}).data.at("changed").get<bool>(),"Fillet equal patch committed");
     require(state->session.revision()==revision&&state->session.calculated_boundaries().data()==cache,"Fillet read/no-op recalculated");
+    const auto strict_failure=host.execute({{"command","fillet.set"},
+        {"arguments",{{"container",id},{"radius_mm",500},
+            {"calculation_method","zima"}}}});
+    require(!strict_failure.ok&&state->session.revision()==revision&&
+            *state->session.document().find_container(id)==original,
+        "Failed explicit ZIMA calculation changed the authored Fillet");
     for(const auto& patch:std::vector<Json>{{{"radius_mm",0}},{{"radius_mm",1000001}},{{"mode","nonsense"}},{{"mode","linear"}},
         {{"routes",Json::array()}},{{"routes",Json::array({Json{{"edges",Json::array({edge,edge})}}})}},
         {{"routes",Json::array({Json{{"edges",Json::array({Json{{"owner",box},{"key","missing"}}})}}})}},
@@ -529,9 +568,23 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     const auto restored_id=restored_document.document_id;
     restored_live.add_part(std::move(restored_document),
         std::move(restored_boundaries));
-    auto edited=*restored_live.open_part(restored_id)->session.document()
+    auto* restored_state=restored_live.open_part(restored_id);
+    auto edited=*restored_state->session.document()
         .find_container(source_treatment);
     edited.edge_treatment.primary_size=.75;
+    const auto preview_revision=restored_state->session.revision();
+    const auto preview_generation=restored_state->session.data_generation();
+    const auto* preview_cache=restored_state->session.calculated_boundaries().data();
+    const auto preview_history=restored_state->session.document().history;
+    const auto exact_preview=workspace::edge_treatment_preview_mesh(
+        restored_state->session,restored_kernel,edited);
+    require(!exact_preview.edges.empty(),
+        "Changed original-edge treatment produced no exact preview wire");
+    require(restored_state->session.revision()==preview_revision&&
+            restored_state->session.data_generation()==preview_generation&&
+            restored_state->session.calculated_boundaries().data()==preview_cache&&
+            restored_state->session.document().history==preview_history,
+        "Exact edge-treatment preview mutated the live document or calculation");
     require(workspace::commit_edge_treatment(restored_live,restored_kernel,
             restored_id,std::move(edited),
             workspace::EdgeTreatmentEditMode::Replace)&&

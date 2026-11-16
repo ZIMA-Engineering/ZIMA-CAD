@@ -1877,7 +1877,6 @@ int verify_template_commands(QApplication& application,zima::app::AssemblyWorksp
     auto ordinary_owner=document::PartDocument::create_sketch_container();
     auto ordinary_sketch=sketcher::Sketch::create_default();
     ordinary_sketch.owner_container_id=ordinary_owner.id;
-    static_cast<void>(ordinary_sketch.add_segment(0,0,25,0));
     const auto ordinary_sketch_id=ordinary_sketch.id;
     ordinary.history={ordinary_owner};ordinary.sketches={ordinary_sketch};
     document::BodyHistoryGraph ordinary_bodies;
@@ -1926,7 +1925,7 @@ int verify_template_commands(QApplication& application,zima::app::AssemblyWorksp
     std::vector<kernel::BodyResult> ordinary_cache;
     const auto stored_ordinary=document::PartDocument::load(ordinary_path,&ordinary_cache);
     const auto& stored_sketch=stored_ordinary.sketches.front();
-    if(!verify(stored_sketch.segments.size()==1&&stored_sketch.reference_images.size()==1,
+    if(!verify(stored_sketch.segments.empty()&&stored_sketch.reference_images.size()==1,
             "Ordinary image changed Sketch geometry or was not saved"))return 1;
     const auto& stored_image=stored_sketch.reference_images.front();
     if(!verify(!stored_image.template_coordinates&&stored_image.rotation_degrees==17.5&&
@@ -1936,6 +1935,40 @@ int verify_template_commands(QApplication& application,zima::app::AssemblyWorksp
     const auto corners=stored_image.corners();
     if(!verify(corners[1][0]>corners[0][0],
             "Ordinary image still uses reversed title-block X coordinates"))return 1;
+    // A reference image must render even when it is the only visible object in
+    // an otherwise empty Sketch. The previous overlay gate accidentally relied
+    // on an unrelated segment, datum or selection to enter the image painter.
+    auto image_only=stored_sketch.viewer_mesh();
+    image_only.images.front().opacity=1.0;
+    image_only.vertices.clear();image_only.edges.clear();image_only.points.clear();
+    image_only.axes.clear();image_only.constraint_markers.clear();
+    image_only.dimensions.clear();image_only.triangles.clear();
+    image_only.triangle_references.clear();
+    view->clear_selection();view->set_selection_contract({});
+    for(const auto visibility:{viewer::ReferenceVisibility::Origins,
+            viewer::ReferenceVisibility::Points,
+            viewer::ReferenceVisibility::Axes,
+            viewer::ReferenceVisibility::Planes,
+            viewer::ReferenceVisibility::Sketches,
+            viewer::ReferenceVisibility::Dimensions,
+            viewer::ReferenceVisibility::Symbols})
+        view->set_reference_visibility(visibility,false);
+    view->set_mesh(image_only);
+    std::vector<kernel::Vec3> image_corners;
+    image_corners.assign(image_only.images.front().corners.begin(),
+        image_only.images.front().corners.end());
+    view->fit_points(image_corners);flush();
+    const auto image_frame=view->grabFramebuffer();
+    int ordinary_red{},ordinary_blue{};
+    for(int y=0;y<image_frame.height();++y)
+        for(int x=0;x<image_frame.width();++x) {
+            const auto color=image_frame.pixelColor(x,y);
+            ordinary_red+=color.red()>180&&color.green()<75&&color.blue()<75;
+            ordinary_blue+=color.blue()>180&&color.red()<70&&
+                color.green()>100&&color.green()<170;
+        }
+    if(!verify(ordinary_red>100&&ordinary_blue>100,
+            "An image-only ordinary Sketch does not render its embedded image"))return 1;
     std::cout<<"Template and ordinary Sketch images: editing, visual-only persistence, selection lock, rotation, opacity and five UI languages passed\n";return 0;
 }
 
@@ -2577,7 +2610,9 @@ int verify_shaft_thread_command(QApplication& application,zima::app::AssemblyWor
     auto* view=dynamic_cast<zima::viewer::MeshView*>(window.findChild<QOpenGLWidget*>("modelWorkspace"));
     if (!verify(action && action->isEnabled() && view,"Standalone shaft thread command is missing")) return 1;
     action->trigger();application.processEvents();
-    auto* dialog=dynamic_cast<zima::app::ShaftThreadDialog*>(window.findChild<QDialog*>("shaftThreadDialog"));
+    QPointer<zima::app::ShaftThreadDialog> dialog=
+        dynamic_cast<zima::app::ShaftThreadDialog*>(
+            window.findChild<QDialog*>("shaftThreadDialog"));
     // This class intentionally has no Q_OBJECT; use the known dialog child via RTTI.
     if (!dialog) for (auto* child : window.findChildren<QDialog*>())
         if (child->objectName()=="shaftThreadDialog") dialog=dynamic_cast<zima::app::ShaftThreadDialog*>(child);
@@ -2624,10 +2659,10 @@ int verify_shaft_thread_command(QApplication& application,zima::app::AssemblyWor
     if (!verify(dialog->isVisible() && std::abs(dialog->pending().shaft_thread.root_diameter-8.05)<1e-8,
             "View diameter editing did not remain pending in the same dialog")) return 1;
     dialog->buttons()->button(QDialogButtonBox::Ok)->click();application.processEvents();
-    if (dialog->isVisible())
+    if (dialog && dialog->isVisible())
         if (const auto* error=dialog->findChild<QLabel*>("propertiesSubmitError"))
             std::cerr << error->text().toStdString() << '\n';
-    if (!verify(!dialog->isVisible(),"Valid shaft thread did not commit")) return 1;
+    if (!verify(!dialog||!dialog->isVisible(),"Valid shaft thread did not commit")) return 1;
     auto* save=window.findChild<QAction*>("saveDocumentAction");
     if (!verify(save!=nullptr,"Save command is missing")) return 1;
     save->trigger();application.processEvents();
@@ -2664,7 +2699,20 @@ int verify_shaft_thread_command(QApplication& application,zima::app::AssemblyWor
     length_dimension.kind=zima::viewer::CandidateKind::Dimension;
     length_dimension.owner_id=feature_id;
     length_dimension.semantic_key="parameter:length";
-    if (!verify(view->candidate_dimension_label_position(dimension).has_value() &&
+    const auto assign_dimension_index=[&](zima::viewer::ViewerCandidate& candidate) {
+        const auto& dimensions=view->mesh().dimensions;
+        const auto found=std::ranges::find_if(dimensions,[&](const auto& value) {
+            return value.reference.owner_id==candidate.owner_id &&
+                value.reference.semantic_key==candidate.semantic_key;
+        });
+        if(found==dimensions.end())return false;
+        candidate.geometry_index=static_cast<std::size_t>(
+            std::distance(dimensions.begin(),found));
+        return true;
+    };
+    if (!verify(assign_dimension_index(dimension) &&
+            assign_dimension_index(length_dimension) &&
+            view->candidate_dimension_label_position(dimension).has_value() &&
             view->candidate_dimension_label_position(length_dimension).has_value(),
             "Double-click shaft inspection omitted its root diameter or thread length")) return 1;
     if (!verify(!view->container_inspection_wire().empty() && !view->confirmed_candidate(),

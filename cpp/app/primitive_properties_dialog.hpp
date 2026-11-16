@@ -152,6 +152,16 @@ public:
         zima::kernel::VertexReference last);
     void set_edge_route_end_mode(std::size_t route, bool first,
         zima::document::EdgeTreatmentParameters::RouteEndMode mode);
+    void set_edge_route_end_modes(
+        const std::vector<std::pair<std::size_t,bool>>& route_ends,
+        zima::document::EdgeTreatmentParameters::RouteEndMode mode);
+    void set_edge_route_end_choice(
+        const std::vector<std::pair<std::size_t,bool>>& route_ends,
+        zima::document::EdgeTreatmentParameters::RouteEndMode mode,
+        const std::vector<zima::kernel::FaceReference>& faces);
+    // A pending exact result is part of the Fillet/Chamfer contract: OK is
+    // unavailable while that same definition cannot be calculated.
+    void set_edge_treatment_preview_error(const QString& message);
     void set_dimension_layouts(const std::vector<zima::kernel::DimensionLayoutEntry>&);
     [[nodiscard]] const std::vector<zima::kernel::DimensionLayoutEntry>& dimension_layouts() const { return dimension_layouts_; }
     [[nodiscard]] std::optional<zima::kernel::DimensionLayout> pending_dimension_layout(const zima::kernel::EdgeReference&) const;
@@ -385,6 +395,7 @@ private:
     int remaining_translation_dof_{3};
     int remaining_rotation_dof_{3};
     QLabel* error_{};
+    QString edge_treatment_preview_error_;
     QListWidget* assembly_targets_{};
     ReferenceHighlightsChangedCallback reference_highlights_changed_;
     [[nodiscard]] zima::document::HistoryContainer values() const;

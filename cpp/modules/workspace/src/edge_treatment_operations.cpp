@@ -6,8 +6,10 @@
 #include <zima/kernel/edge_treatment_route_plan.hpp>
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <map>
 #include <set>
+#include <tuple>
 namespace zima::workspace {
 namespace {
 using Key=std::pair<std::string,std::string>;
@@ -81,6 +83,144 @@ std::vector<kernel::VertexReference> endpoints(const Groups& available,const std
 std::vector<kernel::VertexReference> edge_treatment_route_endpoints(const std::vector<kernel::ViewerEdge>& edges,const std::vector<kernel::EdgeReference>& route) {
     return endpoints(group_edges(edges),route);
 }
+kernel::ViewerMesh edge_treatment_preview_mesh(
+        const document::DocumentSession& session,
+        const kernel::OcctKernel& kernel,
+        const document::HistoryContainer& feature) {
+    const auto& before=session.document();
+    const auto* stored=before.find_container(feature.id);
+    if(stored&&*stored==feature) {
+        const auto* output=calculated_operation_output(session,feature.id);
+        if(!output)throw EdgeTreatmentOperationError("missing_input",
+            "Edge treatment requires a calculated input body.");
+        if(const auto error=output->calculation_errors.find(feature.id);
+                error!=output->calculation_errors.end())
+            throw std::runtime_error(error->second);
+        return output->mesh;
+    }
+
+    auto next=before;
+    if(stored) {
+        *next.find_container(feature.id)=feature;
+    } else {
+        if(feature.id.empty()||feature.feature_id.empty())
+            throw EdgeTreatmentOperationError("identity_changed",
+                "A new container must have a new nonempty identity.");
+        next.insert_history_entry(document::PartHistoryKind::Feature,
+            feature.id);
+        next.history.push_back(feature);
+    }
+
+    const auto& previous=session.calculated_boundaries();
+    auto policy=feature_definition_calculation_policy(before,previous,
+        feature.id);
+    if(stored) {
+        policy.edited_document_id=before.document_id;
+        policy.edited_history_limit=before.history_index(feature.id);
+    }
+    policy.reject_errors=true;
+    // An interactive definition preview is calculated on a private document,
+    // but it must resolve every placement/reference against the same exact
+    // history boundaries as the accepted document.  Compact final-only
+    // packets are sufficient for ordinary display; they are not sufficient
+    // when a later edge treatment consumes an earlier split/rounded boundary.
+    policy.publish_complete_history=true;
+    policy.history_reference_baseline=previous.empty()?nullptr:&previous;
+    auto calculated=calculate_part_with_resolved_references(kernel,next,
+        &previous,policy);
+    document::DocumentSession preview(std::move(next),std::move(calculated));
+    const auto* output=calculated_operation_output(preview,feature.id);
+    if(!output)throw EdgeTreatmentOperationError("missing_input",
+        "Edge treatment requires a calculated input body.");
+    return output->mesh;
+}
+
+std::vector<EdgeTreatmentEndCutChoice> edge_treatment_end_cut_choices(
+        const document::DocumentSession& session,
+        const kernel::OcctKernel& kernel,
+        const document::HistoryContainer& feature,
+        const std::vector<std::pair<std::size_t,bool>>& route_ends) {
+    if(route_ends.empty())return {};
+    const auto* input=calculated_operation_input(session,
+        session.document().find_container(feature.id)?feature.id:
+            std::string{});
+    if(!input)throw EdgeTreatmentOperationError("missing_input",
+        "Edge treatment requires a calculated input body.");
+    std::vector<std::vector<kernel::FaceReference>> candidates;
+    candidates.reserve(route_ends.size());
+    for(const auto [route,first]:route_ends) {
+        if(route>=feature.edge_treatment.routes.size()||
+           route>=feature.edge_treatment.route_end_faces.size())
+            throw EdgeTreatmentOperationError("invalid_endpoint",
+                "Edge treatment route endpoint is invalid.");
+        const auto& ends=feature.edge_treatment.route_end_faces[route];
+        const auto& endpoint=first?ends.first_vertex:ends.last_vertex;
+        std::vector<kernel::FaceReference> choices{{}};
+        try {
+            auto exact=kernel.inspect_edge_treatment_end_choices(*input,
+                feature.edge_treatment.routes[route],endpoint);
+            for(auto& reference:exact)
+                if(std::ranges::find(choices,reference)==choices.end())
+                    choices.push_back(std::move(reference));
+        } catch(const std::exception&) {
+            // The ordinary automatic Cut remains a valid candidate and is
+            // verified below. A topology branch that cannot be enumerated is
+            // never guessed from display coordinates.
+        }
+        candidates.push_back(std::move(choices));
+    }
+
+    std::vector<EdgeTreatmentEndCutChoice> combinations;
+    EdgeTreatmentEndCutChoice building;
+    building.faces.resize(route_ends.size());
+    const auto combine=[&](auto&& self,std::size_t index)->void {
+        if(index==candidates.size()) {
+            combinations.push_back(building);
+            return;
+        }
+        for(const auto& face:candidates[index]) {
+            building.faces[index]=face;
+            self(self,index+1);
+        }
+    };
+    combine(combine,0);
+
+    using Point=std::array<std::int64_t,3>;
+    using Signature=std::tuple<std::size_t,std::size_t,std::vector<Point>>;
+    std::set<Signature> accepted_geometry;
+    std::vector<EdgeTreatmentEndCutChoice> result;
+    for(auto& choice:combinations) {
+        auto candidate=feature;
+        for(std::size_t index=0;index<route_ends.size();++index) {
+            const auto [route,first]=route_ends[index];
+            auto& ends=candidate.edge_treatment.route_end_faces[route];
+            auto& mode=first?ends.first_mode:ends.last_mode;
+            auto& face=first?ends.first:ends.last;
+            mode=document::EdgeTreatmentParameters::RouteEndMode::Cut;
+            face=choice.faces[index];
+        }
+        try {
+            auto mesh=edge_treatment_preview_mesh(session,kernel,candidate);
+            std::vector<Point> points;
+            points.reserve(mesh.vertices.size());
+            constexpr double scale=1.0e7;
+            for(const auto& point:mesh.vertices)
+                points.push_back({
+                    static_cast<std::int64_t>(std::llround(point.x*scale)),
+                    static_cast<std::int64_t>(std::llround(point.y*scale)),
+                    static_cast<std::int64_t>(std::llround(point.z*scale))});
+            std::ranges::sort(points);
+            Signature signature{mesh.triangles.size(),mesh.edges.size(),
+                std::move(points)};
+            if(accepted_geometry.insert(std::move(signature)).second)
+                result.push_back(std::move(choice));
+        } catch(const std::exception&) {
+            // Only choices whose complete exact result succeeds are offered.
+        }
+    }
+    return result;
+}
+
 bool commit_edge_treatment(Workspace& live,const kernel::OcctKernel& kernel,const std::string& id,
     document::HistoryContainer feature,EdgeTreatmentEditMode mode,
     const std::vector<kernel::DimensionLayoutEntry>& layouts) {
@@ -183,7 +323,7 @@ bool commit_edge_treatment(Workspace& live,const kernel::OcctKernel& kernel,cons
             if(vertex->valid()&&!vertex->instance_path.empty())
                 throw Error("invalid_reference",
                     "Select a local persisted route endpoint.");
-            if(mode==Parameters::RouteEndMode::Cut&&!vertex->valid())
+            if(mode!=Parameters::RouteEndMode::NoCut&&!vertex->valid())
                 throw Error("invalid_reference",
                     "Cut requires an identified open route endpoint.");
         }
@@ -238,6 +378,8 @@ bool commit_edge_treatment(Workspace& live,const kernel::OcctKernel& kernel,cons
                 throw Error("invalid_reference","R1 must identify an endpoint of one connected open input route.");
         }
     }
+    const bool require_valid_result=parameters.calculation_method==
+        Parameters::CalculationMethod::Zima;
     const auto feature_id=feature.id;auto next=before;
     for (const auto& entry : layouts) {
         if (entry.owner_id != feature_id || (entry.semantic_key != "parameter:primary" &&
@@ -255,15 +397,22 @@ bool commit_edge_treatment(Workspace& live,const kernel::OcctKernel& kernel,cons
     const auto& previous=state->session.calculated_boundaries();
     auto policy=feature_definition_calculation_policy(before,previous,feature_id);
     if(stored){policy.edited_document_id=id;policy.edited_history_limit=before.history_index(feature_id);}
-    // A geometrically unsatisfied Fillet/Chamfer definition is still useful
-    // authored history: it keeps the exact selected routes/end faces visible
-    // and editable while the Tree reports the calculation failure. Structural
-    // and reference-shape validation above remains transactional and rejects
-    // malformed definitions before they enter the document.
+    // Validate the newly evaluated feature below. Unrelated errors elsewhere
+    // in the history remain attached to their existing owners.
     policy.reject_errors=false;
     // Preserve the Tree route-edit contract: dependent placements and Sketch
-    // projections must describe the same explicitly calculated result.
+    // projections must describe the same explicitly calculated result.  Edge
+    // treatments can also reference topology split by an earlier operation,
+    // so the accepted calculation needs the complete exact history just like
+    // the private interactive preview above.
+    policy.publish_complete_history=true;
+    policy.history_reference_baseline=previous.empty()?nullptr:&previous;
     auto calculated=calculate_part_with_resolved_references(kernel,next,&previous,policy);
+    if(require_valid_result&&!calculated.empty()) {
+        const auto& errors=calculated.back().calculation_errors;
+        if(const auto issue=errors.find(feature_id);issue!=errors.end())
+            throw std::runtime_error(issue->second);
+    }
     state->session.commit(std::move(next),std::move(calculated));return true;
 }
 bool remove_edge_treatment_selection(Workspace& live,const kernel::OcctKernel& kernel,

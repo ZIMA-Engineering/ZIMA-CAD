@@ -1,6 +1,7 @@
 #include "profile_command_fixture.hpp"
 #include "profile_solid_fixture.hpp"
 #include <zima/workspace/profile_operations.hpp>
+#include <zima/workspace/edge_treatment_operations.hpp>
 #include <zima/workspace/sketch_operations.hpp>
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/primitive_operations.hpp>
@@ -121,11 +122,11 @@ TopoDS_Shape shape_difference(const TopoDS_Shape& left,
 }
 
 void actual_edge_treatment_case(const fs::path& path,
-        const std::string& owner) {
+        const std::string& owner,bool explicit_cut=false) {
     auto part=document::PartDocument::load(path);
     const auto* treatment=part.find_container(owner);
     require(treatment,"Requested actual edge treatment is absent");
-    const auto operations=part.kernel_operations();
+    auto operations=part.kernel_operations();
     const auto operation=std::ranges::find(operations,owner,
         &kernel::HistoryOperation::owner_id);
     require(operation!=operations.end(),
@@ -155,6 +156,22 @@ void actual_edge_treatment_case(const fs::path& path,
     require(!input_results.empty(),
         "Actual edge treatment did not produce an input calculation boundary");
     const auto& input=input_results.back();
+    if(explicit_cut) {
+        const auto set_cut=[&](auto& request) {
+            request.calculation_method=kernel::EdgeTreatmentCalculationMethod::Zima;
+            request.route_end_faces.clear();
+            for(const auto& route:treatment->edge_treatment.routes) {
+                const auto ends=workspace::edge_treatment_route_endpoints(
+                    input.mesh.edges,route);
+                require(ends.size()==2,"Actual Cut requires two route endpoints");
+                request.route_end_faces.push_back({ends.front(),ends.back()});
+            }
+        };
+        if(auto* request=std::get_if<kernel::FilletRequest>(&operation->primitive))
+            set_cut(*request);
+        if(auto* request=std::get_if<kernel::ChamferRequest>(&operation->primitive))
+            set_cut(*request);
+    }
 
     // Print the exact route topology before validating the treatment result.
     // Failed edge treatments are precisely the cases where this diagnostic is
@@ -164,6 +181,7 @@ void actual_edge_treatment_case(const fs::path& path,
     struct ConsumedRound {
         gp_Circ circle;
         kernel::EdgeReference reference;
+        std::size_t member_index{};
     };
     std::vector<ConsumedRound> consumed_rounds;
     std::vector<TopoDS_Edge> selected_route_shapes;
@@ -206,14 +224,16 @@ void actual_edge_treatment_case(const fs::path& path,
                         <<circle.Axis().Direction().X()<<','
                         <<circle.Axis().Direction().Y()<<','
                         <<circle.Axis().Direction().Z()<<')';
-                    if(treatment->feature_kind==document::FeatureKind::Chamfer&&
-                       treatment->edge_treatment.primary_size+
-                            operation->boolean_tolerance>=circle.Radius()&&
-                       !std::ranges::any_of(consumed_rounds,
-                            [&](const ConsumedRound& value) {
-                                return value.reference==reference;
-                            }))
-                        consumed_rounds.push_back({circle,reference});
+                    if(treatment->feature_kind==document::FeatureKind::Chamfer) {
+                        if(treatment->edge_treatment.primary_size+
+                                operation->boolean_tolerance>=circle.Radius()&&
+                           !std::ranges::any_of(consumed_rounds,
+                                [&](const ConsumedRound& value) {
+                                    return value.reference==reference;
+                                }))
+                            consumed_rounds.push_back(
+                                {circle,reference,member_index});
+                    }
                 }
                 std::cout<<'\n';
             }
@@ -341,8 +361,6 @@ void actual_edge_treatment_case(const fs::path& path,
                     "Collapsed actual Chamfer route is not line-round-line");
             }
         }
-        require(source_lines.size()==consumed_rounds.size()+1,
-            "Collapsed actual Chamfer did not consume every round between its rails");
         struct OffsetRail { gp_Pnt first; gp_Pnt last; };
         const auto offset_rails=[&](const gp_Lin& source) {
             std::vector<OffsetRail> rails;
@@ -361,9 +379,16 @@ void actual_edge_treatment_case(const fs::path& path,
             }
             return rails;
         };
-        for(std::size_t index=1;index<source_lines.size();++index) {
-            const auto previous_rails=offset_rails(source_lines[index-1]);
-            const auto next_rails=offset_rails(source_lines[index]);
+        for(const auto& consumed:consumed_rounds) {
+            require(consumed.member_index>0&&
+                    consumed.member_index+1<selected_route_shapes.size()&&
+                    consumed.member_index%2==1,
+                "Collapsed actual Chamfer round has no adjacent rails");
+            const auto previous_index=(consumed.member_index-1)/2;
+            const auto next_index=(consumed.member_index+1)/2;
+            const auto previous_rails=offset_rails(
+                source_lines[previous_index]);
+            const auto next_rails=offset_rails(source_lines[next_index]);
             std::optional<gp_Pnt> envelope_corner;
             for(const auto& previous:previous_rails)
                 for(const auto& next:next_rails)
@@ -377,7 +402,8 @@ void actual_edge_treatment_case(const fs::path& path,
                                     .5*(previous_end.Z()+next_end.Z()));
             require(envelope_corner.has_value(),
                 "Chamfer beyond a preceding radius did not extend both straight members to their common Body envelope");
-            std::cout<<"collapsed-radius envelope corner "<<index<<"=("
+            std::cout<<"collapsed-radius envelope corner "
+                <<consumed.member_index<<"=("
                 <<envelope_corner->X()<<','<<envelope_corner->Y()<<','
                 <<envelope_corner->Z()<<")\n";
         }
@@ -1232,8 +1258,10 @@ int main(int argc, char** argv) { try {
         list_actual_edge_treatments(argv[2]);
         require(directory.parent_path()==root,"Invalid test cleanup path");fs::remove_all(directory);return 0;
     }
-    if(argc==4&&std::string(argv[1])=="--actual-treatment") {
-        actual_edge_treatment_case(argv[2],argv[3]);
+    if(argc==4&&(std::string_view(argv[1])=="--actual-treatment"||
+                 std::string_view(argv[1])=="--actual-treatment-cut")) {
+        actual_edge_treatment_case(argv[2],argv[3],
+            std::string_view(argv[1])=="--actual-treatment-cut");
         require(directory.parent_path()==root,"Invalid test cleanup path");fs::remove_all(directory);return 0;
     }
     if(argc>1&&std::string(argv[1])=="--assembly-only") {

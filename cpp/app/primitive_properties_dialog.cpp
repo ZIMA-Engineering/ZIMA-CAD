@@ -26,6 +26,7 @@
 #include <QComboBox>
 #include <QCheckBox>
 #include <QDoubleSpinBox>
+#include <QDialogButtonBox>
 #include <QEvent>
 #include <QFile>
 #include <QFormLayout>
@@ -1383,10 +1384,10 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
         auto* method_layout=new QHBoxLayout(method_row);
         method_layout->setContentsMargins(0,0,0,0);
         method_layout->setSpacing(12);
-        // The user-facing contract has two explicit engines.  The persisted
-        // Automatic value remains the durable ZIMA-with-safe-fallback route;
-        // the former strict experimental Zima choice is intentionally not
-        // exposed as a third mode.
+        // The user-facing contract has two explicit engines.  ZIMA is strict:
+        // selecting it must never run OCCT after the ZIMA calculation fails.
+        // Persisted Automatic definitions are presented as ZIMA when opened,
+        // but the next explicit confirmation converts them to strict ZIMA.
         treatment_method_zima_=new QCheckBox(QStringLiteral("ZIMA"),this);
         treatment_method_occt_=new QCheckBox(QStringLiteral("OCCT"),this);
         treatment_method_zima_->setObjectName(
@@ -1882,7 +1883,7 @@ zima::document::HistoryContainer PrimitivePropertiesDialog::values() const {
                 ?zima::document::EdgeTreatmentParameters::
                     CalculationMethod::Occt
                 :zima::document::EdgeTreatmentParameters::
-                    CalculationMethod::Automatic;
+                    CalculationMethod::Zima;
     }
     if (uses_container_placement(result.feature_kind)) {
         result.placement = placement_->numeric_placement();
@@ -2143,9 +2144,9 @@ void PrimitivePropertiesDialog::set_edge_route_end_vertices(
             mode=previous.last_mode;
             face=std::move(previous.last);
         } else {
-            // A changed physical endpoint has no authored terminal decision.
-            // The safe default is to leave the route uncut at that endpoint.
-            mode=zima::document::EdgeTreatmentParameters::RouteEndMode::NoCut;
+            // A changed physical endpoint resumes the established automatic
+            // local-boundary trim. NoCut is only an explicit user decision.
+            mode=zima::document::EdgeTreatmentParameters::RouteEndMode::Cut;
             face={};
         }
     };
@@ -2159,14 +2160,53 @@ void PrimitivePropertiesDialog::set_edge_route_end_vertices(
 void PrimitivePropertiesDialog::set_edge_route_end_mode(std::size_t route,
         bool first,
         zima::document::EdgeTreatmentParameters::RouteEndMode mode) {
+    set_edge_route_end_modes({{route,first}},mode);
+}
+
+void PrimitivePropertiesDialog::set_edge_route_end_modes(
+        const std::vector<std::pair<std::size_t,bool>>& route_ends,
+        zima::document::EdgeTreatmentParameters::RouteEndMode mode) {
+    set_edge_route_end_choice(route_ends,mode,
+        std::vector<zima::kernel::FaceReference>(route_ends.size()));
+}
+
+void PrimitivePropertiesDialog::set_edge_route_end_choice(
+        const std::vector<std::pair<std::size_t,bool>>& route_ends,
+        zima::document::EdgeTreatmentParameters::RouteEndMode mode,
+        const std::vector<zima::kernel::FaceReference>& faces) {
+    if(faces.size()!=route_ends.size())return;
     auto& ends=initial_.edge_treatment.route_end_faces;
     ends.resize(initial_.edge_treatment.routes.size());
-    if(route>=ends.size())return;
-    auto& current=first?ends[route].first_mode:ends[route].last_mode;
-    if(current==mode)return;
-    current=mode;
+    bool changed{};
+    for(std::size_t index=0;index<route_ends.size();++index) {
+        const auto [route,first]=route_ends[index];
+        if(route>=ends.size())continue;
+        auto& current_mode=first?ends[route].first_mode:
+            ends[route].last_mode;
+        auto& current_face=first?ends[route].first:ends[route].last;
+        const auto face=mode==zima::document::
+                EdgeTreatmentParameters::RouteEndMode::Cut
+            ?faces[index]:zima::kernel::FaceReference{};
+        if(current_mode!=mode) {
+            current_mode=mode;
+            changed=true;
+        }
+        if(current_face!=face) {
+            current_face=face;
+            changed=true;
+        }
+    }
+    if(!changed)return;
     set_commit_required(true);
     notify_preview();
+}
+
+void PrimitivePropertiesDialog::set_edge_treatment_preview_error(
+        const QString& message) {
+    edge_treatment_preview_error_=message;
+    if(error_)error_->setText(message);
+    if(auto* ok=buttons()->button(QDialogButtonBox::Ok))
+        ok->setEnabled(message.isEmpty());
 }
 
 void PrimitivePropertiesDialog::set_extrusion_surface_target(
@@ -2708,6 +2748,10 @@ void PrimitivePropertiesDialog::set_shell_face_selection_active(bool active) {
 }
 
 bool PrimitivePropertiesDialog::submit() {
+    if(!edge_treatment_preview_error_.isEmpty()) {
+        error_->setText(edge_treatment_preview_error_);
+        return false;
+    }
     if (name_->text().trimmed().isEmpty()) {
         error_->setText(tr("Název nesmí být prázdný."));
         name_->setFocus();

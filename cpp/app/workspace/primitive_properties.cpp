@@ -2327,6 +2327,9 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
         edge_treatment_selection_ = feature_kind;
         edge_treatment_preview_parameters_ = initial.edge_treatment;
         edge_treatment_preview_owner_id_ = initial.id;
+        edge_treatment_exact_preview_definition_.reset();
+        edge_treatment_exact_preview_edges_.clear();
+        edge_treatment_exact_preview_generation_=0;
         edge_treatment_hover_seed_.reset();
         viewer_->set_feature_hover_edges({});
         edge_treatment_dialog_ = dialog;
@@ -2448,6 +2451,9 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
         pending_edge_treatment_groups_.clear();
         pending_edge_treatment_seeds_.clear();
         edge_treatment_preview_owner_id_.clear();
+        edge_treatment_exact_preview_definition_.reset();
+        edge_treatment_exact_preview_edges_.clear();
+        edge_treatment_exact_preview_generation_=0;
         shell_dialog_ = nullptr;
         shell_face_selection_active_ = false;
         pending_shell_faces_.clear();

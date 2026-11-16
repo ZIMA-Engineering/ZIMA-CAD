@@ -2821,6 +2821,12 @@
   "Sheet from Body does not exist.": "Tôle depuis un corps n’existe pas.",
   "Activate the Body owning this Sheet from Body.": "Activez le corps auquel appartient cette Tôle depuis un corps.",
   "The selected feature is not a bound Sheet from Body part.": "L’élément sélectionné n’est pas une partie liée de Tôle depuis un corps.",
+  "Zaoblený přechod": "Raccord arrondi",
+  "Řez %1": "Coupe %1",
+  "Edge treatment preview did not produce an exact result wire.": "L’aperçu du traitement d’arête n’a pas produit de géométrie résultante exacte.",
   "zima::app::AssemblyWorkspaceWindow|Bez řezu": "Sans coupe",
-  "zima::app::AssemblyWorkspaceWindow|Řez": "Coupe"
+  "zima::app::AssemblyWorkspaceWindow|Řez": "Coupe",
+  "zima::app::AssemblyWorkspaceWindow|Řez %1": "Coupe %1",
+  "zima::app::AssemblyWorkspaceWindow|Edge treatment preview did not produce an exact result wire.": "L’aperçu du traitement d’arête n’a pas produit de géométrie résultante exacte.",
+  "zima::app::AssemblyWorkspaceWindow|Zaoblený přechod": "Raccord arrondi"
 }

@@ -424,14 +424,14 @@ void AssemblyWorkspaceWindow::refresh_edge_treatment_preview() {
                 if(node.route_ends.size()<2||node.route_ends.size()>3)continue;
                 bool all_no_cut=true;
                 for(const auto [route,first]:node.route_ends) {
-                    if(route>=current.edge_treatment.route_end_faces.size()) {
-                        all_no_cut=false;
-                        break;
-                    }
+                    if(route>=current.edge_treatment.route_end_faces.size())
+                        continue;
                     const auto& ends=
                         current.edge_treatment.route_end_faces[route];
-                    all_no_cut=all_no_cut&&
-                        (first?ends.first_mode:ends.last_mode)==Mode::NoCut;
+                    const auto mode=first?ends.first_mode:ends.last_mode;
+                    const auto& face=first?ends.first:ends.last;
+                    all_no_cut=all_no_cut&&(mode==Mode::NoCut||
+                        (mode==Mode::Cut&&!face.valid()));
                 }
                 if(all_no_cut)
                     edge_treatment_dialog_->set_edge_route_end_modes(

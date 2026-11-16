@@ -1750,6 +1750,31 @@ int main() try {
             "Staggered-box fixture lost its two shoulder branches");
         verify_node(stepped,shoulder_node,2.,
             "Staggered-box ZIMA Fillet shoulder node is invalid",true);
+        {
+            const auto oblique_prism=polygon_prism({{10,10,10},{40,10,10},
+                {50,35,10},{15,35,10}},10,"Oblique fixture failed");
+            BRepAlgoAPI_Fuse oblique_fuse(BRepPrimAPI_MakeBox(60,60,10).Shape(),
+                oblique_prism);
+            oblique_fuse.Build();
+            require(oblique_fuse.IsDone(),"Oblique fuse failed");
+            const auto oblique_shape=oblique_fuse.Shape();
+            auto top_edges=edges_at_point(oblique_shape,{10,10,20});
+            std::erase_if(top_edges,[](const auto& edge) {
+                const BRepAdaptor_Curve curve(edge);
+                const auto a=curve.Value(curve.FirstParameter());
+                const auto b=curve.Value(curve.LastParameter());
+                return std::abs(a.Z()-b.Z())>1.0e-9||
+                    std::abs(std::abs(a.X()-b.X())-30.)>1.0e-6;
+            });
+            require(top_edges.size()==1,"Oblique top edge missing");
+            const auto reference=reference_fillet(oblique_shape,top_edges,2.);
+            const auto custom=zima::kernel::occt_planar_edge_fillet(
+                oblique_shape,top_edges,2.,1.0e-7,{},
+                zima::kernel::OcctPlanarEdgeFilletEndMode::
+                    AutomaticBodyEnvelope);
+            near(volume(custom.shape),volume(reference),
+                "Automatic Fillet end at an oblique wall differs from OCCT");
+        }
         const auto mixed_node=edges_at_point(stepped,{5,5,10});
         require(mixed_node.size()==3,
             "Staggered-box fixture lost its mixed shoulder node");

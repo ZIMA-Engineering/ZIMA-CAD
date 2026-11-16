@@ -2001,7 +2001,7 @@ int main(int argc, char* argv[]) {
                         zima::document::FeatureKind::Fillet&&
                     committed.edge_treatment.calculation_method==
                         zima::document::EdgeTreatmentParameters::
-                            CalculationMethod::Automatic&&
+                            CalculationMethod::Zima&&
                     committed.edge_treatment.route_end_faces.size()==1&&
                     committed.edge_treatment.route_end_faces[0].first==
                         fillet_definition.edge_treatment.
@@ -2041,7 +2041,7 @@ int main(int argc, char* argv[]) {
                             ChamferMode::DistanceAngle&&
                     committed.edge_treatment.calculation_method==
                         zima::document::EdgeTreatmentParameters::
-                            CalculationMethod::Automatic,
+                            CalculationMethod::Zima,
                 "Chamfer Properties did not commit ZIMA A + angle");
             std::cout<<"ZIMA/OCCT Fillet and Chamfer method selection passed\n";
             return 0;
@@ -4598,12 +4598,12 @@ int main(int argc, char* argv[]) {
                                   zima::document::EdgeTreatmentParameters::FilletMode::Linear &&
                               committed_treatment.edge_treatment.reverse &&
                               committed_treatment.edge_treatment.calculation_method ==
-                                  zima::document::EdgeTreatmentParameters::CalculationMethod::Automatic
+                                  zima::document::EdgeTreatmentParameters::CalculationMethod::Zima
                             : committed_treatment.edge_treatment.chamfer_mode ==
                                   zima::document::EdgeTreatmentParameters::ChamferMode::TwoDistances &&
                               committed_treatment.edge_treatment.flip &&
                               committed_treatment.edge_treatment.calculation_method ==
-                                  zima::document::EdgeTreatmentParameters::CalculationMethod::Automatic),
+                                  zima::document::EdgeTreatmentParameters::CalculationMethod::Zima),
                     "Fillet/Chamfer Properties lost its mode, edge identity or values");
         }
         auto imported_step_initial =

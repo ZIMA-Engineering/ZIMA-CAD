@@ -423,6 +423,35 @@ int main() try {
         "Staggered-box fixture lost its two shoulder branches");
     verify_node(stepped,shoulder_node,2.,
         "Staggered-box ZIMA Chamfer shoulder node is invalid");
+    {
+        const std::array points{gp_Pnt(10,10,10),gp_Pnt(40,10,10),
+            gp_Pnt(50,35,10),gp_Pnt(15,35,10)};
+        BRepBuilderAPI_MakeWire wire;
+        for(std::size_t index=0;index<points.size();++index)
+            wire.Add(BRepBuilderAPI_MakeEdge(points[index],
+                points[(index+1)%points.size()]).Edge());
+        BRepPrimAPI_MakePrism upper(BRepBuilderAPI_MakeFace(
+            wire.Wire()).Face(),gp_Vec(0,0,10),false,true);
+        BRepAlgoAPI_Fuse fuse(BRepPrimAPI_MakeBox(60,60,10).Shape(),
+            upper.Shape());
+        fuse.Build();
+        require(fuse.IsDone()&&BRepCheck_Analyzer(
+                fuse.Shape(),true,true,false).IsValid(),
+            "Oblique staggered fixture failed");
+        auto oblique=edges_at_point(fuse.Shape(),{10,10,10});
+        std::erase_if(oblique,[](const auto& edge) {
+            const BRepAdaptor_Curve curve(edge);
+            return std::abs(curve.Value(curve.FirstParameter()).Z()-
+                curve.Value(curve.LastParameter()).Z())>1.0e-9;
+        });
+        require(oblique.size()==2,
+            "Oblique staggered fixture lost its shoulder branches");
+        const auto oblique_result=zima::kernel::occt_planar_edge_chamfer(
+            fuse.Shape(),oblique,2.,1.0e-7);
+        require(BRepCheck_Analyzer(oblique_result.Shape(),true,true,false)
+                .IsValid(),
+            "Oblique perpendicular-face ZIMA Chamfer step node is invalid");
+    }
     const auto wedge=triangular_prism(60.,30.,35.);
     auto angled_node=edges_at_point(wedge,{0,0,0});
     std::erase_if(angled_node,[](const auto& edge) {
@@ -688,6 +717,27 @@ int main() try {
             "Automatic tangent line-arc-line ZIMA Chamfer changed volume");
         near(area(curved.Shape()),area(curved_automatic.Shape()),
             "Automatic tangent line-arc-line ZIMA Chamfer changed area");
+        std::vector<zima::kernel::OcctPlanarEdgeEndFaces> chosen_ends(
+            route.size());
+        TopoDS_Vertex cap_first,cap_last;
+        TopExp::Vertices(route.front(),cap_first,cap_last,true);
+        const bool cap_at_first=!arc_vertices.Contains(cap_first);
+        const auto cap_point=BRep_Tool::Pnt(cap_at_first?cap_first:cap_last);
+        const gp_Dir cap_normal(1.,1.,-1.);
+        auto& chosen_cap=cap_at_first?chosen_ends.front().first:
+            chosen_ends.front().last;
+        chosen_cap=BRepBuilderAPI_MakeFace(gp_Pln(cap_point,cap_normal)).Face();
+        const auto explicitly_trimmed=zima::kernel::occt_planar_edge_chamfer(
+            round.Shape(),route,2.,1.0e-7,chosen_ends,{},
+            zima::kernel::OcctPlanarEdgeEndMode::AutomaticBodyEnvelope);
+        require(BRepCheck_Analyzer(explicitly_trimmed.Shape(),true,true,
+                    false).IsValid(),
+            "Explicit cut split an otherwise continuous Chamfer route");
+        // The two offset corners of a 2 mm triangular section each move
+        // 2 mm inward. The volume retained by the oblique cut is integral
+        // (0 + 2 + 2) / 3 times the section area of 2 square millimeters.
+        near(volume(explicitly_trimmed.Shape())-volume(curved.Shape()),
+            8./3.,"The selected endpoint plane did not trim the actual sweep");
         const auto collapsed_round=
             zima::kernel::occt_planar_edge_chamfer(round.Shape(),route,4.,
                 1.0e-7,{}, {},zima::kernel::OcctPlanarEdgeEndMode::
@@ -741,6 +791,18 @@ int main() try {
         near(area(collapsed_from_original_lines.Shape()),
             area(collapsed_reference.Shape()),
             "Two original Chamfer edges retained the omitted old-radius boundary");
+        const auto threshold_round=
+            zima::kernel::occt_planar_edge_chamfer(round.Shape(),route,
+                fillet_radius,1.0e-7,{}, {},
+                zima::kernel::OcctPlanarEdgeEndMode::AutomaticBodyEnvelope);
+        require(BRepCheck_Analyzer(threshold_round.Shape(),true,true,false).
+                    IsValid()&&
+                threshold_round.chamfer_faces.size()==route.size()&&
+                std::ranges::all_of(threshold_round.chamfer_faces,
+                    [](const auto& faces){return !faces.empty();}),
+            "Chamfer exactly equal to a preceding Fillet radius is invalid");
+        require(volume(threshold_round.Shape())<volume(round.Shape()),
+            "Chamfer exactly equal to a preceding Fillet radius removed no material");
         std::reverse(route.begin(),route.end());
         const auto curved_reversed=zima::kernel::occt_planar_edge_chamfer(
             round.Shape(),route,2.,1.0e-7);
@@ -763,6 +825,19 @@ int main() try {
             "Collapsed-round Chamfer depends on selection order");
         near(area(collapsed_round.Shape()),area(collapsed_round_reversed.Shape()),
             "Collapsed-round Chamfer area depends on selection order");
+        const auto threshold_round_reversed=
+            zima::kernel::occt_planar_edge_chamfer(round.Shape(),route,
+                fillet_radius,1.0e-7,{}, {},
+                zima::kernel::OcctPlanarEdgeEndMode::AutomaticBodyEnvelope);
+        require(BRepCheck_Analyzer(threshold_round_reversed.Shape(),true,true,
+                    false).IsValid(),
+            "Reversed threshold-radius Chamfer is invalid");
+        near(volume(threshold_round.Shape()),
+            volume(threshold_round_reversed.Shape()),
+            "Threshold-radius Chamfer depends on selection order");
+        near(area(threshold_round.Shape()),
+            area(threshold_round_reversed.Shape()),
+            "Threshold-radius Chamfer area depends on selection order");
     }
 
     {

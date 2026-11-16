@@ -2821,6 +2821,12 @@
   "Sheet from Body does not exist.": "Plech z tělesa neexistuje.",
   "Activate the Body owning this Sheet from Body.": "Aktivujte těleso, které vlastní tento Plech z tělesa.",
   "The selected feature is not a bound Sheet from Body part.": "Vybraný prvek není svázanou částí příkazu Plech z tělesa.",
+  "Zaoblený přechod": "Zaoblený přechod",
+  "Řez %1": "Řez %1",
+  "Edge treatment preview did not produce an exact result wire.": "Náhled úpravy hrany nevytvořil přesnou výslednou geometrii.",
   "zima::app::AssemblyWorkspaceWindow|Bez řezu": "Bez řezu",
-  "zima::app::AssemblyWorkspaceWindow|Řez": "Řez"
+  "zima::app::AssemblyWorkspaceWindow|Řez": "Řez",
+  "zima::app::AssemblyWorkspaceWindow|Řez %1": "Řez %1",
+  "zima::app::AssemblyWorkspaceWindow|Edge treatment preview did not produce an exact result wire.": "Náhled úpravy hrany nevytvořil přesnou výslednou geometrii.",
+  "zima::app::AssemblyWorkspaceWindow|Zaoblený přechod": "Zaoblený přechod"
 }

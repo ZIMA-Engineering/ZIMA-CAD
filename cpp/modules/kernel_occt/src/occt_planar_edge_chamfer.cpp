@@ -32,11 +32,14 @@
 #include <TopoDS_Solid.hxx>
 #include <ShapeUpgrade_UnifySameDomain.hxx>
 #include <gp_Pln.hxx>
+#include <gp_Trsf.hxx>
 #include <GProp_GProps.hxx>
 
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstdio>
+#include <cstdlib>
 #include <initializer_list>
 #include <iterator>
 #include <numbers>
@@ -50,7 +53,11 @@ namespace zima::kernel {
 namespace {
 
 using edge_treatment_terminals::local_curved_terminal_faces;
+using edge_treatment_terminals::forward_terminal_intersection_distance;
+using edge_treatment_terminals::nearby_planar_terminal_faces;
+using edge_treatment_terminals::nearby_nonplanar_terminal_faces;
 using edge_treatment_terminals::remote_terminal_faces_through_local_curve;
+using edge_treatment_terminals::selected_terminal_faces;
 using edge_treatment_terminals::removal_profile_continues_past_curved_terminal;
 using edge_treatment_terminals::route_crosses_curved_terminal;
 
@@ -80,8 +87,134 @@ struct ContinuousRoute {
     std::vector<std::size_t> selections;
     std::vector<TopoDS_Edge> edges;
     TopoDS_Vertex start_vertex;
+    TopoDS_Vertex finish_vertex;
     gp_Dir planar_binormal;
 };
+
+std::vector<TopoDS_Face> mapped_treatment_faces(
+        BRepAlgoAPI_BuilderAlgo& operation,
+        std::span<const TopoDS_Face> sources) {
+    TopTools_IndexedMapOfShape result_faces;
+    TopExp::MapShapes(operation.Shape(),TopAbs_FACE,result_faces);
+    std::vector<TopoDS_Face> result;
+    const auto append=[&](const TopoDS_Shape& shape) {
+        if(shape.ShapeType()!=TopAbs_FACE||!result_faces.Contains(shape)||
+           std::ranges::any_of(result,[&](const auto& face) {
+               return face.IsSame(shape);
+           }))return;
+        result.push_back(TopoDS::Face(shape));
+    };
+    for(const auto& face:sources) {
+        append(face);
+        for(const auto& modified:operation.Modified(face))append(modified);
+        for(const auto& generated:operation.Generated(face))append(generated);
+    }
+    return result;
+}
+
+void clip_chamfer_tool(TopoDS_Shape& tool,
+        std::vector<TopoDS_Face>& treatment_faces,
+        const TopoDS_Face& face,const gp_Pnt& inside,double tolerance) {
+    if(face.IsNull())return;
+    const BRepAdaptor_Surface end_support(face,true);
+    TopoDS_Face boundary=face;
+    if(end_support.GetType()==GeomAbs_Plane) {
+        BRepBuilderAPI_MakeFace complete(end_support.Plane());
+        if(!complete.IsDone())
+            throw std::runtime_error(
+                "ZIMA Chamfer could not construct an end plane");
+        boundary=complete.Face();
+    } else if(end_support.GetType()==GeomAbs_Cylinder) {
+        BRepBuilderAPI_MakeFace complete(end_support.Cylinder());
+        if(complete.IsDone())boundary=complete.Face();
+    } else if(end_support.GetType()==GeomAbs_Cone) {
+        BRepBuilderAPI_MakeFace complete(end_support.Cone());
+        if(complete.IsDone())boundary=complete.Face();
+    } else if(end_support.GetType()==GeomAbs_Sphere) {
+        BRepBuilderAPI_MakeFace complete(end_support.Sphere());
+        if(complete.IsDone())boundary=complete.Face();
+    } else if(end_support.GetType()==GeomAbs_Torus) {
+        BRepBuilderAPI_MakeFace complete(end_support.Torus());
+        if(complete.IsDone())boundary=complete.Face();
+    }
+    gp_Pnt retained_side=inside;
+    BRepClass3d_SolidClassifier retained(tool,retained_side,tolerance);
+    if(retained.State()!=TopAbs_IN) {
+        Bnd_Box bounds;
+        BRepBndLib::Add(tool,bounds);
+        double x0{},y0{},z0{},x1{},y1{},z1{};
+        bounds.Get(x0,y0,z0,x1,y1,z1);
+        const double diagonal=gp_Pnt(x0,y0,z0).Distance(
+            gp_Pnt(x1,y1,z1));
+        const double step=std::max(1000.*tolerance,
+            diagonal*1.0e-6);
+        bool found{};
+        for(const double multiplier:{1.,10.,100.}) {
+            for(int x=-1;x<=1&&!found;++x)
+                for(int y=-1;y<=1&&!found;++y)
+                    for(int z=-1;z<=1&&!found;++z) {
+                        if(x==0&&y==0&&z==0)continue;
+                        const auto candidate=inside.Translated(gp_Vec(
+                            x*step*multiplier,y*step*multiplier,
+                            z*step*multiplier));
+                        BRepClass3d_SolidClassifier classifier(
+                            tool,candidate,tolerance);
+                        if(classifier.State()==TopAbs_IN) {
+                            retained_side=candidate;
+                            found=true;
+                        }
+                    }
+            if(found)break;
+        }
+        if(!found)
+            throw std::runtime_error(
+                "ZIMA Chamfer could not trim its selected end face");
+    }
+    BRepPrimAPI_MakeHalfSpace half_space(boundary,retained_side);
+    if(!half_space.IsDone())
+        throw std::runtime_error(
+            "ZIMA Chamfer could not construct an end half-space");
+    BRepAlgoAPI_Common common(tool,half_space.Solid());
+    common.SetNonDestructive(true);
+    common.SetFuzzyValue(tolerance);
+    common.Build();
+    if(!common.IsDone()||common.Shape().IsNull()||
+       !BRepCheck_Analyzer(common.Shape()).IsValid())
+        throw std::runtime_error(
+            "ZIMA Chamfer could not trim its selected end face");
+    TopTools_IndexedMapOfShape result_faces;
+    TopExp::MapShapes(common.Shape(),TopAbs_FACE,result_faces);
+    std::vector<TopoDS_Face> clipped_faces;
+    const auto append=[&](const TopoDS_Shape& shape) {
+        if(shape.ShapeType()!=TopAbs_FACE||
+           !result_faces.Contains(shape))return;
+        const auto candidate=TopoDS::Face(shape);
+        if(std::ranges::none_of(clipped_faces,[&](const auto& current) {
+                return current.IsSame(candidate);
+            }))clipped_faces.push_back(candidate);
+    };
+    for(const auto& treatment_face:treatment_faces) {
+        append(treatment_face);
+        for(const auto& descendant:common.Modified(treatment_face))
+            append(descendant);
+        for(const auto& descendant:common.Generated(treatment_face))
+            append(descendant);
+    }
+    if(clipped_faces.empty())
+        for(int index=1;index<=result_faces.Extent();++index) {
+            const auto candidate=TopoDS::Face(result_faces.FindKey(index));
+            if(std::ranges::any_of(treatment_faces,
+                    [&](const auto& source) {
+                        return BRep_Tool::Surface(source)==
+                            BRep_Tool::Surface(candidate);
+                    }))append(candidate);
+        }
+    if(clipped_faces.empty())
+        throw std::runtime_error(
+            "ZIMA Chamfer trim lost its treatment face");
+    treatment_faces=std::move(clipped_faces);
+    tool=common.Shape();
+}
 
 gp_Dir outgoing_tangent(const TopoDS_Edge& edge,
         const TopoDS_Vertex& vertex,double tolerance) {
@@ -166,17 +299,20 @@ TopoDS_Solid make_three_branch_connector(const TopoDS_Vertex& vertex,
 TopoDS_Solid make_step_connector(const TopoDS_Vertex& vertex,
         const gp_Dir& first_branch,const gp_Dir& second_branch,
         const gp_Dir& third_branch,double distance,double tolerance) {
-    for(const auto pair:std::array{
-            std::pair{first_branch,second_branch},
-            std::pair{first_branch,third_branch},
-            std::pair{second_branch,third_branch}})
-        if(std::abs(pair.first.Dot(pair.second))>1.0e-7)
-            throw std::invalid_argument(
-                "ZIMA Chamfer requires an orthogonal step node");
+    // Dráha může být v rovině šikmá, ale plochy musí být na sebe kolmé:
+    // třetí větev je kolmá k rovině obou prvních.
+    const double plan_sine=gp_Vec(first_branch).Crossed(
+        gp_Vec(second_branch)).Magnitude();
+    if(std::abs(first_branch.Dot(third_branch))>1.0e-7||
+            std::abs(second_branch.Dot(third_branch))>1.0e-7||
+            plan_sine<1.0e-7)
+        throw std::invalid_argument(
+            "ZIMA Chamfer requires perpendicular faces at a step node");
+    const double base_distance=distance/plan_sine;
     const auto origin=BRep_Tool::Pnt(vertex);
-    const auto first=origin.Translated(-distance*gp_Vec(first_branch));
-    const auto second=origin.Translated(-distance*gp_Vec(second_branch));
-    const auto opposite=origin.Translated(-distance*(
+    const auto first=origin.Translated(-base_distance*gp_Vec(first_branch));
+    const auto second=origin.Translated(-base_distance*gp_Vec(second_branch));
+    const auto opposite=origin.Translated(-base_distance*(
         gp_Vec(first_branch)+gp_Vec(second_branch)));
     const auto apex=origin.Translated(distance*gp_Vec(third_branch));
     const auto face=[&](std::initializer_list<gp_Pnt> points) {
@@ -444,7 +580,8 @@ Tool make_tool(const TopoDS_Edge& edge,const TopoDS_Face& first_face,
         const OcctPlanarEdgeEndFaces& end_faces,
         OcctPlanarEdgeEndMode end_mode,
         std::array<bool,2> route_ends,
-        const std::array<TopoDS_Face,2>& node_end_faces) {
+        const std::array<TopoDS_Face,2>& node_end_faces,
+        const std::optional<std::array<gp_Pnt,2>>& axial_endpoints={}) {
     const BRepAdaptor_Curve curve(edge);
     if(curve.GetType()==GeomAbs_Circle)
         return make_closed_circular_tool(edge,first_face,second_face,mode,
@@ -458,8 +595,10 @@ Tool make_tool(const TopoDS_Edge& edge,const TopoDS_Face& first_face,
        last_parameter<=first_parameter)
         throw std::invalid_argument(
             "ZIMA Chamfer requires a finite edge");
-    const gp_Pnt first=curve.Value(first_parameter);
-    const gp_Pnt last=curve.Value(last_parameter);
+    const gp_Pnt first=axial_endpoints
+        ?(*axial_endpoints)[0]:curve.Value(first_parameter);
+    const gp_Pnt last=axial_endpoints
+        ?(*axial_endpoints)[1]:curve.Value(last_parameter);
     gp_Vec axis(first,last);
     const double length=axis.Magnitude();
     if(!(length>tolerance))
@@ -499,7 +638,10 @@ Tool make_tool(const TopoDS_Edge& edge,const TopoDS_Face& first_face,
             "ZIMA Chamfer calculated an invalid second distance");
     const double probe=std::min(std::min(distance_a,distance_b)*.1,
         std::max(100.*tolerance,length*1.0e-5));
-    const auto middle=curve.Value((first_parameter+last_parameter)/2.);
+    const gp_Pnt middle(
+        .5*(first.X()+last.X()),
+        .5*(first.Y()+last.Y()),
+        .5*(first.Z()+last.Z()));
     BRepClass3d_SolidClassifier wedge(material,
         middle.Translated(bisector*probe),tolerance);
     BRepClass3d_SolidClassifier opposite(material,
@@ -548,6 +690,20 @@ Tool make_tool(const TopoDS_Edge& edge,const TopoDS_Face& first_face,
     }
     const gp_Dir first_outward(-gp_Vec(tangent));
     const gp_Dir last_outward(tangent);
+    const auto expand_explicit_terminal=[&](std::size_t end,
+            const TopoDS_Face& selected,const TopoDS_Face& node_face,
+            const gp_Pnt& endpoint,const gp_Dir& outward) {
+        if(!selected.IsNull())
+            terminal_faces[end]=selected_terminal_faces(material,
+                first_face,second_face,endpoint,outward,selected,tolerance);
+        if(!node_face.IsNull()&&std::ranges::none_of(terminal_faces[end],
+                [&](const auto& face) {return face.IsSame(node_face);}))
+            terminal_faces[end].push_back(node_face);
+    };
+    expand_explicit_terminal(0,end_faces.first,node_end_faces[0],
+        first,first_outward);
+    expand_explicit_terminal(1,end_faces.last,node_end_faces[1],
+        last,last_outward);
     const bool local_curved_first=!curved_terminal_faces[0].empty();
     const bool local_curved_last=!curved_terminal_faces[1].empty();
     const bool route_crossing_first=!explicit_first&&local_curved_first&&
@@ -566,6 +722,27 @@ Tool make_tool(const TopoDS_Edge& edge,const TopoDS_Face& first_face,
         removal_profile_continues_past_curved_terminal(material,last,
             last_outward,first_direction,second_direction,
             std::max(distance_a,distance_b),tolerance);
+    std::array<std::vector<TopoDS_Face>,2> nearby_terminal_planes;
+    std::array<std::vector<TopoDS_Face>,2> nearby_terminal_surfaces;
+    const double profile_reach=std::max(distance_a,distance_b);
+    if(local_curved_first&&!continue_first&&!explicit_first&&
+       !route_crossing_first) {
+        nearby_terminal_planes[0]=nearby_planar_terminal_faces(material,
+            first_face,second_face,curved_terminal_faces[0],first,
+            first_outward,profile_reach,tolerance);
+        nearby_terminal_surfaces[0]=nearby_nonplanar_terminal_faces(
+            material,first_face,second_face,curved_terminal_faces[0],first,
+            first_outward,profile_reach,tolerance);
+    }
+    if(local_curved_last&&!continue_last&&!explicit_last&&
+       !route_crossing_last) {
+        nearby_terminal_planes[1]=nearby_planar_terminal_faces(material,
+            first_face,second_face,curved_terminal_faces[1],last,
+            last_outward,profile_reach,tolerance);
+        nearby_terminal_surfaces[1]=nearby_nonplanar_terminal_faces(
+            material,first_face,second_face,curved_terminal_faces[1],last,
+            last_outward,profile_reach,tolerance);
+    }
     if(continue_first)
         terminal_faces[0]=remote_terminal_faces_through_local_curve(
             material,first_face,second_face,first,first_outward,tolerance);
@@ -577,7 +754,11 @@ Tool make_tool(const TopoDS_Edge& edge,const TopoDS_Face& first_face,
             double cross_span) {
         if(face.IsNull())return 0.;
         const BRepAdaptor_Surface support(face,true);
-        if(support.GetType()!=GeomAbs_Plane)return cross_span;
+        if(support.GetType()!=GeomAbs_Plane) {
+            const auto distance=forward_terminal_intersection_distance(
+                face,endpoint,outward,tolerance);
+            return distance?*distance+cross_span+tolerance:cross_span;
+        }
         const auto normal=support.Plane().Axis().Direction();
         const double signed_incidence=normal.Dot(outward);
         const double incidence=std::abs(signed_incidence);
@@ -761,8 +942,8 @@ Tool make_tool(const TopoDS_Edge& edge,const TopoDS_Face& first_face,
     BRepGProp::SurfaceProperties(section.Face(),section_properties);
     const gp_Pnt curved_interior=section_properties.CentreOfMass().Translated(
         gp_Vec(tangent)*(.5*(length+first_extension+last_extension)));
-    const gp_Pnt planar_interior=first.Translated(
-        gp_Vec(tangent)*(length*.5));
+    const gp_Pnt planar_interior=section_properties.CentreOfMass().Translated(
+        gp_Vec(tangent)*(first_extension+length*.5));
     // The same exact terminal owns additive and subtractive Chamfer tools.
     // Leaving an automatic CUT prism untrimmed lets it continue through solid
     // material on the far side of a local cap, even though the final Body CUT
@@ -771,6 +952,14 @@ Tool make_tool(const TopoDS_Edge& edge,const TopoDS_Face& first_face,
     // A + angle profiles.
     for(const auto& face:terminal_faces[0])clip(face,planar_interior);
     for(const auto& face:terminal_faces[1])clip(face,planar_interior);
+    for(const auto& face:nearby_terminal_planes[0])
+        clip(face,planar_interior);
+    for(const auto& face:nearby_terminal_planes[1])
+        clip(face,planar_interior);
+    for(const auto& face:nearby_terminal_surfaces[0])
+        clip(face,planar_interior);
+    for(const auto& face:nearby_terminal_surfaces[1])
+        clip(face,planar_interior);
     // When the selected edge itself ends on an earlier radius, its complete
     // curved surface is the stop. Intersect the whole triangular profile with
     // that half-space; trimming only the nominal treatment line leaves the
@@ -791,7 +980,6 @@ std::optional<ContinuousRoute> find_continuous_route(
         const std::vector<std::array<TopoDS_Face,2>>& faces,
         const std::vector<TopoDS_Solid>& materials,
         OcctPlanarEdgeChamferMode mode,
-        std::span<const OcctPlanarEdgeEndFaces> end_faces,
         OcctPlanarEdgeEndMode end_mode,double tolerance) {
     // Keep all existing straight-edge terminal, miter and branch behavior.
     // This path is only for one complete tangent line/circle route whose
@@ -800,11 +988,7 @@ std::optional<ContinuousRoute> find_continuous_route(
        (end_mode!=OcctPlanarEdgeEndMode::Perpendicular&&
         end_mode!=OcctPlanarEdgeEndMode::AutomaticBodyEnvelope)||
        selections.size()<2||faces.size()!=selections.size()||
-       materials.size()!=selections.size()||
-       (!end_faces.empty()&&std::ranges::any_of(end_faces,
-            [](const auto& ends) {
-                return !ends.first.IsNull()||!ends.last.IsNull();
-            })))return {};
+       materials.size()!=selections.size())return {};
     bool has_circle{};
     for(std::size_t index=0;index<selections.size();++index) {
         const BRepAdaptor_Curve curve(selections[index].edge);
@@ -878,6 +1062,7 @@ std::optional<ContinuousRoute> find_continuous_route(
     }
     if(result.selections.size()!=selections.size()||
        !current.IsSame(finish->vertex))return {};
+    result.finish_vertex=current;
 
     const auto& anchor_faces=faces[result.selections.front()];
     for(const auto& candidate:anchor_faces) {
@@ -908,12 +1093,33 @@ std::optional<ContinuousRoute> find_continuous_route(
     return {};
 }
 
+std::optional<std::array<bool,2>> line_ends_at_round(
+        const TopoDS_Edge& line,const TopoDS_Edge& round,
+        double tolerance) {
+    const BRepAdaptor_Curve curve(line);
+    const auto line_first=curve.Value(curve.FirstParameter());
+    const auto line_last=curve.Value(curve.LastParameter());
+    TopTools_IndexedMapOfShape round_vertices;
+    TopExp::MapShapes(round,TopAbs_VERTEX,round_vertices);
+    bool first_shared{},last_shared{};
+    for(int index=1;index<=round_vertices.Extent();++index) {
+        const auto point=BRep_Tool::Pnt(TopoDS::Vertex(
+            round_vertices.FindKey(index)));
+        first_shared=first_shared||point.Distance(line_first)<=tolerance;
+        last_shared=last_shared||point.Distance(line_last)<=tolerance;
+    }
+    if(first_shared==last_shared)return {};
+    return std::array<bool,2>{first_shared,last_shared};
+}
+
 std::optional<Tool> make_single_collapsed_round_route_tool(
         const ContinuousRoute& route,
         std::span<const OcctPlanarEdgeChamferSelection> selections,
         const std::vector<std::array<TopoDS_Face,2>>& selection_faces,
         const std::vector<TopoDS_Solid>& materials,double distance,
-        double tolerance) {
+        double tolerance,
+        std::span<const OcctPlanarEdgeEndFaces> end_faces,
+        OcctPlanarEdgeEndMode end_mode) {
     // Offsetting a convex line-arc-line boundary towards the material shrinks
     // its circular member. Once the authored Chamfer distance reaches that
     // radius, the offset arc vanishes. The two surviving straight members then
@@ -965,25 +1171,10 @@ std::optional<Tool> make_single_collapsed_round_route_tool(
     if(distance<circle.Radius()-tolerance)
         return {};
 
-    const auto route_end_at_round=[&](const TopoDS_Edge& line,
-            const TopoDS_Edge& round)->std::optional<std::array<bool,2>> {
-        const BRepAdaptor_Curve curve(line);
-        const auto line_first=curve.Value(curve.FirstParameter());
-        const auto line_last=curve.Value(curve.LastParameter());
-        TopTools_IndexedMapOfShape round_vertices;
-        TopExp::MapShapes(round,TopAbs_VERTEX,round_vertices);
-        bool first_shared{},last_shared{};
-        for(int index=1;index<=round_vertices.Extent();++index) {
-            const auto point=BRep_Tool::Pnt(TopoDS::Vertex(
-                round_vertices.FindKey(index)));
-            first_shared=first_shared||point.Distance(line_first)<=tolerance;
-            last_shared=last_shared||point.Distance(line_last)<=tolerance;
-        }
-        if(first_shared==last_shared)return {};
-        return std::array<bool,2>{first_shared,last_shared};
-    };
-    const auto first_route_ends=route_end_at_round(first_edge,arc_edge);
-    const auto last_route_ends=route_end_at_round(last_edge,arc_edge);
+    const auto first_route_ends=line_ends_at_round(
+        first_edge,arc_edge,tolerance);
+    const auto last_route_ends=line_ends_at_round(
+        last_edge,arc_edge,tolerance);
     if(!first_route_ends||!last_route_ends)
         return {};
 
@@ -1101,22 +1292,47 @@ std::optional<Tool> make_single_collapsed_round_route_tool(
         return {};
 
     // Once the circular member is consumed it no longer contributes a
-    // treatment surface. Extend both surviving straight-member tools to the
-    // real Body envelope exactly as if those members had been selected without
-    // the obsolete arc. Their common Boolean reaches the adjacent faces and
-    // removes the rounded post without inventing a replacement corner solid.
-    const auto first_tool=make_tool(first_edge,
-        selection_faces[first_selection][0],
-        selection_faces[first_selection][1],
-        OcctPlanarEdgeChamferMode::EqualDistance,distance,distance,
-        tolerance,materials[first_selection],{},
-        OcctPlanarEdgeEndMode::AutomaticBodyEnvelope,{true,true},{});
-    const auto last_tool=make_tool(last_edge,
-        selection_faces[last_selection][0],
-        selection_faces[last_selection][1],
-        OcctPlanarEdgeChamferMode::EqualDistance,distance,distance,
-        tolerance,materials[last_selection],{},
-        OcctPlanarEdgeEndMode::AutomaticBodyEnvelope,{true,true},{});
+    // treatment surface. Replace only its endpoint on each adjacent straight
+    // member by their exact sharp intersection. This keeps every unrelated
+    // route member unchanged and avoids guessing a remote clipping face.
+    const auto collapsed_rail_tool=[&](const TopoDS_Edge& rail,
+            std::size_t selection_index,
+            const std::array<bool,2>& round_ends,const char* label) {
+        try {
+            const BRepAdaptor_Curve rail_curve(rail);
+            std::array<gp_Pnt,2> axial{
+                rail_curve.Value(rail_curve.FirstParameter()),
+                rail_curve.Value(rail_curve.LastParameter())};
+            axial[round_ends[0]?0:1]=sharp_corner;
+
+            TopoDS_Vertex edge_first,edge_last;
+            TopExp::Vertices(rail,edge_first,edge_last,true);
+            const std::array<TopoDS_Vertex,2> vertices{edge_first,edge_last};
+            std::array<bool,2> global_route_ends{};
+            for(std::size_t endpoint=0;endpoint<2;++endpoint)
+                if(!round_ends[endpoint]&&!vertices[endpoint].IsNull())
+                    global_route_ends[endpoint]=
+                        vertices[endpoint].IsSame(route.start_vertex)||
+                        vertices[endpoint].IsSame(route.finish_vertex);
+
+            const auto authored=end_faces.empty()
+                ?OcctPlanarEdgeEndFaces{}:end_faces[selection_index];
+            return make_tool(rail,
+                selection_faces[selection_index][0],
+                selection_faces[selection_index][1],
+                OcctPlanarEdgeChamferMode::EqualDistance,distance,distance,
+                tolerance,materials[selection_index],authored,end_mode,
+                global_route_ends,{},axial);
+        } catch(const std::exception& error) {
+            throw std::runtime_error(std::string(
+                "ZIMA Chamfer collapsed-round ")+label+
+                " rail failed: "+error.what());
+        }
+    };
+    const auto first_tool=collapsed_rail_tool(first_edge,first_selection,
+        *first_route_ends,"first");
+    const auto last_tool=collapsed_rail_tool(last_edge,last_selection,
+        *last_route_ends,"last");
     if(first_tool.adds_material!=last_tool.adds_material||
        !first_tool.material.IsSame(last_tool.material))
         return {};
@@ -1162,15 +1378,64 @@ std::optional<Tool> make_single_collapsed_round_route_tool(
         first_tool.first_support,last_tool.second_support};
 }
 
+Tool fuse_route_tools(std::vector<Tool> tools,double tolerance) {
+    if(tools.empty())
+        throw std::invalid_argument(
+            "ZIMA Chamfer route produced no component tools");
+    Tool combined=std::move(tools.front());
+    for(std::size_t index=1;index<tools.size();++index) {
+        const auto& next=tools[index];
+        if(combined.adds_material!=next.adds_material||
+           !combined.material.IsSame(next.material))
+            throw std::invalid_argument(
+                "ZIMA Chamfer route components change material side");
+
+        BRepAlgoAPI_Fuse fuse(combined.solid,next.solid);
+        fuse.SetNonDestructive(true);
+        fuse.SetRunParallel(false);
+        fuse.SetToFillHistory(true);
+        fuse.SetFuzzyValue(tolerance);
+        fuse.Build();
+        if(!fuse.IsDone()||fuse.Shape().IsNull()||
+           !BRepCheck_Analyzer(fuse.Shape()).IsValid())
+            throw std::runtime_error(
+                "ZIMA Chamfer could not join its route component tools");
+
+        auto sources=combined.treatment_faces;
+        sources.insert(sources.end(),next.treatment_faces.begin(),
+                       next.treatment_faces.end());
+        auto mapped=mapped_treatment_faces(fuse,sources);
+        if(mapped.empty())
+            throw std::runtime_error(
+                "ZIMA Chamfer route lost its component treatment faces");
+
+        combined=Tool{fuse.Shape(),std::move(mapped),
+            combined.adds_material,combined.material,
+            combined.first_support,next.second_support};
+    }
+    return combined;
+}
+
+Tool make_swept_continuous_route_tool(const ContinuousRoute& route,
+        std::span<const OcctPlanarEdgeChamferSelection> selections,
+        const std::vector<std::array<TopoDS_Face,2>>& selection_faces,
+        const std::vector<TopoDS_Solid>& materials,double distance,
+        double tolerance,
+        std::span<const OcctPlanarEdgeEndFaces> end_faces,
+        OcctPlanarEdgeEndMode end_mode);
+
 std::optional<Tool> make_collapsed_round_route_tool(
         const ContinuousRoute& route,
         std::span<const OcctPlanarEdgeChamferSelection> selections,
         const std::vector<std::array<TopoDS_Face,2>>& selection_faces,
         const std::vector<TopoDS_Solid>& materials,double distance,
-        double tolerance) {
+        double tolerance,
+        std::span<const OcctPlanarEdgeEndFaces> end_faces,
+        OcctPlanarEdgeEndMode end_mode) {
     if(route.selections.size()==3&&route.edges.size()==3)
         return make_single_collapsed_round_route_tool(
-            route,selections,selection_faces,materials,distance,tolerance);
+            route,selections,selection_faces,materials,distance,tolerance,
+            end_faces,end_mode);
     if(route.selections.size()<5||route.selections.size()%2==0||
        route.edges.size()!=route.selections.size())
         return {};
@@ -1182,94 +1447,128 @@ std::optional<Tool> make_collapsed_round_route_tool(
             return {};
     }
 
-    // Every authored round in this alternating route must have collapsed at
-    // the requested Chamfer distance. Reuse the proven three-member solver as
-    // the eligibility check so a partially collapsed route still follows the
-    // ordinary continuous-route implementation.
+    // Classify each authored round independently. A route may contain several
+    // radii, so consuming one small round must not force the still-valid larger
+    // rounds through the same self-intersecting sweep.
+    std::vector<std::optional<Tool>> collapsed_rounds;
+    collapsed_rounds.reserve(route.edges.size()/2);
     for(std::size_t index=1;index+1<route.edges.size();index+=2) {
         const ContinuousRoute local{
             {route.selections[index-1],route.selections[index],
              route.selections[index+1]},
             {route.edges[index-1],route.edges[index],route.edges[index+1]},
-            route.start_vertex,route.planar_binormal};
-        if(!make_single_collapsed_round_route_tool(
-               local,selections,selection_faces,materials,distance,tolerance))
-            return {};
+            route.start_vertex,route.finish_vertex,route.planar_binormal};
+        collapsed_rounds.push_back(make_single_collapsed_round_route_tool(
+            local,selections,selection_faces,materials,distance,tolerance,
+            end_faces,end_mode));
+    }
+    const auto collapsed_count=static_cast<std::size_t>(std::count_if(
+        collapsed_rounds.begin(),collapsed_rounds.end(),
+        [](const auto& value){return value.has_value();}));
+    if(collapsed_count==0)
+        return {};
+
+    if(std::getenv("ZIMA_CPP_CHAMFER_ROUTE_PROFILE"))
+        std::fprintf(stderr,
+            "Chamfer collapsed rounds=%zu/%zu\n",collapsed_count,
+            collapsed_rounds.size());
+
+    // Each local result already contains the exact pair of surviving rails.
+    // Their union is also valid when several adjacent rounds disappear.
+    if(collapsed_count==collapsed_rounds.size()) {
+        std::vector<Tool> branches;
+        branches.reserve(collapsed_rounds.size());
+        for(auto& collapsed:collapsed_rounds)
+            branches.push_back(std::move(*collapsed));
+        return fuse_route_tools(std::move(branches),tolerance);
     }
 
-    std::vector<Tool> branches;
-    branches.reserve((route.selections.size()+1)/2);
-    for(std::size_t index=0;index<route.selections.size();index+=2) {
-        const auto selection_index=route.selections[index];
-        branches.push_back(make_tool(
-            selections[selection_index].edge,
-            selection_faces[selection_index][0],
-            selection_faces[selection_index][1],
-            OcctPlanarEdgeChamferMode::EqualDistance,distance,distance,
-            tolerance,materials[selection_index],{},
-            OcctPlanarEdgeEndMode::AutomaticBodyEnvelope,{true,true},{}));
+    // A partially collapsed route is split at every vanished circular member.
+    // Keep each remaining line/arc/.../line span as a real continuous sweep.
+    // Add the exact local sharp result only where a round vanished. The
+    // surviving authored rounds retain their actual curved geometry.
+    std::vector<std::pair<std::size_t,Tool>> components;
+    for(std::size_t round=0;round<collapsed_rounds.size();++round) {
+        if(!collapsed_rounds[round])continue;
+        const std::size_t arc=2*round+1;
+        components.emplace_back(arc-1,std::move(*collapsed_rounds[round]));
     }
 
-    Tool combined=std::move(branches.front());
-    for(std::size_t index=1;index<branches.size();++index) {
-        const auto& next=branches[index];
-        if(combined.adds_material!=next.adds_material||
-           !combined.material.IsSame(next.material))
-            return {};
+    const auto append_surviving_span=[&](std::size_t first,
+            std::size_t last) {
+        if(last<=first+1)return; // One rail is already owned by a sharp branch.
+        TopoDS_Vertex start_vertex,unused,finish_vertex;
+        TopExp::Vertices(route.edges[first],start_vertex,unused,true);
+        TopExp::Vertices(route.edges[last],unused,finish_vertex,true);
+        if(start_vertex.IsNull()||finish_vertex.IsNull())
+            throw std::runtime_error(
+                "ZIMA Chamfer split route lost an oriented endpoint");
+        ContinuousRoute span;
+        span.selections.assign(route.selections.begin()+first,
+            route.selections.begin()+last+1);
+        span.edges.assign(route.edges.begin()+first,
+            route.edges.begin()+last+1);
+        span.start_vertex=start_vertex;
+        span.finish_vertex=finish_vertex;
+        span.planar_binormal=route.planar_binormal;
 
-        BRepAlgoAPI_Fuse fuse(combined.solid,next.solid);
-        fuse.SetNonDestructive(true);
-        fuse.SetRunParallel(false);
-        fuse.SetToFillHistory(true);
-        fuse.SetFuzzyValue(tolerance);
-        fuse.Build();
-        if(!fuse.IsDone()||fuse.Shape().IsNull()||
-           !BRepCheck_Analyzer(fuse.Shape()).IsValid())
-            return {};
-
-        auto sources=combined.treatment_faces;
-        sources.insert(sources.end(),next.treatment_faces.begin(),
-                       next.treatment_faces.end());
-        TopTools_IndexedMapOfShape result_faces;
-        TopExp::MapShapes(fuse.Shape(),TopAbs_FACE,result_faces);
-        std::vector<TopoDS_Face> mapped;
-        const auto append=[&](const TopoDS_Face& face) {
-            if(result_faces.Contains(face)&&
-               std::none_of(mapped.begin(),mapped.end(),
-                   [&](const TopoDS_Face& current) {
-                       return current.IsSame(face);
-                   }))
-                mapped.push_back(face);
+        std::vector<OcctPlanarEdgeEndFaces> span_end_faces(
+            end_faces.begin(),end_faces.end());
+        const auto suppress_internal_end=[&](std::size_t selection_index,
+                const TopoDS_Vertex& vertex) {
+            if(span_end_faces.empty())return;
+            TopoDS_Vertex original_first,original_last;
+            TopExp::Vertices(selections[selection_index].edge,
+                original_first,original_last,true);
+            auto& value=span_end_faces[selection_index];
+            if(!original_first.IsNull()&&original_first.IsSame(vertex)) {
+                value.first.Nullify();
+                value.automatic_first=false;
+                value.rounded_first=false;
+            } else if(!original_last.IsNull()&&
+                    original_last.IsSame(vertex)) {
+                value.last.Nullify();
+                value.automatic_last=false;
+                value.rounded_last=false;
+            } else {
+                throw std::runtime_error(
+                    "ZIMA Chamfer split route endpoint is not on its rail");
+            }
         };
-        for(const auto& source:sources) {
-            append(source);
-            for(const auto& modified:fuse.Modified(source))
-                if(modified.ShapeType()==TopAbs_FACE)
-                    append(TopoDS::Face(modified));
-            for(const auto& generated:fuse.Generated(source))
-                if(generated.ShapeType()==TopAbs_FACE)
-                    append(TopoDS::Face(generated));
-        }
-        if(mapped.empty())
-            return {};
+        if(first!=0)
+            suppress_internal_end(span.selections.front(),start_vertex);
+        if(last+1!=route.edges.size())
+            suppress_internal_end(span.selections.back(),finish_vertex);
+        components.emplace_back(first,make_swept_continuous_route_tool(
+            span,selections,selection_faces,materials,distance,tolerance,
+            span_end_faces,end_mode));
+    };
 
-        combined=Tool{fuse.Shape(),std::move(mapped),
-            combined.adds_material,combined.material,
-            combined.first_support,next.second_support};
+    std::size_t span_first{};
+    for(std::size_t round=0;round<collapsed_rounds.size();++round) {
+        if(!collapsed_rounds[round])continue;
+        const std::size_t arc=2*round+1;
+        append_surviving_span(span_first,arc-1);
+        span_first=arc+1;
     }
-    return combined;
+    append_surviving_span(span_first,route.edges.size()-1);
+    std::ranges::sort(components,{},&std::pair<std::size_t,Tool>::first);
+    std::vector<Tool> ordered;
+    ordered.reserve(components.size());
+    for(auto& component:components)
+        ordered.push_back(std::move(component.second));
+    return fuse_route_tools(std::move(ordered),tolerance);
 }
 
-Tool make_continuous_route_tool(const ContinuousRoute& route,
+Tool make_swept_continuous_route_tool(const ContinuousRoute& route,
         std::span<const OcctPlanarEdgeChamferSelection> selections,
         const std::vector<std::array<TopoDS_Face,2>>& selection_faces,
         const std::vector<TopoDS_Solid>& materials,double distance,
-        double tolerance) {
+        double tolerance,
+        std::span<const OcctPlanarEdgeEndFaces> end_faces,
+        OcctPlanarEdgeEndMode end_mode) {
     if(route.selections.empty()||route.edges.empty())
         throw std::invalid_argument("ZIMA Chamfer route is empty");
-    if(const auto collapsed=make_collapsed_round_route_tool(route,
-            selections,selection_faces,materials,distance,tolerance))
-        return *collapsed;
     const auto anchor=route.selections.front();
     const auto& edge=selections[anchor].edge;
     const auto& first_face=selection_faces[anchor][0];
@@ -1351,8 +1650,160 @@ Tool make_continuous_route_tool(const ContinuousRoute& route,
     if(treatment_faces.empty())
         throw std::runtime_error(
             "ZIMA Chamfer route sweep omitted its treatment face");
-    return {sweep.Shape(),std::move(treatment_faces),adds,material,
+    Tool tool{sweep.Shape(),std::move(treatment_faces),adds,material,
         first_face,second_face};
+
+    struct RouteEnd {
+        TopoDS_Face choice;
+        std::vector<TopoDS_Face> faces;
+    };
+    const auto terminal_faces=[&](std::size_t selection_index,
+            const TopoDS_Vertex& vertex) {
+        RouteEnd result;
+        if(end_mode!=OcctPlanarEdgeEndMode::AutomaticBodyEnvelope||
+           end_faces.empty())return result;
+        TopoDS_Vertex original_first,original_last;
+        TopExp::Vertices(selections[selection_index].edge,
+            original_first,original_last,true);
+        const auto& authored=end_faces[selection_index];
+        bool automatic{};
+        TopoDS_Face explicit_face;
+        if(!original_first.IsNull()&&original_first.IsSame(vertex)) {
+            automatic=authored.automatic_first;
+            explicit_face=authored.first;
+        } else if(!original_last.IsNull()&&original_last.IsSame(vertex)) {
+            automatic=authored.automatic_last;
+            explicit_face=authored.last;
+        } else {
+            throw std::invalid_argument(
+                "ZIMA Chamfer route endpoint is absent from its terminal member");
+        }
+        const auto endpoint=BRep_Tool::Pnt(vertex);
+        const auto& supports=selection_faces[selection_index];
+        if(!explicit_face.IsNull()) {
+            const gp_Dir outward(-gp_Vec(outgoing_tangent(
+                selections[selection_index].edge,vertex,tolerance)));
+            result.choice=explicit_face;
+            result.faces=selected_terminal_faces(material,supports[0],supports[1],
+                endpoint,outward,explicit_face,tolerance);
+        }
+        if(automatic&&explicit_face.IsNull())
+            result.faces=edge_treatment_terminals::local_terminal_faces(material,
+                supports[0],supports[1],endpoint,tolerance,false);
+        if(automatic&&result.faces.empty())
+            throw std::invalid_argument(
+                "ZIMA Chamfer Cut found no valid terminal boundary");
+        return result;
+    };
+    const auto trim_terminal=[&](std::size_t index,const TopoDS_Vertex& vertex) {
+        const auto terminal=terminal_faces(index,vertex);
+        if(terminal.faces.empty())return;
+        const auto& member=selections[index].edge;
+        const auto& supports=selection_faces[index];
+        const BRepAdaptor_Curve path(member);
+        const bool planar_rail=path.GetType()==GeomAbs_Line&&
+            std::ranges::all_of(supports,[](const auto& face) {
+                return BRepAdaptor_Surface(face,true).GetType()==GeomAbs_Plane;
+            });
+        if(!terminal.choice.IsNull()&&planar_rail) {
+            const auto endpoint=BRep_Tool::Pnt(vertex);
+            const bool first_end=endpoint.Distance(path.Value(
+                path.FirstParameter()))<=endpoint.Distance(path.Value(
+                    path.LastParameter()));
+            OcctPlanarEdgeEndFaces local;
+            local.automatic_first=false;
+            local.automatic_last=false;
+            (first_end?local.first:local.last)=terminal.choice;
+            const auto untrimmed=make_tool(member,supports[0],supports[1],
+                OcctPlanarEdgeChamferMode::EqualDistance,distance,distance,
+                tolerance,material,{},OcctPlanarEdgeEndMode::Perpendicular,
+                {false,false},{});
+            const auto trimmed=make_tool(member,supports[0],supports[1],
+                OcctPlanarEdgeChamferMode::EqualDistance,distance,distance,
+                tolerance,material,local,
+                OcctPlanarEdgeEndMode::AutomaticBodyEnvelope,
+                {first_end,!first_end},{});
+            // A terminal plane can cross a distant member of a returning
+            // route. Replace only the exact triangular prism of this rail.
+            BRepAlgoAPI_Cut remainder(tool.solid,untrimmed.solid);
+            remainder.SetNonDestructive(true);
+            remainder.SetRunParallel(false);
+            remainder.SetToFillHistory(true);
+            remainder.SetFuzzyValue(tolerance);
+            remainder.Build();
+            if(!remainder.IsDone()||remainder.Shape().IsNull())
+                throw std::runtime_error(
+                    "ZIMA Chamfer could not trim its selected end face");
+            auto remaining_faces=mapped_treatment_faces(
+                remainder,tool.treatment_faces);
+            if(remaining_faces.empty())
+                throw std::runtime_error(
+                    "ZIMA Chamfer trim lost its treatment face");
+            auto combined=fuse_route_tools({Tool{remainder.Shape(),
+                std::move(remaining_faces),adds,material,first_face,second_face},
+                trimmed},tolerance);
+            combined.second_support=second_face;
+            tool=std::move(combined);
+            return;
+        }
+        // Use the interior of this terminal member. A previously trimmed
+        // start section may no longer exist when processing the finish.
+        const auto endpoint=BRep_Tool::Pnt(vertex);
+        const double low=path.FirstParameter(),high=path.LastParameter();
+        const double end_parameter=endpoint.Distance(path.Value(low))<=
+                endpoint.Distance(path.Value(high))?low:high;
+        gp_Pnt on_route;
+        gp_Vec derivative;
+        path.D1(end_parameter,on_route,derivative);
+        const gp_Dir tangent_at_end(derivative);
+        const gp_Dir a=support_direction_at_point(member,supports[0],
+            tangent_at_end,on_route,tolerance);
+        const gp_Dir b=support_direction_at_point(member,supports[1],
+            tangent_at_end,on_route,tolerance);
+        gp_Pnt retained_side=on_route.Translated(
+            (distance/3.)*(gp_Vec(a)+gp_Vec(b)));
+        const double middle_parameter=.5*(low+high);
+        if(path.GetType()==GeomAbs_Circle) {
+            gp_Trsf rotation;
+            rotation.SetRotation(path.Circle().Axis(),
+                middle_parameter-end_parameter);
+            retained_side.Transform(rotation);
+        } else {
+            retained_side.Translate(gp_Vec(on_route,path.Value(middle_parameter)));
+        }
+        for(const auto& face:terminal.faces)
+            clip_chamfer_tool(tool.solid,tool.treatment_faces,face,
+                retained_side,tolerance);
+    };
+    trim_terminal(route.selections.front(),route.start_vertex);
+    trim_terminal(route.selections.back(),route.finish_vertex);
+    return tool;
+}
+
+Tool make_continuous_route_tool(const ContinuousRoute& route,
+        std::span<const OcctPlanarEdgeChamferSelection> selections,
+        const std::vector<std::array<TopoDS_Face,2>>& selection_faces,
+        const std::vector<TopoDS_Solid>& materials,double distance,
+        double tolerance,
+        std::span<const OcctPlanarEdgeEndFaces> end_faces,
+        OcctPlanarEdgeEndMode end_mode) {
+    if(route.selections.empty()||route.edges.empty())
+        throw std::invalid_argument("ZIMA Chamfer route is empty");
+    if(const auto collapsed=make_collapsed_round_route_tool(route,
+            selections,selection_faces,materials,distance,tolerance,
+            end_faces,end_mode)) {
+        if(std::getenv("ZIMA_CPP_CHAMFER_ROUTE_PROFILE"))
+            std::fprintf(stderr,
+                "Chamfer continuous route used collapsed-round components members=%zu\n",
+                route.selections.size());
+        return *collapsed;
+    }
+    if(std::getenv("ZIMA_CPP_CHAMFER_ROUTE_PROFILE"))
+        std::fprintf(stderr,
+            "Chamfer continuous route used one swept tool members=%zu\n",
+            route.selections.size());
+    return make_swept_continuous_route_tool(route,selections,
+        selection_faces,materials,distance,tolerance,end_faces,end_mode);
 }
 
 } // namespace
@@ -1532,12 +1983,35 @@ OcctPlanarEdgeChamferResult occt_planar_edge_chamfer(
     }
 
     const auto continuous_route=find_continuous_route(selections,
-        selected_nodes,selection_faces,selection_materials,mode,end_faces,
+        selected_nodes,selection_faces,selection_materials,mode,
         end_mode,tolerance);
+    if(std::getenv("ZIMA_CPP_CHAMFER_ROUTE_PROFILE")) {
+        std::fprintf(stderr,
+            "Chamfer route selections=%zu distance=%.9g continuous=%d",
+            selections.size(),distance_a,continuous_route?1:0);
+        if(continuous_route)
+            std::fprintf(stderr," members=%zu",
+                continuous_route->selections.size());
+        std::fprintf(stderr,"\n");
+        if(continuous_route) {
+            for(std::size_t member=0;
+                    member<continuous_route->edges.size();++member) {
+                const BRepAdaptor_Curve curve(
+                    continuous_route->edges[member]);
+                const auto first=curve.Value(curve.FirstParameter());
+                const auto last=curve.Value(curve.LastParameter());
+                std::fprintf(stderr,
+                    "  member=%zu selection=%zu type=%d first=(%.6g,%.6g,%.6g) last=(%.6g,%.6g,%.6g)\n",
+                    member,continuous_route->selections[member],
+                    static_cast<int>(curve.GetType()),first.X(),first.Y(),
+                    first.Z(),last.X(),last.Y(),last.Z());
+            }
+        }
+    }
     const auto continuous_tool=continuous_route
         ?std::optional<Tool>(make_continuous_route_tool(*continuous_route,
             selections,selection_faces,selection_materials,distance_a,
-            tolerance))
+            tolerance,end_faces,end_mode))
         :std::optional<Tool>{};
 
     // Equal-distance Chamfer branches use the same swept triangular profile.
@@ -1715,8 +2189,8 @@ OcctPlanarEdgeChamferResult occt_planar_edge_chamfer(
                 const int occupied=material_octants(material,
                     BRep_Tool::Pnt(node.vertex),branches,
                     std::max(100.*tolerance,distance_a*.05),tolerance);
-                if((adds_material&&occupied==5)||
-                        (!adds_material&&occupied==3))
+                if(((adds_material&&occupied==5)||
+                        (!adds_material&&occupied==3)))
                     node_connectors.push_back({make_step_connector(
                         node.vertex,branches[0],branches[1],branches[2],
                         distance_a,tolerance),adds_material});

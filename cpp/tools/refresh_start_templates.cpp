@@ -1330,6 +1330,170 @@ void upgrade_native_part_format_52_to_53(
     if(!evidence)throw std::runtime_error("Cannot write migration evidence");
 }
 
+std::size_t make_shared_fillet_nodes_explicit(nlohmann::json& value) {
+    std::size_t changed{};
+    if(value.is_array()) {
+        for(auto& child:value)
+            changed+=make_shared_fillet_nodes_explicit(child);
+        return changed;
+    }
+    if(!value.is_object())return 0;
+    if(value.value("type",std::string{})=="fillet"&&
+            value.contains("route_end_faces")) {
+        auto& routes=value.at("route_end_faces");
+        if(!routes.is_array())throw std::runtime_error(
+            "Format 53 Fillet route ends are invalid");
+        struct End {nlohmann::json* mode{};std::string vertex;};
+        std::vector<End> ends;
+        for(auto& route:routes) {
+            if(!route.is_object())throw std::runtime_error(
+                "Format 53 Fillet route end is invalid");
+            for(const auto prefix:{std::string("first"),
+                    std::string("last")}) {
+                const auto vertex=prefix+"_vertex";
+                const auto mode=prefix+"_mode";
+                if(!route.contains(vertex)||!route.contains(mode)||
+                   route.at(vertex).is_null())continue;
+                ends.push_back({&route.at(mode),route.at(vertex).dump()});
+            }
+        }
+        for(std::size_t first=0;first<ends.size();++first) {
+            if(*ends[first].mode!="cut")continue;
+            std::vector<std::size_t> node;
+            for(std::size_t candidate=0;candidate<ends.size();++candidate)
+                if(ends[candidate].vertex==ends[first].vertex)
+                    node.push_back(candidate);
+            if(node.size()<2||node.size()>3||
+               std::ranges::any_of(node,[&](const auto index) {
+                   return *ends[index].mode!="cut";
+               }))continue;
+            for(const auto index:node) {
+                *ends[index].mode="rounded_join";
+                ++changed;
+            }
+        }
+    }
+    for(auto& [key,child]:value.items()) {
+        static_cast<void>(key);
+        changed+=make_shared_fillet_nodes_explicit(child);
+    }
+    return changed;
+}
+
+void upgrade_native_part_format_53_to_54(
+        const std::filesystem::path& source,
+        const std::filesystem::path& output,
+        const std::filesystem::path& report) {
+    if(std::filesystem::absolute(source).lexically_normal()==
+            std::filesystem::absolute(output).lexically_normal())
+        throw std::runtime_error(
+            "Format migration output must be separate from its source");
+    std::ifstream input(source,std::ios::binary);
+    std::string migrated((std::istreambuf_iterator<char>(input)),{});
+    if(!input&&!input.eof())throw std::runtime_error(
+        "Cannot read native Part for format migration");
+    std::size_t rounded_join_ends{};
+    std::size_t cursor{};
+    while(cursor<migrated.size()) {
+        const auto line_end=migrated.find('\n',cursor);
+        const auto next=line_end==std::string::npos?
+            migrated.size():line_end+1;
+        auto content_end=line_end==std::string::npos?
+            migrated.size():line_end;
+        if(content_end>cursor&&migrated[content_end-1]=='\r')--content_end;
+        const auto marker=migrated.find("param.cpp_history=",cursor);
+        if(marker<content_end) {
+            const auto equals=migrated.find('=',marker);
+            if(equals==std::string::npos||equals>=content_end)
+                throw std::runtime_error(
+                    "Format 53 history packet is invalid");
+            auto packet=nlohmann::json::parse(migrated.substr(
+                equals+1,content_end-equals-1));
+            const auto packet_changes=
+                make_shared_fillet_nodes_explicit(packet);
+            if(packet_changes) {
+                const auto replacement=packet.dump();
+                migrated.replace(equals+1,content_end-equals-1,replacement);
+                const auto length_delta=static_cast<std::ptrdiff_t>(
+                    replacement.size())-static_cast<std::ptrdiff_t>(
+                        content_end-equals-1);
+                cursor=static_cast<std::size_t>(
+                    static_cast<std::ptrdiff_t>(next)+length_delta);
+                rounded_join_ends+=packet_changes;
+                continue;
+            }
+        }
+        cursor=next;
+    }
+    constexpr std::string_view old_version="format_version=53";
+    std::size_t version_count{};
+    for(std::size_t position=migrated.find(old_version);
+            position!=std::string::npos;
+            position=migrated.find(old_version,position+1)) {
+        const bool line_start=position==0||migrated[position-1]=='\n';
+        const auto after=position+old_version.size();
+        const bool line_end=after==migrated.size()||
+            migrated[after]=='\n'||migrated[after]=='\r';
+        if(line_start&&line_end)++version_count;
+    }
+    if(version_count!=1)throw std::runtime_error(
+        "Expected exactly one native Part format 53 declaration");
+    migrated.replace(migrated.find(old_version),old_version.size(),
+        "format_version=54");
+    // RoundedJoin changes the calculated meaning of authored route-end modes.
+    // Discard all derived format-53 geometry and prove a fresh current-format
+    // calculation before replacing a repository-owned asset.
+    bool cache_removed{};
+    const auto cache=migrated.find("[CachedBodies]");
+    if(cache!=std::string::npos&&(cache==0||migrated[cache-1]=='\n')) {
+        const auto next_section=migrated.find("\n[",cache+1);
+        if(next_section==std::string::npos)
+            throw std::runtime_error("Native Part cache section is invalid");
+        migrated.erase(cache,next_section+1-cache);
+        cache_removed=true;
+    }
+    std::filesystem::create_directories(output.parent_path());
+    std::ofstream native(output,std::ios::binary);
+    native.write(migrated.data(),static_cast<std::streamsize>(migrated.size()));
+    native.close();
+    if(!native)throw std::runtime_error("Cannot write migrated native Part");
+
+    const auto authored=zima::document::PartDocument::load(output);
+    const auto definition=authored.serialized();
+    zima::kernel::OcctKernel engine;
+    auto calculated=engine.evaluate_history(authored.kernel_operations());
+    for(const auto& boundary:calculated)
+        if(!boundary.calculation_errors.empty())
+            throw std::runtime_error(
+                "Migrated factory Part calculation contains an error");
+    authored.save(output,calculated);
+    std::vector<zima::kernel::BodyResult> restored;
+    zima::document::NativeCalculatedCachePtr native_cache;
+    const auto reopened=zima::document::PartDocument::load(
+        output,&restored,&native_cache);
+    if(reopened.serialized()!=definition||
+            restored.size()!=calculated.size()||
+            (!calculated.empty()&&!native_cache))
+        throw std::runtime_error(
+            "Migrated factory Part readback changed its definition, boundaries or cache");
+    for(std::size_t index=0;index<calculated.size();++index)
+        if(zima::document::serialize_body_result(restored[index])!=
+                zima::document::serialize_body_result(calculated[index]))
+            throw std::runtime_error(
+                "Migrated factory Part readback lost geometry or references");
+
+    std::filesystem::create_directories(report.parent_path());
+    std::ofstream evidence(report);
+    evidence<<nlohmann::json{{"migration","part-format-53-to-54"},
+        {"format_upgraded",true},
+        {"stale_derived_cache_removed",cache_removed},
+        {"explicit_rounded_join_ends",rounded_join_ends},
+        {"calculated_boundaries",calculated.size()},
+        {"calculation_errors",0},
+        {"native_readback_exact",true}}.dump(2)<<'\n';
+    if(!evidence)throw std::runtime_error("Cannot write migration evidence");
+}
+
 void attach_verified_legacy_part_cache(
         const std::filesystem::path& current_authored,
         const std::filesystem::path& legacy_source,
@@ -1411,6 +1575,58 @@ void attach_verified_legacy_part_cache(
 
 int main(int argc,char** argv){try{
     using namespace zima;
+    if(argc==5&&std::string_view(argv[1])==
+            "--upgrade-part-format53-to54") {
+        upgrade_native_part_format_53_to_54(
+            std::filesystem::u8path(argv[2]),
+            std::filesystem::u8path(argv[3]),
+            std::filesystem::u8path(argv[4]));
+        std::cout<<"Calculated, saved and reopened one native Part in format 54\n";
+        return 0;
+    }
+    if(argc==4&&std::string_view(argv[1])==
+            "--upgrade-repository-part-format53-to54") {
+        const auto output_root=std::filesystem::u8path(argv[2]);
+        const auto report_root=std::filesystem::u8path(argv[3]);
+        std::vector<std::filesystem::path> sources;
+        for(const auto& relative_root:{std::filesystem::path("config"),
+                std::filesystem::path("cpp/tests/fixtures")}) {
+            for(const auto& entry:
+                    std::filesystem::recursive_directory_iterator(
+                        relative_root)) {
+                if(!entry.is_regular_file())continue;
+                const auto extension=entry.path().extension();
+                if(extension!=".prtz"&&extension!=".frmz"&&
+                        extension!=".tblz"&&extension!=".symz")continue;
+                std::ifstream input(entry.path(),std::ios::binary);
+                const std::string data((std::istreambuf_iterator<char>(input)),{});
+                if(data.find("format_version=53")!=std::string::npos)
+                    sources.push_back(entry.path());
+            }
+        }
+        std::ranges::sort(sources);
+        if(sources.empty())throw std::runtime_error(
+            "No repository native Part format 53 assets were found");
+        for(const auto& source:sources) {
+            const auto relative=std::filesystem::relative(
+                source,std::filesystem::current_path());
+            auto evidence=report_root/relative;
+            evidence+=".json";
+            upgrade_native_part_format_53_to_54(
+                source,output_root/relative,evidence);
+        }
+        std::filesystem::create_directories(report_root);
+        std::ofstream summary(report_root/"summary.json");
+        summary<<nlohmann::json{{"migration","part-format-53-to-54"},
+            {"asset_count",sources.size()},
+            {"all_outputs_separate_from_sources",true},
+            {"all_assets_calculated_saved_and_reopened",true}}.dump(2)<<'\n';
+        if(!summary)throw std::runtime_error(
+            "Cannot write repository migration evidence");
+        std::cout<<"Calculated, saved and reopened "<<sources.size()
+            <<" repository native Part assets in format 54\n";
+        return 0;
+    }
     if(argc==4&&std::string_view(argv[1])==
             "--upgrade-repository-part-format52-to53") {
         const auto output_root=std::filesystem::u8path(argv[2]);

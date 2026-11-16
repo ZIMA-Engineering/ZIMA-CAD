@@ -2821,6 +2821,12 @@
   "Sheet from Body does not exist.": "Лист из тела не существует.",
   "Activate the Body owning this Sheet from Body.": "Активируйте тело, которому принадлежит этот Лист из тела.",
   "The selected feature is not a bound Sheet from Body part.": "Выбранный элемент не является связанной частью Листа из тела.",
+  "Zaoblený přechod": "Скруглённый переход",
+  "Řez %1": "Рез %1",
+  "Edge treatment preview did not produce an exact result wire.": "Предпросмотр обработки кромки не создал точную результирующую геометрию.",
   "zima::app::AssemblyWorkspaceWindow|Bez řezu": "Без реза",
-  "zima::app::AssemblyWorkspaceWindow|Řez": "Рез"
+  "zima::app::AssemblyWorkspaceWindow|Řez": "Рез",
+  "zima::app::AssemblyWorkspaceWindow|Řez %1": "Рез %1",
+  "zima::app::AssemblyWorkspaceWindow|Edge treatment preview did not produce an exact result wire.": "Предпросмотр обработки кромки не создал точную результирующую геометрию.",
+  "zima::app::AssemblyWorkspaceWindow|Zaoblený přechod": "Скруглённый переход"
 }

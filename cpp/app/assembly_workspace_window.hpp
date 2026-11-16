@@ -22,6 +22,7 @@
 #include <map>
 #include <optional>
 #include <array>
+#include <cstdint>
 #include <utility>
 #include <vector>
 #include <set>
@@ -488,6 +489,11 @@ private:
     std::optional<zima::viewer::ViewerCandidate> edge_treatment_hover_seed_;
     zima::document::EdgeTreatmentParameters edge_treatment_preview_parameters_;
     std::string edge_treatment_preview_owner_id_;
+    std::optional<zima::document::HistoryContainer>
+        edge_treatment_exact_preview_definition_;
+    std::uint64_t edge_treatment_exact_preview_generation_{};
+    std::vector<zima::kernel::ViewerEdge>
+        edge_treatment_exact_preview_edges_;
     bool shell_face_selection_active_{};
     PrimitivePropertiesDialog* shell_dialog_{};
     std::vector<zima::kernel::FaceReference> pending_shell_faces_;
