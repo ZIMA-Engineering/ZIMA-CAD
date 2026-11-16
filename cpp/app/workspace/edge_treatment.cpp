@@ -421,7 +421,7 @@ void AssemblyWorkspaceWindow::refresh_edge_treatment_preview() {
             using Mode=zima::document::EdgeTreatmentParameters::RouteEndMode;
             const auto current=edge_treatment_dialog_->pending_value();
             for(const auto& node:learned_nodes) {
-                if(node.route_ends.size()!=2)continue;
+                if(node.route_ends.size()<2||node.route_ends.size()>3)continue;
                 bool all_no_cut=true;
                 for(const auto [route,first]:node.route_ends) {
                     if(route>=current.edge_treatment.route_end_faces.size()) {

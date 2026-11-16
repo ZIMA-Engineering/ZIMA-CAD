@@ -3471,10 +3471,17 @@ OcctPlanarEdgeFilletResult occt_planar_edge_fillet(
                     if(std::abs(directions[a].Dot(directions[b]))>1.0e-7)
                         orthogonal=false;
             has_mixed_node=true;
-            if(!orthogonal||subtractive!=1||
-                    !std::ranges::all_of(node.jobs,[&](const auto job) {
-                        return rounded_at(job,node.vertex);
-                    }))continue;
+            if(std::getenv("ZIMA_CPP_FILLET_NODE_PROFILE")!=nullptr)
+                std::fprintf(stderr,
+                    "Fillet mixed node jobs=%zu subtractive=%td orthogonal=%d rounded=%d%d%d\n",
+                    node.jobs.size(),static_cast<std::ptrdiff_t>(subtractive),
+                    orthogonal?1:0,
+                    node.jobs.size()>0&&rounded_at(node.jobs[0],node.vertex),
+                    node.jobs.size()>1&&rounded_at(node.jobs[1],node.vertex),
+                    node.jobs.size()>2&&rounded_at(node.jobs[2],node.vertex));
+            // A three-branch node offers no end-mode choice, so it is always
+            // solved as a shared rounded corner.
+            if(!orthogonal||subtractive!=1)continue;
             std::size_t outer=0;
             for(std::size_t index=0;index<3;++index)
                 if(!*job_adds_material[node.jobs[index]])outer=index;
