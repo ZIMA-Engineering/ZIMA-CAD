@@ -1911,6 +1911,37 @@ int main() try {
             zima::kernel::OcctPlanarEdgeFilletEndMode::
                 AutomaticBodyEnvelope,connected_route);
 
+        // A new strip between two existing radii crosses periodic surface
+        // seams at both ends. Its exact Boolean can be valid even when OCCT
+        // cannot concatenate the resulting boundary pcurves during cleanup.
+        const auto left_end=straight_edge_between(third.Shape(),
+            {second_min_x,first_max_y,50.},{second_min_x,first_max_y,55.});
+        require(!left_end.IsNull(),"Two-radius terminal fixture lost its left edge");
+        const auto both_ends=zima::kernel::occt_planar_edge_fillet(
+            third.Shape(),std::array{left_end},3.,1.0e-7,{},
+            zima::kernel::OcctPlanarEdgeFilletEndMode::AutomaticBodyEnvelope);
+        const auto between=straight_edge_between(both_ends.Shape(),
+            {second_min_x-3.,first_max_y,50.},{first_max_x+4.,first_max_y,50.},.002);
+        require(!between.IsNull(),"Two-radius terminal fixture lost its connecting edge");
+        for(const double radius:{1.,3.,5.}) {
+            const auto strip=zima::kernel::occt_planar_edge_fillet(
+                both_ends.Shape(),std::array{between},radius,1.0e-7,{},
+                zima::kernel::OcctPlanarEdgeFilletEndMode::AutomaticBodyEnvelope);
+            const auto repeated=zima::kernel::occt_planar_edge_fillet(
+                both_ends.Shape(),std::array{TopoDS::Edge(between.Reversed())},radius,1.0e-7,{},
+                zima::kernel::OcctPlanarEdgeFilletEndMode::AutomaticBodyEnvelope);
+            require(strip.history&&!strip.fillet_faces.front().empty()&&
+                    BRepCheck_Analyzer(strip.Shape(),true,true,false).IsValid()&&
+                    BRepCheck_Analyzer(repeated.Shape(),true,true,false).IsValid(),
+                "Fillet between existing radii failed its validated cleanup");
+            require(volume(strip.Shape())>volume(both_ends.Shape())+1.e-6,
+                "Fillet between existing radii omitted its additive strip");
+            near(volume(strip.Shape()),volume(repeated.Shape()),
+                "Two-radius terminal result depends on edge orientation");
+            near(area(strip.Shape()),area(repeated.Shape()),
+                "Two-radius terminal area depends on edge orientation");
+        }
+
         const auto fourth_edge=straight_edge_between(third.Shape(),
             {second_min_x,first_max_y,50.},
             {first_max_x+4.,first_max_y,50.});

@@ -4,6 +4,7 @@
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/edge_treatment_operations.hpp>
 #include <zima/workspace/operation_input.hpp>
+#include <zima/workspace/model_calculation.hpp>
 #include <zima/document/edge_treatment_selection.hpp>
 #include <zima/kernel/calculation_diagnostics.hpp>
 #include <zima/kernel/calculated_body_shape.hpp>
@@ -36,8 +37,21 @@ kernel::ViewerMesh calculate_candidate_body(const document::DocumentSession& ses
     static_cast<void>(workspace::commit_edge_treatment(trial,engine,id,feature,
         session.document().find_container(feature.id)?workspace::EdgeTreatmentEditMode::Replace:
             workspace::EdgeTreatmentEditMode::Create));
-    const auto* output=workspace::calculated_operation_output(trial.open_part(id)->session,feature.id);
+    auto& trial_session=trial.open_part(id)->session;
+    const auto* output=workspace::calculated_operation_output(trial_session,feature.id);
     require(output,"Calculated treatment has no output");
+    if(body&&output->kernel_shape.empty()) {
+        // An unchanged candidate deliberately performs no calculation. A
+        // compact saved output then needs a separate explicit oracle build.
+        workspace::PartCalculationPolicy policy;
+        policy.publish_complete_history=true;
+        policy.history_reference_baseline=&trial_session.calculated_boundaries();
+        auto calculated=workspace::calculate_part(engine,
+            trial_session.document(),nullptr,policy);
+        trial_session.update_calculated_cache_only(std::move(calculated));
+        output=workspace::calculated_operation_output(trial_session,feature.id);
+        require(output,"Rebuilt treatment has no output");
+    }
     if(body)*body=*output;
     if(!save_path.empty()) {
         const auto& saved=trial.open_part(id)->session;
@@ -897,14 +911,20 @@ void verify_saved_treatment(const kernel::OcctKernel& kernel,const fs::path& pat
     const auto feature=*found;
     while(document.history.back().id!=owner)
         document.erase_history_object(document.history.back().id);
-    document::DocumentSession session(document,boundaries);
+    workspace::Workspace prepared;
+    prepared.add_part(document,boundaries);
+    // Properties explicitly prepares its real rollback input before any
+    // analytic draft edits. Exercise the same input, including terminal faces
+    // omitted from a compact persisted history packet.
+    static_cast<void>(workspace::materialize_part_history_input_boundary(
+        prepared,kernel,document.document_id,owner));
+    const auto& session=prepared.open_part(document.document_id)->session;
     const auto* input=workspace::calculated_operation_input(session,owner);
     require(input,"Saved treatment has no calculated input");
     std::vector<std::vector<kernel::ViewerEdge>> groups;
     for(std::size_t r=0;r<feature.edge_treatment.routes.size();++r)
         groups.push_back(document::current_treatment_selection_wire(feature.edge_treatment,r,{},input->mesh));
     for(const double radius:{1.,3.,4.,5.,6.,8.}) {
-        if(std::abs(radius-feature.edge_treatment.primary_size)<1.e-9)continue;
         auto candidate=feature;candidate.edge_treatment.primary_size=radius;
         const auto count=kernel::body_calculation_count.load();
         const auto start=std::chrono::steady_clock::now();

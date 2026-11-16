@@ -14,6 +14,73 @@
 namespace zima::app {
 using namespace workspace_detail;
 
+namespace {
+using NodeMode=document::EdgeTreatmentParameters::RouteEndMode;
+struct NodeMenuChoice {
+    NodeMode mode;
+    std::vector<kernel::FaceReference> faces;
+    bool current{};
+};
+struct NodeCutChoice {std::vector<kernel::FaceReference> faces;};
+
+std::vector<std::pair<std::size_t,bool>> node_label_ends(const std::string& key) {
+    constexpr std::string_view prefix="edge-terminal:";
+    if(!key.starts_with(prefix))return {};
+    std::vector<std::pair<std::size_t,bool>> ends;
+    for(std::size_t begin=prefix.size();begin<key.size();) {
+        const auto comma=key.find(',',begin);
+        const auto end=comma==std::string::npos?key.size():comma;
+        const auto separator=key.find(':',begin);
+        if(separator==std::string::npos||separator>=end)return {};
+        const auto endpoint=key.substr(separator+1,end-separator-1);
+        if(endpoint!="first"&&endpoint!="last")return {};
+        try {ends.emplace_back(std::stoull(key.substr(begin,separator-begin)),endpoint=="first");}
+        catch(...) {return {};}
+        if(comma==std::string::npos)break;
+        begin=comma+1;
+    }
+    return ends;
+}
+
+// One menu for a Properties draft and direct inspection. The caller owns
+// the transaction; opening or dismissing this popup only reads its inputs.
+std::optional<NodeMenuChoice> choose_node_solution(QWidget* parent,const QPoint& position,
+        const document::EdgeTreatmentParameters& parameters,
+        const std::vector<std::pair<std::size_t,bool>>& authored_ends,
+        const std::vector<NodeCutChoice>& cuts,bool spike,bool rounding) {
+    if(authored_ends.empty()||(authored_ends.size()>1&&!rounding))return {};
+    const auto tr=[](const char* text){return QCoreApplication::translate("AssemblyWorkspaceWindow",text);};
+    QMenu menu(parent);
+    menu.setObjectName("edgeTreatmentEndMenu");
+    std::vector<std::pair<QAction*,NodeMenuChoice>> actions;
+    const auto add=[&](const QString& text,NodeMode mode,
+            std::vector<kernel::FaceReference> faces={},bool automatic=false) {
+        faces.resize(authored_ends.size());
+        bool current=true;
+        for(std::size_t i=0;i<authored_ends.size();++i) {
+            const auto [route,first]=authored_ends[i];
+            const auto ends=route<parameters.route_end_faces.size()
+                ?parameters.route_end_faces[route]:document::EdgeTreatmentParameters::RouteEndFaces{};
+            const auto& face=first?ends.first:ends.last;
+            current=current&&(first?ends.first_mode:ends.last_mode)==mode&&
+                (mode!=NodeMode::Cut||face==faces[i]||(automatic&&!face.valid()));
+        }
+        auto* action=menu.addAction(text);
+        action->setCheckable(true);action->setChecked(current);
+        actions.emplace_back(action,NodeMenuChoice{mode,std::move(faces),current});
+    };
+    if(spike)add(tr("Špička"),NodeMode::RoundedJoin);
+    if(rounding)add(tr("Zaoblení"),NodeMode::RoundedArc);
+    if(authored_ends.size()==1||!spike)add(tr("Bez řezu"),NodeMode::NoCut);
+    if(authored_ends.size()==1)
+        for(std::size_t i=0;i<cuts.size();++i)
+            add(tr("Řez %1").arg(i+1),NodeMode::Cut,cuts[i].faces,i==0);
+    const auto* chosen=menu.exec(position);
+    for(auto& [action,choice]:actions)if(action==chosen)return std::move(choice);
+    return {};
+}
+} // namespace
+
 void AssemblyWorkspaceWindow::start_edge_treatment(
     zima::document::FeatureKind kind) {
     if (properties_dialog_ != nullptr ||
@@ -483,13 +550,12 @@ void AssemblyWorkspaceWindow::refresh_edge_treatment_preview() {
     const auto terminal_nodes=edge_treatment_terminal_nodes(
         preview.terminal_labels);
     struct EndMenuProbe {
-        struct CutChoice {std::vector<zima::kernel::FaceReference> faces;};
         zima::document::HistoryContainer key;
         std::vector<std::pair<std::size_t,bool>> route_ends;
         std::uint64_t generation{};
         std::string part_id;
         std::shared_ptr<const int> runtime_identity;
-        std::vector<CutChoice> cuts;
+        std::vector<NodeCutChoice> cuts;
         bool join{};
         bool arc{};
     };
@@ -580,102 +646,17 @@ void AssemblyWorkspaceWindow::refresh_edge_treatment_preview() {
     viewer_->set_interactive_labels(std::move(terminal_labels),
         [this,probe_end_menu](const std::string& key,
                 const QPoint& global_position) {
-            constexpr std::string_view prefix="edge-terminal:";
-            if(!edge_treatment_dialog_||!key.starts_with(prefix))return false;
-            std::vector<std::pair<std::size_t,bool>> route_ends;
-            std::size_t begin=prefix.size();
-            while(begin<key.size()) {
-                const auto comma=key.find(',',begin);
-                const auto end=comma==std::string::npos?key.size():comma;
-                const auto separator=key.find(':',begin);
-                if(separator==std::string::npos||separator>=end)return false;
-                std::size_t route{};
-                try {
-                    route=static_cast<std::size_t>(std::stoull(
-                        key.substr(begin,separator-begin)));
-                } catch(...) {return false;}
-                const auto endpoint=key.substr(separator+1,
-                    end-separator-1);
-                if(endpoint!="first"&&endpoint!="last")return false;
-                route_ends.emplace_back(route,endpoint=="first");
-                if(comma==std::string::npos)break;
-                begin=comma+1;
-            }
+            if(!edge_treatment_dialog_)return false;
+            const auto route_ends=node_label_ends(key);
             if(route_ends.empty())return false;
             const auto pending=edge_treatment_dialog_->pending_value();
-            using Mode=zima::document::EdgeTreatmentParameters::RouteEndMode;
-            std::vector<Mode> current;
-            for(const auto& [route,first]:route_ends) {
-                if(route>=pending.edge_treatment.route_end_faces.size())
-                    return false;
-                const auto& ends=pending.edge_treatment.route_end_faces[route];
-                current.push_back(first?ends.first_mode:ends.last_mode);
-            }
+            for(const auto [route,first]:route_ends)
+                if(route>=pending.edge_treatment.route_end_faces.size())return false;
             const auto probed=probe_end_menu(route_ends,pending);
-            auto cut_choices=probed.cuts;
-            const bool rounded_join_valid=probed.join;
-            const bool rounded_arc_valid=probed.arc;
-            const bool joined_node=route_ends.size()>=2;
-            // Špička is the automatic result of a joined node; with no
-            // alternative there is nothing to choose.
-            if(joined_node&&!rounded_arc_valid)return true;
-            QMenu menu(this);
-            menu.setObjectName("edgeTreatmentEndMenu");
-            QAction* rounded_join=rounded_join_valid
-                ?menu.addAction(tr("Špička")):nullptr;
-            QAction* rounded_arc=rounded_arc_valid
-                ?menu.addAction(tr("Zaoblení")):nullptr;
-            QAction* no_cut=joined_node&&rounded_join
-                ?nullptr:menu.addAction(tr("Bez řezu"));
-            std::vector<QAction*> cut_actions;
-            cut_actions.reserve(cut_choices.size());
-            for(std::size_t index=0;!joined_node&&index<cut_choices.size();
-                    ++index)
-                cut_actions.push_back(menu.addAction(
-                    tr("Řez %1").arg(index+1)));
-            if(no_cut)no_cut->setCheckable(true);
-            for(auto* action:cut_actions)action->setCheckable(true);
-            if(rounded_join)rounded_join->setCheckable(true);
-            if(rounded_arc)rounded_arc->setCheckable(true);
-            if(rounded_arc)rounded_arc->setChecked(std::ranges::all_of(
-                current,[](Mode mode){return mode==Mode::RoundedArc;}));
-            if(no_cut)no_cut->setChecked(std::ranges::all_of(current,
-                [](Mode mode){return mode==Mode::NoCut;}));
-            for(std::size_t choice=0;choice<cut_actions.size();++choice) {
-                bool selected=true;
-                for(std::size_t index=0;index<route_ends.size();++index) {
-                    const auto [route,first]=route_ends[index];
-                    const auto& ends=pending.edge_treatment.
-                        route_end_faces[route];
-                    const auto& stored=first?ends.first:ends.last;
-                    // The automatic default Cut has no stored face and is
-                    // the first listed choice.
-                    selected=selected&&
-                        (first?ends.first_mode:ends.last_mode)==Mode::Cut&&
-                        (stored==cut_choices[choice].faces[index]||
-                            (!stored.valid()&&choice==0));
-                }
-                cut_actions[choice]->setChecked(selected);
-            }
-            if(rounded_join)rounded_join->setChecked(std::ranges::all_of(
-                current,[](Mode mode){return mode==Mode::RoundedJoin;}));
-            const auto* chosen=menu.exec(global_position);
-            if(no_cut&&chosen==no_cut)
-                edge_treatment_dialog_->set_edge_route_end_modes(
-                    route_ends,Mode::NoCut);
-            else if(const auto cut=std::ranges::find(cut_actions,chosen);
-                    cut!=cut_actions.end()) {
-                const auto index=static_cast<std::size_t>(
-                    cut-cut_actions.begin());
+            if(const auto choice=choose_node_solution(this,global_position,
+                    pending.edge_treatment,route_ends,probed.cuts,probed.join,probed.arc))
                 edge_treatment_dialog_->set_edge_route_end_choice(
-                    route_ends,Mode::Cut,cut_choices[index].faces);
-            }
-            else if(rounded_join&&chosen==rounded_join)
-                edge_treatment_dialog_->set_edge_route_end_modes(
-                    route_ends,Mode::RoundedJoin);
-            else if(rounded_arc&&chosen==rounded_arc)
-                edge_treatment_dialog_->set_edge_route_end_modes(
-                    route_ends,Mode::RoundedArc);
+                    route_ends,choice->mode,choice->faces);
             return true;
         });
     for (auto& dimension : preview.dimensions) dimension.reference.instance_path = instance_path;
@@ -722,11 +703,68 @@ void AssemblyWorkspaceWindow::refresh_edge_treatment_inspection_nodes() {
             workspace_.displayed_document_id(),zima::assembly::InstancePath::decode(path),labels[i].position);
     }
     viewer_->set_interactive_labels(std::move(labels),
-        [this,owner=feature->id,kind=feature->feature_kind](const std::string& key,const QPoint& position) {
-            // Reuse the existing rollback editor, its node menu and OK/Cancel
-            // transaction. Inspection itself neither edits nor calculates.
-            show_primitive_properties(kind,owner);
-            if(edge_treatment_dialog_)viewer_->activate_interactive_label(key,position);
+        [this,owner=feature->id,document_id=workspace_.active_document_id(),path](
+                const std::string& key,const QPoint& position) {
+            if(properties_dialog_||workspace_.active_document_id()!=document_id||
+                    workspace_.active_occurrence_path()!=path||!part_element_context_menu_enabled(owner))return false;
+            try {
+                const auto route_ends=node_label_ends(key);
+                const auto* part=workspace_.open_part(document_id);
+                const auto* stored=part?part->session.document().find_container(owner):nullptr;
+                if(!stored||route_ends.empty())return false;
+                const auto original=*stored;
+                const auto generation=part->session.data_generation();
+                const auto identity=part->runtime_identity;
+                const auto* input=workspace::calculated_operation_input(part->session,owner);
+                if(!input)return false;
+                std::vector<std::vector<kernel::ViewerEdge>> groups;
+                for(std::size_t route=0;route<original.edge_treatment.routes.size();++route)
+                    groups.push_back(document::current_treatment_selection_wire(original.edge_treatment,route,{},input->mesh));
+                const auto authored_ends=edge_treatment_authored_node_ends(groups,original.edge_treatment,route_ends);
+                const auto solutions=edge_treatment_preview_node_solutions(groups,original,input->mesh,route_ends);
+                std::vector<NodeCutChoice> cuts;
+                if(route_ends.size()==1) {
+                    const auto [route,first]=route_ends.front();
+                    for(const auto& face:edge_treatment_preview_end_choices(groups,original.edge_treatment,&input->mesh,route,first))
+                        cuts.push_back({{face}});
+                }
+                const auto choice=choose_node_solution(this,position,original.edge_treatment,
+                    authored_ends,cuts,solutions.spike,solutions.rounding);
+                if(!choice||choice->current)return true;
+                // A popup runs a nested event loop. Never apply an old choice
+                // to a changed document, occurrence or calculated boundary.
+                part=workspace_.open_part(document_id);
+                if(!part||part->runtime_identity!=identity||part->session.data_generation()!=generation||
+                        workspace_.active_document_id()!=document_id||workspace_.active_occurrence_path()!=path||
+                        !part_element_context_menu_enabled(owner))return true;
+                auto pending=original;
+                auto& ends=pending.edge_treatment.route_end_faces;
+                ends.resize(pending.edge_treatment.routes.size());
+                for(std::size_t i=0;i<authored_ends.size();++i) {
+                    const auto [route,first]=authored_ends[i];
+                    auto& end=ends.at(route);
+                    (first?end.first_mode:end.last_mode)=choice->mode;
+                    (first?end.first:end.last)=choice->faces[i];
+                    auto& vertex=first?end.first_vertex:end.last_vertex;
+                    if(!vertex.valid()) {
+                        const auto paths=ordered_edge_treatment_preview_paths(groups.at(route));
+                        if(paths.size()!=1||paths.front().edges.empty())return true;
+                        const bool display_first=route_ends[i].second;
+                        const auto& edge=display_first?paths.front().edges.front():paths.front().edges.back();
+                        if(edge.edge_treatment_endpoint_references.size()!=2)return true;
+                        vertex=edge.edge_treatment_endpoint_references[display_first?0:1];
+                    }
+                }
+                // Choosing the action is explicit confirmation. Reuse the
+                // same atomic calculation/Undo path as changed Properties OK.
+                if(workspace::commit_edge_treatment(workspace_,kernel_,document_id,std::move(pending),
+                        workspace::EdgeTreatmentEditMode::Replace)) {
+                    refresh_tabs();
+                    show_parameter_dimensions(owner);
+                }
+            } catch(const std::exception& error) {
+                state_->setText(tr(error.what()));
+            }
             return true;
         },true);
 }

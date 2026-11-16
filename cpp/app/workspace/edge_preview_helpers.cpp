@@ -1151,7 +1151,11 @@ edge_preview_curved_terminal_intersection(
     std::vector<std::optional<std::pair<Vec3,Vec3>>> planes;
     for(const auto& face:terminal.curved_terminal_faces)
         planes.push_back(edge_preview_terminal_plane(mesh,face));
-    const bool needs_mesh=std::ranges::any_of(planes,[](const auto& plane){return !plane;});
+    std::vector<bool> analytic_faces(planes.size());
+    for(std::size_t i=0;i<planes.size();++i)
+        analytic_faces[i]=planes[i].has_value()||std::ranges::any_of(
+            cylinders,[&](const auto& cylinder){return cylinder.first==i;});
+    const bool needs_mesh=std::ranges::find(analytic_faces,false)!=analytic_faces.end();
     std::vector<std::optional<double>> previous_parameters(
         terminal.curved_terminal_faces.size());
     for(const auto& origin:terminal.section.wire.points) {
@@ -1196,7 +1200,10 @@ edge_preview_curved_terminal_intersection(
             const auto face_index=candidate_face(
                 mesh.triangle_references[triangle]);
             if(!face_index||3*triangle+2>=mesh.triangles.size())continue;
-            if(planes[*face_index])continue;
+            // Exact plane/cylinder intersections must not compete with their
+            // tessellated chords. Otherwise a fully materialized rollback
+            // mesh can move a terminal away from its analytic boundary.
+            if(analytic_faces[*face_index])continue;
             std::array<Vec3,3> vertices;
             bool valid=true;
             for(std::size_t corner=0;corner<3;++corner) {
@@ -1256,7 +1263,12 @@ edge_preview_curved_terminal_intersection(
                 line_origin)-cylinder.radius*cylinder.radius;
             double discriminant=linear*linear-4.*quadratic*constant;
             const double tolerance=1.0e-7*std::max(1.,cylinder.radius);
-            if(discriminant<-tolerance*tolerance)continue;
+            // Convert the existing radial tolerance to discriminant units.
+            // Squaring it alone rejects tangent contacts after tiny axis-fit
+            // roundoff and discards the whole terminal's otherwise valid cut.
+            const double discriminant_tolerance=4.*quadratic*tolerance*
+                (2.*cylinder.radius+tolerance);
+            if(discriminant<-discriminant_tolerance)continue;
             discriminant=std::max(0.,discriminant);
             for(const double parameter:{
                     (-linear-std::sqrt(discriminant))/(2.*quadratic),
@@ -2188,6 +2200,25 @@ EdgeTreatmentPreviewGeometry edge_treatment_preview_wire(
     return result;
 }
 
+std::vector<std::pair<std::size_t,bool>> edge_treatment_authored_node_ends(
+        const std::vector<std::vector<zima::kernel::ViewerEdge>>& groups,
+        const zima::document::EdgeTreatmentParameters& parameters,
+        const std::vector<std::pair<std::size_t,bool>>& route_ends) {
+    auto authored_ends=route_ends;
+    for(auto& [route,first]:authored_ends) {
+        if(route>=parameters.route_end_faces.size())continue;
+        const auto paths=ordered_edge_treatment_preview_paths(groups.at(route));
+        if(paths.size()!=1||paths.front().edges.empty())continue;
+        const auto& edge=first?paths.front().edges.front():paths.front().edges.back();
+        if(edge.edge_treatment_endpoint_references.size()!=2)continue;
+        const auto& vertex=edge.edge_treatment_endpoint_references[first?0:1];
+        const auto& ends=parameters.route_end_faces[route];
+        if(vertex.valid()&&vertex==ends.first_vertex)first=true;
+        else if(vertex.valid()&&vertex==ends.last_vertex)first=false;
+    }
+    return authored_ends;
+}
+
 EdgeTreatmentNodeSolutions edge_treatment_preview_node_solutions(
         const std::vector<std::vector<zima::kernel::ViewerEdge>>& groups,
         const zima::document::HistoryContainer& feature,
@@ -2201,17 +2232,7 @@ EdgeTreatmentNodeSolutions edge_treatment_preview_node_solutions(
     // Missing optional end overrides mean the automatic defaults. Ordinary
     // inspection reads the stored definition before Properties learns ends.
     definition.route_end_faces.resize(groups.size());
-    auto authored_ends=route_ends;
-    for(auto& [route,first]:authored_ends) {
-        const auto paths=ordered_edge_treatment_preview_paths(groups.at(route));
-        if(paths.size()!=1||paths.front().edges.empty())continue;
-        const auto& edge=first?paths.front().edges.front():paths.front().edges.back();
-        if(edge.edge_treatment_endpoint_references.size()!=2)continue;
-        const auto& vertex=edge.edge_treatment_endpoint_references[first?0:1];
-        const auto& ends=definition.route_end_faces.at(route);
-        if(vertex.valid()&&vertex==ends.first_vertex)first=true;
-        else if(vertex.valid()&&vertex==ends.last_vertex)first=false;
-    }
+    const auto authored_ends=edge_treatment_authored_node_ends(groups,definition,route_ends);
     const auto wire=[&](Mode mode) {
         for(const auto [route,first]:authored_ends) {
             auto& end=definition.route_end_faces.at(route);

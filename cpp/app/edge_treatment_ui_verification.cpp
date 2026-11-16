@@ -332,6 +332,36 @@ int verify_edge_treatment_ui(QApplication& application, AssemblyWorkspaceWindow&
             std::cout<<"OK enabled="<<ok->isEnabled()<<'\n';
             window.grab().save(QString::fromStdString((directory/"pick-dialog.png").string()));
             std::cout<<"PICK-DIR "<<directory.string()<<'\n';
+            if(qEnvironmentVariableIsSet("ZIMA_VERIFY_PICK_COMMIT_ONLY")) {
+                check(ok->isEnabled()&&kernel::body_calculation_count.load()==draft_calculations,
+                    "Picked treatment calculated a Body before OK");
+                const auto owner=pending->container_id();
+                finish(true);
+                check(kernel::body_calculation_count.load()>draft_calculations,
+                    "Picked treatment did not calculate on OK");
+                const auto get=chamfer?"chamfer.get":"fillet.get";
+                const auto created=run(get,{{"container",owner}});
+                check(created.at("calculation_method")=="zima",
+                    "Picked treatment silently changed its calculation method");
+                run("save");
+                std::vector<kernel::BodyResult> saved;
+                const auto reopened=document::PartDocument::load(file,&saved);
+                check(reopened.find_container(owner)&&!saved.empty()&&saved.back().calculation_errors.empty(),
+                    "Picked treatment did not reopen its calculated Body");
+                run("undo");run("redo");
+                check(run(get,{{"container",owner}})==created,"Picked treatment lost its definition through Undo/Redo");
+                const auto unchanged=run("documents");
+                edit(owner);
+                // A cold compact history can materialize the real rollback
+                // input on entry. Unchanged OK itself must do no work.
+                const auto calculations=kernel::body_calculation_count.load();
+                finish(true);
+                check(run("documents")==unchanged&&kernel::body_calculation_count.load()==calculations,
+                    "Unchanged picked treatment calculated or changed its document");
+                window.grab().save(QString::fromStdString((directory/"pick-committed.png").string()));
+                std::cout<<"Picked treatment: analytic draft, ZIMA OK, native reopening, Undo/Redo and unchanged OK passed\n";
+                return 0;
+            }
             if(qEnvironmentVariableIsSet("ZIMA_VERIFY_PICK_RECOVERY")) {
                 check(kernel::body_calculation_count.load()==draft_calculations,
                     "Opening/picking a treatment calculated a Body");
@@ -420,13 +450,15 @@ int verify_edge_treatment_ui(QApplication& application, AssemblyWorkspaceWindow&
                 const auto* original_feature=original.find_container(owner);
                 check(original_feature,"Node inspection fixture has no treatment");
                 const auto get=original_feature->feature_kind==document::FeatureKind::Fillet?"fillet.get":"chamfer.get";
-                const auto definition=run(get,{{"container",owner}});
-                // A compact saved history can need one explicit preparation
-                // of its shaded rollback input. Measure interaction only after
-                // that ordinary Properties input is available.
-                for(int pass=0;pass<3;++pass) {
-                    edit(owner);finish(false);
+                const auto read_definition=[&] {
+                    auto value=run(get,{{"container",owner}});
+                    value.erase("revision");
+                    return value;
+                };
+                const auto definition=read_definition();
+                for(int pass=0;pass<7;++pass) {
                     const auto before=run("documents");
+                    const auto previous=read_definition();
                     const auto calculations=kernel::body_calculation_count.load();
                     QTreeWidgetItem* item{};
                     for(QTreeWidgetItemIterator it(tree);*it;++it)
@@ -442,8 +474,8 @@ int verify_edge_treatment_ui(QApplication& application, AssemblyWorkspaceWindow&
                         QApplication::sendEvent(tree->viewport(),&event);flush();
                     }
                     const auto labels=view->interactive_labels();
-                    const auto joined=std::ranges::find_if(labels,[](const auto& label) {
-                        return label.choice&&label.text.find('-')!=std::string::npos;
+                    const auto joined=std::ranges::find_if(labels,[&](const auto& label) {
+                        return label.choice&&((label.text.find('-')!=std::string::npos)==(pass<4));
                     });
                     check(joined!=labels.end(),"Double-click inspection omitted the selectable numbered node");
                     check(std::ranges::any_of(view->mesh().dimensions,[&](const auto& d){return d.reference.owner_id==owner;}),
@@ -453,12 +485,26 @@ int verify_edge_treatment_ui(QApplication& application, AssemblyWorkspaceWindow&
                     window.grab().save(QString::fromStdString((directory/("inspection-overlay-"+std::to_string(pass)+".png")).string()));
                     const auto node_position=view->interactive_label_position(joined->key);
                     check(node_position.has_value(),"Inspection node has no hit position");
-                    bool selected{};QTimer selection,timeout;
+                    bool opened{},selected{},properties_seen{};QTimer selection,timeout;
+                    const auto camera=view->camera_state();
+                    const auto has_properties=[&] {
+                        for(auto* candidate:window.findChildren<QDialog*>())
+                            if(dynamic_cast<PrimitivePropertiesDialog*>(candidate))return true;
+                        return false;
+                    };
                     selection.setInterval(10);timeout.setSingleShot(true);
                     QObject::connect(&selection,&QTimer::timeout,&window,[&] {
                         for(auto* menu:window.findChildren<QMenu*>()) {
                             if(!menu->isVisible()||menu->objectName()!="edgeTreatmentEndMenu")continue;
-                            for(auto* action:menu->actions())if(action->text()==QCoreApplication::translate("AssemblyWorkspaceWindow","Špička")) {
+                            opened=true;properties_seen=has_properties();
+                            check(kernel::body_calculation_count.load()==calculations&&run("documents")==before,
+                                "Opening the direct node menu calculated or changed the model");
+                            window.grab().save(QString::fromStdString((directory/("inspection-menu-"+std::to_string(pass)+".png")).string()));
+                            if(pass==0) {selection.stop();menu->close();return;}
+                            const auto text=pass>=5?QCoreApplication::translate("AssemblyWorkspaceWindow","Řez %1").arg(1):
+                                QCoreApplication::translate("AssemblyWorkspaceWindow",pass==4?"Bez řezu":pass==3?"Zaoblení":"Špička");
+                            for(auto* action:menu->actions())if(action->text()==text) {
+                                if(pass==2||pass==6)check(action->isChecked(),"Current node solution was not checked");
                                 selected=true;selection.stop();menu->setActiveAction(action);
                                 QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);
                                 QApplication::sendEvent(menu,&enter);return;
@@ -471,32 +517,32 @@ int verify_edge_treatment_ui(QApplication& application, AssemblyWorkspaceWindow&
                     selection.start();timeout.start(5000);
                     mouse(QEvent::MouseButtonDblClick,*node_position+QPointF(14.,-14.),Qt::LeftButton,Qt::LeftButton);
                     selection.stop();timeout.stop();
-                    check(selected,"Inspection node did not open the shared solution menu");
-                    auto* pending=dialog();
-                    std::size_t spikes{};
-                    for(const auto& end:pending->pending_value().edge_treatment.route_end_faces) {
-                        spikes+=end.first_mode==document::EdgeTreatmentParameters::RouteEndMode::RoundedJoin;
-                        spikes+=end.last_mode==document::EdgeTreatmentParameters::RouteEndMode::RoundedJoin;
-                    }
-                    check(spikes==2,"Inspection menu did not change both ends of its node");
-                    check(kernel::body_calculation_count.load()==calculations&&run("documents")==before,
-                        "Node menu calculated or committed before OK");
-                    window.grab().save(QString::fromStdString((directory/("inspection-node-"+std::to_string(pass)+".png")).string()));
-                    finish(pass!=0);
-                    if(pass!=1)check(run("documents")==before&&kernel::body_calculation_count.load()==calculations,
-                        "Cancel or unchanged node OK created a calculation/transaction");
+                    check(opened&&(pass==0||selected),"Inspection node did not open its direct solution menu");
+                    check(!properties_seen&&!has_properties(),"Direct node menu constructed Fillet/Chamfer Properties");
+                    check(view->camera_state()==camera,"Direct node edit changed the camera");
+                    check(!view->interactive_labels().empty(),"Direct node edit lost the inspector");
+                    check(tree->currentItem()&&tree->currentItem()->data(0,Qt::UserRole).toString().toStdString()==owner,
+                        "Direct node edit lost the selected Tree feature");
+                    if(pass==0||pass==2||pass==6)check(run("documents")==before&&kernel::body_calculation_count.load()==calculations,
+                        "Dismissed or current node solution created a calculation/transaction");
                     else {
-                        const auto changed=run(get,{{"container",owner}});
-                        check(changed!=definition,"Node OK did not persist the changed solution");
-                        run("undo");check(run(get,{{"container",owner}})==definition,"Node edit Undo failed");
-                        run("redo");check(run(get,{{"container",owner}})==changed,"Node edit Redo failed");
+                        check(kernel::body_calculation_count.load()>calculations,"Changed node action did not calculate the Body");
+                        const auto changed=read_definition();
+                        if(pass<4)check((changed==definition)==(pass==3),"Direct node choice did not preserve the expected definition");
+                        else check(changed!=previous,"Direct terminal choice did not change its definition");
+                        run("undo");check(read_definition()==previous,"Direct node edit Undo failed");
+                        run("redo");check(read_definition()==changed,"Direct node edit Redo failed");
                         run("save");
                         const auto reopened=document::PartDocument::load(model_path);
-                        check(reopened.find_container(owner)->edge_treatment.route_end_faces!=original_feature->edge_treatment.route_end_faces,
-                            "Native reopening lost the changed node solution");
+                        std::size_t spikes{};
+                        for(const auto& end:reopened.find_container(owner)->edge_treatment.route_end_faces) {
+                            spikes+=end.first_mode==document::EdgeTreatmentParameters::RouteEndMode::RoundedJoin;
+                            spikes+=end.last_mode==document::EdgeTreatmentParameters::RouteEndMode::RoundedJoin;
+                        }
+                        check(spikes==(pass==1?2:0),"Direct node edit changed the wrong persisted endpoints");
                     }
                 }
-                std::cout<<"Node inspection: Tree double-click, dimension, numbered node double-click, shared menu, Cancel, OK, unchanged OK, Undo/Redo and native reopening passed\n";
+                std::cout<<"Direct node inspection: cold open, dimension, numbered node, popup without Properties, spike/round/no-cut/cut, dismiss, current no-op, repeated changes, Undo/Redo, native reopening and selection passed\n";
                 return 0;
             }
             window.grab().save(QString::fromStdString(

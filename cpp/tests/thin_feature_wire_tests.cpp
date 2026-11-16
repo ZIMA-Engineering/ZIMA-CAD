@@ -521,13 +521,40 @@ void rolling_edge_treatment_preview() {
             terminal_intersection.points.back().z>10.,
         "Smaller Fillet preview retained a flat end against the larger radius");
     for(const auto& point:terminal_intersection.points)
-        require(std::abs(std::hypot(point.y-14.,point.z)-14.)<1.0e-2,
+        require(std::abs(std::hypot(point.y-14.,point.z)-14.)<1.0e-7,
             "Fillet preview terminal is not on the preceding cylinder");
     require(terminal_preview.edges[0].points.front()==
                 terminal_intersection.points.front()&&
             terminal_preview.edges[1].points.front()==
                 terminal_intersection.points.back(),
         "Fillet preview rails do not end on the preceding radius");
+
+    // Tangent contacts must survive fitted-circle roundoff away from the
+    // origin. Tessellated chords must never replace this analytic boundary.
+    for(const Vec3 offset:{Vec3{146.603042602539,88.2009124755859,50.},
+            Vec3{-239.145,1000.,61.738}}) {
+        auto shifted_mesh=terminal_mesh;
+        auto shifted_route=terminal_route;
+        const auto translate=[&](Vec3& point) {
+            point.x+=offset.x;point.y+=offset.y;point.z+=offset.z;
+        };
+        for(auto& point:shifted_mesh.vertices)translate(point);
+        for(auto& edge:shifted_mesh.edges)
+            for(auto& point:edge.points)translate(point);
+        for(auto& point:shifted_route.points)translate(point);
+        for(const double radius:{1.,3.,5.,8.}) {
+            auto shifted_parameters=parameters;
+            shifted_parameters.primary_size=radius;
+            const auto wire=app::workspace_detail::edge_treatment_preview_wire(
+                {{{shifted_route}}},shifted_parameters,
+                document::FeatureKind::Fillet,"translated-terminal",&shifted_mesh);
+            require(wire.edges.size()==4&&wire.edges[2].points.size()>2,
+                "Translated tangent terminal lost its analytic cut");
+            for(const auto& point:wire.edges[2].points)
+                require(std::abs(std::hypot(point.y-offset.y-14.,point.z-offset.z)-14.)<1.e-7,
+                    "Translated tangent terminal left its exact cylinder");
+        }
+    }
 
     // A Boolean split can publish only the cylinder arc on the opposite side
     // of the route node.  The analytical cylinder still bounds the local

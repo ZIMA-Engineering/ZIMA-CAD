@@ -37,10 +37,10 @@ an unrelated cylinder extension.
 ## Ordinary inspection and editing
 
 The existing feature double-click inspection publishes the dimension and
-numbered editable treatment nodes. Double-clicking a node enters the existing
-Properties editor and invokes its existing node menu. All pending changes use
-the same OK/Cancel, rollback, Undo/Redo and persistence path. A single selection
-click still follows the ordinary selection contract.
+numbered editable treatment nodes. The follow-up described in
+[Direct node editing and periodic terminals](20261116-treatment-direct-nodes-and-periodic-ends.md)
+replaces the initial Properties shortcut with a direct solution popup. A single
+selection click still follows the ordinary selection contract.
 
 Labels are placed through the existing Body and occurrence transforms. The
 viewer retains a copy of the active label callback while opening Properties,
@@ -52,9 +52,11 @@ its dimension; nodes reappear only on subsequent explicit inspection.
 
 A compact saved history may need the existing one-time preparation of its
 shaded rollback input when Properties is entered. This is separate from the
-treatment preview. The node interaction checks prepare that input explicitly
-before asserting zero body calculations; they do not claim that every cold
-Properties opening avoids historical input materialization.
+treatment preview. The initial node interaction checks prepared that input
+explicitly before asserting zero body calculations. The follow-up checks
+exercise direct node editing from a cold saved document without opening
+Properties; neither check claims that every cold Properties opening avoids
+input materialization.
 
 ## Verification evidence
 

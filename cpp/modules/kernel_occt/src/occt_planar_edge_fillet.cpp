@@ -54,6 +54,7 @@
 #include <TopoDS_Vertex.hxx>
 #include <ShapeBuild_ReShape.hxx>
 #include <ShapeUpgrade_UnifySameDomain.hxx>
+#include <Standard_Failure.hxx>
 
 #include <algorithm>
 #include <array>
@@ -3887,6 +3888,11 @@ OcctPlanarEdgeFilletResult occt_planar_edge_fillet(
     ShapeUpgrade_UnifySameDomain cleanup(current,true,true,false);
     cleanup.SetLinearTolerance(tolerance);
     cleanup.SetAngularTolerance(1.0e-9);
+    TopTools_IndexedMapOfShape protected_edges;
+    const auto keep_boundary=[&](const TopoDS_Shape& edge) {
+        cleanup.KeepShape(edge);
+        protected_edges.Add(edge);
+    };
     TopTools_IndexedMapOfShape current_edges;
     TopExp::MapShapes(current,TopAbs_EDGE,current_edges);
     TopTools_IndexedDataMapOfShapeListOfShape current_edge_faces;
@@ -3918,7 +3924,7 @@ OcctPlanarEdgeFilletResult occt_planar_edge_fillet(
     for(int index=1;index<=current_edges.Extent();++index) {
         const auto& edge=current_edges.FindKey(index);
         if(!redundant_coplanar_seam(edge)) {
-            cleanup.KeepShape(edge);
+            keep_boundary(edge);
             continue;
         }
         const bool existing_boundary=std::ranges::any_of(
@@ -3927,20 +3933,35 @@ OcctPlanarEdgeFilletResult occt_planar_edge_fillet(
                 return BRepTools::Compare(TopoDS::Edge(edge),
                     TopoDS::Edge(input_edges.FindKey(input_index)));
             });
-        if(existing_boundary)cleanup.KeepShape(edge);
+        if(existing_boundary)keep_boundary(edge);
     }
     for(int index=1;index<=input_edges.Extent();++index) {
         const auto& source=input_edges.FindKey(index);
-        if(current_edges.Contains(source))cleanup.KeepShape(source);
+        if(current_edges.Contains(source))keep_boundary(source);
         for(const auto* descendants:{&result.history->Modified(source),
                 &result.history->Generated(source)})
             for(const auto& descendant:*descendants)
                 if(descendant.ShapeType()==TopAbs_EDGE&&
                    current_edges.Contains(descendant)&&
                    !redundant_coplanar_seam(descendant))
-                    cleanup.KeepShape(descendant);
+                    keep_boundary(descendant);
     }
-    cleanup.Build();
+    try {
+        cleanup.Build();
+    } catch(const Standard_Failure&) {
+        // On a periodic terminal, edge concatenation can report non-joint
+        // pcurves even though the completed Boolean Body is valid. Retry only
+        // redundant face-seam removal, retaining the exact boundary edges.
+        // Reinitialize from the untouched input, not the partly merged result;
+        // only a fully validated cleanup and its own history may be published.
+        if(!BRepCheck_Analyzer(current,true,true,false).IsValid())throw;
+        cleanup.Initialize(current,false,true,false);
+        cleanup.SetLinearTolerance(tolerance);
+        cleanup.SetAngularTolerance(1.0e-9);
+        for(int index=1;index<=protected_edges.Extent();++index)
+            cleanup.KeepShape(protected_edges.FindKey(index));
+        cleanup.Build();
+    }
     if(cleanup.Shape().IsNull())
         throw std::runtime_error(
             "ZIMA Fillet could not remove auxiliary result seams");
