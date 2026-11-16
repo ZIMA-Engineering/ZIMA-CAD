@@ -288,10 +288,12 @@ claimed. Numeric placement edits and reference assignment are different APIs.
 4. Frame construction and rotation DOF feedback consume the same resolved
    directions. Free absolute angles, constrained-axis corrections, signed offsets,
    reference flips, exact occurrences and last-valid-frame fallback are retained.
-5. Automatic owned Sketch planes use local XZ, normal to FRONT. The offset is
-   along that normal. A manual XY/XZ/YZ choice remains a manual choice. Owned
-   Sketch history resolution consumes the container references directly instead
-   of replacing them with a separate first-plane rule.
+5. Automatic owned Sketch planes use local XZ, normal to FRONT, unless the
+   complete ordered references explicitly define the local XY frame as described
+   below. The offset is along the selected work-plane normal. A manual XY/XZ/YZ
+   choice remains a manual choice. Owned Sketch history resolution consumes the
+   container references directly instead of replacing them with a separate
+   first-plane rule.
 6. Sketch, Bend, Flat, Holes and owned Extrusion/Revolution profiles preserve
    their independent secondary references. Properties replacement excludes the
    removed source's automatic twin from its baseline. GUI candidate evaluation
@@ -304,6 +306,43 @@ claimed. Numeric placement edits and reference assignment are different APIs.
    existing atomic owned-Sketch transactions. No document schema or required
    sidecar was introduced. Construction-specific geometric definitions (for
    example a plane through three points) remain distinct from feature placement.
+
+### Sole planar-reference origin (approved 2026-11-13)
+
+When an ordinary placed container or Sketch has exactly one positional planar
+reference, its origin is the orthogonal projection of the owning Body Origin
+onto that plane, including a generally oblique plane. The point clicked on the
+face does not select an in-plane translation. Replacing the sole plane starts
+again from the Body Origin, so repeatedly switching planes cannot accumulate
+drift. An explicit locked numeric correction remains authored input and is not
+silently cleared.
+
+The plane also supplies one frame direction through the existing automatic
+FRONT/TOP and Sketch work-plane policy. A later orientation-only reference may
+fix the remaining roll but must not move the projected origin. Additional
+positional references retain their established intersection/station meaning.
+Construction-plane creation from an axis, three points or other definitions is
+a separate operation and is unchanged.
+
+### Ordered local-XY frames (approved 2026-11-14)
+
+Three ordered point selections define the container's local XY plane: P1 is the
+origin, the P1-to-P2 direction is local +X, P3 selects the positive local +Y
+half-plane after perpendicular projection, and local +Z is `X cross Y`. The
+resolver recognizes both the older three-positional-point representation and
+the actual dialog representation in which only P1 is positional while P2 and
+P3 are orientation-only direction references. Collinear points remain invalid.
+
+The edge/containing-plane/station-point combination likewise defines local XY;
+the solved edge is an in-plane axis and the Sketch must not open in the
+perpendicular historical XZ plane. These complete definitions are intentionally
+different from an ordinary explicit FRONT reference, which continues to select
+local XZ when no complete local-XY frame is present.
+
+The geometry-aware work-plane decision is shared by document regeneration,
+Properties preview and Sketcher entry. Focused core and GUI contracts verify a
+generally oblique three-point frame, source-plane changes, native reopen, the
+edge/plane/point combination and return from Sketcher.
 
 Expected examples:
 

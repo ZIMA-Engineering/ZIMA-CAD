@@ -8,7 +8,8 @@
   "Univerzální kóta: dalším kliknutím na oblouk přepnete R/⌀; kliknutím do prostoru určete polohu.": "Cotation universelle : cliquez à nouveau sur l’arc pour basculer entre R/⌀ ; cliquez dans une zone vide pour placer la cote.",
   "Koncová plocha": "Face d’extrémité",
   "Hrana byla odebrána z výběru zaoblení nebo sražení.": "L’arête a été retirée de la sélection de congé ou de chanfrein.",
-  "A x B and A + angle Chamfer require one continuous line.": "Les chanfreins A x B et A + angle nécessitent une seule ligne continue.",
+  "A x B and A + angle Chamfer require one continuous open route or one closed circular edge.": "Les chanfreins A x B et A + angle nécessitent un parcours ouvert continu ou une arête circulaire fermée.",
+  "ZIMA Chamfer requires one complete circular edge": "Le chanfrein ZIMA nécessite une arête circulaire complète",
   "ZIMA Chamfer node has a degenerate branch": "Le nœud de chanfrein ZIMA comporte une branche dégénérée",
   "ZIMA Chamfer supports only two- or three-branch nodes": "Le chanfrein ZIMA ne prend en charge que les nœuds à deux ou trois branches",
   "ZIMA Chamfer node mixes inner and outer branches": "Le nœud de chanfrein ZIMA mélange des branches intérieures et extérieures",
@@ -2819,5 +2820,7 @@
   "Sheet from Body is available only in a Part.": "Tôle depuis un corps est disponible uniquement dans une pièce.",
   "Sheet from Body does not exist.": "Tôle depuis un corps n’existe pas.",
   "Activate the Body owning this Sheet from Body.": "Activez le corps auquel appartient cette Tôle depuis un corps.",
-  "The selected feature is not a bound Sheet from Body part.": "L’élément sélectionné n’est pas une partie liée de Tôle depuis un corps."
+  "The selected feature is not a bound Sheet from Body part.": "L’élément sélectionné n’est pas une partie liée de Tôle depuis un corps.",
+  "zima::app::AssemblyWorkspaceWindow|Bez řezu": "Sans coupe",
+  "zima::app::AssemblyWorkspaceWindow|Řez": "Coupe"
 }

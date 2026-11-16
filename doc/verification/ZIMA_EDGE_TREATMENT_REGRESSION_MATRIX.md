@@ -80,7 +80,7 @@ Status values are:
 | RADIUS-05 / Fillet 10 | ZIMA, constant R4, one seven-edge mixed-owner route | capture required | Preserve exact route membership and solve every terminal without teeth or auxiliary caps. It must remain valid when neighboring accepted cases are corrected. |
 | RADIUS-06 / Fillet 11 | demonstrated during the working session but not present in the current saved file | capture required | Recreate and save the selected route plus a radius sweep. The result must change continuously over the feasible interval and must not fail merely because its radius approaches or crosses an adjacent Fillet radius. |
 | RADIUS-07 / Chamfer 01 | ZIMA, equal-distance A=2, one five-edge route using source, Fillet 09 and Fillet 10 owners | defect | The analogous shared terminal solution must calculate. Its route, preview and trimming must match the Fillet terminal principles and must not inherit an unrelated azure path. |
-| RADIUS-08 / invalid dependent Fillet repair | The first of the last dependent Fillets is made invalid before editing the next one. | defect | Editing the downstream failed feature must not crash. Its references and radius remain editable so the history can be repaired or the feature removed. |
+| RADIUS-08 / invalid dependent Fillet repair | The first of two dependent ZIMA Fillets is made invalid before editing the next one. | automated contract passes | The last valid Body remains visible. The downstream failed feature opens without another blocking prompt; its radius and references remain editable; Cancel is non-mutating; deletion and source repair survive Undo/Redo; and the repaired chain saves and reloads calculated. Covered by `zima_cpp_invalid_dependent_fillet_ui_contract`. |
 
 ### `READIUS2.prtz`
 
@@ -120,6 +120,124 @@ Each reproduced user case must therefore add a stronger geometry oracle, such
 as exact boundary intersections, terminal sections, containment against the
 input Body envelope, forbidden protrusion volume and stable generated
 edge/vertex ownership.
+
+The 2026-11-14 candidate adds a stacked cylindrical Body fixture which
+reproduces the `READIUS2.prtz` Fillet 03 geometry class. It creates two
+independent side Fillets, then connected five-edge routes after an R10
+treatment. The final route is swept through R4, R8, R9, R10, R11, R12, R14 and
+R18. It produces exact empty intersections for two optional terminal
+extensions; those tails are discarded while the main cutter remains
+mandatory. Every sweep value requires valid topology, one final cutter,
+non-empty face lineage for all five selected edges and no result volume outside
+the original cylindrical envelope. This permanently covers values below, equal
+to and above the adjacent Fillet radius.
+
+The same geometry class now also covers the current `RADIUS.prtz` Fillet 15
+failure. Its persisted source edge resolves to a non-straight five-member U
+route after preceding treatments. For additive treatment, the base sweep is
+clipped to each local curved Body terminal but no remote terminal tail is
+created. The R4-R18 sweep additionally asserts that changed material does not
+pass the real route endpoints in either terminal direction. Straight split
+routes keep the established single-edge-equivalent continuation behavior.
+
+An additional actual-model gate covers Fillet 12 in the later saved
+`RADIUS.prtz` copy. The selected straight route spans Z40 to Z48 and ends
+tangentially on an earlier cylindrical Fillet surface without a remote planar
+cap. The added material must remain within that source-edge interval; the test
+projects every vertex of the exact added B-Rep onto the source direction and
+rejects the former extension to Z52. Existing tangent routes with a genuine
+remote terminal cap retain their continuation and remain covered by the
+synthetic planar Fillet suite.
+
+The Fillet/Chamfer GUI contracts also reject an overextended analytical
+preview independently of the preview generator. Final treatment contacts are
+checked against both their longitudinal rail and terminal section. These
+verification contacts are separate from the view labels: labels identify every
+distinct source node of each connected selected path (`1.1`, `1.2`, `1.3`,
+and so on; the next disconnected path starts at `2.1`). A closed path labels
+its shared start/closing node once as `1.1`. Display samples and generated
+treatment contacts are not labelled. The ordinary and symmetric GUI variants
+pass.
+
+On Windows, clean regeneration also passed for the disposable copies of
+`RADIUS.prtz`, `READIUS2.prtz` and `RADIUS-03.prtz`. The Properties rollback
+preview precheck covered RADIUS Fillets 04, 05, 09, 11, 12, 13 and 14, RADIUS
+Chamfer 01, READIUS2 Fillet 03 and RADIUS-03 Fillet 01. Every stored route
+resolved, every published transient stroke exactly matched the analytical
+preview, Cancel preserved the document revision and developer inspection of
+the ten screenshots found no disconnected or remote preview span. These
+results do not replace the user-directed manual acceptance rows or the missing
+exact saved-case gates.
+
+A later precheck used the then-current `RADIUS.prtz` definition, which differs
+from the historical rows above: Chamfer 01 is equal-distance A5 with two
+independent one-edge source routes, and Fillet 15 is constant R4 with one
+persisted source edge resolving to the five-member U route. A full disposable
+copy regenerated and previewed Fillet 15; a second copy with only downstream
+Fillet 15 removed did the same for Chamfer 01. Published preview geometry and
+Cancel passed. Its then-current endpoint-only labels are superseded by the
+all-source-node contract above. The source file was not changed.
+
+A read-only follow-up sweep (a fresh in-memory open for each value and no save
+to the project files) passed R2-R15 for the retained ZIMA Fillet 04
+reproduction, R2-R12 for current RADIUS Fillet 05, R1-R10 for current RADIUS
+Fillet 11, R1-R8 for the retained four-edge RADIUS Fillet 09 definition,
+R4-R18 for current READIUS2 Fillets 01 and 03, and A1-A10 for current RADIUS
+Chamfer 01. The current project files have evolved from several definitions in
+the manual catalog, so these ranges are candidate evidence rather than a
+replacement for the exact saved-case and user-acceptance gates.
+
+The 2026-11-15 follow-up repaired four additional cases without modifying the
+user project files. A constant ZIMA Fillet whose connected route changes
+support angle now uses the existing rolling-support blend path instead of the
+planar profile sweep; the actual RADIUS Fillet 13 completed a changed-value
+calculation, Undo/Redo and native save/reopen in a disposable copy. Fillet 12
+continues to use the planar route and its established bounded tangent-terminal
+extension. The READIUS2 Fillet 03 preview now clips both rails at both ends when
+a Boolean split exposes several coincident cylindrical boundary fragments; a
+synthetic regression independently rejects an intersection outside the route's
+terminal interval. The cyan route selected for READIUS2 Fillet 06 resolves to
+one closed ten-member path: node 1.9 continues through the closing arc to the
+single 1.1 start/closing label, so no extra repeated label or route member was
+added.
+
+The same follow-up added ZIMA A x B Chamfer support for one complete circular
+edge. Direct kernel tests cover both adjacent-face choices and verify the
+removed volume independently. The public command regression covers creation,
+FLIP, changed-value editing, Undo/Redo, native save/reopen and a cold
+recalculation. The focused Fillet, Chamfer, preview and command suites all
+passed on Windows, as did the five-language UI translation contract. Linux was
+not run on this Windows host; the implementation is shared C++ and still
+requires the corresponding native Linux verification before a cross-platform
+completion claim.
+
+The 2026-11-16 candidate makes the open-route fallback explicit. Both physical
+end vertices and their independent `Cut` / `No cut` modes are persisted in Part
+format 53. A new or changed endpoint starts as `No cut`, so the generated tool
+cannot pass through the Body in search of a later face. `Cut` uses the complete
+local boundary and selects the retained material side independently at each
+end. The regression rejects the previously observed opposite-side trim, remote
+material tunnel and asymmetric-pocket continuation. Equal-distance, A x B and
+A + angle Chamfers run the same endpoint matrix as Fillet, including a complete
+circular A x B edge. Closed routes remain without endpoint choices.
+
+The GUI matrix double-clicks the purple open-end label, exercises both localized
+menu choices, verifies the analytical preview after each change, and checks
+Cancel, OK, Undo/Redo and native save/reopen. Shaft Thread inspection now
+requires both diameter and thread-length dimensions after double-click. Opening
+A x B Chamfer Properties must retain the shaded display mode. Sketcher coverage
+also includes native/external circle incidence, repeated angular/radial drags,
+dimension edits, impossible/redundant rejection, Trim, Undo/Redo, save/reopen
+and the enabled Image command. These focused Windows checks do not replace the
+manual catalog or native Linux execution.
+
+Deleting an earlier Fillet or Chamfer is also an automated dependency gate. A
+later treatment with mixed surviving and missing routes is retained, its
+missing route and aligned metadata are pruned, and its surviving route is
+recalculated. Undo/Redo and native save/reopen must preserve the repaired
+definition. A later treatment is marked unavailable only if no usable route
+remains. This passes in `zima_cpp_history_deletion_tests` and
+`zima_cpp_history_deletion_ui_contract`.
 
 ## Work needed to complete the gate
 

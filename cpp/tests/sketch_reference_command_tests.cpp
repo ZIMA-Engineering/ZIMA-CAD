@@ -918,7 +918,10 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
         const Json seed={{"owner",box},{"key",test::profile_key(treatment_live.open_part(doc)->session.document(),box,
             "edge:x_max:y_min:z_max--x_max:y_min:z_min")}};
         const auto fillet=run(treatment_host,"fillet.create",{{"routes",Json::array({Json{{"edges",Json::array({seed})}}})},
-            {"radius_mm",2}}).data.at("container").get<std::string>();
+            {"radius_mm",2},{"calculation_method","zima"}}).data.at("container").get<std::string>();
+        require(run(treatment_host,"fillet.get",{{"container",fillet}}).
+                    data.at("calculation_method")=="zima",
+            "Fillet reference fixture did not retain the explicit ZIMA method");
         const auto& mesh=treatment_live.open_part(doc)->session.calculated_boundaries().back().mesh;
         const auto edge=std::ranges::find_if(mesh.edges,[&](const auto& value) {
             return value.reference.owner_id==fillet&&
@@ -1001,7 +1004,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
         const auto reopened_circle=sketcher::external_reference_circle(reference(*reopened_face,face_reference));
         require(reopened_circle&&std::abs((*reopened_circle)[2]-3)<1e-6,
             "Fillet face circle failed cold regeneration after native reopen");
-        std::cout<<"Fillet Sketch references: result edge/endpoints, native outline, cylindrical face circle, edit, Undo/Redo and cold save/reopen passed\n";
+        std::cout<<"ZIMA Fillet Sketch references: result edge/endpoints, native outline, cylindrical face circle, edit, Undo/Redo and cold save/reopen passed\n";
     }
     {
         auto part=document::PartDocument::create_default();auto box=zima::test::rectangular_feature(part,{30,30,30});part.history.push_back(box);

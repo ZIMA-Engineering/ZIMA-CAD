@@ -2660,6 +2660,13 @@ int verify_shaft_thread_command(QApplication& application,zima::app::AssemblyWor
             "Cancel committed shaft thread preview")) return 1;
     QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
     window.show_parameter_dimensions(feature_id);application.processEvents();
+    zima::viewer::ViewerCandidate length_dimension;
+    length_dimension.kind=zima::viewer::CandidateKind::Dimension;
+    length_dimension.owner_id=feature_id;
+    length_dimension.semantic_key="parameter:length";
+    if (!verify(view->candidate_dimension_label_position(dimension).has_value() &&
+            view->candidate_dimension_label_position(length_dimension).has_value(),
+            "Double-click shaft inspection omitted its root diameter or thread length")) return 1;
     if (!verify(!view->container_inspection_wire().empty() && !view->confirmed_candidate(),
             "Dimension inspection lost its wire or blocked dimension picking")) return 1;
     const auto camera=view->camera_state();
@@ -3922,10 +3929,35 @@ int verify_history_recovery_ui(QApplication& application, const std::filesystem:
             if ((*it)->data(0,Qt::UserRole).toString().toStdString() == id) return *it;
         return nullptr;
     };
+    const auto failed_row=[](const QTreeWidgetItem* item) {
+        return item&&item->foreground(0).color()==QColor(210,75,65)&&
+            !item->toolTip(0).isEmpty();
+    };
     auto* viewer = dynamic_cast<zima::viewer::MeshView*>(window.findChild<QOpenGLWidget*>());
     if (!verify(viewer && !viewer->mesh().triangles.empty(), "Regenerate hid the valid history prefix")) return 1;
-    if (!verify(row(first.id) && !row(first.id)->text(0).contains("nevypočítáno") &&
-                row(broken.id) && row(broken.id)->text(0).contains("nevypočítáno"), "Failure marked the wrong feature")) return 1;
+    auto* first_row=row(first.id);
+    auto* broken_row=row(broken.id);
+    const bool failure_row_ok=first_row&&broken_row&&
+        !failed_row(first_row)&&failed_row(broken_row);
+    if(!failure_row_ok)
+        std::cerr<<"History recovery Tree: first="
+            <<(first_row?first_row->text(0).toStdString():"<missing>")
+            <<", broken="
+            <<(broken_row?broken_row->text(0).toStdString():"<missing>")
+            <<'\n';
+    if (!verify(failure_row_ok, "Failure marked the wrong feature")) return 1;
+    window.show_tree_item_properties(broken_row); flush();
+    zima::app::PrimitivePropertiesDialog* repair_dialog = nullptr;
+    for (auto* candidate : window.findChildren<QDialog*>())
+        if (auto* primitive = dynamic_cast<zima::app::PrimitivePropertiesDialog*>(candidate);
+            primitive && primitive->isVisible()) repair_dialog = primitive;
+    auto* repaired_edges=repair_dialog
+        ?repair_dialog->findChild<QTreeWidget*>("edgeTreatmentEdges"):nullptr;
+    if(!verify(repair_dialog&&repaired_edges&&
+                repair_dialog->pending_value().edge_treatment.routes.empty()&&
+                repaired_edges->topLevelItemCount()==1,
+            "Failed Fillet Properties did not automatically remove its vanished edge")) return 1;
+    repair_dialog->buttons()->button(QDialogButtonBox::Cancel)->click();flush();
     window.show_tree_item_properties(row(first.id)); flush();
     zima::app::PrimitivePropertiesDialog* dialog = nullptr;
     for (auto* candidate : window.findChildren<QDialog*>())
@@ -4017,14 +4049,23 @@ int verify_history_recovery_ui(QApplication& application, const std::filesystem:
     auto* tree = window.findChild<QTreeWidget*>("documentTree");
     auto* view = dynamic_cast<zima::viewer::MeshView*>(
         window.findChild<QOpenGLWidget*>("modelWorkspace"));
-    QTreeWidgetItem* dependent = nullptr;
-    for (QTreeWidgetItemIterator it(tree); *it; ++it)
-        if ((*it)->data(0,Qt::UserRole).toString().toStdString() == second->id) {
-            dependent = *it;
-            break;
-        }
-    if (!verify(dependent && dependent->text(0).contains("nevypočítáno"),
+    const auto row = [&](const std::string& id) -> QTreeWidgetItem* {
+        for (QTreeWidgetItemIterator it(tree); *it; ++it)
+            if ((*it)->data(0,Qt::UserRole).toString().toStdString() == id)
+                return *it;
+        return nullptr;
+    };
+    const auto failed_row=[](const QTreeWidgetItem* item) {
+        return item&&item->foreground(0).color()==QColor(210,75,65)&&
+            !item->toolTip(0).isEmpty();
+    };
+    auto* dependent = row(second->id);
+    if (!verify(failed_row(dependent),
             "Dependent invalid Fillet is missing from the Tree")) return 1;
+    if (!verify(view && !view->mesh().triangles.empty(),
+            "Invalid Fillet dependency hid the last valid Body")) return 1;
+    const auto invalid_revision = window.execute_console_command(
+        "documents").data.at(0).at("revision");
     window.show_tree_item_properties(dependent); flush();
     if (!verify(prompts.size() == invalidation_prompts,
             "Editing a dependent invalid Fillet displayed another blocking error")) return 1;
@@ -4038,11 +4079,80 @@ int verify_history_recovery_ui(QApplication& application, const std::filesystem:
     if (!verify(dialog && dialog->container_id() == second->id && view &&
                 !view->mesh().triangles.empty(),
             "Dependent invalid Fillet Properties lost its cached rollback Body")) return 1;
+    auto* radius = dialog->findChild<QDoubleSpinBox*>("edgeTreatmentPrimary");
+    if (!verify(radius, "Dependent invalid Fillet lost its radius editor"))
+        return 1;
+    radius->setValue(.3); flush();
+    if (!verify(std::abs(dialog->pending_value().edge_treatment.primary_size-.3)<1e-12 &&
+                !view->mesh().triangles.empty(),
+            "Dependent invalid Fillet radius is not safely editable")) return 1;
+    const auto remaining_references =
+        dialog->pending_value().edge_treatment.flattened_edges().size();
+    auto* indicator = dialog->findChild<QWidget*>("edgeMemberRemove0_0");
+    auto* remove = indicator ? qobject_cast<QPushButton*>(
+        indicator->property("_removeWidget").value<QObject*>()) : nullptr;
+    if (!verify(remaining_references == 0 && !remove &&
+                !view->mesh().triangles.empty(),
+            "Dependent invalid Fillet did not automatically omit its unresolved edge"))
+        return 1;
     QPointer<QDialog> dialog_guard(dialog);
     dialog->buttons()->button(QDialogButtonBox::Cancel)->click(); flush();
-    if (!verify(!dialog_guard || !dialog_guard->isVisible(),
+    if (!verify((!dialog_guard || !dialog_guard->isVisible()) &&
+                window.execute_console_command("documents").data.at(0).at("revision") ==
+                    invalid_revision,
             "Dependent invalid Fillet Properties did not cancel safely")) return 1;
+
+    const auto deleted = window.execute_console_command(
+        QString::fromStdString(nlohmann::json{{"command","history.delete"},
+            {"arguments",{{"object",second->id}}}}.dump()));
+    flush();
+    if (!verify(deleted.data.value("changed",false) && !row(second->id) &&
+                !view->mesh().triangles.empty(),
+            "Dependent invalid Fillet could not be deleted safely")) return 1;
+    const auto deletion_undo = window.execute_console_command("undo");
+    if (!verify(deletion_undo.ok || deletion_undo.data.value("changed",false),
+            "Dependent invalid Fillet deletion Undo failed")) return 1;
+    flush();
+    if (!verify(failed_row(row(second->id)),
+            "Undo did not restore the dependent invalid Fillet")) return 1;
+    const auto deletion_redo = window.execute_console_command("redo");
+    const auto deletion_restore = window.execute_console_command("undo");
+    if (!verify((deletion_redo.ok || deletion_redo.data.value("changed",false)) &&
+                (deletion_restore.ok || deletion_restore.data.value("changed",false)),
+            "Dependent invalid Fillet deletion Redo/Undo failed")) return 1;
+    flush();
+
+    const auto repaired = window.execute_console_command(
+        QString::fromStdString(nlohmann::json{{"command","fillet.set"},
+            {"arguments",{{"container",first.id},{"radius_mm",2}}}}.dump()));
+    flush();
+    if (!verify(repaired.ok && row(first.id) && row(second->id) &&
+                !failed_row(row(first.id)) && !failed_row(row(second->id)) &&
+                !view->mesh().triangles.empty(),
+            "Repairing the source Fillet did not recover its dependent")) return 1;
+    const auto repair_undo = window.execute_console_command("undo");
+    if (!verify(repair_undo.ok || repair_undo.data.value("changed",false),
+            "Source Fillet repair Undo failed")) return 1;
+    flush();
+    if (!verify(failed_row(row(second->id)) &&
+                !view->mesh().triangles.empty(),
+            "Repair Undo hid the valid prefix or lost the dependent error")) return 1;
+    if (!verify(window.execute_console_command("redo").ok,
+            "Source Fillet repair Redo failed")) return 1;
+    flush();
+    if (!verify(row(second->id) && !failed_row(row(second->id)) &&
+                !view->mesh().triangles.empty(),
+            "Repair Redo did not recover the dependent Fillet")) return 1;
+    window.findChild<QAction*>("saveDocumentAction")->trigger(); flush();
     window.close(); flush();
+
+    std::vector<zima::kernel::BodyResult> reopened_bodies;
+    const auto reopened_document = PartDocument::load(path, &reopened_bodies);
+    if (!verify(!reopened_bodies.empty() &&
+                reopened_bodies.back().calculation_errors.empty() &&
+                reopened_document.find_container(first.id) &&
+                reopened_document.find_container(second->id),
+            "Reopened repaired Fillet chain lost its geometry or definition")) return 1;
     }
     return 0;
 }
@@ -6871,6 +6981,12 @@ int verify_sketch_endpoint_priority_ui(QApplication& application,const std::file
                 for(int y=qRound(middle.y()*ratio)-(vertical?along:3);y<=qRound(middle.y()*ratio)+(vertical?along:3);++y)
                     for(int x=qRound(middle.x()*ratio)-(vertical?3:along);x<=qRound(middle.x()*ratio)+(vertical?3:along);++x)
                         if(image.valid(x,y)){const auto color=image.pixelColor(x,y);if(color.red()<110&&color.green()>170&&color.blue()>170)++azure;}
+                if(azure<=2) {
+                    image.save(QString::fromStdString((directory/("axis-overlap-paint-failure-"+
+                        std::to_string(kind)+(dark?"-dark.png":"-light.png"))).string()));
+                    std::cerr<<"Axis overlap azure pixels "<<azure<<" kind "<<kind
+                        <<" dark "<<dark<<'\n';
+                }
                 check(azure>2,"Origin axis paints over the hovered Sketch wire");
                 }
                 application.setPalette(saved_palette);flush();
@@ -7705,6 +7821,7 @@ using zima::test::check_coupled_equations;
 #include "assembly_presentation_ui_verification.inc"
 #include "sketch_angle_sector_ui_verification.inc"
 #include "sketch_external_midpoint_ui_verification.inc"
+#include "sketch_parallel_inference_ui_verification.inc"
 #include "sketch_circle_endpoint_ui_verification.inc"
 
 int verify_assembly_refresh_view(QApplication& application,const std::filesystem::path& directory) {
@@ -11302,6 +11419,8 @@ int verify_startup_contract(
         return verify_sketch_angle_sector_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_EXTERNAL_MIDPOINT_UI_ONLY"))
         return verify_sketch_external_midpoint_ui(application,test_directory);
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SKETCH_PARALLEL_INFERENCE_ONLY"))
+        return verify_sketch_parallel_inference_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SKETCH_MIRROR_ONLY"))
         return verify_sketch_mirror_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_OFFSET_ONLY"))

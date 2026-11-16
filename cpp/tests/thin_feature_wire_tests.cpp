@@ -239,17 +239,21 @@ void rectangular_matrix(const kernel::OcctKernel& engine) {
             require(treatment_input,"Two-edge Thin fillet lost its calculated input");
             std::vector<std::vector<kernel::ViewerEdge>> expected_groups;
             for(std::size_t route=0;route<treatment.edge_treatment.routes.size();++route) {
-                expected_groups.push_back(document::treatment_selection_wire(
+                expected_groups.push_back(document::current_treatment_selection_wire(
                     treatment.edge_treatment,route,std::nullopt,
                     treatment_input->mesh));
             }
-            const auto expected_wire=app::workspace_detail::
+            const auto expected_preview=app::workspace_detail::
                 edge_treatment_preview_wire(expected_groups,
                     treatment.edge_treatment,treatment.feature_kind,
-                    treatment.id,&treatment_input->mesh).edges;
+                    treatment.id,&treatment_input->mesh);
+            const auto& expected_wire=expected_preview.edges;
             require(expected_wire.size()==
                     4*treatment.edge_treatment.routes.size(),
                 "Fillet analytical cage omitted a rail or terminal arc");
+            require(expected_preview.labels.size()==
+                    2*treatment.edge_treatment.routes.size(),
+                "Single-edge Fillet routes did not expose both source nodes");
             const auto same_point=[](const kernel::Vec3& first,
                                      const kernel::Vec3& second) {
                 return std::hypot(first.x-second.x,first.y-second.y,
@@ -276,6 +280,13 @@ void rectangular_matrix(const kernel::OcctKernel& engine) {
                         same_point(last_arc.points.back(),
                             second_rail.points.back()),
                     "Fillet analytical cage is not two rails closed by two arcs");
+                const auto label_offset=2*route;
+                const auto route_number=route+1;
+                require(expected_preview.labels[label_offset].second==
+                            std::to_string(route_number)+".1"&&
+                        expected_preview.labels[label_offset+1].second==
+                            std::to_string(route_number)+".2",
+                    "Single-edge Fillet route labels do not identify both source nodes");
             }
             const auto authored_wire=app::authored_feature_wire(
                 state.session,treatment.id);
@@ -288,6 +299,78 @@ void rectangular_matrix(const kernel::OcctKernel& engine) {
         }
     }
     std::cout<<"Thin rectangle matrix: 12 plane/mode/direction variants, eight exact rails each, "<<fillets<<" two-edge fillets passed\n";
+}
+void edge_treatment_source_node_labels() {
+    using Vec3=kernel::Vec3;
+    const auto edge=[](std::string key,std::vector<Vec3> points) {
+        kernel::ViewerEdge result;
+        result.reference={"node-labels",std::move(key),{}};
+        result.points=std::move(points);
+        result.edge_treatment_side_directions={
+            std::vector<Vec3>(result.points.size(),{0,1,0}),
+            std::vector<Vec3>(result.points.size(),{0,0,1})};
+        return result;
+    };
+    const auto same=[](const Vec3& first,const Vec3& second) {
+        return std::hypot(std::hypot(first.x-second.x,
+            first.y-second.y),first.z-second.z)<1.0e-9;
+    };
+    document::EdgeTreatmentParameters parameters;
+    parameters.primary_size=1.;
+    const std::vector<kernel::ViewerEdge> open{
+        edge("open-a",{{0,0,0},{10,0,0}}),
+        edge("open-b",{{10,0,0},{12,1,0},{14,3,0}}),
+        edge("open-c",{{14,3,0},{20,3,0}})};
+    const std::vector<kernel::ViewerEdge> separate{
+        edge("separate",{{30,0,0},{40,0,0}})};
+    const auto open_preview=app::workspace_detail::edge_treatment_preview_wire(
+        {open,separate},parameters,document::FeatureKind::Chamfer,
+        "node-labels",nullptr);
+    const std::vector<std::string> open_names{
+        "1.1","1.2","1.3","1.4","2.1","2.2"};
+    const std::vector<Vec3> open_nodes{
+        {0,0,0},{10,0,0},{14,3,0},{20,3,0},{30,0,0},{40,0,0}};
+    require(open_preview.labels.size()==open_names.size(),
+        "Open treatment routes did not label every unique source node");
+    for(std::size_t index=0;index<open_names.size();++index)
+        require(open_preview.labels[index].second==open_names[index]&&
+                same(open_preview.labels[index].first,open_nodes[index]),
+            "Open treatment route source-node numbering is not sequential");
+
+    const std::vector<kernel::ViewerEdge> loop{
+        edge("loop-a",{{0,0,0},{10,0,0}}),
+        edge("loop-b",{{10,0,0},{10,10,0}}),
+        edge("loop-c",{{10,10,0},{0,10,0}}),
+        edge("loop-d",{{0,10,0},{0,0,0}})};
+    const auto loop_preview=app::workspace_detail::edge_treatment_preview_wire(
+        {loop},parameters,document::FeatureKind::Chamfer,
+        "node-labels-loop",nullptr);
+    const std::vector<std::string> loop_names{
+        "1.1","1.2","1.3","1.4"};
+    const std::vector<Vec3> loop_nodes{
+        {0,0,0},{10,0,0},{10,10,0},{0,10,0}};
+    require(loop_preview.labels.size()==loop_names.size(),
+        "Closed treatment route duplicated or omitted its closing source node");
+    for(std::size_t index=0;index<loop_names.size();++index)
+        require(loop_preview.labels[index].second==loop_names[index]&&
+                same(loop_preview.labels[index].first,loop_nodes[index]),
+            "Closed treatment route source-node numbering is not sequential");
+    const std::vector<kernel::ViewerEdge> reordered_loop{
+        edge("loop-c-r",{{0,10,0},{10,10,0}}),
+        edge("loop-a-r",{{10,0,0},{0,0,0}}),
+        edge("loop-d-r",{{0,0,0},{0,10,0}}),
+        edge("loop-b-r",{{10,10,0},{10,0,0}})};
+    const auto reordered_preview=
+        app::workspace_detail::edge_treatment_preview_wire(
+            {reordered_loop},parameters,document::FeatureKind::Chamfer,
+            "node-labels-loop-reordered",nullptr);
+    require(reordered_preview.labels.size()==loop_names.size(),
+        "Reordered closed route changed source-node label count");
+    for(std::size_t index=0;index<loop_names.size();++index)
+        require(reordered_preview.labels[index].second==loop_names[index]&&
+                same(reordered_preview.labels[index].first,loop_nodes[index]),
+            "Closed route source-node numbering depends on edge order or direction");
+    std::cout<<"Fillet/Chamfer source-node labels: open, sampled curve, disconnected route and closed/reordered loops passed\n";
 }
 void rolling_edge_treatment_preview() {
     using Vec3=kernel::Vec3;
@@ -435,6 +518,59 @@ void rolling_edge_treatment_preview() {
             terminal_preview.edges[1].points.front()==
                 terminal_intersection.points.back(),
         "Fillet preview rails do not end on the preceding radius");
+
+    // A Boolean split can publish only the cylinder arc on the opposite side
+    // of the route node.  The analytical cylinder still bounds the local
+    // Fillet continuation, so both rails must be clipped instead of leaving
+    // the first terminal extended beyond the Body.
+    kernel::ViewerMesh split_terminal_mesh;
+    std::vector<Vec3> opposite_terminal_circle;
+    for(std::size_t index=0;index<=samples;++index) {
+        const double angle=std::acos(-1.)+
+            (std::acos(-1.)/2.)*static_cast<double>(index)/samples;
+        opposite_terminal_circle.push_back({0,14.+14.*std::cos(angle),
+            14.*std::sin(angle)});
+    }
+    for(std::size_t index=1;
+            index<opposite_terminal_circle.size();++index) {
+        const auto vertex=static_cast<std::uint32_t>(
+            split_terminal_mesh.vertices.size());
+        for(const double x:{0.,10.}) {
+            split_terminal_mesh.vertices.push_back({x,
+                opposite_terminal_circle[index-1].y,
+                opposite_terminal_circle[index-1].z});
+            split_terminal_mesh.vertices.push_back({x,
+                opposite_terminal_circle[index].y,
+                opposite_terminal_circle[index].z});
+        }
+        split_terminal_mesh.triangles.insert(
+            split_terminal_mesh.triangles.end(),{
+                vertex,vertex+1,vertex+3,vertex,vertex+3,vertex+2});
+        split_terminal_mesh.triangle_references.push_back(terminal_face);
+        split_terminal_mesh.triangle_references.push_back(terminal_face);
+    }
+    first_boundary.points=opposite_terminal_circle;
+    split_terminal_mesh.edges={first_boundary,second_boundary};
+    const auto split_terminal_preview=app::workspace_detail::
+        edge_treatment_preview_wire({{{terminal_route}}},parameters,
+            document::FeatureKind::Fillet,"split-terminal-preview",
+            &split_terminal_mesh);
+    require(split_terminal_preview.edges.size()==4&&
+            split_terminal_preview.edges[2].points.size()>2,
+        "Boolean-split cylinder left one Fillet preview terminal unclipped");
+    const auto& split_intersection=split_terminal_preview.edges[2];
+    const auto& split_first=split_terminal_preview.edges[0].points.front();
+    const auto& split_second=split_terminal_preview.edges[1].points.front();
+    const bool split_contacts=
+        (split_first==split_intersection.points.front()&&
+         split_second==split_intersection.points.back())||
+        (split_first==split_intersection.points.back()&&
+         split_second==split_intersection.points.front());
+    require(std::min(split_intersection.points.front().z,
+                split_intersection.points.back().z)<1.0e-6&&
+            std::max(split_intersection.points.front().z,
+                split_intersection.points.back().z)>10.&&split_contacts,
+        "Boolean-split cylinder did not clip both Fillet preview rails");
     std::cout<<"Rolling-support Fillet preview: calculated plane/circle sections, curved R5-to-R14 terminal and exact lightweight boundary contacts passed\n";
 }
 void independent_fillet_node_preview() {
@@ -698,8 +834,9 @@ void review_edge_treatment_preview(const kernel::OcctKernel& engine,
     workspace::Workspace live;
     live.add_part(source,calculated);
     live.activate(source.document_id);
-    static_cast<void>(workspace::regenerate_part(live,engine,
-        source.document_id));
+    if(!std::getenv("ZIMA_EDGE_TREATMENT_DIAGNOSTIC_SAVED_ONLY"))
+        static_cast<void>(workspace::regenerate_part(live,engine,
+            source.document_id));
     const auto& session=live.open_part(source.document_id)->session;
     const auto target=std::find_if(session.document().history.rbegin(),
         session.document().history.rend(),[](const auto& feature) {
@@ -714,7 +851,7 @@ void review_edge_treatment_preview(const kernel::OcctKernel& engine,
     std::vector<std::vector<kernel::ViewerEdge>> groups;
     for(std::size_t route=0;route<feature.edge_treatment.routes.size();
             ++route)
-        groups.push_back(document::treatment_selection_wire(
+        groups.push_back(document::current_treatment_selection_wire(
             feature.edge_treatment,route,std::nullopt,input->mesh));
     require(groups.size()==1,
         "Actual preview review expected one Fillet route");
@@ -810,6 +947,25 @@ void diagnose_edge_treatment(const kernel::OcctKernel& engine,
         // cursor.  A diagnostic rollback must calculate the requested history
         // boundary instead of publishing that later cached body first.
         calculated.clear();
+    }
+    if(requested!=source.history.end()) {
+        const auto operations=source.kernel_operations();
+        const auto operation=std::ranges::find(
+            operations,requested->id,&kernel::HistoryOperation::owner_id);
+        if(operation!=operations.end()) {
+            if(const auto* fillet=std::get_if<kernel::FilletRequest>(
+                    &operation->primitive))
+                std::cout<<"Diagnostic calculation methods: document="
+                    <<static_cast<int>(requested->edge_treatment.calculation_method)
+                    <<" kernel="<<static_cast<int>(fillet->calculation_method)
+                    <<'\n';
+            else if(const auto* chamfer=std::get_if<kernel::ChamferRequest>(
+                    &operation->primitive))
+                std::cout<<"Diagnostic calculation methods: document="
+                    <<static_cast<int>(requested->edge_treatment.calculation_method)
+                    <<" kernel="<<static_cast<int>(chamfer->calculation_method)
+                    <<'\n';
+        }
     }
     workspace::Workspace live;
     live.add_part(source,calculated);
@@ -930,7 +1086,7 @@ void diagnose_edge_treatment(const kernel::OcctKernel& engine,
     std::vector<std::vector<kernel::ViewerEdge>> groups;
     for(std::size_t route=0;route<feature->edge_treatment.routes.size();
             ++route) {
-        groups.push_back(document::treatment_selection_wire(
+        groups.push_back(document::current_treatment_selection_wire(
             feature->edge_treatment,route,std::nullopt,input->mesh));
         std::cout<<feature->name<<" route "<<route<<": stored="
             <<feature->edge_treatment.routes[route].size()<<" resolved="
@@ -1109,7 +1265,8 @@ int main(int argc,char** argv) {
         }
         kernel::OcctKernel engine;line_bend_wire(engine);
         planar_surface_wire_and_cues(engine);rectangular_matrix(engine);
-        rolling_edge_treatment_preview();independent_fillet_node_preview();
+        edge_treatment_source_node_labels();rolling_edge_treatment_preview();
+        independent_fillet_node_preview();
         revolution_matrix(engine);rounded_profile_matrix(engine);
         if(const auto* file=std::getenv("ZIMA_THIN_REVIEW_FILE"))review_fillets(engine,std::filesystem::u8path(file));
         return 0;}

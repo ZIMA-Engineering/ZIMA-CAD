@@ -8,7 +8,8 @@
   "Univerzální kóta: dalším kliknutím na oblouk přepnete R/⌀; kliknutím do prostoru určete polohu.": "Универсальный размер: щёлкните дугу ещё раз для переключения R/⌀; щёлкните свободное место для размещения размера.",
   "Koncová plocha": "Концевая грань",
   "Hrana byla odebrána z výběru zaoblení nebo sražení.": "Ребро удалено из выбора скругления или фаски.",
-  "A x B and A + angle Chamfer require one continuous line.": "Фаски A x B и A + угол требуют одной непрерывной линии.",
+  "A x B and A + angle Chamfer require one continuous open route or one closed circular edge.": "Фаски A x B и A + угол требуют одного непрерывного открытого маршрута или одного замкнутого кругового ребра.",
+  "ZIMA Chamfer requires one complete circular edge": "Фаска ZIMA требует одного полного кругового ребра",
   "ZIMA Chamfer node has a degenerate branch": "Узел фаски ZIMA содержит вырожденную ветвь",
   "ZIMA Chamfer supports only two- or three-branch nodes": "Фаска ZIMA поддерживает только узлы с двумя или тремя ветвями",
   "ZIMA Chamfer node mixes inner and outer branches": "Узел фаски ZIMA смешивает внутренние и внешние ветви",
@@ -2819,5 +2820,7 @@
   "Sheet from Body is available only in a Part.": "Лист из тела доступен только в детали.",
   "Sheet from Body does not exist.": "Лист из тела не существует.",
   "Activate the Body owning this Sheet from Body.": "Активируйте тело, которому принадлежит этот Лист из тела.",
-  "The selected feature is not a bound Sheet from Body part.": "Выбранный элемент не является связанной частью Листа из тела."
+  "The selected feature is not a bound Sheet from Body part.": "Выбранный элемент не является связанной частью Листа из тела.",
+  "zima::app::AssemblyWorkspaceWindow|Bez řezu": "Без реза",
+  "zima::app::AssemblyWorkspaceWindow|Řez": "Рез"
 }

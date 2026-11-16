@@ -85,9 +85,10 @@ inline std::vector<kernel::ViewerEdge> actual_edge_treatment_intervals(
     return route;
 }
 
-inline std::vector<kernel::ViewerEdge> treatment_selection_wire(
+inline std::vector<kernel::ViewerEdge> treatment_selection_wire_impl(
         const document::EdgeTreatmentParameters& parameters, std::size_t route,
-        std::optional<std::size_t> segment, const kernel::ViewerMesh& input) {
+        std::optional<std::size_t> segment, const kernel::ViewerMesh& input,
+        bool allow_historical_original) {
     std::vector<kernel::ViewerEdge> result;
     if (route>=parameters.routes.size()) return result;
     const auto selected=segment ? parameters.routes[route] :
@@ -180,7 +181,8 @@ inline std::vector<kernel::ViewerEdge> treatment_selection_wire(
                     }
                     continue;
                 }
-                if(appended.insert({true,edge_index}).second)
+                if(allow_historical_original &&
+                        appended.insert({true,edge_index}).second)
                     result.push_back(edge);
             }
             if(found_original)continue;
@@ -218,6 +220,70 @@ inline std::vector<kernel::ViewerEdge> treatment_selection_wire(
         });
     });
     return result;
+}
+
+// Historical authored geometry is useful for ordinary inspection and repair,
+// but it must never drive a new calculation or its transient preview.
+inline std::vector<kernel::ViewerEdge> treatment_selection_wire(
+        const document::EdgeTreatmentParameters& parameters, std::size_t route,
+        std::optional<std::size_t> segment, const kernel::ViewerMesh& input) {
+    return treatment_selection_wire_impl(parameters,route,segment,input,true);
+}
+
+inline std::vector<kernel::ViewerEdge> current_treatment_selection_wire(
+        const document::EdgeTreatmentParameters& parameters, std::size_t route,
+        std::optional<std::size_t> segment, const kernel::ViewerMesh& input) {
+    return treatment_selection_wire_impl(parameters,route,segment,input,false);
+}
+
+// Remove only authored members which no longer resolve to any exact current
+// fragment, proven descendant, side counterpart or uniquely reconnected
+// original source. A partially surviving route remains calculable; a route
+// with no surviving member disappears together with its endpoint metadata.
+// This is an explicit edge-treatment repair policy, not a general reference
+// fallback and it never selects geometry by proximity.
+inline bool prune_unresolved_treatment_references(
+        document::EdgeTreatmentParameters& parameters,
+        const kernel::ViewerMesh& input) {
+    const auto original=parameters;
+    std::vector<std::vector<kernel::EdgeReference>> routes;
+    std::vector<kernel::VertexReference> starts;
+    std::vector<document::EdgeTreatmentParameters::RouteEndFaces> end_faces;
+    routes.reserve(original.routes.size());
+    starts.reserve(original.routes.size());
+    end_faces.reserve(original.routes.size());
+    bool changed{};
+    for(std::size_t route=0;route<original.routes.size();++route) {
+        std::vector<kernel::EdgeReference> retained;
+        for(std::size_t member=0;member<original.routes[route].size();++member) {
+            if(!current_treatment_selection_wire(original,route,member,input).empty())
+                retained.push_back(original.routes[route][member]);
+            else
+                changed=true;
+        }
+        if(retained.empty()) {
+            changed=changed||!original.routes[route].empty();
+            continue;
+        }
+        const bool route_changed=retained.size()!=original.routes[route].size();
+        routes.push_back(std::move(retained));
+        starts.push_back(route<original.route_start_vertices.size()
+            ?original.route_start_vertices[route]:kernel::VertexReference{});
+        // Removing a member changes the route's possible terminals. Do not
+        // carry an authored end face onto a different endpoint.
+        end_faces.push_back(!route_changed&&
+                route<original.route_end_faces.size()
+            ?original.route_end_faces[route]
+            :document::EdgeTreatmentParameters::RouteEndFaces{});
+    }
+    if(!changed)return false;
+    parameters.routes=std::move(routes);
+    parameters.route_start_vertices=std::move(starts);
+    while(!parameters.route_start_vertices.empty()&&
+          !parameters.route_start_vertices.back().valid())
+        parameters.route_start_vertices.pop_back();
+    parameters.route_end_faces=std::move(end_faces);
+    return true;
 }
 
 // Splitting uses persisted endpoint ancestry from the real input boundary.

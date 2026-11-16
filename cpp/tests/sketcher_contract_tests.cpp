@@ -7510,17 +7510,61 @@ int main() {
         require(diameter_sketch.move_point(diameter_center_id, 7.0, -3.0) &&
                     std::abs(diameter_sketch.circles.front().radius - 15.0) < 1.0e-9,
                 "Moving a Circle center changed its radius");
-        auto sliding_circle = zima::sketcher::Sketch::create_default();
-        const auto sliding_circle_id = sliding_circle.add_circle(0.0, 0.0, 10.0);
-        const auto sliding_point_id = sliding_circle.add_point(10.0, 0.0);
-        static_cast<void>(sliding_circle.add_point_on_circle_constraint(
-            sliding_point_id, sliding_circle_id));
-        require(sliding_circle.move_point(sliding_point_id, 30.0, 40.0) &&
-                    std::abs(sliding_circle.circles.front().radius - 10.0) < 1.0e-9 &&
-                    std::abs(std::hypot(
-                        sliding_circle.find_point(sliding_point_id)->x,
-                        sliding_circle.find_point(sliding_point_id)->y) - 10.0) < 1.0e-8,
-                "Dragging a point on an undimensioned Circle changed its radius");
+        // A manually attached native C point is both the radial and angular
+        // manipulation handle.  Exercise repeated outward, inward and angular
+        // drags with no dimension and with every applicable R/D role.
+        for(int radial_role=0;radial_role<4;++radial_role)
+        for(bool diameter:{false,true}) {
+            if(radial_role==0&&diameter)continue;
+            auto sliding_circle = zima::sketcher::Sketch::create_default();
+            const auto sliding_circle_id = sliding_circle.add_circle(0.0, 0.0, 10.0);
+            const auto sliding_center_id=sliding_circle.circles.front().center_point_id;
+            sliding_circle.set_point_fixed(sliding_center_id,true);
+            const auto sliding_point_id = sliding_circle.add_point(10.0, 0.0);
+            const auto contact_id=sliding_circle.add_point_on_circle_constraint(
+                sliding_point_id, sliding_circle_id,true);
+            if(radial_role) {
+                auto dimension=diameter
+                    ?sliding_circle.create_circle_diameter_dimension(sliding_circle_id)
+                    :sliding_circle.create_circle_radius_dimension(sliding_circle_id);
+                dimension.driving=radial_role!=2;
+                dimension.locked=radial_role==3;
+                sliding_circle.apply_dimension(dimension);
+            }
+            for(const auto target:std::array{
+                    std::array{30.,40.},std::array{-6.,8.},std::array{0.,-20.}}) {
+                const double requested=std::hypot(target[0],target[1]);
+                require(sliding_circle.move_point(
+                            sliding_point_id,target[0],target[1]),
+                    "Native Circle C point rejected a permitted repeated drag");
+                const double expected=radial_role==3?10.:requested;
+                const auto* moved=sliding_circle.find_point(sliding_point_id);
+                require(std::abs(sliding_circle.circles.front().radius-expected)<1.e-7&&
+                            std::abs(std::hypot(moved->x,moved->y)-expected)<1.e-7&&
+                            std::abs(moved->x-target[0]*expected/requested)<1.e-7&&
+                            std::abs(moved->y-target[1]*expected/requested)<1.e-7,
+                    "Native Circle C point selected the wrong radial/angular drag branch");
+                const auto solved=sliding_circle.solve();
+                require(solved.status!=zima::sketcher::SolveStatus::Conflicting&&
+                            solved.status!=zima::sketcher::SolveStatus::Invalid&&
+                            solved.maximum_residual<1.e-7,
+                    "Native Circle C point drag violated its geometric equations");
+            }
+            const auto reopened=zima::sketcher::Sketch::from_serialized(
+                sliding_circle.serialized());
+            require(reopened.circles.front().id==sliding_circle_id&&
+                        std::ranges::any_of(reopened.constraints,[&](const auto& constraint) {
+                            return constraint.id==contact_id&&
+                                constraint.first_point_id==sliding_point_id&&
+                                constraint.geometry_id==sliding_circle_id;
+                        }),
+                "Native Circle C point lost reference identity after reopening");
+            auto fixed=reopened;fixed.set_point_fixed(sliding_point_id,true);
+            const auto before=fixed.serialized();
+            require(!fixed.move_point(sliding_point_id,50.,0.)&&
+                        fixed.serialized()==before,
+                "Fully constrained Circle C point escaped or changed the document");
+        }
         const auto loaded_diameter = zima::sketcher::Sketch::from_serialized(
             diameter_sketch.serialized());
         require(loaded_diameter.circles == diameter_sketch.circles &&

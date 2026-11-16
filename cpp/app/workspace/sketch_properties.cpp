@@ -770,9 +770,23 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
                                     part->session,edit_mode?
                                         sketch_feature->id:std::string{}):
                                 nullptr;
-                            return input?zima::document::line_bend_preview(
-                                *sketch_feature,resolved_sketch,sheet_defaults,
-                                input->mesh):zima::kernel::ViewerMesh{};
+                            if(!input)return zima::kernel::ViewerMesh{};
+                            // A new Line Bend receives its persisted segment
+                            // identity only when OK commits the feature.  The
+                            // live preview must nevertheless follow the one
+                            // ordinary segment currently authored in its
+                            // draft Sketch (and a replacement segment while
+                            // editing), without mutating the stored draft.
+                            auto preview_feature=*sketch_feature;
+                            const auto segment=std::ranges::find_if(
+                                resolved_sketch.segments,[](const auto& value) {
+                                    return !value.construction;
+                                });
+                            if(segment!=resolved_sketch.segments.end())
+                                preview_feature.line_bend.segment_id=segment->id;
+                            return zima::document::line_bend_preview(
+                                preview_feature,resolved_sketch,sheet_defaults,
+                                input->mesh);
                         }()
                         :sketch_feature->feature_kind==zima::document::FeatureKind::Holes
                         ?zima::document::holes_preview(*sketch_feature, resolved_sketch)

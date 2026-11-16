@@ -830,6 +830,36 @@ edge_treatment_calculation_method(const std::string& name) {
         "Invalid persisted edge-treatment calculation method");
 }
 
+const char* edge_treatment_route_end_mode_name(
+        EdgeTreatmentParameters::RouteEndMode mode) {
+    using Mode=EdgeTreatmentParameters::RouteEndMode;
+    switch(mode) {
+    case Mode::NoCut:return "no_cut";
+    case Mode::Cut:return "cut";
+    }
+    throw std::invalid_argument("Invalid edge-treatment route-end mode");
+}
+
+EdgeTreatmentParameters::RouteEndMode edge_treatment_route_end_mode(
+        const std::string& name) {
+    using Mode=EdgeTreatmentParameters::RouteEndMode;
+    if(name=="no_cut")return Mode::NoCut;
+    if(name=="cut")return Mode::Cut;
+    throw std::runtime_error(
+        "Invalid persisted edge-treatment route-end mode");
+}
+
+zima::kernel::EdgeTreatmentRouteEndMode kernel_route_end_mode(
+        EdgeTreatmentParameters::RouteEndMode mode) {
+    using DocumentMode=EdgeTreatmentParameters::RouteEndMode;
+    using KernelMode=zima::kernel::EdgeTreatmentRouteEndMode;
+    switch(mode) {
+    case DocumentMode::NoCut:return KernelMode::NoCut;
+    case DocumentMode::Cut:return KernelMode::Cut;
+    }
+    throw std::invalid_argument("Invalid edge-treatment route-end mode");
+}
+
 zima::kernel::EdgeTreatmentCalculationMethod kernel_calculation_method(
         EdgeTreatmentParameters::CalculationMethod method) {
     using DocumentMethod=EdgeTreatmentParameters::CalculationMethod;
@@ -848,7 +878,17 @@ bool valid_edge_treatment_values(
     if (parameters.route_end_faces.size() > parameters.routes.size() ||
         std::ranges::any_of(parameters.route_end_faces,
             [](const auto& ends) {
-                return (ends.first.valid() &&
+                return (ends.first_vertex.valid()&&
+                        !ends.first_vertex.instance_path.empty())||
+                    (ends.last_vertex.valid()&&
+                        !ends.last_vertex.instance_path.empty())||
+                    (ends.first_mode==
+                            EdgeTreatmentParameters::RouteEndMode::Cut&&
+                        !ends.first_vertex.valid())||
+                    (ends.last_mode==
+                            EdgeTreatmentParameters::RouteEndMode::Cut&&
+                        !ends.last_vertex.valid())||
+                    (ends.first.valid() &&
                         !ends.first.instance_path.empty()) ||
                     (ends.last.valid() &&
                         !ends.last.instance_path.empty());
@@ -984,12 +1024,12 @@ nlohmann::json read_part_ini(const std::filesystem::path& path,
     const auto ini = read_ini(path);
     profile.phase("INI scan");
     const auto native_format=ini_value(ini, "Document", "format_version");
-    if (native_format != "52") {
+    if (native_format != "53") {
         throw std::runtime_error("Unsupported ZIMA-CAD Part document format");
     }
     nlohmann::json root = {
         {"format", "zima-cad-cpp"},
-        {"format_version", 76},
+        {"format_version", 77},
         {"document_id", ini_required(ini, "Document", "document_id")},
         {"type", ini_value(ini, "Document", "type", "part")},
         {"name", ini_value(ini, "Document", "name", "Nový díl")},
@@ -1187,7 +1227,7 @@ NativeCalculatedCachePtr write_part_ini(
     NativeIoProfile profile("Part write");
     IniSections ini;
     ini["Document"] = {
-        {"format_version", "52"},
+        {"format_version", "53"},
         {"calculated_definition", "zima-part-definition-sha256-v1"},
         {"type", "part"},
         {"document_id", root.at("document_id").get<std::string>()},
@@ -3914,7 +3954,75 @@ PlacementDirections placement_resolve_directions(
     return result;
 }
 
+struct PlacementOrderedThreePointFrame {
+    zima::kernel::Vec3 origin;
+    zima::kernel::Vec3 x_axis;
+    zima::kernel::Vec3 y_axis;
+    zima::kernel::Vec3 z_axis;
+};
+
+std::vector<const ConstructionReference*> placement_ordered_three_point_references(
+        const std::vector<ConstructionReference>& references,
+        const zima::kernel::ViewerReferenceGeometry& geometry) {
+    std::vector<const ConstructionReference*> positional;
+    std::vector<const ConstructionReference*> directions;
+    for (const auto& reference : references) {
+        if (!reference.orientation_only) positional.push_back(&reference);
+        else if (reference.orientation_role == "direction")
+            directions.push_back(&reference);
+    }
+    std::vector<const ConstructionReference*> result;
+    if (positional.size() >= 3) {
+        result.assign(positional.begin(), positional.begin() + 3);
+    } else if (positional.size() == 1 && directions.size() >= 2) {
+        // The shared placement picker persists the second and third point as
+        // direction-only rows.  They still form the same ordered P1/P2/P3
+        // definition as three positional point rows.
+        result = {positional.front(), directions[0], directions[1]};
+    }
+    if (result.size() != 3 || std::ranges::any_of(result,
+            [&](const auto* reference) {
+                return !placement_reference_point(*reference, geometry);
+            })) return {};
+    return result;
+}
+
+std::optional<PlacementOrderedThreePointFrame>
+placement_ordered_three_point_frame(
+        const std::vector<ConstructionReference>& references,
+        const zima::kernel::ViewerReferenceGeometry& geometry) {
+    const auto ordered = placement_ordered_three_point_references(
+        references, geometry);
+    if (ordered.size() != 3) return std::nullopt;
+    const auto first = *placement_reference_point(*ordered[0], geometry);
+    const auto second = *placement_reference_point(*ordered[1], geometry);
+    const auto third = *placement_reference_point(*ordered[2], geometry);
+    const auto second_difference = placement_vec_sub(second, first);
+    const auto third_difference = placement_vec_sub(third, first);
+    if (!placement_directions_independent(second_difference, third_difference))
+        return std::nullopt;
+    const auto x_axis = placement_vec_normalized(second_difference);
+    const auto y_axis = placement_vec_project_perpendicular(
+        third_difference, x_axis);
+    const auto z_axis = placement_vec_normalized(
+        placement_vec_cross(x_axis, y_axis));
+    if (placement_vec_is_zero(x_axis) || placement_vec_is_zero(y_axis) ||
+            placement_vec_is_zero(z_axis)) return std::nullopt;
+    return PlacementOrderedThreePointFrame{
+        first, x_axis, y_axis, z_axis};
+}
+
 }  // namespace
+
+bool placement_references_define_local_xy_work_plane(
+        const std::vector<ConstructionReference>& references,
+        const zima::kernel::ViewerReferenceGeometry& geometry) {
+    if (placement_ordered_three_point_frame(references, geometry)) return true;
+    std::vector<std::reference_wrapper<const ConstructionReference>> positional;
+    for (const auto& reference : references)
+        if (!reference.orientation_only) positional.push_back(reference);
+    return placement_point_station(positional, geometry).has_value();
+}
 
 void initialize_placement_solution_branch(std::vector<ConstructionReference>& references,
         const kernel::ViewerReferenceGeometry& geometry,kernel::Vec3 seed) {
@@ -4944,45 +5052,26 @@ bool resolve_placement(
         placement.z = origin.z;
     }
     std::optional<zima::kernel::Vec3> three_point_base;
-    if (position_references.size() >= 3) {
-        const auto first = placement_reference_point(
-            position_references[0].get(), geometry);
-        const auto second = placement_reference_point(
-            position_references[1].get(), geometry);
-        const auto third = placement_reference_point(
-            position_references[2].get(), geometry);
-        if (first && second && third) {
-            // Ordered three-point placement is a frame definition, not
-            // three contradictory requests to place the origin on all
-            // three points. P1 is the origin; P2 and P3 only establish X
-            // and the positive-Y half-plane.
-            placement.x = first->x;
-            placement.y = first->y;
-            placement.z = first->z;
+    const auto ordered_three_point_references =
+        placement_ordered_three_point_references(placement.references, geometry);
+    if (!ordered_three_point_references.empty()) {
+        if (const auto frame = placement_ordered_three_point_frame(
+                placement.references, geometry)) {
+            // Ordered three-point placement is a frame definition, not three
+            // contradictory requests to place the origin on all three points.
+            // P1 is the origin, P1->P2 is local +X and P3 chooses local +Y.
+            placement.x = frame->origin.x;
+            placement.y = frame->origin.y;
+            placement.z = frame->origin.z;
             position_resolved = true;
-            const auto difference = [](const auto& left, const auto& right) {
-                return zima::kernel::Vec3{left.x - right.x,
-                    left.y - right.y, left.z - right.z};
-            };
-            const auto x_axis = placement_vec_normalized(
-                difference(*second, *first));
-            const auto y_axis = placement_vec_normalized(
-                placement_vec_project_perpendicular(
-                    difference(*third, *first), x_axis));
-            if (!placement_vec_is_zero(x_axis) &&
-                    placement_directions_independent(difference(*second,*first),difference(*third,*first))) {
-                const auto z_axis = placement_vec_normalized(
-                    placement_vec_cross(x_axis, y_axis));
-                if (!placement_vec_is_zero(z_axis)) {
-                    three_point_base = placement_euler_degrees_from_rotation_matrix(
-                        placement_rotation_matrix_from_columns(x_axis, y_axis, z_axis));
-                    has_orientation_reference = true;
-                }
-            }
-            // P1/P2/P3 are an ordered frame definition. Coincident or
-            // collinear points do not define FRONT and TOP, even though P1
-            // by itself still supplies a numerical position.
-            if (!three_point_base) orientation_resolved = false;
+            three_point_base = placement_euler_degrees_from_rotation_matrix(
+                placement_rotation_matrix_from_columns(
+                    frame->x_axis, frame->y_axis, frame->z_axis));
+            has_orientation_reference = true;
+        } else {
+            // Coincident or collinear points do not define a complete frame,
+            // even though P1 alone still supplies a numerical position.
+            orientation_resolved = false;
         }
     }
     // Resolve point-based directions only after the position equations and
@@ -6768,7 +6857,15 @@ void PartDocument::resolve_constructions(
             // container frame; resolving references must never overwrite it.
             if (bend_attachment) {
                 sketch.plane = zima::sketcher::SketchPlane::XY;
-            } else apply_automatic_sketch_work_plane(sketch,owner->placement.references);
+            } else if (sheet_profile_attachment) {
+                // An attached Sheet Profile is the cross-section normal to
+                // its supporting boundary edge.  Keep its established local
+                // XZ route plane; the generic Edge/Plane/Point placement
+                // frame describes the container as local XY, not this
+                // command-owned profile section.
+                sketch.plane = zima::sketcher::SketchPlane::XZ;
+            } else apply_automatic_sketch_work_plane(sketch,
+                owner->placement.references, source_geometry);
             zima::kernel::Vec3 local_origin;
             zima::kernel::Vec3 local_x;
             zima::kernel::Vec3 local_y;
@@ -6815,7 +6912,8 @@ void PartDocument::resolve_constructions(
             const bool has_position_top = orientation_constraint_remaining_dof(
                 geometric_placement.references, source_geometry, true,
                 {geometric_placement.x, geometric_placement.y, geometric_placement.z}) == 0;
-            if (!bend_attachment && (sketch_placement_uses_front_plane(owner->placement.references) ||
+            if (!bend_attachment && (sketch_placement_uses_front_plane(
+                    owner->placement.references, source_geometry) ||
                 (sketch.plane == zima::sketcher::SketchPlane::XZ &&
                  placement_references_use_whole_origin(owner->placement.references)))) {
                 // Owned profiles use local XZ with local +Y as FRONT. Recompose
@@ -11722,7 +11820,11 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
                         container.edge_treatment.route_end_faces.size()
                     ?container.edge_treatment.route_end_faces[route]
                     :EdgeTreatmentParameters::RouteEndFaces{};
-                route_end_faces.push_back({ends.first,ends.last});
+                route_end_faces.push_back({
+                    ends.first_vertex,ends.last_vertex,
+                    kernel_route_end_mode(ends.first_mode),
+                    kernel_route_end_mode(ends.last_mode),
+                    ends.first,ends.last});
             }
             primitive = zima::kernel::FilletRequest{
                 std::move(calculation_edges),
@@ -11761,7 +11863,11 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
                         container.edge_treatment.route_end_faces.size()
                     ?container.edge_treatment.route_end_faces[route_index]
                     :EdgeTreatmentParameters::RouteEndFaces{};
-                route_end_faces.push_back({ends.first,ends.last});
+                route_end_faces.push_back({
+                    ends.first_vertex,ends.last_vertex,
+                    kernel_route_end_mode(ends.first_mode),
+                    kernel_route_end_mode(ends.last_mode),
+                    ends.first,ends.last});
             }
             primitive = zima::kernel::ChamferRequest{
                 std::move(calculation_edges),
@@ -13375,6 +13481,13 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
                     vertex.at("key").get<std::string>(), {}});
             }
             for (const auto& ends : source.at("route_end_faces")) {
+                const auto load_vertex=[](const nlohmann::json& value) {
+                    return value.is_null()
+                        ? zima::kernel::VertexReference{}
+                        : zima::kernel::VertexReference{
+                            value.at("owner").get<std::string>(),
+                            value.at("key").get<std::string>(), {}};
+                };
                 const auto load_face=[](const nlohmann::json& value) {
                     return value.is_null()
                         ? zima::kernel::FaceReference{}
@@ -13383,6 +13496,12 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
                             value.at("key").get<std::string>(), {}};
                 };
                 container.edge_treatment.route_end_faces.push_back({
+                    load_vertex(ends.at("first_vertex")),
+                    load_vertex(ends.at("last_vertex")),
+                    edge_treatment_route_end_mode(
+                        ends.at("first_mode").get<std::string>()),
+                    edge_treatment_route_end_mode(
+                        ends.at("last_mode").get<std::string>()),
                     load_face(ends.at("first")),
                     load_face(ends.at("last"))});
             }
@@ -14660,7 +14779,20 @@ nlohmann::json PartDocument::serialized(
                             {"key",face.semantic_key}}
                         : nlohmann::json(nullptr);
                 };
+                const auto save_vertex=[](
+                        const zima::kernel::VertexReference& vertex) {
+                    return vertex.valid()
+                        ? nlohmann::json{{"owner",vertex.owner_id},
+                            {"key",vertex.semantic_key}}
+                        : nlohmann::json(nullptr);
+                };
                 serialized["route_end_faces"].push_back({
+                    {"first_vertex",save_vertex(ends.first_vertex)},
+                    {"last_vertex",save_vertex(ends.last_vertex)},
+                    {"first_mode",edge_treatment_route_end_mode_name(
+                        ends.first_mode)},
+                    {"last_mode",edge_treatment_route_end_mode_name(
+                        ends.last_mode)},
                     {"first",save_face(ends.first)},
                     {"last",save_face(ends.last)}});
             }
@@ -14790,7 +14922,7 @@ nlohmann::json PartDocument::serialized(
     static_cast<void>(zima::document::parse_named_views(named_views));
     nlohmann::json root = {
         {"format", "zima-cad-cpp"},
-        {"format_version", 76},
+        {"format_version", 77},
         {"reference_errors", reference_errors},
         {"removed_reference_states",removed_reference_states},
         {"document_id", document_id},

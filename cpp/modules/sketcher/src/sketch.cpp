@@ -3967,17 +3967,57 @@ bool Sketch::move_point(const std::string& point_id, double x, double y) {
                     (segment->first_point_id == point_id ||
                      segment->second_point_id == point_id);
             });
-        const bool radius_locked = std::ranges::any_of(
+        const bool source_driven_circle =
+            externally_linked.contains(circle->center_point_id) ||
+            std::ranges::any_of(next.import_blocks, [&](const auto& block) {
+                return block.source_path.starts_with("external-reference:") &&
+                    std::ranges::find(block.geometry_ids, circle->id) !=
+                        block.geometry_ids.end();
+            }) || std::ranges::any_of(next.constraints, [&](const auto& equal) {
+                if (equal.suppressed ||
+                    equal.kind != ConstraintKind::EqualRadius)
+                    return false;
+                const auto other = equal.geometry_id == circle->id
+                    ? equal.second_geometry_id
+                    : equal.second_geometry_id == circle->id
+                        ? equal.geometry_id : std::string{};
+                return !other.empty() && std::ranges::any_of(
+                    next.external_references, [&](const auto& reference) {
+                        return reference.id == other;
+                    });
+            });
+        const bool radius_locked = source_driven_circle || std::ranges::any_of(
             next.dimensions, [&](const auto& dimension) {
                 return !dimension.suppressed && dimension.driving &&
                     dimension.locked && dimension.geometry_id == circle->id &&
                     (dimension.kind == DimensionKind::Radius ||
                      dimension.kind == DimensionKind::Diameter);
             });
-        // A C+T junction is a radial manipulation handle. With an unlocked
-        // radius, the cursor owns the contact, the circle keeps its centre and
-        // PointOnCircle updates the radius during the solve. A locked radius
-        // turns the same gesture into an angular slide along the rim.
+        // A native C point is the circle's direct radial/angular manipulation
+        // handle.  An unlocked radius follows the cursor explicitly so the
+        // nonlinear solver cannot choose the opposite (shrinking) branch.
+        // Other free C points are scaled coherently as a feasible seed.  A
+        // locked driving radius retains its hard value and permits only the
+        // angular component of the same gesture.
+        if (!radius_locked) {
+            const double scale = cursor_radius / circle->radius;
+            for (const auto& attached_constraint : next.constraints) {
+                if (attached_constraint.suppressed ||
+                    attached_constraint.kind != ConstraintKind::PointOnCircle ||
+                    attached_constraint.geometry_id != circle->id ||
+                    attached_constraint.first_point_id == point_id) continue;
+                auto* attached = next.find_point(
+                    attached_constraint.first_point_id);
+                if (!attached) return false;
+                if (attached->fixed || externally_linked.contains(attached->id)) {
+                    if (std::abs(scale - 1.0) > 1.0e-10) return false;
+                    continue;
+                }
+                attached->x = center->x + (attached->x - center->x) * scale;
+                attached->y = center->y + (attached->y - center->y) * scale;
+            }
+            circle->radius = cursor_radius;
+        }
         if (tangent_contact_on_circle && !radius_locked) {
             for (const auto& segment : next.segments) {
                 if (segment.first_point_id != point_id &&
@@ -4023,10 +4063,10 @@ bool Sketch::move_point(const std::string& point_id, double x, double y) {
             }
             continue;
         }
-        // An ordinary C point changes only its angular position. It does not
-        // resize the supporting circle as a side effect of point movement.
-        point->x = center->x + (x - center->x) * circle->radius / cursor_radius;
-        point->y = center->y + (y - center->y) * circle->radius / cursor_radius;
+        if (radius_locked) {
+            point->x = center->x + (x - center->x) * circle->radius / cursor_radius;
+            point->y = center->y + (y - center->y) * circle->radius / cursor_radius;
+        }
     }
     // An immutable native circular support owns the permitted cursor locus,
     // independent of which curve was selected first for C+T. A later free
@@ -5465,8 +5505,55 @@ std::string Sketch::add_segment_pair_constraint(
         }
         return false;
     }();
-    if (!regular_polygon_direction) require_constraint_dof_reduction(
-        *this, result, "Segment-pair constraint is redundant");
+    const auto owns_direction = [&](const std::string& id) {
+        if (is_base_sketch_axis(id) || external_reference_line(*this, id))
+            return true;
+        const auto segment = std::ranges::find(segments, id,
+            &SketchSegment::id);
+        if (segment == segments.end()) return true;
+        const auto same_endpoints = [&](const SketchConstraint& relation) {
+            return (relation.first_point_id == segment->first_point_id &&
+                    relation.second_point_id == segment->second_point_id) ||
+                (relation.first_point_id == segment->second_point_id &&
+                 relation.second_point_id == segment->first_point_id);
+        };
+        if (std::ranges::any_of(constraints, [&](const auto& relation) {
+                if (relation.suppressed) return false;
+                if ((relation.kind == ConstraintKind::Horizontal ||
+                     relation.kind == ConstraintKind::Vertical) &&
+                    (relation.geometry_id == id || same_endpoints(relation)))
+                    return true;
+                return (relation.kind == ConstraintKind::Parallel ||
+                        relation.kind == ConstraintKind::Perpendicular) &&
+                    (relation.geometry_id == id ||
+                     relation.second_geometry_id == id);
+            })) return true;
+        if (std::ranges::any_of(dimensions, [&](const auto& dimension) {
+                return !dimension.suppressed && dimension.driving &&
+                    ((dimension.kind == DimensionKind::Angle &&
+                      dimension.geometry_id == id) ||
+                     (dimension.kind == DimensionKind::AngleBetween &&
+                      (dimension.geometry_id == id ||
+                       dimension.second_geometry_id == id)));
+            })) return true;
+        const auto point_fixed = [&](const std::string& point_id) {
+            const auto* point = find_point(point_id);
+            return point != nullptr && point->fixed;
+        };
+        return point_fixed(segment->first_point_id) &&
+            point_fixed(segment->second_point_id);
+    };
+    const bool transfers_one_existing_direction =
+        kind != ConstraintKind::EqualLength &&
+        owns_direction(first_segment_id) != owns_direction(second_segment_id);
+    // A direction relation can legitimately transfer the one already-owned
+    // orientation to the still-free segment even when the numerical rank at
+    // the converged seed appears unchanged. All other redundant pairs retain
+    // the ordinary rejection below.
+    if (!regular_polygon_direction && !transfers_one_existing_direction) {
+        require_constraint_dof_reduction(
+            *this, result, "Segment-pair constraint is redundant");
+    }
     *this = std::move(next);
     return id;
 }
@@ -6485,6 +6572,122 @@ std::string Sketch::add_tangent_constraint(
         if(seeded) {
             candidate.dimensions=next.dimensions;next=std::move(candidate);
         } else if(creation_anchors.empty())static_cast<void>(seed_circular_equations(next,{}));
+    }
+    if (line_curve && !resolved_contact_point_id.empty()) {
+        const auto& segment_id = reference_is_line
+            ? reference_geometry_id : driven_geometry_id;
+        const auto& curve_id = reference_is_line
+            ? driven_geometry_id : reference_geometry_id;
+        auto arc = std::ranges::find(next.arcs, curve_id, &SketchArc::id);
+        auto segment = std::ranges::find(next.segments, segment_id,
+            &SketchSegment::id);
+        if (arc != next.arcs.end() && segment != next.segments.end() &&
+            (arc->start_point_id == resolved_contact_point_id ||
+             arc->end_point_id == resolved_contact_point_id) &&
+            (segment->first_point_id == resolved_contact_point_id ||
+             segment->second_point_id == resolved_contact_point_id) &&
+            std::ranges::none_of(next.dimensions, [&](const auto& dimension) {
+                return !dimension.suppressed && dimension.driving &&
+                    dimension.geometry_id == curve_id &&
+                    (dimension.kind == DimensionKind::Radius ||
+                     dimension.kind == DimensionKind::Diameter);
+            })) {
+            const auto& opposite_id = arc->start_point_id ==
+                    resolved_contact_point_id
+                ? arc->end_point_id : arc->start_point_id;
+            const auto previous_tangent = std::ranges::find_if(
+                next.constraints, [&](const auto& relation) {
+                    return relation.id != id && !relation.suppressed &&
+                        relation.kind == ConstraintKind::Tangent &&
+                        relation.first_point_id == opposite_id &&
+                        (relation.geometry_id == curve_id ||
+                         relation.second_geometry_id == curve_id);
+                });
+            if (previous_tangent != next.constraints.end()) {
+                const auto& previous_line_id =
+                    previous_tangent->geometry_id == curve_id
+                    ? previous_tangent->second_geometry_id
+                    : previous_tangent->geometry_id;
+                const auto previous_line = segment_or_external_line(
+                    next, previous_line_id);
+                const auto new_line = segment_or_external_line(next, segment_id);
+                auto* opposite = next.find_point(opposite_id);
+                auto* contact = next.find_point(resolved_contact_point_id);
+                auto* center = next.find_point(arc->center_point_id);
+                if (previous_line && new_line && opposite && contact && center &&
+                    !opposite->fixed && !contact->fixed && !center->fixed) {
+                    const auto unit = [](const std::array<double, 2>& value)
+                            -> std::optional<std::array<double, 2>> {
+                        const double length = std::hypot(value[0], value[1]);
+                        if (length <= 1.0e-12) return std::nullopt;
+                        return std::array{value[0] / length,
+                                          value[1] / length};
+                    };
+                    const auto old_direction = unit(previous_line->second);
+                    const auto new_direction = unit(new_line->second);
+                    if (old_direction && new_direction) {
+                        std::array old_normal{-(*old_direction)[1],
+                                               (*old_direction)[0]};
+                        std::array new_normal{-(*new_direction)[1],
+                                               (*new_direction)[0]};
+                        if ((center->x - opposite->x) * old_normal[0] +
+                            (center->y - opposite->y) * old_normal[1] < 0.0) {
+                            old_normal[0] = -old_normal[0];
+                            old_normal[1] = -old_normal[1];
+                        }
+                        if ((center->x - contact->x) * new_normal[0] +
+                            (center->y - contact->y) * new_normal[1] < 0.0) {
+                            new_normal[0] = -new_normal[0];
+                            new_normal[1] = -new_normal[1];
+                        }
+                        const std::array normal_delta{
+                            old_normal[0] - new_normal[0],
+                            old_normal[1] - new_normal[1]};
+                        const std::array negative_new_direction{
+                            -(*new_direction)[0], -(*new_direction)[1]};
+                        const std::array separation{
+                            contact->x - opposite->x,
+                            contact->y - opposite->y};
+                        const auto cross = [](const auto& first,
+                                              const auto& second) {
+                            return first[0] * second[1] -
+                                first[1] * second[0];
+                        };
+                        const double determinant = cross(
+                            normal_delta, negative_new_direction);
+                        if (std::abs(determinant) > 1.0e-10) {
+                            const double radius = cross(
+                                separation, negative_new_direction) /
+                                determinant;
+                            const double slide = cross(
+                                normal_delta, separation) / determinant;
+                            if (std::isfinite(radius) &&
+                                std::isfinite(slide) && radius > 1.0e-9) {
+                                contact->x += slide * (*new_direction)[0];
+                                contact->y += slide * (*new_direction)[1];
+                                center->x = opposite->x +
+                                    radius * old_normal[0];
+                                center->y = opposite->y +
+                                    radius * old_normal[1];
+                                arc->radius = radius;
+                                arc->start_angle = std::atan2(
+                                    next.find_point(arc->start_point_id)->y -
+                                        center->y,
+                                    next.find_point(arc->start_point_id)->x -
+                                        center->x);
+                                arc->end_angle = std::atan2(
+                                    next.find_point(arc->end_point_id)->y -
+                                        center->y,
+                                    next.find_point(arc->end_point_id)->x -
+                                        center->x);
+                                while (arc->end_angle <= arc->start_angle)
+                                    arc->end_angle += 2.0 * std::numbers::pi;
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
     // Creation keeps the selected reference in place, but these temporary
     // anchors must never participate in the persisted DOF/rank cache.

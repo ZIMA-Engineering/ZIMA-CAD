@@ -1240,11 +1240,19 @@ void AssemblyWorkspaceWindow::create_layout() {
             edge_treatment_hover_seed_.reset();
 
         }
-        if (!sketch_inference_cycle_refresh_) {
+        const auto pointer=viewer_->last_pointer_position();
+        const std::array pointer_position{pointer.x(),pointer.y()};
+        const bool pointer_moved=!sketch_inference_pointer_position_||
+            *sketch_inference_pointer_position_!=pointer_position;
+        // RMB inference selection belongs to the current cursor location.
+        // Mouse release and a programmatic preview refresh at that same pixel
+        // must not discard it; an actual pointer move deliberately does.
+        if (!sketch_inference_cycle_refresh_&&pointer_moved) {
             sketch_segment_inference_cycle_ = 0;
             sketch_skip_candidate_snap_ = false;
             sketch_endpoint_inference_cycle_ = false;
         }
+        sketch_inference_pointer_position_=pointer_position;
         sketch_inference_cycle_refresh_ = false;
         auto [local_origin, local_direction] =
             active_part_local_ray(origin, direction);

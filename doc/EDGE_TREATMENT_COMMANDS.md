@@ -217,11 +217,24 @@ selected segment in the View removes that exact logical item. Current split
 descendants remain inspection data for the stable authored item instead of
 becoming duplicate rows.
 
-The View publishes the complete analytical treatment preview together with the
-unique endpoints of the selected segments as azure node markers. This display
+The View publishes the complete analytical treatment preview together with every
+unique source node of each connected selected path as azure node markers. This display
 does not calculate the result Body or create a transaction. The same stable
 authored edge identities are retained when an upstream feature changes; current
 Boolean descendants are resolved during explicit regeneration.
+
+Properties numbers every distinct source node in traversal order. The first
+connected path uses `1.1`, `1.2`, `1.3`, and so on; the next disconnected path
+starts at `2.1`. A closed loop uses its first node as the closing node and shows
+that node only once as `1.1`. Display samples inside a curve and generated
+Fillet/Chamfer contacts are not source nodes and receive no number. The labels
+are view-only data, not a second Properties table or persisted model data, and
+are cleared by OK, Cancel and dialog close. Final treatment contacts remain
+separate, unlabelled verification data used to prove that each preview rail is
+properly trimmed. Open, disconnected and closed-loop coverage verifies both
+concepts without conflating them; ordinary and symmetric Fillet/Chamfer GUI
+contracts verify creation, display and cleanup. Numeric identifiers require no
+localization catalog entries.
 
 The exact ZIMA builders now accept symmetric constant-radius Fillet and A x A
 Chamfer at deterministic inner and outer two- and three-branch nodes. Ordinary
@@ -302,13 +315,19 @@ invokes no OCCT calculation. Opening Properties uses that same history boundary
 as its rollback input; Cancel restores the full history without changing the
 document revision.
 
-Deleting an earlier Fillet or Chamfer retains a later dependent treatment as a
-broken authored definition for explicit repair. It does not automatically bind
-that definition to a merely similar edge. The surviving current Body is still a
-valid command input: if an optimized shortened-history packet has display edges
-but has lost all of their stable owners, deletion republishes that Body from its
-calculated source once. New Fillet/Chamfer hover and selection therefore remain
-available. Ordinary deletion continues to use the warm incremental path.
+Deleting an earlier Fillet or Chamfer initially retains a later dependent
+treatment as a broken authored definition and never binds it to a merely similar
+edge. When that treatment is presented or committed, its pending definition
+automatically omits missing members, empty routes and their stale explicit
+ends. Exact descendants, counterparts and unique reconnections survive; spatial
+proximity is not a repair rule. Remaining valid routes are recalculated, so a
+missing edge does not block an otherwise valid treatment. Cancel retains the
+unchanged authored definition; OK persists the pruned definition. The surviving
+current Body is still a valid command input: if an optimized shortened-history
+packet has display edges but has lost all of their stable owners, deletion
+republishes that Body from its calculated source once. New Fillet/Chamfer hover
+and selection therefore remain available. Ordinary deletion continues to use
+the warm incremental path.
 
 The exact current `10.prtz` reproduction verifies analytical cages for all eight
 Fillets and both Chamfers. Fillet 07 publishes three independent four-stroke
@@ -432,3 +451,39 @@ including Boolean fragments, edge treatments, dimension editing and layout,
 the console, Holes, work planes, shared properties and translations. The focused
 treatment-grip GUI regression passed separately as recorded above. The root
 `zima-cad.bat` launches this local build; no portable release was produced.
+
+## Safe route-end decisions (2026-11-16)
+
+Each open Fillet or Chamfer route now persists the physical identity of both
+end vertices and an independent decision for each end. `No cut` is the safe
+default: the treatment stops at the authored route end and no generated tool
+may continue through material to a remote face. `Cut` enables the established
+automatic local-boundary solution. Closed routes have no independent end
+decision.
+
+The View identifies source nodes with purple route/node labels. Double-clicking
+an open end label offers the localized `Cut` and `No cut` choices; the pending
+choice updates the analytical preview and is committed only by OK. The labels
+remain transient presentation data and do not create calculated geometry or an
+Undo transaction. A changed physical endpoint deliberately receives `No cut`
+instead of inheriting a decision from a different vertex.
+
+Automatic cutting now classifies the retained material side at each endpoint
+independently. It uses the complete local boundary assembled from the adjacent
+planar and curved supports, and rejects a candidate which crosses material to
+an unrelated later surface. Opposite route ends may consequently use different
+trim directions. An asymmetric pocket or a route meeting an existing Fillet or
+Chamfer is bounded at the first real local contact; the solver does not invent
+a continuation merely because an analytical support is unbounded.
+
+Fillet and all three Chamfer modes (equal distance, A x B and A + angle) share
+the same endpoint decision and containment gates. A complete circular A x B
+Chamfer remains supported. Shell creation also retains the existing inner-offset
+fallback if OCCT throws while attempting the direct open-face thickening path;
+the fallback is reached without changing geometry tolerances or identity rules.
+
+Part native format 53 / JSON 77 stores the two endpoint vertices and modes
+explicitly. The format is current-only. The repository migration tool converted,
+calculated, saved and reopened all 1,058 Part-based templates, FORM definitions,
+symbols, title blocks and native test fixtures with the changed implementation.
+No legacy loader, external sidecar or compatibility path was introduced.

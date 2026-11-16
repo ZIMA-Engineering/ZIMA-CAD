@@ -85,6 +85,8 @@ void AssemblyWorkspaceWindow::start_edge_treatment(
         tree_->setProperty("commandSelectionActive", false);
         viewer_->set_transient_edges({});
         viewer_->set_transient_points({});
+        viewer_->set_transient_labels({});
+        viewer_->set_interactive_labels({});
         viewer_->set_transient_dimensions({});
         viewer_->set_edge_treatment_selection_edges({});
         viewer_->set_feature_hover_edges({});
@@ -197,6 +199,19 @@ void AssemblyWorkspaceWindow::refresh_edge_treatment_selection_ui() {
             part->session.document().find_container(
                 edge_treatment_preview_owner_id_)
                 ?edge_treatment_preview_owner_id_:std::string{});
+    if(input&&!pending_edge_treatment_groups_.empty()) {
+        auto repaired=edge_treatment_preview_parameters_;
+        repaired.routes=pending_edge_treatment_groups_;
+        if(zima::document::prune_unresolved_treatment_references(
+                repaired,input->mesh)) {
+            pending_edge_treatment_groups_=repaired.routes;
+            pending_edge_treatment_seeds_.clear();
+            for(const auto& route:pending_edge_treatment_groups_)
+                if(!route.empty())pending_edge_treatment_seeds_.push_back(
+                    route.front());
+            edge_treatment_preview_parameters_=std::move(repaired);
+        }
+    }
     if (edge_treatment_selection_ && part != nullptr) {
         std::set<std::pair<std::string,std::string>> input_edges;
         if(input)for(const auto& edge:input->mesh.edges)
@@ -250,7 +265,7 @@ void AssemblyWorkspaceWindow::refresh_edge_treatment_selection_ui() {
         }
         if(input) {
             displayed_fragments[group_index]=
-                zima::document::treatment_selection_wire(display_parameters,
+                zima::document::current_treatment_selection_wire(display_parameters,
                     group_index,std::nullopt,input->mesh);
             for(const auto& fragment:displayed_fragments[group_index])
                 highlighted.insert({fragment.reference.owner_id,
@@ -283,6 +298,8 @@ void AssemblyWorkspaceWindow::refresh_edge_treatment_preview() {
         input==nullptr||pending_edge_treatment_groups_.empty()) {
         viewer_->set_transient_edges({});
         viewer_->set_transient_points({});
+        viewer_->set_transient_labels({});
+        viewer_->set_interactive_labels({});
         viewer_->set_transient_dimensions({});
         return;
     }
@@ -297,7 +314,7 @@ void AssemblyWorkspaceWindow::refresh_edge_treatment_preview() {
     auto display_parameters=edge_treatment_preview_parameters_;
     display_parameters.routes=pending_edge_treatment_groups_;
     for (std::size_t group_index=0;group_index<pending_edge_treatment_groups_.size();++group_index) {
-        auto display_group=zima::document::treatment_selection_wire(
+        auto display_group=zima::document::current_treatment_selection_wire(
             display_parameters,group_index,std::nullopt,input->mesh);
         // The shared transient transform places this active-Part wire in its
         // Assembly occurrence. Keep the persisted route endpoints Part-local.
@@ -347,8 +364,70 @@ void AssemblyWorkspaceWindow::refresh_edge_treatment_preview() {
         display_groups, edge_treatment_preview_parameters_,
         *edge_treatment_selection_,
         edge_treatment_preview_owner_id_, input ? &input->mesh : nullptr);
+    if(edge_treatment_dialog_) {
+        for(std::size_t route=0;route<pending_edge_treatment_groups_.size();
+                ++route) {
+            const auto first=std::ranges::find_if(preview.terminal_labels,
+                [route](const auto& label) {
+                    return label.route==route&&label.first;
+                });
+            const auto last=std::ranges::find_if(preview.terminal_labels,
+                [route](const auto& label) {
+                    return label.route==route&&!label.first;
+                });
+            if(first!=preview.terminal_labels.end()&&
+                    last!=preview.terminal_labels.end())
+                edge_treatment_dialog_->set_edge_route_end_vertices(route,
+                    first->vertex,last->vertex);
+        }
+        // Physical endpoint identities may swap when the viewer's traversal
+        // reverses. The dialog remaps each persisted choice by vertex identity;
+        // use that same result for the current calculation preview.
+        edge_treatment_preview_parameters_=
+            edge_treatment_dialog_->pending_value().edge_treatment;
+    }
+    std::vector<zima::viewer::InteractiveLabel> terminal_labels;
+    terminal_labels.reserve(preview.terminal_labels.size());
+    for(const auto& label:preview.terminal_labels)
+        terminal_labels.push_back({label.point,label.text,
+            "edge-terminal:"+std::to_string(label.route)+":"+
+                (label.first?"first":"last")});
     viewer_->set_transient_edges(std::move(preview.edges));
     viewer_->set_transient_points(std::move(node_points));
+    viewer_->set_transient_labels(std::move(preview.labels));
+    viewer_->set_interactive_labels(std::move(terminal_labels),
+        [this](const std::string& key,const QPoint& global_position) {
+            constexpr std::string_view prefix="edge-terminal:";
+            if(!edge_treatment_dialog_||!key.starts_with(prefix))return false;
+            const auto separator=key.find(':',prefix.size());
+            if(separator==std::string::npos)return false;
+            std::size_t route{};
+            try {
+                route=static_cast<std::size_t>(std::stoull(
+                    key.substr(prefix.size(),separator-prefix.size())));
+            } catch(...) {return false;}
+            const bool first=key.substr(separator+1)=="first";
+            const auto pending=edge_treatment_dialog_->pending_value();
+            if(route>=pending.edge_treatment.route_end_faces.size())return false;
+            using Mode=zima::document::EdgeTreatmentParameters::RouteEndMode;
+            const auto& ends=pending.edge_treatment.route_end_faces[route];
+            const auto current=first?ends.first_mode:ends.last_mode;
+            QMenu menu(this);
+            auto* no_cut=menu.addAction(tr("Bez řezu"));
+            auto* cut=menu.addAction(tr("Řez"));
+            no_cut->setCheckable(true);
+            cut->setCheckable(true);
+            no_cut->setChecked(current==Mode::NoCut);
+            cut->setChecked(current==Mode::Cut);
+            const auto* chosen=menu.exec(global_position);
+            if(chosen==no_cut)
+                edge_treatment_dialog_->set_edge_route_end_mode(
+                    route,first,Mode::NoCut);
+            else if(chosen==cut)
+                edge_treatment_dialog_->set_edge_route_end_mode(
+                    route,first,Mode::Cut);
+            return true;
+        });
     for (auto& dimension : preview.dimensions) dimension.reference.instance_path = instance_path;
     viewer_->set_transient_dimensions(std::move(preview.dimensions));
 }
@@ -408,7 +487,7 @@ void AssemblyWorkspaceWindow::restore_edge_treatment_route(std::size_t group) {
         auto& starts=edge_treatment_preview_parameters_.route_start_vertices;starts.resize(pending_edge_treatment_groups_.size());
         auto parameters=edge_treatment_preview_parameters_;
         parameters.routes=pending_edge_treatment_groups_;
-        const auto wire=zima::document::treatment_selection_wire(
+        const auto wire=zima::document::current_treatment_selection_wire(
             parameters,group,std::nullopt,input->mesh);
         const auto ends=zima::workspace::edge_treatment_route_endpoints(
             wire,pending_edge_treatment_groups_[group]);
@@ -947,7 +1026,9 @@ void AssemblyWorkspaceWindow::accept_extrusion_target(
                 }
                 if(profile==preview.sketches.end())return;
                 profile->owner_container_id=pending.id;
-                zima::document::apply_automatic_sketch_work_plane(*profile,pending.placement.references);
+                zima::document::apply_automatic_sketch_work_plane(*profile,
+                    pending.placement.references,
+                    primitive_reference_geometry_);
                 profile->plane_offset=feature?pending.feature.profile_plane_offset:
                     pending.extrusion.profile_plane_offset;
                 if(auto* owner=preview.find_container(pending.id))*owner=pending;

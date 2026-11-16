@@ -8,7 +8,8 @@
   "Univerzální kóta: dalším kliknutím na oblouk přepnete R/⌀; kliknutím do prostoru určete polohu.": "Universal dimension: click the arc again to switch R/⌀; click empty space to place the dimension.",
   "Koncová plocha": "End face",
   "Hrana byla odebrána z výběru zaoblení nebo sražení.": "The edge was removed from the Fillet or Chamfer selection.",
-  "A x B and A + angle Chamfer require one continuous line.": "A x B and A + angle Chamfer require one continuous line.",
+  "A x B and A + angle Chamfer require one continuous open route or one closed circular edge.": "A x B and A + angle Chamfer require one continuous open route or one closed circular edge.",
+  "ZIMA Chamfer requires one complete circular edge": "ZIMA Chamfer requires one complete circular edge",
   "ZIMA Chamfer node has a degenerate branch": "ZIMA Chamfer node has a degenerate branch",
   "ZIMA Chamfer supports only two- or three-branch nodes": "ZIMA Chamfer supports only two- or three-branch nodes",
   "ZIMA Chamfer node mixes inner and outer branches": "ZIMA Chamfer node mixes inner and outer branches",
@@ -2819,5 +2820,7 @@
   "Sheet from Body is available only in a Part.": "Sheet from Body is available only in a Part.",
   "Sheet from Body does not exist.": "Sheet from Body does not exist.",
   "Activate the Body owning this Sheet from Body.": "Activate the Body owning this Sheet from Body.",
-  "The selected feature is not a bound Sheet from Body part.": "The selected feature is not a bound Sheet from Body part."
+  "The selected feature is not a bound Sheet from Body part.": "The selected feature is not a bound Sheet from Body part.",
+  "zima::app::AssemblyWorkspaceWindow|Bez řezu": "No cut",
+  "zima::app::AssemblyWorkspaceWindow|Řez": "Cut"
 }

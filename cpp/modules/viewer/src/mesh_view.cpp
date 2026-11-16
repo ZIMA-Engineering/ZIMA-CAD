@@ -375,6 +375,9 @@ struct MeshView::Impl {
     std::vector<zima::kernel::Vec3> transient_points;
     std::vector<kernel::ViewerPoint> transient_model_points;
     std::vector<std::pair<zima::kernel::Vec3, std::string>> transient_labels;
+    std::vector<InteractiveLabel> interactive_labels;
+    std::function<bool(const std::string&,const QPoint&)>
+        interactive_label_double_click;
     std::optional<zima::kernel::Vec3> sketch_cursor;
     bool sketch_cursor_snapped{};
     std::string sketch_cursor_label;
@@ -2486,6 +2489,8 @@ void MeshView::set_transient_edges(std::vector<zima::kernel::ViewerEdge> edges) 
     impl_->transient_points.clear();
     impl_->transient_model_points.clear();
     impl_->transient_labels.clear();
+    impl_->interactive_labels.clear();
+    impl_->interactive_label_double_click={};
     update();
 }
 
@@ -2630,6 +2635,34 @@ void MeshView::set_transient_labels(
         }
     }
     impl_->transient_labels = std::move(labels);
+    update();
+}
+
+const std::vector<InteractiveLabel>& MeshView::interactive_labels() const {
+    return impl_->interactive_labels;
+}
+
+std::optional<QPoint> MeshView::interactive_label_position(
+        const std::string& key) const {
+    if(width()<=0||height()<=0)return std::nullopt;
+    const auto label=std::ranges::find(impl_->interactive_labels,key,
+        &InteractiveLabel::key);
+    if(label==impl_->interactive_labels.end())return std::nullopt;
+    const auto mvp=impl_->projection(width(),height())*impl_->view();
+    auto clip=mvp*QVector4D(label->position.x,label->position.y,
+        label->position.z,1.F);
+    if(std::abs(clip.w())>1.0e-9F)clip/=clip.w();
+    return QPointF((clip.x()+1.F)*width()/2.F,
+        (1.F-clip.y())*height()/2.F).toPoint();
+}
+
+void MeshView::set_interactive_labels(std::vector<InteractiveLabel> labels,
+        std::function<bool(const std::string&,const QPoint&)> double_click) {
+    if(impl_->transient_point_transform)
+        for(auto& label:labels)
+            label.position=impl_->transient_point_transform(label.position);
+    impl_->interactive_labels=std::move(labels);
+    impl_->interactive_label_double_click=std::move(double_click);
     update();
 }
 
@@ -4866,6 +4899,7 @@ if (impl_->show_origins) {
         dimensions_visible ||
         !impl_->transient_edges.empty() || !impl_->transient_points.empty() || !impl_->transient_model_points.empty() ||
         !impl_->transient_labels.empty() ||
+        !impl_->interactive_labels.empty() ||
         impl_->sketch_cursor.has_value() ||
         impl_->component_origin_handle || !impl_->extent_manipulators.empty() ||
         !impl_->operation_direction_indicators.empty() ||
@@ -5684,6 +5718,16 @@ if (impl_->show_origins) {
                     QString::fromStdString(sketch_hv_label(label,impl_->active_sketch_owner_id,impl_->editing_curve_path)));
             }
         }
+        if(!impl_->interactive_labels.empty()) {
+            const QColor purple("#D05CFF");
+            painter.setPen(QPen(purple,1.5));
+            for(const auto& label:impl_->interactive_labels) {
+                const auto anchor=project(label.position);
+                draw_circular_marker(painter,anchor,purple,5.0);
+                painter.drawText(anchor+QPointF(8.0,-8.0),
+                    QString::fromStdString(label.text));
+            }
+        }
         if (dimensions_visible && impl_->show_dimensions) {
             painter.setFont(font());
             const std::size_t persisted_dimension_count =
@@ -6295,7 +6339,7 @@ if (impl_->show_origins) {
             const auto& selectable_axes =
                 highlighted->geometry == CandidateGeometry::OriginalReference
                     ? impl_->mesh.original_references.axes : impl_->mesh.axes;
-            if ((highlighted->kind == CandidateKind::Edge ||
+            const bool selectable_wire = (highlighted->kind == CandidateKind::Edge ||
                  highlighted->kind == CandidateKind::SketchSegment ||
                  highlighted->kind == CandidateKind::SketchCurve ||
                  highlighted->kind == CandidateKind::SketchText ||
@@ -6307,14 +6351,36 @@ if (impl_->show_origins) {
                  highlighted->kind == CandidateKind::SketchTrimPiece) &&
                 highlighted->geometry_index < selectable_edges.size() &&
                 (!impl_->passive_sketch_axis(selectable_edges[highlighted->geometry_index])||
-                    impl_->sketch_axis_visible(selectable_edges[highlighted->geometry_index])) &&
-                // Sketch wires were already recolored in their styled pass.
-                // A second solid stroke fills dash gaps and truncates centerlines.
-                !(sketch_geometry_visible &&
-                  is_sketch_wire_edge(selectable_edges[highlighted->geometry_index]) &&
-                  (selectable_edges[highlighted->geometry_index].construction ||
-                   selectable_edges[highlighted->geometry_index].dash_dot) &&
-                  !selectable_edges[highlighted->geometry_index].filled_text)) {
+                    impl_->sketch_axis_visible(selectable_edges[highlighted->geometry_index]));
+            const bool late_dashed_sketch_wire = selectable_wire && sketch_geometry_visible &&
+                is_sketch_wire_edge(selectable_edges[highlighted->geometry_index]) &&
+                (selectable_edges[highlighted->geometry_index].construction ||
+                 selectable_edges[highlighted->geometry_index].dash_dot) &&
+                !selectable_edges[highlighted->geometry_index].filled_text;
+            if (late_dashed_sketch_wire) {
+                // Origin axes and their arrowheads are painted after the main
+                // styled Sketch pass. Repaint only the selected/hovered dashed
+                // wire in the final layer, retaining its exact dash rhythm.
+                const auto& edge=selectable_edges[highlighted->geometry_index];
+                QPen pen(color,1.5,Qt::CustomDashLine,Qt::FlatCap);
+                pen.setDashPattern(edge.dash_dot
+                    ? QList<qreal>{9.0,4.0,2.0,4.0}
+                    : QList<qreal>{10.0,7.0});
+                painter.setPen(pen);painter.setBrush(Qt::NoBrush);
+                if(edge.infinite&&edge.points.size()>=2) {
+                    painter.drawLine(screen_infinite_line(
+                        project(edge.points.front()),project(edge.points.back())));
+                } else if(!edge.points.empty()) {
+                    const auto overhang=edge.construction
+                        ?kernel::axis_curve_overhang(edge):std::nullopt;
+                    QPainterPath path(project(overhang?(*overhang)[0]:edge.points.front()));
+                    if(overhang)path.lineTo(project(edge.points.front()));
+                    for(std::size_t index=1;index<edge.points.size();++index)
+                        path.lineTo(project(edge.points[index]));
+                    if(overhang)path.lineTo(project((*overhang)[1]));
+                    painter.drawPath(path);
+                }
+            } else if (selectable_wire) {
                 painter.setPen(QPen(color, wire_width, Qt::SolidLine, Qt::RoundCap));
                 if (highlighted->kind == CandidateKind::SketchText || highlighted->kind == CandidateKind::Symbol ||
                     (highlighted->kind == CandidateKind::SketchExternalReference &&
@@ -6900,7 +6966,37 @@ void MeshView::mouseDoubleClickEvent(QMouseEvent* event) {
         }
         return;
     }
-    if (event->button() != Qt::LeftButton || !impl_->double_confirmation_callback) return;
+    if(event->button()!=Qt::LeftButton)return;
+    if(impl_->interactive_label_double_click&&
+       !impl_->interactive_labels.empty()) {
+        const auto mvp=impl_->projection(width(),height())*impl_->view();
+        const auto project=[&](kernel::Vec3 point) {
+            auto clip=mvp*QVector4D(point.x,point.y,point.z,1);
+            if(std::abs(clip.w())>1.0e-9)clip/=clip.w();
+            return QPointF((clip.x()+1)*width()/2.,
+                (1-clip.y())*height()/2.);
+        };
+        const QFontMetricsF metrics(font());
+        for(auto label=impl_->interactive_labels.rbegin();
+                label!=impl_->interactive_labels.rend();++label) {
+            const auto marker=project(label->position);
+            const auto baseline=marker+QPointF(8.,-8.);
+            auto text_bounds=metrics.boundingRect(
+                QString::fromStdString(label->text));
+            text_bounds.translate(baseline);
+            const QRectF marker_bounds(marker-QPointF(7.,7.),
+                QSizeF(14.,14.));
+            if(!text_bounds.adjusted(-5.,-5.,5.,5.).contains(
+                    event->position())&&
+               !marker_bounds.contains(event->position()))continue;
+            if(impl_->interactive_label_double_click(label->key,
+                    event->globalPosition().toPoint())) {
+                event->accept();
+                return;
+            }
+        }
+    }
+    if(!impl_->double_confirmation_callback)return;
     // The press preceding QEvent::MouseButtonDblClick has already confirmed
     // the exact candidate selected by the user. Re-picking below may rebuild
     // or reorder an overlapping candidate list and reset active_candidate to

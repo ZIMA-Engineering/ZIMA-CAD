@@ -295,14 +295,27 @@ struct EdgeTreatmentParameters {
     enum class FilletMode { Constant, Linear };
     enum class ChamferMode { EqualDistance, TwoDistances, DistanceAngle };
     enum class CalculationMethod { Automatic, Zima, Occt };
+    enum class RouteEndMode { NoCut, Cut };
     // One persisted user route contains every original edge selected by one
     // contour operation. Keeping the grouping in ZIMA data means reopening
     // Properties never has to guess it from current OCCT topology.
     std::vector<std::vector<zima::kernel::EdgeReference>> routes;
     struct RouteEndFaces {
-        // An empty reference is an explicit perpendicular end. Auto detection
-        // is a one-shot authoring action and is never inferred while loading
-        // or regenerating the feature.
+        // Stable semantic endpoints are authored independently of the OCCT
+        // orientation of any resolved edge fragment.  A null vertex is valid
+        // only for a closed route or while a new selection is still being
+        // prepared in Properties.
+        zima::kernel::VertexReference first_vertex;
+        zima::kernel::VertexReference last_vertex;
+        // NoCut keeps the perpendicular cap at the selected route endpoint.
+        // Cut explicitly asks the ZIMA solver to infer/use the adjacent Body
+        // envelope.  The safe persisted default never sweeps through material
+        // merely because a farther face happens to be available.
+        RouteEndMode first_mode{RouteEndMode::NoCut};
+        RouteEndMode last_mode{RouteEndMode::NoCut};
+        // Explicit faces are reserved for an authored exact Up To boundary.
+        // They remain authoritative when present and are associated with the
+        // matching semantic endpoint geometrically during calculation.
         zima::kernel::FaceReference first;
         zima::kernel::FaceReference last;
         bool operator==(const RouteEndFaces&) const = default;
@@ -558,6 +571,14 @@ struct HelicalSweepParameters {
 // the under-constrained fallback.
 [[nodiscard]] std::optional<double> measure_placement_reference_offset(const ConstructionReference&,
     const zima::kernel::ViewerReferenceGeometry&, const zima::kernel::Vec3& point);
+
+// Ordered three-point and edge/plane/point definitions establish the
+// container's complete local XY frame.  This query keeps automatic Sketch
+// work-plane selection aligned with the shared placement solver without
+// reinterpreting persisted single FRONT references.
+[[nodiscard]] bool placement_references_define_local_xy_work_plane(
+    const std::vector<ConstructionReference>& references,
+    const zima::kernel::ViewerReferenceGeometry& geometry);
 
 [[nodiscard]] bool resolve_placement(
     Placement& placement, const zima::kernel::ViewerReferenceGeometry& geometry,

@@ -37,12 +37,79 @@
 #include <cmath>
 #include <iostream>
 #include <map>
+#include <numeric>
 
 namespace zima::app {
 int verify_edge_treatment_ui(QApplication& application, AssemblyWorkspaceWindow& window,
     const std::filesystem::path& directory) {
     using commands::Json;
     const auto check=[](bool value,const char* message){if(!value)throw std::runtime_error(message);};
+    const auto wire_contains=[](const kernel::ViewerEdge& wire,
+            const kernel::Vec3& point,double tolerance=1.0e-6) {
+        for(std::size_t index=1;index<wire.points.size();++index) {
+            const auto& first=wire.points[index-1];
+            const auto& second=wire.points[index];
+            const kernel::Vec3 direction{second.x-first.x,
+                second.y-first.y,second.z-first.z};
+            const kernel::Vec3 delta{point.x-first.x,
+                point.y-first.y,point.z-first.z};
+            const double length2=direction.x*direction.x+
+                direction.y*direction.y+direction.z*direction.z;
+            const double parameter=length2<=1.0e-24?0.:
+                std::clamp((delta.x*direction.x+delta.y*direction.y+
+                    delta.z*direction.z)/length2,0.,1.);
+            const kernel::Vec3 closest{first.x+parameter*direction.x,
+                first.y+parameter*direction.y,
+                first.z+parameter*direction.z};
+            if(std::hypot(point.x-closest.x,point.y-closest.y,
+                    point.z-closest.z)<=tolerance)
+                return true;
+        }
+        return false;
+    };
+    const auto verify_terminal_contacts=[&](
+            const std::vector<kernel::ViewerEdge>& wires,
+            const std::vector<kernel::Vec3>& contacts) {
+        for(const auto& point:contacts) {
+            const auto contact_count=std::ranges::count_if(wires,
+                [&](const auto& wire){return wire_contains(wire,point);});
+            check(contact_count>=2,
+                "A Fillet/Chamfer preview rail extends beyond its terminal section");
+        }
+    };
+    const auto route_node_counts=[&](
+            const std::vector<std::vector<kernel::ViewerEdge>>& groups) {
+        std::vector<std::size_t> counts;
+        for(const auto& group:groups)
+            for(const auto& path:workspace_detail::
+                    ordered_edge_treatment_preview_paths(
+                        document::actual_edge_treatment_intervals(group)))
+                counts.push_back(workspace_detail::
+                    edge_treatment_preview_path_nodes(path).size());
+        return counts;
+    };
+    const auto verify_route_labels=[&](
+            const std::vector<std::pair<kernel::Vec3,std::string>>& labels,
+            const std::vector<viewer::InteractiveLabel>& terminal_labels,
+            const std::vector<std::size_t>& counts) {
+        check(!counts.empty()&&std::ranges::all_of(counts,
+                [](std::size_t count){return count>0;}),
+            "Fillet/Chamfer routes have no source nodes");
+        check(labels.size()+terminal_labels.size()==
+                std::accumulate(counts.begin(),counts.end(),std::size_t{}),
+            "Fillet/Chamfer routes omitted or duplicated source-node labels");
+        std::multiset<std::string> actual;
+        for(const auto& label:labels)actual.insert(label.second);
+        for(const auto& label:terminal_labels)actual.insert(label.text);
+        for(std::size_t path=0;path<counts.size();++path) {
+            const auto prefix=std::to_string(path+1)+".";
+            for(std::size_t node=0;node<counts[path];++node)
+                check(actual.erase(prefix+std::to_string(node+1))==1,
+                    "Fillet/Chamfer source-node labels are not sequential");
+        }
+        check(actual.empty(),
+            "Fillet/Chamfer route labels contain an unexpected node");
+    };
     const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
     const auto run=[&](const char* command,Json args=Json::object()) {
         const auto result=window.execute_console_command(QString::fromStdString(Json{{"command",command},{"arguments",args}}.dump()));
@@ -122,8 +189,26 @@ int verify_edge_treatment_ui(QApplication& application, AssemblyWorkspaceWindow&
             for(const auto& route:routes)for(std::size_t i=0;i<route.size();++i)
                 check(std::find(route.begin(),route.begin()+i,route[i])==route.begin()+i,"Mouse duplicated a persisted curve in its route");
             pending->findChild<QDoubleSpinBox*>("edgeTreatmentPrimary")->setValue(1);flush();
+            const auto& node_labels=view->transient_labels();
+            std::vector<std::vector<kernel::ViewerEdge>> source_groups;
+            for(std::size_t route=0;route<routes.size();++route)
+                source_groups.push_back(document::current_treatment_selection_wire(
+                    pending->pending_value().edge_treatment,route,
+                    std::nullopt,view->mesh()));
+            verify_route_labels(node_labels,view->interactive_labels(),
+                route_node_counts(source_groups));
+            const auto source_preview=workspace_detail::
+                edge_treatment_preview_wire(source_groups,
+                    pending->pending_value().edge_treatment,
+                    pending->feature_kind(),owner,&view->mesh());
+            check(node_labels==source_preview.labels,
+                "Connected Fillet did not label every source node in its route");
+            verify_terminal_contacts(source_preview.edges,
+                source_preview.terminal_contacts);
             check(run("documents").at(0).at("revision")==revision,"Hover/reference draft committed a model transaction");
             finish(true);run("save");
+            check(view->transient_labels().empty(),
+                "Fillet terminal labels survived closing Properties");
             const auto volume=[&] {
                 std::vector<kernel::BodyResult> bodies;const auto saved=document::PartDocument::load(file,&bodies);
                 check(!bodies.empty(),"Saved connected Fillet has no calculated body");
@@ -149,10 +234,122 @@ int verify_edge_treatment_ui(QApplication& application, AssemblyWorkspaceWindow&
             return 0;
         }
         if(const auto model=qEnvironmentVariable("ZIMA_VERIFY_EDGE_TREATMENT_MODEL");!model.isEmpty()) {
-            const auto opened=run("open",{{"path",model.toStdString()}});view->set_projection_mode(viewer::ProjectionMode::Orthographic);view->fit_all();flush();
-            const auto revision=opened.at(0).at("revision");
+            run("open",{{"path",model.toStdString()}});
+            if(qEnvironmentVariableIsSet(
+                    "ZIMA_VERIFY_EDGE_TREATMENT_REGENERATE"))
+                run("regenerate");
+            view->set_projection_mode(viewer::ProjectionMode::Orthographic);view->fit_all();flush();
+            const auto revision=run("documents").at(0).at("revision");
             const auto owner=qEnvironmentVariable("ZIMA_VERIFY_EDGE_TREATMENT_OWNER").toStdString();
             check(!owner.empty(),"User-model treatment is missing");
+            window.grab().save(QString::fromStdString(
+                (directory/("user-model-treatment-final-"+owner+".png")).string()));
+            const auto overview_camera=view->camera_state();
+            auto focused_camera=overview_camera;
+            focused_camera[4]/=3.F;
+            focused_camera[7]/=3.F;
+            view->set_camera_state(focused_camera);flush();
+            window.grab().save(QString::fromStdString(
+                (directory/("user-model-treatment-final-zoom-"+owner+".png")).string()));
+            view->set_camera_state(overview_camera);flush();
+            if(qEnvironmentVariableIsSet(
+                    "ZIMA_VERIFY_EDGE_TREATMENT_CAPTURE_STANDARD_VIEWS")) {
+                const std::pair<viewer::StandardView,const char*> views[]{
+                    {viewer::StandardView::Isometric,"isometric"},
+                    {viewer::StandardView::Front,"front"},
+                    {viewer::StandardView::Back,"back"},
+                    {viewer::StandardView::Left,"left"},
+                    {viewer::StandardView::Right,"right"},
+                    {viewer::StandardView::Top,"top"},
+                    {viewer::StandardView::Bottom,"bottom"}};
+                for(const auto& [orientation,name]:views) {
+                    view->set_standard_view(orientation);
+                    view->fit_all();
+                    QEventLoop settle;
+                    QTimer::singleShot(500,&settle,&QEventLoop::quit);
+                    settle.exec();
+                    flush();
+                    window.grab().save(QString::fromStdString((directory/
+                        ("user-model-treatment-final-"+owner+"-"+name+
+                            ".png")).string()));
+                }
+                view->set_camera_state(overview_camera);flush();
+            }
+            if(qEnvironmentVariableIsSet("ZIMA_CPP_PROFILE_FEATURE_PREVIEW")) {
+                auto* pending=edit(owner);
+                const auto parameters=pending->pending_value().edge_treatment;
+                std::vector<std::vector<kernel::ViewerEdge>> groups;
+                for(std::size_t route=0;route<parameters.routes.size();++route)
+                    groups.push_back(document::current_treatment_selection_wire(
+                        parameters,route,std::nullopt,view->mesh()));
+                const auto preview=workspace_detail::edge_treatment_preview_wire(
+                    groups,parameters,pending->feature_kind(),owner,&view->mesh());
+                std::cout<<"User-model preview diagnostic: input="<<view->mesh().edges.size()
+                    <<" routes="<<parameters.routes.size()<<" groups=";
+                for(const auto& group:groups)std::cout<<group.size()<<',';
+                std::cout<<" preview="<<preview.edges.size()
+                    <<" published="<<view->transient_edges().size()<<'\n';
+                window.grab().save(QString::fromStdString(
+                    (directory/"user-model-fillet-preview.png").string()));
+                finish(false);
+            }
+            if(qEnvironmentVariableIsSet(
+                    "ZIMA_VERIFY_EDGE_TREATMENT_PREVIEW_ONLY")) {
+                auto* pending=edit(owner);
+                const auto parameters=pending->pending_value().edge_treatment;
+                std::vector<std::vector<kernel::ViewerEdge>> groups;
+                for(std::size_t route=0;route<parameters.routes.size();
+                        ++route)
+                    groups.push_back(document::current_treatment_selection_wire(
+                        parameters,route,std::nullopt,view->mesh()));
+                check(!groups.empty()&&std::ranges::all_of(groups,
+                        [](const auto& group){return !group.empty();}),
+                    "A persisted treatment route has no analytical preview input");
+                const auto expected=workspace_detail::
+                    edge_treatment_preview_wire(groups,parameters,
+                        pending->feature_kind(),owner,&view->mesh());
+                const auto& published=view->transient_edges();
+                const auto published_labels=view->transient_labels();
+                const auto source_node_counts=route_node_counts(groups);
+                verify_route_labels(published_labels,view->interactive_labels(),
+                    source_node_counts);
+                bool expected_node_count_valid{};
+                const int expected_node_count=qEnvironmentVariableIntValue(
+                    "ZIMA_VERIFY_EDGE_TREATMENT_EXPECTED_NODE_LABELS",
+                    &expected_node_count_valid);
+                if(expected_node_count_valid)
+                    check(expected_node_count>=0&&published_labels.size()==
+                            static_cast<std::size_t>(expected_node_count),
+                        "Treatment preview has an unexpected number of source-node labels");
+                check(expected.edges.size()>=4*groups.size()&&
+                        published.size()==expected.edges.size()&&
+                        std::equal(expected.edges.begin(),expected.edges.end(),
+                            published.begin(),[](const auto& first,
+                                const auto& second) {
+                                return first.points==second.points;
+                            })&&
+                        published_labels.size()==expected.labels.size()&&
+                        std::equal(expected.labels.begin(),expected.labels.end(),
+                            published_labels.begin(),[](const auto& first,
+                                const auto& second) {
+                                return first.first==second.first&&
+                                    first.second==second.second;
+                            }),
+                    "Treatment Properties omitted a persisted route from its analytical preview");
+                verify_terminal_contacts(expected.edges,
+                    expected.terminal_contacts);
+                window.grab().save(QString::fromStdString(
+                    (directory/("user-model-treatment-preview-"+owner+
+                        ".png")).string()));
+                finish(false);
+                check(run("documents").at(0).at("revision")==revision,
+                    "Treatment preview inspection changed the user model");
+                std::cout<<"User-model treatment preview source nodes:";
+                for(const auto& label:published_labels)
+                    std::cout<<' '<<label.second;
+                std::cout<<"\nUser-model treatment preview: every persisted route, every source-node label, published geometry and Cancel passed\n";
+                return 0;
+            }
             QPointF surface;
             bool found=false;
             for(const auto orientation:{viewer::StandardView::Isometric,viewer::StandardView::Bottom,
@@ -225,7 +422,7 @@ int verify_edge_treatment_ui(QApplication& application, AssemblyWorkspaceWindow&
                     const auto active=document::actual_edge_treatment_intervals(
                         parameters.routes[route]);
                     persisted_count+=active.size();
-                    auto fragments=document::treatment_selection_wire(
+                    auto fragments=document::current_treatment_selection_wire(
                         parameters,route,std::nullopt,view->mesh());
                     resolved_count+=fragments.size();
                     for(const auto& stored:active) {
@@ -435,7 +632,9 @@ int verify_edge_treatment_ui(QApplication& application, AssemblyWorkspaceWindow&
             return 0;
         }
         const bool symmetric_fixture=qEnvironmentVariableIsSet("ZIMA_VERIFY_SYMMETRIC_ENDPOINTS");
-        for(int mode=0;mode<5;++mode) {
+        const bool creation_only=qEnvironmentVariableIsSet(
+            "ZIMA_VERIFY_EDGE_TREATMENT_CREATION_ONLY");
+        if(!creation_only)for(int mode=0;mode<5;++mode) {
             const bool fillet=mode<2;
             const std::string prefix=fillet?"fillet":"chamfer";
             const auto name=stem+"-"+std::to_string(mode);
@@ -464,6 +663,10 @@ int verify_edge_treatment_ui(QApplication& application, AssemblyWorkspaceWindow&
             for(auto* animation:view->findChildren<QVariantAnimation*>())animation->setCurrentTime(animation->duration());
             flush();
             auto* pending=edit(owner);
+            if(mode==3)check(
+                view->display_mode()==viewer::DisplayMode::ShadedWithEdges&&
+                    !view->mesh().triangles.empty(),
+                "Opening A x B Chamfer Properties replaced the shaded rollback body with wire display");
             std::vector<std::string> keys{"parameter:primary"};
             if(mode==1||mode==3)keys.push_back("parameter:secondary");
             if(mode==4)keys.push_back("parameter:treatment_angle");
@@ -513,6 +716,10 @@ int verify_edge_treatment_ui(QApplication& application, AssemblyWorkspaceWindow&
             check(saved.dimension_layouts.empty()&&saved.find_container(owner)->edge_treatment.primary_size==2,
                 "Treatment parameter and layout did not undo together");
             run("redo");pending=edit(owner);
+            if(mode==3)check(
+                view->display_mode()==viewer::DisplayMode::ShadedWithEdges&&
+                    !view->mesh().triangles.empty(),
+                "Reopening A x B Chamfer Properties replaced the shaded rollback body with wire display");
             check(pending->dimension_layouts()==committed,"Reopened Properties lost annotation placement");
             drag(owner,"parameter:primary",0);const auto layout_only=pending->dimension_layouts();
             finish(true);run("save");saved=document::PartDocument::load(file);
@@ -544,6 +751,10 @@ int verify_edge_treatment_ui(QApplication& application, AssemblyWorkspaceWindow&
             run("close",{{"discard",true}});
             std::cout << prefix << " mode " << mode << ": picker, every grip, Cancel/OK, Escape, Undo and direct View passed\n";
         }
+        if(!creation_only) {
+            std::cout << "Treatment edit grips and transactions passed\n";
+            return 0;
+        }
         // Creation uses the same pending layout and OK/Cancel transaction.
         for(const bool fillet:{true,false})for(const bool commit:{false,true}) {
             const auto name=stem+"-create-"+std::to_string(fillet)+"-"+std::to_string(commit);
@@ -565,11 +776,82 @@ int verify_edge_treatment_ui(QApplication& application, AssemblyWorkspaceWindow&
                 "Fillet/Chamfer creation offered a historical edge instead of a current Body edge");
             check(pending->pending_value().edge_treatment.routes.size()==1,"Mouse did not select a creation edge");
             if(symmetric_fixture)check(pending->pending_value().edge_treatment.routes.front().size()==2,"Mouse did not offer both halves of the symmetric rail");
+            const auto& labels=view->transient_labels();
+            std::vector<std::vector<kernel::ViewerEdge>> label_groups;
+            for(std::size_t route=0;route<pending->pending_value()
+                    .edge_treatment.routes.size();++route) {
+                label_groups.push_back(document::current_treatment_selection_wire(
+                    pending->pending_value()
+                        .edge_treatment,route,std::nullopt,view->mesh()));
+            }
+            verify_route_labels(labels,view->interactive_labels(),
+                route_node_counts(label_groups));
+            const auto terminal_labels=view->interactive_labels();
+            check(terminal_labels.size()==2,
+                "Open Fillet/Chamfer route did not expose two purple endpoint labels");
+            const auto initial_ends=pending->pending_value().edge_treatment.
+                route_end_faces.front();
+            using EndMode=document::EdgeTreatmentParameters::RouteEndMode;
+            check(initial_ends.first_vertex.valid()&&
+                    initial_ends.last_vertex.valid()&&
+                    initial_ends.first_vertex!=initial_ends.last_vertex&&
+                    initial_ends.first_mode==EndMode::NoCut&&
+                    initial_ends.last_mode==EndMode::NoCut,
+                "New treatment endpoints do not default to two stable No-cut choices");
+            if(commit) {
+                const auto position=view->interactive_label_position(
+                    terminal_labels.front().key);
+                check(position.has_value(),
+                    "Purple treatment endpoint has no double-click position");
+                bool selected_cut{};
+                // The double-click handler opens a synchronous popup. Poll
+                // from its nested event loop because the mouse helper may
+                // process a zero-delay callback before dispatching the click.
+                QTimer menu_selection;
+                menu_selection.setInterval(10);
+                QObject::connect(&menu_selection,&QTimer::timeout,&window,[&] {
+                    auto menus=window.findChildren<QMenu*>();
+                    for(auto* widget:QApplication::topLevelWidgets())
+                        if(auto* menu=qobject_cast<QMenu*>(widget))
+                            menus.push_back(menu);
+                    for(auto* menu:menus) {
+                        if(!menu->isVisible()||menu->actions().size()!=2)
+                            continue;
+                        selected_cut=true;
+                        menu_selection.stop();
+                        menu->setActiveAction(menu->actions().back());
+                        QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,
+                            Qt::NoModifier);
+                        QApplication::sendEvent(menu,&enter);
+                        return;
+                    }
+                });
+                menu_selection.start();
+                mouse(QEvent::MouseButtonDblClick,*position,
+                    Qt::LeftButton,Qt::LeftButton);
+                menu_selection.stop();
+                check(selected_cut&&pending->pending_value().edge_treatment.
+                        route_end_faces.front().first_mode==EndMode::Cut,
+                    "Double-clicking a purple endpoint did not select Cut");
+            }
             drag(owner,"parameter:primary",0);const auto layout=pending->dimension_layouts();
-            finish(commit);run("save");const auto file=directory/(name+".prtz");
+            finish(commit);
+            check(view->transient_labels().empty()&&
+                    view->interactive_labels().empty(),
+                "Fillet/Chamfer terminal labels survived closing Properties");
+            run("save");const auto file=directory/(name+".prtz");
             const auto saved=document::PartDocument::load(file);
             check(saved.history.size()==(commit?2:1)&&saved.dimension_layouts==(commit?layout:std::vector<kernel::DimensionLayoutEntry>{}),
                 "Creation did not commit/cancel geometry and annotation together");
+            if(commit) {
+                const auto& stored=saved.history.back().edge_treatment.
+                    route_end_faces.front();
+                check(stored.first_vertex==initial_ends.first_vertex&&
+                        stored.last_vertex==initial_ends.last_vertex&&
+                        stored.first_mode==EndMode::Cut&&
+                        stored.last_mode==EndMode::NoCut,
+                    "Saved treatment lost its per-endpoint Cut/No-cut choice");
+            }
             if(commit) {run("undo");run("save");check(document::PartDocument::load(file).history.size()==1&&document::PartDocument::load(file).dimension_layouts.empty(),"Creation Undo left its annotation behind");}
             run("close",{{"discard",true}});
         }

@@ -914,8 +914,13 @@ struct FeatureGroupRequest {
 };
 
 enum class EdgeTreatmentCalculationMethod { Automatic, Zima, Occt };
+enum class EdgeTreatmentRouteEndMode { NoCut, Cut };
 
 struct EdgeTreatmentRouteEndFaces {
+    VertexReference first_vertex;
+    VertexReference last_vertex;
+    EdgeTreatmentRouteEndMode first_mode{EdgeTreatmentRouteEndMode::Cut};
+    EdgeTreatmentRouteEndMode last_mode{EdgeTreatmentRouteEndMode::Cut};
     FaceReference first;
     FaceReference last;
     bool operator==(const EdgeTreatmentRouteEndFaces&) const = default;

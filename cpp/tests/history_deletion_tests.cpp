@@ -542,15 +542,255 @@ static void verify_treatment_delete_input(kernel::OcctKernel& kernel) {
             }),
         "Deleting a treatment removed every selectable current Body edge");
     std::cout<<"Treatment deletion: broken dependent retained and current Body edges remained selectable\n";
+
+    // A later treatment can select several independent route fragments.  If
+    // deleting an earlier Fillet removes only one of them, discard precisely
+    // that route and calculate the remaining authored route immediately.
+    auto partial_document=document::PartDocument::create_default();
+    auto partial_source=test::rectangular_feature(
+        partial_document,{16,12,10});
+    partial_document.history={partial_source};
+    auto partial_calculated=workspace::calculate_part(
+        kernel,partial_document);
+    auto partial_fillet=document::PartDocument::create_fillet_container(
+        {partial_calculated.back().mesh.edges.front().reference});
+    partial_fillet.edge_treatment.primary_size=.5;
+    partial_document.history.push_back(partial_fillet);
+    partial_calculated=workspace::calculate_part(kernel,partial_document);
+    require(partial_calculated.back().calculation_errors.empty(),
+        "Partial treatment deletion source Fillet failed");
+    bool partial_usable{};
+    for(const auto& generated:partial_calculated.back().mesh.edges) {
+        if(generated.reference.owner_id!=partial_fillet.id)continue;
+        for(const auto& surviving:partial_calculated.back().mesh.edges) {
+            if(!surviving.reference.valid()||surviving.parameter_seam||
+                    surviving.reference.owner_id==partial_fillet.id)
+                continue;
+            auto dependent=document::PartDocument::create_fillet_container(
+                {generated.reference});
+            dependent.edge_treatment.routes={
+                {generated.reference},{surviving.reference}};
+            dependent.edge_treatment.route_end_faces.resize(2);
+            dependent.edge_treatment.primary_size=.1;
+            partial_document.history.push_back(dependent);
+            const auto candidate=workspace::calculate_part(
+                kernel,partial_document);
+            if(candidate.back().calculation_errors.empty()) {
+                partial_calculated=candidate;
+                partial_usable=true;
+                break;
+            }
+            partial_document.history.pop_back();
+        }
+        if(partial_usable)break;
+    }
+    require(partial_usable,
+        "Partial treatment deletion fixture has no mixed dependent routes");
+    const auto partial_dependent=partial_document.history.back().id;
+    document::BodyHistoryGraph partial_graph;
+    static_cast<void>(partial_graph.create_body("Body"));
+    for(const auto& feature:partial_document.history)
+        partial_graph.insert(
+            {document::PartHistoryKind::Feature,feature.id});
+    partial_document.set_body_history(partial_graph);
+    partial_calculated=workspace::calculate_part(kernel,partial_document);
+    const auto partial_original=partial_document.serialized();
+    workspace::Workspace partial_live;
+    const auto partial_id=partial_document.document_id;
+    partial_live.add_part(partial_document,partial_calculated);
+    workspace::delete_part_history(partial_live,partial_id,kernel,
+        partial_fillet.id);
+    auto& partial_session=partial_live.open_part(partial_id)->session;
+    const auto* recalculated=partial_session.document().find_container(
+        partial_dependent);
+    require(recalculated&&recalculated->edge_treatment.routes.size()==1&&
+            !partial_session.document().removed_reference_states.contains(
+                partial_dependent)&&
+            !partial_session.calculated_boundaries().back().calculation_errors.
+                contains(partial_dependent),
+        "Deleting a source Fillet did not recalculate the surviving dependent route");
+    const auto repaired_serialized=partial_session.document().serialized();
+    require(workspace::step_part_document_history(
+                partial_live,partial_id,false)&&
+            partial_session.document().serialized()==partial_original,
+        "Partial treatment deletion Undo did not restore both routes");
+    require(workspace::step_part_document_history(
+                partial_live,partial_id,true)&&
+            partial_session.document().serialized()==repaired_serialized&&
+            !partial_session.calculated_boundaries().back().calculation_errors.
+                contains(partial_dependent),
+        "Partial treatment deletion Redo did not recalculate the surviving route");
+    const auto path=std::filesystem::absolute(
+        "build/history-deletion-partial-treatment.prtz");
+    partial_session.document().save(
+        path,partial_session.calculated_boundaries());
+    std::vector<kernel::BodyResult> reopened_calculated;
+    const auto reopened=document::PartDocument::load(
+        path,&reopened_calculated);
+    require(reopened.find_container(partial_dependent)&&
+            reopened.find_container(partial_dependent)->edge_treatment.routes.
+                size()==1&&
+            !reopened.removed_reference_states.contains(partial_dependent)&&
+            !reopened_calculated.empty()&&
+            !reopened_calculated.back().calculation_errors.contains(
+                partial_dependent),
+        "Saved partial treatment deletion did not reopen calculated");
+    std::filesystem::remove(path);
+    std::cout<<"Treatment deletion: missing routes pruned; surviving dependent route recalculated, Undo/Redo and reopen passed\n";
+}
+static void verify_missing_profile_chain_kind(const kernel::OcctKernel& kernel,
+        bool unified_feature) {
+    auto document=document::PartDocument::create_default();
+    const auto rectangle=[&](kernel::Vec3 size) {
+        if(!unified_feature)return test::rectangular_feature(document,size);
+        auto sketch=sketcher::Sketch::create_default();
+        static_cast<void>(sketch.add_rectangle(
+            -size.x/2,-size.y/2,size.x/2,size.y/2));
+        auto feature=document::PartDocument::create_feature_container(sketch.id);
+        sketch.owner_container_id=feature.id;
+        feature.feature.sides[0].length=size.z;
+        document.sketches.push_back(std::move(sketch));
+        return feature;
+    };
+    auto base=rectangle({10,10,10});
+    auto broken=rectangle({4,4,4});
+    broken.placement.x=5;
+    const auto broken_sketch_id=unified_feature
+        ?broken.feature.sketch_id:broken.extrusion.sketch_id;
+    const auto broken_sketch=*std::ranges::find(
+        document.sketches,broken_sketch_id,&sketcher::Sketch::id);
+    document.history={base,broken};
+    document::BodyHistoryGraph graph;
+    const auto body=graph.create_body("Missing profile recovery");
+    graph.insert({document::PartHistoryKind::Feature,base.id});
+    graph.insert({document::PartHistoryKind::Feature,broken.id});
+    document.set_body_history(graph);
+    auto valid=workspace::calculate_part_with_resolved_references(
+        kernel,document);
+    require(valid.back().calculation_errors.empty(),
+        "Missing-profile fixture did not calculate before its Sketch was removed");
+
+    document::HistoryContainer dependent;
+    bool dependent_valid=false;
+    for(const auto& edge:valid.back().mesh.edges) {
+        if(edge.reference.owner_id!=broken.id)continue;
+        auto candidate=document::PartDocument::create_fillet_container(
+            {edge.reference});
+        candidate.edge_treatment.primary_size=.2;
+        auto trial=document;
+        trial.history.push_back(candidate);
+        auto trial_graph=trial.body_history;
+        trial_graph.insert({document::PartHistoryKind::Feature,candidate.id});
+        trial.set_body_history(std::move(trial_graph));
+        const auto calculated=workspace::calculate_part(
+            kernel,trial,&valid);
+        if(calculated.back().calculation_errors.empty()) {
+            dependent=std::move(candidate);
+            dependent_valid=true;
+            break;
+        }
+    }
+    require(dependent_valid,
+        "Missing-profile fixture has no usable dependent Fillet edge");
+    std::erase_if(document.sketches,[&](const auto& sketch) {
+        return sketch.id==broken_sketch_id;
+    });
+    const auto broken_only=workspace::calculate_part_with_resolved_references(
+        kernel,document,&valid);
+    require(!broken_only.empty()&&
+            broken_only.back().calculation_errors.contains(broken.id),
+        "Removing the Extrusion Sketch did not retain its failed definition");
+    document.history.push_back(dependent);
+    auto failed_graph=document.body_history;
+    failed_graph.insert({document::PartHistoryKind::Feature,dependent.id});
+    document.set_body_history(std::move(failed_graph));
+    const auto failed=workspace::calculate_part_with_resolved_references(
+        kernel,document,&broken_only);
+    require(!failed.empty()&&
+            failed.back().calculation_errors.contains(broken.id)&&
+            failed.back().calculation_errors.contains(dependent.id),
+        "A missing Extrusion Sketch did not isolate its dependent feature errors");
+    const auto measured_body=[&](const auto& calculated) {
+        require(!calculated.empty(),"Missing-profile recovery returned no Body packet");
+        const auto found=calculated.back().body_outputs.find(body);
+        require(found!=calculated.back().body_outputs.end()&&
+                found->second->has_solid(),
+            "A missing Extrusion Sketch made the complete Body disappear");
+        auto measured=found->second.get();
+        kernel.ensure_body_properties(measured);
+        return measured.volume;
+    };
+    require(std::abs(measured_body(failed)-1000.)<1e-7,
+        "A missing Extrusion Sketch changed the preceding valid solid");
+    {
+        const document::DocumentSession failed_session(document,failed);
+        const auto scene=failed_session.body_context_mesh();
+        require(!scene.triangles.empty()&&!scene.vertices.empty(),
+            "The ordinary Body scene hid the valid prefix of a broken feature chain");
+    }
+
+    const auto path=std::filesystem::absolute(
+        unified_feature?"build/history-missing-feature-sketch.prtz":
+            "build/history-missing-extrusion-sketch.prtz");
+    document.save(path,failed);
+    std::vector<kernel::BodyResult> reopened_cache;
+    auto reopened=document::PartDocument::load(path,&reopened_cache);
+    require(std::abs(measured_body(reopened_cache)-1000.)<1e-7,
+        "Native reopen lost the visible valid prefix of a broken feature chain");
+    const auto cold=workspace::calculate_part_with_resolved_references(
+        kernel,reopened,&reopened_cache);
+    require(std::abs(measured_body(cold)-1000.)<1e-7&&
+            cold.back().calculation_errors.contains(broken.id)&&
+            cold.back().calculation_errors.contains(dependent.id),
+        "Regeneration after native reopen made a broken feature chain disappear");
+    {
+        const document::DocumentSession cold_session(reopened,cold);
+        const auto scene=cold_session.body_context_mesh();
+        require(!scene.triangles.empty()&&!scene.vertices.empty(),
+            "Cold regeneration hid the valid prefix from the ordinary Body scene");
+    }
+    std::filesystem::remove(path);
+
+    auto repaired=document;
+    repaired.sketches.push_back(broken_sketch);
+    const auto repaired_calculated=
+        workspace::calculate_part_with_resolved_references(
+            kernel,repaired,&failed);
+    require(repaired_calculated.back().calculation_errors.empty()&&
+            measured_body(repaired_calculated)>1000.,
+        "Restoring the missing Sketch did not repair the dependent feature chain");
+    workspace::Workspace live;
+    const auto id=document.document_id;
+    live.add_part(document,failed);
+    live.open_part(id)->session.commit(repaired,repaired_calculated);
+    require(workspace::step_part_document_history(live,id,false)&&
+            std::abs(measured_body(
+                live.open_part(id)->session.calculated_boundaries())-1000.)<1e-7,
+        "Broken feature-chain repair Undo lost the preceding valid solid");
+    require(workspace::step_part_document_history(live,id,true)&&
+            live.open_part(id)->session.calculated_boundaries().back().
+                calculation_errors.empty(),
+        "Broken feature-chain repair Redo did not restore the model");
+    std::cout<<(unified_feature?"Current Feature":"Dedicated Extrusion")
+        <<" missing Sketch: later dependent failure, visible prefix, reopen, repair and Undo/Redo passed\n";
+}
+static void verify_missing_profile_chain(const kernel::OcctKernel& kernel) {
+    verify_missing_profile_chain_kind(kernel,false);
+    verify_missing_profile_chain_kind(kernel,true);
 }
 int main() {
     try {
         kernel::OcctKernel kernel;
+        if(std::getenv("ZIMA_VERIFY_MISSING_PROFILE_CHAIN_ONLY")) {
+            verify_missing_profile_chain(kernel);
+            return 0;
+        }
         if(std::getenv("ZIMA_VERIFY_TREATMENT_DELETE_INPUT_ONLY")) {
             verify_treatment_delete_input(kernel);
             return 0;
         }
         verify_live_regeneration(kernel);verify_cold_history_resume();verify_recovery_prefix();
+        verify_missing_profile_chain(kernel);
         verify_sheet_suppression(kernel);
         verify_retained_feature_and_sketch_frames(kernel);
         verify_retained_container_properties_repair(kernel);

@@ -842,16 +842,22 @@ void verify_container_frame_dialog(QWidget& parent) {
     auto doc=document::PartDocument::create_default();
     auto source=sketcher::Sketch::create_default();
     const auto line=source.add_segment(-10,0,10,0),point=source.add_point(10,0);
+    const auto point2=source.add_point(0,10),point3=source.add_point(-5,-7);
     auto geometry=doc.origin_viewer_mesh().original_references;
     const auto sg=source.placement_reference_geometry();
     geometry.points.insert(geometry.points.end(),sg.points.begin(),sg.points.end());
     geometry.edges.insert(geometry.edges.end(),sg.edges.begin(),sg.edges.end());
     const document::ConstructionReference e{{},source.id,"segment:"+line};
     const document::ConstructionReference p{{},source.id,"point:"+point};
+    const document::ConstructionReference p2{{},source.id,"point:"+point2};
+    const document::ConstructionReference p3{{},source.id,"point:"+point3};
     const document::ConstructionReference f{{},doc.document_id+":origin","origin:plane:xy",0,true};
     const document::ConstructionReference g{{},doc.document_id+":origin","origin:plane:xz",0,true};
     const document::ConstructionReference n{{},doc.document_id+":origin","origin:plane:yz",0,true};
-    for (const auto& sequence : {std::vector{e,f,p},std::vector{f,e,p},std::vector{p,e,f},std::vector{g,f,n}}) {
+    const std::vector three_points{p,p2,p3};
+    const std::vector edge_plane_point{e,f,p};
+    for (const auto& sequence : {edge_plane_point,std::vector{f,e,p},
+            std::vector{p,e,f},std::vector{g,f,n},three_points}) {
         auto sketch=sketcher::Sketch::create_default();
         app::SketchPropertiesDialog dialog(sketch,{},false,{},[](auto,auto,bool){},&parent);
         dialog.set_reference_geometry(geometry);
@@ -873,11 +879,12 @@ void verify_container_frame_dialog(QWidget& parent) {
         require(document::resolve_placement(solved,geometry),"Dialog draft failed to solve");
         require(document::orientation_constraint_remaining_dof(solved.references,geometry,true,{solved.x,solved.y,solved.z})==0,
             "Sketch/Bend/Flat/Holes dialog lost TOP");
-        // A freshly picked first support plane is authored as TOP and keeps
-        // the established local XY Sketch plane. Point/curve and curve-first
+        // A freshly picked first support plane, ordered Edge/Plane/Point and
+        // ordered P1/P2/P3 define local XY. Point/curve and the other generic
         // frames use FRONT/local XZ. A whole Origin is an explicit XY frame.
         const auto expected_plane=sequence==std::vector{g,f,n}||
-                sequence.front()==f
+                sequence.front()==f||sequence==edge_plane_point||
+                sequence==three_points
             ?sketcher::SketchPlane::XY:sketcher::SketchPlane::XZ;
         if(!pending.first.plane_auto||pending.first.plane!=expected_plane)
             throw std::runtime_error(
@@ -1675,7 +1682,7 @@ static void verify_edge_treatment_fragments(QWidget& parent) {
     }
     auto fillet=zima::document::PartDocument::create_fillet_container(
         {authored});
-    const auto resolved=zima::document::treatment_selection_wire(
+    const auto resolved=zima::document::current_treatment_selection_wire(
         fillet.edge_treatment,0,std::nullopt,mesh);
     require(resolved.size()==2&&resolved.front().reference==first_child&&
             resolved.back().reference==nested_child,
@@ -1873,6 +1880,7 @@ int main(int argc, char* argv[]) {
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_CURVE_PRESENTATION_ONLY")){verify_curve_presentation(application,parent);return 0;}
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_ORIGIN_DISPLAY_ONLY")){verify_origin_display_and_pick_seed(parent);return 0;}
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_HOLE_STEP_ONLY")){verify_hole_step(application,parent);return 0;}
+        if(qEnvironmentVariableIsSet("ZIMA_VERIFY_CONTAINER_FRAME_ONLY")){verify_container_frame_dialog(parent);return 0;}
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_EDGE_TREATMENT_FRAGMENTS_ONLY")){verify_edge_treatment_fragments(parent);return 0;}
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_FEATURE_UNITS_ONLY"))return verify_feature_unit_input(application,parent);
         // These scoped suites exercise their own widgets and synthetic events;

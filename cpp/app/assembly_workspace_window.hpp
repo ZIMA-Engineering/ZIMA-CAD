@@ -595,6 +595,7 @@ private:
     std::size_t sketch_segment_inference_cycle_{};
     std::size_t sketch_segment_inference_variant_count_{1};
     bool sketch_inference_cycle_refresh_{};
+    std::optional<std::array<int,2>> sketch_inference_pointer_position_;
     bool sketch_skip_candidate_snap_{};
     bool sketch_endpoint_inference_cycle_{};
     bool sketch_segment_active_{};

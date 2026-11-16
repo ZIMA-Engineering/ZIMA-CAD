@@ -26,7 +26,7 @@ void Host::register_sketch_relation_commands() {
             shape(0,2);id=s.add_segment_pair_constraint(geometry[0],geometry[1],kind=="parallel"?Kind::Parallel:kind=="perpendicular"?Kind::Perpendicular:Kind::EqualLength);
         } else if(kind=="equal_radius") {shape(0,2);id=s.add_equal_radius_constraint(geometry[0],geometry[1]);
         } else if(kind=="concentric") {shape(0,2);id=s.add_concentric_constraint(geometry[0],geometry[1]);
-        } else if(kind=="point_on_circle") {shape(1,1);id=s.add_point_on_circle_constraint(points[0],geometry[0]);
+        } else if(kind=="point_on_circle") {shape(1,1);id=s.add_point_on_circle_constraint(points[0],geometry[0],true);
         } else if(kind=="point_on_line") {shape(1,1);id=s.add_point_on_line_constraint(points[0],geometry[0]);
         } else if(kind=="midpoint") {shape(1,1);id=s.add_midpoint_constraint(points[0],geometry[0]);
         } else if(kind=="midpoint_on_line") {shape(0,2);id=s.add_midpoint_on_line_constraint(geometry[0],geometry[1]);

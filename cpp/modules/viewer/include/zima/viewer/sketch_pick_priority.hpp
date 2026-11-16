@@ -11,10 +11,16 @@ inline int sketch_edit_pick_priority(const ViewerCandidate& candidate) {
     if(candidate.kind==K::SketchPoint&&
             candidate.semantic_key.starts_with("corner_radius_handle:"))return -1;
     if(candidate.kind==K::SketchPoint)return 0;
-    if(candidate.kind==K::Dimension||candidate.kind==K::SketchConstraint)return 1;
-    if(candidate.kind==K::SketchSegment||candidate.kind==K::SketchCurve||candidate.kind==K::SketchText)return 2;
-    if(candidate.kind==K::SketchExternalReference)return 3;
-    if(candidate.kind==K::SketchAxis||candidate.kind==K::Axis)return 4;
-    return 5;
+    // Visible dimension values retain their established direct edit contract.
+    if(candidate.kind==K::Dimension)return 1;
+    if(candidate.kind==K::SketchSegment||candidate.kind==K::SketchCurve||
+       candidate.kind==K::SketchText||candidate.kind==K::Symbol)return 2;
+    // Relation glyphs commonly sit directly on the geometry they describe.
+    // Prefer that authored geometry for the ordinary hover/click while keeping
+    // the annotation in the same candidate list for RMB cycling.
+    if(candidate.kind==K::SketchConstraint)return 3;
+    if(candidate.kind==K::SketchExternalReference)return 4;
+    if(candidate.kind==K::SketchAxis||candidate.kind==K::Axis)return 5;
+    return 6;
 }
 } // namespace zima::viewer

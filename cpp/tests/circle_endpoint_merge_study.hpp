@@ -48,8 +48,25 @@ inline void verify_circle_endpoint_merge_study() {
         for(int i=0;i<3;++i) {
             const auto* p=s.find_point(survivor);const auto before=s.serialized();const auto target=xy((vertical?p->y:p->x)+side,0);
             const bool moved=s.move_point(survivor,target[0],target[1]);equations();
-            if(reference) { if(!moved) {check(s.serialized()==before,"Rejected free drag changed document");++rejected_free_drags;} else check(s.serialized()!=before,"Accepted free drag did not move"); }
-            else check(s.serialized()==before,"Fully constrained merged endpoint escaped by dragging");
+            if(!reference&&locked) {
+                check(!moved&&s.serialized()==before,
+                    "Locked merged Circle endpoint escaped by dragging");
+            } else if(!moved) {
+                check(s.serialized()==before,
+                    "Rejected free Circle endpoint drag changed document");
+                ++rejected_free_drags;
+            } else {
+                check(s.serialized()!=before,
+                    "Accepted free Circle endpoint drag did not move");
+                if(!reference) {
+                    const auto& actual=*std::ranges::find(
+                        s.dimensions,dimension,&SketchDimension::id);
+                    check(std::abs(actual.value-(diameter
+                            ?2.*s.circles.front().radius
+                            :s.circles.front().radius))<1.e-7,
+                        "Unlocked R/D did not follow the merged C-point drag");
+                }
+            }
         }
         s=Sketch::from_serialized(s.serialized());equations();++cases;
     }

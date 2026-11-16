@@ -235,6 +235,9 @@ void planar_face_capture() {
     add_plane("planar-face",{400,230,262.637},{0,0,1});
     add_plane("planar-y",{400,230,136.224},{0,-1,0},true);
     add_plane("planar-x",{400,0,0},{-1,0,0});
+    const double oblique_scale=std::sqrt(14.0);
+    add_plane("planar-oblique",{9,-4,12},
+        {1/oblique_scale,2/oblique_scale,3/oblique_scale});
     section.set_surface_resolver([&](const auto& reference) {
         return document::placement_surface(reference,geometry);
     });
@@ -246,15 +249,15 @@ void planar_face_capture() {
     require(section.set_reference(0,first,QStringLiteral("Planar face"),nullptr),
         "Ordinary planar View face input failed");
     auto pending=section.numeric_placement();
-    near(pending.x,initial.x,"Ordinary planar support copied the arbitrary picked X");
-    near(pending.y,initial.y,"Ordinary planar support copied the arbitrary picked Y");
-    near(pending.z,initial.z,"Ordinary planar support copied the arbitrary picked Z");
+    near(pending.x,0,"One planar support did not start at its owning Origin X");
+    near(pending.y,0,"One planar support did not start at its owning Origin Y");
+    near(pending.z,0,"One planar support did not start at its owning Origin Z");
     auto ordinary=pending;
     ordinary.references=section.combined_references(3);
     require(document::resolve_placement(ordinary,geometry),
         "Ordinary planar support did not resolve");
-    near(ordinary.x,initial.x,"Ordinary planar support changed the in-plane X");
-    near(ordinary.y,initial.y,"Ordinary planar support changed the in-plane Y");
+    near(ordinary.x,0,"Ordinary planar support did not preserve owning-Origin X");
+    near(ordinary.y,0,"Ordinary planar support did not preserve owning-Origin Y");
     near(ordinary.z,262.637,"Ordinary planar support did not project onto its plane");
     require(section.set_reference(1,plane("ordinary-planar-limit"),{},nullptr),
         "Ordinary container unexpectedly armed Thread-only planar capture");
@@ -267,15 +270,120 @@ void planar_face_capture() {
     require(section.set_reference(0,replacement,QStringLiteral("Replacement plane"),nullptr),
         "Ordinary planar support replacement failed");
     auto replaced=section.numeric_placement();
-    near(replaced.x,ordinary.x,"Replacing the planar support copied the picked X");
-    near(replaced.y,ordinary.y,"Replacing the planar support copied the picked Y");
-    near(replaced.z,ordinary.z,"Replacing the planar support copied the picked Z");
+    near(replaced.x,0,"Replacing the sole planar support retained its previous projected X");
+    near(replaced.y,0,"Replacing the sole planar support retained its previous projected Y");
+    near(replaced.z,0,"Replacing the sole planar support retained its previous projected Z");
     replaced.references=section.combined_references(3);
     require(document::resolve_placement(replaced,geometry),
         "Replaced ordinary planar support did not resolve");
     near(replaced.x,400.,"Replaced ordinary support did not project onto its plane");
-    near(replaced.y,ordinary.y,"Replaced ordinary support changed the first in-plane coordinate");
-    near(replaced.z,ordinary.z,"Replaced ordinary support changed the second in-plane coordinate");
+    near(replaced.y,0,"Replaced ordinary support did not retain owning-Origin Y");
+    near(replaced.z,0,"Replaced ordinary support did not retain owning-Origin Z");
+
+    auto oblique=plane("planar-oblique");
+    oblique.picked_position=std::array{777.,888.,999.};
+    require(section.set_reference(0,oblique,QStringLiteral("Oblique plane"),nullptr),
+        "Oblique planar support replacement failed");
+    auto oblique_placement=section.numeric_placement();
+    near(oblique_placement.x,0,"Oblique plane copied the View pick X");
+    near(oblique_placement.y,0,"Oblique plane copied the View pick Y");
+    near(oblique_placement.z,0,"Oblique plane copied the View pick Z");
+    oblique_placement.references=section.combined_references(3);
+    require(document::resolve_placement(oblique_placement,geometry),
+        "Oblique planar support did not resolve");
+    const kernel::Vec3 normal{1/oblique_scale,2/oblique_scale,3/oblique_scale};
+    const kernel::Vec3 point{9,-4,12};
+    const double distance=normal.x*point.x+normal.y*point.y+normal.z*point.z;
+    near(oblique_placement.x,distance*normal.x,
+        "Oblique support origin is not above the owning Origin X");
+    near(oblique_placement.y,distance*normal.y,
+        "Oblique support origin is not above the owning Origin Y");
+    near(oblique_placement.z,distance*normal.z,
+        "Oblique support origin is not above the owning Origin Z");
+
+    // The real Properties callback writes constraint feedback into the numeric
+    // fields synchronously. For an oblique plane its one pivot column must not
+    // combine one solved coordinate with two old zero coordinates and project
+    // that mixed seed a second time along the plane.
+    QWidget live_owner;auto* live_layout=new QVBoxLayout(&live_owner);
+    ui::ContainerPlacementSection live(&live_owner,live_layout,true);
+    live.set_surface_resolver([&](const auto& reference) {
+        return document::placement_surface(reference,geometry);
+    });
+    live.initialize_numeric_values(initial);
+    live.set_changed_callback([&] {
+        auto solved=live.numeric_placement();
+        solved.references=live.combined_references(3);
+        require(document::resolve_placement(solved,geometry),
+            "Live one-plane placement did not resolve");
+        live.set_translation_constraint_state(
+            document::point_constraint_state(solved.references,geometry,
+                {solved.x,solved.y,solved.z}),
+            {solved.x,solved.y,solved.z});
+    });
+    auto live_oblique=oblique;
+    live_oblique.picked_position=std::array{-700.,800.,-900.};
+    require(live.set_reference(0,live_oblique,
+        QStringLiteral("Live oblique plane"),nullptr),
+        "Live oblique support replacement failed");
+    auto live_result=live.numeric_placement();
+    live_result.references=live.combined_references(3);
+    require(document::resolve_placement(live_result,geometry),
+        "Live oblique support was not stable after GUI feedback");
+    near(live_result.x,oblique_placement.x,
+        "GUI feedback drifted the one-plane projection X");
+    near(live_result.y,oblique_placement.y,
+        "GUI feedback drifted the one-plane projection Y");
+    near(live_result.z,oblique_placement.z,
+        "GUI feedback drifted the one-plane projection Z");
+
+    section.initialize_numeric_values(oblique_placement);
+    require(section.set_reference(0,replacement,QStringLiteral("Replacement plane"),nullptr),
+        "Return from the oblique plane failed");
+    auto returned=section.numeric_placement();
+    returned.references=section.combined_references(3);
+    require(document::resolve_placement(returned,geometry),
+        "Returned planar support did not resolve");
+    near(returned.x,400.,"Plane replacement accumulated the previous X");
+    near(returned.y,0,"Plane replacement accumulated the previous Y");
+    near(returned.z,0,"Plane replacement accumulated the previous Z");
+    section.initialize_numeric_values(returned);
+    require(section.set_reference(0,oblique,QStringLiteral("Oblique plane"),nullptr),
+        "Repeated oblique-plane replacement failed");
+    auto repeated_oblique=section.numeric_placement();
+    repeated_oblique.references=section.combined_references(3);
+    require(document::resolve_placement(repeated_oblique,geometry),
+        "Repeated oblique planar support did not resolve");
+    near(repeated_oblique.x,oblique_placement.x,
+        "Repeated plane replacement drifted in X");
+    near(repeated_oblique.y,oblique_placement.y,
+        "Repeated plane replacement drifted in Y");
+    near(repeated_oblique.z,oblique_placement.z,
+        "Repeated plane replacement drifted in Z");
+
+    section.initialize_numeric_values(repeated_oblique);
+    auto second=plane("planar-y");
+    require(section.set_reference(4,second,QStringLiteral("TOP plane"),nullptr),
+        "Second orientation plane was rejected");
+    auto two_planes=section.numeric_placement();
+    near(two_planes.x,repeated_oblique.x,
+        "Adding TOP moved the one-reference X position");
+    near(two_planes.y,repeated_oblique.y,
+        "Adding TOP moved the one-reference Y position");
+    near(two_planes.z,repeated_oblique.z,
+        "Adding TOP moved the one-reference Z position");
+    two_planes.references=section.combined_references(3);
+    require(document::resolve_placement(two_planes,geometry),
+        "Position plane plus TOP did not resolve");
+    near(two_planes.x,repeated_oblique.x,
+        "Resolving TOP moved the one-reference X position");
+    near(two_planes.y,repeated_oblique.y,
+        "Resolving TOP moved the one-reference Y position");
+    near(two_planes.z,repeated_oblique.z,
+        "Resolving TOP moved the one-reference Z position");
+    require(document::orientation_constraint_state(two_planes.references,
+            geometry,true,{two_planes.x,two_planes.y,two_planes.z}).remaining_dof==0,
+        "The second orientation plane did not fix the remaining rotation");
     section.initialize_from_references({},{});
     section.initialize_numeric_values({});
     section.set_planar_face_capture_policy(true);

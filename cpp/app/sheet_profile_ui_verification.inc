@@ -711,8 +711,17 @@ static int verify_sheet_profile_ui(QApplication& application,
             "Attached Profile did not enter Sketcher");
         QEventLoop settle;
         QTimer::singleShot(950,&settle,&QEventLoop::quit);settle.exec();
-        const auto route_line=attached_draft.first.segments.front();
-        const auto route_end=route_line.second_point_id;
+        const auto attached_start=std::ranges::find_if(
+            attached_draft.first.constraints,[](const auto& constraint) {
+                return !constraint.suppressed&&
+                    constraint.kind==sketcher::ConstraintKind::PointReference&&
+                    constraint.second_point_id=="sketch_origin";
+            });
+        require(attached_start!=attached_draft.first.constraints.end(),
+            "Attached Profile start is not bound to the Sketch origin");
+        const auto route=document::sheet_profile_route(attached_draft.first,
+            attached_start->first_point_id);
+        const auto route_end=route.end_point_id;
         const auto owned_arc_count=[&] {
             return std::ranges::count_if(view->mesh().edges,
                 [&](const auto& edge) {
@@ -758,12 +767,36 @@ static int verify_sheet_profile_ui(QApplication& application,
             mouse(position,QEvent::MouseButtonPress,button);
             mouse(position,QEvent::MouseButtonRelease,button);
         };
+        mouse(*route_end_hit,QEvent::MouseMove,Qt::NoButton);
+        const auto endpoint_offers=view->selection_candidates_at(*route_end_hit);
+        const auto endpoint_offered=[&] {
+            const auto offered=view->hovered_candidate();
+            return offered&&offered->kind==viewer::CandidateKind::SketchPoint&&
+                offered->owner_id==attached_draft.first.id&&
+                offered->semantic_key=="point:"+route_end;
+        };
+        for(std::size_t cycle=0;cycle<endpoint_offers.size()&&
+                !endpoint_offered();++cycle)
+            click(*route_end_hit,Qt::RightButton);
+        require(endpoint_offered(),
+            "Attached Profile final endpoint cannot be activated in the Sketch picker");
         click(*route_end_hit,Qt::LeftButton);
         QPointF extension_end=*route_end_hit+QPointF(90,-70);
         if(!view->rect().adjusted(10,10,-10,-10).contains(
                 extension_end.toPoint()))
             extension_end=*route_end_hit-QPointF(90,-70);
-        click(extension_end,Qt::RightButton);
+        std::optional<QPointF> clear_toggle;
+        for(int y=10;y<view->height()-10&&!clear_toggle;y+=17)
+            for(int x=10;x<view->width()-10;x+=17) {
+                const QPointF point(x,y);
+                if(QLineF(point,*route_end_hit).length()>40&&
+                        view->selection_candidates_at(point).empty()) {
+                    clear_toggle=point;break;
+                }
+            }
+        require(clear_toggle.has_value(),
+            "Attached Profile has no clear View position for the Polyline mode switch");
+        click(*clear_toggle,Qt::RightButton);
         click(extension_end,Qt::LeftButton);
         QKeyEvent finish_polyline(QEvent::KeyPress,Qt::Key_Escape,
             Qt::NoModifier);

@@ -2126,6 +2126,49 @@ void PrimitivePropertiesDialog::set_edge_route_start_vertices(
     initial_.edge_treatment.route_start_vertices = std::move(vertices);
 }
 
+void PrimitivePropertiesDialog::set_edge_route_end_vertices(
+        std::size_t route,zima::kernel::VertexReference first,
+        zima::kernel::VertexReference last) {
+    auto& ends=initial_.edge_treatment.route_end_faces;
+    ends.resize(initial_.edge_treatment.routes.size());
+    if(route>=ends.size())return;
+    auto previous=ends[route];
+    const auto assign=[&](zima::kernel::VertexReference vertex,
+            zima::document::EdgeTreatmentParameters::RouteEndMode& mode,
+            zima::kernel::FaceReference& face) {
+        if(vertex.valid()&&vertex==previous.first_vertex) {
+            mode=previous.first_mode;
+            face=std::move(previous.first);
+        } else if(vertex.valid()&&vertex==previous.last_vertex) {
+            mode=previous.last_mode;
+            face=std::move(previous.last);
+        } else {
+            // A changed physical endpoint has no authored terminal decision.
+            // The safe default is to leave the route uncut at that endpoint.
+            mode=zima::document::EdgeTreatmentParameters::RouteEndMode::NoCut;
+            face={};
+        }
+    };
+    auto& current=ends[route];
+    current.first_vertex=std::move(first);
+    current.last_vertex=std::move(last);
+    assign(current.first_vertex,current.first_mode,current.first);
+    assign(current.last_vertex,current.last_mode,current.last);
+}
+
+void PrimitivePropertiesDialog::set_edge_route_end_mode(std::size_t route,
+        bool first,
+        zima::document::EdgeTreatmentParameters::RouteEndMode mode) {
+    auto& ends=initial_.edge_treatment.route_end_faces;
+    ends.resize(initial_.edge_treatment.routes.size());
+    if(route>=ends.size())return;
+    auto& current=first?ends[route].first_mode:ends[route].last_mode;
+    if(current==mode)return;
+    current=mode;
+    set_commit_required(true);
+    notify_preview();
+}
+
 void PrimitivePropertiesDialog::set_extrusion_surface_target(
     zima::kernel::FaceReference reference,
     std::vector<zima::kernel::Vec3> triangles, std::string label) {
@@ -3102,11 +3145,13 @@ bool PrimitivePropertiesDialog::set_reference(std::size_t index,
         for(auto* control:{profile_plane_,feature_axis_direction_})if(control)
             update_automatic_work_plane(control,static_cast<int>(zima::sketcher::SketchPlane::XY));
         notify_preview();
-    } else if (first_plane && profile_plane_) {
+    } else if (profile_plane_) {
         const auto automatic=static_cast<int>(zima::document::automatic_sketch_work_plane(
-            placement_->combined_references(3)).value_or(zima::sketcher::SketchPlane::XY));
+            placement_->combined_references(3), sheet_reference_geometry_).value_or(
+                zima::sketcher::SketchPlane::XY));
         for(auto* control:{profile_plane_,feature_axis_direction_})if(control)
-            update_automatic_work_plane(control,automatic,label);
+            update_automatic_work_plane(control,automatic,
+                first_plane ? label : QString{});
         notify_preview();
     }
     error_->clear();

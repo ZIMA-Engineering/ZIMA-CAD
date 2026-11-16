@@ -44,6 +44,7 @@ void AssemblyWorkspaceWindow::create_actions() {
     };
 
     auto* file = menuBar()->addMenu(t("menu.file", "Soubor"));
+    file->setObjectName("fileMenu");
     new_document_action_ = make_action(t("menu.file.new", "Nový"), "new");
     new_document_action_->setObjectName("newDocumentAction");
     new_document_action_->setShortcuts({QKeySequence(Qt::Key_F1), QKeySequence::New});
@@ -112,6 +113,14 @@ void AssemblyWorkspaceWindow::create_actions() {
     connect(working_directory_action_, &QAction::triggered, this,
         [this] { set_working_directory(); });
     file->addAction(working_directory_action_);
+    file->addSeparator();
+    auto* exit_action = make_action(
+        t("menu.file.exit", "Ukončit"), "dialog-cancel");
+    exit_action->setObjectName("exitApplicationAction");
+    exit_action->setShortcut(QKeySequence(QStringLiteral("Alt+F4")));
+    exit_action->setShortcutContext(Qt::ApplicationShortcut);
+    connect(exit_action, &QAction::triggered, this, [this] { close(); });
+    file->addAction(exit_action);
 
     auto* edit = menuBar()->addMenu(t("menu.edit", "Upravit"));
     regenerate_document_action_ = make_action(tr("Regenerovat"));

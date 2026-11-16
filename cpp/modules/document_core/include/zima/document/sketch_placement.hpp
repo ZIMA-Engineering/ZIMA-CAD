@@ -40,9 +40,21 @@ inline std::optional<sketcher::SketchPlane> automatic_sketch_work_plane(
     for(const auto& ref:references)if(const auto result=plane(ref))return result;
     return std::nullopt;
 }
+inline std::optional<sketcher::SketchPlane> automatic_sketch_work_plane(
+        const std::vector<ConstructionReference>& references,
+        const kernel::ViewerReferenceGeometry& geometry) {
+    if(placement_references_define_local_xy_work_plane(references,geometry))
+        return sketcher::SketchPlane::XY;
+    return automatic_sketch_work_plane(references);
+}
 inline void apply_automatic_sketch_work_plane(sketcher::Sketch& sketch,
         const std::vector<ConstructionReference>& references) {
     if(sketch.plane_auto)if(const auto plane=automatic_sketch_work_plane(references))sketch.plane=*plane;
+}
+inline void apply_automatic_sketch_work_plane(sketcher::Sketch& sketch,
+        const std::vector<ConstructionReference>& references,
+        const kernel::ViewerReferenceGeometry& geometry) {
+    if(sketch.plane_auto)if(const auto plane=automatic_sketch_work_plane(references,geometry))sketch.plane=*plane;
 }
 
 // FRONT is local +Y. A plane normal or a point-followed-by-curve tangent
@@ -50,6 +62,12 @@ inline void apply_automatic_sketch_work_plane(sketcher::Sketch& sketch,
 inline bool sketch_placement_uses_front_plane(
         const std::vector<ConstructionReference>& references) {
     return automatic_sketch_work_plane(references)==sketcher::SketchPlane::XZ;
+}
+inline bool sketch_placement_uses_front_plane(
+        const std::vector<ConstructionReference>& references,
+        const kernel::ViewerReferenceGeometry& geometry) {
+    return automatic_sketch_work_plane(references,geometry)==
+        sketcher::SketchPlane::XZ;
 }
 
 // Recover the container axes from its resolved work plane without treating

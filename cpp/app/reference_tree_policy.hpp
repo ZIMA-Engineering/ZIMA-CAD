@@ -101,7 +101,7 @@ template<class Document> std::string feature_reference_issue(const document::His
                 for(std::size_t segment=0;
                         segment<feature.edge_treatment.routes[route].size();
                         ++segment)
-                    if(document::treatment_selection_wire(
+                    if(document::current_treatment_selection_wire(
                             feature.edge_treatment,route,segment,*input).empty())
                         issue+="["+
                             feature.edge_treatment.routes[route][segment].owner_id+

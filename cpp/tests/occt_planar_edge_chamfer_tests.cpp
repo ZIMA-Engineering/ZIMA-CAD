@@ -461,6 +461,64 @@ int main() try {
         zima::kernel::OcctPlanarEdgeChamferMode::DistanceAngle,
         3.,angle,angled_distance,box_height);
 
+    {
+        constexpr double radius=20.,height=30.;
+        const auto cylinder=BRepPrimAPI_MakeCylinder(radius,height).Shape();
+        TopTools_IndexedDataMapOfShapeListOfShape circular_edge_faces;
+        TopExp::MapShapesAndAncestors(cylinder,TopAbs_EDGE,TopAbs_FACE,
+            circular_edge_faces);
+        TopoDS_Edge top_edge;
+        for(TopExp_Explorer item(cylinder,TopAbs_EDGE);
+                item.More();item.Next()) {
+            const auto edge=TopoDS::Edge(item.Current());
+            const BRepAdaptor_Curve curve(edge);
+            if(curve.GetType()==GeomAbs_Circle&&
+               std::abs(curve.Value(curve.FirstParameter()).Z()-height)<
+                    1.0e-9) {
+                top_edge=edge;
+                break;
+            }
+        }
+        require(!top_edge.IsNull(),
+            "Circular A x B Chamfer fixture lost its top edge");
+        TopoDS_Face top_face,wall_face;
+        const int support_index=circular_edge_faces.FindIndex(top_edge);
+        require(support_index!=0,
+            "Circular A x B Chamfer fixture lost its supports");
+        for(const auto& value:
+                circular_edge_faces.FindFromIndex(support_index)) {
+            const auto face=TopoDS::Face(value);
+            const auto kind=BRepAdaptor_Surface(face,true).GetType();
+            if(kind==GeomAbs_Plane)top_face=face;
+            else if(kind==GeomAbs_Cylinder)wall_face=face;
+        }
+        require(!top_face.IsNull()&&!wall_face.IsNull(),
+            "Circular A x B Chamfer fixture has invalid supports");
+        const auto verify_circular=[&](const TopoDS_Face& a_face,
+                double distance_a,double distance_b,
+                double radial_distance,double axial_distance) {
+            const std::array selection{
+                zima::kernel::OcctPlanarEdgeChamferSelection{
+                    top_edge,a_face}};
+            const auto result=zima::kernel::occt_planar_edge_chamfer(
+                cylinder,selection,
+                zima::kernel::OcctPlanarEdgeChamferMode::TwoDistances,
+                distance_a,distance_b,1.0e-7);
+            require(BRepCheck_Analyzer(result.Shape(),true,true,false).
+                        IsValid()&&result.history&&
+                    result.chamfer_faces.size()==1&&
+                    !result.chamfer_faces.front().empty(),
+                "Circular A x B Chamfer did not produce one valid result");
+            near(volume(result.Shape()),volume(cylinder)-
+                    std::numbers::pi*axial_distance*
+                        (radius*radial_distance-
+                         radial_distance*radial_distance/3.),
+                "Circular A x B Chamfer volume is wrong");
+        };
+        verify_circular(top_face,2.,5.,2.,5.);
+        verify_circular(wall_face,2.,5.,5.,2.);
+    }
+
     const auto route_x=straight_edge_between(box,{0,0,0},{20,0,0});
     const auto route_y=straight_edge_between(box,{0,0,0},{0,30,0});
     require(!route_x.IsNull()&&!route_y.IsNull(),
@@ -607,6 +665,7 @@ int main() try {
         }
         require(route.size()==2,
             "Curved Chamfer fixture lost its two tangent line members");
+        const std::array selected_lines{route[0],route[1]};
         route.insert(route.begin()+1,arc);
         const auto curved=zima::kernel::occt_planar_edge_chamfer(
             round.Shape(),route,2.,1.0e-7);
@@ -641,6 +700,47 @@ int main() try {
             "Chamfer beyond a preceding Fillet radius is invalid");
         require(volume(collapsed_round.Shape())<volume(round.Shape()),
             "Chamfer beyond a preceding Fillet radius removed no material");
+        const std::array sharp_top_route{
+            straight_edge_between(sharp,{0,0,height},{length,0,height}),
+            straight_edge_between(sharp,{0,0,height},{0,width,height})};
+        require(std::ranges::none_of(sharp_top_route,
+                [](const auto& edge){return edge.IsNull();}),
+            "Collapsed-round reference lost its two sharp top edges");
+        const auto sharp_chamfer=
+            zima::kernel::occt_planar_edge_chamfer(
+                sharp,sharp_top_route,4.,1.0e-7,{}, {},
+                zima::kernel::OcctPlanarEdgeEndMode::AutomaticBodyEnvelope);
+        BRepAlgoAPI_Common collapsed_reference(
+            round.Shape(),sharp_chamfer.Shape());
+        collapsed_reference.SetNonDestructive(true);
+        collapsed_reference.SetRunParallel(false);
+        collapsed_reference.SetFuzzyValue(1.0e-7);
+        collapsed_reference.Build();
+        require(collapsed_reference.IsDone()&&
+                !collapsed_reference.Shape().IsNull()&&
+                BRepCheck_Analyzer(collapsed_reference.Shape(),true,true,
+                    false).IsValid(),
+            "Collapsed-round sharp-corner reference is invalid");
+        near(volume(collapsed_round.Shape()),
+            volume(collapsed_reference.Shape()),
+            "Chamfer beyond a preceding Fillet retained its old rounded post");
+        near(area(collapsed_round.Shape()),area(collapsed_reference.Shape()),
+            "Chamfer beyond a preceding Fillet retained a visible old-radius boundary");
+        const auto collapsed_from_original_lines=
+            zima::kernel::occt_planar_edge_chamfer(round.Shape(),
+                selected_lines,4.,1.0e-7,{}, {},
+                zima::kernel::OcctPlanarEdgeEndMode::AutomaticBodyEnvelope);
+        require(BRepCheck_Analyzer(collapsed_from_original_lines.Shape(),
+                    true,true,false).IsValid()&&
+                collapsed_from_original_lines.chamfer_faces.size()==
+                    selected_lines.size(),
+            "Two original edges around a preceding Fillet produced an invalid Chamfer");
+        near(volume(collapsed_from_original_lines.Shape()),
+            volume(collapsed_reference.Shape()),
+            "Two original Chamfer edges retained the omitted old rounded post");
+        near(area(collapsed_from_original_lines.Shape()),
+            area(collapsed_reference.Shape()),
+            "Two original Chamfer edges retained the omitted old-radius boundary");
         std::reverse(route.begin(),route.end());
         const auto curved_reversed=zima::kernel::occt_planar_edge_chamfer(
             round.Shape(),route,2.,1.0e-7);
@@ -867,22 +967,61 @@ int main() try {
             {-10.,circle_end,50.},1.0e-6);
         require(!cylinder_route.IsNull(),
             "Split cylindrical terminal lost its Chamfer route edge");
-        const std::array route{cylinder_route};
-        const auto perpendicular=zima::kernel::occt_planar_edge_chamfer(
-            notched_cylinder.Shape(),route,8.,1.0e-7);
-        const auto automatic=zima::kernel::occt_planar_edge_chamfer(
-            notched_cylinder.Shape(),route,8.,1.0e-7,{}, {},
-            zima::kernel::OcctPlanarEdgeEndMode::AutomaticBodyEnvelope);
-        require(BRepCheck_Analyzer(automatic.Shape(),true,true,false).
-                    IsValid()&&
-                volume(automatic.Shape())>
-                    volume(perpendicular.Shape())+1.0e-6,
-            "Automatic ZIMA Chamfer did not reach its curved terminal");
-        BRepAlgoAPI_Cut outside(automatic.Shape(),cylinder_envelope);
-        outside.SetNonDestructive(true);
-        outside.Build();
-        require(outside.IsDone()&&volume(outside.Shape())<=1.0e-6,
-            "Curved terminal let additive Chamfer escape the Body envelope");
+        const auto planar_support=[](const TopoDS_Shape& shape,
+                const TopoDS_Edge& edge) {
+            TopTools_IndexedDataMapOfShapeListOfShape edge_faces;
+            TopExp::MapShapesAndAncestors(shape,TopAbs_EDGE,TopAbs_FACE,
+                edge_faces);
+            const int index=edge_faces.FindIndex(edge);
+            if(!index)throw std::runtime_error(
+                "Chamfer terminal route has no supports");
+            for(const auto& value:edge_faces.FindFromIndex(index)) {
+                const auto face=TopoDS::Face(value);
+                if(BRepAdaptor_Surface(face,true).GetType()==GeomAbs_Plane)
+                    return face;
+            }
+            throw std::runtime_error(
+                "Chamfer terminal route has no planar A support");
+        };
+        const auto terminal_result=[&](const TopoDS_Shape& shape,
+                const TopoDS_Edge& edge,
+                zima::kernel::OcctPlanarEdgeChamferMode mode,
+                double secondary,
+                zima::kernel::OcctPlanarEdgeEndMode ends) {
+            const std::array selection{
+                zima::kernel::OcctPlanarEdgeChamferSelection{edge,
+                    mode==zima::kernel::OcctPlanarEdgeChamferMode::
+                            EqualDistance
+                        ?TopoDS_Face{}:planar_support(shape,edge)}};
+            return zima::kernel::occt_planar_edge_chamfer(shape,selection,
+                mode,8.,secondary,1.0e-7,{},{},ends);
+        };
+        const std::array terminal_modes{
+            std::pair{zima::kernel::OcctPlanarEdgeChamferMode::EqualDistance,
+                8.},
+            std::pair{zima::kernel::OcctPlanarEdgeChamferMode::TwoDistances,
+                5.},
+            std::pair{zima::kernel::OcctPlanarEdgeChamferMode::DistanceAngle,
+                30.*std::numbers::pi/180.}};
+        for(const auto [mode,secondary]:terminal_modes) {
+            const auto perpendicular=terminal_result(notched_cylinder.Shape(),
+                cylinder_route,mode,secondary,
+                zima::kernel::OcctPlanarEdgeEndMode::Perpendicular);
+            const auto automatic=terminal_result(notched_cylinder.Shape(),
+                cylinder_route,mode,secondary,
+                zima::kernel::OcctPlanarEdgeEndMode::AutomaticBodyEnvelope);
+            require(BRepCheck_Analyzer(automatic.Shape(),true,true,false).
+                        IsValid()&&automatic.chamfer_faces.size()==1&&
+                    !automatic.chamfer_faces.front().empty()&&
+                    volume(automatic.Shape())>
+                        volume(perpendicular.Shape())+1.0e-6,
+                "Automatic Chamfer mode did not reach its curved terminal");
+            BRepAlgoAPI_Cut outside(automatic.Shape(),cylinder_envelope);
+            outside.SetNonDestructive(true);
+            outside.Build();
+            require(outside.IsDone()&&volume(outside.Shape())<=1.0e-6,
+                "Chamfer mode escaped its curved Body terminal");
+        }
 
         BRepAlgoAPI_Common convex_cylinder_terminal(cylinder_envelope,
             BRepPrimAPI_MakeBox(gp_Pnt(-10.,0.,50.),
@@ -898,18 +1037,21 @@ int main() try {
             {-10.,circle_end,50.},1.0e-6);
         require(!convex_route.IsNull(),
             "Subtractive cylindrical terminal lost its Chamfer route edge");
-        const std::array convex_selection{convex_route};
-        const auto convex_flat=zima::kernel::occt_planar_edge_chamfer(
-            convex_cylinder_terminal.Shape(),convex_selection,8.,1.0e-7);
-        const auto convex_automatic=zima::kernel::occt_planar_edge_chamfer(
-            convex_cylinder_terminal.Shape(),convex_selection,8.,1.0e-7,
-            {},{},zima::kernel::OcctPlanarEdgeEndMode::
-                AutomaticBodyEnvelope);
-        require(BRepCheck_Analyzer(convex_automatic.Shape(),true,true,false).
-                    IsValid()&&
-                volume(convex_automatic.Shape())<
-                    volume(convex_flat.Shape())-1.0e-6,
-            "Subtractive Chamfer did not reach its cylindrical Body envelope");
+        for(const auto [mode,secondary]:terminal_modes) {
+            const auto convex_flat=terminal_result(
+                convex_cylinder_terminal.Shape(),convex_route,mode,secondary,
+                zima::kernel::OcctPlanarEdgeEndMode::Perpendicular);
+            const auto convex_automatic=terminal_result(
+                convex_cylinder_terminal.Shape(),convex_route,mode,secondary,
+                zima::kernel::OcctPlanarEdgeEndMode::AutomaticBodyEnvelope);
+            require(BRepCheck_Analyzer(convex_automatic.Shape(),true,true,
+                        false).IsValid()&&
+                    convex_automatic.chamfer_faces.size()==1&&
+                    !convex_automatic.chamfer_faces.front().empty()&&
+                    volume(convex_automatic.Shape())<
+                        volume(convex_flat.Shape())-1.0e-6,
+                "Subtractive Chamfer mode did not stop on its cylindrical Body envelope");
+        }
     }
 
     std::cout<<"Custom planar edge Chamfer: convex/concave A x A, tangent line-arc-line routes, inner/outer two/three-branch and staggered-step nodes, through-notch and side-pocket terminals, mixed CUT/FUSE order, A x B, A + angle, FLIP, batch, perpendicular/angled/curved ends and exact ancestry checks passed\n";

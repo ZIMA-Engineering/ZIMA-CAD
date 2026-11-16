@@ -1312,6 +1312,24 @@ int main() {
                         std::vector{previous_fillet}).size()==1,
                 "An explicit current-Body treatment arc was removed from its persisted route or preview");
             input.edges.pop_back();
+            auto repaired=parameters;
+            const zima::kernel::EdgeReference missing{
+                "deleted-owner","missing-edge",{}};
+            repaired.routes={{refs[0],missing,refs[1]},{missing}};
+            repaired.route_start_vertices={
+                input.edges[0].edge_treatment_endpoint_references.front(),
+                {"deleted-owner","missing-point",{}}};
+            repaired.route_end_faces.resize(2);
+            repaired.route_end_faces[0].first={
+                "old-terminal","face",{}};
+            require(zima::document::prune_unresolved_treatment_references(
+                        repaired,input)&&
+                    repaired.routes==std::vector<std::vector<
+                        zima::kernel::EdgeReference>>{{refs[0],refs[1]}}&&
+                    repaired.route_start_vertices.size()==1&&
+                    repaired.route_end_faces.size()==1&&
+                    !repaired.route_end_faces.front().first.valid(),
+                "Automatic treatment repair did not remove only unresolved members and their stale terminal metadata");
             auto boolean_route=parameters;
             const auto encoded_reference=[](const auto& reference) {
                 return std::to_string(reference.owner_id.size())+":"+
@@ -2003,7 +2021,7 @@ int main() {
             (std::istreambuf_iterator<char>(empty_serialized)),
             std::istreambuf_iterator<char>());
         require(empty_text.find("[Document]\n") != std::string::npos &&
-                    empty_text.find("format_version=52\n") != std::string::npos &&
+                    empty_text.find("format_version=53\n") != std::string::npos &&
                     empty_text.find("[DocumentUnits]\n") != std::string::npos &&
                     empty_text.find("[UserParameterValues]\n") != std::string::npos,
                 "Part persistence did not write the current native INI sections");
@@ -3465,18 +3483,24 @@ int main() {
             three_point_frame_placement.references.push_back({
                 {}, "top-direction-point", "point", 0.0, false,
                 "direction", true, true});
-            require(zima::document::orientation_constraint_remaining_dof(
-                        three_point_frame_placement.references,
-                        point_plane_geometry, true,
-                        {10.0, 20.0, 30.0}) == 0 &&
-                        zima::document::resolve_placement(
-                            three_point_frame_placement,
-                            point_plane_geometry) &&
-                        std::abs(three_point_frame_placement.rotation_x) < 1.0e-7 &&
-                        std::abs(three_point_frame_placement.rotation_y) < 1.0e-7 &&
-                        std::abs(three_point_frame_placement.rotation_z) < 1.0e-7,
-                    "Three Point placement did not use P1 as origin, P2 as "
-                    "FRONT direction, and P3 as TOP direction");
+            const auto three_point_dof =
+                zima::document::orientation_constraint_remaining_dof(
+                    three_point_frame_placement.references,
+                    point_plane_geometry, true, {10.0, 20.0, 30.0});
+            const auto three_point_resolved = zima::document::resolve_placement(
+                three_point_frame_placement, point_plane_geometry);
+            const auto three_point_x = rotate(
+                {1.0, 0.0, 0.0}, three_point_frame_placement);
+            const auto three_point_y = rotate(
+                {0.0, 1.0, 0.0}, three_point_frame_placement);
+            const auto three_point_normal = rotate(
+                {0.0, 0.0, 1.0}, three_point_frame_placement);
+            require(three_point_dof == 0 && three_point_resolved &&
+                        three_point_x.y > 0.999999 &&
+                        three_point_y.z > 0.999999 &&
+                        three_point_normal.x > 0.999999,
+                    "Three Point placement did not use P1 as origin, P1-P2 "
+                    "as local X, and P3 in the local XY plane");
 
             auto minimum_twist_point =
                 zima::document::PartDocument::create_construction(
@@ -4259,6 +4283,14 @@ int main() {
                                     "generated:" + parity_point_id;
                         }),
                 "Sketch edit broke downstream inherited Fillet ancestry");
+        parity_document.history.back().edge_treatment.route_end_faces = {{
+            parity_edge->edge_treatment_endpoint_references.front(),
+            parity_edge->edge_treatment_endpoint_references.back(),
+            zima::document::EdgeTreatmentParameters::RouteEndMode::Cut,
+            zima::document::EdgeTreatmentParameters::RouteEndMode::NoCut,
+            {},{}}};
+        parity_fillet.edge_treatment.route_end_faces =
+            parity_document.history.back().edge_treatment.route_end_faces;
         const auto parity_path = std::filesystem::temp_directory_path() /
             "zima-cad-cpp-part-parity-slice.prtz";
         parity_document.save(parity_path, parity_regenerated);
@@ -4278,6 +4310,9 @@ int main() {
                     loaded_parity.history.back().edge_treatment.
                         route_start_vertices ==
                         parity_fillet.edge_treatment.route_start_vertices &&
+                    loaded_parity.history.back().edge_treatment.
+                        route_end_faces ==
+                        parity_fillet.edge_treatment.route_end_faces &&
                     std::ranges::any_of(
                         loaded_parity_results.back().mesh.edges,
                         [&](const auto& edge) {

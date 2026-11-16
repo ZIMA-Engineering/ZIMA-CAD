@@ -1,3 +1,101 @@
+Q_NEVER_INLINE static int verify_missing_profile_scene(QApplication& application,
+        AssemblyWorkspaceWindow& window,const std::filesystem::path& directory) {
+    using namespace zima;
+    try {
+        const auto check=[](bool ok,const char* message){if(!ok)throw std::runtime_error(message);};
+        const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
+        auto part=document::PartDocument::create_default();
+        const auto rectangle=[&](kernel::Vec3 size) {
+            auto sketch=sketcher::Sketch::create_default();
+            static_cast<void>(sketch.add_rectangle(
+                -size.x/2,-size.y/2,size.x/2,size.y/2));
+            auto feature=document::PartDocument::create_feature_container(sketch.id);
+            sketch.owner_container_id=feature.id;
+            feature.feature.sides[0].length=size.z;
+            part.sketches.push_back(std::move(sketch));
+            return feature;
+        };
+        auto base=rectangle({10,10,10});
+        auto broken=rectangle({4,4,4});
+        broken.placement.x=5;
+        const auto broken_sketch=broken.feature.sketch_id;
+        part.history={base,broken};
+        document::BodyHistoryGraph graph;
+        const auto body=graph.create_body("Missing profile scene");
+        graph.insert({document::PartHistoryKind::Feature,base.id});
+        graph.insert({document::PartHistoryKind::Feature,broken.id});
+        part.set_body_history(graph);
+        kernel::OcctKernel kernel;
+        auto calculated=workspace::calculate_part_with_resolved_references(kernel,part);
+        check(!calculated.empty()&&calculated.back().calculation_errors.empty(),
+            "Missing-profile GUI fixture did not initially calculate");
+        document::HistoryContainer dependent;
+        bool dependent_valid=false;
+        for(const auto& edge:calculated.back().mesh.edges) {
+            if(edge.reference.owner_id!=broken.id)continue;
+            auto candidate=document::PartDocument::create_fillet_container({edge.reference});
+            candidate.edge_treatment.primary_size=.2;
+            auto trial=part;
+            trial.history.push_back(candidate);
+            auto trial_graph=trial.body_history;
+            trial_graph.insert({document::PartHistoryKind::Feature,candidate.id});
+            trial.set_body_history(std::move(trial_graph));
+            const auto result=workspace::calculate_part(kernel,trial,&calculated);
+            if(result.back().calculation_errors.empty()) {
+                dependent=std::move(candidate);dependent_valid=true;break;
+            }
+        }
+        check(dependent_valid,"Missing-profile GUI fixture has no dependent Fillet");
+        std::erase_if(part.sketches,[&](const auto& sketch){return sketch.id==broken_sketch;});
+        const auto broken_only=workspace::calculate_part_with_resolved_references(
+            kernel,part,&calculated);
+        check(broken_only.back().calculation_errors.contains(broken.id),
+            "Missing-profile GUI fixture did not retain the failed Feature");
+        part.history.push_back(dependent);
+        auto failed_graph=part.body_history;
+        failed_graph.insert({document::PartHistoryKind::Feature,dependent.id});
+        part.set_body_history(std::move(failed_graph));
+        calculated=workspace::calculate_part_with_resolved_references(
+            kernel,part,&broken_only);
+        check(calculated.back().calculation_errors.contains(broken.id)&&
+                calculated.back().calculation_errors.contains(dependent.id),
+            "Missing-profile GUI fixture did not retain both failed definitions");
+        const auto path=directory/"missing-profile-scene-ui.prtz";
+        part.save(path,calculated);
+        window.showMaximized();
+        check(window.open_document_path(QString::fromStdString(path.string())),
+            "Missing-profile GUI fixture did not open");flush();
+        const auto activate=window.execute_console_command(QString::fromStdString(
+            commands::Json{{"command","body.activate"},{"arguments",{{"body",body}}}}.dump()));
+        check(activate.ok,"Missing-profile Body activation failed");flush();
+        auto* view=dynamic_cast<viewer::MeshView*>(
+            window.findChild<QOpenGLWidget*>("modelWorkspace"));
+        auto* tree=window.findChild<QTreeWidget*>("documentTree");
+        check(view&&tree,"Missing-profile GUI scene is unavailable");
+        const auto row=[&](const std::string& id)->QTreeWidgetItem* {
+            for(QTreeWidgetItemIterator it(tree);*it;++it)
+                if((*it)->data(0,Qt::UserRole).toString().toStdString()==id&&
+                        (*it)->data(0,Qt::UserRole+3).toString()=="part-container")return *it;
+            return nullptr;
+        };
+        const auto check_scene=[&](const char* message) {
+            const auto& mesh=view->mesh();
+            check(!mesh.triangles.empty()&&!mesh.vertices.empty(),message);
+            check(row(broken.id)&&row(dependent.id)&&
+                    row(broken.id)->foreground(0).color()==QColor(210,75,65)&&
+                    row(dependent.id)->foreground(0).color()==QColor(210,75,65),
+                "Missing-profile failures are not retained as repairable red Tree rows");
+        };
+        check_scene("Opening a missing Extrusion Sketch chain made the model disappear");
+        const auto regenerated=window.execute_console_command("regenerate");flush();
+        check(!regenerated.ok&&regenerated.code=="calculation_errors",
+            "Broken feature-chain regeneration did not report its calculation errors");
+        check_scene("Regenerating a missing Extrusion Sketch chain made the model disappear");
+        std::cout<<"Missing current Feature Sketch GUI: a later dependent failure stayed red and the valid Body prefix remained visible after reopen and Regenerate\n";
+        return 0;
+    }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}
+}
+
 Q_NEVER_INLINE static int verify_history_deletion(QApplication& application,
         AssemblyWorkspaceWindow& window,const std::filesystem::path& directory) {
     using namespace zima;
@@ -483,6 +581,122 @@ Q_NEVER_INLINE static int verify_history_deletion(QApplication& application,
         check(chain_row(chain_second.id)->foreground(0).color()!=QColor(210,75,65)&&
                 chain_row(chain_third.id)->foreground(0).color()!=QColor(210,75,65),
             "Container 2 repair Redo did not restore the repaired chain");
-        std::cout<<"History deletion GUI: Tree/View menu parity, exact target, preview, Cancel, OK, save, Undo/Redo, linked Body Sketch entry and retained 1 -> 2 -> 3 Properties repair passed\n";return 0;
+
+        // Exercise the ordinary GUI deletion path for an edge treatment with
+        // two independently authored routes. Removing the earlier Fillet may
+        // invalidate one route, but the later Fillet must retain its other
+        // route, calculate immediately and remain healthy in the Tree.
+        auto partial=document::PartDocument::create_default();
+        auto partial_source=test::rectangular_feature(partial,{16,12,10});
+        partial.history={partial_source};
+        auto partial_calculated=workspace::calculate_part(kernel,partial);
+        auto partial_fillet=document::PartDocument::create_fillet_container(
+            {partial_calculated.back().mesh.edges.front().reference});
+        partial_fillet.edge_treatment.primary_size=.5;
+        partial.history.push_back(partial_fillet);
+        partial_calculated=workspace::calculate_part(kernel,partial);
+        check(partial_calculated.back().calculation_errors.empty(),
+            "Partial-treatment GUI source Fillet failed");
+        document::HistoryContainer partial_dependent;
+        bool partial_usable{};
+        for(const auto& generated:partial_calculated.back().mesh.edges) {
+            if(generated.reference.owner_id!=partial_fillet.id)continue;
+            for(const auto& surviving:partial_calculated.back().mesh.edges) {
+                if(!surviving.reference.valid()||surviving.parameter_seam||
+                        surviving.reference.owner_id==partial_fillet.id)
+                    continue;
+                auto candidate=document::PartDocument::create_fillet_container(
+                    {generated.reference});
+                candidate.edge_treatment.routes={
+                    {generated.reference},{surviving.reference}};
+                candidate.edge_treatment.route_end_faces.resize(2);
+                candidate.edge_treatment.primary_size=.1;
+                auto trial=partial;
+                trial.history.push_back(candidate);
+                const auto result=workspace::calculate_part(kernel,trial);
+                if(result.back().calculation_errors.empty()) {
+                    partial_dependent=std::move(candidate);
+                    partial_calculated=result;
+                    partial_usable=true;
+                    break;
+                }
+            }
+            if(partial_usable)break;
+        }
+        check(partial_usable,
+            "Partial-treatment GUI fixture has no mixed dependent routes");
+        partial.history.push_back(partial_dependent);
+        document::BodyHistoryGraph partial_graph;
+        const auto partial_body=partial_graph.create_body("Partial treatment");
+        for(const auto& feature:partial.history)
+            partial_graph.insert(
+                {document::PartHistoryKind::Feature,feature.id});
+        partial.set_body_history(partial_graph);
+        partial_calculated=workspace::calculate_part(kernel,partial);
+        const auto partial_path=directory/"history-deletion-partial-treatment-ui.prtz";
+        partial.save(partial_path,partial_calculated);
+        AssemblyWorkspaceWindow partial_window(
+            QString::fromStdString(document::path_to_utf8(directory)));
+        partial_window.showMaximized();
+        check(partial_window.open_document_path(
+                QString::fromStdString(partial_path.string())),
+            "Partial-treatment GUI fixture did not open");
+        flush();
+        const auto partial_run=[&](const QString& command) {
+            auto result=partial_window.execute_console_command(command);
+            check(result.ok,result.message.c_str());
+            flush();
+        };
+        partial_run(QString::fromStdString(commands::Json{
+            {"command","body.activate"},
+            {"arguments",{{"body",partial_body}}}}.dump()));
+        auto* partial_tree=partial_window.findChild<QTreeWidget*>(
+            "documentTree");
+        const auto partial_row=[&](const std::string& id)->QTreeWidgetItem* {
+            for(QTreeWidgetItemIterator it(partial_tree);*it;++it)
+                if((*it)->data(0,Qt::UserRole).toString().toStdString()==id&&
+                   (*it)->data(0,Qt::UserRole+3).toString()=="part-container")
+                    return *it;
+            return nullptr;
+        };
+        partial_window.delete_part_object_for_test(partial_fillet.id,
+            QStringLiteral("part-container"));
+        flush();
+        auto* partial_confirmation=partial_window.findChild<QDialog*>(
+            "deleteHistoryDialog");
+        check(partial_confirmation&&partial_confirmation->isVisible(),
+            "Partial-treatment GUI deletion confirmation missing");
+        partial_confirmation->findChild<QDialogButtonBox*>()->button(
+            QDialogButtonBox::Ok)->click();
+        flush();
+        check(!partial_row(partial_fillet.id)&&
+                partial_row(partial_dependent.id)&&
+                partial_row(partial_dependent.id)->foreground(0).color()!=
+                    QColor(210,75,65),
+            "GUI deletion did not recalculate the surviving treatment route");
+        partial_run("save");
+        std::vector<kernel::BodyResult> partial_reopened_geometry;
+        const auto partial_reopened=document::PartDocument::load(
+            partial_path,&partial_reopened_geometry);
+        check(partial_reopened.find_container(partial_dependent.id)&&
+                partial_reopened.find_container(partial_dependent.id)->
+                    edge_treatment.routes.size()==1&&
+                !partial_reopened.removed_reference_states.contains(
+                    partial_dependent.id)&&
+                !partial_reopened_geometry.empty()&&
+                partial_reopened_geometry.back().calculation_errors.empty(),
+            "GUI-pruned treatment route did not save and reopen calculated");
+        partial_run("undo");
+        check(partial_row(partial_fillet.id)&&
+                partial_row(partial_dependent.id),
+            "Partial-treatment GUI deletion Undo failed");
+        partial_run("redo");
+        check(!partial_row(partial_fillet.id)&&
+                partial_row(partial_dependent.id)&&
+                partial_row(partial_dependent.id)->foreground(0).color()!=
+                    QColor(210,75,65),
+            "Partial-treatment GUI deletion Redo did not recalculate");
+
+        std::cout<<"History deletion GUI: Tree/View menu parity, exact target, preview, Cancel, OK, save, Undo/Redo, linked Body Sketch entry, retained 1 -> 2 -> 3 Properties repair and dependent treatment auto-repair passed\n";return 0;
     }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}
 }

@@ -125,6 +125,93 @@ void origin_frames() {
     }
     std::cout<<"Whole Origin: all quarter turns preserve authored XZ profiles and new XY frames PASS\n";
 }
+void ordered_xy_frames() {
+    const auto make_document = [](const std::vector<document::ConstructionReference>& references,
+            const kernel::ViewerReferenceGeometry& geometry) {
+        auto result = document::PartDocument::create_default();
+        auto container = document::PartDocument::create_sketch_container();
+        container.placement.references = references;
+        auto sketch = sketcher::Sketch::create_default();
+        sketch.owner_container_id = container.id;
+        document::BodyHistoryGraph graph;
+        graph.create_body("Ordered XY frame");
+        graph.insert({document::PartHistoryKind::Feature, container.id});
+        result.history = {container};
+        result.sketches = {sketch};
+        result.set_body_history(std::move(graph));
+        result.resolve_constructions(geometry);
+        return result;
+    };
+
+    kernel::ViewerReferenceGeometry points;
+    points.points = {
+        {{2,3,4},{"three-points","p1"}},
+        {{2,8,4},{"three-points","p2"}},
+        {{2,3,10},{"three-points","p3"}}};
+    const std::vector<document::ConstructionReference> point_references{
+        {{},"three-points","p1"},
+        {{},"three-points","p2",0,false,"direction",true,true},
+        {{},"three-points","p3",0,false,"direction",true,true}};
+    auto three_point = make_document(point_references, points);
+    const auto& point_placement = three_point.history.front().placement;
+    const auto& point_sketch = three_point.sketches.front();
+    check(point_placement.reference_valid && point_sketch.plane_auto &&
+            point_sketch.plane == sketcher::SketchPlane::XY,
+        "Three-point placement did not select the local XY work plane");
+    near(point_placement.x,2);near(point_placement.y,3);near(point_placement.z,4);
+    near(dot(point_sketch.resolved_x_axis,{0,1,0}),1);
+    near(dot(point_sketch.resolved_y_axis,{0,0,1}),1);
+    near(dot(point_sketch.resolved_normal,{1,0,0}),1);
+
+    // The same persisted three references must recompute the complete local
+    // XY frame when their source plane changes; no stale XZ interpretation is
+    // allowed to survive regeneration or native reopen.
+    auto moved_points = points;
+    moved_points.points[1].position = {2,3,9};
+    moved_points.points[2].position = {8,3,4};
+    three_point.resolve_constructions(moved_points);
+    near(dot(three_point.sketches.front().resolved_x_axis,{0,0,1}),1);
+    near(dot(three_point.sketches.front().resolved_y_axis,{1,0,0}),1);
+    near(dot(three_point.sketches.front().resolved_normal,{0,1,0}),1);
+    auto reopened = document::PartDocument::from_serialized(
+        three_point.serialized());
+    reopened.resolve_constructions(moved_points);
+    check(reopened.sketches.front().plane == sketcher::SketchPlane::XY,
+        "Three-point local XY work plane changed after native reopen");
+    near(dot(reopened.sketches.front().resolved_normal,{0,1,0}),1);
+
+    auto edge_geometry = document::PartDocument::create_default()
+        .origin_viewer_mesh().original_references;
+    kernel::ViewerEdge edge;
+    edge.reference = {"edge-source","edge",{}};
+    edge.points = {{0,0,0},{10,0,0}};
+    edge_geometry.edges.push_back(edge);
+    edge_geometry.points.push_back({{7,4,0},{"point-source","point"}});
+    // Read the owner actually carried by edge_geometry's built-in Origin
+    // references; document IDs are intentionally generated per document.
+    const auto plane_reference = std::ranges::find_if(
+        edge_geometry.triangle_references, [](const auto& reference) {
+            return reference.semantic_key == "origin:plane:xy";
+        });
+    check(plane_reference != edge_geometry.triangle_references.end(),
+        "Synthetic edge/plane/point frame has no XY support plane");
+    std::vector<document::ConstructionReference> edge_references{
+        {{},"edge-source","edge",0,false,"front",true,false},
+        {{},plane_reference->owner_id,plane_reference->semantic_key,
+            0,true,"top",true,false},
+        {{},"point-source","point"},
+        {{},plane_reference->owner_id,plane_reference->semantic_key,
+            0,true,"top",true,true}};
+    auto edge_plane_point = make_document(edge_references, edge_geometry);
+    const auto& edge_placement = edge_plane_point.history.front().placement;
+    const auto& edge_sketch = edge_plane_point.sketches.front();
+    check(edge_placement.reference_valid && edge_sketch.plane_auto &&
+            edge_sketch.plane == sketcher::SketchPlane::XY,
+        "Edge/plane/point placement did not select its containing local XY plane");
+    near(edge_placement.x,7);near(edge_placement.y,0);near(edge_placement.z,0);
+    near(std::abs(dot(edge_sketch.resolved_normal,{0,0,1})),1);
+    std::cout<<"Three-point and edge/plane/point placements use their defined local XY work plane PASS\n";
+}
 void verify(kernel::OcctKernel& kernel,fs::path directory,const std::string& kind) {
     auto doc=document::PartDocument::create_default();const auto id=doc.document_id;
     if(kind=="holes") {auto box=zima::test::rectangular_feature(doc,{40,40,40});doc.history.push_back(box);}
@@ -248,7 +335,7 @@ int main(int argc,char** argv){try {
         std::cerr<<"Library frame verification: "<<(total-failures)<<'/'<<total<<" passed\n";
         return failures?1:0;
     }
-    origin_frames();
+    origin_frames();ordered_xy_frames();
     const auto directory=fs::temp_directory_path()/("zima-work-planes-"+document::PartDocument::create_default().document_id);fs::create_directories(directory);
     kernel::OcctKernel kernel;first_face_xy(kernel,directory);for(const auto& kind:{"sketch","holes","extrusion","revolution"})verify(kernel,directory,kind);
     fs::remove_all(directory);std::cout<<"Work-plane defaults, overrides, references, geometry and native history passed\n";return 0;

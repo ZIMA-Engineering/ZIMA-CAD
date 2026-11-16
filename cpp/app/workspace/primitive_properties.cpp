@@ -751,7 +751,8 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
             sketch = std::prev(preview_document.sketches.end());
         }
         sketch->owner_container_id = preview.id;
-        zima::document::apply_automatic_sketch_work_plane(*sketch,preview.placement.references);
+        zima::document::apply_automatic_sketch_work_plane(*sketch,
+            preview.placement.references, primitive_reference_geometry_);
         const double next_offset = preview.feature_kind == zima::document::FeatureKind::Feature ? preview.feature.profile_plane_offset : extrusion
             ? preview.extrusion.profile_plane_offset
             : preview.revolution.profile_plane_offset;
@@ -2101,7 +2102,9 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                     draft_container = pending_feature;
                 auto draft_sketch = *property_owned_sketch_draft_;
                 draft_sketch.owner_container_id = draft_container.id;
-                zima::document::apply_automatic_sketch_work_plane(draft_sketch,pending_feature.placement.references);
+                zima::document::apply_automatic_sketch_work_plane(draft_sketch,
+                    pending_feature.placement.references,
+                    primitive_reference_geometry_);
                 draft_sketch.plane_offset = pending_feature.feature_kind == zima::document::FeatureKind::Feature ? pending_feature.feature.profile_plane_offset : extrusion
                     ? pending_feature.extrusion.profile_plane_offset
                     : pending_feature.revolution.profile_plane_offset;

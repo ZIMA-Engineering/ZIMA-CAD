@@ -49,6 +49,24 @@ std::vector<std::optional<double>> measurement_face_areas(
             }
             continue;
         }
+        // An Assembly snapshot already owns the exact calculated leaf bodies
+        // used by its persisted reference packet.  Prefer that immutable data:
+        // a read-only query must neither load a missing nested source nor mix a
+        // newer open Part revision into the older Assembly snapshot.
+        if(const auto* top=live.open_assembly(id)) {
+            const auto instance=assembly::InstancePath::decode(path);
+            const kernel::BodyResult* stored{};
+            if(!instance.occurrence_ids.empty())
+                if(const auto* component=top->session.document().find_occurrence(instance.occurrence_ids.front())) {
+                    stored=&component->calculated_source.get();
+                    for(std::size_t depth=1;stored&&depth<instance.occurrence_ids.size();++depth) {
+                        const auto child=stored->body_outputs.find(instance.occurrence_ids[depth]);
+                        stored=child==stored->body_outputs.end()?nullptr:&child->second.get();
+                    }
+                }
+            if(stored)integrate(*stored,path);
+            if(std::ranges::all_of(result,[](const auto& area){return area.has_value();}))continue;
+        }
         const auto address=live.resolve_occurrence(id,assembly::InstancePath::decode(path));
         if(!address)continue;
         const assembly::AssemblyDocument* owner{};std::optional<assembly::AssemblyDocument> loaded;

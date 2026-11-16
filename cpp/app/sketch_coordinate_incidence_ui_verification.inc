@@ -61,8 +61,14 @@ static int verify_sketch_coordinate_incidence_ui(QApplication& application,const
                     const auto candidates=view->selection_candidates_at({double(x),double(y)});
                     if(!candidates.empty()&&candidates.front().owner_id==sketch.id&&candidates.front().semantic_key=="dimension:"+driver.id){hit=QPointF(x,y);break;}
                 }
-                check(hit.has_value(),"GUI coordinate dimension is not pickable");mouse(QEvent::MouseButtonDblClick,*hit,Qt::LeftButton,Qt::LeftButton);
-                auto* editor=view->findChild<QLineEdit*>("inlineDimensionValueEdit");check(editor,"GUI coordinate editor did not open");
+                check(hit.has_value(),"GUI coordinate dimension is not pickable");
+                mouse(QEvent::MouseMove,*hit,Qt::NoButton,Qt::NoButton);
+                mouse(QEvent::MouseButtonPress,*hit,Qt::LeftButton,Qt::LeftButton);
+                mouse(QEvent::MouseButtonRelease,*hit,Qt::LeftButton,Qt::NoButton);
+                mouse(QEvent::MouseButtonDblClick,*hit,Qt::LeftButton,Qt::LeftButton);
+                mouse(QEvent::MouseButtonRelease,*hit,Qt::LeftButton,Qt::NoButton);
+                auto* editor=view->findChild<QLineEdit*>("inlineDimensionValueEdit");
+                check(editor&&editor->isVisible(),"GUI coordinate editor did not open");
                 editor->setText(QString::number(driver.value+delta,'f',9));QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);QApplication::sendEvent(editor,&enter);flush();
                 auto value=stored();verify(value);check(std::abs(value.find_point(contact)->x-driver.value-delta)<1e-8,"GUI coordinate edit did not move its support");
                 window.findChild<QAction*>("undoAction")->trigger();flush();verify(stored());window.findChild<QAction*>("redoAction")->trigger();flush();verify(stored());

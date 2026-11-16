@@ -359,6 +359,13 @@ zima::kernel::ViewerMesh AssemblyWorkspaceWindow::active_part_origins(
     const auto* sketch = active_sketch();
     const bool owned_sketch = sketch && !sketch->owner_container_id.empty();
     const auto* editing_body = owned_sketch ? sketch_body(*sketch) : nullptr;
+    const zima::document::HistoryContainer* sketch_owner = owned_sketch
+        ? document.find_container(sketch->owner_container_id) : nullptr;
+    if (!sketch_owner && owned_sketch && pending_profile_feature_ &&
+            pending_profile_feature_->id == sketch->owner_container_id)
+        sketch_owner = &*pending_profile_feature_;
+    const bool placed_sketch = sketch_owner &&
+        !sketch_owner->placement.references.empty();
     if (owned_sketch) {
         const auto& owner_id = sketch->owner_container_id;
         auto origins = document.history_origin_reference_geometry_before({});
@@ -389,9 +396,12 @@ zima::kernel::ViewerMesh AssemblyWorkspaceWindow::active_part_origins(
     const auto& source = body_dialog_preview_ ? *body_dialog_preview_ : document;
     for (const auto& body : source.body_history.bodies()) {
         const auto& id = body.scope.id;
-        const bool owns_active_sketch = editing_body &&
+        // A standalone Sketch uses its owning Body frame. Once its container
+        // has placement references, the container Origin is the actual work
+        // frame and must not be obscured by a coincident Body Origin.
+        const bool owns_active_unplaced_sketch = !placed_sketch && editing_body &&
             id == editing_body->scope.id;
-        if (((owned_sketch && !owns_active_sketch) ||
+        if (((owned_sketch && !owns_active_unplaced_sketch) ||
              (!owned_sketch && id != active && id != body_dialog_step_id_)) &&
             !visible_local_origin_ids_.contains(id + ":origin")) continue;
         append_mesh(result, source.place_body_mesh(

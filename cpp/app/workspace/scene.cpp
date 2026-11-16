@@ -11,6 +11,7 @@
 #include <zima/workspace/assembly_scene.hpp>
 #include <zima/workspace/operation_input.hpp>
 #include <zima/workspace/save_properties.hpp>
+#include <zima/workspace/shaft_thread_operations.hpp>
 #include <zima/document/holes.hpp>
 #include "workspace_internal.hpp"
 #include "../document_numeric_display.hpp"
@@ -896,7 +897,20 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
                     }
                 } else if (container->feature_kind == FeatureKind::ShaftThread) {
                     try {
-                        const auto preview=shaft_thread_preview(*container,placement_reference_geometry);
+                        auto thread_reference_geometry=placement_reference_geometry;
+                        // Ordinary double-click inspection has no pending
+                        // Properties draft. Reuse the same persisted input
+                        // boundary packet as Shaft Thread Properties so the
+                        // saved cylinder/start references can resolve both
+                        // diameter and length without calculating geometry.
+                        if(!parameter_dimension_preview_)
+                            if(const auto* part_state=workspace_.open_part(
+                                    document.document_id))
+                                thread_reference_geometry=
+                                    zima::workspace::shaft_thread_input_references(
+                                        *part_state,container->id);
+                        const auto preview=shaft_thread_preview(
+                            *container,thread_reference_geometry);
                         mesh.dimensions.insert(mesh.dimensions.end(),preview.dimensions.begin(),preview.dimensions.end());
                     } catch (const std::exception&) { /* Incomplete reference entry has no dimension. */ }
                 } else if (container->feature_kind == FeatureKind::Feature) {
@@ -1120,7 +1134,7 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
                         bool complete = true;
                         for (std::size_t segment=0;
                                 segment<routes.front().size();++segment) {
-                            auto resolved=zima::document::treatment_selection_wire(
+                            auto resolved=zima::document::current_treatment_selection_wire(
                                 container->edge_treatment,0,segment,input_mesh);
                             if (resolved.empty()) {
                                 complete = false;

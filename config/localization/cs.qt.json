@@ -8,7 +8,8 @@
   "Univerzální kóta: dalším kliknutím na oblouk přepnete R/⌀; kliknutím do prostoru určete polohu.": "Univerzální kóta: dalším kliknutím na oblouk přepnete R/⌀; kliknutím do prostoru určete polohu.",
   "Koncová plocha": "Koncová plocha",
   "Hrana byla odebrána z výběru zaoblení nebo sražení.": "Hrana byla odebrána z výběru zaoblení nebo sražení.",
-  "A x B and A + angle Chamfer require one continuous line.": "Sražení A x B a A + úhel vyžaduje jednu spojitou linii.",
+  "A x B and A + angle Chamfer require one continuous open route or one closed circular edge.": "Sražení A x B a A + úhel vyžaduje jednu spojitou otevřenou dráhu nebo jednu uzavřenou kruhovou hranu.",
+  "ZIMA Chamfer requires one complete circular edge": "Sražení ZIMA vyžaduje jednu úplnou kruhovou hranu",
   "ZIMA Chamfer node has a degenerate branch": "Uzel sražení ZIMA má degenerovanou větev",
   "ZIMA Chamfer supports only two- or three-branch nodes": "Sražení ZIMA podporuje pouze dvou- nebo třívětvé uzly",
   "ZIMA Chamfer node mixes inner and outer branches": "Uzel sražení ZIMA směšuje vnitřní a vnější větve",
@@ -2819,5 +2820,7 @@
   "Sheet from Body is available only in a Part.": "Plech z tělesa je dostupný pouze v dílu.",
   "Sheet from Body does not exist.": "Plech z tělesa neexistuje.",
   "Activate the Body owning this Sheet from Body.": "Aktivujte těleso, které vlastní tento Plech z tělesa.",
-  "The selected feature is not a bound Sheet from Body part.": "Vybraný prvek není svázanou částí příkazu Plech z tělesa."
+  "The selected feature is not a bound Sheet from Body part.": "Vybraný prvek není svázanou částí příkazu Plech z tělesa.",
+  "zima::app::AssemblyWorkspaceWindow|Bez řezu": "Bez řezu",
+  "zima::app::AssemblyWorkspaceWindow|Řez": "Řez"
 }

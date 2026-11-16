@@ -28,7 +28,8 @@ int verify_placed_sketch_reference_ui(QApplication& application,const std::files
         const auto endpoint=part.sketches.front().segments.front().first_point_id;
         static_cast<void>(part.sketches.front().add_point_reference_constraint(endpoint,point_ref));
         kernel::OcctKernel kernel;auto calculated=workspace::calculate_part_with_resolved_references(kernel,part);
-        check(!calculated.empty()&&calculated.back().volume>0,"Placed profile fixture failed to calculate");
+        check(!calculated.empty()&&calculated.back().has_solid(),
+            "Placed profile fixture failed to calculate");
         const auto original=part.sketches.front();const auto definitions=part.constructions;
         const auto path=directory/"placed-sketch-reference.prtz";part.save(path,calculated);
         app::AssemblyWorkspaceWindow window(QString::fromStdString(directory.string()));window.resize(1200,900);window.show();

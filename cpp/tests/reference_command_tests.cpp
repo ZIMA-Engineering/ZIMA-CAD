@@ -30,7 +30,8 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     run(host,"new",{{"type","part"},{"name","source"}});const auto part_id=live.active_document_id();
     const auto box=zima::test::rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"length_mm","10"},{"width_mm","10"},{"height_mm","10"}}).data.at("container").get<std::string>();
     const auto listed=run(host,"reference.list",{{"owner",box},{"kind","face"}}).data;
-    require(listed.at("items").size()==6 && listed.at("total")==6,"Box did not expose six original faces");
+    require(listed.at("items").size()==12 && listed.at("total")==12,
+        "Symmetric two-sided Box did not expose twelve original faces");
     const auto first=listed.at("items")[0];const auto face=detail(host,first,part_id);
     require(face.at("surface").at("kind")=="plane" && face.at("triangle_count")==2 && !face.at("samples_truncated").get<bool>(),"Stored Box plane or triangles unavailable");
     const auto limited=detail(host,first,part_id,1);require(limited.at("triangles").size()==1 && limited.at("samples_truncated")==true,"Face sample limit ignored");
@@ -62,7 +63,8 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     live.add_assembly(top);run(host,"activate",{{"document",top_id}});
     const auto top_revision=live.open_assembly(top_id)->session.revision();const auto source_snapshot=live.open_assembly(top_id)->session.document().components[0].calculated_source;
     const auto all=run(host,"reference.list",{{"owner",box},{"kind","face"}}).data;
-    require(all.at("total")==24 && live.size()==2,"Nested query lost repeated occurrences or opened missing dependencies");
+    require(all.at("total")==48 && live.size()==2,
+        "Nested query lost repeated occurrences or opened missing dependencies");
     const auto nested_path=assembly::InstancePath{{left.occurrence_id,a.occurrence_id}}.encoded();
     auto nested_ref=first;nested_ref["instance_path"]=nested_path;
     const auto nested_face=detail(host,nested_ref,top_id);

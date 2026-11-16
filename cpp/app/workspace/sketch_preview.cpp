@@ -394,15 +394,26 @@ void AssemblyWorkspaceWindow::preview_sketch_segment_ray(
                   cursor_y * (*support)[1]) / support_length;
         return error <= direction_tolerance;
     };
-    if ((endpoint_snap || pending_sketch_snap_kind_) &&
-        !snapped_line_direction &&
+    const bool line_contact_pair=pending_segment_start_snap_kind_==
+            zima::sketcher::ConstraintKind::PointOnLine&&
+        endpoint_snap_kind==zima::sketcher::ConstraintKind::PointOnLine&&
+        pending_segment_start_snap_geometry_id_.find("||")==std::string::npos&&
+        endpoint_snap_geometry.find("||")==std::string::npos;
+    const bool keep_offered_line_relation=sketch_endpoint_inference_cycle_||
+        line_contact_pair||!offered_equal_reference.empty();
+    // Preserve a relation that the RMB cycle selected, that joins two sliding
+    // line contacts, or that forms a combined Equal+direction inference.
+    // A merely nearby relation at an already fixed composite intersection is
+    // not one of those cases and remains absent.
+    if (keep_offered_line_relation &&
+        (endpoint_snap || pending_sketch_snap_kind_) &&
         !offered_parallel_reference.empty() &&
         automatic_constraint_enabled(zima::sketcher::ConstraintKind::Parallel) &&
         line_relation_matches(offered_parallel_reference,
             zima::sketcher::ConstraintKind::Parallel)) {
         inference.parallel_reference_id = offered_parallel_reference;
-    } else if ((endpoint_snap || pending_sketch_snap_kind_) &&
-               !snapped_line_direction &&
+    } else if (keep_offered_line_relation &&
+               (endpoint_snap || pending_sketch_snap_kind_) &&
                !offered_perpendicular_reference.empty() &&
                automatic_constraint_enabled(
                    zima::sketcher::ConstraintKind::Perpendicular) &&
@@ -1510,7 +1521,7 @@ bool AssemblyWorkspaceWindow::accept_sketch_circle_ray(
                         tangent->support_id, created, rim_point_id));
                 }
                 static_cast<void>(target.add_point_on_circle_constraint(
-                    rim_point_id, created));
+                    rim_point_id, created, true));
                 const bool tangent_snap_already_owned = tangent &&
                     has_rim_contact_snap &&
                     rim_snap.first == tangent->support_id &&

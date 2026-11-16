@@ -31,6 +31,7 @@
 #include <QWidget>
 
 #include <algorithm>
+#include <utility>
 
 namespace zima::ui {
 namespace {
@@ -301,6 +302,7 @@ void ContainerPlacementSection::set_origin_selection_mode_active(bool active) {
 void ContainerPlacementSection::initialize_numeric_values(
         const zima::document::Placement& placement) {
     value_locks_=placement.value_locks;
+    accept_full_owner_origin_projection_=false;
     picked_translation_values_={};
     picked_rotation_values_={};
     picked_rotation_offset_values_={};
@@ -401,9 +403,13 @@ void ContainerPlacementSection::set_translation_constraint_state(
     third_point_is_station_=state.third_point_is_station;
     set_remaining_translation_dof(state.remaining_dof);
     const std::array values{solution.x, solution.y, solution.z};
+    const bool accept_full_projection=
+        std::exchange(accept_full_owner_origin_projection_,false);
     for (std::size_t i = 0; i < 3; ++i) {
         translation_[i]->setEnabled(!state.constrained_axes[i]);
-        if (state.constrained_axes[i]) {
+        const char* key=i==0?"x":i==1?"y":"z";
+        if (state.constrained_axes[i] ||
+            (accept_full_projection && !value_locks_.contains(key))) {
             const QSignalBlocker blocker(translation_[i]);
             translation_[i]->setValue(values[i]);
             picked_translation_values_[i]=std::pair{translation_[i]->value(),values[i]};
@@ -652,6 +658,18 @@ bool ContainerPlacementSection::set_reference(std::size_t index,
     QString* error_text, bool derive_orientation) {
     const auto picked=reference.picked_position;
     reference.picked_position.reset();
+    const auto has_source=[](const auto& value) {
+        return !value.owner_id.empty() || !value.semantic_key.empty();
+    };
+    const auto same_source=[](const auto& left,const auto& right) {
+        return left.owner_id==right.owner_id &&
+            left.semantic_key==right.semantic_key &&
+            left.instance_path==right.instance_path;
+    };
+    const bool replacing=index<references_.size()&&has_source(references_[index]);
+    const auto previous=replacing
+        ?std::optional{references_[index]}
+        :std::optional<zima::document::ConstructionReference>{};
     const bool seed=index==0 && references_.empty() && !empty_reference_locks_[0];
     const auto result=zima::document::assign_placement_reference(
         {references_,orientation_references_,empty_reference_locks_},
@@ -668,33 +686,55 @@ bool ContainerPlacementSection::set_reference(std::size_t index,
     }
     if(index<3)for(auto& ref:references_){ref.solution_branch=0;ref.branch_sources.clear();}
     bool seed_from_picked_position=seed && picked.has_value();
-    if(seed && index==0 && !references_[0].use_axis) {
+    bool seed_from_owner_origin=false;
+    if(index==0 && !references_[0].use_axis) {
         const auto* surface=surface_resolver_?surface_resolver_(references_[0]):nullptr;
         if(surface && surface->kind==zima::kernel::SurfaceGeometry::Kind::Plane &&
             !planar_face_capture_policy_) {
-            // An ordinary planar support defines the local frame, but its
-            // arbitrary pick point must not translate the container in-plane.
-            // resolve_placement() projects the existing origin onto the plane.
+            // One ordinary planar support places its container directly above
+            // the owning Origin: start at that Origin in the current editing
+            // frame, then let resolve_placement() project it normally onto the
+            // support.  Never inherit an arbitrary View pick or the tangential
+            // coordinates left by a different, previously selected plane.
             seed_from_picked_position=false;
+            const bool only_position_reference=std::ranges::none_of(
+                references_.begin()+1,references_.end(),has_source);
+            const bool changed_source=!previous ||
+                !same_source(*previous,references_[0]);
+            seed_from_owner_origin=only_position_reference&&changed_source;
         }
-        bool capture=surface && surface->kind!=zima::kernel::SurfaceGeometry::Kind::Plane;
-        if(!capture && branch_geometry_) {
-            const auto& ref=references_[0];
-            const auto& geometry=branch_geometry_();
-            capture=zima::document::placement_mesh::is_surface(ref,geometry) || std::ranges::any_of(geometry.edges,[&](const auto& edge) {
-                return edge.exact_spline && edge.exact_spline->degree>1 &&
-                    edge.reference.owner_id==ref.owner_id && edge.reference.semantic_key==ref.semantic_key &&
-                    edge.reference.instance_path==ref.instance_path;
-            });
+        if(seed) {
+            bool capture=surface && surface->kind!=
+                zima::kernel::SurfaceGeometry::Kind::Plane;
+            if(!capture && branch_geometry_) {
+                const auto& ref=references_[0];
+                const auto& geometry=branch_geometry_();
+                capture=zima::document::placement_mesh::is_surface(ref,geometry) || std::ranges::any_of(geometry.edges,[&](const auto& edge) {
+                    return edge.exact_spline && edge.exact_spline->degree>1 &&
+                        edge.reference.owner_id==ref.owner_id && edge.reference.semantic_key==ref.semantic_key &&
+                        edge.reference.instance_path==ref.instance_path;
+                });
+            }
+            // Opening/Thread additionally captures signed distances from a
+            // point picked on a planar face. Keep this opt-in so ordinary
+            // containers and datum planes retain their zero-offset workflow.
+            capture|=planar_face_capture_policy_ && picked && surface &&
+                surface->kind==zima::kernel::SurfaceGeometry::Kind::Plane;
+            if(capture)empty_reference_locks_[1]=
+                empty_reference_locks_[2]=true;
         }
-        // Opening/Thread additionally captures signed distances from a point
-        // picked on a planar face.  Keep this opt-in so ordinary containers
-        // and datum planes retain their established zero-offset workflow.
-        capture|=planar_face_capture_policy_ && picked && surface &&
-            surface->kind==zima::kernel::SurfaceGeometry::Kind::Plane;
-        if(capture)empty_reference_locks_[1]=empty_reference_locks_[2]=true;
     }
     if(error_text)error_text->clear();
+    if(seed_from_owner_origin)for(std::size_t axis=0;axis<3;++axis) {
+        const char* key=axis==0?"x":axis==1?"y":"z";
+        if(!value_locks_.contains(key)) {
+            const QSignalBlocker blocked(translation_[axis]);
+            translation_[axis]->setValue(0.0);
+            picked_translation_values_[axis]=
+                std::pair{translation_[axis]->value(),0.0};
+        }
+    }
+    accept_full_owner_origin_projection_=seed_from_owner_origin;
     if(seed_from_picked_position && picked)for(std::size_t axis=0;axis<3;++axis) {
         const char* key=axis==0?"x":axis==1?"y":"z";
         if(!value_locks_.contains(key) && std::isfinite((*picked)[axis])) {

@@ -1177,6 +1177,159 @@ void upgrade_native_part_format_51_to_52(
     if(!evidence)throw std::runtime_error("Cannot write migration evidence");
 }
 
+std::size_t add_edge_treatment_route_end_modes(nlohmann::json& value) {
+    std::size_t changed{};
+    if(value.is_array()) {
+        for(auto& child:value)changed+=add_edge_treatment_route_end_modes(child);
+        return changed;
+    }
+    if(!value.is_object())return 0;
+    const auto type=value.value("type",std::string{});
+    if((type=="fillet"||type=="chamfer")&&
+            value.contains("route_end_faces")) {
+        auto& routes=value.at("route_end_faces");
+        if(!routes.is_array())throw std::runtime_error(
+            "Format 52 edge-treatment route ends are invalid");
+        for(auto& ends:routes) {
+            if(!ends.is_object()||!ends.contains("first")||
+                    !ends.contains("last")||
+                    ends.contains("first_vertex")||
+                    ends.contains("last_vertex")||
+                    ends.contains("first_mode")||
+                    ends.contains("last_mode"))
+                throw std::runtime_error(
+                    "Format 52 edge-treatment route end has unexpected fields");
+            ends["first_vertex"]=nullptr;
+            ends["last_vertex"]=nullptr;
+            ends["first_mode"]="no_cut";
+            ends["last_mode"]="no_cut";
+            ++changed;
+        }
+    }
+    for(auto& [key,child]:value.items()) {
+        static_cast<void>(key);
+        changed+=add_edge_treatment_route_end_modes(child);
+    }
+    return changed;
+}
+
+void upgrade_native_part_format_52_to_53(
+        const std::filesystem::path& source,
+        const std::filesystem::path& output,
+        const std::filesystem::path& report) {
+    if(std::filesystem::absolute(source).lexically_normal()==
+            std::filesystem::absolute(output).lexically_normal())
+        throw std::runtime_error(
+            "Format migration output must be separate from its source");
+    std::ifstream input(source,std::ios::binary);
+    const std::string original((std::istreambuf_iterator<char>(input)),{});
+    if(!input&&!input.eof())throw std::runtime_error(
+        "Cannot read native Part for format migration");
+    auto migrated=original;
+    std::size_t route_ends_changed{};
+    std::size_t cursor{};
+    while(cursor<migrated.size()) {
+        const auto line_end=migrated.find('\n',cursor);
+        const auto next=line_end==std::string::npos?
+            migrated.size():line_end+1;
+        auto content_end=line_end==std::string::npos?
+            migrated.size():line_end;
+        if(content_end>cursor&&migrated[content_end-1]=='\r')--content_end;
+        const auto marker=migrated.find("param.cpp_history=",cursor);
+        if(marker<content_end) {
+            const auto equals=migrated.find('=',marker);
+            if(equals==std::string::npos||equals>=content_end)
+                throw std::runtime_error(
+                    "Format 52 history packet is invalid");
+            auto packet=nlohmann::json::parse(migrated.substr(
+                equals+1,content_end-equals-1));
+            const auto packet_changes=
+                add_edge_treatment_route_end_modes(packet);
+            if(packet_changes) {
+                const auto replacement=packet.dump();
+                migrated.replace(equals+1,content_end-equals-1,replacement);
+                const auto length_delta=static_cast<std::ptrdiff_t>(
+                    replacement.size())-static_cast<std::ptrdiff_t>(
+                        content_end-equals-1);
+                cursor=static_cast<std::size_t>(
+                    static_cast<std::ptrdiff_t>(next)+length_delta);
+                route_ends_changed+=packet_changes;
+                continue;
+            }
+        }
+        cursor=next;
+    }
+    constexpr std::string_view old_version="format_version=52";
+    std::size_t version_count{};
+    for(std::size_t position=migrated.find(old_version);
+            position!=std::string::npos;
+            position=migrated.find(old_version,position+1)) {
+        const bool line_start=position==0||migrated[position-1]=='\n';
+        const auto after=position+old_version.size();
+        const bool line_end=after==migrated.size()||
+            migrated[after]=='\n'||migrated[after]=='\r';
+        if(line_start&&line_end)++version_count;
+    }
+    if(version_count!=1)throw std::runtime_error(
+        "Expected exactly one native Part format 52 declaration");
+    const auto version=migrated.find(old_version);
+    migrated.replace(version,old_version.size(),"format_version=53");
+    // Route-end modes extend the authored definition and therefore invalidate
+    // every format-52 definition fingerprint, even in a document without an
+    // edge treatment. Recalculation below recreates the cache from authored
+    // history with the current implementation.
+    bool cache_removed{};
+    const auto cache=migrated.find("[CachedBodies]");
+    if(cache!=std::string::npos&&(cache==0||migrated[cache-1]=='\n')) {
+        const auto next_section=migrated.find("\n[",cache+1);
+        if(next_section==std::string::npos)
+            throw std::runtime_error("Native Part cache section is invalid");
+        migrated.erase(cache,next_section+1-cache);
+        cache_removed=true;
+    }
+    std::filesystem::create_directories(output.parent_path());
+    std::ofstream native(output,std::ios::binary);
+    native.write(migrated.data(),static_cast<std::streamsize>(migrated.size()));
+    native.close();
+    if(!native)throw std::runtime_error("Cannot write migrated native Part");
+
+    const auto authored=zima::document::PartDocument::load(output);
+    const auto definition=authored.serialized();
+    zima::kernel::OcctKernel engine;
+    auto calculated=engine.evaluate_history(authored.kernel_operations());
+    for(const auto& boundary:calculated)
+        if(!boundary.calculation_errors.empty())
+            throw std::runtime_error(
+                "Migrated factory Part calculation contains an error");
+    authored.save(output,calculated);
+    std::vector<zima::kernel::BodyResult> restored;
+    zima::document::NativeCalculatedCachePtr native_cache;
+    const auto reopened=zima::document::PartDocument::load(
+        output,&restored,&native_cache);
+    if(reopened.serialized()!=definition||
+            restored.size()!=calculated.size()||
+            (!calculated.empty()&&!native_cache))
+        throw std::runtime_error(
+            "Migrated factory Part readback changed its definition, boundaries or cache");
+    for(std::size_t index=0;index<calculated.size();++index)
+        if(zima::document::serialize_body_result(restored[index])!=
+                zima::document::serialize_body_result(calculated[index]))
+            throw std::runtime_error(
+                "Migrated factory Part readback lost geometry or references");
+
+    std::filesystem::create_directories(report.parent_path());
+    std::ofstream evidence(report);
+    evidence<<nlohmann::json{{"migration","part-format-52-to-53"},
+        {"format_upgraded",true},
+        {"stale_derived_cache_removed",cache_removed},
+        {"route_ends_initialized",route_ends_changed},
+        {"default_route_end_mode","no_cut"},
+        {"calculated_boundaries",calculated.size()},
+        {"calculation_errors",0},
+        {"native_readback_exact",true}}.dump(2)<<'\n';
+    if(!evidence)throw std::runtime_error("Cannot write migration evidence");
+}
+
 void attach_verified_legacy_part_cache(
         const std::filesystem::path& current_authored,
         const std::filesystem::path& legacy_source,
@@ -1258,6 +1411,50 @@ void attach_verified_legacy_part_cache(
 
 int main(int argc,char** argv){try{
     using namespace zima;
+    if(argc==4&&std::string_view(argv[1])==
+            "--upgrade-repository-part-format52-to53") {
+        const auto output_root=std::filesystem::u8path(argv[2]);
+        const auto report_root=std::filesystem::u8path(argv[3]);
+        std::vector<std::filesystem::path> sources;
+        for(const auto& relative_root:{std::filesystem::path("config"),
+                std::filesystem::path("cpp/tests/fixtures")}) {
+            for(const auto& entry:
+                    std::filesystem::recursive_directory_iterator(
+                        relative_root)) {
+                if(!entry.is_regular_file())continue;
+                const auto extension=entry.path().extension();
+                if(extension!=".prtz"&&extension!=".frmz"&&
+                        extension!=".tblz"&&extension!=".symz")continue;
+                std::ifstream input(entry.path(),std::ios::binary);
+                const std::string data((std::istreambuf_iterator<char>(input)),{});
+                if(data.find("format_version=52")!=std::string::npos)
+                    sources.push_back(entry.path());
+            }
+        }
+        std::ranges::sort(sources);
+        if(sources.empty())throw std::runtime_error(
+            "No repository native Part format 52 assets were found");
+        for(const auto& source:sources) {
+            const auto relative=std::filesystem::relative(
+                source,std::filesystem::current_path());
+            auto evidence=report_root/relative;
+            evidence+=".json";
+            upgrade_native_part_format_52_to_53(
+                source,output_root/relative,evidence);
+        }
+        std::filesystem::create_directories(report_root);
+        std::ofstream summary(report_root/"summary.json");
+        summary<<nlohmann::json{{"migration","part-format-52-to-53"},
+            {"asset_count",sources.size()},
+            {"all_outputs_separate_from_sources",true},
+            {"all_assets_calculated_saved_and_reopened",true},
+            {"default_route_end_mode","no_cut"}}.dump(2)<<'\n';
+        if(!summary)throw std::runtime_error(
+            "Cannot write repository migration evidence");
+        std::cout<<"Calculated, saved and reopened "<<sources.size()
+            <<" repository native Part assets in format 53\n";
+        return 0;
+    }
     if(argc==4&&std::string_view(argv[1])==
             "--upgrade-repository-part-format51-to52") {
         const auto output_root=std::filesystem::u8path(argv[2]);

@@ -402,9 +402,10 @@ bool lies_on_source_surface(const TopoDS_Face& candidate,
     return true;
 }
 
-void clip_fillet_tool_with_halfspace(TopoDS_Shape& tool,
+bool clip_fillet_tool_with_halfspace(TopoDS_Shape& tool,
         std::vector<TopoDS_Face>& treatment_faces,
-        const TopoDS_Solid& half_space,double tolerance) {
+        const TopoDS_Solid& half_space,double tolerance,
+        bool allow_empty=false,const gp_Pnt* retained_component=nullptr) {
     BRepAlgoAPI_Common common(tool,half_space);
     common.SetNonDestructive(true);
     common.SetFuzzyValue(tolerance);
@@ -413,8 +414,45 @@ void clip_fillet_tool_with_halfspace(TopoDS_Shape& tool,
        !BRepCheck_Analyzer(common.Shape()).IsValid())
         throw std::runtime_error(
             "Planar edge Fillet could not trim its selected end face");
+    TopoDS_Shape clipped=common.Shape();
     TopTools_IndexedMapOfShape result_faces;
-    TopExp::MapShapes(common.Shape(),TopAbs_FACE,result_faces);
+    TopExp::MapShapes(clipped,TopAbs_FACE,result_faces);
+    // A separately swept terminal extension can lie wholly outside the
+    // retained analytical half-space.  In that case the exact intersection
+    // is intentionally empty and the caller discards that optional tail.
+    // The main route cutter never opts into this path: losing it remains a
+    // hard construction error.
+    if(result_faces.IsEmpty()&&allow_empty)return false;
+    // An exact curved half-space can split an overgrown cutter into the
+    // route-connected portion and a disconnected continuation on the other
+    // side of a periodic analytical surface.  Only the component containing
+    // the proven cutter-interior point belongs to the authored Fillet route;
+    // fusing every component would leave the disconnected continuation as a
+    // visible tooth in the Body.
+    if(retained_component) {
+        TopTools_IndexedMapOfShape result_solids;
+        TopExp::MapShapes(clipped,TopAbs_SOLID,result_solids);
+        if(result_solids.Extent()>1) {
+            TopoDS_Shape retained;
+            for(int index=1;index<=result_solids.Extent();++index) {
+                const auto candidate=TopoDS::Solid(
+                    result_solids.FindKey(index));
+                BRepClass3d_SolidClassifier classifier(candidate,
+                    *retained_component,10.*tolerance);
+                if(classifier.State()==TopAbs_IN||
+                   classifier.State()==TopAbs_ON) {
+                    retained=candidate;
+                    break;
+                }
+            }
+            if(retained.IsNull())
+                throw std::runtime_error(
+                    "Planar edge Fillet trim lost its route component");
+            clipped=retained;
+            result_faces.Clear();
+            TopExp::MapShapes(clipped,TopAbs_FACE,result_faces);
+        }
+    }
     std::vector<TopoDS_Face> clipped_faces;
     const auto append=[&](const TopoDS_Shape& shape) {
         if(shape.ShapeType()!=TopAbs_FACE||
@@ -463,7 +501,8 @@ void clip_fillet_tool_with_halfspace(TopoDS_Shape& tool,
         throw std::runtime_error(
             "Planar edge Fillet trim lost its circular face");
     treatment_faces=std::move(clipped_faces);
-    tool=common.Shape();
+    tool=clipped;
+    return true;
 }
 
 void clip_fillet_tool(TopoDS_Shape& tool,
@@ -563,11 +602,11 @@ void fuse_fillet_tools(TopoDS_Shape& tool,
     treatment_faces=std::move(fused_faces);
 }
 
-void clip_fillet_tool_to_surface(TopoDS_Shape& tool,
+bool clip_fillet_tool_to_surface(TopoDS_Shape& tool,
         std::vector<TopoDS_Face>& treatment_faces,
         const TopoDS_Face& face,const gp_Pnt& inside,double tolerance,
-        const gp_Pnt* retained_side_hint=nullptr) {
-    if(face.IsNull())return;
+        const gp_Pnt* retained_side_hint=nullptr,bool allow_empty=false) {
+    if(face.IsNull())return true;
     TopoDS_Face boundary=face;
     const BRepAdaptor_Surface support(face,true);
     // MakeHalfSpace interprets a trimmed cylindrical patch as an open shell;
@@ -594,7 +633,15 @@ void clip_fillet_tool_to_surface(TopoDS_Shape& tool,
     gp_Pnt retained_side=inside;
     BRepClass3d_SolidClassifier retained_classifier(
         tool,retained_side,tolerance);
-    if(retained_classifier.State()!=TopAbs_IN) {
+    bool has_retained_component=
+        retained_classifier.State()==TopAbs_IN||
+        retained_classifier.State()==TopAbs_ON;
+    // A preceding terminal trim can put this otherwise valid route-interior
+    // point exactly on the newly created cutter boundary.  It still selects
+    // the connected cutter component and the side of the other terminal; do
+    // not replace it with an unrelated nearby point merely because it is ON
+    // rather than strictly IN the already clipped solid.
+    if(!has_retained_component) {
         Bnd_Box bounds;
         BRepBndLib::Add(tool,bounds);
         double x0{},y0{},z0{},x1{},y1{},z1{};
@@ -604,7 +651,17 @@ void clip_fillet_tool_to_surface(TopoDS_Shape& tool,
         const double base_step=std::max(1000.*tolerance,
             diagonal*1.0e-6);
         bool found{};
-        for(const double multiplier:{1.,10.,100.}) {
+        // The route point can lie at the sharp corner of a cutter whose
+        // transverse size is the Fillet radius while the bounding-box
+        // diagonal is dominated by a much longer route.  Searching only up
+        // to 1e-4 of that diagonal never reaches the interior of an ordinary
+        // millimetre-scale section (for example a 1 mm radius on a 150 mm
+        // route).  Grow the probe through the complete useful cross-section
+        // scale; the solid classifier still accepts only a real point inside
+        // this exact tool, so a larger search cannot select empty space or a
+        // different Body region.
+        for(const double multiplier:{1.,10.,100.,1000.,3000.,10000.,
+                30000.,100000.}) {
             const double step=base_step*multiplier;
             for(int x=-1;x<=1&&!found;++x)
                 for(int y=-1;y<=1&&!found;++y)
@@ -616,12 +673,19 @@ void clip_fillet_tool_to_surface(TopoDS_Shape& tool,
                             tool,candidate,tolerance);
                         if(classifier.State()==TopAbs_IN) {
                             retained_side=candidate;
+                            has_retained_component=true;
                             found=true;
                         }
                     }
             if(found)break;
         }
-        if(!found)
+        // When two different curved terminals bound the same short route,
+        // the first exact trim can remove every neighbourhood of the original
+        // midpoint.  The caller's untrimmed cutter point still defines the
+        // authored side of the second analytical surface; the following
+        // Common then performs the actual end cut.  Component filtering is
+        // deliberately omitted only for this no-longer-contained point.
+        if(!found&&!retained_side_hint)
             throw std::runtime_error(
                 "Planar edge Fillet could not locate the retained tool side");
     }
@@ -634,8 +698,9 @@ void clip_fillet_tool_to_surface(TopoDS_Shape& tool,
     if(!half_space.IsDone())
         throw std::runtime_error(
             "Planar edge Fillet could not construct an end half-space");
-    clip_fillet_tool_with_halfspace(tool,treatment_faces,
-        half_space.Solid(),tolerance);
+    return clip_fillet_tool_with_halfspace(tool,treatment_faces,
+        half_space.Solid(),tolerance,allow_empty,
+        has_retained_component?&retained_side:nullptr);
 }
 
 bool same_curved_terminal_surface(const TopoDS_Face& first,
@@ -745,7 +810,7 @@ std::vector<TopoDS_Face> automatic_terminal_faces(
     return result;
 }
 
-bool has_perpendicular_terminal_face(const TopoDS_Solid& material,
+bool has_exact_perpendicular_terminal_face(const TopoDS_Solid& material,
         const TopoDS_Face& first_support,
         const TopoDS_Face& second_support,const gp_Pnt& endpoint,
         const gp_Dir& tangent,double tolerance) {
@@ -1195,11 +1260,11 @@ Cutter make_tangent_plane_cylinder_cutter(
     if(!end_faces.first.IsNull())terminal_faces[0].push_back(end_faces.first);
     if(!end_faces.last.IsNull())terminal_faces[1].push_back(end_faces.last);
     if(end_mode==OcctPlanarEdgeFilletEndMode::AutomaticBodyEnvelope) {
-        if(terminal_faces[0].empty())
+        if(end_faces.automatic_first&&terminal_faces[0].empty())
             terminal_faces[0]=automatic_terminal_faces(material,
                 first_face,second_face,path.first,path.first_tangent,
                 path.middle,tolerance);
-        if(terminal_faces[1].empty())
+        if(end_faces.automatic_last&&terminal_faces[1].empty())
             terminal_faces[1]=automatic_terminal_faces(material,
                 first_face,second_face,path.last,path.last_tangent,
                 path.middle,tolerance);
@@ -1295,11 +1360,11 @@ std::optional<Cutter> make_rolling_support_cutter(
     if(!end_faces.first.IsNull())terminal_faces[0].push_back(end_faces.first);
     if(!end_faces.last.IsNull())terminal_faces[1].push_back(end_faces.last);
     if(end_mode==OcctPlanarEdgeFilletEndMode::AutomaticBodyEnvelope) {
-        if(terminal_faces[0].empty())
+        if(end_faces.automatic_first&&terminal_faces[0].empty())
             terminal_faces[0]=automatic_terminal_faces(material,
                 first_face,second_face,path.first,path.first_tangent,
                 path.middle,tolerance);
-        if(terminal_faces[1].empty())
+        if(end_faces.automatic_last&&terminal_faces[1].empty())
             terminal_faces[1]=automatic_terminal_faces(material,
                 first_face,second_face,path.last,path.last_tangent,
                 path.middle,tolerance);
@@ -1499,23 +1564,22 @@ Cutter make_cutter(const TopoDS_Edge& edge,
     const bool explicit_last=!end_faces.last.IsNull();
     if(explicit_first)terminal_faces[0].push_back(end_faces.first);
     if(explicit_last)terminal_faces[1].push_back(end_faces.last);
-    const bool automatic_request=!profile_only&&removes_material&&
-        path.kind==EdgeFilletPathKind::Linear&&end_mode==
-            OcctPlanarEdgeFilletEndMode::AutomaticBodyEnvelope;
     if(!profile_only&&end_mode==
             OcctPlanarEdgeFilletEndMode::AutomaticBodyEnvelope) {
-        if(terminal_faces[0].empty())
+        if(end_faces.automatic_first&&terminal_faces[0].empty())
             terminal_faces[0]=automatic_terminal_faces(
                 material,first_face,second_face,path.first,
                 path.first_tangent,path.middle,tolerance);
-        if(terminal_faces[1].empty())
+        if(end_faces.automatic_last&&terminal_faces[1].empty())
             terminal_faces[1]=automatic_terminal_faces(
                 material,first_face,second_face,path.last,
                 path.last_tangent,path.middle,tolerance);
-        curved_terminal_faces[0]=local_curved_terminal_faces(material,
-            first_face,second_face,path.first,tolerance);
-        curved_terminal_faces[1]=local_curved_terminal_faces(material,
-            first_face,second_face,path.last,tolerance);
+        if(end_faces.automatic_first)
+            curved_terminal_faces[0]=local_curved_terminal_faces(material,
+                first_face,second_face,path.first,tolerance);
+        if(end_faces.automatic_last)
+            curved_terminal_faces[1]=local_curved_terminal_faces(material,
+                first_face,second_face,path.last,tolerance);
     }
     // Two independent routes meeting at one selected node need their rolling
     // cylinders to reach the common axis intersection. Suppress the ordinary
@@ -1533,10 +1597,6 @@ Cutter make_cutter(const TopoDS_Edge& edge,
     const gp_Dir last_outward(path.last_tangent);
     const bool local_curved_first=!curved_terminal_faces[0].empty();
     const bool local_curved_last=!curved_terminal_faces[1].empty();
-    const bool compound_curved_first=compound_curved_terminal(
-        curved_terminal_faces[0],tolerance);
-    const bool compound_curved_last=compound_curved_terminal(
-        curved_terminal_faces[1],tolerance);
     // An additive corner ends at the first preceding radius.  A local planar
     // face may share that endpoint, but it must not overgrow the additive
     // tool past the arc.  Explicit Up To input remains authoritative.
@@ -1605,14 +1665,12 @@ Cutter make_cutter(const TopoDS_Edge& edge,
         terminal_faces[1]=remote_terminal_faces_through_local_curve(
             material,first_face,second_face,path.last,last_outward,
             tolerance);
-    const bool envelope_first=automatic_request&&
-        terminal_faces[0].empty()&&!local_curved_first&&
-        !has_perpendicular_terminal_face(material,first_face,second_face,
-            path.first,path.first_tangent,tolerance);
-    const bool envelope_last=automatic_request&&
-        terminal_faces[1].empty()&&!local_curved_last&&
-        !has_perpendicular_terminal_face(material,first_face,second_face,
-            path.last,path.last_tangent,tolerance);
+    // An unresolved automatic terminal is an actual end of the selected
+    // Body edge, not permission to sweep through the complete Body envelope.
+    // Proven earlier-radius continuation already owns explicit remote faces
+    // above. With no such proof the cutter must stop at the authored edge.
+    const bool envelope_first=false;
+    const bool envelope_last=false;
     const auto axial_extension=[&](const TopoDS_Face& face,
             const gp_Pnt& endpoint,const gp_Dir& outward,
             double cross_span) {
@@ -1706,38 +1764,60 @@ Cutter make_cutter(const TopoDS_Edge& edge,
     last_extension=std::max(last_extension,node_extensions.last);
     double first_preview_extension=first_extension;
     double last_preview_extension=last_extension;
-    const bool trim_to_curved_first=!continue_first&&!explicit_first&&
-        !curved_terminal_faces[0].empty()&&
-        (!route_crossing_first.empty()||!compound_curved_first);
-    const bool trim_to_curved_last=!continue_last&&!explicit_last&&
-        !curved_terminal_faces[1].empty()&&
-        (!route_crossing_last.empty()||!compound_curved_last);
-    std::array<std::vector<TopoDS_Face>,2> curved_terminal_caps;
+    // A curved face incident at the route endpoint is not necessarily a
+    // terminal. In particular, a cylindrical face whose axis follows the
+    // route is a longitudinal neighbour: extending by a profile span and
+    // clipping to that unbounded surface leaves a visible axial tail. Keep a
+    // true transverse curved stop even when its endpoint differential is
+    // tangent within tolerance (the established preceding-Fillet case).
+    const auto transverse_curved_faces=[&](
+            const std::vector<TopoDS_Face>& faces,const gp_Dir& tangent) {
+        std::vector<TopoDS_Face> result;
+        for(const auto& face:faces)
+            if(!support_is_prismatic_along(face,tangent,
+                    angular_tolerance))
+                result.push_back(face);
+        return result;
+    };
+    auto first_curved_stops=route_crossing_first.empty()
+        ?transverse_curved_faces(curved_terminal_faces[0],
+            path.first_tangent)
+        :route_crossing_first;
+    auto last_curved_stops=route_crossing_last.empty()
+        ?transverse_curved_faces(curved_terminal_faces[1],
+            path.last_tangent)
+        :route_crossing_last;
+    // A real planar cap perpendicular to the route is already the exact end
+    // of the authored Body edge. A merely incident tangent radius must not
+    // turn that cap into permission to sweep one profile span beyond it. An
+    // earlier radius without such a cap still needs the established curved
+    // intersection extension.
+    if(route_crossing_first.empty()&&
+       has_exact_perpendicular_terminal_face(material,first_face,
+            second_face,path.first,path.first_tangent,tolerance))
+        first_curved_stops.clear();
+    if(route_crossing_last.empty()&&
+       has_exact_perpendicular_terminal_face(material,first_face,
+            second_face,path.last,path.last_tangent,tolerance))
+        last_curved_stops.clear();
+    bool trim_to_curved_first=!continue_first&&!explicit_first&&
+        !first_curved_stops.empty();
+    bool trim_to_curved_last=!continue_last&&!explicit_last&&
+        !last_curved_stops.empty();
     if(trim_to_curved_first) {
-        curved_terminal_caps[0]=remote_terminal_faces_through_local_curve(
-            material,first_face,second_face,path.first,first_outward,
-            tolerance);
-        // The actual construction must reach the remote cap so that the
-        // analytical surface and the cap can trim the same overgrown tool.
-        // Keep the visible analytic preview local to the endpoint profile.
+        // Overgrow only enough to cross the local analytical terminal. A
+        // remote face beyond an earlier Fillet is not part of this route and
+        // must never pull the construction through the current Body.
         first_preview_extension=std::max(first_preview_extension,cross_span);
         first_extension=std::max(first_extension,cross_span);
-        first_extension=std::max(first_extension,end_extension(
-            curved_terminal_caps[0],path.first,first_outward,false));
     }
     if(trim_to_curved_last) {
-        curved_terminal_caps[1]=remote_terminal_faces_through_local_curve(
-            material,first_face,second_face,path.last,last_outward,
-            tolerance);
         last_preview_extension=std::max(last_preview_extension,cross_span);
         last_extension=std::max(last_extension,cross_span);
-        last_extension=std::max(last_extension,end_extension(
-            curved_terminal_caps[1],path.last,last_outward,false));
     }
-    // Explicit ZIMA keeps a null end perpendicular. Automatic first honors a
-    // perpendicular cap or a uniquely inferred oblique plane. Only a complex
-    // unresolved CUT terminal uses the Body envelope; the actual material
-    // clips that subtraction without adding anything outside the model.
+    // Explicit ZIMA keeps a null end perpendicular. Automatic honors a
+    // uniquely inferred oblique plane or a proven earlier-radius cap; an
+    // otherwise unresolved real edge end remains perpendicular at the edge.
     if(path.kind==EdgeFilletPathKind::Circular&&
        first_extension+last_extension>tolerance&&
        path.sweep_angle+(first_extension+last_extension)/
@@ -1797,7 +1877,16 @@ Cutter make_cutter(const TopoDS_Edge& edge,
     if(circular_faces.empty())
         throw std::runtime_error(
             "Planar edge Fillet cutter omitted its circular face");
-    const gp_Pnt interior=path.middle;
+    // The authored route itself lies on the sharp corner and therefore on the
+    // cutter boundary. Use the area centroid of the actual midpoint section
+    // as an unambiguous interior-side probe for every terminal half-space.
+    BRepBuilderAPI_MakeFace midpoint_section(midpoint_profile.wire);
+    if(!midpoint_section.IsDone())
+        throw std::runtime_error(
+            "Planar edge Fillet could not construct its midpoint section");
+    GProp_GProps midpoint_properties;
+    BRepGProp::SurfaceProperties(midpoint_section.Face(),midpoint_properties);
+    const gp_Pnt interior=midpoint_properties.CentreOfMass();
     for(const auto& face:terminal_faces[0])
         clip_fillet_tool(tool,circular_faces,face,interior,tolerance);
     for(const auto& face:terminal_faces[1])
@@ -1808,23 +1897,13 @@ Cutter make_cutter(const TopoDS_Edge& edge,
     // split that envelope and can retain a small same-domain tongue at the
     // route endpoint.
     if(first_extension>tolerance&&trim_to_curved_first)
-        for(const auto& face:route_crossing_first.empty()
-                ?curved_terminal_faces[0]:route_crossing_first)
+        for(const auto& face:first_curved_stops)
             clip_fillet_tool_to_surface(tool,circular_faces,face,
-                interior,tolerance);
+                interior,tolerance,&interior);
     if(last_extension>tolerance&&trim_to_curved_last)
-        for(const auto& face:route_crossing_last.empty()
-                ?curved_terminal_faces[1]:route_crossing_last)
+        for(const auto& face:last_curved_stops)
             clip_fillet_tool_to_surface(tool,circular_faces,face,
-                interior,tolerance);
-    // A curved terminal is a trimmed Body patch, not its unbounded analytic
-    // cylinder/cone alone.  Its remote planar caps complete the trimming
-    // volume, especially for additive tools where any unbounded remainder is
-    // visible as a tooth after the Fuse.
-    for(const auto& face:curved_terminal_caps[0])
-        clip_fillet_tool(tool,circular_faces,face,interior,tolerance);
-    for(const auto& face:curved_terminal_caps[1])
-        clip_fillet_tool(tool,circular_faces,face,interior,tolerance);
+                interior,tolerance,&interior);
     return {tool,std::move(circular_faces),analytic_domain(preview_extension),
         adds_material,midpoint_profile.wire,
         midpoint_profile.circular_edge,{}};
@@ -2021,20 +2100,40 @@ Cutter make_route_cutter(const std::vector<CutterJob>& jobs,
             assign_end_face(end_faces[index].first);
             assign_end_face(end_faces[index].last);
         }
+    bool automatic_first=end_faces.empty();
+    bool automatic_last=end_faces.empty();
+    if(!end_faces.empty()) {
+        automatic_first=false;
+        automatic_last=false;
+        for(const auto index:route) {
+            TopoDS_Vertex edge_first,edge_last;
+            TopExp::Vertices(jobs[index].edge,edge_first,edge_last,true);
+            if(!edge_first.IsNull()&&edge_first.IsSame(start_vertex))
+                automatic_first=end_faces[index].automatic_first;
+            if(!edge_last.IsNull()&&edge_last.IsSame(start_vertex))
+                automatic_first=end_faces[index].automatic_last;
+            if(!edge_first.IsNull()&&
+                    edge_first.IsSame(endpoints(ordered.back())[1]))
+                automatic_last=end_faces[index].automatic_first;
+            if(!edge_last.IsNull()&&
+                    edge_last.IsSame(endpoints(ordered.back())[1]))
+                automatic_last=end_faces[index].automatic_last;
+        }
+    }
     const bool explicit_first=!terminal_faces[0].empty();
     const bool explicit_last=!terminal_faces[1].empty();
     const auto& start_job=jobs[route.front()];
     const auto& end_job=jobs[route.back()];
-    const bool automatic_request=!profile.adds_material&&end_mode==
-        OcctPlanarEdgeFilletEndMode::AutomaticBodyEnvelope;
     std::array<std::vector<TopoDS_Face>,2> curved_terminal_faces;
     if(end_mode==OcctPlanarEdgeFilletEndMode::AutomaticBodyEnvelope) {
-        curved_terminal_faces[0]=local_curved_terminal_faces(
-            start_job.material,start_job.first_face,start_job.second_face,
-            start_point,tolerance);
-        curved_terminal_faces[1]=local_curved_terminal_faces(
-            end_job.material,end_job.first_face,end_job.second_face,
-            end_point,tolerance);
+        if(automatic_first)
+            curved_terminal_faces[0]=local_curved_terminal_faces(
+                start_job.material,start_job.first_face,start_job.second_face,
+                start_point,tolerance);
+        if(automatic_last)
+            curved_terminal_faces[1]=local_curved_terminal_faces(
+                end_job.material,end_job.first_face,end_job.second_face,
+                end_point,tolerance);
     }
 
     // A multi-member route must make the same local curved-terminal decision
@@ -2084,39 +2183,32 @@ Cutter make_route_cutter(const std::vector<CutterJob>& jobs,
         !explicit_last&&
         continues_past_local_curve(end_job,end_point,end_outward);
     if(end_mode==OcctPlanarEdgeFilletEndMode::AutomaticBodyEnvelope) {
-        if(continue_first)
+        if(automatic_first&&continue_first)
             terminal_faces[0]=remote_terminal_faces_through_local_curve(
                 start_job.material,start_job.first_face,
                 start_job.second_face,start_point,start_outward,tolerance);
-        else if(terminal_faces[0].empty()&&
+        else if(automatic_first&&terminal_faces[0].empty()&&
                 (!profile.adds_material||!local_curved_first||
                  explicit_first))
             terminal_faces[0]=automatic_terminal_faces(start_job.material,
                 start_job.first_face,start_job.second_face,start_point,
                 start_outward,start_preceding,tolerance);
-        if(continue_last)
+        if(automatic_last&&continue_last)
             terminal_faces[1]=remote_terminal_faces_through_local_curve(
                 end_job.material,end_job.first_face,end_job.second_face,
                 end_point,end_outward,tolerance);
-        else if(terminal_faces[1].empty()&&
+        else if(automatic_last&&terminal_faces[1].empty()&&
                 (!profile.adds_material||!local_curved_last||
                  explicit_last))
             terminal_faces[1]=automatic_terminal_faces(end_job.material,
                 end_job.first_face,end_job.second_face,end_point,
                 end_outward,end_preceding,tolerance);
     }
-    const bool envelope_first=automatic_request&&
-        terminal_faces[0].empty()&&
-        (!local_curved_first||continue_first)&&
-        !has_perpendicular_terminal_face(start_job.material,
-            start_job.first_face,start_job.second_face,start_point,
-            start_outward,tolerance);
-    const bool envelope_last=automatic_request&&
-        terminal_faces[1].empty()&&
-        (!local_curved_last||continue_last)&&
-        !has_perpendicular_terminal_face(end_job.material,
-            end_job.first_face,end_job.second_face,end_point,end_outward,
-            tolerance);
+    // A disconnected route terminal without an inferred end face is the real
+    // end of that edge. Body-diagonal fallback extension produced the visible
+    // spike beyond such ends. Only a proven remote cap may extend the route.
+    const bool envelope_first=false;
+    const bool envelope_last=false;
     const gp_Pnt analytic_start(
         profile.analytic_domain.source_start.x,
         profile.analytic_domain.source_start.y,
@@ -2163,12 +2255,38 @@ Cutter make_route_cutter(const std::vector<CutterJob>& jobs,
         end_outward,end_job.material,envelope_last);
     double first_preview_extension=first_extension;
     double last_preview_extension=last_extension;
-    const bool trim_to_curved_first=!continue_first&&!explicit_first&&
+    const bool route_is_straight=[&] {
+        std::optional<gp_Dir> direction;
+        for(const auto& edge:ordered) {
+            const BRepAdaptor_Curve curve(edge);
+            if(curve.GetType()!=GeomAbs_Line)return false;
+            gp_Pnt point;
+            gp_Vec derivative;
+            curve.D1(.5*(curve.FirstParameter()+curve.LastParameter()),
+                point,derivative);
+            if(derivative.SquareMagnitude()<=1.0e-18)return false;
+            const gp_Dir current(derivative);
+            if(direction&&!direction->IsParallel(current,1.0e-9))
+                return false;
+            direction=current;
+        }
+        return direction.has_value();
+    }();
+    // Splitting one straight authored edge into several topological members
+    // must not change its established terminal result. A genuinely bent or
+    // returning additive route, however, ends at its real selected endpoint;
+    // carrying it through a nearby earlier radius creates the visible tooth
+    // beyond that endpoint.
+    const bool clip_to_curved_first=!continue_first&&!explicit_first&&
         !compound_curved_first&&!curved_terminal_faces[0].empty();
-    const bool trim_to_curved_last=!continue_last&&!explicit_last&&
+    const bool clip_to_curved_last=!continue_last&&!explicit_last&&
         !compound_curved_last&&!curved_terminal_faces[1].empty();
+    const bool extend_to_curved_first=clip_to_curved_first&&
+        (!profile.adds_material||route_is_straight);
+    const bool extend_to_curved_last=clip_to_curved_last&&
+        (!profile.adds_material||route_is_straight);
     std::array<std::vector<TopoDS_Face>,2> curved_terminal_caps;
-    if(trim_to_curved_first) {
+    if(extend_to_curved_first) {
         curved_terminal_caps[0]=remote_terminal_faces_through_local_curve(
             start_job.material,start_job.first_face,start_job.second_face,
             start_point,start_outward,tolerance);
@@ -2180,7 +2298,7 @@ Cutter make_route_cutter(const std::vector<CutterJob>& jobs,
             curved_terminal_caps[0],start_point,start_outward,
             start_job.material,false));
     }
-    if(trim_to_curved_last) {
+    if(extend_to_curved_last) {
         curved_terminal_caps[1]=remote_terminal_faces_through_local_curve(
             end_job.material,end_job.first_face,end_job.second_face,
             end_point,end_outward,tolerance);
@@ -2334,22 +2452,23 @@ Cutter make_route_cutter(const std::vector<CutterJob>& jobs,
                 clip_fillet_tool(profile.solid,profile.circular_faces,
                     face,retained_point,tolerance);
     };
-    // An automatic subtractive tool is clipped by the final Body CUT itself.
-    // Keeping its complete base sweep also avoids coincident trim faces at a
-    // tangent cap.  An explicitly selected end face remains authoritative.
-    if(profile.adds_material||explicit_first)
-        clip_base_terminal(terminal_clip_faces[0],start_preceding);
-    if(profile.adds_material||explicit_last)
-        clip_base_terminal(terminal_clip_faces[1],end_preceding);
+    // A safe automatic terminal is authoritative for both additive and
+    // subtractive routes.  The final Body CUT cannot remove a cutter tail
+    // that lies inside material on the far side of that terminal, so leaving
+    // a subtractive base sweep untrimmed creates the same overrun that the
+    // preview has already excluded.  The exact half-space proof above keeps
+    // returning routes from being clipped by an intermediate crossing plane.
+    clip_base_terminal(terminal_clip_faces[0],start_preceding);
+    clip_base_terminal(terminal_clip_faces[1],end_preceding);
     // The swept route already reaches the authored endpoint.  A curved
     // terminal can cut into that last section, so clip the base sweep as well
     // as the auxiliary extension.  Clipping only the extension retains the
     // same false flat cap that the extension is meant to replace.
-    if(trim_to_curved_first)
+    if(clip_to_curved_first)
         for(const auto& face:curved_terminal_faces[0])
             clip_fillet_tool_to_surface(profile.solid,
                 profile.circular_faces,face,start_preceding,tolerance);
-    if(trim_to_curved_last)
+    if(clip_to_curved_last)
         for(const auto& face:curved_terminal_faces[1])
             clip_fillet_tool_to_surface(profile.solid,
                 profile.circular_faces,face,end_preceding,tolerance);
@@ -2413,17 +2532,18 @@ Cutter make_route_cutter(const std::vector<CutterJob>& jobs,
                 extension_inside,tolerance);
         }
         if(trim_curved)for(const auto& face:curved_faces)
-            clip_fillet_tool_to_surface(tail.solid,tail.circular_faces,
-                face,extension_inside,tolerance,&preceding);
+            if(!clip_fillet_tool_to_surface(tail.solid,
+                    tail.circular_faces,face,extension_inside,tolerance,
+                    &preceding,true))return;
         fuse_fillet_tools(profile.solid,profile.circular_faces,
             tail.solid,tail.circular_faces,tolerance);
     };
     add_terminal_extension(start_job,start_point,start_outward,
         first_extension,terminal_clip_faces[0],curved_terminal_faces[0],
-        start_preceding,trim_to_curved_first);
+        start_preceding,extend_to_curved_first);
     add_terminal_extension(end_job,end_point,end_outward,last_extension,
         terminal_clip_faces[1],curved_terminal_faces[1],end_preceding,
-        trim_to_curved_last);
+        extend_to_curved_last);
     profile.source_jobs.assign(route.begin(),route.end());
     return profile;
 }

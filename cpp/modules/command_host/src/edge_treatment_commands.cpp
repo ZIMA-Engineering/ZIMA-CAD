@@ -35,13 +35,29 @@ Parameters parse_routes(const Json& values) {
         if(!value.is_object()||!value.contains("edges")||!value.at("edges").is_array()||value.at("edges").empty())
             throw Error("invalid_arguments","Each route requires a nonempty edges array and an optional start reference.");
         for(const auto& [key,field]:value.items())if(key!="edges"&&key!="start"&&
+                key!="first_vertex"&&key!="last_vertex"&&
+                key!="first_mode"&&key!="last_mode"&&
                 key!="first_face"&&key!="last_face")
-            throw Error("invalid_arguments","Each route supports edges, start, first_face and last_face.");
+            throw Error("invalid_arguments","Each route supports edges, start, endpoint modes and optional end faces.");
         total+=value.at("edges").size();if(total>10000)throw Error("invalid_arguments","Too many selected input edges.");
         std::vector<kernel::EdgeReference> edges;for(const auto& edge:value.at("edges"))edges.push_back(parse_reference<kernel::EdgeReference>(edge));
         result.routes.push_back(std::move(edges));
         result.route_start_vertices.push_back(value.contains("start")&&!value.at("start").is_null()?parse_reference<kernel::VertexReference>(value.at("start")):kernel::VertexReference{});
+        const auto route_end_mode=[&](const char* key) {
+            const auto name=value.value(key,std::string("no_cut"));
+            if(name=="no_cut")return Parameters::RouteEndMode::NoCut;
+            if(name=="cut")return Parameters::RouteEndMode::Cut;
+            throw Error("invalid_arguments",
+                "Route endpoint mode must be no_cut or cut.");
+        };
         result.route_end_faces.push_back({
+            value.contains("first_vertex")&&!value.at("first_vertex").is_null()
+                ?parse_reference<kernel::VertexReference>(value.at("first_vertex"))
+                :kernel::VertexReference{},
+            value.contains("last_vertex")&&!value.at("last_vertex").is_null()
+                ?parse_reference<kernel::VertexReference>(value.at("last_vertex"))
+                :kernel::VertexReference{},
+            route_end_mode("first_mode"),route_end_mode("last_mode"),
             value.contains("first_face")&&!value.at("first_face").is_null()
                 ?parse_reference<kernel::FaceReference>(value.at("first_face"))
                 :kernel::FaceReference{},
@@ -79,6 +95,14 @@ Json details(const workspace::PartState& state,const document::HistoryContainer&
             ?params.route_end_faces[i]:Parameters::RouteEndFaces{};
         routes.push_back({{"edges",std::move(edges)},
             {"start",start.valid()?reference(start):Json(nullptr)},
+            {"first_vertex",ends.first_vertex.valid()
+                ?reference(ends.first_vertex):Json(nullptr)},
+            {"last_vertex",ends.last_vertex.valid()
+                ?reference(ends.last_vertex):Json(nullptr)},
+            {"first_mode",ends.first_mode==Parameters::RouteEndMode::Cut
+                ?"cut":"no_cut"},
+            {"last_mode",ends.last_mode==Parameters::RouteEndMode::Cut
+                ?"cut":"no_cut"},
             {"first_face",ends.first.valid()?reference(ends.first):Json(nullptr)},
             {"last_face",ends.last.valid()?reference(ends.last):Json(nullptr)}});
     }

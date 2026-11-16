@@ -22,6 +22,7 @@
 class QMouseEvent;
 class QWheelEvent;
 class QKeyEvent;
+class QPoint;
 class QQuaternion;namespace zima::viewer {
 
 enum class DisplayMode {
@@ -85,6 +86,12 @@ struct OperationDirectionIndicator {
     zima::kernel::Vec3 radial;
     double angle_degrees{};
     bool angular{};
+};
+
+struct InteractiveLabel {
+    zima::kernel::Vec3 position;
+    std::string text;
+    std::string key;
 };
 
 class MeshView final : public QOpenGLWidget, protected QOpenGLFunctions {
@@ -270,6 +277,13 @@ public:
     void set_transient_labels(std::vector<std::pair<zima::kernel::Vec3,
         std::string>> labels);
     [[nodiscard]] const std::vector<std::pair<kernel::Vec3,std::string>>& transient_labels() const;
+    // Command-owned purple labels.  They are not model candidates and can
+    // only consume a left double-click while their explicit callback exists.
+    void set_interactive_labels(std::vector<InteractiveLabel> labels,
+        std::function<bool(const std::string&,const QPoint&)> double_click = {});
+    [[nodiscard]] const std::vector<InteractiveLabel>& interactive_labels() const;
+    [[nodiscard]] std::optional<QPoint> interactive_label_position(
+        const std::string& key) const;
     // Sketch placement cursor: white in free space, orange when a persisted
     // candidate or inference will create a relation on confirmation.
     void set_sketch_cursor(std::optional<zima::kernel::Vec3> point,

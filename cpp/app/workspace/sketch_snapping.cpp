@@ -565,12 +565,6 @@ bool AssemblyWorkspaceWindow::accept_sketch_segment_ray(
         inferred_end.external_point_reference_id.clear();
         const double relation_tolerance = viewer_->world_tolerance_for_pixels(
             2.0 * viewer_->devicePixelRatioF());
-        const auto snapped_line_direction = *end_snap_kind ==
-                zima::sketcher::ConstraintKind::PointOnLine
-            ? infer_snapped_line_endpoint_direction(*pending_segment_start_,
-                confirmed_position,relation_tolerance,
-                sketch_inference_settings_)
-            : std::nullopt;
         const auto line_relation_matches = [&](const std::string& support_id,
                 const zima::sketcher::ConstraintKind relation) {
             const auto support = sketch_line_support_direction(support_id);
@@ -590,18 +584,25 @@ bool AssemblyWorkspaceWindow::accept_sketch_segment_ray(
                       segment_y * (*support)[1]) / support_length;
             return error <= relation_tolerance;
         };
-        // C owns the exact endpoint while the inference cycle owns the
-        // direction. Preserve the selected compatible line relation instead
-        // of replacing it with a relation to whichever support was picked at
-        // the second endpoint. Parallel is intentionally considered first.
-        if (!snapped_line_direction &&
+        const bool line_contact_pair=pending_segment_start_snap_kind_==
+                zima::sketcher::ConstraintKind::PointOnLine&&
+            *end_snap_kind==zima::sketcher::ConstraintKind::PointOnLine&&
+            pending_segment_start_snap_geometry_id_.find("||")==std::string::npos&&
+            end_snap_geometry_id.find("||")==std::string::npos;
+        const bool keep_offered_line_relation=sketch_endpoint_inference_cycle_||
+            line_contact_pair||!offered_equal_reference.empty();
+        // C owns the exact endpoint while RMB, a pair of sliding contacts, or
+        // Equal may still own an independent direction relation. Preserve that
+        // compatible relation, but never persist a merely nearby automatic
+        // offer at a fixed composite intersection. Parallel remains first.
+        if (keep_offered_line_relation &&
             !offered_parallel_reference.empty() &&
             automatic_constraint_enabled(
                 zima::sketcher::ConstraintKind::Parallel) &&
             line_relation_matches(offered_parallel_reference,
                 zima::sketcher::ConstraintKind::Parallel)) {
             inferred_end.parallel_reference_id = offered_parallel_reference;
-        } else if (!snapped_line_direction &&
+        } else if (keep_offered_line_relation &&
                    !offered_perpendicular_reference.empty() &&
                    automatic_constraint_enabled(
                        zima::sketcher::ConstraintKind::Perpendicular) &&
@@ -1042,6 +1043,7 @@ bool AssemblyWorkspaceWindow::accept_sketch_segment_ray(
     pending_segment_start_snap_geometry_id_.clear();
     pending_segment_start_snap_kind_.reset();
     sketch_segment_inference_cycle_ = 0;
+    sketch_inference_pointer_position_.reset();
     sketch_skip_candidate_snap_ = false;
     sketch_endpoint_inference_cycle_ = false;
     clear_completed_sketch_interaction();

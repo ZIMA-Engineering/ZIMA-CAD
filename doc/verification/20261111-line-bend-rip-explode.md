@@ -79,3 +79,25 @@ run. Native Linux compilation, GUI execution and packaging remain a separate
 Linux-host gate. The shared C++ algorithms, Qt 6.11.0 and OCCT 8.0.1 pins are
 unchanged across platforms. Protected shared container placement and geometry
 side identity were not modified.
+
+## 2026-11-14 follow-up
+
+A later work-plane regression audit found that a new Line Bend could calculate
+after OK but did not publish its bent-sheet azure wire while its Properties
+window was still open. The persisted segment ID is intentionally assigned by
+the atomic commit operation; the preview now derives the single ordinary draft
+segment ID in a transient feature copy. Drawing or replacing that line updates
+the preview without changing the document revision or Undo history.
+
+The same audit preserved the distinction between generic placement frames and
+an edge-attached Sheet Profile. Ordered P1/P2/P3 and Edge/Plane/Point continue
+to define a local XY frame. The attached Profile is a cross-section normal to
+the supporting sheet boundary and therefore keeps its established local XZ
+route plane instead of being overwritten by the generic automatic work-plane
+rule.
+
+The Windows follow-up passed `zima_cpp_sheet_exchange_tests`,
+`zima_cpp_thin_feature_wire_tests`, `zima_cpp_line_bend_ui_contract`,
+`zima_cpp_ui_contract_tests`, `zima_cpp_work_plane_contract_tests` and
+`zima_cpp_sheet_profile_tests`. No user-visible text or native format changed,
+so localization catalogs and factory assets were unaffected.

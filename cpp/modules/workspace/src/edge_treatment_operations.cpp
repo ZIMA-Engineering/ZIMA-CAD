@@ -107,7 +107,7 @@ bool commit_edge_treatment(Workspace& live,const kernel::OcctKernel& kernel,cons
         throw Error("identity_changed","A new container must have a new nonempty identity.");
     const auto* body=stored?before.body_owner_for_object(feature.id):before.body_history.find(before.body_history.active_body_id());
     if(body&&body->derived_copy)throw Error("read_only_body","A derived Body cannot be edited directly.");
-    const auto& parameters=feature.edge_treatment;
+    auto& parameters=feature.edge_treatment;
     for(const double value:{parameters.primary_size,parameters.secondary_size})
         if(!std::isfinite(value)||value<.001||value>1e6)
             throw Error("invalid_arguments","Edge treatment sizes must be between 0.001 and 1000000 mm.");
@@ -120,12 +120,17 @@ bool commit_edge_treatment(Workspace& live,const kernel::OcctKernel& kernel,cons
     // Route validation consumes exact persisted edges and endpoints.  A
     // final-first checkpoint deliberately omits its unused face mesh/B-Rep.
     if(!input||input->mesh.edges.empty())throw Error("missing_input","Edge treatment requires a calculated input body.");
+    // A disappeared member is not a reason to block an otherwise valid
+    // Fillet/Chamfer. Repair the pending definition from exact topology
+    // ancestry before validation; OK persists that deterministic repair.
+    static_cast<void>(document::prune_unresolved_treatment_references(
+        parameters,input->mesh));
     if(parameters.routes.empty())throw Error("invalid_reference","Select at least one input edge route.");
     const bool asymmetric_chamfer=!fillet&&
         parameters.chamfer_mode!=Parameters::ChamferMode::EqualDistance;
     if(asymmetric_chamfer&&parameters.routes.size()!=1)
         throw Error("invalid_reference",
-            "A x B and A + angle Chamfer require one continuous line.");
+            "A x B and A + angle Chamfer require one continuous open route or one closed circular edge.");
     if(parameters.route_start_vertices.size()>parameters.routes.size())throw Error("invalid_reference","Each edge route may have only one R1 endpoint.");
     if(parameters.route_end_faces.size()!=parameters.routes.size())
         throw Error("invalid_reference","Each edge route requires exactly two end-face slots.");
@@ -166,17 +171,55 @@ bool commit_edge_treatment(Workspace& live,const kernel::OcctKernel& kernel,cons
             if(!unique.insert(key(ref)).second)throw Error("invalid_reference","An input edge may belong to only one selected route.");
         }
         const auto start=i<parameters.route_start_vertices.size()?parameters.route_start_vertices[i]:kernel::VertexReference{};
-        for(const auto* face:{&parameters.route_end_faces[i].first,
-                &parameters.route_end_faces[i].last})
+        const auto& route_ends=parameters.route_end_faces[i];
+        for(const auto* face:{&route_ends.first,&route_ends.last})
             if((face->valid()&&!face->instance_path.empty())||
                (!face->valid()&&(!face->owner_id.empty()||
                                  !face->semantic_key.empty())))
                 throw Error("invalid_reference","Select a local persisted end face or leave the end perpendicular.");
-        if(!start.instance_path.empty())throw Error("invalid_reference","Select a local persisted input reference.");
-        if(asymmetric_chamfer&&
-                endpoints(route_available,route).size()!=2)
+        for(const auto [mode,vertex]:{
+                std::pair{route_ends.first_mode,&route_ends.first_vertex},
+                std::pair{route_ends.last_mode,&route_ends.last_vertex}}) {
+            if(vertex->valid()&&!vertex->instance_path.empty())
+                throw Error("invalid_reference",
+                    "Select a local persisted route endpoint.");
+            if(mode==Parameters::RouteEndMode::Cut&&!vertex->valid())
+                throw Error("invalid_reference",
+                    "Cut requires an identified open route endpoint.");
+        }
+        if(route_ends.first_vertex.valid()&&
+           route_ends.first_vertex==route_ends.last_vertex)
             throw Error("invalid_reference",
-                "A x B and A + angle Chamfer require one continuous line.");
+                "Route endpoints must identify two different vertices.");
+        const auto current_endpoints=endpoints(route_available,route);
+        for(const auto* vertex:{&route_ends.first_vertex,
+                &route_ends.last_vertex})
+            if(vertex->valid()&&
+               std::ranges::find(current_endpoints,*vertex)==
+                   current_endpoints.end())
+                throw Error("invalid_reference",
+                    "Stored route endpoint is not an endpoint of the selected route.");
+        if(!start.instance_path.empty())throw Error("invalid_reference","Select a local persisted input reference.");
+        if(asymmetric_chamfer) {
+            std::vector<const kernel::ViewerEdge*> segments;
+            segments.reserve(route_edges.size());
+            for(const auto& edge:route_edges)segments.push_back(&edge);
+            const auto chain=kernel::edge_treatment_chain(segments);
+            const bool closed_chain=chain&&chain->endpoints_complete&&
+                chain->endpoints.empty();
+            bool single_closed_edge{};
+            if(route_edges.size()==1&&
+                    route_edges.front().points.size()>2) {
+                const auto& first=route_edges.front().points.front();
+                const auto& last=route_edges.front().points.back();
+                single_closed_edge=std::hypot(std::hypot(first.x-last.x,
+                    first.y-last.y),first.z-last.z)<=1.0e-6;
+            }
+            if(current_endpoints.size()!=2&&
+                    !closed_chain&&!single_closed_edge)
+                throw Error("invalid_reference",
+                    "A x B and A + angle Chamfer require one continuous open route or one closed circular edge.");
+        }
         if(fillet&&parameters.fillet_mode==Parameters::FilletMode::Linear) {
             const auto ends=endpoints(route_available,route);
             if(!start.valid()||!start.instance_path.empty()||std::ranges::find(ends,start)==ends.end())

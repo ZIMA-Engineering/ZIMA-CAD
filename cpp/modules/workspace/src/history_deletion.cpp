@@ -105,6 +105,10 @@ HistoryDeletionPlan plan_history_deletion(const document::PartDocument& doc,cons
                     plan.removed.insert(binding.feature_id);
     }
     const auto graph=dependencies(doc,true);
+    const auto root_owner=[&](const std::string& owner) -> const std::string& {
+        const auto alias=graph.owners.find(owner);
+        return alias==graph.owners.end()?owner:alias->second;
+    };
     // A self-contained retained feature is a dependency boundary.  It loses
     // only the direct reference to the deleted source and keeps publishing its
     // own profile/primitive from the last valid persisted frame.  Descendants
@@ -118,15 +122,45 @@ HistoryDeletionPlan plan_history_deletion(const document::PartDocument& doc,cons
             feature->feature_kind==document::FeatureKind::Chamfer||
             feature->feature_kind==document::FeatureKind::Shell);
     };
-    auto unavailable=plan.removed;
+    plan.unavailable=plan.removed;
+    const auto treatment_survives=[&](const document::HistoryContainer& feature) {
+        if(feature.feature_kind!=document::FeatureKind::Fillet&&
+                feature.feature_kind!=document::FeatureKind::Chamfer)
+            return false;
+        const auto lost=[&](const auto& reference) {
+            return reference.instance_path.empty()&&
+                plan.unavailable.contains(root_owner(reference.owner_id));
+        };
+        // Placement and a variable-radius start are indispensable inputs, not
+        // optional route members.  Only the ordinary selected edge routes may
+        // shrink automatically.
+        if(std::ranges::any_of(feature.placement.references,lost))return false;
+        if(feature.edge_treatment.fillet_mode==
+                document::EdgeTreatmentParameters::FilletMode::Linear&&
+            std::ranges::any_of(
+                feature.edge_treatment.route_start_vertices,lost))
+            return false;
+        return std::ranges::any_of(feature.edge_treatment.routes,
+            [&](const auto& route) {
+                return std::ranges::any_of(route,[&](const auto& reference) {
+                    return !lost(reference);
+                });
+            });
+    };
     for(bool changed=true;changed;) {
         changed=false;
         for(const auto& [source,target]:graph.edges) {
-            if(!unavailable.contains(source)||plan.removed.contains(target))
+            if(!plan.unavailable.contains(source)||plan.removed.contains(target))
                 continue;
             plan.affected.insert(target);
-            if(propagates_loss(target))
-                changed|=unavailable.insert(target).second;
+            if(!propagates_loss(target))continue;
+            const auto* feature=doc.find_container(target);
+            if(feature&&treatment_survives(*feature)) {
+                plan.auto_repaired.insert(target);
+                continue;
+            }
+            plan.auto_repaired.erase(target);
+            changed|=plan.unavailable.insert(target).second;
         }
     }
     return plan;
@@ -139,7 +173,7 @@ void detach_deleted_history_references(document::PartDocument& doc,const History
     };
     const auto lost=[&](const std::string& owner) {
         const auto& root=root_owner(owner);
-        return plan.removed.contains(root)||plan.affected.contains(root);
+        return plan.unavailable.contains(root);
     };
     const auto local=[&](const auto& ref){return ref.instance_path.empty()&&lost(ref.owner_id);};
     const auto refs=[&](auto& list){std::erase_if(list,local);};
@@ -167,16 +201,35 @@ void detach_deleted_history_references(document::PartDocument& doc,const History
         reference(f.shaft_thread.cylinder);reference(f.shaft_thread.start);
         if(f.shaft_thread.chamfer&&local(*f.shaft_thread.chamfer))f.shaft_thread.chamfer.reset();
         if(f.shaft_thread.end&&local(*f.shaft_thread.end))f.shaft_thread.end.reset();
-        for(auto& route:f.edge_treatment.routes)refs(route);
+        for(std::size_t route=0;route<f.edge_treatment.routes.size();++route) {
+            auto& members=f.edge_treatment.routes[route];
+            const auto before=members.size();
+            refs(members);
+            // A pruned member can change either terminal of the selected
+            // route. Never retain a face stop which belonged to the deleted
+            // topology on the shortened route.
+            if(members.size()!=before&&
+                    route<f.edge_treatment.route_end_faces.size())
+                f.edge_treatment.route_end_faces[route]={};
+        }
         for(auto& start:f.edge_treatment.route_start_vertices)reference(start);
-        // An empty route has no selectable input. Retain the feature, while
-        // letting its ordinary Properties editor start a new route normally.
-        for(std::size_t i=f.edge_treatment.routes.size();i-->0;)
-            if(f.edge_treatment.routes[i].empty()) {
-                f.edge_treatment.routes.erase(f.edge_treatment.routes.begin()+i);
-                if(i<f.edge_treatment.route_start_vertices.size())
-                    f.edge_treatment.route_start_vertices.erase(f.edge_treatment.route_start_vertices.begin()+i);
-            }
+        // A treatment which still has usable routes is repaired immediately:
+        // remove only its empty route rows and their aligned metadata.  A
+        // treatment which lost every route remains explicitly broken with its
+        // empty structural row, so Properties can replace that reference
+        // without manufacturing mismatched endpoint metadata.
+        if(plan.auto_repaired.contains(f.id))
+            for(std::size_t i=f.edge_treatment.routes.size();i-->0;)
+                if(f.edge_treatment.routes[i].empty()) {
+                    f.edge_treatment.routes.erase(
+                        f.edge_treatment.routes.begin()+i);
+                    if(i<f.edge_treatment.route_start_vertices.size())
+                        f.edge_treatment.route_start_vertices.erase(
+                            f.edge_treatment.route_start_vertices.begin()+i);
+                    if(i<f.edge_treatment.route_end_faces.size())
+                        f.edge_treatment.route_end_faces.erase(
+                            f.edge_treatment.route_end_faces.begin()+i);
+                }
         refs(f.shell.removed_faces);
         if(!f.shell.source_body.empty()&&lost(f.shell.source_body))
             f.shell.source_body.clear();
@@ -244,7 +297,9 @@ void detach_deleted_history_references(document::PartDocument& doc,const History
         return changed;
     }));
     const auto after=dependencies(doc,true);
-    for(const auto& owner:plan.affected)doc.removed_reference_states[owner]=signature(after,owner,plan.removed);
+    for(const auto& owner:plan.affected)
+        if(!plan.auto_repaired.contains(owner))
+            doc.removed_reference_states[owner]=signature(after,owner,plan.removed);
     for(const auto& owner:plan.removed){doc.removed_reference_states.erase(owner);doc.reference_errors.erase(owner);}
 }
 bool acknowledge_retained_history_edit(document::PartDocument& doc,

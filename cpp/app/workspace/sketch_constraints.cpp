@@ -967,7 +967,7 @@ void AssemblyWorkspaceWindow::accept_sketch_coincident_point(
                     }
                     if (circular_support) {
                         static_cast<void>(sketch.add_point_on_circle_constraint(
-                            contact_point, support_geometry_id));
+                            contact_point, support_geometry_id, true));
                     } else {
                         static_cast<void>(sketch.add_point_on_line_constraint(
                             contact_point, support_geometry_id));

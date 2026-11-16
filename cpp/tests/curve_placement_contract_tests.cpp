@@ -18,12 +18,19 @@
 #include <chrono>
 #include <iostream>
 #include <numbers>
+#include <source_location>
 #include <stdexcept>
 
 using namespace zima;
 namespace {
 void check(bool ok,const char* message){if(!ok)throw std::runtime_error(message);}
-void near(double a,double b,double tolerance=1e-6){if(!std::isfinite(a)||std::abs(a-b)>tolerance)throw std::runtime_error("Expected "+std::to_string(b)+", got "+std::to_string(a));}
+void near(double a,double b,double tolerance=1e-6,
+    const std::source_location location=std::source_location::current()) {
+    if(!std::isfinite(a)||std::abs(a-b)>tolerance) {
+        throw std::runtime_error("Line "+std::to_string(location.line())+": expected "+
+            std::to_string(b)+", got "+std::to_string(a));
+    }
+}
 double length(kernel::Vec3 v){return std::hypot(v.x,v.y,v.z);}
 kernel::Vec3 front(const document::Placement& p) {
     const double r=std::numbers::pi/180,cx=std::cos(p.rotation_x*r),sx=std::sin(p.rotation_x*r),
@@ -381,8 +388,11 @@ void ordered_frames() {
         // The roles are explicitly authored, independently of input order.
         const kernel::Vec3 n{1,0,0};
         verify_frame(p,n);
-        // The real owned Sketch must use the identical frame during history
-        // resolution; offsets and manual work-plane choices stay independent.
+        // Edge/plane/point defines the container's local XY work plane for an
+        // owned Sketch, independently of the authored reference order.
+        check(document::automatic_sketch_work_plane(p.references,g)==
+            sketcher::SketchPlane::XY,
+            "Edge/plane/point did not select local XY");
         for (bool automatic : {false,true}) {
             auto model=doc;auto target=document::PartDocument::create_sketch_container();target.placement=p;
             auto owned=sketcher::Sketch::create_default();owned.owner_container_id=target.id;
@@ -391,7 +401,7 @@ void ordered_frames() {
             model.history_order={{document::PartHistoryKind::Feature,source.id},{document::PartHistoryKind::Feature,target.id}};
             model.resolve_constructions();verify_frame(model.history.back().placement,n);
             const auto& resolved=model.sketches.back();
-            const auto expected=automatic&&!plane_first?n:top(model.history.back().placement);
+            const auto expected=top(model.history.back().placement);
             near(resolved.resolved_normal.x,expected.x);near(resolved.resolved_normal.y,expected.y);near(resolved.resolved_normal.z,expected.z);
             near(resolved.resolved_origin.x,10+3*expected.x);near(resolved.resolved_origin.y,3*expected.y);near(resolved.resolved_origin.z,3*expected.z);
         }

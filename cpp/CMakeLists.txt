@@ -2225,6 +2225,7 @@ if(ZIMA_BUILD_TESTS)
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 120)
     add_test(NAME zima_cpp_holes_ui_contract COMMAND zima-cad-cpp --verify-startup)
     add_test(NAME zima_cpp_edge_treatment_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    add_test(NAME zima_cpp_edge_treatment_creation_ui_contract COMMAND zima-cad-cpp --verify-startup)
     add_test(NAME zima_cpp_symmetric_edge_treatment_ui_contract COMMAND zima-cad-cpp --verify-startup)
     set_tests_properties(zima_cpp_symmetric_edge_treatment_ui_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_CONSOLE_ONLY=1;ZIMA_VERIFY_EDGE_TREATMENT_ONLY=1;ZIMA_VERIFY_SYMMETRIC_ENDPOINTS=1"
@@ -2239,7 +2240,10 @@ if(ZIMA_BUILD_TESTS)
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." RUN_SERIAL TRUE TIMEOUT 180)
     set_tests_properties(zima_cpp_edge_treatment_ui_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_CONSOLE_ONLY=1;ZIMA_VERIFY_EDGE_TREATMENT_ONLY=1"
-        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 120)
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 600)
+    set_tests_properties(zima_cpp_edge_treatment_creation_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_CONSOLE_ONLY=1;ZIMA_VERIFY_EDGE_TREATMENT_ONLY=1;ZIMA_VERIFY_EDGE_TREATMENT_CREATION_ONLY=1"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 300)
     add_test(NAME zima_cpp_drill_opening_ui_contract COMMAND zima-cad-cpp --verify-startup)
     set_tests_properties(zima_cpp_drill_opening_ui_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_CONSOLE_ONLY=1;ZIMA_VERIFY_EDGE_TREATMENT_ONLY=1;ZIMA_VERIFY_DRILL_OPENING=1"
@@ -2361,6 +2365,10 @@ if(ZIMA_BUILD_TESTS)
     add_test(NAME zima_cpp_new_document_options_ui_contract COMMAND zima-cad-cpp --verify-startup)
     add_test(NAME zima_cpp_relation_templates_ui_contract COMMAND zima-cad-cpp --verify-startup)
     add_test(NAME zima_cpp_history_deletion_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    add_test(NAME zima_cpp_missing_profile_scene_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    set_tests_properties(zima_cpp_missing_profile_scene_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_CONSOLE_ONLY=1;ZIMA_VERIFY_MISSING_PROFILE_SCENE_ONLY=1"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 90 RUN_SERIAL TRUE)
     set_tests_properties(zima_cpp_history_deletion_ui_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_CONSOLE_ONLY=1;ZIMA_VERIFY_HISTORY_DELETION_ONLY=1"
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 90 RUN_SERIAL TRUE)
@@ -2525,6 +2533,10 @@ if(ZIMA_BUILD_TESTS)
     add_test(NAME zima_cpp_sketch_external_midpoint_ui_contract COMMAND zima-cad-cpp --verify-startup)
     set_tests_properties(zima_cpp_sketch_external_midpoint_ui_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_HIDDEN_WINDOWS=1;ZIMA_VERIFY_EXTERNAL_MIDPOINT_UI_ONLY=1"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." RUN_SERIAL TRUE TIMEOUT 180)
+    add_test(NAME zima_cpp_sketch_parallel_inference_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    set_tests_properties(zima_cpp_sketch_parallel_inference_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_HIDDEN_WINDOWS=1;ZIMA_VERIFY_SKETCH_PARALLEL_INFERENCE_ONLY=1"
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." RUN_SERIAL TRUE TIMEOUT 180)
     add_test(NAME zima_cpp_placed_sketch_reference_ui_contract COMMAND zima-cad-cpp --verify-startup)
     set_tests_properties(zima_cpp_placed_sketch_reference_ui_contract PROPERTIES

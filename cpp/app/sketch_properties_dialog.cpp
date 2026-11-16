@@ -839,10 +839,17 @@ SketchPropertiesDialog::current_values() const {
     if(initial_placement_.value_locks.contains("profile_offset"))placement.value_locks.insert("profile_offset");else placement.value_locks.erase("profile_offset");
     placement.references = placement_->combined_references(3);
     zima::document::normalize_container_front_references(placement.references);
-    if (sketch.plane_auto && bend_radius_ &&
+    if(sheet_profile_pending_&&sheet_profile_pending_->sheet_attachment) {
+        // An edge-attached Sheet Profile is a cross-section normal to its
+        // supporting sheet edge.  Its route therefore remains in local XZ;
+        // the generic Edge/Plane/Point container-frame rule (local XY) does
+        // not describe this command-specific profile plane.
+        sketch.plane=zima::sketcher::SketchPlane::XZ;
+    } else if (sketch.plane_auto && bend_radius_ &&
             zima::document::bend_attachment_profile_direction(placement.references, reference_geometry_))
         sketch.plane = zima::sketcher::SketchPlane::XY;
-    else zima::document::apply_automatic_sketch_work_plane(sketch,placement.references);
+    else zima::document::apply_automatic_sketch_work_plane(
+        sketch,placement.references,reference_geometry_);
     if((bend_pending_&&bend_pending_->sheet_attachment)||
        (flat_pending_&&flat_pending_->sheet_attachment)||
        (sheet_profile_pending_&&sheet_profile_pending_->sheet_attachment)) {
@@ -1047,10 +1054,13 @@ void SketchPropertiesDialog::refresh_resolved_placement() {
     auto value = placement_->numeric_placement();
     value.references = placement_->combined_references(3);
     zima::document::normalize_container_front_references(value.references);
+    const auto resolved_automatic_plane =
+        zima::document::automatic_sketch_work_plane(
+            value.references, reference_geometry_);
     const auto automatic_plane = bend_radius_ &&
         zima::document::bend_attachment_profile_direction(value.references, reference_geometry_)
-        ? zima::sketcher::SketchPlane::XY : zima::document::automatic_sketch_work_plane(value.references).value_or(initial_.plane);
-    if (zima::document::automatic_sketch_work_plane(value.references).has_value() &&
+        ? zima::sketcher::SketchPlane::XY : resolved_automatic_plane.value_or(initial_.plane);
+    if (resolved_automatic_plane.has_value() &&
         plane_->itemData(plane_->findData(QStringLiteral("auto")), Qt::UserRole + 1).toInt() !=
             static_cast<int>(automatic_plane))
         update_automatic_work_plane(plane_, static_cast<int>(automatic_plane));
@@ -1212,7 +1222,8 @@ bool SketchPropertiesDialog::set_reference(std::size_t index,
         notify_preview();
     } else if (accepted && first_plane_reference) {
         update_automatic_work_plane(plane_, static_cast<int>(zima::document::automatic_sketch_work_plane(
-            placement_->combined_references(3)).value_or(zima::sketcher::SketchPlane::XY)), label);
+            placement_->combined_references(3), reference_geometry_).value_or(
+                zima::sketcher::SketchPlane::XY)), label);
         notify_preview();
     }
     if (accepted) {

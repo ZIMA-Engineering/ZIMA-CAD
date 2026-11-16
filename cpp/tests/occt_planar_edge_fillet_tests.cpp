@@ -14,11 +14,13 @@
 #include <BRepBuilderAPI_MakeFace.hxx>
 #include <BRepBuilderAPI_MakeWire.hxx>
 #include <BRepBuilderAPI_MakeVertex.hxx>
+#include <BRepBndLib.hxx>
 #include <BRepPrimAPI_MakeBox.hxx>
 #include <BRepPrimAPI_MakeCylinder.hxx>
 #include <BRepPrimAPI_MakePrism.hxx>
 #include <BRepPrimAPI_MakeWedge.hxx>
 #include <BRep_Tool.hxx>
+#include <Bnd_Box.hxx>
 #include <GProp_GProps.hxx>
 #include <GCPnts_AbscissaPoint.hxx>
 #include <Geom_BSplineCurve.hxx>
@@ -148,6 +150,83 @@ TopoDS_Edge circular_edge_between(const TopoDS_Shape& shape,
             return edge;
     }
     return {};
+}
+
+template<class Predicate>
+std::vector<TopoDS_Edge> edge_path_with_count(const TopoDS_Shape& shape,
+        const gp_Pnt& start,const gp_Pnt& finish,std::size_t count,
+        Predicate accepts,double tolerance=1.0e-6) {
+    std::vector<TopoDS_Edge> candidates;
+    for(TopExp_Explorer item(shape,TopAbs_EDGE);item.More();item.Next()) {
+        const auto edge=TopoDS::Edge(item.Current());
+        if(!accepts(edge)||std::ranges::any_of(candidates,
+                [&](const auto& current){return current.IsSame(edge);}))
+            continue;
+        candidates.push_back(edge);
+    }
+    std::vector<TopoDS_Edge> path;
+    const auto search=[&](auto&& self,const TopoDS_Vertex& current,
+            std::size_t depth)->bool {
+        if(depth==count)
+            return BRep_Tool::Pnt(current).Distance(finish)<=tolerance;
+        for(const auto& edge:candidates) {
+            if(std::ranges::any_of(path,[&](const auto& used) {
+                    return used.IsSame(edge);
+                }))continue;
+            TopoDS_Vertex first,last;
+            TopExp::Vertices(edge,first,last);
+            TopoDS_Vertex next;
+            if(first.IsSame(current))next=last;
+            else if(last.IsSame(current))next=first;
+            else continue;
+            path.push_back(edge);
+            if(self(self,next,depth+1))return true;
+            path.pop_back();
+        }
+        return false;
+    };
+    for(const auto& edge:candidates) {
+        TopoDS_Vertex first,last;
+        TopExp::Vertices(edge,first,last);
+        for(const auto& vertex:{first,last})
+            if(BRep_Tool::Pnt(vertex).Distance(start)<=tolerance&&
+                    search(search,vertex,0))
+                return path;
+    }
+    return {};
+}
+
+TopoDS_Shape stacked_cylindrical_segment(double radius,double half_width,
+        double chord_depth,double level_height) {
+    const gp_Pnt upper_left(-half_width,0.,level_height);
+    const gp_Pnt upper_right(half_width,0.,level_height);
+    const gp_Pnt lower_right(half_width,-chord_depth,level_height);
+    const gp_Pnt lower_left(-half_width,-chord_depth,level_height);
+    const gp_Circ circle(gp_Ax2(gp_Pnt(0.,0.,level_height),
+        gp_Dir(0.,0.,1.)),radius);
+    BRepBuilderAPI_MakeWire wire;
+    wire.Add(BRepBuilderAPI_MakeEdge(upper_left,upper_right).Edge());
+    wire.Add(BRepBuilderAPI_MakeEdge(upper_right,lower_right).Edge());
+    wire.Add(TopoDS::Edge(BRepBuilderAPI_MakeEdge(circle,
+        std::atan2(-chord_depth,-half_width),
+        std::atan2(-chord_depth,half_width)).Edge().Reversed()));
+    wire.Add(BRepBuilderAPI_MakeEdge(lower_left,upper_left).Edge());
+    require(wire.IsDone(),"Stacked cylindrical segment wire failed");
+    BRepBuilderAPI_MakeFace face(wire.Wire());
+    require(face.IsDone(),"Stacked cylindrical segment face failed");
+    BRepPrimAPI_MakePrism upper(face.Face(),gp_Vec(0.,0.,level_height),
+        false,true);
+    upper.Build();
+    require(upper.IsDone(),"Stacked cylindrical segment prism failed");
+    BRepAlgoAPI_Fuse fuse(BRepPrimAPI_MakeCylinder(radius,level_height).
+        Shape(),upper.Shape());
+    fuse.SetNonDestructive(true);
+    fuse.SetFuzzyValue(1.0e-7);
+    fuse.Build();
+    require(fuse.IsDone()&&!fuse.Shape().IsNull()&&
+            BRepCheck_Analyzer(fuse.Shape(),true,true,false).IsValid(),
+        "Stacked cylindrical segment fixture failed");
+    return fuse.Shape();
 }
 
 TopoDS_Shape blind_pocket() {
@@ -1514,6 +1593,112 @@ int main() try {
         }
         require(envelope_faces==1,
             "Split cylindrical terminal retained a Fillet tongue or seam");
+        {
+            constexpr double radius=155.8742402501563;
+            constexpr double half_width=26.743279707381134;
+            constexpr double chord_depth=153.56293746816556;
+            constexpr double level=50.;
+            const auto stacked=stacked_cylindrical_segment(radius,
+                half_width,chord_depth,level);
+            const std::array side_edges{
+                straight_edge_between(stacked,
+                    {half_width,0.,2.*level},
+                    {half_width,-chord_depth,2.*level},1.0e-6),
+                straight_edge_between(stacked,
+                    {-half_width,-chord_depth,2.*level},
+                    {-half_width,0.,2.*level},1.0e-6)};
+            require(std::ranges::none_of(side_edges,
+                    [](const auto& edge){return edge.IsNull();}),
+                "Stacked cylindrical fixture lost its first two routes");
+            const std::array independent_side_routes{
+                std::size_t{1},std::size_t{1}};
+            const auto side_rounds=zima::kernel::occt_planar_edge_fillet(
+                stacked,side_edges,11.,1.0e-7,{},
+                zima::kernel::OcctPlanarEdgeFilletEndMode::
+                    AutomaticBodyEnvelope,independent_side_routes);
+            const auto on_front=[](const TopoDS_Edge& edge) {
+                const BRepAdaptor_Curve curve(edge);
+                for(const double fraction:{0.,.5,1.}) {
+                    const auto point=curve.Value(std::lerp(
+                        curve.FirstParameter(),curve.LastParameter(),
+                        fraction));
+                    if(std::abs(point.Y())>1.0e-6||point.Z()<50.-1.0e-6)
+                        return false;
+                }
+                return true;
+            };
+            const auto upper_route=edge_path_with_count(side_rounds.shape,
+                {-half_width,0.,level},{half_width,0.,level},5,
+                on_front);
+            require(upper_route.size()==5,
+                "Stacked cylindrical fixture lost its five-edge upper route");
+            const std::array upper_route_count{std::size_t{5}};
+            const auto upper_round=zima::kernel::occt_planar_edge_fillet(
+                side_rounds.shape,upper_route,10.,1.0e-7,{},
+                zima::kernel::OcctPlanarEdgeFilletEndMode::
+                    AutomaticBodyEnvelope,upper_route_count);
+            const auto on_level=[](const TopoDS_Edge& edge) {
+                const BRepAdaptor_Curve curve(edge);
+                for(const double fraction:{0.,.5,1.}) {
+                    const auto point=curve.Value(std::lerp(
+                        curve.FirstParameter(),curve.LastParameter(),
+                        fraction));
+                    if(std::abs(point.Z()-50.)>1.0e-6||
+                       point.Y()>1.0e-6||
+                       std::abs(point.X())>26.7432808)
+                        return false;
+                }
+                return true;
+            };
+            const auto lower_route=edge_path_with_count(upper_round.shape,
+                {-half_width,-chord_depth,level},
+                {half_width,-chord_depth,level},5,on_level);
+            require(lower_route.size()==5,
+                "Stacked cylindrical fixture lost its five-edge lower route");
+            const std::array lower_route_count{std::size_t{5}};
+            for(const double treatment_radius:{4.,8.,9.,10.,11.,12.,14.,18.}) {
+                const auto final_round=zima::kernel::occt_planar_edge_fillet(
+                    upper_round.shape,lower_route,treatment_radius,1.0e-7,{},
+                    zima::kernel::OcctPlanarEdgeFilletEndMode::
+                        AutomaticBodyEnvelope,lower_route_count);
+                require(BRepCheck_Analyzer(final_round.shape,true,true,false).
+                            IsValid()&&
+                        final_round.metrics.cutter_solids==1&&
+                        final_round.fillet_faces.size()==lower_route.size()&&
+                        std::ranges::all_of(final_round.fillet_faces,
+                            [](const auto& faces){return !faces.empty();}),
+                    "Five-edge cylindrical-terminal Fillet failed its radius sweep");
+                BRepAlgoAPI_Cut outside(final_round.shape,
+                    BRepPrimAPI_MakeCylinder(radius,2.*level).Shape());
+                outside.SetNonDestructive(true);
+                outside.Build();
+                require(outside.IsDone()&&volume(outside.Shape())<=1.0e-5,
+                    "Five-edge cylindrical-terminal Fillet radius sweep escaped its Body envelope");
+                BRepAlgoAPI_Cut removed(upper_round.shape,final_round.shape);
+                removed.SetNonDestructive(true);
+                removed.SetFuzzyValue(1.0e-7);
+                removed.Build();
+                BRepAlgoAPI_Cut added(final_round.shape,upper_round.shape);
+                added.SetNonDestructive(true);
+                added.SetFuzzyValue(1.0e-7);
+                added.Build();
+                require(removed.IsDone()&&added.IsDone()&&
+                        !removed.Shape().IsNull()&&!added.Shape().IsNull(),
+                    "Five-edge terminal Fillet has no measurable changed region");
+                const double removed_volume=volume(removed.Shape());
+                const double added_volume=volume(added.Shape());
+                const auto& changed=removed_volume>=added_volume
+                    ?removed.Shape():added.Shape();
+                Bnd_Box changed_bounds;
+                BRepBndLib::Add(changed,changed_bounds);
+                require(!changed_bounds.IsVoid(),
+                    "Five-edge terminal Fillet changed no material");
+                double x_min{},y_min{},z_min{},x_max{},y_max{},z_max{};
+                changed_bounds.Get(x_min,y_min,z_min,x_max,y_max,z_max);
+                require(y_min>=-chord_depth-1.0e-5,
+                    "Five-edge terminal Fillet extended past its real edge endpoints");
+            }
+        }
         TopoDS_Edge adjacent;
         for(TopExp_Explorer item(box,TopAbs_EDGE);item.More();item.Next()) {
             const auto candidate=TopoDS::Edge(item.Current());

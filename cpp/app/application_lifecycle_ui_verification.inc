@@ -41,6 +41,16 @@ int verify_application_lifecycle_ui(QApplication& application) {
         configure(directory.path(), "cs");
         {
             app::AssemblyWorkspaceWindow window(directory.path()); window.show(); flush();
+            auto* exit_action = window.findChild<QAction*>("exitApplicationAction");
+            auto* file_menu = window.findChild<QMenu*>("fileMenu");
+            check(exit_action && file_menu && exit_action->text() == "Ukončit" &&
+                !exit_action->icon().isNull() &&
+                exit_action->shortcut() == QKeySequence(QStringLiteral("Alt+F4")),
+                "Exit action, red close icon or shortcut is missing");
+            const auto file_actions = file_menu->actions();
+            check(file_actions.size() >= 2 && file_actions.back() == exit_action &&
+                file_actions[file_actions.size() - 2]->isSeparator(),
+                "Exit is not the final separated File menu action");
             run(window, "new part close-part");
             run(window, "new assembly close-assembly");
             run(window, "new drawing close-drawing");
@@ -59,9 +69,9 @@ int verify_application_lifecycle_ui(QApplication& application) {
                 }
             });
             respond.start(10);
-            check(!window.close(), "Cancel closed the application"); respond.stop();
+            exit_action->trigger(); respond.stop();
             check(prompts == 1 && complete_warning && window.isVisible() && run(window, "documents").data == before,
-                "Cancel changed the document set or history");
+                "Exit bypassed Cancel or changed the document set or history");
             QObject::disconnect(&respond, nullptr, nullptr, nullptr);
             QObject::connect(&respond, &QTimer::timeout, [&] {
                 if (auto* message = qobject_cast<QMessageBox*>(QApplication::activeModalWidget())) {
@@ -78,7 +88,8 @@ int verify_application_lifecycle_ui(QApplication& application) {
         {
             app::AssemblyWorkspaceWindow window(directory.path()); window.show(); flush();
             check(window.open_document_path(directory.filePath("close-part.prtz")), "Cannot reopen saved Part");
-            check(window.close(), "Clean application close needed confirmation");
+            window.findChild<QAction*>("exitApplicationAction")->trigger(); flush();
+            check(!window.isVisible(), "Exit did not close a clean application");
         }
         {
             app::AssemblyWorkspaceWindow window(directory.path()); window.show(); flush();
@@ -188,6 +199,8 @@ int verify_application_lifecycle_ui(QApplication& application) {
             check(settings.language == language, "Restart loaded a different language");
             check(reopened.findChild<QAction*>("newDocumentAction")->text() == settings.text("menu.file.new", "Nový"),
                 "New window menu retained the previous language");
+            check(reopened.findChild<QAction*>("exitApplicationAction")->text() == settings.text("menu.file.exit", "Ukončit"),
+                "Exit action retained the previous language");
             auto* views = reopened.findChild<QComboBox*>("standardViewCombo");
             if (!views || views->itemText(0) != settings.qt_translations.value("Základní pohledy"))
                 std::cerr << "Language " << language.toStdString() << ", views=" << (views ? views->itemText(0).toStdString() : "missing")

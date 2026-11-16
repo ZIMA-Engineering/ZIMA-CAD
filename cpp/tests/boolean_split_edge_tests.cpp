@@ -13,16 +13,23 @@
 #include <map>
 #include <set>
 #include <BRepTools.hxx>
+#include <BRepTools_ShapeSet.hxx>
 #include <BRepCheck_Analyzer.hxx>
 #include <BRepGProp.hxx>
+#include <BRepAdaptor_Curve.hxx>
+#include <BRepAlgoAPI_Cut.hxx>
 #include <BRep_Builder.hxx>
+#include <BRepBndLib.hxx>
+#include <Bnd_Box.hxx>
 #include <GProp_GProps.hxx>
 #include <TopoDS_Shape.hxx>
 #include <TopExp.hxx>
+#include <TopExp_Explorer.hxx>
 #include <TopTools_IndexedMapOfShape.hxx>
 #include <TopTools_IndexedDataMapOfShapeListOfShape.hxx>
 #include <TopoDS.hxx>
 #include <BRepAdaptor_Surface.hxx>
+#include <gp_Circ.hxx>
 #include <sstream>
 #include <source_location>
 
@@ -44,6 +51,411 @@ bool longitudinal(const kernel::ViewerEdge& edge) {
     const auto a = edge.points.front(), b = edge.points.back();
     return std::abs(a.x - b.x) < 1e-6 && std::abs(a.z - b.z) < 1e-6 && std::abs(a.y - b.y) > 1;
 }
+
+struct BoundEdge {
+    TopoDS_Edge shape;
+    kernel::EdgeReference reference;
+};
+
+const kernel::BodyResult& identity_body(const kernel::BodyResult& body) {
+    if(body.kernel_shape!=kernel::kernel_body_compound)return body;
+    require(body.kernel_compound_bodies.size()==1,
+        "Exact edge inspection requires one visible Body");
+    const auto found=body.body_outputs.find(body.kernel_compound_bodies.front());
+    require(found!=body.body_outputs.end(),
+        "Calculated document result lost its visible Body output");
+    return found->second.get();
+}
+
+std::vector<BoundEdge> bound_edges(const kernel::BodyResult& body) {
+    require(!body.kernel_shape.empty() &&
+            body.kernel_shape != kernel::kernel_body_compound,
+        "Exact edge inspection requires one calculated native Body");
+    BRep_Builder builder;
+    BRepTools_ShapeSet archive(builder);
+    std::istringstream stream(body.kernel_shape.get());
+    archive.Read(stream);
+    TopoDS_Shape body_shape;
+    archive.Read(body_shape,stream);
+    require(!body_shape.IsNull(),"Calculated Body archive has no shape");
+    TopTools_IndexedMapOfShape members;
+    TopExp::MapShapes(body_shape,TopAbs_EDGE,members);
+    std::vector<BoundEdge> result;
+    result.reserve(body.kernel_edges.size());
+    for(const auto& binding:body.kernel_edges) {
+        TopoDS_Shape shape;
+        std::istringstream address(binding.locator);
+        archive.Read(shape,address);
+        require(!shape.IsNull()&&shape.ShapeType()==TopAbs_EDGE&&
+                members.Contains(shape),
+            "Calculated Body contains an invalid exact edge binding");
+        result.push_back({TopoDS::Edge(shape),binding.reference});
+    }
+    return result;
+}
+
+double shape_volume(const TopoDS_Shape& shape) {
+    if(shape.IsNull())return 0.;
+    GProp_GProps properties;
+    BRepGProp::VolumeProperties(shape,properties);
+    return properties.Mass();
+}
+
+std::array<double,6> shape_bounds(const TopoDS_Shape& shape) {
+    Bnd_Box bounds;
+    BRepBndLib::AddOptimal(shape,bounds,false,false);
+    std::array<double,6> result{};
+    bounds.Get(result[0],result[1],result[2],result[3],result[4],result[5]);
+    return result;
+}
+
+TopoDS_Shape shape_difference(const TopoDS_Shape& left,
+        const TopoDS_Shape& right,double tolerance) {
+    BRepAlgoAPI_Cut cut(left,right);
+    cut.SetNonDestructive(true);
+    cut.SetRunParallel(false);
+    cut.SetFuzzyValue(tolerance);
+    cut.Build();
+    require(cut.IsDone(),"Actual edge-treatment difference failed");
+    return cut.Shape();
+}
+
+void actual_edge_treatment_case(const fs::path& path,
+        const std::string& owner) {
+    auto part=document::PartDocument::load(path);
+    const auto* treatment=part.find_container(owner);
+    require(treatment,"Requested actual edge treatment is absent");
+    const auto operations=part.kernel_operations();
+    const auto operation=std::ranges::find(operations,owner,
+        &kernel::HistoryOperation::owner_id);
+    require(operation!=operations.end(),
+        "Requested actual edge treatment has no native operation");
+    const auto operation_index=static_cast<std::size_t>(
+        operation-operations.begin());
+    require(operation_index>0,"Actual edge treatment has no input boundary");
+    if(const auto* request=std::get_if<kernel::ChamferRequest>(
+            &operation->primitive))
+        std::cout<<"actual Chamfer method="
+            <<static_cast<int>(request->calculation_method)
+            <<" mode="<<static_cast<int>(request->mode)
+            <<" A="<<request->distance_a
+            <<" routes="<<request->route_edge_counts.size()
+            <<" members="<<request->edges.size()<<'\n';
+    if(const auto* request=std::get_if<kernel::FilletRequest>(
+            &operation->primitive))
+        std::cout<<"actual Fillet method="
+            <<static_cast<int>(request->calculation_method)
+            <<" mode="<<static_cast<int>(request->mode)
+            <<" R="<<request->radius_start
+            <<" routes="<<request->route_edge_counts.size()
+            <<" members="<<request->edges.size()<<'\n';
+    kernel::OcctKernel exact;
+    const auto input_results=exact.evaluate_history(
+        std::vector<kernel::HistoryOperation>(operations.begin(),operation));
+    require(!input_results.empty(),
+        "Actual edge treatment did not produce an input calculation boundary");
+    const auto& input=input_results.back();
+
+    // Print the exact route topology before validating the treatment result.
+    // Failed edge treatments are precisely the cases where this diagnostic is
+    // needed, so delaying it until after the error check hides the useful
+    // geometry information.
+    const auto exact_input_edges=bound_edges(identity_body(input));
+    struct ConsumedRound {
+        gp_Circ circle;
+        kernel::EdgeReference reference;
+    };
+    std::vector<ConsumedRound> consumed_rounds;
+    std::vector<TopoDS_Edge> selected_route_shapes;
+    std::size_t persisted_route_member_count{};
+    for(std::size_t route_index=0;
+            route_index<treatment->edge_treatment.routes.size();
+            ++route_index) {
+        const auto& route=treatment->edge_treatment.routes[route_index];
+        std::cout<<"route "<<route_index<<" members="<<route.size()<<'\n';
+        for(std::size_t member_index=0;member_index<route.size();
+                ++member_index) {
+            const auto& reference=route[member_index];
+            ++persisted_route_member_count;
+            std::size_t matches{};
+            for(const auto& edge:exact_input_edges) {
+                if(edge.reference!=reference&&
+                   !kernel::edge_reference_matches_or_descends_from(
+                       edge.reference,reference))continue;
+                if(route_index==0&&matches==0)
+                    selected_route_shapes.push_back(edge.shape);
+                ++matches;
+                const BRepAdaptor_Curve curve(edge.shape);
+                GProp_GProps length;
+                BRepGProp::LinearProperties(edge.shape,length);
+                const auto start=curve.Value(curve.FirstParameter());
+                const auto end=curve.Value(curve.LastParameter());
+                std::cout<<"  "<<member_index<<' '<<reference.owner_id<<':'
+                    <<reference.semantic_key<<" exact="
+                    <<edge.reference.owner_id<<':'
+                    <<edge.reference.semantic_key<<" type="
+                    <<static_cast<int>(curve.GetType())
+                    <<" length="<<length.Mass()<<" endpoints=("
+                    <<start.X()<<','<<start.Y()<<','<<start.Z()<<")-("
+                    <<end.X()<<','<<end.Y()<<','<<end.Z()<<')';
+                if(curve.GetType()==GeomAbs_Circle) {
+                    const auto circle=curve.Circle();
+                    std::cout<<" radius="<<circle.Radius()<<" center=("
+                        <<circle.Location().X()<<','<<circle.Location().Y()
+                        <<','<<circle.Location().Z()<<") axis=("
+                        <<circle.Axis().Direction().X()<<','
+                        <<circle.Axis().Direction().Y()<<','
+                        <<circle.Axis().Direction().Z()<<')';
+                    if(treatment->feature_kind==document::FeatureKind::Chamfer&&
+                       treatment->edge_treatment.primary_size+
+                            operation->boolean_tolerance>=circle.Radius()&&
+                       !std::ranges::any_of(consumed_rounds,
+                            [&](const ConsumedRound& value) {
+                                return value.reference==reference;
+                            }))
+                        consumed_rounds.push_back({circle,reference});
+                }
+                std::cout<<'\n';
+            }
+        if(matches==0) {
+            std::cerr<<"missing route "<<route_index<<" member "
+                     <<member_index<<' '<<reference.owner_id<<':'
+                     <<reference.semantic_key<<'\n';
+        }
+        require(matches>0,
+                "Actual treatment route member has no exact input edge");
+        }
+    }
+    const auto output_results=exact.evaluate_history(
+        std::vector<kernel::HistoryOperation>(operations.begin(),
+            operation+1));
+    require(!output_results.empty(),
+        "Actual edge treatment did not produce an output calculation boundary");
+    const auto& output=output_results.back();
+    if(!output.calculation_errors.empty()) {
+        for(const auto& [failed,message]:output.calculation_errors)
+            std::cerr<<"Actual treatment error "<<failed<<": "<<message<<'\n';
+        throw std::runtime_error(
+            "Actual edge treatment has a calculation error");
+    }
+    const auto input_shape=kernel::read_calculated_body_shape(input);
+    const auto output_shape=kernel::read_calculated_body_shape(output);
+    require(BRepCheck_Analyzer(input_shape,true,true,false).IsValid()&&
+            BRepCheck_Analyzer(output_shape,true,true,false).IsValid(),
+        "Actual edge-treatment boundary is not a valid B-Rep");
+    const auto removed=shape_difference(input_shape,output_shape,
+        operation->boolean_tolerance);
+    const auto added=shape_difference(output_shape,input_shape,
+        operation->boolean_tolerance);
+    std::cout<<std::setprecision(17)
+        <<"Actual treatment "<<path.generic_string()<<" owner="<<owner
+        <<" operation="<<operation_index<<'/'<<operations.size()
+        <<" input_volume="<<shape_volume(input_shape)
+        <<" output_volume="<<shape_volume(output_shape)
+        <<" removed_volume="<<shape_volume(removed)
+        <<" added_volume="<<shape_volume(added)<<'\n';
+    const auto print_bounds=[](std::string_view label,
+            const TopoDS_Shape& shape) {
+        TopExp_Explorer members(shape,TopAbs_VERTEX);
+        if(!members.More()) {
+            std::cout<<label<<" bounds=empty\n";
+            return;
+        }
+        const auto bounds=shape_bounds(shape);
+        std::cout<<label<<" bounds=("<<bounds[0]<<','<<bounds[1]<<','
+            <<bounds[2]<<")-("<<bounds[3]<<','<<bounds[4]<<','
+            <<bounds[5]<<")\n";
+    };
+    print_bounds("input",input_shape);
+    print_bounds("output",output_shape);
+    print_bounds("removed",removed);
+    print_bounds("added",added);
+
+    const double input_volume=shape_volume(input_shape);
+    const double output_volume=shape_volume(output_shape);
+    if(output_volume<=input_volume+1.0e-6)
+        require(shape_volume(added)<=1.0e-6,
+            "Subtractive actual edge treatment added material");
+    if(output_volume>input_volume+1.0e-6&&
+       treatment->edge_treatment.routes.size()==1&&
+       persisted_route_member_count==1&&
+       selected_route_shapes.size()==1) {
+        const BRepAdaptor_Curve source(selected_route_shapes.front());
+        if(source.GetType()==GeomAbs_Line) {
+            const auto first=source.Value(source.FirstParameter());
+            const auto last=source.Value(source.LastParameter());
+            const gp_Vec axis(first,last);
+            require(axis.SquareMagnitude()>1.0e-18,
+                "Additive actual edge treatment has a degenerate source edge");
+            const gp_Dir direction(axis);
+            const double last_parameter=gp_Vec(first,last).Dot(
+                gp_Vec(direction));
+            const double minimum=std::min(0.,last_parameter)-1.0e-6;
+            const double maximum=std::max(0.,last_parameter)+1.0e-6;
+            for(TopExp_Explorer vertex(added,TopAbs_VERTEX);
+                    vertex.More();vertex.Next()) {
+                const double parameter=gp_Vec(first,BRep_Tool::Pnt(
+                    TopoDS::Vertex(vertex.Current()))).Dot(
+                        gp_Vec(direction));
+                require(parameter>=minimum&&parameter<=maximum,
+                    "Additive actual edge treatment extends beyond its source edge");
+            }
+        }
+    }
+    if(!consumed_rounds.empty()) {
+        const auto exact_output_edges=bound_edges(identity_body(output));
+        for(const auto& consumed:consumed_rounds) {
+            std::size_t retained{};
+            for(const auto& edge:exact_output_edges) {
+                const BRepAdaptor_Curve curve(edge.shape);
+                if(curve.GetType()!=GeomAbs_Circle)continue;
+                const auto circle=curve.Circle();
+                if(std::abs(circle.Radius()-consumed.circle.Radius())<=
+                        1.0e-6&&
+                   circle.Location().Distance(
+                        consumed.circle.Location())<=1.0e-6&&
+                   circle.Axis().Direction().IsParallel(
+                        consumed.circle.Axis().Direction(),1.0e-9)) {
+                    ++retained;
+                    std::cout<<"retained consumed circle "
+                        <<edge.reference.owner_id<<':'
+                        <<edge.reference.semantic_key<<'\n';
+                }
+            }
+            require(retained==0,
+                "Chamfer exceeding a preceding radius retained that old radius");
+        }
+        require(selected_route_shapes.size()>=3&&
+                selected_route_shapes.size()%2==1,
+            "Collapsed actual Chamfer did not resolve an odd round route");
+        std::vector<gp_Lin> source_lines;
+        source_lines.reserve((selected_route_shapes.size()+1)/2);
+        for(std::size_t index=0;index<selected_route_shapes.size();++index) {
+            const BRepAdaptor_Curve curve(selected_route_shapes[index]);
+            if(index%2==0) {
+                require(curve.GetType()==GeomAbs_Line,
+                    "Collapsed actual Chamfer route has no straight rail");
+                source_lines.push_back(curve.Line());
+            } else {
+                require(curve.GetType()==GeomAbs_Circle,
+                    "Collapsed actual Chamfer route is not line-round-line");
+            }
+        }
+        require(source_lines.size()==consumed_rounds.size()+1,
+            "Collapsed actual Chamfer did not consume every round between its rails");
+        struct OffsetRail { gp_Pnt first; gp_Pnt last; };
+        const auto offset_rails=[&](const gp_Lin& source) {
+            std::vector<OffsetRail> rails;
+            for(const auto& edge:exact_output_edges) {
+                const BRepAdaptor_Curve curve(edge.shape);
+                if(curve.GetType()!=GeomAbs_Line||
+                   !curve.Line().Direction().IsParallel(source.Direction(),
+                        1.0e-9))continue;
+                const auto first=curve.Value(curve.FirstParameter());
+                const auto last=curve.Value(curve.LastParameter());
+                if(std::abs(source.Distance(first)-
+                        treatment->edge_treatment.primary_size)<=1.0e-5&&
+                   std::abs(source.Distance(last)-
+                        treatment->edge_treatment.primary_size)<=1.0e-5)
+                    rails.push_back({first,last});
+            }
+            return rails;
+        };
+        for(std::size_t index=1;index<source_lines.size();++index) {
+            const auto previous_rails=offset_rails(source_lines[index-1]);
+            const auto next_rails=offset_rails(source_lines[index]);
+            std::optional<gp_Pnt> envelope_corner;
+            for(const auto& previous:previous_rails)
+                for(const auto& next:next_rails)
+                    for(const auto& previous_end:
+                            {previous.first,previous.last})
+                        for(const auto& next_end:{next.first,next.last})
+                            if(previous_end.Distance(next_end)<=1.0e-5)
+                                envelope_corner=gp_Pnt(
+                                    .5*(previous_end.X()+next_end.X()),
+                                    .5*(previous_end.Y()+next_end.Y()),
+                                    .5*(previous_end.Z()+next_end.Z()));
+            require(envelope_corner.has_value(),
+                "Chamfer beyond a preceding radius did not extend both straight members to their common Body envelope");
+            std::cout<<"collapsed-radius envelope corner "<<index<<"=("
+                <<envelope_corner->X()<<','<<envelope_corner->Y()<<','
+                <<envelope_corner->Z()<<")\n";
+        }
+        if(consumed_rounds.size()!=1||selected_route_shapes.size()!=3)
+            return;
+        const auto& consumed_reference=consumed_rounds.front().reference;
+        const auto consumed_operation=std::ranges::find(operations,
+            consumed_reference.owner_id,&kernel::HistoryOperation::owner_id);
+        if(consumed_operation!=operations.end()&&
+                consumed_operation+1!=operation) {
+            std::cout<<"consumed operation index="
+                <<(consumed_operation-operations.begin())
+                <<" target index="<<operation_index<<" intervening:";
+            for(auto item=consumed_operation+1;item!=operation;++item)
+                std::cout<<' '<<item->owner_id;
+            std::cout<<'\n';
+        }
+        if(consumed_operation!=operations.end()&&
+                consumed_operation+1==operation) {
+            auto reference_operations=operations;
+            const auto consumed_index=static_cast<std::size_t>(
+                consumed_operation-operations.begin());
+            reference_operations.erase(
+                reference_operations.begin()+consumed_index);
+            auto& reference_operation=
+                reference_operations[operation_index-1];
+            auto* reference_request=std::get_if<kernel::ChamferRequest>(
+                &reference_operation.primitive);
+            require(reference_request&&
+                    reference_request->route_edge_counts.size()==1,
+                "Actual collapsed-radius reference is not one Chamfer route");
+            std::erase(reference_request->edges,consumed_reference);
+            reference_request->route_edge_counts[0]=
+                reference_request->edges.size();
+            require(reference_request->edges.size()==2,
+                "Actual collapsed-radius reference did not retain its two straight rails");
+            const auto reference_results=exact.evaluate_history(
+                std::vector<kernel::HistoryOperation>(
+                    reference_operations.begin(),
+                    reference_operations.begin()+operation_index));
+            require(!reference_results.empty()&&
+                    reference_results.back().calculation_errors.empty(),
+                "Sharp-corner actual Chamfer reference did not calculate");
+            const auto reference_shape=kernel::read_calculated_body_shape(
+                reference_results.back());
+            const auto excess=shape_difference(output_shape,reference_shape,
+                operation->boolean_tolerance);
+            const auto missing=shape_difference(reference_shape,output_shape,
+                operation->boolean_tolerance);
+            std::cout<<"collapsed-radius comparison excess="
+                <<shape_volume(excess)<<" missing="<<shape_volume(missing)
+                <<'\n';
+            require(shape_volume(excess)<=1.0e-6&&
+                    shape_volume(missing)<=1.0e-6,
+                "Chamfer beyond a preceding radius differs from its sharp-corner continuation");
+        }
+    }
+    std::cout<<"Actual edge-treatment exact B-Rep checks passed\n";
+}
+
+void list_actual_edge_treatments(const fs::path& path) {
+    const auto part = document::PartDocument::load(path);
+    for (const auto& operation : part.kernel_operations()) {
+        const char* kind = nullptr;
+        if (std::holds_alternative<kernel::FilletRequest>(operation.primitive)) {
+            kind = "Fillet";
+        } else if (std::holds_alternative<kernel::ChamferRequest>(operation.primitive)) {
+            kind = "Chamfer";
+        }
+        if (kind == nullptr) {
+            continue;
+        }
+        const auto* container = part.find_container(operation.owner_id);
+        std::cout << kind << '\t' << operation.owner_id << '\t'
+                  << (container != nullptr ? container->name : std::string{}) << '\n';
+    }
+}
+
 struct Fixture {
     kernel::OcctKernel kernel;
     workspace::Workspace live;
@@ -602,7 +1014,28 @@ void zima_fragment_survival() {
                             ":split-edge:from:")!=std::string::npos;
                 }),
         "ZIMA Chamfer did not use the retained original edge supports");
-    std::cout<<"ZIMA fragment survival: Fillet two/one/zero and Chamfer source descendants passed\n";
+    const kernel::EdgeReference missing{
+        "deleted-treatment-source","missing-edge",{}};
+    const auto partial_fillet=kernel::HistoryOperation{
+        "partial-fillet",
+        kernel::FilletRequest{{original_reference,missing},
+            kernel::FilletRequest::Mode::Constant,1,1,false,{},
+            kernel::EdgeTreatmentCalculationMethod::Zima,{2},{{}}},
+        kernel::BooleanOperation::Add};
+    const auto partial_chamfer=kernel::HistoryOperation{
+        "partial-chamfer",
+        kernel::ChamferRequest{{original_reference,missing},
+            kernel::ChamferRequest::Mode::EqualDistance,1,1,
+            0.7853981633974483,false,
+            kernel::EdgeTreatmentCalculationMethod::Zima,{2},{{}}},
+        kernel::BooleanOperation::Add};
+    for(const auto* partial:{&partial_fillet,&partial_chamfer}) {
+        const auto [survivors,result]=evaluate(10,10,*partial);
+        require(survivors==2&&result.size()==3&&
+                result.back().calculation_errors.empty(),
+            "One disappeared route member blocked a calculable ZIMA edge treatment");
+    }
+    std::cout<<"ZIMA fragment survival: Fillet two/one/zero, Chamfer descendants and automatic missing-member repair passed\n";
 }
 
 void assembly_targets(const fs::path& directory) {
@@ -795,6 +1228,14 @@ int main(int argc, char** argv) { try {
     const auto root = fs::canonical(fs::temp_directory_path());
     const auto directory = root / ("zima-boolean-fragments-" + document::PartDocument::create_default().document_id);
     require(fs::create_directory(directory), "Cannot create test directory");
+    if(argc==3&&std::string(argv[1])=="--list-treatments") {
+        list_actual_edge_treatments(argv[2]);
+        require(directory.parent_path()==root,"Invalid test cleanup path");fs::remove_all(directory);return 0;
+    }
+    if(argc==4&&std::string(argv[1])=="--actual-treatment") {
+        actual_edge_treatment_case(argv[2],argv[3]);
+        require(directory.parent_path()==root,"Invalid test cleanup path");fs::remove_all(directory);return 0;
+    }
     if(argc>1&&std::string(argv[1])=="--assembly-only") {
         assembly_targets(directory);
         require(directory.parent_path()==root,"Invalid test cleanup path");fs::remove_all(directory);return 0;

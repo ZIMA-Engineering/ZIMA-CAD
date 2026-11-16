@@ -80,6 +80,11 @@ struct OcctPlanarEdgeFilletResult {
 struct OcctPlanarEdgeEndFaces {
     TopoDS_Face first;
     TopoDS_Face last;
+    // Direct kernel callers retain the established automatic behaviour.
+    // Persisted ZIMA requests set these independently for the two semantic
+    // route endpoints.
+    bool automatic_first{true};
+    bool automatic_last{true};
 };
 
 // Optional exact source support for a persisted original edge. The selected

@@ -41,9 +41,49 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     require(run(host,"fillet.get",{{"container",id}}).data.at(
                 "calculation_method")=="zima",
         "Fillet command exposed the removed Automatic method name");
+    const auto default_route=run(host,"fillet.get",{{"container",id}}).
+        data.at("routes").at(0);
+    require(default_route.at("first_mode")=="no_cut"&&
+            default_route.at("last_mode")=="no_cut"&&
+            default_route.at("first_vertex").is_null()&&
+            default_route.at("last_vertex").is_null(),
+        "A new command Fillet did not default both endpoints to No-cut");
+    const auto cut_routes=Json::array({Json{
+        {"edges",Json::array({edge})},{"start",Json(nullptr)},
+        {"first_vertex",start},{"last_vertex",end},
+        {"first_mode","cut"},{"last_mode","no_cut"}}});
+    run(host,"fillet.set",{{"container",id},{"routes",cut_routes}});
+    const auto cut_route=run(host,"fillet.get",{{"container",id}}).
+        data.at("routes").at(0);
+    require(cut_route.at("first_vertex")==start&&
+            cut_route.at("last_vertex")==end&&
+            cut_route.at("first_mode")=="cut"&&
+            cut_route.at("last_mode")=="no_cut",
+        "Fillet command did not retain independent endpoint modes");
+    run(host,"undo");
+    require(run(host,"fillet.get",{{"container",id}}).data.at("routes").
+            at(0)==default_route,
+        "Endpoint-mode Undo did not restore the complete route definition");
+    run(host,"redo");
+    require(run(host,"fillet.get",{{"container",id}}).data.at("routes").
+            at(0)==cut_route,
+        "Endpoint-mode Redo lost its stable vertex choice");
+    run(host,"fillet.set",{{"container",id},{"routes",routes()}});
     const double corner=1-std::numbers::pi/4;
     near(measured_volume(),400000-corner*4*50);
-    auto original=*state->session.document().find_container(id);run(host,"undo");require(!state->session.document().find_container(id),"Fillet create needs multiple Undo steps");run(host,"redo");
+    auto original=*state->session.document().find_container(id);
+    run(host,"undo");
+    require(run(host,"fillet.get",{{"container",id}}).data.at("routes").
+            at(0)==cut_route,
+        "Fillet route-reset Undo did not restore the endpoint choices");
+    run(host,"undo");
+    require(run(host,"fillet.get",{{"container",id}}).data.at("routes").
+            at(0)==default_route,
+        "Fillet endpoint edit needed more than one Undo step");
+    run(host,"undo");
+    require(!state->session.document().find_container(id),
+        "Fillet creation needed more than one Undo step");
+    run(host,"redo");run(host,"redo");run(host,"redo");
     require(*state->session.document().find_container(id)==original,"Fillet Redo lost identity");
     const auto revision=state->session.revision();const auto* cache=state->session.calculated_boundaries().data();
     require(host.execute({{"command","fillet.set"},{"arguments",
@@ -57,6 +97,9 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
         {{"routes",Json::array()}},{{"routes",Json::array({Json{{"edges",Json::array({edge,edge})}}})}},
         {{"routes",Json::array({Json{{"edges",Json::array({Json{{"owner",box},{"key","missing"}}})}}})}},
         {{"routes",Json::array({Json{{"edges",Json::array({edge})},{"start",Json{{"owner",box},{"key","missing"}}}}})},{"mode","linear"}},
+        {{"routes",Json::array({Json{{"edges",Json::array({edge})},{"first_mode","cut"}}})}},
+        {{"routes",Json::array({Json{{"edges",Json::array({edge})},{"first_mode","other"}}})}},
+        {{"routes",Json::array({Json{{"edges",Json::array({edge})},{"first_vertex",Json{{"owner",box},{"key","missing"}}}}})}},
         {{"routes",Json::array({Json{{"edges",Json::array({Json{{"owner",box},{"key",edge_key},{"instance_path","foreign"}}})}}})}},
         {{"routes",Json::array({Json{{"edges",Json::array({edge})},{"geometry_index",0}}})}}}) {
         auto args=patch;args["container"]=id;require(!host.execute({{"command","fillet.set"},{"arguments",args}}).ok,"Invalid Fillet accepted");
@@ -174,6 +217,68 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     for(const auto* field:{"distance_a_mm","distance_b_mm","angle_degrees"})require(host.execute({{"command","chamfer.set"},{"arguments",{{"container",chamfer},{field,4}}}}).code=="value_locked","Chamfer bypassed dimension lock");
     require(run(host,"chamfer.get",{{"container",chamfer}}).data.at("angle_degrees")==30&&state->session.revision()==unchanged,"Chamfer query or rejected edit mutated state");
     run(host,"save");const auto chamfer_saved=document::PartDocument::load(directory/"chamfer-command.prtz");require(*chamfer_saved.find_container(chamfer)==chamfer_locked,"Native Chamfer lost state");
+    // A complete circular edge is one closed A x B route. Exercise the same
+    // create/edit/flip/Undo/Redo/native-save lifecycle as an open line route.
+    run(host,"new",{{"type","part"},{"name","chamfer-circular-command"}});
+    constexpr double circular_radius=20.;
+    constexpr double circular_height=30.;
+    const auto cylinder=zima::test::circular_commands(
+        [&](const char* n,commands::Json a){return run(host,n,std::move(a));},
+        {{"radius_mm",circular_radius},{"height_mm",circular_height}}).
+        data.at("container").get<std::string>();
+    state=live.open_part(live.active_document_id());
+    const Json circular_edge={{"owner",cylinder},{"key",test::profile_key(
+        state->session.document(),cylinder,"circle:z_max")}};
+    const auto circular_routes=Json::array({Json{{"edges",
+        Json::array({circular_edge})}}});
+    const auto circular_chamfer=run(host,"chamfer.create",
+        {{"routes",circular_routes},{"mode","two_distances"},
+         {"distance_a_mm",2.},{"distance_b_mm",5.}}).data
+        .at("container").get<std::string>();
+    const auto circular_volume=[=](double radial,double axial) {
+        return std::numbers::pi*circular_radius*circular_radius*
+                circular_height-
+            std::numbers::pi*axial*(circular_radius*radial-
+                radial*radial/3.);
+    };
+    const auto first_circular_volume=measured_volume();
+    const double radial_a=circular_volume(2.,5.);
+    const double axial_a=circular_volume(5.,2.);
+    require(std::min(std::abs(first_circular_volume-radial_a),
+                std::abs(first_circular_volume-axial_a))<1.0e-5,
+        "Circular A x B Chamfer has the wrong independent volume");
+    run(host,"chamfer.set",{{"container",circular_chamfer},{"flip",true}});
+    const auto flipped_circular_volume=measured_volume();
+    require(std::abs(flipped_circular_volume-first_circular_volume)>1.&&
+            std::min(std::abs(flipped_circular_volume-radial_a),
+                std::abs(flipped_circular_volume-axial_a))<1.0e-5,
+        "Circular A x B Chamfer FLIP did not exchange its support distances");
+    run(host,"undo");near(measured_volume(),first_circular_volume);
+    run(host,"redo");near(measured_volume(),flipped_circular_volume);
+    run(host,"chamfer.set",{{"container",circular_chamfer},
+        {"distance_a_mm",3.},{"distance_b_mm",4.}});
+    const auto edited_circular_volume=measured_volume();
+    require(std::min(std::abs(edited_circular_volume-circular_volume(3.,4.)),
+                std::abs(edited_circular_volume-circular_volume(4.,3.)))<
+            1.0e-5,
+        "Circular A x B Chamfer edit has the wrong independent volume");
+    const auto circular_definition=
+        *state->session.document().find_container(circular_chamfer);
+    run(host,"save");
+    std::vector<kernel::BodyResult> circular_saved_results;
+    const auto circular_saved=document::PartDocument::load(
+        directory/"chamfer-circular-command.prtz",
+        &circular_saved_results);
+    require(*circular_saved.find_container(circular_chamfer)==
+                circular_definition&&!circular_saved_results.empty(),
+        "Native file lost the circular A x B Chamfer definition");
+    auto circular_saved_body=circular_saved_results.back();
+    kernel.ensure_body_properties(circular_saved_body);
+    near(circular_saved_body.volume,edited_circular_volume);
+    auto circular_cold=kernel.evaluate_history(
+        circular_saved.kernel_operations()).back();
+    kernel.ensure_body_properties(circular_cold);
+    near(circular_cold.volume,edited_circular_volume);
     // The common three-branch outer node must survive the complete command
     // lifecycle, not only the direct exact-builder fixture.
     for(const bool fillet_node:{true,false}) {

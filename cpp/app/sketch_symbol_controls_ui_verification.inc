@@ -116,8 +116,17 @@ static int verify_sketch_symbol_controls(QApplication& application,
             window.grab().save(QString::fromStdString(document::path_to_utf8((directory/(assembly?"assembly-text-anchor.png":"part-text-anchor.png")))));
             const auto symbol_state=stored();const auto symbol_mesh=symbols::instance_mesh(symbol_state.symbols.front());
             const auto& stroke=symbol_mesh.edges.front().points;const auto pick=screen((stroke.front().x+stroke.back().x)/2,(stroke.front().y+stroke.back().y)/2);
+            const auto symbol_candidates=view->selection_candidates_at(pick);
             view->clear_selection();mouse(QEvent::MouseMove,pick,Qt::NoButton,Qt::NoButton);mouse(QEvent::MouseButtonPress,pick,Qt::LeftButton,Qt::LeftButton);mouse(QEvent::MouseButtonRelease,pick,Qt::LeftButton,Qt::NoButton);
-            check(view->confirmed_candidate()&&view->confirmed_candidate()->kind==viewer::CandidateKind::Symbol,"A normal View click did not select the symbol");
+            if(!view->confirmed_candidate()||view->confirmed_candidate()->kind!=viewer::CandidateKind::Symbol) {
+                std::cerr<<"Symbol pick candidates:";
+                for(const auto& candidate:symbol_candidates)
+                    std::cerr<<' '<<static_cast<int>(candidate.kind)<<':'<<candidate.semantic_key;
+                if(view->confirmed_candidate())std::cerr<<" confirmed="<<static_cast<int>(view->confirmed_candidate()->kind)<<':'<<view->confirmed_candidate()->semantic_key;
+                else std::cerr<<" confirmed=<none>";
+                std::cerr<<'\n';
+                throw std::runtime_error("A normal View click did not select the symbol");
+            }
             bool view_offered=false;
             QTimer::singleShot(0,&window,[&] {
                 auto* menu=qobject_cast<QMenu*>(QApplication::activePopupWidget());auto* action=window.findChild<QAction*>("explodeSketchSymbolAction");

@@ -146,6 +146,7 @@ void AssemblyWorkspaceWindow::cancel_sketch_segment() {
     pending_rectangle_corner_snap_geometry_id_.clear();
     pending_rectangle_corner_snap_kind_.reset();
     sketch_segment_inference_cycle_ = 0;
+    sketch_inference_pointer_position_.reset();
     pending_slot_second_center_.reset();
     pending_slot_symmetry_axis_id_.clear();
     pending_slot_direction_kind_.reset();
@@ -478,6 +479,7 @@ bool AssemblyWorkspaceWindow::cancel_current_sketch_step(
     pending_rectangle_corner_snap_geometry_id_.clear();
     pending_rectangle_corner_snap_kind_.reset();
     sketch_segment_inference_cycle_ = 0;
+    sketch_inference_pointer_position_.reset();
     sketch_skip_candidate_snap_ = false;
     sketch_endpoint_inference_cycle_ = false;
     pending_rectangle_corner_.reset();
@@ -1297,6 +1299,7 @@ void AssemblyWorkspaceWindow::show_sketch_constraints() {
         sketch_inference_settings_=std::move(settings);
         pending_sketch_snap_geometry_id_.clear();pending_sketch_snap_kind_.reset();
         sketch_segment_inference_cycle_=0;
+        sketch_inference_pointer_position_.reset();
         sketch_endpoint_inference_cycle_=false;
         const auto filter=[&](auto& kind){if (kind && !automatic_constraint_enabled(*kind)) kind.reset();};
         filter(pending_segment_start_snap_kind_);filter(pending_rectangle_corner_snap_kind_);

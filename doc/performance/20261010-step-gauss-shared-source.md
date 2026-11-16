@@ -106,6 +106,31 @@ and 93.829 s for the shared transfer. These runs also overlapped small regressio
 workloads, so they are observations, not universal speedup promises. Evidence:
 `build/import-followup/g92h-final-{frozen,shared}.log`.
 
+### 2026-11-14 current-build G92K1 re-audit
+
+The current Windows Release build re-imported the read-only 175,494,212-byte
+G92K1 STEP through the actual shared-source Part import path. The import completed
+without the historical heap corruption in 430.090 seconds. Its current display
+packet contains 205,818 vertices, 284,803 triangles and 17,216 original edges;
+the reported exact volume is approximately 1,944,860 mm3. Source reading took
+4.404 seconds, OCCT transfer 9.862 seconds, topology capture and native archiving
+21.759 seconds, result meshing 1.935 seconds, exact volume and inertia 348.261
+seconds, surface properties 4.896 seconds, B-Rep persistence 3.535 seconds, face
+packets 5.678 seconds and edge packets 17.125 seconds. Saving the resulting
+303,258,609-byte current-format native Part took 12.849 seconds.
+
+The current silhouette/viewer benchmark passed its connectivity, exact GPU data,
+stable-frame, hover, confirmation, camera and mesh invalidation checks on that
+fresh native result. At 1200 x 800 with framebuffer readback, opaque unhighlighted
+warm-frame medians were 12.402 ms Wire, 15.400 ms Hidden edges, 13.444 ms No
+hidden edges, 12.851 ms Shaded with edges and 12.332 ms Shaded. Transparent
+Shaded with edges and Shaded measured 35.730 and 35.781 ms unhighlighted and up
+to 40.990 and 40.667 ms with hover/selection. These are current observations on
+one Windows machine, not universal speedup promises. They confirm that the
+ordinary opaque rotation path remains interactive while exact physical-property
+integration remains the dominant import cost. No geometry precision, reference,
+side, persistence or Undo contract was changed during this re-audit.
+
 ## Rational-volume integration of imported solids
 
 STEP now reuses the existing bounded four-worker face integration path used

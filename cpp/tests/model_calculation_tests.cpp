@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <nlohmann/json.hpp>
 #include <cmath>
+#include <filesystem>
 #include <iostream>
 #include <set>
 #include <stdexcept>
@@ -955,10 +956,108 @@ void verify_failed_predecessor_rollback_remains_editable(
             state->session.document().find_container(second->id)->
                 edge_treatment.routes==second_route,
         "Opening a dependent invalid Fillet changed its authored state or cache");
-    require(document::treatment_selection_wire(
+    require(document::current_treatment_selection_wire(
             state->session.document().find_container(second->id)->
                 edge_treatment,0,std::nullopt,rollback->input_body->mesh).empty(),
         "Dependent invalid Fillet guessed a replacement edge on the last-valid Body");
+}
+void verify_zima_edge_treatment_dependent_cut_identity(
+        const kernel::OcctKernel& kernel) {
+    auto part=document::PartDocument::create_default();
+    auto stock=test::rectangular_feature(part,{20,20,20});
+    const kernel::EdgeReference stock_edge{stock.id,
+        test::profile_key(part,stock,
+            "edge:x_max:y_min:z_max--x_max:y_min:z_min"),{}};
+    auto fillet=document::PartDocument::create_fillet_container({stock_edge});
+    fillet.edge_treatment.primary_size=2.;
+    fillet.edge_treatment.calculation_method=
+        document::EdgeTreatmentParameters::CalculationMethod::Zima;
+    part.history={stock,fillet};
+    auto calculated=workspace::calculate_part(kernel,part);
+    require(calculated.size()==2&&
+            calculated.back().calculation_errors.empty(),
+        "Dependent-cut fixture could not calculate its ZIMA Fillet");
+    const auto generated_edge=std::ranges::find_if(
+        calculated.back().mesh.edges,[&](const auto& edge) {
+            return edge.reference.owner_id==fillet.id&&
+                edge.edge_treatment_endpoint_references.size()==2;
+        });
+    require(generated_edge!=calculated.back().mesh.edges.end(),
+        "ZIMA Fillet exposed no generated edge with stable endpoints");
+    const auto endpoint=generated_edge->edge_treatment_endpoint_references.front();
+    const auto generated_point=std::ranges::find(
+        calculated.back().mesh.original_references.points,endpoint,
+        &kernel::ViewerPoint::reference);
+    require(generated_point!=
+            calculated.back().mesh.original_references.points.end(),
+        "ZIMA Fillet endpoint is absent from reference geometry");
+
+    auto cut=test::rectangular_feature(part,{2,2,2});
+    cut.combine_mode=document::CombineMode::Subtract;
+    cut.placement.references={reference_to(*generated_point)};
+    const auto cut_reference=cut.placement.references.front();
+    const auto cut_id=cut.id;
+    part.history.push_back(cut);
+    calculated=workspace::calculate_part_with_resolved_references(
+        kernel,part,&calculated);
+    require(calculated.size()==3&&
+            calculated.back().calculation_errors.empty()&&
+            part.find_container(cut_id)->placement.reference_valid&&
+            part.find_container(cut_id)->placement.references.front()==
+                cut_reference,
+        "Cut could not consume the ZIMA Fillet endpoint identity");
+    const auto initial_cut_z=part.find_container(cut_id)->placement.z;
+
+    auto radius_edit=part;
+    radius_edit.find_container(fillet.id)->edge_treatment.primary_size=3.;
+    auto radius_calculated=workspace::calculate_part_with_resolved_references(
+        kernel,radius_edit,&calculated);
+    require(radius_calculated.back().calculation_errors.empty()&&
+            radius_edit.find_container(cut_id)->placement.reference_valid&&
+            radius_edit.find_container(cut_id)->placement.references.front()==
+                cut_reference,
+        "ZIMA Fillet radius edit replaced the dependent Cut reference");
+
+    auto resized=radius_edit;
+    test::resize_rectangular_feature(resized,*resized.find_container(stock.id),
+        {20,20,24});
+    auto resized_calculated=workspace::calculate_part_with_resolved_references(
+        kernel,resized,&radius_calculated);
+    require(resized_calculated.back().calculation_errors.empty()&&
+            resized.find_container(cut_id)->placement.reference_valid&&
+            resized.find_container(cut_id)->placement.references.front()==
+                cut_reference&&
+            std::abs(resized.find_container(cut_id)->placement.z-
+                initial_cut_z)>1.,
+        "Dependent Cut did not follow the regenerated ZIMA Fillet endpoint");
+
+    document::DocumentSession session(radius_edit,radius_calculated);
+    session.commit(resized,resized_calculated);
+    require(session.undo()&&
+            session.document().find_container(cut_id)->placement.reference_valid&&
+            session.document().find_container(cut_id)->placement.references.front()==
+                cut_reference,
+        "Dependent Cut reference failed Undo after a ZIMA Fillet regeneration");
+    require(session.redo()&&
+            session.document().find_container(cut_id)->placement.reference_valid&&
+            session.document().find_container(cut_id)->placement.references.front()==
+                cut_reference&&
+            session.calculated_boundaries().back().calculation_errors.empty(),
+        "Dependent Cut reference failed Redo after a ZIMA Fillet regeneration");
+
+    const auto path=std::filesystem::temp_directory_path()/
+        ("zima-zima-fillet-dependent-cut-"+part.document_id+".prtz");
+    session.document().save(path,session.calculated_boundaries());
+    std::vector<kernel::BodyResult> saved;
+    auto reopened=document::PartDocument::load(path,&saved);
+    const auto cold=workspace::calculate_part_with_resolved_references(
+        kernel,reopened,&saved);
+    std::filesystem::remove(path);
+    require(cold.size()==3&&cold.back().calculation_errors.empty()&&
+            reopened.find_container(cut_id)->placement.reference_valid&&
+            reopened.find_container(cut_id)->placement.references.front()==
+                cut_reference,
+        "Dependent Cut lost its ZIMA Fillet endpoint after save/reopen");
 }
 void verify_retained_edge_treatment_boundary(const kernel::OcctKernel& kernel){
     auto part=document::PartDocument::create_default();
@@ -1074,6 +1173,7 @@ int main(){try{
     verify_failed_source_reference_is_reported_downstream(kernel);
     verify_independent_history_continues_after_failure(kernel);
     verify_failed_predecessor_rollback_remains_editable(kernel);
+    verify_zima_edge_treatment_dependent_cut_identity(kernel);
     verify_edge_treatment_preserves_history_boundary_placement(kernel);
     verify_recovery_policy(kernel);
     verify_deferred_history_boundary(kernel);verify_retained_edge_treatment_boundary(kernel);

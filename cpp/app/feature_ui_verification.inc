@@ -832,6 +832,198 @@ static void verify_placed_origin_visibility(QApplication& application,AssemblyWo
         "Cancel persisted a pending placement coordinate");
 }
 
+static void verify_single_planar_origin_projection(QApplication& application,
+    AssemblyWorkspaceWindow& window,const std::filesystem::path& directory) {
+    const auto check=[](bool ok,const char* why){if(!ok)throw std::runtime_error(why);};
+    const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
+    auto part=document::PartDocument::create_default();
+    auto source_sketch=sketcher::Sketch::create_default();
+    source_sketch.add_circle(0,0,300);
+    auto source=document::PartDocument::create_feature_container(source_sketch.id);
+    source.feature.sides[0].length=500;
+    source.feature.sides[0].draft_angle_degrees=12;
+    source.placement.x=37;source.placement.y=-21;source.placement.z=13;
+    source.placement.rotation_x=source.placement.absolute_rotation_x=23;
+    source.placement.rotation_y=source.placement.absolute_rotation_y=31;
+    source.placement.rotation_z=source.placement.absolute_rotation_z=47;
+    source_sketch.owner_container_id=source.id;
+    auto target_sketch=sketcher::Sketch::create_default();
+    static_cast<void>(target_sketch.add_segment(-2,-2,2,2));
+    auto target=document::PartDocument::create_feature_container(target_sketch.id);
+    target.feature.type=document::FeatureType::Sketch;
+    target.name="One-plane Origin projection";
+    target_sketch.owner_container_id=target.id;
+    part.history={source,target};part.sketches={source_sketch,target_sketch};
+    document::BodyHistoryGraph graph;
+    const auto body=graph.create_body("One-plane Origin projection");
+    graph.insert({document::PartHistoryKind::Feature,source.id});
+    graph.insert({document::PartHistoryKind::Feature,target.id});
+    part.set_body_history(graph);part.resolve_constructions();
+    const kernel::OcctKernel kernel;
+    auto calculated=kernel.evaluate_history(part.kernel_operations());
+    std::vector<const kernel::FaceReference*> planes;
+    for(const auto& face:calculated.back().mesh.original_references.triangle_references)
+        if(face.owner_id==source.id&&face.surface&&
+           face.surface->kind==kernel::SurfaceGeometry::Kind::Plane&&
+           std::ranges::none_of(planes,[&](const auto* existing) {
+               return existing->owner_id==face.owner_id&&
+                   existing->semantic_key==face.semantic_key&&
+                   existing->instance_path==face.instance_path;
+           }))
+            planes.push_back(&face);
+    check(planes.size()>=2,
+        "One-plane fixture does not expose two source planes");
+    const auto oblique=[](const kernel::FaceReference& face) {
+        const auto& axis=face.surface->axis;
+        const auto length=std::hypot(axis.x,axis.y,axis.z);
+        return std::abs(axis.x/length)>.05&&std::abs(axis.y/length)>.05&&
+            std::abs(axis.z/length)>.05;
+    };
+    check(std::ranges::all_of(planes,[&](const auto* face) {
+        return oblique(*face);
+    }),
+        "One-plane fixture did not produce generally oblique planes");
+    const auto projection=[](const kernel::FaceReference& face) {
+        const auto& surface=*face.surface;
+        const auto length=std::hypot(surface.axis.x,surface.axis.y,
+            surface.axis.z);
+        const kernel::Vec3 normal{surface.axis.x/length,
+            surface.axis.y/length,surface.axis.z/length};
+        const auto distance=normal.x*surface.origin.x+
+            normal.y*surface.origin.y+normal.z*surface.origin.z;
+        return kernel::Vec3{distance*normal.x,distance*normal.y,
+            distance*normal.z};
+    };
+    const auto file=directory/("one-plane-origin-projection-"+target.id+".prtz");
+    part.save(file,calculated);
+    check(window.open_document_path(QString::fromStdString(file.string())),
+        "One-plane fixture cannot open");flush();
+    const auto run=[&](const char* command,commands::Json args=commands::Json::object()) {
+        const auto result=window.execute_console_command(QString::fromStdString(
+            commands::Json{{"command",command},{"arguments",args}}.dump()));
+        check(result.ok,"One-plane fixture command failed");flush();
+    };
+    run("body.activate",{{"body",body}});
+    const auto find_row=[&]() {
+        auto* tree=window.findChild<QTreeWidget*>("documentTree");
+        for(QTreeWidgetItemIterator i(tree);*i;++i)
+            if((*i)->data(0,Qt::UserRole).toString().toStdString()==target.id&&
+               (*i)->data(0,Qt::UserRole+3)=="part-container")return *i;
+        return static_cast<QTreeWidgetItem*>(nullptr);
+    };
+    auto* row=find_row();check(row,"One-plane Feature tree row missing");
+    window.show_tree_item_properties(row);flush();
+    auto* dialog=dynamic_cast<PrimitivePropertiesDialog*>(
+        window.findChild<QWidget*>("featurePropertiesDialog"));
+    auto* view=dynamic_cast<viewer::MeshView*>(
+        window.findChild<QOpenGLWidget*>());
+    check(dialog&&view,"One-plane Feature placement editor missing");
+    dialog->findChild<QComboBox*>("featureType")->setCurrentIndex(4);flush();
+    const auto current_frame=[&](const char* phase) {
+        const auto pending=dialog->pending_value();
+        const std::set<std::string> owners{
+            pending.id,pending.feature_id,pending.container_origin.id};
+        std::vector<kernel::ViewerAxis> axes;
+        for(const auto* source_axes:{&view->mesh().axes,
+                &view->transient_context_mesh().axes})
+            for(const auto& axis:*source_axes)
+                if(owners.contains(axis.reference.owner_id)&&
+                   axis.reference.semantic_key.starts_with("origin:axis:"))
+                    axes.push_back(axis);
+        if(axes.size()!=3)throw std::runtime_error(std::string(phase)+
+            ": placement does not display exactly one complete Origin frame");
+        check(std::ranges::all_of(axes,[&](const auto& axis) {
+            return std::hypot(axis.point.x-axes.front().point.x,
+                axis.point.y-axes.front().point.y,
+                axis.point.z-axes.front().point.z)<1e-6;
+        }),"One-plane Origin axes do not share one point");
+        return axes;
+    };
+    const auto verify_plane=[&](const kernel::FaceReference& face,
+            const char* phase,bool require_normal_axis) {
+        const auto expected=projection(face);
+        const auto axes=current_frame(phase);
+        check(std::hypot(axes.front().point.x-expected.x,
+                axes.front().point.y-expected.y,
+                axes.front().point.z-expected.z)<1e-6,
+            "One-plane Origin is not the Body-Origin projection");
+        const auto& support=face.surface->axis;
+        const auto support_length=std::hypot(support.x,support.y,support.z);
+        const bool aligned=std::ranges::any_of(axes,[&](const auto& axis) {
+            const auto axis_length=std::hypot(axis.direction.x,
+                axis.direction.y,axis.direction.z);
+            return std::abs((axis.direction.x*support.x+
+                axis.direction.y*support.y+axis.direction.z*support.z)/
+                (axis_length*support_length))>1.-1e-6;
+        });
+        if(require_normal_axis&&!aligned) {
+            std::string detail="One-plane frame has no axis aligned with support "+
+                std::to_string(support.x)+","+std::to_string(support.y)+","+
+                std::to_string(support.z);
+            for(const auto& axis:axes)detail+=" ["+axis.reference.semantic_key+" "+
+                std::to_string(axis.direction.x)+","+
+                std::to_string(axis.direction.y)+","+
+                std::to_string(axis.direction.z)+"]";
+            const auto pending=dialog->pending_value().placement;
+            detail+=" rotation "+std::to_string(pending.rotation_x)+","+
+                std::to_string(pending.rotation_y)+","+
+                std::to_string(pending.rotation_z)+" refs "+
+                std::to_string(pending.references.size());
+            throw std::runtime_error(detail);
+        }
+        return expected;
+    };
+    const auto assign_plane=[&](const kernel::FaceReference& face,
+            const char* name,bool require_normal_axis) {
+        document::ConstructionReference reference{{},face.owner_id,
+            face.semantic_key,0,true};
+        reference.picked_position=std::array{700.,-800.,900.};
+        check(dialog->set_reference(0,std::move(reference),name),
+            "One-plane Feature rejected an oblique plane");flush();
+        return verify_plane(face,name,require_normal_axis);
+    };
+    const auto first=assign_plane(*planes[0],"first oblique plane",true);
+    document::ConstructionReference front{{},body+":origin",
+        "origin:plane:yz",0,true,"front",true};
+    front.orientation_only=true;
+    check(dialog->set_reference(3,front,"FRONT plane"),
+        "One-plane Feature rejected its orientation plane");flush();
+    const auto with_front=current_frame("orientation plane").front().point;
+    check(std::hypot(with_front.x-first.x,with_front.y-first.y,
+            with_front.z-first.z)<1e-6,
+        "Orientation-only plane moved the one-plane Origin");
+    const auto second=assign_plane(*planes[1],"replacement oblique plane",false);
+    check(std::hypot(second.x-first.x,second.y-first.y,second.z-first.z)>1.,
+        "One-plane replacement fixture planes have the same projection");
+    const auto committed=dialog->pending_value().placement;
+    dialog->buttons()->button(QDialogButtonBox::Ok)->click();flush();
+    check(!window.findChild<QWidget*>("featurePropertiesDialog"),
+        "One-plane Feature OK did not close Properties");
+    run("save");
+    auto saved=document::PartDocument::load(file);
+    check(saved.find_container(target.id)->placement==committed,
+        "One-plane placement was not persisted");
+    run("undo");run("save");
+    saved=document::PartDocument::load(file);
+    check(saved.find_container(target.id)->placement.references.empty(),
+        "One-plane placement Undo did not restore the unplaced Feature");
+    run("redo");run("save");
+    saved=document::PartDocument::load(file);
+    check(saved.find_container(target.id)->placement==committed,
+        "One-plane placement Redo did not restore the committed frame");
+    run("close");
+    check(window.open_document_path(QString::fromStdString(file.string())),
+        "One-plane persisted fixture cannot reopen");flush();
+    run("body.activate",{{"body",body}});
+    row=find_row();check(row,"Reopened one-plane Feature tree row missing");
+    window.show_tree_item_properties(row);flush();
+    dialog=dynamic_cast<PrimitivePropertiesDialog*>(
+        window.findChild<QWidget*>("featurePropertiesDialog"));
+    check(dialog,"Reopened one-plane Feature editor missing");
+    verify_plane(*planes[1],"reopened replacement plane",false);
+    dialog->reject();flush();run("close");
+}
+
 static void verify_existing_feature_origin_replacement(QApplication& application,
     AssemblyWorkspaceWindow& window,const std::filesystem::path& directory) {
     const auto check=[](bool ok,const char* why){if(!ok)throw std::runtime_error(why);};

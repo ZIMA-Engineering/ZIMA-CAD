@@ -147,6 +147,11 @@ public:
         std::vector<std::vector<zima::kernel::ViewerEdge>> displayed_fragments);
     void set_edge_route_start_vertices(
         std::vector<zima::kernel::VertexReference> vertices);
+    void set_edge_route_end_vertices(std::size_t route,
+        zima::kernel::VertexReference first,
+        zima::kernel::VertexReference last);
+    void set_edge_route_end_mode(std::size_t route, bool first,
+        zima::document::EdgeTreatmentParameters::RouteEndMode mode);
     void set_dimension_layouts(const std::vector<zima::kernel::DimensionLayoutEntry>&);
     [[nodiscard]] const std::vector<zima::kernel::DimensionLayoutEntry>& dimension_layouts() const { return dimension_layouts_; }
     [[nodiscard]] std::optional<zima::kernel::DimensionLayout> pending_dimension_layout(const zima::kernel::EdgeReference&) const;

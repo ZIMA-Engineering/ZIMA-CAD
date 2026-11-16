@@ -637,7 +637,7 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
         catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}
     }
     if(qEnvironmentVariableIsSet("ZIMA_VERIFY_PLACEMENT_ORIGIN_PREVIEW_ONLY")) {
-        try {verify_placed_origin_visibility(application,window,directory);verify_existing_feature_origin_replacement(application,window,directory);std::cout<<"Placement preview Origin replacement and OK/Cancel restoration passed\n";return 0;}
+        try {verify_placed_origin_visibility(application,window,directory);verify_single_planar_origin_projection(application,window,directory);verify_existing_feature_origin_replacement(application,window,directory);std::cout<<"Placement preview Origin projection/replacement, persistence and OK/Cancel restoration passed\n";return 0;}
         catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}
     }
     if(qEnvironmentVariableIsSet("ZIMA_VERIFY_FEATURE_TYPE_TRANSITION_ONLY")) {
@@ -650,6 +650,8 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
         try {verify_feature_profile_axes(application,directory);std::cout<<"Feature profile/origin/centroid axes: five languages, Tree, View selection and native reopening passed\n";return 0;}
         catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}
     }
+    if(qEnvironmentVariableIsSet("ZIMA_VERIFY_MISSING_PROFILE_SCENE_ONLY"))
+        return verify_missing_profile_scene(application,window,directory);
     if(qEnvironmentVariableIsSet("ZIMA_VERIFY_HISTORY_DELETION_ONLY"))return verify_history_deletion(application,window,directory);
     if(qEnvironmentVariableIsSet("ZIMA_VERIFY_SURFACE_PLACEMENT_ONLY")) {
         try {verify_feature_surface_placement(application,window,directory);std::cout<<"Feature surface placement and shortcuts passed\n";return 0;}

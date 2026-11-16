@@ -234,6 +234,11 @@ private:
     std::array<std::optional<std::pair<double,double>>,3> picked_translation_values_{};
     std::array<std::optional<std::pair<double,double>>,3> picked_rotation_values_{};
     std::array<std::optional<std::pair<double,double>>,3> picked_rotation_offset_values_{};
+    // A newly entered sole plane starts at the owning Origin. Its first solve
+    // may change all three world coordinates even though the rank display has
+    // only one pivot column; consume that complete projected point once so a
+    // following preview cannot project a mixed old/new coordinate seed again.
+    bool accept_full_owner_origin_projection_{};
     QWidget* parent_widget_;
     bool placement_confirmation_blocked_{};
     bool placement_previous_ok_enabled_{};
