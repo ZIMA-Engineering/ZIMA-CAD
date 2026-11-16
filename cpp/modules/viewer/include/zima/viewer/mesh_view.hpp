@@ -283,7 +283,9 @@ public:
     // Command-owned purple labels.  They are not model candidates and can
     // only consume a left double-click while their explicit callback exists.
     void set_interactive_labels(std::vector<InteractiveLabel> labels,
-        std::function<bool(const std::string&,const QPoint&)> double_click = {});
+        std::function<bool(const std::string&,const QPoint&)> double_click = {},
+        bool scene_coordinates = false);
+    bool activate_interactive_label(const std::string& key,const QPoint& global_position);
     [[nodiscard]] const std::vector<InteractiveLabel>& interactive_labels() const;
     [[nodiscard]] std::optional<QPoint> interactive_label_position(
         const std::string& key) const;

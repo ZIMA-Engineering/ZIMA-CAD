@@ -676,6 +676,34 @@ void edge_preview_append_corner(std::vector<zima::kernel::Vec3>& rail,
     }
 }
 
+struct EdgePreviewCircularPath {
+    zima::kernel::Vec3 center;
+    zima::kernel::Vec3 axis;
+    double radius{};
+};
+
+std::optional<EdgePreviewCircularPath> edge_preview_circular_path(
+        const zima::kernel::ViewerEdge& edge,bool first) {
+    if(edge.points.size()<3)return {};
+    const auto& p=edge.points.front();
+    const auto u=edge_preview_difference(edge.points[edge.points.size()/2],p);
+    const auto v=edge_preview_difference(edge.points.back(),p);
+    const auto w=zima::kernel::dimension_cross(u,v);
+    const double w2=edge_preview_dot(w,w);
+    if(w2<1.e-18)return {};
+    auto center=edge_preview_offset(p,zima::kernel::dimension_cross(v,w),edge_preview_dot(u,u)/(2.*w2));
+    center=edge_preview_offset(center,zima::kernel::dimension_cross(w,u),edge_preview_dot(v,v)/(2.*w2));
+    const auto axis=edge_preview_normalized(w);
+    const double radius=edge_preview_length(edge_preview_difference(p,center));
+    if(!axis||radius<=1.e-9)return {};
+    for(const auto& point:edge.points) {
+        const auto radial=edge_preview_difference(point,center);
+        if(std::abs(edge_preview_dot(radial,*axis))>1.e-7||
+            std::abs(edge_preview_length(radial)-radius)>1.e-7)return {};
+    }
+    return EdgePreviewCircularPath{center,edge_preview_offset({},*axis,first?1.:-1.),radius};
+}
+
 struct FilletPreviewTerminal {
     std::size_t group{};
     zima::kernel::Vec3 node;
@@ -690,6 +718,7 @@ struct FilletPreviewTerminal {
     std::vector<zima::kernel::FaceReference> curved_terminal_faces;
     std::optional<bool> adds_material;
     zima::kernel::VertexReference vertex;
+    std::optional<EdgePreviewCircularPath> circular_path;
 };
 
 std::shared_ptr<const zima::kernel::SurfaceGeometry> edge_preview_surface(
@@ -707,12 +736,60 @@ std::shared_ptr<const zima::kernel::SurfaceGeometry> edge_preview_surface(
     return original==mesh.original_references.triangle_references.end()?nullptr:original->surface;
 }
 
+std::optional<std::pair<zima::kernel::Vec3,zima::kernel::Vec3>>
+edge_preview_terminal_plane(const zima::kernel::ViewerMesh& mesh,
+        const zima::kernel::FaceReference& face) {
+    if(const auto surface=edge_preview_surface(mesh,face)) {
+        if(surface->kind!=zima::kernel::SurfaceGeometry::Kind::Plane)return {};
+        return std::pair{surface->origin,surface->axis};
+    }
+    // Some current viewer packets carry only the planar face's triangles.
+    // Prove coplanarity of all its vertices before using their exact plane.
+    std::optional<std::pair<zima::kernel::Vec3,zima::kernel::Vec3>> result;
+    for(std::size_t t=0;t<mesh.triangle_references.size()&&3*t+2<mesh.triangles.size();++t) {
+        if(mesh.triangle_references[t]!=face)continue;
+        const auto a=mesh.triangles[3*t],b=mesh.triangles[3*t+1],c=mesh.triangles[3*t+2];
+        if(std::max({a,b,c})>=mesh.vertices.size())continue;
+        if(!result) {
+            const auto normal=edge_preview_normalized(zima::kernel::dimension_cross(
+                edge_preview_difference(mesh.vertices[b],mesh.vertices[a]),
+                edge_preview_difference(mesh.vertices[c],mesh.vertices[a])));
+            if(normal)result=std::pair{mesh.vertices[a],*normal};
+        }
+        if(result)for(const auto i:{a,b,c})
+            if(std::abs(edge_preview_dot(edge_preview_difference(mesh.vertices[i],result->first),result->second))>1.e-8)
+                return {};
+    }
+    // Wire-only rollback packets retain exact boundary samples and the
+    // calculated in-face directions. They identify a plane even when its
+    // display triangles have deliberately been omitted from the packet.
+    for(const auto& edge:mesh.edges)for(std::size_t side=0;
+            side<edge.edge_treatment_side_references.size();++side) {
+        if(edge.edge_treatment_side_references[side]!=face||edge.points.size()<2||
+                side>=edge.edge_treatment_side_directions.size()||
+                edge.edge_treatment_side_directions[side].size()!=edge.points.size())continue;
+        const auto& guides=edge.edge_treatment_side_directions[side];
+        if(!result) {
+            const auto normal=edge_preview_normalized(zima::kernel::dimension_cross(
+                edge_preview_difference(edge.points[1],edge.points[0]),guides[0]));
+            if(normal)result=std::pair{edge.points[0],*normal};
+        }
+        if(result)for(std::size_t i=0;i<edge.points.size();++i)
+            if(std::abs(edge_preview_dot(edge_preview_difference(edge.points[i],result->first),result->second))>1.e-7||
+                std::abs(edge_preview_dot(guides[i],result->second))>1.e-7)return {};
+    }
+    return result;
+}
+
 std::optional<bool> edge_preview_adds_material(
         const zima::kernel::ViewerMesh* mesh,
         const zima::kernel::ViewerEdge& edge,
         const EdgeTreatmentSection& section,const zima::kernel::Vec3& node) {
-    if(!mesh||!section.radius_center)return {};
-    const auto offset=edge_preview_difference(*section.radius_center,node);
+    if(!mesh)return {};
+    const auto center=section.radius_center.value_or(edge_preview_offset(
+        section.first_tangent,edge_preview_difference(section.second_tangent,
+            section.first_tangent),.5));
+    const auto offset=edge_preview_difference(center,node);
     for(const auto& face:edge.edge_treatment_side_references) {
         const auto surface=edge_preview_surface(*mesh,face);
         if(!surface||surface->kind!=zima::kernel::SurfaceGeometry::Kind::Plane)continue;
@@ -875,13 +952,14 @@ edge_preview_curved_terminal_faces(
 
 std::vector<zima::kernel::FaceReference> edge_preview_terminal_faces(
         const zima::kernel::ViewerMesh& mesh,const zima::kernel::ViewerEdge& route,
-        bool first,const zima::kernel::Vec3& axis,double reach) {
+        bool first,const zima::kernel::Vec3& axis,double reach,
+        const zima::kernel::Vec3* preceding=nullptr) {
     const auto& node=first?route.points.front():route.points.back();
     auto faces=edge_preview_curved_terminal_faces(mesh,route,node,axis,reach);
     const auto vertex=route.edge_treatment_endpoint_references.size()==2
         ?route.edge_treatment_endpoint_references[first?0:1]:zima::kernel::VertexReference{};
     for(const auto& edge:mesh.edges) {
-        const bool incident=vertex.valid()
+        const bool incident=vertex.valid()&&!edge.edge_treatment_endpoint_references.empty()
             ?std::ranges::find(edge.edge_treatment_endpoint_references,vertex)!=
                 edge.edge_treatment_endpoint_references.end()
             :std::ranges::any_of(edge.points,[&](const auto& p){return edge_preview_same_point(p,node);});
@@ -890,13 +968,65 @@ std::vector<zima::kernel::FaceReference> edge_preview_terminal_faces(
             if(!face.valid()||std::ranges::find(route.edge_treatment_side_references,face)!=
                     route.edge_treatment_side_references.end()||
                std::ranges::find(faces,face)!=faces.end())continue;
-            const auto surface=edge_preview_surface(mesh,face);
-            if(surface&&surface->kind==zima::kernel::SurfaceGeometry::Kind::Plane&&
-                    std::abs(edge_preview_dot(surface->axis,axis))<=1.0e-10)continue;
+            const auto plane=edge_preview_terminal_plane(mesh,face);
+            if(plane&&std::abs(edge_preview_dot(plane->second,axis))<=1.0e-10&&
+                    (!preceding||std::abs(edge_preview_dot(plane->second,
+                        edge_preview_difference(*preceding,plane->first)))<=1.e-8))continue;
             faces.push_back(face);
         }
     }
     return faces;
+}
+
+zima::kernel::Vec3 edge_preview_rotate(const zima::kernel::Vec3& point,
+        const EdgePreviewCircularPath& circle,double angle) {
+    const auto p=edge_preview_difference(point,circle.center);
+    auto result=edge_preview_offset(circle.center,p,std::cos(angle));
+    result=edge_preview_offset(result,zima::kernel::dimension_cross(circle.axis,p),std::sin(angle));
+    return edge_preview_offset(result,circle.axis,edge_preview_dot(circle.axis,p)*(1.-std::cos(angle)));
+}
+
+std::vector<zima::kernel::Vec3> edge_preview_circular_terminal_intersection(
+        const zima::kernel::ViewerMesh& mesh,const FilletPreviewTerminal& terminal) {
+    const auto& circle=*terminal.circular_path;
+    std::vector<std::pair<zima::kernel::Vec3,zima::kernel::Vec3>> planes;
+    const auto preceding=edge_preview_rotate(terminal.node,circle,
+        std::min(.1,terminal.extent/circle.radius*.1));
+    for(const auto& face:terminal.curved_terminal_faces)
+        if(auto plane=edge_preview_terminal_plane(mesh,face)) {
+            if(edge_preview_dot(edge_preview_difference(preceding,plane->first),plane->second)<0.)
+                plane->second=edge_preview_offset({},plane->second,-1.);
+            planes.push_back(*plane);
+        }
+    if(planes.empty())return {};
+    std::vector<zima::kernel::Vec3> result;
+    for(const auto& point:terminal.section.wire.points) {
+        const auto relative=edge_preview_difference(point,circle.center);
+        const auto center=edge_preview_offset(circle.center,circle.axis,edge_preview_dot(relative,circle.axis));
+        const auto radial=edge_preview_difference(point,center);
+        const auto tangent=zima::kernel::dimension_cross(circle.axis,radial);
+        double parameter{};
+        for(const auto& [origin,normal]:planes) {
+            // Only trim a section point lying beyond this terminal plane.
+            // A tangent plane cannot demand a fictitious outgoing arc tail.
+            if(edge_preview_dot(edge_preview_difference(edge_preview_rotate(point,circle,parameter),origin),normal)>=-1.e-8)continue;
+            const double a=edge_preview_dot(normal,radial),b=edge_preview_dot(normal,tangent);
+            const double c=edge_preview_dot(normal,edge_preview_difference(center,origin));
+            const double magnitude=std::hypot(a,b);
+            if(magnitude<=1.e-12||std::abs(c)>magnitude+1.e-8)return {};
+            const double phase=std::atan2(b,a),delta=std::acos(std::clamp(-c/magnitude,-1.,1.));
+            std::optional<double> intersection;
+            for(const double root:{phase-delta,phase+delta})for(int turn=-1;turn<=1;++turn) {
+                const double angle=root+turn*2.*std::numbers::pi;
+                if(angle<parameter-1.e-9||angle>terminal.extent/circle.radius+1.e-9)continue;
+                if(!intersection||angle<*intersection)intersection=angle;
+            }
+            if(!intersection)return {};
+            parameter=*intersection;
+        }
+        result.push_back(edge_preview_rotate(point,circle,parameter));
+    }
+    return result;
 }
 
 std::vector<zima::kernel::FaceReference> edge_treatment_preview_end_choices(
@@ -915,8 +1045,9 @@ std::vector<zima::kernel::FaceReference> edge_treatment_preview_end_choices(
     auto faces=edge_preview_terminal_faces(*mesh,edge,first,*axis,
         std::max(parameters.primary_size,parameters.secondary_size));
     // Local faces form one automatic envelope. Remote choices extend the
-    // route outward, either to a bounded ray hit or to a planar cap adjacent
-    // to the local curved terminal. Use the published topology and triangles;
+    // route outward only through the local curved terminal to its adjacent
+    // cap. A ray hit on an unrelated, farther face is not a terminal choice.
+    // Use the published topology and triangles;
     // asking for choices must never calculate a candidate solid.
     std::vector<zima::kernel::FaceReference> adjacent;
     for(const auto& boundary:mesh->edges)
@@ -948,6 +1079,7 @@ std::vector<zima::kernel::FaceReference> edge_treatment_preview_end_choices(
                 edge_preview_difference(surface->origin,node))/incidence);
     }
     for(std::size_t t=0;t<mesh->triangle_references.size()&&3*t+2<mesh->triangles.size();++t) {
+        if(std::ranges::find(adjacent,mesh->triangle_references[t])==adjacent.end())continue;
         const auto ia=mesh->triangles[3*t],ib=mesh->triangles[3*t+1],ic=mesh->triangles[3*t+2];
         if(std::max({ia,ib,ic})>=mesh->vertices.size())continue;
         const auto& a=mesh->vertices[ia];
@@ -991,6 +1123,7 @@ edge_preview_curved_terminal_intersection(
     using Vec3=zima::kernel::Vec3;
     if(terminal.curved_terminal_faces.empty()||
        terminal.section.wire.points.size()<2)return {};
+    if(terminal.circular_path)return edge_preview_circular_terminal_intersection(mesh,terminal);
     std::vector<std::pair<std::size_t,FilletPreviewCylinder>> cylinders;
     for(std::size_t face_index=0;
             face_index<terminal.curved_terminal_faces.size();++face_index)
@@ -1015,11 +1148,10 @@ edge_preview_curved_terminal_intersection(
     };
     std::vector<Vec3> result;
     result.reserve(terminal.section.wire.points.size());
-    const bool needs_mesh=std::ranges::any_of(terminal.curved_terminal_faces,
-        [&](const auto& face) {
-            const auto surface=edge_preview_surface(mesh,face);
-            return !surface||surface->kind!=zima::kernel::SurfaceGeometry::Kind::Plane;
-        });
+    std::vector<std::optional<std::pair<Vec3,Vec3>>> planes;
+    for(const auto& face:terminal.curved_terminal_faces)
+        planes.push_back(edge_preview_terminal_plane(mesh,face));
+    const bool needs_mesh=std::ranges::any_of(planes,[](const auto& plane){return !plane;});
     std::vector<std::optional<double>> previous_parameters(
         terminal.curved_terminal_faces.size());
     for(const auto& origin:terminal.section.wire.points) {
@@ -1028,6 +1160,7 @@ edge_preview_curved_terminal_intersection(
             terminal.curved_terminal_faces.size());
         std::vector<std::vector<Candidate>> analytical_extensions(
             terminal.curved_terminal_faces.size());
+        std::vector<Candidate> opposite_caps;
         const double axial_tolerance=1.0e-6*std::max(
             {1.,terminal.extent,terminal.backward_extent});
         const auto within_terminal=[&](double parameter) {
@@ -1037,12 +1170,23 @@ edge_preview_curved_terminal_intersection(
         // Plane caps are intersected analytically, including their extension
         // across the new profile. No trimmed face or solid is constructed.
         for(std::size_t i=0;i<terminal.curved_terminal_faces.size();++i) {
-            const auto surface=edge_preview_surface(mesh,terminal.curved_terminal_faces[i]);
-            if(!surface||surface->kind!=zima::kernel::SurfaceGeometry::Kind::Plane)continue;
-            const double denominator=edge_preview_dot(surface->axis,terminal.axis);
+            const auto& plane=planes[i];
+            if(!plane)continue;
+            const double denominator=edge_preview_dot(plane->second,terminal.axis);
             if(std::abs(denominator)<=1.0e-10)continue;
-            const double parameter=edge_preview_dot(surface->axis,
-                edge_preview_difference(surface->origin,origin))/denominator;
+            // A neighbouring cap at the other end of a short route bounds
+            // the opposite side. It must not replace this end's curved cut
+            // merely because a larger profile can now reach that cap.
+            const auto route_interior=edge_preview_offset(terminal.node,
+                terminal.axis,.5*terminal.extent);
+            const double parameter=edge_preview_dot(plane->second,
+                edge_preview_difference(plane->first,origin))/denominator;
+            if(edge_preview_dot(plane->second,edge_preview_difference(
+                    route_interior,plane->first))/denominator< -axial_tolerance) {
+                if(within_terminal(parameter))opposite_caps.push_back({
+                    edge_preview_offset(origin,terminal.axis,parameter),parameter});
+                continue;
+            }
             if(within_terminal(parameter))
                 analytical_extensions[i].push_back({edge_preview_offset(origin,
                     terminal.axis,parameter),parameter});
@@ -1052,6 +1196,7 @@ edge_preview_curved_terminal_intersection(
             const auto face_index=candidate_face(
                 mesh.triangle_references[triangle]);
             if(!face_index||3*triangle+2>=mesh.triangles.size())continue;
+            if(planes[*face_index])continue;
             std::array<Vec3,3> vertices;
             bool valid=true;
             for(std::size_t corner=0;corner<3;++corner) {
@@ -1134,6 +1279,17 @@ edge_preview_curved_terminal_intersection(
                         {point,parameter});
             }
         }
+        // Beyond the finite cylindrical arc, a reachable adjacent opposite
+        // cap closes the envelope. Do not continue the cylinder behind that
+        // arc and draw a disconnected sliver on a large-radius profile.
+        if(!opposite_caps.empty()&&std::ranges::all_of(candidates,
+                [](const auto& values){return values.empty();})&&
+                std::ranges::any_of(analytical_extensions,
+                    [](const auto& values){return !values.empty();})) {
+            result.push_back(std::ranges::min_element(opposite_caps,{},
+                &Candidate::parameter)->point);
+            continue;
+        }
         // A Boolean split can end the locally published cylinder boundary at
         // the source node even though the same analytical terminal surface
         // continues under the prospective Fillet.  Prefer intersections on
@@ -1180,8 +1336,31 @@ bool edge_preview_clip_curved_terminal(
     auto& first=edges[terminal.first_rail].points;
     auto& second=edges[terminal.second_rail].points;
     if(first.empty()||second.empty())return false;
-    (terminal.at_start?first.front():first.back())=intersection.front();
-    (terminal.at_start?second.front():second.back())=intersection.back();
+    const auto trim_rail=[&](auto& rail,const auto& endpoint) {
+        if(!terminal.circular_path) {
+            (terminal.at_start?rail.front():rail.back())=endpoint;return;
+        }
+        if(!terminal.at_start)std::ranges::reverse(rail);
+        const auto& circle=*terminal.circular_path;
+        const auto center=edge_preview_offset(circle.center,circle.axis,
+            edge_preview_dot(edge_preview_difference(rail.front(),circle.center),circle.axis));
+        const auto original=edge_preview_difference(rail.front(),center);
+        const auto angle=[&](const auto& point) {
+            const auto radial=edge_preview_difference(point,center);
+            return std::atan2(edge_preview_dot(circle.axis,zima::kernel::dimension_cross(original,radial)),
+                edge_preview_dot(original,radial));
+        };
+        const double cut=angle(endpoint),radius=edge_preview_length(original);
+        std::size_t remove{};
+        while(remove<rail.size()-1&&angle(rail[remove])<cut-1.e-9&&
+                std::abs(edge_preview_length(edge_preview_difference(rail[remove],center))-radius)<1.e-7)++remove;
+        rail.erase(rail.begin(),rail.begin()+remove);
+        if(edge_preview_same_point(rail.front(),endpoint))rail.front()=endpoint;
+        else rail.insert(rail.begin(),endpoint);
+        if(!terminal.at_start)std::ranges::reverse(rail);
+    };
+    trim_rail(first,intersection.front());
+    trim_rail(second,intersection.back());
     edges[terminal.end_arc].points=std::move(intersection);
     return true;
 }
@@ -1236,6 +1415,15 @@ edge_preview_terminal_sweep(const zima::kernel::ViewerEdge& edge,
         bool at_start) {
     if(edge.points.size()<2)return {};
     const auto& origin=at_start?edge.points.front():edge.points.back();
+    if(const auto circle=edge_preview_circular_path(edge,at_start)) {
+        const auto radial=edge_preview_difference(origin,circle->center);
+        const auto axis=edge_preview_normalized(zima::kernel::dimension_cross(circle->axis,radial));
+        double extent{};
+        for(std::size_t i=1;i<edge.points.size();++i)
+            extent+=2.*circle->radius*std::asin(std::clamp(edge_preview_length(
+                edge_preview_difference(edge.points[i],edge.points[i-1]))/(2.*circle->radius),0.,1.));
+        if(axis&&extent>1.e-9)return std::pair{*axis,extent};
+    }
     const auto& neighbor=at_start?edge.points[1]:
         edge.points[edge.points.size()-2];
     const auto axis=edge_preview_normalized(
@@ -1371,13 +1559,16 @@ std::vector<zima::kernel::Vec3> edge_preview_fillet_intersection(
     return *longest;
 }
 
-// The same two-branch construction as the committed additive arc node:
-// revolve the first circular end section about the shared corner axis.
+// Revolve the circular Fillet or straight Chamfer section around the corner.
 // Only the boundary curves are sampled here; there is no BRep or Boolean.
 bool edge_preview_arc_node(const FilletPreviewTerminal& first,
         const FilletPreviewTerminal& second,
         std::vector<zima::kernel::ViewerEdge>& connectors) {
-    if(first.adds_material!=true||second.adds_material!=true)return false;
+    // Compact rollback packets can omit oriented surface descriptors. Their
+    // exact section directions still prove the matching swept profiles below;
+    // reject a known mixed sense without disabling those saved-model nodes.
+    if(first.adds_material&&second.adds_material&&first.adds_material!=second.adds_material)
+        return false;
     const double cosine=edge_preview_dot(first.axis,second.axis);
     const auto n1=edge_preview_normalized(edge_preview_difference(second.axis,
         edge_preview_offset({},first.axis,cosine)));
@@ -1396,6 +1587,16 @@ bool edge_preview_arc_node(const FilletPreviewTerminal& first,
     const auto& a=first.section.wire.points;
     const auto& b=second.section.wire.points;
     if(a.size()<2||b.size()<2)return false;
+    // A rounded connector fills the gap behind both branch ends. Sections
+    // pointing into the other branch already intersect; revolving them would
+    // merely draw a second, buried solution with no distinct body boundary.
+    const double scale=std::max({1.,first.section.first_distance,
+        first.section.second_distance});
+    if(std::ranges::any_of(a,[&](const auto& p) {
+            return edge_preview_dot(edge_preview_difference(p,first.node),*n1)>1.e-7*scale;
+        })||std::ranges::any_of(b,[&](const auto& p) {
+            return edge_preview_dot(edge_preview_difference(p,second.node),*n2)>1.e-7*scale;
+        }))return false;
     const auto matches=[&](const auto& p,const auto& q) {
         return edge_preview_length(edge_preview_difference(p,q))<=
             1.0e-6*std::max(1.,first.section.first_distance);
@@ -1411,6 +1612,22 @@ bool edge_preview_arc_node(const FilletPreviewTerminal& first,
         connectors.push_back(std::move(rail));
     }
     return true;
+}
+
+std::vector<zima::kernel::Vec3> edge_preview_chamfer_intersection(
+        const FilletPreviewTerminal& first,const FilletPreviewTerminal& second) {
+    if(first.adds_material&&second.adds_material&&first.adds_material!=second.adds_material)
+        return {};
+    const auto normal=edge_preview_difference(first.axis,second.axis);
+    const double denominator=edge_preview_dot(normal,first.axis);
+    if(std::abs(denominator)<=1.e-10)return {};
+    std::vector<zima::kernel::Vec3> result;
+    for(const auto& p:first.section.wire.points) {
+        const double t=edge_preview_dot(normal,edge_preview_difference(first.node,p))/denominator;
+        if(t>first.extent)return {};
+        result.push_back(edge_preview_offset(p,first.axis,t));
+    }
+    return result;
 }
 
 void edge_preview_clip_terminal_rails(
@@ -1723,40 +1940,25 @@ EdgeTreatmentPreviewGeometry edge_treatment_preview_wire(
             result.edges.push_back(first_section->wire);
             result.edges.push_back(last_section->wire);
             path_rails.emplace_back(edge_offset,edge_offset+1);
-            {
-                if(!first_section->curved_support) {
-                    if(const auto sweep=edge_preview_terminal_sweep(
-                            path.edges.front(),true))
-                        fillet_terminals.push_back({group_index,
-                            path.edges.front().points.front(),sweep->first,
-                            sweep->second,0.,*first_section,edge_offset,
-                            edge_offset+1,edge_offset+2,true,
-                            input_mesh?edge_preview_terminal_faces(
-                                *input_mesh,path.edges.front(),true,
-                                sweep->first,radius_at(0.)):
-                                std::vector<zima::kernel::FaceReference>{},
-                            edge_preview_adds_material(input_mesh,path.edges.front(),
-                                *first_section,path.edges.front().points.front()),
-                            path.edges.front().edge_treatment_endpoint_references.size()==2?
-                                path.edges.front().edge_treatment_endpoint_references.front():
-                                zima::kernel::VertexReference{}});
-                }
-                if(!last_section->curved_support) {
-                    if(const auto sweep=edge_preview_terminal_sweep(
-                            path.edges.back(),false))
-                        fillet_terminals.push_back({group_index,
-                            path.edges.back().points.back(),sweep->first,
-                            sweep->second,0.,*last_section,edge_offset,
-                            edge_offset+1,edge_offset+3,false,
-                            input_mesh?edge_preview_terminal_faces(
-                                *input_mesh,path.edges.back(),false,
-                                sweep->first,radius_at(path_length)):
-                                std::vector<zima::kernel::FaceReference>{},
-                            edge_preview_adds_material(input_mesh,path.edges.back(),
-                                *last_section,path.edges.back().points.back()),
-                            path.edges.back().edge_treatment_endpoint_references.size()==2?
-                                path.edges.back().edge_treatment_endpoint_references.back():
-                                zima::kernel::VertexReference{}});
+            for(const bool at_start:{true,false}) {
+                const auto& edge=at_start?path.edges.front():path.edges.back();
+                const auto& section=at_start?*first_section:*last_section;
+                const auto circle=edge_preview_circular_path(edge,at_start);
+                if(const auto sweep=edge_preview_terminal_sweep(edge,at_start)) {
+                    const auto& node=at_start?edge.points.front():edge.points.back();
+                    const auto preceding=circle?edge_preview_rotate(node,*circle,
+                        std::min(.1,.1*sweep->second/circle->radius)):
+                        edge_preview_offset(node,sweep->first,.1*sweep->second);
+                    fillet_terminals.push_back({group_index,node,sweep->first,
+                        sweep->second,0.,section,edge_offset,edge_offset+1,
+                        edge_offset+(at_start?2:3),at_start,
+                        input_mesh?edge_preview_terminal_faces(*input_mesh,edge,at_start,
+                            sweep->first,radius_at(at_start?0.:path_length),circle?&preceding:nullptr):
+                            std::vector<zima::kernel::FaceReference>{},
+                        edge_preview_adds_material(input_mesh,edge,section,node),
+                        edge.edge_treatment_endpoint_references.size()==2?
+                            edge.edge_treatment_endpoint_references[at_start?0:1]:
+                            zima::kernel::VertexReference{},circle});
                 }
             }
             if (result.dimensions.empty()) {
@@ -1910,21 +2112,22 @@ EdgeTreatmentPreviewGeometry edge_treatment_preview_wire(
                 joined=edge_preview_three_branch_node(result.edges,
                     {&fillet_terminals[node[0]],&fillet_terminals[node[1]],
                      &fillet_terminals[node[2]]},intersections);
-            if(fillet&&node.size()==2&&
+            if(node.size()==2&&
                terminal_mode(fillet_terminals[node[0]])==EndMode::RoundedArc&&
                terminal_mode(fillet_terminals[node[1]])==EndMode::RoundedArc)
                 joined=edge_preview_arc_node(fillet_terminals[node[0]],
                     fillet_terminals[node[1]],intersections);
-            if(fillet&&node.size()==2&&fillet_terminals[node[0]].group!=
+            if(node.size()==2&&fillet_terminals[node[0]].group!=
                     fillet_terminals[node[1]].group&&
                terminal_mode(fillet_terminals[node[0]])==
                     EndMode::RoundedJoin&&
                terminal_mode(fillet_terminals[node[1]])==
                     EndMode::RoundedJoin) {
-                edge_preview_extend_fillet_node(fillet_terminals[node[0]],
+                if(fillet)edge_preview_extend_fillet_node(fillet_terminals[node[0]],
                     fillet_terminals[node[1]]);
-                auto intersection=edge_preview_fillet_intersection(
-                    fillet_terminals[node[0]],fillet_terminals[node[1]]);
+                auto intersection=fillet?edge_preview_fillet_intersection(
+                    fillet_terminals[node[0]],fillet_terminals[node[1]]):
+                    edge_preview_chamfer_intersection(fillet_terminals[node[0]],fillet_terminals[node[1]]);
                 if(!intersection.empty()) {
                     edge_preview_clip_terminal_rails(result.edges,
                         fillet_terminals[node[0]],intersection);
@@ -1983,6 +2186,48 @@ EdgeTreatmentPreviewGeometry edge_treatment_preview_wire(
         result.edges=std::move(retained);
     } else capture_terminal_contacts();
     return result;
+}
+
+EdgeTreatmentNodeSolutions edge_treatment_preview_node_solutions(
+        const std::vector<std::vector<zima::kernel::ViewerEdge>>& groups,
+        const zima::document::HistoryContainer& feature,
+        const zima::kernel::ViewerMesh& input_mesh,
+        const std::vector<std::pair<std::size_t,bool>>& route_ends) {
+    using Mode=zima::document::EdgeTreatmentParameters::RouteEndMode;
+    if(route_ends.size()!=2)return {};
+    if(feature.feature_kind==zima::document::FeatureKind::Chamfer&&
+        feature.edge_treatment.chamfer_mode!=zima::document::EdgeTreatmentParameters::ChamferMode::EqualDistance)return {};
+    auto definition=feature.edge_treatment;
+    // Missing optional end overrides mean the automatic defaults. Ordinary
+    // inspection reads the stored definition before Properties learns ends.
+    definition.route_end_faces.resize(groups.size());
+    auto authored_ends=route_ends;
+    for(auto& [route,first]:authored_ends) {
+        const auto paths=ordered_edge_treatment_preview_paths(groups.at(route));
+        if(paths.size()!=1||paths.front().edges.empty())continue;
+        const auto& edge=first?paths.front().edges.front():paths.front().edges.back();
+        if(edge.edge_treatment_endpoint_references.size()!=2)continue;
+        const auto& vertex=edge.edge_treatment_endpoint_references[first?0:1];
+        const auto& ends=definition.route_end_faces.at(route);
+        if(vertex.valid()&&vertex==ends.first_vertex)first=true;
+        else if(vertex.valid()&&vertex==ends.last_vertex)first=false;
+    }
+    const auto wire=[&](Mode mode) {
+        for(const auto [route,first]:authored_ends) {
+            auto& end=definition.route_end_faces.at(route);
+            (first?end.first_mode:end.last_mode)=mode;
+            (first?end.first:end.last)={};
+        }
+        return edge_treatment_preview_wire(groups,definition,feature.feature_kind,feature.id,&input_mesh);
+    };
+    const auto uncut=wire(Mode::NoCut);
+    const auto differs=[&](const auto& value) {
+        if(value.edges.size()!=uncut.edges.size())return true;
+        for(std::size_t i=0;i<value.edges.size();++i)
+            if(value.edges[i].points!=uncut.edges[i].points)return true;
+        return false;
+    };
+    return {differs(wire(Mode::RoundedJoin)),differs(wire(Mode::RoundedArc))};
 }
 
 } // namespace zima::app::workspace_detail

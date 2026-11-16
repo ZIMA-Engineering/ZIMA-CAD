@@ -1856,6 +1856,36 @@ int main() try {
             stacked.Shape(),first_edges,5.,1.0e-7,{},
             zima::kernel::OcctPlanarEdgeFilletEndMode::
                 AutomaticBodyEnvelope,separate_routes);
+        const auto short_end=straight_edge_between(first.Shape(),
+            {second_min_x,first_max_y,50.},{second_min_x,first_max_y,55.});
+        require(!short_end.IsNull(),"Large-radius terminal fixture lost its short edge");
+        const auto forbidden_cylinder=BRepPrimAPI_MakeCylinder(
+            gp_Ax2(gp_Pnt(second_min_x-5.,first_max_y-30.,55.),gp_Dir(0,1,0)),5.,60.).Shape();
+        double previous_change{};
+        for(const double radius:{1.,3.,4.,5.,6.}) {
+            const auto large=zima::kernel::occt_planar_edge_fillet(first.Shape(),
+                std::array{short_end},radius,1.e-7,{},
+                zima::kernel::OcctPlanarEdgeFilletEndMode::AutomaticBodyEnvelope);
+            require(BRepCheck_Analyzer(large.Shape(),true,true,false).IsValid(),
+                "Increasing radius invalidated the terminal Body");
+            double changed_volume{};
+            for(const bool removal:{false,true}) {
+                BRepAlgoAPI_Cut change;
+                change.SetArguments({removal?first.Shape():large.Shape()});
+                change.SetTools({removal?large.Shape():first.Shape()});
+                change.SetNonDestructive(true);change.Build();
+                require(change.IsDone(),"Large-radius material comparison failed");
+                changed_volume+=volume(change.Shape());
+                BRepAlgoAPI_Common wrong_side;
+                wrong_side.SetArguments({change.Shape()});wrong_side.SetTools({forbidden_cylinder});
+                wrong_side.SetNonDestructive(true);wrong_side.Build();
+                require(wrong_side.IsDone()&&volume(wrong_side.Shape())<1.e-6,
+                    "Growing Fillet switched to the opposite side of its curved terminal");
+            }
+            require(changed_volume>previous_change+1.e-6,
+                "Growing radius lost the main route component at its tangent cap");
+            previous_change=changed_volume;
+        }
         const auto second_edge=straight_edge_between(first.Shape(),
             {first_max_x,second_min_y,50.},
             {second_max_x,second_min_y,50.});
@@ -2250,6 +2280,22 @@ int main() try {
             first.shape,route,1.,1.0e-7,{},
             zima::kernel::OcctPlanarEdgeFilletEndMode::
                 AutomaticBodyEnvelope,route_sizes);
+        // Persisted route flags use the underlying curve parameter order,
+        // even when an arc is reversed while assembling the oriented spine.
+        for(const bool reverse_arc:{false,true}) {
+            auto authored_route=route;
+            if(reverse_arc)authored_route[0].Reverse();
+            std::array<zima::kernel::OcctPlanarEdgeEndFaces,2> ends;
+            for(std::size_t i=0;i<authored_route.size();++i) {
+                TopoDS_Vertex a,b;TopExp::Vertices(authored_route[i],a,b,false);
+                ends[i].automatic_first=BRep_Tool::Pnt(a).Distance(shared)>1.e-7;
+                ends[i].automatic_last=BRep_Tool::Pnt(b).Distance(shared)>1.e-7;
+            }
+            const auto authored=zima::kernel::occt_planar_edge_fillet(first.shape,authored_route,
+                1.,1.e-7,ends,zima::kernel::OcctPlanarEdgeFilletEndMode::AutomaticBodyEnvelope,route_sizes);
+            near(volume(authored.Shape()),volume(result.Shape()),"Authored Cut selected the wrong end of a reversed arc");
+            near(area(authored.Shape()),area(result.Shape()),"Authored Cut left an untrimmed arc section");
+        }
         require(result.history&&result.metrics.cutter_solids==1&&
                 BRepCheck_Analyzer(result.shape,true,true,false).IsValid()&&
                 result.fillet_faces.size()==route.size()&&

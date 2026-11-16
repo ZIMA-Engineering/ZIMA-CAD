@@ -1,5 +1,6 @@
 #include <zima/kernel/occt_planar_edge_chamfer.hpp>
 #include "occt_edge_treatment_terminals.hpp"
+#include "occt_edge_treatment_nodes.hpp"
 
 #include <BRepAdaptor_Curve.hxx>
 #include <BRepAdaptor_Curve2d.hxx>
@@ -81,6 +82,7 @@ struct SelectedNode {
 struct NodeConnector {
     TopoDS_Shape solid;
     bool adds_material{};
+    std::vector<std::size_t> curved_face_owners;
 };
 
 struct ContinuousRoute {
@@ -2033,6 +2035,13 @@ OcctPlanarEdgeChamferResult occt_planar_edge_chamfer(
     // instead of relying on a later overlapping connector to hide an open end.
     std::vector<std::array<TopoDS_Face,2>> node_end_faces(
         selections.size());
+    const auto arc_at=[&](std::size_t index,const TopoDS_Vertex& vertex) {
+        if(end_faces.empty())return false;
+        TopoDS_Vertex first,last;
+        TopExp::Vertices(selections[index].edge,first,last,true);
+        return (!first.IsNull()&&first.IsSame(vertex)&&end_faces[index].arc_first)||
+            (!last.IsNull()&&last.IsSame(vertex)&&end_faces[index].arc_last);
+    };
     if(!continuous_tool&&
             mode==OcctPlanarEdgeChamferMode::EqualDistance) {
         const auto assign_node_face=[&](std::size_t selection_index,
@@ -2053,6 +2062,7 @@ OcctPlanarEdgeChamferResult occt_planar_edge_chamfer(
             if(node.tools.size()!=2)continue;
             const auto first_index=node.tools[0];
             const auto second_index=node.tools[1];
+            if(arc_at(first_index,node.vertex)&&arc_at(second_index,node.vertex))continue;
             if(!selection_materials[first_index].IsSame(
                     selection_materials[second_index]))continue;
             const auto first_direction=outgoing_tangent(
@@ -2175,6 +2185,15 @@ OcctPlanarEdgeChamferResult occt_planar_edge_chamfer(
                 }))
                 throw std::invalid_argument(
                     "ZIMA Chamfer node spans more than one material solid");
+            if(arc_at(node.tools[0],node.vertex)&&arc_at(node.tools[1],node.vertex)) {
+                const auto connector=edge_treatment_nodes::revolved_corner(
+                    tools[node.tools[0]].solid,BRep_Tool::Pnt(node.vertex),first_direction,
+                    outgoing_tangent(selections[node.tools[1]].edge,node.vertex,tolerance),tolerance);
+                if(connector.IsNull())
+                    throw std::runtime_error("ZIMA Chamfer could not construct a valid node connector");
+                node_connectors.push_back({connector,adds_material,node.tools});
+                continue;
+            }
             std::vector<TopoDS_Edge> unselected;
             for(TopExp_Explorer item(material,TopAbs_EDGE);
                     item.More();item.Next()) {
@@ -2378,6 +2397,17 @@ OcctPlanarEdgeChamferResult occt_planar_edge_chamfer(
                     &result.history->Modified(treatment_face),
                     &result.history->Generated(treatment_face)})
                 for(const auto& descendant:*descendants)append(descendant);
+        }
+        for(const auto& connector:node_connectors) {
+            if(std::ranges::find(connector.curved_face_owners,index)==
+                    connector.curved_face_owners.end())continue;
+            for(TopExp_Explorer face(connector.solid,TopAbs_FACE);face.More();face.Next()) {
+                if(BRepAdaptor_Surface(TopoDS::Face(face.Current()),true).GetType()==GeomAbs_Plane)continue;
+                append(face.Current());
+                for(const auto* descendants:{&result.history->Modified(face.Current()),
+                        &result.history->Generated(face.Current())})
+                    for(const auto& descendant:*descendants)append(descendant);
+            }
         }
         if(result.chamfer_faces[index].empty())
             throw std::runtime_error(

@@ -424,6 +424,7 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
     const auto publish_parameter_inspection=[this](const std::string& path) {
         viewer_->set_container_inspection(properties_dialog_==nullptr
             ?construction_dimension_object_id_:std::string{},path);
+        refresh_edge_treatment_inspection_nodes();
     };
     const auto hidden_surface_packet_owners = [this](const zima::document::PartDocument& document) {
         const auto limit=part_rollback_&&part_rollback_->part_document_id==document.document_id

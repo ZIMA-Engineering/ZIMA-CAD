@@ -834,6 +834,7 @@ private:
     void accept_edge_treatment(const zima::viewer::ViewerCandidate& candidate);
     void refresh_edge_treatment_selection_ui();
     void refresh_edge_treatment_preview();
+    void refresh_edge_treatment_inspection_nodes();
     void remove_edge_treatment_member(
         std::size_t group, std::optional<std::size_t> member);
     void restore_edge_treatment_route(std::size_t group);

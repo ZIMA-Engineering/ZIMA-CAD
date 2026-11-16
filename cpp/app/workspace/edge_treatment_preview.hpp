@@ -66,4 +66,11 @@ std::vector<zima::kernel::FaceReference> edge_treatment_preview_end_choices(
     const zima::document::EdgeTreatmentParameters& parameters,
     const zima::kernel::ViewerMesh* input_mesh,std::size_t route,bool first);
 
+struct EdgeTreatmentNodeSolutions {bool spike{};bool rounding{};};
+EdgeTreatmentNodeSolutions edge_treatment_preview_node_solutions(
+    const std::vector<std::vector<zima::kernel::ViewerEdge>>& groups,
+    const zima::document::HistoryContainer& feature,
+    const zima::kernel::ViewerMesh& input_mesh,
+    const std::vector<std::pair<std::size_t,bool>>& route_ends);
+
 } // namespace zima::app::workspace_detail

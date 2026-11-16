@@ -744,7 +744,8 @@ void planar_terminal_wire() {
     kernel::FaceReference cap{"cap","oblique",{}};
     auto plane=std::make_shared<kernel::SurfaceGeometry>();plane->axis={1,1,0};cap.surface=plane;
     kernel::ViewerMesh mesh;mesh.triangle_references.push_back(cap);
-    auto boundary=route;boundary.edge_treatment_side_references={cap};mesh.edges={boundary};
+    kernel::ViewerEdge boundary;boundary.points={route.points.front(),{10.,0.,10.}};
+    boundary.edge_treatment_side_references={cap};mesh.edges={boundary};
     document::EdgeTreatmentParameters parameters;parameters.primary_size=2;
     parameters.route_end_faces.resize(1);
     parameters.route_end_faces[0].first_vertex=route.edge_treatment_endpoint_references.front();
@@ -764,8 +765,21 @@ void planar_terminal_wire() {
     mesh.triangles={0,1,2};mesh.triangle_references={remote};
     const auto choices=app::workspace_detail::edge_treatment_preview_end_choices(
         {{route}},parameters,&mesh,0,true);
-    require(choices.size()==2&&!choices[0].valid()&&choices[1]==remote,
-        "Terminal menu lost its automatic trim or remote extension");
+    require(choices.size()==1&&!choices[0].valid(),
+        "Terminal menu offered an unrelated distant ray-hit face");
+    kernel::FaceReference curved{"cap","local-cylinder",{}};
+    auto cylinder=std::make_shared<kernel::SurfaceGeometry>();
+    cylinder->kind=kernel::SurfaceGeometry::Kind::Cylinder;cylinder->radius=10.;curved.surface=cylinder;
+    auto local_boundary=boundary;local_boundary.edge_treatment_side_references={cap,curved};
+    auto remote_boundary=boundary;remote_boundary.points={{-10,-10,0},{-10,10,0}};
+    remote_boundary.edge_treatment_endpoint_references.clear();
+    remote_boundary.edge_treatment_side_references={curved,remote};
+    mesh.edges={local_boundary,remote_boundary};
+    const auto connected_choices=app::workspace_detail::edge_treatment_preview_end_choices(
+        {{route}},parameters,&mesh,0,true);
+    require(connected_choices.size()==2&&connected_choices[1]==remote,
+        "Terminal menu lost the real cap adjacent to its local cylinder");
+    mesh.edges={boundary};
     for(const auto kind:{document::FeatureKind::Fillet,document::FeatureKind::Chamfer}) {
         parameters.route_end_faces[0].first=remote;
         const auto extended=app::workspace_detail::edge_treatment_preview_wire({{route}},parameters,kind,"preview",&mesh);
@@ -788,6 +802,47 @@ void planar_terminal_wire() {
         parameters.route_end_faces[0].first_mode=document::EdgeTreatmentParameters::RouteEndMode::Cut;
     }
     std::cout<<"Terminal wires: oblique local trim, remote extension, repeated Cut/NoCut for Fillet and Chamfer passed\n";
+}
+
+void circular_terminal_wire() {
+    kernel::ViewerEdge route;route.reference={"circle","route",{}};
+    route.edge_treatment_endpoint_references={{"circle","first",{}},{"circle","last",{}}};
+    route.edge_treatment_side_directions.resize(2);
+    for(int i=0;i<=20;++i) {
+        const double angle=i*std::numbers::pi/40.;
+        route.points.push_back({0.,10.-10.*std::cos(angle),10.-10.*std::sin(angle)});
+        route.edge_treatment_side_directions[0].push_back({1.,0.,0.});
+        route.edge_treatment_side_directions[1].push_back({0.,-std::cos(angle),-std::sin(angle)});
+    }
+    kernel::FaceReference cap{"circle","tangent-cap",{}};
+    auto plane=std::make_shared<kernel::SurfaceGeometry>();plane->axis={0,1,0};cap.surface=plane;
+    kernel::ViewerMesh mesh;mesh.triangle_references={cap};
+    auto boundary=route;boundary.edge_treatment_side_references={cap};mesh.edges={boundary};
+    document::EdgeTreatmentParameters parameters;parameters.route_end_faces.resize(1);
+    auto& end=parameters.route_end_faces[0];
+    end.first_vertex=route.edge_treatment_endpoint_references.front();
+    end.last_vertex=route.edge_treatment_endpoint_references.back();
+    end.first_mode=document::EdgeTreatmentParameters::RouteEndMode::Cut;
+    for(const auto kind:{document::FeatureKind::Fillet,document::FeatureKind::Chamfer})
+        for(const double radius:{1.,5.,8.})for(const bool reversed:{false,true}) {
+            parameters.primary_size=radius;
+            auto selected=route;
+            if(reversed) {
+                std::ranges::reverse(selected.points);
+                std::ranges::reverse(selected.edge_treatment_endpoint_references);
+                for(auto& side:selected.edge_treatment_side_directions)std::ranges::reverse(side);
+            }
+            const auto wire=app::workspace_detail::edge_treatment_preview_wire({{selected}},parameters,kind,"circular-preview",&mesh);
+            require(wire.edges.size()==4,"Circular terminal lost its analytical wire");
+            // Route ordering is canonical, independent of source sample order.
+            const auto& terminal=wire.edges[wire.edges[2].points.front().z>wire.edges[3].points.front().z?2:3];
+            for(const auto& point:terminal.points) {
+                require(std::abs(point.y)<1.e-7,"Circular terminal missed its exact tangent plane");
+            }
+            for(std::size_t rail=0;rail<2;++rail)for(const auto& point:wire.edges[rail].points)
+                require(point.y>=-1.e-7,"Circular rail still crosses the selected terminal plane");
+        }
+    std::cout<<"Circular terminal wire: tangent cap, Fillet/Chamfer, R1/R5/R8 and reversed endpoints passed\n";
 }
 void revolution_matrix(const kernel::OcctKernel& engine) {
     unsigned cases{};
@@ -1341,7 +1396,7 @@ int main(int argc,char** argv) {
         if(argc>1&&std::string_view(argv[1])=="--edge-treatment-wire") {
             const auto before=kernel::body_calculation_count.load();
             edge_treatment_source_node_labels();rolling_edge_treatment_preview();
-            independent_fillet_node_preview();planar_terminal_wire();
+            independent_fillet_node_preview();planar_terminal_wire();circular_terminal_wire();
             require(kernel::body_calculation_count.load()==before,"Wire interaction calculated a Body");
             return 0;
         }
@@ -1362,7 +1417,7 @@ int main(int argc,char** argv) {
         kernel::OcctKernel engine;line_bend_wire(engine);
         planar_surface_wire_and_cues(engine);rectangular_matrix(engine);
         edge_treatment_source_node_labels();rolling_edge_treatment_preview();
-        independent_fillet_node_preview();planar_terminal_wire();
+        independent_fillet_node_preview();planar_terminal_wire();circular_terminal_wire();
         revolution_matrix(engine);rounded_profile_matrix(engine);
         if(const auto* file=std::getenv("ZIMA_THIN_REVIEW_FILE"))review_fillets(engine,std::filesystem::u8path(file));
         return 0;}

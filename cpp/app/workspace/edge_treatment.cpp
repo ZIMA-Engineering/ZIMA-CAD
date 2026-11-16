@@ -68,7 +68,7 @@ void AssemblyWorkspaceWindow::start_edge_treatment(
         refresh_edge_treatment_preview();
     });
     refresh_edge_treatment_selection_ui();
-    connect(dialog, &QObject::destroyed, this, [this] {
+    connect(dialog, &QObject::destroyed, this, [this, owner=initial.id] {
         properties_dialog_ = nullptr;
         edge_treatment_dialog_ = nullptr;
         edge_treatment_selection_.reset();
@@ -77,6 +77,10 @@ void AssemblyWorkspaceWindow::start_edge_treatment(
         pending_edge_treatment_groups_.clear();
         pending_edge_treatment_seeds_.clear();
         edge_treatment_preview_owner_id_.clear();
+        // Dragging a draft dimension can activate its inspection identity.
+        // End that draft inspection with Properties, as the edit path does.
+        if(construction_dimension_object_id_==owner)
+            construction_dimension_object_id_.clear();
         shell_dialog_ = nullptr;
         shell_face_selection_active_ = false;
         pending_shell_faces_.clear();
@@ -412,7 +416,7 @@ void AssemblyWorkspaceWindow::refresh_edge_treatment_preview() {
 
         const auto learned_nodes=edge_treatment_terminal_nodes(
             preview.terminal_labels);
-        if(*edge_treatment_selection_==zima::document::FeatureKind::Fillet) {
+        {
             // Initialize a newly selected junction once. Existing authored
             // choices (including NoCut) survive refresh and unchanged OK.
             using Mode=zima::document::EdgeTreatmentParameters::RouteEndMode;
@@ -533,52 +537,12 @@ void AssemblyWorkspaceWindow::refresh_edge_treatment_preview() {
                 *edge_treatment_selection_==
                     zima::document::FeatureKind::Fillet?1:0,
                 result.cuts.size());
-        if(*edge_treatment_selection_==zima::document::FeatureKind::Fillet&&
-           route_ends.size()==2) {
-            auto rounded=pending;
-            auto uncut=pending;
-            auto arc=pending;
-            const auto set_mode=[&](auto& target,Mode mode) {
-                for(const auto [route,first]:route_ends) {
-                    auto& ends=target.edge_treatment.route_end_faces[route];
-                    (first?ends.first_mode:ends.last_mode)=mode;
-                    (first?ends.first:ends.last)={};
-                }
-            };
-            set_mode(rounded,Mode::RoundedJoin);
-            set_mode(arc,Mode::RoundedArc);
-            set_mode(uncut,Mode::NoCut);
-            try {
-                const auto wire=[&](const auto& definition) {
-                    return edge_treatment_preview_wire(display_groups,
-                        definition.edge_treatment,definition.feature_kind,
-                        definition.id,&input->mesh);
-                };
-                const auto without_join=wire(uncut);
-                const auto differs=[&](const auto& preview) {
-                    if(preview.edges.size()!=without_join.edges.size())return true;
-                    for(std::size_t i=0;i<preview.edges.size();++i)
-                        if(preview.edges[i].points!=without_join.edges[i].points)return true;
-                    return false;
-                };
-                try {
-                    result.join=differs(wire(rounded));
-                } catch(const std::exception& error) {
-                    if(profile)std::fprintf(stderr,
-                        "Rounded join preview failed: %s\n",error.what());
-                }
-                try {
-                    result.arc=differs(wire(arc));
-                } catch(const std::exception& error) {
-                    if(profile)std::fprintf(stderr,
-                        "Arc node preview failed: %s\n",error.what());
-                }
-                if(profile)std::fprintf(stderr,"Node probe: spike=%d arc=%d\n",
-                    result.join?1:0,result.arc?1:0);
-            } catch(const std::exception& error) {
-                if(profile)std::fprintf(stderr,
-                    "Uncut probe failed: %s\n",error.what());
-            }
+        if(route_ends.size()==2)try {
+            const auto solutions=edge_treatment_preview_node_solutions(display_groups,pending,
+                input->mesh,route_ends);
+            result.join=solutions.spike;result.arc=solutions.rounding;
+        } catch(const std::exception& error) {
+            if(profile)std::fprintf(stderr,"Node preview failed: %s\n",error.what());
         }
         if(probe_cache.size()>=8)probe_cache.erase(probe_cache.begin());
         probe_cache.push_back(result);
@@ -590,8 +554,7 @@ void AssemblyWorkspaceWindow::refresh_edge_treatment_preview() {
             const std::vector<std::pair<std::size_t,bool>>& route_ends)->bool {
         if(route_ends.size()>=3)return false;
         if(route_ends.size()<2||!edge_treatment_dialog_||
-           !edge_treatment_selection_||
-           *edge_treatment_selection_!=zima::document::FeatureKind::Fillet)
+           !edge_treatment_selection_)
             return true;
         const auto pending=edge_treatment_dialog_->pending_value();
         const auto probed=probe_end_menu(route_ends,pending);
@@ -717,6 +680,55 @@ void AssemblyWorkspaceWindow::refresh_edge_treatment_preview() {
         });
     for (auto& dimension : preview.dimensions) dimension.reference.instance_path = instance_path;
     viewer_->set_transient_dimensions(std::move(preview.dimensions));
+}
+
+void AssemblyWorkspaceWindow::refresh_edge_treatment_inspection_nodes() {
+    if(properties_dialog_||!active_sketch_id_.empty())return;
+    viewer_->set_interactive_labels({});
+    const auto* part=workspace_.open_part(workspace_.active_document_id());
+    const auto* feature=part?part->session.document().find_container(construction_dimension_object_id_):nullptr;
+    if(!feature||(feature->feature_kind!=document::FeatureKind::Fillet&&
+            feature->feature_kind!=document::FeatureKind::Chamfer)||
+            !part_element_context_menu_enabled(feature->id))return;
+    const auto* input=workspace::calculated_operation_input(part->session,feature->id);
+    if(!input)return;
+    std::vector<std::vector<kernel::ViewerEdge>> groups;
+    for(std::size_t route=0;route<feature->edge_treatment.routes.size();++route)
+        groups.push_back(document::current_treatment_selection_wire(feature->edge_treatment,route,{},input->mesh));
+    const auto preview=edge_treatment_preview_wire(groups,feature->edge_treatment,
+        feature->feature_kind,feature->id,&input->mesh);
+    std::vector<viewer::InteractiveLabel> labels;
+    kernel::ViewerMesh points;
+    for(const auto& node:edge_treatment_terminal_nodes(preview.terminal_labels)) {
+        if(node.route_ends.size()>1) {
+            try {
+                if(!edge_treatment_preview_node_solutions(groups,*feature,input->mesh,node.route_ends).rounding)continue;
+            } catch(const std::exception&) {continue;}
+        }
+        std::string key="edge-terminal:";
+        for(const auto [route,first]:node.route_ends) {
+            if(key.back()!=':')key+=',';
+            key+=std::to_string(route)+(first?":first":":last");
+        }
+        labels.push_back({node.point,node.text,std::move(key),true});
+        points.vertices.push_back(node.point);
+    }
+    if(const auto* body=part->session.document().body_owner_for_object(feature->id))
+        points=part->session.document().place_body_mesh(std::move(points),body->scope.id);
+    const auto path=resolve_active_occurrence(part->session.document().document_id).value_or(std::string{});
+    for(std::size_t i=0;i<labels.size();++i) {
+        labels[i].position=points.vertices[i];
+        if(!path.empty())labels[i].position=workspace_.occurrence_point_to_scene(
+            workspace_.displayed_document_id(),zima::assembly::InstancePath::decode(path),labels[i].position);
+    }
+    viewer_->set_interactive_labels(std::move(labels),
+        [this,owner=feature->id,kind=feature->feature_kind](const std::string& key,const QPoint& position) {
+            // Reuse the existing rollback editor, its node menu and OK/Cancel
+            // transaction. Inspection itself neither edits nor calculates.
+            show_primitive_properties(kind,owner);
+            if(edge_treatment_dialog_)viewer_->activate_interactive_label(key,position);
+            return true;
+        },true);
 }
 
 void AssemblyWorkspaceWindow::remove_edge_treatment_member(

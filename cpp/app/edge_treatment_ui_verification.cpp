@@ -338,9 +338,9 @@ int verify_edge_treatment_ui(QApplication& application, AssemblyWorkspaceWindow&
                 check(ok->isEnabled(),"Valid pocket preview failed");
                 check(pending->pending_value().edge_treatment.routes.size()==picked.size(),
                     "Pocket selection dropped an edge");
-                if(!chamfer)for(const auto& label:view->interactive_labels())
-                    if(label.text.find('-')!=std::string::npos)
-                        check(!label.choice,"Intersecting pocket node incorrectly offered a purple solution menu");
+                for(const auto& label:view->interactive_labels())
+                    if(std::ranges::count(label.text,'-')==1)
+                        check(label.choice,"Pocket corner omitted its spike/rounding solution menu");
                 auto* size=pending->findChild<QDoubleSpinBox*>("edgeTreatmentPrimary");
                 QElapsedTimer wire_timer;wire_timer.start();
                 for(const double radius:{1.25,1.5,2.,1.})size->setValue(radius);
@@ -404,7 +404,10 @@ int verify_edge_treatment_ui(QApplication& application, AssemblyWorkspaceWindow&
             return 0;
         }
         if(const auto model=qEnvironmentVariable("ZIMA_VERIFY_EDGE_TREATMENT_MODEL");!model.isEmpty()) {
-            run("open",{{"path",model.toStdString()}});
+            const bool node_inspection=qEnvironmentVariableIsSet("ZIMA_VERIFY_EDGE_TREATMENT_NODE_INSPECTION");
+            const auto model_path=node_inspection?directory/("node-inspection-"+document::PartDocument::create_default().document_id+".prtz"):std::filesystem::u8path(model.toStdString());
+            if(node_inspection)std::filesystem::copy_file(std::filesystem::u8path(model.toStdString()),model_path);
+            run("open",{{"path",document::path_to_utf8(model_path)}});
             if(qEnvironmentVariableIsSet(
                     "ZIMA_VERIFY_EDGE_TREATMENT_REGENERATE"))
                 run("regenerate");
@@ -412,6 +415,90 @@ int verify_edge_treatment_ui(QApplication& application, AssemblyWorkspaceWindow&
             const auto revision=run("documents").at(0).at("revision");
             const auto owner=qEnvironmentVariable("ZIMA_VERIFY_EDGE_TREATMENT_OWNER").toStdString();
             check(!owner.empty(),"User-model treatment is missing");
+            if(node_inspection) {
+                const auto original=document::PartDocument::load(model_path);
+                const auto* original_feature=original.find_container(owner);
+                check(original_feature,"Node inspection fixture has no treatment");
+                const auto get=original_feature->feature_kind==document::FeatureKind::Fillet?"fillet.get":"chamfer.get";
+                const auto definition=run(get,{{"container",owner}});
+                // A compact saved history can need one explicit preparation
+                // of its shaded rollback input. Measure interaction only after
+                // that ordinary Properties input is available.
+                for(int pass=0;pass<3;++pass) {
+                    edit(owner);finish(false);
+                    const auto before=run("documents");
+                    const auto calculations=kernel::body_calculation_count.load();
+                    QTreeWidgetItem* item{};
+                    for(QTreeWidgetItemIterator it(tree);*it;++it)
+                        if((*it)->data(0,Qt::UserRole).toString().toStdString()==owner&&
+                                (*it)->data(0,Qt::UserRole+3)=="part-container"){item=*it;break;}
+                    check(item,"Node inspector has no Tree row");
+                    for(auto* parent=item->parent();parent;parent=parent->parent())parent->setExpanded(true);
+                    tree->scrollToItem(item);flush();
+                    const QPointF position=tree->visualItemRect(item).center();
+                    for(const auto type:{QEvent::MouseButtonPress,QEvent::MouseButtonRelease,QEvent::MouseButtonDblClick,QEvent::MouseButtonRelease}) {
+                        QMouseEvent event(type,position,QPointF(tree->viewport()->mapToGlobal(position.toPoint())),
+                            Qt::LeftButton,type==QEvent::MouseButtonRelease?Qt::NoButton:Qt::LeftButton,Qt::NoModifier);
+                        QApplication::sendEvent(tree->viewport(),&event);flush();
+                    }
+                    const auto labels=view->interactive_labels();
+                    const auto joined=std::ranges::find_if(labels,[](const auto& label) {
+                        return label.choice&&label.text.find('-')!=std::string::npos;
+                    });
+                    check(joined!=labels.end(),"Double-click inspection omitted the selectable numbered node");
+                    check(std::ranges::any_of(view->mesh().dimensions,[&](const auto& d){return d.reference.owner_id==owner;}),
+                        "Node inspection omitted the treatment dimension");
+                    check(run("documents")==before&&kernel::body_calculation_count.load()==calculations,
+                        "Node inspection calculated or changed the document");
+                    window.grab().save(QString::fromStdString((directory/("inspection-overlay-"+std::to_string(pass)+".png")).string()));
+                    const auto node_position=view->interactive_label_position(joined->key);
+                    check(node_position.has_value(),"Inspection node has no hit position");
+                    bool selected{};QTimer selection,timeout;
+                    selection.setInterval(10);timeout.setSingleShot(true);
+                    QObject::connect(&selection,&QTimer::timeout,&window,[&] {
+                        for(auto* menu:window.findChildren<QMenu*>()) {
+                            if(!menu->isVisible()||menu->objectName()!="edgeTreatmentEndMenu")continue;
+                            for(auto* action:menu->actions())if(action->text()==QCoreApplication::translate("AssemblyWorkspaceWindow","Špička")) {
+                                selected=true;selection.stop();menu->setActiveAction(action);
+                                QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);
+                                QApplication::sendEvent(menu,&enter);return;
+                            }
+                        }
+                    });
+                    QObject::connect(&timeout,&QTimer::timeout,&window,[&] {
+                        for(auto* menu:window.findChildren<QMenu*>())if(menu->isVisible())menu->close();
+                    });
+                    selection.start();timeout.start(5000);
+                    mouse(QEvent::MouseButtonDblClick,*node_position+QPointF(14.,-14.),Qt::LeftButton,Qt::LeftButton);
+                    selection.stop();timeout.stop();
+                    check(selected,"Inspection node did not open the shared solution menu");
+                    auto* pending=dialog();
+                    std::size_t spikes{};
+                    for(const auto& end:pending->pending_value().edge_treatment.route_end_faces) {
+                        spikes+=end.first_mode==document::EdgeTreatmentParameters::RouteEndMode::RoundedJoin;
+                        spikes+=end.last_mode==document::EdgeTreatmentParameters::RouteEndMode::RoundedJoin;
+                    }
+                    check(spikes==2,"Inspection menu did not change both ends of its node");
+                    check(kernel::body_calculation_count.load()==calculations&&run("documents")==before,
+                        "Node menu calculated or committed before OK");
+                    window.grab().save(QString::fromStdString((directory/("inspection-node-"+std::to_string(pass)+".png")).string()));
+                    finish(pass!=0);
+                    if(pass!=1)check(run("documents")==before&&kernel::body_calculation_count.load()==calculations,
+                        "Cancel or unchanged node OK created a calculation/transaction");
+                    else {
+                        const auto changed=run(get,{{"container",owner}});
+                        check(changed!=definition,"Node OK did not persist the changed solution");
+                        run("undo");check(run(get,{{"container",owner}})==definition,"Node edit Undo failed");
+                        run("redo");check(run(get,{{"container",owner}})==changed,"Node edit Redo failed");
+                        run("save");
+                        const auto reopened=document::PartDocument::load(model_path);
+                        check(reopened.find_container(owner)->edge_treatment.route_end_faces!=original_feature->edge_treatment.route_end_faces,
+                            "Native reopening lost the changed node solution");
+                    }
+                }
+                std::cout<<"Node inspection: Tree double-click, dimension, numbered node double-click, shared menu, Cancel, OK, unchanged OK, Undo/Redo and native reopening passed\n";
+                return 0;
+            }
             window.grab().save(QString::fromStdString(
                 (directory/("user-model-treatment-final-"+owner+".png")).string()));
             const auto overview_camera=view->camera_state();

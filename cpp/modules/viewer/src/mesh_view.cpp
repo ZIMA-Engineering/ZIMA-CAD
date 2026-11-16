@@ -2686,8 +2686,9 @@ std::optional<std::string> MeshView::interactive_label_at(
 }
 
 void MeshView::set_interactive_labels(std::vector<InteractiveLabel> labels,
-        std::function<bool(const std::string&,const QPoint&)> double_click) {
-    if(impl_->transient_point_transform)
+        std::function<bool(const std::string&,const QPoint&)> double_click,
+        bool scene_coordinates) {
+    if(!scene_coordinates&&impl_->transient_point_transform)
         for(auto& label:labels)
             label.position=impl_->transient_point_transform(label.position);
     impl_->interactive_labels=std::move(labels);
@@ -2696,6 +2697,16 @@ void MeshView::set_interactive_labels(std::vector<InteractiveLabel> labels,
             return label.key==impl_->hovered_interactive_label_key;
         }))impl_->hovered_interactive_label_key.clear();
     update();
+}
+
+bool MeshView::activate_interactive_label(const std::string& key,const QPoint& global_position) {
+    if(std::ranges::none_of(impl_->interactive_labels,[&](const auto& label) {
+            return label.key==key&&label.choice;
+        }))return false;
+    // Opening an editor can replace this callback and its labels. Keep the
+    // active callable alive until it returns from that scene transition.
+    const auto callback=impl_->interactive_label_double_click;
+    return callback&&callback(key,global_position);
 }
 
 void MeshView::set_sketch_cursor(std::optional<zima::kernel::Vec3> point,
@@ -5754,10 +5765,11 @@ if (impl_->show_origins) {
         if(!impl_->interactive_labels.empty()) {
             const QColor purple("#D05CFF");
             for(const auto& label:impl_->interactive_labels) {
+                const auto anchor=project(label.position);
+                draw_circular_marker(painter,anchor,interaction::hover);
                 painter.setPen(QPen(!label.choice?interaction::hover:
                     label.key==impl_->hovered_interactive_label_key
                         ?interaction::hover:purple,1.5));
-                const auto anchor=project(label.position);
                 painter.drawText(anchor+QPointF(8.0,-8.0),
                     QString::fromStdString(label.text));
             }
@@ -7012,7 +7024,7 @@ void MeshView::mouseDoubleClickEvent(QMouseEvent* event) {
     if(impl_->interactive_label_double_click&&
        !impl_->interactive_labels.empty()) {
         if(const auto label=interactive_label_at(event->position())) {
-            if(impl_->interactive_label_double_click(*label,
+            if(activate_interactive_label(*label,
                     event->globalPosition().toPoint())) {
                 event->accept();
                 return;

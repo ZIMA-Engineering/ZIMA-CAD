@@ -1,5 +1,6 @@
 #include <zima/kernel/occt_planar_edge_fillet.hpp>
 #include "occt_edge_treatment_terminals.hpp"
+#include "occt_edge_treatment_nodes.hpp"
 
 #include <BRepAdaptor_Curve.hxx>
 #include <BRepAdaptor_Surface.hxx>
@@ -474,11 +475,13 @@ bool lies_on_source_surface(const TopoDS_Face& candidate,
 bool clip_fillet_tool_with_halfspace(TopoDS_Shape& tool,
         std::vector<TopoDS_Face>& treatment_faces,
         const TopoDS_Solid& half_space,double tolerance,
-        bool allow_empty=false,const gp_Pnt* retained_component=nullptr) {
+        bool allow_empty=false,const gp_Pnt* retained_component=nullptr,
+        bool subtract=false) {
     // The two-shape constructor calculates immediately, before the
     // non-destructive flag can be set. A terminal may share its geometry
     // with the live Body, including across rejected preview attempts.
-    BRepAlgoAPI_Common common;
+    BRepAlgoAPI_BooleanOperation common;
+    common.SetOperation(subtract?BOPAlgo_CUT:BOPAlgo_COMMON);
     common.SetArguments({tool});
     common.SetTools({half_space});
     common.SetNonDestructive(true);
@@ -769,6 +772,32 @@ bool clip_fillet_tool_to_surface(TopoDS_Shape& tool,
     // point, but that point still identifies which side connects back to the
     // authored route.  `inside` remains the robust tool-interior probe while
     // the optional hint selects the retained analytical half-space.
+    if(support.GetType()==GeomAbs_Cylinder) {
+        const auto cylinder=support.Cylinder();
+        const auto hint=retained_side_hint?*retained_side_hint:retained_side;
+        const double distance=gp_Lin(cylinder.Axis()).Distance(hint);
+        if(std::abs(distance-cylinder.Radius())>tolerance) {
+            // A finite analytic cylinder covering the complete tool gives
+            // an unambiguous inside/outside operation even when the growing
+            // profile crosses the cylinder seam and its tangent end cap.
+            Bnd_Box bounds;BRepBndLib::Add(tool,bounds);
+            double x0{},y0{},z0{},x1{},y1{},z1{};
+            bounds.Get(x0,y0,z0,x1,y1,z1);
+            double first=std::numeric_limits<double>::max(),last=-first;
+            const gp_Vec axis(cylinder.Axis().Direction());
+            for(const double x:{x0,x1})for(const double y:{y0,y1})for(const double z:{z0,z1}) {
+                const double parameter=gp_Vec(cylinder.Location(),gp_Pnt(x,y,z)).Dot(axis);
+                first=std::min(first,parameter);last=std::max(last,parameter);
+            }
+            const double margin=std::max(1.,100.*tolerance);
+            const gp_Ax2 frame(cylinder.Location().Translated(axis*(first-margin)),
+                cylinder.Axis().Direction(),cylinder.Position().XDirection());
+            BRepPrimAPI_MakeCylinder region(frame,cylinder.Radius(),last-first+2.*margin);
+            return clip_fillet_tool_with_halfspace(tool,treatment_faces,region.Solid(),
+                tolerance,allow_empty,has_retained_component?&retained_side:nullptr,
+                distance>cylinder.Radius());
+        }
+    }
     BRepPrimAPI_MakeHalfSpace half_space(boundary,
         retained_side_hint?*retained_side_hint:retained_side);
     if(!half_space.IsDone())
@@ -2088,20 +2117,21 @@ Cutter make_cutter(const TopoDS_Edge& edge,
         clip_fillet_tool(tool,circular_faces,face,interior,tolerance);
     for(const auto& face:terminal_faces[1])
         clip_fillet_tool(tool,circular_faces,face,interior,tolerance);
-    // An incident earlier radius is a bounded local surface.  Its nearby
-    // planar boundary participates in the same terminal whenever it falls
-    // inside the new radius.  Clipping only by the unbounded analytical
-    // curved surface retains a small tongue past that boundary.
-    for(const auto& face:nearby_terminal_planes[0])
-        clip_fillet_tool(tool,circular_faces,face,interior,tolerance);
-    for(const auto& face:nearby_terminal_planes[1])
-        clip_fillet_tool(tool,circular_faces,face,interior,tolerance);
+    // The adjacent planar cap bounds the earlier curved terminal when a
+    // growing profile reaches beyond that finite surface.
+    for(const auto& faces:nearby_terminal_planes)
+        for(const auto& face:faces)
+            clip_fillet_tool(tool,circular_faces,face,interior,tolerance);
+    // A growing profile centroid can cross an earlier radius although the
+    // authored route still lies on the same retained side. Use that route
+    // interior for curved terminals, independently of the new radius. It is
+    // on the tool boundary, which the component classifier accepts as ON.
     for(const auto& face:nearby_terminal_surfaces[0])
-        clip_fillet_tool_to_surface(tool,circular_faces,face,interior,
-            tolerance,&interior);
+        clip_fillet_tool_to_surface(tool,circular_faces,face,path.middle,
+            tolerance,&path.middle);
     for(const auto& face:nearby_terminal_surfaces[1])
-        clip_fillet_tool_to_surface(tool,circular_faces,face,interior,
-            tolerance,&interior);
+        clip_fillet_tool_to_surface(tool,circular_faces,face,path.middle,
+            tolerance,&path.middle);
     // Extend the profile through a curved terminal and trim the construction
     // tool to the terminal's exact analytical surface before the Body Boolean.
     // Letting a subtractive tool cross the Body envelope makes the later CUT
@@ -2110,11 +2140,11 @@ Cutter make_cutter(const TopoDS_Edge& edge,
     if(first_extension>tolerance&&trim_to_curved_first)
         for(const auto& face:first_curved_stops)
             clip_fillet_tool_to_surface(tool,circular_faces,face,
-                interior,tolerance,&interior);
+                path.middle,tolerance,&path.middle);
     if(last_extension>tolerance&&trim_to_curved_last)
         for(const auto& face:last_curved_stops)
             clip_fillet_tool_to_surface(tool,circular_faces,face,
-                interior,tolerance,&interior);
+                path.middle,tolerance,&path.middle);
     return {tool,std::move(circular_faces),analytic_domain(preview_extension),
         adds_material,midpoint_profile.wire,
         midpoint_profile.circular_edge,{}};
@@ -2316,7 +2346,10 @@ Cutter make_route_cutter(const std::vector<CutterJob>& jobs,
     if(!end_faces.empty())
         for(const auto index:route) {
             TopoDS_Vertex edge_first,edge_last;
-            TopExp::Vertices(jobs[index].edge,edge_first,edge_last,true);
+            // Fillet end flags follow the curve's parameter order, exactly
+            // as in the single-edge cutter and the request mapping. The
+            // oriented order is used only to traverse the assembled spine.
+            TopExp::Vertices(jobs[index].edge,edge_first,edge_last,false);
             assign_end_face(end_faces[index].first,edge_first);
             assign_end_face(end_faces[index].last,edge_last);
         }
@@ -2327,7 +2360,7 @@ Cutter make_route_cutter(const std::vector<CutterJob>& jobs,
         automatic_last=false;
         for(const auto index:route) {
             TopoDS_Vertex edge_first,edge_last;
-            TopExp::Vertices(jobs[index].edge,edge_first,edge_last,true);
+            TopExp::Vertices(jobs[index].edge,edge_first,edge_last,false);
             if(!edge_first.IsNull()&&edge_first.IsSame(start_vertex))
                 automatic_first=end_faces[index].automatic_first;
             if(!edge_last.IsNull()&&edge_last.IsSame(start_vertex))
@@ -3607,47 +3640,17 @@ OcctPlanarEdgeFilletResult occt_planar_edge_fillet(
             // directly above. A persisted arc node revolves the first strip's
             // end profile about the corner edge onto the second strip's end;
             // other arrangements retain their perpendicular circular ends.
-            if(arc_at(node.jobs[0],node.vertex)&&
-               arc_at(node.jobs[1],node.vertex)&&*job_adds_material[
-                    node.jobs.front()]) {
-                const auto origin=BRep_Tool::Pnt(node.vertex);
-                const gp_Vec d1(directions[0]),d2(directions[1]);
-                const gp_Vec n_first=d2-d1*d1.Dot(d2);
-                const gp_Vec n_second=d1-d2*d1.Dot(d2);
-                const gp_Vec axis=n_first.Crossed(n_second);
-                if(n_first.Magnitude()<=1.0e-9||n_second.Magnitude()<=1.0e-9||
-                        axis.Magnitude()<=1.0e-12)
-                    throw std::invalid_argument(
-                        "ZIMA Fillet arc node needs non-parallel branches");
-                const double sweep=n_first.Angle(n_second);
-                TopoDS_Face profile;
-                for(const auto& cutter:cutters) {
-                    if(std::ranges::find(cutter.source_jobs,node.jobs[0])==
-                            cutter.source_jobs.end())continue;
-                    for(TopExp_Explorer faces(cutter.solid,TopAbs_FACE);
-                            faces.More();faces.Next()) {
-                        const auto face=TopoDS::Face(faces.Current());
-                        const BRepAdaptor_Surface surface(face,true);
-                        if(surface.GetType()!=GeomAbs_Plane)continue;
-                        const auto plane=surface.Plane();
-                        if(!plane.Axis().Direction().IsParallel(
-                                directions[0],1.0e-9)||
-                           std::abs(gp_Vec(origin,plane.Location()).Dot(d1))>
-                                std::max(10.*tolerance,1.0e-7))continue;
-                        profile=face;
+            if(arc_at(node.jobs[0],node.vertex)&&arc_at(node.jobs[1],node.vertex)) {
+                TopoDS_Shape connector;
+                for(const auto& cutter:cutters)
+                    if(std::ranges::find(cutter.source_jobs,node.jobs[0])!=cutter.source_jobs.end()) {
+                        connector=edge_treatment_nodes::revolved_corner(cutter.solid,
+                            BRep_Tool::Pnt(node.vertex),directions[0],directions[1],tolerance);
                         break;
                     }
-                }
-                if(profile.IsNull())
-                    throw std::invalid_argument(
-                        "ZIMA Fillet arc node has no end profile");
-                BRepPrimAPI_MakeRevol revolve(profile,
-                    gp_Ax1(origin,gp_Dir(axis)),sweep);
-                if(!revolve.IsDone()||revolve.Shape().IsNull())
-                    throw std::runtime_error(
-                        "ZIMA Fillet could not construct an arc node");
-                node_connectors.push_back({revolve.Shape(),std::nullopt,
-                    node.jobs,true});
+                if(connector.IsNull())
+                    throw std::runtime_error("ZIMA Fillet could not construct a valid node connector");
+                node_connectors.push_back({connector,std::nullopt,node.jobs,adds_material});
             }
         }
     }
