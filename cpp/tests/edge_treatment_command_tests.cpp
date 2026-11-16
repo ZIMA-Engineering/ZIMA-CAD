@@ -1,8 +1,11 @@
 #include "profile_solid_fixture.hpp"
 #include "profile_command_fixture.hpp"
+#include "../app/workspace/edge_treatment_preview.hpp"
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/edge_treatment_operations.hpp>
 #include <zima/workspace/operation_input.hpp>
+#include <zima/document/edge_treatment_selection.hpp>
+#include <zima/kernel/calculation_diagnostics.hpp>
 #include <algorithm>
 #include <cmath>
 #include <iostream>
@@ -10,11 +13,68 @@
 #include <limits>
 #include <fstream>
 #include <set>
+#include <BRepTools.hxx>
+#include <BRep_Builder.hxx>
+#include <BRep_Tool.hxx>
+#include <GeomAPI_ProjectPointOnCurve.hxx>
+#include <TopExp_Explorer.hxx>
+#include <TopoDS.hxx>
+#include <sstream>
 using namespace zima;
 using commands::Json;
 namespace fs=std::filesystem;
 namespace {
 void require(bool value,const char* message){if(!value)throw std::runtime_error(message);}
+// Explicit calculation oracle for regression checks. Product interaction has
+// no disposable body-preview API: it uses only the persisted input wire data.
+kernel::ViewerMesh calculate_candidate_body(const document::DocumentSession& session,
+        const kernel::OcctKernel& engine,const document::HistoryContainer& feature,
+        kernel::BodyResult* body=nullptr) {
+    workspace::Workspace trial;
+    trial.add_part(session.document(),session.calculated_boundaries());
+    const auto& id=session.document().document_id;
+    workspace::commit_edge_treatment(trial,engine,id,feature,
+        session.document().find_container(feature.id)?workspace::EdgeTreatmentEditMode::Replace:
+            workspace::EdgeTreatmentEditMode::Create);
+    const auto* output=workspace::calculated_operation_output(trial.open_part(id)->session,feature.id);
+    require(output,"Calculated treatment has no output");
+    if(body)*body=*output;
+    return output->mesh;
+}
+struct EndCutChoice {std::vector<kernel::FaceReference> faces;};
+std::vector<EndCutChoice> calculate_end_choices(const document::DocumentSession& session,
+        const kernel::OcctKernel& engine,const document::HistoryContainer& feature,
+        const std::vector<std::pair<std::size_t,bool>>& ends) {
+    const auto* input=workspace::calculated_operation_input(session,
+        session.document().find_container(feature.id)?feature.id:std::string{});
+    require(input,"Terminal oracle has no input");
+    std::vector<std::vector<kernel::ViewerEdge>> groups;
+    for(std::size_t i=0;i<feature.edge_treatment.routes.size();++i)
+        groups.push_back(document::current_treatment_selection_wire(feature.edge_treatment,i,{},input->mesh));
+    std::vector<EndCutChoice> choices{{}};
+    for(const auto [route,first]:ends) {
+        std::vector<EndCutChoice> next;
+        for(const auto& face:app::workspace_detail::edge_treatment_preview_end_choices(
+                groups,feature.edge_treatment,&input->mesh,route,first))
+            for(auto choice:choices){choice.faces.push_back(face);next.push_back(std::move(choice));}
+        choices=std::move(next);
+    }
+    std::vector<EndCutChoice> accepted;
+    std::vector<kernel::ViewerMesh> geometry;
+    for(const auto& choice:choices)try {
+        auto candidate=feature;
+        for(std::size_t i=0;i<ends.size();++i) {
+            const auto [route,first]=ends[i];auto& end=candidate.edge_treatment.route_end_faces[route];
+            (first?end.first_mode:end.last_mode)=document::EdgeTreatmentParameters::RouteEndMode::Cut;
+            (first?end.first:end.last)=choice.faces[i];
+        }
+        auto mesh=calculate_candidate_body(session,engine,candidate);
+        if(std::ranges::none_of(geometry,[&](const auto& other){return mesh.vertices==other.vertices&&mesh.triangles==other.triangles;})) {
+            accepted.push_back(choice);geometry.push_back(std::move(mesh));
+        }
+    }catch(const std::exception&){}
+    return accepted;
+}
 void near(double value,double expected,double tolerance=1e-5){if(std::abs(value-expected)>tolerance)throw std::runtime_error("Expected "+std::to_string(expected)+", got "+std::to_string(value));}
 commands::Result run(command_host::Host& host,const char* name,Json args=Json::object()) {
     auto result=host.execute({{"command",name},{"arguments",args}});
@@ -90,14 +150,14 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     const auto choice_generation=state->session.data_generation();
     const auto* choice_cache=state->session.calculated_boundaries().data();
     const auto choice_history=state->session.document().history;
-    const auto cut_choices=workspace::edge_treatment_end_cut_choices(
+    const auto cut_choices=calculate_end_choices(
         state->session,kernel,choice_definition,{{0,true}});
     require(cut_choices.size()==1&&cut_choices.front().faces.size()==1,
         "Equivalent local endpoint cuts were not reduced to one exact choice");
     auto replay_choice=choice_definition;
     replay_choice.edge_treatment.route_end_faces.front().first=
         cut_choices.front().faces.front();
-    const auto choice_preview=workspace::edge_treatment_preview_mesh(
+    const auto choice_preview=calculate_candidate_body(
         state->session,kernel,replay_choice);
     require(!choice_preview.edges.empty(),
         "An offered endpoint cut could not replay its exact preview");
@@ -129,7 +189,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     require(state->session.revision()==revision&&state->session.calculated_boundaries().data()==cache,"Fillet read/no-op recalculated");
     auto recovery_preview=original;
     recovery_preview.edge_treatment.primary_size=3;
-    const auto recovery_expected=workspace::edge_treatment_preview_mesh(
+    const auto recovery_expected=calculate_candidate_body(
         state->session,kernel,recovery_preview);
     const auto strict_failure=host.execute({{"command","fillet.set"},
         {"arguments",{{"container",id},{"radius_mm",500},
@@ -137,7 +197,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     require(!strict_failure.ok&&state->session.revision()==revision&&
             *state->session.document().find_container(id)==original,
         "Failed explicit ZIMA calculation changed the authored Fillet");
-    const auto recovery_actual=workspace::edge_treatment_preview_mesh(
+    const auto recovery_actual=calculate_candidate_body(
         state->session,kernel,recovery_preview);
     require(recovery_actual.vertices==recovery_expected.vertices&&
             recovery_actual.triangles==recovery_expected.triangles&&
@@ -587,7 +647,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     const auto preview_generation=restored_state->session.data_generation();
     const auto* preview_cache=restored_state->session.calculated_boundaries().data();
     const auto preview_history=restored_state->session.document().history;
-    const auto exact_preview=workspace::edge_treatment_preview_mesh(
+    const auto exact_preview=calculate_candidate_body(
         restored_state->session,restored_kernel,edited);
     require(!exact_preview.edges.empty(),
         "Changed original-edge treatment produced no exact preview wire");
@@ -651,12 +711,12 @@ void verify_preview_recovery_script(const kernel::OcctKernel& kernel,
         auto& ends=pending.edge_treatment.route_end_faces[route];
         (first?ends.first_mode:ends.last_mode)=Mode::RoundedJoin;
     }
-    const auto expected=workspace::edge_treatment_preview_mesh(
+    const auto expected=calculate_candidate_body(
         state->session,kernel,pending);
-    const auto choices=workspace::edge_treatment_end_cut_choices(
+    const auto choices=calculate_end_choices(
         state->session,kernel,pending,joined);
     std::cout<<"Recovery terminal alternatives="<<choices.size()<<'\n';
-    const auto actual=workspace::edge_treatment_preview_mesh(
+    const auto actual=calculate_candidate_body(
         state->session,kernel,pending);
     require(actual.vertices==expected.vertices&&
             actual.triangles==expected.triangles,
@@ -666,12 +726,120 @@ void verify_preview_recovery_script(const kernel::OcctKernel& kernel,
         "Terminal probes changed the live revision/generation");
     std::cout<<"Terminal probe recovery passed\n";
 }
+void verify_node_wires(const kernel::OcctKernel& kernel,fs::path directory) {
+    workspace::Workspace live;command_host::Options options;
+    options.settings=[] {command_host::Settings s;s.templates={fs::absolute("config/templates"),"START_PART_mm.prtz","START_ASSEMBLY_mm.asmz","Body"};return s;};
+    command_host::Host host(live,kernel,directory,options);
+    run(host,"new",{{"type","part"},{"name","wire-nodes"}});
+    const auto block=[&](double x,double y,double z,double elevation) {
+        return test::rectangular_commands([&](const char* n,Json a){return run(host,n,std::move(a));},
+            {{"length_mm",x},{"width_mm",y},{"height_mm",z},{"one_sided",true},
+             {"placement",{{"z",elevation}}}});
+    };
+    block(60,60,10,0);
+    const auto check_node=[&](kernel::Vec3 node,std::size_t count,bool arc) {
+        const auto id=live.active_document_id();const auto& session=live.open_part(id)->session;
+        const auto* input=workspace::calculated_operation_input(session,{});
+        require(input,"Node wire fixture has no calculated input");
+        std::vector<kernel::ViewerEdge> selected;
+        const auto distance=[](kernel::Vec3 a,kernel::Vec3 b){return std::hypot(a.x-b.x,a.y-b.y,a.z-b.z);};
+        for(const auto& edge:input->mesh.edges)if(!edge.parameter_seam&&edge.points.size()==2&&
+            (distance(edge.points.front(),node)<1e-7||distance(edge.points.back(),node)<1e-7)) {
+            if(arc&&std::abs(edge.points.front().z-edge.points.back().z)>1e-7)continue;
+            selected.push_back(edge);
+        }
+        require(selected.size()>=count,"Node fixture has too few branches");selected.resize(count);
+        for(bool reverse:{false,true})for(const auto mode:arc?
+                std::vector{document::EdgeTreatmentParameters::RouteEndMode::RoundedJoin,
+                    document::EdgeTreatmentParameters::RouteEndMode::RoundedArc}:
+                std::vector{document::EdgeTreatmentParameters::RouteEndMode::RoundedJoin}) {
+            auto ordered=selected;
+            if(reverse)std::ranges::reverse(ordered);
+            auto feature=document::PartDocument::create_fillet_container({ordered.front().reference});
+            feature.edge_treatment.routes.clear();feature.edge_treatment.route_end_faces.clear();
+            feature.edge_treatment.primary_size=2.;
+            feature.edge_treatment.calculation_method=document::EdgeTreatmentParameters::CalculationMethod::Zima;
+            std::vector<std::vector<kernel::ViewerEdge>> groups;
+            for(const auto& edge:ordered) {
+                feature.edge_treatment.routes.push_back({edge.reference});
+                feature.edge_treatment.route_end_faces.emplace_back();
+                auto& ends=feature.edge_treatment.route_end_faces.back();
+                ends.first_mode=distance(edge.points.front(),node)<1e-7?mode:
+                    document::EdgeTreatmentParameters::RouteEndMode::Cut;
+                ends.last_mode=distance(edge.points.back(),node)<1e-7?mode:
+                    document::EdgeTreatmentParameters::RouteEndMode::Cut;
+                require(edge.edge_treatment_endpoint_references.size()==2,"Node branch lost endpoint identities");
+                ends.first_vertex=edge.edge_treatment_endpoint_references.front();
+                ends.last_vertex=edge.edge_treatment_endpoint_references.back();
+                groups.push_back({edge});
+            }
+            const auto calculations=kernel::body_calculation_count.load();
+            const auto wire=app::workspace_detail::edge_treatment_preview_wire(groups,
+                feature.edge_treatment,feature.feature_kind,feature.id,&input->mesh);
+            require(kernel::body_calculation_count.load()==calculations,"Node wire calculated a Body");
+            kernel::BodyResult body;
+            const auto result=calculate_candidate_body(session,kernel,feature,&body);
+            TopoDS_Shape shape;BRep_Builder builder;
+            std::istringstream archive(body.kernel_shape.get());BRepTools::Read(shape,archive,builder);
+            require(!shape.IsNull(),"Node comparison has no native result");
+            struct Curve {Handle(Geom_Curve) curve;double first{},last{};};
+            std::vector<Curve> curves;
+            for(TopExp_Explorer item(shape,TopAbs_EDGE);item.More();item.Next()) {
+                Curve curve;curve.curve=BRep_Tool::Curve(TopoDS::Edge(item.Current()),curve.first,curve.last);
+                if(!curve.curve.IsNull())curves.push_back(std::move(curve));
+            }
+            double worst{};
+            for(const auto& edge:wire.edges)for(const auto& p:edge.points) {
+                double closest=1e100;
+                for(const auto& boundary:curves) {
+                    GeomAPI_ProjectPointOnCurve projection(gp_Pnt(p.x,p.y,p.z),boundary.curve,boundary.first,boundary.last);
+                    if(projection.NbPoints())closest=std::min(closest,projection.LowerDistance());
+                }
+                worst=std::max(worst,closest);
+            }
+            std::cout<<"Node wire branches="<<count<<" arc="<<arc<<" mode="<<static_cast<int>(mode)
+                <<" reverse="<<reverse<<" boundary deviation="<<worst<<'\n';
+            require(worst<1e-5,"Lightweight node wire differs from exact calculated Body boundaries");
+            if(arc&&mode==document::EdgeTreatmentParameters::RouteEndMode::RoundedArc)
+                {
+                    const auto* fixture_path=std::getenv("ZIMA_WIRE_FIXTURE_DIRECTORY");
+                    const auto target=fixture_path?fs::u8path(fixture_path):directory;
+                    workspace::Workspace saved;saved.add_part(session.document(),session.calculated_boundaries());
+                    workspace::commit_edge_treatment(saved,kernel,id,feature,workspace::EdgeTreatmentEditMode::Create);
+                    const auto& output=saved.open_part(id)->session;
+                    output.document().save(target/"rounded-node.prtz",output.calculated_boundaries());
+                    std::ofstream(target/"rounded-node-owner.txt")<<feature.id;
+                    std::vector<kernel::BodyResult> boundaries;
+                    auto document=document::PartDocument::load(target/"rounded-node.prtz",&boundaries);
+                    document::DocumentSession reopened(document,boundaries);
+                    const auto* restored=workspace::calculated_operation_input(reopened,feature.id);
+                    require(restored,"Reopened node has no rollback input");
+                    std::vector<std::vector<kernel::ViewerEdge>> restored_groups;
+                    for(std::size_t r=0;r<feature.edge_treatment.routes.size();++r)
+                        restored_groups.push_back(document::current_treatment_selection_wire(feature.edge_treatment,r,{},restored->mesh));
+                    const auto restored_wire=app::workspace_detail::edge_treatment_preview_wire(restored_groups,
+                        feature.edge_treatment,feature.feature_kind,feature.id,&restored->mesh);
+                    std::cout<<"Reopened node edges="<<restored_wire.edges.size()<<" expected="<<wire.edges.size()<<'\n';
+                    require(restored_wire.edges.size()==wire.edges.size(),"Save/reopen lost the rounded node preview");
+                    for(std::size_t e=0;e<wire.edges.size();++e) {
+                        require(restored_wire.edges[e].points.size()==wire.edges[e].points.size(),"Reopened node changed wire sampling");
+                        for(std::size_t p=0;p<wire.edges[e].points.size();++p)
+                            require(distance(restored_wire.edges[e].points[p],wire.edges[e].points[p])<1e-9,
+                                "Reopened node changed its exact wire");
+                    }
+                }
+        }
+    };
+    check_node({30,30,5},2,false);check_node({30,30,5},3,false);
+    block(20,20,10,10);
+    check_node({-10,-10,5},2,true);check_node({-10,-10,5},3,false);
+}
 }
 int main(){try{kernel::OcctKernel kernel;
     if(const auto* script=std::getenv("ZIMA_VERIFY_TREATMENT_PREVIEW_SCRIPT")) {
         verify_preview_recovery_script(kernel,fs::u8path(script));return 0;
     }
     const auto directory=fs::temp_directory_path()/("zima-edge-commands-"+document::PartDocument::create_default().document_id);
-    require(fs::create_directory(directory),"Cannot create test directory");verify(kernel,directory);fs::remove_all(directory);
+    require(fs::create_directory(directory),"Cannot create test directory");verify(kernel,directory);verify_node_wires(kernel,directory);fs::remove_all(directory);
     std::cout<<"Edge treatment commands: radii, section distances, volumes, reference ownership, locks, rollback and native files passed\n";return 0;
 }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}}

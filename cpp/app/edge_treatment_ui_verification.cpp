@@ -1,4 +1,6 @@
 #include "../tests/gui_profile_fixture.hpp"
+#include "authored_feature_wire.hpp"
+#include <zima/kernel/calculation_diagnostics.hpp>
 #include "../tests/profile_solid_fixture.hpp"
 #include "../tests/drill_point_test_support.hpp"
 #include <QTableWidget>
@@ -273,6 +275,7 @@ int verify_edge_treatment_ui(QApplication& application, AssemblyWorkspaceWindow&
             const auto pick_owner=qEnvironmentVariable("ZIMA_VERIFY_PICK_OWNER").toStdString();
             const bool chamfer=qEnvironmentVariableIsSet("ZIMA_VERIFY_PICK_CHAMFER");
             const auto revision=run("documents").at(0).at("revision");
+            const auto draft_calculations=kernel::body_calculation_count.load();
             const auto available=pick_owner.empty()?run("edge_treatment.edges").at("items"):run("edge_treatment.edges",{{"container",pick_owner}}).at("items");
             std::cerr<<"PICK items="<<available.size()<<std::endl;
             if(pick_owner.empty())window.findChild<QAction*>(chamfer?"chamferAction":"filletAction")->trigger();else static_cast<void>(edit(pick_owner));
@@ -330,22 +333,37 @@ int verify_edge_treatment_ui(QApplication& application, AssemblyWorkspaceWindow&
             window.grab().save(QString::fromStdString((directory/"pick-dialog.png").string()));
             std::cout<<"PICK-DIR "<<directory.string()<<'\n';
             if(qEnvironmentVariableIsSet("ZIMA_VERIFY_PICK_RECOVERY")) {
+                check(kernel::body_calculation_count.load()==draft_calculations,
+                    "Opening/picking a treatment calculated a Body");
                 check(ok->isEnabled(),"Valid pocket preview failed");
                 check(pending->pending_value().edge_treatment.routes.size()==picked.size(),
                     "Pocket selection dropped an edge");
+                if(!chamfer)for(const auto& label:view->interactive_labels())
+                    if(label.text.find('-')!=std::string::npos)
+                        check(!label.choice,"Intersecting pocket node incorrectly offered a purple solution menu");
                 auto* size=pending->findChild<QDoubleSpinBox*>("edgeTreatmentPrimary");
+                QElapsedTimer wire_timer;wire_timer.start();
+                for(const double radius:{1.25,1.5,2.,1.})size->setValue(radius);
+                flush();
+                std::cout<<"Four wire edits ms="<<wire_timer.nsecsElapsed()/1.0e6<<'\n';
                 size->setValue(10000);flush();
-                check(!ok->isEnabled(),"Oversized treatment unexpectedly succeeded");
+                check(ok->isEnabled()&&kernel::body_calculation_count.load()==draft_calculations,
+                    "Draft edit built or prevalidated a Body before OK");
+                ok->click();flush();
+                check(dialog()==pending&&kernel::body_calculation_count.load()>draft_calculations,
+                    "Invalid OK did not calculate/reject the Body while retaining its dialog");
                 check(run("documents").at(0).at("revision")==revision,
                     "Failed preview changed the document revision");
                 size->setValue(1);flush();
                 check(ok->isEnabled(),"Corrected treatment did not recover in its dialog");
                 size->setValue(10000);flush();
-                check(!ok->isEnabled(),"Second oversized treatment unexpectedly succeeded");
+                ok->click();flush();
+                check(dialog()==pending,"Second oversized treatment unexpectedly succeeded");
                 finish(false);
                 check(run("documents").at(0).at("revision")==revision,
                     "Cancel after failure changed the document");
                 for(const bool next_chamfer:{chamfer,!chamfer}) {
+                    const auto before_draft=kernel::body_calculation_count.load();
                     window.findChild<QAction*>(next_chamfer?"chamferAction":"filletAction")->trigger();flush();
                     for(const auto& edge:picked)
                         static_cast<void>(pick(viewer::CandidateKind::Edge,edge.at("owner"),edge.at("key")));
@@ -354,7 +372,11 @@ int verify_edge_treatment_ui(QApplication& application, AssemblyWorkspaceWindow&
                     check(next->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->isEnabled(),
                         "A failed treatment poisoned the next command");
                     const auto owner=next->container_id();
+                    check(kernel::body_calculation_count.load()==before_draft,
+                        "A new treatment calculated a Body before OK");
                     finish(true);
+                    check(kernel::body_calculation_count.load()>before_draft,
+                        "Changed OK did not calculate a Body");
                     const auto query=next_chamfer?"chamfer.get":"fillet.get";
                     const auto created=run(query,{{"container",owner}});
                     run("save");
@@ -364,9 +386,12 @@ int verify_edge_treatment_ui(QApplication& application, AssemblyWorkspaceWindow&
                             saved.back().calculation_errors.empty(),
                         "Recovered treatment did not save/reopen a valid Body");
                     const auto before=run("documents").at(0).at("revision");
+                    const auto before_unchanged=kernel::body_calculation_count.load();
                     edit(owner);finish(true);
                     check(run("documents").at(0).at("revision")==before,
                         "Unchanged recovered treatment OK created an Undo transaction");
+                    check(kernel::body_calculation_count.load()==before_unchanged,
+                        "Opening/unchanged OK calculated a Body");
                     run("undo");run("redo");
                     check(run(query,{{"container",owner}})==created,
                         "Recovered treatment lost its references through Undo/Redo");
@@ -440,6 +465,7 @@ int verify_edge_treatment_ui(QApplication& application, AssemblyWorkspaceWindow&
             }
             if(qEnvironmentVariableIsSet(
                     "ZIMA_VERIFY_EDGE_TREATMENT_PREVIEW_ONLY")) {
+                const auto preview_calculations=kernel::body_calculation_count.load();
                 auto* pending=edit(owner);
                 const auto parameters=pending->pending_value().edge_treatment;
                 std::vector<std::vector<kernel::ViewerEdge>> groups;
@@ -466,13 +492,9 @@ int verify_edge_treatment_ui(QApplication& application, AssemblyWorkspaceWindow&
                     check(expected_node_count>=0&&published_labels.size()==
                             static_cast<std::size_t>(expected_node_count),
                         "Treatment preview has an unexpected number of source-node labels");
-                check(!published.empty()&&std::ranges::all_of(published,
-                        [&](const auto& edge) {
-                            return !edge.parameter_seam&&!edge.overlay&&
-                                !edge.construction&&std::ranges::find(
-                                    edge.edge_treatment_owner_ids,owner)!=
-                                    edge.edge_treatment_owner_ids.end();
-                        })&&
+                check(!published.empty()&&published.size()==expected.edges.size()&&
+                        std::equal(published.begin(),published.end(),expected.edges.begin(),
+                            [](const auto& a,const auto& b){return a.points==b.points;})&&
                         published_labels.size()==expected.labels.size()&&
                         std::equal(expected.labels.begin(),expected.labels.end(),
                             published_labels.begin(),[](const auto& first,
@@ -480,7 +502,7 @@ int verify_edge_treatment_ui(QApplication& application, AssemblyWorkspaceWindow&
                                 return first.first==second.first&&
                                     first.second==second.second;
                             }),
-                    "Treatment Properties did not show its exact result boundaries and labels");
+                    "Treatment Properties did not show its shared lightweight wire and labels");
                 if(qEnvironmentVariableIsSet(
                         "ZIMA_VERIFY_EDGE_TREATMENT_SHARED_NODE_MENU")) {
                     const auto labels=view->interactive_labels();
@@ -490,67 +512,48 @@ int verify_edge_treatment_ui(QApplication& application, AssemblyWorkspaceWindow&
                         });
                     check(compound!=labels.end(),
                         "Treatment preview has no compound endpoint node");
-                    using EndMode=document::EdgeTreatmentParameters::
-                        RouteEndMode;
-                    std::vector<std::pair<std::size_t,bool>> every_end;
-                    for(std::size_t route=0;route<parameters.routes.size();
-                            ++route) {
-                        every_end.emplace_back(route,true);
-                        every_end.emplace_back(route,false);
-                    }
-                    pending->set_edge_route_end_modes(every_end,
-                        EndMode::Cut);
-                    flush();
-                    const auto position=view->interactive_label_position(
-                        compound->key);
-                    check(position.has_value(),
-                        "Compound endpoint node has no double-click position");
-                    bool selected_rounded_join{};
-                    QTimer menu_selection;
-                    menu_selection.setInterval(10);
-                    QObject::connect(&menu_selection,&QTimer::timeout,
-                        &window,[&] {
-                            auto menus=window.findChildren<QMenu*>();
+                    using EndMode=document::EdgeTreatmentParameters::RouteEndMode;
+                    check(compound->choice,"Selectable rounded node was presented as passive");
+                    for(const auto mode:{EndMode::RoundedArc,EndMode::RoundedJoin,EndMode::RoundedArc}) {
+                        const auto position=view->interactive_label_position(compound->key);
+                        check(position.has_value(),"Compound node has no double-click position");
+                        bool selected{};
+                        QTimer selection,timeout;
+                        selection.setInterval(10);timeout.setSingleShot(true);
+                        const auto menus=[&] {
+                            auto result=window.findChildren<QMenu*>();
                             for(auto* widget:QApplication::topLevelWidgets())
-                                if(auto* menu=qobject_cast<QMenu*>(widget))
-                                    menus.push_back(menu);
-                            for(auto* menu:menus) {
-                                if(!menu->isVisible()||
-                                        menu->actions().size()<2)continue;
-                                const auto expected_text=
-                                    QCoreApplication::translate(
-                                        "AssemblyWorkspaceWindow",
-                                        "Špička");
-                                if(menu->actions().back()->text()!=
-                                        expected_text)
-                                    continue;
-                                selected_rounded_join=true;
-                                menu_selection.stop();
-                                menu->setActiveAction(
-                                    menu->actions().back());
-                                QKeyEvent enter(QEvent::KeyPress,
-                                    Qt::Key_Return,Qt::NoModifier);
-                                QApplication::sendEvent(menu,&enter);
-                                return;
+                                if(auto* menu=qobject_cast<QMenu*>(widget))result.push_back(menu);
+                            return result;
+                        };
+                        QObject::connect(&timeout,&QTimer::timeout,&window,[&] {
+                            for(auto* menu:menus())if(menu->isVisible())menu->close();
+                        });
+                        QObject::connect(&selection,&QTimer::timeout,&window,[&] {
+                            for(auto* menu:menus()) {
+                                if(!menu->isVisible()||menu->objectName()!="edgeTreatmentEndMenu")continue;
+                                const auto text=QCoreApplication::translate("AssemblyWorkspaceWindow",
+                                    mode==EndMode::RoundedArc?"Zaoblení":"Špička");
+                                for(auto* action:menu->actions())if(action->text()==text) {
+                                    selected=true;selection.stop();menu->setActiveAction(action);
+                                    QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);
+                                    QApplication::sendEvent(menu,&enter);return;
+                                }
                             }
                         });
-                    menu_selection.start();
-                    mouse(QEvent::MouseButtonDblClick,
-                        *position+QPointF(14.,-14.),
-                        Qt::LeftButton,Qt::LeftButton);
-                    menu_selection.stop();
-                    const auto changed=pending->pending_value().
-                        edge_treatment;
-                    std::size_t rounded_join_ends{};
-                    for(const auto& ends:changed.route_end_faces) {
-                        rounded_join_ends+=ends.first_mode==
-                            EndMode::RoundedJoin;
-                        rounded_join_ends+=ends.last_mode==
-                            EndMode::RoundedJoin;
+                        selection.start();timeout.start(5000);
+                        mouse(QEvent::MouseButtonDblClick,*position+QPointF(14.,-14.),Qt::LeftButton,Qt::LeftButton);
+                        selection.stop();timeout.stop();
+                        std::size_t changed_ends{};
+                        for(const auto& ends:pending->pending_value().edge_treatment.route_end_faces) {
+                            changed_ends+=ends.first_mode==mode;
+                            changed_ends+=ends.last_mode==mode;
+                        }
+                        check(selected&&changed_ends==2,"Node menu did not update both ends to its selected solution");
                     }
-                    check(selected_rounded_join&&rounded_join_ends==2,
-                        "Compound endpoint menu did not apply Rounded join to exactly both node ends");
                 }
+                check(kernel::body_calculation_count.load()==preview_calculations,
+                    "Properties or node choices calculated a Body before OK");
                 window.grab().save(QString::fromStdString(
                     (directory/("user-model-treatment-preview-"+owner+
                         ".png")).string()));
@@ -1096,6 +1099,7 @@ int verify_edge_treatment_ui(QApplication& application, AssemblyWorkspaceWindow&
                             route_end_faces.front().first_mode==EndMode::Cut,
                     "Double-clicking the endpoint point invoked its text action");
                 bool selected_cut{};
+                const auto before_menu_calculations=kernel::body_calculation_count.load();
                 // The double-click handler opens a synchronous popup. Poll
                 // from its nested event loop because the mouse helper may
                 // process a zero-delay callback before dispatching the click.
@@ -1130,6 +1134,8 @@ int verify_edge_treatment_ui(QApplication& application, AssemblyWorkspaceWindow&
                 check(selected_cut&&(chooses_first?
                         selected_end.first_mode:selected_end.last_mode)==EndMode::NoCut,
                     "Double-clicking a purple endpoint did not select No cut");
+                check(kernel::body_calculation_count.load()==before_menu_calculations,
+                    "Opening or choosing a free-end solution calculated a Body");
             }
             drag(owner,"parameter:primary",0);const auto layout=pending->dimension_layouts();
             const auto exact_wire=view->transient_edges();
@@ -1142,23 +1148,14 @@ int verify_edge_treatment_ui(QApplication& application, AssemblyWorkspaceWindow&
             check(saved.history.size()==(commit?2:1)&&saved.dimension_layouts==(commit?layout:std::vector<kernel::DimensionLayoutEntry>{}),
                 "Creation did not commit/cancel geometry and annotation together");
             if(commit) {
-                const auto owned_boundary=[&](const auto& edge) {
-                    return !edge.parameter_seam&&!edge.overlay&&
-                        !edge.construction&&std::ranges::find(
-                            edge.edge_treatment_owner_ids,owner)!=
-                            edge.edge_treatment_owner_ids.end();
-                };
-                const auto& output=view->mesh().edges;
-                check(!exact_wire.empty()&&
-                        static_cast<std::size_t>(std::ranges::count_if(
-                            output,owned_boundary))==exact_wire.size()&&
-                        std::ranges::all_of(exact_wire,[&](const auto& wire) {
-                            return std::ranges::any_of(output,
-                                [&](const auto& edge) {
-                                    return owned_boundary(edge)&&
-                                        document::same_treatment_edge_geometry(wire,edge);
-                                });
-                        }),"The azure wire differs from the committed treatment boundaries");
+                std::vector<kernel::BodyResult> saved_boundaries;
+                auto reopened=document::PartDocument::load(file,&saved_boundaries);
+                document::DocumentSession snapshot(std::move(reopened),std::move(saved_boundaries));
+                const auto selection_wire=authored_feature_wire(snapshot,owner);
+                check(!exact_wire.empty()&&selection_wire.size()==exact_wire.size()&&
+                    std::equal(exact_wire.begin(),exact_wire.end(),selection_wire.begin(),
+                        [](const auto& a,const auto& b){return a.points==b.points;}),
+                    "Creation, saved Properties and ordinary selection use different authored wires");
                 const auto& stored=saved.history.back().edge_treatment.
                     route_end_faces.front();
                 check(stored.first_vertex==initial_ends.first_vertex&&

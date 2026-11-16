@@ -32,6 +32,7 @@
 #include <BRepOffsetAPI_DraftAngle.hxx>
 #include <zima/kernel/shaft_thread_geometry.hpp>
 #include <zima/kernel/occt_kernel.hpp>
+#include <zima/kernel/calculation_diagnostics.hpp>
 #include <zima/kernel/step_source_document.hpp>
 #include <zima/kernel/solid_straightening.hpp>
 #include <zima/kernel/solid_state_history.hpp>
@@ -8087,141 +8088,7 @@ OcctKernel::inspect_edge_treatment_supports(const BodyResult& body,
     return result;
 }
 
-std::vector<FaceReference> OcctKernel::inspect_edge_treatment_end_choices(
-        const BodyResult& body,std::span<const EdgeReference> route,
-        const VertexReference& endpoint) const {
-    if(body.kernel_shape==kernel_body_compound)
-        throw std::invalid_argument(
-            "Edge end inspection requires one calculated Body");
-    if(body.kernel_shape.empty())
-        throw std::invalid_argument(
-            "Edge end inspection requires a native Body snapshot");
-    if(route.empty()||std::ranges::any_of(route,[](const auto& reference) {
-            return !reference.valid()||!reference.instance_path.empty();
-        })||!endpoint.valid()||!endpoint.instance_path.empty())
-        throw std::invalid_argument(
-            "Edge end inspection received an invalid route endpoint");
 
-    const auto native=placed_bound_face_geometry(body,true);
-    std::vector<TopoDS_Vertex> endpoint_vertices;
-    for(const auto& owned:native.vertices)
-        if(owned.reference==endpoint&&
-           std::ranges::none_of(endpoint_vertices,[&](const auto& current) {
-               return current.IsSame(owned.shape);
-           }))endpoint_vertices.push_back(TopoDS::Vertex(owned.shape));
-    if(endpoint_vertices.size()!=1)
-        throw std::runtime_error(endpoint_vertices.empty()
-            ?"The route endpoint is missing from its native Body snapshot"
-            :"The route endpoint is ambiguous in its native Body snapshot");
-    const auto endpoint_vertex=endpoint_vertices.front();
-
-    const auto selected=[&](const EdgeReference& candidate) {
-        return std::ranges::any_of(route,[&](const auto& requested) {
-            return candidate==requested||
-                split_edge_descends_from(candidate,requested)||
-                split_edge_descends_from(requested,candidate);
-        });
-    };
-    std::vector<TopoDS_Edge> terminal_edges;
-    for(const auto& owned:native.edges) {
-        if(!selected(owned.reference))continue;
-        const auto edge=TopoDS::Edge(owned.shape);
-        TopoDS_Vertex first,last;
-        TopExp::Vertices(edge,first,last,true);
-        if((!first.IsNull()&&first.IsSame(endpoint_vertex))||
-           (!last.IsNull()&&last.IsSame(endpoint_vertex)))
-            if(std::ranges::none_of(terminal_edges,[&](const auto& current) {
-                    return current.IsSame(edge);
-                }))terminal_edges.push_back(edge);
-    }
-    if(terminal_edges.size()!=1)
-        throw std::runtime_error(terminal_edges.empty()
-            ?"The selected route does not contain its endpoint"
-            :"The selected route branches at its endpoint");
-    const auto terminal_edge=terminal_edges.front();
-
-    TopTools_IndexedDataMapOfShapeListOfShape edge_faces;
-    TopExp::MapShapesAndAncestors(native.shape,TopAbs_EDGE,TopAbs_FACE,
-        edge_faces);
-    const int face_index=edge_faces.FindIndex(terminal_edge);
-    std::vector<TopoDS_Face> supports;
-    if(face_index)for(TopTools_ListIteratorOfListOfShape iterator(
-            edge_faces.FindFromIndex(face_index));iterator.More();
-            iterator.Next()) {
-        const auto face=TopoDS::Face(iterator.Value());
-        if(std::ranges::none_of(supports,[&](const auto& current) {
-                return current.IsSame(face);
-            }))supports.push_back(face);
-    }
-    if(supports.size()!=2)
-        throw std::runtime_error(
-            "The route endpoint edge does not have exactly two support faces");
-
-    TopoDS_Solid material;
-    for(TopExp_Explorer item(native.shape,TopAbs_SOLID);item.More();
-            item.Next()) {
-        const auto solid=TopoDS::Solid(item.Current());
-        TopTools_IndexedMapOfShape edges;
-        TopExp::MapShapes(solid,TopAbs_EDGE,edges);
-        if(!edges.Contains(terminal_edge))continue;
-        if(!material.IsNull()&&!material.IsSame(solid))
-            throw std::runtime_error(
-                "The route endpoint belongs to multiple material solids");
-        material=solid;
-    }
-    if(material.IsNull())
-        throw std::runtime_error(
-            "The route endpoint has no material solid");
-
-    const BRepAdaptor_Curve curve(terminal_edge);
-    const auto first_point=curve.Value(curve.FirstParameter());
-    const auto last_point=curve.Value(curve.LastParameter());
-    const auto endpoint_point=BRep_Tool::Pnt(endpoint_vertex);
-    const bool at_first=endpoint_point.Distance(first_point)<=
-        endpoint_point.Distance(last_point);
-    gp_Pnt derivative_point;gp_Vec derivative;
-    curve.D1(at_first?curve.FirstParameter():curve.LastParameter(),
-        derivative_point,derivative);
-    if(derivative.SquareMagnitude()<=1.0e-18)
-        throw std::runtime_error(
-            "The route endpoint has no usable tangent direction");
-    if(at_first)derivative.Reverse();
-    const gp_Dir outward(derivative);
-    const double tolerance=1.0e-7;
-
-    std::vector<std::vector<TopoDS_Face>> groups;
-    if(auto local=edge_treatment_terminals::local_terminal_faces(material,
-            supports[0],supports[1],endpoint_point,tolerance,false);
-       !local.empty())groups.push_back(std::move(local));
-    auto remote=edge_treatment_terminals::
-        remote_terminal_face_choices_through_local_curve(material,
-            supports[0],supports[1],endpoint_point,outward,tolerance);
-    groups.insert(groups.end(),std::make_move_iterator(remote.begin()),
-        std::make_move_iterator(remote.end()));
-
-    const auto representative=[&](const auto& faces)
-            ->std::optional<FaceReference> {
-        std::vector<FaceReference> aliases;
-        for(const auto& face:faces)
-            for(const auto& owned:native.faces)
-                if(owned.shape.IsSame(face)&&owned.reference.valid()&&
-                   owned.reference.instance_path.empty()&&
-                   std::ranges::find(aliases,owned.reference)==aliases.end())
-                    aliases.push_back(owned.reference);
-        std::ranges::sort(aliases,[](const auto& first,const auto& second) {
-            return std::tie(first.owner_id,first.semantic_key)<
-                std::tie(second.owner_id,second.semantic_key);
-        });
-        return aliases.empty()?std::nullopt:
-            std::optional<FaceReference>{aliases.front()};
-    };
-    std::vector<FaceReference> result;
-    for(const auto& group:groups)
-        if(const auto reference=representative(group);reference&&
-           std::ranges::find(result,*reference)==result.end())
-            result.push_back(*reference);
-    return result;
-}
 
 
 struct OcctKernel::NativeFaceSource {
@@ -11747,6 +11614,7 @@ OcctKernel::evaluate_flat_history_batched(
 std::vector<BodyResult> OcctKernel::evaluate_flat_history(
     const std::vector<HistoryOperation>& operations,
     const std::vector<BodyResult>& previous_boundaries,HistoryContext& context) const {
+    body_calculation_count.fetch_add(1,std::memory_order_relaxed);
     context.original_faces.reset();
     context.source_solids.clear();
     // Native input validation already knows these definitions cannot produce

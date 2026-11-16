@@ -489,12 +489,6 @@ private:
     std::optional<zima::viewer::ViewerCandidate> edge_treatment_hover_seed_;
     zima::document::EdgeTreatmentParameters edge_treatment_preview_parameters_;
     std::string edge_treatment_preview_owner_id_;
-    std::optional<zima::document::HistoryContainer>
-        edge_treatment_exact_preview_definition_;
-    std::uint64_t edge_treatment_exact_preview_generation_{};
-    std::vector<zima::kernel::ViewerEdge>
-        edge_treatment_exact_preview_edges_;
-    QString edge_treatment_exact_preview_error_;
     bool edge_treatment_preview_refresh_active_{};
     bool shell_face_selection_active_{};
     PrimitivePropertiesDialog* shell_dialog_{};

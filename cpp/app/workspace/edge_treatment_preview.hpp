@@ -25,7 +25,8 @@ struct EdgeTreatmentPreviewGeometry {
     // The closing node of a loop is shown once as 1.1. Generated treatment
     // contacts do not participate in this numbering and labels are transient.
     std::vector<std::pair<zima::kernel::Vec3,std::string>> labels;
-    // Open-route endpoints are separately interactive and painted purple.
+    // Open-route endpoints are presented separately. Only nodes with a
+    // meaningful solution choice are interactive and painted purple.
     // Their stable vertex identity, rather than display traversal order, owns
     // the persisted Cut/NoCut choice.
     std::vector<TerminalLabel> terminal_labels;
@@ -57,5 +58,12 @@ EdgeTreatmentPreviewGeometry edge_treatment_preview_wire(
     const zima::document::EdgeTreatmentParameters& parameters,
     zima::document::FeatureKind kind, const std::string& owner_id,
     const zima::kernel::ViewerMesh* input_mesh);
+
+// Terminal candidates from persisted face adjacency and analytic surfaces.
+// The first empty reference denotes the ordinary automatic cut.
+std::vector<zima::kernel::FaceReference> edge_treatment_preview_end_choices(
+    const std::vector<std::vector<zima::kernel::ViewerEdge>>& groups,
+    const zima::document::EdgeTreatmentParameters& parameters,
+    const zima::kernel::ViewerMesh* input_mesh,std::size_t route,bool first);
 
 } // namespace zima::app::workspace_detail

@@ -151,22 +151,12 @@ inline std::vector<kernel::ViewerEdge> authored_feature_wire(
         // is not itself the authored shape presented for ordinary selection.
         // This uses only the already calculated input packet and never invokes
         // OCCT or extracts edges from the later Boolean result.
-        // Prefer the exact calculated boundary of this treatment (including
-        // node pieces), identical to the dialog's result preview.
-        if(const auto* output=workspace::calculated_operation_output(session,owner)) {
-            for(const auto& edge:output->mesh.edges)
-                if(!edge.parameter_seam&&!edge.overlay&&!edge.construction&&
-                   std::ranges::find(edge.edge_treatment_owner_ids,feature->id)!=
-                       edge.edge_treatment_owner_ids.end())
-                    wire.edges.push_back(edge);
-            if(!wire.edges.empty())return place(std::move(wire));
-        }
         if (input) {
             std::vector<std::vector<kernel::ViewerEdge>> groups;
             groups.reserve(feature->edge_treatment.routes.size());
             for (std::size_t route=0;
                     route<feature->edge_treatment.routes.size();++route) {
-                groups.push_back(document::treatment_selection_wire(
+                groups.push_back(document::current_treatment_selection_wire(
                     feature->edge_treatment,route,std::nullopt,input_mesh));
             }
             wire.edges=workspace_detail::edge_treatment_preview_wire(

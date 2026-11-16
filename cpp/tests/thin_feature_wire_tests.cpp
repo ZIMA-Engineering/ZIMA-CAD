@@ -5,6 +5,7 @@
 #include <zima/workspace/edge_treatment_operations.hpp>
 #include <zima/workspace/operation_input.hpp>
 #include <zima/kernel/occt_kernel.hpp>
+#include <zima/kernel/calculation_diagnostics.hpp>
 #include <zima/sketcher/curve_geometry.hpp>
 #include <QCoreApplication>
 #include <cstdint>
@@ -251,7 +252,7 @@ void rectangular_matrix(const kernel::OcctKernel& engine) {
             require(expected_wire.size()==
                     4*treatment.edge_treatment.routes.size(),
                 "Fillet analytical cage omitted a rail or terminal arc");
-            require(expected_preview.labels.size()==
+            require(expected_preview.labels.empty()&&expected_preview.terminal_labels.size()==
                     2*treatment.edge_treatment.routes.size(),
                 "Single-edge Fillet routes did not expose both source nodes");
             const auto same_point=[](const kernel::Vec3& first,
@@ -282,9 +283,9 @@ void rectangular_matrix(const kernel::OcctKernel& engine) {
                     "Fillet analytical cage is not two rails closed by two arcs");
                 const auto label_offset=2*route;
                 const auto route_number=route+1;
-                require(expected_preview.labels[label_offset].second==
+                require(expected_preview.terminal_labels[label_offset].text==
                             std::to_string(route_number)+".1"&&
-                        expected_preview.labels[label_offset+1].second==
+                        expected_preview.terminal_labels[label_offset+1].text==
                             std::to_string(route_number)+".2",
                     "Single-edge Fillet route labels do not identify both source nodes");
             }
@@ -306,6 +307,9 @@ void edge_treatment_source_node_labels() {
         kernel::ViewerEdge result;
         result.reference={"node-labels",std::move(key),{}};
         result.points=std::move(points);
+        for(const auto& point:{result.points.front(),result.points.back()})
+            result.edge_treatment_endpoint_references.push_back({"node-labels",
+                std::to_string(point.x)+":"+std::to_string(point.y)+":"+std::to_string(point.z),{}});
         result.edge_treatment_side_directions={
             std::vector<Vec3>(result.points.size(),{0,1,0}),
             std::vector<Vec3>(result.points.size(),{0,0,1})};
@@ -330,11 +334,15 @@ void edge_treatment_source_node_labels() {
         "1.1","1.2","1.3","1.4","2.1","2.2"};
     const std::vector<Vec3> open_nodes{
         {0,0,0},{10,0,0},{14,3,0},{20,3,0},{30,0,0},{40,0,0}};
-    require(open_preview.labels.size()==open_names.size(),
+    auto open_labels=open_preview.labels;
+    for(const auto& terminal:open_preview.terminal_labels)
+        open_labels.emplace_back(terminal.point,terminal.text);
+    std::ranges::sort(open_labels,{},&std::pair<Vec3,std::string>::second);
+    require(open_labels.size()==open_names.size(),
         "Open treatment routes did not label every unique source node");
     for(std::size_t index=0;index<open_names.size();++index)
-        require(open_preview.labels[index].second==open_names[index]&&
-                same(open_preview.labels[index].first,open_nodes[index]),
+        require(open_labels[index].second==open_names[index]&&
+                same(open_labels[index].first,open_nodes[index]),
             "Open treatment route source-node numbering is not sequential");
 
     const std::vector<kernel::ViewerEdge> loop{
@@ -499,6 +507,8 @@ void rolling_edge_treatment_preview() {
     terminal_route.edge_treatment_side_directions={
         std::vector<Vec3>{{1,0,0},{1,0,0}},
         std::vector<Vec3>{{0,1,0},{0,1,0}}};
+    parameters.route_end_faces.resize(1);
+    parameters.route_end_faces[0].first_mode=document::EdgeTreatmentParameters::RouteEndMode::Cut;
     const auto terminal_preview=app::workspace_detail::
         edge_treatment_preview_wire({{{terminal_route}}},parameters,
             document::FeatureKind::Fillet,"terminal-preview",
@@ -588,6 +598,9 @@ void independent_fillet_node_preview() {
         std::vector<Vec3>{{0,0,1},{0,0,1}}};
     document::EdgeTreatmentParameters parameters;
     parameters.primary_size=2.;
+    using Mode=document::EdgeTreatmentParameters::RouteEndMode;
+    parameters.route_end_faces.resize(2);
+    for(auto& ends:parameters.route_end_faces)ends.first_mode=ends.last_mode=Mode::RoundedJoin;
     const auto preview=app::workspace_detail::edge_treatment_preview_wire(
         {{{first}},{{second}}},parameters,document::FeatureKind::Fillet,
         "node-preview",nullptr);
@@ -613,6 +626,29 @@ void independent_fillet_node_preview() {
                 std::abs(std::pow(point.x+2.,2)+
                     std::pow(point.z-2.,2)-4.)<1.0e-7,
             "Behind-node Fillet preview intersection is not on both cylinders");
+    kernel::ViewerMesh support;
+    kernel::FaceReference floor{"node-preview","floor",{}};
+    auto plane=std::make_shared<kernel::SurfaceGeometry>();plane->axis={0,0,1};
+    floor.surface=plane;support.triangle_references.push_back(floor);
+    first.edge_treatment_side_references={floor};
+    second.edge_treatment_side_references={floor};
+    const auto before=kernel::body_calculation_count.load();
+    for(auto& ends:parameters.route_end_faces)ends.first_mode=ends.last_mode=Mode::RoundedArc;
+    const auto rounded=app::workspace_detail::edge_treatment_preview_wire(
+        {{{first}},{{second}}},parameters,document::FeatureKind::Fillet,
+        "node-preview",&support);
+    require(rounded.edges.size()==9&&rounded.edges.back().points.size()==65,
+        "Rounded arc node lost its revolved contact rail");
+    for(const auto& p:rounded.edges.back().points)
+        require(std::abs(p.z)<1.0e-9&&std::abs(p.x*p.x+p.y*p.y-4.)<1.0e-8&&
+                p.x<=1.0e-9&&p.y<=1.0e-9,
+            "Rounded node rail is not the exact additive circular contact");
+    const auto reversed=app::workspace_detail::edge_treatment_preview_wire(
+        {{{second}},{{first}}},parameters,document::FeatureKind::Fillet,
+        "node-preview",&support);
+    require(reversed.edges.size()==rounded.edges.size(),"Reversed arc routes lost their node");
+    require(kernel::body_calculation_count.load()==before,"Node wire calculated a Body");
+    for(auto& ends:parameters.route_end_faces)ends.first_mode=ends.last_mode=Mode::RoundedJoin;
     first.edge_treatment_side_directions[0]=
         std::vector<Vec3>{{0,1,0},{0,1,0}};
     second.edge_treatment_side_directions[0]=
@@ -699,6 +735,59 @@ void independent_fillet_node_preview() {
                     1.0e-7,
             "Non-right Fillet-node preview is not on both analytical cylinders");
     std::cout<<"Independent Fillet node preview: right/non-right cylinder trims and skew circular ends passed\n";
+}
+void planar_terminal_wire() {
+    kernel::ViewerEdge route;
+    route.points={{0,0,0},{20,0,0}};route.reference={"cap","edge",{}};
+    route.edge_treatment_endpoint_references={{"cap","left",{}},{"cap","right",{}}};
+    route.edge_treatment_side_directions={{{0,-1,0},{0,-1,0}},{{0,0,1},{0,0,1}}};
+    kernel::FaceReference cap{"cap","oblique",{}};
+    auto plane=std::make_shared<kernel::SurfaceGeometry>();plane->axis={1,1,0};cap.surface=plane;
+    kernel::ViewerMesh mesh;mesh.triangle_references.push_back(cap);
+    auto boundary=route;boundary.edge_treatment_side_references={cap};mesh.edges={boundary};
+    document::EdgeTreatmentParameters parameters;parameters.primary_size=2;
+    parameters.route_end_faces.resize(1);
+    parameters.route_end_faces[0].first_vertex=route.edge_treatment_endpoint_references.front();
+    parameters.route_end_faces[0].last_vertex=route.edge_treatment_endpoint_references.back();
+    parameters.route_end_faces[0].first_mode=document::EdgeTreatmentParameters::RouteEndMode::Cut;
+    parameters.route_end_faces[0].first=cap;
+    for(const auto kind:{document::FeatureKind::Fillet,document::FeatureKind::Chamfer}) {
+        const auto wire=app::workspace_detail::edge_treatment_preview_wire({{route}},parameters,kind,"preview",&mesh);
+        require(wire.edges.size()==4,"Oblique cap lost a rail or section");
+        for(const auto& point:wire.edges[2].points)
+            require(std::abs(point.x+point.y)<1.0e-8,"Explicit cap wire missed its exact plane");
+    }
+    kernel::FaceReference remote{"cap","remote",{}};
+    auto remote_plane=std::make_shared<kernel::SurfaceGeometry>();
+    remote_plane->axis={1,0,0};remote_plane->origin={-10,0,0};remote.surface=remote_plane;
+    mesh.vertices={{-10,-10,-10},{-10,10,-10},{-10,0,10}};
+    mesh.triangles={0,1,2};mesh.triangle_references={remote};
+    const auto choices=app::workspace_detail::edge_treatment_preview_end_choices(
+        {{route}},parameters,&mesh,0,true);
+    require(choices.size()==2&&!choices[0].valid()&&choices[1]==remote,
+        "Terminal menu lost its automatic trim or remote extension");
+    for(const auto kind:{document::FeatureKind::Fillet,document::FeatureKind::Chamfer}) {
+        parameters.route_end_faces[0].first=remote;
+        const auto extended=app::workspace_detail::edge_treatment_preview_wire({{route}},parameters,kind,"preview",&mesh);
+        for(const auto& point:extended.edges[2].points)
+            require(std::abs(point.x+10)<1.0e-8,"Remote terminal did not extend beyond the radius to its face");
+        auto reversed=parameters;auto& ends=reversed.route_end_faces[0];
+        std::swap(ends.first_vertex,ends.last_vertex);std::swap(ends.first_mode,ends.last_mode);
+        std::swap(ends.first,ends.last);
+        const auto reversed_wire=app::workspace_detail::edge_treatment_preview_wire({{route}},reversed,kind,"preview",&mesh);
+        require(reversed_wire.edges[2].points==extended.edges[2].points,
+            "Terminal choice followed display order instead of its persisted vertex");
+        parameters.route_end_faces[0].first={};
+        const auto trimmed=app::workspace_detail::edge_treatment_preview_wire({{route}},parameters,kind,"preview",&mesh);
+        for(const auto& point:trimmed.edges[2].points)
+            require(std::abs(point.x+point.y)<1.0e-8,"Returning to local trim retained a stale remote end");
+        parameters.route_end_faces[0].first_mode=document::EdgeTreatmentParameters::RouteEndMode::NoCut;
+        const auto uncut=app::workspace_detail::edge_treatment_preview_wire({{route}},parameters,kind,"preview",&mesh);
+        for(const auto& point:uncut.edges[2].points)
+            require(std::abs(point.x)<1.0e-8,"No cut retained a trimmed or extended endpoint");
+        parameters.route_end_faces[0].first_mode=document::EdgeTreatmentParameters::RouteEndMode::Cut;
+    }
+    std::cout<<"Terminal wires: oblique local trim, remote extension, repeated Cut/NoCut for Fillet and Chamfer passed\n";
 }
 void revolution_matrix(const kernel::OcctKernel& engine) {
     unsigned cases{};
@@ -1249,6 +1338,13 @@ int main(int argc,char** argv) {
     QCoreApplication application(argc,argv);
     try{
         if(argc>1&&std::string_view(argv[1])=="--sketch-profile-wire"){sketch_wire_matrix();copy_wire_matrix();return 0;}
+        if(argc>1&&std::string_view(argv[1])=="--edge-treatment-wire") {
+            const auto before=kernel::body_calculation_count.load();
+            edge_treatment_source_node_labels();rolling_edge_treatment_preview();
+            independent_fillet_node_preview();planar_terminal_wire();
+            require(kernel::body_calculation_count.load()==before,"Wire interaction calculated a Body");
+            return 0;
+        }
         if(const auto* file=std::getenv("ZIMA_SKETCH_WIRE_REVIEW_FILE")){actual_sketch_wire(std::filesystem::u8path(file));return 0;}
         if(const auto* file=std::getenv(
                 "ZIMA_EDGE_TREATMENT_PREVIEW_REVIEW_FILE")) {
@@ -1266,7 +1362,7 @@ int main(int argc,char** argv) {
         kernel::OcctKernel engine;line_bend_wire(engine);
         planar_surface_wire_and_cues(engine);rectangular_matrix(engine);
         edge_treatment_source_node_labels();rolling_edge_treatment_preview();
-        independent_fillet_node_preview();
+        independent_fillet_node_preview();planar_terminal_wire();
         revolution_matrix(engine);rounded_profile_matrix(engine);
         if(const auto* file=std::getenv("ZIMA_THIN_REVIEW_FILE"))review_fillets(engine,std::filesystem::u8path(file));
         return 0;}

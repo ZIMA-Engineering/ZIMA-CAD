@@ -155,15 +155,6 @@ public:
     [[nodiscard]] OcctEdgeTreatmentSupportInspection
         inspect_edge_treatment_supports(
             const BodyResult&,std::span<const EdgeReference>) const;
-    // Enumerate exact terminal-boundary alternatives reachable from one open
-    // Fillet/Chamfer route endpoint.  Each returned stable face is a selector
-    // for one complete topological path; callers still validate the resulting
-    // treatment geometry before presenting the choice.  This is read-only and
-    // decodes the existing calculated Body without regeneration.
-    [[nodiscard]] std::vector<FaceReference>
-        inspect_edge_treatment_end_choices(
-            const BodyResult&,std::span<const EdgeReference>,
-            const VertexReference&) const;
     // Explicit reference calculation, never an ordinary picking/hover query.
     // Returns exact curves/points with native ancestry; source stays read-only.
     [[nodiscard]] ViewerReferenceGeometry intersect_face_plane(
