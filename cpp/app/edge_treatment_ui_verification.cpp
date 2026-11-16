@@ -95,12 +95,22 @@ int verify_edge_treatment_ui(QApplication& application, AssemblyWorkspaceWindow&
         check(!counts.empty()&&std::ranges::all_of(counts,
                 [](std::size_t count){return count>0;}),
             "Fillet/Chamfer routes have no source nodes");
-        check(labels.size()+terminal_labels.size()==
-                std::accumulate(counts.begin(),counts.end(),std::size_t{}),
-            "Fillet/Chamfer routes omitted or duplicated source-node labels");
         std::multiset<std::string> actual;
         for(const auto& label:labels)actual.insert(label.second);
-        for(const auto& label:terminal_labels)actual.insert(label.text);
+        std::size_t terminal_token_count{};
+        for(const auto& label:terminal_labels) {
+            std::size_t begin{};
+            while(begin<label.text.size()) {
+                const auto separator=label.text.find('-',begin);
+                actual.insert(label.text.substr(begin,separator-begin));
+                ++terminal_token_count;
+                if(separator==std::string::npos)break;
+                begin=separator+1;
+            }
+        }
+        check(labels.size()+terminal_token_count==
+                std::accumulate(counts.begin(),counts.end(),std::size_t{}),
+            "Fillet/Chamfer routes omitted or duplicated source-node labels");
         for(std::size_t path=0;path<counts.size();++path) {
             const auto prefix=std::to_string(path+1)+".";
             for(std::size_t node=0;node<counts[path];++node)
@@ -117,6 +127,25 @@ int verify_edge_treatment_ui(QApplication& application, AssemblyWorkspaceWindow&
         flush();return result.data;
     };
     try {
+        using TerminalLabel=workspace_detail::EdgeTreatmentPreviewGeometry::TerminalLabel;
+        const kernel::VertexReference joined_vertex{"feature-a","vertex:7",{}};
+        const kernel::Vec3 joined_point{3.,4.,5.};
+        const auto joined_nodes=workspace_detail::edge_treatment_terminal_nodes({
+            TerminalLabel{joined_point,"1.2",0,false,joined_vertex},
+            TerminalLabel{joined_point,"2.1",1,true,joined_vertex},
+            TerminalLabel{joined_point,"3.1",2,true,joined_vertex}});
+        check(joined_nodes.size()==1&&
+                joined_nodes.front().text=="1.2-2.1-3.1"&&
+                joined_nodes.front().route_ends==
+                    std::vector<std::pair<std::size_t,bool>>{
+                        {0,false},{1,true},{2,true}},
+            "Connected treatment route ends do not share one compound node label");
+        const auto distinct_nodes=workspace_detail::edge_treatment_terminal_nodes({
+            TerminalLabel{joined_point,"1.2",0,false,joined_vertex},
+            TerminalLabel{joined_point,"2.1",1,true,
+                kernel::VertexReference{"feature-b","vertex:7",{}}}});
+        check(distinct_nodes.size()==2,
+            "Coincident but topologically separate treatment ends were grouped");
         // Keep the GUI fixture independent of the desktop resolution.
         window.showNormal();window.resize(1500,950);flush();
         const auto stem="edge-grips-"+std::to_string(std::chrono::steady_clock::now().time_since_epoch().count());
@@ -321,13 +350,13 @@ int verify_edge_treatment_ui(QApplication& application, AssemblyWorkspaceWindow&
                     check(expected_node_count>=0&&published_labels.size()==
                             static_cast<std::size_t>(expected_node_count),
                         "Treatment preview has an unexpected number of source-node labels");
-                check(expected.edges.size()>=4*groups.size()&&
-                        published.size()==expected.edges.size()&&
-                        std::equal(expected.edges.begin(),expected.edges.end(),
-                            published.begin(),[](const auto& first,
-                                const auto& second) {
-                                return first.points==second.points;
-                            })&&
+                check(!published.empty()&&std::ranges::all_of(published,
+                        [&](const auto& edge) {
+                            return !edge.parameter_seam&&!edge.overlay&&
+                                !edge.construction&&std::ranges::find(
+                                    edge.edge_treatment_owner_ids,owner)!=
+                                    edge.edge_treatment_owner_ids.end();
+                        })&&
                         published_labels.size()==expected.labels.size()&&
                         std::equal(expected.labels.begin(),expected.labels.end(),
                             published_labels.begin(),[](const auto& first,
@@ -335,9 +364,77 @@ int verify_edge_treatment_ui(QApplication& application, AssemblyWorkspaceWindow&
                                 return first.first==second.first&&
                                     first.second==second.second;
                             }),
-                    "Treatment Properties omitted a persisted route from its analytical preview");
-                verify_terminal_contacts(expected.edges,
-                    expected.terminal_contacts);
+                    "Treatment Properties did not show its exact result boundaries and labels");
+                if(qEnvironmentVariableIsSet(
+                        "ZIMA_VERIFY_EDGE_TREATMENT_SHARED_NODE_MENU")) {
+                    const auto labels=view->interactive_labels();
+                    const auto compound=std::ranges::find_if(labels,
+                        [](const auto& label) {
+                            return label.text.find('-')!=std::string::npos;
+                        });
+                    check(compound!=labels.end(),
+                        "Treatment preview has no compound endpoint node");
+                    using EndMode=document::EdgeTreatmentParameters::
+                        RouteEndMode;
+                    std::vector<std::pair<std::size_t,bool>> every_end;
+                    for(std::size_t route=0;route<parameters.routes.size();
+                            ++route) {
+                        every_end.emplace_back(route,true);
+                        every_end.emplace_back(route,false);
+                    }
+                    pending->set_edge_route_end_modes(every_end,
+                        EndMode::Cut);
+                    flush();
+                    const auto position=view->interactive_label_position(
+                        compound->key);
+                    check(position.has_value(),
+                        "Compound endpoint node has no double-click position");
+                    bool selected_rounded_join{};
+                    QTimer menu_selection;
+                    menu_selection.setInterval(10);
+                    QObject::connect(&menu_selection,&QTimer::timeout,
+                        &window,[&] {
+                            auto menus=window.findChildren<QMenu*>();
+                            for(auto* widget:QApplication::topLevelWidgets())
+                                if(auto* menu=qobject_cast<QMenu*>(widget))
+                                    menus.push_back(menu);
+                            for(auto* menu:menus) {
+                                if(!menu->isVisible()||
+                                        menu->actions().size()<2)continue;
+                                const auto expected_text=
+                                    QCoreApplication::translate(
+                                        "AssemblyWorkspaceWindow",
+                                        "Špička");
+                                if(menu->actions().back()->text()!=
+                                        expected_text)
+                                    continue;
+                                selected_rounded_join=true;
+                                menu_selection.stop();
+                                menu->setActiveAction(
+                                    menu->actions().back());
+                                QKeyEvent enter(QEvent::KeyPress,
+                                    Qt::Key_Return,Qt::NoModifier);
+                                QApplication::sendEvent(menu,&enter);
+                                return;
+                            }
+                        });
+                    menu_selection.start();
+                    mouse(QEvent::MouseButtonDblClick,
+                        *position+QPointF(14.,-14.),
+                        Qt::LeftButton,Qt::LeftButton);
+                    menu_selection.stop();
+                    const auto changed=pending->pending_value().
+                        edge_treatment;
+                    std::size_t rounded_join_ends{};
+                    for(const auto& ends:changed.route_end_faces) {
+                        rounded_join_ends+=ends.first_mode==
+                            EndMode::RoundedJoin;
+                        rounded_join_ends+=ends.last_mode==
+                            EndMode::RoundedJoin;
+                    }
+                    check(selected_rounded_join&&rounded_join_ends==2,
+                        "Compound endpoint menu did not apply Rounded join to exactly both node ends");
+                }
                 window.grab().save(QString::fromStdString(
                     (directory/("user-model-treatment-preview-"+owner+
                         ".png")).string()));
@@ -789,20 +886,99 @@ int verify_edge_treatment_ui(QApplication& application, AssemblyWorkspaceWindow&
             const auto terminal_labels=view->interactive_labels();
             check(terminal_labels.size()==2,
                 "Open Fillet/Chamfer route did not expose two purple endpoint labels");
+            const bool chooses_first=terminal_labels.front().key.ends_with(":first");
             const auto initial_ends=pending->pending_value().edge_treatment.
                 route_end_faces.front();
             using EndMode=document::EdgeTreatmentParameters::RouteEndMode;
             check(initial_ends.first_vertex.valid()&&
                     initial_ends.last_vertex.valid()&&
                     initial_ends.first_vertex!=initial_ends.last_vertex&&
-                    initial_ends.first_mode==EndMode::NoCut&&
-                    initial_ends.last_mode==EndMode::NoCut,
-                "New treatment endpoints do not default to two stable No-cut choices");
+                    initial_ends.first_mode==EndMode::Cut&&
+                    initial_ends.last_mode==EndMode::Cut,
+                "New treatment endpoints do not preserve automatic local-boundary trimming");
             if(commit) {
                 const auto position=view->interactive_label_position(
                     terminal_labels.front().key);
                 check(position.has_value(),
                     "Purple treatment endpoint has no double-click position");
+                flush();
+                const auto label_image=view->grab().toImage();
+                const double pixel_ratio=label_image.devicePixelRatio();
+                const QColor purple("#D05CFF");
+                const auto purple_at=[&](QPointF logical) {
+                    const int x=static_cast<int>(std::lround(
+                        logical.x()*pixel_ratio));
+                    const int y=static_cast<int>(std::lround(
+                        logical.y()*pixel_ratio));
+                    if(x<0||y<0||x>=label_image.width()||
+                            y>=label_image.height())return false;
+                    const auto actual=label_image.pixelColor(x,y);
+                    return std::abs(actual.red()-purple.red())<35&&
+                        std::abs(actual.green()-purple.green())<35&&
+                        std::abs(actual.blue()-purple.blue())<35;
+                };
+                int text_pixels{};
+                for(int y=-28;y<=2;++y)
+                    for(int x=6;x<=48;++x)
+                        if(purple_at(*position+QPointF(x,y)))++text_pixels;
+                check(text_pixels>2,
+                    "Endpoint number is not visibly painted in purple");
+                const auto text_position=*position+QPointF(14.,-14.);
+                mouse(QEvent::MouseMove,text_position,
+                    Qt::NoButton,Qt::NoButton);
+                flush();
+                const auto hover_image=view->grab().toImage();
+                const QColor azure("#00D1FF");
+                int hover_pixels{};
+                for(int y=-16;y<=6;++y)
+                    for(int x=-8;x<=30;++x) {
+                        const auto logical=text_position+QPointF(x,y);
+                        const int px=static_cast<int>(std::lround(
+                            logical.x()*pixel_ratio));
+                        const int py=static_cast<int>(std::lround(
+                            logical.y()*pixel_ratio));
+                        if(px<0||py<0||px>=hover_image.width()||
+                                py>=hover_image.height())continue;
+                        const auto actual=hover_image.pixelColor(px,py);
+                        if(std::abs(actual.red()-azure.red())<35&&
+                           std::abs(actual.green()-azure.green())<35&&
+                           std::abs(actual.blue()-azure.blue())<35)
+                            ++hover_pixels;
+                    }
+                check(hover_pixels>2,
+                    "Hovering an endpoint number did not paint it azure");
+                click(text_position);
+                check(pending->pending_value().edge_treatment.routes.size()==1&&
+                        pending->pending_value().edge_treatment.
+                            route_end_faces.front().first_mode==EndMode::Cut,
+                    "Clicking an endpoint number changed the selected route");
+                int point_pixels{};
+                for(int y=-5;y<=5;++y)
+                    for(int x=-5;x<=5;++x)
+                        if(x*x+y*y<=25&&
+                           purple_at(*position+QPointF(x,y)))++point_pixels;
+                check(point_pixels==0,
+                    "Endpoint point itself is purple instead of only its number");
+                bool point_opened_menu{};
+                QTimer point_probe;
+                point_probe.setInterval(10);
+                QObject::connect(&point_probe,&QTimer::timeout,&window,[&] {
+                    for(auto* widget:QApplication::topLevelWidgets())
+                        if(auto* menu=qobject_cast<QMenu*>(widget);
+                           menu&&menu->isVisible()&&
+                           menu->objectName()=="edgeTreatmentEndMenu") {
+                            point_opened_menu=true;
+                            menu->close();
+                        }
+                });
+                point_probe.start();
+                mouse(QEvent::MouseButtonDblClick,*position,
+                    Qt::LeftButton,Qt::LeftButton);
+                point_probe.stop();
+                check(!point_opened_menu&&
+                        pending->pending_value().edge_treatment.
+                            route_end_faces.front().first_mode==EndMode::Cut,
+                    "Double-clicking the endpoint point invoked its text action");
                 bool selected_cut{};
                 // The double-click handler opens a synchronous popup. Poll
                 // from its nested event loop because the mouse helper may
@@ -815,11 +991,13 @@ int verify_edge_treatment_ui(QApplication& application, AssemblyWorkspaceWindow&
                         if(auto* menu=qobject_cast<QMenu*>(widget))
                             menus.push_back(menu);
                     for(auto* menu:menus) {
-                        if(!menu->isVisible()||menu->actions().size()!=2)
+                        if(!menu->isVisible()||
+                           menu->objectName()!="edgeTreatmentEndMenu"||
+                           menu->actions().empty())
                             continue;
                         selected_cut=true;
                         menu_selection.stop();
-                        menu->setActiveAction(menu->actions().back());
+                        menu->setActiveAction(menu->actions().front());
                         QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,
                             Qt::NoModifier);
                         QApplication::sendEvent(menu,&enter);
@@ -827,14 +1005,18 @@ int verify_edge_treatment_ui(QApplication& application, AssemblyWorkspaceWindow&
                     }
                 });
                 menu_selection.start();
-                mouse(QEvent::MouseButtonDblClick,*position,
+                mouse(QEvent::MouseButtonDblClick,
+                    text_position,
                     Qt::LeftButton,Qt::LeftButton);
                 menu_selection.stop();
-                check(selected_cut&&pending->pending_value().edge_treatment.
-                        route_end_faces.front().first_mode==EndMode::Cut,
-                    "Double-clicking a purple endpoint did not select Cut");
+                const auto selected_end=pending->pending_value().edge_treatment.
+                    route_end_faces.front();
+                check(selected_cut&&(chooses_first?
+                        selected_end.first_mode:selected_end.last_mode)==EndMode::NoCut,
+                    "Double-clicking a purple endpoint did not select No cut");
             }
             drag(owner,"parameter:primary",0);const auto layout=pending->dimension_layouts();
+            const auto exact_wire=view->transient_edges();
             finish(commit);
             check(view->transient_labels().empty()&&
                     view->interactive_labels().empty(),
@@ -844,12 +1026,29 @@ int verify_edge_treatment_ui(QApplication& application, AssemblyWorkspaceWindow&
             check(saved.history.size()==(commit?2:1)&&saved.dimension_layouts==(commit?layout:std::vector<kernel::DimensionLayoutEntry>{}),
                 "Creation did not commit/cancel geometry and annotation together");
             if(commit) {
+                const auto owned_boundary=[&](const auto& edge) {
+                    return !edge.parameter_seam&&!edge.overlay&&
+                        !edge.construction&&std::ranges::find(
+                            edge.edge_treatment_owner_ids,owner)!=
+                            edge.edge_treatment_owner_ids.end();
+                };
+                const auto& output=view->mesh().edges;
+                check(!exact_wire.empty()&&
+                        static_cast<std::size_t>(std::ranges::count_if(
+                            output,owned_boundary))==exact_wire.size()&&
+                        std::ranges::all_of(exact_wire,[&](const auto& wire) {
+                            return std::ranges::any_of(output,
+                                [&](const auto& edge) {
+                                    return owned_boundary(edge)&&
+                                        document::same_treatment_edge_geometry(wire,edge);
+                                });
+                        }),"The azure wire differs from the committed treatment boundaries");
                 const auto& stored=saved.history.back().edge_treatment.
                     route_end_faces.front();
                 check(stored.first_vertex==initial_ends.first_vertex&&
                         stored.last_vertex==initial_ends.last_vertex&&
-                        stored.first_mode==EndMode::Cut&&
-                        stored.last_mode==EndMode::NoCut,
+                        stored.first_mode==(chooses_first?EndMode::NoCut:EndMode::Cut)&&
+                        stored.last_mode==(chooses_first?EndMode::Cut:EndMode::NoCut),
                     "Saved treatment lost its per-endpoint Cut/No-cut choice");
             }
             if(commit) {run("undo");run("save");check(document::PartDocument::load(file).history.size()==1&&document::PartDocument::load(file).dimension_layouts.empty(),"Creation Undo left its annotation behind");}

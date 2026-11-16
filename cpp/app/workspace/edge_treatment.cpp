@@ -44,6 +44,9 @@ void AssemblyWorkspaceWindow::start_edge_treatment(
     initial.edge_treatment.routes.clear();
     edge_treatment_preview_parameters_ = initial.edge_treatment;
     edge_treatment_preview_owner_id_ = initial.id;
+    edge_treatment_exact_preview_definition_.reset();
+    edge_treatment_exact_preview_edges_.clear();
+    edge_treatment_exact_preview_generation_=0;
     const std::string part_id = part->session.document().document_id;
     auto* dialog = new PrimitivePropertiesDialog(
         initial, false, false,
@@ -76,6 +79,9 @@ void AssemblyWorkspaceWindow::start_edge_treatment(
         pending_edge_treatment_groups_.clear();
         pending_edge_treatment_seeds_.clear();
         edge_treatment_preview_owner_id_.clear();
+        edge_treatment_exact_preview_definition_.reset();
+        edge_treatment_exact_preview_edges_.clear();
+        edge_treatment_exact_preview_generation_=0;
         shell_dialog_ = nullptr;
         shell_face_selection_active_ = false;
         pending_shell_faces_.clear();
@@ -301,6 +307,14 @@ void AssemblyWorkspaceWindow::refresh_edge_treatment_preview() {
         viewer_->set_transient_labels({});
         viewer_->set_interactive_labels({});
         viewer_->set_transient_dimensions({});
+        edge_treatment_exact_preview_definition_.reset();
+        edge_treatment_exact_preview_edges_.clear();
+        edge_treatment_exact_preview_generation_=0;
+        if(edge_treatment_dialog_)
+            edge_treatment_dialog_->set_edge_treatment_preview_error(
+                tr(input==nullptr
+                    ?"Edge treatment requires a calculated input body."
+                    :"Select at least one input edge route."));
         return;
     }
     const std::string instance_path = resolve_active_occurrence(
@@ -360,6 +374,8 @@ void AssemblyWorkspaceWindow::refresh_edge_treatment_preview() {
         edge_treatment_dialog_->set_edge_route_start_vertices(
             std::move(route_start_vertices));
     }
+    const auto preview_end_faces=
+        edge_treatment_preview_parameters_.route_end_faces;
     auto preview = edge_treatment_preview_wire(
         display_groups, edge_treatment_preview_parameters_,
         *edge_treatment_selection_,
@@ -385,13 +401,103 @@ void AssemblyWorkspaceWindow::refresh_edge_treatment_preview() {
         // use that same result for the current calculation preview.
         edge_treatment_preview_parameters_=
             edge_treatment_dialog_->pending_value().edge_treatment;
+        // Endpoint identities are learned from the first lightweight wire.
+        // Their persisted modes may consequently be remapped by physical
+        // vertex identity. Rebuild only when that definition changed so the
+        // displayed Cut/RoundedJoin result belongs to the same definition
+        // that OK will calculate.
+        if(edge_treatment_preview_parameters_.route_end_faces!=
+                preview_end_faces)
+            preview=edge_treatment_preview_wire(display_groups,
+                edge_treatment_preview_parameters_,
+                *edge_treatment_selection_,edge_treatment_preview_owner_id_,
+                input?&input->mesh:nullptr);
+
+        const auto learned_nodes=edge_treatment_terminal_nodes(
+            preview.terminal_labels);
+        if(*edge_treatment_selection_==zima::document::FeatureKind::Fillet) {
+            // A joined two-branch node always has a spike or a rounding;
+            // a stored perpendicular end there becomes the default spike.
+            using Mode=zima::document::EdgeTreatmentParameters::RouteEndMode;
+            const auto current=edge_treatment_dialog_->pending_value();
+            for(const auto& node:learned_nodes) {
+                if(node.route_ends.size()!=2)continue;
+                bool all_no_cut=true;
+                for(const auto [route,first]:node.route_ends) {
+                    if(route>=current.edge_treatment.route_end_faces.size()) {
+                        all_no_cut=false;
+                        break;
+                    }
+                    const auto& ends=
+                        current.edge_treatment.route_end_faces[route];
+                    all_no_cut=all_no_cut&&
+                        (first?ends.first_mode:ends.last_mode)==Mode::NoCut;
+                }
+                if(all_no_cut)
+                    edge_treatment_dialog_->set_edge_route_end_modes(
+                        node.route_ends,Mode::RoundedJoin);
+            }
+            edge_treatment_preview_parameters_=
+                edge_treatment_dialog_->pending_value().edge_treatment;
+        }
+
+        const auto pending=edge_treatment_dialog_->pending_value();
+        try {
+            if(!edge_treatment_exact_preview_definition_||
+                    *edge_treatment_exact_preview_definition_!=pending||
+                    edge_treatment_exact_preview_generation_!=
+                        part->session.data_generation()) {
+                auto exact=zima::workspace::edge_treatment_preview_mesh(
+                    part->session,kernel_,pending);
+                edge_treatment_exact_preview_edges_=std::move(exact.edges);
+                std::erase_if(edge_treatment_exact_preview_edges_,
+                    [&](const zima::kernel::ViewerEdge& edge) {
+                        return edge.parameter_seam||edge.overlay||
+                            edge.construction||std::ranges::find(
+                            edge.edge_treatment_owner_ids,pending.id)==
+                            edge.edge_treatment_owner_ids.end();
+                    });
+                if(edge_treatment_exact_preview_edges_.empty())
+                    throw std::runtime_error(
+                        "Edge treatment preview did not produce an exact result wire.");
+                for(auto& edge:edge_treatment_exact_preview_edges_) {
+                    // Transient result geometry has one unambiguous azure
+                    // presentation; persisted edge colours belong only to
+                    // the ordinary calculated scene.
+                    edge.color.clear();
+                    edge.preview_terminal_dashed=false;
+                }
+                edge_treatment_exact_preview_definition_=pending;
+                edge_treatment_exact_preview_generation_=
+                    part->session.data_generation();
+            }
+            preview.edges=edge_treatment_exact_preview_edges_;
+            edge_treatment_dialog_->set_edge_treatment_preview_error({});
+        } catch(const std::exception& error) {
+            edge_treatment_exact_preview_definition_.reset();
+            edge_treatment_exact_preview_edges_.clear();
+            edge_treatment_exact_preview_generation_=0;
+            // Do not display the lightweight construction as though it were
+            // a valid result.  The input body and endpoint controls remain
+            // visible so the definition can be repaired.
+            preview.edges.clear();
+            edge_treatment_dialog_->set_edge_treatment_preview_error(
+                tr(error.what()));
+        }
     }
+    const auto terminal_nodes=edge_treatment_terminal_nodes(
+        preview.terminal_labels);
     std::vector<zima::viewer::InteractiveLabel> terminal_labels;
-    terminal_labels.reserve(preview.terminal_labels.size());
-    for(const auto& label:preview.terminal_labels)
-        terminal_labels.push_back({label.point,label.text,
-            "edge-terminal:"+std::to_string(label.route)+":"+
-                (label.first?"first":"last")});
+    terminal_labels.reserve(terminal_nodes.size());
+    for(const auto& node:terminal_nodes) {
+        std::string key="edge-terminal:";
+        for(std::size_t index=0;index<node.route_ends.size();++index) {
+            if(index!=0)key+=',';
+            const auto& [route,first]=node.route_ends[index];
+            key+=std::to_string(route)+":"+(first?"first":"last");
+        }
+        terminal_labels.push_back({node.point,node.text,std::move(key)});
+    }
     viewer_->set_transient_edges(std::move(preview.edges));
     viewer_->set_transient_points(std::move(node_points));
     viewer_->set_transient_labels(std::move(preview.labels));
@@ -399,33 +505,151 @@ void AssemblyWorkspaceWindow::refresh_edge_treatment_preview() {
         [this](const std::string& key,const QPoint& global_position) {
             constexpr std::string_view prefix="edge-terminal:";
             if(!edge_treatment_dialog_||!key.starts_with(prefix))return false;
-            const auto separator=key.find(':',prefix.size());
-            if(separator==std::string::npos)return false;
-            std::size_t route{};
-            try {
-                route=static_cast<std::size_t>(std::stoull(
-                    key.substr(prefix.size(),separator-prefix.size())));
-            } catch(...) {return false;}
-            const bool first=key.substr(separator+1)=="first";
+            std::vector<std::pair<std::size_t,bool>> route_ends;
+            std::size_t begin=prefix.size();
+            while(begin<key.size()) {
+                const auto comma=key.find(',',begin);
+                const auto end=comma==std::string::npos?key.size():comma;
+                const auto separator=key.find(':',begin);
+                if(separator==std::string::npos||separator>=end)return false;
+                std::size_t route{};
+                try {
+                    route=static_cast<std::size_t>(std::stoull(
+                        key.substr(begin,separator-begin)));
+                } catch(...) {return false;}
+                const auto endpoint=key.substr(separator+1,
+                    end-separator-1);
+                if(endpoint!="first"&&endpoint!="last")return false;
+                route_ends.emplace_back(route,endpoint=="first");
+                if(comma==std::string::npos)break;
+                begin=comma+1;
+            }
+            if(route_ends.empty())return false;
             const auto pending=edge_treatment_dialog_->pending_value();
-            if(route>=pending.edge_treatment.route_end_faces.size())return false;
             using Mode=zima::document::EdgeTreatmentParameters::RouteEndMode;
-            const auto& ends=pending.edge_treatment.route_end_faces[route];
-            const auto current=first?ends.first_mode:ends.last_mode;
+            std::vector<Mode> current;
+            for(const auto& [route,first]:route_ends) {
+                if(route>=pending.edge_treatment.route_end_faces.size())
+                    return false;
+                const auto& ends=pending.edge_treatment.route_end_faces[route];
+                current.push_back(first?ends.first_mode:ends.last_mode);
+            }
+            std::vector<zima::workspace::EdgeTreatmentEndCutChoice>
+                cut_choices;
+            bool rounded_join_valid{};
+            if(const auto* part=workspace_.open_part(
+                    workspace_.active_document_id())) {
+                try {
+                    cut_choices=zima::workspace::
+                        edge_treatment_end_cut_choices(part->session,kernel_,
+                            pending,route_ends);
+                } catch(const std::exception&) {
+                    cut_choices.clear();
+                }
+                if(std::getenv("ZIMA_CPP_FILLET_NODE_PROFILE"))
+                    std::fprintf(stderr,
+                        "End menu: route_ends=%zu fillet=%d cuts=%zu\n",
+                        route_ends.size(),
+                        *edge_treatment_selection_==
+                            zima::document::FeatureKind::Fillet?1:0,
+                        cut_choices.size());
+                if(*edge_treatment_selection_==
+                        zima::document::FeatureKind::Fillet&&
+                   route_ends.size()==2) {
+                    auto rounded=pending;
+                    auto uncut=pending;
+                    for(const auto [route,first]:route_ends) {
+                        auto& ends=rounded.edge_treatment.
+                            route_end_faces[route];
+                        (first?ends.first_mode:ends.last_mode)=
+                            Mode::RoundedJoin;
+                        (first?ends.first:ends.last)={};
+                        auto& uncut_ends=uncut.edge_treatment.
+                            route_end_faces[route];
+                        (first?uncut_ends.first_mode:uncut_ends.last_mode)=
+                            Mode::NoCut;
+                        (first?uncut_ends.first:uncut_ends.last)={};
+                    }
+                    try {
+                        const auto result=zima::workspace::
+                            edge_treatment_preview_mesh(part->session,
+                                kernel_,rounded);
+                        rounded_join_valid=true;
+                        try {
+                            const auto without_join=zima::workspace::
+                                edge_treatment_preview_mesh(part->session,
+                                    kernel_,uncut);
+                            rounded_join_valid=
+                                result.vertices!=without_join.vertices||
+                                result.triangles!=without_join.triangles;
+                            if(std::getenv("ZIMA_CPP_FILLET_NODE_PROFILE"))
+                                std::fprintf(stderr,
+                                    "Rounded probe: rounded v=%zu t=%zu uncut v=%zu t=%zu valid=%d\n",
+                                    result.vertices.size(),
+                                    result.triangles.size(),
+                                    without_join.vertices.size(),
+                                    without_join.triangles.size(),
+                                    rounded_join_valid?1:0);
+                        } catch(const std::exception& error) {
+                            if(std::getenv("ZIMA_CPP_FILLET_NODE_PROFILE"))
+                                std::fprintf(stderr,
+                                    "Uncut probe failed: %s\n",error.what());
+                        }
+                    } catch(const std::exception& error) {
+                        if(std::getenv("ZIMA_CPP_FILLET_NODE_PROFILE"))
+                            std::fprintf(stderr,
+                                "Rounded join preview failed: %s\n",
+                                error.what());
+                    }
+                }
+            }
             QMenu menu(this);
-            auto* no_cut=menu.addAction(tr("Bez řezu"));
-            auto* cut=menu.addAction(tr("Řez"));
-            no_cut->setCheckable(true);
-            cut->setCheckable(true);
-            no_cut->setChecked(current==Mode::NoCut);
-            cut->setChecked(current==Mode::Cut);
+            menu.setObjectName("edgeTreatmentEndMenu");
+            const bool joined_node=route_ends.size()>=2;
+            QAction* rounded_join=rounded_join_valid
+                ?menu.addAction(tr("Špička")):nullptr;
+            QAction* no_cut=joined_node&&rounded_join
+                ?nullptr:menu.addAction(tr("Bez řezu"));
+            std::vector<QAction*> cut_actions;
+            cut_actions.reserve(cut_choices.size());
+            for(std::size_t index=0;!joined_node&&index<cut_choices.size();
+                    ++index)
+                cut_actions.push_back(menu.addAction(
+                    tr("Řez %1").arg(index+1)));
+            if(no_cut)no_cut->setCheckable(true);
+            for(auto* action:cut_actions)action->setCheckable(true);
+            if(rounded_join)rounded_join->setCheckable(true);
+            if(no_cut)no_cut->setChecked(std::ranges::all_of(current,
+                [](Mode mode){return mode==Mode::NoCut;}));
+            for(std::size_t choice=0;choice<cut_actions.size();++choice) {
+                bool selected=true;
+                for(std::size_t index=0;index<route_ends.size();++index) {
+                    const auto [route,first]=route_ends[index];
+                    const auto& ends=pending.edge_treatment.
+                        route_end_faces[route];
+                    selected=selected&&
+                        (first?ends.first_mode:ends.last_mode)==Mode::Cut&&
+                        (first?ends.first:ends.last)==
+                            cut_choices[choice].faces[index];
+                }
+                cut_actions[choice]->setChecked(selected);
+            }
+            if(rounded_join)rounded_join->setChecked(std::ranges::all_of(
+                current,[](Mode mode){return mode==Mode::RoundedJoin;}));
             const auto* chosen=menu.exec(global_position);
-            if(chosen==no_cut)
-                edge_treatment_dialog_->set_edge_route_end_mode(
-                    route,first,Mode::NoCut);
-            else if(chosen==cut)
-                edge_treatment_dialog_->set_edge_route_end_mode(
-                    route,first,Mode::Cut);
+            if(no_cut&&chosen==no_cut)
+                edge_treatment_dialog_->set_edge_route_end_modes(
+                    route_ends,Mode::NoCut);
+            else if(const auto cut=std::ranges::find(cut_actions,chosen);
+                    cut!=cut_actions.end()) {
+                const auto index=static_cast<std::size_t>(
+                    cut-cut_actions.begin());
+                edge_treatment_dialog_->set_edge_route_end_choice(
+                    route_ends,Mode::Cut,cut_choices[index].faces);
+            }
+            else if(rounded_join&&chosen==rounded_join)
+                edge_treatment_dialog_->set_edge_route_end_modes(
+                    route_ends,Mode::RoundedJoin);
             return true;
         });
     for (auto& dimension : preview.dimensions) dimension.reference.instance_path = instance_path;

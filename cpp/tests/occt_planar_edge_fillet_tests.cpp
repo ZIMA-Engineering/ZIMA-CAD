@@ -1750,6 +1750,124 @@ int main() try {
             "Staggered-box fixture lost its two shoulder branches");
         verify_node(stepped,shoulder_node,2.,
             "Staggered-box ZIMA Fillet shoulder node is invalid",true);
+        const auto mixed_node=edges_at_point(stepped,{5,5,10});
+        require(mixed_node.size()==3,
+            "Staggered-box fixture lost its mixed shoulder node");
+        std::vector<std::size_t> mixed_routes(mixed_node.size(),1);
+        const auto mixed=zima::kernel::occt_planar_edge_fillet(stepped,
+            mixed_node,2.,1.0e-7,{},
+            zima::kernel::OcctPlanarEdgeFilletEndMode::Perpendicular,
+            mixed_routes);
+        const auto mixed_reference=reference_fillet(stepped,mixed_node,2.);
+        require(BRepCheck_Analyzer(mixed.shape,true,true,false).IsValid(),
+            "Mixed inner/outer ZIMA Fillet node is invalid");
+        require(std::abs(volume(mixed.shape)-volume(mixed_reference))<
+                    1.0e-4*volume(mixed_reference),
+            "Mixed inner/outer ZIMA Fillet node volume differs from OCCT");
+        require(std::abs(area(mixed.shape)-area(mixed_reference))<
+                    1.0e-4*area(mixed_reference),
+            "Mixed inner/outer ZIMA Fillet node area differs from OCCT");
+    }
+    {
+        std::cerr<<"fillet-test: intersected planar and curved terminal\n";
+        constexpr double first_max_x=127.9321060180664;
+        constexpr double first_max_y=71.57828521728516;
+        constexpr double second_min_x=60.8201789855957;
+        constexpr double second_min_y=30.876144409179688;
+        constexpr double second_max_x=157.75961303710938;
+        constexpr double second_max_y=116.47491455078125;
+        BRepAlgoAPI_Fuse stacked(
+            BRepPrimAPI_MakeBox(gp_Pnt(0.,0.,0.),
+                gp_Pnt(first_max_x,first_max_y,50.)).Shape(),
+            BRepPrimAPI_MakeBox(gp_Pnt(second_min_x,second_min_y,50.),
+                gp_Pnt(second_max_x,second_max_y,100.)).Shape());
+        stacked.SetNonDestructive(true);
+        stacked.SetFuzzyValue(1.0e-7);
+        stacked.Build();
+        require(stacked.IsDone()&&!stacked.Shape().IsNull()&&
+                BRepCheck_Analyzer(stacked.Shape(),true,true,false).IsValid(),
+            "Intersected-terminal stacked-box fixture failed");
+
+        const std::array first_edges{
+            straight_edge_between(stacked.Shape(),
+                {second_min_x,second_min_y,50.},
+                {first_max_x,second_min_y,50.}),
+            straight_edge_between(stacked.Shape(),
+                {second_min_x,first_max_y,50.},
+                {second_min_x,second_min_y,50.})};
+        require(std::ranges::none_of(first_edges,
+                [](const auto& edge){return edge.IsNull();}),
+            "Intersected-terminal fixture lost its first Fillet routes");
+        const std::array separate_routes{std::size_t{1},std::size_t{1}};
+        const auto first=zima::kernel::occt_planar_edge_fillet(
+            stacked.Shape(),first_edges,5.,1.0e-7,{},
+            zima::kernel::OcctPlanarEdgeFilletEndMode::
+                AutomaticBodyEnvelope,separate_routes);
+        const auto second_edge=straight_edge_between(first.Shape(),
+            {first_max_x,second_min_y,50.},
+            {second_max_x,second_min_y,50.});
+        require(!second_edge.IsNull(),
+            "Intersected-terminal fixture lost its second Fillet route");
+        const auto second=zima::kernel::occt_planar_edge_fillet(
+            first.Shape(),std::array{second_edge},11.,1.0e-7,{},
+            zima::kernel::OcctPlanarEdgeFilletEndMode::
+                AutomaticBodyEnvelope);
+
+        const gp_Pnt third_shared(first_max_x,second_min_y+11.,50.);
+        const std::array third_route{
+            circular_edge_between(second.Shape(),third_shared,
+                {first_max_x,second_min_y,61.},11.),
+            straight_edge_between(second.Shape(),third_shared,
+                {first_max_x,first_max_y,50.})};
+        require(std::ranges::none_of(third_route,
+                [](const auto& edge){return edge.IsNull();}),
+            "Intersected-terminal fixture lost its curved third Fillet route");
+        const std::array connected_route{third_route.size()};
+        const auto third=zima::kernel::occt_planar_edge_fillet(
+            second.Shape(),third_route,4.,1.0e-7,{},
+            zima::kernel::OcctPlanarEdgeFilletEndMode::
+                AutomaticBodyEnvelope,connected_route);
+
+        const auto fourth_edge=straight_edge_between(third.Shape(),
+            {second_min_x,first_max_y,50.},
+            {first_max_x+4.,first_max_y,50.});
+        require(!fourth_edge.IsNull(),
+            "Intersected-terminal fixture lost its tested fourth Fillet route");
+        const auto fourth=zima::kernel::occt_planar_edge_fillet(
+            third.Shape(),std::array{fourth_edge},6.,1.0e-7,{},
+            zima::kernel::OcctPlanarEdgeFilletEndMode::
+                AutomaticBodyEnvelope);
+        require(fourth.history&&
+                BRepCheck_Analyzer(fourth.Shape(),true,true,false).IsValid(),
+            "Fillet clipped by intersected planar and curved terminals is invalid");
+        const auto changed_volume_in=[&](const TopoDS_Shape& probe) {
+            const auto one_side=[&](const TopoDS_Shape& left,
+                    const TopoDS_Shape& right) {
+                BRepAlgoAPI_Cut change(left,right);
+                change.SetNonDestructive(true);
+                change.Build();
+                require(change.IsDone(),
+                    "Intersected-terminal change comparison failed");
+                BRepAlgoAPI_Common outside(change.Shape(),probe);
+                outside.SetNonDestructive(true);
+                outside.Build();
+                require(outside.IsDone(),
+                    "Intersected-terminal probe comparison failed");
+                return volume(outside.Shape());
+            };
+            return one_side(third.Shape(),fourth.Shape())+
+                one_side(fourth.Shape(),third.Shape());
+        };
+        const auto before_start=BRepPrimAPI_MakeBox(
+            gp_Pnt(0.,first_max_y-8.,40.),
+            gp_Pnt(second_min_x-1.0e-4,first_max_y+8.,60.)).Shape();
+        const auto after_end=BRepPrimAPI_MakeBox(
+            gp_Pnt(first_max_x+1.0e-4,first_max_y-8.,40.),
+            gp_Pnt(second_max_x,first_max_y+8.,60.)).Shape();
+        require(changed_volume_in(before_start)<=1.0e-7,
+            "Automatic Fillet changed material before its multi-surface terminal");
+        require(changed_volume_in(after_end)<=1.0e-7,
+            "Automatic Fillet left a tail beyond its intersected planar and curved terminal");
     }
     {
         std::cerr<<"fillet-test: wedge\n";

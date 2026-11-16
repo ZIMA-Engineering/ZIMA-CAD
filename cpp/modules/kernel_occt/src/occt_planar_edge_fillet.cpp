@@ -58,6 +58,8 @@
 #include <array>
 #include <chrono>
 #include <cmath>
+#include <cstdio>
+#include <cstdlib>
 #include <limits>
 #include <numeric>
 #include <numbers>
@@ -70,8 +72,12 @@ namespace zima::kernel {
 namespace {
 
 using edge_treatment_terminals::terminal_face_meets_support_at_endpoint;
+using edge_treatment_terminals::forward_terminal_intersection_distance;
 using edge_treatment_terminals::local_curved_terminal_faces;
+using edge_treatment_terminals::nearby_planar_terminal_faces;
+using edge_treatment_terminals::nearby_nonplanar_terminal_faces;
 using edge_treatment_terminals::remote_terminal_faces_through_local_curve;
+using edge_treatment_terminals::selected_terminal_faces;
 using edge_treatment_terminals::
     removal_profile_continues_past_curved_terminal;
 using edge_treatment_terminals::
@@ -180,6 +186,64 @@ NodeConnector make_fillet_corner_connector(
         throw std::runtime_error(
             "ZIMA Fillet could not construct a valid node connector");
     return {connector.Shape(),center,std::move(jobs),adds_material};
+}
+
+// Rounded corner of two concave Fillet strips meeting at a rounded convex
+// edge: the strip profile revolved a quarter turn about the vertical round.
+TopoDS_Shape make_mixed_node_corner(const gp_Pnt& origin,const gp_Dir& up,
+        gp_Dir first,gp_Dir second,double radius) {
+    if(gp_Vec(first).Crossed(gp_Vec(second)).Dot(gp_Vec(up))>0.)
+        std::swap(first,second);
+    const gp_Vec outward=-gp_Vec(second);
+    const auto axis_point=origin.Translated(
+        radius*(gp_Vec(first)+gp_Vec(second)));
+    const auto at=[&](double r,double h) {
+        return axis_point.Translated(r*outward+h*gp_Vec(up));
+    };
+    const double c=std::sqrt(.5);
+    const auto p0=at(radius,0.),p1=at(2.*radius,0.),
+        pm=at(radius*(2.-c),radius*(1.-c)),p2=at(radius,radius);
+    BRepBuilderAPI_MakeWire wire;
+    wire.Add(BRepBuilderAPI_MakeEdge(p0,p1).Edge());
+    wire.Add(BRepBuilderAPI_MakeEdge(GC_MakeArcOfCircle(p1,pm,p2).Value())
+        .Edge());
+    wire.Add(BRepBuilderAPI_MakeEdge(p2,p0).Edge());
+    const auto face=BRepBuilderAPI_MakeFace(wire.Wire()).Face();
+    BRepPrimAPI_MakeRevol revolve(face,gp_Ax1(axis_point,up),
+        std::numbers::pi/2.);
+    if(!revolve.IsDone()||revolve.Shape().IsNull())
+        throw std::runtime_error(
+            "ZIMA Fillet could not construct a valid node connector");
+    return revolve.Shape();
+}
+
+TopoDS_Shape clip_strip_before(Cutter& cutter,const gp_Pnt& origin,
+        const gp_Dir& branch,const gp_Dir& side,double radius,
+        double tolerance) {
+    const gp_Dir normal=branch.Reversed();
+    const gp_Dir lateral=normal.Crossed(side);
+    const double size=8.*radius,depth=4.*radius;
+    const auto corner=origin.Translated(radius*gp_Vec(branch)-
+        .5*size*(gp_Vec(side)+gp_Vec(lateral)));
+    BRepPrimAPI_MakeBox box(gp_Ax2(corner,normal,side),size,size,depth);
+    BRepAlgoAPI_Cut cut(cutter.solid,box.Shape());
+    cut.SetFuzzyValue(tolerance);
+    cut.SetToFillHistory(true);
+    cut.Build();
+    if(!cut.IsDone()||cut.Shape().IsNull())
+        throw std::runtime_error(
+            "ZIMA Fillet could not trim a strip at its rounded node");
+    std::vector<TopoDS_Face> faces;
+    for(const auto& face:cutter.circular_faces) {
+        if(cut.IsDeleted(face))continue;
+        const auto& modified=cut.Modified(face);
+        if(modified.IsEmpty())faces.push_back(face);
+        for(const auto& descendant:modified)
+            if(descendant.ShapeType()==TopAbs_FACE)
+                faces.push_back(TopoDS::Face(descendant));
+    }
+    cutter.circular_faces=std::move(faces);
+    return cut.Shape();
 }
 
 EdgePath edge_path(const TopoDS_Edge& edge,double tolerance) {
@@ -1256,9 +1320,15 @@ Cutter make_tangent_plane_cylinder_cutter(
         throw std::invalid_argument(
             "Planar edge Fillet tangent transition does not bound an additive material pocket");
 
+    const gp_Dir first_outward(-gp_Vec(path.first_tangent));
+    const gp_Dir last_outward(path.last_tangent);
     std::array<std::vector<TopoDS_Face>,2> terminal_faces;
-    if(!end_faces.first.IsNull())terminal_faces[0].push_back(end_faces.first);
-    if(!end_faces.last.IsNull())terminal_faces[1].push_back(end_faces.last);
+    if(!end_faces.first.IsNull())
+        terminal_faces[0]=selected_terminal_faces(material,first_face,
+            second_face,path.first,first_outward,end_faces.first,tolerance);
+    if(!end_faces.last.IsNull())
+        terminal_faces[1]=selected_terminal_faces(material,first_face,
+            second_face,path.last,last_outward,end_faces.last,tolerance);
     if(end_mode==OcctPlanarEdgeFilletEndMode::AutomaticBodyEnvelope) {
         if(end_faces.automatic_first&&terminal_faces[0].empty())
             terminal_faces[0]=automatic_terminal_faces(material,
@@ -1273,17 +1343,31 @@ Cutter make_tangent_plane_cylinder_cutter(
             const gp_Pnt& endpoint,const gp_Dir& tangent) {
         if(face.IsNull())return 0.;
         const BRepAdaptor_Surface support(face,true);
-        if(support.GetType()!=GeomAbs_Plane||
-           support.Plane().Distance(endpoint)>tolerance)
-            throw std::invalid_argument(
-                "Planar edge Fillet end face does not contain the route endpoint");
+        if(support.GetType()!=GeomAbs_Plane) {
+            const auto distance=forward_terminal_intersection_distance(
+                face,endpoint,tangent,tolerance);
+            return (distance?*distance:0.)+midpoint.span+tolerance;
+        }
+        const auto normal=support.Plane().Axis().Direction();
+        const double signed_incidence=normal.Dot(tangent);
+        const double incidence=std::abs(signed_incidence);
+        if(support.Plane().Distance(endpoint)>tolerance) {
+            if(incidence<=1.0e-8)
+                throw std::invalid_argument(
+                    "Planar edge Fillet remote end face does not intersect the route");
+            const double distance=gp_Vec(endpoint,
+                support.Plane().Location()).Dot(gp_Vec(normal)) /
+                signed_incidence;
+            if(distance<=tolerance)
+                throw std::invalid_argument(
+                    "Planar edge Fillet remote end face is behind the route endpoint");
+            return distance+midpoint.span/incidence+tolerance;
+        }
         BRepClass_FaceClassifier face_classifier(face,endpoint,tolerance);
         if(face_classifier.State()!=TopAbs_IN&&
            face_classifier.State()!=TopAbs_ON)
             throw std::invalid_argument(
                 "Planar edge Fillet end face does not contain the route endpoint");
-        const double incidence=std::abs(
-            support.Plane().Axis().Direction().Dot(tangent));
         return incidence<=1.0e-8?0.:
             midpoint.span/incidence+tolerance;
     };
@@ -1295,9 +1379,9 @@ Cutter make_tangent_plane_cylinder_cutter(
         return result;
     };
     const double first_extension=end_extension(terminal_faces[0],
-        path.first,path.first_tangent);
+        path.first,first_outward);
     const double last_extension=end_extension(terminal_faces[1],
-        path.last,path.last_tangent);
+        path.last,last_outward);
     const gp_Pnt source_origin=path.first.Translated(
         -gp_Vec(path.first_tangent)*first_extension);
     const auto source=tangent_plane_cylinder_profile(source_origin,
@@ -1322,10 +1406,16 @@ Cutter make_tangent_plane_cylinder_cutter(
         throw std::runtime_error(
             "Planar edge Fillet tangent transition omitted its circular face");
     TopoDS_Shape tool=prism.Shape();
-    for(const auto& face:terminal_faces[0])
-        clip_fillet_tool(tool,circular_faces,face,path.middle,tolerance);
-    for(const auto& face:terminal_faces[1])
-        clip_fillet_tool(tool,circular_faces,face,path.middle,tolerance);
+    const auto clip_terminal=[&](const TopoDS_Face& face) {
+        const BRepAdaptor_Surface support(face,true);
+        if(support.GetType()==GeomAbs_Plane)
+            clip_fillet_tool(tool,circular_faces,face,path.middle,tolerance);
+        else
+            clip_fillet_tool_to_surface(tool,circular_faces,face,
+                path.middle,tolerance,&path.middle);
+    };
+    for(const auto& face:terminal_faces[0])clip_terminal(face);
+    for(const auto& face:terminal_faces[1])clip_terminal(face);
     return {tool,std::move(circular_faces),
         analytic(source,std::max(first_extension,last_extension)),true,
         midpoint.profile.wire,midpoint.profile.circular_edge,{}};
@@ -1356,9 +1446,15 @@ std::optional<Cutter> make_rolling_support_cutter(
         return Cutter{{},{},analytic(*midpoint,0.),adds_material,
             midpoint->profile.wire,midpoint->profile.circular_edge,{}};
 
+    const gp_Dir first_outward(-gp_Vec(path.first_tangent));
+    const gp_Dir last_outward(path.last_tangent);
     std::array<std::vector<TopoDS_Face>,2> terminal_faces;
-    if(!end_faces.first.IsNull())terminal_faces[0].push_back(end_faces.first);
-    if(!end_faces.last.IsNull())terminal_faces[1].push_back(end_faces.last);
+    if(!end_faces.first.IsNull())
+        terminal_faces[0]=selected_terminal_faces(material,first_face,
+            second_face,path.first,first_outward,end_faces.first,tolerance);
+    if(!end_faces.last.IsNull())
+        terminal_faces[1]=selected_terminal_faces(material,first_face,
+            second_face,path.last,last_outward,end_faces.last,tolerance);
     if(end_mode==OcctPlanarEdgeFilletEndMode::AutomaticBodyEnvelope) {
         if(end_faces.automatic_first&&terminal_faces[0].empty())
             terminal_faces[0]=automatic_terminal_faces(material,
@@ -1374,9 +1470,13 @@ std::optional<Cutter> make_rolling_support_cutter(
         double result{};
         for(const auto& face:faces) {
             const BRepAdaptor_Surface support(face,true);
-            if(support.GetType()!=GeomAbs_Plane)
-                throw std::invalid_argument(
-                    "Planar edge Fillet end face must be planar");
+            if(support.GetType()!=GeomAbs_Plane) {
+                const auto distance=forward_terminal_intersection_distance(
+                    face,endpoint,outward,tolerance);
+                result=std::max(result,(distance?*distance:0.)+
+                    midpoint->span+tolerance);
+                continue;
+            }
             const auto normal=support.Plane().Axis().Direction();
             const double signed_incidence=normal.Dot(outward);
             const double incidence=std::abs(signed_incidence);
@@ -1396,8 +1496,6 @@ std::optional<Cutter> make_rolling_support_cutter(
         }
         return result;
     };
-    const gp_Dir first_outward(-gp_Vec(path.first_tangent));
-    const gp_Dir last_outward(path.last_tangent);
     const double first_extension=extension(terminal_faces[0],path.first,
         first_outward);
     const double last_extension=extension(terminal_faces[1],path.last,
@@ -1425,10 +1523,16 @@ std::optional<Cutter> make_rolling_support_cutter(
         throw std::runtime_error(
             "Planar edge Fillet rolling support omitted its circular face");
     TopoDS_Shape tool=prism.Shape();
-    for(const auto& face:terminal_faces[0])
-        clip_fillet_tool(tool,circular_faces,face,path.middle,tolerance);
-    for(const auto& face:terminal_faces[1])
-        clip_fillet_tool(tool,circular_faces,face,path.middle,tolerance);
+    const auto clip_terminal=[&](const TopoDS_Face& face) {
+        const BRepAdaptor_Surface support(face,true);
+        if(support.GetType()==GeomAbs_Plane)
+            clip_fillet_tool(tool,circular_faces,face,path.middle,tolerance);
+        else
+            clip_fillet_tool_to_surface(tool,circular_faces,face,
+                path.middle,tolerance,&path.middle);
+    };
+    for(const auto& face:terminal_faces[0])clip_terminal(face);
+    for(const auto& face:terminal_faces[1])clip_terminal(face);
     return Cutter{tool,std::move(circular_faces),
         analytic(source,std::max(first_extension,last_extension)),
         adds_material,midpoint->profile.wire,
@@ -1558,26 +1662,45 @@ Cutter make_cutter(const TopoDS_Edge& edge,
        !std::isfinite(center_distance))
         throw std::invalid_argument(
             "Planar edge Fillet radius is invalid");
-    std::array<std::vector<TopoDS_Face>,2> terminal_faces;
-    std::array<std::vector<TopoDS_Face>,2> curved_terminal_faces;
     const bool explicit_first=!end_faces.first.IsNull();
     const bool explicit_last=!end_faces.last.IsNull();
-    if(explicit_first)terminal_faces[0].push_back(end_faces.first);
-    if(explicit_last)terminal_faces[1].push_back(end_faces.last);
+    const gp_Dir first_outward(-gp_Vec(path.first_tangent));
+    const gp_Dir last_outward(path.last_tangent);
+    std::array<std::vector<TopoDS_Face>,2> terminal_faces;
+    std::array<std::vector<TopoDS_Face>,2> curved_terminal_faces;
+    const auto append_explicit=[&](std::size_t end,
+            const TopoDS_Face& selected,const gp_Pnt& endpoint,
+            const gp_Dir& outward) {
+        for(const auto& face:selected_terminal_faces(material,first_face,
+                second_face,endpoint,outward,selected,tolerance)) {
+            const BRepAdaptor_Surface support(face,true);
+            auto& destination=support.GetType()==GeomAbs_Plane
+                ?terminal_faces[end]:curved_terminal_faces[end];
+            if(std::ranges::none_of(destination,[&](const auto& current) {
+                    return current.IsSame(face);
+                }))destination.push_back(face);
+        }
+    };
+    if(explicit_first)
+        append_explicit(0,end_faces.first,path.first,first_outward);
+    if(explicit_last)
+        append_explicit(1,end_faces.last,path.last,last_outward);
     if(!profile_only&&end_mode==
             OcctPlanarEdgeFilletEndMode::AutomaticBodyEnvelope) {
-        if(end_faces.automatic_first&&terminal_faces[0].empty())
+        if(end_faces.automatic_first&&!explicit_first&&
+           terminal_faces[0].empty())
             terminal_faces[0]=automatic_terminal_faces(
                 material,first_face,second_face,path.first,
                 path.first_tangent,path.middle,tolerance);
-        if(end_faces.automatic_last&&terminal_faces[1].empty())
+        if(end_faces.automatic_last&&!explicit_last&&
+           terminal_faces[1].empty())
             terminal_faces[1]=automatic_terminal_faces(
                 material,first_face,second_face,path.last,
                 path.last_tangent,path.middle,tolerance);
-        if(end_faces.automatic_first)
+        if(end_faces.automatic_first&&!explicit_first)
             curved_terminal_faces[0]=local_curved_terminal_faces(material,
                 first_face,second_face,path.first,tolerance);
-        if(end_faces.automatic_last)
+        if(end_faces.automatic_last&&!explicit_last)
             curved_terminal_faces[1]=local_curved_terminal_faces(material,
                 first_face,second_face,path.last,tolerance);
     }
@@ -1593,8 +1716,6 @@ Cutter make_cutter(const TopoDS_Edge& edge,
         terminal_faces[1].clear();
         curved_terminal_faces[1].clear();
     }
-    const gp_Dir first_outward(-gp_Vec(path.first_tangent));
-    const gp_Dir last_outward(path.last_tangent);
     const bool local_curved_first=!curved_terminal_faces[0].empty();
     const bool local_curved_last=!curved_terminal_faces[1].empty();
     // An additive corner ends at the first preceding radius.  A local planar
@@ -1652,6 +1773,26 @@ Cutter make_cutter(const TopoDS_Edge& edge,
             material,path.last,last_outward,
             last_terminal_first_inward,last_terminal_second_inward,
             radius,tolerance);
+    std::array<std::vector<TopoDS_Face>,2> nearby_terminal_planes;
+    std::array<std::vector<TopoDS_Face>,2> nearby_terminal_surfaces;
+    if(local_curved_first&&!continue_first&&!explicit_first&&
+       route_crossing_first.empty()) {
+        nearby_terminal_planes[0]=nearby_planar_terminal_faces(material,
+            first_face,second_face,curved_terminal_faces[0],path.first,
+            first_outward,radius,tolerance);
+        nearby_terminal_surfaces[0]=nearby_nonplanar_terminal_faces(
+            material,first_face,second_face,curved_terminal_faces[0],
+            path.first,first_outward,radius,tolerance);
+    }
+    if(local_curved_last&&!continue_last&&!explicit_last&&
+       route_crossing_last.empty()) {
+        nearby_terminal_planes[1]=nearby_planar_terminal_faces(material,
+            first_face,second_face,curved_terminal_faces[1],path.last,
+            last_outward,radius,tolerance);
+        nearby_terminal_surfaces[1]=nearby_nonplanar_terminal_faces(
+            material,first_face,second_face,curved_terminal_faces[1],
+            path.last,last_outward,radius,tolerance);
+    }
     // A treatment which continues beyond an earlier radius uses the first
     // real planar cap adjacent to that radius.  This preserves the visible
     // result of a historical full-edge selection while consuming only the
@@ -1792,28 +1933,44 @@ Cutter make_cutter(const TopoDS_Edge& edge,
     // turn that cap into permission to sweep one profile span beyond it. An
     // earlier radius without such a cap still needs the established curved
     // intersection extension.
-    if(route_crossing_first.empty()&&
+    if(!explicit_first&&route_crossing_first.empty()&&
        has_exact_perpendicular_terminal_face(material,first_face,
             second_face,path.first,path.first_tangent,tolerance))
         first_curved_stops.clear();
-    if(route_crossing_last.empty()&&
+    if(!explicit_last&&route_crossing_last.empty()&&
        has_exact_perpendicular_terminal_face(material,first_face,
             second_face,path.last,path.last_tangent,tolerance))
         last_curved_stops.clear();
-    bool trim_to_curved_first=!continue_first&&!explicit_first&&
-        !first_curved_stops.empty();
-    bool trim_to_curved_last=!continue_last&&!explicit_last&&
-        !last_curved_stops.empty();
+    bool trim_to_curved_first=!continue_first&&
+        !first_curved_stops.empty()&&
+        (!explicit_first||terminal_faces[0].empty());
+    bool trim_to_curved_last=!continue_last&&
+        !last_curved_stops.empty()&&
+        (!explicit_last||terminal_faces[1].empty());
     if(trim_to_curved_first) {
         // Overgrow only enough to cross the local analytical terminal. A
         // remote face beyond an earlier Fillet is not part of this route and
         // must never pull the construction through the current Body.
-        first_preview_extension=std::max(first_preview_extension,cross_span);
-        first_extension=std::max(first_extension,cross_span);
+        double required=cross_span;
+        if(explicit_first)
+            for(const auto& face:first_curved_stops)
+                if(const auto distance=forward_terminal_intersection_distance(
+                        face,path.first,first_outward,tolerance))
+                    required=std::max(required,*distance+cross_span+
+                        tolerance);
+        first_preview_extension=std::max(first_preview_extension,required);
+        first_extension=std::max(first_extension,required);
     }
     if(trim_to_curved_last) {
-        last_preview_extension=std::max(last_preview_extension,cross_span);
-        last_extension=std::max(last_extension,cross_span);
+        double required=cross_span;
+        if(explicit_last)
+            for(const auto& face:last_curved_stops)
+                if(const auto distance=forward_terminal_intersection_distance(
+                        face,path.last,last_outward,tolerance))
+                    required=std::max(required,*distance+cross_span+
+                        tolerance);
+        last_preview_extension=std::max(last_preview_extension,required);
+        last_extension=std::max(last_extension,required);
     }
     // Explicit ZIMA keeps a null end perpendicular. Automatic honors a
     // uniquely inferred oblique plane or a proven earlier-radius cap; an
@@ -1891,6 +2048,20 @@ Cutter make_cutter(const TopoDS_Edge& edge,
         clip_fillet_tool(tool,circular_faces,face,interior,tolerance);
     for(const auto& face:terminal_faces[1])
         clip_fillet_tool(tool,circular_faces,face,interior,tolerance);
+    // An incident earlier radius is a bounded local surface.  Its nearby
+    // planar boundary participates in the same terminal whenever it falls
+    // inside the new radius.  Clipping only by the unbounded analytical
+    // curved surface retains a small tongue past that boundary.
+    for(const auto& face:nearby_terminal_planes[0])
+        clip_fillet_tool(tool,circular_faces,face,interior,tolerance);
+    for(const auto& face:nearby_terminal_planes[1])
+        clip_fillet_tool(tool,circular_faces,face,interior,tolerance);
+    for(const auto& face:nearby_terminal_surfaces[0])
+        clip_fillet_tool_to_surface(tool,circular_faces,face,interior,
+            tolerance,&interior);
+    for(const auto& face:nearby_terminal_surfaces[1])
+        clip_fillet_tool_to_surface(tool,circular_faces,face,interior,
+            tolerance,&interior);
     // Extend the profile through a curved terminal and trim the construction
     // tool to the terminal's exact analytical surface before the Body Boolean.
     // Letting a subtractive tool cross the Body envelope makes the later CUT
@@ -2034,9 +2205,9 @@ Cutter make_route_cutter(const std::vector<CutterJob>& jobs,
         {},true);
 
     const auto start_vertex=endpoints(ordered.front())[0];
+    const auto end_vertex=endpoints(ordered.back())[1];
     const gp_Pnt start_point=BRep_Tool::Pnt(start_vertex);
-    const gp_Pnt end_point=BRep_Tool::Pnt(
-        endpoints(ordered.back())[1]);
+    const gp_Pnt end_point=BRep_Tool::Pnt(end_vertex);
     const auto outward_tangent=[&](const TopoDS_Edge& edge,bool start) {
         const BRepAdaptor_Curve curve(edge);
         gp_Pnt first_point,last_point;
@@ -2073,32 +2244,41 @@ Cutter make_route_cutter(const std::vector<CutterJob>& jobs,
         ordered.front(),start_point);
     const gp_Pnt end_preceding=preceding_point(
         ordered.back(),end_point);
+    const auto& start_job=jobs[route.front()];
+    const auto& end_job=jobs[route.back()];
     std::array<std::vector<TopoDS_Face>,2> terminal_faces;
-    const auto assign_end_face=[&](const TopoDS_Face& face) {
+    std::array<std::vector<TopoDS_Face>,2> curved_terminal_faces;
+    const auto assign_end_face=[&](const TopoDS_Face& face,
+            const TopoDS_Vertex& semantic_vertex) {
         if(face.IsNull())return;
-        const BRepAdaptor_Surface support(face,true);
-        if(support.GetType()!=GeomAbs_Plane)
-            throw std::invalid_argument(
-                "Planar edge Fillet end face must be planar");
-        const auto contains=[&](const gp_Pnt& point) {
-            if(support.Plane().Distance(point)>tolerance)return false;
-            BRepClass_FaceClassifier classifier(face,point,tolerance);
-            return classifier.State()==TopAbs_IN||
-                classifier.State()==TopAbs_ON;
-        };
-        const bool first=contains(start_point),last=contains(end_point);
+        const bool first=!semantic_vertex.IsNull()&&
+            semantic_vertex.IsSame(start_vertex);
+        const bool last=!semantic_vertex.IsNull()&&
+            semantic_vertex.IsSame(end_vertex);
         if(first==last)
             throw std::invalid_argument(
-                "Planar edge Fillet end face must contain exactly one route endpoint");
-        auto& destination=terminal_faces[first?0:1];
-        if(std::ranges::none_of(destination,[&](const auto& existing) {
-                return existing.IsSame(face);
-            }))destination.push_back(face);
+                "Planar edge Fillet end choice is not on a route endpoint");
+        const std::size_t end=first?0:1;
+        const auto& job=first?start_job:end_job;
+        const auto& endpoint=first?start_point:end_point;
+        const auto& outward=first?start_outward:end_outward;
+        for(const auto& selected:selected_terminal_faces(job.material,
+                job.first_face,job.second_face,endpoint,outward,face,
+                tolerance)) {
+            const BRepAdaptor_Surface support(selected,true);
+            auto& destination=support.GetType()==GeomAbs_Plane
+                ?terminal_faces[end]:curved_terminal_faces[end];
+            if(std::ranges::none_of(destination,[&](const auto& existing) {
+                    return existing.IsSame(selected);
+                }))destination.push_back(selected);
+        }
     };
     if(!end_faces.empty())
         for(const auto index:route) {
-            assign_end_face(end_faces[index].first);
-            assign_end_face(end_faces[index].last);
+            TopoDS_Vertex edge_first,edge_last;
+            TopExp::Vertices(jobs[index].edge,edge_first,edge_last,true);
+            assign_end_face(end_faces[index].first,edge_first);
+            assign_end_face(end_faces[index].last,edge_last);
         }
     bool automatic_first=end_faces.empty();
     bool automatic_last=end_faces.empty();
@@ -2113,24 +2293,23 @@ Cutter make_route_cutter(const std::vector<CutterJob>& jobs,
             if(!edge_last.IsNull()&&edge_last.IsSame(start_vertex))
                 automatic_first=end_faces[index].automatic_last;
             if(!edge_first.IsNull()&&
-                    edge_first.IsSame(endpoints(ordered.back())[1]))
+                    edge_first.IsSame(end_vertex))
                 automatic_last=end_faces[index].automatic_first;
             if(!edge_last.IsNull()&&
-                    edge_last.IsSame(endpoints(ordered.back())[1]))
+                    edge_last.IsSame(end_vertex))
                 automatic_last=end_faces[index].automatic_last;
         }
     }
-    const bool explicit_first=!terminal_faces[0].empty();
-    const bool explicit_last=!terminal_faces[1].empty();
-    const auto& start_job=jobs[route.front()];
-    const auto& end_job=jobs[route.back()];
-    std::array<std::vector<TopoDS_Face>,2> curved_terminal_faces;
+    const bool explicit_first=!terminal_faces[0].empty()||
+        !curved_terminal_faces[0].empty();
+    const bool explicit_last=!terminal_faces[1].empty()||
+        !curved_terminal_faces[1].empty();
     if(end_mode==OcctPlanarEdgeFilletEndMode::AutomaticBodyEnvelope) {
-        if(automatic_first)
+        if(automatic_first&&!explicit_first)
             curved_terminal_faces[0]=local_curved_terminal_faces(
                 start_job.material,start_job.first_face,start_job.second_face,
                 start_point,tolerance);
-        if(automatic_last)
+        if(automatic_last&&!explicit_last)
             curved_terminal_faces[1]=local_curved_terminal_faces(
                 end_job.material,end_job.first_face,end_job.second_face,
                 end_point,tolerance);
@@ -2277,16 +2456,61 @@ Cutter make_route_cutter(const std::vector<CutterJob>& jobs,
     // returning additive route, however, ends at its real selected endpoint;
     // carrying it through a nearby earlier radius creates the visible tooth
     // beyond that endpoint.
-    const bool clip_to_curved_first=!continue_first&&!explicit_first&&
-        !compound_curved_first&&!curved_terminal_faces[0].empty();
-    const bool clip_to_curved_last=!continue_last&&!explicit_last&&
-        !compound_curved_last&&!curved_terminal_faces[1].empty();
+    const bool clip_to_curved_first=!continue_first&&
+        !compound_curved_first&&!curved_terminal_faces[0].empty()&&
+        (!explicit_first||terminal_faces[0].empty());
+    const bool clip_to_curved_last=!continue_last&&
+        !compound_curved_last&&!curved_terminal_faces[1].empty()&&
+        (!explicit_last||terminal_faces[1].empty());
     const bool extend_to_curved_first=clip_to_curved_first&&
         (!profile.adds_material||route_is_straight);
     const bool extend_to_curved_last=clip_to_curved_last&&
         (!profile.adds_material||route_is_straight);
+    const auto extend_to_selected_surface=[&](double& extension,
+            double& preview_extension,
+            std::span<const TopoDS_Face> faces,const gp_Pnt& endpoint,
+            const gp_Dir& outward) {
+        for(const auto& face:faces) {
+            const auto distance=forward_terminal_intersection_distance(
+                face,endpoint,outward,tolerance);
+            const double required=(distance?*distance:0.)+cross_span+
+                tolerance;
+            extension=std::max(extension,required);
+            preview_extension=std::max(preview_extension,required);
+        }
+    };
+    if(extend_to_curved_first&&explicit_first)
+        extend_to_selected_surface(first_extension,
+            first_preview_extension,curved_terminal_faces[0],start_point,
+            start_outward);
+    if(extend_to_curved_last&&explicit_last)
+        extend_to_selected_surface(last_extension,
+            last_preview_extension,curved_terminal_faces[1],end_point,
+            end_outward);
+    std::array<std::vector<TopoDS_Face>,2> nearby_terminal_planes;
+    std::array<std::vector<TopoDS_Face>,2> nearby_terminal_surfaces;
+    if(clip_to_curved_first&&!explicit_first) {
+        nearby_terminal_planes[0]=nearby_planar_terminal_faces(
+            start_job.material,start_job.first_face,start_job.second_face,
+            curved_terminal_faces[0],start_point,start_outward,radius,
+            tolerance);
+        nearby_terminal_surfaces[0]=nearby_nonplanar_terminal_faces(
+            start_job.material,start_job.first_face,start_job.second_face,
+            curved_terminal_faces[0],start_point,start_outward,radius,
+            tolerance);
+    }
+    if(clip_to_curved_last&&!explicit_last) {
+        nearby_terminal_planes[1]=nearby_planar_terminal_faces(
+            end_job.material,end_job.first_face,end_job.second_face,
+            curved_terminal_faces[1],end_point,end_outward,radius,
+            tolerance);
+        nearby_terminal_surfaces[1]=nearby_nonplanar_terminal_faces(
+            end_job.material,end_job.first_face,end_job.second_face,
+            curved_terminal_faces[1],end_point,end_outward,radius,
+            tolerance);
+    }
     std::array<std::vector<TopoDS_Face>,2> curved_terminal_caps;
-    if(extend_to_curved_first) {
+    if(extend_to_curved_first&&!explicit_first) {
         curved_terminal_caps[0]=remote_terminal_faces_through_local_curve(
             start_job.material,start_job.first_face,start_job.second_face,
             start_point,start_outward,tolerance);
@@ -2298,7 +2522,7 @@ Cutter make_route_cutter(const std::vector<CutterJob>& jobs,
             curved_terminal_caps[0],start_point,start_outward,
             start_job.material,false));
     }
-    if(extend_to_curved_last) {
+    if(extend_to_curved_last&&!explicit_last) {
         curved_terminal_caps[1]=remote_terminal_faces_through_local_curve(
             end_job.material,end_job.first_face,end_job.second_face,
             end_point,end_outward,tolerance);
@@ -2309,11 +2533,16 @@ Cutter make_route_cutter(const std::vector<CutterJob>& jobs,
             end_job.material,false));
     }
     auto terminal_clip_faces=terminal_faces;
-    for(std::size_t end=0;end<terminal_clip_faces.size();++end)
+    for(std::size_t end=0;end<terminal_clip_faces.size();++end) {
+        for(const auto& plane:nearby_terminal_planes[end])
+            if(std::ranges::none_of(terminal_clip_faces[end],
+                    [&](const auto& face) {return face.IsSame(plane);}))
+                terminal_clip_faces[end].push_back(plane);
         for(const auto& cap:curved_terminal_caps[end])
             if(std::ranges::none_of(terminal_clip_faces[end],
                     [&](const auto& face) {return face.IsSame(cap);}))
                 terminal_clip_faces[end].push_back(cap);
+    }
     profile.analytic_domain.axial_extension=std::max(
         first_preview_extension,last_preview_extension);
 
@@ -2468,8 +2697,16 @@ Cutter make_route_cutter(const std::vector<CutterJob>& jobs,
         for(const auto& face:curved_terminal_faces[0])
             clip_fillet_tool_to_surface(profile.solid,
                 profile.circular_faces,face,start_preceding,tolerance);
+    if(clip_to_curved_first)
+        for(const auto& face:nearby_terminal_surfaces[0])
+            clip_fillet_tool_to_surface(profile.solid,
+                profile.circular_faces,face,start_preceding,tolerance);
     if(clip_to_curved_last)
         for(const auto& face:curved_terminal_faces[1])
+            clip_fillet_tool_to_surface(profile.solid,
+                profile.circular_faces,face,end_preceding,tolerance);
+    if(clip_to_curved_last)
+        for(const auto& face:nearby_terminal_surfaces[1])
             clip_fillet_tool_to_surface(profile.solid,
                 profile.circular_faces,face,end_preceding,tolerance);
     const auto add_terminal_extension=[&](const CutterJob& job,
@@ -2538,11 +2775,19 @@ Cutter make_route_cutter(const std::vector<CutterJob>& jobs,
         fuse_fillet_tools(profile.solid,profile.circular_faces,
             tail.solid,tail.circular_faces,tolerance);
     };
+    auto first_surface_faces=curved_terminal_faces[0];
+    first_surface_faces.insert(first_surface_faces.end(),
+        nearby_terminal_surfaces[0].begin(),
+        nearby_terminal_surfaces[0].end());
+    auto last_surface_faces=curved_terminal_faces[1];
+    last_surface_faces.insert(last_surface_faces.end(),
+        nearby_terminal_surfaces[1].begin(),
+        nearby_terminal_surfaces[1].end());
     add_terminal_extension(start_job,start_point,start_outward,
-        first_extension,terminal_clip_faces[0],curved_terminal_faces[0],
+        first_extension,terminal_clip_faces[0],first_surface_faces,
         start_preceding,extend_to_curved_first);
     add_terminal_extension(end_job,end_point,end_outward,last_extension,
-        terminal_clip_faces[1],curved_terminal_faces[1],end_preceding,
+        terminal_clip_faces[1],last_surface_faces,end_preceding,
         extend_to_curved_last);
     profile.source_jobs.assign(route.begin(),route.end());
     return profile;
@@ -2951,6 +3196,20 @@ OcctPlanarEdgeFilletResult occt_planar_edge_fillet(
         auto& destination=terminal.at_first?target.first:target.last;
         destination=std::max(destination,value);
     };
+    const auto rounded_at=[&](std::size_t job_index,
+            const TopoDS_Vertex& vertex) {
+        // Preserve the historical direct-kernel contract. Persisted ZIMA
+        // operations opt into a rounded shared node explicitly; an authored
+        // NoCut ends each branch at its own edge end.
+        if(end_faces.empty())return true;
+        TopoDS_Vertex first,last;
+        TopExp::Vertices(jobs[job_index].edge,first,last,true);
+        if(!first.IsNull()&&first.IsSame(vertex))
+            return end_faces[job_index].rounded_first;
+        if(!last.IsNull()&&last.IsSame(vertex))
+            return end_faces[job_index].rounded_last;
+        return false;
+    };
     // Two independent plane/plane branches meet where their rolling-cylinder
     // axes intersect. Extend each real branch only to that intersection and
     // trim both tools by their equal-distance bisector plane. The complete
@@ -2961,38 +3220,75 @@ OcctPlanarEdgeFilletResult occt_planar_edge_fillet(
         if(node.jobs.size()!=2)continue;
         const auto first_job=node.jobs[0];
         const auto second_job=node.jobs[1];
+        const bool trace_node=std::getenv(
+            "ZIMA_CPP_FILLET_NODE_PROFILE")!=nullptr;
+        const auto trace_rejection=[&](const char* reason) {
+            if(!trace_node)return;
+            const auto point=BRep_Tool::Pnt(node.vertex);
+            std::fprintf(stderr,
+                "Fillet rounded node (%.9g,%.9g,%.9g) jobs=%zu,%zu rejected: %s\n",
+                point.X(),point.Y(),point.Z(),first_job,second_job,reason);
+        };
+        if(!rounded_at(first_job,node.vertex)||
+           !rounded_at(second_job,node.vertex)) {
+            trace_rejection("endpoint mode");
+            continue;
+        }
         if(!job_is_single_route[first_job]||
-           !job_is_single_route[second_job])continue;
+           !job_is_single_route[second_job]) {
+            trace_rejection("route is not a single fragment");
+            continue;
+        }
         const auto& first=jobs[first_job];
         const auto& second=jobs[second_job];
-        if(!first.material.IsSame(second.material)||
-           !planar_job(first)||!planar_job(second)||
-           node_outgoing_tangent(first.edge,node.vertex,tolerance).
-               IsParallel(node_outgoing_tangent(second.edge,node.vertex,
-                   tolerance),std::max(1.0e-9,tolerance)))continue;
+        if(!first.material.IsSame(second.material)) {
+            trace_rejection("different material source");
+            continue;
+        }
+        if(!planar_job(first)||!planar_job(second)) {
+            trace_rejection("non-planar support pair");
+            continue;
+        }
+        if(node_outgoing_tangent(first.edge,node.vertex,tolerance).
+                IsParallel(node_outgoing_tangent(second.edge,node.vertex,
+                    tolerance),std::max(1.0e-9,tolerance))) {
+            trace_rejection("parallel route tangents");
+            continue;
+        }
         if(!end_faces.empty()&&
            (!end_faces[first_job].first.IsNull()||
             !end_faces[first_job].last.IsNull()||
             !end_faces[second_job].first.IsNull()||
-            !end_faces[second_job].last.IsNull()))continue;
+            !end_faces[second_job].last.IsNull())) {
+            trace_rejection("explicit terminal face");
+            continue;
+        }
         auto first_profile=make_cutter(first.edge,first.first_face,
             first.second_face,radius,tolerance,first.material,{},true);
         auto second_profile=make_cutter(second.edge,second.first_face,
             second.second_face,radius,tolerance,second.material,{},true);
-        if(first_profile.adds_material!=second_profile.adds_material)
+        if(first_profile.adds_material!=second_profile.adds_material) {
+            trace_rejection("opposite Boolean senses");
             continue;
+        }
         const auto first_terminal=terminal_axis(first_job,node.vertex,
             first_profile);
         const auto second_terminal=terminal_axis(second_job,node.vertex,
             second_profile);
-        if(!first_terminal||!second_terminal)continue;
+        if(!first_terminal||!second_terminal) {
+            trace_rejection("no linear terminal axis");
+            continue;
+        }
         const gp_Vec first_direction(first_terminal->outgoing);
         const gp_Vec second_direction(second_terminal->outgoing);
         const gp_Vec separation(second_terminal->center,
             first_terminal->center);
         const double cosine=first_direction.Dot(second_direction);
         const double denominator=1.-cosine*cosine;
-        if(denominator<=1.0e-10)continue;
+        if(denominator<=1.0e-10) {
+            trace_rejection("parallel rolling axes");
+            continue;
+        }
         const double first_projection=first_direction.Dot(separation);
         const double second_projection=second_direction.Dot(separation);
         const double first_parameter=(cosine*second_projection-
@@ -3007,29 +3303,48 @@ OcctPlanarEdgeFilletResult occt_planar_edge_fillet(
             radius*1.0e-7);
         if(first_closest.Distance(second_closest)>axis_tolerance||
            first_parameter>first_terminal->extent+axis_tolerance||
-           second_parameter>second_terminal->extent+axis_tolerance)
+           second_parameter>second_terminal->extent+axis_tolerance) {
+            trace_rejection("rolling axes do not meet within route bounds");
             continue;
+        }
         const double first_extension=std::max(0.,-first_parameter);
         const double second_extension=std::max(0.,-second_parameter);
-        if(first_extension<=tolerance||second_extension<=tolerance)
+        if(first_extension<=tolerance||second_extension<=tolerance) {
+            trace_rejection("both branches do not require extension");
             continue;
+        }
         const auto node_point=BRep_Tool::Pnt(node.vertex);
         const double extension_limit=2.*(radius+std::max(
             node_point.Distance(first_terminal->center),
             node_point.Distance(second_terminal->center)));
         if(first_extension>extension_limit||
-           second_extension>extension_limit)continue;
+           second_extension>extension_limit) {
+            trace_rejection("required extension exceeds local radius bound");
+            continue;
+        }
         gp_Vec miter_normal(first_terminal->outgoing);
         miter_normal-=gp_Vec(second_terminal->outgoing);
-        if(miter_normal.SquareMagnitude()<=1.0e-18)continue;
+        if(miter_normal.SquareMagnitude()<=1.0e-18) {
+            trace_rejection("degenerate miter normal");
+            continue;
+        }
         const gp_Pnt axis_intersection(
             .5*(first_closest.X()+second_closest.X()),
             .5*(first_closest.Y()+second_closest.Y()),
             .5*(first_closest.Z()+second_closest.Z()));
         BRepBuilderAPI_MakeFace miter_builder(
             gp_Pln(axis_intersection,gp_Dir(miter_normal)));
-        if(!miter_builder.IsDone()||miter_builder.Face().IsNull())
+        if(!miter_builder.IsDone()||miter_builder.Face().IsNull()) {
+            trace_rejection("miter plane construction");
             continue;
+        }
+        if(trace_node) {
+            const auto point=BRep_Tool::Pnt(node.vertex);
+            std::fprintf(stderr,
+                "Fillet rounded node (%.9g,%.9g,%.9g) jobs=%zu,%zu accepted extensions=%.9g,%.9g\n",
+                point.X(),point.Y(),point.Z(),first_job,second_job,
+                first_extension,second_extension);
+        }
         set_node_extension(job_node_extensions[first_job],
             *first_terminal,first_extension);
         set_node_extension(job_node_extensions[second_job],
@@ -3109,6 +3424,7 @@ OcctPlanarEdgeFilletResult occt_planar_edge_fillet(
             job_adds_material[job]=cutter.adds_material;
         }
     std::vector<NodeConnector> node_connectors;
+    bool has_mixed_node=false;
     const double node_angular_tolerance=std::max(1.0e-9,tolerance);
     for(const auto& node:selected_nodes) {
         if(node.jobs.size()<2)continue;
@@ -3133,9 +3449,38 @@ OcctPlanarEdgeFilletResult occt_planar_edge_fillet(
             *job_adds_material[node.jobs.front()];
         if(std::ranges::any_of(node.jobs,[&](const auto job) {
                 return *job_adds_material[job]!=adds_material;
-            }))
-            throw std::invalid_argument(
-                "ZIMA Fillet node mixes inner and outer branches");
+            })) {
+            const auto subtractive=std::ranges::count_if(node.jobs,
+                [&](const auto job) {return !*job_adds_material[job];});
+            bool orthogonal=node.jobs.size()==3;
+            for(std::size_t a=0;orthogonal&&a<3;++a)
+                for(std::size_t b=a+1;b<3;++b)
+                    if(std::abs(directions[a].Dot(directions[b]))>1.0e-7)
+                        orthogonal=false;
+            has_mixed_node=true;
+            if(!orthogonal||subtractive!=1||
+                    !std::ranges::all_of(node.jobs,[&](const auto job) {
+                        return rounded_at(job,node.vertex);
+                    }))continue;
+            std::size_t outer=0;
+            for(std::size_t index=0;index<3;++index)
+                if(!*job_adds_material[node.jobs[index]])outer=index;
+            const std::size_t first=(outer+1)%3,second=(outer+2)%3;
+            const auto origin=BRep_Tool::Pnt(node.vertex);
+            for(const auto index:{first,second}) {
+                const auto job=node.jobs[index];
+                const auto& side=directions[index==first?second:first];
+                for(auto& cutter:cutters)
+                    if(std::ranges::find(cutter.source_jobs,job)!=
+                            cutter.source_jobs.end())
+                        cutter.solid=clip_strip_before(cutter,origin,
+                            directions[index],side,radius,tolerance);
+            }
+            node_connectors.push_back({make_mixed_node_corner(origin,
+                directions[outer],directions[first],directions[second],
+                radius),std::nullopt,node.jobs,true});
+            continue;
+        }
         if(node.jobs.size()==3)
             node_connectors.push_back(
                 make_fillet_corner_connector(node.vertex,
@@ -3171,12 +3516,18 @@ OcctPlanarEdgeFilletResult occt_planar_edge_fillet(
 
     const auto boolean_started=Clock::now();
     TopoDS_Shape current=input;
+    std::vector<std::size_t> application_order(cutters.size());
+    std::iota(application_order.begin(),application_order.end(),
+        std::size_t{});
+    if(has_mixed_node)
+        std::ranges::stable_partition(application_order,
+            [&](const auto index) {return !cutters[index].adds_material;});
     const auto apply_boolean=[&](auto& operation,std::size_t first,
             std::size_t last) {
         NCollection_List<TopoDS_Shape> arguments,tools;
         arguments.Append(current);
         for(std::size_t index=first;index<last;++index)
-            tools.Append(cutters[index].solid);
+            tools.Append(cutters[application_order[index]].solid);
         operation.SetArguments(arguments);operation.SetTools(tools);
         operation.SetNonDestructive(true);operation.SetRunParallel(false);
         operation.SetToFillHistory(true);operation.SetFuzzyValue(tolerance);
@@ -3198,9 +3549,10 @@ OcctPlanarEdgeFilletResult occt_planar_edge_fillet(
     for(std::size_t first=0;first<cutters.size();) {
         std::size_t last=first+1;
         while(last<cutters.size()&&
-              cutters[last].adds_material==cutters[first].adds_material)
+              cutters[application_order[last]].adds_material==
+                  cutters[application_order[first]].adds_material)
             ++last;
-        if(cutters[first].adds_material) {
+        if(cutters[application_order[first]].adds_material) {
             BRepAlgoAPI_Fuse fuse;apply_boolean(fuse,first,last);
         } else {
             BRepAlgoAPI_Cut cut;apply_boolean(cut,first,last);

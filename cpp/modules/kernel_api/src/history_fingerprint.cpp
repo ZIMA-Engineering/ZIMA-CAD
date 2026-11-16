@@ -1010,13 +1010,23 @@ std::string encode_history_fingerprint(
                 u64(primitive.route_edge_counts.size());
                 for(const auto count:primitive.route_edge_counts)u64(count);
                 u64(primitive.route_end_faces.size());
-                for(const auto& ends:primitive.route_end_faces)
+                for(const auto& ends:primitive.route_end_faces) {
+                    byte(static_cast<std::uint8_t>(ends.first_mode));
+                    byte(static_cast<std::uint8_t>(ends.last_mode));
+                    for(const auto* vertex:{&ends.first_vertex,
+                            &ends.last_vertex}) {
+                        u64(vertex->owner_id.size());
+                        for(const unsigned char value:vertex->owner_id)byte(value);
+                        u64(vertex->semantic_key.size());
+                        for(const unsigned char value:vertex->semantic_key)byte(value);
+                    }
                     for(const auto* face:{&ends.first,&ends.last}) {
                         u64(face->owner_id.size());
                         for(const unsigned char value:face->owner_id)byte(value);
                         u64(face->semantic_key.size());
                         for(const unsigned char value:face->semantic_key)byte(value);
                     }
+                }
             }
         }, operation.primitive);
         if constexpr(Capture)++stream->first;
