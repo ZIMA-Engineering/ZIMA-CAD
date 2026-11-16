@@ -1750,6 +1750,34 @@ int main() try {
             "Staggered-box fixture lost its two shoulder branches");
         verify_node(stepped,shoulder_node,2.,
             "Staggered-box ZIMA Fillet shoulder node is invalid",true);
+        // Both authored node choices must remain available after preview
+        // isolation/Boolean optimizations, independently of route order.
+        const double shoulder_input_volume=volume(stepped);
+        std::array<double,2> node_volumes{};
+        for(int reverse=0;reverse<2;++reverse) {
+            if(reverse)std::ranges::reverse(shoulder_node);
+            for(int arc=0;arc<2;++arc) {
+                std::array<zima::kernel::OcctPlanarEdgeEndFaces,2> ends{};
+                for(auto& end:ends) {
+                    end.rounded_first=end.rounded_last=true;
+                    end.arc_first=end.arc_last=arc!=0;
+                }
+                const auto changed=zima::kernel::occt_planar_edge_fillet(
+                    stepped,shoulder_node,2.,1.0e-7,ends,
+                    zima::kernel::OcctPlanarEdgeFilletEndMode::AutomaticBodyEnvelope,
+                    independent_routes);
+                require(BRepCheck_Analyzer(changed.Shape()).IsValid()&&
+                        BRepCheck_Analyzer(stepped).IsValid(),
+                    "Authored spike/arc preview damaged its result or input");
+                near(volume(stepped),shoulder_input_volume,
+                    "Authored node preview changed shared input volume");
+                if(reverse)near(volume(changed.Shape()),node_volumes[arc],
+                    "Authored spike/arc depends on route order");
+                else node_volumes[arc]=volume(changed.Shape());
+            }
+        }
+        require(std::abs(node_volumes[0]-node_volumes[1])>1.0e-6,
+            "Authored spike and rounded arc silently became the same node");
         {
             const auto oblique_prism=polygon_prism({{10,10,10},{40,10,10},
                 {50,35,10},{15,35,10}},10,"Oblique fixture failed");

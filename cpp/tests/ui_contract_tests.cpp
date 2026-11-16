@@ -2043,6 +2043,32 @@ int main(int argc, char* argv[]) {
                         zima::document::EdgeTreatmentParameters::
                             CalculationMethod::Zima,
                 "Chamfer Properties did not commit ZIMA A + angle");
+            using Parameters=zima::document::EdgeTreatmentParameters;
+            for(const bool variable:{false,true}) {
+                for(const auto method:{Parameters::CalculationMethod::Automatic,
+                        Parameters::CalculationMethod::Zima,
+                        Parameters::CalculationMethod::Occt}) {
+                    auto existing=fillet_definition;
+                    existing.edge_treatment.calculation_method=method;
+                    existing.edge_treatment.fillet_mode=variable
+                        ?Parameters::FilletMode::Linear:Parameters::FilletMode::Constant;
+                    zima::app::PrimitivePropertiesDialog edit(existing,true,false,
+                        [](auto){},&parent);
+                    edit.setAttribute(Qt::WA_DeleteOnClose,false);
+                    auto* occt=edit.findChild<QCheckBox*>("edgeTreatmentMethodOcct");
+                    auto* zima=edit.findChild<QCheckBox*>("edgeTreatmentMethodZima");
+                    const bool uses_occt=method==Parameters::CalculationMethod::Occt||
+                        (method==Parameters::CalculationMethod::Automatic&&variable);
+                    require(occt->isChecked()==uses_occt&&
+                            edit.pending_value().edge_treatment.calculation_method==method,
+                        "Opening Fillet Properties changed the saved calculation policy");
+                    (uses_occt?zima:occt)->click();
+                    require(edit.pending_value().edge_treatment.calculation_method==
+                            (uses_occt?Parameters::CalculationMethod::Zima:
+                                Parameters::CalculationMethod::Occt),
+                        "Explicit method selection did not replace the saved policy");
+                }
+            }
             std::cout<<"ZIMA/OCCT Fillet and Chamfer method selection passed\n";
             return 0;
         }

@@ -9,6 +9,7 @@
 #include <limits>
 #include <cmath>
 #include <QUuid>
+#include <QScopedValueRollback>
 
 namespace zima::app {
 using namespace workspace_detail;
@@ -288,6 +289,11 @@ void AssemblyWorkspaceWindow::refresh_edge_treatment_selection_ui() {
 
 void AssemblyWorkspaceWindow::refresh_edge_treatment_preview() {
     if (viewer_ == nullptr) return;
+    // Learning endpoint identities/default node modes notifies the dialog
+    // synchronously. The outer refresh consumes those updated values below;
+    // a nested refresh would calculate the same draft and node options twice.
+    if(edge_treatment_preview_refresh_active_)return;
+    QScopedValueRollback refreshing(edge_treatment_preview_refresh_active_,true);
     if (edge_treatment_dialog_) {
         viewer_->set_dimension_layout_editable(true, [this](const auto& reference) {
             return edge_treatment_dialog_ && reference.instance_path == workspace_.active_occurrence_path() &&
@@ -453,14 +459,26 @@ void AssemblyWorkspaceWindow::refresh_edge_treatment_preview() {
             }
             edge_treatment_preview_parameters_=
                 edge_treatment_dialog_->pending_value().edge_treatment;
+            if(std::getenv("ZIMA_CPP_FILLET_NODE_PROFILE")) {
+                const auto& all=edge_treatment_preview_parameters_
+                    .route_end_faces;
+                for(std::size_t route=0;route<all.size();++route)
+                    std::fprintf(stderr,
+                        "  ALL-ENDS route=%zu firstmode=%d lastmode=%d firstface=%d lastface=%d\n",
+                        route,static_cast<int>(all[route].first_mode),
+                        static_cast<int>(all[route].last_mode),
+                        all[route].first.valid()?1:0,
+                        all[route].last.valid()?1:0);
+            }
         }
 
         const auto pending=edge_treatment_dialog_->pending_value();
-        try {
-            if(!edge_treatment_exact_preview_definition_||
+        if(!edge_treatment_exact_preview_definition_||
                     *edge_treatment_exact_preview_definition_!=pending||
                     edge_treatment_exact_preview_generation_!=
                         part->session.data_generation()) {
+            edge_treatment_exact_preview_error_.clear();
+            try {
                 auto exact=zima::workspace::edge_treatment_preview_mesh(
                     part->session,kernel_,pending);
                 edge_treatment_exact_preview_edges_=std::move(exact.edges);
@@ -481,23 +499,20 @@ void AssemblyWorkspaceWindow::refresh_edge_treatment_preview() {
                     edge.color.clear();
                     edge.preview_terminal_dashed=false;
                 }
-                edge_treatment_exact_preview_definition_=pending;
-                edge_treatment_exact_preview_generation_=
-                    part->session.data_generation();
+            } catch(const std::exception& error) {
+                edge_treatment_exact_preview_edges_.clear();
+                edge_treatment_exact_preview_error_=QString::fromUtf8(error.what());
             }
-            preview.edges=edge_treatment_exact_preview_edges_;
-            edge_treatment_dialog_->set_edge_treatment_preview_error({});
-        } catch(const std::exception& error) {
-            edge_treatment_exact_preview_definition_.reset();
-            edge_treatment_exact_preview_edges_.clear();
-            edge_treatment_exact_preview_generation_=0;
-            // Do not display the lightweight construction as though it were
-            // a valid result.  The input body and endpoint controls remain
-            // visible so the definition can be repaired.
-            preview.edges.clear();
-            edge_treatment_dialog_->set_edge_treatment_preview_error(
-                tr(error.what()));
+            // A rejected definition is also stable until its inputs change.
+            // Keep its error, not a stale successful wire; repaint/inspection
+            // must not repeatedly retry the same impossible calculation.
+            edge_treatment_exact_preview_definition_=pending;
+            edge_treatment_exact_preview_generation_=part->session.data_generation();
         }
+        preview.edges=edge_treatment_exact_preview_edges_;
+        edge_treatment_dialog_->set_edge_treatment_preview_error(
+            edge_treatment_exact_preview_error_.isEmpty()?QString{}:
+                tr(edge_treatment_exact_preview_error_.toUtf8().constData()));
     }
     const auto terminal_nodes=edge_treatment_terminal_nodes(
         preview.terminal_labels);
@@ -506,13 +521,14 @@ void AssemblyWorkspaceWindow::refresh_edge_treatment_preview() {
         std::vector<std::pair<std::size_t,bool>> route_ends;
         std::uint64_t generation{};
         std::string part_id;
+        std::shared_ptr<const int> runtime_identity;
         std::vector<zima::workspace::EdgeTreatmentEndCutChoice> cuts;
         bool join{};
         bool arc{};
     };
-    // The probes calculate up to four kernel previews; reuse them while
-    // neither the definition (ignoring these ends' modes) nor the model
-    // changed, so labels and the menu share one calculation.
+    // Joined nodes offer only spike/rounding, never terminal face cuts. Do
+    // not enumerate the Cartesian product of unused cut faces while drawing
+    // their labels. Free-end cuts are prepared on explicit menu opening.
     const auto probe_end_menu=[this](
             const std::vector<std::pair<std::size_t,bool>>& route_ends,
             const zima::document::HistoryContainer& pending)->EndMenuProbe {
@@ -529,12 +545,13 @@ void AssemblyWorkspaceWindow::refresh_edge_treatment_preview() {
         for(const auto& cached:probe_cache)
             if(cached.key==probe_key&&cached.route_ends==route_ends&&
                cached.part_id==workspace_.active_document_id()&&
+               cached.runtime_identity==part->runtime_identity&&
                cached.generation==part->session.data_generation())
                 return cached;
         EndMenuProbe result{probe_key,route_ends,
             part->session.data_generation(),workspace_.active_document_id(),
-            {},false,false};
-        try {
+            part->runtime_identity,{},false,false};
+        if(route_ends.size()==1)try {
             result.cuts=zima::workspace::edge_treatment_end_cut_choices(
                 part->session,kernel_,pending,route_ends);
         } catch(const std::exception&) {

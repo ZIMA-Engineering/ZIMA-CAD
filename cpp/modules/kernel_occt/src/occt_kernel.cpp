@@ -6207,18 +6207,28 @@ void persist_surface_topology(const TopoDS_Shape& shape,const std::vector<OwnedF
         const std::vector<OwnedEdge>& edges,const std::vector<OwnedVertex>& vertices,BodyResult& result,
         const std::vector<TopoDS_Shape>* hidden=nullptr,std::vector<std::string>* hidden_locators=nullptr,
         bool clean_unused_pcurves=false) {
-    // Repeated Boolean edits can leave p-curves that refer to faces no longer
-    // present in the result.  They are neither geometry nor topology identity,
-    // but OCCT would otherwise copy them into every following native snapshot.
-    if(clean_unused_pcurves)BRepTools::RemoveUnusedPCurves(shape);
+    // Result edges can still be shared with earlier history/preview inputs.
+    // A p-curve unused here may be required by a face in that other Body.
+    // Strip unused representations only from private serialization topology;
+    // curves, surfaces and mesh data remain shared and are not recalculated.
+    BRepBuilderAPI_Copy archive_copy;
+    TopoDS_Shape archive_shape=shape;
+    if(clean_unused_pcurves) {
+        archive_copy.Perform(shape,false,false);
+        archive_shape=archive_copy.Shape();
+        BRepTools::RemoveUnusedPCurves(archive_shape);
+    }
+    const auto archived=[&](const TopoDS_Shape& source) {
+        return clean_unused_pcurves?archive_copy.ModifiedShape(source):source;
+    };
     BRepTools_ShapeSet archive(false,false);
-    archive.SetFormatNb(TopTools_FormatVersion_CURRENT);archive.Add(shape);
+    archive.SetFormatNb(TopTools_FormatVersion_CURRENT);archive.Add(archive_shape);
     const auto bind=[&](const auto& owned,TopAbs_ShapeEnum kind,auto& bindings) {
         std::vector<typename std::decay_t<decltype(bindings)>::value_type> captured;
         captured.reserve(owned.size());
         TopTools_IndexedMapOfShape members;TopExp::MapShapes(shape,kind,members);
         for(const auto& item:owned)if(item.reference.valid()&&members.Contains(item.shape)) {
-            std::ostringstream address;archive.Write(item.shape,address);
+            std::ostringstream address;archive.Write(archived(item.shape),address);
             captured.push_back({address.str(),item.reference});
         }
         bindings=std::move(captured);
@@ -6229,10 +6239,10 @@ void persist_surface_topology(const TopoDS_Shape& shape,const std::vector<OwnedF
         TopTools_IndexedMapOfShape members;TopExp::MapShapes(shape,TopAbs_EDGE,members);
         hidden_locators->clear();
         for(const auto& edge:*hidden)if(members.Contains(edge)) {
-            std::ostringstream address;archive.Write(edge,address);hidden_locators->push_back(address.str());
+            std::ostringstream address;archive.Write(archived(edge),address);hidden_locators->push_back(address.str());
         }
     }
-    std::ostringstream stream;archive.Write(stream);archive.Write(shape,stream);result.kernel_shape=stream.str();
+    std::ostringstream stream;archive.Write(stream);archive.Write(archive_shape,stream);result.kernel_shape=stream.str();
 }
 
 PrimitiveData bound_face_geometry(const BodyResult& body,bool curve_ancestry=false,
@@ -13251,7 +13261,8 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                             if(selected_route(edge_index)!=route)continue;
                             TopoDS_Vertex first,last;
                             TopExp::Vertices(selected[edge_index].first,
-                                first,last,true);
+                                first,last,
+                                !std::is_same_v<Treatment,FilletRequest>);
                             const auto same=[&](const TopoDS_Vertex& value) {
                                 return !value.IsNull()&&
                                     std::ranges::any_of(vertices,
@@ -13350,7 +13361,8 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                                 if(selected_route(edge_index)!=route)continue;
                                 TopoDS_Vertex first,last;
                                 TopExp::Vertices(selected[edge_index].first,
-                                    first,last,true);
+                                    first,last,
+                                    !std::is_same_v<Treatment,FilletRequest>);
                                 const auto same=[&](const TopoDS_Vertex& value) {
                                     return !value.IsNull()&&
                                         std::ranges::any_of(vertices,

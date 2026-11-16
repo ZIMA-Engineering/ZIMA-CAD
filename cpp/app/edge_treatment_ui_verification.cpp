@@ -162,7 +162,8 @@ int verify_edge_treatment_ui(QApplication& application, AssemblyWorkspaceWindow&
             mouse(QEvent::MouseButtonRelease,point,Qt::LeftButton,Qt::NoButton);
         };
         const auto pick=[&](viewer::CandidateKind kind,const std::string& owner,const std::string& key) {
-            for(int y=12;y<view->height()-12;y+=6)for(int x=12;x<view->width()-12;x+=6) {
+            const auto step=qEnvironmentVariableIsSet("ZIMA_VERIFY_PICK_MODEL")?2:6;
+            for(int y=12;y<view->height()-12;y+=step)for(int x=12;x<view->width()-12;x+=step) {
                 const auto offered=view->selection_candidates_at(QPointF(x,y));
                 if(!offered.empty()&&offered.front().kind==kind&&offered.front().owner_id==owner&&
                     (key.empty()||offered.front().semantic_key==key)) {
@@ -260,6 +261,121 @@ int verify_edge_treatment_ui(QApplication& application, AssemblyWorkspaceWindow&
             check(run("documents").at(0).at("revision")==before,"Unchanged connected Fillet OK created a transaction");
             window.grab().save(QString::fromStdString(document::path_to_utf8(directory/"connected-fillet-result.png")));
             std::cout<<"Connected Fillet: actual hover/LMB, deduplicated route, OK/Cancel, real volume change, Undo/Redo and unchanged OK passed\n";
+            return 0;
+        }
+        if(const auto model=qEnvironmentVariable("ZIMA_VERIFY_PICK_MODEL");!model.isEmpty()) {
+            const auto file=directory/"pick-input.prtz";
+            std::filesystem::copy_file(std::filesystem::u8path(model.toStdString()),file,
+                std::filesystem::copy_options::overwrite_existing);
+            run("open",{{"path",document::path_to_utf8(file)}});
+            view->set_standard_view(viewer::StandardView::Isometric);
+            view->fit_all();flush();
+            const auto pick_owner=qEnvironmentVariable("ZIMA_VERIFY_PICK_OWNER").toStdString();
+            const bool chamfer=qEnvironmentVariableIsSet("ZIMA_VERIFY_PICK_CHAMFER");
+            const auto revision=run("documents").at(0).at("revision");
+            const auto available=pick_owner.empty()?run("edge_treatment.edges").at("items"):run("edge_treatment.edges",{{"container",pick_owner}}).at("items");
+            std::cerr<<"PICK items="<<available.size()<<std::endl;
+            if(pick_owner.empty())window.findChild<QAction*>(chamfer?"chamferAction":"filletAction")->trigger();else static_cast<void>(edit(pick_owner));
+            flush();
+            std::cerr<<"PICK dialog open"<<std::endl;
+            auto* method_zima=dialog()->findChild<QCheckBox*>("edgeTreatmentMethodZima");
+            auto* method_occt=dialog()->findChild<QCheckBox*>("edgeTreatmentMethodOcct");
+            const bool occt_first=qEnvironmentVariableIsSet("ZIMA_VERIFY_PICK_OCCT_FIRST");
+            if(occt_first){method_occt->click();flush();std::cerr<<"PICK occt on"<<std::endl;}
+            const auto specs=qEnvironmentVariable("ZIMA_VERIFY_PICK_EDGES").split(';',Qt::SkipEmptyParts);
+            std::vector<Json> picked;
+            for(const auto& spec:specs) {
+                const auto values=spec.split(',');
+                check(values.size()==6,"Bad pick spec");
+                const auto near=[&](const Json& point,int offset) {
+                    for(int axis=0;axis<3;++axis)
+                        if(std::abs(point.at(axis).get<double>()-values[offset+axis].toDouble())>0.01)return false;
+                    return true;
+                };
+                const Json* found=nullptr;
+                for(const auto& row:available) {
+                    if(!row.contains("segments")||!row.at("segments").is_array()||row.at("segments").empty())continue;
+                    const auto& ends=row.at("segments")[0].at("endpoints");
+                    if(ends.size()==2&&((near(ends[0].at("position_mm"),0)&&near(ends[1].at("position_mm"),3))||
+                            (near(ends[0].at("position_mm"),3)&&near(ends[1].at("position_mm"),0)))) {
+                        found=&row;break;
+                    }
+                }
+                if(!found)for(const auto& row:available) {
+                    if(!row.contains("segments")||!row.at("segments").is_array()||row.at("segments").empty())continue;
+                    const auto& ends=row.at("segments")[0].at("endpoints");
+                    if(ends.size()==2)
+                        std::cerr<<"PICK cand "<<ends[0].at("position_mm").dump()<<' '<<ends[1].at("position_mm").dump()<<std::endl;
+                }
+                check(found,"Pick spec edge not found");
+                picked.push_back(*found);
+                std::cerr<<"PICK edge found "<<found->at("key").get<std::string>()<<std::endl;
+                static_cast<void>(pick(viewer::CandidateKind::Edge,found->at("owner"),found->at("key")));
+            }
+            flush();
+            if(occt_first) {
+                std::cout<<"OCCT routes="<<dialog()->pending_value().edge_treatment.routes.size()
+                    <<" OK="<<dialog()->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->isEnabled()<<'\n';
+                method_zima->click();flush();std::cerr<<"PICK zima on"<<std::endl;
+            }
+            auto* pending=dialog();
+            pending->findChild<QDoubleSpinBox*>("edgeTreatmentPrimary")->setValue(1);flush();
+            std::cout<<"PICK routes="<<pending->pending_value().edge_treatment.routes.size()<<'\n';
+            for(auto* label:pending->findChildren<QLabel*>())
+                if(label->isVisible()&&!label->text().isEmpty()&&
+                   (label->text().contains("ZIMA",Qt::CaseInsensitive)||label->text().contains("invalid",Qt::CaseInsensitive)||label->text().contains("rejected",Qt::CaseInsensitive)))
+                    std::cout<<"DIALOG-LABEL: "<<label->text().toStdString()<<'\n';
+            auto* ok=pending->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok);
+            std::cout<<"OK enabled="<<ok->isEnabled()<<'\n';
+            window.grab().save(QString::fromStdString((directory/"pick-dialog.png").string()));
+            std::cout<<"PICK-DIR "<<directory.string()<<'\n';
+            if(qEnvironmentVariableIsSet("ZIMA_VERIFY_PICK_RECOVERY")) {
+                check(ok->isEnabled(),"Valid pocket preview failed");
+                check(pending->pending_value().edge_treatment.routes.size()==picked.size(),
+                    "Pocket selection dropped an edge");
+                auto* size=pending->findChild<QDoubleSpinBox*>("edgeTreatmentPrimary");
+                size->setValue(10000);flush();
+                check(!ok->isEnabled(),"Oversized treatment unexpectedly succeeded");
+                check(run("documents").at(0).at("revision")==revision,
+                    "Failed preview changed the document revision");
+                size->setValue(1);flush();
+                check(ok->isEnabled(),"Corrected treatment did not recover in its dialog");
+                size->setValue(10000);flush();
+                check(!ok->isEnabled(),"Second oversized treatment unexpectedly succeeded");
+                finish(false);
+                check(run("documents").at(0).at("revision")==revision,
+                    "Cancel after failure changed the document");
+                for(const bool next_chamfer:{chamfer,!chamfer}) {
+                    window.findChild<QAction*>(next_chamfer?"chamferAction":"filletAction")->trigger();flush();
+                    for(const auto& edge:picked)
+                        static_cast<void>(pick(viewer::CandidateKind::Edge,edge.at("owner"),edge.at("key")));
+                    auto* next=dialog();
+                    next->findChild<QDoubleSpinBox*>("edgeTreatmentPrimary")->setValue(1);flush();
+                    check(next->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->isEnabled(),
+                        "A failed treatment poisoned the next command");
+                    const auto owner=next->container_id();
+                    finish(true);
+                    const auto query=next_chamfer?"chamfer.get":"fillet.get";
+                    const auto created=run(query,{{"container",owner}});
+                    run("save");
+                    std::vector<kernel::BodyResult> saved;
+                    const auto reopened=document::PartDocument::load(file,&saved);
+                    check(reopened.find_container(owner)&&!saved.empty()&&
+                            saved.back().calculation_errors.empty(),
+                        "Recovered treatment did not save/reopen a valid Body");
+                    const auto before=run("documents").at(0).at("revision");
+                    edit(owner);finish(true);
+                    check(run("documents").at(0).at("revision")==before,
+                        "Unchanged recovered treatment OK created an Undo transaction");
+                    run("undo");run("redo");
+                    check(run(query,{{"container",owner}})==created,
+                        "Recovered treatment lost its references through Undo/Redo");
+                    run("undo");
+                }
+                std::cout<<"Pocket recovery: failed/corrected draft, Cancel, new Fillet and Chamfer, native reopen, Undo/Redo and unchanged OK passed\n";
+                return 0;
+            }
+            finish(false);
             return 0;
         }
         if(const auto model=qEnvironmentVariable("ZIMA_VERIFY_EDGE_TREATMENT_MODEL");!model.isEmpty()) {

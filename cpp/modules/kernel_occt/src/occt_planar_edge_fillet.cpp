@@ -176,7 +176,9 @@ NodeConnector make_fillet_corner_connector(
     const auto center=origin.Translated(radius*(gp_Vec(branches[0])+
         gp_Vec(branches[1])+gp_Vec(branches[2])));
     BRepPrimAPI_MakeSphere sphere(center,radius);
-    BRepAlgoAPI_Cut connector(corner.Shape(),sphere.Shape());
+    BRepAlgoAPI_Cut connector;
+    connector.SetArguments({corner.Shape()});
+    connector.SetTools({sphere.Shape()});
     connector.SetNonDestructive(true);
     connector.SetRunParallel(false);
     connector.SetFuzzyValue(tolerance);
@@ -226,7 +228,10 @@ TopoDS_Shape clip_strip_before(Cutter& cutter,const gp_Pnt& origin,
     const auto corner=origin.Translated(radius*gp_Vec(branch)-
         .5*size*(gp_Vec(side)+gp_Vec(lateral)));
     BRepPrimAPI_MakeBox box(gp_Ax2(corner,normal,side),size,size,depth);
-    BRepAlgoAPI_Cut cut(cutter.solid,box.Shape());
+    BRepAlgoAPI_Cut cut;
+    cut.SetArguments({cutter.solid});
+    cut.SetTools({box.Shape()});
+    cut.SetNonDestructive(true);
     cut.SetFuzzyValue(tolerance);
     cut.SetToFillHistory(true);
     cut.Build();
@@ -470,7 +475,12 @@ bool clip_fillet_tool_with_halfspace(TopoDS_Shape& tool,
         std::vector<TopoDS_Face>& treatment_faces,
         const TopoDS_Solid& half_space,double tolerance,
         bool allow_empty=false,const gp_Pnt* retained_component=nullptr) {
-    BRepAlgoAPI_Common common(tool,half_space);
+    // The two-shape constructor calculates immediately, before the
+    // non-destructive flag can be set. A terminal may share its geometry
+    // with the live Body, including across rejected preview attempts.
+    BRepAlgoAPI_Common common;
+    common.SetArguments({tool});
+    common.SetTools({half_space});
     common.SetNonDestructive(true);
     common.SetFuzzyValue(tolerance);
     common.Build();
@@ -623,7 +633,9 @@ void fuse_fillet_tools(TopoDS_Shape& tool,
         std::vector<TopoDS_Face>& treatment_faces,
         const TopoDS_Shape& addition,
         std::span<const TopoDS_Face> addition_faces,double tolerance) {
-    BRepAlgoAPI_Fuse fuse(tool,addition);
+    BRepAlgoAPI_Fuse fuse;
+    fuse.SetArguments({tool});
+    fuse.SetTools({addition});
     fuse.SetNonDestructive(true);
     fuse.SetFuzzyValue(tolerance);
     fuse.Build();
@@ -865,12 +877,13 @@ std::vector<TopoDS_Face> automatic_terminal_faces(
     // compound terminal).  With no support adjacency, retain the conservative
     // single-candidate rule rather than clipping against an unrelated plane
     // that merely passes through the same vertex.
-    if(strongest>0)
+    if(strongest>0) {
         for(const auto& candidate:candidates)
             if(candidate.support_adjacency==strongest)
                 result.push_back(candidate.face);
-    else if(candidates.size()==1)
+    } else if(candidates.size()==1) {
         result.push_back(candidates.front().face);
+    }
     return result;
 }
 
@@ -1339,6 +1352,11 @@ Cutter make_tangent_plane_cylinder_cutter(
                 first_face,second_face,path.last,path.last_tangent,
                 path.middle,tolerance);
     }
+    if(std::getenv("ZIMA_CPP_FILLET_END_TRACE"))
+        std::fprintf(stderr,"END-TRACE tangent auto=%d/%d faces=%zu/%zu given=%d/%d\n",
+            end_faces.automatic_first,end_faces.automatic_last,
+            terminal_faces[0].size(),terminal_faces[1].size(),
+            !end_faces.first.IsNull(),!end_faces.last.IsNull());
     const auto extension=[&](const TopoDS_Face& face,
             const gp_Pnt& endpoint,const gp_Dir& tangent) {
         if(face.IsNull())return 0.;
@@ -1358,9 +1376,12 @@ Cutter make_tangent_plane_cylinder_cutter(
             const double distance=gp_Vec(endpoint,
                 support.Plane().Location()).Dot(gp_Vec(normal)) /
                 signed_incidence;
-            if(distance<=tolerance)
+            if(distance<=tolerance) {
+                if(std::getenv("ZIMA_CPP_FILLET_END_TRACE"))
+                    std::fprintf(stderr,"BEHIND tangent end=(%.3f,%.3f,%.3f) dir=(%.3f,%.3f,%.3f) n=(%.3f,%.3f,%.3f) d=%.4f\n",endpoint.X(),endpoint.Y(),endpoint.Z(),tangent.X(),tangent.Y(),tangent.Z(),normal.X(),normal.Y(),normal.Z(),distance);
                 throw std::invalid_argument(
                     "Planar edge Fillet remote end face is behind the route endpoint");
+            }
             return distance+midpoint.span/incidence+tolerance;
         }
         BRepClass_FaceClassifier face_classifier(face,endpoint,tolerance);
@@ -1465,6 +1486,11 @@ std::optional<Cutter> make_rolling_support_cutter(
                 first_face,second_face,path.last,path.last_tangent,
                 path.middle,tolerance);
     }
+    if(std::getenv("ZIMA_CPP_FILLET_END_TRACE"))
+        std::fprintf(stderr,"END-TRACE rolling auto=%d/%d faces=%zu/%zu given=%d/%d\n",
+            end_faces.automatic_first,end_faces.automatic_last,
+            terminal_faces[0].size(),terminal_faces[1].size(),
+            !end_faces.first.IsNull(),!end_faces.last.IsNull());
     const auto extension=[&](const auto& faces,const gp_Pnt& endpoint,
             const gp_Dir& outward) {
         double result{};
@@ -1487,9 +1513,12 @@ std::optional<Cutter> make_rolling_support_cutter(
                         "Planar edge Fillet remote end face does not intersect the route");
                 distance=gp_Vec(endpoint,support.Plane().Location()).Dot(
                     gp_Vec(normal))/signed_incidence;
-                if(distance<=tolerance)
+                if(distance<=tolerance) {
+                    if(std::getenv("ZIMA_CPP_FILLET_END_TRACE"))
+                        std::fprintf(stderr,"BEHIND rolling end=(%.3f,%.3f,%.3f) dir=(%.3f,%.3f,%.3f) n=(%.3f,%.3f,%.3f) d=%.4f\n",endpoint.X(),endpoint.Y(),endpoint.Z(),outward.X(),outward.Y(),outward.Z(),normal.X(),normal.Y(),normal.Z(),distance);
                     throw std::invalid_argument(
                         "Planar edge Fillet remote end face is behind the route endpoint");
+                }
             }
             result=std::max(result,distance+(incidence<=1.0e-8
                 ?midpoint->span:midpoint->span/incidence+tolerance));
@@ -1704,6 +1733,19 @@ Cutter make_cutter(const TopoDS_Edge& edge,
             curved_terminal_faces[1]=local_curved_terminal_faces(material,
                 first_face,second_face,path.last,tolerance);
     }
+    if(std::getenv("ZIMA_CPP_FILLET_END_TRACE"))
+        std::fprintf(stderr,
+            "CUTTER-TRACE profile_only=%d mode=%d auto=%d/%d explicit=%d/%d "
+            "faces=%zu/%zu curved=%zu/%zu nodeext=%.3f/%.3f "
+            "first=(%.3f,%.3f,%.3f) last=(%.3f,%.3f,%.3f)\n",
+            profile_only?1:0,static_cast<int>(end_mode),
+            end_faces.automatic_first?1:0,end_faces.automatic_last?1:0,
+            explicit_first?1:0,explicit_last?1:0,
+            terminal_faces[0].size(),terminal_faces[1].size(),
+            curved_terminal_faces[0].size(),curved_terminal_faces[1].size(),
+            node_extensions.first,node_extensions.last,
+            path.first.X(),path.first.Y(),path.first.Z(),
+            path.last.X(),path.last.Y(),path.last.Z());
     // Two independent routes meeting at one selected node need their rolling
     // cylinders to reach the common axis intersection. Suppress the ordinary
     // endpoint cap only at that node; the caller trims both extended sectors
@@ -1830,9 +1872,7 @@ Cutter make_cutter(const TopoDS_Edge& edge,
             const double distance=gp_Vec(endpoint,
                 support.Plane().Location()).Dot(gp_Vec(normal)) /
                 signed_incidence;
-            if(distance<=tolerance)
-                throw std::invalid_argument(
-                    "Planar edge Fillet remote end face is behind the route endpoint");
+            if(distance<=tolerance)return 0.;
             return distance+cross_span/incidence+tolerance;
         }
         BRepClass_FaceClassifier classifier(face,endpoint,tolerance);
@@ -2385,6 +2425,46 @@ Cutter make_route_cutter(const std::vector<CutterJob>& jobs,
     }
     // A disconnected route terminal without an inferred end face is the real
     // end of that edge. Body-diagonal fallback extension produced the visible
+    if(std::getenv("ZIMA_CPP_FILLET_END_TRACE"))
+        std::fprintf(stderr,
+            "END-TRACE auto=%d/%d explicit=%d/%d localcurved=%d/%d continue=%d/%d faces=%zu/%zu curvedfaces=%zu/%zu adds=%d\n",
+            automatic_first,automatic_last,explicit_first,explicit_last,
+            local_curved_first,local_curved_last,continue_first,continue_last,
+            terminal_faces[0].size(),terminal_faces[1].size(),
+            curved_terminal_faces[0].size(),curved_terminal_faces[1].size(),
+            profile.adds_material);
+    if(std::getenv("ZIMA_CPP_FILLET_END_TRACE")) {
+        const auto dump=[&](const char* name,const CutterJob& job,
+                const gp_Pnt& endpoint,const gp_Dir& outward) {
+            std::fprintf(stderr,"END-TRACE %s end=(%.3f,%.3f,%.3f) out=(%.3f,%.3f,%.3f)\n",
+                name,endpoint.X(),endpoint.Y(),endpoint.Z(),
+                outward.X(),outward.Y(),outward.Z());
+            for(TopExp_Explorer item(job.material,TopAbs_FACE);item.More();
+                    item.Next()) {
+                const auto face=TopoDS::Face(item.Current());
+                const BRepAdaptor_Surface surface(face,true);
+                BRepClass_FaceClassifier classifier(face,endpoint,
+                    tolerance*10.);
+                if(classifier.State()!=TopAbs_IN&&
+                   classifier.State()!=TopAbs_ON)continue;
+                std::fprintf(stderr,"  face type=%d support=%d",
+                    static_cast<int>(surface.GetType()),
+                    face.IsSame(job.first_face)||face.IsSame(job.second_face)
+                        ?1:0);
+                if(surface.GetType()==GeomAbs_Plane) {
+                    const auto n=surface.Plane().Axis().Direction();
+                    std::fprintf(stderr," n=(%.3f,%.3f,%.3f) dot=%.3f dist=%.4f",
+                        n.X(),n.Y(),n.Z(),n.Dot(outward),
+                        surface.Plane().Distance(endpoint));
+                }
+                std::fprintf(stderr,"\n");
+            }
+        };
+        dump("first",start_job,start_point,start_outward);
+        dump("last",end_job,end_point,end_outward);
+    }
+    // A disconnected route terminal without an inferred end face is the real
+    // end of that edge. Body-diagonal fallback extension produced the visible
     // spike beyond such ends. Only a proven remote cap may extend the route.
     const bool envelope_first=false;
     const bool envelope_last=false;
@@ -2416,9 +2496,12 @@ Cutter make_route_cutter(const std::vector<CutterJob>& jobs,
                         "Planar edge Fillet remote end face does not intersect the route");
                 distance=gp_Vec(endpoint,support.Plane().Location()).Dot(
                     gp_Vec(normal))/signed_incidence;
-                if(distance<=tolerance)
+                if(distance<=tolerance) {
+                    if(std::getenv("ZIMA_CPP_FILLET_END_TRACE"))
+                        std::fprintf(stderr,"BEHIND route end=(%.3f,%.3f,%.3f) dir=(%.3f,%.3f,%.3f) n=(%.3f,%.3f,%.3f) d=%.4f\n",endpoint.X(),endpoint.Y(),endpoint.Z(),outward.X(),outward.Y(),outward.Z(),normal.X(),normal.Y(),normal.Z(),distance);
                     throw std::invalid_argument(
                         "Planar edge Fillet remote end face is behind the route endpoint");
+                }
             }
             // Tangent terminals need an intentionally overgrown tool.  The
             // independent half-space clips below then establish the exact
@@ -3203,7 +3286,7 @@ OcctPlanarEdgeFilletResult occt_planar_edge_fillet(
         // NoCut ends each branch at its own edge end.
         if(end_faces.empty())return true;
         TopoDS_Vertex first,last;
-        TopExp::Vertices(jobs[job_index].edge,first,last,true);
+        TopExp::Vertices(jobs[job_index].edge,first,last,false);
         if(!first.IsNull()&&first.IsSame(vertex))
             return end_faces[job_index].rounded_first;
         if(!last.IsNull()&&last.IsSame(vertex))
@@ -3214,7 +3297,7 @@ OcctPlanarEdgeFilletResult occt_planar_edge_fillet(
             const TopoDS_Vertex& vertex) {
         if(end_faces.empty())return false;
         TopoDS_Vertex first,last;
-        TopExp::Vertices(jobs[job_index].edge,first,last,true);
+        TopExp::Vertices(jobs[job_index].edge,first,last,false);
         if(!first.IsNull()&&first.IsSame(vertex))
             return end_faces[job_index].arc_first;
         if(!last.IsNull()&&last.IsSame(vertex))
@@ -3268,11 +3351,18 @@ OcctPlanarEdgeFilletResult occt_planar_edge_fillet(
             trace_rejection("parallel route tangents");
             continue;
         }
-        if(!end_faces.empty()&&
-           (!end_faces[first_job].first.IsNull()||
-            !end_faces[first_job].last.IsNull()||
-            !end_faces[second_job].first.IsNull()||
-            !end_faces[second_job].last.IsNull())) {
+        const auto explicit_face_at_node=[&](std::size_t job_index) {
+            if(end_faces.empty())return false;
+            TopoDS_Vertex first_vertex,last_vertex;
+            TopExp::Vertices(jobs[job_index].edge,first_vertex,last_vertex,
+                false);
+            return (!first_vertex.IsNull()&&first_vertex.IsSame(node.vertex)&&
+                    !end_faces[job_index].first.IsNull())||
+                (!last_vertex.IsNull()&&last_vertex.IsSame(node.vertex)&&
+                    !end_faces[job_index].last.IsNull());
+        };
+        if(explicit_face_at_node(first_job)||
+           explicit_face_at_node(second_job)) {
             trace_rejection("explicit terminal face");
             continue;
         }
@@ -3595,6 +3685,25 @@ OcctPlanarEdgeFilletResult occt_planar_edge_fillet(
         operation.SetNonDestructive(true);operation.SetRunParallel(false);
         operation.SetToFillHistory(true);operation.SetFuzzyValue(tolerance);
         operation.Build();
+        if(std::getenv("ZIMA_CPP_FILLET_END_TRACE")) {
+            for(std::size_t index=first;index<last;++index) {
+                const auto& tool=cutters[application_order[index]].solid;
+                std::fprintf(stderr,
+                    "BOOL-TRACE tool=%zu valid=%d\n",application_order[index],
+                    (int)BRepCheck_Analyzer(tool).IsValid());
+            }
+            {
+                GProp_GProps props;BRepGProp::VolumeProperties(current,props);
+                TopTools_IndexedMapOfShape faces_map;
+                TopExp::MapShapes(current,TopAbs_FACE,faces_map);
+                std::fprintf(stderr,"BOOL-TRACE input vol=%.3f faces=%d type=%d\n",
+                    props.Mass(),(int)faces_map.Extent(),(int)current.ShapeType());
+            }
+            std::fprintf(stderr,"BOOL-TRACE input_valid=%d result_valid=%d\n",
+                (int)BRepCheck_Analyzer(current).IsValid(),
+                (int)(operation.IsDone()&&
+                    BRepCheck_Analyzer(operation.Shape()).IsValid()));
+        }
         if(!operation.IsDone()||operation.Shape().IsNull())
             throw std::runtime_error(
                 "Planar edge Fillet Boolean failed");
@@ -3834,6 +3943,10 @@ OcctPlanarEdgeFilletResult occt_planar_edge_fillet(
             "ZIMA Fillet could not remove auxiliary result seams");
     const bool cleanup_valid=BRepCheck_Analyzer(cleanup.Shape(),true,true,
         false).IsValid();
+    if(std::getenv("ZIMA_CPP_FILLET_END_TRACE"))
+        std::fprintf(stderr,"CLEANUP-TRACE before_valid=%d after_valid=%d\n",
+            (int)BRepCheck_Analyzer(current,true,true,false).IsValid(),
+            (int)cleanup_valid);
     if(cleanup_valid) {
         if(const auto cleanup_history=cleanup.History();
                 !cleanup_history.IsNull())

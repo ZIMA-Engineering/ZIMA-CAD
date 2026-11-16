@@ -174,7 +174,11 @@ void clip_chamfer_tool(TopoDS_Shape& tool,
     if(!half_space.IsDone())
         throw std::runtime_error(
             "ZIMA Chamfer could not construct an end half-space");
-    BRepAlgoAPI_Common common(tool,half_space.Solid());
+    // Configure before Build: the two-shape constructor would already run
+    // a destructive Boolean against the terminal's shared Body geometry.
+    BRepAlgoAPI_Common common;
+    common.SetArguments({tool});
+    common.SetTools({half_space.Solid()});
     common.SetNonDestructive(true);
     common.SetFuzzyValue(tolerance);
     common.Build();
@@ -893,7 +897,9 @@ Tool make_tool(const TopoDS_Edge& edge,const TopoDS_Face& first_face,
         if(!half_space.IsDone())
             throw std::runtime_error(
                 "ZIMA Chamfer could not construct an end half-space");
-        BRepAlgoAPI_Common common(tool,half_space.Solid());
+        BRepAlgoAPI_Common common;
+        common.SetArguments({tool});
+        common.SetTools({half_space.Solid()});
         common.SetNonDestructive(true);
         common.SetFuzzyValue(tolerance);
         common.Build();
@@ -1336,7 +1342,9 @@ std::optional<Tool> make_single_collapsed_round_route_tool(
     if(first_tool.adds_material!=last_tool.adds_material||
        !first_tool.material.IsSame(last_tool.material))
         return {};
-    BRepAlgoAPI_Fuse fuse(first_tool.solid,last_tool.solid);
+    BRepAlgoAPI_Fuse fuse;
+    fuse.SetArguments({first_tool.solid});
+    fuse.SetTools({last_tool.solid});
     fuse.SetNonDestructive(true);
     fuse.SetRunParallel(false);
     fuse.SetToFillHistory(true);
@@ -1390,7 +1398,9 @@ Tool fuse_route_tools(std::vector<Tool> tools,double tolerance) {
             throw std::invalid_argument(
                 "ZIMA Chamfer route components change material side");
 
-        BRepAlgoAPI_Fuse fuse(combined.solid,next.solid);
+        BRepAlgoAPI_Fuse fuse;
+        fuse.SetArguments({combined.solid});
+        fuse.SetTools({next.solid});
         fuse.SetNonDestructive(true);
         fuse.SetRunParallel(false);
         fuse.SetToFillHistory(true);
@@ -1725,7 +1735,9 @@ Tool make_swept_continuous_route_tool(const ContinuousRoute& route,
                 {first_end,!first_end},{});
             // A terminal plane can cross a distant member of a returning
             // route. Replace only the exact triangular prism of this rail.
-            BRepAlgoAPI_Cut remainder(tool.solid,untrimmed.solid);
+            BRepAlgoAPI_Cut remainder;
+            remainder.SetArguments({tool.solid});
+            remainder.SetTools({untrimmed.solid});
             remainder.SetNonDestructive(true);
             remainder.SetRunParallel(false);
             remainder.SetToFillHistory(true);
@@ -2282,6 +2294,8 @@ OcctPlanarEdgeChamferResult occt_planar_edge_chamfer(
     // Remove only those redundant new seams while protecting surviving input
     // boundaries and their non-coplanar descendants.
     ShapeUpgrade_UnifySameDomain cleanup(current,true,true,false);
+    const bool pre_cleanup_valid=std::getenv("ZIMA_CPP_FILLET_END_TRACE")&&
+        BRepCheck_Analyzer(current,true,true,false).IsValid();
     cleanup.SetLinearTolerance(tolerance);
     cleanup.SetAngularTolerance(1.0e-9);
     TopTools_IndexedMapOfShape current_edges,input_edges;
@@ -2369,9 +2383,13 @@ OcctPlanarEdgeChamferResult occt_planar_edge_chamfer(
             throw std::runtime_error(
                 "ZIMA Chamfer lost its result-face ancestry");
     }
-    if(!BRepCheck_Analyzer(result.shape,true,true,false).IsValid())
+    if(!BRepCheck_Analyzer(result.shape,true,true,false).IsValid()) {
+        if(std::getenv("ZIMA_CPP_FILLET_END_TRACE"))
+            std::fprintf(stderr,"CHAMFER-INVALID pre_cleanup_valid=%d\n",
+                (int)pre_cleanup_valid);
         throw std::runtime_error(
             "ZIMA Chamfer produced an invalid Body");
+    }
     result.source_edges.reserve(selections.size());
     for(const auto& selection:selections)
         result.source_edges.push_back(selection.edge);

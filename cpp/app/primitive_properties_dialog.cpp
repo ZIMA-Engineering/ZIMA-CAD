@@ -72,6 +72,15 @@ bool uses_container_placement(zima::document::FeatureKind kind) {
 
 namespace {
 
+auto displayed_treatment_method(const zima::document::HistoryContainer& value) {
+    using Parameters=zima::document::EdgeTreatmentParameters;
+    if(value.edge_treatment.calculation_method!=Parameters::CalculationMethod::Automatic)
+        return value.edge_treatment.calculation_method;
+    return value.feature_kind==zima::document::FeatureKind::Fillet&&
+            value.edge_treatment.fillet_mode==Parameters::FilletMode::Linear
+        ?Parameters::CalculationMethod::Occt:Parameters::CalculationMethod::Zima;
+}
+
 // Mirrors ConstructionPropertiesDialog's readable_reference_kind() so a
 // picked position/orientation reference reads the same way in every
 // container's placement UI.
@@ -1386,8 +1395,8 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
         method_layout->setSpacing(12);
         // The user-facing contract has two explicit engines.  ZIMA is strict:
         // selecting it must never run OCCT after the ZIMA calculation fails.
-        // Persisted Automatic definitions are presented as ZIMA when opened,
-        // but the next explicit confirmation converts them to strict ZIMA.
+        // Opening an existing definition must preserve its calculation policy.
+        // Automatic variable Fillets use OCCT; new definitions are explicit.
         treatment_method_zima_=new QCheckBox(QStringLiteral("ZIMA"),this);
         treatment_method_occt_=new QCheckBox(QStringLiteral("OCCT"),this);
         treatment_method_zima_->setObjectName(
@@ -1403,7 +1412,7 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
         method_layout->addStretch(1);
         using CalculationMethod=
             zima::document::EdgeTreatmentParameters::CalculationMethod;
-        (initial.edge_treatment.calculation_method==
+        (displayed_treatment_method(initial)==
                 CalculationMethod::Occt?treatment_method_occt_:
                 treatment_method_zima_)->setChecked(true);
         form->addRow(tr("Způsob výpočtu"),method_row);
@@ -1884,6 +1893,13 @@ zima::document::HistoryContainer PrimitivePropertiesDialog::values() const {
                     CalculationMethod::Occt
                 :zima::document::EdgeTreatmentParameters::
                     CalculationMethod::Zima;
+        using Parameters=zima::document::EdgeTreatmentParameters;
+        if(edit_mode_&&initial_.edge_treatment.calculation_method==
+                Parameters::CalculationMethod::Automatic&&
+           result.edge_treatment.calculation_method==displayed_treatment_method(initial_)&&
+           result.edge_treatment.fillet_mode==initial_.edge_treatment.fillet_mode&&
+           result.edge_treatment.chamfer_mode==initial_.edge_treatment.chamfer_mode)
+            result.edge_treatment.calculation_method=Parameters::CalculationMethod::Automatic;
     }
     if (uses_container_placement(result.feature_kind)) {
         result.placement = placement_->numeric_placement();

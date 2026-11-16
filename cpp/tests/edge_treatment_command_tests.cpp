@@ -8,6 +8,7 @@
 #include <iostream>
 #include <numbers>
 #include <limits>
+#include <fstream>
 #include <set>
 using namespace zima;
 using commands::Json;
@@ -126,12 +127,22 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
         "Fillet command accepted the removed Automatic method name");
     run(host,"fillet.get",{{"container",id}});require(!run(host,"fillet.set",{{"container",id},{"radius_mm",2}}).data.at("changed").get<bool>(),"Fillet equal patch committed");
     require(state->session.revision()==revision&&state->session.calculated_boundaries().data()==cache,"Fillet read/no-op recalculated");
+    auto recovery_preview=original;
+    recovery_preview.edge_treatment.primary_size=3;
+    const auto recovery_expected=workspace::edge_treatment_preview_mesh(
+        state->session,kernel,recovery_preview);
     const auto strict_failure=host.execute({{"command","fillet.set"},
         {"arguments",{{"container",id},{"radius_mm",500},
             {"calculation_method","zima"}}}});
     require(!strict_failure.ok&&state->session.revision()==revision&&
             *state->session.document().find_container(id)==original,
         "Failed explicit ZIMA calculation changed the authored Fillet");
+    const auto recovery_actual=workspace::edge_treatment_preview_mesh(
+        state->session,kernel,recovery_preview);
+    require(recovery_actual.vertices==recovery_expected.vertices&&
+            recovery_actual.triangles==recovery_expected.triangles&&
+            state->session.revision()==revision,
+        "Rejected Fillet poisoned a subsequent valid preview");
     for(const auto& patch:std::vector<Json>{{{"radius_mm",0}},{{"radius_mm",1000001}},{{"mode","nonsense"}},{{"mode","linear"}},
         {{"routes",Json::array()}},{{"routes",Json::array({Json{{"edges",Json::array({edge,edge})}}})}},
         {{"routes",Json::array({Json{{"edges",Json::array({Json{{"owner",box},{"key","missing"}}})}}})}},
@@ -605,8 +616,62 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
             state->session.revision()==original_revision,
         "OCCT accepted an original edge absent from the calculated Body");
 }
+void verify_preview_recovery_script(const kernel::OcctKernel& kernel,
+        const fs::path& script) {
+    workspace::Workspace live;
+    command_host::Options options;
+    auto directory=script.parent_path();
+    command_host::Host host(live,kernel,directory,options);
+    std::ifstream commands(script);
+    std::string line,owner;
+    while(std::getline(commands,line)) {
+        const auto result=host.execute_text(line);
+        require(result.ok,"Recovery fixture command failed");
+        if(result.data.contains("container"))owner=result.data.at("container");
+    }
+    auto* state=live.open_part(live.active_document_id());
+    require(state&&!owner.empty(),"Recovery fixture has no treatment");
+    auto pending=*state->session.document().find_container(owner);
+    run(host,"undo");
+    pending.edge_treatment.primary_size=1.;
+    using Mode=document::EdgeTreatmentParameters::RouteEndMode;
+    for(auto& ends:pending.edge_treatment.route_end_faces)
+        ends.first_mode=ends.last_mode=Mode::Cut;
+    const auto revision=state->session.revision();
+    const auto generation=state->session.data_generation();
+    std::vector<std::pair<std::size_t,bool>> joined;
+    const auto& ends=pending.edge_treatment.route_end_faces;
+    require(ends.size()==2,"Recovery fixture requires two joined routes");
+    for(bool first:{true,false})for(bool second:{true,false})
+        if((first?ends[0].first_vertex:ends[0].last_vertex)==
+           (second?ends[1].first_vertex:ends[1].last_vertex))
+            joined={{0,first},{1,second}};
+    require(joined.size()==2,"Recovery fixture has no shared node");
+    for(const auto [route,first]:joined) {
+        auto& ends=pending.edge_treatment.route_end_faces[route];
+        (first?ends.first_mode:ends.last_mode)=Mode::RoundedJoin;
+    }
+    const auto expected=workspace::edge_treatment_preview_mesh(
+        state->session,kernel,pending);
+    const auto choices=workspace::edge_treatment_end_cut_choices(
+        state->session,kernel,pending,joined);
+    std::cout<<"Recovery terminal alternatives="<<choices.size()<<'\n';
+    const auto actual=workspace::edge_treatment_preview_mesh(
+        state->session,kernel,pending);
+    require(actual.vertices==expected.vertices&&
+            actual.triangles==expected.triangles,
+        "Terminal probes changed the next identical preview");
+    require(state->session.revision()==revision&&
+            state->session.data_generation()==generation,
+        "Terminal probes changed the live revision/generation");
+    std::cout<<"Terminal probe recovery passed\n";
 }
-int main(){try{kernel::OcctKernel kernel;const auto directory=fs::temp_directory_path()/("zima-edge-commands-"+document::PartDocument::create_default().document_id);
+}
+int main(){try{kernel::OcctKernel kernel;
+    if(const auto* script=std::getenv("ZIMA_VERIFY_TREATMENT_PREVIEW_SCRIPT")) {
+        verify_preview_recovery_script(kernel,fs::u8path(script));return 0;
+    }
+    const auto directory=fs::temp_directory_path()/("zima-edge-commands-"+document::PartDocument::create_default().document_id);
     require(fs::create_directory(directory),"Cannot create test directory");verify(kernel,directory);fs::remove_all(directory);
     std::cout<<"Edge treatment commands: radii, section distances, volumes, reference ownership, locks, rollback and native files passed\n";return 0;
 }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}}

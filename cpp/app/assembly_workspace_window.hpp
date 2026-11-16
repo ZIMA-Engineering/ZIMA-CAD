@@ -494,6 +494,8 @@ private:
     std::uint64_t edge_treatment_exact_preview_generation_{};
     std::vector<zima::kernel::ViewerEdge>
         edge_treatment_exact_preview_edges_;
+    QString edge_treatment_exact_preview_error_;
+    bool edge_treatment_preview_refresh_active_{};
     bool shell_face_selection_active_{};
     PrimitivePropertiesDialog* shell_dialog_{};
     std::vector<zima::kernel::FaceReference> pending_shell_faces_;
