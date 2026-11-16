@@ -3868,7 +3868,38 @@ OcctPlanarEdgeFilletResult occt_planar_edge_fillet(
             result.fillet_faces[source_job]=cutter_faces;
     }
     for(const auto& connector:node_connectors) {
-        if(!connector.sphere_center)continue;
+        if(!connector.sphere_center) {
+            // Revolved elbows own their curved faces; planar descendants are
+            // merged with ordinary support faces and are not treatment faces.
+            std::vector<TopoDS_Face> curved_faces;
+            const auto append_curved=[&](const TopoDS_Shape& shape) {
+                if(shape.ShapeType()!=TopAbs_FACE||
+                   !result_faces.Contains(shape))return;
+                const auto face=TopoDS::Face(shape);
+                if(BRepAdaptor_Surface(face,true).GetType()==GeomAbs_Plane||
+                   std::ranges::any_of(curved_faces,[&](const auto& other) {
+                       return other.IsSame(face);
+                   }))return;
+                curved_faces.push_back(face);
+            };
+            for(TopExp_Explorer faces(connector.solid,TopAbs_FACE);
+                    faces.More();faces.Next()) {
+                append_curved(faces.Current());
+                for(const auto* descendants:{
+                        &result.history->Modified(faces.Current()),
+                        &result.history->Generated(faces.Current())})
+                    for(const auto& descendant:*descendants)
+                        append_curved(descendant);
+            }
+            for(const auto job:connector.jobs)
+                for(const auto& face:curved_faces)
+                    if(std::ranges::none_of(result.fillet_faces[job],
+                            [&](const auto& current_face) {
+                                return current_face.IsSame(face);
+                            }))
+                        result.fillet_faces[job].push_back(face);
+            continue;
+        }
         std::vector<TopoDS_Face> spherical_faces;
         for(int index=1;index<=result_faces.Extent();++index) {
             const auto face=TopoDS::Face(result_faces.FindKey(index));

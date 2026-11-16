@@ -378,6 +378,7 @@ struct MeshView::Impl {
     std::vector<InteractiveLabel> interactive_labels;
     std::function<bool(const std::string&,const QPoint&)>
         interactive_label_double_click;
+    std::string hovered_interactive_label_key;
     std::optional<zima::kernel::Vec3> sketch_cursor;
     bool sketch_cursor_snapped{};
     std::string sketch_cursor_label;
@@ -1525,6 +1526,10 @@ std::optional<ViewerCandidate> MeshView::offered_candidate() const {
 std::vector<ViewerCandidate> MeshView::selection_candidates_at(
     const QPointF& position) const {
     update_annotation_presentation();
+    // Interactive endpoint numbers own their visible text bounds.  Keep the
+    // public candidate query consistent with mouse handling so callers never
+    // receive a model/dimension candidate which a real click cannot select.
+    if (interactive_label_at(position)) return {};
     if (width() <= 0 || height() <= 0 || (impl_->allowed_kinds.empty() && !impl_->component_origin_handle)) {
         return {};
     }
@@ -2656,6 +2661,30 @@ std::optional<QPoint> MeshView::interactive_label_position(
         (1.F-clip.y())*height()/2.F).toPoint();
 }
 
+std::optional<std::string> MeshView::interactive_label_at(
+        const QPointF& position) const {
+    if(width()<=0||height()<=0||impl_->interactive_labels.empty())
+        return std::nullopt;
+    const auto mvp=impl_->projection(width(),height())*impl_->view();
+    const auto project=[&](kernel::Vec3 point) {
+        auto clip=mvp*QVector4D(point.x,point.y,point.z,1.F);
+        if(std::abs(clip.w())>1.0e-9F)clip/=clip.w();
+        return QPointF((clip.x()+1.F)*width()/2.F,
+            (1.F-clip.y())*height()/2.F);
+    };
+    const QFontMetricsF metrics(font());
+    for(auto label=impl_->interactive_labels.rbegin();
+            label!=impl_->interactive_labels.rend();++label) {
+        if(!label->choice)continue;
+        const auto baseline=project(label->position)+QPointF(8.,-8.);
+        auto bounds=metrics.boundingRect(QString::fromStdString(label->text));
+        bounds.translate(baseline);
+        if(bounds.adjusted(-5.,-5.,5.,5.).contains(position))
+            return label->key;
+    }
+    return std::nullopt;
+}
+
 void MeshView::set_interactive_labels(std::vector<InteractiveLabel> labels,
         std::function<bool(const std::string&,const QPoint&)> double_click) {
     if(impl_->transient_point_transform)
@@ -2663,6 +2692,9 @@ void MeshView::set_interactive_labels(std::vector<InteractiveLabel> labels,
             label.position=impl_->transient_point_transform(label.position);
     impl_->interactive_labels=std::move(labels);
     impl_->interactive_label_double_click=std::move(double_click);
+    if(std::ranges::none_of(impl_->interactive_labels,[&](const auto& label) {
+            return label.key==impl_->hovered_interactive_label_key;
+        }))impl_->hovered_interactive_label_key.clear();
     update();
 }
 
@@ -4894,7 +4926,8 @@ if (impl_->show_origins) {
     const bool dimensions_visible = !impl_->mesh.dimensions.empty() ||
         !impl_->transient_dimensions.empty();
     const bool overlay_edges_visible=std::ranges::any_of(impl_->mesh.edges,[](const auto& edge){return edge.overlay&&edge.reference.semantic_key=="section:sketch";});
-    if (impl_->command_snap_points_visible || overlay_edges_visible || axes_visible || points_visible || planes_visible ||
+    if (!impl_->mesh.images.empty() ||
+        impl_->command_snap_points_visible || overlay_edges_visible || axes_visible || points_visible || planes_visible ||
         sketch_geometry_visible || curve3d_geometry_visible ||
         dimensions_visible ||
         !impl_->transient_edges.empty() || !impl_->transient_points.empty() || !impl_->transient_model_points.empty() ||
@@ -5720,10 +5753,11 @@ if (impl_->show_origins) {
         }
         if(!impl_->interactive_labels.empty()) {
             const QColor purple("#D05CFF");
-            painter.setPen(QPen(purple,1.5));
             for(const auto& label:impl_->interactive_labels) {
+                painter.setPen(QPen(!label.choice?interaction::hover:
+                    label.key==impl_->hovered_interactive_label_key
+                        ?interaction::hover:purple,1.5));
                 const auto anchor=project(label.position);
-                draw_circular_marker(painter,anchor,purple,5.0);
                 painter.drawText(anchor+QPointF(8.0,-8.0),
                     QString::fromStdString(label.text));
             }
@@ -6656,6 +6690,14 @@ void MeshView::mousePressEvent(QMouseEvent* event) {
                 event->accept();return;
             }
     }
+    // A visible grip of the already confirmed dimension remains operable even
+    // when an endpoint number happens to overlap it.  Outside that explicit
+    // editing state the number owns its text bounds and consumes the click.
+    if(event->button()==Qt::LeftButton)
+        if(const auto label=interactive_label_at(event->position())) {
+            impl_->hovered_interactive_label_key=*label;
+            event->accept();update();return;
+        }
     impl_->last_pointer = event->position().toPoint();
     if (event->button() == Qt::LeftButton) {
       for (const auto& handle : impl_->extent_manipulators) {
@@ -6969,27 +7011,8 @@ void MeshView::mouseDoubleClickEvent(QMouseEvent* event) {
     if(event->button()!=Qt::LeftButton)return;
     if(impl_->interactive_label_double_click&&
        !impl_->interactive_labels.empty()) {
-        const auto mvp=impl_->projection(width(),height())*impl_->view();
-        const auto project=[&](kernel::Vec3 point) {
-            auto clip=mvp*QVector4D(point.x,point.y,point.z,1);
-            if(std::abs(clip.w())>1.0e-9)clip/=clip.w();
-            return QPointF((clip.x()+1)*width()/2.,
-                (1-clip.y())*height()/2.);
-        };
-        const QFontMetricsF metrics(font());
-        for(auto label=impl_->interactive_labels.rbegin();
-                label!=impl_->interactive_labels.rend();++label) {
-            const auto marker=project(label->position);
-            const auto baseline=marker+QPointF(8.,-8.);
-            auto text_bounds=metrics.boundingRect(
-                QString::fromStdString(label->text));
-            text_bounds.translate(baseline);
-            const QRectF marker_bounds(marker-QPointF(7.,7.),
-                QSizeF(14.,14.));
-            if(!text_bounds.adjusted(-5.,-5.,5.,5.).contains(
-                    event->position())&&
-               !marker_bounds.contains(event->position()))continue;
-            if(impl_->interactive_label_double_click(label->key,
+        if(const auto label=interactive_label_at(event->position())) {
+            if(impl_->interactive_label_double_click(*label,
                     event->globalPosition().toPoint())) {
                 event->accept();
                 return;
@@ -7076,6 +7099,19 @@ void MeshView::mouseMoveEvent(QMouseEvent* event) {
     const QPoint current = event->position().toPoint();
     const QPoint movement = current - impl_->last_pointer;
     impl_->last_pointer = current;
+    if(event->buttons()==Qt::NoButton) {
+        const auto label=interactive_label_at(event->position());
+        const std::string hovered=label.value_or(std::string{});
+        if(hovered!=impl_->hovered_interactive_label_key) {
+            impl_->hovered_interactive_label_key=hovered;
+            update();
+        }
+        if(label) {
+            impl_->candidates.clear();
+            event->accept();
+            return;
+        }
+    }
     if ((event->buttons() & Qt::LeftButton) && impl_->sketch_box_start) {
         impl_->sketch_box_end = event->position();
         event->accept();

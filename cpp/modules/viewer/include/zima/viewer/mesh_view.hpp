@@ -92,6 +92,9 @@ struct InteractiveLabel {
     zima::kernel::Vec3 position;
     std::string text;
     std::string key;
+    // A label without a choice is painted like a passive node label and is
+    // not interactive.
+    bool choice{true};
 };
 
 class MeshView final : public QOpenGLWidget, protected QOpenGLFunctions {
@@ -389,6 +392,8 @@ protected:
 
 private:
     std::optional<kernel::AnnotationStroke> symbol_handle_annotation() const;
+    [[nodiscard]] std::optional<std::string> interactive_label_at(
+        const QPointF& position) const;
     void update_annotation_presentation() const;
     struct Impl;
     std::unique_ptr<Impl> impl_;

@@ -496,7 +496,8 @@ void AssemblyWorkspaceWindow::refresh_edge_treatment_preview() {
             const auto& [route,first]=node.route_ends[index];
             key+=std::to_string(route)+":"+(first?"first":"last");
         }
-        terminal_labels.push_back({node.point,node.text,std::move(key)});
+        terminal_labels.push_back({node.point,node.text,std::move(key),
+            node.route_ends.size()<3});
     }
     viewer_->set_transient_edges(std::move(preview.edges));
     viewer_->set_transient_points(std::move(node_points));
