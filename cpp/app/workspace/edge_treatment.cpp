@@ -539,7 +539,37 @@ void AssemblyWorkspaceWindow::refresh_edge_treatment_preview() {
                 cut_choices;
             bool rounded_join_valid{};
             bool rounded_arc_valid{};
-            if(const auto* part=workspace_.open_part(
+            // The probes calculate up to four kernel previews; reuse them
+            // while neither the definition (ignoring these ends' modes) nor
+            // the model changed, so reopening the menu is instant.
+            struct EndMenuProbe {
+                zima::document::HistoryContainer key;
+                std::vector<std::pair<std::size_t,bool>> route_ends;
+                std::uint64_t generation{};
+                std::string part_id;
+                std::vector<zima::workspace::EdgeTreatmentEndCutChoice> cuts;
+                bool join{};
+                bool arc{};
+            };
+            static std::optional<EndMenuProbe> probe_cache;
+            auto probe_key=pending;
+            for(const auto [route,first]:route_ends) {
+                auto& ends=probe_key.edge_treatment.route_end_faces[route];
+                (first?ends.first_mode:ends.last_mode)=Mode::NoCut;
+                (first?ends.first:ends.last)={};
+            }
+            const auto* probe_part=workspace_.open_part(
+                workspace_.active_document_id());
+            const bool probe_hit=probe_part&&probe_cache&&
+                probe_cache->key==probe_key&&
+                probe_cache->route_ends==route_ends&&
+                probe_cache->part_id==workspace_.active_document_id()&&
+                probe_cache->generation==probe_part->session.data_generation();
+            if(probe_hit) {
+                cut_choices=probe_cache->cuts;
+                rounded_join_valid=probe_cache->join;
+                rounded_arc_valid=probe_cache->arc;
+            } else if(const auto* part=workspace_.open_part(
                     workspace_.active_document_id())) {
                 try {
                     cut_choices=zima::workspace::
@@ -617,6 +647,10 @@ void AssemblyWorkspaceWindow::refresh_edge_treatment_preview() {
                                 "Uncut probe failed: %s\n",error.what());
                     }
                 }
+                probe_cache=EndMenuProbe{probe_key,route_ends,
+                    part->session.data_generation(),
+                    workspace_.active_document_id(),cut_choices,
+                    rounded_join_valid,rounded_arc_valid};
             }
             QMenu menu(this);
             menu.setObjectName("edgeTreatmentEndMenu");
