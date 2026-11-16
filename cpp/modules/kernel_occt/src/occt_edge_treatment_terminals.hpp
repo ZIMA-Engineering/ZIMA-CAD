@@ -497,4 +497,17 @@ inline bool route_crosses_curved_terminal(
     return false;
 }
 
+inline bool tangent_terminal_leaves_material(const TopoDS_Solid& material,
+        std::span<const TopoDS_Face> faces,const gp_Pnt& endpoint,
+        const gp_Dir& outward,double profile_size,double tolerance) {
+    if(faces.empty()||route_crosses_curved_terminal(faces,endpoint,outward,tolerance))
+        return false;
+    // A tangent continuation into empty space has no material support for
+    // an additive tail. A crossed envelope still owns its exact intersection;
+    // an earlier inner radius (material ahead) still trims the new profile.
+    const auto probe=endpoint.Translated(gp_Vec(outward)*
+        std::max(100.*tolerance,.02*profile_size));
+    return BRepClass3d_SolidClassifier(material,probe,tolerance).State()==TopAbs_OUT;
+}
+
 } // namespace zima::kernel::edge_treatment_terminals

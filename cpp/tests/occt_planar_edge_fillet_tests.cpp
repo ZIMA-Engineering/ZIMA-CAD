@@ -1,4 +1,5 @@
 #include <zima/kernel/occt_planar_edge_fillet.hpp>
+#include "edge_treatment_terminal_fixture.hpp"
 
 #include <BRepAdaptor_Curve.hxx>
 #include <BRepAdaptor_Surface.hxx>
@@ -1198,6 +1199,7 @@ void verify_rolling_support(const TopoDS_Shape& input,
 } // namespace
 
 int main() try {
+    zima::test::verify_oblique_treatment_terminals(true);
     {
         std::cerr<<"fillet-test: box\n";
         const auto box=BRepPrimAPI_MakeBox(20,30,40).Shape();

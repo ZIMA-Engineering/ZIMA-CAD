@@ -598,8 +598,10 @@ int verify_edge_treatment_ui(QApplication& application, AssemblyWorkspaceWindow&
             }
             if(qEnvironmentVariableIsSet(
                     "ZIMA_VERIFY_EDGE_TREATMENT_PREVIEW_ONLY")) {
-                const auto preview_calculations=kernel::body_calculation_count.load();
                 auto* pending=edit(owner);
+                // Opening a cold history may materialize its real rollback
+                // input. Draft generation and node choices must reuse it.
+                const auto preview_calculations=kernel::body_calculation_count.load();
                 const auto parameters=pending->pending_value().edge_treatment;
                 std::vector<std::vector<kernel::ViewerEdge>> groups;
                 for(std::size_t route=0;route<parameters.routes.size();

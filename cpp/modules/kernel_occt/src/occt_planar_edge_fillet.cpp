@@ -583,10 +583,11 @@ bool clip_fillet_tool_with_halfspace(TopoDS_Shape& tool,
     return true;
 }
 
-void clip_fillet_tool(TopoDS_Shape& tool,
+bool clip_fillet_tool(TopoDS_Shape& tool,
         std::vector<TopoDS_Face>& treatment_faces,
-        const TopoDS_Face& face,const gp_Pnt& inside,double tolerance) {
-    if(face.IsNull())return;
+        const TopoDS_Face& face,const gp_Pnt& inside,double tolerance,
+        bool allow_empty=false) {
+    if(face.IsNull())return true;
     const BRepAdaptor_Surface end_support(face,true);
     const auto plane=end_support.Plane();
     Bnd_Box bounds;
@@ -629,8 +630,8 @@ void clip_fillet_tool(TopoDS_Shape& tool,
     if(!retained_region.IsDone()||retained_region.Shape().IsNull())
         throw std::runtime_error(
             "Planar edge Fillet could not construct its end trim");
-    clip_fillet_tool_with_halfspace(tool,treatment_faces,
-        retained_region.Solid(),tolerance);
+    return clip_fillet_tool_with_halfspace(tool,treatment_faces,
+        retained_region.Solid(),tolerance,allow_empty);
 }
 
 void fuse_fillet_tools(TopoDS_Shape& tool,
@@ -1788,6 +1789,13 @@ Cutter make_cutter(const TopoDS_Edge& edge,
         terminal_faces[1].clear();
         curved_terminal_faces[1].clear();
     }
+    for(const std::size_t end:{0u,1u})
+        if(adds_material&&!(end==0?explicit_first:explicit_last)&&
+           edge_treatment_terminals::tangent_terminal_leaves_material(material,
+                curved_terminal_faces[end],end==0?path.first:path.last,
+                end==0?first_outward:last_outward,radius,tolerance)) {
+            terminal_faces[end].clear();curved_terminal_faces[end].clear();
+        }
     const bool local_curved_first=!curved_terminal_faces[0].empty();
     const bool local_curved_last=!curved_terminal_faces[1].empty();
     // An additive corner ends at the first preceding radius.  A local planar
@@ -2429,11 +2437,19 @@ Cutter make_route_cutter(const std::vector<CutterJob>& jobs,
     };
     // Keep terminal differential work lazy.  Routes which do not meet a
     // preceding curved face retain their established automatic-cap path.
+    const bool crossing_first=local_curved_first&&!explicit_first&&
+        route_crosses_curved_terminal(curved_terminal_faces[0],start_point,
+            start_outward,tolerance);
+    const bool crossing_last=local_curved_last&&!explicit_last&&
+        route_crosses_curved_terminal(curved_terminal_faces[1],end_point,
+            end_outward,tolerance);
+    // As on a single rail, crossing the Body envelope is a local surface
+    // intersection, not permission to continue through a previous radius.
     const bool continue_first=local_curved_first&&!profile.adds_material&&
-        !explicit_first&&
+        !explicit_first&&!crossing_first&&
         continues_past_local_curve(start_job,start_point,start_outward);
     const bool continue_last=local_curved_last&&!profile.adds_material&&
-        !explicit_last&&
+        !explicit_last&&!crossing_last&&
         continues_past_local_curve(end_job,end_point,end_outward);
     if(end_mode==OcctPlanarEdgeFilletEndMode::AutomaticBodyEnvelope) {
         if(automatic_first&&continue_first)
@@ -2457,6 +2473,14 @@ Cutter make_route_cutter(const std::vector<CutterJob>& jobs,
                 end_job.first_face,end_job.second_face,end_point,
                 end_outward,end_preceding,tolerance);
     }
+    for(const std::size_t end:{0u,1u})
+        if(profile.adds_material&&!(end==0?explicit_first:explicit_last)&&
+           edge_treatment_terminals::tangent_terminal_leaves_material(
+                end==0?start_job.material:end_job.material,curved_terminal_faces[end],
+                end==0?start_point:end_point,end==0?start_outward:end_outward,
+                radius,tolerance)) {
+            terminal_faces[end].clear();curved_terminal_faces[end].clear();
+        }
     // A disconnected route terminal without an inferred end face is the real
     // end of that edge. Body-diagonal fallback extension produced the visible
     if(std::getenv("ZIMA_CPP_FILLET_END_TRACE"))
@@ -2882,8 +2906,11 @@ Cutter make_route_cutter(const std::vector<CutterJob>& jobs,
         if(tail.circular_faces.empty())throw std::runtime_error(
             "Planar edge Fillet route extension omitted its circular face");
         for(const auto& face:planar_faces) {
-            clip_fillet_tool(tail.solid,tail.circular_faces,face,
-                extension_inside,tolerance);
+            // The overgrown tail centroid can lie beyond the terminal.
+            // Retain the same side as the approaching route, independently
+            // of CUT/FUSE and of the construction extension's length.
+            if(!clip_fillet_tool(tail.solid,tail.circular_faces,face,
+                    preceding,tolerance,true))return;
         }
         if(trim_curved)for(const auto& face:curved_faces)
             if(!clip_fillet_tool_to_surface(tail.solid,

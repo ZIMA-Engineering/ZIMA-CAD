@@ -13129,8 +13129,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                             if(selected_route(edge_index)!=route)continue;
                             TopoDS_Vertex first,last;
                             TopExp::Vertices(selected[edge_index].first,
-                                first,last,
-                                !std::is_same_v<Treatment,FilletRequest>);
+                                first,last,false);
                             const auto same=[&](const TopoDS_Vertex& value) {
                                 return !value.IsNull()&&
                                     std::ranges::any_of(vertices,
@@ -13229,8 +13228,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                                 if(selected_route(edge_index)!=route)continue;
                                 TopoDS_Vertex first,last;
                                 TopExp::Vertices(selected[edge_index].first,
-                                    first,last,
-                                    !std::is_same_v<Treatment,FilletRequest>);
+                                    first,last,false);
                                 const auto same=[&](const TopoDS_Vertex& value) {
                                     return !value.IsNull()&&
                                         std::ranges::any_of(vertices,

@@ -710,6 +710,13 @@ Tool make_tool(const TopoDS_Edge& edge,const TopoDS_Face& first_face,
         first,first_outward);
     expand_explicit_terminal(1,end_faces.last,node_end_faces[1],
         last,last_outward);
+    for(const std::size_t end:{0u,1u})
+        if(adds&&!(end==0?explicit_first:explicit_last)&&
+           edge_treatment_terminals::tangent_terminal_leaves_material(material,
+                curved_terminal_faces[end],end==0?first:last,
+                end==0?first_outward:last_outward,std::max(distance_a,distance_b),tolerance)) {
+            terminal_faces[end].clear();curved_terminal_faces[end].clear();
+        }
     const bool local_curved_first=!curved_terminal_faces[0].empty();
     const bool local_curved_last=!curved_terminal_faces[1].empty();
     const bool route_crossing_first=!explicit_first&&local_curved_first&&
@@ -987,13 +994,11 @@ std::optional<ContinuousRoute> find_continuous_route(
         const std::vector<SelectedNode>& nodes,
         const std::vector<std::array<TopoDS_Face,2>>& faces,
         const std::vector<TopoDS_Solid>& materials,
-        OcctPlanarEdgeChamferMode mode,
         OcctPlanarEdgeEndMode end_mode,double tolerance) {
     // Keep all existing straight-edge terminal, miter and branch behavior.
     // This path is only for one complete tangent line/circle route whose
     // triangular section can be transported without changing material sides.
-    if(mode!=OcctPlanarEdgeChamferMode::EqualDistance||
-       (end_mode!=OcctPlanarEdgeEndMode::Perpendicular&&
+    if((end_mode!=OcctPlanarEdgeEndMode::Perpendicular&&
         end_mode!=OcctPlanarEdgeEndMode::AutomaticBodyEnvelope)||
        selections.size()<2||faces.size()!=selections.size()||
        materials.size()!=selections.size())return {};
@@ -1314,7 +1319,7 @@ std::optional<Tool> make_single_collapsed_round_route_tool(
             axial[round_ends[0]?0:1]=sharp_corner;
 
             TopoDS_Vertex edge_first,edge_last;
-            TopExp::Vertices(rail,edge_first,edge_last,true);
+            TopExp::Vertices(rail,edge_first,edge_last,false);
             const std::array<TopoDS_Vertex,2> vertices{edge_first,edge_last};
             std::array<bool,2> global_route_ends{};
             for(std::size_t endpoint=0;endpoint<2;++endpoint)
@@ -1434,7 +1439,8 @@ Tool make_swept_continuous_route_tool(const ContinuousRoute& route,
         const std::vector<TopoDS_Solid>& materials,double distance,
         double tolerance,
         std::span<const OcctPlanarEdgeEndFaces> end_faces,
-        OcctPlanarEdgeEndMode end_mode);
+        OcctPlanarEdgeEndMode end_mode,
+        OcctPlanarEdgeChamferMode mode,double secondary);
 
 std::optional<Tool> make_collapsed_round_route_tool(
         const ContinuousRoute& route,
@@ -1531,7 +1537,7 @@ std::optional<Tool> make_collapsed_round_route_tool(
             if(span_end_faces.empty())return;
             TopoDS_Vertex original_first,original_last;
             TopExp::Vertices(selections[selection_index].edge,
-                original_first,original_last,true);
+                original_first,original_last,false);
             auto& value=span_end_faces[selection_index];
             if(!original_first.IsNull()&&original_first.IsSame(vertex)) {
                 value.first.Nullify();
@@ -1553,7 +1559,8 @@ std::optional<Tool> make_collapsed_round_route_tool(
             suppress_internal_end(span.selections.back(),finish_vertex);
         components.emplace_back(first,make_swept_continuous_route_tool(
             span,selections,selection_faces,materials,distance,tolerance,
-            span_end_faces,end_mode));
+            span_end_faces,end_mode,OcctPlanarEdgeChamferMode::EqualDistance,
+            distance));
     };
 
     std::size_t span_first{};
@@ -1578,7 +1585,8 @@ Tool make_swept_continuous_route_tool(const ContinuousRoute& route,
         const std::vector<TopoDS_Solid>& materials,double distance,
         double tolerance,
         std::span<const OcctPlanarEdgeEndFaces> end_faces,
-        OcctPlanarEdgeEndMode end_mode) {
+        OcctPlanarEdgeEndMode end_mode,
+        OcctPlanarEdgeChamferMode mode,double secondary) {
     if(route.selections.empty()||route.edges.empty())
         throw std::invalid_argument("ZIMA Chamfer route is empty");
     const auto anchor=route.selections.front();
@@ -1605,12 +1613,22 @@ Tool make_swept_continuous_route_tool(const ContinuousRoute& route,
     if(!(angle>1.0e-6&&angle<std::numbers::pi-1.0e-6))
         throw std::invalid_argument(
             "ZIMA Chamfer has no finite material wedge");
+    double second_distance=mode==OcctPlanarEdgeChamferMode::TwoDistances
+        ?secondary:distance;
+    if(mode==OcctPlanarEdgeChamferMode::DistanceAngle) {
+        const double denominator=std::sin(angle+secondary);
+        if(!(denominator>1.e-12))throw std::invalid_argument(
+            "ZIMA Chamfer angle does not intersect the second support");
+        second_distance=distance*std::sin(secondary)/denominator;
+    }
+    if(!std::isfinite(second_distance)||second_distance<=0.)
+        throw std::invalid_argument("ZIMA Chamfer calculated an invalid second distance");
     gp_Vec bisector=gp_Vec(first_direction)+gp_Vec(second_direction);
     if(bisector.SquareMagnitude()<=1.0e-18)
         throw std::invalid_argument(
             "ZIMA Chamfer material bisector is degenerate");
     bisector.Normalize();
-    const double probe=std::min(distance*.1,
+    const double probe=std::min(std::min(distance,second_distance)*.1,
         std::max(100.*tolerance,axis.Magnitude()*1.0e-5));
     const auto middle=curve.Value(
         (curve.FirstParameter()+curve.LastParameter())/2.);
@@ -1629,7 +1647,7 @@ Tool make_swept_continuous_route_tool(const ContinuousRoute& route,
     const auto first_tangent=origin.Translated(
         distance*gp_Vec(first_direction));
     const auto second_tangent=origin.Translated(
-        distance*gp_Vec(second_direction));
+        second_distance*gp_Vec(second_direction));
     const auto treatment_edge=
         BRepBuilderAPI_MakeEdge(first_tangent,second_tangent).Edge();
     BRepBuilderAPI_MakeWire profile;
@@ -1668,16 +1686,17 @@ Tool make_swept_continuous_route_tool(const ContinuousRoute& route,
     struct RouteEnd {
         TopoDS_Face choice;
         std::vector<TopoDS_Face> faces;
+        bool automatic{};
     };
     const auto terminal_faces=[&](std::size_t selection_index,
             const TopoDS_Vertex& vertex) {
         RouteEnd result;
-        if(end_mode!=OcctPlanarEdgeEndMode::AutomaticBodyEnvelope||
-           end_faces.empty())return result;
+        if(end_mode!=OcctPlanarEdgeEndMode::AutomaticBodyEnvelope)return result;
         TopoDS_Vertex original_first,original_last;
         TopExp::Vertices(selections[selection_index].edge,
-            original_first,original_last,true);
-        const auto& authored=end_faces[selection_index];
+            original_first,original_last,false);
+        const auto authored=end_faces.empty()?OcctPlanarEdgeEndFaces{}:
+            end_faces[selection_index];
         bool automatic{};
         TopoDS_Face explicit_face;
         if(!original_first.IsNull()&&original_first.IsSame(vertex)) {
@@ -1702,14 +1721,12 @@ Tool make_swept_continuous_route_tool(const ContinuousRoute& route,
         if(automatic&&explicit_face.IsNull())
             result.faces=edge_treatment_terminals::local_terminal_faces(material,
                 supports[0],supports[1],endpoint,tolerance,false);
-        if(automatic&&result.faces.empty())
-            throw std::invalid_argument(
-                "ZIMA Chamfer Cut found no valid terminal boundary");
+        result.automatic=automatic&&explicit_face.IsNull();
         return result;
     };
     const auto trim_terminal=[&](std::size_t index,const TopoDS_Vertex& vertex) {
         const auto terminal=terminal_faces(index,vertex);
-        if(terminal.faces.empty())return;
+        if(terminal.faces.empty()&&!terminal.automatic)return;
         const auto& member=selections[index].edge;
         const auto& supports=selection_faces[index];
         const BRepAdaptor_Curve path(member);
@@ -1717,7 +1734,7 @@ Tool make_swept_continuous_route_tool(const ContinuousRoute& route,
             std::ranges::all_of(supports,[](const auto& face) {
                 return BRepAdaptor_Surface(face,true).GetType()==GeomAbs_Plane;
             });
-        if(!terminal.choice.IsNull()&&planar_rail) {
+        if(planar_rail) {
             const auto endpoint=BRep_Tool::Pnt(vertex);
             const bool first_end=endpoint.Distance(path.Value(
                 path.FirstParameter()))<=endpoint.Distance(path.Value(
@@ -1726,17 +1743,20 @@ Tool make_swept_continuous_route_tool(const ContinuousRoute& route,
             local.automatic_first=false;
             local.automatic_last=false;
             (first_end?local.first:local.last)=terminal.choice;
+            (first_end?local.automatic_first:local.automatic_last)=terminal.automatic;
             const auto untrimmed=make_tool(member,supports[0],supports[1],
-                OcctPlanarEdgeChamferMode::EqualDistance,distance,distance,
+                mode,distance,secondary,
                 tolerance,material,{},OcctPlanarEdgeEndMode::Perpendicular,
                 {false,false},{});
             const auto trimmed=make_tool(member,supports[0],supports[1],
-                OcctPlanarEdgeChamferMode::EqualDistance,distance,distance,
+                mode,distance,secondary,
                 tolerance,material,local,
                 OcctPlanarEdgeEndMode::AutomaticBodyEnvelope,
                 {first_end,!first_end},{});
-            // A terminal plane can cross a distant member of a returning
-            // route. Replace only the exact triangular prism of this rail.
+            // Both automatic and selected cuts use the single-rail builder:
+            // clipping the base sweep alone cannot add the missing extension
+            // up to an oblique terminal. Replace only this rail so a terminal
+            // plane cannot clip a distant member of a returning route.
             BRepAlgoAPI_Cut remainder;
             remainder.SetArguments({tool.solid});
             remainder.SetTools({untrimmed.solid});
@@ -1760,6 +1780,9 @@ Tool make_swept_continuous_route_tool(const ContinuousRoute& route,
             tool=std::move(combined);
             return;
         }
+        if(terminal.automatic&&terminal.faces.empty())
+            throw std::invalid_argument(
+                "ZIMA Chamfer Cut found no valid terminal boundary");
         // Use the interior of this terminal member. A previously trimmed
         // start section may no longer exist when processing the finish.
         const auto endpoint=BRep_Tool::Pnt(vertex);
@@ -1775,7 +1798,7 @@ Tool make_swept_continuous_route_tool(const ContinuousRoute& route,
         const gp_Dir b=support_direction_at_point(member,supports[1],
             tangent_at_end,on_route,tolerance);
         gp_Pnt retained_side=on_route.Translated(
-            (distance/3.)*(gp_Vec(a)+gp_Vec(b)));
+            (distance/3.)*gp_Vec(a)+(second_distance/3.)*gp_Vec(b));
         const double middle_parameter=.5*(low+high);
         if(path.GetType()==GeomAbs_Circle) {
             gp_Trsf rotation;
@@ -1800,10 +1823,12 @@ Tool make_continuous_route_tool(const ContinuousRoute& route,
         const std::vector<TopoDS_Solid>& materials,double distance,
         double tolerance,
         std::span<const OcctPlanarEdgeEndFaces> end_faces,
-        OcctPlanarEdgeEndMode end_mode) {
+        OcctPlanarEdgeEndMode end_mode,
+        OcctPlanarEdgeChamferMode mode,double secondary) {
     if(route.selections.empty()||route.edges.empty())
         throw std::invalid_argument("ZIMA Chamfer route is empty");
-    if(const auto collapsed=make_collapsed_round_route_tool(route,
+    if(mode==OcctPlanarEdgeChamferMode::EqualDistance)
+      if(const auto collapsed=make_collapsed_round_route_tool(route,
             selections,selection_faces,materials,distance,tolerance,
             end_faces,end_mode)) {
         if(std::getenv("ZIMA_CPP_CHAMFER_ROUTE_PROFILE"))
@@ -1817,7 +1842,8 @@ Tool make_continuous_route_tool(const ContinuousRoute& route,
             "Chamfer continuous route used one swept tool members=%zu\n",
             route.selections.size());
     return make_swept_continuous_route_tool(route,selections,
-        selection_faces,materials,distance,tolerance,end_faces,end_mode);
+        selection_faces,materials,distance,tolerance,end_faces,end_mode,
+        mode,secondary);
 }
 
 } // namespace
@@ -1997,7 +2023,7 @@ OcctPlanarEdgeChamferResult occt_planar_edge_chamfer(
     }
 
     const auto continuous_route=find_continuous_route(selections,
-        selected_nodes,selection_faces,selection_materials,mode,
+        selected_nodes,selection_faces,selection_materials,
         end_mode,tolerance);
     if(std::getenv("ZIMA_CPP_CHAMFER_ROUTE_PROFILE")) {
         std::fprintf(stderr,
@@ -2025,7 +2051,7 @@ OcctPlanarEdgeChamferResult occt_planar_edge_chamfer(
     const auto continuous_tool=continuous_route
         ?std::optional<Tool>(make_continuous_route_tool(*continuous_route,
             selections,selection_faces,selection_materials,distance_a,
-            tolerance,end_faces,end_mode))
+            tolerance,end_faces,end_mode,mode,distance_b_or_angle))
         :std::optional<Tool>{};
 
     // Equal-distance Chamfer branches use the same swept triangular profile.
@@ -2038,7 +2064,7 @@ OcctPlanarEdgeChamferResult occt_planar_edge_chamfer(
     const auto arc_at=[&](std::size_t index,const TopoDS_Vertex& vertex) {
         if(end_faces.empty())return false;
         TopoDS_Vertex first,last;
-        TopExp::Vertices(selections[index].edge,first,last,true);
+        TopExp::Vertices(selections[index].edge,first,last,false);
         return (!first.IsNull()&&first.IsSame(vertex)&&end_faces[index].arc_first)||
             (!last.IsNull()&&last.IsSame(vertex)&&end_faces[index].arc_last);
     };
@@ -2093,7 +2119,7 @@ OcctPlanarEdgeChamferResult occt_planar_edge_chamfer(
         auto& faces=selection_faces[selection_index];
         TopoDS_Vertex first_vertex,last_vertex;
         TopExp::Vertices(selections[selection_index].edge,
-            first_vertex,last_vertex,true);
+            first_vertex,last_vertex,false);
         const auto is_route_end=[&](const TopoDS_Vertex& vertex) {
             const auto node=std::ranges::find_if(selected_nodes,
                 [&](const auto& candidate) {

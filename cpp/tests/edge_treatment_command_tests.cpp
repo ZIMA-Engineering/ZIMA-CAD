@@ -13,6 +13,7 @@
 #include <chrono>
 #include <cmath>
 #include <iostream>
+#include <iomanip>
 #include <numbers>
 #include <limits>
 #include <fstream>
@@ -30,7 +31,8 @@ void require(bool value,const char* message){if(!value)throw std::runtime_error(
 // no disposable body-preview API: it uses only the persisted input wire data.
 kernel::ViewerMesh calculate_candidate_body(const document::DocumentSession& session,
         const kernel::OcctKernel& engine,const document::HistoryContainer& feature,
-        kernel::BodyResult* body=nullptr,const fs::path& save_path={}) {
+        kernel::BodyResult* body=nullptr,const fs::path& save_path={},
+        bool force_recalculate=false) {
     workspace::Workspace trial;
     trial.add_part(session.document(),session.calculated_boundaries());
     const auto& id=session.document().document_id;
@@ -40,7 +42,7 @@ kernel::ViewerMesh calculate_candidate_body(const document::DocumentSession& ses
     auto& trial_session=trial.open_part(id)->session;
     const auto* output=workspace::calculated_operation_output(trial_session,feature.id);
     require(output,"Calculated treatment has no output");
-    if(body&&output->kernel_shape.empty()) {
+    if(body&&(output->kernel_shape.empty()||force_recalculate)) {
         // An unchanged candidate deliberately performs no calculation. A
         // compact saved output then needs a separate explicit oracle build.
         workspace::PartCalculationPolicy policy;
@@ -745,8 +747,10 @@ void verify_preview_recovery_script(const kernel::OcctKernel& kernel,
     std::cout<<"Terminal probe recovery passed\n";
 }
 double wire_boundary_deviation(const app::workspace_detail::EdgeTreatmentPreviewGeometry& wire,
-        const kernel::BodyResult& body,bool allow_merged_boundaries=false) {
+        const kernel::BodyResult& body,bool allow_merged_boundaries=false,
+        const kernel::BodyResult* removal_input=nullptr) {
     const auto shape=kernel::read_calculated_body_shape(body);
+    const auto input=removal_input?kernel::read_calculated_body_shape(*removal_input):TopoDS_Shape{};
     require(!shape.IsNull(),"Wire comparison has no native result");
     struct Curve {Handle(Geom_Curve) curve;double first{},last{};};
     std::vector<Curve> curves;
@@ -769,6 +773,12 @@ double wire_boundary_deviation(const app::workspace_detail::EdgeTreatmentPreview
         // ON is acceptable here; a point outside/inside the result is not.
         if(allow_merged_boundaries&&closest>1.e-5&&
                 BRepClass3d_SolidClassifier(shape,point,1.e-7).State()==TopAbs_ON)closest=0.;
+        // A perpendicular authored removal profile can extend into space
+        // already absent from its input (for example beside an earlier lip).
+        // That part of the creation wire cannot become a new Body boundary.
+        if(!input.IsNull()&&closest>1.e-5&&
+           BRepClass3d_SolidClassifier(input,point,1.e-7).State()==TopAbs_OUT&&
+           BRepClass3d_SolidClassifier(shape,point,1.e-7).State()==TopAbs_OUT)closest=0.;
         worst=std::max(worst,closest);
     }
     return worst;
@@ -940,6 +950,86 @@ void verify_saved_treatment(const kernel::OcctKernel& kernel,const fs::path& pat
         require(!wire.edges.empty()&&deviation<1.e-5,"Saved-model preview disagrees with the calculated treatment");
     }
 }
+void verify_saved_end_modes(const kernel::OcctKernel& kernel,const fs::path& path,
+        const std::string& owner) {
+    using Mode=document::EdgeTreatmentParameters::RouteEndMode;
+    std::vector<kernel::BodyResult> boundaries;
+    auto document=document::PartDocument::load(path,&boundaries);
+    const auto* found=document.find_container(owner);
+    require(found,"Saved treatment owner is missing");
+    const auto source=*found;
+    while(document.history.back().id!=owner)
+        document.erase_history_object(document.history.back().id);
+    document.erase_history_object(owner);
+    // Rebuild the input as well as the output. Persisted geometry may have
+    // been calculated by the version whose defect this fixture reproduces.
+    workspace::PartCalculationPolicy policy;
+    policy.publish_complete_history=true;
+    policy.history_reference_baseline=&boundaries;
+    auto calculated=workspace::calculate_part(kernel,document,nullptr,policy);
+    workspace::Workspace prepared;prepared.add_part(document,std::move(calculated));
+    const auto& session=prepared.open_part(document.document_id)->session;
+    const auto* input=workspace::calculated_operation_input(session,{});
+    require(input,"Saved treatment has no calculated input");
+    auto measured_input=*input;kernel.ensure_body_properties(measured_input);
+    std::vector<std::vector<kernel::ViewerEdge>> groups;
+    for(std::size_t r=0;r<source.edge_treatment.routes.size();++r)
+        groups.push_back(document::current_treatment_selection_wire(source.edge_treatment,r,{},input->mesh));
+    const bool asymmetric=std::getenv("ZIMA_VERIFY_SAVED_ASYMMETRIC")!=nullptr;
+    for(int variant=0;variant<(asymmetric?4:1);++variant) {
+    auto feature=source;
+    if(asymmetric) {
+        feature.feature_kind=document::FeatureKind::Chamfer;
+        feature.edge_treatment.chamfer_mode=variant<2?
+            document::EdgeTreatmentParameters::ChamferMode::TwoDistances:
+            document::EdgeTreatmentParameters::ChamferMode::DistanceAngle;
+        feature.edge_treatment.primary_size=2.;
+        feature.edge_treatment.secondary_size=3.;
+        feature.edge_treatment.angle_degrees=30.;
+        feature.edge_treatment.flip=variant%2!=0;
+    }
+    const auto saved_path=path.parent_path()/("verified-"+owner+"-"+
+        std::to_string(asymmetric?variant+1:0)+".prtz");
+    kernel::BodyResult baseline;
+    calculate_candidate_body(session,kernel,feature,&baseline,saved_path,true);
+    kernel.ensure_body_properties(baseline);
+    std::vector<kernel::BodyResult> reopened_boundaries;
+    const auto reopened=document::PartDocument::load(saved_path,&reopened_boundaries);
+    require(reopened.find_container(owner)&&*reopened.find_container(owner)==feature,
+        "Terminal verification lost the saved treatment definition");
+    auto restored=reopened_boundaries.back();kernel.ensure_body_properties(restored);
+    near(restored.volume,baseline.volume);
+    std::cout<<"Saved terminal variant="<<variant<<" volume="<<std::setprecision(15)
+        <<baseline.volume<<std::endl;
+    for(std::size_t route=0;route<feature.edge_treatment.route_end_faces.size();++route)
+      for(const bool first:{true,false}) {
+        const auto choices=calculate_end_choices(session,kernel,feature,{{route,first}});
+        std::cout<<"Terminal route="<<route<<" first="<<first<<" choices="<<choices.size()<<std::endl;
+        for(std::size_t option=0;option<choices.size()+2;++option) {
+          auto candidate=feature;
+          auto& ends=candidate.edge_treatment.route_end_faces[route];
+          (first?ends.first_mode:ends.last_mode)=option==0?Mode::NoCut:Mode::Cut;
+          (first?ends.first:ends.last)={};
+          if(option>=2&&!choices[option-2].faces.empty())
+            (first?ends.first:ends.last)=choices[option-2].faces.front();
+            const auto count=kernel::body_calculation_count.load();
+            const auto wire=app::workspace_detail::edge_treatment_preview_wire(groups,
+                candidate.edge_treatment,candidate.feature_kind,owner,&input->mesh);
+            require(kernel::body_calculation_count.load()==count,"Terminal preview calculated a Body");
+            kernel::BodyResult body;
+            calculate_candidate_body(session,kernel,candidate,&body,{},true);
+            kernel.ensure_body_properties(body);
+            const auto deviation=wire_boundary_deviation(wire,body,true);
+            const auto material_deviation=body.volume<measured_input.volume?
+                wire_boundary_deviation(wire,body,true,input):deviation;
+            std::cout<<"  option="<<option<<" volume="<<std::setprecision(15)<<body.volume
+                <<" deviation="<<deviation<<" material_deviation="<<material_deviation<<std::endl;
+            require(!wire.edges.empty()&&material_deviation<1.e-5,
+                "Terminal preview disagrees with the freshly calculated Body");
+        }
+      }
+    }
+}
 void verify_saved_nodes(const kernel::OcctKernel& kernel,const fs::path& path,
         const std::string& owner) {
     using Mode=document::EdgeTreatmentParameters::RouteEndMode;
@@ -997,7 +1087,8 @@ int main(){try{kernel::OcctKernel kernel;
     if(const auto* path=std::getenv("ZIMA_VERIFY_SAVED_TREATMENT")) {
         const auto* owner=std::getenv("ZIMA_VERIFY_SAVED_TREATMENT_OWNER");
         require(owner,"Saved treatment verification requires its owner");
-        if(std::getenv("ZIMA_VERIFY_SAVED_NODES"))verify_saved_nodes(kernel,fs::u8path(path),owner);
+        if(std::getenv("ZIMA_VERIFY_SAVED_END_MODES"))verify_saved_end_modes(kernel,fs::u8path(path),owner);
+        else if(std::getenv("ZIMA_VERIFY_SAVED_NODES"))verify_saved_nodes(kernel,fs::u8path(path),owner);
         else verify_saved_treatment(kernel,fs::u8path(path),owner);
         return 0;
     }

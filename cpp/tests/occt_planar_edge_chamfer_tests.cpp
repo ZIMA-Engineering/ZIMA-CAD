@@ -1,4 +1,5 @@
 #include <zima/kernel/occt_planar_edge_chamfer.hpp>
+#include "edge_treatment_terminal_fixture.hpp"
 
 #include <BRepAdaptor_Curve.hxx>
 #include <BRepAdaptor_Surface.hxx>
@@ -394,6 +395,7 @@ AngledEndFixture angled_end_fixture() {
 } // namespace
 
 int main() try {
+    zima::test::verify_oblique_treatment_terminals(false);
     constexpr double box_height=40.;
     constexpr double box_volume=20.*30.*box_height;
     const auto box=BRepPrimAPI_MakeBox(20,30,box_height).Shape();
@@ -720,7 +722,7 @@ int main() try {
         std::vector<zima::kernel::OcctPlanarEdgeEndFaces> chosen_ends(
             route.size());
         TopoDS_Vertex cap_first,cap_last;
-        TopExp::Vertices(route.front(),cap_first,cap_last,true);
+        TopExp::Vertices(route.front(),cap_first,cap_last,false);
         const bool cap_at_first=!arc_vertices.Contains(cap_first);
         const auto cap_point=BRep_Tool::Pnt(cap_at_first?cap_first:cap_last);
         const gp_Dir cap_normal(1.,1.,-1.);
