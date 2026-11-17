@@ -1,0 +1,131 @@
+{
+  "version": "2026111704",
+  "source_commit": "c9ecd1706722369b3eef05943133a03c77797e4f",
+  "native": {
+    "source_commit": "c9ecd1706722369b3eef05943133a03c77797e4f",
+    "native_total": 56,
+    "native_passed": 54,
+    "native_failed": 2,
+    "native_skipped": 0,
+    "failed": [
+      "zima_cpp_assembly_history_command_tests",
+      "zima_cpp_bend_command_tests"
+    ],
+    "skipped": [],
+    "ctest_exit_code": 8,
+    "publication_mode": "prerelease",
+    "initial_source_commit": "b4a4730b736430fa29159313bbec98eced8faae1",
+    "initial_failed": [
+      "zima_cpp_assembly_history_command_tests",
+      "zima_cpp_derived_copy_command_tests",
+      "zima_cpp_bend_command_tests"
+    ],
+    "corrected_fixture": {
+      "suite": "zima_cpp_derived_copy_command_tests",
+      "result": "passed",
+      "exit_code": 0,
+      "log": "build/linux-20261117-mirror-fixture-tests.log"
+    },
+    "translation_contract": {
+      "platform": "offscreen",
+      "result": "passed",
+      "languages": [
+        "cs",
+        "en",
+        "de",
+        "fr",
+        "ru"
+      ],
+      "log": "build/linux-2026111704-translations-headless.log"
+    },
+    "local_build": "passed",
+    "user_config_preserved": true
+  },
+  "gui": [
+    {
+      "test": "zima_cpp_circle_alignment_ui_contract",
+      "result": "passed",
+      "log": "/home/vladimir/Prace/ZIMA-Engineering/00-SOFTWARE/01-ZIMA/ZIMA-CAD/build/linux-2026111704-host-zima_cpp_circle_alignment_ui_contract.log",
+      "seconds": 27.847176
+    },
+    {
+      "test": "zima_cpp_derived_copy_save_ui_contract",
+      "result": "passed",
+      "log": "/home/vladimir/Prace/ZIMA-Engineering/00-SOFTWARE/01-ZIMA/ZIMA-CAD/build/linux-2026111704-host-zima_cpp_derived_copy_save_ui_contract.log",
+      "seconds": 2.026878
+    },
+    {
+      "test": "zima_cpp_translations_contract",
+      "result": "passed",
+      "log": "/home/vladimir/Prace/ZIMA-Engineering/00-SOFTWARE/01-ZIMA/ZIMA-CAD/build/linux-2026111704-host-zima_cpp_translations_contract.log",
+      "seconds": 12.238463
+    }
+  ],
+  "signed_package_gui": [
+    {
+      "test": "zima_cpp_circle_alignment_ui_contract",
+      "result": "passed",
+      "log": "/home/vladimir/Prace/ZIMA-Engineering/00-SOFTWARE/01-ZIMA/ZIMA-CAD/build/linux-2026111704-signed-zima_cpp_circle_alignment_ui_contract.log"
+    },
+    {
+      "test": "zima_cpp_derived_copy_save_ui_contract",
+      "result": "passed",
+      "log": "/home/vladimir/Prace/ZIMA-Engineering/00-SOFTWARE/01-ZIMA/ZIMA-CAD/build/linux-2026111704-signed-zima_cpp_derived_copy_save_ui_contract.log"
+    },
+    {
+      "test": "zima_cpp_start_templates_mm_ui_contract",
+      "result": "passed",
+      "log": "/home/vladimir/Prace/ZIMA-Engineering/00-SOFTWARE/01-ZIMA/ZIMA-CAD/build/linux-2026111704-signed-zima_cpp_start_templates_mm_ui_contract.log"
+    },
+    {
+      "test": "zima_cpp_new_document_options_ui_contract",
+      "result": "passed",
+      "log": "/home/vladimir/Prace/ZIMA-Engineering/00-SOFTWARE/01-ZIMA/ZIMA-CAD/build/linux-2026111704-signed-zima_cpp_new_document_options_ui_contract.log"
+    }
+  ],
+  "unresolved_gui": [
+    "zima_cpp_template_ui_contract"
+  ],
+  "unrun_gui": [
+    "zima_cpp_edge_treatment_ui_contract",
+    "zima_cpp_edge_treatment_creation_ui_contract",
+    "zima_cpp_edge_treatment_fragments_ui_contract",
+    "zima_cpp_edge_treatment_method_ui_contract",
+    "zima_cpp_symmetric_edge_treatment_ui_contract",
+    "zima_cpp_drawing_view_controls_ui_contract",
+    "zima_cpp_drawing_repeat_ui_contract",
+    "zima_cpp_drawing_details_ui_contract",
+    "zima_cpp_retained_feature_ui_contract",
+    "zima_cpp_sheet_profile_ui_contract",
+    "zima_cpp_line_bend_ui_contract"
+  ],
+  "candidate_smoke": "passed",
+  "signed_smoke": "passed",
+  "trusted": true,
+  "public_downloads": [
+    {
+      "name": "update-manifest.json",
+      "bytes": 703,
+      "sha256": "87b9993ab48588cc0fdda4fe40b6b5a7f032bfbe010a76b4bcd0e59e1d54a1c2"
+    },
+    {
+      "name": "update-manifest.sig",
+      "bytes": 176,
+      "sha256": "a1bb311090e7fe18807a5225a90c34bd414302f7e2f44608396f6d4a4e038ec3"
+    },
+    {
+      "name": "ZIMA-CAD-2026111704.zip",
+      "bytes": 1026068402,
+      "sha256": "d8fdfc7e1992279ed2384302f99699e7656dee339aa0dc998dfcefc5854de239"
+    }
+  ],
+  "url": "https://github.com/ZIMA-Engineering/ZIMA-CAD/releases/tag/ZIMA-CAD-2026111704",
+  "published_at": "2026-11-17T21:23:27Z",
+  "prerelease": true,
+  "previous_updater": {
+    "installed": "2026110404",
+    "status": "current",
+    "preview_excluded": true,
+    "activation_performed": false
+  }
+}
