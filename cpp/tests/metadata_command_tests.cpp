@@ -26,7 +26,8 @@
 #include <GProp_GProps.hxx>
 #include <TopAbs_ShapeEnum.hxx>
 #include <TopExp_Explorer.hxx>
-#include <TopTools_ListOfShape.hxx>
+#include <NCollection_List.hxx>
+#include <TopoDS_Shape.hxx>
 #include <QCryptographicHash>
 #include <chrono>
 #include <zima/document/viewer_packet_json.hpp>

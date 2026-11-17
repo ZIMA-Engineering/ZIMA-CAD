@@ -361,7 +361,7 @@ int benchmark_native_local_delta(const std::filesystem::path& source,
     };
     const auto run_boolean=[&](auto& algorithm,const TopoDS_Shape& argument,
             const TopoDS_Shape& tool,const char* failure) {
-        TopTools_ListOfShape arguments,tools;arguments.Append(argument);tools.Append(tool);
+        NCollection_List<TopoDS_Shape> arguments,tools;arguments.Append(argument);tools.Append(tool);
         algorithm.SetArguments(arguments);algorithm.SetTools(tools);
         algorithm.SetFuzzyValue(.001);algorithm.SetToFillHistory(false);algorithm.Build();
         require(algorithm.IsDone()&&!algorithm.Shape().IsNull()&&

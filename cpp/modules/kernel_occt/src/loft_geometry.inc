@@ -108,7 +108,7 @@ PrimitiveData make_loft_data(const LoftRequest& request,const std::string& owner
             const auto key="loft:skin:from:"+request.profile_owners.front()+":"+
                 (edge<profile.outer_edge_source_ids.size()?profile.outer_edge_source_ids[edge]:profile.outer_boundary_id);
             const auto& generated=build.Generated(source_edges.front()[edge]);
-            for(TopTools_ListIteratorOfListOfShape it(generated);it.More();it.Next())
+            for(NCollection_List<TopoDS_Shape>::Iterator it(generated);it.More();it.Next())
                 if(it.Value().ShapeType()==TopAbs_FACE)authored_faces.emplace_back(it.Value(),key);
         }
         if(request.make_solid) {

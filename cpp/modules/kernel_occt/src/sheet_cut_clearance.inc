@@ -180,7 +180,7 @@ PrimitiveData sheet_cut_domain_margin(const PrimitiveData& domain,
             for(TopExp_Explorer edges(face,TopAbs_EDGE);edges.More();edges.Next()) {
                 std::set<std::pair<std::string,std::string>> parents;
                 const auto generated_from=[&](const TopoDS_Shape& input) {
-                    for(TopTools_ListIteratorOfListOfShape item(offset.Generated(input));item.More();item.Next()) {
+                    for(NCollection_List<TopoDS_Shape>::Iterator item(offset.Generated(input));item.More();item.Next()) {
                         if(item.Value().IsSame(edges.Current()))return true;
                         for(TopExp_Explorer children(item.Value(),TopAbs_EDGE);children.More();children.Next())
                             if(children.Current().IsSame(edges.Current()))return true;
@@ -329,7 +329,7 @@ PrimitiveData sheet_cut_planar_domain(const TopoDS_Face& source,
     ShapeUpgrade_UnifySameDomain merge(result.shape,true,true,false);
     merge.SetLinearTolerance(tolerance);merge.Build();
     result.edges=propagate_topology(merge.History(),result.edges);result.shape=merge.Shape();
-    TopTools_IndexedMapOfShape actual_edges;TopExp::MapShapes(result.shape,TopAbs_EDGE,actual_edges);
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> actual_edges;TopExp::MapShapes(result.shape,TopAbs_EDGE,actual_edges);
     std::erase_if(result.edges,[&](const auto& edge){return !actual_edges.Contains(edge.shape);});
     return result;
 }
@@ -539,7 +539,7 @@ PrimitiveData sheet_cut_clearance_domain(const TopoDS_Face& source,
                 const auto descends=[&](const auto& input) {
                     if(input.shape.IsSame(edge))return true;
                     for(const auto* list:{&clip.Generated(input.shape),&clip.Modified(input.shape)})
-                        for(TopTools_ListIteratorOfListOfShape item(*list);item.More();item.Next())
+                        for(NCollection_List<TopoDS_Shape>::Iterator item(*list);item.More();item.Next())
                             if(item.Value().IsSame(edge))return true;
                     return false;
                 };
@@ -620,7 +620,7 @@ PrimitiveData sheet_cut_clearance_domain(const TopoDS_Face& source,
         return remaining.Shape();
     };
     const auto retain_final_edges=[](PrimitiveData& candidate) {
-        TopTools_IndexedMapOfShape final_edges;TopExp::MapShapes(candidate.shape,TopAbs_EDGE,final_edges);
+        NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> final_edges;TopExp::MapShapes(candidate.shape,TopAbs_EDGE,final_edges);
         std::erase_if(candidate.edges,[&](const auto& edge){return !final_edges.Contains(edge.shape);});
     };
     for(int iteration=0;iteration<10;++iteration) {

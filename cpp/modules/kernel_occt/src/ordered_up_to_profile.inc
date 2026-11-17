@@ -130,7 +130,7 @@ void clip_ordered_up_to_profile(PrimitiveData& result,const detail::OrderedLimit
     clip.SetFuzzyValue(tolerance);clip.SetToFillHistory(true);clip.SetNonDestructive(true);clip.Build();
     if(!clip.IsDone()||clip.Shape().IsNull()||!BRepCheck_Analyzer(clip.Shape()).IsValid())
         throw detail::OrderedLimitError(detail::OrderedLimitFailure::DisconnectedChain,0,limit.patches.size()-1);
-    TopTools_IndexedMapOfShape actual;TopExp::MapShapes(clip.Shape(),actual);
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> actual;TopExp::MapShapes(clip.Shape(),actual);
     // The complete start must survive and no overrun cap may remain. This is
     // required for finite domains too; a partly covered profile is not success.
     for(TopExp_Explorer it(first,surface?TopAbs_EDGE:TopAbs_FACE);it.More();it.Next())

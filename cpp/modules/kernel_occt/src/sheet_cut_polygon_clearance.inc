@@ -44,7 +44,7 @@ PrimitiveData sheet_cut_convex_prism_domain(const TopoDS_Face& source,
     constraints.push_back({{0,0,0},{1,0,0},{0,0,0},source_key+"side-a"});
     constraints.push_back({{0,0,0},{-1,0,0},{thickness,0,0},source_key+"side-b"});
 
-    TopTools_IndexedMapOfShape vertex_shapes;TopExp::MapShapes(full_projection.shape,TopAbs_VERTEX,vertex_shapes);
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> vertex_shapes;TopExp::MapShapes(full_projection.shape,TopAbs_VERTEX,vertex_shapes);
     if(vertex_shapes.Extent()<4)return {};
     std::vector<gp_Pnt> vertices;gp_XYZ centre(0,0,0);
     for(int i=1;i<=vertex_shapes.Extent();++i) {
@@ -219,8 +219,8 @@ PrimitiveData sheet_cut_convex_prism_domain(const TopoDS_Face& source,
                 };
                 Handle(Geom2d_BSplineCurve) accepted;
                 for(int count=16;count<=512;count*=2) {
-                    Handle(TColgp_HArray1OfPnt2d) points=new TColgp_HArray1OfPnt2d(1,count+1);
-                    Handle(TColStd_HArray1OfReal) parameters=new TColStd_HArray1OfReal(1,count+1);
+                    Handle(NCollection_HArray1<gp_Pnt2d>) points=new NCollection_HArray1<gp_Pnt2d>(1,count+1);
+                    Handle(NCollection_HArray1<double>) parameters=new NCollection_HArray1<double>(1,count+1);
                     for(int i=0;i<=count;++i) {
                         const double p=double(i)/count;const auto sample=point(p);
                         if(!std::isfinite(sample.Y()))return std::vector<Boundary>{};
@@ -276,7 +276,7 @@ PrimitiveData sheet_cut_convex_prism_domain(const TopoDS_Face& source,
                       upper.front().key,lower.front().key))return {};
         BRepBuilderAPI_MakeFace make(surface,wire.Wire(),true);if(!make.IsDone())return {};
         auto domain=make.Face();domain.Orientation(source.Orientation());std::vector<OwnedEdge> edges;
-        TopTools_IndexedMapOfShape final_edges;TopExp::MapShapes(domain,TopAbs_EDGE,final_edges);
+        NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> final_edges;TopExp::MapShapes(domain,TopAbs_EDGE,final_edges);
         for(int i=1;i<=final_edges.Extent();++i) {
             double first=0,last=0;const auto curve=BRep_Tool::CurveOnSurface(TopoDS::Edge(final_edges(i)),domain,first,last);
             bool found=false;
@@ -318,7 +318,7 @@ PrimitiveData sheet_cut_convex_prism_domain(const TopoDS_Face& source,
                 }
             }
             if(!component_reached)continue;
-            TopTools_IndexedMapOfShape actual_edges;TopExp::MapShapes(face,TopAbs_EDGE,actual_edges);
+            NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> actual_edges;TopExp::MapShapes(face,TopAbs_EDGE,actual_edges);
             std::vector<OwnedEdge> owned;
             for(const auto& edge:clipped_edges)if(actual_edges.Contains(edge.shape))owned.push_back(edge);
             if(result.shape.IsNull()){result.shape=face;result.edges=std::move(owned);continue;}

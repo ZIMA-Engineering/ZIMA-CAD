@@ -273,7 +273,7 @@ inline Result build(std::span<const TopoDS_Edge> ordered,
             BRepAlgoAPI_Fuse fuse;fuse.SetArguments({result.solid});fuse.SetTools({component.solid});fuse.SetNonDestructive(true);fuse.SetFuzzyValue(tolerance);fuse.Build();
             if(!fuse.IsDone()||!BRepCheck_Analyzer(fuse.Shape()).IsValid())throw std::runtime_error("Collapsed rolling sphere join failed");
             result.faces.insert(result.faces.end(),component.faces.begin(),component.faces.end());
-            TopTools_IndexedMapOfShape final_faces;TopExp::MapShapes(fuse.Shape(),TopAbs_FACE,final_faces);
+            NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> final_faces;TopExp::MapShapes(fuse.Shape(),TopAbs_FACE,final_faces);
             std::vector<TopoDS_Face> mapped;
             for(const auto& face:result.faces) {
                 if(final_faces.Contains(face))mapped.push_back(face);
@@ -480,7 +480,7 @@ inline Result build(std::span<const TopoDS_Edge> ordered,
                 throw std::runtime_error("Rolling route cutter failed");
             Result component;component.solid=cut.Shape();
             {
-                TopTools_IndexedMapOfShape selected;
+                NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> selected;
                 // Trim regular sections from the exact contact boundaries.
                 // Boolean intersection at tangent surfaces can leave two
                 // nearby seams and a flap even when each face is valid. Keep
@@ -633,7 +633,7 @@ inline Result build(std::span<const TopoDS_Edge> ordered,
             if(!fuse.IsDone()||!BRepCheck_Analyzer(fuse.Shape()).IsValid())
                 throw std::runtime_error("Rolling route join failed");
             result.faces.insert(result.faces.end(),component.faces.begin(),component.faces.end());
-            TopTools_IndexedMapOfShape final_faces;TopExp::MapShapes(fuse.Shape(),TopAbs_FACE,final_faces);
+            NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> final_faces;TopExp::MapShapes(fuse.Shape(),TopAbs_FACE,final_faces);
             std::vector<TopoDS_Face> mapped;
             for(const auto& face:result.faces) {
                 if(final_faces.Contains(face))mapped.push_back(face);

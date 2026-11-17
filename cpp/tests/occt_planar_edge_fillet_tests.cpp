@@ -31,14 +31,15 @@
 #include <BRepTools.hxx>
 #include <gp_Circ.hxx>
 #include <gp_Elips.hxx>
-#include <TColgp_Array1OfPnt.hxx>
-#include <TColStd_Array1OfInteger.hxx>
-#include <TColStd_Array1OfReal.hxx>
+#include <NCollection_Array1.hxx>
+#include <gp_Pnt.hxx>
 #include <TopExp.hxx>
 #include <TopExp_Explorer.hxx>
-#include <TopTools_IndexedDataMapOfShapeListOfShape.hxx>
-#include <TopTools_IndexedMapOfShape.hxx>
-#include <TopTools_ListOfShape.hxx>
+#include <NCollection_IndexedDataMap.hxx>
+#include <TopoDS_Shape.hxx>
+#include <NCollection_List.hxx>
+#include <TopTools_ShapeMapHasher.hxx>
+#include <NCollection_IndexedMap.hxx>
 #include <TopoDS.hxx>
 
 #include <algorithm>
@@ -110,7 +111,7 @@ std::vector<TopoDS_Edge> edges_at_point(const TopoDS_Shape& shape,
     std::vector<TopoDS_Edge> result;
     for(TopExp_Explorer item(shape,TopAbs_EDGE);item.More();item.Next()) {
         const auto edge=TopoDS::Edge(item.Current());
-        TopTools_IndexedMapOfShape vertices;
+        NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> vertices;
         TopExp::MapShapes(edge,TopAbs_VERTEX,vertices);
         if(std::ranges::none_of(std::views::iota(1,vertices.Extent()+1),
                 [&](int index) {
@@ -356,7 +357,7 @@ void verify_node(const TopoDS_Shape& input,
     near(area(reversed.shape),area(custom.shape),
         "ZIMA Fillet node area depends on selection order");
     if(edges.size()==2) {
-        TopTools_ListOfShape arguments,tools;
+        NCollection_List<TopoDS_Shape> arguments,tools;
         arguments.Append(input);
         for(const auto& domain:custom.removal_domains)
             tools.Append(domain);
@@ -479,7 +480,7 @@ void verify_result(const TopoDS_Shape& input,
             custom.metrics.generated_fillet_faces>=edges.size(),
         "Custom planar Fillet metrics are incomplete");
     for(const auto& domain:custom.removal_domains) {
-        TopTools_IndexedMapOfShape faces;
+        NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> faces;
         TopExp::MapShapes(domain,TopAbs_FACE,faces);
         require(faces.Extent()==5,
             "Custom Fillet profile contains auxiliary closure faces");
@@ -490,7 +491,7 @@ void verify_result(const TopoDS_Shape& input,
             require(support.GetType()==GeomAbs_Cylinder&&
                     std::abs(support.Cylinder().Radius()-radius)<1.0e-7,
                 "Custom Fillet face is not the requested exact cylinder");
-            TopTools_IndexedMapOfShape boundary_edges;
+            NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> boundary_edges;
             TopExp::MapShapes(face,TopAbs_EDGE,boundary_edges);
             require(boundary_edges.Extent()==4,
                 "Custom Fillet face is not bounded by four exact edges");
@@ -521,7 +522,7 @@ void verify_result(const TopoDS_Shape& input,
     near(area(custom.shape),area(reference),
         "Custom planar Fillet area differs from OCCT");
     for(const auto type:{TopAbs_FACE,TopAbs_EDGE,TopAbs_VERTEX}) {
-        TopTools_IndexedMapOfShape custom_topology,reference_topology;
+        NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> custom_topology,reference_topology;
         TopExp::MapShapes(custom.shape,type,custom_topology);
         TopExp::MapShapes(reference,type,reference_topology);
         if(custom_topology.Extent()!=reference_topology.Extent())
@@ -531,7 +532,7 @@ void verify_result(const TopoDS_Shape& input,
                 std::to_string(custom_topology.Extent())+" reference="+
                 std::to_string(reference_topology.Extent()));
     }
-    TopTools_IndexedMapOfShape custom_edges;
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> custom_edges;
     TopExp::MapShapes(custom.shape,TopAbs_EDGE,custom_edges);
     for(TopExp_Explorer item(input,TopAbs_EDGE);item.More();item.Next()) {
         const auto source=TopoDS::Edge(item.Current());
@@ -663,13 +664,13 @@ StraightSplineFixture straight_spline_fixture() {
     // parameter 0.5 lies at x=6, while half of its arc length lies at x=10.
     // A midpoint profile based on the parameter interval therefore creates a
     // shifted tool and this fixture catches that regression.
-    TColgp_Array1OfPnt poles(1,3);
+    NCollection_Array1<gp_Pnt> poles(1,3);
     poles.SetValue(1,gp_Pnt(0,0,0));
     poles.SetValue(2,gp_Pnt(2,0,0));
     poles.SetValue(3,gp_Pnt(20,0,0));
-    TColStd_Array1OfReal knots(1,2);
+    NCollection_Array1<double> knots(1,2);
     knots.SetValue(1,0.);knots.SetValue(2,1.);
-    TColStd_Array1OfInteger multiplicities(1,2);
+    NCollection_Array1<int> multiplicities(1,2);
     multiplicities.SetValue(1,3);multiplicities.SetValue(2,3);
     const Handle(Geom_BSplineCurve) spline=new Geom_BSplineCurve(
         poles,knots,multiplicities,2,false);
@@ -713,7 +714,7 @@ struct AngledEndFixture {
 AngledEndFixture angled_end_fixture() {
     AngledEndFixture fixture;
     fixture.shape=BRepPrimAPI_MakeWedge(30.,24.,40.,12.).Shape();
-    TopTools_IndexedDataMapOfShapeListOfShape edge_faces;
+    NCollection_IndexedDataMap<TopoDS_Shape, NCollection_List<TopoDS_Shape>, TopTools_ShapeMapHasher> edge_faces;
     TopExp::MapShapesAndAncestors(fixture.shape,TopAbs_EDGE,TopAbs_FACE,
         edge_faces);
     for(TopExp_Explorer item(fixture.shape,TopAbs_EDGE);
@@ -895,14 +896,14 @@ SplineRouteFixture spline_route_fixture() {
     constexpr double height=20.;
     const gp_Pnt p0(0,0,0),p1(40,0,0),p2(80,30,0),
         p3(120,30,0),p4(120,80,0),p5(0,80,0);
-    TColgp_Array1OfPnt poles(1,4);
+    NCollection_Array1<gp_Pnt> poles(1,4);
     poles.SetValue(1,p1);
     poles.SetValue(2,gp_Pnt(55,0,0));
     poles.SetValue(3,gp_Pnt(65,30,0));
     poles.SetValue(4,p2);
-    TColStd_Array1OfReal knots(1,2);
+    NCollection_Array1<double> knots(1,2);
     knots.SetValue(1,0.);knots.SetValue(2,1.);
-    TColStd_Array1OfInteger multiplicities(1,2);
+    NCollection_Array1<int> multiplicities(1,2);
     multiplicities.SetValue(1,4);multiplicities.SetValue(2,4);
     const Handle(Geom_BSplineCurve) spline=new Geom_BSplineCurve(
         poles,knots,multiplicities,3,false);
@@ -1042,13 +1043,13 @@ TopoDS_Shape ellipse_prism(double major_radius,double minor_radius,
 }
 
 TopoDS_Shape spline_prism(double height) {
-    TColgp_Array1OfPnt poles(1,3);
+    NCollection_Array1<gp_Pnt> poles(1,3);
     poles.SetValue(1,gp_Pnt(-100,0,0));
     poles.SetValue(2,gp_Pnt(0,-80,0));
     poles.SetValue(3,gp_Pnt(100,0,0));
-    TColStd_Array1OfReal knots(1,2);
+    NCollection_Array1<double> knots(1,2);
     knots.SetValue(1,0.);knots.SetValue(2,1.);
-    TColStd_Array1OfInteger multiplicities(1,2);
+    NCollection_Array1<int> multiplicities(1,2);
     multiplicities.SetValue(1,3);multiplicities.SetValue(2,3);
     const Handle(Geom_BSplineCurve) spline=new Geom_BSplineCurve(
         poles,knots,multiplicities,2,false);
@@ -1072,7 +1073,7 @@ TopoDS_Shape spline_prism(double height) {
 
 TopoDS_Edge rolling_support_edge(const TopoDS_Shape& shape,double height,
         GeomAbs_SurfaceType first_type,GeomAbs_SurfaceType second_type) {
-    TopTools_IndexedDataMapOfShapeListOfShape edge_faces;
+    NCollection_IndexedDataMap<TopoDS_Shape, NCollection_List<TopoDS_Shape>, TopTools_ShapeMapHasher> edge_faces;
     TopExp::MapShapesAndAncestors(shape,TopAbs_EDGE,TopAbs_FACE,edge_faces);
     for(int index=1;index<=edge_faces.Extent();++index) {
         const auto edge=TopoDS::Edge(edge_faces.FindKey(index));
@@ -1108,7 +1109,7 @@ TopoDS_Edge rolling_support_edge(const TopoDS_Shape& shape,double height,
 
 gp_Dir face_normal_on_edge(const TopoDS_Face& face,
         const TopoDS_Edge& edge) {
-    Standard_Real first{},last{};
+    double first{},last{};
     const auto pcurve=BRep_Tool::CurveOnSurface(edge,face,first,last);
     require(!pcurve.IsNull(),
         "Rolling-support contact lost its face parameter curve");
@@ -1125,7 +1126,7 @@ gp_Dir face_normal_on_edge(const TopoDS_Face& face,
 
 std::vector<GeomAbs_SurfaceType> rolling_support_contacts(
         const TopoDS_Shape& shape,double fillet_radius,double height) {
-    TopTools_IndexedDataMapOfShapeListOfShape edge_faces;
+    NCollection_IndexedDataMap<TopoDS_Shape, NCollection_List<TopoDS_Shape>, TopTools_ShapeMapHasher> edge_faces;
     TopExp::MapShapesAndAncestors(shape,TopAbs_EDGE,TopAbs_FACE,edge_faces);
     std::vector<GeomAbs_SurfaceType> result;
     for(int index=1;index<=edge_faces.Extent();++index) {
@@ -1172,7 +1173,7 @@ void verify_rolling_support(const TopoDS_Shape& input,
             !result.fillet_faces.front().empty()&&
             BRepCheck_Analyzer(result.shape,true,true,false).IsValid(),
         message);
-    TopTools_IndexedMapOfShape tool_faces;
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> tool_faces;
     TopExp::MapShapes(result.removal_domains.front(),TopAbs_FACE,tool_faces);
     require(tool_faces.Extent()==5,
         "Rolling-support Fillet did not use its three-edge exact profile");
@@ -1203,7 +1204,7 @@ void verify_rolling_support(const TopoDS_Shape& input,
 void verify_cylindrical_rib_route() {
     const auto box=BRepPrimAPI_MakeBox(gp_Pnt(-70,-12,-10),140,24,20).Shape();
     std::vector<TopoDS_Edge> long_edges;
-    TopTools_IndexedMapOfShape box_edges;TopExp::MapShapes(box,TopAbs_EDGE,box_edges);
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> box_edges;TopExp::MapShapes(box,TopAbs_EDGE,box_edges);
     for(const auto& e:box_edges) {
         const auto edge=TopoDS::Edge(e);BRepAdaptor_Curve curve(edge);
         if(std::abs(curve.Value(curve.FirstParameter()).X()-curve.Value(curve.LastParameter()).X())>100.)long_edges.push_back(edge);
@@ -1212,7 +1213,7 @@ void verify_cylindrical_rib_route() {
     TopoDS_Shape input=rib;
     for(double x:{-70.,70.})input=BRepAlgoAPI_Fuse(input,BRepPrimAPI_MakeCylinder(gp_Ax2(gp_Pnt(x,0,-30),gp_Dir(0,0,1)),40,60).Shape()).Shape();
     require(BRepCheck_Analyzer(input).IsValid(),"Cylindrical rib fixture is invalid");
-    TopTools_IndexedDataMapOfShapeListOfShape adjacent;
+    NCollection_IndexedDataMap<TopoDS_Shape, NCollection_List<TopoDS_Shape>, TopTools_ShapeMapHasher> adjacent;
     TopExp::MapShapesAndAncestors(input,TopAbs_EDGE,TopAbs_FACE,adjacent);
     std::array<std::vector<TopoDS_Edge>,2> routes;
     for(int i=1;i<=adjacent.Extent();++i) {
@@ -1242,10 +1243,10 @@ void verify_cylindrical_rib_route() {
         const auto result=zima::kernel::occt_planar_edge_fillet(input,selected,3.,tolerance,{},
             zima::kernel::OcctPlanarEdgeFilletEndMode::AutomaticBodyEnvelope,counts);
         require(BRepCheck_Analyzer(result.shape,true,true,false).IsValid(),"Cylindrical rib blend is invalid");
-        TopTools_IndexedMapOfShape solids,treatments;TopExp::MapShapes(result.shape,TopAbs_SOLID,solids);
+        NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> solids,treatments;TopExp::MapShapes(result.shape,TopAbs_SOLID,solids);
         require(solids.Extent()==1,"Cylindrical rib blend is not one solid");
         for(const auto& faces:result.fillet_faces){require(!faces.empty(),"Cylindrical rib lost member ancestry");for(const auto& f:faces)treatments.Add(f);}
-        TopTools_IndexedDataMapOfShapeListOfShape boundaries;TopExp::MapShapesAndAncestors(result.shape,TopAbs_EDGE,TopAbs_FACE,boundaries);
+        NCollection_IndexedDataMap<TopoDS_Shape, NCollection_List<TopoDS_Shape>, TopTools_ShapeMapHasher> boundaries;TopExp::MapShapesAndAncestors(result.shape,TopAbs_EDGE,TopAbs_FACE,boundaries);
         unsigned contacts{};
         for(int i=1;i<=boundaries.Extent();++i) {
             const auto& faces=boundaries.FindFromIndex(i);require(faces.Size()==2,"Cylindrical rib has an open or non-manifold boundary");
@@ -1283,7 +1284,7 @@ void verify_oblique_round_route() {
     BRepAlgoAPI_Common trim(rounded,half);trim.Build();
     require(trim.IsDone()&&BRepCheck_Analyzer(trim.Shape()).IsValid(),"Oblique route fixture trim failed");
     std::vector<TopoDS_Edge> route;
-    TopTools_IndexedMapOfShape edges;TopExp::MapShapes(trim.Shape(),TopAbs_EDGE,edges);
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> edges;TopExp::MapShapes(trim.Shape(),TopAbs_EDGE,edges);
     for(const auto& value:edges) {
         const auto edge=TopoDS::Edge(value);BRepAdaptor_Curve curve(edge);
         const auto a=curve.Value(curve.FirstParameter()),b=curve.Value(curve.LastParameter());
@@ -1304,7 +1305,7 @@ void verify_oblique_round_route() {
             const auto result=zima::kernel::occt_planar_edge_fillet(trim.Shape(),selected,radius,1.e-7,{},
                 zima::kernel::OcctPlanarEdgeFilletEndMode::AutomaticBodyEnvelope,counts);
             require(BRepCheck_Analyzer(result.shape,true,true,false).IsValid(),"Oblique rolling route is invalid");
-            TopTools_IndexedMapOfShape treatments;
+            NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> treatments;
             for(const auto& faces:result.fillet_faces) {
                 require(!faces.empty(),"Oblique rolling route lost a source member's ancestry");
                 for(const auto& face:faces)treatments.Add(face);
@@ -1325,7 +1326,7 @@ void verify_oblique_round_route() {
                 }
             }
             require(curvature_samples>=9,"Rolling envelope radius was not sampled");
-            TopTools_IndexedDataMapOfShapeListOfShape adjacent;
+            NCollection_IndexedDataMap<TopoDS_Shape, NCollection_List<TopoDS_Shape>, TopTools_ShapeMapHasher> adjacent;
             TopExp::MapShapesAndAncestors(result.shape,TopAbs_EDGE,TopAbs_FACE,adjacent);
             std::size_t contacts{};
             for(int index=1;index<=adjacent.Extent();++index) {

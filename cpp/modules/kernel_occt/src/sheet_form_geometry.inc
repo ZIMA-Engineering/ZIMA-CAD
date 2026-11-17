@@ -165,7 +165,7 @@ PrimitiveData read_surface(const BodyResult& snapshot,bool solid=false) {
     std::istringstream stream(snapshot.kernel_shape);archive.Read(stream);archive.Read(result.shape,stream);
     if(result.shape.IsNull())throw std::runtime_error("FORM definition calculation failed.");
     const auto restore=[&](const auto& bindings,TopAbs_ShapeEnum kind,auto& owned) {
-        TopTools_IndexedMapOfShape members;TopExp::MapShapes(result.shape,kind,members);
+        NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> members;TopExp::MapShapes(result.shape,kind,members);
         for(const auto& item:bindings) {
             char orientation{};int object{},location{};std::istringstream fields(item.locator);
             if(!(fields>>orientation>>object>>location)||std::string_view("+-ie").find(orientation)==std::string_view::npos||
@@ -403,7 +403,7 @@ PrimitiveData combine_many(const PrimitiveData& input,
     if(input.shape.IsNull())
         throw std::invalid_argument("FORM requires an input sheet.");
 
-    TopTools_ListOfShape arguments,tool_shapes;
+    NCollection_List<TopoDS_Shape> arguments,tool_shapes;
     arguments.Append(input.shape);
     std::vector<OwnedFace> tool_faces;
     std::vector<OwnedEdge> tool_edges;

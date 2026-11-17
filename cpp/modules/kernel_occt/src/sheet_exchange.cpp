@@ -13,7 +13,9 @@
 #include <TopExp.hxx>
 #include <TopExp_Explorer.hxx>
 #include <TopoDS.hxx>
-#include <TopTools_IndexedMapOfShape.hxx>
+#include <NCollection_IndexedMap.hxx>
+#include <TopoDS_Shape.hxx>
+#include <TopTools_ShapeMapHasher.hxx>
 #include <gp_Pln.hxx>
 #include <sstream>
 
@@ -44,7 +46,7 @@ FlatContour sheet_flat_contour(const BodyResult& body,double thickness,double to
     BRepAlgoAPI_Section section(shape,gp_Pln(gp_Pnt(result.origin.x,result.origin.y,result.origin.z),gp_Dir(normal.x,normal.y,normal.z)),false);
     section.Approximation(true);section.Build();
     if(!section.IsDone())throw std::runtime_error("Sheet DXF contour calculation failed.");
-    TopTools_IndexedMapOfShape edges;TopExp::MapShapes(section.Shape(),TopAbs_EDGE,edges);
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> edges;TopExp::MapShapes(section.Shape(),TopAbs_EDGE,edges);
     const auto local=[&](const auto& p){const auto d=sub(vec(p),result.origin);return Vec3{dot(d,result.x_axis),dot(d,result.y_axis),0};};
     for(int i=1;i<=edges.Extent();++i) {
         BRepAdaptor_Curve adaptor(TopoDS::Edge(edges(i)));

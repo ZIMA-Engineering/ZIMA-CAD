@@ -85,9 +85,11 @@
 #include <TopoDS_Compound.hxx>
 #include <TopoDS_Shell.hxx>
 #include <TopExp_Explorer.hxx>
-#include <TopTools_IndexedMapOfShape.hxx>
-#include <TopTools_IndexedDataMapOfShapeListOfShape.hxx>
-#include <TopTools_ListOfShape.hxx>
+#include <NCollection_IndexedMap.hxx>
+#include <TopoDS_Shape.hxx>
+#include <TopTools_ShapeMapHasher.hxx>
+#include <NCollection_IndexedDataMap.hxx>
+#include <NCollection_List.hxx>
 #include <gp_Lin.hxx>
 
 namespace {
@@ -539,7 +541,7 @@ int batch_add_probe(const std::filesystem::path& source,
         archive.Read(source);
         archive.Read(result.root,source);
         if(result.root.IsNull())return result;
-        TopTools_IndexedMapOfShape members;
+        NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> members;
         TopExp::MapShapes(result.root,TopAbs_FACE,members);
         for(const auto& binding:body.kernel_faces) {
             TopoDS_Shape face;
@@ -575,7 +577,7 @@ int batch_add_probe(const std::filesystem::path& source,
         operation_positions.emplace(operations[index].owner_id,index);
     const auto graph_faces=[&](const BoundFaceShape& shape,
             std::size_t fallback_history_index) {
-        TopTools_IndexedMapOfShape members;
+        NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> members;
         TopExp::MapShapes(shape.root,TopAbs_FACE,members);
         std::vector<kernel::OcctBoundaryFace> result(
             static_cast<std::size_t>(members.Extent()));
@@ -624,7 +626,7 @@ int batch_add_probe(const std::filesystem::path& source,
     };
     const auto graph_edges=[&](const BoundFaceShape& shape,
             std::size_t fallback_history_index) {
-        TopTools_IndexedMapOfShape members;
+        NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> members;
         TopExp::MapShapes(shape.root,TopAbs_EDGE,members);
         std::vector<kernel::OcctBoundarySolid::Edge> result;
         std::vector<int> outputs(
@@ -664,7 +666,7 @@ int batch_add_probe(const std::filesystem::path& source,
     };
     const auto graph_vertices=[&](const BoundFaceShape& shape,
             std::size_t fallback_history_index) {
-        TopTools_IndexedMapOfShape members;
+        NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> members;
         TopExp::MapShapes(shape.root,TopAbs_VERTEX,members);
         std::vector<kernel::OcctBoundarySolid::Vertex> result;
         std::vector<int> outputs(
@@ -1014,7 +1016,7 @@ int batch_add_probe(const std::filesystem::path& source,
         tolerance=std::max(tolerance,operations[index].boolean_tolerance);
 
     if(std::getenv("ZIMA_CPP_BATCH_FUSE_ONLY")) {
-        TopTools_ListOfShape arguments,tool_list;
+        NCollection_List<TopoDS_Shape> arguments,tool_list;
         arguments.Append(input_shape.root);
         for(const auto& tool:tools)tool_list.Append(tool);
         BRepAlgoAPI_BooleanOperation fuse;
@@ -1052,7 +1054,7 @@ int batch_add_probe(const std::filesystem::path& source,
             unified_valid=!unified.IsNull()&&
                 BRepCheck_Analyzer(unified,true,true,false).IsValid();
 
-            TopTools_IndexedMapOfShape raw_faces;
+            NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> raw_faces;
             TopExp::MapShapes(fuse.Shape(),TopAbs_FACE,raw_faces);
             std::vector<std::vector<kernel::FaceReference>> face_parents(
                 static_cast<std::size_t>(raw_faces.Extent())+1);
@@ -1069,7 +1071,7 @@ int batch_add_probe(const std::filesystem::path& source,
                 bool changed=false;
                 for(const auto* descendants:{&fuse.Modified(source),
                         &fuse.Generated(source)})
-                    for(TopTools_ListIteratorOfListOfShape descendant(
+                    for(NCollection_List<TopoDS_Shape>::Iterator descendant(
                             *descendants);descendant.More();descendant.Next())
                         if(descendant.Value().ShapeType()==TopAbs_FACE) {
                             attach_parent(descendant.Value(),reference);
@@ -1078,7 +1080,7 @@ int batch_add_probe(const std::filesystem::path& source,
                 if(!changed&&!fuse.IsDeleted(source))
                     attach_parent(source,reference);
             }
-            TopTools_IndexedMapOfShape probe_edges;
+            NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> probe_edges;
             TopExp::MapShapes(unified,TopAbs_EDGE,probe_edges);
             const auto edge_survives=[&](const TopoDS_Shape& edge) {
                 if(probe_edges.Contains(edge))return true;
@@ -1086,7 +1088,7 @@ int batch_add_probe(const std::filesystem::path& source,
                 if(history.IsNull())return false;
                 for(const auto* descendants:{&history->Modified(edge),
                         &history->Generated(edge)})
-                    for(TopTools_ListIteratorOfListOfShape descendant(
+                    for(NCollection_List<TopoDS_Shape>::Iterator descendant(
                             *descendants);descendant.More();descendant.Next())
                         if(descendant.Value().ShapeType()==TopAbs_EDGE&&
                            probe_edges.Contains(descendant.Value()))
@@ -1097,13 +1099,13 @@ int batch_add_probe(const std::filesystem::path& source,
                 fuse.Shape(),true,true,false);
             protected_unifier.SetLinearTolerance(tolerance);
             protected_unifier.SetAngularTolerance(1.0e-9);
-            TopTools_IndexedDataMapOfShapeListOfShape edge_faces;
+            NCollection_IndexedDataMap<TopoDS_Shape, NCollection_List<TopoDS_Shape>, TopTools_ShapeMapHasher> edge_faces;
             TopExp::MapShapesAndAncestors(fuse.Shape(),TopAbs_EDGE,
                 TopAbs_FACE,edge_faces);
             for(int edge=1;edge<=edge_faces.Extent();++edge) {
                 const auto& adjacent=edge_faces.FindFromIndex(edge);
                 if(adjacent.Extent()!=2)continue;
-                TopTools_ListIteratorOfListOfShape iterator(adjacent);
+                NCollection_List<TopoDS_Shape>::Iterator iterator(adjacent);
                 const auto first_face=TopoDS::Face(iterator.Value());
                 const int first_index=raw_faces.FindIndex(first_face);
                 iterator.Next();
@@ -1166,7 +1168,7 @@ int batch_add_probe(const std::filesystem::path& source,
             std::array<int,4> result{};
             if(shape.IsNull())return result;
             for(std::size_t index=0;index<result.size();++index) {
-                TopTools_IndexedMapOfShape members;
+                NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> members;
                 TopExp::MapShapes(shape,std::array{TopAbs_SOLID,
                     TopAbs_FACE,TopAbs_EDGE,TopAbs_VERTEX}[index],members);
                 result[index]=members.Extent();
@@ -1227,7 +1229,7 @@ int batch_add_probe(const std::filesystem::path& source,
         section.Build();
         if(!section.IsDone()||section.Shape().IsNull())
             throw std::runtime_error("Batch Add section probe failed");
-        TopTools_IndexedMapOfShape edges;
+        NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> edges;
         TopExp::MapShapes(section.Shape(),TopAbs_EDGE,edges);
         section_edges+=static_cast<std::size_t>(edges.Extent());
         for(int edge=1;edge<=edges.Extent();++edge)
@@ -1286,7 +1288,7 @@ int batch_add_probe(const std::filesystem::path& source,
     std::size_t spatial_nonempty_pairs{},spatial_section_curves{};
     std::size_t spatial_section_points{},spatial_tangent_pairs{};
     std::size_t spatial_curves_with_both_pcurves{};
-    TopTools_IndexedMapOfShape spatial_face_map;
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> spatial_face_map;
     TopExp::MapShapes(input_shape.root,TopAbs_FACE,spatial_face_map);
     for(const auto& tool:tools)
         TopExp::MapShapes(tool,TopAbs_FACE,spatial_face_map);
@@ -1439,7 +1441,7 @@ int batch_add_probe(const std::filesystem::path& source,
         section.Build();
         if(!section.IsDone())
             throw std::runtime_error("Tangent face Section probe failed");
-        TopTools_IndexedMapOfShape edges;
+        NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> edges;
         TopExp::MapShapes(section.Shape(),TopAbs_EDGE,edges);
         tangent_section_edges+=static_cast<std::size_t>(edges.Extent());
         for(int index=1;index<=edges.Extent();++index) {
@@ -1711,7 +1713,7 @@ int batch_add_probe(const std::filesystem::path& source,
                 static_cast<std::ptrdiff_t>(base_face_count)),
         reusable_graph_edges,reusable_graph_vertices});
     for(std::size_t tool=0;tool<tools.size();++tool) {
-        TopTools_IndexedMapOfShape member_solids;
+        NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> member_solids;
         TopExp::MapShapes(tools[tool],TopAbs_SOLID,member_solids);
         std::cerr<<"boundary union input="<<(tool+1)
             <<" solids="<<member_solids.Extent()
@@ -1852,7 +1854,7 @@ int batch_add_probe(const std::filesystem::path& source,
         encoded<<std::hex<<hash;
         return encoded.str();
     };
-    TopTools_IndexedMapOfShape reusable_union_faces,reusable_union_edges,
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> reusable_union_faces,reusable_union_edges,
         reusable_union_vertices;
     TopExp::MapShapes(reusable_union.shape,TopAbs_FACE,
         reusable_union_faces);
@@ -1952,7 +1954,7 @@ int batch_add_probe(const std::filesystem::path& source,
             parent_references.edges);
         report_missing_references("vertex",expected_bound.vertices,
             parent_references.vertices);
-        TopTools_IndexedMapOfShape expected_faces,expected_edges;
+        NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> expected_faces,expected_edges;
         TopExp::MapShapes(expected_shape,TopAbs_FACE,expected_faces);
         TopExp::MapShapes(expected_shape,TopAbs_EDGE,expected_edges);
         const auto edge_intervals=[&](const auto& edges) {
@@ -2356,11 +2358,11 @@ int batch_add_probe(const std::filesystem::path& source,
                         treated.back());
                     const auto expected=kernel::read_calculated_body_shape(
                         local_body(treatment_last));
-                    TopTools_IndexedMapOfShape replay_faces;
+                    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> replay_faces;
                     TopExp::MapShapes(actual,TopAbs_FACE,replay_faces);
                     treatment_replay_faces=static_cast<std::size_t>(
                         replay_faces.Extent());
-                    TopTools_IndexedMapOfShape expected_treatment_faces;
+                    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> expected_treatment_faces;
                     TopExp::MapShapes(expected,TopAbs_FACE,
                         expected_treatment_faces);
                     treatment_expected_faces=static_cast<std::size_t>(
@@ -2381,7 +2383,7 @@ int batch_add_probe(const std::filesystem::path& source,
                             const auto expected_step=
                                 kernel::read_calculated_body_shape(
                                     local_body(index));
-                            TopTools_IndexedMapOfShape actual_step_faces,
+                            NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> actual_step_faces,
                                 expected_step_faces;
                             TopExp::MapShapes(actual_step,TopAbs_FACE,
                                 actual_step_faces);
@@ -2520,7 +2522,7 @@ int batch_add_probe(const std::filesystem::path& source,
                                 const auto expected_stage=
                                     kernel::read_calculated_body_shape(
                                         local_body(expected_index));
-                                TopTools_IndexedMapOfShape stage_faces,
+                                NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> stage_faces,
                                     expected_faces;
                                 TopExp::MapShapes(stage,TopAbs_FACE,
                                     stage_faces);
@@ -2726,7 +2728,7 @@ int batch_add_probe(const std::filesystem::path& source,
                                         remapped_operations.size()-1));
                             block_shape=kernel::read_calculated_body_shape(
                                 direct_final_batch);
-                            TopTools_IndexedMapOfShape block_faces,
+                            NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> block_faces,
                                 expected_final_faces;
                             TopExp::MapShapes(block_shape,TopAbs_FACE,
                                 block_faces);
@@ -2790,7 +2792,7 @@ int batch_add_probe(const std::filesystem::path& source,
                             const auto expected_shape=
                                 kernel::read_calculated_body_shape(
                                     expected_snapshot.get());
-                            TopTools_IndexedMapOfShape actual_faces,
+                            NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> actual_faces,
                                 expected_faces;
                             TopExp::MapShapes(actual_shape,TopAbs_FACE,
                                 actual_faces);
@@ -2892,7 +2894,7 @@ int batch_add_probe(const std::filesystem::path& source,
         const auto edge_cleanup_ms=
             std::chrono::duration<double,std::milli>(
                 Clock::now()-edge_cleanup_start).count();
-        TopTools_IndexedMapOfShape edge_cleanup_faces,
+        NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> edge_cleanup_faces,
             edge_cleanup_edges;
         TopExp::MapShapes(edge_cleanup.Shape(),TopAbs_FACE,
             edge_cleanup_faces);
@@ -2905,7 +2907,7 @@ int batch_add_probe(const std::filesystem::path& source,
             edge_cleanup_volume);
         Bnd_Box material_bounds;
         BRepBndLib::Add(expected_shape,material_bounds,true);
-        Standard_Real x_min{},y_min{},z_min{},x_max{},y_max{},z_max{};
+        double x_min{},y_min{},z_min{},x_max{},y_max{},z_max{};
         material_bounds.Get(x_min,y_min,z_min,x_max,y_max,z_max);
         BRepClass3d_SolidClassifier expected_classifier(expected_shape),
             graph_classifier(reusable_union.shape);
@@ -3184,7 +3186,7 @@ int batch_add_probe(const std::filesystem::path& source,
             <<" surface_edge_skips="<<surface_edge_skips<<'\n';
         return 0;
     }
-    TopTools_IndexedMapOfShape reusable_face_map;
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> reusable_face_map;
     for(const auto& face:reusable_graph_faces)
         reusable_face_map.Add(face.shape);
     std::vector<std::vector<const kernel::OcctBoundaryCurve*>>
@@ -3272,7 +3274,7 @@ int batch_add_probe(const std::filesystem::path& source,
         splitter.SetFuzzyValue(tolerance);splitter.Build();
         if(!splitter.IsDone()||splitter.Shape().IsNull())
             throw std::runtime_error("Local boundary face split failed");
-        TopTools_IndexedMapOfShape patches;
+        NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> patches;
         TopExp::MapShapes(splitter.Shape(),TopAbs_FACE,patches);
         local_split_patches+=static_cast<std::size_t>(patches.Extent());
         for(int patch=1;patch<=patches.Extent();++patch)
@@ -3426,10 +3428,10 @@ int batch_add_probe(const std::filesystem::path& source,
     const auto sewed_shape=sewing.SewedShape();
     const auto sew_ms=std::chrono::duration<double,std::milli>(
         Clock::now()-sew_start).count();
-    TopTools_IndexedMapOfShape sewed_shells;
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> sewed_shells;
     if(!sewed_shape.IsNull())
         TopExp::MapShapes(sewed_shape,TopAbs_SHELL,sewed_shells);
-    TopTools_IndexedMapOfShape sewed_faces;
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> sewed_faces;
     TopExp::MapShapes(sewed_shape,TopAbs_FACE,sewed_faces);
     std::vector<std::set<int>> sewed_face_sources(
         static_cast<std::size_t>(sewed_faces.Extent())+1);
@@ -3457,7 +3459,7 @@ int batch_add_probe(const std::filesystem::path& source,
     std::map<BRepCheck_Status,std::size_t> grouped_solid_errors;
     for(int kind=static_cast<int>(TopAbs_SOLID);
             kind<=static_cast<int>(TopAbs_VERTEX);++kind) {
-        TopTools_IndexedMapOfShape members;
+        NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> members;
         TopExp::MapShapes(grouped_solid,
             static_cast<TopAbs_ShapeEnum>(kind),members);
         for(int member=1;member<=members.Extent();++member) {
@@ -3532,7 +3534,7 @@ int batch_add_probe(const std::filesystem::path& source,
         Clock::now()-solid_fix_start).count();
     const bool fixed_union_valid=!fixed_union.IsNull()&&
         BRepCheck_Analyzer(fixed_union).IsValid();
-    TopTools_IndexedMapOfShape fixed_union_faces,fixed_union_edges,
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> fixed_union_faces,fixed_union_edges,
         fixed_union_shells,fixed_union_solids;
     TopExp::MapShapes(fixed_union,TopAbs_FACE,fixed_union_faces);
     TopExp::MapShapes(fixed_union,TopAbs_EDGE,fixed_union_edges);
@@ -3554,7 +3556,7 @@ int batch_add_probe(const std::filesystem::path& source,
     }
     const bool classified_union_valid=sewed_shells.Extent()>0&&
         BRepCheck_Analyzer(classified_union).IsValid();
-    TopTools_IndexedMapOfShape classified_union_faces,
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> classified_union_faces,
         classified_union_edges;
     TopExp::MapShapes(classified_union,TopAbs_FACE,
         classified_union_faces);
@@ -3626,7 +3628,7 @@ int batch_add_probe(const std::filesystem::path& source,
     graph_unify_probe.SetLinearTolerance(tolerance);
     graph_unify_probe.SetAngularTolerance(1.0e-9);
     graph_unify_probe.Build();
-    TopTools_IndexedMapOfShape graph_unify_probe_edges;
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> graph_unify_probe_edges;
     TopExp::MapShapes(graph_unify_probe.Shape(),TopAbs_EDGE,
         graph_unify_probe_edges);
     const auto probe_edge_survives=[&](const TopoDS_Shape& edge) {
@@ -3635,7 +3637,7 @@ int batch_add_probe(const std::filesystem::path& source,
         if(history.IsNull())return false;
         for(const auto* descendants:{&history->Modified(edge),
                 &history->Generated(edge)})
-            for(TopTools_ListIteratorOfListOfShape descendant(
+            for(NCollection_List<TopoDS_Shape>::Iterator descendant(
                     *descendants);descendant.More();descendant.Next())
                 if(descendant.Value().ShapeType()==TopAbs_EDGE&&
                    graph_unify_probe_edges.Contains(descendant.Value()))
@@ -3646,7 +3648,7 @@ int batch_add_probe(const std::filesystem::path& source,
         grouped_solid,true,true,false);
     graph_unify.SetLinearTolerance(tolerance);
     graph_unify.SetAngularTolerance(1.0e-9);
-    TopTools_IndexedDataMapOfShapeListOfShape graph_edge_faces;
+    NCollection_IndexedDataMap<TopoDS_Shape, NCollection_List<TopoDS_Shape>, TopTools_ShapeMapHasher> graph_edge_faces;
     TopExp::MapShapesAndAncestors(grouped_solid,TopAbs_EDGE,
         TopAbs_FACE,graph_edge_faces);
     std::size_t identity_boundary_edges_kept{};
@@ -3655,7 +3657,7 @@ int batch_add_probe(const std::filesystem::path& source,
     for(int edge=1;edge<=graph_edge_faces.Extent();++edge) {
         const auto& adjacent=graph_edge_faces.FindFromIndex(edge);
         if(adjacent.Extent()!=2)continue;
-        TopTools_ListIteratorOfListOfShape face(adjacent);
+        NCollection_List<TopoDS_Shape>::Iterator face(adjacent);
         const auto first_face=TopoDS::Face(face.Value());
         const int first_index=sewed_faces.FindIndex(first_face);
         face.Next();
@@ -3709,7 +3711,7 @@ int batch_add_probe(const std::filesystem::path& source,
         Clock::now()-graph_unify_start).count();
     const bool unified_graph_valid=!unified_graph_union.IsNull()&&
         BRepCheck_Analyzer(unified_graph_union).IsValid();
-    TopTools_IndexedMapOfShape unified_graph_faces,unified_graph_edges,
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> unified_graph_faces,unified_graph_edges,
         unified_graph_shells,unified_graph_solids;
     TopExp::MapShapes(unified_graph_union,TopAbs_FACE,
         unified_graph_faces);
@@ -3733,7 +3735,7 @@ int batch_add_probe(const std::filesystem::path& source,
             for(const auto* list:{&graph_unify_history->Modified(
                     sewed_faces(face)),&graph_unify_history->Generated(
                     sewed_faces(face))})
-                for(TopTools_ListIteratorOfListOfShape descendant(*list);
+                for(NCollection_List<TopoDS_Shape>::Iterator descendant(*list);
                         descendant.More();descendant.Next())
                     if(descendant.Value().ShapeType()==TopAbs_FACE)
                         descendants.push_back(descendant.Value());
@@ -3788,7 +3790,7 @@ int batch_add_probe(const std::filesystem::path& source,
         expected_probe_volume);
     const double expected_union_volume=std::abs(
         expected_probe_volume.Mass());
-    TopTools_IndexedMapOfShape expected_probe_shells,
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> expected_probe_shells,
         expected_probe_solids,expected_probe_faces,expected_probe_edges;
     TopExp::MapShapes(expected_probe_shape,TopAbs_SHELL,
         expected_probe_shells);
@@ -3800,7 +3802,7 @@ int batch_add_probe(const std::filesystem::path& source,
         expected_probe_edges);
     const auto material_difference=[&](const TopoDS_Shape& left,
             const TopoDS_Shape& right) {
-        TopTools_ListOfShape arguments,tools;
+        NCollection_List<TopoDS_Shape> arguments,tools;
         arguments.Append(left);tools.Append(right);
         BRepAlgoAPI_Cut cut;
         cut.SetArguments(arguments);
@@ -3822,7 +3824,7 @@ int batch_add_probe(const std::filesystem::path& source,
         Clock::now()-material_check_start).count();
     Bnd_Box material_bounds;
     BRepBndLib::Add(expected_probe_shape,material_bounds,true);
-    Standard_Real material_x_min{},material_y_min{},material_z_min{},
+    double material_x_min{},material_y_min{},material_z_min{},
         material_x_max{},material_y_max{},material_z_max{};
     material_bounds.Get(material_x_min,material_y_min,material_z_min,
         material_x_max,material_y_max,material_z_max);
@@ -4233,7 +4235,7 @@ int batch_add_probe(const std::filesystem::path& source,
             std::size_t history_index{};
         };
         std::vector<LocalSourceTopology> local_sources;
-        TopTools_ListOfShape local_arguments,local_tools;
+        NCollection_List<TopoDS_Shape> local_arguments,local_tools;
         bool first_local=true;
         for(const auto& owner:local_owners) {
             const auto source_tool=feature_tools.find(owner);
@@ -4282,7 +4284,7 @@ int batch_add_probe(const std::filesystem::path& source,
             TopoDS_Edge shape;
             std::vector<kernel::EdgeReference> references;
         };
-        TopTools_IndexedMapOfShape local_faces,local_edges,local_vertices;
+        NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> local_faces,local_edges,local_vertices;
         TopExp::MapShapes(local_shape,TopAbs_FACE,local_faces);
         TopExp::MapShapes(local_shape,TopAbs_EDGE,local_edges);
         TopExp::MapShapes(local_shape,TopAbs_VERTEX,local_vertices);
@@ -4309,7 +4311,7 @@ int batch_add_probe(const std::filesystem::path& source,
             const auto history=local_source_unify.History();
             if(!history.IsNull())for(const auto* descendants:{
                     &history->Modified(source),&history->Generated(source)})
-                for(TopTools_ListIteratorOfListOfShape iterator(*descendants);
+                for(NCollection_List<TopoDS_Shape>::Iterator iterator(*descendants);
                         iterator.More();iterator.Next())
                     if(iterator.Value().ShapeType()==kind)
                         changed=attach(iterator.Value())||changed;
@@ -4321,7 +4323,7 @@ int batch_add_probe(const std::filesystem::path& source,
             std::vector<TopoDS_Shape> result;
             for(const auto* descendants:{&local_fuse.Modified(source),
                     &local_fuse.Generated(source)})
-                for(TopTools_ListIteratorOfListOfShape iterator(*descendants);
+                for(NCollection_List<TopoDS_Shape>::Iterator iterator(*descendants);
                         iterator.More();iterator.Next())
                     if(iterator.Value().ShapeType()==kind)
                         result.push_back(iterator.Value());
@@ -4391,20 +4393,20 @@ int batch_add_probe(const std::filesystem::path& source,
                 canonical_local_faces[static_cast<std::size_t>(index)]=
                     *std::ranges::min_element(sources,{},reference_age);
         }
-        TopTools_IndexedDataMapOfShapeListOfShape local_edge_faces,
+        NCollection_IndexedDataMap<TopoDS_Shape, NCollection_List<TopoDS_Shape>, TopTools_ShapeMapHasher> local_edge_faces,
             local_vertex_faces;
         TopExp::MapShapesAndAncestors(local_shape,TopAbs_EDGE,TopAbs_FACE,
             local_edge_faces);
         TopExp::MapShapesAndAncestors(local_shape,TopAbs_VERTEX,TopAbs_FACE,
             local_vertex_faces);
         const auto face_tokens_for=[&](
-                const TopTools_IndexedDataMapOfShapeListOfShape& ancestors,
+                const NCollection_IndexedDataMap<TopoDS_Shape, NCollection_List<TopoDS_Shape>, TopTools_ShapeMapHasher>& ancestors,
                 const TopoDS_Shape& child)
                 ->std::optional<std::set<std::string>> {
             const int child_index=ancestors.FindIndex(child);
             if(!child_index)return std::set<std::string>{};
             std::set<std::string> result;
-            for(TopTools_ListIteratorOfListOfShape iterator(
+            for(NCollection_List<TopoDS_Shape>::Iterator iterator(
                     ancestors.FindFromIndex(child_index));iterator.More();
                     iterator.Next()) {
                 const int face_index=local_faces.FindIndex(iterator.Value());
@@ -4455,7 +4457,7 @@ int batch_add_probe(const std::filesystem::path& source,
             if(owner.empty())continue;
             std::set<std::string> endpoint_supports;
             bool complete=true;
-            TopTools_IndexedMapOfShape endpoints;
+            NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> endpoints;
             TopExp::MapShapes(local_edges(index),TopAbs_VERTEX,endpoints);
             for(int endpoint=1;endpoint<=endpoints.Extent();++endpoint) {
                 std::optional<std::set<std::string>> support;
@@ -4491,7 +4493,7 @@ int batch_add_probe(const std::filesystem::path& source,
                 throw std::runtime_error(
                     "Localized prototype currently measures constant Fillets");
             BRepFilletAPI_MakeFillet fillet(local_shape);
-            TopTools_IndexedMapOfShape added;
+            NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> added;
             for(const auto& reference:request.edges) {
                 std::vector<TopoDS_Edge> matches;
                 for(const auto& candidate:current_edge_aliases)
@@ -4582,7 +4584,7 @@ int batch_add_probe(const std::filesystem::path& source,
                                             candidate.shape,token);
                                     }))continue;
                             if(!endpoint_groups.empty()) {
-                                TopTools_IndexedMapOfShape endpoints;
+                                NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> endpoints;
                                 TopExp::MapShapes(candidate.shape,
                                     TopAbs_VERTEX,endpoints);
                                 bool complete=true;
@@ -4675,7 +4677,7 @@ int batch_add_probe(const std::filesystem::path& source,
                 operations[operation_index].boolean_tolerance));
             fillet_unify.Build();
             const auto next_local_shape=fillet_unify.Shape();
-            TopTools_IndexedMapOfShape next_edges;
+            NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> next_edges;
             TopExp::MapShapes(next_local_shape,TopAbs_EDGE,next_edges);
             std::vector<LocalEdgeAliases> next_aliases;
             next_aliases.reserve(static_cast<std::size_t>(next_edges.Extent()));
@@ -4695,7 +4697,7 @@ int batch_add_probe(const std::filesystem::path& source,
                 std::vector<TopoDS_Shape> descendants;
                 for(const auto* values:{&fillet.Modified(source.shape),
                         &fillet.Generated(source.shape)})
-                    for(TopTools_ListIteratorOfListOfShape iterator(*values);
+                    for(NCollection_List<TopoDS_Shape>::Iterator iterator(*values);
                             iterator.More();iterator.Next())
                         if(iterator.Value().ShapeType()==TopAbs_EDGE)
                             descendants.push_back(iterator.Value());
@@ -4707,7 +4709,7 @@ int batch_add_probe(const std::filesystem::path& source,
                         for(const auto* values:{
                                 &treatment_unify_history->Modified(descendant),
                                 &treatment_unify_history->Generated(descendant)})
-                            for(TopTools_ListIteratorOfListOfShape iterator(*values);
+                            for(NCollection_List<TopoDS_Shape>::Iterator iterator(*values);
                                     iterator.More();iterator.Next())
                                 if(iterator.Value().ShapeType()==TopAbs_EDGE)
                                     changed=attach_next(iterator.Value(),
@@ -4729,7 +4731,7 @@ int batch_add_probe(const std::filesystem::path& source,
                     Clock::now()-fillet_start).count());
         }
         const auto treatments_done=Clock::now();
-        TopTools_ListOfShape final_arguments,final_tools;
+        NCollection_List<TopoDS_Shape> final_arguments,final_tools;
         final_arguments.Append(input_shape.root);
         for(std::size_t index=first;index<=last;++index) {
             if(local_owners.contains(operations[index].owner_id))continue;
@@ -4778,7 +4780,7 @@ int batch_add_probe(const std::filesystem::path& source,
             difference_volume(expected,localized_shape);
         const double localized_minus_expected=
             difference_volume(localized_shape,expected);
-        TopTools_IndexedMapOfShape localized_faces,expected_faces;
+        NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> localized_faces,expected_faces;
         TopExp::MapShapes(localized_shape,TopAbs_FACE,localized_faces);
         TopExp::MapShapes(expected,TopAbs_FACE,expected_faces);
         const auto elapsed=std::chrono::duration<double,std::milli>(
@@ -4824,7 +4826,7 @@ int batch_add_probe(const std::filesystem::path& source,
         return 0;
     }
 
-    TopTools_ListOfShape arguments,tool_list;
+    NCollection_List<TopoDS_Shape> arguments,tool_list;
     arguments.Append(input_shape.root);
     for(const auto& tool:tools)tool_list.Append(tool);
     BRepAlgoAPI_BooleanOperation fuse;
@@ -4839,9 +4841,9 @@ int batch_add_probe(const std::filesystem::path& source,
     if(!fuse.IsDone()||fuse.Shape().IsNull()||
        !BRepCheck_Analyzer(fuse.Shape()).IsValid())
         throw std::runtime_error("Batch Add did not produce a valid shape");
-    TopTools_IndexedMapOfShape raw_batch_edge_map;
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> raw_batch_edge_map;
     TopExp::MapShapes(fuse.Shape(),TopAbs_EDGE,raw_batch_edge_map);
-    TopTools_IndexedMapOfShape raw_batch_face_map;
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> raw_batch_face_map;
     TopExp::MapShapes(fuse.Shape(),TopAbs_FACE,raw_batch_face_map);
     std::vector<std::set<std::string>> raw_batch_face_ancestry(
         static_cast<std::size_t>(raw_batch_face_map.Extent())+1);
@@ -4854,7 +4856,7 @@ int batch_add_probe(const std::filesystem::path& source,
     for(const auto& [face,reference]:source_faces) {
         bool changed=false;
         for(const auto* descendants:{&fuse.Modified(face),&fuse.Generated(face)})
-            for(TopTools_ListIteratorOfListOfShape it(*descendants);it.More();
+            for(NCollection_List<TopoDS_Shape>::Iterator it(*descendants);it.More();
                     it.Next())if(it.Value().ShapeType()==TopAbs_FACE) {
                 attach_raw_face(it.Value(),reference);changed=true;
             }
@@ -4871,13 +4873,13 @@ int batch_add_probe(const std::filesystem::path& source,
     for(const auto& [edge,reference]:source_edges) {
         bool changed=false;
         for(const auto* descendants:{&fuse.Modified(edge),&fuse.Generated(edge)})
-            for(TopTools_ListIteratorOfListOfShape it(*descendants);it.More();
+            for(NCollection_List<TopoDS_Shape>::Iterator it(*descendants);it.More();
                     it.Next())if(it.Value().ShapeType()==TopAbs_EDGE) {
                 attach_raw_edge(it.Value(),reference);changed=true;
             }
         if(!changed&&!fuse.IsDeleted(edge))attach_raw_edge(edge,reference);
     }
-    TopTools_IndexedMapOfShape raw_batch_vertex_map;
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> raw_batch_vertex_map;
     TopExp::MapShapes(fuse.Shape(),TopAbs_VERTEX,raw_batch_vertex_map);
     std::vector<std::set<std::string>> raw_batch_vertex_ancestry(
         static_cast<std::size_t>(raw_batch_vertex_map.Extent())+1);
@@ -4891,7 +4893,7 @@ int batch_add_probe(const std::filesystem::path& source,
         bool changed=false;
         for(const auto* descendants:{&fuse.Modified(vertex),
                 &fuse.Generated(vertex)})
-            for(TopTools_ListIteratorOfListOfShape it(*descendants);it.More();
+            for(NCollection_List<TopoDS_Shape>::Iterator it(*descendants);it.More();
                     it.Next())if(it.Value().ShapeType()==TopAbs_VERTEX) {
                 attach_raw_vertex(it.Value(),reference);changed=true;
             }
@@ -4919,7 +4921,7 @@ int batch_add_probe(const std::filesystem::path& source,
     const auto append_batch_topology=[&](TopAbs_ShapeEnum kind,
             kernel::StepRequest::TopologyIdentity::Kind identity_kind,
             std::string_view prefix) {
-        TopTools_IndexedMapOfShape members;
+        NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> members;
         TopExp::MapShapes(unified,kind,members);
         for(int index=1;index<=members.Extent();++index) {
             std::ostringstream locator;batch_archive.Write(members(index),locator);
@@ -4972,7 +4974,7 @@ int batch_add_probe(const std::filesystem::path& source,
         for(TopExp_Explorer explorer(shape,TopAbs_SOLID);explorer.More();explorer.Next())++count;
         return count;
     };
-    TopTools_IndexedMapOfShape batch_face_map;
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> batch_face_map;
     TopExp::MapShapes(unified,TopAbs_FACE,batch_face_map);
     std::vector<std::set<std::string>> batch_face_ancestry(
         static_cast<std::size_t>(batch_face_map.Extent())+1);
@@ -4998,7 +5000,7 @@ int batch_add_probe(const std::filesystem::path& source,
         const auto history=unify.History();
         if(!history.IsNull())for(const auto* descendants:{
                 &history->Modified(shape),&history->Generated(shape)})
-            for(TopTools_ListIteratorOfListOfShape it(*descendants);it.More();it.Next())
+            for(NCollection_List<TopoDS_Shape>::Iterator it(*descendants);it.More();it.Next())
                 if(it.Value().ShapeType()==TopAbs_FACE) {
                     changed=attach_reference(it.Value(),reference)||changed;
                 }
@@ -5008,16 +5010,16 @@ int batch_add_probe(const std::filesystem::path& source,
     for(const auto& [face,reference]:source_faces) {
         bool changed=false;
         for(const auto* descendants:{&fuse.Modified(face),&fuse.Generated(face)})
-            for(TopTools_ListIteratorOfListOfShape it(*descendants);it.More();it.Next())
+            for(NCollection_List<TopoDS_Shape>::Iterator it(*descendants);it.More();it.Next())
                 if(it.Value().ShapeType()==TopAbs_FACE) {
                     append_unified(it.Value(),reference);
                     changed=true;
                 }
         if(!changed&&!fuse.IsDeleted(face))append_unified(face,reference);
     }
-    TopTools_IndexedMapOfShape batch_edge_map;
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> batch_edge_map;
     TopExp::MapShapes(unified,TopAbs_EDGE,batch_edge_map);
-    TopTools_IndexedMapOfShape batch_vertex_map_for_supports;
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> batch_vertex_map_for_supports;
     TopExp::MapShapes(unified,TopAbs_VERTEX,batch_vertex_map_for_supports);
     std::vector<std::set<std::string>> batch_edge_source_face_supports(
         static_cast<std::size_t>(batch_edge_map.Extent())+1);
@@ -5042,7 +5044,7 @@ int batch_add_probe(const std::filesystem::path& source,
         const auto history=unify.History();
         if(!history.IsNull())for(const auto* descendants:{
                 &history->Modified(source),&history->Generated(source)})
-            for(TopTools_ListIteratorOfListOfShape it(*descendants);it.More();
+            for(NCollection_List<TopoDS_Shape>::Iterator it(*descendants);it.More();
                     it.Next())
                 if(it.Value().ShapeType()==kind)
                     changed=attach(it.Value())||changed;
@@ -5058,7 +5060,7 @@ int batch_add_probe(const std::filesystem::path& source,
         source_face_references.insert_or_assign(token,reference);
         std::vector<TopoDS_Shape> descendants;
         for(const auto* generated:{&fuse.Modified(face),&fuse.Generated(face)})
-            for(TopTools_ListIteratorOfListOfShape it(*generated);it.More();
+            for(NCollection_List<TopoDS_Shape>::Iterator it(*generated);it.More();
                     it.Next())
                 if(it.Value().ShapeType()==TopAbs_FACE)
                     descendants.push_back(it.Value());
@@ -5093,7 +5095,7 @@ int batch_add_probe(const std::filesystem::path& source,
         const auto history=unify.History();
         if(!history.IsNull())for(const auto* descendants:{
                 &history->Modified(shape),&history->Generated(shape)})
-            for(TopTools_ListIteratorOfListOfShape it(*descendants);it.More();it.Next())
+            for(NCollection_List<TopoDS_Shape>::Iterator it(*descendants);it.More();it.Next())
                 if(it.Value().ShapeType()==TopAbs_EDGE)
                     changed=attach_edge_reference(it.Value(),reference)||changed;
         if(!changed&&(history.IsNull()||!history->IsRemoved(shape)))
@@ -5102,7 +5104,7 @@ int batch_add_probe(const std::filesystem::path& source,
     for(const auto& [edge,reference]:source_edges) {
         bool changed=false;
         for(const auto* descendants:{&fuse.Modified(edge),&fuse.Generated(edge)})
-            for(TopTools_ListIteratorOfListOfShape it(*descendants);it.More();it.Next())
+            for(NCollection_List<TopoDS_Shape>::Iterator it(*descendants);it.More();it.Next())
                 if(it.Value().ShapeType()==TopAbs_EDGE) {
                     append_unified_edge(it.Value(),reference);changed=true;
                 }
@@ -5124,7 +5126,7 @@ int batch_add_probe(const std::filesystem::path& source,
         const auto history=unify.History();
         if(!history.IsNull())for(const auto* descendants:{
                 &history->Modified(shape),&history->Generated(shape)})
-            for(TopTools_ListIteratorOfListOfShape it(*descendants);it.More();
+            for(NCollection_List<TopoDS_Shape>::Iterator it(*descendants);it.More();
                     it.Next())if(it.Value().ShapeType()==TopAbs_VERTEX)
                 changed=attach_vertex_reference(it.Value(),reference)||changed;
         if(!changed&&(history.IsNull()||!history->IsRemoved(shape)))
@@ -5134,7 +5136,7 @@ int batch_add_probe(const std::filesystem::path& source,
         bool changed=false;
         for(const auto* descendants:{&fuse.Modified(vertex),
                 &fuse.Generated(vertex)})
-            for(TopTools_ListIteratorOfListOfShape it(*descendants);it.More();
+            for(NCollection_List<TopoDS_Shape>::Iterator it(*descendants);it.More();
                     it.Next())if(it.Value().ShapeType()==TopAbs_VERTEX) {
                 append_unified_vertex(it.Value(),reference);changed=true;
             }
@@ -5172,18 +5174,18 @@ int batch_add_probe(const std::filesystem::path& source,
         canonical_batch_faces[index]=*std::ranges::min_element(sources,
             {},age);
     }
-    TopTools_IndexedDataMapOfShapeListOfShape batch_edge_faces,batch_vertex_faces;
+    NCollection_IndexedDataMap<TopoDS_Shape, NCollection_List<TopoDS_Shape>, TopTools_ShapeMapHasher> batch_edge_faces,batch_vertex_faces;
     TopExp::MapShapesAndAncestors(
         unified,TopAbs_EDGE,TopAbs_FACE,batch_edge_faces);
     TopExp::MapShapesAndAncestors(
         unified,TopAbs_VERTEX,TopAbs_FACE,batch_vertex_faces);
     const auto face_tokens_for=[&](
-            const TopTools_IndexedDataMapOfShapeListOfShape& ancestors,
+            const NCollection_IndexedDataMap<TopoDS_Shape, NCollection_List<TopoDS_Shape>, TopTools_ShapeMapHasher>& ancestors,
             const TopoDS_Shape& child) -> std::optional<std::set<std::string>> {
         const int child_index=ancestors.FindIndex(child);
         if(child_index==0)return std::set<std::string>{};
         std::set<std::string> result;
-        for(TopTools_ListIteratorOfListOfShape iterator(
+        for(NCollection_List<TopoDS_Shape>::Iterator iterator(
                 ancestors.FindFromIndex(child_index));iterator.More();
                 iterator.Next()) {
             const int face_index=batch_face_map.FindIndex(iterator.Value());
@@ -5220,7 +5222,7 @@ int batch_add_probe(const std::filesystem::path& source,
         if(owner.empty())continue;
         std::set<std::string> endpoint_supports;
         bool endpoints_complete=true;
-        TopTools_IndexedMapOfShape vertices;
+        NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> vertices;
         TopExp::MapShapes(edge,TopAbs_VERTEX,vertices);
         for(int vertex=1;vertex<=vertices.Extent();++vertex) {
             std::optional<std::set<std::string>> support;
@@ -5530,7 +5532,7 @@ int batch_add_probe(const std::filesystem::path& source,
                         local_owners.insert(
                             operations[source_index].owner_id);
             }
-        TopTools_ListOfShape local_arguments,local_tools;
+        NCollection_List<TopoDS_Shape> local_arguments,local_tools;
         bool first_local=true;
         for(const auto& owner:local_owners) {
             const auto source=feature_tools.find(owner);
@@ -5575,7 +5577,7 @@ int batch_add_probe(const std::filesystem::path& source,
                 throw std::runtime_error(
                     "Localized Fillet reference has unbounded parameters");
             std::vector<TopoDS_Edge> matches;
-            TopTools_IndexedMapOfShape edges;
+            NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> edges;
             TopExp::MapShapes(result,TopAbs_EDGE,edges);
             for(int index=1;index<=edges.Extent();++index) {
                 const auto candidate=TopoDS::Edge(edges(index));
@@ -5608,7 +5610,7 @@ int batch_add_probe(const std::filesystem::path& source,
             const auto expected_input=bound_face_shape(
                 local_body(operation_index-1));
             BRepFilletAPI_MakeFillet fillet(local_shape);
-            TopTools_IndexedMapOfShape added;
+            NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> added;
             for(const auto& reference:request.edges) {
                 const auto expected_edge=std::ranges::find_if(
                     expected_input.edges,[&](const auto& entry) {
@@ -5652,7 +5654,7 @@ int batch_add_probe(const std::filesystem::path& source,
             if(local_shape.IsNull()||!BRepCheck_Analyzer(local_shape).IsValid())
                 throw std::runtime_error("Localized Fillet result is invalid");
         }
-        TopTools_ListOfShape final_arguments,final_tools;
+        NCollection_List<TopoDS_Shape> final_arguments,final_tools;
         final_arguments.Append(input_shape.root);
         for(std::size_t index=first;index<=last;++index) {
             if(local_owners.contains(operations[index].owner_id))continue;
@@ -5763,7 +5765,7 @@ int batch_add_probe(const std::filesystem::path& source,
                                 child_operation,references,{},references,{});
                         }));
                 }
-                TopTools_ListOfShape arguments,group_tools;
+                NCollection_List<TopoDS_Shape> arguments,group_tools;
                 arguments.Append(base);
                 for(auto& future:pending) {
                     auto child_result=future.get();
@@ -5849,7 +5851,7 @@ int batch_add_probe(const std::filesystem::path& source,
                     edge_bindings.push_back({locator.str(),std::move(reference)});
             }
             batch_boundary.kernel_edges=std::move(edge_bindings);
-            TopTools_IndexedMapOfShape batch_vertex_map;
+            NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> batch_vertex_map;
             TopExp::MapShapes(unified,TopAbs_VERTEX,batch_vertex_map);
             std::vector<kernel::BodyResult::KernelBinding<kernel::VertexReference>>
                 vertex_bindings;
@@ -5915,7 +5917,7 @@ int batch_add_probe(const std::filesystem::path& source,
             }
             const auto treated_shape=kernel::read_calculated_body_shape(
                 complete_local_boundaries.at(downstream_replay_last));
-            TopTools_IndexedMapOfShape treated_faces;
+            NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> treated_faces;
             TopExp::MapShapes(batch_treated_shape,TopAbs_FACE,treated_faces);
             downstream_batch_result_faces=static_cast<std::size_t>(
                 treated_faces.Extent());
@@ -5958,7 +5960,7 @@ int batch_add_probe(const std::filesystem::path& source,
                             "Subtract batch tool has no native shape");
                     cut_shapes.push_back(bound.root);
                 }
-                TopTools_ListOfShape cut_arguments,cut_tools;
+                NCollection_List<TopoDS_Shape> cut_arguments,cut_tools;
                 cut_arguments.Append(batch_treated_shape);
                 for(const auto& shape:cut_shapes)cut_tools.Append(shape);
                 BRepAlgoAPI_BooleanOperation cut_batch;
@@ -6213,7 +6215,7 @@ int batch_add_probe(const std::filesystem::path& source,
         else if(root_candidates.empty())++missing_face_root_absent;
         else ++missing_face_root_ambiguous;
         std::set<std::string> old_boundary_roots;
-        TopTools_IndexedMapOfShape old_face_edges;
+        NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> old_face_edges;
         TopExp::MapShapes(expected->second,TopAbs_EDGE,old_face_edges);
         for(const auto& [edge,reference]:identity_bound.edges)
             if(old_face_edges.Contains(edge))old_boundary_roots.insert(
@@ -6508,7 +6510,7 @@ int batch_add_probe(const std::filesystem::path& source,
     for(const auto& [edge,reference]:source_edges)
         current_source_edges[reference_key(reference)].push_back(
             TopoDS::Edge(edge));
-    TopTools_IndexedDataMapOfShapeListOfShape raw_edge_faces;
+    NCollection_IndexedDataMap<TopoDS_Shape, NCollection_List<TopoDS_Shape>, TopTools_ShapeMapHasher> raw_edge_faces;
     TopExp::MapShapesAndAncestors(
         fuse.Shape(),TopAbs_EDGE,TopAbs_FACE,raw_edge_faces);
     std::vector<std::set<std::string>> raw_edge_face_sources(
@@ -6517,7 +6519,7 @@ int batch_add_probe(const std::filesystem::path& source,
         const int ancestor_index=raw_edge_faces.FindIndex(
             raw_batch_edge_map(edge_index));
         if(!ancestor_index)continue;
-        for(TopTools_ListIteratorOfListOfShape face(
+        for(NCollection_List<TopoDS_Shape>::Iterator face(
                 raw_edge_faces.FindFromIndex(ancestor_index));face.More();
                 face.Next()) {
             const int face_index=raw_batch_face_map.FindIndex(face.Value());
@@ -6593,7 +6595,7 @@ int batch_add_probe(const std::filesystem::path& source,
     std::map<std::string,TopoDS_Shape> expected_vertex_shapes;
     for(const auto& [vertex,reference]:identity_bound.vertices)
         expected_vertex_shapes.emplace(reference_key(reference),vertex);
-    TopTools_IndexedDataMapOfShapeListOfShape identity_vertex_faces,
+    NCollection_IndexedDataMap<TopoDS_Shape, NCollection_List<TopoDS_Shape>, TopTools_ShapeMapHasher> identity_vertex_faces,
         identity_vertex_edges,raw_vertex_faces,raw_vertex_edges;
     TopExp::MapShapesAndAncestors(identity_bound.root,TopAbs_VERTEX,
         TopAbs_FACE,identity_vertex_faces);
@@ -6635,7 +6637,7 @@ int batch_add_probe(const std::filesystem::path& source,
                 const auto& values,auto root,auto& result) {
             const int ancestor_index=ancestors.FindIndex(expected->second);
             if(!ancestor_index)return;
-            for(TopTools_ListIteratorOfListOfShape ancestor(
+            for(NCollection_List<TopoDS_Shape>::Iterator ancestor(
                     ancestors.FindFromIndex(ancestor_index));ancestor.More();
                     ancestor.Next())
                 for(const auto& [shape,reference]:values)
@@ -6652,7 +6654,7 @@ int batch_add_probe(const std::filesystem::path& source,
                 const auto& values,auto& result) {
             const int ancestor_index=ancestors.FindIndex(expected->second);
             if(!ancestor_index)return;
-            for(TopTools_ListIteratorOfListOfShape ancestor(
+            for(NCollection_List<TopoDS_Shape>::Iterator ancestor(
                     ancestors.FindFromIndex(ancestor_index));ancestor.More();
                     ancestor.Next())
                 for(const auto& [shape,reference]:values)
@@ -6669,7 +6671,7 @@ int batch_add_probe(const std::filesystem::path& source,
             std::set<int> candidate_face_indices,candidate_edge_indices;
             const int face_index=raw_vertex_faces.FindIndex(
                 raw_batch_vertex_map(index));
-            if(face_index)for(TopTools_ListIteratorOfListOfShape face(
+            if(face_index)for(NCollection_List<TopoDS_Shape>::Iterator face(
                     raw_vertex_faces.FindFromIndex(face_index));face.More();
                     face.Next()) {
                 const int source=raw_batch_face_map.FindIndex(face.Value());
@@ -6683,7 +6685,7 @@ int batch_add_probe(const std::filesystem::path& source,
             }
             const int edge_index=raw_vertex_edges.FindIndex(
                 raw_batch_vertex_map(index));
-            if(edge_index)for(TopTools_ListIteratorOfListOfShape edge(
+            if(edge_index)for(NCollection_List<TopoDS_Shape>::Iterator edge(
                     raw_vertex_edges.FindFromIndex(edge_index));edge.More();
                     edge.Next()) {
                 const int source=raw_batch_edge_map.FindIndex(edge.Value());
@@ -6737,7 +6739,7 @@ int batch_add_probe(const std::filesystem::path& source,
         }
     }
     const auto shape_count=[](const TopoDS_Shape& shape,TopAbs_ShapeEnum kind) {
-        TopTools_IndexedMapOfShape members;
+        NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> members;
         TopExp::MapShapes(shape,kind,members);
         return members.Extent();
     };
@@ -7853,7 +7855,7 @@ int append_last_operation_probe(const std::filesystem::path& source,
        !BRepCheck_Analyzer(shape,true,true,false).IsValid())
         throw std::runtime_error(
             "Appended operation produced an invalid final body");
-    TopTools_IndexedMapOfShape faces;
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> faces;
     TopExp::MapShapes(shape,TopAbs_FACE,faces);
     double full_replay_ms=-1.;
     double incremental_minus_full=-1.;
@@ -8026,7 +8028,7 @@ int direct_regeneration_prefix_probe(
     };
     const auto serial_references=references(serial.back());
     const auto direct_references=references(direct.back());
-    TopTools_IndexedMapOfShape serial_faces,direct_faces,
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> serial_faces,direct_faces,
         serial_edges,direct_edges,serial_vertices,direct_vertices;
     TopExp::MapShapes(serial_shape,TopAbs_FACE,serial_faces);
     TopExp::MapShapes(direct_shape,TopAbs_FACE,direct_faces);
@@ -8115,7 +8117,7 @@ int planar_fillet_equivalence_probe(
     };
     const auto face_kinds=[](const TopoDS_Shape& shape) {
         std::array<std::size_t,3> result{};
-        TopTools_IndexedMapOfShape faces;
+        NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> faces;
         TopExp::MapShapes(shape,TopAbs_FACE,faces);
         for(int index=1;index<=faces.Extent();++index) {
             switch(BRepAdaptor_Surface(
@@ -8129,7 +8131,7 @@ int planar_fillet_equivalence_probe(
     };
     const auto topology_counts=[](const TopoDS_Shape& shape) {
         std::array<std::size_t,2> result{};
-        TopTools_IndexedMapOfShape edges,vertices;
+        NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> edges,vertices;
         TopExp::MapShapes(shape,TopAbs_EDGE,edges);
         TopExp::MapShapes(shape,TopAbs_VERTEX,vertices);
         result[0]=static_cast<std::size_t>(edges.Extent());
@@ -8264,7 +8266,7 @@ int planar_fillet_equivalence_probe(
                 kernel::read_calculated_body_shape(single_reference);
             const auto single_custom_shape=
                 kernel::read_calculated_body_shape(single_custom);
-            TopTools_IndexedMapOfShape single_reference_faces,
+            NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> single_reference_faces,
                 single_custom_faces;
             TopExp::MapShapes(single_reference_shape,TopAbs_FACE,
                 single_reference_faces);
@@ -8366,7 +8368,7 @@ int planar_fillet_batch_probe(const std::filesystem::path& source,
         return std::abs(properties.Mass());
     };
     const auto face_count=[](const TopoDS_Shape& shape) {
-        TopTools_IndexedMapOfShape faces;
+        NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> faces;
         TopExp::MapShapes(shape,TopAbs_FACE,faces);
         return faces.Extent();
     };
@@ -8540,7 +8542,7 @@ int primary_region_treatment_probe(const std::filesystem::path& source) {
                         archive.Read(stream);
                         TopoDS_Shape root;
                         archive.Read(root,stream);
-                        TopTools_IndexedMapOfShape member_edges;
+                        NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> member_edges;
                         TopExp::MapShapes(root,TopAbs_EDGE,member_edges);
                         std::vector<TopoDS_Edge> selected;
                         for(const auto& reference:request.edges) {
@@ -8616,7 +8618,7 @@ int primary_region_treatment_probe(const std::filesystem::path& source) {
                     std::size_t history_index) {
                 kernel::OcctBoundarySolid boundary;
                 boundary.shape=shape;
-                TopTools_IndexedMapOfShape faces;
+                NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> faces;
                 TopExp::MapShapes(shape,TopAbs_FACE,faces);
                 boundary.faces.reserve(
                     static_cast<std::size_t>(faces.Extent()));
@@ -8743,7 +8745,7 @@ int primary_region_treatment_probe(const std::filesystem::path& source) {
         if(removal_mode==2)shapes=bases;
         if(shapes.size()==1)result.shape=shapes.front();
         else {
-            TopTools_ListOfShape arguments,tools;
+            NCollection_List<TopoDS_Shape> arguments,tools;
             arguments.Append(shapes.front());
             for(std::size_t index=1;index<shapes.size();++index)
                 tools.Append(shapes[index]);
@@ -8833,7 +8835,7 @@ int primary_region_treatment_probe(const std::filesystem::path& source) {
         for(const auto [slot,kind]:std::array{
                 std::pair{0U,TopAbs_FACE},std::pair{1U,TopAbs_EDGE},
                 std::pair{2U,TopAbs_VERTEX}}) {
-            TopTools_IndexedMapOfShape values;
+            NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> values;
             TopExp::MapShapes(shape,kind,values);
             result[slot]=static_cast<std::size_t>(values.Extent());
         }
@@ -9067,7 +9069,7 @@ int direct_exact_equivalence_probe(
             value.area=surface.Mass();
             value.center=volume.CentreOfMass();
             for(std::size_t index=0;index<value.topology.size();++index) {
-                TopTools_IndexedMapOfShape shapes;
+                NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> shapes;
                 TopExp::MapShapes(shape,std::array{TopAbs_SOLID,
                     TopAbs_FACE,TopAbs_EDGE,TopAbs_VERTEX}[index],shapes);
                 value.topology[index]=shapes.Extent();
@@ -9870,7 +9872,7 @@ int main(int argc, char** argv) {
             };
             const auto count=[](const TopoDS_Shape& shape,
                     TopAbs_ShapeEnum kind) {
-                TopTools_IndexedMapOfShape values;
+                NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> values;
                 TopExp::MapShapes(shape,kind,values);
                 return values.Extent();
             };
@@ -10198,7 +10200,7 @@ int main(int argc, char** argv) {
                     "Converted Part has no reference calculated result");
             const auto reference_shape=
                 zima::kernel::read_calculated_body_shape(previous.back());
-            TopTools_IndexedMapOfShape reference_faces;
+            NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> reference_faces;
             TopExp::MapShapes(reference_shape,TopAbs_FACE,reference_faces);
             GProp_GProps reference_properties;
             BRepGProp::VolumeProperties(reference_shape,
@@ -10243,7 +10245,7 @@ int main(int argc, char** argv) {
             const auto converted_shape=
                 zima::kernel::read_calculated_body_shape(
                     calculated.back());
-            TopTools_IndexedMapOfShape converted_faces;
+            NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> converted_faces;
             TopExp::MapShapes(converted_shape,TopAbs_FACE,converted_faces);
             GProp_GProps converted_properties;
             BRepGProp::VolumeProperties(converted_shape,
@@ -10278,7 +10280,7 @@ int main(int argc, char** argv) {
             const auto reopened_shape=
                 zima::kernel::read_calculated_body_shape(
                     reopened_boundaries.back());
-            TopTools_IndexedMapOfShape reopened_faces;
+            NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> reopened_faces;
             TopExp::MapShapes(reopened_shape,TopAbs_FACE,reopened_faces);
             GProp_GProps reopened_properties;
             BRepGProp::VolumeProperties(reopened_shape,

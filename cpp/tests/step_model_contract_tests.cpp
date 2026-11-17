@@ -20,7 +20,8 @@
 #include <BRep_Builder.hxx>
 #include <BRepTools.hxx>
 #include <TopoDS_Compound.hxx>
-#include <TopTools_ListOfShape.hxx>
+#include <NCollection_List.hxx>
+#include <TopoDS_Shape.hxx>
 #include <TopExp_Explorer.hxx>
 #include <gp_Pln.hxx>
 #include <sstream>
@@ -189,7 +190,7 @@ int main(int argc,char** argv) {
             require(!shape.IsNull(),"STEP Boolean input is empty");
             const auto transfer_ms=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-started).count();
             Bnd_Box bounds;BRepBndLib::AddOptimal(shape,bounds,false,false);
-            Standard_Real xmin{},ymin{},zmin{},xmax{},ymax{},zmax{};bounds.Get(xmin,ymin,zmin,xmax,ymax,zmax);
+            double xmin{},ymin{},zmin{},xmax{},ymax{},zmax{};bounds.Get(xmin,ymin,zmin,xmax,ymax,zmax);
             const double margin=std::max({xmax-xmin,ymax-ymin,zmax-zmin})*.02+1.;
             const double split=xmin+(xmax-xmin)*.5;
             const auto tool=BRepPrimAPI_MakeBox(gp_Pnt(split,ymin-margin,zmin-margin),
@@ -217,7 +218,7 @@ int main(int argc,char** argv) {
                 return 0;
             }
             const bool parallel=mode=="parallel";
-            BRepAlgoAPI_Cut cut;TopTools_ListOfShape arguments,tools;
+            BRepAlgoAPI_Cut cut;NCollection_List<TopoDS_Shape> arguments,tools;
             arguments.Append(shape);tools.Append(tool);cut.SetArguments(arguments);cut.SetTools(tools);
             cut.SetToFillHistory(true);cut.SetFuzzyValue(.001);cut.SetRunParallel(parallel);
             started=std::chrono::steady_clock::now();cut.Build();

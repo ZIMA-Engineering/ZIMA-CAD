@@ -67,7 +67,7 @@ struct EdgeGuideReuse {
 // Shape maps ignore orientation. Keep a separate signature for each oriented
 // use; location is part of the map key. Lifetime is a single fixed packet.
 struct EdgeGuidePacketSignatures {
-    TopTools_IndexedMapOfShape shapes;
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> shapes;
     std::vector<std::array<std::optional<std::string>,4>> signatures;
     const std::string& get(const TopoDS_Shape& shape) {
         const auto index=static_cast<std::size_t>(shapes.Add(shape)-1);

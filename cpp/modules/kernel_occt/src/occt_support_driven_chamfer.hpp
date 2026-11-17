@@ -259,7 +259,7 @@ inline Result build(const std::vector<TopoDS_Edge>& ordered,
                 }
                 // Classification tolerances locate the transition, but the
                 // contact vertex must lie on the actual shared trim edge.
-                TopTools_IndexedMapOfShape old_edges;TopExp::MapShapes(before,TopAbs_EDGE,old_edges);
+                NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> old_edges;TopExp::MapShapes(before,TopAbs_EDGE,old_edges);
                 double nearest=1.e100;std::optional<std::pair<gp_Pnt2d,gp_Vec2d>> seam;
                 const auto& old_chart=charts[side][previous.charts[side]];
                 const auto guess=evaluate(.5*(low+high)).flat[side];
@@ -333,7 +333,7 @@ inline Result build(const std::vector<TopoDS_Edge>& ordered,
 
     }
     BRep_Builder band_builder;TopoDS_Compound supports;band_builder.MakeCompound(supports);
-    TopTools_IndexedMapOfShape unique_supports;
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> unique_supports;
     for(const auto& pair:faces)for(const auto& face:pair)unique_supports.Add(face);
     for(const auto& face:unique_supports)band_builder.Add(supports,face);
     BRepFeat_SplitShape split(supports);
@@ -354,7 +354,7 @@ inline Result build(const std::vector<TopoDS_Edge>& ordered,
     if(sewing.NbFreeEdges()||sewing.NbMultipleEdges()||sewing.SewedShape().ShapeType()!=TopAbs_SHELL)throw std::runtime_error("Chamfer band is not closed");
     auto tool=BRepBuilderAPI_MakeSolid(TopoDS::Shell(sewing.SewedShape())).Solid();
     if(!BRepLib::OrientClosedSolid(tool)||!BRepCheck_Analyzer(tool).IsValid())throw std::runtime_error("Chamfer band is not a solid");
-    TopTools_IndexedMapOfShape tool_faces;TopExp::MapShapes(tool,TopAbs_FACE,tool_faces);
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> tool_faces;TopExp::MapShapes(tool,TopAbs_FACE,tool_faces);
     for(auto& face:treatment_faces) {
         if(sewing.IsModified(face))face=TopoDS::Face(sewing.Modified(face));
         if(!tool_faces.Contains(face))throw std::runtime_error("Sewn chamfer lost a treatment face");

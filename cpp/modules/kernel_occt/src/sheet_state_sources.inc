@@ -192,7 +192,7 @@ PrimitiveData calculate(Sources sources,const std::vector<SheetMaterialDefinitio
                 }));
             for(auto& job:jobs)job.get();
 
-            TopTools_ListOfShape arguments,tools;
+            NCollection_List<TopoDS_Shape> arguments,tools;
             arguments.Append(materials.front().shape);
             std::vector<OwnedFace> faces;
             std::vector<OwnedEdge> edges;

@@ -29,9 +29,11 @@
 #include <ShapeUpgrade_UnifySameDomain.hxx>
 #include <TopExp.hxx>
 #include <TopExp_Explorer.hxx>
-#include <TopTools_IndexedMapOfShape.hxx>
-#include <TopTools_HSequenceOfShape.hxx>
-#include <TopTools_ListOfShape.hxx>
+#include <NCollection_IndexedMap.hxx>
+#include <TopoDS_Shape.hxx>
+#include <TopTools_ShapeMapHasher.hxx>
+#include <NCollection_HSequence.hxx>
+#include <NCollection_List.hxx>
 #include <TopoDS_Solid.hxx>
 #include <TopoDS.hxx>
 #include <gp_Lin.hxx>
@@ -49,7 +51,7 @@ double area(const TopoDS_Shape& shape) {
     GProp_GProps props;BRepGProp::SurfaceProperties(shape,props);return props.Mass();
 }
 TopoDS_Face only_face(const TopoDS_Shape& shape,std::size_t row,std::size_t other) {
-    TopTools_IndexedMapOfShape faces;TopExp::MapShapes(shape,TopAbs_FACE,faces);
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> faces;TopExp::MapShapes(shape,TopAbs_FACE,faces);
     if(faces.Extent()!=1)fail(OrderedLimitFailure::EmptyPatch,row,other);
     return TopoDS::Face(faces(1));
 }
@@ -162,7 +164,7 @@ TopoDS_Solid positive_half(const TopoDS_Face& support,const Bnd_Box& all_support
 
 TopoDS_Shape positive_part(const TopoDS_Shape& shape,const TopoDS_Solid& half,
         double tolerance,std::size_t row,std::size_t other) {
-    BRepAlgoAPI_Common common;TopTools_ListOfShape args,tools;args.Append(shape);tools.Append(half);
+    BRepAlgoAPI_Common common;NCollection_List<TopoDS_Shape> args,tools;args.Append(shape);tools.Append(half);
     common.SetArguments(args);common.SetTools(tools);common.SetNonDestructive(true);
     common.SetFuzzyValue(tolerance);common.Build();
     if(!common.IsDone()||common.Shape().IsNull())fail(OrderedLimitFailure::EmptyPatch,row,other);
@@ -182,14 +184,14 @@ TopoDS_Face retain(const TopoDS_Face& patch,const TopoDS_Face& authored,
     TopoDS_Shape retained;
     if(*choice)retained=positive_part(patch,positive,tolerance,row,other);
     else {
-        BRepAlgoAPI_Cut cut;TopTools_ListOfShape args,tools;args.Append(patch);tools.Append(positive);
+        BRepAlgoAPI_Cut cut;NCollection_List<TopoDS_Shape> args,tools;args.Append(patch);tools.Append(positive);
         cut.SetArguments(args);cut.SetTools(tools);cut.SetNonDestructive(true);
         cut.SetFuzzyValue(tolerance);cut.Build();
         if(!cut.IsDone()||cut.Shape().IsNull())fail(OrderedLimitFailure::EmptyPatch,row,other);
         retained=cut.Shape();
     }
     if(area(retained)<=tolerance*tolerance*100)fail(OrderedLimitFailure::EmptyPatch,row,other);
-    TopTools_IndexedMapOfShape pieces;TopExp::MapShapes(retained,TopAbs_FACE,pieces);
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> pieces;TopExp::MapShapes(retained,TopAbs_FACE,pieces);
     if(pieces.Extent()>1) {
         // A cut can split one periodic support at its parameter seam. Merge
         // connected exact same-domain descendants of this one source only.
@@ -205,10 +207,10 @@ Adjacency check_adjacency(const TopoDS_Face& a,const TopoDS_Face& b,
     BRepAlgoAPI_Section section(a,b,false);section.SetFuzzyValue(tolerance);
     section.Approximation(false);section.Build();
     if(!section.IsDone())fail(OrderedLimitFailure::AmbiguousAdjacency,row,other);
-    occ::handle<TopTools_HSequenceOfShape> edges=new TopTools_HSequenceOfShape;
+    occ::handle<NCollection_HSequence<TopoDS_Shape>> edges=new NCollection_HSequence<TopoDS_Shape>;
     for(TopExp_Explorer edge(section.Shape(),TopAbs_EDGE);edge.More();edge.Next())edges->Append(edge.Current());
     if(edges->IsEmpty())fail(OrderedLimitFailure::AmbiguousAdjacency,row,other);
-    occ::handle<TopTools_HSequenceOfShape> connected=new TopTools_HSequenceOfShape;
+    occ::handle<NCollection_HSequence<TopoDS_Shape>> connected=new NCollection_HSequence<TopoDS_Shape>;
     ShapeAnalysis_FreeBounds::ConnectEdgesToWires(edges,tolerance,false,connected);
     if(connected->Length()!=1)fail(OrderedLimitFailure::AmbiguousAdjacency,row,other);
     // Tangency does not split either support into positive/negative patches.
@@ -280,8 +282,8 @@ void certify_authored_tangent_seam(const TopoDS_Face& a,const TopoDS_Face& b,
     const auto first=only_face(sewing.IsModified(a)?sewing.Modified(a):a,row,other);
     const auto second=only_face(sewing.IsModified(b)?sewing.Modified(b):b,row,other);
     BRepLib::EncodeRegularity(joined,1e-8);
-    TopTools_IndexedMapOfShape edges;TopExp::MapShapes(first,TopAbs_EDGE,edges);
-    occ::handle<TopTools_HSequenceOfShape> shared=new TopTools_HSequenceOfShape;
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> edges;TopExp::MapShapes(first,TopAbs_EDGE,edges);
+    occ::handle<NCollection_HSequence<TopoDS_Shape>> shared=new NCollection_HSequence<TopoDS_Shape>;
     for(TopExp_Explorer it(second,TopAbs_EDGE);it.More();it.Next())if(edges.Contains(it.Current())) {
         const auto edge=TopoDS::Edge(it.Current());
         if(BRep_Tool::Continuity(edge,first,second)<GeomAbs_G1)
@@ -289,7 +291,7 @@ void certify_authored_tangent_seam(const TopoDS_Face& a,const TopoDS_Face& b,
         shared->Append(edge);
     }
     if(shared->IsEmpty())fail(OrderedLimitFailure::AmbiguousAdjacency,row,other);
-    occ::handle<TopTools_HSequenceOfShape> wires=new TopTools_HSequenceOfShape;
+    occ::handle<NCollection_HSequence<TopoDS_Shape>> wires=new NCollection_HSequence<TopoDS_Shape>;
     ShapeAnalysis_FreeBounds::ConnectEdgesToWires(shared,tolerance,false,wires);
     if(wires->Length()!=1)fail(OrderedLimitFailure::AmbiguousAdjacency,row,other);
 }
@@ -370,7 +372,7 @@ OrderedLimitResult build_ordered_up_to(const std::vector<OrderedLimitInput>& inp
         BRepBndLib::AddOptimal(result.patches[row].face,bounds[row],false,false);bounds[row].Enlarge(tolerance);
     }
     for(std::size_t a=0;a<result.patches.size();++a)for(std::size_t b=a+1;b<result.patches.size();++b) {
-        TopTools_IndexedMapOfShape edges;TopExp::MapShapes(result.patches[a].face,TopAbs_EDGE,edges);
+        NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> edges;TopExp::MapShapes(result.patches[a].face,TopAbs_EDGE,edges);
         bool shared=false;
         for(TopExp_Explorer edge(result.patches[b].face,TopAbs_EDGE);edge.More();edge.Next())
             shared|=edges.Contains(edge.Current());

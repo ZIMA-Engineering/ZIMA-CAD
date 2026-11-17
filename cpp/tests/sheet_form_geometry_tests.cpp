@@ -36,8 +36,10 @@
 #include <BRepOffsetAPI_MakeOffsetShape.hxx>
 #include <BRepLib.hxx>
 #include <TopExp.hxx>
-#include <TopTools_IndexedMapOfShape.hxx>
-#include <TopTools_ListOfShape.hxx>
+#include <NCollection_IndexedMap.hxx>
+#include <TopoDS_Shape.hxx>
+#include <TopTools_ShapeMapHasher.hxx>
+#include <NCollection_List.hxx>
 #include <BRepAlgoAPI_Check.hxx>
 #include <BRepAlgoAPI_Cut.hxx>
 #include <BRepAlgoAPI_Fuse.hxx>
@@ -826,7 +828,7 @@ int main(int argc,char** argv){try {
             BRepOffsetAPI_MakeThickSolid thick;thick.MakeThickSolidBySimple(shape,thickness);
             std::cout<<"Simple thickness="<<thickness<<" done="<<thick.IsDone()<<std::endl;
             if(!thick.IsDone())continue;
-            TopTools_IndexedMapOfShape solids;TopExp::MapShapes(thick.Shape(),TopAbs_SOLID,solids);
+            NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> solids;TopExp::MapShapes(thick.Shape(),TopAbs_SOLID,solids);
             std::cout<<"solids="<<solids.Extent()<<" valid="<<BRepCheck_Analyzer(thick.Shape(),true,false,true).IsValid()<<std::endl;
             if(solids.Extent()==1){auto solid=TopoDS::Solid(solids.FindKey(1));std::cout<<"orient="<<BRepLib::OrientClosedSolid(solid)<<" valid="<<BRepCheck_Analyzer(solid,true,false,true).IsValid()<<std::endl;}
             BRepTools::Write(thick.Shape(),("build/form-diagnostic/thick-"+std::to_string(thickness)+".brep").c_str());
@@ -1283,7 +1285,12 @@ int main(int argc,char** argv){try {
     }
     const auto begin=std::chrono::steady_clock::now();
     const auto elapsed=[](const auto start){return std::chrono::duration<double>(std::chrono::steady_clock::now()-start).count();};
-    const auto source=document::read_sheet_form_definition("cpp/tests/fixtures/form/VentilationWindow-inward-control.prtz");
+    auto source=document::read_sheet_form_definition("cpp/tests/fixtures/form/VentilationWindow-inward-control.prtz");
+    // Compare Body order using the same current source calculation on both
+    // sides, rather than an archived tessellation against a rebuilt source.
+    kernel::OcctKernel source_kernel;
+    source=document::sheet_form_definition(source.part,
+        source_kernel.evaluate_history(source.part.kernel_operations()));
     auto cut_after_shape=source.part;auto role_graph=cut_after_shape.body_history;
     role_graph.move_body(source.bodies[1],0);
     cut_after_shape.set_body_history(std::move(role_graph));
@@ -1600,7 +1607,8 @@ int main(int argc,char** argv){try {
     part.insert_history_entry(document::PartHistoryKind::Feature,feature.id);part.history.push_back(feature);
     const auto persisted=part.serialized();auto reopened=document::PartDocument::from_serialized(persisted);
     check(reopened.history.back()==feature,"FORM JSON round trip lost its independent definition or placement");
-    const auto file=std::filesystem::absolute("build/form-diagnostic/InsertedVentilationWindow.prtz");part.save(file);
+    const auto file=std::filesystem::absolute("build/form-diagnostic/InsertedVentilationWindow.prtz");
+    std::filesystem::create_directories(file.parent_path());part.save(file);
     reopened=document::PartDocument::load(file);
     check(reopened.history.back()==feature,"FORM native save/reopen lost its independent definition or placement");
     auto copied=document::stored_sheet_form_definition(feature.sheet_form);

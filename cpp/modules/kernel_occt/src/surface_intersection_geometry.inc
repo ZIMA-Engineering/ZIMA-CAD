@@ -10,14 +10,14 @@ std::optional<std::string> cylinder_plane_edge_domain(const TopoDS_Edge& edge,
     for(const auto& face:selected) {
         const BRepAdaptor_Surface surface(face);
         if(surface.GetType()!=GeomAbs_Cylinder)continue;
-        TopTools_IndexedMapOfShape domain;TopExp::MapShapes(face,TopAbs_EDGE,domain);
+        NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> domain;TopExp::MapShapes(face,TopAbs_EDGE,domain);
         if(!domain.Contains(edge))continue;
         const auto cylinder=surface.Cylinder();const auto axis=cylinder.Axis().Direction();
         if(!curve.Line().Direction().IsParallel(axis,1e-10))continue;
         std::optional<std::string> result;
         for(const auto& adjacent:faces) {
             if(adjacent.shape.IsSame(face))continue;
-            TopTools_IndexedMapOfShape boundary;TopExp::MapShapes(adjacent.shape,TopAbs_EDGE,boundary);
+            NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> boundary;TopExp::MapShapes(adjacent.shape,TopAbs_EDGE,boundary);
             if(!boundary.Contains(edge))continue;
             const BRepAdaptor_Surface support(TopoDS::Face(adjacent.shape));
             if(support.GetType()!=GeomAbs_Plane)return {};
@@ -68,7 +68,7 @@ PrimitiveData make_surface_intersection_data(const SurfaceIntersectionRequest& r
         throw std::runtime_error("Intersection requires two different original faces and a positive tolerance.");
     std::array<TopoDS_Face,2> selected;
     std::set<std::string> face_parents;
-    TopTools_IndexedMapOfShape source_edges,source_vertices;
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> source_edges,source_vertices;
     for(unsigned side=0;side<2;++side) {
         const auto& reference=request.faces[side];
         if(!reference.valid()||!reference.instance_path.empty())throw std::runtime_error("Intersection face reference is invalid.");
@@ -160,10 +160,10 @@ PrimitiveData make_surface_intersection_data(const SurfaceIntersectionRequest& r
         }
     }
     if(replaced)result.shape=exact_sections->Apply(result.shape);
-    TopTools_IndexedMapOfShape result_edges,result_vertices,curve_vertices;
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> result_edges,result_vertices,curve_vertices;
     TopExp::MapShapes(result.shape,TopAbs_EDGE,result_edges);TopExp::MapShapes(result.shape,TopAbs_VERTEX,result_vertices);
     for(int i=1;i<=result_edges.Extent();++i)TopExp::MapShapes(result_edges.FindKey(i),TopAbs_VERTEX,curve_vertices);
-    std::map<std::string,TopTools_IndexedMapOfShape> edge_descendants;
+    std::map<std::string,NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher>> edge_descendants;
     if(sketch_association)for(const auto& source:edges)if(source_edges.Contains(source.shape))
         edge_descendants[encoded_topology_reference(source.reference)].Add(source.shape);
     std::vector<std::set<std::string>> edge_parents(source_edges.Extent()+1);
@@ -209,7 +209,7 @@ PrimitiveData make_surface_intersection_data(const SurfaceIntersectionRequest& r
             const auto wire=TopoDS::Wire(wires->Value(i));
             ShapeUpgrade_UnifySameDomain merge(wire,true,false,true);
             merge.SetSafeInputMode(true);merge.SetLinearTolerance(request.tolerance);merge.Build();
-            TopTools_IndexedMapOfShape parts;TopExp::MapShapes(merge.Shape(),TopAbs_EDGE,parts);
+            NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> parts;TopExp::MapShapes(merge.Shape(),TopAbs_EDGE,parts);
             if(parts.Extent()==1){builder.Add(connected,merge.Shape());continue;}
             // Fuzzy section splines can have a small derivative mismatch at
             // their support seam. Concatenate their exact bounded geometry

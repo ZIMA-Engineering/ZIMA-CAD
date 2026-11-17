@@ -1,9 +1,8 @@
 #include <zima/sketcher/curve_geometry.hpp>
 #include <zima/kernel/occt_curve_data.hpp>
 #include <BRepBuilderAPI_MakeEdge.hxx>
-#include <TColgp_Array1OfPnt.hxx>
-#include <TColStd_Array1OfReal.hxx>
-#include <TColStd_Array1OfInteger.hxx>
+#include <NCollection_Array1.hxx>
+#include <gp_Pnt.hxx>
 #include <TopoDS.hxx>
 #include <TopLoc_Location.hxx>
 #include <zima/sketcher/sketch.hpp>
@@ -22,9 +21,9 @@ std::string phase;
 int main(){try{
     // Capture full-period, trimmed, reversed and located OCCT edges through
     // the same adapter as body calculation, then independently compare Value.
-    TColgp_Array1OfPnt periodic_poles(1,6);
-    TColStd_Array1OfReal periodic_knots(1,7);
-    TColStd_Array1OfInteger periodic_mults(1,7);
+    NCollection_Array1<gp_Pnt> periodic_poles(1,6);
+    NCollection_Array1<double> periodic_knots(1,7);
+    NCollection_Array1<int> periodic_mults(1,7);
     for(int i=1;i<=6;++i){double a=(i-1)*std::numbers::pi/3;
         periodic_poles.SetValue(i,gp_Pnt(10*std::cos(a),10*std::sin(a),i*0.1));}
     for(int i=1;i<=7;++i){periodic_knots.SetValue(i,i-1);periodic_mults.SetValue(i,1);}

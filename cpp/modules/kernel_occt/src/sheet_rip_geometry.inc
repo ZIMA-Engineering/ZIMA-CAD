@@ -16,9 +16,9 @@ PrimitiveData apply(const PrimitiveData& input,const SheetRipRequest& request,
     bounds.Get(x0,y0,z0,x1,y1,z1);
     const double diagonal=std::hypot(std::hypot(x1-x0,y1-y0),z1-z0);
     const double extent=std::max(10.,diagonal*2+10.);
-    TopTools_ListOfShape arguments;
+    NCollection_List<TopoDS_Shape> arguments;
     arguments.Append(input.shape);
-    TopTools_ListOfShape tools;
+    NCollection_List<TopoDS_Shape> tools;
     std::vector<OwnedFace> tool_faces;
     std::size_t tool_index{};
     for(const auto& curve:request.curves) {

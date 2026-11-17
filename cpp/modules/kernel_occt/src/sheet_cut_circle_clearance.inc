@@ -104,8 +104,8 @@ PrimitiveData sheet_cut_cylindrical_circle_domain(const TopoDS_Face& source,
                                 (skin_radius*std::sqrt(1-q*q)),-radius*std::sin(parameter));
             };
             for(int intervals=16;intervals<=512;intervals*=2) {
-                Handle(TColgp_HArray1OfPnt2d) points=new TColgp_HArray1OfPnt2d(1,intervals+1);
-                Handle(TColStd_HArray1OfReal) parameters=new TColStd_HArray1OfReal(1,intervals+1);
+                Handle(NCollection_HArray1<gp_Pnt2d>) points=new NCollection_HArray1<gp_Pnt2d>(1,intervals+1);
+                Handle(NCollection_HArray1<double>) parameters=new NCollection_HArray1<double>(1,intervals+1);
                 for(int i=0;i<=intervals;++i) {
                     const double parameter=pi*i/intervals;
                     points->SetValue(i+1,point(parameter));parameters->SetValue(i+1,parameter);
@@ -159,7 +159,7 @@ PrimitiveData sheet_cut_cylindrical_circle_domain(const TopoDS_Face& source,
             reached.SetFuzzyValue(tolerance);reached.Build();
             if(!reached.IsDone())return {};
             if(volume(reached.Shape())<=std::max(1.e-12,tolerance*tolerance*tolerance))continue;
-            TopTools_IndexedMapOfShape actual_edges;TopExp::MapShapes(face,TopAbs_EDGE,actual_edges);
+            NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> actual_edges;TopExp::MapShapes(face,TopAbs_EDGE,actual_edges);
             std::vector<OwnedEdge> face_edges;
             for(const auto& edge:clipped_edges)if(actual_edges.Contains(edge.shape))face_edges.push_back(edge);
             if(result.shape.IsNull()) {result.shape=face;result.edges=std::move(face_edges);continue;}

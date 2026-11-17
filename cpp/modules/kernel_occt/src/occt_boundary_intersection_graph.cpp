@@ -16,7 +16,9 @@
 #include <IntTools_FaceFace.hxx>
 #include <TopAbs_State.hxx>
 #include <TopExp_Explorer.hxx>
-#include <TopTools_IndexedMapOfShape.hxx>
+#include <NCollection_IndexedMap.hxx>
+#include <TopoDS_Shape.hxx>
+#include <TopTools_ShapeMapHasher.hxx>
 #include <TopoDS.hxx>
 #include <TopoDS_Edge.hxx>
 #include <gp_Lin.hxx>
@@ -305,7 +307,7 @@ OcctBoundaryIntersectionGraph occt_boundary_intersection_graph(
         section.Build();
         if(!section.IsDone())
             throw std::runtime_error("Coplanar boundary intersection failed");
-        TopTools_IndexedMapOfShape edges;
+        NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> edges;
         TopExp::MapShapes(section.Shape(),TopAbs_EDGE,edges);
         for(int index=1;index<=edges.Extent();++index) {
             const auto edge=TopoDS::Edge(edges(index));

@@ -13,9 +13,9 @@ class Deformation final : public BRepTools_Modification {
 public:
     Deformation(Transition transition,bool continuation,double tolerance)
         : transition_(std::move(transition)),continuation_(continuation),tolerance_(tolerance/16) {}
-    Standard_Boolean NewSurface(const TopoDS_Face& face,Handle(Geom_Surface)& result,
-            TopLoc_Location& location,Standard_Real& tolerance,
-            Standard_Boolean& reverse_wires,Standard_Boolean& reverse_face) override {
+    bool NewSurface(const TopoDS_Face& face,Handle(Geom_Surface)& result,
+            TopLoc_Location& location,double& tolerance,
+            bool& reverse_wires,bool& reverse_face) override {
         TopLoc_Location source_location;
         const auto source=BRep_Tool::Surface(face,source_location);
         double u0,u1,v0,v1;BRepTools::UVBounds(face,u0,u1,v0,v1);
@@ -75,13 +75,13 @@ public:
             }
         }
         for(int count=5;count<=129;count=2*count-1) {
-            TColgp_Array2OfPnt samples(1,count,1,count);
+            NCollection_Array2<gp_Pnt> samples(1,count,1,count);
             for(int i=1;i<=count;++i)for(int j=1;j<=count;++j)
                 samples(i,j)=evaluate(u0+(u1-u0)*(i-1)/(count-1),v0+(v1-v0)*(j-1)/(count-1));
             GeomAPI_PointsToBSplineSurface fit;fit.Interpolate(samples,Approx_IsoParametric,false);
             if(!fit.IsDone())throw std::runtime_error("Sheet state surface interpolation failed.");
             auto surface=fit.Surface();double a,b,c,d;surface->Bounds(a,b,c,d);
-            TColStd_Array1OfReal uknots(1,surface->NbUKnots()),vknots(1,surface->NbVKnots());
+            NCollection_Array1<double> uknots(1,surface->NbUKnots()),vknots(1,surface->NbVKnots());
             for(int i=1;i<=uknots.Length();++i)uknots(i)=u0+(surface->UKnot(i)-a)*(u1-u0)/(b-a);
             for(int i=1;i<=vknots.Length();++i)vknots(i)=v0+(surface->VKnot(i)-c)*(v1-v0)/(d-c);
             surface->SetUKnots(uknots);surface->SetVKnots(vknots);
@@ -99,15 +99,15 @@ public:
         }
         throw std::runtime_error("Sheet state surface exceeds the configured tolerance.");
     }
-    Standard_Boolean NewCurve(const TopoDS_Edge& edge,Handle(Geom_Curve)& result,
-            TopLoc_Location& location,Standard_Real& tolerance) override {
+    bool NewCurve(const TopoDS_Edge& edge,Handle(Geom_Curve)& result,
+            TopLoc_Location& location,double& tolerance) override {
         TopLoc_Location source_location;double first,last;
         const auto source=BRep_Tool::Curve(edge,source_location,first,last);
         if(source.IsNull())return false;
         const auto evaluate=[&](double p){return mapped(transition_,source->Value(p).Transformed(source_location.Transformation()),continuation_);};
         for(int count=5;count<=513;count=2*count-1) {
-            Handle(TColgp_HArray1OfPnt) points=new TColgp_HArray1OfPnt(1,count);
-            Handle(TColStd_HArray1OfReal) parameters=new TColStd_HArray1OfReal(1,count);
+            Handle(NCollection_HArray1<gp_Pnt>) points=new NCollection_HArray1<gp_Pnt>(1,count);
+            Handle(NCollection_HArray1<double>) parameters=new NCollection_HArray1<double>(1,count);
             for(int i=1;i<=count;++i){parameters->SetValue(i,first+(last-first)*(i-1)/(count-1));points->SetValue(i,evaluate(parameters->Value(i)));}
             GeomAPI_Interpolate fit(points,parameters,false,1e-9);fit.Perform();
             if(!fit.IsDone())throw std::runtime_error("Sheet state edge interpolation failed.");
@@ -121,12 +121,12 @@ public:
         }
         throw std::runtime_error("Sheet state edge exceeds the configured tolerance.");
     }
-    Standard_Boolean NewPoint(const TopoDS_Vertex& vertex,gp_Pnt& point,Standard_Real& tolerance) override {
+    bool NewPoint(const TopoDS_Vertex& vertex,gp_Pnt& point,double& tolerance) override {
         point=mapped(transition_,BRep_Tool::Pnt(vertex),continuation_);
         tolerance=std::max(BRep_Tool::Tolerance(vertex),tolerance_*2);return true;
     }
-    Standard_Boolean NewCurve2d(const TopoDS_Edge& edge,const TopoDS_Face& face,
-            const TopoDS_Edge& new_edge,const TopoDS_Face& new_face,Handle(Geom2d_Curve)& curve,Standard_Real& tolerance) override {
+    bool NewCurve2d(const TopoDS_Edge& edge,const TopoDS_Face& face,
+            const TopoDS_Edge& new_edge,const TopoDS_Face& new_face,Handle(Geom2d_Curve)& curve,double& tolerance) override {
         if(std::ranges::any_of(analytic_faces_,[&](const auto& value){return value.IsSame(face);})) {
             double first,last;const auto c=BRep_Tool::Curve(new_edge,first,last);
             tolerance=tolerance_*2;
@@ -144,8 +144,8 @@ public:
         double first,last;curve=BRep_Tool::CurveOnSurface(edge,face,first,last);
         tolerance=std::max(BRep_Tool::Tolerance(edge),tolerance_*2);return !curve.IsNull();
     }
-    Standard_Boolean NewParameter(const TopoDS_Vertex& vertex,const TopoDS_Edge& edge,
-            Standard_Real& parameter,Standard_Real& tolerance) override {
+    bool NewParameter(const TopoDS_Vertex& vertex,const TopoDS_Edge& edge,
+            double& parameter,double& tolerance) override {
         parameter=BRep_Tool::Parameter(vertex,edge);tolerance=std::max(BRep_Tool::Tolerance(vertex),tolerance_*2);return true;
     }
     GeomAbs_Shape Continuity(const TopoDS_Edge&,const TopoDS_Face&,const TopoDS_Face&,
@@ -156,7 +156,7 @@ private:
 };
 
 template<class Modifier,class Owned>
-std::vector<Owned> modified_topology(Modifier& modifier,const TopTools_IndexedMapOfShape& members,
+std::vector<Owned> modified_topology(Modifier& modifier,const NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher>& members,
         const std::vector<Owned>& source) {
     std::vector<Owned> result;
     for(const auto& item:source)if(members.Contains(item.shape)) {
@@ -167,7 +167,7 @@ std::vector<Owned> modified_topology(Modifier& modifier,const TopTools_IndexedMa
 }
 
 PrimitiveData deform(const PrimitiveData& input,const Transition& transition,bool continuation,double tolerance) {
-    TopTools_IndexedMapOfShape members;TopExp::MapShapes(input.shape,members);
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> members;TopExp::MapShapes(input.shape,members);
     PrimitiveData output;
     const auto collect=[&](auto& modifier) {
         output.faces=modified_topology(modifier,members,input.faces);
@@ -244,7 +244,7 @@ PrimitiveData transform(const PrimitiveData& original_input,const std::vector<Tr
     for(const auto& transition:transitions)if(applies(transition)&&transition.before.unfolded!=transition.after.unfolded)
         input=regularize_hem(input,transition,tolerance,owner);
     if(input.shape.IsNull())throw std::invalid_argument("Sheet state requires an input body.");
-    TopTools_ListOfShape arguments,tools;arguments.Append(input.shape);
+    NCollection_List<TopoDS_Shape> arguments,tools;arguments.Append(input.shape);
     std::vector<OwnedFace> partition_faces;
     for(const auto& transition:transitions) {
         // Authored contributions already have an explicit material owner.
@@ -276,7 +276,7 @@ PrimitiveData transform(const PrimitiveData& original_input,const std::vector<Tr
         propagate_topology(splitter,input.vertices,std::vector<OwnedVertex>{}),owner,"sheet-partition");
     PrimitiveData result;
     for(TopExp_Explorer solid(splitter.Shape(),TopAbs_SOLID);solid.More();solid.Next()) {
-        PrimitiveData piece;piece.shape=solid.Current();TopTools_IndexedMapOfShape members;TopExp::MapShapes(piece.shape,members);
+        PrimitiveData piece;piece.shape=solid.Current();NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> members;TopExp::MapShapes(piece.shape,members);
         std::set<std::string> owners;
         for(const auto& face:faces)if(members.Contains(face.shape)) {
             piece.faces.push_back(face);
@@ -405,7 +405,7 @@ PrimitiveData line_bend(const PrimitiveData& input,const LineBendRequest& reques
         throw std::invalid_argument(
             "Line Bend segment must end at sheet boundaries.");
 
-    TopTools_ListOfShape arguments,tools;arguments.Append(input.shape);
+    NCollection_List<TopoDS_Shape> arguments,tools;arguments.Append(input.shape);
     std::vector<OwnedFace> partition_faces;
     const auto add_plane=[&](Vec3 point,Vec3 normal,std::string role) {
         const auto plane=BRepBuilderAPI_MakeFace(gp_Pln(
@@ -442,7 +442,7 @@ PrimitiveData line_bend(const PrimitiveData& input,const LineBendRequest& reques
     for(TopExp_Explorer solid(splitter.Shape(),TopAbs_SOLID);
             solid.More();solid.Next()) {
         PrimitiveData piece;piece.shape=solid.Current();
-        TopTools_IndexedMapOfShape members;TopExp::MapShapes(piece.shape,members);
+        NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> members;TopExp::MapShapes(piece.shape,members);
         for(const auto& face:faces)if(members.Contains(face.shape))
             piece.faces.push_back(face);
         for(const auto& edge:edges)if(members.Contains(edge.shape))

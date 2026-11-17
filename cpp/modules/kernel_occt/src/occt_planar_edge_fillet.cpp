@@ -49,8 +49,11 @@
 #include <TopExp.hxx>
 #include <TopExp_Explorer.hxx>
 #include <TopLoc_Location.hxx>
-#include <TopTools_IndexedDataMapOfShapeListOfShape.hxx>
-#include <TopTools_IndexedMapOfShape.hxx>
+#include <NCollection_IndexedDataMap.hxx>
+#include <TopoDS_Shape.hxx>
+#include <NCollection_List.hxx>
+#include <TopTools_ShapeMapHasher.hxx>
+#include <NCollection_IndexedMap.hxx>
 #include <TopoDS.hxx>
 #include <TopoDS_Compound.hxx>
 #include <TopoDS_Solid.hxx>
@@ -464,7 +467,7 @@ bool clip_fillet_tool_with_halfspace(TopoDS_Shape& tool,
         throw std::runtime_error(
             "Planar edge Fillet could not trim its selected end face");
     TopoDS_Shape clipped=common.Shape();
-    TopTools_IndexedMapOfShape result_faces;
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> result_faces;
     TopExp::MapShapes(clipped,TopAbs_FACE,result_faces);
     // A separately swept terminal extension can lie wholly outside the
     // retained analytical half-space.  In that case the exact intersection
@@ -479,7 +482,7 @@ bool clip_fillet_tool_with_halfspace(TopoDS_Shape& tool,
     // fusing every component would leave the disconnected continuation as a
     // visible tooth in the Body.
     if(retained_component) {
-        TopTools_IndexedMapOfShape result_solids;
+        NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> result_solids;
         TopExp::MapShapes(clipped,TopAbs_SOLID,result_solids);
         if(result_solids.Extent()>1) {
             TopoDS_Shape retained;
@@ -532,7 +535,7 @@ bool clip_fillet_tool_with_halfspace(TopoDS_Shape& tool,
             const auto candidate=TopoDS::Face(result_faces.FindKey(index));
             const bool belongs=std::ranges::any_of(treatment_faces,
                 [&](const auto& source) {
-                    TopTools_IndexedMapOfShape vertices;
+                    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> vertices;
                     TopExp::MapShapes(candidate,TopAbs_VERTEX,vertices);
                     if(vertices.IsEmpty())return false;
                     for(int vertex=1;vertex<=vertices.Extent();++vertex) {
@@ -619,7 +622,7 @@ void fuse_fillet_tools(TopoDS_Shape& tool,
        !BRepCheck_Analyzer(fuse.Shape()).IsValid())
         throw std::runtime_error(
             "Planar edge Fillet could not fuse its route extension");
-    TopTools_IndexedMapOfShape result_faces;
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> result_faces;
     TopExp::MapShapes(fuse.Shape(),TopAbs_FACE,result_faces);
     std::vector<TopoDS_Face> fused_faces;
     const auto append=[&](const TopoDS_Shape& shape) {
@@ -916,7 +919,7 @@ double body_envelope_extension(const TopoDS_Shape& material,
     if(bounds.IsVoid()||bounds.IsWhole())
         throw std::runtime_error(
             "Planar edge Fillet cannot bound its automatic end envelope");
-    Standard_Real x_min{},y_min{},z_min{},x_max{},y_max{},z_max{};
+    double x_min{},y_min{},z_min{},x_max{},y_max{},z_max{};
     bounds.Get(x_min,y_min,z_min,x_max,y_max,z_max);
     const double diagonal=gp_Pnt(x_min,y_min,z_min).Distance(
         gp_Pnt(x_max,y_max,z_max));
@@ -2988,13 +2991,13 @@ OcctPlanarEdgeFilletResult occt_planar_edge_fillet(
     if(!supports.empty()&&supports.size()!=edges.size())
         throw std::invalid_argument(
             "Planar edge Fillet supports must be parallel to selected edges");
-    TopTools_IndexedDataMapOfShapeListOfShape edge_faces;
+    NCollection_IndexedDataMap<TopoDS_Shape, NCollection_List<TopoDS_Shape>, TopTools_ShapeMapHasher> edge_faces;
     TopExp::MapShapesAndAncestors(input,TopAbs_EDGE,TopAbs_FACE,
         edge_faces);
-    TopTools_IndexedDataMapOfShapeListOfShape edge_solids;
+    NCollection_IndexedDataMap<TopoDS_Shape, NCollection_List<TopoDS_Shape>, TopTools_ShapeMapHasher> edge_solids;
     TopExp::MapShapesAndAncestors(input,TopAbs_EDGE,TopAbs_SOLID,
         edge_solids);
-    TopTools_IndexedMapOfShape requested_edges;
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> requested_edges;
     const auto preparation_started=Clock::now();
     std::vector<CutterJob> jobs;
     jobs.reserve(edges.size());
@@ -3015,7 +3018,7 @@ OcctPlanarEdgeFilletResult occt_planar_edge_fillet(
                support.first.IsSame(support.second))
                 throw std::invalid_argument(
                     "Planar edge Fillet original support is invalid");
-            TopTools_IndexedMapOfShape first_edges,second_edges,
+            NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> first_edges,second_edges,
                 material_edges;
             TopExp::MapShapes(support.first,TopAbs_EDGE,first_edges);
             TopExp::MapShapes(support.second,TopAbs_EDGE,second_edges);
@@ -3092,7 +3095,7 @@ OcctPlanarEdgeFilletResult occt_planar_edge_fillet(
         return first.Angle(second)>=std::numbers::pi-1.0e-6;
     };
     const auto connected=[&](std::size_t first,std::size_t second) {
-        TopTools_IndexedMapOfShape first_vertices,second_vertices;
+        NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> first_vertices,second_vertices;
         TopExp::MapShapes(jobs[first].edge,TopAbs_VERTEX,first_vertices);
         TopExp::MapShapes(jobs[second].edge,TopAbs_VERTEX,second_vertices);
         for(int index=1;index<=first_vertices.Extent();++index)
@@ -3271,7 +3274,7 @@ OcctPlanarEdgeFilletResult occt_planar_edge_fillet(
     for(const auto& route:routes) {
         auto& endpoints=route_endpoints.emplace_back();
         for(const auto job_index:route) {
-            TopTools_IndexedMapOfShape edge_vertices;
+            NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> edge_vertices;
             TopExp::MapShapes(jobs[job_index].edge,TopAbs_VERTEX,
                 edge_vertices);
             for(int index=1;index<=edge_vertices.Extent();++index) {
@@ -3302,7 +3305,7 @@ OcctPlanarEdgeFilletResult occt_planar_edge_fillet(
         // it in the node incidence graph would demand a signed tool which is
         // intentionally absent and reject an otherwise valid connected path.
         if(!active_jobs[job])continue;
-        TopTools_IndexedMapOfShape vertices;
+        NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> vertices;
         TopExp::MapShapes(jobs[job].edge,TopAbs_VERTEX,vertices);
         for(int index=1;index<=vertices.Extent();++index) {
             const auto vertex=TopoDS::Vertex(vertices.FindKey(index));
@@ -3761,7 +3764,7 @@ OcctPlanarEdgeFilletResult occt_planar_edge_fillet(
             }
             {
                 GProp_GProps props;BRepGProp::VolumeProperties(current,props);
-                TopTools_IndexedMapOfShape faces_map;
+                NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> faces_map;
                 TopExp::MapShapes(current,TopAbs_FACE,faces_map);
                 std::fprintf(stderr,"BOOL-TRACE input vol=%.3f faces=%d type=%d\n",
                     props.Mass(),(int)faces_map.Extent(),(int)current.ShapeType());
@@ -3843,7 +3846,7 @@ OcctPlanarEdgeFilletResult occt_planar_edge_fillet(
     // reference face before the general same-domain cleanup.  This changes
     // only a new seam on one analytical periodic surface and preserves its
     // replacement history for downstream references.
-    TopTools_IndexedMapOfShape input_edges;
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> input_edges;
     TopExp::MapShapes(input,TopAbs_EDGE,input_edges);
     const auto is_original_boundary=[&](const TopoDS_Edge& edge) {
         return std::ranges::any_of(
@@ -3870,10 +3873,10 @@ OcctPlanarEdgeFilletResult occt_planar_edge_fillet(
             });
     };
     const auto merge_periodic_continuation=[&]() {
-        TopTools_IndexedMapOfShape current_faces,current_edges;
+        NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> current_faces,current_edges;
         TopExp::MapShapes(current,TopAbs_FACE,current_faces);
         TopExp::MapShapes(current,TopAbs_EDGE,current_edges);
-        TopTools_IndexedDataMapOfShapeListOfShape edge_faces;
+        NCollection_IndexedDataMap<TopoDS_Shape, NCollection_List<TopoDS_Shape>, TopTools_ShapeMapHasher> edge_faces;
         TopExp::MapShapesAndAncestors(current,TopAbs_EDGE,TopAbs_FACE,
             edge_faces);
         for(int index=1;index<=current_edges.Extent();++index) {
@@ -3913,11 +3916,11 @@ OcctPlanarEdgeFilletResult occt_planar_edge_fillet(
             pair_cleanup.SetLinearTolerance(tolerance);
             pair_cleanup.SetAngularTolerance(1.0e-9);
             pair_cleanup.Build();
-            TopTools_IndexedMapOfShape merged_faces;
+            NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> merged_faces;
             TopExp::MapShapes(pair_cleanup.Shape(),TopAbs_FACE,
                 merged_faces);
             if(merged_faces.Extent()!=1)continue;
-            TopTools_ListOfShape parts;
+            NCollection_List<TopoDS_Shape> parts;
             parts.Append(first_face);parts.Append(second_face);
             occ::handle<ShapeBuild_ReShape> reshape=
                 new ShapeBuild_ReShape;
@@ -3926,7 +3929,7 @@ OcctPlanarEdgeFilletResult occt_planar_edge_fillet(
             if(merged.IsNull()||
                !BRepCheck_Analyzer(merged,true,true,false).IsValid())
                 continue;
-            TopTools_IndexedMapOfShape replacement_faces;
+            NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> replacement_faces;
             TopExp::MapShapes(merged,TopAbs_FACE,replacement_faces);
             if(replacement_faces.Extent()>=current_faces.Extent())continue;
             if(const auto history=reshape->History();!history.IsNull())
@@ -3951,14 +3954,14 @@ OcctPlanarEdgeFilletResult occt_planar_edge_fillet(
     ShapeUpgrade_UnifySameDomain cleanup(current,true,true,false);
     cleanup.SetLinearTolerance(tolerance);
     cleanup.SetAngularTolerance(1.0e-9);
-    TopTools_IndexedMapOfShape protected_edges;
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> protected_edges;
     const auto keep_boundary=[&](const TopoDS_Shape& edge) {
         cleanup.KeepShape(edge);
         protected_edges.Add(edge);
     };
-    TopTools_IndexedMapOfShape current_edges;
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> current_edges;
     TopExp::MapShapes(current,TopAbs_EDGE,current_edges);
-    TopTools_IndexedDataMapOfShapeListOfShape current_edge_faces;
+    NCollection_IndexedDataMap<TopoDS_Shape, NCollection_List<TopoDS_Shape>, TopTools_ShapeMapHasher> current_edge_faces;
     TopExp::MapShapesAndAncestors(current,TopAbs_EDGE,TopAbs_FACE,
         current_edge_faces);
     const auto redundant_coplanar_seam=[&](const TopoDS_Shape& edge) {
@@ -4044,7 +4047,7 @@ OcctPlanarEdgeFilletResult occt_planar_edge_fillet(
             "Planar edge Fillet same-domain cleanup produced an invalid Body");
     }
     result.shape=current;
-    TopTools_IndexedMapOfShape result_faces;
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> result_faces;
     TopExp::MapShapes(result.shape,TopAbs_FACE,result_faces);
     result.fillet_faces.resize(edges.size());
     for(std::size_t index=0;index<cutters.size();++index) {
@@ -4148,7 +4151,7 @@ OcctPlanarEdgeFilletResult occt_planar_edge_fillet(
     if(has_general_route) {
         // BRepCheck can accept internal face remnants at a tangent Boolean
         // seam. A published blend also needs a closed manifold boundary.
-        TopTools_IndexedDataMapOfShapeListOfShape boundaries;
+        NCollection_IndexedDataMap<TopoDS_Shape, NCollection_List<TopoDS_Shape>, TopTools_ShapeMapHasher> boundaries;
         TopExp::MapShapesAndAncestors(result.shape,TopAbs_EDGE,TopAbs_FACE,boundaries);
         for(int i=1;i<=boundaries.Extent();++i)
             if(!BRep_Tool::Degenerated(TopoDS::Edge(boundaries.FindKey(i)))&&

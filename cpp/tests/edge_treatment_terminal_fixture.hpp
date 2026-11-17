@@ -21,7 +21,10 @@
 #include <GProp_GProps.hxx>
 #include <TopExp.hxx>
 #include <TopExp_Explorer.hxx>
-#include <TopTools_IndexedDataMapOfShapeListOfShape.hxx>
+#include <NCollection_IndexedDataMap.hxx>
+#include <TopoDS_Shape.hxx>
+#include <NCollection_List.hxx>
+#include <TopTools_ShapeMapHasher.hxx>
 #include <TopoDS.hxx>
 #include <gp_Circ.hxx>
 #include <gp_Pln.hxx>
@@ -61,7 +64,7 @@ inline void verify_no_cut_at_rounded_lip(bool fillet) {
            std::abs(a.Y()-9)<1.e-7&&std::abs(b.Y()-9)<1.e-7)vertical=edge;
     }
     require(!vertical.IsNull(),"Material-exit pocket lost its vertical corner");
-    TopTools_IndexedDataMapOfShapeListOfShape adjacency;
+    NCollection_IndexedDataMap<TopoDS_Shape, NCollection_List<TopoDS_Shape>, TopTools_ShapeMapHasher> adjacency;
     TopExp::MapShapesAndAncestors(input,TopAbs_EDGE,TopAbs_FACE,adjacency);
     for(const bool reverse:{false,true})for(int variant=0;variant<(fillet?1:5);++variant) {
         auto edge=vertical;if(reverse)edge.Reverse();
@@ -195,7 +198,7 @@ inline void verify_oblique_treatment_terminals(bool fillet) {
                        planes[n].Axis().Direction()))>1.-1.e-7)caps[n]=face;
         }
         require(!caps[0].IsNull()&&!caps[1].IsNull(),"Oblique terminal caps missing");
-        TopTools_IndexedDataMapOfShapeListOfShape adjacency;
+        NCollection_IndexedDataMap<TopoDS_Shape, NCollection_List<TopoDS_Shape>, TopTools_ShapeMapHasher> adjacency;
         TopExp::MapShapesAndAncestors(input,TopAbs_EDGE,TopAbs_FACE,adjacency);
         for(const double size:{1.,3.})for(const bool reversed:{false,true})
           for(int variant=0;variant<(fillet?1:9);++variant) {

@@ -11,7 +11,9 @@
 #include <GeomAPI_ProjectPointOnCurve.hxx>
 #include <GeomAdaptor_Curve.hxx>
 #include <TopExp_Explorer.hxx>
-#include <TopTools_IndexedMapOfShape.hxx>
+#include <NCollection_IndexedMap.hxx>
+#include <TopoDS_Shape.hxx>
+#include <TopTools_ShapeMapHasher.hxx>
 #include <TopoDS.hxx>
 #include <TopoDS_Edge.hxx>
 
@@ -58,7 +60,7 @@ std::vector<CurveInterval> section_curves(const TopoDS_Shape& first,
     section.ComputePCurveOn1(true);section.ComputePCurveOn2(true);
     section.Build();
     require(section.IsDone(),"Reference Section failed");
-    TopTools_IndexedMapOfShape edges;
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> edges;
     TopExp::MapShapes(section.Shape(),TopAbs_EDGE,edges);
     std::vector<CurveInterval> result;
     for(int index=1;index<=edges.Extent();++index) {

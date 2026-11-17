@@ -82,7 +82,7 @@ int corner_surface_form_experiment(const std::filesystem::path& path) {
             thick.calculate(shells.Current(),-.5*thickness);
             row["surface_seconds"]=std::chrono::duration<double>(std::chrono::steady_clock::now()-start).count();
             check(thick.IsDone()&&BRepCheck_Analyzer(thick.Shape()).IsValid(),"Arc-joined surface is invalid");
-            TopTools_IndexedMapOfShape solids;TopExp::MapShapes(thick.Shape(),TopAbs_SOLID,solids);
+            NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> solids;TopExp::MapShapes(thick.Shape(),TopAbs_SOLID,solids);
             check(solids.Extent()==1,"Arc surface did not produce one solid");
             GProp_GProps volume;BRepGProp::VolumePropertiesGK(thick.Shape(),volume,1e-12,false,true);
             row["solid_volume"]=direct.back().volume;row["surface_volume"]=volume.Mass();
@@ -91,7 +91,7 @@ int corner_surface_form_experiment(const std::filesystem::path& path) {
             const auto trim_start=std::chrono::steady_clock::now();BRepAlgoAPI_Common trimmed(thick.Shape(),original);
             trimmed.Build();row["trim_seconds"]=std::chrono::duration<double>(std::chrono::steady_clock::now()-trim_start).count();
             check(trimmed.IsDone()&&BRepCheck_Analyzer(trimmed.Shape()).IsValid(),"Surface trim failed exact validity");
-            TopTools_IndexedMapOfShape trimmed_solids;TopExp::MapShapes(trimmed.Shape(),TopAbs_SOLID,trimmed_solids);
+            NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> trimmed_solids;TopExp::MapShapes(trimmed.Shape(),TopAbs_SOLID,trimmed_solids);
             check(trimmed_solids.Extent()==1,"Trimmed surface did not produce one solid");
             GProp_GProps trimmed_volume,trimmed_area;
             BRepGProp::VolumePropertiesGK(trimmed.Shape(),trimmed_volume,1e-12,false,true);
@@ -226,13 +226,13 @@ int planar_solid_form_experiment(const std::filesystem::path& path) {
         kernel::OcctKernel stock_engine;const auto stock=stock_engine.evaluate_history(sheet.kernel_operations());
         TopoDS_Shape stock_shape;std::istringstream stock_data(stock.back().kernel_shape);BRepTools::Read(stock_shape,stock_data,builder);
         const auto boolean_start=std::chrono::steady_clock::now();
-        BRepAlgoAPI_Cut subtract;subtract.SetArguments(TopTools_ListOfShape{stock_shape});subtract.SetTools(TopTools_ListOfShape{tool});
+        BRepAlgoAPI_Cut subtract;subtract.SetArguments(NCollection_List<TopoDS_Shape>{stock_shape});subtract.SetTools(NCollection_List<TopoDS_Shape>{tool});
         subtract.SetNonDestructive(true);subtract.SetFuzzyValue(.001);subtract.Build();check(subtract.IsDone(),"Experimental sheet cut failed");
-        BRepAlgoAPI_Fuse fuse;fuse.SetArguments(TopTools_ListOfShape{subtract.Shape()});fuse.SetTools(TopTools_ListOfShape{wall});
+        BRepAlgoAPI_Fuse fuse;fuse.SetArguments(NCollection_List<TopoDS_Shape>{subtract.Shape()});fuse.SetTools(NCollection_List<TopoDS_Shape>{wall});
         fuse.SetNonDestructive(true);fuse.SetFuzzyValue(.001);fuse.Build();check(fuse.IsDone(),"Experimental sheet fuse failed");
         row["boolean_seconds"]=std::chrono::duration<double>(std::chrono::steady_clock::now()-boolean_start).count();
         check(BRepCheck_Analyzer(fuse.Shape(),true,false,true).IsValid(),"Experimental insertion has invalid exact BRep");
-        TopTools_IndexedMapOfShape solids;TopExp::MapShapes(fuse.Shape(),TopAbs_SOLID,solids);
+        NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> solids;TopExp::MapShapes(fuse.Shape(),TopAbs_SOLID,solids);
         check(solids.Extent()==1,"Experimental insertion is disconnected");
         GProp_GProps mass;const auto error=BRepGProp::VolumePropertiesGK(fuse.Shape(),mass,1e-12,false,true);
         check(std::isfinite(error)&&error>=0.&&mass.Mass()>0.,"Experimental insertion independent volume failed");

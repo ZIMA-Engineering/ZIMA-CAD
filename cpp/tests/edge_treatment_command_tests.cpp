@@ -26,8 +26,11 @@
 #include <BRepAdaptor_Curve.hxx>
 #include <BRepAdaptor_Surface.hxx>
 #include <TopExp.hxx>
-#include <TopTools_IndexedDataMapOfShapeListOfShape.hxx>
-#include <TopTools_IndexedMapOfShape.hxx>
+#include <NCollection_IndexedDataMap.hxx>
+#include <TopoDS_Shape.hxx>
+#include <NCollection_List.hxx>
+#include <TopTools_ShapeMapHasher.hxx>
+#include <NCollection_IndexedMap.hxx>
 #include <GeomAPI_ProjectPointOnSurf.hxx>
 #include <GeomAPI_ProjectPointOnCurve.hxx>
 #include <TopExp_Explorer.hxx>
@@ -1083,12 +1086,12 @@ void verify_saved_treatment(const kernel::OcctKernel& kernel,const fs::path& pat
                 BRep_Builder builder;BRepTools_ShapeSet archive(builder);
                 std::istringstream stream(body.kernel_shape.get());archive.Read(stream);
                 TopoDS_Shape solid;archive.Read(solid,stream);
-                TopTools_IndexedMapOfShape rounded;
+                NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> rounded;
                 for(const auto& binding:body.kernel_faces)if(binding.reference.owner_id==owner||binding.reference.display_owner_id==owner) {
                     TopoDS_Shape face;std::istringstream locator(binding.locator);archive.Read(face,locator);rounded.Add(face);
                 }
                 std::cout<<"BLEND owned_faces="<<rounded.Extent()<<std::endl;
-                TopTools_IndexedDataMapOfShapeListOfShape adjacent;
+                NCollection_IndexedDataMap<TopoDS_Shape, NCollection_List<TopoDS_Shape>, TopTools_ShapeMapHasher> adjacent;
                 TopExp::MapShapesAndAncestors(solid,TopAbs_EDGE,TopAbs_FACE,adjacent);
                 std::size_t seams{};double maximum{};
                 for(int index=1;index<=adjacent.Extent();++index) {

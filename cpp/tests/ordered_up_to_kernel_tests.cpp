@@ -17,11 +17,14 @@
 #include <Geom_SphericalSurface.hxx>
 #include <Geom_CylindricalSurface.hxx>
 #include <Geom_BezierSurface.hxx>
-#include <TColgp_Array2OfPnt.hxx>
+#include <NCollection_Array2.hxx>
+#include <gp_Pnt.hxx>
 #include <BRep_Tool.hxx>
 #include <TopoDS.hxx>
 #include <TopExp.hxx>
-#include <TopTools_IndexedMapOfShape.hxx>
+#include <NCollection_IndexedMap.hxx>
+#include <TopoDS_Shape.hxx>
+#include <TopTools_ShapeMapHasher.hxx>
 #include <gp_Ax1.hxx>
 #include <Standard_Failure.hxx>
 #include <algorithm>
@@ -153,7 +156,7 @@ double clipped(const OrderedLimitResult& source,double correction,bool reverse_d
         limit=transform_ordered_up_to(limit,rotate);
         prism=BRepBuilderAPI_Transform(prism,rotate,true).Shape();keep.Transform(rotate);
     }
-    TopTools_IndexedMapOfShape actual;TopExp::MapShapes(limit.shell,TopAbs_FACE,actual);
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> actual;TopExp::MapShapes(limit.shell,TopAbs_FACE,actual);
     for(std::size_t row=0;row<source.patches.size();++row) {
         check(actual.Contains(limit.patches[row].face),"A transformed semantic patch is not an actual shell member");
         check(source.patches[row].keep_previous_positive==limit.patches[row].keep_previous_positive&&
@@ -190,7 +193,7 @@ int main(){try {
     {
         // A surface can fit a plane within modeling tolerance while remaining
         // genuinely curved. Pole certification must preserve that small sag.
-        TColgp_Array2OfPnt poles(1,3,1,3);
+        NCollection_Array2<gp_Pnt> poles(1,3,1,3);
         for(int u=1;u<=3;++u)for(int v=1;v<=3;++v)poles.SetValue(u,v,
             gp_Pnt(u-1,v-1,10.+(u==2&&v==2?1e-9:0.)));
         const Handle(Geom_BezierSurface) curved=new Geom_BezierSurface(poles);

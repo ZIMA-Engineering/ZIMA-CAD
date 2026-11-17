@@ -54,7 +54,7 @@ PrimitiveData make_boundary_surface_data(const BoundarySurfaceRequest& request,c
                 bool contains=false;
                 for(TopExp_Explorer it(support,TopAbs_EDGE);it.More();it.Next())if(it.Current().IsSame(original)){contains=true;break;}
                 if(!contains)throw std::runtime_error("The selected edge does not belong to the supporting face.");
-                Standard_Real first,last;
+                double first,last;
                 if(BRep_Tool::CurveOnSurface(original,support,first,last).IsNull())
                     throw std::runtime_error("G1 and G2 require an original edge and its supporting face.");
             }
@@ -147,10 +147,10 @@ PrimitiveData make_boundary_surface_data(const BoundarySurfaceRequest& request,c
     if(!BRepAlgoAPI_Check(wire.Wire(),true,true).IsValid())
         throw std::runtime_error("Boundary curves must not cross or overlap.");
     const auto locate=[&](const TopoDS_Shape& shape,const TopoDS_Edge& input) {
-        Standard_Real a,b;const auto curve=BRep_Tool::Curve(input,a,b);
+        double a,b;const auto curve=BRep_Tool::Curve(input,a,b);
         TopoDS_Edge match;unsigned count=0;
         for(TopExp_Explorer it(shape,TopAbs_EDGE);it.More();it.Next()) {
-            const auto edge=TopoDS::Edge(it.Current());Standard_Real first,last;
+            const auto edge=TopoDS::Edge(it.Current());double first,last;
             if(BRep_Tool::Curve(edge,first,last)==curve&&std::abs(first-a)<1e-12&&std::abs(last-b)<1e-12){match=edge;++count;}
         }
         if(count!=1)throw std::runtime_error("Boundary curve identity could not be resolved.");
@@ -246,7 +246,7 @@ PrimitiveData make_boundary_surface_data(const BoundarySurfaceRequest& request,c
         const auto output=BRep_Tool::Surface(TopoDS::Face(fill.Shape()));
         for(const auto& input:inputs) {
             if(input.continuity==SurfaceContinuity::G0)continue;
-            Standard_Real first,last;const auto curve=BRep_Tool::CurveOnSurface(input.edge,input.support,first,last);
+            double first,last;const auto curve=BRep_Tool::CurveOnSurface(input.edge,input.support,first,last);
             const auto support=BRep_Tool::Surface(input.support);
             for(unsigned sample=0;sample<=64;++sample) {
                 const auto parameter=first+(last-first)*(1-std::cos(std::numbers::pi*sample/64))/2;

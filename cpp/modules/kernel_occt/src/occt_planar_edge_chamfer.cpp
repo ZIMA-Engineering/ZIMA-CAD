@@ -27,8 +27,11 @@
 #include <Bnd_Box.hxx>
 #include <TopExp.hxx>
 #include <TopExp_Explorer.hxx>
-#include <TopTools_IndexedDataMapOfShapeListOfShape.hxx>
-#include <TopTools_IndexedMapOfShape.hxx>
+#include <NCollection_IndexedDataMap.hxx>
+#include <TopoDS_Shape.hxx>
+#include <NCollection_List.hxx>
+#include <TopTools_ShapeMapHasher.hxx>
+#include <NCollection_IndexedMap.hxx>
 #include <TopoDS.hxx>
 #include <TopoDS_Solid.hxx>
 #include <ShapeUpgrade_UnifySameDomain.hxx>
@@ -99,7 +102,7 @@ struct ContinuousRoute {
 std::vector<TopoDS_Face> mapped_treatment_faces(
         BRepAlgoAPI_BuilderAlgo& operation,
         std::span<const TopoDS_Face> sources) {
-    TopTools_IndexedMapOfShape result_faces;
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> result_faces;
     TopExp::MapShapes(operation.Shape(),TopAbs_FACE,result_faces);
     std::vector<TopoDS_Face> result;
     const auto append=[&](const TopoDS_Shape& shape) {
@@ -191,7 +194,7 @@ void clip_chamfer_tool(TopoDS_Shape& tool,
        !BRepCheck_Analyzer(common.Shape()).IsValid())
         throw std::runtime_error(
             "ZIMA Chamfer could not trim its selected end face");
-    TopTools_IndexedMapOfShape result_faces;
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> result_faces;
     TopExp::MapShapes(common.Shape(),TopAbs_FACE,result_faces);
     std::vector<TopoDS_Face> clipped_faces;
     const auto append=[&](const TopoDS_Shape& shape) {
@@ -919,7 +922,7 @@ Tool make_tool(const TopoDS_Edge& edge,const TopoDS_Face& first_face,
            !BRepCheck_Analyzer(common.Shape()).IsValid())
             throw std::runtime_error(
                 "ZIMA Chamfer could not trim its selected end face");
-        TopTools_IndexedMapOfShape result_faces;
+        NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> result_faces;
         TopExp::MapShapes(common.Shape(),TopAbs_FACE,result_faces);
         std::vector<TopoDS_Face> clipped_faces;
         const auto append=[&](const TopoDS_Shape& shape) {
@@ -1165,7 +1168,7 @@ std::optional<std::array<bool,2>> line_ends_at_round(
     const BRepAdaptor_Curve curve(line);
     const auto line_first=curve.Value(curve.FirstParameter());
     const auto line_last=curve.Value(curve.LastParameter());
-    TopTools_IndexedMapOfShape round_vertices;
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> round_vertices;
     TopExp::MapShapes(round,TopAbs_VERTEX,round_vertices);
     bool first_shared{},last_shared{};
     for(int index=1;index<=round_vertices.Extent();++index) {
@@ -1415,7 +1418,7 @@ std::optional<Tool> make_single_collapsed_round_route_tool(
         return {};
     const auto mapped_treatment_faces=[&](
             const std::vector<TopoDS_Face>& sources) {
-        TopTools_IndexedMapOfShape result_faces;
+        NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> result_faces;
         TopExp::MapShapes(fuse.Shape(),TopAbs_FACE,result_faces);
         std::vector<TopoDS_Face> mapped;
         const auto append=[&](const TopoDS_Shape& shape) {
@@ -1961,10 +1964,10 @@ OcctPlanarEdgeChamferResult occt_planar_edge_chamfer(
     if(!supports.empty()&&supports.size()!=selections.size())
         throw std::invalid_argument(
             "ZIMA Chamfer supports must be parallel to selected edges");
-    TopTools_IndexedDataMapOfShapeListOfShape edge_faces,edge_solids;
+    NCollection_IndexedDataMap<TopoDS_Shape, NCollection_List<TopoDS_Shape>, TopTools_ShapeMapHasher> edge_faces,edge_solids;
     TopExp::MapShapesAndAncestors(input,TopAbs_EDGE,TopAbs_FACE,edge_faces);
     TopExp::MapShapesAndAncestors(input,TopAbs_EDGE,TopAbs_SOLID,edge_solids);
-    TopTools_IndexedMapOfShape requested_edges;
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> requested_edges;
     std::vector<SelectedNode> selected_nodes;
     std::vector<std::array<TopoDS_Face,2>> selection_faces;
     std::vector<TopoDS_Solid> selection_materials;
@@ -1978,7 +1981,7 @@ OcctPlanarEdgeChamferResult occt_planar_edge_chamfer(
             throw std::invalid_argument(
                 "ZIMA Chamfer received the same edge more than once");
         requested_edges.Add(edge);
-        TopTools_IndexedMapOfShape vertices;
+        NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> vertices;
         TopExp::MapShapes(edge,TopAbs_VERTEX,vertices);
         for(int index=1;index<=vertices.Extent();++index) {
             const auto vertex=TopoDS::Vertex(vertices.FindKey(index));
@@ -2001,7 +2004,7 @@ OcctPlanarEdgeChamferResult occt_planar_edge_chamfer(
                support.first.IsSame(support.second))
                 throw std::invalid_argument(
                     "ZIMA Chamfer original support is invalid");
-            TopTools_IndexedMapOfShape first_edges,second_edges,
+            NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> first_edges,second_edges,
                 material_edges;
             TopExp::MapShapes(support.first,TopAbs_EDGE,first_edges);
             TopExp::MapShapes(support.second,TopAbs_EDGE,second_edges);
@@ -2314,7 +2317,7 @@ OcctPlanarEdgeChamferResult occt_planar_edge_chamfer(
             for(TopExp_Explorer item(material,TopAbs_EDGE);
                     item.More();item.Next()) {
                 const auto edge=TopoDS::Edge(item.Current());
-                TopTools_IndexedMapOfShape vertices;
+                NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> vertices;
                 TopExp::MapShapes(edge,TopAbs_VERTEX,vertices);
                 if(!vertices.Contains(node.vertex)||
                         std::ranges::any_of(node.tools,
@@ -2433,10 +2436,10 @@ OcctPlanarEdgeChamferResult occt_planar_edge_chamfer(
         BRepCheck_Analyzer(current,true,true,false).IsValid();
     cleanup.SetLinearTolerance(tolerance);
     cleanup.SetAngularTolerance(1.0e-9);
-    TopTools_IndexedMapOfShape current_edges,input_edges;
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> current_edges,input_edges;
     TopExp::MapShapes(current,TopAbs_EDGE,current_edges);
     TopExp::MapShapes(input,TopAbs_EDGE,input_edges);
-    TopTools_IndexedDataMapOfShapeListOfShape current_edge_faces;
+    NCollection_IndexedDataMap<TopoDS_Shape, NCollection_List<TopoDS_Shape>, TopTools_ShapeMapHasher> current_edge_faces;
     TopExp::MapShapesAndAncestors(current,TopAbs_EDGE,TopAbs_FACE,
         current_edge_faces);
     const auto redundant_coplanar_seam=[&](const TopoDS_Shape& edge) {
@@ -2494,7 +2497,7 @@ OcctPlanarEdgeChamferResult occt_planar_edge_chamfer(
         result.history->Merge(cleanup_history);
     current=cleanup.Shape();
     result.shape=current;
-    TopTools_IndexedMapOfShape result_faces;
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> result_faces;
     TopExp::MapShapes(result.shape,TopAbs_FACE,result_faces);
     result.chamfer_faces.resize(tools.size());
     for(std::size_t index=0;index<tools.size();++index) {

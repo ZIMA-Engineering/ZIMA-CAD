@@ -6,7 +6,7 @@ PrimitiveData make_sewn_surface_data(const SurfaceSewingRequest& request,const s
     if(request.faces.size()<2||!std::isfinite(request.tolerance)||request.tolerance<=0||input_shape.IsNull())
         throw std::runtime_error("Sewing requires at least two surfaces and a positive tolerance.");
     std::vector<OwnedFace> selected;std::set<std::string> identities;
-    TopTools_IndexedMapOfShape selected_faces,selected_edges,selected_vertices;
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> selected_faces,selected_edges,selected_vertices;
     for(const auto& reference:request.faces) {
         if(!reference.valid()||!reference.instance_path.empty()||!identities.insert(encoded_topology_reference(reference)).second)
             throw std::runtime_error("Sewing surface reference is invalid.");
@@ -33,7 +33,7 @@ PrimitiveData make_sewn_surface_data(const SurfaceSewingRequest& request,const s
     if(sewn.IsNull()||sewn.ShapeType()!=TopAbs_SHELL||sewing.NbContigousEdges()==0||sewing.NbMultipleEdges()!=0||
         !BRepCheck_Analyzer(sewn).IsValid())
         throw std::runtime_error("Sewing must produce one connected manifold shell.");
-    TopTools_IndexedMapOfShape result_faces,result_edges,result_vertices;
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> result_faces,result_edges,result_vertices;
     TopExp::MapShapes(sewn,TopAbs_FACE,result_faces);TopExp::MapShapes(sewn,TopAbs_EDGE,result_edges);TopExp::MapShapes(sewn,TopAbs_VERTEX,result_vertices);
     if(result_faces.Extent()!=static_cast<int>(selected.size()))throw std::runtime_error("Sewing did not preserve its source surfaces.");
     PrimitiveData result;result.shape=sewn;
@@ -80,7 +80,7 @@ PrimitiveData make_sewn_surface_data(const SurfaceSewingRequest& request,const s
     };
     std::map<std::string,TopoDS_Shape> edge_identities;
     std::vector<std::set<std::string>> edge_parents(result_edges.Extent());
-    TopTools_IndexedMapOfShape source_edge_shapes;std::vector<std::set<std::string>> source_edge_parents;
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> source_edge_shapes;std::vector<std::set<std::string>> source_edge_parents;
     for(const auto& source:source_edges) {
         const auto index=source_edge_shapes.Add(source.shape);if(index>static_cast<int>(source_edge_parents.size()))source_edge_parents.emplace_back();
         source_edge_parents[index-1].insert(encoded_topology_reference(source.reference));
@@ -93,7 +93,7 @@ PrimitiveData make_sewn_surface_data(const SurfaceSewingRequest& request,const s
     // explicit contiguous-edge couples carry both native parents of a join.
     for(int i=1;i<=sewing.NbContigousEdges();++i) {
         const auto index=result_edges.FindIndex(sewing.ContigousEdge(i));if(index==0)continue;
-        for(TopTools_ListIteratorOfListOfShape it(sewing.ContigousEdgeCouple(i));it.More();it.Next()) {
+        for(NCollection_List<TopoDS_Shape>::Iterator it(sewing.ContigousEdgeCouple(i));it.More();it.Next()) {
             const TopoDS_Shape boundary=sewing.IsSectionBound(TopoDS::Edge(it.Value()))?TopoDS_Shape(sewing.SectionToBoundary(TopoDS::Edge(it.Value()))):it.Value();
             const auto source_index=source_edge_shapes.FindIndex(boundary);
             if(source_index>0)edge_parents[index-1].insert(source_edge_parents[source_index-1].begin(),source_edge_parents[source_index-1].end());
@@ -124,7 +124,7 @@ PrimitiveData make_sewn_surface_data(const SurfaceSewingRequest& request,const s
     };
     retain(retain,input_shape);result.shape=combined;
     for(const auto& face:input_faces)if(!selected_faces.Contains(face.shape))result.faces.push_back(face);
-    TopTools_IndexedMapOfShape retained_edges,retained_vertices;
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> retained_edges,retained_vertices;
     for(const auto& face:result.faces)if(face.reference.owner_id!=owner) {
         TopExp::MapShapes(face.shape,TopAbs_EDGE,retained_edges);TopExp::MapShapes(face.shape,TopAbs_VERTEX,retained_vertices);
     }

@@ -40,7 +40,7 @@ ThickenedSurfaceData make_thickened_surface_data(const SurfaceThickenRequest& re
     }
     if(!selected||!selected->reference.surface_result)
         throw std::runtime_error("Select a calculated surface to thicken.");
-    TopTools_IndexedMapOfShape actual_faces,source_edges,source_vertices;
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> actual_faces,source_edges,source_vertices;
     TopExp::MapShapes(input_shape,TopAbs_FACE,actual_faces);
     if(!actual_faces.Contains(selected->shape))throw std::runtime_error("Select a calculated surface to thicken.");
     for(TopExp_Explorer solid(input_shape,TopAbs_SOLID);solid.More();solid.Next())
@@ -48,10 +48,10 @@ ThickenedSurfaceData make_thickened_surface_data(const SurfaceThickenRequest& re
             if(face.Current().IsSame(selected->shape))throw std::runtime_error("Select a calculated surface to thicken.");
     TopoDS_Shape source=selected->shape;
     for(TopExp_Explorer shell(input_shape,TopAbs_SHELL);shell.More();shell.Next()) {
-        TopTools_IndexedMapOfShape members;TopExp::MapShapes(shell.Current(),TopAbs_FACE,members);
+        NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> members;TopExp::MapShapes(shell.Current(),TopAbs_FACE,members);
         if(members.Contains(selected->shape)){source=shell.Current();break;}
     }
-    TopTools_IndexedMapOfShape source_faces;
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> source_faces;
     TopExp::MapShapes(source,TopAbs_FACE,source_faces);
     TopExp::MapShapes(source,TopAbs_EDGE,source_edges);
     TopExp::MapShapes(source,TopAbs_VERTEX,source_vertices);
@@ -88,7 +88,7 @@ ThickenedSurfaceData make_thickened_surface_data(const SurfaceThickenRequest& re
     }
     if(!thick.IsDone()||thick.Shape().IsNull())throw std::runtime_error("Surface thickening could not create a valid solid.");
     profile("offset");
-    TopTools_IndexedMapOfShape solids;
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> solids;
     TopExp::MapShapes(thick.Shape(),TopAbs_SOLID,solids);
     if(solids.Extent()!=1)throw std::runtime_error("Surface thickening could not create a valid solid.");
     auto solid=TopoDS::Solid(solids.FindKey(1));
@@ -117,10 +117,10 @@ ThickenedSurfaceData make_thickened_surface_data(const SurfaceThickenRequest& re
     if(!std::isfinite(volume.Mass())||volume.Mass()<=0.)
         throw std::runtime_error("Surface thickening could not create a valid solid.");
     profile("positive volume");
-    TopTools_IndexedMapOfShape result_faces,result_edges,result_vertices;
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> result_faces,result_edges,result_vertices;
     TopExp::MapShapes(solid,TopAbs_FACE,result_faces);TopExp::MapShapes(solid,TopAbs_EDGE,result_edges);TopExp::MapShapes(solid,TopAbs_VERTEX,result_vertices);
     const auto generated=[&](auto& algorithm,const TopoDS_Shape& source,TopAbs_ShapeEnum type) {
-        TopTools_IndexedMapOfShape matches;
+        NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> matches;
         for(const auto& value:algorithm.Generated(source))if(value.ShapeType()==type)matches.Add(value);
         for(const auto& value:algorithm.Modified(source))if(value.ShapeType()==type)matches.Add(value);
         if(matches.Extent()!=1)throw std::runtime_error("Surface thickening could not resolve native topology ancestry.");
@@ -134,7 +134,7 @@ ThickenedSurfaceData make_thickened_surface_data(const SurfaceThickenRequest& re
     const auto key=[&](std::string_view role,const auto& parent) {
         return "thicken:"+std::string(role)+":from:"+encoded_topology_reference(parent);
     };
-    TopTools_IndexedMapOfShape caps;
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> caps;
     for(const auto& face:input_faces)if(source_faces.Contains(face.shape)) {
         const auto cap_start=start_shape(face.shape),cap_end=generated(thick,cap_start,TopAbs_FACE);
         if(!result_faces.Contains(cap_start)||!result_faces.Contains(cap_end))
@@ -168,7 +168,7 @@ ThickenedSurfaceData make_thickened_surface_data(const SurfaceThickenRequest& re
     profile("vertex ancestry");
     for(int i=1;i<=result_faces.Extent();++i) {
         const auto& face=result_faces.FindKey(i);if(caps.Contains(face))continue;
-        TopTools_IndexedMapOfShape edges;TopExp::MapShapes(face,TopAbs_EDGE,edges);
+        NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> edges;TopExp::MapShapes(face,TopAbs_EDGE,edges);
         std::optional<EdgeReference> parent;
         std::set<std::string> parents;
         for(const auto& rim:rims)if(edges.Contains(rim.start)&&edges.Contains(rim.end)) {
@@ -188,7 +188,7 @@ ThickenedSurfaceData make_thickened_surface_data(const SurfaceThickenRequest& re
     for(int i=1;i<=result_edges.Extent();++i) {
         const auto& edge=result_edges.FindKey(i);
         if(result_artifacts.Contains(edge)||std::ranges::any_of(result.edges,[&](const auto& item){return item.shape.IsSame(edge);}))continue;
-        TopTools_IndexedMapOfShape vertices;TopExp::MapShapes(edge,TopAbs_VERTEX,vertices);
+        NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> vertices;TopExp::MapShapes(edge,TopAbs_VERTEX,vertices);
         std::optional<Endpoint> endpoint;
         std::set<std::string> parents;
         for(const auto& point:endpoints)if(vertices.Contains(point.start)&&vertices.Contains(point.end)) {
@@ -222,7 +222,7 @@ ThickenedSurfaceData make_thickened_surface_data(const SurfaceThickenRequest& re
             if(!source_faces.Contains(it.Current()))builder.Add(combined,it.Current());
     };
     retain(retain,input_shape);if(TopoDS_Iterator(combined).More())remaining.shape=combined;
-    TopTools_IndexedMapOfShape retained_edges,retained_vertices;
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> retained_edges,retained_vertices;
     for(const auto& face:input_faces)if(!source_faces.Contains(face.shape)) {
         remaining.faces.push_back(face);TopExp::MapShapes(face.shape,TopAbs_EDGE,retained_edges);TopExp::MapShapes(face.shape,TopAbs_VERTEX,retained_vertices);
     }

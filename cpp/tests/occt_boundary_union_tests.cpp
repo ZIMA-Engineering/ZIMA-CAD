@@ -11,8 +11,11 @@
 #include <GProp_GProps.hxx>
 #include <ShapeUpgrade_UnifySameDomain.hxx>
 #include <TopExp_Explorer.hxx>
-#include <TopTools_IndexedDataMapOfShapeListOfShape.hxx>
-#include <TopTools_IndexedMapOfShape.hxx>
+#include <NCollection_IndexedDataMap.hxx>
+#include <TopoDS_Shape.hxx>
+#include <NCollection_List.hxx>
+#include <TopTools_ShapeMapHasher.hxx>
+#include <NCollection_IndexedMap.hxx>
 #include <TopoDS.hxx>
 #include <TopoDS_Compound.hxx>
 #include <BRepAdaptor_Surface.hxx>
@@ -41,7 +44,7 @@ OcctBoundarySolid input(const TopoDS_Shape& shape,
         const std::string& owner,std::size_t history_index) {
     OcctBoundarySolid result;
     result.shape=shape;
-    TopTools_IndexedMapOfShape faces,edges,vertices;
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> faces,edges,vertices;
     TopExp::MapShapes(shape,TopAbs_FACE,faces);
     TopExp::MapShapes(shape,TopAbs_EDGE,edges);
     TopExp::MapShapes(shape,TopAbs_VERTEX,vertices);
@@ -222,7 +225,7 @@ void verify_current_treatment_edge_resolution() {
         source_faces.push_back(
             {face.shape,face.references,face.history_index});
 
-    TopTools_IndexedDataMapOfShapeListOfShape edge_faces,vertex_faces;
+    NCollection_IndexedDataMap<TopoDS_Shape, NCollection_List<TopoDS_Shape>, TopTools_ShapeMapHasher> edge_faces,vertex_faces;
     TopExp::MapShapesAndAncestors(boundary.shape,TopAbs_EDGE,TopAbs_FACE,
         edge_faces);
     TopExp::MapShapesAndAncestors(boundary.shape,TopAbs_VERTEX,TopAbs_FACE,
@@ -243,13 +246,13 @@ void verify_current_treatment_edge_resolution() {
         const auto& faces=edge_faces.FindFromIndex(index);
         if(faces.Extent()!=2)continue;
         std::set<std::string> candidate_adjacent;
-        for(TopTools_ListIteratorOfListOfShape face(faces);face.More();
+        for(NCollection_List<TopoDS_Shape>::Iterator face(faces);face.More();
                 face.Next())
             candidate_adjacent.insert(encoded_reference(
                 alias_for(face.Value())));
         if(candidate_adjacent.size()!=2)continue;
         std::set<std::string> candidate_endpoints;
-        TopTools_IndexedMapOfShape vertices;
+        NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> vertices;
         TopExp::MapShapes(edge_faces.FindKey(index),TopAbs_VERTEX,vertices);
         if(vertices.Extent()!=2)continue;
         for(int vertex=1;vertex<=vertices.Extent();++vertex) {
@@ -257,7 +260,7 @@ void verify_current_treatment_edge_resolution() {
                 vertices(vertex));
             if(!support_index)continue;
             std::set<std::string> support;
-            for(TopTools_ListIteratorOfListOfShape face(
+            for(NCollection_List<TopoDS_Shape>::Iterator face(
                     vertex_faces.FindFromIndex(support_index));face.More();
                     face.Next())
                 support.insert(encoded_reference(alias_for(face.Value())));
@@ -333,7 +336,7 @@ void verify_case(const char* name,const TopoDS_Shape& first_shape,
         "Boundary union identities depend on operand traversal order");
     require(!result.shape.IsNull()&&BRepCheck_Analyzer(result.shape).IsValid(),
         "Boundary union returned an invalid shape");
-    TopTools_IndexedMapOfShape actual_faces,actual_edges,actual_vertices;
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> actual_faces,actual_edges,actual_vertices;
     TopExp::MapShapes(result.shape,TopAbs_FACE,actual_faces);
     TopExp::MapShapes(result.shape,TopAbs_EDGE,actual_edges);
     TopExp::MapShapes(result.shape,TopAbs_VERTEX,actual_vertices);
@@ -393,7 +396,7 @@ void verify_case(const char* name,const TopoDS_Shape& first_shape,
 
 std::array<int,3> topology_counts(const TopoDS_Shape& shape) {
     std::array<int,3> result{};
-    TopTools_IndexedMapOfShape members;
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> members;
     TopExp::MapShapes(shape,TopAbs_FACE,members);result[0]=members.Extent();
     members.Clear();TopExp::MapShapes(shape,TopAbs_EDGE,members);
     result[1]=members.Extent();

@@ -161,7 +161,7 @@ void clip_revolution_end(PrimitiveData& result,const RevolutionRequest& request,
     clip.SetFuzzyValue(contact.tolerance);clip.SetToFillHistory(true);clip.Build();
     if(!clip.IsDone()||clip.Shape().IsNull()||!BRepCheck_Analyzer(clip.Shape(),true,false,true).IsValid())
         throw std::runtime_error("Revolution target does not define an unambiguous end.");
-    TopTools_IndexedMapOfShape actual;TopExp::MapShapes(clip.Shape(),actual);
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> actual;TopExp::MapShapes(clip.Shape(),actual);
     // Every region must retain its complete start and lose its entire overrun.
     // Otherwise Common has kept a later orbit section or an incomplete end.
     for(TopExp_Explorer it(first,request.surface_result?TopAbs_EDGE:TopAbs_FACE);it.More();it.Next())

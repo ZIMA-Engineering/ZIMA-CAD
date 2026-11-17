@@ -23,8 +23,11 @@
 #include <GProp_GProps.hxx>
 #include <TopExp.hxx>
 #include <TopExp_Explorer.hxx>
-#include <TopTools_IndexedDataMapOfShapeListOfShape.hxx>
-#include <TopTools_IndexedMapOfShape.hxx>
+#include <NCollection_IndexedDataMap.hxx>
+#include <TopoDS_Shape.hxx>
+#include <NCollection_List.hxx>
+#include <TopTools_ShapeMapHasher.hxx>
+#include <NCollection_IndexedMap.hxx>
 #include <TopoDS.hxx>
 
 #include <algorithm>
@@ -90,7 +93,7 @@ std::vector<TopoDS_Edge> edges_at_point(const TopoDS_Shape& shape,
     std::vector<TopoDS_Edge> result;
     for(TopExp_Explorer item(shape,TopAbs_EDGE);item.More();item.Next()) {
         const auto edge=TopoDS::Edge(item.Current());
-        TopTools_IndexedMapOfShape vertices;
+        NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> vertices;
         TopExp::MapShapes(edge,TopAbs_VERTEX,vertices);
         if(std::ranges::none_of(std::views::iota(1,vertices.Extent()+1),
                 [&](int index) {
@@ -245,7 +248,7 @@ void verify_result(const TopoDS_Shape& input,
                 [](const auto& faces){return !faces.empty();}),
         "Custom planar Chamfer omitted its valid body, history or faces");
     for(const auto& domain:custom.treatment_domains) {
-        TopTools_IndexedMapOfShape domain_faces;
+        NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> domain_faces;
         TopExp::MapShapes(domain,TopAbs_FACE,domain_faces);
         require(domain_faces.Extent()==5,
             "Custom Chamfer tool is not one exact triangular prism");
@@ -254,7 +257,7 @@ void verify_result(const TopoDS_Shape& input,
         for(const auto& face:faces) {
             require(BRepAdaptor_Surface(face,true).GetType()==GeomAbs_Plane,
                 "Custom Chamfer face is not an exact plane");
-            TopTools_IndexedMapOfShape boundary_edges;
+            NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> boundary_edges;
             TopExp::MapShapes(face,TopAbs_EDGE,boundary_edges);
             require(boundary_edges.Extent()==4,
                 "Custom Chamfer face is not bounded by four exact lines");
@@ -274,7 +277,7 @@ void verify_result(const TopoDS_Shape& input,
         require(generated_face_found,
             "Custom Chamfer adapter omitted edge-to-face ancestry");
     }
-    TopTools_IndexedMapOfShape result_edges;
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> result_edges;
     TopExp::MapShapes(custom.Shape(),TopAbs_EDGE,result_edges);
     for(int index=1;index<=result_edges.Extent();++index) {
         const BRepAdaptor_Curve curve(
@@ -286,7 +289,7 @@ void verify_result(const TopoDS_Shape& input,
     }
     near(volume(custom.Shape()),expected_volume,
         "Custom planar Chamfer volume is wrong");
-    TopTools_IndexedMapOfShape result_faces;
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> result_faces;
     TopExp::MapShapes(custom.Shape(),TopAbs_FACE,result_faces);
     require(result_faces.Extent()==expected_face_count,
         "Custom planar Chamfer retained auxiliary coplanar faces");
@@ -306,13 +309,13 @@ void verify_asymmetric(const TopoDS_Shape& input,const TopoDS_Edge& edge,
             custom.chamfer_faces.size()==1&&
             custom.chamfer_faces.front().size()==1,
         "Asymmetric custom Chamfer did not produce one valid exact face");
-    TopTools_IndexedDataMapOfShapeListOfShape edge_faces;
+    NCollection_IndexedDataMap<TopoDS_Shape, NCollection_List<TopoDS_Shape>, TopTools_ShapeMapHasher> edge_faces;
     TopExp::MapShapesAndAncestors(input,TopAbs_EDGE,TopAbs_FACE,edge_faces);
     const int edge_index=edge_faces.FindIndex(edge);
     require(edge_index!=0,
         "Asymmetric Chamfer fixture edge has no supports");
     TopoDS_Face other_face;
-    for(TopTools_ListIteratorOfListOfShape iterator(
+    for(NCollection_List<TopoDS_Shape>::Iterator iterator(
             edge_faces.FindFromIndex(edge_index));
         iterator.More();iterator.Next()) {
         const auto candidate=TopoDS::Face(iterator.Value());
@@ -321,7 +324,7 @@ void verify_asymmetric(const TopoDS_Shape& input,const TopoDS_Edge& edge,
     require(!other_face.IsNull(),
         "Asymmetric Chamfer fixture lost its second support");
     const auto treatment=custom.chamfer_faces.front().front();
-    TopTools_IndexedMapOfShape vertices;
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> vertices;
     TopExp::MapShapes(treatment,TopAbs_VERTEX,vertices);
     const auto source_line=BRepAdaptor_Curve(edge).Line();
     const auto tangent_distance=[&](const TopoDS_Face& support) {
@@ -353,7 +356,7 @@ struct AngledEndFixture {
 AngledEndFixture angled_end_fixture() {
     AngledEndFixture fixture;
     fixture.shape=BRepPrimAPI_MakeWedge(30.,24.,40.,12.).Shape();
-    TopTools_IndexedDataMapOfShapeListOfShape edge_faces;
+    NCollection_IndexedDataMap<TopoDS_Shape, NCollection_List<TopoDS_Shape>, TopTools_ShapeMapHasher> edge_faces;
     TopExp::MapShapesAndAncestors(fixture.shape,TopAbs_EDGE,TopAbs_FACE,
         edge_faces);
     for(TopExp_Explorer item(fixture.shape,TopAbs_EDGE);
@@ -469,14 +472,14 @@ int main() try {
         "Wedge fixture lost its two non-right node branches");
     verify_node(wedge,angled_node,2.5,
         "Non-right two-branch ZIMA Chamfer node is invalid");
-    TopTools_IndexedDataMapOfShapeListOfShape box_edge_faces;
+    NCollection_IndexedDataMap<TopoDS_Shape, NCollection_List<TopoDS_Shape>, TopTools_ShapeMapHasher> box_edge_faces;
     TopExp::MapShapesAndAncestors(box,TopAbs_EDGE,TopAbs_FACE,
         box_edge_faces);
     const int first_edge_index=box_edge_faces.FindIndex(box_edges.front());
     require(first_edge_index!=0,
         "Box fixture lost the first edge supports");
     std::vector<TopoDS_Face> first_edge_faces;
-    for(TopTools_ListIteratorOfListOfShape iterator(
+    for(NCollection_List<TopoDS_Shape>::Iterator iterator(
             box_edge_faces.FindFromIndex(first_edge_index));
         iterator.More();iterator.Next())
         first_edge_faces.push_back(TopoDS::Face(iterator.Value()));
@@ -499,7 +502,7 @@ int main() try {
     {
         constexpr double radius=20.,height=30.;
         const auto cylinder=BRepPrimAPI_MakeCylinder(radius,height).Shape();
-        TopTools_IndexedDataMapOfShapeListOfShape circular_edge_faces;
+        NCollection_IndexedDataMap<TopoDS_Shape, NCollection_List<TopoDS_Shape>, TopTools_ShapeMapHasher> circular_edge_faces;
         TopExp::MapShapesAndAncestors(cylinder,TopAbs_EDGE,TopAbs_FACE,
             circular_edge_faces);
         TopoDS_Edge top_edge;
@@ -675,7 +678,7 @@ int main() try {
         }
         require(!arc.IsNull(),
             "Curved Chamfer fixture lost its top circular route member");
-        TopTools_IndexedMapOfShape arc_vertices;
+        NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> arc_vertices;
         TopExp::MapShapes(arc,TopAbs_VERTEX,arc_vertices);
         std::vector<TopoDS_Edge> route;
         for(TopExp_Explorer item(round.Shape(),TopAbs_EDGE);
@@ -683,7 +686,7 @@ int main() try {
             const auto edge=TopoDS::Edge(item.Current());
             const BRepAdaptor_Curve curve(edge);
             if(edge.IsSame(arc)||curve.GetType()!=GeomAbs_Line)continue;
-            TopTools_IndexedMapOfShape vertices;
+            NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> vertices;
             TopExp::MapShapes(edge,TopAbs_VERTEX,vertices);
             const bool shares_arc=std::ranges::any_of(
                 std::views::iota(1,vertices.Extent()+1),[&](int index) {
@@ -888,7 +891,7 @@ int main() try {
         }
         require(!arc.IsNull(),
             "Angled curved Chamfer fixture lost its top arc");
-        TopTools_IndexedMapOfShape arc_vertices;
+        NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> arc_vertices;
         TopExp::MapShapes(arc,TopAbs_VERTEX,arc_vertices);
         std::vector<TopoDS_Edge> route;
         for(TopExp_Explorer item(round.Shape(),TopAbs_EDGE);
@@ -896,7 +899,7 @@ int main() try {
             const auto edge=TopoDS::Edge(item.Current());
             const BRepAdaptor_Curve curve(edge);
             if(edge.IsSame(arc)||curve.GetType()!=GeomAbs_Line)continue;
-            TopTools_IndexedMapOfShape vertices;
+            NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> vertices;
             TopExp::MapShapes(edge,TopAbs_VERTEX,vertices);
             const bool shares_arc=std::ranges::any_of(
                 std::views::iota(1,vertices.Extent()+1),[&](int index) {
@@ -1050,7 +1053,7 @@ int main() try {
             "Split cylindrical terminal lost its Chamfer route edge");
         const auto planar_support=[](const TopoDS_Shape& shape,
                 const TopoDS_Edge& edge) {
-            TopTools_IndexedDataMapOfShapeListOfShape edge_faces;
+            NCollection_IndexedDataMap<TopoDS_Shape, NCollection_List<TopoDS_Shape>, TopTools_ShapeMapHasher> edge_faces;
             TopExp::MapShapesAndAncestors(shape,TopAbs_EDGE,TopAbs_FACE,
                 edge_faces);
             const int index=edge_faces.FindIndex(edge);

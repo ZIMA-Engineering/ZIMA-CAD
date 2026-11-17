@@ -26,7 +26,7 @@ inline void verify_closed_support_chamfer() {
     const auto input=common.Shape();
     struct Member {TopoDS_Edge edge;TopoDS_Face cylinder,other;};
     std::vector<Member> members;
-    TopTools_IndexedDataMapOfShapeListOfShape adjacency;TopExp::MapShapesAndAncestors(input,TopAbs_EDGE,TopAbs_FACE,adjacency);
+    NCollection_IndexedDataMap<TopoDS_Shape, NCollection_List<TopoDS_Shape>, TopTools_ShapeMapHasher> adjacency;TopExp::MapShapesAndAncestors(input,TopAbs_EDGE,TopAbs_FACE,adjacency);
     for(int i=1;i<=adjacency.Extent();++i) {
         const auto edge=TopoDS::Edge(adjacency.FindKey(i));const auto& faces=adjacency.FindFromIndex(i);
         if(faces.Size()!=2)continue;
@@ -55,7 +55,7 @@ inline void verify_closed_support_chamfer() {
             const auto result=kernel::occt_planar_edge_chamfer(input,selections,mode,2.,secondary,1.e-7);
             check(BRepCheck_Analyzer(result.shape).IsValid(),"Closed chamfer produced invalid topology");
             check(!result.chamfer_faces.empty()&&!result.chamfer_faces.front().empty(),"Closed chamfer lost face ownership");
-            TopTools_IndexedMapOfShape solids;TopExp::MapShapes(result.shape,TopAbs_SOLID,solids);
+            NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> solids;TopExp::MapShapes(result.shape,TopAbs_SOLID,solids);
             check(solids.Extent()==1,"Closed chamfer split the Body");
             GProp_GProps properties;BRepGProp::VolumeProperties(result.shape,properties,1.e-10);
             if(!reversed)expected_volume=properties.Mass();
@@ -72,8 +72,8 @@ inline void verify_closed_support_chamfer() {
                 check(gap.IsDone()&&gap.Value()<2.e-6,"Closed chamfer changed A/B or angle at a planar section");
             }
             if(mode==Mode::DistanceAngle) {
-                TopTools_IndexedDataMapOfShapeListOfShape joined;TopExp::MapShapesAndAncestors(result.shape,TopAbs_EDGE,TopAbs_FACE,joined);
-                TopTools_IndexedMapOfShape treatment;
+                NCollection_IndexedDataMap<TopoDS_Shape, NCollection_List<TopoDS_Shape>, TopTools_ShapeMapHasher> joined;TopExp::MapShapesAndAncestors(result.shape,TopAbs_EDGE,TopAbs_FACE,joined);
+                NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> treatment;
                 for(const auto& faces:result.chamfer_faces)for(const auto& face:faces)treatment.Add(face);
                 std::size_t measured{};
                 for(int i=1;i<=joined.Extent();++i) {

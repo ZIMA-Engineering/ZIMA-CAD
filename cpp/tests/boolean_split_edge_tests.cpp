@@ -26,8 +26,10 @@
 #include <TopoDS_Shape.hxx>
 #include <TopExp.hxx>
 #include <TopExp_Explorer.hxx>
-#include <TopTools_IndexedMapOfShape.hxx>
-#include <TopTools_IndexedDataMapOfShapeListOfShape.hxx>
+#include <NCollection_IndexedMap.hxx>
+#include <TopTools_ShapeMapHasher.hxx>
+#include <NCollection_IndexedDataMap.hxx>
+#include <NCollection_List.hxx>
 #include <TopoDS.hxx>
 #include <BRepAdaptor_Surface.hxx>
 #include <gp_Circ.hxx>
@@ -79,7 +81,7 @@ std::vector<BoundEdge> bound_edges(const kernel::BodyResult& body) {
     TopoDS_Shape body_shape;
     archive.Read(body_shape,stream);
     require(!body_shape.IsNull(),"Calculated Body archive has no shape");
-    TopTools_IndexedMapOfShape members;
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> members;
     TopExp::MapShapes(body_shape,TopAbs_EDGE,members);
     std::vector<BoundEdge> result;
     result.reserve(body.kernel_edges.size());
@@ -928,18 +930,23 @@ void zima_fragment_survival() {
     require(original!=stock_result.back().mesh.edges.end(),
         "ZIMA fragment fixture has no original vertical edge");
     const auto original_reference=original->reference;
+    // This fixture tests route-member survival with perpendicular terminals.
+    // An authored Cut row needs real endpoint references; an empty row is invalid.
+    kernel::EdgeTreatmentRouteEndFaces perpendicular_ends;
+    perpendicular_ends.first_mode=perpendicular_ends.last_mode=
+        kernel::EdgeTreatmentRouteEndMode::NoCut;
     const auto treatment=kernel::HistoryOperation{
         "fragment-fillet",
         kernel::FilletRequest{{original_reference},
             kernel::FilletRequest::Mode::Constant,1,1,false,{},
-            kernel::EdgeTreatmentCalculationMethod::Zima,{1},{{}}},
+            kernel::EdgeTreatmentCalculationMethod::Zima,{1},{perpendicular_ends}},
         kernel::BooleanOperation::Add};
     const auto chamfer=kernel::HistoryOperation{
         "fragment-chamfer",
         kernel::ChamferRequest{{original_reference},
             kernel::ChamferRequest::Mode::EqualDistance,1,1,
             0.7853981633974483,false,
-            kernel::EdgeTreatmentCalculationMethod::Zima,{1},{{}}},
+            kernel::EdgeTreatmentCalculationMethod::Zima,{1},{perpendicular_ends}},
         kernel::BooleanOperation::Add};
     const auto evaluate=[&](double cutter_z,double cutter_height,
             const kernel::HistoryOperation& selected_treatment,
@@ -1046,14 +1053,14 @@ void zima_fragment_survival() {
         "partial-fillet",
         kernel::FilletRequest{{original_reference,missing},
             kernel::FilletRequest::Mode::Constant,1,1,false,{},
-            kernel::EdgeTreatmentCalculationMethod::Zima,{2},{{}}},
+            kernel::EdgeTreatmentCalculationMethod::Zima,{2},{perpendicular_ends}},
         kernel::BooleanOperation::Add};
     const auto partial_chamfer=kernel::HistoryOperation{
         "partial-chamfer",
         kernel::ChamferRequest{{original_reference,missing},
             kernel::ChamferRequest::Mode::EqualDistance,1,1,
             0.7853981633974483,false,
-            kernel::EdgeTreatmentCalculationMethod::Zima,{2},{{}}},
+            kernel::EdgeTreatmentCalculationMethod::Zima,{2},{perpendicular_ends}},
         kernel::BooleanOperation::Add};
     for(const auto* partial:{&partial_fillet,&partial_chamfer}) {
         const auto [survivors,result]=evaluate(10,10,*partial);
@@ -1129,7 +1136,7 @@ void form_case(const fs::path& directory) {
         const auto shape=kernel::read_calculated_body_shape(snapshot);
         if(!BRepCheck_Analyzer(shape).IsValid())
             throw std::runtime_error("FORM boundary " + std::to_string(index) + " is not a valid B-Rep");
-        TopTools_IndexedMapOfShape actual_faces;TopExp::MapShapes(shape,TopAbs_FACE,actual_faces);
+        NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> actual_faces;TopExp::MapShapes(shape,TopAbs_FACE,actual_faces);
         std::set<Key> face_ids;
         for(const auto& face:boundary.mesh.triangle_references)face_ids.emplace(face.owner_id,face.semantic_key);
         require(face_ids.size()==static_cast<std::size_t>(actual_faces.Extent()),"Distinct FORM body faces share an identity");
@@ -1153,13 +1160,13 @@ void form_case(const fs::path& directory) {
     // regions must have no internal Boolean join in the actual B-Rep.
     const auto sweep=cold.evaluate_history({operations.begin(),operations.begin()+3}).back();
     const auto sweep_shape=kernel::read_calculated_body_shape(sweep);
-    TopTools_IndexedDataMapOfShapeListOfShape adjacency;
+    NCollection_IndexedDataMap<TopoDS_Shape, NCollection_List<TopoDS_Shape>, TopTools_ShapeMapHasher> adjacency;
     TopExp::MapShapesAndAncestors(sweep_shape,TopAbs_EDGE,TopAbs_FACE,adjacency);
-    TopTools_IndexedDataMapOfShapeListOfShape solids;
+    NCollection_IndexedDataMap<TopoDS_Shape, NCollection_List<TopoDS_Shape>, TopTools_ShapeMapHasher> solids;
     TopExp::MapShapesAndAncestors(sweep_shape,TopAbs_FACE,TopAbs_SOLID,solids);
     for(int i=1;i<=adjacency.Extent();++i) {
         const auto& faces=adjacency.FindFromIndex(i);if(faces.Extent()!=2)continue;
-        TopTools_ListIteratorOfListOfShape it(faces);
+        NCollection_List<TopoDS_Shape>::Iterator it(faces);
         const auto first_face=it.Value();it.Next();
         if(first_face.IsSame(it.Value()))continue;
         const auto& first_solids=solids.FindFromKey(first_face);

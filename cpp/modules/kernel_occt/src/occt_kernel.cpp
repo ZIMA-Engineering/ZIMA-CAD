@@ -150,7 +150,8 @@
 #include <Quantity_ColorRGBA.hxx>
 #include <TDF_Tool.hxx>
 #include <TDF_ChildIterator.hxx>
-#include <TDF_LabelSequence.hxx>
+#include <NCollection_Sequence.hxx>
+#include <TDF_Label.hxx>
 #include <GProp_GProps.hxx>
 #include <GCPnts_TangentialDeflection.hxx>
 #include <GC_MakeArcOfCircle.hxx>
@@ -178,8 +179,8 @@
 #include <BRepTools_Modification.hxx>
 #include <BRepTools_Modifier.hxx>
 #include <BRepAlgoAPI_Splitter.hxx>
-#include <TColgp_Array2OfPnt.hxx>
-#include <TColStd_HArray1OfReal.hxx>
+#include <NCollection_Array2.hxx>
+#include <NCollection_HArray1.hxx>
 #include <zima/kernel/sheet_material.hpp>
 #include <GeomConvert_SurfToAnaSurf.hxx>
 #include <GeomAdaptor_Surface.hxx>
@@ -187,20 +188,18 @@
 #include <GeomAPI_IntCS.hxx>
 #include <Geom_Circle.hxx>
 #include <GeomLProp_SLProps.hxx>
-#include <TColgp_HArray1OfPnt.hxx>
-#include <TColgp_HArray1OfPnt2d.hxx>
-#include <TColgp_Array1OfPnt.hxx>
-#include <TColStd_Array1OfInteger.hxx>
-#include <TColStd_Array1OfReal.hxx>
+#include <NCollection_Array1.hxx>
 #include <GeomAbs_CurveType.hxx>
 #include <ElCLib.hxx>
 #include <Poly_Triangulation.hxx>
 #include <Standard_Failure.hxx>
 #include <TopExp_Explorer.hxx>
 #include <TopExp.hxx>
-#include <TopTools_ListOfShape.hxx>
-#include <TopTools_IndexedDataMapOfShapeListOfShape.hxx>
-#include <TopTools_IndexedMapOfShape.hxx>
+#include <NCollection_List.hxx>
+#include <TopoDS_Shape.hxx>
+#include <NCollection_IndexedDataMap.hxx>
+#include <TopTools_ShapeMapHasher.hxx>
+#include <NCollection_IndexedMap.hxx>
 #include <TopoDS.hxx>
 #include <TopoDS_Face.hxx>
 #include <TopoDS_Edge.hxx>
@@ -415,7 +414,7 @@ std::vector<Owned> propagate_topology(
         for (const auto* list : {
                 &history->Modified(source.shape),
                 &history->Generated(source.shape)}) {
-            for (TopTools_ListIteratorOfListOfShape iterator(*list);
+            for (NCollection_List<TopoDS_Shape>::Iterator iterator(*list);
                  iterator.More(); iterator.Next()) {
                 if (iterator.Value().ShapeType() != source.shape.ShapeType()) continue;
                 append_unique(iterator.Value(), source.reference);
@@ -437,7 +436,7 @@ Handle(Geom_Curve) sweep_spine_curve(const Sweep3DRequest::PathSegment& segment)
         return arc.Value();
     }
     const auto bezier=[](const auto& points) {
-        TColgp_Array1OfPnt poles(1,4);
+        NCollection_Array1<gp_Pnt> poles(1,4);
         for(int i=0;i<4;++i){const auto& p=points.at(i);poles.SetValue(i+1,gp_Pnt(p.x,p.y,p.z));}
         return Handle(Geom_BezierCurve)(new Geom_BezierCurve(poles));
     };
@@ -530,7 +529,7 @@ std::vector<ViewerAxis> axes_for_operation(
             Bnd_Box bounds;
             BRepBndLib::Add(calculated_operand, bounds);
             if (!bounds.IsVoid()) {
-                Standard_Real xmin{}, ymin{}, zmin{}, xmax{}, ymax{}, zmax{};
+                double xmin{}, ymin{}, zmin{}, xmax{}, ymax{}, zmax{};
                 bounds.Get(xmin, ymin, zmin, xmax, ymax, zmax);
                 double minimum = std::numeric_limits<double>::infinity();
                 double maximum = -std::numeric_limits<double>::infinity();
@@ -564,7 +563,7 @@ std::vector<ViewerAxis> axes_for_operation(
                 gp_Dir(direction.x,direction.y,direction.z)));
             Bnd_Box axial;
             BRepBndLib::AddOptimal(BRepBuilderAPI_Transform(calculated_operand,into_axis,false).Shape(),axial,false,false);
-            Standard_Real xmin{},ymin{},zmin{},xmax{},ymax{},zmax{};
+            double xmin{},ymin{},zmin{},xmax{},ymax{},zmax{};
             axial.Get(xmin,ymin,zmin,xmax,ymax,zmax);
             profile_centerlines::endpoints(*endpoints,operation.owner_id,axis.reference.semantic_key,
                 dimension_add(axis.point,dimension_scale(axis.direction,zmin)),
@@ -1236,12 +1235,12 @@ TopoDS_Wire make_profile_wire(
                         }
                         return edge.Edge();
                     } else {
-                        const Standard_Integer pole_count =
-                            static_cast<Standard_Integer>(exact_curve.control_points.size());
+                        const int pole_count =
+                            static_cast<int>(exact_curve.control_points.size());
                         if (exact_curve.interpolating) {
-                            Handle(TColgp_HArray1OfPnt) points =
-                                new TColgp_HArray1OfPnt(1, pole_count);
-                            for (Standard_Integer index = 1; index <= pole_count; ++index) {
+                            Handle(NCollection_HArray1<gp_Pnt>) points =
+                                new NCollection_HArray1<gp_Pnt>(1, pole_count);
+                            for (int index = 1; index <= pole_count; ++index) {
                                 const auto& point = exact_curve.control_points[
                                     static_cast<std::size_t>(index - 1)];
                                 points->SetValue(index,
@@ -1269,27 +1268,27 @@ TopoDS_Wire make_profile_wire(
                             if (!edge.IsDone()) throw std::runtime_error("Exact rational profile failed");
                             return edge.Edge();
                         }
-                        TColgp_Array1OfPnt poles(1, pole_count);
-                        for (Standard_Integer index = 1; index <= pole_count; ++index) {
+                        NCollection_Array1<gp_Pnt> poles(1, pole_count);
+                        for (int index = 1; index <= pole_count; ++index) {
                             const auto& point = exact_curve.control_points[
                                 static_cast<std::size_t>(index - 1)];
                             poles.SetValue(index, gp_Pnt(point.x, point.y, point.z));
                         }
-                        const Standard_Integer knot_count = exact_curve.periodic
+                        const int knot_count = exact_curve.periodic
                             ? pole_count + 1 : pole_count -
-                                static_cast<Standard_Integer>(exact_curve.degree) + 1;
-                        TColStd_Array1OfReal knots(1, knot_count);
-                        TColStd_Array1OfInteger multiplicities(1, knot_count);
-                        for (Standard_Integer index = 1; index <= knot_count; ++index) {
+                                static_cast<int>(exact_curve.degree) + 1;
+                        NCollection_Array1<double> knots(1, knot_count);
+                        NCollection_Array1<int> multiplicities(1, knot_count);
+                        for (int index = 1; index <= knot_count; ++index) {
                             knots.SetValue(index, static_cast<double>(index - 1));
                             multiplicities.SetValue(index, exact_curve.periodic ? 1
                                 : (index == 1 || index == knot_count)
-                                    ? static_cast<Standard_Integer>(exact_curve.degree) + 1
+                                    ? static_cast<int>(exact_curve.degree) + 1
                                     : 1);
                         }
                         Handle(Geom_BSplineCurve) bspline = new Geom_BSplineCurve(
                             poles, knots, multiplicities,
-                            static_cast<Standard_Integer>(exact_curve.degree),
+                            static_cast<int>(exact_curve.degree),
                             exact_curve.periodic);
                         BRepBuilderAPI_MakeEdge edge(bspline);
                         if (!edge.IsDone()) {
@@ -1310,10 +1309,10 @@ TopoDS_Wire make_profile_wire(
                 // edge to merge its endpoint. Recover that source's final edge
                 // by its shared curve handle, never by wire traversal position.
                 for(auto& source:*source_edges){
-                    Standard_Real a,b;const auto curve=BRep_Tool::Curve(source,a,b);
+                    double a,b;const auto curve=BRep_Tool::Curve(source,a,b);
                     TopoDS_Edge match;unsigned count=0;
                     for(TopExp_Explorer it(wire,TopAbs_EDGE);it.More();it.Next()){
-                        const auto edge=TopoDS::Edge(it.Current());Standard_Real first,last;
+                        const auto edge=TopoDS::Edge(it.Current());double first,last;
                         if(BRep_Tool::Curve(edge,first,last)==curve&&std::abs(first-a)<1e-9&&std::abs(last-b)<1e-9){match=edge;++count;}
                     }
                     if(count!=1)throw std::runtime_error("Nelze určit zdrojovou hranu průřezu");
@@ -1399,7 +1398,7 @@ struct SweepProfileWire {
 template<class Algorithm>
 void set_boolean_inputs(Algorithm& algorithm, const TopoDS_Shape& argument,
                         const TopoDS_Shape& tool) {
-    TopTools_ListOfShape arguments, tools;
+    NCollection_List<TopoDS_Shape> arguments, tools;
     arguments.Append(argument); tools.Append(tool);
     algorithm.SetArguments(arguments); algorithm.SetTools(tools);
     // OCCT's worker scheduler follows the hardware available on this host.
@@ -1427,7 +1426,7 @@ PrimitiveData make_transported_sweep_data(const Sweep3DRequest& request,const st
     if(request.sections.size()!=1)throw std::runtime_error("Sweep vyžaduje jeden průřez");
     GeomConvert_CompCurveToBSplineCurve curve;
     for(const auto& segment:request.path_segments){
-        TColgp_Array1OfPnt poles(1,4);
+        NCollection_Array1<gp_Pnt> poles(1,4);
         for(int i=0;i<4;++i){const auto& p=segment.bezier_control_points.at(i);poles.SetValue(i+1,gp_Pnt(p.x,p.y,p.z));}
         Handle(Geom_BezierCurve) part=new Geom_BezierCurve(poles);
         if(!curve.Add(part,1e-7,true,true,1))throw std::runtime_error("Nelze spojit prostorovou dráhu");
@@ -1450,7 +1449,7 @@ PrimitiveData make_transported_sweep_data(const Sweep3DRequest& request,const st
     for(std::size_t i=0;i<profile_edges.size();++i){
         const auto& source=section.profile.outer_edge_source_ids[i];
         const auto& shapes=builder.Generated(profile_edges[i]);
-        for(TopTools_ListIteratorOfListOfShape it(shapes);it.More();it.Next())
+        for(NCollection_List<TopoDS_Shape>::Iterator it(shapes);it.More();it.Next())
             if(it.Value().ShapeType()==TopAbs_FACE)result.faces.push_back({it.Value(),{owner_id,"generated:"+source}});
         // Caps are identified by the source/end normal planes, never traversal order.
     }
@@ -1496,7 +1495,7 @@ PrimitiveData make_transported_sweep_data(const Sweep3DRequest& request,const st
         const auto& source=seam?section.profile.outer_edge_source_ids[i]:section.profile.outer_vertex_source_ids[i];
         const auto vertex=TopExp::FirstVertex(profile_edges[i],true);
         const auto& generated=builder.Generated(vertex);
-        for(TopTools_ListIteratorOfListOfShape it(generated);it.More();it.Next())if(it.Value().ShapeType()==TopAbs_EDGE){
+        for(NCollection_List<TopoDS_Shape>::Iterator it(generated);it.More();it.Next())if(it.Value().ShapeType()==TopAbs_EDGE){
             result.edges.push_back({it.Value(),{owner_id,(seam?"seam:generated:":"generated:")+source}});
             for(TopExp_Explorer v(it.Value(),TopAbs_VERTEX);v.More();v.Next()){
                 const auto position=BRep_Tool::Pnt(TopoDS::Vertex(v.Current()));
@@ -1515,7 +1514,7 @@ PrimitiveData make_transported_sweep_data(const Sweep3DRequest& request,const st
         const auto collect_point=[&](const TopoDS_Vertex& vertex,const std::string& source,bool seam){
             const auto position=BRep_Tool::Pnt(vertex);
             const auto& generated=builder.Generated(vertex);
-            for(TopTools_ListIteratorOfListOfShape it(generated);it.More();it.Next()) {
+            for(NCollection_List<TopoDS_Shape>::Iterator it(generated);it.More();it.Next()) {
                 if(it.Value().ShapeType()!=TopAbs_EDGE)continue;
                 rails.push_back(it.Value());
                 result.edges.push_back({it.Value(),{owner_id,(seam?"seam:generated:":"generated:")+source}});
@@ -1678,7 +1677,7 @@ ThinSweepWires make_thin_sweep_profiles(const Sweep3DRequest& request,
             const auto& original_edge=original_edges.front();
             TopoDS_Edge edge=original_edge;
             if (std::abs(amount)>1e-10) {
-                Standard_Real first,last;const auto basis=BRep_Tool::Curve(original_edge,first,last);
+                double first,last;const auto basis=BRep_Tool::Curve(original_edge,first,last);
                 const auto bounded=new Geom_TrimmedCurve(basis,first,last);
                 const double sign=original_edge.Orientation()==TopAbs_REVERSED?-1.0:1.0;
                 const auto n=section.profile_normal;
@@ -1707,7 +1706,7 @@ ThinSweepWires make_thin_sweep_profiles(const Sweep3DRequest& request,
         for(std::size_t i=0;i<original_edges.size();++i){
             std::vector<TopoDS_Edge> generated;
             if(std::abs(amount)<=1e-10)generated.push_back(original_edges[i]);
-            else{const auto& shapes=builder.Generated(original_edges[i]);for(TopTools_ListIteratorOfListOfShape it(shapes);it.More();it.Next())if(it.Value().ShapeType()==TopAbs_EDGE)generated.push_back(TopoDS::Edge(it.Value()));}
+            else{const auto& shapes=builder.Generated(original_edges[i]);for(NCollection_List<TopoDS_Shape>::Iterator it(shapes);it.More();it.Next())if(it.Value().ShapeType()==TopAbs_EDGE)generated.push_back(TopoDS::Edge(it.Value()));}
             // An offset exactly equal to a tangent corner radius legitimately
             // collapses that source arc to one sharp vertex. OCCT reports no
             // generated edge for the arc while the adjacent source edges keep
@@ -2168,7 +2167,7 @@ PrimitiveData make_sweep3d_data(
             const auto semantic="sweep:"+source_id+":profile:"+
                 first.profile_id+":from:"+first.curve_ids[e];
             const auto& generated=builder.Generated(first.edges[e]);
-            for(TopTools_ListIteratorOfListOfShape it(generated);it.More();it.Next())
+            for(NCollection_List<TopoDS_Shape>::Iterator it(generated);it.More();it.Next())
                 if(it.Value().ShapeType()==TopAbs_FACE)
                     smooth.faces.push_back({it.Value(),{owner_id,semantic}});
         }
@@ -2385,7 +2384,7 @@ PrimitiveData make_sweep3d_data(
                     const auto semantic="sweep:"+request.path_segments[i].source_id+":profile:"+
                         station.profile_id+":from:"+station.curve_ids[e];
                     const auto& generated=builder.Generated(station.edges[e]);
-                    for(TopTools_ListIteratorOfListOfShape it(generated);it.More();it.Next()) {
+                    for(NCollection_List<TopoDS_Shape>::Iterator it(generated);it.More();it.Next()) {
                         if(it.Value().ShapeType()==TopAbs_FACE)piece.faces.push_back({it.Value(),{owner_id,semantic}});
                         if(it.Value().ShapeType()==TopAbs_EDGE)piece.edges.push_back({it.Value(),{owner_id,semantic}});
                     }
@@ -2396,7 +2395,7 @@ PrimitiveData make_sweep3d_data(
                             station.profile_id+":from:"+station.point_ids[e];
                         const auto vertex=TopExp::FirstVertex(station.edges[e],true);
                         const auto& rails=builder.Generated(vertex);
-                        for(TopTools_ListIteratorOfListOfShape it(rails);it.More();it.Next()) {
+                        for(NCollection_List<TopoDS_Shape>::Iterator it(rails);it.More();it.Next()) {
                             if(it.Value().ShapeType()==TopAbs_EDGE)piece.edges.push_back({it.Value(),{owner_id,point_semantic}});
                             if(it.Value().ShapeType()==TopAbs_VERTEX)piece.vertices.push_back({it.Value(),{owner_id,point_semantic}});
                         }
@@ -2419,7 +2418,7 @@ PrimitiveData make_sweep3d_data(
                         piece.vertices.push_back({v.Current(),{owner_id,semantic}});break;
                     }
                 const auto& generated=builder.Generated(endpoint);
-                for(TopTools_ListIteratorOfListOfShape it(generated);it.More();it.Next())
+                for(NCollection_List<TopoDS_Shape>::Iterator it(generated);it.More();it.Next())
                     if(it.Value().ShapeType()==TopAbs_EDGE)piece.edges.push_back({it.Value(),{owner_id,
                         "sweep:"+segment.source_id+":profile:"+station.profile_id+":from:"+station.open_end_point_id}});
             }
@@ -2651,7 +2650,7 @@ void append_surface_end_point(PrimitiveData& result,Builder& builder,
     const TopoDS_Vertex& vertex,const std::string& owner,const std::string& source,
     const std::string& first_role,const std::string& last_role,bool closed=false) {
     if(source.empty() || vertex.IsNull())return;
-    for(TopTools_ListIteratorOfListOfShape it(builder.Generated(vertex));it.More();it.Next())
+    for(NCollection_List<TopoDS_Shape>::Iterator it(builder.Generated(vertex));it.More();it.Next())
         if(it.Value().ShapeType()==TopAbs_EDGE)
             result.edges.push_back({it.Value(),{owner,"generated:"+source}});
     if(!closed) {
@@ -2828,7 +2827,7 @@ ExtrusionLimitView resolved_extrusion_limit(ExtrusionLimitView limit,const std::
 // where there is no cap face in the result to supply adjacency.
 void locate_clipped_profile_end(BRepAlgoAPI_BooleanOperation& clip,PrimitiveData& data,
         const std::string& owner,const std::string& role) {
-    TopTools_IndexedMapOfShape actual;TopExp::MapShapes(clip.Shape(),actual);
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> actual;TopExp::MapShapes(clip.Shape(),actual);
     const auto append=[&](auto& items,const TopoDS_Shape& shape,const std::string& key) {
         if(actual.Contains(shape)&&std::none_of(items.begin(),items.end(),[&](const auto& item){
             return item.shape.IsSame(shape)&&item.reference.owner_id==owner&&item.reference.semantic_key==key;
@@ -2836,11 +2835,11 @@ void locate_clipped_profile_end(BRepAlgoAPI_BooleanOperation& clip,PrimitiveData
     };
     const auto faces=data.faces;const auto edges=data.edges;
     for(const auto& side:faces)if(side.reference.semantic_key.starts_with("generated:"))
-        for(TopTools_ListIteratorOfListOfShape it(clip.Generated(side.shape));it.More();it.Next())
+        for(NCollection_List<TopoDS_Shape>::Iterator it(clip.Generated(side.shape));it.More();it.Next())
             if(it.Value().ShapeType()==TopAbs_EDGE)
                 append(data.edges,it.Value(),role+":"+side.reference.semantic_key.substr(10));
     for(const auto& edge:edges)if(edge.reference.semantic_key.starts_with("generated:"))
-        for(TopTools_ListIteratorOfListOfShape it(clip.Generated(edge.shape));it.More();it.Next())
+        for(NCollection_List<TopoDS_Shape>::Iterator it(clip.Generated(edge.shape));it.More();it.Next())
             if(it.Value().ShapeType()==TopAbs_VERTEX)
                 append(data.vertices,it.Value(),role+":"+edge.reference.semantic_key.substr(10));
 }
@@ -3072,7 +3071,7 @@ PrimitiveData make_extrusion_data(
                 throw std::runtime_error("Extrusion curve provenance is empty");
             }
             const auto& generated = prism.Generated(edge);
-            for (TopTools_ListIteratorOfListOfShape iterator(generated);
+            for (NCollection_List<TopoDS_Shape>::Iterator iterator(generated);
                  iterator.More(); iterator.Next()) {
                 if (iterator.Value().ShapeType() == TopAbs_FACE) {
                     result.faces.push_back(
@@ -3109,7 +3108,7 @@ PrimitiveData make_extrusion_data(
                     {last_vertex, {owner_id, last_role + ":" + point_id}});
             }
             const auto& generated_from_vertex = prism.Generated(vertex);
-            for (TopTools_ListIteratorOfListOfShape iterator(generated_from_vertex);
+            for (NCollection_List<TopoDS_Shape>::Iterator iterator(generated_from_vertex);
                 iterator.More(); iterator.Next()) {
                 if (iterator.Value().ShapeType() == TopAbs_EDGE) {
                     result.edges.push_back(
@@ -3175,14 +3174,14 @@ PrimitiveData make_extrusion_data(
             cap_reference.semantic_key.starts_with("start:")?"start":"end");
         result.faces = propagate_topology(clip, result.faces,
             std::vector<OwnedFace>{{limiting_face, cap_reference}});
-        TopTools_IndexedMapOfShape clipped_faces;
+        NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> clipped_faces;
         TopExp::MapShapes(clip.Shape(), TopAbs_FACE, clipped_faces);
         std::erase_if(result.faces, [&](const auto& owned) {
             return !clipped_faces.Contains(owned.shape);
         });
         result.edges = propagate_topology(clip, result.edges, {});
         result.vertices = propagate_topology(clip, result.vertices, {});
-        TopTools_IndexedMapOfShape clipped_members;TopExp::MapShapes(clip.Shape(),clipped_members);
+        NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> clipped_members;TopExp::MapShapes(clip.Shape(),clipped_members);
         std::erase_if(result.edges,[&](const auto& item){return !clipped_members.Contains(item.shape);});
         std::erase_if(result.vertices,[&](const auto& item){return !clipped_members.Contains(item.shape);});
         result.shape = clip.Shape();
@@ -3218,7 +3217,7 @@ PrimitiveData make_extrusion_data(
             throw std::runtime_error("Draft cannot preserve the profile; reduce the angle or length.");
         const auto preserve=[&](const auto& source) {
             auto updated=source;
-            TopTools_IndexedMapOfShape actual;
+            NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> actual;
             TopExp::MapShapes(draft.Shape(),actual);
             for(auto& item:updated) {
                 const auto replacement=draft.ModifiedShape(item.shape);
@@ -3330,7 +3329,7 @@ std::string step_shape_locator(const TopoDS_Shape& shape) {
     Bnd_Box bounds;
     BRepBndLib::Add(shape, bounds);
     if (!bounds.IsVoid()) {
-        Standard_Real xmin{}, ymin{}, zmin{}, xmax{}, ymax{}, zmax{};
+        double xmin{}, ymin{}, zmin{}, xmax{}, ymax{}, zmax{};
         bounds.Get(xmin, ymin, zmin, xmax, ymax, zmax);
         for (const double value : {xmin, ymin, zmin, xmax, ymax, zmax}) {
             append_real(value);
@@ -3357,7 +3356,7 @@ std::string step_shape_locator(const TopoDS_Shape& shape) {
         const TopoDS_Face face = TopoDS::Face(shape);
         BRepAdaptor_Surface surface(face);
         append_integer(static_cast<std::uint64_t>(surface.GetType()));
-        Standard_Real u_min{}, u_max{}, v_min{}, v_max{};
+        double u_min{}, u_max{}, v_min{}, v_max{};
         BRepTools::UVBounds(face, u_min, u_max, v_min, v_max);
         for (const double value : {u_min, u_max, v_min, v_max}) {
             append_real(value);
@@ -3482,9 +3481,9 @@ Appearance imported_xcaf_appearance(TDocStd_Document* document,
         result.body.color=exchange_color(*base);
     std::map<std::string,std::optional<Quantity_ColorRGBA>> source_face_colors;
     if(!shape_definition.IsNull()) {
-        TDF_LabelSequence subshapes;
+        NCollection_Sequence<TDF_Label> subshapes;
         XCAFDoc_ShapeTool::GetSubShapes(shape_definition,subshapes);
-        for(Standard_Integer index=1;index<=subshapes.Length();++index) {
+        for(int index=1;index<=subshapes.Length();++index) {
             const auto& label=subshapes.Value(index);
             const auto shape=shapes->GetShape(label);
             if(shape.IsNull()||shape.ShapeType()!=TopAbs_FACE)continue;
@@ -3573,7 +3572,7 @@ void capture_step_topology_kind(
         std::string semantic_key;
         std::string locator;
     };
-    TopTools_IndexedMapOfShape runtime_shapes;
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> runtime_shapes;
     for (TopExp_Explorer explorer(imported, shape_kind);
          explorer.More(); explorer.Next()) {
         const TopoDS_Shape shape = explorer.Current();
@@ -3698,10 +3697,10 @@ void restore_step_topology_kind(const BRepTools_ShapeSet& archive,
     StepRequest::TopologyIdentity::Kind identity_kind,
     const std::vector<StepRequest::TopologyIdentity>& identities,
     const std::string& owner_id, std::vector<Owned>& owned) {
-    TopTools_IndexedMapOfShape members;
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> members;
     TopExp::MapShapes(imported, shape_kind, members);
     std::set<std::string> semantic_keys;
-    TopTools_IndexedMapOfShape bound;
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> bound;
     for (const auto& identity : identities) {
         if (identity.kind != identity_kind) continue;
         constexpr std::string_view prefix = "brep-ref-v1:";
@@ -3902,7 +3901,7 @@ PrimitiveData make_revolution_data(
             const auto& edge = profiles[wire_index].edges[boundary_edge];
             const auto& curve_id = edge_sources[wire_index][boundary_edge];
             const auto& generated = revolution.Generated(edge);
-            for (TopTools_ListIteratorOfListOfShape iterator(generated);
+            for (NCollection_List<TopoDS_Shape>::Iterator iterator(generated);
                  iterator.More(); iterator.Next()) {
                 if (iterator.Value().ShapeType() == TopAbs_FACE) {
                     result.faces.push_back(
@@ -3928,7 +3927,7 @@ PrimitiveData make_revolution_data(
             const auto& point_id = vertex_sources[wire_index][boundary_edge];
             const TopoDS_Vertex vertex = TopExp::FirstVertex(edge, true);
             const auto& generated_from_vertex = revolution.Generated(vertex);
-            for (TopTools_ListIteratorOfListOfShape iterator(generated_from_vertex);
+            for (NCollection_List<TopoDS_Shape>::Iterator iterator(generated_from_vertex);
                  iterator.More(); iterator.Next()) {
                 if (iterator.Value().ShapeType() == TopAbs_EDGE) {
                     result.edges.push_back(
@@ -4053,7 +4052,7 @@ std::vector<Owned> propagate_topology(
         bool has_descendant = false;
         for (const auto* list : {
                 &algorithm.Modified(source.shape), &algorithm.Generated(source.shape)}) {
-            for (TopTools_ListIteratorOfListOfShape iterator(*list);
+            for (NCollection_List<TopoDS_Shape>::Iterator iterator(*list);
                  iterator.More(); iterator.Next()) {
                 if (iterator.Value().ShapeType() != source.shape.ShapeType()) continue;
                 append_unique(iterator.Value(), source.reference);
@@ -4142,7 +4141,7 @@ Sweep3DRequest expand_profile_twist(const Sweep3DRequest& source,
             if(straight||std::abs(law.angle_degrees)<1e-12||gp_Vec(axis.Location(),origin).Crossed(gp_Vec(axis.Direction())).Magnitude()<1e-12) {
                 profile_centerlines::line(datums,{},key,law.centerlines.origin,dimension_add(law.centerlines.origin,shift));
             } else {
-                Handle(TColgp_HArray1OfPnt) samples=new TColgp_HArray1OfPnt(1,intervals+1);
+                Handle(NCollection_HArray1<gp_Pnt>) samples=new NCollection_HArray1<gp_Pnt>(1,intervals+1);
                 for(int i=0;i<=intervals;++i) {
                     const double fraction=double(i)/intervals;
                     gp_Trsf turn;turn.SetRotation(axis,law.angle_degrees*(law.smooth?sheet_material::twist_progress(fraction):fraction)*std::numbers::pi/180.);
@@ -4297,7 +4296,7 @@ PrimitiveData make_sheet_cut_data(const PrimitiveData& projection,
                 }
                 throw std::runtime_error("Sheet Cut surface projection failed.");
             }
-            TopTools_IndexedMapOfShape members;TopExp::MapShapes(face,TopAbs_EDGE,members);
+            NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> members;TopExp::MapShapes(face,TopAbs_EDGE,members);
             for(auto& edge:skin_edges)if(members.Contains(edge.shape)) {
                 const auto image=copied.ModifiedShape(edge.shape);
                 if(!image.IsNull())edge.shape=context->Apply(image);
@@ -4404,7 +4403,7 @@ PrimitiveData make_sheet_cut_data(const PrimitiveData& projection,
                         if(input.shape.IsSame(edge))return true;
                         if(clearance_projection)return false;
                         for(const auto* list:{&clip.Generated(input.shape),&clip.Modified(input.shape)})
-                            for(TopTools_ListIteratorOfListOfShape it(*list);it.More();it.Next())
+                            for(NCollection_List<TopoDS_Shape>::Iterator it(*list);it.More();it.Next())
                                 if(it.Value().IsSame(edge))return true;
                         return false;
                     };
@@ -4519,7 +4518,7 @@ std::vector<Owned> propagate_edge_treatment_topology(
     // OCCT remains the geometry calculator. ZIMA owns persistent identity:
     // exact survivors retain their reference, while reported descendants are
     // accepted only when they really occur in the calculated result.
-    TopTools_IndexedMapOfShape result_shapes;
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> result_shapes;
     TopExp::MapShapes(result_shape, result_shapes);
     std::vector<Owned> propagated;
     const auto append_unique = [&](const TopoDS_Shape& shape,
@@ -4541,7 +4540,7 @@ std::vector<Owned> propagate_edge_treatment_topology(
         for (const auto* descendants : {
                 &algorithm.Modified(source.shape),
                 &algorithm.Generated(source.shape)}) {
-            for (TopTools_ListIteratorOfListOfShape iterator(*descendants);
+            for (NCollection_List<TopoDS_Shape>::Iterator iterator(*descendants);
                  iterator.More(); iterator.Next()) {
                 if (iterator.Value().ShapeType() != source.shape.ShapeType()) {
                     continue;
@@ -4582,7 +4581,7 @@ public:
     }
 
 private:
-    TopTools_IndexedMapOfShape shapes_;
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> shapes_;
     std::vector<Reference> references_;
     std::vector<bool> ambiguous_;
 };
@@ -4603,7 +4602,7 @@ std::vector<TopoDS_Shape> propagate_display_edges(
         bool has_descendant = false;
         for (const auto* list : {
                 &algorithm.Modified(source), &algorithm.Generated(source)}) {
-            for (TopTools_ListIteratorOfListOfShape iterator(*list);
+            for (NCollection_List<TopoDS_Shape>::Iterator iterator(*list);
                  iterator.More(); iterator.Next()) {
                 if (iterator.Value().ShapeType() != TopAbs_EDGE) continue;
                 append_unique(iterator.Value());
@@ -4634,7 +4633,7 @@ std::vector<TopoDS_Shape> propagate_display_edges(
         bool has_descendant = false;
         for (const auto* list : {
                 &history->Modified(source), &history->Generated(source)}) {
-            for (TopTools_ListIteratorOfListOfShape iterator(*list);
+            for (NCollection_List<TopoDS_Shape>::Iterator iterator(*list);
                  iterator.More(); iterator.Next()) {
                 if (iterator.Value().ShapeType() != TopAbs_EDGE) continue;
                 append_unique(iterator.Value());
@@ -4650,14 +4649,14 @@ std::vector<TopoDS_Shape> cross_reference_face_edges(
     const TopoDS_Shape& shape, const std::vector<OwnedFace>& owned_faces,
     bool merge_coplanar=false,double tolerance=1e-7) {
     const TopologyReferenceIndex<FaceReference, OwnedFace> references(owned_faces);
-    TopTools_IndexedDataMapOfShapeListOfShape edge_faces;
+    NCollection_IndexedDataMap<TopoDS_Shape, NCollection_List<TopoDS_Shape>, TopTools_ShapeMapHasher> edge_faces;
     TopExp::MapShapesAndAncestors(
         shape, TopAbs_EDGE, TopAbs_FACE, edge_faces);
     std::vector<TopoDS_Shape> result;
     for (int index = 1; index <= edge_faces.Extent(); ++index) {
         const auto& adjacent = edge_faces.FindFromIndex(index);
         if (adjacent.Extent() != 2) continue;
-        TopTools_ListIteratorOfListOfShape iterator(adjacent);
+        NCollection_List<TopoDS_Shape>::Iterator iterator(adjacent);
         const auto first_face=TopoDS::Face(iterator.Value());
         const auto first = references.reference_for(iterator.Value());
         iterator.Next();
@@ -4682,12 +4681,12 @@ std::vector<TopoDS_Shape> cross_reference_face_edges(
 }
 
 bool history_edge_survives(const Handle(BRepTools_History)& history,
-    const TopoDS_Shape& edge, const TopTools_IndexedMapOfShape& result_edges) {
+    const TopoDS_Shape& edge, const NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher>& result_edges) {
     if (result_edges.Contains(edge)) return true;
     if (history.IsNull()) return false;
     for (const auto* list : {
             &history->Modified(edge), &history->Generated(edge)}) {
-        for (TopTools_ListIteratorOfListOfShape iterator(*list);
+        for (NCollection_List<TopoDS_Shape>::Iterator iterator(*list);
              iterator.More(); iterator.Next()) {
             if (iterator.Value().ShapeType() == TopAbs_EDGE &&
                 result_edges.Contains(iterator.Value())) return true;
@@ -4745,7 +4744,7 @@ ProvenanceUnifyResult unify_preserving_face_provenance(
         phase("probe-validate");
     }
 
-    TopTools_IndexedMapOfShape probe_edges;
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> probe_edges;
     TopExp::MapShapes(probe.Shape(), TopAbs_EDGE, probe_edges);
     std::vector<TopoDS_Shape> protected_edges;
     for (const auto& edge : cross_reference_face_edges(shape, faces,merge_coplanar,tolerance)) {
@@ -4801,14 +4800,14 @@ std::vector<OwnedFace> generated_edge_treatment_faces(
     const std::vector<std::pair<TopoDS_Edge, EdgeReference>>& selected,
     const std::string& treatment_owner,
     std::string_view role) {
-    TopTools_IndexedMapOfShape generated_shapes;
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> generated_shapes;
     std::vector<std::set<std::string>> parents(1);
     for (const auto& [edge, reference] : selected) {
         const std::string parent = std::to_string(reference.owner_id.size()) +
             ":" + reference.owner_id + std::to_string(reference.semantic_key.size()) +
             ":" + reference.semantic_key;
         const auto& generated = algorithm.Generated(edge);
-        for (TopTools_ListIteratorOfListOfShape iterator(generated);
+        for (NCollection_List<TopoDS_Shape>::Iterator iterator(generated);
              iterator.More(); iterator.Next()) {
             if (iterator.Value().ShapeType() != TopAbs_FACE) continue;
             int index = generated_shapes.FindIndex(iterator.Value());
@@ -4836,7 +4835,7 @@ void classify_edge_treatment_surfaces(const TopoDS_Shape& shape,
     // Explicit calculation only: distinguish a surface blend from a solid
     // blend even when both coexist in the same Part compound. This flag is
     // persisted with the existing native reference; it does not define identity.
-    TopTools_IndexedMapOfShape solid_faces;
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> solid_faces;
     for(TopExp_Explorer it(shape,TopAbs_SOLID);it.More();it.Next())
         TopExp::MapShapes(it.Current(),TopAbs_FACE,solid_faces);
     for(auto& face:faces)if(face.reference.owner_id==owner)
@@ -4862,7 +4861,7 @@ void append_unmapped_edge_treatment_faces(
     key += ":from:" + encoded_topology_ancestry(parents);
     const FaceReference fallback_reference{
         treatment_owner, std::move(key), {}};
-    TopTools_IndexedMapOfShape mapped_faces;
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> mapped_faces;
     for (const auto& face : faces) mapped_faces.Add(face.shape);
     const double geometric_tolerance = std::max(1.0e-6, tolerance * 10.0);
     const auto inherited_input_reference = [&](const TopoDS_Face& fragment)
@@ -5111,16 +5110,16 @@ void collect_shell_face_parent_tokens(
     std::set<std::string>& parents) {
     for (const auto& input : inputs) {
         if (!input.reference.valid()) continue;
-        TopTools_IndexedMapOfShape result_subshapes;
+        NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> result_subshapes;
         TopExp::MapShapes(result_face, input.shape.ShapeType(),
             result_subshapes);
         if (result_subshapes.Contains(input.shape)) {
             parents.insert(std::string(topology_role) + ":unchanged:" +
                 encoded_topology_reference(input.reference));
         }
-        const auto collect = [&](const TopTools_ListOfShape& descendants,
+        const auto collect = [&](const NCollection_List<TopoDS_Shape>& descendants,
                                  std::string_view history_role) {
-            for (TopTools_ListIteratorOfListOfShape iterator(descendants);
+            for (NCollection_List<TopoDS_Shape>::Iterator iterator(descendants);
                  iterator.More(); iterator.Next()) {
                 const auto& descendant = iterator.Value();
                 if ((descendant.ShapeType() == TopAbs_FACE &&
@@ -5153,7 +5152,7 @@ std::vector<OwnedFace> shell_result_faces(
         std::set<std::string> parents;
     };
     std::vector<PendingFace> pending;
-    TopTools_IndexedMapOfShape visited;
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> visited;
     for (TopExp_Explorer explorer(result_shape, TopAbs_FACE);
          explorer.More(); explorer.Next()) {
         const auto face = TopoDS::Face(explorer.Current());
@@ -5304,7 +5303,7 @@ std::vector<OwnedFace> shell_result_faces(
         add_nearest_parents(input_edges, "nearest-edge");
         add_nearest_parents(input_vertices, "nearest-vertex");
     }
-    TopTools_IndexedDataMapOfShapeListOfShape edge_faces;
+    NCollection_IndexedDataMap<TopoDS_Shape, NCollection_List<TopoDS_Shape>, TopTools_ShapeMapHasher> edge_faces;
     TopExp::MapShapesAndAncestors(
         result_shape, TopAbs_EDGE, TopAbs_FACE, edge_faces);
     // Adjacency describes the same original parent graph for every face.
@@ -5323,7 +5322,7 @@ std::vector<OwnedFace> shell_result_faces(
             const int edge_index = edge_faces.FindIndex(edges.Current());
             if (edge_index == 0) continue;
             std::set<std::string> edge_neighbors;
-            for (TopTools_ListIteratorOfListOfShape neighbor(
+            for (NCollection_List<TopoDS_Shape>::Iterator neighbor(
                     edge_faces.FindFromIndex(edge_index));
                  neighbor.More(); neighbor.Next()) {
                 if (neighbor.Value().IsSame(value.shape)) continue;
@@ -5380,15 +5379,15 @@ std::vector<OwnedFace> shell_result_faces(
 // Smooth spherical/toroidal seams and collapsed sphere poles are parameterization,
 // not boundaries between ZIMA faces. A seam endpoint shared with a real rim
 // remains real topology. This classification only runs during Shell calculation.
-TopTools_IndexedMapOfShape shell_parameterization_artifacts(const TopoDS_Shape& shape) {
-    TopTools_IndexedMapOfShape artifacts;
-    TopTools_IndexedDataMapOfShapeListOfShape edge_faces,vertex_edges;
+NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> shell_parameterization_artifacts(const TopoDS_Shape& shape) {
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> artifacts;
+    NCollection_IndexedDataMap<TopoDS_Shape, NCollection_List<TopoDS_Shape>, TopTools_ShapeMapHasher> edge_faces,vertex_edges;
     TopExp::MapShapesAndAncestors(shape,TopAbs_EDGE,TopAbs_FACE,edge_faces);
     TopExp::MapShapesAndAncestors(shape,TopAbs_VERTEX,TopAbs_EDGE,vertex_edges);
     for(int i=1;i<=edge_faces.Extent();++i) {
         const auto edge=TopoDS::Edge(edge_faces.FindKey(i));
-        TopTools_IndexedMapOfShape adjacent;
-        for(TopTools_ListIteratorOfListOfShape it(edge_faces.FindFromIndex(i));it.More();it.Next())adjacent.Add(it.Value());
+        NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> adjacent;
+        for(NCollection_List<TopoDS_Shape>::Iterator it(edge_faces.FindFromIndex(i));it.More();it.Next())adjacent.Add(it.Value());
         if(adjacent.Extent()!=1)continue;
         const auto face=TopoDS::Face(adjacent.FindKey(1));
         // Smooth toroidal seams have the same non-boundary role. Do not
@@ -5399,7 +5398,7 @@ TopTools_IndexedMapOfShape shell_parameterization_artifacts(const TopoDS_Shape& 
     }
     for(int i=1;i<=vertex_edges.Extent();++i) {
         bool only_artifacts=!vertex_edges.FindFromIndex(i).IsEmpty();
-        for(TopTools_ListIteratorOfListOfShape it(vertex_edges.FindFromIndex(i));it.More();it.Next())
+        for(NCollection_List<TopoDS_Shape>::Iterator it(vertex_edges.FindFromIndex(i));it.More();it.Next())
             if(!artifacts.Contains(it.Value())){only_artifacts=false;break;}
         if(only_artifacts)artifacts.Add(vertex_edges.FindKey(i));
     }
@@ -5411,9 +5410,9 @@ void require_complete_unique_shell_topology(
     const TopoDS_Shape& result_shape, TopAbs_ShapeEnum kind,
     const std::vector<Owned>& topology, std::string_view label,
     const std::vector<Owned>* unchanged_input = nullptr) {
-    TopTools_IndexedMapOfShape expected;
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> expected;
     TopExp::MapShapes(result_shape, kind, expected);
-    TopTools_IndexedMapOfShape mapped;
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> mapped;
     std::map<std::string, TopoDS_Shape> identities;
     for (const auto& owned : topology) {
         if (!owned.reference.valid() || owned.shape.ShapeType() != kind) continue;
@@ -5457,7 +5456,7 @@ std::vector<OwnedFace> shell_opening_tool_faces(
         encoded_topology_reference(conceptual_source);
     std::vector<OwnedFace> result;
     std::map<std::string, TopoDS_Shape> identities;
-    TopTools_IndexedMapOfShape visited;
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> visited;
     for (TopExp_Explorer explorer(tool_shape, TopAbs_FACE);
          explorer.More(); explorer.Next()) {
         const auto face = TopoDS::Face(explorer.Current());
@@ -5470,7 +5469,7 @@ std::vector<OwnedFace> shell_opening_tool_faces(
             role = std::string(tool_role) + ":source-cap:from:" +
                 source_face_token;
         } else {
-            TopTools_IndexedMapOfShape face_edges;
+            NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> face_edges;
             TopExp::MapShapes(face, TopAbs_EDGE, face_edges);
             for (const auto& source_edge : opening_source_edges) {
                 if (source_edge.reference.valid() &&
@@ -5503,13 +5502,13 @@ std::vector<OwnedFace> shell_opening_tool_faces(
 
 template <typename Reference, typename Owned>
 std::set<std::string> referenced_ancestor_tokens(
-    const TopTools_IndexedDataMapOfShapeListOfShape& ancestors,
+    const NCollection_IndexedDataMap<TopoDS_Shape, NCollection_List<TopoDS_Shape>, TopTools_ShapeMapHasher>& ancestors,
     const TopoDS_Shape& child,
     const TopologyReferenceIndex<Reference, Owned>& references) {
     std::set<std::string> result;
     const int child_index = ancestors.FindIndex(child);
     if (child_index == 0) return result;
-    for (TopTools_ListIteratorOfListOfShape iterator(
+    for (NCollection_List<TopoDS_Shape>::Iterator iterator(
             ancestors.FindFromIndex(child_index));
          iterator.More(); iterator.Next()) {
         const auto reference = references.reference_for(iterator.Value());
@@ -5525,9 +5524,9 @@ std::vector<OwnedFace> complete_boolean_faces(
     const std::vector<OwnedEdge>& edges, const std::vector<OwnedVertex>& vertices,
     const std::string& owner, std::string_view role,
     const std::vector<HistoryOperation>& history) {
-    TopTools_IndexedMapOfShape actual;
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> actual;
     TopExp::MapShapes(shape, TopAbs_FACE, actual);
-    std::map<std::string, TopTools_IndexedMapOfShape> descendants;
+    std::map<std::string, NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher>> descendants;
     for (const auto& face : propagated)
         if (face.reference.valid() && actual.Contains(face.shape))
             descendants[encoded_topology_reference(face.reference)].Add(face.shape);
@@ -5551,7 +5550,7 @@ std::vector<OwnedFace> complete_boolean_faces(
             parents={encoded_topology_reference(reference)};
         const bool split=parents.size()==1 && descendants.at(*parents.begin()).Extent()>1;
         if (parents.size()>1 || split) {
-            TopTools_IndexedMapOfShape boundary;
+            NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> boundary;
             TopExp::MapShapes(face, boundary);
             std::set<std::string> context;
             for (const auto& edge : edges) if (edge.reference.valid() && boundary.Contains(edge.shape))
@@ -5575,7 +5574,7 @@ std::vector<OwnedFace> complete_boolean_faces(
     std::set<std::string> identities;
     for(const auto& face:result)identities.insert(encoded_topology_reference(face.reference));
     if(identities.size()==result.size())return result;
-    TopTools_IndexedDataMapOfShapeListOfShape edge_faces;
+    NCollection_IndexedDataMap<TopoDS_Shape, NCollection_List<TopoDS_Shape>, TopTools_ShapeMapHasher> edge_faces;
     TopExp::MapShapesAndAncestors(shape,TopAbs_EDGE,TopAbs_FACE,edge_faces);
     std::vector<std::string> base_keys;
     for(const auto& face:result)base_keys.push_back(face.reference.semantic_key);
@@ -5593,7 +5592,7 @@ std::vector<OwnedFace> complete_boolean_faces(
                 for(TopExp_Explorer edge(result[i].shape,TopAbs_EDGE);edge.More();edge.Next()) {
                     const int index=edge_faces.FindIndex(edge.Current());
                     if(!index)continue;
-                    for(TopTools_ListIteratorOfListOfShape face(edge_faces.FindFromIndex(index));face.More();face.Next()) {
+                    for(NCollection_List<TopoDS_Shape>::Iterator face(edge_faces.FindFromIndex(index));face.More();face.Next()) {
                         if(face.Value().IsSame(result[i].shape))continue;
                         const auto reference=references.reference_for(face.Value());
                         if(reference.valid())adjacent.insert(encoded_topology_reference(reference));
@@ -5622,25 +5621,25 @@ std::vector<OwnedEdge> complete_boolean_edges(
     const std::vector<OwnedFace>& generated_supports,
     const std::vector<OwnedVertex>& source_vertices) {
     const TopologyReferenceIndex<FaceReference, OwnedFace> face_references(faces);
-    TopTools_IndexedDataMapOfShapeListOfShape edge_faces;
+    NCollection_IndexedDataMap<TopoDS_Shape, NCollection_List<TopoDS_Shape>, TopTools_ShapeMapHasher> edge_faces;
     TopExp::MapShapesAndAncestors(
         result_shape, TopAbs_EDGE, TopAbs_FACE, edge_faces);
-    TopTools_IndexedDataMapOfShapeListOfShape vertex_faces;
+    NCollection_IndexedDataMap<TopoDS_Shape, NCollection_List<TopoDS_Shape>, TopTools_ShapeMapHasher> vertex_faces;
     TopExp::MapShapesAndAncestors(
         result_shape, TopAbs_VERTEX, TopAbs_FACE, vertex_faces);
 
     // History locates descendants, but a one-to-many relation is not identity.
     // Count distinct surviving shapes, not repeated uses in adjacent faces or
     // descendants which a later stage removed from this result.
-    TopTools_IndexedMapOfShape actual_edges;
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> actual_edges;
     TopExp::MapShapes(result_shape, TopAbs_EDGE, actual_edges);
-    std::map<std::string, TopTools_IndexedMapOfShape> descendants;
+    std::map<std::string, NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher>> descendants;
     for (const auto& candidate : propagated_edges)
         if (candidate.reference.valid() && actual_edges.Contains(candidate.shape))
             descendants[encoded_topology_reference(candidate.reference)].Add(candidate.shape);
 
     std::vector<OwnedEdge> result;
-    TopTools_IndexedMapOfShape visited;
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> visited;
     for (TopExp_Explorer explorer(result_shape, TopAbs_EDGE);
          explorer.More(); explorer.Next()) {
         const auto edge = explorer.Current();
@@ -5673,7 +5672,7 @@ std::vector<OwnedEdge> complete_boolean_edges(
             if(support.shape.IsSame(edge))adjacent_faces.insert(encoded_topology_reference(support.reference));
         if (adjacent_faces.empty()) continue;
         std::set<std::string> endpoint_supports;
-        TopTools_IndexedMapOfShape vertices;
+        NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> vertices;
         TopExp::MapShapes(edge, TopAbs_VERTEX, vertices);
         for (int index = 1; index <= vertices.Extent(); ++index) {
             auto support = referenced_ancestor_tokens(
@@ -5683,7 +5682,7 @@ std::vector<OwnedEdge> complete_boolean_edges(
                     if(source.shape.IsSame(vertices.FindKey(index)))
                         support.insert(encoded_topology_reference(source.reference));
                 for(const auto& source:generated_supports) {
-                    TopTools_IndexedMapOfShape endpoints;
+                    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> endpoints;
                     TopExp::MapShapes(source.shape,TopAbs_VERTEX,endpoints);
                     if(endpoints.Contains(vertices.FindKey(index)))
                         support.insert(encoded_topology_reference(source.reference));
@@ -5726,12 +5725,12 @@ std::vector<OwnedVertex> complete_boolean_vertices(
     const std::string& owner, std::string_view role) {
     const TopologyReferenceIndex<FaceReference, OwnedFace> face_references(faces);
     const TopologyReferenceIndex<EdgeReference, OwnedEdge> edge_references(edges);
-    TopTools_IndexedDataMapOfShapeListOfShape vertex_faces, vertex_edges;
+    NCollection_IndexedDataMap<TopoDS_Shape, NCollection_List<TopoDS_Shape>, TopTools_ShapeMapHasher> vertex_faces, vertex_edges;
     TopExp::MapShapesAndAncestors(shape, TopAbs_VERTEX, TopAbs_FACE, vertex_faces);
     TopExp::MapShapesAndAncestors(shape, TopAbs_VERTEX, TopAbs_EDGE, vertex_edges);
-    TopTools_IndexedMapOfShape vertices;
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> vertices;
     TopExp::MapShapes(shape, TopAbs_VERTEX, vertices);
-    std::map<std::string, TopTools_IndexedMapOfShape> descendants;
+    std::map<std::string, NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher>> descendants;
     for (const auto& value : propagated)
         if (value.reference.valid() && vertices.Contains(value.shape))
             descendants[encoded_topology_reference(value.reference)].Add(value.shape);
@@ -5780,7 +5779,7 @@ std::vector<OwnedVertex> feature_endpoint_vertices(const TopoDS_Shape& shape,
         const std::vector<OwnedFace>& faces,const std::vector<OwnedEdge>& edges,
         const std::vector<OwnedVertex>& vertices) {
     const TopologyReferenceIndex<VertexReference,OwnedVertex> references(vertices);
-    TopTools_IndexedMapOfShape junctions;
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> junctions;
     std::vector<std::string> owners;
     for(const auto& vertex:vertices) {
         if(references.reference_for(vertex.shape).valid()||junctions.Contains(vertex.shape))continue;
@@ -5836,7 +5835,7 @@ resolve_edge_treatment_contours(
     const std::vector<OwnedEdge>& available,
     std::string_view operation_name,
     std::string_view feature_id) {
-    TopTools_IndexedMapOfShape requested_shapes;
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> requested_shapes;
     for (const auto& [edge, reference] : requested) {
         if (algorithm.Contour(edge) > 0) {
             requested_shapes.Add(edge);
@@ -5865,7 +5864,7 @@ resolve_edge_treatment_contours(
     // member must resolve back to an identity already persisted by ZIMA at
     // the input boundary. OCCT contour order must never create identity.
     std::vector<std::pair<TopoDS_Edge, EdgeReference>> resolved;
-    TopTools_IndexedMapOfShape actual_shapes;
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> actual_shapes;
     for (int contour = 1; contour <= algorithm.NbContours(); ++contour) {
         for (int edge_index = 1;
              edge_index <= algorithm.NbEdges(contour); ++edge_index) {
@@ -5941,17 +5940,17 @@ std::vector<OwnedEdge> complete_edge_treatment_edges(
     std::string_view role,
     bool own_split_descendants = false) {
     const TopologyReferenceIndex<FaceReference, OwnedFace> face_references(faces);
-    TopTools_IndexedDataMapOfShapeListOfShape edge_faces;
+    NCollection_IndexedDataMap<TopoDS_Shape, NCollection_List<TopoDS_Shape>, TopTools_ShapeMapHasher> edge_faces;
     TopExp::MapShapesAndAncestors(
         result_shape, TopAbs_EDGE, TopAbs_FACE, edge_faces);
-    TopTools_IndexedDataMapOfShapeListOfShape vertex_faces;
+    NCollection_IndexedDataMap<TopoDS_Shape, NCollection_List<TopoDS_Shape>, TopTools_ShapeMapHasher> vertex_faces;
     TopExp::MapShapesAndAncestors(
         result_shape, TopAbs_VERTEX, TopAbs_FACE, vertex_faces);
     const auto selected_parents = selected_edge_parent_tokens(selected);
 
-    TopTools_IndexedMapOfShape actual_edges;
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> actual_edges;
     TopExp::MapShapes(result_shape, TopAbs_EDGE, actual_edges);
-    std::map<std::string, TopTools_IndexedMapOfShape> descendants;
+    std::map<std::string, NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher>> descendants;
     if (own_split_descendants) {
         for (const auto& candidate : propagated_edges) {
             if (candidate.reference.valid() &&
@@ -6019,7 +6018,7 @@ std::vector<OwnedEdge> complete_edge_treatment_edges(
     };
 
     std::vector<OwnedEdge> result;
-    TopTools_IndexedMapOfShape visited;
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> visited;
     for (TopExp_Explorer explorer(result_shape, TopAbs_EDGE);
          explorer.More(); explorer.Next()) {
         const auto edge = explorer.Current();
@@ -6059,7 +6058,7 @@ std::vector<OwnedEdge> complete_edge_treatment_edges(
         const auto adjacent_faces = referenced_ancestor_tokens(
             edge_faces, edge, face_references);
         std::set<std::string> endpoint_supports;
-        TopTools_IndexedMapOfShape vertices;
+        NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> vertices;
         TopExp::MapShapes(edge, TopAbs_VERTEX, vertices);
         for (int index = 1; index <= vertices.Extent(); ++index) {
             const auto support = referenced_ancestor_tokens(
@@ -6101,14 +6100,14 @@ std::vector<OwnedVertex> complete_edge_treatment_vertices(
     std::string_view role,
     bool own_split_descendants = false) {
     const TopologyReferenceIndex<EdgeReference, OwnedEdge> edge_references(edges);
-    TopTools_IndexedDataMapOfShapeListOfShape vertex_edges;
+    NCollection_IndexedDataMap<TopoDS_Shape, NCollection_List<TopoDS_Shape>, TopTools_ShapeMapHasher> vertex_edges;
     TopExp::MapShapesAndAncestors(
         result_shape, TopAbs_VERTEX, TopAbs_EDGE, vertex_edges);
     const auto selected_parents = selected_edge_parent_tokens(selected);
 
-    TopTools_IndexedMapOfShape actual_vertices;
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> actual_vertices;
     TopExp::MapShapes(result_shape, TopAbs_VERTEX, actual_vertices);
-    std::map<std::string, TopTools_IndexedMapOfShape> descendants;
+    std::map<std::string, NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher>> descendants;
     if (own_split_descendants) {
         for (const auto& candidate : propagated_vertices) {
             if (candidate.reference.valid() &&
@@ -6120,7 +6119,7 @@ std::vector<OwnedVertex> complete_edge_treatment_vertices(
     }
 
     std::vector<OwnedVertex> result;
-    TopTools_IndexedMapOfShape visited;
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> visited;
     for (TopExp_Explorer explorer(result_shape, TopAbs_VERTEX);
          explorer.More(); explorer.Next()) {
         const auto vertex = explorer.Current();
@@ -6229,7 +6228,7 @@ void persist_surface_topology(const TopoDS_Shape& shape,const std::vector<OwnedF
     const auto bind=[&](const auto& owned,TopAbs_ShapeEnum kind,auto& bindings) {
         std::vector<typename std::decay_t<decltype(bindings)>::value_type> captured;
         captured.reserve(owned.size());
-        TopTools_IndexedMapOfShape members;TopExp::MapShapes(shape,kind,members);
+        NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> members;TopExp::MapShapes(shape,kind,members);
         for(const auto& item:owned)if(item.reference.valid()&&members.Contains(item.shape)) {
             std::ostringstream address;archive.Write(archived(item.shape),address);
             captured.push_back({address.str(),item.reference});
@@ -6248,7 +6247,7 @@ void persist_surface_topology(const TopoDS_Shape& shape,const std::vector<OwnedF
     bind(faces,TopAbs_FACE,result.kernel_faces);bind(edges,TopAbs_EDGE,result.kernel_edges);
     bind(vertices,TopAbs_VERTEX,result.kernel_vertices);
     if(hidden&&hidden_locators) {
-        TopTools_IndexedMapOfShape members;TopExp::MapShapes(shape,TopAbs_EDGE,members);
+        NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> members;TopExp::MapShapes(shape,TopAbs_EDGE,members);
         hidden_locators->clear();
         for(const auto& edge:*hidden)if(members.Contains(edge)) {
             std::ostringstream address;archive.Write(archived(edge),address);hidden_locators->push_back(address.str());
@@ -6262,7 +6261,7 @@ PrimitiveData bound_face_geometry(const BodyResult& body,bool curve_ancestry=fal
     PrimitiveData result;BRep_Builder builder;BRepTools_ShapeSet archive(builder);
     std::istringstream stream(body.kernel_shape.get());archive.Read(stream);archive.Read(result.shape,stream);
     if(result.shape.IsNull())throw std::runtime_error("Regenerate the model before measuring body properties.");
-    TopTools_IndexedMapOfShape members;
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> members;
     if(curve_ancestry)TopExp::MapShapes(result.shape,members);
     else TopExp::MapShapes(result.shape,TopAbs_FACE,members);
     const auto locate_address=[&](const std::string& locator,TopAbs_ShapeEnum kind) {
@@ -6523,7 +6522,7 @@ std::optional<SurfaceGeometry> analytic_surface(const TopoDS_Face& face) {
         result.v_min=surface.FirstVParameter();result.v_max=surface.LastVParameter();
         unsigned wires=0,rims=0;bool rectangular=true;
         for(TopExp_Explorer it(face,TopAbs_WIRE);it.More();it.Next())++wires;
-        TopTools_IndexedMapOfShape profile_edges;TopExp::MapShapes(face,TopAbs_EDGE,profile_edges);
+        NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> profile_edges;TopExp::MapShapes(face,TopAbs_EDGE,profile_edges);
         for(int i=1;i<=profile_edges.Extent();++i) {
             const auto edge=TopoDS::Edge(profile_edges(i));
             if(BRep_Tool::IsClosed(edge,face))continue;
@@ -6874,7 +6873,7 @@ BodyResult make_result(
     };
     Bnd_Box mesh_bounds;
     BRepBndLib::Add(shape, mesh_bounds);
-    Standard_Real xmin{}, ymin{}, zmin{}, xmax{}, ymax{}, zmax{};
+    double xmin{}, ymin{}, zmin{}, xmax{}, ymax{}, zmax{};
     double linear_deflection = 0.1;
     if (!mesh_bounds.IsVoid()) {
         mesh_bounds.Get(xmin, ymin, zmin, xmax, ymax, zmax);
@@ -6941,14 +6940,14 @@ BodyResult make_result(
     // Display body edges remain non-reference geometry, but retain their
     // owning history container solely for cheap wire recolouring.
     edge_references.emplace(owned_edges);
-    TopTools_IndexedDataMapOfShapeListOfShape edge_faces;
+    NCollection_IndexedDataMap<TopoDS_Shape, NCollection_List<TopoDS_Shape>, TopTools_ShapeMapHasher> edge_faces;
     TopExp::MapShapesAndAncestors(
         shape, TopAbs_EDGE, TopAbs_FACE, edge_faces);
 
     // A topology reference retains ancestry, not the current support geometry.
     // Derive each descriptor once from the actual located/oriented face and
     // share it with its edge-side packets, including compact display packets.
-    TopTools_IndexedMapOfShape support_faces;
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> support_faces;
     std::vector<std::shared_ptr<const SurfaceGeometry>> support_surfaces;
     const auto support_surface_for=[&](const TopoDS_Face& face) {
         const auto index=support_faces.Add(face);
@@ -7060,12 +7059,12 @@ BodyResult make_result(
     }
     profile("face packets");
     if(profile_calc)std::fprintf(stderr,"Kernel face measurements: %.6f s\n",face_measurement_seconds);
-    TopTools_IndexedMapOfShape sampled_edges;
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> sampled_edges;
     EdgeGuidePacketSignatures guide_edge_signatures,guide_face_signatures;
     // The packet owns fixed native faces throughout sampling. Reuse each
     // face's UV bounds and incidence preparation across its edge probes;
     // discard it with this packet, before any modeling operation can change it.
-    TopTools_IndexedMapOfShape classification_faces;
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> classification_faces;
     std::vector<std::unique_ptr<BRepClass_FaceExplorer>> classification_explorers;
     const auto classifier_for=[&](const TopoDS_Face& face)->BRepClass_FaceExplorer& {
         const auto index=classification_faces.Add(face);
@@ -7076,7 +7075,7 @@ BodyResult make_result(
         }
         return *classification_explorers[static_cast<std::size_t>(index-1)];
     };
-    TopTools_IndexedMapOfShape hidden_edges;
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> hidden_edges;
     for (const auto& edge : hidden_display_edges) hidden_edges.Add(edge);
     for (TopExp_Explorer explorer(shape, TopAbs_EDGE); explorer.More(); explorer.Next()) {
         const TopoDS_Edge edge = TopoDS::Edge(explorer.Current());
@@ -7103,12 +7102,12 @@ BodyResult make_result(
         const int edge_index = edge_faces.FindIndex(edge);
         if(edge_index!=0) {
             viewer_edge.surface_result=true;
-            for(TopTools_ListIteratorOfListOfShape it(edge_faces.FindFromIndex(edge_index));it.More();it.Next())
+            for(NCollection_List<TopoDS_Shape>::Iterator it(edge_faces.FindFromIndex(edge_index));it.More();it.Next())
                 viewer_edge.surface_result &= face_references->reference_for(it.Value()).surface_result;
         }
         if (edge_index != 0) {
             std::vector<TopoDS_Face> adjacent_faces;
-            for (TopTools_ListIteratorOfListOfShape iterator(
+            for (NCollection_List<TopoDS_Shape>::Iterator iterator(
                      edge_faces.FindFromIndex(edge_index));
                  iterator.More(); iterator.Next()) {
                 const auto face = TopoDS::Face(iterator.Value());
@@ -7147,7 +7146,7 @@ BodyResult make_result(
             std::map<std::string, std::size_t> treatment_face_counts;
             std::map<std::string, std::vector<TopoDS_Face>> treatment_faces;
             if (edge_index != 0) {
-                for (TopTools_ListIteratorOfListOfShape iterator(
+                for (NCollection_List<TopoDS_Shape>::Iterator iterator(
                          edge_faces.FindFromIndex(edge_index));
                      iterator.More(); iterator.Next()) {
                     const auto face_reference =
@@ -7192,7 +7191,7 @@ BodyResult make_result(
         Handle(Poly_PolygonOnTriangulation) boundary_polygon;
         Handle(Poly_Triangulation) boundary_mesh;
         TopLoc_Location boundary_location;
-        if(edge_index!=0)for(TopTools_ListIteratorOfListOfShape face(edge_faces.FindFromIndex(edge_index));face.More();face.Next()) {
+        if(edge_index!=0)for(NCollection_List<TopoDS_Shape>::Iterator face(edge_faces.FindFromIndex(edge_index));face.More();face.Next()) {
             TopLoc_Location location;
             const auto triangulation=BRep_Tool::Triangulation(TopoDS::Face(face.Value()),location);
             if(triangulation.IsNull())continue;
@@ -7255,7 +7254,7 @@ BodyResult make_result(
         const bool has_distinct_sides = [&] {
             if (edge_index == 0 || !face_references) return false;
             std::optional<FaceReference> first;
-            for (TopTools_ListIteratorOfListOfShape iterator(
+            for (NCollection_List<TopoDS_Shape>::Iterator iterator(
                      edge_faces.FindFromIndex(edge_index));
                  iterator.More(); iterator.Next()) {
                 const auto reference = face_references->reference_for(iterator.Value());
@@ -7269,7 +7268,7 @@ BodyResult make_result(
             std::vector<std::pair<FaceReference, std::vector<Vec3>>> sides;
             std::vector<std::vector<Vec3>> guide_baseline;
             const bool verify_guides=std::getenv("ZIMA_CPP_FORM_VERIFY_GUIDES")!=nullptr;
-            for (TopTools_ListIteratorOfListOfShape iterator(
+            for (NCollection_List<TopoDS_Shape>::Iterator iterator(
                      edge_faces.FindFromIndex(edge_index));
                  iterator.More(); iterator.Next()) {
                 auto face_reference =
@@ -7386,9 +7385,9 @@ BodyResult make_result(
         result.mesh.edges.push_back(std::move(viewer_edge));
     }
     profile("edge packets");
-    TopTools_IndexedDataMapOfShapeListOfShape vertex_surface_faces;
+    NCollection_IndexedDataMap<TopoDS_Shape, NCollection_List<TopoDS_Shape>, TopTools_ShapeMapHasher> vertex_surface_faces;
     TopExp::MapShapesAndAncestors(shape,TopAbs_VERTEX,TopAbs_FACE,vertex_surface_faces);
-    TopTools_IndexedMapOfShape sampled_vertices;
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> sampled_vertices;
     if ((original_reference_geometry || collect_original_references ||
             requested_references)&&
             (!dependency_edges_only||requested_references)) for (
@@ -7410,7 +7409,7 @@ BodyResult make_result(
         viewer_point.always_visible = false;
         if(vertex_surface_faces.Contains(vertex)) {
             viewer_point.surface_result=true;
-            for(TopTools_ListIteratorOfListOfShape it(vertex_surface_faces.FindFromKey(vertex));it.More();it.Next())
+            for(NCollection_List<TopoDS_Shape>::Iterator it(vertex_surface_faces.FindFromKey(vertex));it.More();it.Next())
                 viewer_point.surface_result &= face_references->reference_for(it.Value()).surface_result;
         }
         if (!dependency_edges_only&&original_reference_geometry)
@@ -8072,7 +8071,7 @@ OcctKernel::inspect_edge_treatment_supports(const BodyResult& body,
         return aliases;
     };
 
-    TopTools_IndexedDataMapOfShapeListOfShape edge_faces;
+    NCollection_IndexedDataMap<TopoDS_Shape, NCollection_List<TopoDS_Shape>, TopTools_ShapeMapHasher> edge_faces;
     TopExp::MapShapesAndAncestors(native.shape,TopAbs_EDGE,
         TopAbs_FACE,edge_faces);
     result.segments.reserve(references.size());
@@ -8093,7 +8092,7 @@ OcctKernel::inspect_edge_treatment_supports(const BodyResult& body,
         segment.edge=reference;segment.curve_kind=curve_kind(edge);
         const int adjacency_index=edge_faces.FindIndex(edge);
         std::vector<TopoDS_Face> faces;
-        if(adjacency_index)for(TopTools_ListIteratorOfListOfShape iterator(
+        if(adjacency_index)for(NCollection_List<TopoDS_Shape>::Iterator iterator(
                 edge_faces.FindFromIndex(adjacency_index));
                 iterator.More();iterator.Next()) {
             const auto face=TopoDS::Face(iterator.Value());
@@ -8279,7 +8278,7 @@ BodyResult OcctKernel::calculate_add_block(const BodyResult& input,
         const auto data=block_geometry(body);
         OcctBoundarySolid result;
         result.shape=data.shape;
-        TopTools_IndexedMapOfShape faces,edges,vertices;
+        NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> faces,edges,vertices;
         TopExp::MapShapes(data.shape,TopAbs_FACE,faces);
         TopExp::MapShapes(data.shape,TopAbs_EDGE,edges);
         TopExp::MapShapes(data.shape,TopAbs_VERTEX,vertices);
@@ -8374,7 +8373,7 @@ BodyResult OcctKernel::calculate_add_block(const BodyResult& input,
                 for(const auto& reference:vertex.references)
                     source_vertices.push_back({vertex.shape,reference});
         }
-        TopTools_ListOfShape arguments,fuse_tools;
+        NCollection_List<TopoDS_Shape> arguments,fuse_tools;
         arguments.Append(operands.front().shape);
         for(std::size_t index=1;index<operands.size();++index)
             fuse_tools.Append(operands[index].shape);
@@ -8405,7 +8404,7 @@ BodyResult OcctKernel::calculate_add_block(const BodyResult& input,
 
         OcctBoundaryUnion result;
         result.shape=std::move(unified.shape);
-        TopTools_IndexedMapOfShape faces,edges,vertices;
+        NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> faces,edges,vertices;
         TopExp::MapShapes(result.shape,TopAbs_FACE,faces);
         TopExp::MapShapes(result.shape,TopAbs_EDGE,edges);
         TopExp::MapShapes(result.shape,TopAbs_VERTEX,vertices);
@@ -8670,7 +8669,7 @@ BodyResult OcctKernel::calculate_subtract_block(const BodyResult& input,
     };
 
     auto target=block_geometry(input);
-    TopTools_ListOfShape arguments,cut_shapes;
+    NCollection_List<TopoDS_Shape> arguments,cut_shapes;
     arguments.Append(target.shape);
     std::vector<PrimitiveData> operands;
     operands.reserve(tools.size());
@@ -8717,7 +8716,7 @@ BodyResult OcctKernel::calculate_subtract_block(const BodyResult& input,
 
     OcctBoundaryUnion boundary;
     boundary.shape=cut.Shape();
-    TopTools_IndexedMapOfShape actual_faces,actual_edges,actual_vertices;
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> actual_faces,actual_edges,actual_vertices;
     TopExp::MapShapes(boundary.shape,TopAbs_FACE,actual_faces);
     TopExp::MapShapes(boundary.shape,TopAbs_EDGE,actual_edges);
     TopExp::MapShapes(boundary.shape,TopAbs_VERTEX,actual_vertices);
@@ -8999,7 +8998,7 @@ ImportedModel OcctKernel::import_iges_model(const std::string& path,
     const auto definition=XCAFDoc_DocumentTool::ShapeTool(
         document->Main())->FindShape(data.shape,true);
     const auto promote_closed=[](const TopoDS_Shape& input) {
-        TopTools_IndexedMapOfShape existing;
+        NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> existing;
         TopExp::MapShapes(input,TopAbs_SOLID,existing);
         if(!existing.IsEmpty())return std::pair{input,false};
         // IGES commonly represents a closed B-Rep as trimmed faces even when
@@ -9010,7 +9009,7 @@ ImportedModel OcctKernel::import_iges_model(const std::string& path,
         if(sewing.SewedShape().IsNull()||sewing.NbFreeEdges()!=0||
                 sewing.NbMultipleEdges()!=0)
             return std::pair{input,false};
-        TopTools_IndexedMapOfShape shells;
+        NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> shells;
         TopExp::MapShapes(sewing.SewedShape(),TopAbs_SHELL,shells);
         if(shells.IsEmpty())return std::pair{input,false};
         BRep_Builder builder;TopoDS_Compound compound;
@@ -9028,7 +9027,7 @@ ImportedModel OcctKernel::import_iges_model(const std::string& path,
             return std::pair{input,false};
         return std::pair<TopoDS_Shape,bool>{compound,true};
     };
-    TopTools_IndexedMapOfShape imported_solids;
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> imported_solids;
     TopExp::MapShapes(data.shape,TopAbs_SOLID,imported_solids);
     if(imported_solids.IsEmpty()&&
             (data.shape.ShapeType()==TopAbs_COMPOUND||
@@ -9051,7 +9050,7 @@ ImportedModel OcctKernel::import_iges_model(const std::string& path,
             StepRequest::TopologyIdentity::Kind identity_kind, const char* role) {
         struct Candidate { TopoDS_Shape shape; int source{}; int specificity{}; std::string locator; };
         std::map<std::string, Candidate> candidates;
-        TopTools_IndexedMapOfShape actual; TopExp::MapShapes(data.shape, kind, actual);
+        NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> actual; TopExp::MapShapes(data.shape, kind, actual);
         // Sewing a face-only IGES B-Rep creates new TShapes. Retain the
         // source directory-entry identity by matching such copies through
         // their exact geometric locator. Orientation is deliberately removed
@@ -9070,8 +9069,8 @@ ImportedModel OcctKernel::import_iges_model(const std::string& path,
             if(left_box.IsVoid()!=right_box.IsVoid())return false;
             double scale=1.;
             if(!left_box.IsVoid()) {
-                Standard_Real lx0{},ly0{},lz0{},lx1{},ly1{},lz1{};
-                Standard_Real rx0{},ry0{},rz0{},rx1{},ry1{},rz1{};
+                double lx0{},ly0{},lz0{},lx1{},ly1{},lz1{};
+                double rx0{},ry0{},rz0{},rx1{},ry1{},rz1{};
                 left_box.Get(lx0,ly0,lz0,lx1,ly1,lz1);
                 right_box.Get(rx0,ry0,rz0,rx1,ry1,rz1);
                 scale=std::max({scale,std::abs(lx0),std::abs(ly0),
@@ -9122,7 +9121,7 @@ ImportedModel OcctKernel::import_iges_model(const std::string& path,
             const auto entity = model->Value(i);
             const auto source_shape = TransferBRep::ShapeResult(transfer, entity);
             if (source_shape.IsNull()) continue;
-            TopTools_IndexedMapOfShape children; TopExp::MapShapes(source_shape, kind, children);
+            NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> children; TopExp::MapShapes(source_shape, kind, children);
             for (int j = 1; j <= children.Size(); ++j) {
                 auto runtime_index = actual.FindIndex(children.FindKey(j));
                 if(runtime_index==0) {
@@ -9204,7 +9203,7 @@ ImportedModel OcctKernel::import_iges_model(const std::string& path,
         }
         const auto source=TransferBRep::ShapeResult(transfer,entity);
         if(source.IsNull())continue;
-        TopTools_IndexedMapOfShape faces;
+        NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> faces;
         TopExp::MapShapes(source,TopAbs_FACE,faces);
         const auto specificity=static_cast<int>(faces.Size());
         if(specificity==0)continue;
@@ -9345,7 +9344,7 @@ ImportedModel OcctKernel::import_stl_model(const std::string& path,
         throw std::runtime_error("STL did not produce valid geometry");
     std::map<std::string,std::string> facet_color_by_locator;
     if(!facet_colors.empty()) {
-        TopTools_IndexedMapOfShape source_faces;
+        NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> source_faces;
         TopExp::MapShapes(data.shape,TopAbs_FACE,source_faces);
         for(std::size_t index=0;index<std::min(facet_colors.size(),
                 static_cast<std::size_t>(source_faces.Size()));++index)
@@ -9364,7 +9363,7 @@ ImportedModel OcctKernel::import_stl_model(const std::string& path,
     sewing.Add(data.shape);sewing.Perform();
     if(!sewing.SewedShape().IsNull()&&sewing.NbFreeEdges()==0&&
             sewing.NbMultipleEdges()==0) {
-        TopTools_IndexedMapOfShape shells;
+        NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> shells;
         TopExp::MapShapes(sewing.SewedShape(),TopAbs_SHELL,shells);
         if(shells.Size()==1) {
             BRepBuilderAPI_MakeSolid solid(
@@ -9394,7 +9393,7 @@ ImportedModel OcctKernel::import_stl_model(const std::string& path,
     using Kind=StepRequest::TopologyIdentity::Kind;
     const auto capture=[&](auto& owned,TopAbs_ShapeEnum kind,
             Kind identity_kind,const char* role) {
-        TopTools_IndexedMapOfShape members;
+        NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> members;
         TopExp::MapShapes(data.shape,kind,members);
         for(int position=1;position<=members.Size();++position) {
             const auto shape=members.FindKey(position);
@@ -11527,7 +11526,7 @@ OcctKernel::evaluate_flat_history_batched(
                 throw DirectBatchReferenceFallback{};
             auto topology=std::make_shared<LiveCache::Topology>(
                 *boundary->second.topology);
-            TopTools_IndexedMapOfShape faces;
+            NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> faces;
             TopExp::MapShapes(boundary->second.shape,TopAbs_FACE,faces);
             std::vector<OcctBoundaryFace> ancestry(
                 static_cast<std::size_t>(faces.Extent()));
@@ -12230,9 +12229,9 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                 auto geometry=bound_face_geometry(persisted,true);
                 const auto complete=[](const TopoDS_Shape& shape,
                         TopAbs_ShapeEnum kind,const auto& owned) {
-                    TopTools_IndexedMapOfShape actual;
+                    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> actual;
                     TopExp::MapShapes(shape,kind,actual);
-                    TopTools_IndexedMapOfShape bound;
+                    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> bound;
                     for(const auto& item:owned)
                         if(actual.Contains(item.shape))
                             bound.Add(item.shape);
@@ -12968,7 +12967,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                         ->const std::vector<OcctBoundaryFace>& {
                     if(structural_face_ancestry)
                         return *structural_face_ancestry;
-                    TopTools_IndexedMapOfShape faces;
+                    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> faces;
                     TopExp::MapShapes(result_shape,TopAbs_FACE,faces);
                     structural_face_ancestry.emplace(
                         static_cast<std::size_t>(faces.Extent()));
@@ -13468,7 +13467,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                            treatment.mode!=FilletRequest::Mode::Constant||
                            has_authored_end_faces||
                            treatment.route_edge_counts.empty())return false;
-                        TopTools_IndexedDataMapOfShapeListOfShape edge_faces;
+                        NCollection_IndexedDataMap<TopoDS_Shape, NCollection_List<TopoDS_Shape>, TopTools_ShapeMapHasher> edge_faces;
                         TopExp::MapShapesAndAncestors(result_shape,
                             TopAbs_EDGE,TopAbs_FACE,edge_faces);
                         const auto normal=[&](const TopoDS_Edge& edge,
@@ -13601,7 +13600,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                             const auto shares_endpoint=[](
                                     const TopoDS_Edge& first,
                                     const TopoDS_Edge& second) {
-                                TopTools_IndexedMapOfShape first_vertices,
+                                NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> first_vertices,
                                     second_vertices;
                                 TopExp::MapShapes(first,TopAbs_VERTEX,
                                     first_vertices);
@@ -13614,7 +13613,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                                         return true;
                                 return false;
                             };
-                            TopTools_IndexedDataMapOfShapeListOfShape
+                            NCollection_IndexedDataMap<TopoDS_Shape, NCollection_List<TopoDS_Shape>, TopTools_ShapeMapHasher>
                                 custom_edge_faces;
                             TopExp::MapShapesAndAncestors(result_shape,
                                 TopAbs_EDGE,TopAbs_FACE,custom_edge_faces);
@@ -14072,7 +14071,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                             preserve_exact_result,custom_zima,
                             "OCCT Chamfer produced an invalid body");
                     };
-                    TopTools_IndexedDataMapOfShapeListOfShape edge_faces;
+                    NCollection_IndexedDataMap<TopoDS_Shape, NCollection_List<TopoDS_Shape>, TopTools_ShapeMapHasher> edge_faces;
                     TopExp::MapShapesAndAncestors(result_shape,
                         TopAbs_EDGE,TopAbs_FACE,edge_faces);
                     const TopologyReferenceIndex<FaceReference,OwnedFace>
@@ -14084,7 +14083,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                                 "Chamfer edge has no adjacent faces");
                         std::vector<std::pair<FaceReference,TopoDS_Face>>
                             faces;
-                        for(TopTools_ListIteratorOfListOfShape iterator(
+                        for(NCollection_List<TopoDS_Shape>::Iterator iterator(
                                 edge_faces.FindFromIndex(edge_index));
                             iterator.More();iterator.Next()) {
                             const auto reference=face_references.reference_for(
@@ -14662,7 +14661,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                     retain_originals(authored(changed.faces),authored(changed.edges),authored(changed.vertices));
                 }
                 copy_profile("parameterization repair");
-                TopTools_IndexedMapOfShape copied_solids;TopExp::MapShapes(changed.shape,TopAbs_SOLID,copied_solids);
+                NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> copied_solids;TopExp::MapShapes(changed.shape,TopAbs_SOLID,copied_solids);
                 if(copied_solids.Extent()!=1) {
                     if(std::getenv("ZIMA_CPP_FORM_PROFILE"))for(int index=1;index<=copied_solids.Extent();++index) {
                         GProp_GProps properties;BRepGProp::VolumeProperties(copied_solids(index),properties);
@@ -14845,10 +14844,10 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                         // shells; ordinary face thickening intentionally consumes
                         // only one shell. Sew those native patches here, using
                         // the existing ancestry-preserving surface operation.
-                        TopTools_IndexedMapOfShape all_faces,anchor_faces;
+                        NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> all_faces,anchor_faces;
                         TopExp::MapShapes(source.shape,TopAbs_FACE,all_faces);
                         for(TopExp_Explorer shell(source.shape,TopAbs_SHELL);shell.More();shell.Next()) {
-                            TopTools_IndexedMapOfShape members;TopExp::MapShapes(shell.Current(),TopAbs_FACE,members);
+                            NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> members;TopExp::MapShapes(shell.Current(),TopAbs_FACE,members);
                             if(std::ranges::any_of(source.faces,[&](const auto& f){return same_face_identity(f.reference,anchor)&&members.Contains(f.shape);})) {
                                 anchor_faces=members;break;
                             }
@@ -14857,14 +14856,14 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                             // The sides of a native symmetric extrusion already
                             // share their junction edges. Combine those shells
                             // without renaming any of their existing topology.
-                            TopTools_IndexedDataMapOfShapeListOfShape adjacency;
+                            NCollection_IndexedDataMap<TopoDS_Shape, NCollection_List<TopoDS_Shape>, TopTools_ShapeMapHasher> adjacency;
                             TopExp::MapShapesAndAncestors(source.shape,TopAbs_EDGE,TopAbs_FACE,adjacency);
                             std::set<int> connected{1};bool changed=true;
                             while(changed) {
                                 changed=false;
                                 for(int i=1;i<=adjacency.Extent();++i) {
                                     std::set<int> incident;
-                                    for(TopTools_ListIteratorOfListOfShape it(adjacency.FindFromIndex(i));it.More();it.Next())incident.insert(all_faces.FindIndex(it.Value()));
+                                    for(NCollection_List<TopoDS_Shape>::Iterator it(adjacency.FindFromIndex(i));it.More();it.Next())incident.insert(all_faces.FindIndex(it.Value()));
                                     if(incident.size()>2)throw std::runtime_error("FORM definition calculation failed.");
                                     if(std::ranges::any_of(incident,[&](int f){return connected.contains(f);}))
                                         for(int f:incident)changed|=connected.insert(f).second;
@@ -14876,7 +14875,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                                 sewing.Perform();auto joined=sewing.SewedShape();
                                 if(joined.IsNull()||joined.ShapeType()!=TopAbs_SHELL||!BRepCheck_Analyzer(joined).IsValid())throw std::runtime_error("FORM definition calculation failed.");
                                 const auto selected=std::ranges::find_if(source.faces,[&](const auto& f){return same_face_identity(f.reference,anchor);});
-                                TopTools_IndexedMapOfShape joined_faces;TopExp::MapShapes(joined,TopAbs_FACE,joined_faces);
+                                NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> joined_faces;TopExp::MapShapes(joined,TopAbs_FACE,joined_faces);
                                 if(selected==source.faces.end()||!joined_faces.Contains(selected->shape))throw std::runtime_error("FORM definition calculation failed.");
                                 // Joining must retain the chosen anchor's side;
                                 // sewing may orient the other extrusion half.
@@ -14884,7 +14883,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                                 // No new junction is needed: every existing
                                 // source identity must survive this shell join.
                                 const auto rebind=[&](auto& bindings,TopAbs_ShapeEnum kind) {
-                                    TopTools_IndexedMapOfShape members;TopExp::MapShapes(joined,kind,members);
+                                    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> members;TopExp::MapShapes(joined,kind,members);
                                     for(auto& item:bindings) {
                                         const auto index=members.FindIndex(item.shape);
                                         if(!index)throw std::runtime_error("FORM definition calculation failed.");
@@ -14988,7 +14987,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                         std::move(unified.edges),std::move(unified.vertices)};
                     profile("corner domain unification");
                 }
-                TopTools_IndexedMapOfShape solids;TopExp::MapShapes(changed.shape,TopAbs_SOLID,solids);
+                NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> solids;TopExp::MapShapes(changed.shape,TopAbs_SOLID,solids);
                 if(solids.Extent()!=1)throw std::runtime_error("FORM must remain connected to its supporting sheet.");
                 if(!native_corner)
                     retain_originals(form_operands->formed.faces,form_operands->formed.edges,form_operands->formed.vertices);
@@ -15001,7 +15000,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                     // implementation without publishing unused intermediate
                     // meshes, mass properties or history transactions.
                     std::array<std::vector<EdgeReference>,2> routes;
-                    TopTools_IndexedDataMapOfShapeListOfShape adjacency;
+                    NCollection_IndexedDataMap<TopoDS_Shape, NCollection_List<TopoDS_Shape>, TopTools_ShapeMapHasher> adjacency;
                     TopExp::MapShapesAndAncestors(result_shape,TopAbs_EDGE,TopAbs_FACE,adjacency);
                     const TopologyReferenceIndex<FaceReference,OwnedFace> face_index(owned_topology->faces);
                     using namespace sheet_material;
@@ -15048,7 +15047,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                         const auto edge=TopoDS::Edge(owned.shape);const auto entry=adjacency.FindIndex(edge);
                         if(entry==0||!owned.reference.valid())continue;
                         std::vector<std::pair<FaceReference,TopoDS_Face>> sides;
-                        for(TopTools_ListIteratorOfListOfShape it(adjacency.FindFromIndex(entry));it.More();it.Next()) {
+                        for(NCollection_List<TopoDS_Shape>::Iterator it(adjacency.FindFromIndex(entry));it.More();it.Next()) {
                             const auto ref=face_index.reference_for(it.Value());
                             if(ref.valid()&&std::ranges::none_of(sides,[&](const auto& side){return side.first==ref;}))
                                 sides.emplace_back(ref,TopoDS::Face(it.Value()));
@@ -15364,7 +15363,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                                 value.direction.z / direction_length};
                             Bnd_Box bounds;
                             BRepBndLib::Add(extent_input, bounds);
-                            Standard_Real xmin{}, ymin{}, zmin{},
+                            double xmin{}, ymin{}, zmin{},
                                 xmax{}, ymax{}, zmax{};
                             bounds.Get(xmin, ymin, zmin, xmax, ymax, zmax);
                             double forward{};
@@ -15509,7 +15508,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                     Bnd_Box bounds;
                     BRepBndLib::AddOptimal(transformed, bounds, false, false);
                     if (bounds.IsVoid()) throw std::runtime_error("Opening axis has no extent");
-                    Standard_Real xmin{}, ymin{}, zmin{}, xmax{}, ymax{}, zmax{};
+                    double xmin{}, ymin{}, zmin{}, xmax{}, ymax{}, zmax{};
                     bounds.Get(xmin, ymin, zmin, xmax, ymax, zmax);
                     return static_cast<double>(zmax);
                 };
@@ -15614,7 +15613,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                     if (thread->through_all_forward || thread->through_all_reverse) {
                         Bnd_Box bounds;
                         BRepBndLib::Add(result_shape, bounds);
-                        Standard_Real xmin{}, ymin{}, zmin{}, xmax{}, ymax{}, zmax{};
+                        double xmin{}, ymin{}, zmin{}, xmax{}, ymax{}, zmax{};
                         bounds.Get(xmin, ymin, zmin, xmax, ymax, zmax);
                         double minimum = std::numeric_limits<double>::infinity();
                         double maximum = -std::numeric_limits<double>::infinity();
@@ -15804,7 +15803,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                         })) {
                     throw std::invalid_argument("Shell parameters are invalid");
                 }
-                TopTools_IndexedMapOfShape solids;
+                NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> solids;
                 TopExp::MapShapes(shell_input_shape, TopAbs_SOLID, solids);
                 if (solids.IsEmpty() || (shell->thickness == 0. && solids.Extent() != 1)) {
                     throw std::invalid_argument(
@@ -15812,7 +15811,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                 }
 
                 std::set<std::pair<std::string, std::string>> selected_ids;
-                TopTools_ListOfShape selected_face_shapes;
+                NCollection_List<TopoDS_Shape> selected_face_shapes;
                 for (const auto& requested : shell->removed_faces) {
                     if (!selected_ids.emplace(
                             requested.owner_id, requested.semantic_key).second) {
@@ -15836,24 +15835,24 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
 
                 if(shell->thickness==0.) {
                     TopoDS_Compound remaining;BRep_Builder builder;builder.MakeCompound(remaining);
-                    TopTools_IndexedMapOfShape solid_members;TopExp::MapShapes(solids.FindKey(1),solid_members);
-                    for(TopTools_ListIteratorOfListOfShape it(selected_face_shapes);it.More();it.Next())
+                    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> solid_members;TopExp::MapShapes(solids.FindKey(1),solid_members);
+                    for(NCollection_List<TopoDS_Shape>::Iterator it(selected_face_shapes);it.More();it.Next())
                         if(!solid_members.Contains(it.Value()))
                             throw std::runtime_error("Shell face is missing or ambiguous at this history boundary");
                     for(TopExp_Explorer face(solids.FindKey(1),TopAbs_FACE);face.More();face.Next()) {
                         bool removed=false;
-                        for(TopTools_ListIteratorOfListOfShape it(selected_face_shapes);it.More();it.Next())
+                        for(NCollection_List<TopoDS_Shape>::Iterator it(selected_face_shapes);it.More();it.Next())
                             removed=removed||it.Value().IsSame(face.Current());
                         if(!removed)builder.Add(remaining,face.Current());
                     }
-                    TopTools_IndexedMapOfShape skin_faces;TopExp::MapShapes(remaining,TopAbs_FACE,skin_faces);
+                    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> skin_faces;TopExp::MapShapes(remaining,TopAbs_FACE,skin_faces);
                     if(skin_faces.IsEmpty())throw std::runtime_error("Select fewer faces; the surface shell must retain a face.");
                     // A shell must be connected. Removing walls may leave
                     // separate pieces; group exact faces by shared native edges.
                     TopoDS_Compound skin;builder.MakeCompound(skin);
-                    TopTools_IndexedDataMapOfShapeListOfShape neighbors;
+                    NCollection_IndexedDataMap<TopoDS_Shape, NCollection_List<TopoDS_Shape>, TopTools_ShapeMapHasher> neighbors;
                     TopExp::MapShapesAndAncestors(remaining,TopAbs_EDGE,TopAbs_FACE,neighbors);
-                    TopTools_IndexedMapOfShape visited;
+                    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> visited;
                     for(int seed=1;seed<=skin_faces.Extent();++seed) {
                         if(visited.Contains(skin_faces.FindKey(seed)))continue;
                         TopoDS_Shell piece;builder.MakeShell(piece);
@@ -15861,12 +15860,12 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                         for(std::size_t index=0;index<queue.size();++index) {
                             const auto face=queue[index];builder.Add(piece,face);
                             for(TopExp_Explorer edge(face,TopAbs_EDGE);edge.More();edge.Next())
-                                for(TopTools_ListIteratorOfListOfShape n(neighbors.FindFromKey(edge.Current()));n.More();n.Next())
+                                for(NCollection_List<TopoDS_Shape>::Iterator n(neighbors.FindFromKey(edge.Current()));n.More();n.Next())
                                     if(!visited.Contains(n.Value())){visited.Add(n.Value());queue.push_back(n.Value());}
                         }
                         builder.Add(skin,piece);
                     }
-                    TopTools_IndexedMapOfShape present;TopExp::MapShapes(skin,present);
+                    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> present;TopExp::MapShapes(skin,present);
                     if(!BRepCheck_Analyzer(skin,true,false,true).IsValid())
                         throw std::runtime_error("Surface shell could not retain valid input surfaces.");
                     auto topology=std::make_shared<LiveCache::Topology>();
@@ -15907,7 +15906,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                 const auto hollow_solid = [&](const TopoDS_Shape& solid,
                     std::shared_ptr<const LiveCache::Topology> owned_topology,
                     const ShellRequest& request,
-                    const TopTools_ListOfShape& selected_face_shapes)
+                    const NCollection_List<TopoDS_Shape>& selected_face_shapes)
                     -> std::pair<TopoDS_Shape, std::shared_ptr<const LiveCache::Topology>> {
                     const auto* shell = &request;
                     TopoDS_Shape result_shape = solid;
@@ -15948,7 +15947,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                         if (candidate && candidate->IsDone() &&
                             !candidate->Shape().IsNull() &&
                             BRepCheck_Analyzer(candidate->Shape()).IsValid()) {
-                            TopTools_IndexedMapOfShape direct_solids;
+                            NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> direct_solids;
                             TopExp::MapShapes(candidate->Shape(), TopAbs_SOLID,
                                 direct_solids);
                             const double direct_volume =
@@ -16008,7 +16007,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                     // Building this explicitly also avoids MakeThickSolid's
                     // false-success result (unchanged input body) on bodies with
                     // several consecutive Fillet/Chamfer operations.
-                    TopTools_ListOfShape no_closing_faces;
+                    NCollection_List<TopoDS_Shape> no_closing_faces;
                     BRepOffsetAPI_MakeThickSolid inner_offset;
                     inner_offset.MakeThickSolidByJoin(
                         solid, no_closing_faces, -shell->thickness,
@@ -16018,7 +16017,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                         !BRepCheck_Analyzer(inner_offset.Shape()).IsValid()) {
                         throw std::runtime_error("OCCT Shell inner offset failed");
                     }
-                    TopTools_IndexedMapOfShape inner_solids;
+                    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> inner_solids;
                     TopExp::MapShapes(
                         inner_offset.Shape(), TopAbs_SOLID, inner_solids);
                     const double inner_volume = volume_of(inner_offset.Shape());
@@ -16056,7 +16055,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                         !BRepCheck_Analyzer(closed_wall.Shape()).IsValid()) {
                         throw std::runtime_error("OCCT closed Shell failed");
                     }
-                    TopTools_IndexedMapOfShape wall_solids;
+                    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> wall_solids;
                     TopExp::MapShapes(closed_wall.Shape(), TopAbs_SOLID, wall_solids);
                     const double closed_wall_volume = volume_of(closed_wall.Shape());
                     if (wall_solids.Extent() != 1 ||
@@ -16146,7 +16145,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                                             probe.Shape()).IsValid()) {
                                         continue;
                                     }
-                                    TopTools_IndexedMapOfShape probe_solids;
+                                    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> probe_solids;
                                     TopExp::MapShapes(probe.Shape(),
                                         TopAbs_SOLID, probe_solids);
                                     const double candidate_volume =
@@ -16177,8 +16176,8 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                                     "OCCT Shell could not construct an opening tool");
                             }
 
-                            TopTools_IndexedMapOfShape source_edges;
-                            TopTools_IndexedMapOfShape source_vertices;
+                            NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> source_edges;
+                            NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> source_vertices;
                             TopExp::MapShapes(
                                 source.shape, TopAbs_EDGE, source_edges);
                             TopExp::MapShapes(
@@ -16228,7 +16227,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                             shell->removed_faces.size());
                         outer_opening_tools.reserve(
                             shell->removed_faces.size());
-                        TopTools_ListOfShape opening_tool_shapes;
+                        NCollection_List<TopoDS_Shape> opening_tool_shapes;
                         std::vector<OwnedFace> opening_tool_faces;
                         std::vector<OwnedEdge> opening_tool_edges;
                         std::vector<OwnedVertex> opening_tool_vertices;
@@ -16272,7 +16271,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                             for (const auto* descendants : {
                                     &inner_offset.Modified(input->shape),
                                     &inner_offset.Generated(input->shape)}) {
-                                for (TopTools_ListIteratorOfListOfShape iterator(
+                                for (NCollection_List<TopoDS_Shape>::Iterator iterator(
                                         *descendants);
                                      iterator.More(); iterator.Next()) {
                                     append_inner_match(iterator.Value());
@@ -16390,7 +16389,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                             }
                         }
 
-                        TopTools_ListOfShape opening_arguments;
+                        NCollection_List<TopoDS_Shape> opening_arguments;
                         opening_arguments.Append(shell_shape);
                         BRepAlgoAPI_Cut opening_cut;
                         opening_cut.SetArguments(opening_arguments);
@@ -16405,7 +16404,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                             throw std::runtime_error(
                                 "OCCT Shell could not create the selected openings");
                         }
-                        TopTools_IndexedMapOfShape opened_solids;
+                        NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> opened_solids;
                         TopExp::MapShapes(opening_cut.Shape(),
                             TopAbs_SOLID, opened_solids);
                         const double opened_volume =
@@ -16475,17 +16474,17 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                     std::tie(result_shape, owned_topology) = hollow_solid(
                         solids.FindKey(1), owned_topology, *shell, selected_face_shapes);
                 } else {
-                    std::vector<TopTools_IndexedMapOfShape> members(solids.Extent());
+                    std::vector<NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher>> members(solids.Extent());
                     std::vector<ShellRequest> requests(solids.Extent(), *shell);
-                    std::vector<TopTools_ListOfShape> openings(solids.Extent());
-                    TopTools_IndexedMapOfShape all_solid_members, changed_members;
+                    std::vector<NCollection_List<TopoDS_Shape>> openings(solids.Extent());
+                    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> all_solid_members, changed_members;
                     for (int i=1; i<=solids.Extent(); ++i) {
                         TopExp::MapShapes(solids.FindKey(i), members[i-1]);
                         TopExp::MapShapes(solids.FindKey(i), all_solid_members);
                         requests[i-1].removed_faces.clear();
                     }
                     std::size_t selected_index{};
-                    for (TopTools_ListIteratorOfListOfShape it(selected_face_shapes); it.More(); it.Next(), ++selected_index) {
+                    for (NCollection_List<TopoDS_Shape>::Iterator it(selected_face_shapes); it.More(); it.Next(), ++selected_index) {
                         int owner=-1;
                         for (int i=0; i<solids.Extent(); ++i) if (members[i].Contains(it.Value())) {
                             if (owner!=-1) throw std::runtime_error("Shell face is missing or ambiguous at this history boundary");
@@ -16768,7 +16767,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                             primitive.direction.z / direction_length};
                         Bnd_Box bounds;
                         BRepBndLib::Add(result_shape, bounds);
-                        Standard_Real xmin{}, ymin{}, zmin{}, xmax{}, ymax{}, zmax{};
+                        double xmin{}, ymin{}, zmin{}, xmax{}, ymax{}, zmax{};
                         bounds.Get(xmin, ymin, zmin, xmax, ymax, zmax);
                         double maximum_forward_projection{};
                         double maximum_reverse_projection{};
@@ -16966,7 +16965,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                     if(!algorithm.IsDone()||algorithm.Shape().IsNull())
                         throw std::runtime_error("OCCT cut failed");
                     builder.Add(combined,algorithm.Shape());
-                    TopTools_IndexedMapOfShape members;
+                    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> members;
                     TopExp::MapShapes(algorithm.Shape(),members);
                     const auto append=[&](auto& target,const auto& source) {
                         for(const auto& entry:source)
@@ -16979,7 +16978,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                     append(cut_topology.vertices,propagate_topology(algorithm,
                         owned_topology->vertices,tool.vertices));
                     if(surfaces)for(const auto& face:tool.faces) {
-                        for(TopTools_ListIteratorOfListOfShape it(
+                        for(NCollection_List<TopoDS_Shape>::Iterator it(
                                 algorithm.Generated(face.shape));it.More();it.Next())
                             if(it.Value().ShapeType()==TopAbs_EDGE&&
                                     members.Contains(it.Value()))
@@ -17032,7 +17031,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
             if(const auto* profile_owner=
                     std::getenv("ZIMA_CPP_PROFILE_OPERAND_OWNER");
                profile_owner&&operation.owner_id==profile_owner) {
-                TopTools_IndexedMapOfShape operand_faces,operand_solids;
+                NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> operand_faces,operand_solids;
                 TopExp::MapShapes(operand.shape,TopAbs_FACE,operand_faces);
                 TopExp::MapShapes(operand.shape,TopAbs_SOLID,operand_solids);
                 GProp_GProps operand_properties;
@@ -17397,7 +17396,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                 if(has_surfaces) {
                     TopoDS_Compound combined;split_builder.MakeCompound(combined);
                     split_builder.Add(combined,result_shape);split_builder.Add(combined,surface_input);result_shape=combined;
-                    TopTools_IndexedMapOfShape members;TopExp::MapShapes(surface_input,members);
+                    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> members;TopExp::MapShapes(surface_input,members);
                     for(const auto& face:owned_topology->faces)if(members.Contains(face.shape))fused_topology->faces.push_back(face);
                     for(const auto& edge:owned_topology->edges)if(members.Contains(edge.shape))fused_topology->edges.push_back(edge);
                     for(const auto& vertex:owned_topology->vertices)if(members.Contains(vertex.shape))fused_topology->vertices.push_back(vertex);

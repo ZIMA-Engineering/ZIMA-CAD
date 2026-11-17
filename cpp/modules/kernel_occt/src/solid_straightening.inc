@@ -108,7 +108,7 @@ SolidStraighteningPlan transported_sweep(const Sweep3DRequest& source,double coe
     GeomConvert_CompCurveToBSplineCurve curve;
     std::vector<double> source_lengths;double spine_length=0;
     for(const auto& segment:source.path_segments) {
-        TColgp_Array1OfPnt poles(1,4);
+        NCollection_Array1<gp_Pnt> poles(1,4);
         for(int i=0;i<4;++i)poles.SetValue(i+1,point(segment.bezier_control_points.at(i)));
         Handle(Geom_BezierCurve) part=new Geom_BezierCurve(poles);
         GeomAdaptor_Curve adaptor(part);
@@ -155,12 +155,12 @@ SolidStraighteningPlan transported_sweep(const Sweep3DRequest& source,double coe
             std::vector<double> areas(intervals+2,0);
             std::size_t section_count=0;
             for(std::size_t loop=0;loop<pipes.size();++loop) {
-                TopTools_ListOfShape sections;pipes[loop]->Simulate(static_cast<int>(intervals+1),sections);
+                NCollection_List<TopoDS_Shape> sections;pipes[loop]->Simulate(static_cast<int>(intervals+1),sections);
                 if(loop==0)section_count=sections.Size();
                 if((section_count!=intervals+1&&section_count!=intervals+2)||sections.Size()!=section_count)
                     throw std::runtime_error("Straightening section evaluation is incomplete.");
                 std::size_t index=0;
-                for(TopTools_ListIteratorOfListOfShape it(sections);it.More();it.Next(),++index) {
+                for(NCollection_List<TopoDS_Shape>::Iterator it(sections);it.More();it.Next(),++index) {
                     BRepBuilderAPI_MakeFace face(TopoDS::Wire(it.Value()),true);
                     if(!face.IsDone())throw std::runtime_error("Straightening section evaluation is incomplete.");
                     GProp_GProps sample;BRepGProp::SurfaceProperties(face.Face(),sample);

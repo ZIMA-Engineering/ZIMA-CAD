@@ -8,7 +8,7 @@ PrimitiveData sheet_cut_join_boundary_runs(const PrimitiveData& input,
     const auto token=[](const std::string& value){return std::to_string(value.size())+":"+value;};
     BRep_Builder builder;TopoDS_Compound compound;builder.MakeCompound(compound);
     std::set<std::string> identities;
-    TopTools_IndexedMapOfShape all_edges;TopExp::MapShapes(input.shape,TopAbs_EDGE,all_edges);
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> all_edges;TopExp::MapShapes(input.shape,TopAbs_EDGE,all_edges);
     // Each join consumes at most this share of one percent of the physical
     // deviation budget. Joining before and after margin leaves two percent
     // reserved for these operations; the margin receives the remaining 98%.
@@ -116,7 +116,7 @@ PrimitiveData sheet_cut_join_boundary_runs(const PrimitiveData& input,
             builder.Add(target,wire.Wire());
         }
         target.Orientation(face.Orientation());
-        TopTools_IndexedMapOfShape final_edges;TopExp::MapShapes(target,TopAbs_EDGE,final_edges);
+        NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> final_edges;TopExp::MapShapes(target,TopAbs_EDGE,final_edges);
         for(int i=1;i<=final_edges.Extent();++i) {
             double first=0,last=0;const auto curve=BRep_Tool::CurveOnSurface(TopoDS::Edge(final_edges(i)),target,first,last);
             const auto owner=std::ranges::find_if(expected,[&](const auto& item){return item.curve==curve;});

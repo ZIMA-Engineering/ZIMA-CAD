@@ -10,7 +10,10 @@
 #include <BRepAlgoAPI_Section.hxx>
 #include <BRepFilletAPI_MakeFillet.hxx>
 #include <ShapeUpgrade_UnifySameDomain.hxx>
-#include <TopTools_IndexedDataMapOfShapeListOfShape.hxx>
+#include <NCollection_IndexedDataMap.hxx>
+#include <TopoDS_Shape.hxx>
+#include <NCollection_List.hxx>
+#include <TopTools_ShapeMapHasher.hxx>
 
 namespace {
 TopoDS_Shape experiment_shape(const kernel::BodyResult& result) {
@@ -162,11 +165,11 @@ int corner_outward_rounding_experiment() {
     BRepLib::SameParameter(original,1e-7,true);
     BRepLib::EncodeRegularity(original,1e-10);
     {
-        TopTools_IndexedDataMapOfShapeListOfShape adjacent;TopExp::MapShapesAndAncestors(original,TopAbs_EDGE,TopAbs_FACE,adjacent);
+        NCollection_IndexedDataMap<TopoDS_Shape, NCollection_List<TopoDS_Shape>, TopTools_ShapeMapHasher> adjacent;TopExp::MapShapesAndAncestors(original,TopAbs_EDGE,TopAbs_FACE,adjacent);
         unsigned changed=0;
         for(int i=1;i<=adjacent.Extent();++i) {
             std::vector<TopoDS_Face> faces;
-            for(TopTools_ListIteratorOfListOfShape it(adjacent.FindFromIndex(i));it.More();it.Next())
+            for(NCollection_List<TopoDS_Shape>::Iterator it(adjacent.FindFromIndex(i));it.More();it.Next())
                 if(std::ranges::none_of(faces,[&](const auto& f){return f.IsSame(it.Value());}))faces.push_back(TopoDS::Face(it.Value()));
             if(faces.size()!=2)continue;
             const auto edge=TopoDS::Edge(adjacent.FindKey(i));
@@ -197,14 +200,14 @@ int corner_outward_rounding_experiment() {
     }
     {
         nlohmann::json geometry=nlohmann::json::array();
-        TopTools_IndexedMapOfShape vertices;TopExp::MapShapes(original,TopAbs_VERTEX,vertices);
-        TopTools_IndexedDataMapOfShapeListOfShape adjacent;TopExp::MapShapesAndAncestors(original,TopAbs_EDGE,TopAbs_FACE,adjacent);
+        NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> vertices;TopExp::MapShapes(original,TopAbs_VERTEX,vertices);
+        NCollection_IndexedDataMap<TopoDS_Shape, NCollection_List<TopoDS_Shape>, TopTools_ShapeMapHasher> adjacent;TopExp::MapShapesAndAncestors(original,TopAbs_EDGE,TopAbs_FACE,adjacent);
         for(unsigned side:{0u,1u})for(const auto& edge:routes[side]) {
             BRepAdaptor_Curve curve(edge);nlohmann::json points=nlohmann::json::array(),faces=nlohmann::json::array();
             for(const double f:{0.,.25,.5,.75,1.}) {
                 const auto p=curve.Value(curve.FirstParameter()+f*(curve.LastParameter()-curve.FirstParameter()));points.push_back(std::array{p.X(),p.Y(),p.Z()});
             }
-            for(TopTools_ListIteratorOfListOfShape it(adjacent.FindFromKey(edge));it.More();it.Next()) {
+            for(NCollection_List<TopoDS_Shape>::Iterator it(adjacent.FindFromKey(edge));it.More();it.Next()) {
                 const auto face=TopoDS::Face(it.Value());BRepAdaptor_Surface surface(face);
                 double first,last;const auto uv=BRep_Tool::CurveOnSurface(edge,face,first,last);
                 const auto p=uv->Value((first+last)*.5);gp_Pnt q;gp_Vec du,dv;surface.D1(p.X(),p.Y(),q,du,dv);
@@ -255,7 +258,7 @@ double experiment_volume(const TopoDS_Shape& shape) {
     return properties.Mass();
 }
 unsigned experiment_solids(const TopoDS_Shape& shape) {
-    TopTools_IndexedMapOfShape solids;TopExp::MapShapes(shape,TopAbs_SOLID,solids);
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> solids;TopExp::MapShapes(shape,TopAbs_SOLID,solids);
     return static_cast<unsigned>(solids.Extent());
 }
 void experiment_packet(const TopoDS_Shape& shape,const std::filesystem::path& output) {
@@ -277,7 +280,7 @@ void experiment_packet(const TopoDS_Shape& shape,const std::filesystem::path& ou
             result.mesh.triangle_references.push_back({});
         }
     }
-    TopTools_IndexedMapOfShape edges;TopExp::MapShapes(shape,TopAbs_EDGE,edges);
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> edges;TopExp::MapShapes(shape,TopAbs_EDGE,edges);
     for(int i=1;i<=edges.Extent();++i) {
         BRepAdaptor_Curve curve(TopoDS::Edge(edges(i)));kernel::ViewerEdge edge;
         const int samples=curve.GetType()==GeomAbs_Line?1:80;

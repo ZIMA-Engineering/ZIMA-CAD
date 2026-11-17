@@ -26,11 +26,11 @@ PrimitiveData make_trimmed_surface_data(const SurfaceTrimRequest& request,const 
         const auto found=cutting_face_parents.find(key);
         return found==cutting_face_parents.end()?std::set<std::string>{"edge:"+key}:found->second;
     };
-    TopTools_IndexedMapOfShape target_edges,target_vertices;
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> target_edges,target_vertices;
     TopExp::MapShapes(target_face,TopAbs_EDGE,target_edges);TopExp::MapShapes(target_face,TopAbs_VERTEX,target_vertices);
     for(const auto& edge:input_edges)if(target_edges.Contains(edge.shape))sources.push_back(edge);
     for(const auto& point:input_vertices)if(target_vertices.Contains(point.shape))source_points.push_back(point);
-    TopTools_ListOfShape cutters;
+    NCollection_List<TopoDS_Shape> cutters;
     std::set<std::pair<bool,std::string>> selected_tools;
     for(const auto& tool:request.tools) {
         if(!tool.reference.valid()||!tool.reference.instance_path.empty()||
@@ -68,15 +68,15 @@ PrimitiveData make_trimmed_surface_data(const SurfaceTrimRequest& request,const 
             if(std::abs(whole.Mass()-common.Mass())>request.tolerance)
                 throw std::runtime_error("A cutting curve must lie on the bounded target surface.");
             cutters.Append(found->shape);sources.push_back(*found);
-            TopTools_IndexedMapOfShape points;TopExp::MapShapes(found->shape,TopAbs_VERTEX,points);
+            NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> points;TopExp::MapShapes(found->shape,TopAbs_VERTEX,points);
             for(const auto& point:original_vertices)if(points.Contains(point.shape))source_points.push_back(point);
         }
     }
-    BRepAlgoAPI_Splitter split;TopTools_ListOfShape arguments;arguments.Append(target_face);
+    BRepAlgoAPI_Splitter split;NCollection_List<TopoDS_Shape> arguments;arguments.Append(target_face);
     split.SetArguments(arguments);split.SetTools(cutters);split.SetNonDestructive(true);
     split.SetFuzzyValue(request.tolerance);split.Build();
     if(!split.IsDone())throw std::runtime_error("Surface trim calculation failed.");
-    TopTools_IndexedMapOfShape regions;TopExp::MapShapes(split.Shape(),TopAbs_FACE,regions);
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> regions;TopExp::MapShapes(split.Shape(),TopAbs_FACE,regions);
     if(regions.Extent()<2)throw std::runtime_error("Cutting tools do not divide the surface.");
     const auto region_data=[&](TopoDS_Face retained) {
     retained.Orientation(target_face.Orientation());
@@ -85,7 +85,7 @@ PrimitiveData make_trimmed_surface_data(const SurfaceTrimRequest& request,const 
     const auto ancestry=[](const std::set<std::string>& parents) {
         std::string key;for(const auto& parent:parents)key+=std::to_string(parent.size())+":"+parent;return key;
     };
-    TopTools_IndexedMapOfShape edges,vertices;
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> edges,vertices;
     TopExp::MapShapes(retained,TopAbs_EDGE,edges);TopExp::MapShapes(retained,TopAbs_VERTEX,vertices);
     std::vector<std::set<std::string>> edge_parents(edges.Extent());
     for(const auto& source:sources) {
@@ -93,8 +93,8 @@ PrimitiveData make_trimmed_surface_data(const SurfaceTrimRequest& request,const 
             const int index=edges.FindIndex(shape);if(index){const auto parents=parents_of(source);edge_parents[index-1].insert(parents.begin(),parents.end());}
         };
         add(source.shape);
-        for(TopTools_ListIteratorOfListOfShape it(split.Modified(source.shape));it.More();it.Next())add(it.Value());
-        for(TopTools_ListIteratorOfListOfShape it(split.Generated(source.shape));it.More();it.Next())add(it.Value());
+        for(NCollection_List<TopoDS_Shape>::Iterator it(split.Modified(source.shape));it.More();it.Next())add(it.Value());
+        for(NCollection_List<TopoDS_Shape>::Iterator it(split.Generated(source.shape));it.More();it.Next())add(it.Value());
     }
     for(const auto& parents:edge_parents)if(parents.empty())throw std::runtime_error("Surface trim could not resolve boundary ancestry.");
     std::set<std::string> vertex_keys;
@@ -174,7 +174,7 @@ PrimitiveData make_trimmed_surface_data(const SurfaceTrimRequest& request,const 
     };
     retain(retain,input_shape);result.shape=combined;
     for(const auto& face:input_faces)if(!face.shape.IsSame(target_face))result.faces.push_back(face);
-    TopTools_IndexedMapOfShape retained_edges,retained_vertices;
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> retained_edges,retained_vertices;
     for(const auto& face:result.faces)if(face.reference.owner_id!=owner) {
         TopExp::MapShapes(face.shape,TopAbs_EDGE,retained_edges);TopExp::MapShapes(face.shape,TopAbs_VERTEX,retained_vertices);
     }

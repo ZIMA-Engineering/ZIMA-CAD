@@ -8,7 +8,9 @@
 #include <BRepGProp.hxx>
 #include <GProp_GProps.hxx>
 #include <TopExp.hxx>
-#include <TopTools_IndexedMapOfShape.hxx>
+#include <NCollection_IndexedMap.hxx>
+#include <TopoDS_Shape.hxx>
+#include <TopTools_ShapeMapHasher.hxx>
 
 #include <algorithm>
 #include <array>
@@ -50,7 +52,7 @@ zima::kernel::FeatureGroupRequest feature(
 std::array<int,4> topology_counts(const TopoDS_Shape& shape) {
     std::array<int,4> result{};
     for(std::size_t index=0;index<result.size();++index) {
-        TopTools_IndexedMapOfShape members;
+        NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> members;
         TopExp::MapShapes(shape,std::array{TopAbs_SOLID,TopAbs_FACE,
             TopAbs_EDGE,TopAbs_VERTEX}[index],members);
         result[index]=members.Extent();

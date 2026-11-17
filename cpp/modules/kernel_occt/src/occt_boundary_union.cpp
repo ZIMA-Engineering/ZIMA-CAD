@@ -27,8 +27,10 @@
 #include <ShapeUpgrade_UnifySameDomain.hxx>
 #include <TopExp.hxx>
 #include <TopExp_Explorer.hxx>
-#include <TopTools_IndexedDataMapOfShapeListOfShape.hxx>
-#include <TopTools_IndexedMapOfShape.hxx>
+#include <NCollection_IndexedDataMap.hxx>
+#include <TopoDS_Shape.hxx>
+#include <TopTools_ShapeMapHasher.hxx>
+#include <NCollection_IndexedMap.hxx>
 #include <TopoDS.hxx>
 #include <TopoDS_Compound.hxx>
 #include <TopoDS_Edge.hxx>
@@ -357,7 +359,7 @@ gp_Pnt interior_point(const TopoDS_Solid& solid,
 }
 
 TopoDS_Shape assemble_nested_shells(
-        const TopTools_IndexedMapOfShape& shells,double tolerance,
+        const NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher>& shells,double tolerance,
         const std::function<bool(const gp_Pnt&)>* material_at=nullptr,
         bool preserve_input_orientation=false) {
     struct Region {
@@ -391,7 +393,7 @@ TopoDS_Shape assemble_nested_shells(
         region.interior=interior_point(finite,
             TopoDS::Shell(oriented_shell.Current()),tolerance);
         BRepBndLib::Add(region.shell,region.bounds,true);
-        Standard_Real x_min{},y_min{},z_min{},x_max{},y_max{},z_max{};
+        double x_min{},y_min{},z_min{},x_max{},y_max{},z_max{};
         region.bounds.Get(x_min,y_min,z_min,x_max,y_max,z_max);
         region.bounds_volume=(x_max-x_min)*(y_max-y_min)*(z_max-z_min);
         regions.push_back(std::move(region));
@@ -503,7 +505,7 @@ static OcctBoundaryUnion occt_boundary_composition_impl(
            !TopExp_Explorer(input.shape,TopAbs_SOLID).More())
             throw std::invalid_argument(
                 "Boundary union inputs must contain solids");
-        TopTools_IndexedMapOfShape input_faces,input_solids;
+        NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> input_faces,input_solids;
         TopExp::MapShapes(input.shape,TopAbs_FACE,input_faces);
         TopExp::MapShapes(input.shape,TopAbs_SOLID,input_solids);
         if(input_faces.Extent()!=static_cast<int>(input.faces.size()))
@@ -522,7 +524,7 @@ static OcctBoundaryUnion occt_boundary_composition_impl(
         for(int solid=1;solid<=input_solids.Extent();++solid) {
             OcctBoundarySolid operand;
             operand.shape=input_solids(solid);
-            TopTools_IndexedMapOfShape member_faces;
+            NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> member_faces;
             TopExp::MapShapes(operand.shape,TopAbs_FACE,member_faces);
             operand.faces.reserve(
                 static_cast<std::size_t>(member_faces.Extent()));
@@ -549,7 +551,7 @@ static OcctBoundaryUnion occt_boundary_composition_impl(
     std::vector<OcctBoundarySolid::Edge> source_edges;
     std::vector<OcctBoundarySolid::Vertex> source_vertices;
     for(const auto& input:solids) {
-        TopTools_IndexedMapOfShape edges,vertices;
+        NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> edges,vertices;
         TopExp::MapShapes(input.shape,TopAbs_EDGE,edges);
         TopExp::MapShapes(input.shape,TopAbs_VERTEX,vertices);
         for(const auto& edge:input.edges) {
@@ -581,7 +583,7 @@ static OcctBoundaryUnion occt_boundary_composition_impl(
     std::vector<OcctBoundaryFace> source_faces;
     std::vector<int> source_solid;
     for(std::size_t solid=0;solid<operands.size();++solid) {
-        TopTools_IndexedMapOfShape members;
+        NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> members;
         TopExp::MapShapes(operands[solid].shape,TopAbs_FACE,members);
         if(members.Extent()!=static_cast<int>(operands[solid].faces.size()))
             throw std::invalid_argument(
@@ -619,7 +621,7 @@ static OcctBoundaryUnion occt_boundary_composition_impl(
     result.metrics.graph_ms=std::chrono::duration<double,std::milli>(
         Clock::now()-graph_start).count();
 
-    TopTools_IndexedMapOfShape face_map;
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> face_map;
     for(const auto& face:source_faces)face_map.Add(face.shape);
     if(face_map.Extent()!=static_cast<int>(source_faces.size()))
         throw std::invalid_argument(
@@ -676,7 +678,7 @@ static OcctBoundaryUnion occt_boundary_composition_impl(
         splitter.Build();
         if(!splitter.IsDone()||splitter.Shape().IsNull())
             throw std::runtime_error("Boundary union face split failed");
-        TopTools_IndexedMapOfShape split_faces;
+        NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> split_faces;
         TopExp::MapShapes(splitter.Shape(),TopAbs_FACE,split_faces);
         result.metrics.split_patches+=split_faces.Extent();
         for(int patch=1;patch<=split_faces.Extent();++patch)
@@ -858,7 +860,7 @@ static OcctBoundaryUnion occt_boundary_composition_impl(
         message<<')';
         throw std::runtime_error(message.str());
     }
-    TopTools_IndexedMapOfShape sewed_shells,sewed_faces;
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> sewed_shells,sewed_faces;
     TopExp::MapShapes(sewed,TopAbs_SHELL,sewed_shells);
     TopExp::MapShapes(sewed,TopAbs_FACE,sewed_faces);
     result.metrics.sewed_shells=sewed_shells.Extent();
@@ -892,7 +894,7 @@ static OcctBoundaryUnion occt_boundary_composition_impl(
        !BRepCheck_Analyzer(grouped_shape).IsValid())
         throw std::runtime_error(
             "Boundary union could not assemble valid solids");
-    TopTools_IndexedMapOfShape grouped_faces;
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> grouped_faces;
     TopExp::MapShapes(grouped_shape,TopAbs_FACE,grouped_faces);
     if(grouped_faces.Extent()!=sewed_faces.Extent())
         throw std::runtime_error(
@@ -926,7 +928,7 @@ static OcctBoundaryUnion occt_boundary_composition_impl(
     probe.Build();
     if(probe.Shape().IsNull())
         throw std::runtime_error("Boundary union unification probe failed");
-    TopTools_IndexedMapOfShape probe_faces,probe_edges;
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> probe_faces,probe_edges;
     TopExp::MapShapes(probe.Shape(),TopAbs_FACE,probe_faces);
     TopExp::MapShapes(probe.Shape(),TopAbs_EDGE,probe_edges);
     result.metrics.unprotected_faces=
@@ -939,7 +941,7 @@ static OcctBoundaryUnion occt_boundary_composition_impl(
         if(history.IsNull())return false;
         for(const auto* descendants:{&history->Modified(edge),
                 &history->Generated(edge)})
-            for(TopTools_ListIteratorOfListOfShape descendant(
+            for(NCollection_List<TopoDS_Shape>::Iterator descendant(
                     *descendants);descendant.More();descendant.Next())
                 if(descendant.Value().ShapeType()==TopAbs_EDGE&&
                    probe_edges.Contains(descendant.Value()))
@@ -950,13 +952,13 @@ static OcctBoundaryUnion occt_boundary_composition_impl(
         grouped_shape,true,true,false);
     unifier.SetLinearTolerance(tolerance);
     unifier.SetAngularTolerance(1.0e-9);
-    TopTools_IndexedDataMapOfShapeListOfShape edge_faces;
+    NCollection_IndexedDataMap<TopoDS_Shape, NCollection_List<TopoDS_Shape>, TopTools_ShapeMapHasher> edge_faces;
     TopExp::MapShapesAndAncestors(grouped_shape,TopAbs_EDGE,
         TopAbs_FACE,edge_faces);
     for(int edge=1;edge<=edge_faces.Extent();++edge) {
         const auto& adjacent=edge_faces.FindFromIndex(edge);
         if(adjacent.Extent()!=2)continue;
-        TopTools_ListIteratorOfListOfShape iterator(adjacent);
+        NCollection_List<TopoDS_Shape>::Iterator iterator(adjacent);
         const auto first_face=TopoDS::Face(iterator.Value());
         const int first_index=sewed_faces.FindIndex(first_face);
         iterator.Next();
@@ -1018,7 +1020,7 @@ static OcctBoundaryUnion occt_boundary_composition_impl(
         throw std::runtime_error(
             "Boundary union unification produced an invalid shape");
     const auto history=unifier.History();
-    TopTools_IndexedMapOfShape result_solids;
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> result_solids;
     TopExp::MapShapes(result.shape,TopAbs_SOLID,result_solids);
     if(result_solids.Extent()==1&&result.shape.ShapeType()==TopAbs_SOLID) {
         auto finite=TopoDS::Solid(result.shape);
@@ -1036,7 +1038,7 @@ static OcctBoundaryUnion occt_boundary_composition_impl(
         result.shape=finite;
     }
 
-    TopTools_IndexedMapOfShape final_faces;
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> final_faces;
     TopExp::MapShapes(result.shape,TopAbs_FACE,final_faces);
     std::vector<std::set<int>> final_sources(
         static_cast<std::size_t>(final_faces.Extent())+1);
@@ -1045,7 +1047,7 @@ static OcctBoundaryUnion occt_boundary_composition_impl(
         if(!history.IsNull())
             for(const auto* list:{&history->Modified(sewed_faces(face)),
                     &history->Generated(sewed_faces(face))})
-                for(TopTools_ListIteratorOfListOfShape descendant(*list);
+                for(NCollection_List<TopoDS_Shape>::Iterator descendant(*list);
                         descendant.More();descendant.Next())
                     if(descendant.Value().ShapeType()==TopAbs_FACE)
                         descendants.push_back(descendant.Value());
@@ -1074,7 +1076,7 @@ static OcctBoundaryUnion occt_boundary_composition_impl(
             std::move(references),history_index});
     }
 
-    TopTools_IndexedMapOfShape final_edges,final_vertices;
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> final_edges,final_vertices;
     TopExp::MapShapes(result.shape,TopAbs_EDGE,final_edges);
     TopExp::MapShapes(result.shape,TopAbs_VERTEX,final_vertices);
     std::vector<Bnd_Box> source_edge_bounds(source_edges.size());
@@ -1183,7 +1185,7 @@ static OcctBoundaryNamedTopology occt_boundary_named_topology_impl(
         return history_owners[history_index];
     };
 
-    TopTools_IndexedMapOfShape faces,edges,vertices;
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> faces,edges,vertices;
     TopExp::MapShapes(boundary.shape,TopAbs_FACE,faces);
     TopExp::MapShapes(boundary.shape,TopAbs_EDGE,edges);
     TopExp::MapShapes(boundary.shape,TopAbs_VERTEX,vertices);
@@ -1285,7 +1287,7 @@ static OcctBoundaryNamedTopology occt_boundary_named_topology_impl(
         for(const auto& reference:vertex.references)
             ++vertex_parent_counts[reference_key(reference)];
 
-    TopTools_IndexedDataMapOfShapeListOfShape edge_faces,vertex_faces,
+    NCollection_IndexedDataMap<TopoDS_Shape, NCollection_List<TopoDS_Shape>, TopTools_ShapeMapHasher> edge_faces,vertex_faces,
         vertex_edges;
     TopExp::MapShapesAndAncestors(boundary.shape,TopAbs_EDGE,TopAbs_FACE,
         edge_faces);
@@ -1348,7 +1350,7 @@ static OcctBoundaryNamedTopology occt_boundary_named_topology_impl(
             }
             const int adjacency=edge_faces.FindIndex(boundary_edge.Current());
             if(!adjacency)continue;
-            for(TopTools_ListIteratorOfListOfShape adjacent(
+            for(NCollection_List<TopoDS_Shape>::Iterator adjacent(
                     edge_faces.FindFromIndex(adjacency));adjacent.More();
                     adjacent.Next()) {
                 if(adjacent.Value().IsSame(faces(face_index)))continue;
@@ -1398,7 +1400,7 @@ static OcctBoundaryNamedTopology occt_boundary_named_topology_impl(
             primary_candidates.insert(encoded_reference(reference));
         const int adjacency=edge_faces.FindIndex(edges(edge_index));
         if(adjacency)
-            for(TopTools_ListIteratorOfListOfShape adjacent(
+            for(NCollection_List<TopoDS_Shape>::Iterator adjacent(
                     edge_faces.FindFromIndex(adjacency));adjacent.More();
                     adjacent.Next()) {
                 const int face_index=faces.FindIndex(adjacent.Value());
@@ -1428,7 +1430,7 @@ static OcctBoundaryNamedTopology occt_boundary_named_topology_impl(
             const int face_adjacency=vertex_faces.FindIndex(
                 endpoint.Current());
             if(face_adjacency)
-                for(TopTools_ListIteratorOfListOfShape adjacent(
+                for(NCollection_List<TopoDS_Shape>::Iterator adjacent(
                         vertex_faces.FindFromIndex(face_adjacency));
                         adjacent.More();adjacent.Next()) {
                     const int face_index=faces.FindIndex(adjacent.Value());
@@ -1442,7 +1444,7 @@ static OcctBoundaryNamedTopology occt_boundary_named_topology_impl(
             const int edge_adjacency=vertex_edges.FindIndex(
                 endpoint.Current());
             if(edge_adjacency)
-                for(TopTools_ListIteratorOfListOfShape incident(
+                for(NCollection_List<TopoDS_Shape>::Iterator incident(
                         vertex_edges.FindFromIndex(edge_adjacency));
                         incident.More();incident.Next()) {
                     const int incident_index=edges.FindIndex(
@@ -1552,7 +1554,7 @@ static OcctBoundaryNamedTopology occt_boundary_named_topology_impl(
         const int face_adjacency=vertex_faces.FindIndex(
             vertices(vertex_index));
         if(face_adjacency)
-            for(TopTools_ListIteratorOfListOfShape adjacent(
+            for(NCollection_List<TopoDS_Shape>::Iterator adjacent(
                     vertex_faces.FindFromIndex(face_adjacency));
                     adjacent.More();adjacent.Next()) {
                 const int face_index=faces.FindIndex(adjacent.Value());
@@ -1567,7 +1569,7 @@ static OcctBoundaryNamedTopology occt_boundary_named_topology_impl(
         const int edge_adjacency=vertex_edges.FindIndex(
             vertices(vertex_index));
         if(edge_adjacency)
-            for(TopTools_ListIteratorOfListOfShape adjacent(
+            for(NCollection_List<TopoDS_Shape>::Iterator adjacent(
                     vertex_edges.FindFromIndex(edge_adjacency));
                     adjacent.More();adjacent.Next()) {
                 const int edge_index=edges.FindIndex(adjacent.Value());
@@ -1672,9 +1674,9 @@ std::vector<OcctResolvedBooleanEdge> occt_resolve_add_intersection_edges(
                 face.shape);
         }
     }
-    TopTools_IndexedMapOfShape boundary_edges;
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> boundary_edges;
     TopExp::MapShapes(boundary,TopAbs_EDGE,boundary_edges);
-    TopTools_IndexedMapOfShape boundary_faces,boundary_vertices;
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> boundary_faces,boundary_vertices;
     TopExp::MapShapes(boundary,TopAbs_FACE,boundary_faces);
     TopExp::MapShapes(boundary,TopAbs_VERTEX,boundary_vertices);
     std::vector<std::set<std::string>> current_face_references(
@@ -1698,7 +1700,7 @@ std::vector<OcctResolvedBooleanEdge> occt_resolve_add_intersection_edges(
     std::vector<std::set<std::string>> current_edge_references,
         current_vertex_references;
     if(complete_current_ancestry) {
-        TopTools_IndexedDataMapOfShapeListOfShape edge_faces,vertex_faces;
+        NCollection_IndexedDataMap<TopoDS_Shape, NCollection_List<TopoDS_Shape>, TopTools_ShapeMapHasher> edge_faces,vertex_faces;
         TopExp::MapShapesAndAncestors(boundary,TopAbs_EDGE,TopAbs_FACE,
             edge_faces);
         TopExp::MapShapesAndAncestors(boundary,TopAbs_VERTEX,TopAbs_FACE,
@@ -1709,7 +1711,7 @@ std::vector<OcctResolvedBooleanEdge> occt_resolve_add_intersection_edges(
             for(int index=1;index<=members.Extent();++index) {
                 const int ancestry=ancestors.FindIndex(members(index));
                 if(!ancestry)continue;
-                for(TopTools_ListIteratorOfListOfShape face(
+                for(NCollection_List<TopoDS_Shape>::Iterator face(
                         ancestors.FindFromIndex(ancestry));face.More();
                         face.Next()) {
                     const int face_index=boundary_faces.FindIndex(
@@ -1803,7 +1805,7 @@ std::vector<OcctResolvedBooleanEdge> occt_resolve_add_intersection_edges(
                     return edge_on_reference(edge,parent);
                 }))continue;
             if(!endpoint_supports.empty()) {
-                TopTools_IndexedMapOfShape endpoints;
+                NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> endpoints;
                 TopExp::MapShapes(edge,TopAbs_VERTEX,endpoints);
                 const bool complete=std::ranges::all_of(endpoint_supports,
                     [&](const auto& support) {

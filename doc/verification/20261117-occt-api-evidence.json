@@ -1,0 +1,305 @@
+{
+  "sdk": "OCCT 8.0.1",
+  "type_equivalence_assertions": 16,
+  "scope": {
+    "files": 47,
+    "identical_except_type_spelling_and_includes": true,
+    "production_files": 31,
+    "separately_reviewed_fixture_fixes": [
+      "boolean_split_edge_tests.cpp",
+      "sheet_form_geometry_tests.cpp"
+    ],
+    "type_equivalence_assertions": 16,
+    "replacements": {
+      "TColgp_Array1OfPnt": "NCollection_Array1<gp_Pnt>",
+      "TColgp_Array2OfPnt": "NCollection_Array2<gp_Pnt>",
+      "TColgp_HArray1OfPnt": "NCollection_HArray1<gp_Pnt>",
+      "TColgp_HArray1OfPnt2d": "NCollection_HArray1<gp_Pnt2d>",
+      "TColStd_Array1OfInteger": "NCollection_Array1<int>",
+      "TColStd_Array1OfReal": "NCollection_Array1<double>",
+      "TColStd_HArray1OfReal": "NCollection_HArray1<double>",
+      "TDF_LabelSequence": "NCollection_Sequence<TDF_Label>",
+      "TopTools_HSequenceOfShape": "NCollection_HSequence<TopoDS_Shape>",
+      "TopTools_IndexedDataMapOfShapeListOfShape": "NCollection_IndexedDataMap<TopoDS_Shape, NCollection_List<TopoDS_Shape>, TopTools_ShapeMapHasher>",
+      "TopTools_IndexedMapOfShape": "NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher>",
+      "TopTools_ListOfShape": "NCollection_List<TopoDS_Shape>",
+      "TopTools_ListIteratorOfListOfShape": "NCollection_List<TopoDS_Shape>::Iterator",
+      "Standard_Real": "double",
+      "Standard_Integer": "int",
+      "Standard_Boolean": "bool"
+    },
+    "paths": [
+      "cpp/modules/kernel_occt/include/zima/kernel/occt_curve_data.hpp",
+      "cpp/modules/kernel_occt/src/boundary_surface_geometry.inc",
+      "cpp/modules/kernel_occt/src/curve_plane_intersection.cpp",
+      "cpp/modules/kernel_occt/src/edge_guide_reuse.inc",
+      "cpp/modules/kernel_occt/src/loft_geometry.inc",
+      "cpp/modules/kernel_occt/src/occt_boundary_intersection_graph.cpp",
+      "cpp/modules/kernel_occt/src/occt_boundary_union.cpp",
+      "cpp/modules/kernel_occt/src/occt_edge_treatment_terminals.hpp",
+      "cpp/modules/kernel_occt/src/occt_kernel.cpp",
+      "cpp/modules/kernel_occt/src/occt_planar_edge_chamfer.cpp",
+      "cpp/modules/kernel_occt/src/occt_planar_edge_fillet.cpp",
+      "cpp/modules/kernel_occt/src/occt_support_driven_chamfer.hpp",
+      "cpp/modules/kernel_occt/src/occt_support_driven_fillet.hpp",
+      "cpp/modules/kernel_occt/src/ordered_up_to.cpp",
+      "cpp/modules/kernel_occt/src/ordered_up_to_profile.inc",
+      "cpp/modules/kernel_occt/src/revolution_limit.inc",
+      "cpp/modules/kernel_occt/src/sheet_cut_boundary_runs.inc",
+      "cpp/modules/kernel_occt/src/sheet_cut_circle_clearance.inc",
+      "cpp/modules/kernel_occt/src/sheet_cut_clearance.inc",
+      "cpp/modules/kernel_occt/src/sheet_cut_conic_profile_clearance.inc",
+      "cpp/modules/kernel_occt/src/sheet_cut_polygon_clearance.inc",
+      "cpp/modules/kernel_occt/src/sheet_exchange.cpp",
+      "cpp/modules/kernel_occt/src/sheet_form_geometry.inc",
+      "cpp/modules/kernel_occt/src/sheet_rip_geometry.inc",
+      "cpp/modules/kernel_occt/src/sheet_state_geometry.inc",
+      "cpp/modules/kernel_occt/src/sheet_state_sources.inc",
+      "cpp/modules/kernel_occt/src/solid_straightening.inc",
+      "cpp/modules/kernel_occt/src/surface_intersection_geometry.inc",
+      "cpp/modules/kernel_occt/src/surface_sewing_geometry.inc",
+      "cpp/modules/kernel_occt/src/surface_thicken_geometry.inc",
+      "cpp/modules/kernel_occt/src/surface_trim_geometry.inc",
+      "cpp/tests/closed_support_chamfer_fixture.hpp",
+      "cpp/tests/corner_outward_form_experiment.inc",
+      "cpp/tests/direct_batch_edge_treatment_tests.cpp",
+      "cpp/tests/edge_treatment_command_tests.cpp",
+      "cpp/tests/edge_treatment_terminal_fixture.hpp",
+      "cpp/tests/exact_spline_contract_tests.cpp",
+      "cpp/tests/metadata_command_tests.cpp",
+      "cpp/tests/native_io_performance_probe.inc",
+      "cpp/tests/occt_boundary_intersection_graph_tests.cpp",
+      "cpp/tests/occt_boundary_union_tests.cpp",
+      "cpp/tests/occt_planar_edge_chamfer_tests.cpp",
+      "cpp/tests/occt_planar_edge_fillet_tests.cpp",
+      "cpp/tests/ordered_up_to_kernel_tests.cpp",
+      "cpp/tests/performance_benchmark.cpp",
+      "cpp/tests/planar_solid_form_experiment.inc",
+      "cpp/tests/step_model_contract_tests.cpp"
+    ]
+  },
+  "compilation": {
+    "occt_deprecation_diagnostics": 0,
+    "warning_suppression_added": false,
+    "windows_build": "passed",
+    "linux_build": "not-run"
+  },
+  "regression": {
+    "tests": [
+      "zima_cpp_occt_planar_edge_fillet_tests",
+      "zima_cpp_occt_planar_edge_chamfer_tests",
+      "zima_cpp_boolean_split_edge_tests",
+      "zima_cpp_occt_boundary_intersection_graph_tests",
+      "zima_cpp_occt_boundary_union_tests",
+      "zima_cpp_direct_batch_edge_treatment_tests",
+      "zima_cpp_occt_edge_treatment_support_tests",
+      "zima_cpp_ordered_up_to_kernel_tests",
+      "zima_cpp_feature_side_reversal",
+      "zima_cpp_exact_spline_contract_tests",
+      "zima_cpp_closed_spline_extrusion_tests",
+      "zima_cpp_step_model_contract_tests",
+      "zima_cpp_step_parallel_properties_tests",
+      "zima_cpp_sheet_exchange_tests",
+      "zima_cpp_surface_thicken_tests",
+      "zima_cpp_boundary_surface_tests",
+      "zima_cpp_transition_surface_tests",
+      "zima_cpp_transition_sheet_tests",
+      "zima_cpp_sheet_state_tests",
+      "zima_cpp_sheet_state_cone_tests",
+      "zima_cpp_sheet_form_geometry_tests",
+      "zima_cpp_solid_state_kernel_tests",
+      "zima_cpp_solid_state_spline_document_tests",
+      "zima_cpp_solid_state_document_tests",
+      "zima_cpp_solid_state_fillet_document_tests",
+      "zima_cpp_solid_state_face_transfer_document_tests",
+      "zima_cpp_edge_treatment_command_tests",
+      "zima_cpp_derived_copy_contract_tests",
+      "zima_cpp_external_trim_boundary_tests",
+      "zima_cpp_metadata_command_tests",
+      "zima_cpp_bend_command_tests",
+      "zima_cpp_assembly_contract_tests",
+      "zima_cpp_native_documents_tests",
+      "zima_cpp_sketcher_contract_tests",
+      "zima_cpp_sketch_dimension_command_tests",
+      "zima_cpp_sketch_curve_command_tests",
+      "zima_cpp_circle_alignment_ui_contract",
+      "zima_cpp_derived_copy_save_ui_contract",
+      "zima_cpp_translations_contract"
+    ],
+    "initial_passed": 37,
+    "initial_failed": [
+      "zima_cpp_boolean_split_edge_tests",
+      "zima_cpp_sheet_form_geometry_tests"
+    ],
+    "initial_seconds": 463.36,
+    "fixture_correction_rerun_passed": 2,
+    "fixture_correction_seconds": 23.45,
+    "accepted": 39
+  },
+  "saved_cases": [
+    {
+      "case": "4670b641-f315-4bc9-b517-4797b4272892",
+      "exact_metric_match": true,
+      "metrics": [
+        "BLEND input_volume=700414.516740416",
+        "BLEND native=0 R=3 volume=700730.017438195",
+        "BLEND preview_edges=8 deviation=2.53392133093528e-08",
+        "BLEND reopened_preview_edges=8 deviation=2.53392133093528e-08",
+        "BLEND owned_faces=22",
+        "BLEND seams=44 max_angle=1.95810338065116e-05"
+      ]
+    },
+    {
+      "case": "58936689-386d-4a8f-86ee-bdb84753875c",
+      "exact_metric_match": true,
+      "metrics": [
+        "BLEND input_volume=1028778.11460039",
+        "BLEND native=0 R=2 volume=1028566.15560652",
+        "BLEND preview_edges=4 deviation=2.34479102800833e-13",
+        "BLEND reopened_preview_edges=4 deviation=2.19509482601105e-13",
+        "BLEND owned_faces=11",
+        "BLEND seams=25 max_angle=90"
+      ]
+    },
+    {
+      "case": "6d7c3ee1-b1b2-4449-a292-da70fe626fd0",
+      "exact_metric_match": true,
+      "metrics": [
+        "BLEND input_volume=1028746.37000636",
+        "BLEND native=0 R=2 volume=1028534.41136416",
+        "BLEND preview_edges=4 deviation=2.19509482601105e-13",
+        "BLEND reopened_preview_edges=4 deviation=2.19509482601105e-13",
+        "BLEND owned_faces=11",
+        "BLEND seams=25 max_angle=90"
+      ]
+    },
+    {
+      "case": "9431bc1c-7e94-4b9b-bb12-a1124d2ea964",
+      "exact_metric_match": true,
+      "metrics": [
+        "BLEND input_volume=1028260.61779374",
+        "BLEND native=0 R=5 volume=1027868.53479787",
+        "BLEND preview_edges=4 deviation=1.44584971516257e-14",
+        "BLEND reopened_preview_edges=4 deviation=1.44584971516257e-14",
+        "BLEND owned_faces=3",
+        "BLEND seams=7 max_angle=90"
+      ]
+    },
+    {
+      "case": "b5c805f5-8aa1-4dc9-9249-4ba218979cc3",
+      "exact_metric_match": true,
+      "metrics": [
+        "BLEND input_volume=1028566.15560652",
+        "BLEND native=0 R=1 volume=1028566.58130178",
+        "BLEND preview_edges=8 deviation=7.45976910172191e-10",
+        "BLEND reopened_preview_edges=8 deviation=7.45976910172191e-10",
+        "BLEND owned_faces=3",
+        "BLEND seams=6 max_angle=49.0414829628071"
+      ]
+    },
+    {
+      "case": "chamfer-aa-False",
+      "exact_metric_match": true,
+      "metrics": [
+        "BLEND input_volume=2918311.74041244",
+        "BLEND native=0 R=2 volume=2916364.89860349",
+        "BLEND preview_edges=4 deviation=3.92662102204052e-08",
+        "BLEND reopened_preview_edges=4 deviation=3.92662102204052e-08",
+        "BLEND owned_faces=15",
+        "BLEND seams=30 max_angle=45.1529054904718"
+      ]
+    },
+    {
+      "case": "chamfer-ab-False",
+      "exact_metric_match": true,
+      "metrics": [
+        "BLEND input_volume=2918311.74041244",
+        "BLEND native=0 R=2 volume=2915390.39132055",
+        "BLEND preview_edges=4 deviation=3.22112174971016e-08",
+        "BLEND reopened_preview_edges=4 deviation=3.22112174971016e-08",
+        "BLEND owned_faces=15",
+        "BLEND seams=30 max_angle=56.362928536265"
+      ]
+    },
+    {
+      "case": "chamfer-ab-True",
+      "exact_metric_match": true,
+      "metrics": [
+        "BLEND input_volume=2918311.74041244",
+        "BLEND native=0 R=2 volume=2915398.16211424",
+        "BLEND preview_edges=4 deviation=5.05684407718829e-08",
+        "BLEND reopened_preview_edges=4 deviation=5.05684407718829e-08",
+        "BLEND owned_faces=15",
+        "BLEND seams=30 max_angle=56.3099325967477"
+      ]
+    },
+    {
+      "case": "chamfer-angle-False",
+      "exact_metric_match": true,
+      "metrics": [
+        "BLEND input_volume=2918311.74041244",
+        "BLEND native=0 R=2 volume=2917164.58971255",
+        "BLEND preview_edges=4 deviation=3.58748082117501e-08",
+        "BLEND reopened_preview_edges=4 deviation=3.58748082117501e-08",
+        "BLEND owned_faces=15",
+        "BLEND seams=30 max_angle=60.0000204747209"
+      ]
+    },
+    {
+      "case": "chamfer-angle-True",
+      "exact_metric_match": true,
+      "metrics": [
+        "BLEND input_volume=2918311.74041244",
+        "BLEND native=0 R=2 volume=2917165.04022263",
+        "BLEND preview_edges=4 deviation=3.92662102204052e-08",
+        "BLEND reopened_preview_edges=4 deviation=3.92662102204052e-08",
+        "BLEND owned_faces=19",
+        "BLEND seams=38 max_angle=60.0547316301793"
+      ]
+    },
+    {
+      "case": "d007688c-6195-48c1-8742-e6ee8634abdb",
+      "exact_metric_match": true,
+      "metrics": [
+        "BLEND input_volume=1028885.0777569",
+        "BLEND native=0 R=1 volume=1028555.92304563",
+        "BLEND preview_edges=14 deviation=5.31721495175069e-14",
+        "BLEND reopened_preview_edges=14 deviation=4.01943669423046e-14",
+        "BLEND owned_faces=4",
+        "BLEND seams=11 max_angle=90"
+      ]
+    },
+    {
+      "case": "f91c70d2-75ca-4a7e-816e-5d015e0b1af6",
+      "exact_metric_match": true,
+      "metrics": [
+        "BLEND input_volume=2918311.74041244",
+        "BLEND native=0 R=2 volume=2917512.05210707",
+        "BLEND preview_edges=4 deviation=1.09335411227842e-07",
+        "BLEND reopened_preview_edges=4 deviation=1.09335411227842e-07",
+        "BLEND owned_faces=14",
+        "BLEND seams=30 max_angle=1.49836666815034e-05"
+      ]
+    }
+  ],
+  "downstream_06": {
+    "features": 6,
+    "valid": true
+  },
+  "gui": {
+    "circle_inference_cases": 16,
+    "dimension_variants": 576,
+    "mirror": "passed"
+  },
+  "localization": {
+    "languages": [
+      "cs",
+      "en",
+      "de",
+      "fr",
+      "ru"
+    ],
+    "contract": "passed",
+    "new_user_visible_text": false
+  }
+}

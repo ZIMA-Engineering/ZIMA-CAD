@@ -68,7 +68,7 @@ CurvePlaneIntersectionResult intersect_curve_plane(const CurvePlaneIntersectionR
         // Certify coincident native knot spans from their exact rational poles.
         // Viewer samples cannot distinguish a true interval from a tangency.
         GeomConvert_BSplineCurveToBezierCurve spans(curve);
-        TColStd_Array1OfReal knots(1,spans.NbArcs()+1);spans.Knots(knots);
+        NCollection_Array1<double> knots(1,spans.NbArcs()+1);spans.Knots(knots);
         std::vector<double> parameters;
         for(int i=1;i<=spans.NbArcs();++i) {
             const auto span=spans.Arc(i);bool coincident=true;long double max_weight{};

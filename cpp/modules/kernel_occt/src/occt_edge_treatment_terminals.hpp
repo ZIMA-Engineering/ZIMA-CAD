@@ -10,8 +10,11 @@
 #include <TopExp.hxx>
 #include <TopExp_Explorer.hxx>
 #include <TopLoc_Location.hxx>
-#include <TopTools_IndexedDataMapOfShapeListOfShape.hxx>
-#include <TopTools_IndexedMapOfShape.hxx>
+#include <NCollection_IndexedDataMap.hxx>
+#include <TopoDS_Shape.hxx>
+#include <NCollection_List.hxx>
+#include <TopTools_ShapeMapHasher.hxx>
+#include <NCollection_IndexedMap.hxx>
 #include <TopoDS.hxx>
 #include <TopoDS_Face.hxx>
 #include <TopoDS_Solid.hxx>
@@ -35,12 +38,12 @@ namespace zima::kernel::edge_treatment_terminals {
 inline bool terminal_face_meets_support_at_endpoint(
         const TopoDS_Face& candidate,const TopoDS_Face& support,
         const gp_Pnt& endpoint,double tolerance) {
-    TopTools_IndexedMapOfShape support_edges;
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> support_edges;
     TopExp::MapShapes(support,TopAbs_EDGE,support_edges);
     for(TopExp_Explorer item(candidate,TopAbs_EDGE);item.More();item.Next()) {
         const auto edge=TopoDS::Edge(item.Current());
         if(!support_edges.Contains(edge))continue;
-        TopTools_IndexedMapOfShape vertices;
+        NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> vertices;
         TopExp::MapShapes(edge,TopAbs_VERTEX,vertices);
         for(int index=1;index<=vertices.Extent();++index)
             if(BRep_Tool::Pnt(TopoDS::Vertex(
@@ -115,7 +118,7 @@ inline std::vector<TopoDS_Face> nearby_planar_terminal_faces(
         const gp_Pnt& endpoint,const gp_Dir& outward,
         double profile_reach,double tolerance) {
     if(curved_terminals.empty()||profile_reach<=tolerance)return {};
-    TopTools_IndexedDataMapOfShapeListOfShape edge_faces;
+    NCollection_IndexedDataMap<TopoDS_Shape, NCollection_List<TopoDS_Shape>, TopTools_ShapeMapHasher> edge_faces;
     TopExp::MapShapesAndAncestors(material,TopAbs_EDGE,TopAbs_FACE,
         edge_faces);
     const auto same_plane=[&](const TopoDS_Face& first,
@@ -180,7 +183,7 @@ inline std::vector<TopoDS_Face> nearby_nonplanar_terminal_faces(
         const gp_Pnt& endpoint,const gp_Dir& outward,
         double profile_reach,double tolerance) {
     if(curved_terminals.empty()||profile_reach<=tolerance)return {};
-    TopTools_IndexedDataMapOfShapeListOfShape edge_faces;
+    NCollection_IndexedDataMap<TopoDS_Shape, NCollection_List<TopoDS_Shape>, TopTools_ShapeMapHasher> edge_faces;
     TopExp::MapShapesAndAncestors(material,TopAbs_EDGE,TopAbs_FACE,
         edge_faces);
     std::vector<TopoDS_Face> result;
@@ -267,7 +270,7 @@ remote_terminal_face_choices_through_local_curve(
         const TopoDS_Face& second_support,const gp_Pnt& endpoint,
         const gp_Dir& outward,double tolerance,
         bool adjacent_planar_only=false) {
-    TopTools_IndexedDataMapOfShapeListOfShape edge_faces;
+    NCollection_IndexedDataMap<TopoDS_Shape, NCollection_List<TopoDS_Shape>, TopTools_ShapeMapHasher> edge_faces;
     TopExp::MapShapesAndAncestors(material,TopAbs_EDGE,TopAbs_FACE,
         edge_faces);
     struct Candidate {
