@@ -385,7 +385,16 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
         require(!host.execute({{"command",command},{"arguments",std::move(args)}}).ok,"Invalid copy command accepted");
         require(part->session.revision()==rev&&part->session.calculated_boundaries().data()==data,"Rejected copy changed document or calculated data");
     };
-    reject("mirror.create",{{"source",source}});
+    const auto default_mirror=run(host,"mirror.create",{{"source",source}})
+        .data.at("object").get<std::string>();
+    const auto default_definition=workspace::derived_copy_definition(live,id,default_mirror);
+    require(default_definition.parameters.reference.owner_id==default_mirror+":origin" &&
+        default_definition.parameters.reference.semantic_key=="origin:plane:xy",
+        "Mirror creation without an explicit plane lost its own XY default");
+    run(host,"undo");
+    require(!part->session.document().body_history.find(default_mirror),
+        "Default-plane Mirror creation did not undo in one transaction");
+    reject("mirror.create",{{"source","missing"}});
     reject("mirror.create",{{"source",source},{"local_plane","bad"}});
     reject("mirror.create",{{"source",source},{"local_plane","yz"},{"reference",{{"owner",box},{"key","x_min"}}}});
     reject("mirror.set",{{"object",mirror},{"source",mirror}});
