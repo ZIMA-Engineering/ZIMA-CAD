@@ -1,6 +1,6 @@
 # OCCT 8.0.1 current collection and scalar API
 
-Status: implementation and regression verification passed; Windows publication pending.
+Status: verification passed; signed Windows 2026111703 published and verified.
 
 ## Scope and cause
 
@@ -74,9 +74,11 @@ make those tests pass, and their geometric/identity assertions were retained.
   The fixture also creates its diagnostic output directory before native Save.
   The archived native fixture and factory assets are not rewritten.
 
-The completed local build emits zero OCCT deprecation diagnostics. Existing
-unrelated `[[nodiscard]]` diagnostics in verification code are outside this
-change. The first link attempt was interrupted by a user-opened development
+The completed local build and the fresh committed-source Windows 2026111703
+candidate emit zero OCCT deprecation diagnostics. The candidate also passes
+native smoke, all 1,185 factory asset loads and matching GUI/CLI/updater build
+identities. Existing unrelated `[[nodiscard]]` diagnostics are outside this
+change. The first local link attempt was interrupted by a user-opened development
 application; the complete retry passed after the user saved and closed it.
 
 Independent substitution checking verifies that all 31 changed production
@@ -96,8 +98,10 @@ tangent, as documented for the previous release.
 The actual GUI circle-inference matrix passes all 16 cases and 576 dimension
 variants, including repeated edits/drags, native/external circles, H/V and
 rectangle symmetry, native reopen and Undo/Redo. Mirror save/Undo/camera/default
-plane checks and the five-language catalog contract also pass. Packaged checks
-will be recorded with Windows publication acceptance.
+plane checks and the five-language catalog contract also pass. The public
+Windows package passes the same circular-inference and Mirror GUI contracts,
+plus regeneration/preview/Cancel for both saved 04 and 06 Fillets. Their
+published preview wires match the expected geometry exactly.
 
 See [machine-readable API/regression evidence](20261117-occt-api-evidence.json)
 and the preceding [detailed repair matrix](20261117-blend-circle-mirror-followup.md).
@@ -109,3 +113,5 @@ supported catalogs remain subject to the normal localization contract test.
 Windows and Linux keep the same C++ implementation and pinned OCCT 8.0.1 / Qt
 6.11.0 dependencies. Native Linux compilation and runtime verification require
 the Linux host; a Windows result does not establish Linux acceptance.
+
+Windows publication: [release acceptance](../releases/2026111703.md#windows-publication-acceptance) and [machine-readable evidence](20261117-windows-1703-publication.json).

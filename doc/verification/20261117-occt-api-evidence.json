@@ -301,5 +301,16 @@
     ],
     "contract": "passed",
     "new_user_visible_text": false
+  },
+  "clean_release_build": {
+    "tag": "ZIMA-CAD-2026111703",
+    "commit": "b6933ccac29ffca730f521ef26283921ded79e1b",
+    "fresh_build": true,
+    "occt_deprecation_diagnostics": 0,
+    "log_sha256": "c447765d9d637412620b65bc0e7208138e09957e21452dcdd415292dbd5d4145",
+    "candidate_windows_smoke": "passed",
+    "native_factory_assets_loaded": 1185,
+    "native_factory_asset_failures": 0,
+    "gui_cli_updater_identities": "passed"
   }
 }

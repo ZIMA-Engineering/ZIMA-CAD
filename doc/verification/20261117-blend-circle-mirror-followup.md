@@ -150,10 +150,10 @@ shared placement change. The local `zima-cad.bat` entry point is unchanged.
 No new application text or translation key is introduced. The earlier green
 empty-selection prompt and red actual errors retain their five-language catalogs.
 
-Packaged checks and publication evidence will be recorded after execution.
+Packaged checks and publication evidence are recorded below.
 Linux compilation and native execution require the Linux host.
-Deprecated OCCT API modernization is explicitly scheduled after this release,
-followed by its own verification and Windows release.
+The subsequent deprecated OCCT API modernization and its separate verification
+are recorded in the [current API report](20261117-occt-current-api.md).
 
 Windows publication: [release acceptance](../releases/2026111702.md#windows-publication-acceptance) and [machine-readable evidence](20261117-windows-1702-publication.json).
 

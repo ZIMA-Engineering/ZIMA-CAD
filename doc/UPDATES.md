@@ -1,5 +1,14 @@
 # Application updates
 
+Signed Windows [2026111703](releases/2026111703.md#windows-publication-acceptance)
+was published at `2026-11-17T12:19:47Z` from immutable source
+`b6933ccac29ffca730f521ef26283921ded79e1b`. Deprecated OCCT collection and scalar aliases were replaced with their identical current types; geometry, persistence and interaction regression checks passed.
+Candidate and signed Windows smoke pass, including all 1,185 factory assets.
+The public runtime passes circular inference, Mirror and both saved Fillet GUI
+checks. GitHub digests, anonymous downloads, safe extraction and production
+updater trust/current status pass. Native Linux verification remains a separate
+host gate. See the [publication evidence](verification/20261117-windows-1703-publication.json).
+
 Signed Windows [2026111702](releases/2026111702.md#windows-publication-acceptance)
 was published at `2026-11-17T10:57:00Z` from immutable source
 `8ce86851214d1839d6763e171c8ee8102e545057`. The recreated stepped and closed cylindrical Fillets, circular Sketcher inference, failed-command recovery and Mirror interaction passed their targeted contracts.
