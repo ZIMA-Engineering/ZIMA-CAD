@@ -1,5 +1,17 @@
 # Application updates
 
+Signed Windows [2026111701](releases/2026111701.md#windows-publication-acceptance)
+was published at `2026-11-17T04:26:28Z` from immutable source
+`241b31e618509558239e950d05340c72d27af442`. Support-driven Fillet transitions preserve tangent main
+contacts with localized junction blends; closed Chamfer supports A x A, A x B
+and A plus angle with Flip. Ten focused native/GUI/localization contracts,
+saved user cases and independent geometry matrices pass. Candidate and signed
+Windows smoke pass, including all 1,185 factory assets; both selected user cases
+also pass packaged GUI regeneration. GitHub digests, anonymous downloads,
+safe public extraction and production updater trust/current status pass.
+Linux native verification remains a separate host gate. See the
+[publication evidence](verification/20261117-windows-1701-publication.json).
+
 Signed Windows [2026111301](releases/2026111301.md#windows-publication-acceptance)
 was published at `2026-11-13T07:25:01Z` from immutable source
 `66677e0721af6e941e1d63023f04f921378e48ef`. ZIMA Fillet and Chamfer now trim

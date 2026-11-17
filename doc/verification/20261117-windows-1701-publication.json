@@ -1,0 +1,108 @@
+{
+  "release": {
+    "tag": "ZIMA-CAD-2026111701",
+    "commit": "241b31e618509558239e950d05340c72d27af442",
+    "published_at": "2026-11-17T04:26:28Z",
+    "url": "https://github.com/ZIMA-Engineering/ZIMA-CAD/releases/tag/ZIMA-CAD-2026111701",
+    "draft": false,
+    "prerelease": false,
+    "latest": true
+  },
+  "candidate": {
+    "archive_sha256": "3cdef008ebe0a9aa8596a7d50f5949dd88b438ebfc45354cc04896cfff5093c9",
+    "windows_smoke": "passed",
+    "native_factory_assets_loaded": 1185,
+    "native_factory_asset_failures": 0
+  },
+  "signed_release": {
+    "fileCount": 17576,
+    "name": "ZIMA-CAD-2026111701.zip",
+    "sha256": "d5172e9e15c9ad5b7bfd4a7a1a2daac3c06f9e08df3c13c9ae4b6336ea833339",
+    "size": 966827708,
+    "unpackedSize": 3231759347,
+    "checksums_sha256": "0ed3144b3fcf6e5098296e944f12c7c688968ae595c85204bd6fb5f592f24ab5",
+    "source_tree_sha256": "4291bd674acd96d919e2e8d99ebe4986cd2ec03decb467400982afa0cc74164b",
+    "publisher_key_id": "zcp-8fa1f825cbde5d81",
+    "manifest_sha256": "1dda16f355292706e68d6592175c497432bc6795724cc67f29473d7bf0beeeae",
+    "signature_file_sha256": "2414170fff9ee1544f8b5f12032ac60dc2aa2cab333e58bb2ddd706a9b8279d1",
+    "windows_smoke": "passed",
+    "linux_smoke": "not-run"
+  },
+  "public_assets": [
+    {
+      "name": "update-manifest.json",
+      "size": 703,
+      "sha256": "1dda16f355292706e68d6592175c497432bc6795724cc67f29473d7bf0beeeae",
+      "github_digest_matches": true,
+      "anonymous_download_matches": true
+    },
+    {
+      "name": "update-manifest.sig",
+      "size": 176,
+      "sha256": "2414170fff9ee1544f8b5f12032ac60dc2aa2cab333e58bb2ddd706a9b8279d1",
+      "github_digest_matches": true,
+      "anonymous_download_matches": true
+    },
+    {
+      "name": "ZIMA-CAD-2026111701.zip",
+      "size": 966827708,
+      "sha256": "d5172e9e15c9ad5b7bfd4a7a1a2daac3c06f9e08df3c13c9ae4b6336ea833339",
+      "github_digest_matches": true,
+      "anonymous_download_matches": true
+    }
+  ],
+  "verification": {
+    "focused_native_gui_localization_contracts_final_passed": 10,
+    "saved_fillet_cases_passed": 5,
+    "saved_chamfer_variants_passed": 5,
+    "independent_closed_chamfer_matrix_passed": 12,
+    "packaged_user_model_gui_regenerations_passed": 2,
+    "publisher_package_tests_total": 31,
+    "publisher_package_tests_passed": 29,
+    "publisher_package_tests_skipped_non_windows": 2,
+    "public_archive_safe_extraction": "passed",
+    "public_updater_trust": true,
+    "public_updater_status": "current",
+    "packaged_identities": {
+      "zima-cad-cpp.exe": {
+        "product": "ZIMA-CAD",
+        "version": "2026111701",
+        "commit": "241b31e618509558239e950d05340c72d27af442",
+        "source_modified": false,
+        "platform": "windows-x64",
+        "qt": "6.11.0",
+        "occt": "8.0.1",
+        "compiler": "MSVC 19.51.36248.0",
+        "configuration": "Release"
+      },
+      "zima-cad-cli.exe": {
+        "product": "ZIMA-CAD",
+        "version": "2026111701",
+        "commit": "241b31e618509558239e950d05340c72d27af442",
+        "source_modified": false,
+        "platform": "windows-x64",
+        "qt": "6.11.0",
+        "occt": "8.0.1",
+        "compiler": "MSVC 19.51.36248.0",
+        "configuration": "Release"
+      },
+      "zima-cad-update.exe": "2026111701"
+    }
+  },
+  "contracts": {
+    "native_document_format_changed": false,
+    "shared_placement_changed": false,
+    "shared_cpp_implementation": true,
+    "qt_version": "6.11.0",
+    "occt_version": "8.0.1",
+    "localization_review": "passed-cs-en-de-fr-ru-light-dark"
+  },
+  "limits": [
+    "Native Linux compilation and execution were not run on the Windows host.",
+    "The complete repository-wide regression matrix is not claimed green.",
+    "Support is bounded to the documented geometry families; arbitrary freeform blends and every varying-angle open Chamfer route are not claimed.",
+    "Exploratory R3 edits of 04/13 and 05/04 are rejected by closed-shell validation; authored radii pass.",
+    "Fillet tangent-contact checks are sampled. Local terminal and junction transitions need not all be tangent.",
+    "No live update installation or activation was performed."
+  ]
+}
