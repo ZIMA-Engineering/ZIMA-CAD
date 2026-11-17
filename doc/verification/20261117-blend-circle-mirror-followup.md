@@ -1,6 +1,6 @@
 # Blend, circular inference and Mirror follow-up
 
-Status: native and interaction verification passed; Windows packaging pending.
+Status: verification passed; signed Windows 2026111702 published and verified.
 Shared C++, Windows, Qt 6.11.0 and OCCT 8.0.1. Baseline: `d180eb718`.
 
 ## Scope and causes
@@ -154,3 +154,14 @@ Packaged checks and publication evidence will be recorded after execution.
 Linux compilation and native execution require the Linux host.
 Deprecated OCCT API modernization is explicitly scheduled after this release,
 followed by its own verification and Windows release.
+
+Windows publication: [release acceptance](../releases/2026111702.md#windows-publication-acceptance) and [machine-readable evidence](20261117-windows-1702-publication.json).
+
+Packaged test-harness correction: an initial invocation combined incompatible
+scenario flags and ran Console/default startup checks instead of the intended
+named contract. Those attempts are not acceptance evidence. The corrected
+four named packaged GUI checks all passed. The unintended broad startup run
+also encountered a Save Copy Unicode fixture failure in the deeply nested
+scratch directory. The explicit Save Copy contract was repeated with the same
+public binary in `C:/zcb/gui1702`; all eight naming-policy cases passed. This
+does not claim support for arbitrarily long Windows paths.

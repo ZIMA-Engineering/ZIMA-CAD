@@ -1,5 +1,14 @@
 # Native versioned distribution
 
+Signed Windows [2026111702](releases/2026111702.md#windows-publication-acceptance)
+was published at `2026-11-17T10:57:00Z` from immutable source
+`8ce86851214d1839d6763e171c8ee8102e545057`. The recreated stepped and closed cylindrical Fillets, circular Sketcher inference, failed-command recovery and Mirror interaction passed their targeted contracts.
+Candidate and signed Windows smoke pass, including all 1,185 factory assets.
+The public runtime passes circular inference, Mirror and both saved Fillet GUI
+checks. GitHub digests, anonymous downloads, safe extraction and production
+updater trust/current status pass. Native Linux verification remains a separate
+host gate. See the [publication evidence](verification/20261117-windows-1702-publication.json).
+
 Signed Windows [2026111701](releases/2026111701.md#windows-publication-acceptance)
 was published at `2026-11-17T04:26:28Z` from immutable source
 `241b31e618509558239e950d05340c72d27af442`. Support-driven Fillet transitions preserve tangent main
