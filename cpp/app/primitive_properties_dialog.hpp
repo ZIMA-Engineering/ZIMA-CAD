@@ -161,7 +161,8 @@ public:
         const std::vector<zima::kernel::FaceReference>& faces);
     // A pending exact result is part of the Fillet/Chamfer contract: OK is
     // unavailable while that same definition cannot be calculated.
-    void set_edge_treatment_preview_error(const QString& message);
+    void set_edge_treatment_preview_error(const QString& message,
+        bool input_prompt = false);
     void set_dimension_layouts(const std::vector<zima::kernel::DimensionLayoutEntry>&);
     [[nodiscard]] const std::vector<zima::kernel::DimensionLayoutEntry>& dimension_layouts() const { return dimension_layouts_; }
     [[nodiscard]] std::optional<zima::kernel::DimensionLayout> pending_dimension_layout(const zima::kernel::EdgeReference&) const;

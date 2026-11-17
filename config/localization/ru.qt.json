@@ -1,4 +1,6 @@
 {
+  "ZIMA Chamfer could not construct a valid transition on the selected supports": "Фаска ZIMA не смогла построить корректный переход на выбранных опорных поверхностях",
+  "ZIMA Fillet could not construct a valid tangent transition on the selected supports": "Скругление ZIMA не смогло построить корректный касательный переход на выбранных опорных поверхностях",
   "Kóta: OK uloží kótu a připraví další. Dvojklik prostředním tlačítkem příkaz ukončí.": "Размер: OK сохраняет размер и подготавливает следующий. Двойной щелчок средней кнопкой завершает команду.",
   "Připravuji pohled…": "Подготовка вида…",
   "Zavírám dokument %1…": "Закрытие документа %1…",
@@ -8,7 +10,7 @@
   "Univerzální kóta: dalším kliknutím na oblouk přepnete R/⌀; kliknutím do prostoru určete polohu.": "Универсальный размер: щёлкните дугу ещё раз для переключения R/⌀; щёлкните свободное место для размещения размера.",
   "Koncová plocha": "Концевая грань",
   "Hrana byla odebrána z výběru zaoblení nebo sražení.": "Ребро удалено из выбора скругления или фаски.",
-  "A x B and A + angle Chamfer require one continuous open route or one closed circular edge.": "Фаски A x B и A + угол требуют одного непрерывного открытого маршрута или одного замкнутого кругового ребра.",
+  "A x B and A + angle Chamfer require one continuous open or closed route.": "Фаски A x B и A + угол требуют одного непрерывного открытого или замкнутого маршрута.",
   "ZIMA Chamfer requires one complete circular edge": "Фаска ZIMA требует одного полного кругового ребра",
   "ZIMA Chamfer node has a degenerate branch": "Узел фаски ZIMA содержит вырожденную ветвь",
   "ZIMA Chamfer supports only two- or three-branch nodes": "Фаска ZIMA поддерживает только узлы с двумя или тремя ветвями",

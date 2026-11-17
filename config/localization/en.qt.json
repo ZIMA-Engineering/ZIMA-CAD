@@ -1,4 +1,6 @@
 {
+  "ZIMA Chamfer could not construct a valid transition on the selected supports": "ZIMA Chamfer could not construct a valid transition on the selected supports",
+  "ZIMA Fillet could not construct a valid tangent transition on the selected supports": "ZIMA Fillet could not construct a valid tangent transition on the selected supports",
   "Kóta: OK uloží kótu a připraví další. Dvojklik prostředním tlačítkem příkaz ukončí.": "Dimension: OK saves the dimension and starts another. Double-click the middle button to end the command.",
   "Připravuji pohled…": "Preparing view…",
   "Zavírám dokument %1…": "Closing document %1…",
@@ -8,7 +10,7 @@
   "Univerzální kóta: dalším kliknutím na oblouk přepnete R/⌀; kliknutím do prostoru určete polohu.": "Universal dimension: click the arc again to switch R/⌀; click empty space to place the dimension.",
   "Koncová plocha": "End face",
   "Hrana byla odebrána z výběru zaoblení nebo sražení.": "The edge was removed from the Fillet or Chamfer selection.",
-  "A x B and A + angle Chamfer require one continuous open route or one closed circular edge.": "A x B and A + angle Chamfer require one continuous open route or one closed circular edge.",
+  "A x B and A + angle Chamfer require one continuous open or closed route.": "A x B and A + angle Chamfer require one continuous open or closed route.",
   "ZIMA Chamfer requires one complete circular edge": "ZIMA Chamfer requires one complete circular edge",
   "ZIMA Chamfer node has a degenerate branch": "ZIMA Chamfer node has a degenerate branch",
   "ZIMA Chamfer supports only two- or three-branch nodes": "ZIMA Chamfer supports only two- or three-branch nodes",

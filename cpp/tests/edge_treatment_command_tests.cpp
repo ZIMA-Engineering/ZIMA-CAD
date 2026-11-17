@@ -6,6 +6,7 @@
 #include <zima/workspace/operation_input.hpp>
 #include <zima/workspace/model_calculation.hpp>
 #include <zima/document/edge_treatment_selection.hpp>
+#include <zima/document/viewer_packet_json.hpp>
 #include <zima/kernel/calculation_diagnostics.hpp>
 #include <zima/kernel/calculated_body_shape.hpp>
 #include <BRepClass3d_SolidClassifier.hxx>
@@ -19,6 +20,15 @@
 #include <fstream>
 #include <set>
 #include <BRep_Tool.hxx>
+#include <BRepCheck_Analyzer.hxx>
+#include <BRepTools.hxx>
+#include <BRepTools_ShapeSet.hxx>
+#include <BRepAdaptor_Curve.hxx>
+#include <BRepAdaptor_Surface.hxx>
+#include <TopExp.hxx>
+#include <TopTools_IndexedDataMapOfShapeListOfShape.hxx>
+#include <TopTools_IndexedMapOfShape.hxx>
+#include <GeomAPI_ProjectPointOnSurf.hxx>
 #include <GeomAPI_ProjectPointOnCurve.hxx>
 #include <TopExp_Explorer.hxx>
 #include <TopoDS.hxx>
@@ -27,6 +37,47 @@ using commands::Json;
 namespace fs=std::filesystem;
 namespace {
 void require(bool value,const char* message){if(!value)throw std::runtime_error(message);}
+void verify_support_packet_roundtrip(const kernel::OcctKernel& engine) {
+    test::ProfilePrism box{30,40,50};box.translation={17,-11,8};box.rotation_degrees={13,21,37};
+    std::vector<kernel::HistoryOperation> history{{"support-box",box}};
+    const auto before=engine.evaluate_history(history).back();
+    const auto edge=std::ranges::find_if(before.mesh.edges,[](const auto& value) {
+        return value.reference.valid()&&value.edge_treatment_side_references.size()==2;
+    });
+    require(edge!=before.mesh.edges.end(),"Support fixture has no treatment edge");
+    kernel::FilletRequest fillet{{edge->reference},2.};
+    fillet.calculation_method=kernel::EdgeTreatmentCalculationMethod::Zima;
+    history.push_back({"support-round",fillet});
+    const auto calculated=engine.evaluate_history(history).back();
+    require(calculated.calculation_errors.empty(),"Support fixture Fillet failed");
+    const auto reopened=document::load_body_result(document::serialize_body_result(calculated));
+    const auto verify=[&](const kernel::BodyResult& body) {
+        std::size_t cylinders{},points{};
+        for(const auto& edge:body.mesh.edges)for(const auto& reference:edge.edge_treatment_side_references) {
+            require(bool(reference.surface),"Current analytic edge support missing after calculation or reopen");
+            const auto& surface=*reference.surface;
+            if(surface.kind==kernel::SurfaceGeometry::Kind::Cylinder)++cylinders;
+            require(surface.kind==kernel::SurfaceGeometry::Kind::Plane||surface.kind==kernel::SurfaceGeometry::Kind::Cylinder,"Unexpected support fixture surface");
+            for(const auto& point:edge.points) {
+                const gp_Vec delta(gp_Pnt(surface.origin.x,surface.origin.y,surface.origin.z),gp_Pnt(point.x,point.y,point.z));
+                const gp_Vec axis(surface.axis.x,surface.axis.y,surface.axis.z);
+                const double axial=delta.Dot(axis);
+                const double residual=surface.kind==kernel::SurfaceGeometry::Kind::Plane?axial:
+                    (delta-axis*axial).Magnitude()-surface.radius;
+                require(std::abs(residual)<1.e-7,"Current edge does not lie on its analytic support");++points;
+            }
+        }
+        require(cylinders>0&&points>20,"Support fixture did not cover curved contacts");
+    };
+    verify(calculated);verify(reopened);
+    require(calculated.mesh.edges.size()==reopened.mesh.edges.size(),"Support restoration changed the edge packet");
+    for(std::size_t i=0;i<calculated.mesh.edges.size();++i) {
+        const auto& a=calculated.mesh.edges[i];const auto& b=reopened.mesh.edges[i];
+        require(a.reference==b.reference&&a.edge_treatment_side_references==b.edge_treatment_side_references,"Support restoration changed ancestry or side order");
+        for(std::size_t side=0;side<a.edge_treatment_side_references.size();++side)
+            require(a.edge_treatment_side_references[side].surface->reversed==b.edge_treatment_side_references[side].surface->reversed,"Reopen changed a current support's material orientation");
+    }
+}
 // Explicit calculation oracle for regression checks. Product interaction has
 // no disposable body-preview API: it uses only the persisted input wire data.
 kernel::ViewerMesh calculate_candidate_body(const document::DocumentSession& session,
@@ -779,6 +830,8 @@ double wire_boundary_deviation(const app::workspace_detail::EdgeTreatmentPreview
         if(!input.IsNull()&&closest>1.e-5&&
            BRepClass3d_SolidClassifier(input,point,1.e-7).State()==TopAbs_OUT&&
            BRepClass3d_SolidClassifier(shape,point,1.e-7).State()==TopAbs_OUT)closest=0.;
+        if(std::getenv("ZIMA_CPP_ROLLING_PREVIEW_TRACE")&&closest>worst&&closest>1.e-5)
+            std::cout<<"PREVIEW worst "<<closest<<" edge="<<(&edge-wire.edges.data())<<" sample="<<(&p-edge.points.data())<<"/"<<edge.points.size()<<" point="<<p.x<<","<<p.y<<","<<p.z<<std::endl;
         worst=std::max(worst,closest);
     }
     return worst;
@@ -918,7 +971,11 @@ void verify_saved_treatment(const kernel::OcctKernel& kernel,const fs::path& pat
     auto document=document::PartDocument::load(path,&boundaries);
     const auto* found=document.find_container(owner);
     require(found,"Saved treatment owner is missing");
-    const auto feature=*found;
+    auto feature=*found;
+    if(std::getenv("ZIMA_VERIFY_SAVED_BLEND_CHAMFER")) {
+        feature.feature_kind=document::FeatureKind::Chamfer;
+        document.find_container(owner)->feature_kind=feature.feature_kind;
+    }
     while(document.history.back().id!=owner)
         document.erase_history_object(document.history.back().id);
     workspace::Workspace prepared;
@@ -931,6 +988,127 @@ void verify_saved_treatment(const kernel::OcctKernel& kernel,const fs::path& pat
     const auto& session=prepared.open_part(document.document_id)->session;
     const auto* input=workspace::calculated_operation_input(session,owner);
     require(input,"Saved treatment has no calculated input");
+    if(std::getenv("ZIMA_VERIFY_SAVED_PREVIEW_ONLY")) {
+        std::vector<std::vector<kernel::ViewerEdge>> groups;
+        for(std::size_t r=0;r<feature.edge_treatment.routes.size();++r)
+            groups.push_back(document::current_treatment_selection_wire(feature.edge_treatment,r,{},input->mesh));
+        const auto count=kernel::body_calculation_count.load();
+        const auto preview=app::workspace_detail::edge_treatment_preview_wire(groups,feature.edge_treatment,feature.feature_kind,owner,&input->mesh);
+        require(kernel::body_calculation_count.load()==count,"Saved preview calculated a Body");
+        const auto deviation=wire_boundary_deviation(preview,session.calculated_boundaries().back(),false);
+        std::cout<<"SAVED preview_edges="<<preview.edges.size()<<" deviation="<<deviation<<std::endl;
+        require(!preview.edges.empty()&&deviation<=1.e-5,"Saved preview disagrees with its native boundary");
+        return;
+    }
+    if(std::getenv("ZIMA_VERIFY_SAVED_BLEND")) {
+        auto measured_input=*input;kernel.ensure_body_properties(measured_input);
+        std::cout<<"BLEND input_volume="<<std::setprecision(15)<<measured_input.volume<<std::endl;
+        for(const bool native:{false,true}) {
+            if(native&&std::getenv("ZIMA_VERIFY_SAVED_BLEND_ZIMA_ONLY"))break;
+            auto candidate=feature;
+            if(const auto* mode=std::getenv("ZIMA_VERIFY_SAVED_BLEND_CHAMFER")) {
+                candidate.feature_kind=document::FeatureKind::Chamfer;
+                candidate.edge_treatment.primary_size=2.;
+                candidate.edge_treatment.secondary_size=3.;
+                candidate.edge_treatment.angle_degrees=30.;
+                candidate.edge_treatment.flip=std::getenv("ZIMA_VERIFY_SAVED_BLEND_FLIP")!=nullptr;
+                candidate.edge_treatment.chamfer_mode=std::string(mode)=="angle"?
+                    document::EdgeTreatmentParameters::ChamferMode::DistanceAngle:
+                    std::string(mode)=="ab"?document::EdgeTreatmentParameters::ChamferMode::TwoDistances:
+                        document::EdgeTreatmentParameters::ChamferMode::EqualDistance;
+            }
+            if(native)candidate.edge_treatment.calculation_method=document::EdgeTreatmentParameters::CalculationMethod::Occt;
+            kernel::BodyResult body;
+            std::string suffix;
+            if(const auto* mode=std::getenv("ZIMA_VERIFY_SAVED_BLEND_CHAMFER"))
+                suffix=std::string("-chamfer-")+mode+(candidate.edge_treatment.flip?"-flip":"");
+            auto target=path.parent_path()/((native?"occt-":"rolling-")+owner+suffix+".prtz");
+            try {
+                calculate_candidate_body(session,kernel,candidate,&body,target,true);
+                kernel.ensure_body_properties(body);
+                for(const auto& [failed,message]:body.calculation_errors)
+                    std::cout<<"BLEND error "<<failed<<": "<<message<<std::endl;
+                require(body.calculation_errors.empty(),"Blend calculation retained an error");
+                const auto shape=kernel::read_calculated_body_shape(body);
+                require(!shape.IsNull()&&BRepCheck_Analyzer(shape).IsValid(),"Blend produced invalid native topology");
+                auto brep_path=target;brep_path.replace_extension(".brep");
+                BRepTools::Write(shape,brep_path.string().c_str());
+                std::cout<<"BLEND native="<<native<<" R="<<candidate.edge_treatment.primary_size<<" volume="<<std::setprecision(15)<<body.volume<<std::endl;
+                if(!native) {
+                    std::vector<std::vector<kernel::ViewerEdge>> groups;
+                    for(std::size_t r=0;r<candidate.edge_treatment.routes.size();++r)
+                        groups.push_back(document::current_treatment_selection_wire(candidate.edge_treatment,r,{},input->mesh));
+                    const auto count=kernel::body_calculation_count.load();
+                    const auto preview=app::workspace_detail::edge_treatment_preview_wire(groups,candidate.edge_treatment,candidate.feature_kind,owner,&input->mesh);
+                    require(kernel::body_calculation_count.load()==count,"Blend preview calculated a Body");
+                    const auto deviation=wire_boundary_deviation(preview,body,false);
+                    const auto* configured_tolerance=std::getenv("ZIMA_VERIFY_SAVED_BLEND_PREVIEW_TOLERANCE");
+                    const double preview_tolerance=configured_tolerance?std::stod(configured_tolerance):1.e-5;
+                    std::cout<<"BLEND preview_edges="<<preview.edges.size()<<" deviation="<<deviation<<std::endl;
+                    require(!preview.edges.empty()&&deviation<=preview_tolerance,"Blend preview disagrees with its native boundary");
+                    std::vector<kernel::BodyResult> restored_boundaries;
+                    const auto restored=document::PartDocument::load(target,&restored_boundaries);
+                    require(restored.find_container(owner)&&*restored.find_container(owner)==candidate,
+                        "Native reopen changed the authored blend or its side choices");
+                    require(!restored_boundaries.empty(),"Native reopen lost the calculated blend");
+                    auto restored_body=restored_boundaries.back();kernel.ensure_body_properties(restored_body);
+                    require(restored_body.calculation_errors.empty(),"Native reopen restored a failed blend");
+                    near(restored_body.volume,body.volume);
+                    const document::DocumentSession restored_session(restored,restored_boundaries);
+                    const auto* restored_input=workspace::calculated_operation_input(restored_session,owner);
+                    require(restored_input,"Native reopen lost the blend input packet");
+                    groups.clear();
+                    for(std::size_t r=0;r<candidate.edge_treatment.routes.size();++r)
+                        groups.push_back(document::current_treatment_selection_wire(candidate.edge_treatment,r,{},restored_input->mesh));
+                    const auto restored_count=kernel::body_calculation_count.load();
+                    const auto restored_preview=app::workspace_detail::edge_treatment_preview_wire(groups,candidate.edge_treatment,candidate.feature_kind,owner,&restored_input->mesh);
+                    require(kernel::body_calculation_count.load()==restored_count,"Reopened blend preview calculated a Body");
+                    const auto restored_deviation=wire_boundary_deviation(restored_preview,restored_body,false);
+                    std::cout<<"BLEND reopened_preview_edges="<<restored_preview.edges.size()<<" deviation="<<restored_deviation<<std::endl;
+                    require(!restored_preview.edges.empty()&&restored_deviation<=preview_tolerance,
+                        "Native reopen changed the blend's analytic preview");
+                }
+                BRep_Builder builder;BRepTools_ShapeSet archive(builder);
+                std::istringstream stream(body.kernel_shape.get());archive.Read(stream);
+                TopoDS_Shape solid;archive.Read(solid,stream);
+                TopTools_IndexedMapOfShape rounded;
+                for(const auto& binding:body.kernel_faces)if(binding.reference.owner_id==owner||binding.reference.display_owner_id==owner) {
+                    TopoDS_Shape face;std::istringstream locator(binding.locator);archive.Read(face,locator);rounded.Add(face);
+                }
+                std::cout<<"BLEND owned_faces="<<rounded.Extent()<<std::endl;
+                TopTools_IndexedDataMapOfShapeListOfShape adjacent;
+                TopExp::MapShapesAndAncestors(solid,TopAbs_EDGE,TopAbs_FACE,adjacent);
+                std::size_t seams{};double maximum{};
+                for(int index=1;index<=adjacent.Extent();++index) {
+                    const auto& sides=adjacent.FindFromIndex(index);
+                    if(sides.Size()!=2)continue;
+                    auto it=sides.cbegin();auto first=TopoDS::Face(*it++),second=TopoDS::Face(*it);
+                    if(rounded.Contains(first)==rounded.Contains(second))continue;
+                    const auto edge=TopoDS::Edge(adjacent.FindKey(index));
+                    BRepAdaptor_Curve curve(edge);double angle{};
+                    for(double fraction:{.1,.25,.5,.75,.9}) {
+                        const auto point=curve.Value(curve.FirstParameter()+fraction*(curve.LastParameter()-curve.FirstParameter()));
+                        const auto n=[&](const TopoDS_Face& face) {
+                            GeomAPI_ProjectPointOnSurf p(point,BRep_Tool::Surface(face));
+                            require(p.NbPoints()>0,"Blend boundary projection failed");
+                            double u,v;p.LowerDistanceParameters(u,v);gp_Pnt ignored;gp_Vec du,dv;
+                            BRepAdaptor_Surface(face).D1(u,v,ignored,du,dv);
+                            return gp_Dir(du.Crossed(dv));
+                        };
+                        const auto a=n(first),b=n(second);
+                        angle=std::max(angle,std::acos(std::clamp(std::abs(a.Dot(b)),0.,1.)));
+                    }
+                    maximum=std::max(maximum,angle);++seams;
+                    std::cout<<"  seam="<<seams<<" types="<<int(BRepAdaptor_Surface(first).GetType())<<"/"<<int(BRepAdaptor_Surface(second).GetType())<<" angle="<<angle*180./std::numbers::pi<<std::endl;
+                }
+                std::cout<<"BLEND seams="<<seams<<" max_angle="<<maximum*180./std::numbers::pi<<std::endl;
+            }catch(const std::exception& failure) {
+                std::cout<<"BLEND native="<<native<<" failure="<<failure.what()<<std::endl;
+                if(!native)throw;
+            }
+        }
+        return;
+    }
     std::vector<std::vector<kernel::ViewerEdge>> groups;
     for(std::size_t r=0;r<feature.edge_treatment.routes.size();++r)
         groups.push_back(document::current_treatment_selection_wire(feature.edge_treatment,r,{},input->mesh));
@@ -1084,6 +1262,7 @@ void verify_saved_nodes(const kernel::OcctKernel& kernel,const fs::path& path,
 }
 }
 int main(){try{kernel::OcctKernel kernel;
+    if(std::getenv("ZIMA_VERIFY_SUPPORT_PACKET")){verify_support_packet_roundtrip(kernel);std::cout<<"Current analytic supports and native packet roundtrip passed\n";return 0;}
     if(const auto* path=std::getenv("ZIMA_VERIFY_SAVED_TREATMENT")) {
         const auto* owner=std::getenv("ZIMA_VERIFY_SAVED_TREATMENT_OWNER");
         require(owner,"Saved treatment verification requires its owner");
@@ -1096,6 +1275,6 @@ int main(){try{kernel::OcctKernel kernel;
         verify_preview_recovery_script(kernel,fs::u8path(script));return 0;
     }
     const auto directory=fs::temp_directory_path()/("zima-edge-commands-"+document::PartDocument::create_default().document_id);
-    require(fs::create_directory(directory),"Cannot create test directory");verify(kernel,directory);verify_node_wires(kernel,directory);fs::remove_all(directory);
+    require(fs::create_directory(directory),"Cannot create test directory");verify_support_packet_roundtrip(kernel);verify(kernel,directory);verify_node_wires(kernel,directory);fs::remove_all(directory);
     std::cout<<"Edge treatment commands: radii, section distances, volumes, reference ownership, locks, rollback and native files passed\n";return 0;
 }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}}

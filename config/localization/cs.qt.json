@@ -1,4 +1,6 @@
 {
+  "ZIMA Chamfer could not construct a valid transition on the selected supports": "ZIMA sražení nedokázalo vytvořit platný přechod na vybraných opěrných plochách",
+  "ZIMA Fillet could not construct a valid tangent transition on the selected supports": "Zaoblení ZIMA nedokázalo vytvořit platný tečný přechod na vybraných podpůrných plochách",
   "Kóta: OK uloží kótu a připraví další. Dvojklik prostředním tlačítkem příkaz ukončí.": "Kóta: OK uloží kótu a připraví další. Dvojklik prostředním tlačítkem příkaz ukončí.",
   "Připravuji pohled…": "Připravuji pohled…",
   "Zavírám dokument %1…": "Zavírám dokument %1…",
@@ -8,7 +10,7 @@
   "Univerzální kóta: dalším kliknutím na oblouk přepnete R/⌀; kliknutím do prostoru určete polohu.": "Univerzální kóta: dalším kliknutím na oblouk přepnete R/⌀; kliknutím do prostoru určete polohu.",
   "Koncová plocha": "Koncová plocha",
   "Hrana byla odebrána z výběru zaoblení nebo sražení.": "Hrana byla odebrána z výběru zaoblení nebo sražení.",
-  "A x B and A + angle Chamfer require one continuous open route or one closed circular edge.": "Sražení A x B a A + úhel vyžaduje jednu spojitou otevřenou dráhu nebo jednu uzavřenou kruhovou hranu.",
+  "A x B and A + angle Chamfer require one continuous open or closed route.": "Sražení A x B a A + úhel vyžaduje jednu spojitou otevřenou nebo uzavřenou dráhu.",
   "ZIMA Chamfer requires one complete circular edge": "Sražení ZIMA vyžaduje jednu úplnou kruhovou hranu",
   "ZIMA Chamfer node has a degenerate branch": "Uzel sražení ZIMA má degenerovanou větev",
   "ZIMA Chamfer supports only two- or three-branch nodes": "Sražení ZIMA podporuje pouze dvou- nebo třívětvé uzly",

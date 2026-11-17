@@ -382,7 +382,7 @@ void AssemblyWorkspaceWindow::refresh_edge_treatment_preview() {
             edge_treatment_dialog_->set_edge_treatment_preview_error(
                 tr(input==nullptr
                     ?"Edge treatment requires a calculated input body."
-                    :"Select at least one input edge route."));
+                    :"Select at least one input edge route."),input!=nullptr);
         return;
     }
     const std::string instance_path = resolve_active_occurrence(

@@ -531,6 +531,7 @@ target_link_libraries(zima_kernel_occt
             TKTopAlgo TKPrim TKBO TKBool TKMesh)
 target_link_libraries(zima_kernel_occt PRIVATE TKOffset)
 target_link_libraries(zima_kernel_occt PRIVATE TKFillet)
+target_link_libraries(zima_kernel_occt PRIVATE TKFeat)
 target_link_libraries(zima_kernel_occt PRIVATE TKShHealing)
 set_source_files_properties(modules/kernel_occt/src/occt_kernel.cpp PROPERTIES
     COMPILE_OPTIONS "$<$<CXX_COMPILER_ID:MSVC>:/bigobj>")

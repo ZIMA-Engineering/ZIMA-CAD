@@ -224,6 +224,34 @@ int verify_translations(QApplication& application, QWidget& parent) {
         check(activity_indicator->findChild<QLabel*>()->text() == settings.qt_translations.value("Pracuji…"),
               "Operation confirmation indicator is not localized");
         delete activity_indicator;
+        for(const bool fillet:{true,false}) {
+            const std::vector<kernel::EdgeReference> seed{{"source","edge",{}}};
+            auto feature=fillet?document::PartDocument::create_fillet_container(seed):
+                document::PartDocument::create_chamfer_container(seed);
+            feature.edge_treatment.routes.clear();
+            feature.edge_treatment.route_end_faces.clear();
+            app::PrimitivePropertiesDialog dialog(feature,false,false,[](auto){},&parent);
+            dialog.setAttribute(Qt::WA_DeleteOnClose,false);
+            dialog.show();
+            auto* label=dialog.findChild<QLabel*>("featureValidationError");
+            check(label,"Treatment input prompt is missing");
+            for(const auto* theme:{"light","dark","light"}) {
+                auto appearance=settings;appearance.theme=theme;
+                app::apply_application_appearance(application,appearance);
+                dialog.set_edge_treatment_preview_error(QObject::tr("Select at least one input edge route."),true);
+                application.processEvents();
+                check(label->text()==settings.qt_translations.value("Select at least one input edge route.")&&
+                    label->palette().color(QPalette::WindowText)==QColor("#4DD811")&&
+                    !dialog.buttons()->button(QDialogButtonBox::Ok)->isEnabled(),
+                    "Treatment selection prompt is untranslated, alarming or permits an empty commit");
+                dialog.set_edge_treatment_preview_error(QObject::tr("Edge treatment requires a calculated input body."));
+                application.processEvents();
+                check(label->palette().color(QPalette::WindowText)==QColor("#c64b4b"),
+                    "Treatment calculation error lost its warning color");
+            }
+            app::apply_application_appearance(application,settings);
+            dialog.hide();
+        }
         {
             auto feature=document::create_sheet_form();
             feature.sheet_form=document::copy_sheet_form_definition(document::read_sheet_form_definition(

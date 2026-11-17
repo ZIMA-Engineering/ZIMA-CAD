@@ -1,4 +1,6 @@
 {
+  "ZIMA Chamfer could not construct a valid transition on the selected supports": "Le chanfrein ZIMA n'a pas pu construire une transition valide sur les surfaces d'appui sélectionnées",
+  "ZIMA Fillet could not construct a valid tangent transition on the selected supports": "Le congé ZIMA n’a pas pu créer une transition tangente valide sur les surfaces d’appui sélectionnées",
   "Kóta: OK uloží kótu a připraví další. Dvojklik prostředním tlačítkem příkaz ukončí.": "Cotation : OK enregistre la cote et en prépare une autre. Un double-clic sur le bouton central termine la commande.",
   "Připravuji pohled…": "Préparation de la vue…",
   "Zavírám dokument %1…": "Fermeture du document %1…",
@@ -8,7 +10,7 @@
   "Univerzální kóta: dalším kliknutím na oblouk přepnete R/⌀; kliknutím do prostoru určete polohu.": "Cotation universelle : cliquez à nouveau sur l’arc pour basculer entre R/⌀ ; cliquez dans une zone vide pour placer la cote.",
   "Koncová plocha": "Face d’extrémité",
   "Hrana byla odebrána z výběru zaoblení nebo sražení.": "L’arête a été retirée de la sélection de congé ou de chanfrein.",
-  "A x B and A + angle Chamfer require one continuous open route or one closed circular edge.": "Les chanfreins A x B et A + angle nécessitent un parcours ouvert continu ou une arête circulaire fermée.",
+  "A x B and A + angle Chamfer require one continuous open or closed route.": "Les chanfreins A x B et A + angle nécessitent un parcours continu ouvert ou fermé.",
   "ZIMA Chamfer requires one complete circular edge": "Le chanfrein ZIMA nécessite une arête circulaire complète",
   "ZIMA Chamfer node has a degenerate branch": "Le nœud de chanfrein ZIMA comporte une branche dégénérée",
   "ZIMA Chamfer supports only two- or three-branch nodes": "Le chanfrein ZIMA ne prend en charge que les nœuds à deux ou trois branches",

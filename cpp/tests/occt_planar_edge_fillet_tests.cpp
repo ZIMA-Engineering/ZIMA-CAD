@@ -17,6 +17,7 @@
 #include <BRepBuilderAPI_MakeVertex.hxx>
 #include <BRepBndLib.hxx>
 #include <BRepPrimAPI_MakeBox.hxx>
+#include <BRepPrimAPI_MakeHalfSpace.hxx>
 #include <BRepPrimAPI_MakeCylinder.hxx>
 #include <BRepPrimAPI_MakePrism.hxx>
 #include <BRepPrimAPI_MakeWedge.hxx>
@@ -25,6 +26,8 @@
 #include <GProp_GProps.hxx>
 #include <GCPnts_AbscissaPoint.hxx>
 #include <Geom_BSplineCurve.hxx>
+#include <GeomLProp_SLProps.hxx>
+#include <BRepTools.hxx>
 #include <gp_Circ.hxx>
 #include <gp_Elips.hxx>
 #include <TColgp_Array1OfPnt.hxx>
@@ -1196,9 +1199,92 @@ void verify_rolling_support(const TopoDS_Shape& input,
         "Reversed rolling-support Fillet lost an exact tangent contact");
 }
 
+void verify_oblique_round_route() {
+    const auto box=BRepPrimAPI_MakeBox(60,40,50).Shape();
+    const auto vertical=straight_edge_between(box,{0,0,0},{0,0,50});
+    require(!vertical.IsNull(),"Oblique route fixture lost its vertical edge");
+    const auto rounded=zima::kernel::occt_planar_edge_fillet(box,std::array{vertical},5.,1.e-7).Shape();
+    const gp_Pln top(gp_Pnt(0,0,20),gp_Dir(-.3,-.2,1.));
+    const auto plane=BRepBuilderAPI_MakeFace(top).Face();
+    const auto half=BRepPrimAPI_MakeHalfSpace(plane,gp_Pnt(20,20,0)).Solid();
+    BRepAlgoAPI_Common trim(rounded,half);trim.Build();
+    require(trim.IsDone()&&BRepCheck_Analyzer(trim.Shape()).IsValid(),"Oblique route fixture trim failed");
+    std::vector<TopoDS_Edge> route;
+    TopTools_IndexedMapOfShape edges;TopExp::MapShapes(trim.Shape(),TopAbs_EDGE,edges);
+    for(const auto& value:edges) {
+        const auto edge=TopoDS::Edge(value);BRepAdaptor_Curve curve(edge);
+        const auto a=curve.Value(curve.FirstParameter()),b=curve.Value(curve.LastParameter());
+        if(top.Distance(a)>1.e-7||top.Distance(b)>1.e-7)continue;
+        const auto p=curve.Value(.5*(curve.FirstParameter()+curve.LastParameter()));
+        if(p.X()<6.||p.Y()<6.)route.push_back(edge);
+    }
+    require(route.size()==3,"Oblique route must contain two lines and one ellipse");
+    const auto arc=std::ranges::find_if(route,[](const auto& edge){return BRepAdaptor_Curve(edge).GetType()==GeomAbs_Ellipse;});
+    require(arc!=route.end(),"Oblique route did not exercise changing support angles");
+    std::iter_swap(route.begin()+1,arc);
+    for(const double radius:{1.,2.,5.}) {
+        std::optional<double> expected_volume,expected_area;
+        for(const bool reverse:{false,true}) {
+            auto selected=route;
+            if(reverse){std::ranges::reverse(selected);for(auto& edge:selected)edge.Reverse();}
+            const std::array counts{selected.size()};
+            const auto result=zima::kernel::occt_planar_edge_fillet(trim.Shape(),selected,radius,1.e-7,{},
+                zima::kernel::OcctPlanarEdgeFilletEndMode::AutomaticBodyEnvelope,counts);
+            require(BRepCheck_Analyzer(result.shape,true,true,false).IsValid(),"Oblique rolling route is invalid");
+            TopTools_IndexedMapOfShape treatments;
+            for(const auto& faces:result.fillet_faces) {
+                require(!faces.empty(),"Oblique rolling route lost a source member's ancestry");
+                for(const auto& face:faces)treatments.Add(face);
+            }
+            std::size_t curvature_samples{};
+            for(const auto& entry:treatments) {
+                const auto face=TopoDS::Face(entry);
+                if(BRepAdaptor_Surface(face).GetType()==GeomAbs_Plane)continue;
+                double u0,u1,v0,v1;BRepTools::UVBounds(face,u0,u1,v0,v1);
+                for(const double u:{.2,.5,.8})for(const double v:{.2,.5,.8}) {
+                    const gp_Pnt2d uv(u0+u*(u1-u0),v0+v*(v1-v0));
+                    if(BRepClass_FaceClassifier(face,uv,1.e-7).State()!=TopAbs_IN)continue;
+                    GeomLProp_SLProps properties(BRep_Tool::Surface(face),uv.X(),uv.Y(),2,1.e-9);
+                    require(properties.IsCurvatureDefined(),"Rolling envelope curvature is undefined");
+                    const auto residual=std::min(std::abs(std::abs(properties.MaxCurvature())-1./radius),
+                        std::abs(std::abs(properties.MinCurvature())-1./radius));
+                    require(residual<1.e-4,"Rolling envelope lost its authored radius");++curvature_samples;
+                }
+            }
+            require(curvature_samples>=9,"Rolling envelope radius was not sampled");
+            TopTools_IndexedDataMapOfShapeListOfShape adjacent;
+            TopExp::MapShapesAndAncestors(result.shape,TopAbs_EDGE,TopAbs_FACE,adjacent);
+            std::size_t contacts{};
+            for(int index=1;index<=adjacent.Extent();++index) {
+                const auto& sides=adjacent.FindFromIndex(index);if(sides.Size()!=2)continue;
+                auto it=sides.cbegin();const auto a=TopoDS::Face(*it++),b=TopoDS::Face(*it);
+                if(treatments.Contains(a)==treatments.Contains(b))continue;
+                const auto support=treatments.Contains(a)?b:a;BRepAdaptor_Surface surface(support);
+                if(surface.GetType()==GeomAbs_Plane) {
+                    const auto location=surface.Plane().Location();
+                    const bool source_plane=top.Distance(location)<1.e-7||
+                        std::abs(location.X())<1.e-7||std::abs(location.Y())<1.e-7;
+                    if(!source_plane)continue;
+                    const auto normal=surface.Plane().Axis().Direction();
+                    if(std::abs(normal.Z())<1.e-7&&std::abs(surface.Plane().Distance(gp_Pnt(0,0,0)))>1.e-7)continue;
+                } else if(surface.GetType()!=GeomAbs_Cylinder)continue;
+                const auto edge=TopoDS::Edge(adjacent.FindKey(index));
+                require(std::abs(face_normal_on_edge(a,edge).Dot(face_normal_on_edge(b,edge)))>1.-1.e-7,
+                    "Oblique rolling route lost tangency to a support");++contacts;
+            }
+            require(contacts>=4,"Oblique rolling route lost its support contacts");
+            GProp_GProps mass;BRepGProp::VolumeProperties(result.shape,mass,1.e-10);
+            if(expected_volume){near(mass.Mass(),*expected_volume,"Oblique route volume depends on selection order");near(area(result.shape),*expected_area,"Oblique route area depends on selection order");}
+            else {expected_volume=mass.Mass();expected_area=area(result.shape);}
+        }
+    }
+}
+
 } // namespace
 
 int main() try {
+    if(std::getenv("ZIMA_VERIFY_OBLIQUE_ROUND_ROUTE")){verify_oblique_round_route();std::cout<<"Oblique rolling route passed\n";return 0;}
+    verify_oblique_round_route();
     zima::test::verify_oblique_treatment_terminals(true);
     {
         std::cerr<<"fillet-test: box\n";

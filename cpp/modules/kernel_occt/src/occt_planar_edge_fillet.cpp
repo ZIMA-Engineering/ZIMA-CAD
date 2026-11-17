@@ -33,9 +33,12 @@
 #include <GCPnts_AbscissaPoint.hxx>
 #include <GeomAdaptor_Curve.hxx>
 #include <GeomAPI_IntSS.hxx>
+#include <GeomAPI_IntCS.hxx>
 #include <GeomAPI_ProjectPointOnCurve.hxx>
 #include <GeomAPI_ProjectPointOnSurf.hxx>
 #include <Geom_Plane.hxx>
+#include <Geom_CylindricalSurface.hxx>
+#include <Geom_Line.hxx>
 #include <Geom_Surface.hxx>
 #include <GProp_GProps.hxx>
 #include <gp_Ax1.hxx>
@@ -69,6 +72,8 @@
 #include <ranges>
 #include <stdexcept>
 #include <utility>
+
+#include "occt_support_driven_fillet.hpp"
 
 namespace zima::kernel {
 namespace {
@@ -194,13 +199,11 @@ NodeConnector make_fillet_corner_connector(
 
 // Rounded corner of two concave Fillet strips meeting at a rounded convex
 // edge: the strip profile revolved a quarter turn about the vertical round.
-TopoDS_Shape make_mixed_node_corner(const gp_Pnt& origin,const gp_Dir& up,
+TopoDS_Shape make_mixed_node_corner(const gp_Pnt& axis_point,const gp_Dir& up,
         gp_Dir first,gp_Dir second,double radius) {
-    if(gp_Vec(first).Crossed(gp_Vec(second)).Dot(gp_Vec(up))>0.)
+    if(gp_Vec(first).Crossed(gp_Vec(second)).Dot(gp_Vec(up))<0.)
         std::swap(first,second);
-    const gp_Vec outward=-gp_Vec(second);
-    const auto axis_point=origin.Translated(
-        radius*(gp_Vec(first)+gp_Vec(second)));
+    const gp_Vec outward(first);
     const auto at=[&](double r,double h) {
         return axis_point.Translated(r*outward+h*gp_Vec(up));
     };
@@ -214,43 +217,11 @@ TopoDS_Shape make_mixed_node_corner(const gp_Pnt& origin,const gp_Dir& up,
     wire.Add(BRepBuilderAPI_MakeEdge(p2,p0).Edge());
     const auto face=BRepBuilderAPI_MakeFace(wire.Wire()).Face();
     BRepPrimAPI_MakeRevol revolve(face,gp_Ax1(axis_point,up),
-        std::numbers::pi/2.);
+        first.Angle(second));
     if(!revolve.IsDone()||revolve.Shape().IsNull())
         throw std::runtime_error(
             "ZIMA Fillet could not construct a valid node connector");
     return revolve.Shape();
-}
-
-TopoDS_Shape clip_strip_before(Cutter& cutter,const gp_Pnt& origin,
-        const gp_Dir& branch,const gp_Dir& side,double radius,
-        double tolerance) {
-    const gp_Dir normal=branch.Reversed();
-    const gp_Dir lateral=normal.Crossed(side);
-    const double size=8.*radius,depth=4.*radius;
-    const auto corner=origin.Translated(radius*gp_Vec(branch)-
-        .5*size*(gp_Vec(side)+gp_Vec(lateral)));
-    BRepPrimAPI_MakeBox box(gp_Ax2(corner,normal,side),size,size,depth);
-    BRepAlgoAPI_Cut cut;
-    cut.SetArguments({cutter.solid});
-    cut.SetTools({box.Shape()});
-    cut.SetNonDestructive(true);
-    cut.SetFuzzyValue(tolerance);
-    cut.SetToFillHistory(true);
-    cut.Build();
-    if(!cut.IsDone()||cut.Shape().IsNull())
-        throw std::runtime_error(
-            "ZIMA Fillet could not trim a strip at its rounded node");
-    std::vector<TopoDS_Face> faces;
-    for(const auto& face:cutter.circular_faces) {
-        if(cut.IsDeleted(face))continue;
-        const auto& modified=cut.Modified(face);
-        if(modified.IsEmpty())faces.push_back(face);
-        for(const auto& descendant:modified)
-            if(descendant.ShapeType()==TopAbs_FACE)
-                faces.push_back(TopoDS::Face(descendant));
-    }
-    cutter.circular_faces=std::move(faces);
-    return cut.Shape();
 }
 
 EdgePath edge_path(const TopoDS_Edge& edge,double tolerance) {
@@ -2765,46 +2736,79 @@ Cutter make_route_cutter(const std::vector<CutterJob>& jobs,
         }
         return {};
     }();
-    BRepOffsetAPI_MakePipeShell sweep(spine.Wire());
-    if(planar_binormal)sweep.SetMode(*planar_binormal);
-    else sweep.SetMode(false);
-    sweep.SetTolerance(tolerance,tolerance,1.0e-6);
-    sweep.Add(profile.midpoint_profile,start_vertex,false,false);
-    sweep.Build();
-    if(!sweep.IsDone()||!sweep.MakeSolid()||sweep.Shape().IsNull()||
-       !BRepCheck_Analyzer(sweep.Shape()).IsValid())
-        throw std::runtime_error(
-            "Planar edge Fillet could not sweep one valid route tool");
-    std::vector<TopoDS_Face> circular_faces;
-    for(const auto& generated:sweep.Generated(
-            profile.midpoint_circular_edge))
-        if(generated.ShapeType()==TopAbs_FACE)
-            circular_faces.push_back(TopoDS::Face(generated));
-    // PipeShell can omit earlier faces from Generated(section_edge) when a
-    // returning spine contains several analytic transitions. Recover every
-    // non-planar lateral face which is not one of the source support
-    // surfaces; end caps are planar, while the circular section always
-    // produces a curved treatment surface.
-    for(TopExp_Explorer item(sweep.Shape(),TopAbs_FACE);
-            item.More();item.Next()) {
-        const auto candidate=TopoDS::Face(item.Current());
-        if(BRepAdaptor_Surface(candidate,true).GetType()==GeomAbs_Plane||
-           std::ranges::any_of(route,[&](const auto index) {
-               return lies_on_source_surface(candidate,
-                          jobs[index].first_face,tolerance)||
-                   lies_on_source_surface(candidate,
-                          jobs[index].second_face,tolerance);
-           })||
-           std::ranges::any_of(circular_faces,[&](const auto& current) {
-               return current.IsSame(candidate);
-           }))continue;
-        circular_faces.push_back(candidate);
+    std::optional<double> first_angle;
+    bool varying=false,analytic=true;
+    std::vector<std::array<TopoDS_Face,2>> supports;
+    for(const auto index:route) {
+        const auto& job=jobs[index];
+        supports.push_back({job.first_face,job.second_face});
+        for(const auto& face:supports.back()) {
+            const auto type=BRepAdaptor_Surface(face).GetType();
+            analytic=analytic&&(type==GeomAbs_Plane||type==GeomAbs_Cylinder);
+        }
+        const BRepAdaptor_Curve curve(job.edge);
+        for(const double fraction:{.05,.5,.95}) {
+            const double parameter=curve.FirstParameter()+fraction*(curve.LastParameter()-curve.FirstParameter());
+            gp_Pnt point;gp_Vec derivative;curve.D1(parameter,point,derivative);
+            const auto a=inward_direction(job.edge,job.first_face,curve,parameter,gp_Dir(derivative),tolerance);
+            const auto b=inward_direction(job.edge,job.second_face,curve,parameter,gp_Dir(derivative),tolerance);
+            const double angle=a.Angle(b);
+            if(first_angle&&std::abs(angle-*first_angle)>1.e-5)varying=true;
+            if(!first_angle)first_angle=angle;
+        }
     }
-    if(circular_faces.empty())
-        throw std::runtime_error(
-            "Planar edge Fillet route sweep omitted its circular face");
-    profile.solid=sweep.Shape();
-    profile.circular_faces=std::move(circular_faces);
+    if(varying&&analytic) {
+        try {
+            auto rolling=support_driven_fillet::build(ordered,supports,radius,profile.adds_material,tolerance);
+            profile.solid=std::move(rolling.solid);
+            profile.circular_faces=std::move(rolling.faces);
+        } catch(const std::exception& error) {
+            if(std::getenv("ZIMA_CPP_FILLET_ROUTE_PROFILE"))
+                std::fprintf(stderr,"Support-driven Fillet: %s\n",error.what());
+            throw std::runtime_error("ZIMA Fillet could not construct a valid tangent transition on the selected supports");
+        }
+    } else {
+        BRepOffsetAPI_MakePipeShell sweep(spine.Wire());
+        if(planar_binormal)sweep.SetMode(*planar_binormal);
+        else sweep.SetMode(false);
+        sweep.SetTolerance(tolerance,tolerance,1.0e-6);
+        sweep.Add(profile.midpoint_profile,start_vertex,false,false);
+        sweep.Build();
+        if(!sweep.IsDone()||!sweep.MakeSolid()||sweep.Shape().IsNull()||
+           !BRepCheck_Analyzer(sweep.Shape()).IsValid())
+            throw std::runtime_error(
+                "Planar edge Fillet could not sweep one valid route tool");
+        std::vector<TopoDS_Face> circular_faces;
+        for(const auto& generated:sweep.Generated(
+                profile.midpoint_circular_edge))
+            if(generated.ShapeType()==TopAbs_FACE)
+                circular_faces.push_back(TopoDS::Face(generated));
+        // PipeShell can omit earlier faces from Generated(section_edge) when a
+        // returning spine contains several analytic transitions. Recover every
+        // non-planar lateral face which is not one of the source support
+        // surfaces; end caps are planar, while the circular section always
+        // produces a curved treatment surface.
+        for(TopExp_Explorer item(sweep.Shape(),TopAbs_FACE);
+                item.More();item.Next()) {
+            const auto candidate=TopoDS::Face(item.Current());
+            if(BRepAdaptor_Surface(candidate,true).GetType()==GeomAbs_Plane||
+               std::ranges::any_of(route,[&](const auto index) {
+                   return lies_on_source_surface(candidate,
+                              jobs[index].first_face,tolerance)||
+                       lies_on_source_surface(candidate,
+                              jobs[index].second_face,tolerance);
+               })||
+               std::ranges::any_of(circular_faces,[&](const auto& current) {
+                   return current.IsSame(candidate);
+               }))continue;
+            circular_faces.push_back(candidate);
+        }
+        if(circular_faces.empty())
+            throw std::runtime_error(
+                "Planar edge Fillet route sweep omitted its circular face");
+        profile.solid=sweep.Shape();
+        profile.circular_faces=std::move(circular_faces);
+        }
     // A terminal plane can be tangent or oblique to the route.  Clipping only
     // the overgrown tail leaves the complete PipeShell section straddling that
     // plane at the authored endpoint.  Trim the base sweep as well whenever
@@ -3632,24 +3636,36 @@ OcctPlanarEdgeFilletResult occt_planar_edge_fillet(
                     node.jobs.size()>2&&rounded_at(node.jobs[2],node.vertex));
             // A three-branch node offers no end-mode choice, so it is always
             // solved as a shared rounded corner.
-            if(!orthogonal||subtractive!=1)continue;
+            if(node.jobs.size()!=3||!std::ranges::all_of(node.jobs,[&](const auto job){return planar_job(jobs[job]);}))continue;
             std::size_t outer=0;
             for(std::size_t index=0;index<3;++index)
-                if(!*job_adds_material[node.jobs[index]])outer=index;
+                if(*job_adds_material[node.jobs[index]]==(subtractive==2))outer=index;
             const std::size_t first=(outer+1)%3,second=(outer+2)%3;
             const auto origin=BRep_Tool::Pnt(node.vertex);
+            if(std::abs(directions[outer].Dot(directions[first]))>1.e-7||
+               std::abs(directions[outer].Dot(directions[second]))>1.e-7)continue;
+            std::optional<NodeTerminalAxis> minor_axis;
+            for(const auto& cutter:cutters)
+                if(std::ranges::find(cutter.source_jobs,node.jobs[outer])!=cutter.source_jobs.end())
+                    minor_axis=terminal_axis(node.jobs[outer],node.vertex,cutter);
+            if(!minor_axis)continue;
+            std::array<gp_Dir,2> radials;
+            std::size_t radial_index{};
             for(const auto index:{first,second}) {
                 const auto job=node.jobs[index];
-                const auto& side=directions[index==first?second:first];
+                const auto distance=gp_Vec(origin,minor_axis->center).Dot(gp_Vec(directions[index]));
+                const auto contact=origin.Translated(distance*gp_Vec(directions[index]));
+                radials[radial_index++]=gp_Dir(gp_Vec(minor_axis->center,contact));
+                const auto trim=BRepBuilderAPI_MakeFace(gp_Pln(contact,directions[index])).Face();
                 for(auto& cutter:cutters)
                     if(std::ranges::find(cutter.source_jobs,job)!=
                             cutter.source_jobs.end())
-                        cutter.solid=clip_strip_before(cutter,origin,
-                            directions[index],side,radius,tolerance);
+                        clip_fillet_tool(cutter.solid,cutter.circular_faces,trim,
+                            contact.Translated(radius*gp_Vec(directions[index])),tolerance);
             }
-            node_connectors.push_back({make_mixed_node_corner(origin,
-                directions[outer],directions[first],directions[second],
-                radius),std::nullopt,node.jobs,true});
+            node_connectors.push_back({make_mixed_node_corner(minor_axis->center,
+                directions[outer],radials[0],radials[1],radius),
+                std::nullopt,node.jobs,*job_adds_material[node.jobs[first]]});
             continue;
         }
         if(node.jobs.size()==3)

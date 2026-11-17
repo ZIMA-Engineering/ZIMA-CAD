@@ -36,6 +36,8 @@
 #include <stdexcept>
 #include <vector>
 
+#include "closed_support_chamfer_fixture.hpp"
+
 namespace {
 
 void require(bool condition,const char* message) {
@@ -395,6 +397,8 @@ AngledEndFixture angled_end_fixture() {
 } // namespace
 
 int main() try {
+    zima::test::verify_closed_support_chamfer();
+    if(std::getenv("ZIMA_VERIFY_CLOSED_SUPPORT_CHAMFER"))return 0;
     zima::test::verify_oblique_treatment_terminals(false);
     constexpr double box_height=40.;
     constexpr double box_volume=20.*30.*box_height;

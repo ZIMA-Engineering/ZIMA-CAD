@@ -268,3 +268,27 @@ Localization review covered Czech, English, German, French and Russian. The
 verification diagnostics and this documentation add no user-visible application
 text. Linux geometry execution remains deferred to the Linux host; Windows and
 Linux compile the same shared implementation.
+
+## Support-driven blends and closed Chamfer routes (2026-11-17)
+
+When the support opening angle varies, ZIMA Fillet now derives its rolling
+center from the oriented offset surfaces and trims the radius envelope against
+the actual supports. This covers the verified plane/cylinder and
+cylinder/cylinder transitions and the reported oblique mixed-material node.
+The principal contacts preserve tangency; local node and terminal patches need
+not be tangent everywhere.
+
+ZIMA Chamfer additionally supports the verified closed nonplanar routes on
+tangent plane/cylinder strips. A x A and A x B measure offsets in those developed
+support surfaces; A plus angle preserves the requested angle to its A support.
+Flip exchanges the authored sides. Closed routes have no physical end cuts.
+Open constant-section routes retain their existing end controls, including
+independent NoCut and exact oblique/curved termination.
+
+Both drafts use the current calculated input packet without building a solid.
+The input-selection prompt is green and actual errors remain red. Native
+save/reopen preserves the authored routes, side choices and calculated support
+metadata without a format change. Arbitrary freeform blends, all varying-angle
+open Chamfer routes and all radius values are not claimed. See the
+[verification matrix and limitations](verification/20261117-support-driven-edge-blends.md)
+and [terminal matrix](verification/20261117-treatment-material-terminals.md).

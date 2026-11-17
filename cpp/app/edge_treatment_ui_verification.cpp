@@ -627,9 +627,21 @@ int verify_edge_treatment_ui(QApplication& application, AssemblyWorkspaceWindow&
                     check(expected_node_count>=0&&published_labels.size()==
                             static_cast<std::size_t>(expected_node_count),
                         "Treatment preview has an unexpected number of source-node labels");
-                check(!published.empty()&&published.size()==expected.edges.size()&&
-                        std::equal(published.begin(),published.end(),expected.edges.begin(),
-                            [](const auto& a,const auto& b){return a.points==b.points;})&&
+                std::cout<<"Treatment wire: published="<<published.size()<<" expected="<<expected.edges.size()
+                    <<" labels="<<published_labels.size()<<'/'<<expected.labels.size()<<std::endl;
+                double wire_difference{};bool matching_sample_counts=published.size()==expected.edges.size();
+                for(std::size_t e=0;e<std::min(published.size(),expected.edges.size());++e) {
+                    const auto& a=published[e].points;const auto& b=expected.edges[e].points;
+                    matching_sample_counts=matching_sample_counts&&a.size()==b.size();
+                    for(std::size_t p=0;p<std::min(a.size(),b.size());++p)
+                        wire_difference=std::max(wire_difference,std::hypot(a[p].x-b[p].x,a[p].y-b[p].y,a[p].z-b[p].z));
+                }
+                std::cout<<"Treatment wire maximum difference="<<wire_difference<<std::endl;
+                window.grab().save(QString::fromStdString(
+                    (directory/("user-model-treatment-preview-"+owner+".png")).string()));
+                // Scene-normalized descriptors can differ by machine rounding
+                // from the same Part-local input. Compare geometry, not bits.
+                check(!published.empty()&&matching_sample_counts&&wire_difference<1.e-9&&
                         published_labels.size()==expected.labels.size()&&
                         std::equal(expected.labels.begin(),expected.labels.end(),
                             published_labels.begin(),[](const auto& first,

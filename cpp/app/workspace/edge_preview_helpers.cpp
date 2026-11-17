@@ -736,6 +736,9 @@ std::shared_ptr<const zima::kernel::SurfaceGeometry> edge_preview_surface(
     return original==mesh.original_references.triangle_references.end()?nullptr:original->surface;
 }
 
+#include "edge_rolling_preview.hpp"
+#include "edge_support_chamfer_preview.hpp"
+
 std::optional<std::pair<zima::kernel::Vec3,zima::kernel::Vec3>>
 edge_preview_terminal_plane(const zima::kernel::ViewerMesh& mesh,
         const zima::kernel::FaceReference& face) {
@@ -1676,8 +1679,6 @@ bool edge_preview_three_branch_node(std::vector<zima::kernel::ViewerEdge>& edges
         std::vector<zima::kernel::ViewerEdge>& connectors) {
     for(std::size_t a=0;a<3;++a) {
         if(!terminals[a]->section.radius_center||!terminals[a]->adds_material)return false;
-        for(std::size_t b=a+1;b<3;++b)
-            if(std::abs(edge_preview_dot(terminals[a]->axis,terminals[b]->axis))>1.0e-7)return false;
     }
     const double radius=edge_preview_length(edge_preview_difference(
         terminals[0]->section.first_tangent,*terminals[0]->section.radius_center));
@@ -1687,6 +1688,45 @@ bool edge_preview_three_branch_node(std::vector<zima::kernel::ViewerEdge>& edges
                     *terminal->section.radius_center)))>1.0e-7)return false;
     const auto subtractive=std::ranges::count_if(terminals,
         [](const auto* t){return !*t->adds_material;});
+    if(subtractive==1||subtractive==2) {
+        const auto minor=static_cast<std::size_t>(std::ranges::find_if(terminals,
+            [&](const auto* terminal){return *terminal->adds_material==(subtractive==2);})-terminals.begin());
+        const std::array<std::size_t,2> major{(minor+1)%3,(minor+2)%3};
+        const auto center=*terminals[minor]->section.radius_center;
+        std::array<double,3> distances{};distances[minor]=radius;
+        for(const auto index:major) {
+            if(std::abs(edge_preview_dot(terminals[minor]->axis,terminals[index]->axis))>1.e-7)return false;
+            distances[index]=edge_preview_dot(edge_preview_difference(center,terminals[index]->node),terminals[index]->axis);
+            if(distances[index]<-1.e-7||distances[index]>=terminals[index]->extent)return false;
+        }
+        std::array<FilletPreviewTerminal,3> shifted{*terminals[0],*terminals[1],*terminals[2]};
+        for(std::size_t i=0;i<3;++i) {
+            auto& section=shifted[i].section;
+            const auto moved=[&](const auto& p){return edge_preview_offset(p,shifted[i].axis,distances[i]);};
+            for(auto& p:section.wire.points)p=moved(p);
+            section.first_tangent=moved(section.first_tangent);
+            section.second_tangent=moved(section.second_tangent);
+            section.radius_center=moved(*section.radius_center);
+        }
+        auto first=shifted[major[0]],second=shifted[major[1]];
+        first.node=second.node=center;
+        std::vector<zima::kernel::ViewerEdge> corner;
+        if(!edge_preview_arc_node(first,second,corner))return false;
+        for(std::size_t i=0;i<3;++i) {
+            auto& terminal=*terminals[i];
+            for(const auto rail:{terminal.first_rail,terminal.second_rail}) {
+                auto& points=edges[rail].points;
+                auto& endpoint=terminal.at_start?points.front():points.back();
+                endpoint=edge_preview_offset(endpoint,terminal.axis,distances[i]);
+            }
+            terminal.section=std::move(shifted[i].section);
+            edges[terminal.end_arc]=terminal.section.wire;
+        }
+        connectors.insert(connectors.end(),std::make_move_iterator(corner.begin()),std::make_move_iterator(corner.end()));
+        return true;
+    }
+    for(std::size_t a=0;a<3;++a)for(std::size_t b=a+1;b<3;++b)
+        if(std::abs(edge_preview_dot(terminals[a]->axis,terminals[b]->axis))>1.0e-7)return false;
     if(subtractive!=0&&subtractive!=1&&subtractive!=3)return false;
     // The spherical corner meets each cylinder one radius along its branch.
     // Mixed corners have the same three contact planes and a toroidal elbow.
@@ -1829,9 +1869,21 @@ EdgeTreatmentPreviewGeometry edge_treatment_preview_wire(
             std::optional<EdgeTreatmentSection> last_measurable_section;
             bool rails_valid = true;
             double traversed{};
+            const auto rolling=fillet&&!linear_fillet&&input_mesh?
+                rolling_preview_path(path,*input_mesh,parameters):std::vector<RollingPreviewMember>{};
+            const auto chamfer=!fillet&&!open&&input_mesh&&!group.empty()?
+                support_chamfer_preview::prepare(path,*input_mesh,group.front(),parameters.flip):
+                std::optional<support_chamfer_preview::Atlas>{};
             const auto section_at=[&](const auto& edge,
                     std::size_t point_index,double section_radius,
                     bool allow_degenerate_terminal=false) {
+                if(chamfer)return support_chamfer_preview::section(*chamfer,
+                    static_cast<std::size_t>(&edge-path.edges.data()),edge,point_index,parameters);
+                if(!rolling.empty()) {
+                    const auto index=static_cast<std::size_t>(&edge-path.edges.data());
+                    if(index<rolling.size())
+                        if(auto section=rolling_preview_section(rolling[index],edge,point_index,parameters))return section;
+                }
                 // The calculated support-face sections are the authoritative
                 // lightweight source for a rolling Fillet. Try them first so
                 // plane/circle, circle/circle, ellipse/circle and spline/circle

@@ -1502,6 +1502,37 @@ zima::kernel::BodyResult load_body_result(const nlohmann::json& source,
         if(point.reference.semantic_key.starts_with("helical:axis-point:")&&!changed_by_solid_state(point.reference)&&
             std::none_of(result.mesh.points.begin(),result.mesh.points.end(),[&](const auto& value){return value.reference==point.reference;}))
             result.mesh.points.push_back(point);
+    // Side identities are stored compactly. Reattach their existing native
+    // support descriptors in the same coordinate frame, without decoding a
+    // BRep or recalculating geometry. Never substitute authored source extents
+    // for the actual current boundary.
+    if(result.kernel_placements.empty()) {
+        using Key=std::tuple<std::string,std::string,std::string>;
+        std::map<Key,std::vector<std::shared_ptr<const zima::kernel::SurfaceGeometry>>> supports;
+        for(const auto& binding:result.kernel_faces)if(binding.reference.surface) {
+            const auto& reference=binding.reference;
+            supports[{reference.owner_id,reference.semantic_key,reference.instance_path}].push_back(reference.surface);
+        }
+        const auto attach=[&](auto& edges) {
+            using Kind=zima::kernel::SurfaceGeometry::Kind;
+            for(auto& edge:edges)for(auto& reference:edge.edge_treatment_side_references) {
+                const auto found=supports.find({reference.owner_id,reference.semantic_key,reference.instance_path});
+                if(found==supports.end()||edge.points.empty())continue;
+                for(const auto& surface:found->second) {
+                    if(surface->kind!=Kind::Plane&&surface->kind!=Kind::Cylinder)continue;
+                    const bool contains=std::ranges::all_of(edge.points,[&](const auto& point) {
+                        const double x=point.x-surface->origin.x,y=point.y-surface->origin.y,z=point.z-surface->origin.z;
+                        const double axial=x*surface->axis.x+y*surface->axis.y+z*surface->axis.z;
+                        const double distance=surface->kind==Kind::Plane?axial:
+                            std::hypot(x-axial*surface->axis.x,y-axial*surface->axis.y,z-axial*surface->axis.z)-surface->radius;
+                        return std::abs(distance)<=1.e-6;
+                    });
+                    if(contains){reference.surface=surface;break;}
+                }
+            }
+        };
+        attach(result.mesh.edges);attach(result.mesh.original_references.edges);
+    }
     return result;
 }
 

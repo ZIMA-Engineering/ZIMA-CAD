@@ -50,6 +50,8 @@
 #include <stdexcept>
 #include <utility>
 
+#include "occt_support_driven_chamfer.hpp"
+
 namespace zima::kernel {
 namespace {
 
@@ -91,6 +93,7 @@ struct ContinuousRoute {
     TopoDS_Vertex start_vertex;
     TopoDS_Vertex finish_vertex;
     gp_Dir planar_binormal;
+    bool support_driven{};
 };
 
 std::vector<TopoDS_Face> mapped_treatment_faces(
@@ -1106,6 +1109,56 @@ std::optional<ContinuousRoute> find_continuous_route(
     return {};
 }
 
+std::optional<ContinuousRoute> find_closed_support_route(
+        std::span<const OcctPlanarEdgeChamferSelection> selections,
+        const std::vector<SelectedNode>& nodes,
+        const std::vector<std::array<TopoDS_Face,2>>& faces,
+        const std::vector<TopoDS_Solid>& materials,double tolerance) {
+    if(selections.size()<2)return {};
+    for(std::size_t i=0;i<selections.size();++i) {
+        if(!materials[i].IsSame(materials.front()))return {};
+        for(const auto& face:faces[i]) {
+            const auto type=BRepAdaptor_Surface(face).GetType();
+            if(type!=GeomAbs_Plane&&type!=GeomAbs_Cylinder)return {};
+        }
+    }
+    for(const auto& node:nodes) {
+        if(node.tools.size()!=2)return {};
+        const auto first=outgoing_tangent(selections[node.tools[0]].edge,
+            node.vertex,tolerance);
+        const auto second=outgoing_tangent(selections[node.tools[1]].edge,
+            node.vertex,tolerance);
+        if(first.Dot(second)>-1.+1.e-7)return {};
+    }
+    ContinuousRoute route;
+    TopoDS_Vertex unused;
+    TopExp::Vertices(selections.front().edge,route.start_vertex,unused,true);
+    if(route.start_vertex.IsNull())return {};
+    auto current=route.start_vertex;
+    std::vector<bool> visited(selections.size());
+    for(std::size_t count=0;count<selections.size();++count) {
+        const auto node=std::ranges::find_if(nodes,[&](const auto& value) {
+            return value.vertex.IsSame(current);
+        });
+        if(node==nodes.end())return {};
+        auto index=count==0?std::size_t(0):selections.size();
+        if(count)for(const auto candidate:node->tools)
+            if(!visited[candidate])index=candidate;
+        if(index==selections.size())return {};
+        auto edge=selections[index].edge;
+        TopoDS_Vertex first,last;TopExp::Vertices(edge,first,last,true);
+        if(first.IsNull()||last.IsNull())return {};
+        if(first.IsSame(current))current=last;
+        else if(last.IsSame(current)){edge.Reverse();current=first;}
+        else return {};
+        visited[index]=true;
+        route.selections.push_back(index);route.edges.push_back(edge);
+    }
+    if(!current.IsSame(route.start_vertex))return {};
+    route.finish_vertex=current;route.support_driven=true;
+    return route;
+}
+
 std::optional<std::array<bool,2>> line_ends_at_round(
         const TopoDS_Edge& line,const TopoDS_Edge& round,
         double tolerance) {
@@ -1827,6 +1880,38 @@ Tool make_continuous_route_tool(const ContinuousRoute& route,
         OcctPlanarEdgeChamferMode mode,double secondary) {
     if(route.selections.empty()||route.edges.empty())
         throw std::invalid_argument("ZIMA Chamfer route is empty");
+    if(route.support_driven) {
+        try {
+            std::vector<std::array<TopoDS_Face,2>> faces;
+            for(const auto index:route.selections)faces.push_back(selection_faces[index]);
+            const auto result=support_driven_chamfer::build(route.edges,faces,
+                distance,mode==OcctPlanarEdgeChamferMode::TwoDistances?secondary:distance,
+                mode==OcctPlanarEdgeChamferMode::DistanceAngle
+                    ?std::optional<double>(secondary):std::nullopt);
+            const auto material=materials[route.selections.front()];
+            std::optional<bool> adds;
+            const double probe=std::min(distance*.01,std::max(100.*tolerance,1.e-4));
+            for(const auto& [point,direction]:result.material_probes) {
+                const auto inside=BRepClass3d_SolidClassifier(material,
+                    point.Translated(direction*probe),tolerance).State();
+                const auto outside=BRepClass3d_SolidClassifier(material,
+                    point.Translated(-direction*probe),tolerance).State();
+                if(!((inside==TopAbs_IN&&outside==TopAbs_OUT)||
+                     (inside==TopAbs_OUT&&outside==TopAbs_IN)))
+                    throw std::runtime_error("Unresolved support-strip material wedge");
+                const bool local_adds=inside==TopAbs_OUT;
+                if(adds&&*adds!=local_adds)
+                    throw std::runtime_error("Support-strip route changes material sense");
+                adds=local_adds;
+            }
+            return {result.solid,result.faces,*adds,material,faces.front()[0],faces.front()[1]};
+        } catch(const std::exception& error) {
+            if(std::getenv("ZIMA_CPP_CHAMFER_ROUTE_PROFILE"))
+                std::fprintf(stderr,"Chamfer support strip: %s\n",error.what());
+            throw std::runtime_error(
+                "ZIMA Chamfer could not construct a valid transition on the selected supports");
+        }
+    }
     if(mode==OcctPlanarEdgeChamferMode::EqualDistance)
       if(const auto collapsed=make_collapsed_round_route_tool(route,
             selections,selection_faces,materials,distance,tolerance,
@@ -1982,8 +2067,10 @@ OcctPlanarEdgeChamferResult occt_planar_edge_chamfer(
                     int current_common=-1,neighbor_common=-1,common_count{};
                     for(int first=0;first<2;++first)
                         for(int second=0;second<2;++second)
-                            if(selection_faces[current][first].IsSame(
-                                    selection_faces[neighbor][second])) {
+                            if(support_driven_chamfer::same_support(
+                                    selection_faces[current][first],
+                                    selection_faces[neighbor][second],
+                                    BRep_Tool::Pnt(node.vertex),tolerance)) {
                                 current_common=first;
                                 neighbor_common=second;
                                 ++common_count;
@@ -1993,8 +2080,9 @@ OcctPlanarEdgeChamferResult occt_planar_edge_chamfer(
                             "A x B and A + angle Chamfer route has no continuous support side");
                     int neighbor_a{};
                     if(common_count==2) {
-                        neighbor_a=selection_faces[neighbor][0].IsSame(
-                            selection_faces[current][0])?0:1;
+                        neighbor_a=support_driven_chamfer::same_support(
+                            selection_faces[neighbor][0],selection_faces[current][0],
+                            BRep_Tool::Pnt(node.vertex),tolerance)?0:1;
                     } else if(common_count==1) {
                         neighbor_a=current_common==0
                             ?neighbor_common:1-neighbor_common;
@@ -2022,9 +2110,11 @@ OcctPlanarEdgeChamferResult occt_planar_edge_chamfer(
                 "A x B and A + angle Chamfer require one connected route");
     }
 
-    const auto continuous_route=find_continuous_route(selections,
+    auto continuous_route=find_continuous_route(selections,
         selected_nodes,selection_faces,selection_materials,
         end_mode,tolerance);
+    if(!continuous_route)continuous_route=find_closed_support_route(selections,
+        selected_nodes,selection_faces,selection_materials,tolerance);
     if(std::getenv("ZIMA_CPP_CHAMFER_ROUTE_PROFILE")) {
         std::fprintf(stderr,
             "Chamfer route selections=%zu distance=%.9g continuous=%d",

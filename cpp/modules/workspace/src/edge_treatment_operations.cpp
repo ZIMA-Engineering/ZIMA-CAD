@@ -49,7 +49,8 @@ std::vector<const kernel::ViewerEdge*> resolved_route_edges(const Groups& availa
     }
     return result;
 }
-std::vector<kernel::VertexReference> endpoints(const Groups& available,const std::vector<kernel::EdgeReference>& route) {
+std::vector<kernel::VertexReference> endpoints(const Groups& available,const std::vector<kernel::EdgeReference>& route,bool* closed=nullptr) {
+    if(closed)*closed=false;
     std::map<Key,std::pair<kernel::VertexReference,std::vector<std::size_t>>> vertices;
     std::vector<std::vector<Key>> connections;std::set<Key> unique;
     for(const auto& ref:route) {
@@ -77,6 +78,7 @@ std::vector<kernel::VertexReference> endpoints(const Groups& available,const std
     if(visited.size()!=route.size())return {};
     std::vector<kernel::VertexReference> result;
     for(const auto& [id,vertex]:vertices)if(vertex.second.size()==1)result.push_back(vertex.first);
+    if(closed)*closed=result.empty();
     return result.size()==2?result:std::vector<kernel::VertexReference>{};
 }
 }
@@ -132,7 +134,7 @@ bool commit_edge_treatment(Workspace& live,const kernel::OcctKernel& kernel,cons
         parameters.chamfer_mode!=Parameters::ChamferMode::EqualDistance;
     if(asymmetric_chamfer&&parameters.routes.size()!=1)
         throw Error("invalid_reference",
-            "A x B and A + angle Chamfer require one continuous open route or one closed circular edge.");
+            "A x B and A + angle Chamfer require one continuous open or closed route.");
     if(parameters.route_start_vertices.size()>parameters.routes.size())throw Error("invalid_reference","Each edge route may have only one R1 endpoint.");
     if(parameters.route_end_faces.size()!=parameters.routes.size())
         throw Error("invalid_reference","Each edge route requires exactly two end-face slots.");
@@ -193,7 +195,8 @@ bool commit_edge_treatment(Workspace& live,const kernel::OcctKernel& kernel,cons
            route_ends.first_vertex==route_ends.last_vertex)
             throw Error("invalid_reference",
                 "Route endpoints must identify two different vertices.");
-        const auto current_endpoints=endpoints(route_available,route);
+        bool closed_route{};
+        const auto current_endpoints=endpoints(route_available,route,&closed_route);
         for(const auto* vertex:{&route_ends.first_vertex,
                 &route_ends.last_vertex})
             if(vertex->valid()&&
@@ -218,9 +221,9 @@ bool commit_edge_treatment(Workspace& live,const kernel::OcctKernel& kernel,cons
                     first.y-last.y),first.z-last.z)<=1.0e-6;
             }
             if(current_endpoints.size()!=2&&
-                    !closed_chain&&!single_closed_edge)
+                    !closed_route&&!closed_chain&&!single_closed_edge)
                 throw Error("invalid_reference",
-                    "A x B and A + angle Chamfer require one continuous open route or one closed circular edge.");
+                    "A x B and A + angle Chamfer require one continuous open or closed route.");
         }
         if(fillet&&parameters.fillet_mode==Parameters::FilletMode::Linear) {
             const auto ends=endpoints(route_available,route);

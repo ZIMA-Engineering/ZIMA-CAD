@@ -2218,9 +2218,13 @@ void PrimitivePropertiesDialog::set_edge_route_end_choice(
 }
 
 void PrimitivePropertiesDialog::set_edge_treatment_preview_error(
-        const QString& message) {
+        const QString& message,bool input_prompt) {
     edge_treatment_preview_error_=message;
-    if(error_)error_->setText(message);
+    if(error_) {
+        error_->setStyleSheet(input_prompt
+            ? "color: #4DD811;" : "color: #c64b4b;");
+        error_->setText(message);
+    }
     if(auto* ok=buttons()->button(QDialogButtonBox::Ok))
         ok->setEnabled(message.isEmpty());
 }

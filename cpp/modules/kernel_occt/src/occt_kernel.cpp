@@ -6204,6 +6204,8 @@ std::string serialize_kernel_shape(const TopoDS_Shape& shape) {
     return serialized_shape.str();
 }
 
+std::optional<SurfaceGeometry> analytic_surface(const TopoDS_Face& face);
+
 void persist_surface_topology(const TopoDS_Shape& shape,const std::vector<OwnedFace>& faces,
         const std::vector<OwnedEdge>& edges,const std::vector<OwnedVertex>& vertices,BodyResult& result,
         const std::vector<TopoDS_Shape>* hidden=nullptr,std::vector<std::string>* hidden_locators=nullptr,
@@ -6231,6 +6233,15 @@ void persist_surface_topology(const TopoDS_Shape& shape,const std::vector<OwnedF
         for(const auto& item:owned)if(item.reference.valid()&&members.Contains(item.shape)) {
             std::ostringstream address;archive.Write(archived(item.shape),address);
             captured.push_back({address.str(),item.reference});
+            if constexpr(std::is_same_v<std::decay_t<decltype(item.reference)>,FaceReference>) {
+                auto& reference=captured.back().reference;
+                reference.surface.reset();reference.contour_surface.reset();
+                if(const auto geometry=analytic_surface(TopoDS::Face(members.FindKey(members.FindIndex(item.shape))))) {
+                    auto& target=geometry->kind==SurfaceGeometry::Kind::Torus?
+                        reference.contour_surface:reference.surface;
+                    target=std::make_shared<const SurfaceGeometry>(*geometry);
+                }
+            }
         }
         bindings=std::move(captured);
     };
@@ -6934,6 +6945,20 @@ BodyResult make_result(
     TopExp::MapShapesAndAncestors(
         shape, TopAbs_EDGE, TopAbs_FACE, edge_faces);
 
+    // A topology reference retains ancestry, not the current support geometry.
+    // Derive each descriptor once from the actual located/oriented face and
+    // share it with its edge-side packets, including compact display packets.
+    TopTools_IndexedMapOfShape support_faces;
+    std::vector<std::shared_ptr<const SurfaceGeometry>> support_surfaces;
+    const auto support_surface_for=[&](const TopoDS_Face& face) {
+        const auto index=support_faces.Add(face);
+        if(static_cast<std::size_t>(index)>support_surfaces.size()) {
+            const auto surface=analytic_surface(face);
+            support_surfaces.push_back(surface?
+                std::make_shared<const SurfaceGeometry>(*surface):nullptr);
+        }
+        return support_surfaces[static_cast<std::size_t>(index-1)];
+    };
     double face_measurement_seconds=0.;
     for (TopExp_Explorer explorer(shape, TopAbs_FACE); explorer.More(); explorer.Next()) {
         const TopoDS_Face face = TopoDS::Face(explorer.Current());
@@ -6954,7 +6979,7 @@ BodyResult make_result(
         }
         else reference.measured_area.reset();
         reference.contour_surface.reset();
-        if (reference.valid()) if (const auto surface=analytic_surface(face)) {
+        if (reference.valid()) if (const auto surface=support_surface_for(face)) {
             auto geometry=*surface;
             if(reference.surface&&
                reference.surface->kind==SurfaceGeometry::Kind::Plane&&
@@ -7247,12 +7272,19 @@ BodyResult make_result(
             for (TopTools_ListIteratorOfListOfShape iterator(
                      edge_faces.FindFromIndex(edge_index));
                  iterator.More(); iterator.Next()) {
-                const auto face_reference =
+                auto face_reference =
                     face_references->reference_for(iterator.Value());
                 if (!face_reference.valid()) continue;
                 const bool form_side=symbolic_form_face(face_reference);
                 const bool step_side=face_reference.semantic_key.starts_with("step:face:#");
                 const auto face=TopoDS::Face(iterator.Value());
+                face_reference.surface.reset();
+                face_reference.contour_surface.reset();
+                if(const auto surface=support_surface_for(face)) {
+                    auto& target=surface->kind==SurfaceGeometry::Kind::Torus?
+                        face_reference.contour_surface:face_reference.surface;
+                    target=surface;
+                }
                 const bool native_face=!form_side&&!step_side;
                 auto directions=(form_side||step_side||native_face)?form_inward_face_directions(
                     edge,face,sample_parameters,native_face):std::vector<Vec3>{};
