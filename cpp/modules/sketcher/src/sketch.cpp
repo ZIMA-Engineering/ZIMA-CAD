@@ -14139,6 +14139,20 @@ SolveResult Sketch::solve_impl(
             return decltype(segment_or_external_line(*this,id)){};
         return segment_or_external_line(*this,id);
     };
+    const auto circular_rank_contact=[&](const SketchConstraint& constraint) {
+        if(constraint.kind!=ConstraintKind::PointOnCircle)return false;
+        // Tangent supports can have isolated contacts with zero first-order
+        // radial motion. Keep their established rank treatment; this smooth
+        // equation is for ordinary circular incidence (including C + H/V).
+        if(std::ranges::any_of(constraints,[&](const auto& relation) {
+            return !relation.suppressed&&relation.kind==ConstraintKind::Tangent&&
+                (relation.geometry_id==constraint.geometry_id||
+                 relation.second_geometry_id==constraint.geometry_id);
+        }))return false;
+        const auto curve=tangent_curve_data(*this,constraint.geometry_id);
+        return curve&&curve->circular_radius&&!curve->parameter_domain&&
+            tangent_curve_center(*this,*curve).has_value();
+    };
     std::map<std::string,std::pair<std::string,std::array<double,2>>> isolated_line_distances;
     for(const auto& dimension:dimensions)if(!dimension.suppressed&&dimension.driving&&
         dimension.kind==DimensionKind::Distance&&dimension.geometry_id.empty()&&dimension.value>1e-9) {
@@ -14356,6 +14370,18 @@ SolveResult Sketch::solve_impl(
                     {source->x, source->y}, axis->first, axis->second);
                 result.push_back(mirrored->x - desired[0]);
                 result.push_back(mirrored->y - desired[1]);
+                continue;
+            }
+            if(circular_rank_contact(constraint)) {
+                // Absolute projection distance has a cusp at C. Its numerical
+                // columns can erase the radial sign and misclassify a valid
+                // H/V circle-to-circle length as redundant on the outer side.
+                // Rank uses the smooth circle equation; ordinary solving still
+                // checks the actual support and preserves its persisted side.
+                const auto* point=find_point(constraint.first_point_id);
+                const auto curve=tangent_curve_data(*this,constraint.geometry_id);
+                const auto center=tangent_curve_center(*this,*curve);
+                result.push_back(std::hypot(point->x-(*center)[0],point->y-(*center)[1])-*curve->circular_radius);
                 continue;
             }
             if (constraint.kind == ConstraintKind::PointOnCircle) {
@@ -14849,7 +14875,7 @@ SolveResult Sketch::solve_impl(
         append_equations(count,
             {constraint.first_point_id, constraint.second_point_id,
              constraint.geometry_id, constraint.second_geometry_id},
-            constraint.kind==ConstraintKind::Symmetric||constraint.kind==ConstraintKind::EqualLength||smooth_tangent||
+            constraint.kind==ConstraintKind::Symmetric||constraint.kind==ConstraintKind::EqualLength||smooth_tangent||circular_rank_contact(constraint)||
             (constraint.kind==ConstraintKind::PointOnLine&&immutable_rank_line(constraint.geometry_id).has_value())||
             (constraint.kind==ConstraintKind::MidpointOnLine&&immutable_rank_line(constraint.second_geometry_id).has_value()));
     }

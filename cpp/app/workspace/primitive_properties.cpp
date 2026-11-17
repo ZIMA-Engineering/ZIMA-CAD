@@ -607,6 +607,11 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                     static_cast<void>(zima::workspace::commit_edge_treatment(workspace_,kernel_,owner_id,std::move(committed),
                         edit_mode?zima::workspace::EdgeTreatmentEditMode::Replace:zima::workspace::EdgeTreatmentEditMode::Create,
                         edge_treatment_dialog_->dimension_layouts()));
+                } catch(const zima::workspace::EdgeTreatmentOperationError& error) {
+                    // Rejected geometry must not replace the stored definition.
+                    // Closing restores the ordinary full-history presentation.
+                    if(std::string_view(error.code)=="calculation_failed")return;
+                    throw std::runtime_error(tr(error.what()).toStdString());
                 } catch (const std::exception& error) { throw std::runtime_error(tr(error.what()).toStdString()); }
                 return;
             }

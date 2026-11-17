@@ -37,6 +37,30 @@ int verify_derived_copy_save(QApplication& application, zima::app::AssemblyWorks
     check(plane_yz&&plane_table&&plane_table!=source_table&&
         plane_table->columnCount()==2,
         "Mirror plane input is still coupled to its source table");
+    auto* plane_xy=mirror->findChild<QToolButton*>("copyReferencePresetXY");
+    check(plane_xy&&plane_xy->isChecked()&&
+        mirror->derived_copy.reference.semantic_key=="origin:plane:xy",
+        "New Mirror did not select its own XY plane");
+    auto* view=dynamic_cast<viewer::MeshView*>(window.findChild<QOpenGLWidget*>());
+    check(view,"Mirror view is missing");
+    const auto select_source=[&](app::DerivedCopyDialog* dialog,int row) {
+        auto* table=dialog->findChild<QTableWidget*>("mirrorReferences");
+        const QPointF point=table->visualItemRect(table->item(row,1)).center();
+        auto camera=view->camera_state();camera[0]+=7.;camera[4]*=.73;
+        view->set_camera_state(camera);flush();
+        const auto before=view->camera_state();
+        const auto state=window.execute_console_command("documents").data;
+        for(const auto type:{QEvent::MouseButtonPress,QEvent::MouseButtonRelease}) {
+            QMouseEvent event(type,point,QPointF(table->viewport()->mapToGlobal(point.toPoint())),
+                Qt::LeftButton,type==QEvent::MouseButtonPress?Qt::LeftButton:Qt::NoButton,Qt::NoModifier);
+            QApplication::sendEvent(table->viewport(),&event);
+        }
+        flush();
+        check(view->camera_state()==before,"Source entry reframed the Mirror camera");
+        check(window.execute_console_command("documents").data==state,"Source entry changed the document");
+        return before;
+    };
+    static_cast<void>(select_source(mirror,0));
     mirror->arm(app::DerivedCopyDialog::first_source_field+1);
     mirror->set_source(cut.id,QStringLiteral("Cut"));flush();
     check(mirror->derived_copy.source_ids==
@@ -46,7 +70,6 @@ int verify_derived_copy_save(QApplication& application, zima::app::AssemblyWorks
     check(mirror->derived_copy.source_ids==
         std::vector<std::string>{first.id,cut.id},
         "Selecting a Mirror plane changed its independent sources");
-    auto* view=dynamic_cast<viewer::MeshView*>(window.findChild<QOpenGLWidget*>());
     auto* eye=source_table->cellWidget(1,2)->findChild<QToolButton*>();check(view&&eye&&eye->isEnabled(),"Mirror second-source inspection unavailable");
     const auto draft_state=window.execute_console_command("documents").data;eye->click();flush();
     check(mirror->inspected(app::DerivedCopyDialog::first_source_field+1),"Mirror source eye did not retain inspection state");
@@ -56,7 +79,12 @@ int verify_derived_copy_save(QApplication& application, zima::app::AssemblyWorks
     mirror->buttons()->button(QDialogButtonBox::Ok)->click();flush();
     check(row(mirror_id)&&insertion_visible(),"Mirror OK failed to restore Insert Here without regeneration");
     window.show_tree_item_properties(row(mirror_id));flush();
-    window.findChild<QDialog*>("mirrorDialog")->reject();flush();
+    mirror=dynamic_cast<app::DerivedCopyDialog*>(window.findChild<QDialog*>("mirrorDialog"));
+    check(mirror->findChild<QToolButton*>("copyReferencePresetYZ")->isChecked(),
+        "Editing Mirror replaced the stored YZ plane with the creation default");
+    const auto edit_camera=select_source(mirror,0);
+    mirror->reject();flush();
+    check(view->camera_state()==edit_camera,"Mirror Cancel changed the camera");
     check(insertion_visible(),"Mirror Cancel failed to restore Insert Here without regeneration");
     window.findChild<QAction*>("undoAction")->trigger();flush();check(!row(mirror_id),"Mirror Undo failed");
     check(insertion_visible(),"Mirror Undo lost Insert Here");

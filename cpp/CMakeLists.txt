@@ -2477,6 +2477,11 @@ if(ZIMA_BUILD_TESTS)
         TIMEOUT 120)
     add_test(NAME zima_cpp_application_tools_ui_contract COMMAND zima-cad-cpp --verify-startup)
     add_test(NAME zima_cpp_rectangle_external_contact_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    add_test(NAME zima_cpp_circle_alignment_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    set_tests_properties(zima_cpp_circle_alignment_ui_contract PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.."
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_CIRCLE_ALIGNMENT_ONLY=1"
+        TIMEOUT 240 RUN_SERIAL TRUE)
     set_tests_properties(zima_cpp_rectangle_external_contact_ui_contract PROPERTIES
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.."
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_RECTANGLE_EXTERNAL_CONTACT_ONLY=1"

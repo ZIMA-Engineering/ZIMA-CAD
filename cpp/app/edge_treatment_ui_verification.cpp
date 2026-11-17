@@ -379,19 +379,17 @@ int verify_edge_treatment_ui(QApplication& application, AssemblyWorkspaceWindow&
                 size->setValue(10000);flush();
                 check(ok->isEnabled()&&kernel::body_calculation_count.load()==draft_calculations,
                     "Draft edit built or prevalidated a Body before OK");
+                const auto rejected_owner=pending->container_id();
+                QPointer<PrimitivePropertiesDialog> rejected=pending;
                 ok->click();flush();
-                check(dialog()==pending&&kernel::body_calculation_count.load()>draft_calculations,
-                    "Invalid OK did not calculate/reject the Body while retaining its dialog");
+                check(!rejected&&kernel::body_calculation_count.load()>draft_calculations,
+                    "Failed ZIMA construction did not close Properties");
                 check(run("documents").at(0).at("revision")==revision,
-                    "Failed preview changed the document revision");
-                size->setValue(1);flush();
-                check(ok->isEnabled(),"Corrected treatment did not recover in its dialog");
-                size->setValue(10000);flush();
-                ok->click();flush();
-                check(dialog()==pending,"Second oversized treatment unexpectedly succeeded");
-                finish(false);
-                check(run("documents").at(0).at("revision")==revision,
-                    "Cancel after failure changed the document");
+                    "Failed construction changed the document revision");
+                check(!window.execute_console_command(QString::fromStdString(Json{
+                    {"command",chamfer?"chamfer.get":"fillet.get"},
+                    {"arguments",{{"container",rejected_owner}}}}.dump())).ok,
+                    "Failed construction inserted a treatment definition");
                 for(const bool next_chamfer:{chamfer,!chamfer}) {
                     const auto before_draft=kernel::body_calculation_count.load();
                     window.findChild<QAction*>(next_chamfer?"chamferAction":"filletAction")->trigger();flush();
@@ -422,12 +420,20 @@ int verify_edge_treatment_ui(QApplication& application, AssemblyWorkspaceWindow&
                         "Unchanged recovered treatment OK created an Undo transaction");
                     check(kernel::body_calculation_count.load()==before_unchanged,
                         "Opening/unchanged OK calculated a Body");
+                    QPointer<PrimitivePropertiesDialog> failed_edit=edit(owner);
+                    failed_edit->findChild<QDoubleSpinBox*>("edgeTreatmentPrimary")->setValue(10000);flush();
+                    const QPointF confirmation(view->width()*.5,view->height()*.5);
+                    mouse(QEvent::MouseButtonDblClick,confirmation,Qt::MiddleButton,Qt::MiddleButton);
+                    mouse(QEvent::MouseButtonRelease,confirmation,Qt::MiddleButton,Qt::NoButton);
+                    check(!failed_edit&&run("documents").at(0).at("revision")==before&&
+                            run(query,{{"container",owner}})==created,
+                        "Failed edit did not close and retain the previous treatment");
                     run("undo");run("redo");
                     check(run(query,{{"container",owner}})==created,
                         "Recovered treatment lost its references through Undo/Redo");
                     run("undo");
                 }
-                std::cout<<"Pocket recovery: failed/corrected draft, Cancel, new Fillet and Chamfer, native reopen, Undo/Redo and unchanged OK passed\n";
+                std::cout<<"Pocket recovery: failed OK closes without insertion/replacement, new Fillet and Chamfer, native reopen, Undo/Redo and unchanged OK passed\n";
                 return 0;
             }
             finish(false);

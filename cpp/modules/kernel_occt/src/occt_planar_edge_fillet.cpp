@@ -2242,6 +2242,23 @@ Cutter make_route_cutter(const std::vector<CutterJob>& jobs,
         current=endpoints(ordered.back())[1];
     }
 
+    // A closed route has no authored terminal. Start its section on an
+    // analytic member when selection begins on a cylinder intersection spline;
+    // the complete ordered loop and original source-job identities stay intact.
+    const auto analytic_section=[&](std::size_t index) {
+        const auto type=BRepAdaptor_Curve(jobs[index].edge).GetType();
+        return type==GeomAbs_Line||type==GeomAbs_Circle;
+    };
+    if(!analytic_section(route.front())&&
+       endpoints(ordered.front())[0].IsSame(endpoints(ordered.back())[1])) {
+        const auto seed=std::ranges::find_if(route,analytic_section);
+        if(seed!=route.end()) {
+            std::vector<std::size_t> rotated(route.begin(),route.end());
+            std::rotate(rotated.begin(),rotated.begin()+(seed-route.begin()),rotated.end());
+            return make_route_cutter(jobs,rotated,radius,tolerance,end_faces,end_mode);
+        }
+    }
+
     // The pipe section must belong to the first vertex of the complete open
     // spine.  OCCT accepts a section from an interior route member, but then
     // it can build only the suffix after that member (notably when a small
@@ -2353,6 +2370,9 @@ Cutter make_route_cutter(const std::vector<CutterJob>& jobs,
                 automatic_last=end_faces[index].automatic_last;
         }
     }
+    // The enumeration seam of a closed loop is not a terminal. Inferring
+    // neighboring cap faces there can clip away the returning half of a blend.
+    if(start_vertex.IsSame(end_vertex))automatic_first=automatic_last=false;
     const bool explicit_first=!terminal_faces[0].empty()||
         !curved_terminal_faces[0].empty();
     const bool explicit_last=!terminal_faces[1].empty()||
@@ -4124,9 +4144,20 @@ OcctPlanarEdgeFilletResult occt_planar_edge_fillet(
                 }))generated.Append(face);
     }
     const auto validation_started=Clock::now();
-    if(!BRepCheck_Analyzer(result.shape,true,true,false).IsValid())
+    bool closed=true;
+    if(has_general_route) {
+        // BRepCheck can accept internal face remnants at a tangent Boolean
+        // seam. A published blend also needs a closed manifold boundary.
+        TopTools_IndexedDataMapOfShapeListOfShape boundaries;
+        TopExp::MapShapesAndAncestors(result.shape,TopAbs_EDGE,TopAbs_FACE,boundaries);
+        for(int i=1;i<=boundaries.Extent();++i)
+            if(!BRep_Tool::Degenerated(TopoDS::Edge(boundaries.FindKey(i)))&&
+               boundaries.FindFromIndex(i).Size()!=2){closed=false;break;}
+    }
+    if(!closed||!BRepCheck_Analyzer(result.shape,true,true,false).IsValid()) {
         throw std::runtime_error(
             "Planar edge Fillet produced an invalid Body");
+    }
     result.metrics.validation_ms=
         std::chrono::duration<double,std::milli>(
             Clock::now()-validation_started).count();

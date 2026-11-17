@@ -120,6 +120,11 @@ void AssemblyWorkspaceWindow::start_edge_treatment(
             try {
                 static_cast<void>(zima::workspace::commit_edge_treatment(workspace_,kernel_,part_id,std::move(committed),
                     zima::workspace::EdgeTreatmentEditMode::Create, edge_treatment_dialog_->dimension_layouts()));
+            } catch(const zima::workspace::EdgeTreatmentOperationError& error) {
+                // A failed construction leaves the session untouched. OK still
+                // ends the draft; input validation errors remain in Properties.
+                if(std::string_view(error.code)=="calculation_failed")return;
+                throw std::runtime_error(tr(error.what()).toStdString());
             } catch(const std::exception& error) { throw std::runtime_error(tr(error.what()).toStdString()); }
         }, this);
     properties_dialog_ = dialog;

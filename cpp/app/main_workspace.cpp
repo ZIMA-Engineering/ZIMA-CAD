@@ -6965,6 +6965,7 @@ int verify_rectangle_external_contact_ui(QApplication& application,const std::fi
 #include "reference_pick_performance_ui_verification.inc"
 #include "sketch_hv_view_ui_verification.inc"
 #include "sketch_combined_endpoint_ui_verification.inc"
+#include "sketch_circle_alignment_ui_verification.inc"
 #include "sketch_polyline_tangent_ui_verification.inc"
 int verify_sketch_endpoint_priority_ui(QApplication& application,const std::filesystem::path& directory) {
     using namespace zima;
@@ -11423,6 +11424,7 @@ int verify_startup_contract(
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SURFACE_ONLY")) return verify_surface_profiles_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SKETCH_DIMENSION_ENTRY_ONLY")) return verify_sketch_dimension_entry_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_RECTANGLE_EXTERNAL_CONTACT_ONLY")) return verify_rectangle_external_contact_ui(application,test_directory);
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_CIRCLE_ALIGNMENT_ONLY")) return verify_sketch_circle_alignment_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SKETCH_SLOT_ONLY")) return verify_sketch_slot_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SKETCH_SYMMETRY_HOVER_ONLY")) return verify_sketch_symmetry_hover_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SKETCH_FEATURE_AXIS_REFERENCE_ONLY")) return verify_sketch_feature_axis_reference_ui(application,test_directory);

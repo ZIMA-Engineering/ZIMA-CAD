@@ -265,7 +265,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     const auto strict_failure=host.execute({{"command","fillet.set"},
         {"arguments",{{"container",id},{"radius_mm",500},
             {"calculation_method","zima"}}}});
-    require(!strict_failure.ok&&state->session.revision()==revision&&
+    require(!strict_failure.ok&&strict_failure.code=="calculation_failed"&&state->session.revision()==revision&&
             *state->session.document().find_container(id)==original,
         "Failed explicit ZIMA calculation changed the authored Fillet");
     const auto recovery_actual=calculate_candidate_body(
@@ -976,7 +976,7 @@ void verify_saved_treatment(const kernel::OcctKernel& kernel,const fs::path& pat
         feature.feature_kind=document::FeatureKind::Chamfer;
         document.find_container(owner)->feature_kind=feature.feature_kind;
     }
-    while(document.history.back().id!=owner)
+    while(!std::getenv("ZIMA_VERIFY_SAVED_BLEND_DOWNSTREAM")&&document.history.back().id!=owner)
         document.erase_history_object(document.history.back().id);
     workspace::Workspace prepared;
     prepared.add_part(document,boundaries);
@@ -1017,7 +1017,9 @@ void verify_saved_treatment(const kernel::OcctKernel& kernel,const fs::path& pat
                     std::string(mode)=="ab"?document::EdgeTreatmentParameters::ChamferMode::TwoDistances:
                         document::EdgeTreatmentParameters::ChamferMode::EqualDistance;
             }
-            if(native)candidate.edge_treatment.calculation_method=document::EdgeTreatmentParameters::CalculationMethod::Occt;
+            candidate.edge_treatment.calculation_method=native
+                ?document::EdgeTreatmentParameters::CalculationMethod::Occt
+                :document::EdgeTreatmentParameters::CalculationMethod::Zima;
             kernel::BodyResult body;
             std::string suffix;
             if(const auto* mode=std::getenv("ZIMA_VERIFY_SAVED_BLEND_CHAMFER"))
@@ -1034,6 +1036,16 @@ void verify_saved_treatment(const kernel::OcctKernel& kernel,const fs::path& pat
                 auto brep_path=target;brep_path.replace_extension(".brep");
                 BRepTools::Write(shape,brep_path.string().c_str());
                 std::cout<<"BLEND native="<<native<<" R="<<candidate.edge_treatment.primary_size<<" volume="<<std::setprecision(15)<<body.volume<<std::endl;
+                if(std::getenv("ZIMA_VERIFY_SAVED_BLEND_DOWNSTREAM")) {
+                    std::vector<kernel::BodyResult> restored;
+                    const auto complete=document::PartDocument::load(target,&restored);
+                    require(complete.history.size()==document.history.size()&&!restored.empty(),"Blend lost downstream history");
+                    require(restored.back().calculation_errors.empty(),"Blend broke a downstream operation");
+                    const auto final=kernel::read_calculated_body_shape(restored.back());
+                    require(!final.IsNull()&&BRepCheck_Analyzer(final).IsValid(),"Downstream blend result is invalid");
+                    std::cout<<"BLEND downstream_history="<<complete.history.size()<<" valid=1\n";
+                    continue;
+                }
                 if(!native) {
                     std::vector<std::vector<kernel::ViewerEdge>> groups;
                     for(std::size_t r=0;r<candidate.edge_treatment.routes.size();++r)

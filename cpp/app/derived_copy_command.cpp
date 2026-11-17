@@ -141,7 +141,7 @@ void AssemblyWorkspaceWindow::show_derived_copy_properties(const std::string& id
                 kernel::ViewerReferenceGeometry references{offer.vertices,offer.triangles,offer.triangle_references,offer.edges,{},{}};
                 append_derived_copy_references(mesh.original_references,references);
             }
-            viewer_->set_mesh(std::move(mesh));
+            viewer_->set_mesh(std::move(mesh),false);
         }
         const bool assembly_copy=workspace_.open_assembly(document_id)!=nullptr;
         const auto accepts=[dialog,source_id,prefix,row,assembly_copy,edit](const viewer::ViewerCandidate& candidate) {
@@ -348,13 +348,13 @@ void AssemblyWorkspaceWindow::show_derived_copy_properties(const std::string& id
             refresh_scene();
             // Keep the established nested-Assembly path: measured gains were
             // not consistent there. Part-owned copies use the single publish.
-            if(!prefix.empty()&&derived_copy_assembly_preview_)viewer_->set_mesh(nested_scene());
+            if(!prefix.empty()&&derived_copy_assembly_preview_)viewer_->set_mesh(nested_scene(),false);
         }
         if(prefix.empty()&&workspace_.open_part(document_id)&&std::ranges::none_of(viewer_->mesh().original_references.axes,[&](const auto& axis) {
             return axis.reference.owner_id==dialog->pending.container_origin.id;
         })) {
             auto mesh=viewer_->mesh();append_derived_copy_references(mesh,origin);
-            append_derived_copy_references(mesh.original_references,origin.original_references);viewer_->set_mesh(std::move(mesh));
+            append_derived_copy_references(mesh.original_references,origin.original_references);viewer_->set_mesh(std::move(mesh),false);
         }
         // Preview the same visible edges as the ordinary View. Turning the
         // source into an overlay must not expose surface parameter seams or

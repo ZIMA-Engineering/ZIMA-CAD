@@ -298,7 +298,12 @@ AssemblyWorkspaceWindow::sketch_candidate_snap_ray(
                 : sketch->external_references.end();
             if (reference != sketch->external_references.end()) {
                 support_geometry_id = reference->id;
-                if (reference->kind ==
+                if(sketch->circular_radius(reference->id)) {
+                    // Circular references own an exact C contact, just like
+                    // native circles. A polyline chord is only their display.
+                    position=sketch->project_point_to_curve(reference->id,(*cursor)[0],(*cursor)[1]);
+                    if(position)relation=zima::sketcher::ConstraintKind::PointOnCircle;
+                } else if (reference->kind ==
                         zima::sketcher::ExternalReferenceKind::Axis ||
                     (reference->kind ==
                          zima::sketcher::ExternalReferenceKind::Face &&
@@ -775,6 +780,24 @@ bool AssemblyWorkspaceWindow::accept_sketch_segment_ray(
                     sketch_inference_settings_);
                 if(direction_inference)inferred_end.reference_point_id.clear();
             }
+        }
+    }
+    if ((end_snap_kind == zima::sketcher::ConstraintKind::PointOnCircle ||
+         end_snap_kind == zima::sketcher::ConstraintKind::PointOnLine) &&
+        sketch->circular_radius(end_snap_geometry_id) &&
+        inferred_end.tangent_reference_id.empty() &&
+        inferred_end.perpendicular_reference_id.empty() &&
+        inferred_end.parallel_reference_id.empty() &&
+        !(sketch_polyline_active_ && sketch_polyline_arc_mode_)) {
+        const double tolerance=viewer_->world_tolerance_for_pixels(2.*viewer_->devicePixelRatioF());
+        direction_inference=infer_snapped_line_endpoint_direction(
+            *pending_segment_start_,confirmed_position,tolerance,sketch_inference_settings_);
+        if(direction_inference) {
+            const auto coordinate=*direction_inference==zima::sketcher::ConstraintKind::Horizontal?1u:0u;
+            if(const auto contact=circular_coordinate_contact(*sketch,end_snap_geometry_id,
+                    coordinate,(*pending_segment_start_)[coordinate],confirmed_position,tolerance)) {
+                confirmed_position=*contact;inferred_end.reference_point_id.clear();
+            } else direction_inference.reset();
         }
     }
     if (end_snap_kind == zima::sketcher::ConstraintKind::PointOnLine &&

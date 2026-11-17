@@ -484,6 +484,21 @@ void AssemblyWorkspaceWindow::preview_sketch_segment_ray(
         inference.kind=snapped_line_direction;
         if(inference.kind)inference.reference_point_id.clear();
     }
+    if ((endpoint_snap_kind == zima::sketcher::ConstraintKind::PointOnCircle ||
+         endpoint_snap_kind == zima::sketcher::ConstraintKind::PointOnLine) &&
+        sketch->circular_radius(endpoint_snap_geometry) && !endpoint_tangent &&
+        inference.perpendicular_reference_id.empty() && inference.parallel_reference_id.empty() &&
+        !(sketch_polyline_active_ && sketch_polyline_arc_mode_)) {
+        inference.kind=infer_snapped_line_endpoint_direction(*pending_segment_start_,
+            *position,direction_tolerance,sketch_inference_settings_);
+        if(inference.kind) {
+            const auto coordinate=*inference.kind==zima::sketcher::ConstraintKind::Horizontal?1u:0u;
+            if(const auto contact=circular_coordinate_contact(*sketch,endpoint_snap_geometry,
+                    coordinate,(*pending_segment_start_)[coordinate],*position,direction_tolerance)) {
+                inference.position=*contact;inference.reference_point_id.clear();
+            } else inference.kind.reset();
+        }
+    }
     const bool snapped_start_tangent=(endpoint_snap || pending_sketch_snap_kind_) &&
         automatic_constraint_enabled(zima::sketcher::ConstraintKind::Tangent) &&
         start_tangent_matches_endpoint(*sketch,offered_start_tangent,*pending_segment_start_,inference.position,tangent_tolerance);
@@ -993,7 +1008,10 @@ void AssemblyWorkspaceWindow::preview_sketch_rectangle_ray(
     std::optional<zima::sketcher::ConstraintKind> current_snap_kind;
     if(!sketch_skip_candidate_snap_)
         if(const auto candidate=viewer_->hovered_candidate())
-            if(const auto id=sketch_external_reference_id_from_key(candidate->semantic_key)) {
+            if(const auto snap=sketch_candidate_snap_ray(*candidate,origin,direction)) {
+                current_snap_geometry_id=snap->support_geometry_id;
+                current_snap_kind=snap->relation;
+            } else if(const auto id=sketch_external_reference_id_from_key(candidate->semantic_key)) {
                 const auto reference=std::ranges::find(sketch->external_references,*id,
                     &zima::sketcher::SketchExternalReference::id);
                 if(reference!=sketch->external_references.end())
@@ -1178,19 +1196,22 @@ AssemblyWorkspaceWindow::inferred_sketch_rectangle_midpoint_snap(
     const bool alignment_snap=second_snap_kind&&
         (*second_snap_kind==zima::sketcher::ConstraintKind::Horizontal||
          *second_snap_kind==zima::sketcher::ConstraintKind::Vertical);
-    if(second_snap_kind&&!alignment_snap&&!reference_span_symmetry_coordinate)return std::nullopt;
+    const bool circular_contact=(second_snap_kind==zima::sketcher::ConstraintKind::PointOnCircle||
+        second_snap_kind==zima::sketcher::ConstraintKind::PointOnLine)&&
+        sketch->circular_radius(second_snap_geometry_id).has_value();
+    if(second_snap_kind&&!alignment_snap&&!reference_span_symmetry_coordinate&&!circular_contact)return std::nullopt;
     if (!sketch_skip_candidate_snap_) {
         if (const auto candidate = viewer_->hovered_candidate()) {
             const auto ray = sketch->normal_ray(opposite[0], opposite[1]);
             if (const auto snap=sketch_candidate_snap_ray(*candidate, ray.first, ray.second);
                 snap&&snap->relation!=zima::sketcher::ConstraintKind::Horizontal&&
                 snap->relation!=zima::sketcher::ConstraintKind::Vertical&&
-                !reference_span_symmetry_coordinate) return std::nullopt;
+                !reference_span_symmetry_coordinate&&!circular_contact) return std::nullopt;
         }
     }
     // Intermediate corners, rather than the pointer, meet a sheet endpoint.
     // C outranks cursor H/V to the same endpoint; the first corner stays fixed.
-    if(contact_enabled&&!sketch_skip_candidate_snap_) {
+    if(contact_enabled&&!sketch_skip_candidate_snap_&&!circular_contact) {
         std::optional<SketchRectangleMidpointSnap> chosen;double best_distance=tolerance;
         const auto offer=[&](const std::string& id,const std::array<double,2>& p,bool external) {
             for(const std::size_t side:{1u,3u}) {
@@ -1212,8 +1233,8 @@ AssemblyWorkspaceWindow::inferred_sketch_rectangle_midpoint_snap(
             for(const auto& point:sketch->points)offer(point.id,{point.x,point.y},false);
         if(chosen)return chosen;
     }
-    if(second_snap_kind&&!reference_span_symmetry_coordinate)return std::nullopt;
-    if(zima::viewer::matches_selection_filter(
+    if(second_snap_kind&&!reference_span_symmetry_coordinate&&!circular_contact)return std::nullopt;
+    if(!circular_contact&&zima::viewer::matches_selection_filter(
         {zima::viewer::CandidateKind::SketchExternalReference,0,0,active_sketch_id_,"external_point:contact"},viewer_->selection_filter())) {
         for(bool midpoint:{true,false}) {
             if(midpoint?!midpoint_enabled:!contact_enabled)continue;
@@ -1249,6 +1270,7 @@ AssemblyWorkspaceWindow::inferred_sketch_rectangle_midpoint_snap(
         double coordinate{};
         double distance{};
         std::size_t side_index{};
+        std::optional<std::array<double,2>> contact;
     };
     std::array<std::optional<AxisCandidate>, 2> best;
     const auto offer = [&](const std::string& axis_id,
@@ -1275,9 +1297,15 @@ AssemblyWorkspaceWindow::inferred_sketch_rectangle_midpoint_snap(
         } else {
             return;
         }
-        candidate.distance = distance;
         const std::size_t coordinate_index = candidate.side_index == 0 ? 0 : 1;
         if(reference_span_symmetry_coordinate&&coordinate_index!=*reference_span_symmetry_coordinate)return;
+        if(circular_contact) {
+            candidate.contact=circular_coordinate_contact(*sketch,second_snap_geometry_id,
+                coordinate_index,candidate.coordinate,opposite,2.*tolerance);
+            if(!candidate.contact)return;
+            distance=.5*std::hypot((*candidate.contact)[0]-opposite[0],(*candidate.contact)[1]-opposite[1]);
+        }
+        candidate.distance = distance;
         if (distance <= tolerance &&
             std::abs(candidate.coordinate - first[coordinate_index]) > 1.0e-9 &&
             (!best[coordinate_index] ||
@@ -1297,9 +1325,16 @@ AssemblyWorkspaceWindow::inferred_sketch_rectangle_midpoint_snap(
              axis_second->y - axis_first->y});
     }
     SketchRectangleMidpointSnap result{opposite, {}};
+    if(circular_contact) {
+        const auto nearest=best[0]&&(!best[1]||best[0]->distance<=best[1]->distance)?0u:1u;
+        if(!best[nearest])return std::nullopt;
+        result.opposite=*best[nearest]->contact;
+    }
     for (std::size_t coordinate = 0; coordinate < best.size(); ++coordinate) {
         if (!best[coordinate]) continue;
-        result.opposite[coordinate] = best[coordinate]->coordinate;
+        if(circular_contact) {
+            if(std::abs(result.opposite[coordinate]-best[coordinate]->coordinate)>1.e-7)continue;
+        } else result.opposite[coordinate] = best[coordinate]->coordinate;
         result.constraints.push_back({
             best[coordinate]->axis_id, best[coordinate]->side_index});
     }

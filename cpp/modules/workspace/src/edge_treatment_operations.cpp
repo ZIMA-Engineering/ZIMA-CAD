@@ -276,7 +276,7 @@ bool commit_edge_treatment(Workspace& live,const kernel::OcctKernel& kernel,cons
     if(require_valid_result&&!calculated.empty()) {
         const auto& errors=calculated.back().calculation_errors;
         if(const auto issue=errors.find(feature_id);issue!=errors.end())
-            throw std::runtime_error(issue->second);
+            throw Error("calculation_failed",issue->second.c_str());
     }
     state->session.commit(std::move(next),std::move(calculated));return true;
 }

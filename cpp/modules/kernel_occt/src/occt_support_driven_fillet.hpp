@@ -4,6 +4,7 @@
 #include <Geom_BSplineCurve.hxx>
 #include <Geom_TrimmedCurve.hxx>
 #include <ShapeFix_Edge.hxx>
+#include <ShapeFix_Face.hxx>
 #include <GeomFill_Frenet.hxx>
 #include <BRepBuilderAPI_Sewing.hxx>
 #include <BRepBuilderAPI_MakeSolid.hxx>
@@ -214,6 +215,10 @@ inline Result build(std::span<const TopoDS_Edge> ordered,
             }
         }
         if(item.centers.IsNull())throw std::runtime_error("Rolling route has no center line");
+        // IntSS may return a closed, non-periodic spline. A route crossing its
+        // seam must keep the short authored branch instead of the other turn.
+        if(item.centers->IsClosed()&&!item.centers->IsPeriodic())
+            if(const auto spline=occ::down_cast<Geom_BSplineCurve>(item.centers))spline->SetPeriodic();
         TopoDS_Vertex a,b;TopExp::Vertices(item.source,a,b,true);
         GeomAPI_ProjectPointOnCurve start(center_guess(item,BRep_Tool::Pnt(a),signed_radius),item.centers);
         GeomAPI_ProjectPointOnCurve end(center_guess(item,BRep_Tool::Pnt(b),signed_radius),item.centers);
@@ -308,7 +313,7 @@ inline Result build(std::span<const TopoDS_Edge> ordered,
             TopoDS_Wire section;
             if(binormal) {
                 circle_frame.SetXDirection(*binormal);
-                double lo=0.,hi=0.;
+                std::optional<double> anchor_angle;double lo=1.e100,hi=-1.e100;
                 for(int sample=0;sample<=20;++sample) {
                     const double parameter=u+(v-u)*sample/20.;
                     gp_Pnt center;gp_Vec tangent;item.centers->D1(parameter,center,tangent);
@@ -317,7 +322,9 @@ inline Result build(std::span<const TopoDS_Edge> ordered,
                     for(const auto& surface:item.supports) {
                         auto radial=gp_Vec(normal(surface.face,center));
                         if(adds)radial.Reverse();
-                        const double angle=std::atan2(radial.Dot(y),radial.Dot(gp_Vec(*binormal)));
+                        double angle=std::atan2(radial.Dot(y),radial.Dot(gp_Vec(*binormal)));
+                        if(anchor_angle)angle+=2.*std::numbers::pi*std::round((*anchor_angle-angle)/(2.*std::numbers::pi));
+                        else anchor_angle=angle;
                         lo=std::min(lo,angle);hi=std::max(hi,angle);
                     }
                 }
@@ -354,7 +361,10 @@ inline Result build(std::span<const TopoDS_Edge> ordered,
                 section=wire.Wire();
             }
             BRepOffsetAPI_MakePipeShell pipe(BRepBuilderAPI_MakeWire(rail).Wire());
-            pipe.SetTolerance(tolerance,tolerance,1.e-6);
+            // The envelope must agree with its analytic contact curves more
+            // accurately than the final Boolean merge allowance. Otherwise a
+            // tangent join can retain a narrow support flap or an open seam.
+            pipe.SetTolerance(std::min(tolerance,1.e-10),std::min(tolerance,1.e-10),1.e-9);
             if(binormal)pipe.SetMode(*binormal);else pipe.SetMode(true);
             TopoDS_Vertex rail_start,rail_end;TopExp::Vertices(rail,rail_start,rail_end,true);
             pipe.Add(section,rail_start,false,false);pipe.Build();
@@ -471,32 +481,132 @@ inline Result build(std::span<const TopoDS_Edge> ordered,
             Result component;component.solid=cut.Shape();
             {
                 TopTools_IndexedMapOfShape selected;
-                const auto select_at=[&](const gp_Pnt& point,const auto& accepts) {
-                    for(TopExp_Explorer entry(cut.Shape(),TopAbs_FACE);entry.More();entry.Next()) {
-                        const auto face=TopoDS::Face(entry.Current());if(!accepts(face))continue;
-                        BRepClass_FaceClassifier classifier(face,point,10.*tolerance);
-                        if(classifier.State()==TopAbs_IN||classifier.State()==TopAbs_ON){
-                            GeomAPI_ProjectPointOnSurf projection(point,BRep_Tool::Surface(face));
-                            double u,v;projection.LowerDistanceParameters(u,v);
-                            BRepClass_FaceClassifier uv_classifier(face,gp_Pnt2d(u,v),10.*tolerance);
-                            if(uv_classifier.State()==TopAbs_IN||uv_classifier.State()==TopAbs_ON){selected.Add(face);}
+                // Trim regular sections from the exact contact boundaries.
+                // Boolean intersection at tangent surfaces can leave two
+                // nearby seams and a flap even when each face is valid. Keep
+                // the established limiting construction at a collapsed end.
+                const bool exact_boundaries=binormal ||
+                    (normal(item.supports[0].face,first).Dot(normal(item.supports[1].face,first))<1.-1.e-12&&
+                     normal(item.supports[0].face,last).Dot(normal(item.supports[1].face,last))<1.-1.e-12);
+                std::array<std::array<TopoDS_Edge,2>,2> cap_edges;
+                std::array<std::array<gp_Pnt,2>,2> cap_contacts;
+                if(exact_boundaries) {
+                    const auto between=[&](occ::handle<Geom_Curve> curve,const gp_Pnt& a,const gp_Pnt& b) {
+                        if(curve->IsClosed()&&!curve->IsPeriodic())
+                            if(const auto spline=occ::down_cast<Geom_BSplineCurve>(curve->Copy())) {
+                                spline->SetPeriodic();curve=spline;
+                            }
+                        GeomAPI_ProjectPointOnCurve pa(a,curve),pb(b,curve);
+                        if(!pa.NbPoints()||!pb.NbPoints()||pa.LowerDistance()>10.*tolerance||pb.LowerDistance()>10.*tolerance)
+                            throw std::runtime_error("Contact boundary misses section");
+                        double u=pa.LowerDistanceParameter(),v=pb.LowerDistanceParameter();
+                        if(curve->IsPeriodic())v+=curve->Period()*std::round((u-v)/curve->Period());
+                        auto edge=BRepBuilderAPI_MakeEdge(curve,std::min(u,v),std::max(u,v)).Edge();
+                        if(v<u)edge.Reverse();
+                        // Keep the measured projection residual on each end
+                        // vertex so wire assembly can join these exact curves.
+                        // The projection was already bounded by 10*tolerance.
+                        TopoDS_Vertex start,end;TopExp::Vertices(edge,start,end,true);
+                        BRep_Builder builder;
+                        builder.UpdateVertex(start,std::max(tolerance,2.*BRep_Tool::Pnt(start).Distance(a)));
+                        builder.UpdateVertex(end,std::max(tolerance,2.*BRep_Tool::Pnt(end).Distance(b)));
+                        return edge;
+                    };
+                    const auto corner_first=section_corner(item,first,gp_Dir(tangent_first),edge_point,tolerance);
+                    const auto corner_last=section_corner(item,last,gp_Dir(tangent_last),edge_point,tolerance);
+                    TopoDS_Edge source_edge;
+                    try {source_edge=between(source_curve,corner_first,corner_last);}
+                    catch(const std::runtime_error&) {
+                        // A source Boolean edge can be less accurate than the
+                        // analytic supports. Reconstruct their intersection
+                        // without enlarging the construction tolerance.
+                        GeomAPI_IntSS intersection(item.supports[0].surface,item.supports[1].surface,1.e-10);
+                        for(int k=1;intersection.IsDone()&&k<=intersection.NbLines();++k) {
+                            try {source_edge=between(intersection.Line(k),corner_first,corner_last);break;}catch(const std::runtime_error&){}
                         }
+                        if(source_edge.IsNull())throw;
+                    }
+                    for(std::size_t index=0;index<2;++index) {
+                        const auto& support=item.supports[index];const auto& contact=contact_edges[index].first;
+                        double ca,cb;const auto cc=BRep_Tool::Curve(contact,ca,cb);
+                        auto a=cc->Value(ca),b=cc->Value(cb);
+                        if(a.Distance(first)>b.Distance(first))std::swap(a,b);
+                        const auto boundary=[&](const gp_Pnt& center,const gp_Vec& tangent,const gp_Pnt& from,const gp_Pnt& to) {
+                            if(from.Distance(to)<=tolerance)return TopoDS_Edge{};
+                            GeomAPI_IntSS intersection(support.surface,new Geom_Plane(center,gp_Dir(tangent)),tolerance);
+                            for(int k=1;intersection.IsDone()&&k<=intersection.NbLines();++k) {
+                                try{return between(intersection.Line(k),from,to);}catch(const std::runtime_error&){}
+                            }
+                            throw std::runtime_error("Contact section has no boundary");
+                        };
+                        BRepBuilderAPI_MakeWire wire;wire.Add(source_edge);
+                        const auto last_edge=boundary(last,tangent_last,corner_last,b);
+                        if(!last_edge.IsNull())wire.Add(last_edge);
+                        wire.Add(contact);
+                        const auto first_edge=boundary(first,tangent_first,a,corner_first);
+                        if(!first_edge.IsNull())wire.Add(first_edge);
+                        cap_edges[0][index]=first_edge;cap_edges[1][index]=last_edge;
+                        cap_contacts[0][index]=a;cap_contacts[1][index]=b;
+                        if(!wire.IsDone())throw std::runtime_error("Contact boundary is not connected");
+                        BRepBuilderAPI_MakeFace patch(support.surface,wire.Wire(),true);
+                        if(!patch.IsDone())throw std::runtime_error("Contact support patch failed");
+                        for(TopExp_Explorer e(patch.Face(),TopAbs_EDGE);e.More();e.Next()) {
+                            ShapeFix_Edge fix;fix.FixAddPCurve(TopoDS::Edge(e.Current()),patch.Face(),false,tolerance);
+                        }
+                        ShapeFix_Face fix(patch.Face());fix.SetPrecision(tolerance);fix.SetMaxTolerance(10.*tolerance);fix.Perform();
+                        const auto fixed=fix.Face();
+                        // Re-evaluate the inside after periodic pcurves have
+                        // been aligned; doing it before that can invert a patch.
+                        BRepBuilderAPI_MakeFace oriented(support.surface,BRepTools::OuterWire(fixed),true);
+                        selected.Add(oriented.Face());
+                    }
+                }
+                const auto select_at=[&](const TopoDS_Shape& shape,const gp_Pnt& point,const auto& accepts) {
+                    for(TopExp_Explorer entry(shape,TopAbs_FACE);entry.More();entry.Next()) {
+                        const auto face=TopoDS::Face(entry.Current());if(!accepts(face))continue;
+                        const auto surface=BRep_Tool::Surface(face);
+                        GeomAPI_ProjectPointOnSurf projection(point,surface);
+                        if(!projection.NbPoints()||projection.LowerDistance()>10.*tolerance)continue;
+                        double u,v;projection.LowerDistanceParameters(u,v);
+                        double u0,u1,v0,v1;BRepTools::UVBounds(face,u0,u1,v0,v1);
+                        if(surface->IsUPeriodic())u+=surface->UPeriod()*std::round((.5*(u0+u1)-u)/surface->UPeriod());
+                        if(surface->IsVPeriodic())v+=surface->VPeriod()*std::round((.5*(v0+v1)-v)/surface->VPeriod());
+                        BRepClass_FaceClassifier classifier(face,gp_Pnt2d(u,v),10.*tolerance);
+                        if(classifier.State()==TopAbs_IN||classifier.State()==TopAbs_ON)selected.Add(face);
                     }
                 };
-                for(const auto& surface:item.supports) {
+                if(!exact_boundaries)for(const auto& surface:item.supports) {
                     GeomAPI_ProjectPointOnSurf projection(inside,surface.surface);
-                    select_at(projection.NearestPoint(),[&](const TopoDS_Face& face) {Support other;other.face=face;return same(surface,other,tolerance);});
+                    select_at(cut.Shape(),projection.NearestPoint(),[&](const TopoDS_Face& face){Support other;other.face=face;return same(surface,other,tolerance);});
                 }
+                const int support_count=selected.Extent();
                 const auto rim=middle.Translated(gp_Vec(edge_point,middle).Normalized()*(-radius));
-                select_at(rim,[&](const TopoDS_Face& face) {
+                select_at(exact_boundaries?pipe_shape:cut.Shape(),rim,[&](const TopoDS_Face& face) {
                     GeomAPI_ProjectPointOnSurf projection(rim,BRep_Tool::Surface(face));
                     return projection.NbPoints()&&projection.LowerDistance()<10.*tolerance;
                 });
+                std::vector<TopoDS_Shape> envelope;
+                for(int k=support_count+1;k<=selected.Extent();++k)envelope.push_back(selected.FindKey(k));
+                if(exact_boundaries)for(std::size_t end=0;end<2;++end) {
+                    const auto& a=cap_contacts[end][0];const auto& b=cap_contacts[end][1];
+                    if(a.Distance(b)<=tolerance)continue;
+                    const auto center=end?last:first;
+                    const auto mid=center.Translated((gp_Vec(center,a)+gp_Vec(center,b)).Normalized()*radius);
+                    BRepBuilderAPI_MakeWire wire;
+                    if(!cap_edges[end][0].IsNull())wire.Add(cap_edges[end][0]);
+                    wire.Add(BRepBuilderAPI_MakeEdge(GC_MakeArcOfCircle(a,mid,b).Value()).Edge());
+                    if(!cap_edges[end][1].IsNull())wire.Add(cap_edges[end][1]);
+                    if(!wire.IsDone())throw std::runtime_error("Contact cap boundary is not connected");
+                    BRepBuilderAPI_MakeFace cap(wire.Wire(),true);
+                    if(!cap.IsDone())throw std::runtime_error("Contact cap failed");
+                    selected.Add(cap.Face());
+                }
+                if(!exact_boundaries)
                 for(const auto& end:std::array{std::pair{first,tangent_first},std::pair{last,tangent_last}}) {
                     if(normal(item.supports[0].face,end.first).Dot(normal(item.supports[1].face,end.first))>1.-1.e-12)continue;
                     auto corner=section_corner(item,end.first,gp_Dir(end.second),edge_point,tolerance);
                     const auto cap_inside=corner.Translated(gp_Vec(corner,end.first)*.05);
-                    select_at(cap_inside,[&](const TopoDS_Face& face) {
+                    select_at(cut.Shape(),cap_inside,[&](const TopoDS_Face& face) {
                         const BRepAdaptor_Surface surface(face);
                         return surface.GetType()==GeomAbs_Plane&&surface.Plane().Axis().Direction().IsParallel(gp_Dir(end.second),1.e-7)&&surface.Plane().Distance(end.first)<10.*tolerance;
                     });
@@ -506,16 +616,16 @@ inline Result build(std::span<const TopoDS_Edge> ordered,
                 sewing.Perform();
                 if(sewing.SewedShape().IsNull()||sewing.NbFreeEdges()||sewing.NbMultipleEdges()||sewing.SewedShape().ShapeType()!=TopAbs_SHELL)throw std::runtime_error("Corner shell is not closed");
                 auto solid=BRepBuilderAPI_MakeSolid(TopoDS::Shell(sewing.SewedShape())).Solid();
-                if(!BRepLib::OrientClosedSolid(solid)||!BRepCheck_Analyzer(solid).IsValid())throw std::runtime_error("Corner shell is not a solid");
+                if(!BRepLib::OrientClosedSolid(solid)||!BRepCheck_Analyzer(solid).IsValid()) {
+                    throw std::runtime_error("Corner shell is not a solid");
+                }
                 component.solid=solid;
+                for(const auto& source:envelope) {
+                    TopoDS_Shape mapped=source;
+                    if(sewing.IsModifiedSubShape(source))mapped=sewing.ModifiedSubShape(source);
+                    if(mapped.ShapeType()==TopAbs_FACE)component.faces.push_back(TopoDS::Face(mapped));
+                }
             }
-            TopTools_IndexedMapOfShape cut_faces;TopExp::MapShapes(component.solid,TopAbs_FACE,cut_faces);
-            for(const auto& source:lateral_faces)
-              {
-                if(source.ShapeType()==TopAbs_FACE&&cut_faces.Contains(source))component.faces.push_back(TopoDS::Face(source));
-                for(const auto& face:cut.Modified(source))
-                    if(face.ShapeType()==TopAbs_FACE&&cut_faces.Contains(face))component.faces.push_back(TopoDS::Face(face));
-              }
             if(component.faces.empty())throw std::runtime_error("Rolling route lost its contact surface");
             if(result.solid.IsNull()){result=std::move(component);continue;}
             BRepAlgoAPI_Fuse fuse;fuse.SetArguments({result.solid});fuse.SetTools({component.solid});

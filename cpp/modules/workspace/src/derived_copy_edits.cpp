@@ -145,7 +145,7 @@ DerivedCopyEdit prepare_derived_copy_edit(Workspace& live,const std::string& id,
         if(pattern) {
             edit.initial.parameters.pattern=kernel::PatternRequest{};
             edit.initial.parameters.reference={{},edit.initial.id+":origin","origin:axis:z"};
-        }
+        } else edit.initial.parameters.reference={{},edit.initial.id+":origin","origin:plane:xy"};
     }else edit.initial=derived_copy_definition(live,id,object);
     edit.references=references(live,id,edit.sources);return edit;
 }

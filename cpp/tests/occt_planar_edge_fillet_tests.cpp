@@ -8,6 +8,7 @@
 #include <BRepAlgoAPI_Fuse.hxx>
 #include <BRepCheck_Analyzer.hxx>
 #include <BRepClass_FaceClassifier.hxx>
+#include <BRepClass3d_SolidClassifier.hxx>
 #include <BRepExtrema_DistShapeShape.hxx>
 #include <BRepFilletAPI_MakeFillet.hxx>
 #include <BRepGProp.hxx>
@@ -1199,6 +1200,78 @@ void verify_rolling_support(const TopoDS_Shape& input,
         "Reversed rolling-support Fillet lost an exact tangent contact");
 }
 
+void verify_cylindrical_rib_route() {
+    const auto box=BRepPrimAPI_MakeBox(gp_Pnt(-70,-12,-10),140,24,20).Shape();
+    std::vector<TopoDS_Edge> long_edges;
+    TopTools_IndexedMapOfShape box_edges;TopExp::MapShapes(box,TopAbs_EDGE,box_edges);
+    for(const auto& e:box_edges) {
+        const auto edge=TopoDS::Edge(e);BRepAdaptor_Curve curve(edge);
+        if(std::abs(curve.Value(curve.FirstParameter()).X()-curve.Value(curve.LastParameter()).X())>100.)long_edges.push_back(edge);
+    }
+    const auto rib=zima::kernel::occt_planar_edge_fillet(box,long_edges,4.,1.e-7).Shape();
+    TopoDS_Shape input=rib;
+    for(double x:{-70.,70.})input=BRepAlgoAPI_Fuse(input,BRepPrimAPI_MakeCylinder(gp_Ax2(gp_Pnt(x,0,-30),gp_Dir(0,0,1)),40,60).Shape()).Shape();
+    require(BRepCheck_Analyzer(input).IsValid(),"Cylindrical rib fixture is invalid");
+    TopTools_IndexedDataMapOfShapeListOfShape adjacent;
+    TopExp::MapShapesAndAncestors(input,TopAbs_EDGE,TopAbs_FACE,adjacent);
+    std::array<std::vector<TopoDS_Edge>,2> routes;
+    for(int i=1;i<=adjacent.Extent();++i) {
+        const auto& faces=adjacent.FindFromIndex(i);if(faces.Size()!=2)continue;
+        std::optional<unsigned> boss;bool rib_support=false;
+        for(const auto& face:faces) {
+            BRepAdaptor_Surface surface(TopoDS::Face(face));
+            if(surface.GetType()==GeomAbs_Cylinder) {
+                if(std::abs(surface.Cylinder().Radius()-40.)<1.e-7)boss=surface.Cylinder().Location().X()<0?0u:1u;
+                else if(std::abs(surface.Cylinder().Radius()-4.)<1.e-7)rib_support=true;
+            } else if(surface.GetType()==GeomAbs_Plane) {
+                const auto p=surface.Plane().Location();
+                if(std::abs(std::abs(p.Z())-10.)<1.e-7||std::abs(std::abs(p.Y())-12.)<1.e-7)rib_support=true;
+            }
+        }
+        if(boss&&rib_support)routes[*boss].push_back(TopoDS::Edge(adjacent.FindKey(i)));
+    }
+    require(routes[0].size()>=8&&routes[1].size()>=8,"Cylindrical rib lost its closed corner routes");
+    std::optional<double> expected_volume;
+    for(double tolerance:{1.e-7,1.e-6})for(bool reverse:{false,true}) {
+        std::vector<TopoDS_Edge> selected;
+        for(auto route:routes) {
+            if(reverse){std::ranges::reverse(route);for(auto& edge:route)edge.Reverse();}
+            selected.insert(selected.end(),route.begin(),route.end());
+        }
+        const std::array counts{routes[0].size(),routes[1].size()};
+        const auto result=zima::kernel::occt_planar_edge_fillet(input,selected,3.,tolerance,{},
+            zima::kernel::OcctPlanarEdgeFilletEndMode::AutomaticBodyEnvelope,counts);
+        require(BRepCheck_Analyzer(result.shape,true,true,false).IsValid(),"Cylindrical rib blend is invalid");
+        TopTools_IndexedMapOfShape solids,treatments;TopExp::MapShapes(result.shape,TopAbs_SOLID,solids);
+        require(solids.Extent()==1,"Cylindrical rib blend is not one solid");
+        for(const auto& faces:result.fillet_faces){require(!faces.empty(),"Cylindrical rib lost member ancestry");for(const auto& f:faces)treatments.Add(f);}
+        TopTools_IndexedDataMapOfShapeListOfShape boundaries;TopExp::MapShapesAndAncestors(result.shape,TopAbs_EDGE,TopAbs_FACE,boundaries);
+        unsigned contacts{};
+        for(int i=1;i<=boundaries.Extent();++i) {
+            const auto& faces=boundaries.FindFromIndex(i);require(faces.Size()==2,"Cylindrical rib has an open or non-manifold boundary");
+            auto it=faces.cbegin();const auto a=TopoDS::Face(*it++),b=TopoDS::Face(*it);
+            if(treatments.Contains(a)==treatments.Contains(b))continue;
+            const double dot=std::abs(face_normal_on_edge(a,TopoDS::Edge(boundaries.FindKey(i))).Dot(
+                face_normal_on_edge(b,TopoDS::Edge(boundaries.FindKey(i)))));
+            require(dot>1.-1.e-6,"Cylindrical rib lost tangent support contact");++contacts;
+        }
+        require(contacts>=16,"Cylindrical rib did not retain its support contacts");
+        const double actual=volume(result.shape);require(actual>volume(input),"Concave cylindrical rib did not add material");
+        if(expected_volume)require(std::abs(actual-*expected_volume)<1.e-3,"Cylindrical rib depends on selection order");else expected_volume=actual;
+        // Away from the authored edge neighborhood, material membership must
+        // stay identical. A merely valid solid can still contain extended flaps.
+        for(double x=-45.;x<=45.;x+=5.)for(double y:{-19.,-15.,-9.,0.,9.,15.,19.})for(double z:{-19.,-15.,-9.,0.,9.,15.,19.}) {
+            const gp_Pnt p(x,y,z);const auto vertex=BRepBuilderAPI_MakeVertex(p).Vertex();
+            double distance=1.e100;
+            for(const auto& edge:selected){BRepExtrema_DistShapeShape d(vertex,edge);if(d.IsDone())distance=std::min(distance,d.Value());}
+            if(distance<=7.5)continue;
+            const auto before=BRepClass3d_SolidClassifier(input,p,1.e-7).State();
+            const auto after=BRepClass3d_SolidClassifier(result.shape,p,1.e-7).State();
+            if(before!=TopAbs_ON&&after!=TopAbs_ON)require(before==after,"Cylindrical rib blend changed remote material");
+        }
+    }
+}
+
 void verify_oblique_round_route() {
     const auto box=BRepPrimAPI_MakeBox(60,40,50).Shape();
     const auto vertical=straight_edge_between(box,{0,0,0},{0,0,50});
@@ -1283,6 +1356,8 @@ void verify_oblique_round_route() {
 } // namespace
 
 int main() try {
+    if(std::getenv("ZIMA_VERIFY_CYLINDRICAL_RIB_ROUTE")){verify_cylindrical_rib_route();std::cout<<"Cylindrical rib route passed\n";return 0;}
+    verify_cylindrical_rib_route();
     if(std::getenv("ZIMA_VERIFY_OBLIQUE_ROUND_ROUTE")){verify_oblique_round_route();std::cout<<"Oblique rolling route passed\n";return 0;}
     verify_oblique_round_route();
     zima::test::verify_oblique_treatment_terminals(true);

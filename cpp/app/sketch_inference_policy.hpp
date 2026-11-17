@@ -28,6 +28,24 @@ struct SketchCrossAlignment {
     std::array<double,2> position;
     sketcher::ConstraintKind direction;
 };
+// Intersect the actual circular support with an inferred coordinate. Both
+// preview and confirmation keep C on that support; a screen-space projection
+// followed by overwriting X/Y would instead move the endpoint off the circle.
+inline std::optional<std::array<double,2>> circular_coordinate_contact(
+        const sketcher::Sketch& sketch,const std::string& support,
+        std::size_t coordinate,double value,const std::array<double,2>& hint,
+        double tolerance) {
+    if(!sketch.circular_radius(support))return std::nullopt;
+    auto origin=hint;origin[coordinate]=value;
+    std::array<double,2> direction{};direction[1-coordinate]=1.;
+    std::optional<std::array<double,2>> nearest;
+    double distance=tolerance;
+    for(const auto& point:sketch.curve_line_intersections(support,origin,direction,false)) {
+        const double gap=std::hypot(point[0]-hint[0],point[1]-hint[1]);
+        if(gap<=distance){nearest=point;distance=gap;}
+    }
+    return nearest;
+}
 // The point alignment fixes one endpoint coordinate; an independent segment
 // direction can fix the other without replacing that existing alignment.
 inline std::optional<SketchCrossAlignment> infer_segment_cross_alignment(
