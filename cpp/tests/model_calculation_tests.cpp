@@ -1108,17 +1108,46 @@ void verify_edge_treatment_end_face(const kernel::OcctKernel& kernel) {
     fillet.edge_treatment.primary_size=2.;
     fillet.edge_treatment.calculation_method=
         document::EdgeTreatmentParameters::CalculationMethod::Zima;
-    fillet.edge_treatment.route_end_faces[0].first={stock.id,
-        test::profile_key(part,stock,"z_max"),{}};
     part.history={stock,fillet};
+    const auto check_result=[&](const auto& boundaries,const char* message) {
+        require(boundaries.size()==2 &&
+                boundaries.back().calculation_errors.empty() &&
+                std::ranges::any_of(boundaries.back().mesh.triangle_references,
+                    [&](const auto& face){return face.owner_id==fillet.id;}),message);
+        const double expected=20.*20.*30.-30.*(4.-std::acos(-1.));
+        near(measured_volume(kernel,boundaries.back()),expected,
+            "Fillet did not remove the expected volume");
+    };
+    const auto automatic=workspace::calculate_part(kernel,part);
+    check_result(automatic,"Automatic ZIMA Fillet termination failed");
+
+    auto stock_only=part;
+    stock_only.history.pop_back();
+    const auto stock_boundaries=workspace::calculate_part(kernel,stock_only);
+    const auto& points=stock_boundaries.back().mesh.original_references.points;
+    const auto vertex=std::ranges::find_if(points,[&](const auto& point) {
+        return point.reference.owner_id==stock.id && point.reference.valid() &&
+               std::abs(point.position.x-10.)<1e-8 &&
+               std::abs(point.position.y+10.)<1e-8 &&
+               std::abs(point.position.z-15.)<1e-8;
+    });
+    require(vertex!=points.end(),"Fillet fixture lost the exact upper route endpoint");
+    auto& end=part.history.back().edge_treatment.route_end_faces.front();
+    end.first={stock.id,test::profile_key(part,stock,"z_max"),{}};
+    const auto incomplete=workspace::calculate_part(kernel,part);
+    require(incomplete.back().calculation_errors.contains(fillet.id),
+        "Explicit Fillet end face was accepted without a Cut endpoint");
+    end.first_mode=document::EdgeTreatmentParameters::RouteEndMode::Cut;
+    end.first_vertex=vertex->reference;
     const auto calculated=workspace::calculate_part(kernel,part);
-    require(calculated.size()==2&&
-            calculated.back().calculation_errors.empty()&&
-            std::ranges::any_of(calculated.back().mesh.triangle_references,
-                [&](const auto& face) {return face.owner_id==fillet.id;}),
-        "ZIMA Fillet did not calculate with a persisted endpoint face");
-    require(part.serialized().dump().find("route_end_faces")!=std::string::npos,
-        "Native Part omitted edge-treatment endpoint faces");
+    check_result(calculated,"ZIMA Fillet did not calculate with a persisted Cut endpoint");
+
+    std::vector<kernel::BodyResult> restored;
+    const auto reopened=document::PartDocument::from_serialized(part.serialized(calculated),&restored);
+    const auto* reopened_fillet=reopened.find_container(fillet.id);
+    require(reopened_fillet && reopened_fillet->edge_treatment.route_end_faces.front()==end,
+        "Native Part lost the Fillet face, endpoint or Cut mode");
+    check_result(restored,"Reopened ZIMA Fillet lost its calculated result");
     auto rejected=part;
     rejected.history.back().edge_treatment.calculation_method=
         document::EdgeTreatmentParameters::CalculationMethod::Occt;
