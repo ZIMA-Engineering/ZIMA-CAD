@@ -7,6 +7,7 @@
 #include <zima/document/relation_program.hpp>
 #include <zima/document/pattern_dimensions.hpp>
 #include <zima/workspace/document_operations.hpp>
+#include <zima/workspace/placement_edit.hpp>
 #include <zima/workspace/family_operations.hpp>
 #include <zima/workspace/assembly_scene.hpp>
 #include <zima/workspace/operation_input.hpp>
@@ -17,6 +18,7 @@
 #include "../document_numeric_display.hpp"
 #include "ordinary_selection.hpp"
 #include "../feature_view_cues.hpp"
+#include "../curve_point_annotations.hpp"
 #include <zima/document/helical_geometry.hpp>
 #include <zima/document/general_surface.hpp>
 #include <zima/document/sheet_form_definition.hpp>
@@ -575,26 +577,25 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
                 // The live path already supplies pending geometry and annotations.
                 if (construction_parameter_preview_ &&
                     construction_parameter_preview_->id == feature.sweep3d.path.id) continue;
-                zima::document::PartDocument path_display;
-                path_display.constructions.push_back(sweep_display_path(feature));
-                auto path_mesh = path_display.construction_viewer_mesh();
                 const bool has_solid_centerline = std::ranges::any_of(reference_geometry().edges,
                     [&](const auto& edge) {
                         return edge.reference.owner_id == feature.id &&
                             edge.reference.semantic_key.starts_with("centerline:from:");
                     });
-                for (auto& edge : path_mesh.edges) {
+                for (const auto& edge : mesh.original_references.edges) {
                     // A calculated solid displays its persisted axis. The editable
                     // source curve remains available in the feature preview.
-                    if (has_solid_centerline ||
+                    if (has_solid_centerline || edge.reference.owner_id!=feature.sweep3d.path.entity_id ||
                         !zima::viewer::is_curve3d_edge(edge.reference.semantic_key)) continue;
-                    edge.display_owner_id = feature.id;
-                    mesh.edges.push_back(std::move(edge));
+                    auto shown=edge;shown.display_owner_id=feature.id;
+                    mesh.edges.push_back(std::move(shown));
                 }
                 if (construction_dimension_object_id_ == feature.id) {
-                    const auto radii = zima::document::curve3d_radius_dimensions(
-                        path_display.constructions.front());
-                    mesh.dimensions.insert(mesh.dimensions.end(), radii.begin(), radii.end());
+                    zima::kernel::ViewerMesh annotations;
+                    annotations.dimensions=zima::document::curve3d_radius_dimensions(sweep_display_path(feature));
+                    if(const auto* body=document.body_owner_for_object(feature.id))
+                        annotations=document.place_body_mesh(std::move(annotations),body->scope.id);
+                    append_mesh(mesh,std::move(annotations));
                 }
             }
         }
@@ -607,6 +608,20 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
         const auto* object = construction_properties_preview
             ? &*construction_parameter_preview_ : stored_object;
         if (!construction_preview_mesh_) append_curve_radii(mesh, object);
+        if(object&&object->kind==document::ConstructionKind::Curve3D&&
+                !object->curve_points.empty()&&!properties_dialog_&&active_sketch_id_.empty()) {
+            document::PartDocument carrier;
+            carrier.constructions.push_back(*object);
+            auto geometry=reference_geometry();
+            if constexpr(requires {document.body_history;})
+                geometry=document.construction_reference_geometry_for(object->curve_points.front().id,std::move(geometry));
+            else geometry=carrier.construction_reference_geometry_for(object->curve_points.front().id,std::move(geometry));
+            auto annotations=curve_point_annotations(*object,geometry);
+            if constexpr(requires {document.body_history;})
+                if(const auto* body=document.body_owner_for_object(object->id))
+                    annotations=document.place_body_mesh(std::move(annotations),body->scope.id);
+            append_mesh(mesh,std::move(annotations));
+        }
         const auto append_dimension = [&](const std::string& owner,
                 const char* key, const char* label,
                 zima::kernel::Vec3 witness_first,
@@ -2438,6 +2453,11 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
                     ? &*construction_parameter_preview_
                     : source.find_construction(construction_dimension_object_id_);
             append_curve_radii(mesh, inspected);
+            if(inspected&&inspected->kind==document::ConstructionKind::Curve3D&&
+                    !inspected->curve_points.empty()&&!properties_dialog_&&active_sketch_id_.empty()) {
+                const auto geometry=workspace::placement_edit_geometry(workspace_,workspace_.active_document_id(),inspected->curve_points.front().id);
+                append_mesh(mesh,curve_point_annotations(*inspected,geometry));
+            }
             if (const auto* cut = source.find_cut(construction_dimension_object_id_);
                 cut && cut->definition.feature_kind == document::FeatureKind::Feature) {
                 const auto& feature = cut->definition;
@@ -2448,6 +2468,9 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
                     append_nonzero_parameter_dimensions(mesh.dimensions,
                         document::container_placement_dimensions(feature.id,
                             feature.placement, mesh.original_references));
+                    const auto& placement=feature.placement;
+                    if(auto annotation=point_station_annotation(feature.id,{placement.x,placement.y,placement.z},placement.references,placement.reference_valid))
+                        mesh.dimensions.push_back(std::move(*annotation));
                 } else if (feature.feature.type == document::FeatureType::Axis &&
                     !primitive_origin_preview_mesh_) {
                     const auto sketch = std::ranges::find(source.sketches,

@@ -483,12 +483,15 @@ void AssemblyWorkspaceWindow::edit_dimension_inline(
                     return true;
                 };
                 bool construction_changed{};
+                bool retain_curve_inspection{};
                 const zima::document::ConstructionObject* existing = nullptr;
                 if (const auto* source = workspace_.open_part(workspace_.active_document_id()))
                     existing = source->session.document().find_construction(candidate.owner_id);
                 else if (const auto* source = workspace_.open_assembly(workspace_.active_document_id()))
                     existing = source->session.document().find_construction(candidate.owner_id);
                 if (existing) {
+                    retain_curve_inspection=!existing->parent_construction_id.empty()&&
+                        existing->parent_construction_id==construction_dimension_object_id_;
                     auto pending = *existing;
                     construction_changed = mutate_construction(&pending,
                         workspace::placement_edit_geometry(workspace_, workspace_.active_document_id(), candidate.owner_id));
@@ -498,10 +501,12 @@ void AssemblyWorkspaceWindow::edit_dimension_inline(
                 }
                 if (construction_changed) {
                     guarded->hide();
-                    construction_dimension_object_id_ = candidate.owner_id;
+                    if(!retain_curve_inspection)construction_dimension_object_id_ = candidate.owner_id;
+                    const auto inspection_owner=construction_dimension_object_id_;
                     preserve_view_on_refresh_ = true;
                     refresh_tabs();
-                    refresh_scene();
+                    if(retain_curve_inspection)show_parameter_dimensions(inspection_owner);
+                    else refresh_scene();
                     state_->setText(
                         tr("Hodnota kóty byla změněna přímo ve view."));
                     guarded->deleteLater();

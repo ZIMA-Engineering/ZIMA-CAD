@@ -6669,6 +6669,18 @@ zima::kernel::ViewerMesh PartDocument::construction_viewer_mesh(
     // with the solid's wire when the whole history container is hovered or
     // selected.  This is ZIMA viewer data; no OCCT topology is inspected.
     for (const auto& container : history) {
+        if(container.feature_kind==FeatureKind::Sweep3D&&container.sweep3d.path.reference_valid&&
+                !container.suppressed&&!excluded_features.contains(container.id)) {
+            // Point reference entry keeps using the authored trajectory after
+            // conversion. Its material centerline has a different owner; expose
+            // the owned Curve's exact references without drawing a second wire.
+            PartDocument carrier;carrier.constructions.push_back(container.sweep3d.path);
+            carrier.constructions.front().parent_construction_id.clear();
+            auto path=body_placed_mesh(carrier.construction_viewer_mesh(),BodyPlacement{{},container.placement});
+            for(auto& edge:path.original_references.edges)edge.display_owner_id=container.id;
+            for(auto& point:path.original_references.points)point.display_owner_id=container.id;
+            append_reference_geometry(mesh.original_references,path.original_references);
+        }
         if (container.feature_kind==FeatureKind::HelicalSweep && container.helical.reference_valid &&
             !container.suppressed && !excluded_features.contains(container.id)) {
             try { append_body_mesh(mesh,helical_curve_geometry(container)); }

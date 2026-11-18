@@ -376,7 +376,16 @@ void convert_sweep_to_curve(Workspace& live, const kernel::OcctKernel& kernel,
     // Register the recovered path before planning deletion. Its retained
     // identities belong to the standalone curve, while calculated faces and
     // profiles still belong to the Sweep being removed.
-    next.constructions.push_back(std::move(path));
+    const auto history_at=std::ranges::find(next.history_order,sweep_id,&document::PartHistoryEntry::id);
+    const auto following=history_at==next.history_order.end()?next.history_order.end():
+        std::find_if(std::next(history_at),next.history_order.end(),[&](const auto& entry) {
+            return std::ranges::find(next.constructions,entry.id,&document::ConstructionObject::id)!=next.constructions.end();
+        });
+    const auto position=following==next.history_order.end()?next.constructions.end():
+        std::ranges::find(next.constructions,following->id,&document::ConstructionObject::id);
+    // Native storage reconstructs this table in history order. Returning the
+    // path at the end changed that order and invalidated save/reopen validation.
+    next.constructions.insert(position,std::move(path));
     const auto deletion = plan_history_deletion(next, sweep_id);
     detach_deleted_history_references(next, deletion);
     std::erase_if(next.history, [&](const auto& value) { return value.id == sweep_id; });

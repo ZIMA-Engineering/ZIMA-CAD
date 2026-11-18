@@ -893,6 +893,137 @@ static int verify_general_command_console(QApplication& application,AssemblyWork
             auto* view=dynamic_cast<zima::viewer::MeshView*>(window.findChild<QWidget*>("modelWorkspace"));
             auto* tree=window.findChild<QTreeWidget*>("documentTree");
             check(view&&tree,"Curve selection UI missing");
+            if(qEnvironmentVariableIsSet("ZIMA_VERIFY_SWEEP_ROUTE_ENTRY")) {
+                const auto source=document::PartDocument::load(std::filesystem::path(qEnvironmentVariable("ZIMA_VERIFY_CURVE_SELECTION").toStdString()));
+                const auto sweep=std::ranges::find_if(source.history,[](const auto& c){return c.feature_kind==document::FeatureKind::Sweep3D||c.feature_kind==document::FeatureKind::HelicalSweep;});
+                check(sweep!=source.history.end(),"Route entry fixture has no Sweep");
+                const auto owner=sweep->feature_kind==document::FeatureKind::Sweep3D?sweep->sweep3d.path.entity_id:sweep->id;
+                const auto before=run("documents").data;
+                auto* action=window.findChild<QAction*>("featureShortcut0Action");check(action&&action->isEnabled(),"Point action unavailable");action->trigger();flush();
+                auto* dialog=dynamic_cast<PrimitivePropertiesDialog*>(window.findChild<QWidget*>("featurePropertiesDialog"));check(dialog,"Point dialog missing");
+                dialog->findChild<QTableWidget*>("primitiveReferenceTable")->cellClicked(0,1);flush();
+                view->set_standard_view(viewer::StandardView::Isometric);view->fit_all();flush();
+                QEventLoop camera;QTimer::singleShot(950,&camera,&QEventLoop::quit);camera.exec();
+                std::optional<QPoint> pixel;std::size_t route_index{};
+                for(int y=12;y<view->height()-12&&!pixel;y+=3)for(int x=12;x<view->width()-12&&!pixel;x+=3) {
+                    const auto all=view->selection_candidates_at(QPointF(x,y));
+                    for(std::size_t i=0;i<all.size();++i)if(all[i].owner_id==owner&&all[i].semantic_key=="placement-route:3d") {
+                        check(i>0&&all[i-1].owner_id==owner&&kernel::is_placement_route_member(all[i-1].semantic_key),"Sweep whole route is not immediately after its segment");
+                        pixel=QPoint(x,y);route_index=i;break;
+                    }
+                }
+                check(pixel.has_value(),"Sweep centerline does not offer its authored route to Point entry");
+                const auto send=[&](QEvent::Type type,Qt::MouseButton button,Qt::MouseButtons buttons) {
+                    QMouseEvent event(type,QPointF(*pixel),QPointF(view->mapToGlobal(*pixel)),button,buttons,Qt::NoModifier);QApplication::sendEvent(view,&event);flush();
+                };
+                send(QEvent::MouseMove,Qt::NoButton,Qt::NoButton);
+                for(std::size_t i=0;i<route_index;++i){send(QEvent::MouseButtonPress,Qt::RightButton,Qt::RightButton);send(QEvent::MouseButtonRelease,Qt::RightButton,Qt::NoButton);}
+                check(view->hovered_candidate()&&view->hovered_candidate()->owner_id==owner&&view->hovered_candidate()->semantic_key=="placement-route:3d","RMB did not offer the authored Sweep route");
+                send(QEvent::MouseButtonPress,Qt::LeftButton,Qt::LeftButton);send(QEvent::MouseButtonRelease,Qt::LeftButton,Qt::NoButton);
+                check(!dialog->pending_value().placement.references.empty()&&dialog->pending_value().placement.references.front().owner_id==owner&&dialog->pending_value().placement.references.front().semantic_key=="placement-route:3d","Point entry replaced the retained route identity");
+                dialog->reject();flush();check(run("documents").data==before,"Cancelled route entry changed the document");
+                std::cout<<"Sweep Point entry: authored segment/whole-route order, actual hover/RMB/LMB, retained identity and Cancel passed\n";return 0;
+            }
+            if(qEnvironmentVariableIsSet("ZIMA_VERIFY_CURVE_POINT_DIMENSIONS")) {
+                const auto file=std::filesystem::path(qEnvironmentVariable("ZIMA_VERIFY_CURVE_SELECTION").toStdString());
+                const auto original=document::PartDocument::load(file);
+                const auto curve=std::ranges::find(original.constructions,document::ConstructionKind::Curve3D,&document::ConstructionObject::kind);
+                check(curve!=original.constructions.end()&&curve->curve_points.size()==3,"Curve dimension fixture is missing");
+                const auto owner=curve->id,child=curve->curve_points.back().id;
+                const auto events=[&](QWidget* widget,QPoint pixel,bool twice) {
+                    const QPointF p(pixel),global(widget->mapToGlobal(pixel));
+                    QMouseEvent move(QEvent::MouseMove,p,global,Qt::NoButton,Qt::NoButton,Qt::NoModifier);QApplication::sendEvent(widget,&move);
+                    QMouseEvent press(twice?QEvent::MouseButtonDblClick:QEvent::MouseButtonPress,p,global,Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);QApplication::sendEvent(widget,&press);
+                    QMouseEvent release(QEvent::MouseButtonRelease,p,global,Qt::LeftButton,Qt::NoButton,Qt::NoModifier);QApplication::sendEvent(widget,&release);flush();
+                };
+                tree->expandAll();flush();QTreeWidgetItem* item=nullptr;
+                for(QTreeWidgetItemIterator it(tree);*it;++it)if((*it)->data(0,Qt::UserRole).toString().toStdString()==owner){item=*it;break;}
+                check(item,"Curve Tree row missing");tree->scrollToItem(item);flush();
+                view->set_standard_view(viewer::StandardView::Isometric);view->fit_all();flush();
+                QEventLoop camera;QTimer::singleShot(950,&camera,&QEventLoop::quit);camera.exec();
+                const auto before=run("documents").data;
+                events(tree->viewport(),tree->visualItemRect(item).center(),false);
+                check(std::ranges::none_of(view->mesh().dimensions,[&](const auto& d){return d.reference.owner_id==child;}),"Single Curve click exposed its Point dimensions");
+                events(tree->viewport(),tree->visualItemRect(item).center(),true);
+                check(run("documents").data==before,"Curve inspection changed the document");
+                const auto dimension=[&]() {
+                    const auto& all=view->mesh().dimensions;
+                    const auto d=std::ranges::find_if(all,[&](const auto& d){return d.reference.owner_id==child&&d.reference.semantic_key=="parameter:placement:reference_offset:2";});
+                    check(d!=all.end(),"Curve double-click did not show owned Point placement offset");
+                    viewer::ViewerCandidate c;c.kind=viewer::CandidateKind::Dimension;c.geometry_index=static_cast<std::size_t>(d-all.begin());c.owner_id=child;c.semantic_key=d->reference.semantic_key;return c;
+                };
+                for(double x:{170.,185.,160.}) {
+                    const auto label=view->candidate_dimension_label_position(dimension());check(label.has_value(),"Curve Point dimension cannot be clicked");events(view,*label,true);
+                    auto* edit=view->findChild<QLineEdit*>("inlineDimensionValueEdit");check(edit,"Curve Point double-click did not open the value editor");
+                    edit->setText(QString::number(x-100.));QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);QApplication::sendEvent(edit,&enter);flush();
+                    window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
+                    const auto saved=document::PartDocument::load(file);const auto* point=saved.find_construction(child);
+                    check(point&&std::abs(point->origin.x-x)<1e-7&&point->origin.y==0&&point->origin.z==36,"Curve Point edit moved the wrong coordinate");
+                    check(saved.find_construction(owner)->curve_points[0]==curve->curve_points[0]&&saved.find_construction(owner)->curve_points[1]==curve->curve_points[1],"Curve Point edit changed another owned Point");
+                    check(tree->currentItem()&&tree->currentItem()->data(0,Qt::UserRole).toString().toStdString()==owner,"Curve Point edit lost its owning Curve Tree selection");
+                    const auto dependent=std::ranges::find_if(saved.history,[](const auto& c){return c.feature_kind==document::FeatureKind::Feature&&c.feature.type==document::FeatureType::Point;});
+                    check(dependent!=saved.history.end()&&dependent->placement.reference_valid,"Curve edit lost the dependent route Point");
+                    const double fraction=(dependent->placement.references[1].offset-100.)/std::hypot(x-100.,36.);
+                    check(std::abs(dependent->placement.x-(100.+fraction*(x-100.)))<1e-6&&std::abs(dependent->placement.z-36.*fraction)<1e-6,"Dependent Point did not follow the edited Curve");
+                    static_cast<void>(dimension());
+                }
+                window.findChild<QAction*>("undoAction")->trigger();flush();window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
+                check(document::PartDocument::load(file).find_construction(child)->origin.x==185.,"Curve Point Undo failed");
+                window.findChild<QAction*>("redoAction")->trigger();flush();window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
+                check(document::PartDocument::load(file).find_construction(child)->origin.x==160.,"Curve Point Redo failed");
+                window.grab().save(QString::fromStdString((directory/"curve-point-dimensions.png").string()));
+                std::cout<<"Curve Point dimensions: Tree single/double-click, three View value edits, retained parent inspection, native reopen and Undo/Redo passed\n";return 0;
+            }
+            if(qEnvironmentVariableIsSet("ZIMA_VERIFY_POINT_STATION_ONLY")) {
+                const auto file=std::filesystem::path(qEnvironmentVariable("ZIMA_VERIFY_CURVE_SELECTION").toStdString());
+                const auto original=document::PartDocument::load(file);
+                const auto found=std::ranges::find_if(original.history,[](const auto& feature){return feature.feature_kind==document::FeatureKind::Feature&&feature.feature.type==document::FeatureType::Point;});
+                check(found!=original.history.end(),"Station fixture has no Point feature");const auto owner=found->id;
+                const std::string key="parameter:placement:reference_offset:1";
+                const auto events=[&](QWidget* widget,QPoint pixel,bool twice) {
+                    const QPointF p(pixel),global(widget->mapToGlobal(pixel));
+                    QMouseEvent move(QEvent::MouseMove,p,global,Qt::NoButton,Qt::NoButton,Qt::NoModifier);QApplication::sendEvent(widget,&move);
+                    QMouseEvent press(twice?QEvent::MouseButtonDblClick:QEvent::MouseButtonPress,p,global,Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);QApplication::sendEvent(widget,&press);
+                    QMouseEvent release(QEvent::MouseButtonRelease,p,global,Qt::LeftButton,Qt::NoButton,Qt::NoModifier);QApplication::sendEvent(widget,&release);flush();
+                };
+                view->set_standard_view(viewer::StandardView::Isometric);view->fit_all();flush();
+                QEventLoop camera;QTimer::singleShot(950,&camera,&QEventLoop::quit);camera.exec();
+                std::optional<QPoint> hit;
+                for(int y=8;y<view->height()-8&&!hit;y+=3)for(int x=8;x<view->width()-8&&!hit;x+=3) {
+                    const auto offered=view->selection_candidates_at(QPointF(x,y));
+                    if(!offered.empty()&&offered.front().owner_id==owner)hit=QPoint(x,y);
+                }
+                check(hit.has_value(),"Point cannot be picked in View");
+                const auto revision=run("documents").data;
+                events(view,*hit,false);
+                check(std::ranges::none_of(view->mesh().dimensions,[&](const auto& d){return d.reference.owner_id==owner&&d.reference.semantic_key==key;}),"Single Point click exposed its station");
+                events(view,*hit,true);
+                const auto dimension=[&]() {
+                    const auto& all=view->mesh().dimensions;
+                    const auto value=std::ranges::find_if(all,[&](const auto& d){return d.reference.owner_id==owner&&d.reference.semantic_key==key;});
+                    check(value!=all.end()&&value->label_only,"Point double-click did not show its route station");
+                    viewer::ViewerCandidate candidate;candidate.kind=viewer::CandidateKind::Dimension;candidate.geometry_index=static_cast<std::size_t>(value-all.begin());candidate.owner_id=owner;candidate.semantic_key=key;
+                    return candidate;
+                };
+                static_cast<void>(dimension());check(run("documents").data==revision,"Point inspection changed the document");
+                for(double value:{115.,140.,125.}) {
+                    const auto candidate=dimension();const auto label=view->candidate_dimension_label_position(candidate);
+                    check(label.has_value(),"Station label has no clickable position");events(view,*label,true);
+                    auto* edit=view->findChild<QLineEdit*>("inlineDimensionValueEdit");check(edit,"Station double-click did not open its value editor");
+                    edit->setText(QString::number(value)+" mm");QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);QApplication::sendEvent(edit,&enter);flush();
+                    window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
+                    const auto saved=document::PartDocument::load(file);const auto* point=saved.find_container(owner);check(point,"Edited Point lost its identity");
+                    const auto& p=point->placement;const double fraction=(value-100.)/std::hypot(54.,36.);
+                    check(std::abs(p.references[1].offset-value)<1e-7&&std::abs(p.x-(100.+54.*fraction))<1e-6&&std::abs(p.y)<1e-6&&std::abs(p.z-36.*fraction)<1e-6,"Station edit has the wrong independent arc-length position");
+                    check(saved.constructions==original.constructions,"Point station edit changed its source Curve");
+                }
+                window.findChild<QAction*>("undoAction")->trigger();flush();window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
+                check(std::abs(document::PartDocument::load(file).find_container(owner)->placement.references[1].offset-140.)<1e-7,"Station Undo lost the prior value");
+                window.findChild<QAction*>("redoAction")->trigger();flush();window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
+                check(std::abs(document::PartDocument::load(file).find_container(owner)->placement.references[1].offset-125.)<1e-7,"Station Redo lost the edited value");
+                window.grab().save(QString::fromStdString((directory/"point-station.png").string()));
+                std::cout<<"Point station View single/double-click, three double-click value edits, independent coordinates, source preservation, native reopen and Undo/Redo passed\n";return 0;
+            }
             if(qEnvironmentVariableIsSet("ZIMA_VERIFY_CURVE_REFERENCE_TREE")) {
                 int checked=0,features=0;
                 for(QTreeWidgetItemIterator it(tree);*it;++it) {

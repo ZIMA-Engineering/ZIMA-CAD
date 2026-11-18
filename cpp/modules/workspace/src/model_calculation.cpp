@@ -116,6 +116,12 @@ history_boundary_reference_demands(
         // Ordered document resolution publishes trajectory points and curves
         // independently of the Sweep's calculated result.
         if (path.empty() && sweep_trajectories.owners.contains(owner)) continue;
+        // Helical paths are likewise authored reference geometry, including
+        // curve-only mode. A material boundary must not mask them with its
+        // empty/non-trajectory packet when resolving a downstream Point.
+        if(path.empty())if(const auto* feature=document.find_container(owner);
+                feature&&feature->feature_kind==document::FeatureKind::HelicalSweep&&
+                (key=="placement-route:3d"||key.starts_with("curve:segment:helical:")))continue;
         const auto alias=graph.owners.find(owner);
         if(alias==graph.owners.end()||
            !operation_by_owner.contains(alias->second))continue;

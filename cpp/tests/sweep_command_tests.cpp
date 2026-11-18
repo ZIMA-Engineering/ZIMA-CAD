@@ -6,7 +6,9 @@
 #include <zima/workspace/placement_edit.hpp>
 #include <zima/workspace/sketch_operations.hpp>
 #include <zima/kernel/stable_id.hpp>
+#include <zima/kernel/placement_route.hpp>
 #include <cmath>
+#include <cstdlib>
 #include <filesystem>
 #include <iostream>
 #include <numbers>
@@ -293,7 +295,26 @@ void verify_sweep_commands(const kernel::OcctKernel& kernel, const fs::path& dir
         f.run("undo");
     }
 }
+std::string add_route_point(Fixture& f, const kernel::OcctKernel& kernel,
+        const std::string& route_owner, const document::ConstructionReference& anchor,
+        double distance) {
+    auto next=f.state().session.document();
+    auto sketch=sketcher::Sketch::create_default();
+    auto point=document::PartDocument::create_feature_container(sketch.id);
+    sketch.owner_container_id=point.id;next.sketches.push_back(std::move(sketch));
+    point.feature.type=document::FeatureType::Point;
+    point.placement.references={document::ConstructionReference{{},route_owner,"placement-route:3d"},anchor};
+    point.placement.references.back().station_mode=document::PlacementStationMode::Distance;
+    point.placement.references.back().supports_offset=true;
+    point.placement.references.back().offset=distance;
+    const auto id=point.id;
+    next.insert_history_entry(document::PartHistoryKind::Feature,id);next.history.push_back(point);
+    auto calculated=workspace::calculate_part_with_resolved_references(kernel,next,&f.state().session.calculated_boundaries());
+    require(next.find_container(id)->placement.reference_valid,"Route Point fixture did not resolve");
+    f.state().session.commit(std::move(next),std::move(calculated));return id;
+}
 void verify_trajectory_conversion(const kernel::OcctKernel& kernel, const fs::path& directory) {
+    std::cout<<"Whole-route 3D conversion fixture\n"<<std::flush;
     Fixture f(kernel, directory);
     f.run("new", {{"type","part"},{"name","trajectory-conversion"}});
     const auto response = f.run("construction.create", {{"kind","curve3d"},{"name","Trajectory"},
@@ -308,7 +329,15 @@ void verify_trajectory_conversion(const kernel::OcctKernel& kernel, const fs::pa
     f.run("construction.reference.set", {{"construction",consumer_id},{"index",0},
         {"reference",{{"owner",original.curve_points.back().container_origin.id},{"key","point"}}}});
     const auto consumer = *session.document().find_construction(consumer_id);
+    const auto route_point=add_route_point(f,kernel,original.entity_id,
+        {{},original.curve_points.front().container_origin.id,"point"},7.);
+    std::cout<<"  Station created\n"<<std::flush;
+    const auto station=session.document().find_container(route_point)->placement;
+    near(station.x,10.5);near(station.y,-3.);near(station.z,8.+7.*std::cos(std::numbers::pi/6.));
     const auto check_consumer = [&](const char* stage) {
+        const auto& placed=session.document().find_container(route_point)->placement;
+        require(placed.reference_valid&&placed.references==station.references,"Conversion broke whole-route Point reference identity");
+        near(placed.x,station.x);near(placed.y,station.y);near(placed.z,station.z);
         const auto* value = session.document().find_construction(consumer_id);
         if (!value || !value->reference_valid || value->references!=consumer.references ||
             std::hypot(value->origin.x-consumer.origin.x,value->origin.y-consumer.origin.y,
@@ -328,6 +357,7 @@ void verify_trajectory_conversion(const kernel::OcctKernel& kernel, const fs::pa
     const auto sweep_id = sweep.id;
     const auto revision = session.revision();
     workspace::convert_curve_to_sweep(f.live,kernel,id,std::move(sweep));
+    std::cout<<"  Converted to Sweep\n"<<std::flush;
     const auto& converted = session.document();
     require(session.revision()==revision+1 && converted.history_order.size()==initial_order.size() &&
                 !converted.find_construction(path_id) && converted.find_container(sweep_id),
@@ -335,23 +365,36 @@ void verify_trajectory_conversion(const kernel::OcctKernel& kernel, const fs::pa
     require(converted.find_container(sweep_id)->sweep3d.path.curve_points==original.curve_points,
         "Curve conversion replaced its native point definitions");
     check_consumer("curve to sweep");
+    require(!kernel::placement_route_pieces(workspace::part_construction_dimension_geometry(converted,session.calculated_boundaries()).edges,
+        original.entity_id,"placement-route:3d",{}).empty(),"Sweep axis does not offer its original route to Point reference entry");
+    if(const auto* output=std::getenv("ZIMA_VERIFY_ROUTE_FIXTURES"))
+        converted.save(fs::path(output)/"curve-sweep.prtz",session.calculated_boundaries());
     near(f.volume(),80*std::numbers::pi);
     workspace::convert_sweep_to_curve(f.live,kernel,id,sweep_id,original);
+    std::cout<<"  Converted to Curve\n"<<std::flush;
     require(session.revision()==revision+2 && session.document().history_order==initial_order &&
                 !session.document().find_container(sweep_id) && session.document().find_construction(path_id),
         "Sweep conversion did not restore the standalone path at its original history position");
     check_consumer("sweep to curve");
     f.run("undo");
+    check_consumer("undo");
+    std::cout<<"  Undo checked\n"<<std::flush;
     require(session.document().find_container(sweep_id)!=nullptr,"Undo did not restore the Sweep and its profiles");
     near(f.volume(),80*std::numbers::pi);
     f.run("redo");
+    check_consumer("redo");
+    std::cout<<"  Redo checked\n"<<std::flush;
     f.run("save");
+    std::cout<<"  Saved\n"<<std::flush;
     const auto reopened=document::PartDocument::load(directory/"trajectory-conversion.prtz");
+    require(reopened.find_container(route_point)->placement==session.document().find_container(route_point)->placement,
+        "Converted whole-route Point changed after native reopen");
     require(reopened.find_construction(path_id) && reopened.find_construction(path_id)->curve_points==original.curve_points &&
                 !reopened.find_container(sweep_id),
         "The saved converted path lost native points or retained the Sweep");
 }
 void verify_helical_curve_conversion(const kernel::OcctKernel& kernel, const fs::path& directory) {
+    std::cout<<"Whole-route Helical conversion fixture\n"<<std::flush;
     Fixture f(kernel,directory);
     f.run("new",{{"type","part"},{"name","helical-curve-conversion"}});
     auto feature=test_support::sweep_fixture(document::FeatureKind::HelicalSweep);
@@ -363,6 +406,16 @@ void verify_helical_curve_conversion(const kernel::OcctKernel& kernel, const fs:
     const auto path=[&] {return document::PartDocument::helical_curve_geometry(
         *session.document().find_container(owner));};
     const auto refs=path().original_references.edges;
+    auto anchor=document::PartDocument::create_construction(document::ConstructionKind::Point);
+    anchor.origin=refs.front().points.front();const auto anchor_origin=anchor.container_origin.id;
+    workspace::commit_construction(f.live,id,anchor,workspace::ConstructionEditMode::Create);
+    const auto route_point=add_route_point(f,kernel,owner,{{},anchor_origin,"point"},12.);
+    const auto station=session.document().find_container(route_point)->placement;
+    const auto check_point=[&](const auto& part) {
+        const auto& p=part.find_container(route_point)->placement;
+        require(p.reference_valid&&p.references==station.references,"Helical conversion broke the route Point reference");
+        near(p.x,station.x);near(p.y,station.y);near(p.z,station.z);
+    };
     const auto same_path=[&](const auto& edges) {
         return std::ranges::equal(edges,refs,[](const auto& a,const auto& b) {
             return a.reference==b.reference && a.points==b.points && a.exact_spline==b.exact_spline;
@@ -374,6 +427,9 @@ void verify_helical_curve_conversion(const kernel::OcctKernel& kernel, const fs:
     sweep.helical.curve_only=false;
     sweep.helical.sketches[2]=section;
     workspace::commit_sweep(f.live,kernel,id,sweep,workspace::SweepEditMode::Replace);
+    check_point(session.document());
+    if(const auto* output=std::getenv("ZIMA_VERIFY_ROUTE_FIXTURES"))
+        session.document().save(fs::path(output)/"helical-sweep.prtz",session.calculated_boundaries());
     require(session.calculated_boundaries().back().has_solid() &&
         same_path(path().original_references.edges),
         "Helical Sweep changed the curve or failed to add material");
@@ -381,6 +437,7 @@ void verify_helical_curve_conversion(const kernel::OcctKernel& kernel, const fs:
     curve.helical.curve_only=true;
     workspace::commit_sweep(f.live,kernel,id,curve,workspace::SweepEditMode::Replace);
     const auto check=[&](const auto& part) {
+        check_point(part);
         const auto* current=part.find_container(owner);
         const auto profile=sketcher::Sketch::from_serialized(current->helical.sketches[2]);
         require(current->helical.curve_only && profile.points.empty() &&
@@ -389,6 +446,7 @@ void verify_helical_curve_conversion(const kernel::OcctKernel& kernel, const fs:
     };
     check(session.document());
     f.run("undo");
+    check_point(session.document());
     require(!session.document().find_container(owner)->helical.curve_only &&
             session.calculated_boundaries().back().has_solid(),
             "Undo did not restore the Helical Sweep and its profile");
@@ -961,12 +1019,19 @@ void verify_original_path_plane(const kernel::OcctKernel& kernel, const fs::path
     require(saved.history == f.state().session.document().history, "Original path plane lost source identity or Body frame on reload");
 }
 }
-int main() {
+int main(int argc,char** argv) {
     try {
         const auto root = fs::canonical(fs::temp_directory_path());
         const auto directory = root / ("zima-sweep-commands-" + kernel::make_stable_id());
         require(fs::create_directory(directory), "Cannot create fixture directory");
         kernel::OcctKernel kernel;
+        if(argc==2&&std::string_view(argv[1])=="--route-conversion") {
+            verify_trajectory_conversion(kernel,directory);
+            verify_helical_curve_conversion(kernel,directory);
+            require(directory.parent_path()==root,"Unexpected cleanup path");fs::remove_all(directory);
+            std::cout<<"3D/Helical whole-route Point conversion, native reopen and Undo/Redo passed\n";
+            return 0;
+        }
         for (const auto kind : {document::FeatureKind::Sweep2D, document::FeatureKind::Sweep3D, document::FeatureKind::HelicalSweep}) verify_sweep_commands(kernel, directory, kind);
         for(const auto kind:{document::FeatureKind::Sweep2D,document::FeatureKind::Sweep3D,document::FeatureKind::HelicalSweep})verify_sweep_references(kernel,directory,kind);
         verify_creation(kernel, directory);

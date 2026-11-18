@@ -1,6 +1,7 @@
 #pragma once
 #include <zima/document/feature_direction.hpp>
 #include "feature_view_cue_policy.hpp"
+#include "point_station_annotation.hpp"
 #include "workspace/workspace_internal.hpp"
 #include <zima/kernel/dimension_layout.hpp>
 #include <zima/kernel/feature_rotation_direction.hpp>
@@ -21,7 +22,12 @@ inline FeatureViewCues feature_view_cues(const document::HistoryContainer& featu
                                        const sketcher::Sketch& sketch) {
     FeatureViewCues out;
     const auto& p=feature.feature;
-    if(p.type==document::FeatureType::Point)return out;
+    if(p.type==document::FeatureType::Point) {
+        const auto& placement=feature.placement;
+        if(auto annotation=point_station_annotation(feature.id,{placement.x,placement.y,placement.z},placement.references,placement.reference_valid))
+            out.dimensions.dimensions.push_back(std::move(*annotation));
+        return out;
+    }
     const auto start=sketch.resolved_origin,normal=sketch.resolved_normal;
     const auto add=[](kernel::Vec3 a,kernel::Vec3 b){return kernel::Vec3{a.x+b.x,a.y+b.y,a.z+b.z};};
     const auto scale=[](kernel::Vec3 a,double b){return kernel::Vec3{a.x*b,a.y*b,a.z*b};};
