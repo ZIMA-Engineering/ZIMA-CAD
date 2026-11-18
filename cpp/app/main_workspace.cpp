@@ -13985,10 +13985,6 @@ int verify_startup_contract(
                 "existing Extrusion did not reopen with its persisted value")) {
         return 1;
     }
-    if (extrusion_history_only) {
-        std::cout << "Rectangular Extrusion commit, history identity and Properties reopening passed" << std::endl;
-        return 0;
-    }
     auto* up_to_combo = edit_dialog->findChild<QComboBox*>(
         "extrusionForwardEndCondition");
     auto* up_to_field = edit_dialog->findChild<QLineEdit*>(
@@ -14121,10 +14117,13 @@ int verify_startup_contract(
             QEvent::MouseButtonDblClick, middle, middle,
             model_workspace->mapToGlobal(middle),
             Qt::MiddleButton, Qt::MiddleButton, Qt::NoModifier);
+        const QPointer<QDialog> confirmed_dialog(edit_dialog);
         QApplication::sendEvent(model_workspace, &middle_double_click);
+        // Properties queues OK until dispatch of the mouse event has ended.
+        application.processEvents();
         QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
         application.processEvents();
-        if (!verify(window.findChild<QDialog*>("zimaPropertiesSubWindow") == nullptr,
+        if (!verify(confirmed_dialog == nullptr,
                     "middle-button double-click over the view did not commit "
                     "and close the open Extrusion Properties dialog")) {
             return 1;
@@ -14135,6 +14134,10 @@ int verify_startup_contract(
                     "Extrusion value")) {
             return 1;
         }
+    }
+    if (extrusion_history_only) {
+        std::cout << "Rectangular Extrusion commit, history identity and middle double-click passed" << std::endl;
+        return 0;
     }
     edit_dialog->findChild<QDialogButtonBox*>()
         ->button(QDialogButtonBox::Cancel)->click();
