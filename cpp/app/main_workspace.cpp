@@ -11916,22 +11916,25 @@ int verify_startup_contract(
         nlohmann::json{{"command","cd"},{"arguments",{{"path",zima::document::path_to_utf8(test_directory)}}}}.dump()));
     if (!verify(directory_change.ok, "Cannot select isolated startup fixture directory")) return 1;
     std::cout << "Startup fixtures: " << zima::document::path_to_utf8(test_directory) << std::endl;
-    if (verify_component_references(application, test_directory) != 0) return 1;
-    if (verify_save_copy_ui(application, test_directory) != 0) return 1;
-    if (verify_body_placement_offsets(application, test_directory) != 0) return 1;
-    if (verify_history_recovery_ui(application, test_directory) != 0) return 1;
-    if (verify_body_history_ui(application, test_directory) != 0) return 1;
-    if (verify_body_activation(application, test_directory) != 0) return 1;
-    if (verify_body_curve_references(application,test_directory) != 0) return 1;
-    if (verify_body_sketch_ui(application, test_directory) != 0) return 1;
-    if (verify_nested_body_sketch_ui(application, test_directory) != 0) return 1;
-    if (verify_property_sketch_dimensions(application, test_directory) != 0) return 1;
-    if (verify_standalone_trim_preview(application, test_directory) != 0) return 1;
-    if (verify_pending_container_tree(application, test_directory) != 0) return 1;
-    if (verify_unresolved_sweep_sketches(application,test_directory) != 0) return 1;
-    if (verify_external_circle_selection(application,test_directory) != 0) return 1;
-    if (verify_spline_tangent_selection(application,test_directory) != 0) return 1;
-    if (verify_curve_radius_edit(application,test_directory) != 0) return 1;
+    const bool rectangular_feature_only = qEnvironmentVariableIsSet("ZIMA_VERIFY_STARTUP_RECTANGULAR_FEATURE_ONLY");
+    if (!rectangular_feature_only) {
+        if (verify_component_references(application, test_directory) != 0) return 1;
+        if (verify_save_copy_ui(application, test_directory) != 0) return 1;
+        if (verify_body_placement_offsets(application, test_directory) != 0) return 1;
+        if (verify_history_recovery_ui(application, test_directory) != 0) return 1;
+        if (verify_body_history_ui(application, test_directory) != 0) return 1;
+        if (verify_body_activation(application, test_directory) != 0) return 1;
+        if (verify_body_curve_references(application,test_directory) != 0) return 1;
+        if (verify_body_sketch_ui(application, test_directory) != 0) return 1;
+        if (verify_nested_body_sketch_ui(application, test_directory) != 0) return 1;
+        if (verify_property_sketch_dimensions(application, test_directory) != 0) return 1;
+        if (verify_standalone_trim_preview(application, test_directory) != 0) return 1;
+        if (verify_pending_container_tree(application, test_directory) != 0) return 1;
+        if (verify_unresolved_sweep_sketches(application,test_directory) != 0) return 1;
+        if (verify_external_circle_selection(application,test_directory) != 0) return 1;
+        if (verify_spline_tangent_selection(application,test_directory) != 0) return 1;
+        if (verify_curve_radius_edit(application,test_directory) != 0) return 1;
+    }
     window.show();
     application.processEvents();
 
@@ -12335,16 +12338,26 @@ int verify_startup_contract(
 
     box->trigger();
     application.processEvents();
-    auto* properties = window.findChild<QDialog*>("zimaPropertiesSubWindow");
-    auto* buttons = properties == nullptr
-        ? nullptr : properties->findChild<QDialogButtonBox*>();
-    if (!verify(buttons != nullptr, "Box must open the shared Properties window")) {
-        return 1;
-    }
-    buttons->button(QDialogButtonBox::Ok)->click();
-    application.processEvents();
+    auto* feature_dialog = window.findChild<QDialog*>("featurePropertiesDialog");
+    auto* feature_buttons = feature_dialog == nullptr ? nullptr :
+        feature_dialog->findChild<QDialogButtonBox*>();
+    if (!verify(feature_dialog != nullptr && feature_dialog->isVisible() &&
+                    feature_dialog->windowFlags().testFlag(Qt::SubWindow) &&
+                    feature_buttons != nullptr && feature_buttons->button(QDialogButtonBox::Cancel) != nullptr,
+                "Feature must open the shared in-application Properties window")) return 1;
+    feature_buttons->button(QDialogButtonBox::Cancel)->click();
     QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
     application.processEvents();
+
+    const auto create_rectangular_feature = [&] {
+        const auto result = zima::test::gui_rectangular_profile(window, 100, 80, 50, true);
+        application.processEvents();
+        if (!result.ok) std::cerr << result.message << std::endl;
+        return verify(result.ok, "Creating an extruded rectangular Sketch must succeed");
+    };
+    if (!create_rectangular_feature()) return 1;
+    QDialog* properties{};
+    QDialogButtonBox* buttons{};
     const auto part_history_root = [&]() -> QTreeWidgetItem* {
         for (QTreeWidgetItemIterator it(tree);*it;++it)
             if ((*it)->data(0,Qt::UserRole+3).toString()=="part-body") return *it;
@@ -12363,12 +12376,18 @@ int verify_startup_contract(
         }
     }
     if (!verify(box_tree_item != nullptr,
-                "confirming Box must create the first Part history item")) {
+                "Confirming the rectangular Feature must create the first Part history item")) {
         return 1;
     }
     const auto original_box_id=box_tree_item->data(0,Qt::UserRole).toString().toStdString();
     auto* selection_viewer = dynamic_cast<zima::viewer::MeshView*>(
         window.findChild<QOpenGLWidget*>("modelWorkspace"));
+    if (!verify(selection_viewer != nullptr &&
+                    std::ranges::any_of(selection_viewer->mesh().triangle_references,
+                        [&](const auto& reference) { return reference.owner_id == original_box_id; }),
+                "The rectangular Feature must publish calculated solid faces")) return 1;
+    selection_viewer->fit_all();
+    application.processEvents();
     tree->setCurrentItem(box_tree_item);
     application.processEvents();
     const auto tree_confirmed = selection_viewer == nullptr
@@ -12406,19 +12425,15 @@ int verify_startup_contract(
         return 1;
     }
     {
-        // RMB cycling must consume the exact same ordered candidate list as
-        // hover/LMB and remain active only until an LMB confirms one of the
-        // offered candidates. The default (Container-only) selection filter
-        // offers exactly one whole-body candidate per Box, so switch to the
-        // Face filter to expose genuinely overlapping Face candidates near
-        // a shared edge, matching real multi-candidate cycling.
+        // Use the edge filter so adjacent edges at a vertex provide distinct
+        // candidates for the same cursor position.
         auto* selection_filter_combo =
             window.findChild<QComboBox*>("selectionFilterCombo");
         if (!verify(selection_filter_combo != nullptr,
                     "the real workspace has no selectionFilterCombo")) {
             return 1;
         }
-        selection_filter_combo->setCurrentIndex(1);
+        selection_filter_combo->setCurrentIndex(static_cast<int>(zima::viewer::SelectionFilter::Curves));
         application.processEvents();
         std::optional<QPointF> multi_candidate_position;
         std::vector<zima::viewer::ViewerCandidate> multi_candidates;
@@ -12435,7 +12450,7 @@ int verify_startup_contract(
             }
         }
         if (!verify(multi_candidate_position.has_value(),
-                    "Box scene offered no overlapping candidates for RMB cycling")) {
+                    "Rectangular Feature offered no overlapping edge candidates for RMB cycling")) {
             return 1;
         }
         QMouseEvent hover_move(QEvent::MouseMove, *multi_candidate_position,
@@ -12519,6 +12534,10 @@ int verify_startup_contract(
         application.processEvents();
         selection_viewer->repaint();
         application.processEvents();
+    }
+    if (rectangular_feature_only) {
+        std::cout << "Rectangular Feature Properties, solid creation, Tree selection and RMB cycling passed" << std::endl;
+        return 0;
     }
     construction_point->trigger();
     application.processEvents();
@@ -12725,7 +12744,7 @@ int verify_startup_contract(
             auto* child = root->child(index);
             const auto item_kind = child->data(0, Qt::UserRole + 3).toString();
             if (item_kind == QStringLiteral("part-container") &&
-                child->text(0) == QStringLiteral("Tažení")) {
+                child->data(0, Qt::UserRole).toString().toStdString() == original_box_id) {
                 box_tree_item = child;
             } else if (item_kind ==
                     QStringLiteral("part-construction")) {
@@ -12880,13 +12899,20 @@ int verify_startup_contract(
                     QStringLiteral("construction-origin") &&
             origin->childCount() == 7;
     };
+    const auto has_feature_child = [&](const QString& role) {
+        for (int index = 0; index < box_tree_item->childCount(); ++index) {
+            if (box_tree_item->child(index)->data(0, Qt::UserRole + 3).toString() == role)
+                return true;
+        }
+        return false;
+    };
     if (!verify(valid_origin_branch(box_tree_item) &&
-                    box_tree_item->childCount() == 2 &&
-                    box_tree_item->child(1)->data(0, Qt::UserRole + 3).toString() ==
-                        QStringLiteral("part-container-entity") &&
+                    has_feature_child("part-sketch-plane") &&
+                    has_feature_child("part-sketch") &&
+                    has_feature_child("feature-operation") &&
                     valid_origin_branch(point_tree_item) &&
                     point_tree_item->childCount() == 1,
-                "Box and Point do not expose the Python container hierarchy")) {
+                "The rectangular Feature and Point must expose their native container children")) {
         return 1;
     }
     const auto create_construction = [&](QAction* action) {
@@ -13931,7 +13957,7 @@ int verify_startup_contract(
                 (*it)->text(0).endsWith(QStringLiteral("Tažení")))
             rectangular_extrusion_id=(*it)->data(0,Qt::UserRole).toString().toStdString();
     box->trigger();application.processEvents();
-    auto* axis_check_dialog=window.findChild<QDialog*>("zimaPropertiesSubWindow");
+    auto* axis_check_dialog=window.findChild<QDialog*>("featurePropertiesDialog");
     if (!verify(axis_check_dialog && !rectangular_extrusion_id.empty() &&
             std::ranges::none_of(selection_viewer->mesh().axes,[&](const auto& axis) {
                 return axis.reference.owner_id==rectangular_extrusion_id;
@@ -14114,18 +14140,7 @@ int verify_startup_contract(
         ->button(QDialogButtonBox::Cancel)->click();
     QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
     application.processEvents();
-    box->trigger();
-    application.processEvents();
-    properties = window.findChild<QDialog*>("zimaPropertiesSubWindow");
-    buttons = properties == nullptr
-        ? nullptr : properties->findChild<QDialogButtonBox*>();
-    if (!verify(buttons != nullptr,
-                "downstream Box did not open its shared Properties window")) {
-        return 1;
-    }
-    buttons->button(QDialogButtonBox::Ok)->click();
-    QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
-    application.processEvents();
+    if (!create_rectangular_feature()) return 1;
     std::tie(edit_dialog, edit_height) = open_extrusion_properties();
     auto* rollback_root = part_history_root();
     QTreeWidgetItem* rollback_extrusion{};
@@ -14133,7 +14148,7 @@ int verify_startup_contract(
     if (rollback_root != nullptr) {
         for (int index = 0; index < rollback_root->childCount(); ++index) {
             auto* item = rollback_root->child(index);
-            if (item->text(0).endsWith(QStringLiteral("Tažení"))) {
+            if (item->data(0, Qt::UserRole).toString().toStdString() == rectangular_extrusion_id) {
                 rollback_extrusion = item;
             } else if (rollback_extrusion != nullptr &&
                        item->data(0, Qt::UserRole + 3).toString() ==
