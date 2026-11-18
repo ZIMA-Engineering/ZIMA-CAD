@@ -25,7 +25,9 @@ inline QVariant selected_work_plane(const QComboBox* combo) {
 inline void sync_compact_work_plane_selector(const QComboBox* combo) {
     const auto* selector=combo->parentWidget();
     if(!selector||selector->objectName()!=combo->objectName()+QStringLiteral("Selector"))return;
-    const auto selected=selected_work_plane(combo);
+    const auto automatic_button = selector->findChild<QToolButton*>(
+        combo->objectName() + QStringLiteral("ChoiceAuto"), Qt::FindDirectChildrenOnly);
+    const auto selected = automatic_button ? combo->currentData() : selected_work_plane(combo);
     bool matched=false;
     for(auto* button:selector->findChildren<QToolButton*>(QString{},Qt::FindDirectChildrenOnly)) {
         if(!button->property("workPlaneData").isValid())continue;
@@ -73,6 +75,18 @@ inline QWidget* compact_work_plane_selector(QComboBox* combo,
         QStringLiteral("XZ"),QStringLiteral("YZ")};
     const std::array axis_labels{QStringLiteral("X"),
         QStringLiteral("Y"),QStringLiteral("Z")};
+    if (const int index = combo->findData(QStringLiteral("auto")); axes && index >= 0) {
+        auto* automatic = new QToolButton(selector);
+        automatic->setObjectName(combo->objectName() + QStringLiteral("ChoiceAuto"));
+        automatic->setText(QObject::tr("Automaticky"));
+        automatic->setCheckable(true);
+        automatic->setProperty("workPlaneData", combo->itemData(index));
+        automatic->setStyleSheet(command_button_style());
+        group->addButton(automatic, 3);
+        layout->addWidget(automatic);
+        QObject::connect(automatic, &QToolButton::clicked, combo,
+            [combo, index] { combo->setCurrentIndex(index); });
+    }
     for(int slot=0;slot<3;++slot) {
         const auto label=axes?axis_labels[slot]:plane_labels[slot];
         int index=combo->findText(label,Qt::MatchExactly);
@@ -90,7 +104,7 @@ inline QWidget* compact_work_plane_selector(QComboBox* combo,
     }
     auto* view = new QTableWidget(1,2,selector);
     view->setObjectName(combo->objectName()+QStringLiteral("View"));
-    view->setToolTip(QObject::tr("Vybrat rovinu ve View"));
+    view->setToolTip(axes ? QObject::tr("Vybrat referenci") : QObject::tr("Vybrat rovinu ve View"));
     view->horizontalHeader()->hide();view->verticalHeader()->hide();
     view->setSelectionMode(QAbstractItemView::NoSelection);
     view->setEditTriggers(QAbstractItemView::NoEditTriggers);

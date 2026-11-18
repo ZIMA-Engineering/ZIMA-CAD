@@ -2411,11 +2411,25 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
                     : source.find_construction(construction_dimension_object_id_);
             append_curve_radii(mesh, inspected);
             if (const auto* cut = source.find_cut(construction_dimension_object_id_);
-                cut && cut->definition.feature_kind == document::FeatureKind::Feature &&
-                cut->definition.feature.type == document::FeatureType::Point) {
-                append_nonzero_parameter_dimensions(mesh.dimensions,
-                    document::container_placement_dimensions(cut->definition.id,
-                        cut->definition.placement, mesh.original_references));
+                cut && cut->definition.feature_kind == document::FeatureKind::Feature) {
+                const auto& feature = cut->definition;
+                if (feature.feature.type == document::FeatureType::Point) {
+                    append_nonzero_parameter_dimensions(mesh.dimensions,
+                        document::container_placement_dimensions(feature.id,
+                            feature.placement, mesh.original_references));
+                } else if (feature.feature.type == document::FeatureType::Axis &&
+                    !primitive_origin_preview_mesh_) {
+                    const auto sketch = std::ranges::find(source.sketches,
+                        feature.feature.sketch_id, &sketcher::Sketch::id);
+                    if (sketch != source.sketches.end()) {
+                        auto cues = feature_view_cues(feature, *sketch);
+                        std::erase_if(cues.dimensions.dimensions, [](const auto& dimension) {
+                            return dimension.reference.semantic_key != "parameter:profile_offset";
+                        });
+                        append_nonzero_parameter_dimensions(mesh.dimensions,
+                            std::move(cues.dimensions.dimensions));
+                    }
+                }
             }
         }
         if (active) for (const auto& sketch : source.sketches) {

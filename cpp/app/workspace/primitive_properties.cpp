@@ -1714,23 +1714,24 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                     assembly_owner->session.document().feature_document();
                 preview_phase("carrier");
                 bool unchanged=original&&pending==*original;
-                const bool frame_unchanged=original&&
+                bool frame_unchanged=original&&
                     original->feature_kind==zima::document::FeatureKind::Feature&&
                     original->placement==preview.placement&&
                     original->feature.profile_source==preview.feature.profile_source&&
                     original->feature.sketch_id==preview.feature.sketch_id&&
                     original->feature.profile_plane_offset==preview.feature.profile_plane_offset;
-                if(unchanged&&property_owned_sketch_draft_) {
+                if(property_owned_sketch_draft_) {
                     const auto saved=std::ranges::find(document.sketches,property_owned_sketch_draft_->id,&zima::sketcher::Sketch::id);
-                    unchanged=saved!=document.sketches.end()&&saved->serialized()==property_owned_sketch_draft_->serialized();
+                    if (unchanged)
+                        unchanged=saved!=document.sketches.end()&&saved->serialized()==property_owned_sketch_draft_->serialized();
+                    frame_unchanged = frame_unchanged && saved != document.sketches.end() &&
+                        saved->plane == property_owned_sketch_draft_->plane &&
+                        saved->plane_auto == property_owned_sketch_draft_->plane_auto;
+                    if (saved == document.sketches.end()) document.sketches.push_back(*property_owned_sketch_draft_);
+                    else *saved = *property_owned_sketch_draft_;
                 }
                 const auto targets=dialog->selected_assembly_targets();
                 if(unchanged&&assembly_owner)unchanged=targets==assembly_owner->session.document().find_cut(pending.id)->target_occurrence_ids;
-                if(property_owned_sketch_draft_) {
-                    const auto found=std::ranges::find(document.sketches,property_owned_sketch_draft_->id,&zima::sketcher::Sketch::id);
-                    if(found==document.sketches.end())document.sketches.push_back(*property_owned_sketch_draft_);
-                    else *found=*property_owned_sketch_draft_;
-                }
                 preview_phase("draft");
                 // Register the pending profile and its display plane first,
                 // then resolve their common reference inputs once below.

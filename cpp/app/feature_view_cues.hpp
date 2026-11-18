@@ -41,14 +41,15 @@ inline FeatureViewCues feature_view_cues(const document::HistoryContainer& featu
         thickness.label_position=add(start,add(scale(sketch.resolved_x_axis,-12),scale(sketch.resolved_y_axis,-16)));
         out.dimensions.dimensions.push_back(std::move(thickness));
     }
-    const auto linear=[&](std::string key,kernel::Vec3 a,kernel::Vec3 b,double value) {
+    const auto linear=[&](std::string key,kernel::Vec3 a,kernel::Vec3 b,double value,
+                          double witness_distance = 8.0) {
         if(std::abs(value)<1e-12)return;
-        const auto witness=scale(sketch.resolved_x_axis,8);
+        const auto witness=scale(sketch.resolved_x_axis,witness_distance);
         out.dimensions.dimensions.push_back({a,b,add(a,witness),add(b,witness),value,
             {feature.id,"parameter:"+key,{}}});
     };
-    if(p.type!=document::FeatureType::Axis)
-        linear("profile_offset",add(start,scale(normal,-p.profile_plane_offset)),start,p.profile_plane_offset);
+    linear("profile_offset",add(start,scale(normal,-p.profile_plane_offset)),start,
+        p.profile_plane_offset, p.type == document::FeatureType::Axis ? -8.0 : 8.0);
     auto axis_id=p.axis_segment_id;
     if(axis_id.empty()) {
         const auto axis=std::ranges::find_if(sketch.segments,[](const auto& segment){return segment.construction&&segment.centerline;});

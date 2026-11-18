@@ -64,7 +64,12 @@ public:
         axis_direction_->addItem("Z",static_cast<int>(sketcher::SketchPlane::XY));
         install_automatic_work_plane(axis_direction_,true);
         axis_direction_label_=new QLabel(tr("Směr osy"),plane_group_);
-        sketch_form->addRow(axis_direction_label_,axis_direction_);
+        axis_direction_selector_=compact_work_plane_selector(axis_direction_, [this] {
+            if (!work_plane_reference_requested_) return;
+            axis_direction_->setCurrentIndex(axis_direction_->findData(QStringLiteral("auto")));
+            work_plane_reference_requested_();
+        });
+        sketch_form->addRow(axis_direction_label_,axis_direction_selector_);
         auto* offset=number("featureProfileOffset",false);sketch_form->addRow(tr("Odsazení roviny"),offset);
         plane_rows_=sketch_form;
         offset_=offset;offset->setValue(initial_.profile_plane_offset);
@@ -279,6 +284,10 @@ public:
     QComboBox* plane_control() const { return plane_; }
     QComboBox* axis_direction_control() const { return axis_direction_; }
     QDoubleSpinBox* offset_control() const { return offset_; }
+    void set_axis_plane_offset_available(bool available) {
+        plane_rows_->setRowVisible(offset_, selected_type() != document::FeatureType::Axis ||
+            available || offset_->value() != 0.0);
+    }
     QDoubleSpinBox* thickness_control() const { return thickness_; }
     QPushButton* sketch_button() const { return sketch_; }
     void on_swap(std::function<void()> callback) { swap_requested_=std::move(callback); }
@@ -418,7 +427,7 @@ private:
     QLabel *plane_label_{},*axis_direction_label_{};
     QFormLayout* plane_rows_{};
     QGroupBox *plane_group_{},*sketch_group_{},*result_group_{};
-    QWidget* plane_selector_{};
+    QWidget *plane_selector_{}, *axis_direction_selector_{};
     QCheckBox* symmetric_control_{};
     QWidget* options_row_{};
     QLabel* draft_notice_{};std::function<void()> notice_changed_;
@@ -487,13 +496,12 @@ private:
         plane_group_->setTitle(axis?tr("Osa"):tr("Rovina"));
         plane_label_->setText(tr("Výchozí rovina"));
         axis_direction_label_->setText(tr("Směr osy"));
-        // A native Axis is oriented by its placed Origin and endpoint
-        // limits. Its hidden profile-plane state is an implementation detail,
-        // not an editable work-plane row.
+        // Axis direction uses the normal of its internal work plane. Its
+        // reference offsets and endpoint limits stay in their own controls.
         plane_group_->setVisible(!extent_only_&&type!=document::FeatureType::Point);
         plane_rows_->setRowVisible(plane_selector_,!axis);
-        plane_rows_->setRowVisible(axis_direction_,axis);
-        plane_rows_->setRowVisible(offset_,!axis);
+        plane_rows_->setRowVisible(axis_direction_selector_,axis);
+        plane_rows_->setRowVisible(offset_,true);
         sketch_group_->setVisible(!extent_only_&&(modeling||type==document::FeatureType::Sketch));
         result_group_->setVisible(!extent_only_&&modeling);
         options_row_->setVisible(lengths);

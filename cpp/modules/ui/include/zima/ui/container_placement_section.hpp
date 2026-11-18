@@ -274,6 +274,7 @@ private:
     int remaining_translation_dof_{3};
     bool third_point_is_station_{};
     bool rendered_third_point_is_station_{};
+    bool rendered_empty_position_available_{};
     int remaining_rotation_dof_{3};
     bool orientation_reference_driven_{};
     std::set<std::size_t> highlighted_reference_rows_;
@@ -289,6 +290,7 @@ private:
     OriginSelectionModeCallback origin_selection_mode_;
 
     void remove_reference(std::size_t index);
+    [[nodiscard]] bool can_request_reference(std::size_t index) const;
     void apply_reference_visual_states();
     void toggle_reference_highlight(std::size_t row);
     void toggle_orientation_highlight(std::size_t row);

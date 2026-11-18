@@ -113,7 +113,7 @@ ContainerPlacementSection::ContainerPlacementSection(
                 return;
             auto* item = reference_items_[static_cast<std::size_t>(row)];
             if (item == nullptr) return;
-            if (reference_request_)
+            if (reference_request_ && can_request_reference(static_cast<std::size_t>(row)))
                 reference_request_(static_cast<std::size_t>(row));
         });
 
@@ -575,10 +575,24 @@ void ContainerPlacementSection::clear_reference_highlights() {
     if (highlights_changed_) highlights_changed_();
 }
 
+bool ContainerPlacementSection::can_request_reference(std::size_t index) const {
+    if (index >= reference_items_.size()) return true;
+    const bool populated = index < references_.size() &&
+        (!references_[index].owner_id.empty() || !references_[index].semantic_key.empty());
+    return populated || remaining_translation_dof_ > 0 ||
+        (position_rows_can_define_rotation_ && remaining_rotation_dof_ > 0);
+}
+
 void ContainerPlacementSection::apply_reference_visual_states() {
+    rendered_empty_position_available_ = remaining_translation_dof_ > 0 ||
+        (position_rows_can_define_rotation_ && remaining_rotation_dof_ > 0);
     for (std::size_t index = 0; index < reference_items_.size(); ++index) {
         if (auto* item = reference_items_[index]) {
-            item->set_active_input(active_reference_index_ == index);
+            const bool available = can_request_reference(index);
+            if (item->flags().testFlag(Qt::ItemIsEnabled) != available)
+                item->setFlags(item->flags().setFlag(Qt::ItemIsEnabled, available));
+            item->set_active_input(available && active_reference_index_ == index);
+            if (auto* indicator = reference_indicators_[index]) indicator->setVisible(available);
             item->set_inspected(highlighted_reference_rows_.contains(index));
         }
         if (auto* button = reference_inspection_buttons_[index]) {
@@ -781,6 +795,8 @@ void ContainerPlacementSection::set_remaining_translation_dof(int dof) {
         (reference_table_->rowCount() != static_cast<int>(visible) ||
          rendered_third_point_is_station_ != third_point_is_station_))
         refresh_reference_table();
+    else if (rendered_empty_position_available_ != (position_dof > 0))
+        apply_reference_visual_states();
 }
 
 void ContainerPlacementSection::set_remaining_rotation_dof(int dof) {
@@ -1018,7 +1034,7 @@ void ContainerPlacementSection::remove_reference(std::size_t index) {
     if (highlights_changed_) highlights_changed_();
     // The preview callback can rebuild the View and clear its picking filter.
     // Arm the removed row afterwards, so the next pick replaces that source.
-    if (reference_request_) reference_request_(index);
+    if (reference_request_ && can_request_reference(index)) reference_request_(index);
 }
 
 void ContainerPlacementSection::set_reference_label_resolver(ReferenceLabelResolver resolver) {

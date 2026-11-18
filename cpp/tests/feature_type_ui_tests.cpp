@@ -374,7 +374,9 @@ int main(int argc,char** argv) {
         type->setCurrentIndex(1);flush();
         auto* axis_direction=dialog.findChild<QComboBox*>("featureAxisDirection");
         auto* profile_plane=dialog.findChild<QComboBox*>("featureProfilePlane");
-        if(!axis_direction||!axis_direction->isVisible()||profile_plane->isVisible()||
+        auto* axis_selector=dialog.findChild<QWidget*>("featureAxisDirectionSelector");
+        if(!axis_direction||axis_direction->isVisible()||!axis_selector||
+           !axis_selector->isVisible()||profile_plane->isVisible()||
            axis_direction->count()!=4||axis_direction->itemText(0)!="X"||
            axis_direction->itemText(1)!="Y"||axis_direction->itemText(2)!="Z")
             throw std::runtime_error("Feature Axis has no direct local X/Y/Z direction choice");
@@ -506,15 +508,15 @@ int main(int argc,char** argv) {
             if(i==4&&scroll->verticalScrollBar()->maximum()>0&&
                 dialog.height()-scroll->mapTo(&dialog,QPoint(0,scroll->height())).y()>dialog.buttons()->height()+dialog.findChild<QLabel*>("featureValidationError")->height()+4*dialog.layout()->spacing()+dialog.layout()->contentsMargins().bottom())
                 throw std::runtime_error("Unused dialog space hides Feature parameters behind a scrollbar: height="+std::to_string(dialog.height())+" scrollBottom="+std::to_string(scroll->mapTo(&dialog,QPoint(0,scroll->height())).y())+" buttons="+std::to_string(dialog.buttons()->height())+" scroll="+std::to_string(scroll->height())+" maximum="+std::to_string(scroll->maximumHeight())+" minimum="+std::to_string(scroll->minimumHeight()));
-            for(const auto* name:{"featureProfilePlane","featureProfilePlaneSelector","featureAxisDirection","featureProfileOffset","featureSideValue0","featureSideValue1","featureThinSide","featureSideDraft0","featureSideDraft1"}) {
+            for(const auto* name:{"featureProfilePlane","featureProfilePlaneSelector","featureAxisDirectionSelector","featureProfileOffset","featureSideValue0","featureSideValue1","featureThinSide","featureSideDraft0","featureSideDraft1"}) {
                 auto* field=dialog.findChild<QWidget*>(name);
                 const bool draft_field=QString(name).startsWith("featureSideDraft");
                 const bool shown=draft_field?i==4&&(QString(name).endsWith('0')?first:second)->currentIndex()==1:
                     QString(name)=="featureThinSide"?i==4:
-                    QString(name)=="featureAxisDirection"?i==1:
+                    QString(name)=="featureAxisDirectionSelector"?i==1:
                     QString(name)=="featureProfilePlane"?false:
                     QString(name)=="featureProfilePlaneSelector"?i!=0&&i!=1:
-                    QString(name)=="featureProfileOffset"?i!=0&&i!=1:(i==1||i==4);
+                    QString(name)=="featureProfileOffset"?i!=0:(i==1||i==4);
                 if(field->isVisible()!=shown)throw std::runtime_error(
                     std::string("Wrong Feature field visibility: ")+name+
                     " type="+std::to_string(i)+" expected="+
@@ -535,9 +537,9 @@ int main(int argc,char** argv) {
         const auto check_axis=[&](bool ok){if(!ok)throw std::runtime_error("Ordinary Feature Axis end controls are inconsistent");};
         check_axis(first_end->isVisible()&&second_end->isVisible()&&
             dialog.findChild<QGroupBox*>("featurePlaneGroup")->isVisible()&&
-            dialog.findChild<QComboBox*>("featureAxisDirection")->isVisible()&&
+            axis_selector->isVisible()&&
             !dialog.findChild<QComboBox*>("featureProfilePlane")->isVisible()&&
-            !dialog.findChild<QDoubleSpinBox*>("featureProfileOffset")->isVisible());
+            dialog.findChild<QDoubleSpinBox*>("featureProfileOffset")->isVisible());
         for(auto* ending:{first_end,second_end}) {
             ending->setCurrentIndex(1);flush();
             const std::size_t side=ending==first_end?0:1;

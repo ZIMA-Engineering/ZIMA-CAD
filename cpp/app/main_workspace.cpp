@@ -3544,6 +3544,15 @@ int verify_pending_container_tree(QApplication& application,
             window.findChild<QWidget*>("featurePropertiesDialog"));
         if (!verify(axis_feature, "Axis shortcut did not open Feature Properties")) return 1;
         const auto axis_id = axis_feature->pending_value().id;
+        auto* axis_x = axis_feature->findChild<QToolButton*>("featureAxisDirectionChoiceX");
+        auto* axis_auto = axis_feature->findChild<QToolButton*>("featureAxisDirectionChoiceAuto");
+        auto* axis_reference = axis_feature->findChild<QTableWidget*>("featureAxisDirectionView");
+        if (!verify(axis_x && axis_x->isVisible() && axis_auto && axis_auto->isChecked() &&
+                axis_reference && axis_reference->isVisible(), "Axis has no compact direction controls")) return 1;
+        axis_x->click(); flush();
+        if (!verify(axis_x->isChecked() &&
+                axis_feature->set_inline_parameter_value("profile_offset", 12),
+                "Axis preset or work-plane offset is unavailable")) return 1;
         if (!verify(axis_feature->set_inline_parameter_value("placement:y", 90),
                 "Axis fixture cannot set Y")) return 1;
         axis_feature->buttons()->button(QDialogButtonBox::Ok)->click(); flush();
@@ -3554,6 +3563,14 @@ int verify_pending_container_tree(QApplication& application,
             return value.reference.owner_id == axis_id && value.reference.semantic_key == "axis";
         });
         if (!verify(axis != model_view->mesh().axes.end(), "Axis has no View line to hover")) return 1;
+        const auto axis_origin = std::ranges::find_if(model_view->mesh().points, [&](const auto& point) {
+            return point.reference.owner_id == axis_id && point.reference.semantic_key == "point";
+        });
+        if (!verify(axis_origin != model_view->mesh().points.end() &&
+                std::abs(std::abs(axis->direction.x) - 1) < 1e-8 &&
+                std::abs(axis_origin->position.x - 12 * axis->direction.x) < 1e-8 &&
+                std::abs(axis_origin->position.y - 90) < 1e-8,
+                "Axis work-plane offset did not move its origin along the chosen direction")) return 1;
         const double step = axis->display_length / 4;
         model_view->fit_points({{axis->point.x + step * axis->direction.x,
             axis->point.y + step * axis->direction.y, axis->point.z + step * axis->direction.z}});
@@ -3595,6 +3612,49 @@ int verify_pending_container_tree(QApplication& application,
         if (!verify(tree->currentItem() &&
                 tree->currentItem()->data(0, Qt::UserRole).toString().toStdString() == axis_id &&
                 highlighted_axis_pixels(), "Selected Axis line is not azure or synchronized with Tree")) return 1;
+        mouse(QEvent::MouseButtonDblClick, Qt::LeftButton, Qt::LeftButton);
+        mouse(QEvent::MouseButtonRelease, Qt::LeftButton, Qt::NoButton);
+        const auto offset_dimension = std::ranges::find_if(model_view->mesh().dimensions,
+            [&](const auto& dimension) {
+                return dimension.reference.owner_id == axis_id &&
+                    dimension.reference.semantic_key == "parameter:profile_offset";
+            });
+        if (!verify(offset_dimension != model_view->mesh().dimensions.end() &&
+                std::abs(offset_dimension->value - 12) < 1e-8,
+                "Double-click did not show the Axis work-plane offset")) return 1;
+        window.show_tree_item_properties(find(assembly ? "assembly-cut" : "part-container", axis_id));
+        flush();
+        axis_feature = dynamic_cast<zima::app::PrimitivePropertiesDialog*>(
+            window.findChild<QWidget*>("featurePropertiesDialog"));
+        auto* axis_z = axis_feature
+            ? axis_feature->findChild<QToolButton*>("featureAxisDirectionChoiceZ") : nullptr;
+        if (!verify(axis_z && axis_z->isEnabled(), "Saved offset Axis cannot change direction")) return 1;
+        axis_z->click(); flush();
+        const auto direction_is_z = [&](const auto& mesh) {
+            return std::ranges::any_of(mesh.axes, [&](const auto& item) {
+                return item.reference.owner_id == axis_id &&
+                    item.reference.semantic_key == "axis" &&
+                    std::abs(std::abs(item.direction.z) - 1) < 1e-8;
+            });
+        };
+        if (!verify((direction_is_z(model_view->transient_context_mesh()) ||
+                    direction_is_z(model_view->mesh())) &&
+                std::abs(axis_feature->pending_value().feature.profile_plane_offset - 12) < 1e-8,
+                "Axis preview did not change direction while preserving the offset")) return 1;
+        axis_feature->buttons()->button(QDialogButtonBox::Ok)->click(); flush();
+        if (!verify(direction_is_z(model_view->mesh()), "Offset Axis lost its changed direction on OK")) return 1;
+        window.show_tree_item_properties(find(assembly ? "assembly-cut" : "part-container", axis_id));
+        flush();
+        axis_feature = dynamic_cast<zima::app::PrimitivePropertiesDialog*>(
+            window.findChild<QWidget*>("featurePropertiesDialog"));
+        if (!verify(axis_feature && axis_feature->set_inline_parameter_value("profile_offset", 0),
+                "Cannot reset the Axis work-plane offset")) return 1;
+        axis_feature->buttons()->button(QDialogButtonBox::Ok)->click(); flush();
+        window.show_parameter_dimensions(axis_id); flush();
+        if (!verify(std::ranges::none_of(model_view->mesh().dimensions, [&](const auto& dimension) {
+                return dimension.reference.owner_id == axis_id &&
+                    dimension.reference.semantic_key == "parameter:profile_offset";
+            }), "Zero Axis work-plane offset was shown in View")) return 1;
 
         window.findChild<QAction*>("constructionPointAction")->trigger(); flush();
         auto* created = dialog();

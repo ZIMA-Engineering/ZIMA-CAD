@@ -3,6 +3,7 @@
 #include <zima/workspace/family_operations.hpp>
 #include "../inline_dimension_edit.hpp"
 #include <zima/workspace/placement_edit.hpp>
+#include <zima/workspace/profile_operations.hpp>
 #include <zima/workspace/derived_copy_operations.hpp>
 #include <zima/document/pattern_dimensions.hpp>
 #include <zima/workspace/sweep_operations.hpp>
@@ -518,6 +519,24 @@ void AssemblyWorkspaceWindow::edit_dimension_inline(
                     const auto key = candidate.semantic_key.substr(placement_key_prefix.size());
                     static_cast<void>(workspace::set_placement_values(
                         workspace_, kernel_, document_id, candidate.owner_id, {{key, next_value}}));
+                    guarded->hide();
+                    guarded->deleteLater();
+                    refresh_tabs();
+                    show_parameter_dimensions(candidate.owner_id);
+                    return;
+                }
+            }
+            if (candidate.semantic_key == "parameter:profile_offset" &&
+                candidate.instance_path == workspace_.active_occurrence_path()) {
+                const auto id = workspace_.active_document_id();
+                const auto* assembly = workspace_.open_assembly(id);
+                const auto* cut = assembly ? assembly->session.document().find_cut(candidate.owner_id) : nullptr;
+                if (cut && cut->definition.feature_kind == document::FeatureKind::Feature &&
+                    cut->definition.feature.type == document::FeatureType::Axis) {
+                    auto feature = cut->definition;
+                    feature.feature.profile_plane_offset = next_value;
+                    workspace::commit_assembly_profile(workspace_, kernel_, id, std::move(feature),
+                        cut->target_occurrence_ids, workspace::ProfileEditMode::Replace);
                     guarded->hide();
                     guarded->deleteLater();
                     refresh_tabs();

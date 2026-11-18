@@ -98,7 +98,17 @@ history_boundary_reference_demands(
         operation_by_owner.emplace(operation.owner_id,&operation);
     std::map<std::string,std::vector<document::ConstructionReference>>
         references_by_consumer;
+    std::set<std::string_view> sketch_owners;
+    for (const auto& sketch : document.sketches) sketch_owners.insert(sketch.id);
     for(const auto& [consumer,path,owner,key]:graph.references) {
+        // Owned Sketch geometry is published by ordered document resolution
+        // after its frame is resolved. Treating these identities as calculated
+        // Body topology masks the live Sketch with an empty history packet.
+        if (path.empty() && sketch_owners.contains(owner) &&
+            (key.starts_with("point:") || key.starts_with("segment:") ||
+             key.starts_with("circle:") || key.starts_with("arc:") ||
+             key.starts_with("ellipse:") || key.starts_with("elliptical_arc:") ||
+             key.starts_with("bspline:"))) continue;
         const auto alias=graph.owners.find(owner);
         if(alias==graph.owners.end()||
            !operation_by_owner.contains(alias->second))continue;

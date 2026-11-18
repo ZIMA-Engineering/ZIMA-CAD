@@ -303,6 +303,60 @@ void history() {
     check(!doc.history.back().placement.reference_valid,"Removed curve reference remained valid");
     near(doc.history.back().placement.x,saved.x);near(doc.history.back().placement.y,saved.y);
 }
+
+void owned_sketch_reference_regeneration(const std::filesystem::path& file) {
+    for (const auto type : {document::FeatureType::Point, document::FeatureType::Axis}) {
+        auto part = document::PartDocument::create_default();
+        auto profile = sketcher::Sketch::create_default();
+        auto source = document::PartDocument::create_feature_container(profile.id);
+        source.feature.type = document::FeatureType::Sketch;
+        profile.owner_container_id = source.id;
+        const auto segment = profile.add_segment(0, 30, 100, 30);
+        auto datum_profile = sketcher::Sketch::create_default();
+        auto datum = document::PartDocument::create_feature_container(datum_profile.id);
+        datum.feature.type = type;
+        datum_profile.owner_container_id = datum.id;
+        document::BodyHistoryGraph bodies;
+        const auto body = bodies.create_body("Sketch reference");
+        bodies.insert({document::PartHistoryKind::Feature, source.id});
+        bodies.insert({document::PartHistoryKind::Feature, datum.id});
+        datum.placement.references = {
+            {{}, profile.id, "segment:" + segment, 0, false},
+            {{}, body + ":origin", "origin:plane:yz", 22, true}
+        };
+        if (type == document::FeatureType::Axis) {
+            datum.placement.references.front().orientation_role = "front";
+            datum.placement.references.front().orientation_drives_rotation = true;
+        }
+        part.history = {source, datum};
+        part.sketches = {profile, datum_profile};
+        part.set_body_history(bodies);
+        kernel::OcctKernel kernel;
+        auto calculated = workspace::calculate_part_with_resolved_references(kernel, part);
+        const auto verify_datum = [&](const auto& model, double y) {
+            const auto& resolved = *model.find_container(datum.id);
+            check(resolved.placement.reference_valid, "Full calculation lost a native Sketch segment");
+            check(resolved.placement.references == datum.placement.references, "Datum reference identity changed");
+            near(resolved.placement.x, 22);
+            near(resolved.placement.y, y);
+            near(resolved.placement.z, 0);
+        };
+        verify_datum(part, 30);
+        part.save(file, calculated);
+        part = document::PartDocument::load(file);
+        verify_datum(part, 30);
+        part.find_container(source.id)->placement.y = 8;
+        calculated = workspace::calculate_part_with_resolved_references(kernel, part);
+        verify_datum(part, 38);
+        part.find_container(source.id)->suppressed = true;
+        static_cast<void>(workspace::calculate_part_with_resolved_references(kernel, part));
+        const auto& retained = part.find_container(datum.id)->placement;
+        check(!retained.reference_valid, "Suppressed Sketch remained usable");
+        near(retained.x, 22);
+        near(retained.y, 38);
+    }
+}
+
 void third_direction() {
     auto source=sketcher::Sketch::create_default();
     const auto arc=source.add_arc(0,-10,0,0,-7.66044443118978,-3.572123903134605);
@@ -798,6 +852,7 @@ int main(int argc,char** argv){try{
     const auto prefix="zima-curve-"+document::PartDocument::create_default().document_id;
     const auto native=root/(prefix+".prtz"),solid=root/(prefix+"-solid.prtz");
     native_transactions(native);solid_edges(solid);third_direction_transactions(solid);body_history();sketch_endpoint_assignments(native);
+    owned_sketch_reference_regeneration(native);
     std::filesystem::remove(native);std::filesystem::remove(solid);
     std::cout<<"Exact curve placement, tangents, history, native transactions and solid edge checks passed\n";return 0;
 }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

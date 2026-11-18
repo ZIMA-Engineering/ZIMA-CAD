@@ -593,7 +593,8 @@ static void verify_feature_surface_placement(QApplication& application, Assembly
         !dialog()->findChild<QCheckBox*>("featureShowText"),
         "Removed Feature Point/Text controls returned after reopen");
     auto* axis_direction=dialog()->findChild<QComboBox*>("featureAxisDirection");
-    check(axis_direction&&axis_direction->isVisible()&&
+    check(axis_direction&&dialog()->findChild<QWidget*>("featureAxisDirectionSelector")->isVisible()&&
+            !dialog()->findChild<QDoubleSpinBox*>("featureProfileOffset")->isVisible()&&
             !dialog()->findChild<QComboBox*>("featureProfilePlane")->isVisible(),
         "Feature Axis local X/Y/Z direction editor is missing");
     axis_direction->setCurrentIndex(axis_direction->findData(
@@ -626,7 +627,7 @@ static void verify_feature_surface_placement(QApplication& application, Assembly
         workspace::CalculationExecutionScope counted([&](auto action){++display_calculations;action();});
         edit_axis();
         axis_direction=dialog()->findChild<QComboBox*>("featureAxisDirection");
-        check(axis_direction&&axis_direction->isVisible(),
+        check(axis_direction&&dialog()->findChild<QWidget*>("featureAxisDirectionSelector")->isVisible(),
             "Reopened Feature Axis has no direction editor");
         axis_direction->setCurrentIndex(axis_direction->findData(
             static_cast<int>(sketcher::SketchPlane::YZ)));flush();
@@ -1418,6 +1419,20 @@ static void verify_feature_modeling(QApplication& application, AssemblyWorkspace
         "Zero draft must not have a View annotation outside Properties");
     auto feature=*saved.find_container(pending.id);
     const auto& profile=*std::ranges::find(saved.sketches,feature.feature.sketch_id,&sketcher::Sketch::id);
+    {
+        auto axis = feature;
+        axis.feature.type = document::FeatureType::Axis;
+        for (const double offset : {-12., -0., 0., 12.}) {
+            axis.feature.profile_plane_offset = offset;
+            const auto cues = workspace_detail::feature_view_cues(axis, profile);
+            const auto dimension = std::ranges::find_if(cues.dimensions.dimensions, [](const auto& value) {
+                return value.reference.semantic_key == "parameter:profile_offset";
+            });
+            check(offset == 0 ? dimension == cues.dimensions.dimensions.end()
+                : dimension != cues.dimensions.dimensions.end() && dimension->value == offset,
+                "Axis offset cue lost its signed value or showed a zero");
+        }
+    }
     for(double angle:{-7.5,0.,-0.,5.}) {
         feature.feature.sides[0].draft_angle_degrees=angle;
         feature.feature.sides[1]=feature.feature.sides[0];

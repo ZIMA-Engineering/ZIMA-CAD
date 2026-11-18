@@ -1095,6 +1095,41 @@ int verify_stable_placement_rows() {
     require(table->item(0, 1)->text().contains("Replacement") &&
         qobject_cast<QDoubleSpinBox*>(table->cellWidget(0, 3))->value() == 7,
         "Reference replacement did not refresh its label and offset");
+    placement.set_remaining_translation_dof(0);
+    placement.set_remaining_rotation_dof(0);
+    std::vector<std::size_t> reference_requests;
+    placement.set_reference_request_callback([&](auto index) { reference_requests.push_back(index); });
+    emit table->cellClicked(0, 1);
+    require(reference_requests == std::vector<std::size_t>{0},
+        "Fully constrained placement blocked a populated reference replacement");
+    auto* remove = table->cellWidget(1, 0)->findChild<QPushButton*>();
+    require(remove && remove->isEnabled(), "Fully constrained placement blocked removal");
+    remove->click();
+    require(!table->item(1, 1)->flags().testFlag(Qt::ItemIsEnabled),
+        "A hole can accept more references while placement is fully constrained");
+    emit table->cellClicked(1, 1);
+    require(reference_requests == std::vector<std::size_t>{0},
+        "Removing a redundant reference armed a fully constrained row");
+    placement.set_remaining_rotation_dof(1);
+    require(table->item(1, 1)->flags().testFlag(Qt::ItemIsEnabled),
+        "An available degree of freedom did not reopen the removed row");
+    emit table->cellClicked(1, 1);
+    require(reference_requests == std::vector<std::size_t>{0, 1} &&
+        placement.set_reference(1, {{}, "source", "edge", 0, false}, "Edge", &error),
+        "Cannot enter a reference after releasing a degree of freedom");
+    placement.set_remaining_rotation_dof(0);
+    placement.set_changed_callback([&] {
+        if (placement.populated_references().size() == 2)
+            placement.set_remaining_translation_dof(1);
+    });
+    table->cellWidget(1, 0)->findChild<QPushButton*>()->click();
+    require(table->item(1, 1)->flags().testFlag(Qt::ItemIsEnabled) &&
+        reference_requests == std::vector<std::size_t>{0, 1, 1},
+        "Removing a required reference did not reopen and arm its row");
+    placement.set_changed_callback({});
+    require(placement.set_reference(1, {{}, "source", "edge", 0, false}, "Edge", &error),
+        "Cannot restore the removed reference");
+    placement.set_reference_request_callback({});
     // Display rounding must not become an authored placement edit on OK.
     for(auto* field:placement.translation_fields())dynamic_cast<zima::ui::UnitDoubleSpinBox*>(field)->set_display_decimals(3);
     zima::document::Placement precise;

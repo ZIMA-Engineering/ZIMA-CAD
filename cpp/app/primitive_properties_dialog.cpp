@@ -2507,6 +2507,7 @@ void PrimitivePropertiesDialog::set_profile_plane_selection(const zima::sketcher
         control->setCurrentIndex(control->findData(sketch.plane_auto
             ? QVariant(QStringLiteral("auto"))
             : QVariant(static_cast<int>(sketch.plane))));
+        sync_compact_work_plane_selector(control);
         connect(control,&QComboBox::currentIndexChanged,this,[this] {
             // The work-plane mode lives in the owned Sketch rather than the
             // history-container value. Mark it explicitly so unchanged
@@ -2617,6 +2618,31 @@ void PrimitivePropertiesDialog::notify_preview() {
     auto* active_profile_plane=feature_panel_&&
             feature_panel_->parameters().type==zima::document::FeatureType::Axis
         ? feature_axis_direction_ : profile_plane_;
+    if (feature_panel_ && feature_axis_direction_ &&
+        active_profile_plane == feature_axis_direction_ && placement_) {
+        bool direct_axis = false;
+        if (automatic_work_plane(feature_axis_direction_)) {
+            const auto references = placement_->combined_references(3);
+            const auto direction = std::ranges::find_if(references, [](const auto& ref) {
+                return ref.orientation_drives_rotation && !ref.owner_id.empty();
+            });
+            if (direction != references.end()) {
+                const auto matches = [&](const auto& entity) {
+                    return entity.reference.owner_id == direction->owner_id &&
+                        entity.reference.semantic_key == direction->semantic_key &&
+                        entity.reference.instance_path == direction->instance_path;
+                };
+                direct_axis = direction->use_axis ||
+                    (!direction->supports_offset && (std::ranges::any_of(sheet_reference_geometry_.axes, matches) ||
+                    std::ranges::any_of(sheet_reference_geometry_.edges, [&](const auto& edge) {
+                        return matches(edge) && (edge.exact_spline
+                            ? edge.exact_spline->degree == 1 && edge.exact_spline->poles.size() == 2
+                            : edge.points.size() == 2);
+                    })));
+            }
+        }
+        feature_panel_->set_axis_plane_offset_available(!direct_axis);
+    }
     if (active_profile_plane && profile_plane_changed_)
         profile_plane_changed_(static_cast<zima::sketcher::SketchPlane>(
             selected_work_plane(active_profile_plane).toInt()),
