@@ -12169,14 +12169,19 @@ int verify_startup_contract(
             ? nullptr : dialog->findChild<QDialogButtonBox*>();
         const auto type_radios = dialog == nullptr
             ? QList<QRadioButton*>{} : dialog->findChildren<QRadioButton*>();
+        const std::set<QString> expected_types{
+            "part","assembly","drawing","drawing_format","title_block","symbol"};
+        std::set<QString> enabled_types;
+        for(const auto* radio:type_radios)
+            if(radio->isVisible() && radio->isEnabled())
+                enabled_types.insert(radio->property("documentType").toString());
         if (!verify(dialog != nullptr && name_field != nullptr && buttons != nullptr,
                     "New must open the shared in-application document dialog") ||
             !verify(dialog->windowFlags().testFlag(Qt::SubWindow),
                     "new document dialog must be an internal SubWindow") ||
-            !verify(type_radios.size() == 5 &&
-                        std::all_of(type_radios.begin(), type_radios.end(),
-                            [](const auto* radio) { return radio->isEnabled(); }),
-                    "New must expose all five Python document types")) {
+            !verify(static_cast<std::size_t>(type_radios.size())==expected_types.size() &&
+                        enabled_types==expected_types,
+                    "New must expose Part, Assembly, Drawing, Drawing Format, Title Block and Symbol")) {
             return false;
         }
         if (!new_dialog_validation_checked) {
@@ -12203,7 +12208,7 @@ int verify_startup_contract(
         return true;
     };
 
-    const QString identity = QUuid::createUuid().toString(QUuid::Id128);
+    const QString identity = QUuid::createUuid().toString(QUuid::Id128).toUpper();
     const QString part_name = QStringLiteral("DIL-STARTUP-") + identity;
     const QString assembly_name = QStringLiteral("SESTAVA-STARTUP-") + identity;
     const QString nested_assembly_name = QStringLiteral("NADSESTAVA-STARTUP-") + identity;
