@@ -1538,25 +1538,36 @@ void AssemblyWorkspaceWindow::accept_primitive_reference(
     proposed_reference=prepare_placement_pick(primitive_reference_dialog_,selected_index,
         std::move(proposed_reference),proposed_geometry,orientation_origin);
     auto committed_reference = proposed_reference;
+    const bool point_curve_pick = candidate.kind == viewer::CandidateKind::Edge &&
+        viewer::is_curve3d_edge(candidate.semantic_key) && form_dialog &&
+        form_dialog->feature_kind() == document::FeatureKind::Feature &&
+        form_dialog->pending_value().feature.type == document::FeatureType::Point;
     if(from_view && selected_index==0 && baseline_references.empty() &&
-       primitive_reference_dialog_->first_empty_position_index()==0 && candidate.kind==zima::viewer::CandidateKind::Face) {
-        if(const auto ray=viewer_->ray_at(viewer_->last_pointer_position()))
-        if(auto hit=confirmed_face_hit(viewer_->candidate_face_triangles(offered),ray->first,ray->second)) {
-            const auto path=zima::assembly::InstancePath::decode(workspace_.active_occurrence_path());
-            if(!path.occurrence_ids.empty())*hit=workspace_.occurrence_point_from_scene(workspace_.displayed_document_id(),path,*hit);
-            if(const auto* part=workspace_.open_part(workspace_.active_document_id());part && body_dialog_step_id_.empty()) {
-                const auto& doc=part->session.document();
-                const auto* body=doc.body_owner_for_object(primitive_parameter_owner_id_);
-                if(!body)body=doc.body_history.find(sketch_properties_body_id_.empty()?doc.body_history.active_body_id():sketch_properties_body_id_);
-                if(body)*hit=container_dimension_frame(body->scope.placement).inverse_point(*hit);
+       primitive_reference_dialog_->first_empty_position_index()==0 &&
+       (candidate.kind==zima::viewer::CandidateKind::Face || point_curve_pick)) {
+        if(const auto ray=viewer_->ray_at(viewer_->last_pointer_position())) {
+            auto hit = point_curve_pick
+                ? std::optional<kernel::Vec3>{{ray->first.x + offered.distance * ray->second.x,
+                                              ray->first.y + offered.distance * ray->second.y,
+                                              ray->first.z + offered.distance * ray->second.z}}
+                : confirmed_face_hit(viewer_->candidate_face_triangles(offered),ray->first,ray->second);
+            if(hit) {
+                const auto path=zima::assembly::InstancePath::decode(workspace_.active_occurrence_path());
+                if(!path.occurrence_ids.empty())*hit=workspace_.occurrence_point_from_scene(workspace_.displayed_document_id(),path,*hit);
+                if(const auto* part=workspace_.open_part(workspace_.active_document_id());part && body_dialog_step_id_.empty()) {
+                    const auto& doc=part->session.document();
+                    const auto* body=doc.body_owner_for_object(primitive_parameter_owner_id_);
+                    if(!body)body=doc.body_history.find(sketch_properties_body_id_.empty()?doc.body_history.active_body_id():sketch_properties_body_id_);
+                    if(body)*hit=container_dimension_frame(body->scope.placement).inverse_point(*hit);
+                }
+                auto seeded=baseline_placement;
+                if(!seeded.value_locks.contains("x"))seeded.x=hit->x;
+                if(!seeded.value_locks.contains("y"))seeded.y=hit->y;
+                if(!seeded.value_locks.contains("z"))seeded.z=hit->z;
+                seeded.references={proposed_reference};
+                if(zima::document::resolve_placement(seeded,proposed_geometry))
+                    committed_reference.picked_position=std::array{seeded.x,seeded.y,seeded.z};
             }
-            auto seeded=baseline_placement;
-            if(!seeded.value_locks.contains("x"))seeded.x=hit->x;
-            if(!seeded.value_locks.contains("y"))seeded.y=hit->y;
-            if(!seeded.value_locks.contains("z"))seeded.z=hit->z;
-            seeded.references={proposed_reference};
-            if(zima::document::resolve_placement(seeded,proposed_geometry))
-                committed_reference.picked_position=std::array{seeded.x,seeded.y,seeded.z};
         }
     }
     baseline_references.push_back(proposed_reference);
