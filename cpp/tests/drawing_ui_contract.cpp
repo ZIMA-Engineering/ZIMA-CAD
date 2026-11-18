@@ -769,7 +769,9 @@ int verify_drawing_ui() {
         require(state.sheets.front().views.front().x==original.x,"Cancel failed to restore position");
         require(std::abs(window.view_rectangle_center_for_test(original.id)->x()-rectangle->x())<.02&&std::abs(window.view_rectangle_center_for_test(original.id)->y()-rectangle->y())<.02,"Cancel retained the dragged preview position");
         QContextMenuEvent context(QContextMenuEvent::Mouse,center.toPoint(),canvas->mapToGlobal(center.toPoint()));
-        QApplication::sendEvent(canvas,&context); flush();
+        // The synthetic event builds the menu synchronously. Wayland can
+        // dismiss its popup on the next event turn without a real input serial.
+        QApplication::sendEvent(canvas,&context);
         auto* menu=canvas->findChild<QMenu*>("drawingViewContextMenu");
         require(menu && menu->actions().contains(action("projectDrawingViewAction")),"View context menu lacks projected view");
         menu->close(); flush();
@@ -1523,7 +1525,7 @@ int verify_drawing_ui() {
             };
             click(canvas,a);ctrl_click(b);require(canvas->property("drawingSelectionCount").toInt()==2,"Ctrl did not add text to drawing selection");
             ctrl_click(a);require(canvas->property("drawingSelectionCount").toInt()==1,"Ctrl did not toggle selected text off");ctrl_click(a);
-            QContextMenuEvent menu_event(QContextMenuEvent::Mouse,b.toPoint(),canvas->mapToGlobal(b.toPoint()));QApplication::sendEvent(canvas,&menu_event);flush();
+            QContextMenuEvent menu_event(QContextMenuEvent::Mouse,b.toPoint(),canvas->mapToGlobal(b.toPoint()));QApplication::sendEvent(canvas,&menu_event);
             auto* menu=canvas->findChild<QMenu*>("drawingSelectionContextMenu");require(menu,"Mixed selection context menu missing");
             auto* remove=menu->findChild<QAction*>("drawingDeleteSelectionAction");require(remove,"Selection Delete action missing");remove->trigger();menu->close();flush();
             require(window.document_for_test().sheets.front().texts.empty()&&window.document_for_test().sheets.front().views.size()==1,"Multi-delete removed wrong entities");
@@ -1539,7 +1541,7 @@ int verify_drawing_ui() {
             require(window.document_for_test().sheets.front().views.size()==1&&window.document_for_test().sheets.front().texts.size()==2,"Delete must preserve an individually selected view");
             require(canvas->property("drawingSelectionCount").toInt()==1,"Ignored view Delete must preserve selection");
             ctrl_click(a);
-            QContextMenuEvent mixed_menu_event(QContextMenuEvent::Mouse,a.toPoint(),canvas->mapToGlobal(a.toPoint()));QApplication::sendEvent(canvas,&mixed_menu_event);flush();
+            QContextMenuEvent mixed_menu_event(QContextMenuEvent::Mouse,a.toPoint(),canvas->mapToGlobal(a.toPoint()));QApplication::sendEvent(canvas,&mixed_menu_event);
             menu=canvas->findChild<QMenu*>("drawingSelectionContextMenu");require(menu,"Mixed text/view context menu missing");
             remove=menu->findChild<QAction*>("drawingDeleteSelectionAction");require(remove,"Mixed Delete action missing");remove->trigger();menu->close();flush();
             require(window.document_for_test().sheets.front().views.size()==1&&window.document_for_test().sheets.front().texts.size()==1,"Context Delete must preserve views and remove selected text");
