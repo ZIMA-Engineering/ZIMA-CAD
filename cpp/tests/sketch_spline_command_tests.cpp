@@ -54,11 +54,35 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     const auto circle=sketcher::sketch_curve_geometry(changed,exact);
     for(int i=0;i<=128;++i){const auto p=kernel::bspline_value(circle,i/128.);require(std::abs(p.x*p.x+p.y*p.y-4)<1e-12,"Exact rational circle was approximated during editing");}
     reject(exact,{{"degree",1}});reject(exact,{{"closed",true}});
-    std::string block;edit([&](auto& s){block=s.add_import_block("source","external-reference:fixture",{exact},s.bsplines.front().control_point_ids);});
-    require(command("sketch.bspline.get",{{"geometry",exact}}).at("read_only")==true,"Linked spline query is editable");
-    reject(exact,{{"points",{{3,0},{3,3},{0,3}}}});
-    require(command("sketch.bspline.set",{{"geometry",exact}}).at("changed")==false,"Unchanged linked properties failed");
-    edit([&](auto& s){s.import_blocks.clear();});command("sketch.curve.retain",{{"geometry",exact},{"intervals",{{.1,.9}}}});reject(exact,{{"degree",1}});
+    command("sketch.curve.retain",{{"geometry",exact},{"intervals",{{.1,.9}}}});
+    reject(exact,{{"degree",1}});
+
+    create("Linked spline");
+    auto reference=sketcher::Sketch::create_external_reference(sketcher::ExternalReferenceKind::Edge);
+    reference.source_document_id="source";
+    reference.source_owner_id="profile";
+    reference.source_semantic_key="ellipse-arc";
+    reference.exact_spline=circle;
+    // A noncircular rational curve follows the spline projection path.
+    for(auto& pole:reference.exact_spline->poles)pole.y*=1.5;
+    reference.cached_points={{2,0},{0,3}};
+    std::string linked;
+    edit([&](auto& s) {
+        s.add_external_reference(reference);
+        linked=s.add_external_profile_geometry(reference.id);
+    });
+    const auto linked_sketch=sketch;
+    const auto linked_before=current();
+    require(linked_before.import_blocks.size()==1 &&
+        linked_before.import_blocks.front().source_path=="external-reference:"+reference.id &&
+        linked_before.import_blocks.front().external_profile.has_value() &&
+        sketcher::sketch_curve_geometry(linked_before,linked)==*reference.exact_spline,
+        "Projection did not create an exact linked spline");
+    require(command("sketch.bspline.get",{{"geometry",linked}}).at("read_only")==true,
+        "Linked spline query is editable");
+    reject(linked,{{"points",{{3,0},{3,3},{0,3}}}});
+    require(command("sketch.bspline.set",{{"geometry",linked}}).at("changed")==false,
+        "Unchanged linked properties failed");
     create("constrained");const auto constrained=command("sketch.bspline.create",{{"points",{{0,0},{3,0},{7,3},{10,0}}},{"degree",3}}).at("geometry").get<std::string>();
     const auto constrained_ids=current().bsplines.front().control_point_ids;
     edit([&](auto& s){static_cast<void>(s.add_point_pair_constraint(constrained_ids[0],constrained_ids[1],sketcher::ConstraintKind::Horizontal));});
@@ -66,6 +90,12 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     command("sketch.bspline.set",{{"geometry",constrained},{"points",{{0,2},{3,2},{7,3},{10,0}}}});
     require(current().constraints.size()==1 && current().find_point(constrained_ids[0])->y==2 && current().find_point(constrained_ids[1])->y==2,"Simultaneous constrained edit failed");
     run(host,"save");const auto restored=document::PartDocument::load(dir/"spline-properties.prtz");
+    const auto reopened_link=std::ranges::find(restored.sketches,linked_sketch,&sketcher::Sketch::id);
+    require(reopened_link!=restored.sketches.end() &&
+        reopened_link->import_blocks==linked_before.import_blocks &&
+        reopened_link->external_references==linked_before.external_references &&
+        sketcher::sketch_curve_geometry(*reopened_link,linked)==*reference.exact_spline,
+        "Save/reopen changed the linked spline or its source reference");
     for(std::size_t i=0;i<restored.sketches.size();++i)require(restored.sketches[i].serialized()==part->session.document().sketches[i].serialized(),"Spline persistence changed geometry or constraints");
 }
 }
