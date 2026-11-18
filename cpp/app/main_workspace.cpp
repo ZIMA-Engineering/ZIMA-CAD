@@ -12233,15 +12233,44 @@ int verify_startup_contract(
     auto* parameter_language = parameters_dialog == nullptr ? nullptr :
         parameters_dialog->findChild<QComboBox*>("parameterLanguage");
     if (!verify(parameters->isEnabled() && parameters_dialog != nullptr &&
-                    parameters_dialog->windowFlags().testFlag(Qt::SubWindow) &&
-                    parameters_table != nullptr && parameters_table->rowCount() >= 12 &&
-                    parameters_table->columnCount() == 6 &&
-                    parameter_language != nullptr && parameter_language->count() >= 4 &&
-                    parameters_dialog->findChild<QTableWidget*>(
-                        "documentRelationsTable") == nullptr,
-                "Parameters must expose localized data and ordering controls")) {
+                    parameters_dialog->windowFlags().testFlag(Qt::SubWindow),
+                "Parameters must open an internal dialog for a new Part") ||
+        !verify(parameters_table != nullptr && parameters_table->columnCount() == 6 &&
+                    parameters_dialog->findChild<QTableWidget*>("documentRelationsTable") == nullptr,
+                "Parameters must show the parameter table with Relations in its own dialog") ||
+        !verify(parameter_language != nullptr &&
+                    parameter_language->findText("cs") >= 0 && parameter_language->findText("de") >= 0 &&
+                    parameter_language->findText("en") >= 0 && parameter_language->findText("fr") >= 0 &&
+                    parameter_language->findText("ru") >= 0,
+                "Parameters must offer all five supported languages")) {
         return 1;
     }
+    const QStringList expected_parameter_keys{
+        "name", "standard", "stock", "material", "quantity",
+        "drawn_by", "approved_by", "revision", "date", "mass"};
+    QStringList parameter_keys;
+    for (int row = 0; row < parameters_table->rowCount(); ++row) {
+        const auto* key = parameters_table->item(row, 1);
+        if (key != nullptr && !key->text().isEmpty()) parameter_keys.append(key->text());
+    }
+    if (!verify(parameter_keys == expected_parameter_keys,
+                "New Part must show the ten factory parameters in template order")) return 1;
+    auto* move_up = parameters_dialog->findChild<QPushButton*>("parameterMoveUp");
+    auto* move_down = parameters_dialog->findChild<QPushButton*>("parameterMoveDown");
+    auto* order_cell = parameters_table->cellWidget(0, 5);
+    auto* order_check = order_cell == nullptr ? nullptr :
+        order_cell->findChild<QCheckBox*>("parameterOrder");
+    if (!verify(move_up && move_down && order_check && order_check->isEnabled() &&
+                    !move_up->isEnabled() && !move_down->isEnabled(),
+                "Parameters ordering must require selecting a populated row")) return 1;
+    order_check->click();
+    if (!verify(!move_up->isEnabled() && move_down->isEnabled(),
+                "The first parameter must only move down")) return 1;
+    move_down->click();
+    if (!verify(parameters_table->item(0, 1) && parameters_table->item(1, 1) &&
+                    parameters_table->item(0, 1)->text() == "standard" &&
+                    parameters_table->item(1, 1)->text() == "name" && move_up->isEnabled(),
+                "Moving the first parameter down must swap adjacent rows and retain selection")) return 1;
     parameter_language->setCurrentText("cs");
     QMetaObject::invokeMethod(parameter_language,"activated",Qt::DirectConnection,Q_ARG(int,parameter_language->currentIndex()));
     for(int row=0;row<parameters_table->rowCount();++row)if(auto* label=parameters_table->item(row,3)) {
