@@ -1599,7 +1599,8 @@ protected:
         painter.translate(origin.x()+(sheet_->width_mm()-view.x)*zoom,
             origin.y()+(sheet_->height_mm()-view.y)*zoom);
         painter.scale(pixels,-pixels);
-        for(const auto& edge:view.projected_edges) {
+        // Match the depth renderer's stroke priority at crossings.
+        for (const bool muted_pass : {true, false}) for (const auto& edge : view.projected_edges) {
             const bool shown=visible_edges_only
                 ?drawing::drawing_placement_edge_visible(view,edge)
                 :drawing::drawing_edge_visible(view,edge);
@@ -1607,6 +1608,7 @@ protected:
             const bool muted=!visible_edges_only&&(edge.hidden||edge.thread||
                 (edge.tangent&&view.tangent_edge_style==
                     drawing::TangentEdgeStyle::Thin));
+            if (muted != muted_pass) continue;
             const QColor color=muted?QColor("#666666"):QColor(Qt::white);
             painter.setPen(QPen(color,1/pixels));
             QPolygonF line;for(const auto& point:edge.points)line<<QPointF(point.x,point.y);

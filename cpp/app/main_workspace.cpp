@@ -11442,9 +11442,11 @@ int verify_startup_contract(
         application.processEvents();
         auto* view=dynamic_cast<zima::viewer::MeshView*>(window.findChild<QOpenGLWidget*>("modelWorkspace"));
         if(!verify(view!=nullptr,"Missing theme viewer"))return 1;
-        auto* logo=window.findChild<QLabel*>("applicationLogo");
-        if(!verify(logo&&logo->isVisible()&&!logo->pixmap().isNull(),
-                "Adaptive ZC toolbar logo is missing"))return 1;
+        auto* wordmark=window.findChild<QLabel*>("applicationWordmark");
+        if(!verify(wordmark&&wordmark->isVisible()&&!wordmark->pixmap().isNull()&&
+                    wordmark->mapTo(&window,QPoint()).x()>window.width()/2&&
+                    window.menuBar()->cornerWidget(Qt::TopLeftCorner)==nullptr,
+                "The ZIMA-CAD wordmark belongs at the right of the header, with an unadorned menu"))return 1;
         const auto saved=application.palette();
         for(bool dark:{false,true,false}) {
             auto palette=saved;palette.setColor(QPalette::Window,dark?QColor(32,32,32):QColor(245,245,245));
@@ -11464,17 +11466,15 @@ int verify_startup_contract(
                 for(int x=0;x<icon.width();++x) {
                     const auto color=icon.pixelColor(x,y);
                     if(color.alpha()<100)continue;
-                    if(std::max({color.red(),color.green(),color.blue()})-
-                            std::min({color.red(),color.green(),color.blue()})<20&&
-                            (dark?color.lightness()>200:color.lightness()<60))
+                    if(color==(dark?QColor("#FFFFFF"):QColor("#071729")))
                         ++neutral;
-                    if(color.blue()>180&&color.green()>120&&color.red()<80)
+                    if(color==(dark?QColor("#08C8EE"):QColor("#009BC1")))
                         ++cyan;
                 }
             if(!verify(neutral>20&&cyan>20&&
                     !window.windowIcon().isNull()&&
-                    !logo->pixmap().isNull(),
-                "ZC logo does not keep an adaptive Z and azure C"))return 1;
+                    !wordmark->pixmap().isNull(),
+                "ZC must use the supplied monogram colors for the current theme"))return 1;
         }
         application.setPalette(saved);
         if(qEnvironmentVariableIsSet("ZIMA_ICON_PREVIEW")) {
@@ -11907,7 +11907,8 @@ int verify_startup_contract(
     std::cout << "Startup fixtures: " << zima::document::path_to_utf8(test_directory) << std::endl;
     const bool rectangular_feature_only = qEnvironmentVariableIsSet("ZIMA_VERIFY_STARTUP_RECTANGULAR_FEATURE_ONLY");
     const bool point_highlight_only = qEnvironmentVariableIsSet("ZIMA_VERIFY_STARTUP_POINT_HIGHLIGHT_ONLY");
-    if (!rectangular_feature_only && !point_highlight_only) {
+    const bool sketch_text_dialog_only = qEnvironmentVariableIsSet("ZIMA_VERIFY_STARTUP_SKETCH_TEXT_DIALOG_ONLY");
+    if (!rectangular_feature_only && !point_highlight_only && !sketch_text_dialog_only) {
         if (verify_component_references(application, test_directory) != 0) return 1;
         if (verify_save_copy_ui(application, test_directory) != 0) return 1;
         if (verify_body_placement_offsets(application, test_directory) != 0) return 1;
@@ -13080,27 +13081,40 @@ int verify_startup_contract(
                 "Sketch external-reference command must leave its viewer mode")) {
         return 1;
     }
+    const auto* sketch_before_text = window.active_sketch_for_test();
+    if (!verify(sketch_before_text != nullptr, "Sketch Text requires an active Sketch")) return 1;
+    const auto before_text = sketch_before_text->serialized();
     sketch_text->trigger();
     application.processEvents();
-    auto* text_value = window.findChild<QPlainTextEdit*>("sketchTextValue");
-    auto* text_dialog = text_value == nullptr
-        ? nullptr : qobject_cast<QDialog*>(text_value->parentWidget());
-    auto* text_buttons = text_dialog == nullptr
-        ? nullptr : text_dialog->findChild<QDialogButtonBox*>();
-    auto* text_angle = text_dialog == nullptr
-        ? nullptr : text_dialog->findChild<QDoubleSpinBox*>("sketchTextAngle");
-    if (!verify(text_dialog != nullptr && text_buttons != nullptr &&
-                    text_angle != nullptr && text_angle->value() == 0.0 &&
-                    text_dialog->windowFlags().testFlag(Qt::SubWindow) &&
+    auto* text_dialog = window.findChild<QDialog*>("sketchTextProperties");
+    if (!verify(text_dialog != nullptr && text_dialog->isVisible() &&
+                    text_dialog->windowFlags().testFlag(Qt::SubWindow),
+                "Sketch Text must open a visible internal Properties window")) return 1;
+    auto* text_value = text_dialog->findChild<QPlainTextEdit*>("sketchTextValue");
+    auto* text_angle = text_dialog->findChild<QDoubleSpinBox*>("sketchTextAngle");
+    if (!verify(text_value != nullptr && text_angle != nullptr && text_angle->value() == 0.0,
+                "New Sketch Text must have a text editor and a zero rotation")) return 1;
+    auto* text_buttons = text_dialog->findChild<QDialogButtonBox*>();
+    if (!verify(text_buttons != nullptr &&
                     text_buttons->button(QDialogButtonBox::Ok) != nullptr &&
                     text_buttons->button(QDialogButtonBox::Cancel) != nullptr &&
                     text_buttons->button(QDialogButtonBox::Apply) == nullptr,
-                "Sketch Text must use the shared internal OK/Cancel properties contract")) {
+                "Sketch Text Properties must expose OK and Cancel")) {
         return 1;
     }
+    text_value->setPlainText(QStringLiteral("Cancel fixture"));
+    text_angle->setValue(15.0);
     text_buttons->button(QDialogButtonBox::Cancel)->click();
     QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
     application.processEvents();
+    const auto* sketch_after_text = window.active_sketch_for_test();
+    if (!verify(window.findChild<QDialog*>("sketchTextProperties") == nullptr &&
+                    sketch_after_text != nullptr && sketch_after_text->serialized() == before_text,
+                "Sketch Text Cancel must close Properties and preserve the Sketch")) return 1;
+    if (sketch_text_dialog_only) {
+        std::cout << "Sketch Text Properties, default rotation and Cancel passed" << std::endl;
+        return 0;
+    }
     auto* model_viewer = window.findChild<QOpenGLWidget*>("modelWorkspace");
     if (!verify(model_viewer != nullptr,
                 "Sketch parity workflow is missing the model viewer")) {
@@ -15994,7 +16008,7 @@ int main(int argc, char* argv[]) {
     application.setApplicationName("ZIMA-CAD");
     application.setDesktopFileName("zima-cad");
     zima::app::desktop::apply_process_identity();
-    application.setWindowIcon(zima::app::application_icon());
+    application.setWindowIcon(zima::app::system_application_icon());
     if (const int result = zima::app::desktop::command_line(); result >= 0) return result;
     const auto arguments = application.arguments();
     auto startup = zima::app::parse_startup_arguments(arguments);

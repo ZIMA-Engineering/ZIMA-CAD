@@ -1,10 +1,12 @@
 #include "resource_icon.hpp"
+#include "window_title_icon.hpp"
 
 #include <QApplication>
 #include <QByteArray>
 #include <QFile>
 #include <QHash>
 #include <QIconEngine>
+#include <QImage>
 #include <QPainter>
 #include <QPalette>
 #include <QPixmap>
@@ -15,6 +17,8 @@
 #include <QPushButton>
 #include <QAbstractButton>
 #include <QEvent>
+#include <QSettings>
+#include <QStandardPaths>
 
 namespace zima::app {
 namespace {
@@ -111,9 +115,18 @@ void install_dialog_button_icons() {
     qApp->installEventFilter(new ButtonIcons(qApp));
 }
 
+static QPixmap branding_pixmap(const QString& path, const QSize& size, qreal scale);
+
 static QIcon raster_resource_icon(const QString& name, bool surface) {
-    if(name=="application-logo")
-        return svg_icon(QStringLiteral(":/zima/branding/app-icon.svg"),true);
+    if (name == "application-logo") {
+        const bool dark = qApp && qApp->palette().color(QPalette::Window).lightness() < 128;
+        const auto path = dark ? QStringLiteral(":/zima/branding/zc-dark.svg")
+                               : QStringLiteral(":/zima/branding/zc-light.svg");
+        QIcon icon;
+        for (const int size : {16, 24, 32, 48, 64, 128, 256})
+            icon.addPixmap(branding_pixmap(path, QSize(size, size), 1));
+        return icon;
+    }
     if (name == "origin-document") return svg_icon(QStringLiteral(":/zima/icons/origin.svg"),true,true);
     if (name == "origin-feature") {
         static QHash<QString,QIcon> origins;
@@ -212,6 +225,99 @@ QIcon application_icon() {
     static QIcon icon(new PaletteIconEngine(
         QStringLiteral("application-logo"),false));
     return icon;
+}
+
+static bool system_uses_dark_colors() {
+    bool dark = !qApp || qApp->palette().color(QPalette::Window).lightness() < 128;
+#ifdef Q_OS_WIN
+    const QSettings personalization(
+        QStringLiteral("HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize"),
+        QSettings::NativeFormat);
+    dark = !personalization.value(QStringLiteral("SystemUsesLightTheme"), 0).toBool();
+#elif defined(Q_OS_LINUX)
+    if (qEnvironmentVariable("XDG_CURRENT_DESKTOP").contains(QStringLiteral("KDE"), Qt::CaseInsensitive)) {
+        const auto config = QStandardPaths::locate(QStandardPaths::GenericConfigLocation,
+                                                   QStringLiteral("kdeglobals"));
+        if (!config.isEmpty()) {
+            const QSettings kde(config, QSettings::IniFormat);
+            const auto rgb = kde.value(QStringLiteral("Colors:Window/BackgroundNormal")).toStringList();
+            if (rgb.size() >= 3)
+                dark = QColor(rgb[0].toInt(), rgb[1].toInt(), rgb[2].toInt()).lightness() < 128;
+        }
+    }
+#endif
+    return dark;
+}
+
+QIcon system_application_icon() {
+    const auto make_icon = [](const QString& path) {
+        QIcon icon;
+        for (const int size : {16, 24, 32, 48, 64, 128, 256})
+            icon.addPixmap(branding_pixmap(path, QSize(size, size), 1));
+        return icon;
+    };
+    static const auto dark_icon = make_icon(QStringLiteral(":/zima/branding/zc-dark.svg"));
+    static const auto light_icon = make_icon(QStringLiteral(":/zima/branding/zc-light.svg"));
+    return system_uses_dark_colors() ? dark_icon : light_icon;
+}
+
+QIcon window_title_icon() {
+#ifdef Q_OS_LINUX
+    if (qApp && qApp->platformName().startsWith(QStringLiteral("wayland"))) {
+        const auto make_icon = [](bool dark) {
+            QFile svg(QStringLiteral(":/zima/branding/zc-title.svg"));
+            if (!svg.open(QIODevice::ReadOnly)) return QIcon{};
+            auto bytes = svg.readAll();
+            if (!dark) bytes.replace("#14263A", "#071729");
+            QSvgRenderer renderer(bytes);
+            QIcon icon;
+            for (const int size : {16, 20, 24, 32, 48, 64}) {
+                QPixmap image(size, size);
+                image.fill(Qt::transparent);
+                QPainter painter(&image);
+                renderer.render(&painter);
+                painter.end();
+                icon.addPixmap(image);
+            }
+            return icon;
+        };
+        static const auto dark_icon = make_icon(true);
+        static const auto light_icon = make_icon(false);
+        const auto& icon = system_uses_dark_colors() ? dark_icon : light_icon;
+        if (!icon.isNull()) return icon;
+    }
+#endif
+    return system_application_icon();
+}
+
+QImage application_wordmark(const QColor& color) {
+    // The supplied design includes ZC at the left. Keep just the wordmark
+    // and preserve its transparent edges when applying the display color.
+    static const QImage wordmark = QImage(QStringLiteral(":/zima/branding/startup-wordmark.png"))
+        .copy(QRect(775, 229, 1310, 275))
+        .convertToFormat(QImage::Format_ARGB32_Premultiplied);
+    if (wordmark.isNull()) return {};
+    auto tinted = wordmark;
+    QPainter painter(&tinted);
+    painter.setCompositionMode(QPainter::CompositionMode_SourceIn);
+    painter.fillRect(tinted.rect(), color);
+    painter.end();
+    return tinted;
+}
+
+static QPixmap branding_pixmap(const QString& path, const QSize& size, qreal scale) {
+    QSvgRenderer renderer(path);
+    if (!renderer.isValid()) return {};
+    QPixmap pixmap((QSizeF(size) * scale).toSize());
+    pixmap.setDevicePixelRatio(scale);
+    pixmap.fill(Qt::transparent);
+    QSizeF bounds = renderer.viewBoxF().size();
+    bounds.scale(size, Qt::KeepAspectRatio);
+    const QRectF target(QPointF((size.width() - bounds.width()) / 2,
+                               (size.height() - bounds.height()) / 2), bounds);
+    QPainter painter(&pixmap);
+    renderer.render(&painter, target);
+    return pixmap;
 }
 
 QIcon resource_tree_icon(const QString& name, bool surface) {

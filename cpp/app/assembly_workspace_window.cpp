@@ -1,6 +1,7 @@
 #include <zima/command_host/host.hpp>
 #include <zima/document/file_path.hpp>
 #include "workspace/workspace_internal.hpp"
+#include "window_title_icon.hpp"
 #include "updateservice.h"
 #include <zima/workspace/document_operations.hpp>
 #include <zima/workspace/family_operations.hpp>
@@ -40,7 +41,7 @@ AssemblyWorkspaceWindow::AssemblyWorkspaceWindow(const QString& working_director
     setFont(qApp->font());
     setWindowTitle(tr("ZIMA-CAD"));
     install_dialog_button_icons();
-    setWindowIcon(application_icon());
+    setWindowIcon(window_title_icon());
     resize(1200, 800);
     create_actions();
     create_layout();
@@ -84,8 +85,8 @@ AssemblyWorkspaceWindow::AssemblyWorkspaceWindow(const QString& working_director
 
 void AssemblyWorkspaceWindow::changeEvent(QEvent* event) {
     QMainWindow::changeEvent(event);
-    if(event->type()==QEvent::PaletteChange)
-        setWindowIcon(application_icon());
+    if(event->type()==QEvent::PaletteChange || event->type()==QEvent::ThemeChange)
+        setWindowIcon(window_title_icon());
 }
 
 AssemblyWorkspaceWindow::~AssemblyWorkspaceWindow() {

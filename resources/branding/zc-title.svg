@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+  <title>ZC</title>
+  <rect x="1" y="1" width="22" height="22" rx="4" fill="#14263A"/>
+  <path fill="#FFFFFF" d="M5 7h8v3l-5 7h5v3H3v-3l6-7H5Z"/>
+  <path fill="#FFFFFF" d="M21 7v3h-2a2 2 0 0 0-2 2v3a2 2 0 0 0 2 2h2v3h-2a5 5 0 0 1-5-5v-3a5 5 0 0 1 5-5Z"/>
+  <path fill="#08C8EE" d="M5 7h8v3H5Z"/>
+</svg>

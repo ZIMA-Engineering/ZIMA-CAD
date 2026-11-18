@@ -65,6 +65,10 @@
     <file alias="icons/show-erase.svg">../../resources/icons/show-erase.svg</file>
     <file alias="icons/appearance.svg">../../resources/icons/appearance.svg</file>
     <file alias="branding/app-icon.svg">../../resources/branding/app-icon.svg</file>
+    <file alias="branding/zc-dark.svg">../../resources/branding/zc-dark.svg</file>
+    <file alias="branding/zc-light.svg">../../resources/branding/zc-light.svg</file>
+    <file alias="branding/zc-title.svg">../../resources/branding/zc-title.svg</file>
+    <file alias="branding/startup-wordmark.png">../../resources/branding/startup-wordmark.png</file>
     <file alias="branding/about.svg">../../resources/branding/about.svg</file>
     <file alias="branding/ZIMA-Engineering.svg">../../resources/branding/ZIMA-Engineering.svg</file>
     <file alias="icons/new.svg">../../resources/icons/new.svg</file>

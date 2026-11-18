@@ -1,13 +1,6 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
-  <!-- Compact ZIMA-CAD monogram for window and application icons. -->
-  <path
-    d="M8 22H62V38L29 90H62V106H8V90L41 38H8Z"
-    fill="currentColor"
-    stroke="#26313B" stroke-width="2.5" stroke-linejoin="round"
-  />
-  <path
-    d="M124 22H86Q66 22 66 42V86Q66 106 86 106H116V90H88Q82 90 82 84V44Q82 38 88 38H114Z"
-    fill="#00D1FF"
-  />
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="151 97 452 452" width="452" height="452">
+  <style id="current-color-scheme">.ColorScheme-Text { color: #FFFFFF; }</style>
+  <path class="ColorScheme-Text" fill="currentColor" stroke="#071729" stroke-width="7" stroke-linejoin="round" d="M309 265 L375 265 L257 377 L354 377 L338 422 L158 422 L193 379 Z"/>
+  <path class="ColorScheme-Text" fill="currentColor" stroke="#071729" stroke-width="7" stroke-linejoin="round" d="M469 223 H594 L574 267 H480 C464 267 456 273 451 290 L426 362 C423 373 427 378 441 378 H559 L538 422 H419 C376 422 355 399 370 358 L396 281 C410 241 430 223 469 223 Z"/>
+  <path fill="#08C8EE" d="M227 223 H405 L374.7 266 H198 Z"/>
 </svg>

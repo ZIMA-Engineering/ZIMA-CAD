@@ -99,7 +99,7 @@ int main(int argc,char** argv) {
             const auto minimum=static_cast<std::size_t>(
                 image.width()*image.height()/50);
             check(white>minimum&&cyan>minimum,
-                "Windows application icon lost its filled Z or azure C");
+                "Windows application icon lost its white ZC monogram or azure accent");
         };
         auto application_icon_path=registry.value(
             "ZIMA-CAD/Desktop/"+c.id+

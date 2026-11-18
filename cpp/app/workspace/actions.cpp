@@ -11,23 +11,30 @@ namespace zima::app {
 using namespace workspace_detail;
 
 namespace {
-class ApplicationLogoLabel final : public QLabel {
+class ApplicationWordmarkLabel final : public QLabel {
 public:
-    explicit ApplicationLogoLabel(QWidget* parent):QLabel(parent) {
-        setObjectName(QStringLiteral("applicationLogo"));
+    explicit ApplicationWordmarkLabel(QWidget* parent):QLabel(parent) {
+        setObjectName(QStringLiteral("applicationWordmark"));
         setAlignment(Qt::AlignCenter);
-        setContentsMargins(8,2,12,2);
+        setContentsMargins(6, 0, 6, 0);
         refresh();
     }
 protected:
     void changeEvent(QEvent* event) override {
         QLabel::changeEvent(event);
-        if(event->type()==QEvent::PaletteChange)refresh();
+        if(event->type()==QEvent::PaletteChange || event->type()==QEvent::DevicePixelRatioChange)refresh();
     }
 private:
     void refresh() {
-        setPixmap(application_icon().pixmap(QSize(34,34)));
-        setFixedSize(54,38);
+        const bool dark = palette().color(QPalette::Window).lightness() < 128;
+        const QSize size(122, 28);
+        const qreal scale = devicePixelRatioF();
+        const auto wordmark = application_wordmark(dark ? QColor("#FFFFFF") : QColor("#071729"));
+        auto pixmap = QPixmap::fromImage(wordmark.scaled((QSizeF(size) * scale).toSize(),
+            Qt::KeepAspectRatio, Qt::SmoothTransformation));
+        pixmap.setDevicePixelRatio(scale);
+        setPixmap(pixmap);
+        setFixedSize(size.width() + 12, 38);
     }
 };
 }
@@ -990,7 +997,7 @@ void AssemblyWorkspaceWindow::create_actions() {
     auto* toolbar_spacer = new QWidget(main_toolbar_);
     toolbar_spacer->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
     main_toolbar_->addWidget(toolbar_spacer);
-    main_toolbar_->addWidget(new ApplicationLogoLabel(main_toolbar_));
+    main_toolbar_->addWidget(new ApplicationWordmarkLabel(main_toolbar_));
     for(auto* action:main_toolbar_->actions())
         if(auto* button=qobject_cast<QToolButton*>(
                 main_toolbar_->widgetForAction(action)))
