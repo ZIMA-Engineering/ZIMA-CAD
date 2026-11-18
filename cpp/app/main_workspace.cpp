@@ -1762,9 +1762,13 @@ int verify_template_commands(QApplication& application,zima::app::AssemblyWorksp
     QString chosen_image_path=QString::fromStdString(image_path.string());
     QTimer choose_image;
     QObject::connect(&choose_image,&QTimer::timeout,&window,[&]{
-        if(auto* chooser=window.findChild<QFileDialog*>()) {
-            chooser->findChild<QLineEdit*>("fileNameEdit")->setText(chosen_image_path);QMetaObject::invokeMethod(chooser,"accept",Qt::QueuedConnection);choose_image.stop();
-        }
+        // KDE can dispatch this timer while its file dialog helper is still
+        // initializing. Wait until the actual chooser has been shown.
+        auto* chooser=qobject_cast<QFileDialog*>(QApplication::activeModalWidget());
+        if(!chooser||!chooser->isVisible())return;
+        chooser->selectFile(chosen_image_path);
+        QMetaObject::invokeMethod(chooser,"accept",Qt::QueuedConnection);
+        choose_image.stop();
     });
     choose_image.start(100);image_action->trigger();choose_image.stop();flush();
     dialog=window.findChild<QDialog*>("templateImageDialog");
