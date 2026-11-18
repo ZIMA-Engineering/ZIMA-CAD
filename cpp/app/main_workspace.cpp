@@ -16516,15 +16516,14 @@ int verify_startup_contract(
 
     about->trigger();
     application.processEvents();
-    auto* about_dialog = window.findChild<QDialog*>("zimaPropertiesSubWindow");
-    auto* about_buttons = about_dialog == nullptr
-        ? nullptr : about_dialog->findChild<QDialogButtonBox*>();
-    if (!verify(about_buttons != nullptr &&
+    auto* about_dialog = dynamic_cast<zima::ui::PropertiesSubWindow*>(
+        window.findChild<QDialog*>("aboutDialog"));
+    if (!verify(about_dialog && about_dialog->isVisible() &&
                     about_dialog->windowFlags().testFlag(Qt::SubWindow),
                 "About must use the shared in-application SubWindow contract")) {
         return 1;
     }
-    about_buttons->button(QDialogButtonBox::Ok)->click();
+    about_dialog->buttons()->button(QDialogButtonBox::Ok)->click();
     application.processEvents();
     return verify(!unexpected_prompt, "Startup test required an unexpected dialog response") ? 0 : 1;
 }
