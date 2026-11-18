@@ -15262,7 +15262,12 @@ int verify_startup_contract(
     }
 
     const auto drawing_source_path=test_directory/"new-drawing-source.prtz";
-    zima::document::PartDocument::create_default().save(drawing_source_path);
+    auto drawing_source=zima::document::PartDocument::create_default();
+    auto drawing_source_solid=zima::test::rectangular_feature(drawing_source);
+    drawing_source.history.push_back(std::move(drawing_source_solid));
+    const zima::kernel::OcctKernel drawing_source_kernel;
+    drawing_source.save(drawing_source_path,
+        drawing_source_kernel.evaluate_history(drawing_source.kernel_operations()));
     QTimer drawing_source_picker;
     QObject::connect(&drawing_source_picker,&QTimer::timeout,&window,[&] {
         if(auto* picker=qobject_cast<QFileDialog*>(QApplication::activeModalWidget())) {
@@ -15340,6 +15345,12 @@ int verify_startup_contract(
             window.findChild<QWidget*>("drawingWorkspace"));
         if (!verify(drawing_window != nullptr,
                     "Drawing document has no embedded DrawingWindow for BOM coverage")) {
+            return 1;
+        }
+        insert_view = drawing_window->findChild<QAction*>("insertDrawingViewAction");
+        drawing_canvas = drawing_window->findChild<QWidget*>("drawingCanvas");
+        if (!verify(insert_view && insert_view->isEnabled() && drawing_canvas,
+                    "Reopened Drawing has no active view insertion controls")) {
             return 1;
         }
         insert_view->trigger();

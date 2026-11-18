@@ -3,12 +3,29 @@
 #include <zima/document/placement_surface.hpp>
 #include <zima/document/placement_reference_geometry.hpp>
 #include <QElapsedTimer>
+#include <QScopeGuard>
 #include <cstdio>
 
 namespace zima::app {
 using namespace workspace_detail;
 
 namespace {
+auto whole_origin_placement_scope(PlacementReferenceDialog* reference_dialog) {
+    QPointer<QObject> placement;
+    if (auto* dialog = dynamic_cast<QWidget*>(reference_dialog)) {
+        for (auto* child : dialog->findChildren<QObject*>()) {
+            if (!dynamic_cast<ui::ContainerPlacementSection*>(child)) continue;
+            placement = child;
+            break;
+        }
+    }
+    const auto previous_entry = placement ? placement->property("wholeOriginEntry") : QVariant{};
+    if (placement) placement->setProperty("wholeOriginEntry", true);
+    return qScopeGuard([placement, previous_entry] {
+        if (placement) placement->setProperty("wholeOriginEntry", previous_entry);
+    });
+}
+
 class ReferencePickProfile {
     bool enabled_=qEnvironmentVariableIsSet("ZIMA_PROFILE_REFERENCE_PICK");
     QElapsedTimer timer_;
@@ -1710,6 +1727,7 @@ bool AssemblyWorkspaceWindow::accept_primitive_tree_reference(
         if (primitive_reference_dialog_->owns_reference_owner(origin_id)) return false;
         if (*pending_primitive_reference_index_ >= 3) return false;
         const auto origin_entry = primitive_reference_dialog_->whole_origin_entry_scope();
+        const auto placement_entry = whole_origin_placement_scope(primitive_reference_dialog_);
         struct CapturedPlaneReference {
             std::string owner_id;
             std::string instance_path;
@@ -1965,6 +1983,7 @@ bool AssemblyWorkspaceWindow::accept_construction_tree_reference(
                 child->data(0, Qt::UserRole + 5).toString()};
         };
         if (selected_index >= 3) return false;
+        const auto placement_entry = whole_origin_placement_scope(construction_reference_dialog_);
         std::vector<CapturedPlaneReference> captured_planes;
         // XZ first becomes FRONT (+Y after its required inversion), XY
         // second becomes TOP (+Z); YZ completes the positional triad.

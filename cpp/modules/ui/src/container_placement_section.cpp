@@ -687,7 +687,7 @@ const zima::document::ConstructionReference* ContainerPlacementSection::position
 void ContainerPlacementSection::prepare_position_orientation(
         std::size_t index,zima::document::ConstructionReference& reference) const {
     using zima::document::placement_position_only_role;
-    if(!with_orientation_ || index>=3 || reference.orientation_only ||
+    if(!with_orientation_ || index>=3 || property("wholeOriginEntry").toBool() || reference.orientation_only ||
        (!reference.orientation_drives_rotation && !reference.supports_offset))return;
     const auto previous=index<references_.size() && !references_[index].owner_id.empty()
         ? &references_[index] : nullptr;
@@ -1255,7 +1255,7 @@ void ContainerPlacementSection::refresh_reference_table() {
                         std::ranges::any_of(geometry.edges,matches);
                 }
             }
-            orientation->setEnabled(eligible);
+            orientation->setEnabled(eligible && !zima::document::placement_references_use_whole_origin(references_));
             orientation->setChecked(eligible && position_orientation_driver(ref));
             reference_table_->setCellWidget(static_cast<int>(index), 5,
                 zima::ui::centered_cell_widget(orientation));
