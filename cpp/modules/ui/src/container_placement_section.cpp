@@ -1,5 +1,6 @@
 #include <zima/ui/numeric_value_lock.hpp>
 #include <zima/document/placement_reference_assignment.hpp>
+#include <zima/document/placement_orientation.hpp>
 #include <zima/document/placement_surface.hpp>
 #include <zima/document/placement_mesh_surface.hpp>
 #include "zima/ui/container_placement_section.hpp"
@@ -10,6 +11,7 @@
 
 #include <QBrush>
 #include <QColor>
+#include <QCheckBox>
 #include <QComboBox>
 #include <QDoubleSpinBox>
 #include <QDialogButtonBox>
@@ -85,10 +87,14 @@ ContainerPlacementSection::ContainerPlacementSection(
     placement_heading->setFont(heading_font);
     layout->addWidget(placement_heading);
 
-    reference_table_ = new QTableWidget(0, 5, parent_widget_);
+    reference_table_ = new QTableWidget(0, with_orientation_ ? 6 : 5, parent_widget_);
     reference_table_->setObjectName("containerPlacementReferenceTable");
     reference_table_->setHorizontalHeaderLabels(
         {QString(), tr("Reference"), tr("Typ"), tr("Odsazení"), QString()});
+    if (with_orientation_) {
+        reference_table_->setHorizontalHeaderItem(5, new QTableWidgetItem(tr("Orientace")));
+        reference_table_->horizontalHeader()->setSectionResizeMode(5, QHeaderView::ResizeToContents);
+    }
     reference_table_->horizontalHeader()->setSectionResizeMode(
         0, QHeaderView::ResizeToContents);
     reference_table_->horizontalHeader()->setSectionResizeMode(
@@ -659,12 +665,46 @@ void ContainerPlacementSection::initialize_from_references(
 
 zima::document::ConstructionReference ContainerPlacementSection::prepare_reference(
         std::size_t index,zima::document::ConstructionReference reference) const {
+    prepare_position_orientation(index,reference);
     auto position=references_;auto orientation=orientation_references_;auto locks=empty_reference_locks_;
     const auto result=zima::document::assign_placement_reference(
         {position,orientation,locks},with_orientation_,index,reference);
     if(result.error==zima::document::PlacementReferenceError::None)
         return index<3?position[index]:orientation[index-3];
     return reference; // set_reference reports the existing assignment error.
+}
+
+const zima::document::ConstructionReference* ContainerPlacementSection::position_orientation_driver(
+        const zima::document::ConstructionReference& reference) const {
+    if(reference.orientation_drives_rotation)return &reference;
+    const auto paired=std::ranges::find_if(orientation_references_,[&](const auto& candidate) {
+        return candidate.orientation_drives_rotation && candidate.owner_id==reference.owner_id &&
+            candidate.semantic_key==reference.semantic_key && candidate.instance_path==reference.instance_path;
+    });
+    return paired==orientation_references_.end()?nullptr:&*paired;
+}
+
+void ContainerPlacementSection::prepare_position_orientation(
+        std::size_t index,zima::document::ConstructionReference& reference) const {
+    using zima::document::placement_position_only_role;
+    if(!with_orientation_ || index>=3 || reference.orientation_only ||
+       (!reference.orientation_drives_rotation && !reference.supports_offset))return;
+    const auto previous=index<references_.size() && !references_[index].owner_id.empty()
+        ? &references_[index] : nullptr;
+    const bool has_orientation_choice=std::ranges::any_of(references_,[](const auto& value) {
+        return value.orientation_drives_rotation || value.orientation_role==placement_position_only_role;
+    }) || std::ranges::any_of(orientation_references_,[](const auto& value) {
+        return value.orientation_drives_rotation;
+    });
+    const auto* previous_driver=previous ? position_orientation_driver(*previous) : nullptr;
+    reference.orientation_drives_rotation=previous_driver ||
+        (automatic_position_orientation_ && !has_orientation_choice);
+    if(!reference.orientation_drives_rotation)
+        reference.orientation_role=placement_position_only_role;
+    else if(previous_driver)
+        reference.orientation_role=previous_driver->orientation_role;
+    else if(reference.orientation_role=="none" || reference.orientation_role==placement_position_only_role)
+        reference.orientation_role="front";
 }
 
 bool ContainerPlacementSection::set_reference(std::size_t index,
@@ -685,6 +725,9 @@ bool ContainerPlacementSection::set_reference(std::size_t index,
         ?std::optional{references_[index]}
         :std::optional<zima::document::ConstructionReference>{};
     const bool seed=index==0 && references_.empty() && !empty_reference_locks_[0];
+    prepare_position_orientation(index,reference);
+    if(index<3 && reference.orientation_role==zima::document::placement_position_only_role)
+        derive_orientation=false;
     const auto result=zima::document::assign_placement_reference(
         {references_,orientation_references_,empty_reference_locks_},
         with_orientation_,index,std::move(reference),derive_orientation);
@@ -987,9 +1030,12 @@ void ContainerPlacementSection::notify_changed() {
 }
 
 void ContainerPlacementSection::remove_reference(std::size_t index) {
+    const bool removed_driver=index<references_.size() &&
+        references_[index].orientation_drives_rotation;
     const auto removed = zima::document::remove_placement_reference(
         {references_, orientation_references_, empty_reference_locks_}, with_orientation_, index);
     if (!removed.changed) return;
+    if(removed_driver || removed.paired_orientation) automatic_position_orientation_=false;
     const auto remaining = combined_references(3);
     const bool has_orientation_driver = std::ranges::any_of(
         remaining, [](const auto& reference) {
@@ -1190,6 +1236,53 @@ void ContainerPlacementSection::refresh_reference_table() {
         reference_inspection_buttons_[index] = inspection;
         reference_table_->setCellWidget(static_cast<int>(index), 4,
             zima::ui::centered_cell_widget(inspection));
+        if (with_orientation_) {
+            auto* orientation = new QCheckBox(reference_table_);
+            orientation->setAccessibleName(tr("Orientace"));
+            const auto& ref = populated ? references_[index] : zima::document::ConstructionReference{};
+            bool eligible = false;
+            if (populated && !missing && !ref.orientation_only) {
+                eligible = position_orientation_driver(ref) || ref.supports_offset || ref.use_axis ||
+                    ref.orientation_role==zima::document::placement_position_only_role;
+                if (!eligible && branch_geometry_) {
+                    const auto& geometry=branch_geometry_();
+                    const auto matches=[&](const auto& item) {
+                        const auto& key=item.reference;
+                        return key.owner_id==ref.owner_id && key.semantic_key==ref.semantic_key &&
+                            key.instance_path==ref.instance_path;
+                    };
+                    eligible=std::ranges::any_of(geometry.axes,matches) ||
+                        std::ranges::any_of(geometry.edges,matches);
+                }
+            }
+            orientation->setEnabled(eligible);
+            orientation->setChecked(eligible && position_orientation_driver(ref));
+            reference_table_->setCellWidget(static_cast<int>(index), 5,
+                zima::ui::centered_cell_widget(orientation));
+            connect(orientation, &QCheckBox::toggled, this, [this,index](bool checked) {
+                automatic_position_orientation_=false;
+                if(!checked)preserve_resolved_orientation_as_absolute();
+                for (std::size_t row=0;row<references_.size();++row) {
+                    auto& positional=references_[row];
+                    if(positional.orientation_only || (row!=index && !position_orientation_driver(positional))) continue;
+                    for(std::size_t slot=0;slot<orientation_references_.size();++slot) {
+                        auto& oriented=orientation_references_[slot];
+                        if(oriented.owner_id!=positional.owner_id || oriented.semantic_key!=positional.semantic_key ||
+                           oriented.instance_path!=positional.instance_path) continue;
+                        oriented={};
+                        if(slot<orientation_labels_.size())orientation_labels_[slot].clear();
+                        highlighted_orientation_rows_.erase(slot);
+                    }
+                    positional.orientation_drives_rotation=checked&&row==index;
+                    positional.orientation_role=positional.orientation_drives_rotation
+                        ? "front" : std::string(zima::document::placement_position_only_role);
+                }
+                refresh_reference_table();
+                refresh_orientation_table();
+                notify_changed();
+                if(highlights_changed_)highlights_changed_();
+            });
+        }
         const int header_width = reference_table_->horizontalHeader()
             ->fontMetrics().horizontalAdvance(tr("Odsazení")) + 14;
         reference_table_->horizontalHeader()->setSectionResizeMode(

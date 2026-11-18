@@ -3325,7 +3325,7 @@ int verify_body_curve_references(QApplication& application, const std::filesyste
     return 0;
 }
 
-int verify_point_on_3d_curve_click(QApplication& application, const std::filesystem::path& directory) {
+int verify_point_on_3d_curve_click(QApplication& application, const std::filesystem::path& directory, bool solid_edge=false) {
     using namespace zima::document;
     auto part=PartDocument::create_default();
     auto curve=PartDocument::create_construction(ConstructionKind::Curve3D);
@@ -3338,12 +3338,22 @@ int verify_point_on_3d_curve_click(QApplication& application, const std::filesys
     }
     BodyHistoryGraph graph;
     graph.create_body("Curve reference");
-    graph.insert({PartHistoryKind::Construction,curve.id});
-    part.constructions.push_back(curve);
+    std::string source_owner;
+    if (solid_edge) {
+        auto solid=zima::test::rectangular_feature(part,{95,20,25});
+        source_owner=solid.id;
+        graph.insert({PartHistoryKind::Feature,solid.id});
+        part.history.push_back(std::move(solid));
+    } else {
+        source_owner=curve.entity_id;
+        graph.insert({PartHistoryKind::Construction,curve.id});
+        part.constructions.push_back(curve);
+    }
     part.set_body_history(graph);
     part.resolve_constructions();
-    const auto path=directory/"point-on-3d-curve.prtz";
-    part.save(path);
+    const auto path=directory/(solid_edge?"point-on-solid-edge.prtz":"point-on-3d-curve.prtz");
+    zima::kernel::OcctKernel kernel;
+    part.save(path,kernel.evaluate_history(part.kernel_operations()));
     zima::app::AssemblyWorkspaceWindow window(QString::fromStdString(directory.string()));
     window.resize(1200,900);window.show();
     if (!verify(window.open_document_path(QString::fromStdString(path.string())),
@@ -3366,27 +3376,28 @@ int verify_point_on_3d_curve_click(QApplication& application, const std::filesys
             const auto candidates=view->selection_candidates_at(pixel);
             if (candidates.empty()) continue;
             const auto& candidate=candidates.front();
-            if(candidate.kind!=zima::viewer::CandidateKind::Edge||candidate.owner_id!=curve.entity_id) continue;
+            if(candidate.kind!=zima::viewer::CandidateKind::Edge||candidate.owner_id!=source_owner) continue;
             const auto ray=view->ray_at(pixel);
             if (!ray) continue;
             const double world_x=ray->first.x+ray->second.x*candidate.distance;
             if (world_x>21 && world_x<28) hit=pixel;
         }
-    if (!verify(hit.has_value(),"No selectable interior point on the interpolation curve")) return 1;
+    if (!verify(hit.has_value(),"No selectable interior point on the curve or edge")) return 1;
     const auto global=QPointF(view->mapToGlobal(hit->toPoint()));
     QMouseEvent press(QEvent::MouseButtonPress,*hit,global,Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);
     QMouseEvent release(QEvent::MouseButtonRelease,*hit,global,Qt::LeftButton,Qt::NoButton,Qt::NoModifier);
     QApplication::sendEvent(view,&press);QApplication::sendEvent(view,&release);application.processEvents();
     const auto placed=dialog->pending_value().placement;
-    if(!verify(placed.references.size()==1 && placed.references.front().owner_id==curve.entity_id &&
-                    placed.x>16 && placed.x<38,
-               "Point did not follow the click into the interior of the interpolation curve")) return 1;
+    if(!verify(placed.references.size()==1 && placed.references.front().owner_id==source_owner &&
+                    placed.references.front().orientation_drives_rotation && placed.x>16 && placed.x<38,
+               "Point did not use the click position and the first reference's direction")) return 1;
     dialog->buttons()->button(QDialogButtonBox::Ok)->click();application.processEvents();
     window.findChild<QAction*>("saveDocumentAction")->trigger();application.processEvents();
     const auto saved=PartDocument::load(path);
-    if(!verify(saved.history.size()==1 && std::abs(saved.history.back().placement.x-placed.x)<1e-7,
+    if(!verify(saved.history.size()==(solid_edge?2u:1u) &&
+               std::abs(saved.history.back().placement.x-placed.x)<1e-7,
                "Confirmed Point did not preserve its curve position on save/reopen")) return 1;
-    std::cout << "Point click on the interior of an interpolating 3D curve passed\n";
+    std::cout << "Point click on the interior of a 3D " << (solid_edge?"solid edge":"interpolating curve") << " passed\n";
     return 0;
 }
 
@@ -11884,7 +11895,8 @@ int verify_startup_contract(
     }
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_BODY_CURVE_REFERENCE_ONLY")) {
         if (verify_body_curve_references(application,test_directory) != 0) return 1;
-        return verify_point_on_3d_curve_click(application,test_directory);
+        if (verify_point_on_3d_curve_click(application,test_directory) != 0) return 1;
+        return verify_point_on_3d_curve_click(application,test_directory,true);
     }
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_OWNED_PROFILE_REFERENCE_ONLY"))
         return verify_owned_profile_external_reference(application,test_directory);

@@ -1,7 +1,10 @@
 #include <zima/document/placement_reference_assignment.hpp>
+#include <zima/document/placement_json.hpp>
+#include <zima/document/placement_orientation.hpp>
 #include <zima/document/placement_surface.hpp>
 #include <zima/ui/container_placement_section.hpp>
 #include <QApplication>
+#include <QCheckBox>
 #include <QVBoxLayout>
 #include <QWidget>
 #include <QPushButton>
@@ -46,6 +49,48 @@ void widget() {
     section.initialize_from_references({},{});changed=0;
     require(section.set_reference(0,plane("Repeated"),{},&error)&&section.set_reference(0,plane("Repeated"),{},&error),"GUI repeat of same position failed");
     require(section.combined_references(3).size()==2&&section.orientation_references()[1].owner_id.empty()&&changed==2,"GUI repeated source duplicated its automatic orientation");
+}
+void position_orientation_column() {
+    QWidget owner;
+    auto* layout=new QVBoxLayout(&owner);
+    ui::ContainerPlacementSection section(&owner,layout,true);
+    require(section.set_reference(0,plane("First"),{},nullptr) &&
+            section.set_reference(1,plane("Second"),{},nullptr),
+        "Cannot enter the position-orientation test references");
+    const auto check=[&](int row) {
+        auto* cell=section.reference_table()->cellWidget(row,5);
+        auto* box=cell?cell->findChild<QCheckBox*>():nullptr;
+        require(box&&box->isEnabled(),"Position reference has no orientation control");
+        return box;
+    };
+    require(check(0)->isChecked()&&!check(1)->isChecked(),
+        "The first direction did not own the default orientation");
+    check(1)->click();
+    require(!check(0)->isChecked()&&check(1)->isChecked() &&
+            section.references()[0].owner_id=="First"&&section.references()[1].owner_id=="Second",
+        "Switching orientation modified the position references");
+    require(section.set_reference(1,plane("Replacement"),{},nullptr)&&check(1)->isChecked(),
+        "Replacement lost the row's orientation selection");
+    check(1)->click();
+    auto saved=nlohmann::json(section.combined_references(3)).get<std::vector<ConstructionReference>>();
+    document::normalize_container_front_references(saved);
+    section.initialize_from_references(saved,{});
+    section.refresh_reference_table();
+    require(!check(0)->isChecked()&&!check(1)->isChecked(),
+        "Reloading restored an explicitly disabled orientation");
+
+    kernel::ViewerReferenceGeometry geometry;
+    kernel::ViewerEdge edge;
+    edge.reference={"Earlier edge","edge",{}};
+    edge.points={{0,0,0},{10,0,0}};
+    geometry.edges.push_back(edge);
+    section.set_branch_geometry_resolver([&]() -> const auto& { return geometry; });
+    section.initialize_from_references({{{},"Earlier edge","edge"}},{});
+    section.refresh_reference_table();
+    require(!check(0)->isChecked(),"An existing position-only edge changed orientation on open");
+    check(0)->click();
+    require(check(0)->isChecked()&&section.references()[0].orientation_role=="front",
+        "An existing edge could not be chosen to drive orientation");
 }
 void removal_model() {
     auto first=plane("A","one"),second=plane("A","two"),third=plane("C");
@@ -427,4 +472,4 @@ void repeated_source() {
     require(orientation[1].owner_id.empty(),"Replacing a position reference with itself duplicated its automatic FRONT into TOP");
 }
 }
-int main(int argc,char** argv){QApplication app(argc,argv);try{model();widget();repeated_source();removal_model();removal_widget();final_removal_preserves_frame();mesh_capture();analytic_curved_capture();planar_face_capture();std::cout<<"Placement reference rows, exact occurrences, locks, orientation and GUI adapter passed\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}
+int main(int argc,char** argv){QApplication app(argc,argv);try{model();widget();position_orientation_column();repeated_source();removal_model();removal_widget();final_removal_preserves_frame();mesh_capture();analytic_curved_capture();planar_face_capture();std::cout<<"Placement reference rows, exact occurrences, locks, orientation and GUI adapter passed\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

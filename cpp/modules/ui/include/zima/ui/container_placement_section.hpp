@@ -220,6 +220,11 @@ private:
     bool planar_face_capture_policy_{};
     void refresh_derived_offsets();
     GeometryResolver branch_geometry_;
+    bool automatic_position_orientation_{true};
+    void prepare_position_orientation(std::size_t index,
+        zima::document::ConstructionReference& reference) const;
+    [[nodiscard]] const zima::document::ConstructionReference* position_orientation_driver(
+        const zima::document::ConstructionReference& reference) const;
     std::function<void(bool)> branch_request_;
     QTableWidget* branch_table_{};
     ReferenceCellItem* branch_item_{};

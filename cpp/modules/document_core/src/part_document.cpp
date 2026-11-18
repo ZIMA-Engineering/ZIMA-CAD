@@ -4710,7 +4710,9 @@ bool resolve_construction(ConstructionObject& object,
     // assign_automatic_orientation_role()) still gets the same "first
     // position reference is FRONT" contract implicitly.
     if (front_role_reference == nullptr && !position_references.empty()) {
-        front_role_reference = &position_references.front().get();
+        const auto& first = position_references.front().get();
+        if (first.orientation_role != placement_position_only_role)
+            front_role_reference = &first;
     }
     // The whole-Origin bulk-fill (clicking the tree's "Počátek" node) is a
     // request for the global/document origin frame itself, not an

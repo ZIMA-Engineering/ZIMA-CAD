@@ -7,6 +7,7 @@
 namespace zima::document {
 // Both the frame solver and rotation feedback use this angular boundary.
 inline constexpr double placement_direction_limit_degrees = 0.01;
+inline constexpr std::string_view placement_position_only_role = "position_only";
 
 // A complete Origin is a frame attachment, rather than a choice of one
 // supporting plane. Occurrence identity is part of that frame's identity.
@@ -52,6 +53,7 @@ inline void normalize_container_front_references(
                 front = true;
             continue;
         }
+        if (ref.orientation_role == placement_position_only_role) continue;
         if (!ref.supports_offset && !ref.orientation_drives_rotation) continue;
         // An authored TOP/BOTTOM/FRONT/BACK is already a real orientation
         // equation. Normalization must not reinterpret it as another axis.

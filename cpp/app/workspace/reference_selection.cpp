@@ -1538,8 +1538,9 @@ void AssemblyWorkspaceWindow::accept_primitive_reference(
     proposed_reference=prepare_placement_pick(primitive_reference_dialog_,selected_index,
         std::move(proposed_reference),proposed_geometry,orientation_origin);
     auto committed_reference = proposed_reference;
-    const bool point_curve_pick = candidate.kind == viewer::CandidateKind::Edge &&
-        viewer::is_curve3d_edge(candidate.semantic_key) && form_dialog &&
+    const bool point_curve_pick = (candidate.kind == viewer::CandidateKind::Edge ||
+        candidate.kind == viewer::CandidateKind::SketchSegment ||
+        candidate.kind == viewer::CandidateKind::SketchCurve) && form_dialog &&
         form_dialog->feature_kind() == document::FeatureKind::Feature &&
         form_dialog->pending_value().feature.type == document::FeatureType::Point;
     if(from_view && selected_index==0 && baseline_references.empty() &&

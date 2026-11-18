@@ -321,6 +321,14 @@ static void verify_feature_surface_placement(QApplication& application, Assembly
     dialog()->reject();flush();
     window.findChild<QAction*>("featureShortcut0Action")->trigger();flush();
     check(dialog()->set_reference(0,{{},face->owner_id,face->semantic_key,0,true},"Cylinder"),"Branch cylinder entry failed");flush();
+    auto* position_table=dialog()->findChild<QTableWidget*>("primitiveReferenceTable");
+    auto* orientation_cell=position_table?position_table->cellWidget(0,5):nullptr;
+    auto* use_orientation=orientation_cell?orientation_cell->findChild<QCheckBox*>():nullptr;
+    check(use_orientation&&use_orientation->isChecked() &&
+        dialog()->pending_value().placement.references.front().orientation_drives_rotation,
+        "The first Point reference did not provide the default orientation");
+    use_orientation->click();flush();
+    const auto retained_point_frame=dialog()->pending_value().placement;
     document::ConstructionReference xref{{},source.container_origin.id,"origin:plane:yz",0,true};
     xref.measured_offset=3;
     check(dialog()->set_reference(1,xref,"X"),"Branch X entry failed");flush();
@@ -334,9 +342,9 @@ static void verify_feature_surface_placement(QApplication& application, Assembly
         std::ranges::none_of(point_intersection.references,[](const auto& reference) {
             return reference.orientation_drives_rotation;
         }),"Point position references were silently copied into FRONT/TOP");
-    if (std::abs(point_intersection.rotation_x)>=1e-9 ||
-            std::abs(point_intersection.rotation_y)>=1e-9 ||
-            std::abs(point_intersection.rotation_z)>=1e-9) {
+    if (std::abs(point_intersection.rotation_x-retained_point_frame.rotation_x)>=1e-9 ||
+            std::abs(point_intersection.rotation_y-retained_point_frame.rotation_y)>=1e-9 ||
+            std::abs(point_intersection.rotation_z-retained_point_frame.rotation_z)>=1e-9) {
         throw std::runtime_error("Plane/plane/cylinder Point intersection rotated its container Origin: "+
             std::to_string(point_intersection.rotation_x)+", "+
             std::to_string(point_intersection.rotation_y)+", "+

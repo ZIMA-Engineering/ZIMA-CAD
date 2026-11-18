@@ -3205,21 +3205,9 @@ bool PrimitivePropertiesDialog::set_reference(std::size_t index,
         initial_.feature_kind == zima::document::FeatureKind::Feature &&
         feature_panel_ != nullptr &&
         feature_panel_->parameters().type == zima::document::FeatureType::Point;
-    if (point_position_reference) {
-        // The common picker and automatic work-plane preparation may offer a
-        // directional role for the same face.  A Point position row remains
-        // positional; users author rotation only in the independent
-        // orientation table.
-        reference.orientation_drives_rotation = false;
-        reference.orientation_role = "none";
-        reference.orientation_only = false;
-    }
     QString error;
-    // A Point's three position rows describe only its intersection (for
-    // example Plane + Plane + Cylinder).  They must not be mirrored into
-    // FRONT/TOP and rotate the Point's container Origin.  The independent
-    // orientation rows remain available when an oriented Point is authored
-    // explicitly.
+    // The position row carries the selected orientation role directly.
+    // Point does not need a mirrored FRONT/TOP row for that same source.
     if (!placement_->set_reference(index, std::move(reference), label, &error,
             !point_position_reference)) {
         if (!error.isEmpty()) error_->setText(error);
