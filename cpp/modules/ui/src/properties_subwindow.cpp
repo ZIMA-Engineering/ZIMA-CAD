@@ -410,6 +410,9 @@ void PropertiesSubWindow::showEvent(QShowEvent* event) {
         }
     }
     QTimer::singleShot(0, this, [this] {
+        // Qt can restore its platform labels while polishing standard buttons.
+        buttons_->button(QDialogButtonBox::Ok)->setText(tr("OK"));
+        buttons_->button(QDialogButtonBox::Cancel)->setText(tr("Zrušit"));
         // Numeric editors finish sizing on their queued Show events. Their
         // initial minimum can be wider than the settled mouse-resize limit.
         // Compact once after those events, preserving deliberately sized

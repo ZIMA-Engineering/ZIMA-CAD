@@ -3431,6 +3431,50 @@ int verify_pending_container_tree(QApplication& application,
         } else if (!verify(PartDocument::load(path).find_container(parent_id) == nullptr,
                 "Cancelled Part draft was persisted")) return 1;
 
+        auto* point_action = window.findChild<QAction*>("featureShortcut0Action");
+        if (!verify(point_action && point_action->isEnabled(), "Point shortcut unavailable")) return 1;
+        point_action->trigger(); flush();
+        auto* point_feature = dynamic_cast<zima::app::PrimitivePropertiesDialog*>(
+            window.findChild<QWidget*>("featurePropertiesDialog"));
+        auto* use_origin = point_feature
+            ? point_feature->findChild<QPushButton*>("containerDefaultOriginButton") : nullptr;
+        if (!verify(use_origin, "Point shortcut did not open Feature Properties")) return 1;
+        const auto feature_id = point_feature->pending_value().id;
+        use_origin->click(); flush();
+        point_feature->buttons()->button(QDialogButtonBox::Ok)->click(); flush();
+        const auto point_visible = [&] {
+            model_view->clear_selection();
+            flush();
+            if (!std::ranges::any_of(model_view->mesh().points, [&](const auto& point) {
+                return point.reference.owner_id == feature_id &&
+                    point.reference.semantic_key == "point" && point.always_visible;
+            })) return false;
+            const auto frame = model_view->grabFramebuffer();
+            int brown = 0;
+            for (int y=0; y<frame.height(); ++y) for (int x=0; x<frame.width(); ++x) {
+                const auto color = frame.pixelColor(x,y);
+                if (std::abs(color.red()-173)<8 && std::abs(color.green()-110)<8 &&
+                    std::abs(color.blue()-46)<8) ++brown;
+            }
+            return brown > 10;
+        };
+        model_view->set_reference_visibility(zima::viewer::ReferenceVisibility::Axes,false);
+        model_view->set_reference_visibility(zima::viewer::ReferenceVisibility::Planes,false);
+        model_view->set_reference_visibility(zima::viewer::ReferenceVisibility::Origins,false);
+        if (!verify(point_visible(), assembly ? "Assembly Point has no brown View marker"
+                : "Part Point has no brown View marker")) return 1;
+        model_view->set_reference_visibility(zima::viewer::ReferenceVisibility::Origins,true);
+        if (!verify(point_visible(), "Origin overlay hid the authored Point")) return 1;
+        window.findChild<QAction*>("undoAction")->trigger(); flush();
+        if (!verify(!point_visible(), "Undo retained the Point marker")) return 1;
+        window.findChild<QAction*>("redoAction")->trigger(); flush();
+        if (!verify(point_visible(), "Redo lost the Point marker")) return 1;
+        window.findChild<QAction*>("saveDocumentAction")->trigger(); flush();
+        if (!verify(window.execute_console_command("close").ok &&
+                window.open_document_path(QString::fromStdString(path.string())),
+                "Point fixture could not reopen")) return 1;
+        if (!verify(point_visible(), "Native reopen lost the Point marker")) return 1;
+
         window.findChild<QAction*>("constructionPointAction")->trigger(); flush();
         auto* created = dialog();
         const auto created_id = created->pending_value().id;

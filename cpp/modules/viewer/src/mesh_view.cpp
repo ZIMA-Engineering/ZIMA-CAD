@@ -5830,12 +5830,33 @@ if (impl_->show_origins) {
                 painted_profile_centroid_labels)
             setProperty("paintedProfileCentroidLabelCount",
                 painted_profile_centroid_labels);
-        // Non-origin construction Point markers are drawn AFTER the plane
-        // and axis overlays (rather than before them, as previously) so an
-        // overlapping origin/construction axis line can never paint over
-        // and hide a Point container's own marker -- the marker must
-        // always stay on top, matching how the Origin's own point (drawn
-        // even later, right below) is never hidden either.
+        const auto draw_origin_points = [&] {
+            if (!impl_->show_origins && !points_selectable &&
+                !impl_->editing_origin_visible) return;
+            for (const auto& point : impl_->mesh.points) {
+                if (!impl_->origin_visible({point.reference.owner_id,point.reference.semantic_key,point.reference.instance_path})) continue;
+                if (point.reference.semantic_key != "origin:point") continue;
+                const QPointF center = project(point.position);
+                // Match ONLY the precise per-entity key -- see the identical
+                // comment on the plane block above.
+                const bool referenced = impl_->constraint_reference_edges.contains(EdgeKey{
+                    point.reference.owner_id, point.reference.semantic_key,
+                    point.reference.instance_path});
+                const QColor marker_color = referenced
+                    ? interaction::selected : impl_->origin_point_color(point);
+                painter.setPen(QPen(marker_color, 1.0));
+                painter.setBrush(marker_color);
+                draw_circular_marker(painter, center, marker_color);
+                if (!point.label.empty()) {
+                    painter.setPen(QPen(marker_color, 1.0));
+                    painter.drawText(center + QPointF(8.5, -6.5),
+                                     QString::fromStdString(point.label));
+                }
+            }
+        };
+        // Draw authored points above the datum overlays, including when a
+        // Point is placed at the document or Body Origin.
+        if (impl_->active_sketch_owner_id.empty()) draw_origin_points();
         std::vector<QPointF> ordinary_sketch_markers;
         qulonglong painted_active_sketch_points{};
         if (points_visible) {
@@ -6033,29 +6054,7 @@ if (impl_->show_origins) {
             painted_active_sketch_points)
             setProperty("paintedActiveSketchPointCount",
                 painted_active_sketch_points);
-        if (impl_->show_origins || points_selectable ||
-            impl_->editing_origin_visible) {
-            for (const auto& point : impl_->mesh.points) {
-                if (!impl_->origin_visible({point.reference.owner_id,point.reference.semantic_key,point.reference.instance_path})) continue;
-                if (point.reference.semantic_key != "origin:point") continue;
-                const QPointF center = project(point.position);
-                // Match ONLY the precise per-entity key -- see the identical
-                // comment on the plane block above.
-                const bool referenced = impl_->constraint_reference_edges.contains(EdgeKey{
-                    point.reference.owner_id, point.reference.semantic_key,
-                    point.reference.instance_path});
-                const QColor marker_color = referenced
-                    ? interaction::selected : impl_->origin_point_color(point);
-                painter.setPen(QPen(marker_color, 1.0));
-                painter.setBrush(marker_color);
-                draw_circular_marker(painter, center, marker_color);
-                if (!point.label.empty()) {
-                    painter.setPen(QPen(marker_color, 1.0));
-                    painter.drawText(center + QPointF(8.5, -6.5),
-                                     QString::fromStdString(point.label));
-                }
-            }
-        }
+        if (!impl_->active_sketch_owner_id.empty()) draw_origin_points();
         // Face reference inspection uses the shared face overlays below.
         // Edge, point and datum-plane inspection keep their existing paths.
         // Relation participants come directly from the persisted Sketch marker.

@@ -1,5 +1,6 @@
 #include "profile_solid_fixture.hpp"
 #include <zima/command_host/host.hpp>
+#include <zima/kernel/calculated_body_shape.hpp>
 #include <zima/document/bend.hpp>
 #include <zima/kernel/sheet_material.hpp>
 #include <zima/document/viewer_packet_json.hpp>
@@ -14,6 +15,10 @@
 #include <zima/workspace/drawing_sources.hpp>
 #include <zima/workspace/sketch_operations.hpp>
 #include <zima/workspace/sketch_reference_operations.hpp>
+#include <BRepAlgoAPI_Common.hxx>
+#include <BRepCheck_Analyzer.hxx>
+#include <BRepGProp.hxx>
+#include <GProp_GProps.hxx>
 #include <cmath>
 #include <algorithm>
 #include <chrono>
@@ -36,6 +41,27 @@ void verify_clearance_passage(const kernel::OcctKernel& kernel,const kernel::Bod
     const auto cutter=zima::test::profile_body(kernel,prism);
     const auto recut=kernel.subtract_bodies(result,cutter,{},{},1e-7);
     near(recut.volume,result.volume);
+}
+double circular_probe_overlap(const kernel::OcctKernel& kernel,
+        const TopoDS_Shape& sheet, const zima::test::CircularExtrusion& pin) {
+    kernel::HistoryOperation probe;
+    probe.owner_id="cone-clearance-pin";
+    probe.primitive=pin;
+    const auto pin_shape=kernel::read_calculated_body_shape(kernel.evaluate_history({probe}).back());
+    NCollection_List<TopoDS_Shape> arguments, tools;
+    arguments.Append(sheet);
+    tools.Append(pin_shape);
+    BRepAlgoAPI_Common common;
+    common.SetArguments(arguments);
+    common.SetTools(tools);
+    common.SetNonDestructive(true);
+    common.SetFuzzyValue(1e-7);
+    common.Build();
+    check(common.IsDone() && !common.Shape().IsNull() &&
+        BRepCheck_Analyzer(common.Shape()).IsValid(), "Conical pin overlap did not produce a valid result");
+    GProp_GProps properties;
+    BRepGProp::VolumeProperties(common.Shape(),properties,1e-12);
+    return properties.Mass();
 }
 commands::Result run(command_host::Host& host,const char* command,Json args=Json::object()) {
     auto result=host.execute({{"command",command},{"arguments",args}});
@@ -1103,8 +1129,14 @@ void verify_sheet_cut_cone_orientation(std::filesystem::path directory,bool clea
                 (reverse_profile?.26430770765918454:.2522314998647712);
             near_clearance_volume(before_round-perforated.volume,round_removed);
             zima::test::CircularExtrusion pin;pin.radius=.15;pin.height=200;pin.translation={30,8,-100};
-            kernel::HistoryOperation probe;probe.owner_id="cone-clearance-pin";probe.primitive=pin;
-            near(kernel.subtract_bodies(perforated,kernel.evaluate_history({probe}).back(),{},{},1e-7).volume,perforated.volume);
+            // Check overlap directly: a tangent recut can introduce invalid
+            // split edges on the remaining sheet even when the overlap is zero.
+            const auto sheet=kernel::read_calculated_body_shape(perforated);
+            check(BRepCheck_Analyzer(sheet).IsValid(),"Conical circular clearance has an invalid sheet");
+            near(circular_probe_overlap(kernel,sheet,pin),0);
+            pin.radius=.151;
+            check(circular_probe_overlap(kernel,sheet,pin)>1e-5,
+                "Oversized pin did not detect interference at the conical hole");
             if(taper<0&&!reverse_profile&&!reverse_axis) {
                 // A conic profile uses the same normal-depth envelope contract
                 // and must admit an independently constructed elliptical pin.

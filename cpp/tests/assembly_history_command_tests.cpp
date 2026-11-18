@@ -99,6 +99,9 @@ void verify(const kernel::OcctKernel& kernel,const fs::path& directory) {
     f.run("history.list");f.interaction.editing=false;
 
     // A parent cannot move a descendant's component by its source-local ID.
+    // Saving can publish refreshed source analysis. Compare nested ordering
+    // against the live snapshots that are current after that save.
+    const auto before_nested=f.doc();
     f.run("new",{{"type","assembly"},{"name","assembly-history-parent"}});
     const auto parent=f.live.active_document_id();
     const std::string outer=f.run("component.insert",{{"source",f.owner}}).at("occurrence");
@@ -112,7 +115,7 @@ void verify(const kernel::OcctKernel& kernel,const fs::path& directory) {
     require(f.live.active_occurrence_path()==active_path && f.live.active_document_id()==f.owner &&
         f.live.displayed_document_id()==parent && f.live.open_assembly(parent)->session.revision()==parent_revision,
         "Nested reorder changed activation or the parent document");
-    unchanged_geometry(f,original);
+    unchanged_geometry(f,before_nested);
 
     // The general history command delegates cuts to their calculated transaction.
     const auto sketch_a=f.rectangle(-4,-4,1,1),sketch_b=f.rectangle(2,2,1,1);

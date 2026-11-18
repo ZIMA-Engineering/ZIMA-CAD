@@ -20,7 +20,9 @@ zima::kernel::ViewerMesh PartDocument::feature_result_mesh(const HistoryContaine
     mesh.original_references.points=mesh.points;
     // Keep the persisted point available to reference-taking commands, while
     // visibility switches affect presentation only, never reference identity.
-    mesh.points.back().always_visible=feature.feature.show_point;
+    // For a Point, the marker is the authored geometry itself.
+    mesh.points.back().always_visible=feature.feature.type==FeatureType::Point ||
+        feature.feature.show_point;
     if(!feature.feature.show_text)mesh.points.back().label.clear();
     if(feature.feature.type==FeatureType::Axis) {
         const auto extent=[&](std::size_t side)->std::optional<double> {
