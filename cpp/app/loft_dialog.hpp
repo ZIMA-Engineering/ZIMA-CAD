@@ -2,6 +2,7 @@
 #include "sweep_placement_dialog.hpp"
 #include <zima/document/loft.hpp>
 #include <zima/document/general_surface.hpp>
+#include <zima/document/sketch_placement.hpp>
 #include <zima/ui/reference_cell.hpp>
 #include <zima/ui/unit_spin_box.hpp>
 #include <QCheckBox>
@@ -17,6 +18,15 @@ namespace zima::app {
 class LoftDialog final:public SweepPlacementDialog {
 public:
     std::function<void(unsigned)> edit_sketch_properties;
+    document::ConstructionReference prepare_reference_candidate(std::size_t index,
+            document::ConstructionReference reference)const override {
+        if(!entering_whole_origin())
+            document::prepare_profile_plane_reference(index,reference,pending.placement.references);
+        return reference;
+    }
+    bool set_reference(std::size_t index,document::ConstructionReference reference,const QString& label)override {
+        return SweepPlacementDialog::set_reference(index,prepare_reference_candidate(index,std::move(reference)),label);
+    }
     LoftDialog(document::HistoryContainer initial,std::function<void(document::HistoryContainer)> commit,
                bool allow_subtract,QWidget* parent)
         :SweepPlacementDialog(tr("Vlastnosti přechodu"),std::move(initial),parent),

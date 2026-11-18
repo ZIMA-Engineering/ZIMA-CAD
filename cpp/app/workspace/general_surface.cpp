@@ -4,6 +4,7 @@
 #include <zima/document/loft.hpp>
 #include "../sketch_properties_dialog.hpp"
 #include "../primitive_properties_dialog.hpp"
+#include "../feature_parameter_panel.hpp"
 #include "../confirmed_face_hit.hpp"
 #include <zima/document/general_surface.hpp>
 #include <zima/document/solid_state_reference_views.hpp>
@@ -70,6 +71,7 @@ void AssemblyWorkspaceWindow::show_owned_sketch_properties(SweepPlacementDialog*
     };
     dialog->set_edit_sketch_callback([this,dialog,guard,stage,framed,draft,local_pick](auto owned) {
         if(!guard)return;
+        if(feature_reference_end_){auto end=feature_reference_end_;end();}
         auto feature=framed(owned);
         *draft=feature.general_surface.boundaries.at(stage);
         sweep_profile_sketch_draft_=document::general_surface_display_sketch(feature,*draft);
@@ -180,14 +182,76 @@ void AssemblyWorkspaceWindow::show_owned_sketch_properties(SweepPlacementDialog*
     primitive_reference_geometry_=document::general_surface_boundary_reference_geometry(carrier(parent->pending),stage,source_geometry);
     bind_local_origin_selection(dialog);
     if(parent->pending.feature_kind==document::FeatureKind::Loft) {
+        // The automatically inherited parent frame is one attachment bundle.
+        // View-plane authoring replaces that bundle only after a confirmed
+        // pick; merely arming or cancelling entry must retain all three rows.
+        auto* plane_input=dialog->findChild<QTableWidget*>("featureProfilePlaneView");
+        auto* plane_choice=dialog->findChild<QComboBox*>("featureProfilePlane");
+        const auto end_plane_entry=[this,dialog,plane_input,local_pick] {
+            if(auto* item=dynamic_cast<ui::ReferenceCellItem*>(plane_input->item(0,1)))item->set_active_input(false);
+            plane_input->viewport()->update();
+            feature_reference_end_={};feature_reference_pick_=local_pick;
+            pending_primitive_reference_index_.reset();primitive_reference_auto_advance_=false;
+            dialog->set_active_reference_index({});dialog->clear_reference_highlights();
+            set_primitive_properties_dimension_selection();
+        };
+        const auto selected_plane=[this,dialog](const viewer::ViewerCandidate& offered)->std::optional<document::ConstructionReference> {
+            const auto candidate=placement_reference_source_candidate(offered);
+            if((candidate.kind!=viewer::CandidateKind::Plane&&candidate.kind!=viewer::CandidateKind::Face)||
+               dialog->owns_reference_owner(candidate.owner_id)||!placement_origin_allowed(candidate.owner_id)||
+               !placement_reference_candidate_has_stable_geometry(candidate))return {};
+            if(candidate.instance_path!=properties_dialog_instance_path_)return {};
+            document::ConstructionReference reference{{},candidate.owner_id,candidate.semantic_key,0.,candidate_supports_offset(candidate)};
+            if(!document::PartDocument::sweep2d_accepts_path_plane(reference,primitive_reference_geometry_))return {};
+            return reference;
+        };
+        connect(plane_choice,&QComboBox::currentIndexChanged,dialog,[this,end_plane_entry] {
+            if(feature_reference_end_)end_plane_entry();
+        });
+        for(auto* widget:dialog->findChildren<QWidget*>())if(auto* panel=dynamic_cast<FeatureParameterPanel*>(widget))
+            panel->on_work_plane_reference([this,dialog,guard,plane_input,plane_choice,local_pick,end_plane_entry,selected_plane] {
+                if(!guard)return;
+                const auto references=dialog->pending_value().placement.references;
+                const bool inherited=document::placement_references_use_whole_origin(references)&&
+                    std::ranges::all_of(references,[&](const auto& ref){return ref.owner_id==guard->pending.container_origin.id;});
+                if(!inherited){start_primitive_reference_selection(0);return;}
+                pending_primitive_reference_index_.reset();primitive_reference_auto_advance_=false;
+                dialog->set_active_reference_index({});dialog->clear_reference_highlights();
+                if(auto* item=dynamic_cast<ui::ReferenceCellItem*>(plane_input->item(0,1)))item->set_active_input(true);
+                plane_input->viewport()->update();tree_->setProperty("commandSelectionActive",true);
+                viewer_->set_original_face_selection(false);
+                viewer_->set_selection_contract({viewer::CandidateKind::Plane,viewer::CandidateKind::Face});
+                viewer_->set_candidate_filter([selected_plane](const auto& candidate){return selected_plane(candidate).has_value();});
+                feature_reference_end_=[end_plane_entry]{auto end=end_plane_entry;end();};
+                feature_reference_pick_=[this,dialog,plane_choice,local_pick,end_plane_entry,selected_plane](const auto& offered) {
+                    const auto reference=selected_plane(offered);if(!reference)return;
+                    const auto original=dialog->pending_value().placement;const int original_choice=plane_choice->currentIndex();
+                    for(auto* child:dialog->findChildren<QObject*>())if(auto* section=dynamic_cast<ui::ContainerPlacementSection*>(child)) {
+                        section->initialize_from_references({},{});
+                        plane_choice->setCurrentIndex(plane_choice->findData(QStringLiteral("auto")));
+                        dialog->refresh_sketch_preview();start_primitive_reference_selection(0);
+                        local_pick(offered);
+                        const auto entered=dialog->pending_value().placement.references;
+                        if(entered.empty()||entered.front().owner_id!=reference->owner_id||entered.front().semantic_key!=reference->semantic_key) {
+                            section->initialize_from_references(original.references,{});section->initialize_numeric_values(original);
+                            plane_choice->setCurrentIndex(original_choice);dialog->refresh_sketch_preview();
+                        }else viewer_->remember_reference_face(offered);
+                        break;
+                    }
+                    end_plane_entry();
+                };
+                state_->setText(tr("Vyberte stabilní geometrii pro umístění kontejneru."));
+            });
+        dialog->set_reference_request_callback([this,end_plane_entry](std::size_t index){end_plane_entry();start_primitive_reference_selection(index);});
         // Initialize the shared rows from the owned Sketch parent datum.
         // The outer draft owns the parent; the child is not a Body-level feature.
         auto* button=dialog->findChild<QPushButton*>("containerDefaultOriginButton");
         if(button) {
             QObject::disconnect(button,&QPushButton::clicked,nullptr,nullptr);
             button->setIcon(resource_icon("origin-document"));
-            connect(button,&QPushButton::clicked,this,[this,guard,dialog] {
+            connect(button,&QPushButton::clicked,this,[this,guard,dialog,end_plane_entry] {
                 if(!guard||primitive_reference_dialog_!=dialog)return;
+                end_plane_entry();
                 set_local_origin_selection_mode(false);pending_primitive_reference_index_.reset();
                 dialog->set_active_reference_index({});dialog->clear_reference_highlights();
                 const auto definition=document::create_loft_sketch(guard->pending);

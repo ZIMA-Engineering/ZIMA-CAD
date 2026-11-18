@@ -894,16 +894,17 @@ static int verify_general_command_console(QApplication& application,AssemblyWork
             auto* tree=window.findChild<QTreeWidget*>("documentTree");
             check(view&&tree,"Curve selection UI missing");
             if(qEnvironmentVariableIsSet("ZIMA_VERIFY_CURVE_REFERENCE_TREE")) {
-                int checked=0;
+                int checked=0,features=0;
                 for(QTreeWidgetItemIterator it(tree);*it;++it) {
                     const auto kind=(*it)->data(0,Qt::UserRole+3).toString();
-                    if(kind!="part-construction"&&kind!="curve3d-point")continue;
+                    if(kind!="part-construction"&&kind!="curve3d-point"&&kind!="part-container")continue;
                     check(!(*it)->data(0,Qt::UserRole+40).toBool(),"Valid construction has a red missing-reference Tree state");
-                    ++checked;
+                    if(kind=="part-container")++features;else ++checked;
                 }
                 check(checked>=4,"Curve and child Tree rows were not checked");
+                if(qEnvironmentVariableIsSet("ZIMA_VERIFY_POINT_REFERENCE_TREE"))check(features>0,"Point feature Tree row was not checked");
                 window.grab().save(QString::fromStdString((directory/"curve-reference-tree.png").string()));
-                std::cout<<"Curve and child reference Tree states passed\n";return 0;
+                std::cout<<"Curve, child and "<<features<<" feature reference Tree states passed\n";return 0;
             }
             if(qEnvironmentVariableIsSet("ZIMA_VERIFY_CURVE_POINTS")) {
                 const auto objects=run("construction.list").data;

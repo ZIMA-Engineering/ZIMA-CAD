@@ -1826,20 +1826,24 @@ std::vector<ViewerCandidate> MeshView::selection_candidates_at(
     if (!impl_->show_symbols) std::erase_if(candidates, [](const auto& candidate) { return candidate.kind == CandidateKind::Symbol; });
     if (!impl_->show_dimensions) std::erase_if(candidates, [](const auto& candidate) { return candidate.kind == CandidateKind::Dimension; });
     if (impl_->offer_placement_routes) {
-        std::vector<ViewerCandidate> route_offers;
+        std::vector<ViewerCandidate> grouped;
+        grouped.reserve(candidates.size()*2);
         for (const auto& candidate:candidates) {
+            grouped.push_back(candidate);
             if ((candidate.kind!=CandidateKind::Edge && candidate.kind!=CandidateKind::SketchSegment &&
                  candidate.kind!=CandidateKind::SketchCurve) ||
                 !kernel::is_placement_route_member(candidate.semantic_key)) continue;
             auto whole=candidate;
             whole.kind=CandidateKind::Edge;
             whole.semantic_key=kernel::placement_route_key(candidate.semantic_key);
-            if (std::ranges::none_of(route_offers,[&](const auto& existing) {
+            if (std::ranges::none_of(grouped,[&](const auto& existing) {
                     return existing.owner_id==whole.owner_id && existing.instance_path==whole.instance_path &&
                         existing.semantic_key==whole.semantic_key;
-                })) route_offers.push_back(std::move(whole));
+                })) grouped.push_back(std::move(whole));
         }
-        candidates.insert(candidates.end(),route_offers.begin(),route_offers.end());
+        // Keep each route directly behind its first offered segment in the
+        // common hover/cycle/confirmation list, once per exact occurrence.
+        candidates=std::move(grouped);
     }
     auto filtered = filter_candidates(candidates,
         impl_->allowed_kinds, impl_->candidate_filter);

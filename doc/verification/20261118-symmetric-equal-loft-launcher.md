@@ -62,6 +62,12 @@ models, personal configuration and screenshots are not release inputs.
 
 ## Limits
 
+The initial Loft matrix did not verify the orientation role of the first
+picked parent support or replacement of the owned Sketch's inherited Origin
+through the View-plane field. User testing exposed both gaps after the source
+commit. Windows candidate 2026111812 was withheld. The expanded checks and
+repairs are recorded in [the 1813 follow-up](20261118-loft-plane-point-route.md).
+
 This is a finite regression matrix. Direct Symmetric-to-external-edge input is
 not a supported existing contract; the external-source variant instead anchors
 native symmetry supports to immutable external points. Oblique symmetry axes,

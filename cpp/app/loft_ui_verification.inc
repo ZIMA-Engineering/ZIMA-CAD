@@ -120,6 +120,12 @@ int verify_loft_ui(QApplication& application,AssemblyWorkspaceWindow& window,con
                 }
                 pick_tree(reference);flush();++index;
                 check(entry->first_empty_position_index()==static_cast<std::size_t>(index),"Loft automatic placement did not store the next reference");
+                if(index==1) {
+                    const auto& placement=entry->pending.placement;
+                    check(placement.references.front().orientation_role=="top","First picked Loft plane retained FRONT/XZ instead of TOP/XY");
+                    const auto normal=document::construction_direction_from_local_axis("z",{placement.rotation_x,placement.rotation_y,placement.rotation_z});
+                    check(std::abs(std::abs(normal.y)-1)<1e-7,"First picked XZ support did not become the Loft local XY plane");
+                }
                 if(index<3)check(active(index),"Loft placement did not advance to its next field");
             }
             check(!active(2),"Fully placed Loft left reference entry active");
@@ -168,6 +174,34 @@ int verify_loft_ui(QApplication& application,AssemblyWorkspaceWindow& window,con
             check(std::abs(std::abs((direction.x*normal.x+direction.y*normal.y+direction.z*normal.z)/magnitude)-1)<1e-5,"Loft Sketcher opens perpendicular to the wrong plane");
             window.findChild<QAction*>("finishSketchAction")->trigger();flush();
             check(initial_child->isVisible()&&initial_child->profile_plane_selection()==std::optional{std::pair{plane,false}},"Returning from owned Sketcher lost its manual work plane");
+        }
+        for(const auto& [key,normal]:std::vector<std::pair<const char*,kernel::Vec3>>{
+                {"xy",{0,0,1}},{"xz",{0,1,0}},{"yz",{1,0,0}}}) {
+            initial_child->findChild<QPushButton*>("containerDefaultOriginButton")->click();flush();
+            auto* input=initial_child->findChild<QTableWidget*>("featureProfilePlaneView");check(input,"Owned Sketch View-plane field missing");
+            const auto inherited=initial_child->pending_value().placement;
+            field(input,0,1);check(initial_child->pending_value().placement==inherited,"Arming View-plane entry changed inherited placement");
+            initial_child->findChild<QPushButton*>("containerDefaultOriginButton")->click();flush();
+            check(!dynamic_cast<ui::ReferenceCellItem*>(input->item(0,1))->is_active_input(),"Default Origin left View-plane entry active");
+            field(input,0,1);
+            click(view,view->rect().center(),Qt::MiddleButton);
+            check(initial_child->pending_value().placement==inherited,"Cancelling View-plane entry removed inherited placement");
+            field(input,0,1);view->set_standard_view(viewer::StandardView::Isometric);view->fit_all();flush();
+            QEventLoop camera;QTimer::singleShot(950,&camera,&QEventLoop::quit);camera.exec();
+            std::optional<QPoint> hit;
+            const auto owner=dialog->pending.container_origin.id;const auto semantic=std::string("origin:plane:")+key;
+            for(int y=12;y<view->height()-12&&!hit;y+=4)for(int x=12;x<view->width()-12&&!hit;x+=4) {
+                const auto offered=view->selection_candidates_at(QPointF(x,y));
+                if(!offered.empty()&&offered.front().owner_id==owner&&offered.front().semantic_key==semantic)hit=QPoint(x,y);
+            }
+            check(hit.has_value(),"Inherited Loft Sketch cannot pick the requested plane in View");click(view,*hit);
+            const auto placed=initial_child->pending_value().placement;
+            check(!placed.references.empty()&&placed.references.front().owner_id==owner&&placed.references.front().semantic_key==semantic&&
+                placed.references.front().orientation_role=="top","View-plane pick did not author a local XY attachment");
+            check(initial_child->profile_plane_selection()==std::optional{std::pair{sketcher::SketchPlane::XY,true}},"View-plane entry retained the previous manual preset");
+            const auto border=std::ranges::find_if(view->mesh().edges,[&](const auto& edge){return edge.reference.owner_id==initial_child->pending_value().feature_id&&edge.reference.semantic_key=="border";});
+            check(border!=view->mesh().edges.end(),"Picked plane preview missing");
+            for(const auto& p:border->points)check(std::abs(p.x*normal.x+p.y*normal.y+p.z*normal.z)<1e-7,"View-picked plane preview has the wrong normal");
         }
         for(auto* table:initial_child->findChildren<QTableWidget*>())for(int row=0;row<table->rowCount();++row)
             for(int column=0;column<table->columnCount();++column)
@@ -342,7 +376,43 @@ int verify_loft_ui(QApplication& application,AssemblyWorkspaceWindow& window,con
         QApplication::sendEvent(view,&inspect_thin);flush();
         check(!editor()&&std::ranges::any_of(view->mesh().dimensions,[&](const auto& dim){return dim.reference.owner_id==id&&dim.reference.semantic_key=="parameter:thickness";}),"Thin Loft double click did not expose thickness");
         check(row(id)->isSelected()&&window.execute_console_command("documents").data==thin_selection_state,"Thin Loft inspection lost selection or changed the document");
-        std::cout<<"Loft GUI: five languages, automatic placement entry, default XY, manual XY/XZ/YZ preview and Sketcher alignment, stacked lists, owned 2D Sketch edit/add/remove, eye/order, whole Origin, numeric placement, resize, rollback, no-op, middle confirmation, View/Tree single/double inspection, Thin sides, native reopen and Undo/Redo passed"<<std::endl;
+        action->trigger();flush();dialog=editor();check(dialog,"Second Loft creation missing");
+        click(view,view->rect().center(),Qt::MiddleButton);
+        field(dialog->findChild<QTableWidget*>("loftProfiles"),0,3);flush();
+        child=dynamic_cast<PrimitivePropertiesDialog*>(window.findChild<QWidget*>("generalSurfaceSketchProperties"));
+        check(child,"Second Loft owned Sketch missing");
+        std::string previous_face;
+        for(unsigned pass=0;pass<2;++pass) {
+            child->findChild<QPushButton*>("containerDefaultOriginButton")->click();flush();
+            field(child->findChild<QTableWidget*>("featureProfilePlaneView"),0,1);
+            view->set_standard_view(viewer::StandardView::Isometric);view->fit_all();flush();
+            QEventLoop camera;QTimer::singleShot(950,&camera,&QEventLoop::quit);camera.exec();
+            std::optional<QPoint> hit;viewer::ViewerCandidate face;std::vector<kernel::Vec3> triangles;
+            for(int y=12;y<view->height()-12&&!hit;y+=4)for(int x=12;x<view->width()-12&&!hit;x+=4) {
+                const auto offered=view->selection_candidates_at(QPointF(x,y));
+                if(!offered.empty()&&offered.front().kind==viewer::CandidateKind::Face&&offered.front().semantic_key!=previous_face) {
+                    auto mesh=view->candidate_face_triangles(offered.front());
+                    if(mesh.size()>=3){hit=QPoint(x,y);face=offered.front();triangles=std::move(mesh);}
+                }
+            }
+            check(hit.has_value(),"Owned Loft Sketch cannot pick a real planar solid face in View");
+            const auto a=triangles[0],b=triangles[1],c=triangles[2];
+            const kernel::Vec3 u{b.x-a.x,b.y-a.y,b.z-a.z},v{c.x-a.x,c.y-a.y,c.z-a.z};
+            const kernel::Vec3 n{u.y*v.z-u.z*v.y,u.z*v.x-u.x*v.z,u.x*v.y-u.y*v.x};
+            const double length=std::sqrt(n.x*n.x+n.y*n.y+n.z*n.z);check(length>1e-9,"Picked face triangle is degenerate");
+            click(view,*hit);const auto placement=child->pending_value().placement;
+            check(placement.reference_valid&&std::ranges::count_if(placement.references,[](const auto& ref){return !ref.orientation_only;})==1&&
+                std::ranges::all_of(placement.references,[&](const auto& ref){return ref.owner_id==face.owner_id&&ref.semantic_key==face.semantic_key&&ref.orientation_role=="top";}),
+                "Real face did not replace inherited placement with local XY");
+            const auto border=std::ranges::find_if(view->mesh().edges,[&](const auto& edge){return edge.reference.owner_id==child->pending_value().feature_id&&edge.reference.semantic_key=="border";});
+            check(border!=view->mesh().edges.end(),"Real face Sketch preview missing");
+            for(const auto& p:border->points)check(std::abs((p.x-a.x)*n.x+(p.y-a.y)*n.y+(p.z-a.z)*n.z)/length<1e-6,"Sketch preview is not on the picked solid face");
+            previous_face=face.semantic_key;
+        }
+        child->buttons()->button(QDialogButtonBox::Cancel)->click();flush();
+        dialog->buttons()->button(QDialogButtonBox::Cancel)->click();flush();
+        check(window.execute_console_command("documents").data==thin_selection_state,"View-face entry Cancel changed the source Part");
+        std::cout<<"Loft GUI: five languages, automatic XY first-plane placement, manual XY/XZ/YZ preview and Sketcher alignment, View-plane and two real solid-face picks, stacked lists, owned 2D Sketch edit/add/remove, eye/order, whole Origin, numeric placement, resize, rollback, no-op, middle confirmation, View/Tree single/double inspection, Thin sides, native reopen and Undo/Redo passed"<<std::endl;
         return 0;
     }catch(const std::exception& error){std::cerr<<error.what()<<std::endl;return 1;}
 }

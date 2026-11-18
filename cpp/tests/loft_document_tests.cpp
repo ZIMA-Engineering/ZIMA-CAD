@@ -1,6 +1,8 @@
 #include <zima/document/loft.hpp>
 #include <zima/document/general_surface.hpp>
 #include <zima/document/placement_orientation.hpp>
+#include <zima/document/sketch_placement.hpp>
+#include <zima/document/placement_reference_assignment.hpp>
 #include <zima/document/object_annotation_frames.hpp>
 #include <zima/workspace/sketch_operations.hpp>
 #include <zima/workspace/sketch_reference_operations.hpp>
@@ -35,6 +37,36 @@ Fixture fixture(bool guided) {
 }
 int main(){try {
  k::OcctKernel kernel;
+ for(const auto& [key,normal]:std::array{
+     std::pair{"xy",k::Vec3{0,0,1}},std::pair{"xz",k::Vec3{0,1,0}},std::pair{"yz",k::Vec3{1,0,0}}})for(double side:{-1.,1.}) {
+  auto f=fixture(false);f.loft.loft.profiles.clear();f.loft.loft.sketches.clear();
+  const auto geometry=f.part.body_origin_reference_geometry();
+  d::ConstructionReference reference{{},f.part.body_history.active_body_id()+":origin",std::string("origin:plane:")+key,0.,true};
+  d::prepare_profile_plane_reference(0,reference,{});reference.measured_offset=0.;
+  std::vector<d::ConstructionReference> position,orientation;std::array<bool,3> locks{};
+  check(d::assign_placement_reference({position,orientation,locks},true,0,reference).error==d::PlacementReferenceError::None,"Loft first XY-plane assignment failed");
+  f.loft.placement.references=d::combined_placement_references(position,orientation);
+  check(d::resolve_placement(f.loft.placement,geometry),"Loft first plane did not resolve");
+  for(unsigned i=0;i<3;++i){
+   auto owned=d::create_loft_sketch(f.loft);auto sketch=s::Sketch::from_serialized(owned.sketch_serialized);
+   sketch.plane_offset=side*5*i;static_cast<void>(sketch.add_circle(0,0,10));owned.sketch_serialized=sketch.serialized();
+   f.loft.loft.profiles.push_back(owned.sketch_feature->id);f.loft.loft.sketches.push_back(std::move(owned));
+  }
+  d::resolve_loft_sketches(f.loft,geometry);
+  for(const auto& owned:f.loft.loft.sketches){
+   const auto sketch=d::general_surface_display_sketch(f.loft,owned);
+   check(sketch.plane==s::SketchPlane::XY&&sketch.plane_auto,"Inherited Loft Sketch did not use automatic XY");
+   near(std::abs(sketch.resolved_normal.x*normal.x+sketch.resolved_normal.y*normal.y+sketch.resolved_normal.z*normal.z),1);
+  }
+  w::Workspace live;live.add_part(f.part,w::calculate_part_with_resolved_references(kernel,f.part));live.activate(f.part.document_id);
+  check(w::commit_loft(live,kernel,f.part.document_id,f.loft),"Loft with picked first XY plane did not calculate");
+  const auto* state=live.open_part(f.part.document_id);auto result=state->session.calculated_boundaries().back();
+  check(result.calculation_errors.empty(),"Loft first-plane calculation failed");kernel.ensure_body_properties(result);near(result.volume,1000*std::numbers::pi);
+  const auto persisted=state->session.document().find_container(f.loft.id)->loft;
+  const auto reopened=d::PartDocument::from_serialized(state->session.document().serialized());
+  check(reopened.find_container(f.loft.id)->loft==persisted,"First-plane Loft frame changed on reopen");
+ }
+ std::cout<<"Six first-plane Loft calculations passed: XY/XZ/YZ supports, inherited automatic XY, both offset sides and reopen"<<std::endl;
  for(const auto plane:{s::SketchPlane::XY,s::SketchPlane::XZ,s::SketchPlane::YZ})for(double side:{-1.,1.})for(bool rotated:{false,true}){
   auto f=fixture(false);f.loft.loft.profiles.clear();f.loft.loft.sketches.clear();
   f.loft.placement.x=17;f.loft.placement.y=23;f.loft.placement.z=11;
