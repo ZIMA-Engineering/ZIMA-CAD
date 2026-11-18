@@ -1277,7 +1277,14 @@ bool complete_history_geometry(const kernel::BodyResult& value,
     // sampled edges only. That is sufficient for reference settling, but it is
     // not the real rollback body required by Properties. A deliberately empty
     // datum Feature is already complete without a solid viewer mesh.
+    const auto* group=std::get_if<kernel::FeatureGroupRequest>(
+        &operation.primitive);
+    const bool datum=group&&group->allow_empty&&group->children.empty();
     if(!value.mesh.triangles.empty()) {
+        // A datum does not consume the preceding solid. Its compact packet
+        // can still contain triangles for selected reference faces. Require
+        // the complete input boundary before displaying it for Properties.
+        if(datum && value.has_solid() && value.kernel_shape.empty())return false;
         // Sheet commands attach to the actual current boundary wire. A cached
         // viewer solid without its authored edge packet is therefore still a
         // deferred rollback boundary, even though it is sufficient to draw.
@@ -1289,10 +1296,7 @@ bool complete_history_geometry(const kernel::BodyResult& value,
         return !sheet_boundary||
             !value.mesh.original_references.edges.empty();
     }
-    const auto* group=std::get_if<kernel::FeatureGroupRequest>(
-        &operation.primitive);
-    return group&&group->allow_empty&&group->children.empty()&&
-        value.kernel_shape.empty();
+    return datum && !value.has_solid() && value.kernel_shape.empty();
 }
 }
 

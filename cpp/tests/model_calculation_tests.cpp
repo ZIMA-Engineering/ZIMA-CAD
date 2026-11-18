@@ -1,5 +1,6 @@
 #include "profile_solid_fixture.hpp"
 #include <zima/document/edge_treatment_selection.hpp>
+#include <zima/kernel/stable_id.hpp>
 #include <zima/workspace/model_calculation.hpp>
 #include <zima/workspace/body_operations.hpp>
 #include <zima/workspace/edge_treatment_operations.hpp>
@@ -1208,6 +1209,40 @@ void verify_assembly(const kernel::OcctKernel& kernel){
 }
 int main(){try{
     kernel::OcctKernel kernel;
+    {
+        auto part=document::PartDocument::create_default();
+        auto solid=zima::test::rectangular_feature(part);
+        auto earlier_point=document::PartDocument::create_feature_container(kernel::make_stable_id());
+        earlier_point.feature.type=document::FeatureType::Point;
+        auto edited_point=document::PartDocument::create_feature_container(kernel::make_stable_id());
+        edited_point.feature.type=document::FeatureType::Point;
+        part.history={solid,earlier_point,edited_point};
+        document::BodyHistoryGraph graph;
+        static_cast<void>(graph.create_body("Point rollback input"));
+        for(const auto& entry:part.history)
+            graph.insert({document::PartHistoryKind::Feature,entry.id});
+        part.set_body_history(graph);
+        const auto verify_input=[&](document::PartDocument snapshot,std::vector<kernel::BodyResult> calculated,
+                                    const char* failure) {
+            workspace::Workspace live;
+            live.add_part(std::move(snapshot),std::move(calculated));
+            auto& session=live.open_part(part.document_id)->session;
+            static_cast<void>(workspace::materialize_part_history_input_boundary(
+                live,kernel,part.document_id,edited_point.id));
+            const auto boundary=session.rollback_boundary(edited_point.id);
+            require(boundary && boundary->input_body && boundary->input_body->mesh.triangles.size()>=36,
+                failure);
+        };
+        const auto calculated=workspace::calculate_part_with_resolved_references(kernel,part);
+        verify_input(part,calculated,"In-memory Point rollback lost the preceding solid");
+        const auto file=std::filesystem::temp_directory_path()/
+            ("zima-point-rollback-"+kernel::make_stable_id()+".prtz");
+        part.save(file,calculated);
+        std::vector<kernel::BodyResult> saved;
+        auto reopened=document::PartDocument::load(file,&saved);
+        std::filesystem::remove(file);
+        verify_input(std::move(reopened),std::move(saved),"Reopened Point rollback lost the preceding solid");
+    }
     verify_reference_chain(kernel);verify_profile_frame_convergence(kernel);
     verify_terminal_reference_publication(kernel);
     verify_axis_endpoint_history_reference(kernel);
