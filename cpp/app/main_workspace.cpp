@@ -7659,6 +7659,7 @@ int verify_rectangle_external_contact_ui(QApplication& application,const std::fi
 #include "multisolid_shell_ui_verification.inc"
 #include "sketch_entry_view_ui_verification.inc"
 #include "sketch_equal_endpoint_ui_verification.inc"
+#include "sketch_symmetric_equal_ui_verification.inc"
 #include "sketch_external_constraints_ui_verification.inc"
 
 #include "sketch_junction_ui_verification.inc"
@@ -12015,6 +12016,7 @@ int verify_startup_contract(
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_LINE_BEND_ONLY")) return verify_line_bend_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SHEET_TRANSITION")) return verify_sheet_transition_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_EQUAL_ENDPOINT_ONLY")) return verify_sketch_equal_endpoint_ui(application,test_directory);
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SYMMETRIC_EQUAL_ONLY")) return verify_sketch_symmetric_equal_ui(application,test_directory);
     if(qEnvironmentVariableIsSet("ZIMA_VERIFY_SHELL_VALUE_ONLY"))return verify_shell_value_label_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_MULTISOLID_SHELL_UI_FILE")) return verify_multisolid_shell_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_EXTERNAL_DIMENSION_FILE")) return verify_sketch_external_dimension_ui(application,test_directory);

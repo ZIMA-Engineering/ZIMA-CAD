@@ -330,7 +330,12 @@ bool seed_equal_length_components(Sketch& sketch,const std::vector<std::string>&
             (!points.contains(c.first_point_id)&&!points.contains(c.second_point_id)&&!geometry.contains(c.geometry_id)&&!geometry.contains(c.second_geometry_id));});
         std::erase_if(component.dimensions,[&](const auto& d){return d.suppressed||!d.driving||
             (!points.contains(d.first_point_id)&&!points.contains(d.second_point_id)&&!geometry.contains(d.geometry_id)&&!geometry.contains(d.second_geometry_id));});
-        if(std::ranges::none_of(component.constraints,[](const auto& c){return c.kind==ConstraintKind::PointOnLine;}))continue;
+        // Symmetry couples the same endpoint coordinates as a support contact.
+        // Sequential Equal/H/V/reflection projections can undo one another in
+        // a centred rectangle; reuse the simultaneous component equations.
+        if(std::ranges::none_of(component.constraints,[](const auto& c){
+            return c.kind==ConstraintKind::PointOnLine||c.kind==ConstraintKind::Symmetric;
+        }))continue;
         if(!seed_rectilinear_equations(component,anchors,false,true)) {
             if(!component.circles.empty()||!component.arcs.empty()||!component.ellipses.empty()||
                 !component.elliptical_arcs.empty()||!component.bsplines.empty()||

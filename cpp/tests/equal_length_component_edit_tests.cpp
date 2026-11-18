@@ -1,5 +1,6 @@
 #include <zima/document/document_session.hpp>
 #include <zima/sketcher/sketch.hpp>
+#include <zima/sketcher/sketch_trim.hpp>
 #include <algorithm>
 #include <cmath>
 #include <iostream>
@@ -14,6 +15,11 @@ double length(const Sketch& s,const std::string& id){const auto line=std::ranges
 std::optional<std::pair<std::array<double,2>,std::array<double,2>>> line_support(const Sketch& s,const std::string& id){
     if(id=="sketch_axis:x")return std::pair{std::array{0.,0.},std::array{1.,0.}};
     if(id=="sketch_axis:y")return std::pair{std::array{0.,0.},std::array{0.,1.}};
+    const auto segment=std::ranges::find(s.segments,id,&SketchSegment::id);
+    if(segment!=s.segments.end()){
+        const auto a=s.find_point(segment->first_point_id),b=s.find_point(segment->second_point_id);
+        return std::pair{std::array{a->x,a->y},std::array{b->x-a->x,b->y-a->y}};
+    }
     const auto r=std::ranges::find(s.external_references,id,&SketchExternalReference::id);
     return r==s.external_references.end()?std::nullopt:external_reference_line(*r);
 }
@@ -22,11 +28,24 @@ void equations(const Sketch& s){
         const auto a=s.find_point(c.first_point_id),b=s.find_point(c.second_point_id);
         if(c.kind==ConstraintKind::Horizontal)near(a->y,b->y);
         else if(c.kind==ConstraintKind::Vertical)near(a->x,b->x);
+        else if(c.kind==ConstraintKind::PointReference){
+            const auto ref=std::ranges::find(s.external_references,c.second_point_id,&SketchExternalReference::id);
+            check(ref!=s.external_references.end()&&ref->cached_points.size()==1,"Read-only point support missing");
+            near(a->x,ref->cached_points.front()[0]);near(a->y,ref->cached_points.front()[1]);
+        }
         else if(c.kind==ConstraintKind::PointOnLine){
             if(c.geometry_id=="sketch_axis:x")near(a->y,0);
             else if(c.geometry_id=="sketch_axis:y")near(a->x,0);
             else {const auto r=std::ranges::find(s.external_references,c.geometry_id,&SketchExternalReference::id);check(r!=s.external_references.end(),"External support missing");const auto p=r->cached_points.front(),q=r->cached_points.back();near(((a->x-p[0])*(q[1]-p[1])-(a->y-p[1])*(q[0]-p[0]))/std::hypot(q[0]-p[0],q[1]-p[1]),0);}
         }else if(c.kind==ConstraintKind::EqualLength)near(length(s,c.geometry_id),length(s,c.second_geometry_id));
+        else if(c.kind==ConstraintKind::Symmetric){
+            const auto support=line_support(s,c.geometry_id);check(support.has_value(),"Symmetry support missing");
+            const auto origin=support->first,direction=support->second;
+            const double squared=direction[0]*direction[0]+direction[1]*direction[1];
+            const double along=((a->x-origin[0])*direction[0]+(a->y-origin[1])*direction[1])/squared;
+            near(a->x+b->x,2*(origin[0]+along*direction[0]));
+            near(a->y+b->y,2*(origin[1]+along*direction[1]));
+        }
         else if(c.kind==ConstraintKind::Midpoint){
             const auto segment=std::ranges::find(s.segments,c.geometry_id,&SketchSegment::id);
             check(a&&segment!=s.segments.end(),"Midpoint relation is incomplete");
@@ -113,6 +132,109 @@ Sketch three_rectangle_external_fixture(bool mirrored,bool reverse_support,bool 
 }
 }
 int main(){try{
+    // Reported 15.prtz: an H/V rectangle reflected about both Sketch axes.
+    // Equal adjacent sides must consume one size DOF, not report a conflict.
+    std::size_t symmetric_cases{},symmetric_edits{},symmetric_drags{};
+    for(int sx:{-1,1})for(int sy:{-1,1})for(bool reverse:{false,true})for(bool external:{false,true}){
+        auto s=Sketch::create_default();
+        const auto sides=s.add_rectangle(-33.322933197021484*sx,29.633331298828125*sy,
+            33.322933197021484*sx,-29.633331298828125*sy);
+        const auto p0=s.segments[0].first_point_id,p1=s.segments[0].second_point_id,
+            p2=s.segments[1].second_point_id;
+        static_cast<void>(s.add_symmetric_constraint(p0,p1,"sketch_axis:y"));
+        static_cast<void>(s.add_symmetric_constraint(p1,p2,"sketch_axis:x"));
+        if(external)for(const auto axis:{std::string("sketch_axis:x"),std::string("sketch_axis:y")}){
+            // Symmetry accepts native axes. Their endpoints may legitimately
+            // be anchored to read-only external points.
+            const auto id=axis.ends_with("x")?s.add_segment(-100,0,100,0):s.add_segment(0,-100,0,100);
+            auto& support=s.segments.back();support.construction=true;support.centerline=true;
+            for(const auto& point_id:{support.first_point_id,support.second_point_id}){
+                const auto* point=s.find_point(point_id);
+                auto r=Sketch::create_external_reference(ExternalReferenceKind::Point);
+                r.source_document_id="read-only-symmetry";r.source_owner_id="origin";r.source_semantic_key=axis+point_id;
+                r.cached_points={{point->x,point->y}};s.add_external_reference(r);
+                static_cast<void>(s.add_point_reference_constraint(point_id,r.id));
+            }
+            for(auto& c:s.constraints)if(c.geometry_id==axis)c.geometry_id=id;
+        }
+        const auto references=s.external_references;
+        equations(s);
+        const auto rectangle=s;
+        static_cast<void>(s.add_segment_pair_constraint(sides[reverse?1:0],sides[reverse?0:1],ConstraintKind::EqualLength));
+        equations(s);
+        check(s.solve().remaining_degrees_of_freedom==1,"Symmetric square did not retain its size DOF");
+        const auto square=s;
+        for(std::size_t vertex=0;vertex<4;++vertex){
+            s=square;
+            for(double factor:{1.1,.9,1.05}){
+                const auto point=s.points[vertex];
+                check(s.move_point(point.id,point.x*factor,point.y*factor),"Symmetric square free drag rejected");
+                check(std::hypot(s.find_point(point.id)->x-point.x,s.find_point(point.id)->y-point.y)>.01,"Symmetric square free point did not move");
+                equations(s);check(s.external_references==references,"Symmetric drag changed its external source");
+                s=Sketch::from_serialized(s.serialized());equations(s);++symmetric_drags;
+            }
+        }
+        // Segment length, projected width/height and diagonal point distance.
+        for(int dimension_kind=0;dimension_kind<4;++dimension_kind)for(int mode=0;mode<3;++mode){
+            s=square;
+            auto dimension=dimension_kind==0?s.create_segment_dimension(sides[0]):
+                dimension_kind==1?s.create_point_dimension(p0,p1,DimensionKind::DistanceX):
+                dimension_kind==2?s.create_point_dimension(p1,p2,DimensionKind::DistanceY):
+                s.create_point_dimension(p0,p2,DimensionKind::Distance);
+            dimension.driving=mode!=0;dimension.locked=mode==2;
+            s.apply_dimension(dimension);equations(s);
+            check(s.solve().remaining_degrees_of_freedom==(mode?0:1),"Symmetric dimension DOF is incorrect");
+            for(double factor:{1.1,.9,1.05}){
+                const auto before=s.points;
+                const auto current=std::ranges::find(s.dimensions,dimension.id,&SketchDimension::id);
+                check(s.set_dimension_value(dimension.id,dimension_display_value(*current,s.plane)*factor),"Symmetric square dimension edit rejected");
+                if(mode==0)check(s.points==before,"Reference dimension moved symmetric geometry");
+                else check(s.points!=before,"Driving dimension did not move symmetric geometry");
+                equations(s);check(s.external_references==references,"Symmetric dimension edit changed its source");
+                s=Sketch::from_serialized(s.serialized());equations(s);++symmetric_edits;
+            }
+            for(double factor:{1.1,.9,1.05}){
+                const auto point=s.points[2];const auto before=s.serialized();
+                const bool moved=s.move_point(point.id,point.x*factor,point.y*factor);
+                check(moved==(mode!=2),"Symmetric square dimension lock drag contract failed");
+                if(moved)check(std::hypot(s.find_point(point.id)->x-point.x,s.find_point(point.id)->y-point.y)>.01,"Unlocked symmetric dimension prevented motion");
+                else check(s.serialized()==before,"Rejected symmetric drag changed document");
+                equations(s);check(s.external_references==references,"Symmetric drag changed its source");++symmetric_drags;
+            }
+        }
+        s=square;
+        static_cast<void>(s.add_corner_fillet(sides[0],sides[1],2));
+        for(double factor:{1.1,.9,1.05}){
+            const auto point=*s.find_point(p1);
+            check(s.move_point(p1,point.x*factor,point.y*factor),"Rounded symmetric square drag failed");
+            equations(s);near(s.corner_radii.front().radius,2);
+            check(s.find_point(p1)!=nullptr,"Corner modifier lost the shared design point");
+            static_cast<void>(s.evaluated_profile_sketch());
+        }
+        s=square;
+        const auto& cut=s.segments[2];const auto a=s.find_point(cut.first_point_id),b=s.find_point(cut.second_point_id);
+        const auto piece=nearest_sketch_trim_piece(sketch_trim_topology(s,false),{(a->x+b->x)*.5,(a->y+b->y)*.5},.01);
+        check(piece&&piece->geometry_id==sides[2],"Symmetric rectangle trim target missing");
+        static_cast<void>(apply_sketch_trim(s,{*piece}));equations(s);
+        near(length(s,sides[0]),length(s,sides[1]));
+        for(double factor:{1.1,.9,1.05}){
+            const auto point=*s.find_point(p1);
+            check(s.move_point(p1,point.x*factor,point.y*factor),"Trimmed symmetric equal sides no longer move");
+            equations(s);check(s.external_references==references,"Trimmed symmetric drag changed its source");
+        }
+        s=Sketch::from_serialized(s.serialized());equations(s);
+        s=square;const auto unchanged=s.serialized();bool rejected=false;
+        try{static_cast<void>(s.add_segment_pair_constraint(sides[0],sides[2],ConstraintKind::EqualLength));}catch(const std::exception&){rejected=true;}
+        check(rejected&&s.serialized()==unchanged,"Redundant opposite-side equality was not atomic");
+        s=rectangle;
+        auto width=s.create_segment_dimension(sides[0]);width.locked=true;s.apply_dimension(width);
+        auto height=s.create_segment_dimension(sides[1]);height.locked=true;s.apply_dimension(height);
+        const auto conflicting=s.serialized();rejected=false;
+        try{static_cast<void>(s.add_segment_pair_constraint(sides[0],sides[1],ConstraintKind::EqualLength));}catch(const std::exception&){rejected=true;}
+        check(rejected&&s.serialized()==conflicting,"Impossible fixed-size equality was not atomic");
+        equations(s);++symmetric_cases;
+    }
+    std::cout<<symmetric_cases<<" symmetric equal cases, "<<symmetric_edits<<" dimension edits and "<<symmetric_drags<<" drags passed\n";
     auto part=zima::document::PartDocument::load("cpp/tests/fixtures/sketch/form-edge-equal-length.prtz");const auto source=part.sketches.back();equations(source);std::size_t edits{},drags{};
     for(int sx:{-1,1})for(int sy:{-1,1})for(bool reverse:{false,true})for(bool external:{false,true})for(bool projected:{false,true})for(bool driving:{false,true})for(bool locked:{false,true}){
         if(!driving&&locked)continue; // Locked reference dimensions are invalid by contract.

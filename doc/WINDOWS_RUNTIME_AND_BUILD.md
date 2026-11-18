@@ -106,8 +106,12 @@ isolation](MULTIPLE_INSTANCES.md) apply to every external launch. The Window men
 only switches documents within the current instance.
 The user's normal development entry point is `zima-cad.bat` in the repository
 root, confirmed on 2026-09-15. Its name and location remain stable. It starts
-the current local C++ executable asynchronously with the repository working
-directory; no build-directory navigation is required after each rebuild.
+the current local C++ executable asynchronously with the repository as its
+process working directory; no build-directory navigation is required after each
+rebuild. It leaves the application's project directory to the configured
+`Paths/WorkingDirectory`, unless the caller explicitly passes
+`--working-directory`. The repository process directory must not become an
+implicit command-line override of that saved project setting.
 Keep it working when build paths change. Portable releases retain their own
 installation-root launcher and do not replace this development entry point.
 

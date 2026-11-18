@@ -2591,6 +2591,11 @@ if(ZIMA_BUILD_TESTS)
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_EQUAL_ENDPOINT_ONLY=1"
         TIMEOUT 180 RUN_SERIAL TRUE)
     add_test(NAME zima_cpp_sketch_four_equal_corners_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    add_test(NAME zima_cpp_sketch_symmetric_equal_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    set_tests_properties(zima_cpp_sketch_symmetric_equal_ui_contract PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.."
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_SYMMETRIC_EQUAL_ONLY=1"
+        TIMEOUT 180 RUN_SERIAL TRUE)
     add_test(NAME zima_cpp_sketch_equal_corner_drag_ui_contract COMMAND zima-cad-cpp --verify-startup)
     set_tests_properties(zima_cpp_sketch_equal_corner_drag_ui_contract PROPERTIES
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.."

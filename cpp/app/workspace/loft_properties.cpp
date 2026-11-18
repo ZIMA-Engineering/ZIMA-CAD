@@ -164,5 +164,7 @@ void AssemblyWorkspaceWindow::show_loft_properties(const std::string& id) {
         preserve_view_on_refresh_=true;refresh_tabs();refresh_scene();
     });
     dialog->refresh();dialog->show();dialog->changed();
+    const auto first=dialog->first_empty_position_index();
+    if(first<3)start_primitive_reference_selection(first,true);
 }
 }

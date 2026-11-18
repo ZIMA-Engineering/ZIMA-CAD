@@ -7,6 +7,7 @@
 #include "../confirmed_face_hit.hpp"
 #include <zima/document/general_surface.hpp>
 #include <zima/document/solid_state_reference_views.hpp>
+#include <zima/document/sketch_placement.hpp>
 namespace zima::app {
 using namespace workspace_detail;
 void AssemblyWorkspaceWindow::show_general_surface_sketch_properties(GeneralSurfaceDialog* parent,unsigned stage) {
@@ -128,8 +129,26 @@ void AssemblyWorkspaceWindow::show_owned_sketch_properties(SweepPlacementDialog*
         const auto& value=*feature.general_surface.boundaries.at(stage).sketch_feature;
         origin.id=value.id;origin.entity_id=value.feature_id;origin.container_origin=value.container_origin;origin.name=value.name;
         origin.origin=point;origin.rotation={placement.rotation_x,placement.rotation_y,placement.rotation_z};origin.reference_valid=false;
+        if(guard->pending.feature_kind==document::FeatureKind::Loft) {
+            // Reuse the ordinary Plane presentation from the resolved owned
+            // Sketch frame, including the chosen plane and its offset. The
+            // same frame is handed to Sketcher; no second placement solve or
+            // persistent construction is introduced by this display carrier.
+            const auto sketch=sketcher::Sketch::from_serialized(feature.general_surface.boundaries.at(stage).sketch_serialized);
+            const auto axes=document::sketch_container_frame_axes(sketch);
+            origin.kind=document::ConstructionKind::Plane;
+            origin.base_plane=sketch.plane==sketcher::SketchPlane::XY?document::LocalDatumPlane::XY:
+                sketch.plane==sketcher::SketchPlane::XZ?document::LocalDatumPlane::XZ:document::LocalDatumPlane::YZ;
+            origin.rotation=euler_degrees_from_frame_columns(axes[0],axes[1],axes[2]);origin.absolute_rotation=origin.rotation;
+            origin.direction=sketch.resolved_normal;origin.entity_origin=sketch.resolved_origin;origin.offset=sketch.plane_offset;
+            origin.origin={sketch.resolved_origin.x-sketch.resolved_normal.x*sketch.plane_offset,
+                sketch.resolved_origin.y-sketch.resolved_normal.y*sketch.plane_offset,
+                sketch.resolved_origin.z-sketch.resolved_normal.z*sketch.plane_offset};
+            origin.reference_valid=placement.reference_valid;
+        }
         origins.constructions={origin};
         primitive_origin_preview_mesh_=document::general_surface_place_definition_mesh(feature.placement,origins.construction_viewer_mesh(value.id));
+        origin.kind=document::ConstructionKind::Point;origin.reference_valid=false;origin.offset=0;
         origin.id=feature.id;origin.entity_id=feature.feature_id;origin.container_origin=feature.container_origin;origin.name=feature.name;
         origin.origin={feature.placement.x,feature.placement.y,feature.placement.z};
         origin.rotation={feature.placement.rotation_x,feature.placement.rotation_y,feature.placement.rotation_z};

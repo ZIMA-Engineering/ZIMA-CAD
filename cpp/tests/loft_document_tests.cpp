@@ -35,6 +35,40 @@ Fixture fixture(bool guided) {
 }
 int main(){try {
  k::OcctKernel kernel;
+ for(const auto plane:{s::SketchPlane::XY,s::SketchPlane::XZ,s::SketchPlane::YZ})for(double side:{-1.,1.})for(bool rotated:{false,true}){
+  auto f=fixture(false);f.loft.loft.profiles.clear();f.loft.loft.sketches.clear();
+  f.loft.placement.x=17;f.loft.placement.y=23;f.loft.placement.z=11;
+  f.loft.placement.rotation_z=f.loft.placement.absolute_rotation_z=rotated?90.:0.;
+  const k::Vec3 local_normal=plane==s::SketchPlane::XY?k::Vec3{0,0,1}:plane==s::SketchPlane::XZ?k::Vec3{0,1,0}:k::Vec3{1,0,0};
+  const k::Vec3 normal=rotated?k::Vec3{-local_normal.y,local_normal.x,local_normal.z}:local_normal;
+  for(unsigned i=0;i<3;++i){
+   auto owned=d::create_loft_sketch(f.loft);auto sketch=s::Sketch::from_serialized(owned.sketch_serialized);
+   sketch.plane=plane;sketch.plane_auto=false;sketch.plane_offset=side*5*i;
+   static_cast<void>(sketch.add_circle(0,0,10));owned.sketch_serialized=sketch.serialized();
+   f.loft.loft.profiles.push_back(owned.sketch_feature->id);f.loft.loft.sketches.push_back(std::move(owned));
+  }
+  d::resolve_loft_sketches(f.loft,{});
+  for(unsigned i=0;i<3;++i){
+   const auto& owned=f.loft.loft.sketches[i];const auto sketch=d::general_surface_display_sketch(f.loft,owned);
+   check(sketch.plane==plane&&!sketch.plane_auto,"Loft replaced the manual work-plane selection");
+   near(sketch.resolved_normal.x,normal.x);near(sketch.resolved_normal.y,normal.y);near(sketch.resolved_normal.z,normal.z);
+   near(sketch.resolved_origin.x,17+normal.x*side*5*i);near(sketch.resolved_origin.y,23+normal.y*side*5*i);near(sketch.resolved_origin.z,11+normal.z*side*5*i);
+   for(const auto& ref:owned.sketch_feature->placement.references)check(ref.owner_id==f.loft.container_origin.id,"Manual plane changed parent attachment identity");
+  }
+  w::Workspace live;live.add_part(f.part,w::calculate_part_with_resolved_references(kernel,f.part));live.activate(f.part.document_id);
+  check(w::commit_loft(live,kernel,f.part.document_id,f.loft),"Manual-plane Loft did not calculate");
+  auto* state=live.open_part(f.part.document_id);auto result=state->session.calculated_boundaries().back();
+  check(result.calculation_errors.empty(),"Manual-plane Loft calculation failed");kernel.ensure_body_properties(result);
+  near(result.volume,1000*std::numbers::pi);
+  near(result.volume_integrals->centroid.x,17+normal.x*side*5);near(result.volume_integrals->centroid.y,23+normal.y*side*5);near(result.volume_integrals->centroid.z,11+normal.z*side*5);
+  const auto persisted=state->session.document().find_container(f.loft.id)->loft;
+  const auto file=std::filesystem::temp_directory_path()/"zima-loft-manual-plane.prtz";
+  state->session.document().save(file,state->session.calculated_boundaries());auto reopened=d::PartDocument::load(file);std::filesystem::remove(file);
+  check(reopened.find_container(f.loft.id)->loft==persisted,"Manual-plane Loft lost its native frame or references on reopen");
+  check(w::step_part_document_history(live,f.part.document_id,false)&&w::step_part_document_history(live,f.part.document_id,true),"Manual-plane Loft Undo/Redo failed");
+  check(state->session.document().find_container(f.loft.id)->loft==persisted,"Manual-plane Loft Undo/Redo changed frames");
+ }
+ std::cout<<"Twelve manual XY/XZ/YZ Loft calculations passed: both offset sides, parent rotation, profile frames, volume/centroid, native reopen and Undo/Redo"<<std::endl;
  {
   const auto empty=d::create_loft();
   check(empty.loft.sketches.empty()&&empty.loft.profiles.empty()&&empty.loft.guides.empty(),"New Loft created unrequested Sketches");

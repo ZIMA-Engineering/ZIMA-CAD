@@ -101,6 +101,31 @@ int verify_loft_ui(QApplication& application,AssemblyWorkspaceWindow& window,con
             check(window.execute_console_command("documents").data==initial,"Localized Loft Cancel changed the document");
         }
         apply_application_translations(application,original_settings);
+        action->trigger();flush();
+        {
+            auto* entry=editor();check(entry,"Loft automatic placement dialog missing");
+            auto* references=entry->findChild<QTableWidget*>("sweepPlacementReferences");
+            const auto active=[&](int index){
+                const auto* item=references?dynamic_cast<ui::ReferenceCellItem*>(references->item(index,1)):nullptr;
+                return item&&item->is_active_input();
+            };
+            check(active(0),"Loft did not automatically arm its first placement field");
+            int index=0;
+            for(const auto* plane:{"xz","xy","yz"}){
+                auto* origin=row(body+":origin","document-origin");check(origin,"Loft Body Origin missing");
+                QTreeWidgetItem* reference{};
+                for(int child=0;child<origin->childCount();++child){
+                    const auto key=origin->child(child)->data(0,Qt::UserRole+5).toString();
+                    if(key==QString("origin:plane:")+plane||key==QString("plane:")+plane)reference=origin->child(child);
+                }
+                pick_tree(reference);flush();++index;
+                check(entry->first_empty_position_index()==static_cast<std::size_t>(index),"Loft automatic placement did not store the next reference");
+                if(index<3)check(active(index),"Loft placement did not advance to its next field");
+            }
+            check(!active(2),"Fully placed Loft left reference entry active");
+            entry->buttons()->button(QDialogButtonBox::Cancel)->click();flush();
+            check(window.execute_console_command("documents").data==initial,"Automatic Loft placement Cancel changed the document");
+        }
         const auto opening_scene=view->base_mesh_revision();
         action->trigger();flush();auto* dialog=editor();check(dialog,"Loft dialog missing");
         check(view->base_mesh_revision()==opening_scene+1,"Loft opening published an unused intermediate scene");
@@ -120,6 +145,30 @@ int verify_loft_ui(QApplication& application,AssemblyWorkspaceWindow& window,con
         field(profile_table,0,3);flush();
         auto* initial_child=dynamic_cast<PrimitivePropertiesDialog*>(window.findChild<QWidget*>("generalSurfaceSketchProperties"));
         check(initial_child&&initial_child->first_empty_position_index()==3,"New owned Sketch lacks its default Loft Origin");
+        check(initial_child->profile_plane_selection()&&initial_child->profile_plane_selection()->first==sketcher::SketchPlane::XY,
+            "New Loft Sketch does not default to XY");
+        for(const auto& [label,plane,normal]:std::vector<std::tuple<const char*,sketcher::SketchPlane,kernel::Vec3>>{
+                {"XY",sketcher::SketchPlane::XY,{0,0,1}},
+                {"XZ",sketcher::SketchPlane::XZ,{0,1,0}},
+                {"YZ",sketcher::SketchPlane::YZ,{1,0,0}},
+                {"XY",sketcher::SketchPlane::XY,{0,0,1}}}){
+            auto* choice=initial_child->findChild<QToolButton*>(QString("featureProfilePlaneChoice")+label);
+            check(choice&&choice->isEnabled(),"Loft owned Sketch manual plane choice missing");click(choice,choice->rect().center());
+            check(initial_child->profile_plane_selection()==std::optional{std::pair{plane,false}},"Loft manual plane selection was not retained");
+            const auto feature_id=initial_child->pending_value().feature_id;
+            const auto border=std::ranges::find_if(view->mesh().edges,[&](const auto& edge){return edge.reference.owner_id==feature_id&&edge.reference.semantic_key=="border";});
+            check(border!=view->mesh().edges.end()&&border->points.size()==5,"Loft owned Sketch work-plane preview missing");
+            for(const auto& point:border->points)check(std::abs(point.x*normal.x+point.y*normal.y+point.z*normal.z)<1e-7,"Loft preview uses a different plane than the selected preset");
+            const auto references=initial_child->pending_value().placement.references;
+            check(std::ranges::all_of(references,[&](const auto& ref){return ref.owner_id==dialog->pending.container_origin.id;}),"Manual work plane changed parent placement ownership");
+            initial_child->findChild<QPushButton*>("featureSketchButton")->click();flush();
+            QEventLoop animation;QTimer::singleShot(950,&animation,&QEventLoop::quit);animation.exec();
+            const auto ray=view->ray_at(QPointF(view->rect().center()));check(ray.has_value(),"Owned Sketch camera ray missing");
+            const auto direction=ray->second;const auto magnitude=std::sqrt(direction.x*direction.x+direction.y*direction.y+direction.z*direction.z);
+            check(std::abs(std::abs((direction.x*normal.x+direction.y*normal.y+direction.z*normal.z)/magnitude)-1)<1e-5,"Loft Sketcher opens perpendicular to the wrong plane");
+            window.findChild<QAction*>("finishSketchAction")->trigger();flush();
+            check(initial_child->isVisible()&&initial_child->profile_plane_selection()==std::optional{std::pair{plane,false}},"Returning from owned Sketcher lost its manual work plane");
+        }
         for(auto* table:initial_child->findChildren<QTableWidget*>())for(int row=0;row<table->rowCount();++row)
             for(int column=0;column<table->columnCount();++column)
                 if(auto* item=dynamic_cast<ui::ReferenceCellItem*>(table->item(row,column)))
@@ -293,7 +342,7 @@ int verify_loft_ui(QApplication& application,AssemblyWorkspaceWindow& window,con
         QApplication::sendEvent(view,&inspect_thin);flush();
         check(!editor()&&std::ranges::any_of(view->mesh().dimensions,[&](const auto& dim){return dim.reference.owner_id==id&&dim.reference.semantic_key=="parameter:thickness";}),"Thin Loft double click did not expose thickness");
         check(row(id)->isSelected()&&window.execute_console_command("documents").data==thin_selection_state,"Thin Loft inspection lost selection or changed the document");
-        std::cout<<"Loft GUI: five languages, stacked lists, owned 2D Sketch edit/add/remove, eye/order, whole Origin, numeric placement, resize, rollback, no-op, middle confirmation, View/Tree single/double inspection, Thin sides, native reopen and Undo/Redo passed"<<std::endl;
+        std::cout<<"Loft GUI: five languages, automatic placement entry, default XY, manual XY/XZ/YZ preview and Sketcher alignment, stacked lists, owned 2D Sketch edit/add/remove, eye/order, whole Origin, numeric placement, resize, rollback, no-op, middle confirmation, View/Tree single/double inspection, Thin sides, native reopen and Undo/Redo passed"<<std::endl;
         return 0;
     }catch(const std::exception& error){std::cerr<<error.what()<<std::endl;return 1;}
 }
