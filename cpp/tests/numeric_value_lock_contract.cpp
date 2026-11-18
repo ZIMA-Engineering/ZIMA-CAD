@@ -21,6 +21,9 @@ void check_lock_layout(QDoubleSpinBox* field) {
     auto* button=field->findChild<QToolButton*>("numericValueLockButton");
     auto* editor=field->findChild<QLineEdit*>();
     check(button&&editor,"Numeric lock has no separate button/editor");
+    auto* style=field->findChild<QProxyStyle*>(QString{},Qt::FindDirectChildrenOnly);
+    check(style&&style->baseStyle()->name()==QApplication::style()->name(),
+        "Numeric lock switched from the application style to the desktop style");
     QStyleOptionSpinBox option;option.initFrom(field);option.frame=true;
     option.buttonSymbols=field->buttonSymbols();
     const auto frame=field->style()->subControlRect(QStyle::CC_SpinBox,&option,QStyle::SC_SpinBoxFrame,field);
@@ -36,6 +39,17 @@ void click_lock(QDoubleSpinBox* field) {
     QMouseEvent press(QEvent::MouseButtonPress,local,global,Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);
     QMouseEvent release(QEvent::MouseButtonRelease,local,global,Qt::LeftButton,Qt::NoButton,Qt::NoModifier);
     QApplication::sendEvent(button,&press);QApplication::sendEvent(button,&release);
+}
+void click_step(QDoubleSpinBox* field,QStyle::SubControl control) {
+    QStyleOptionSpinBox option;option.initFrom(field);option.frame=field->hasFrame();
+    option.buttonSymbols=field->buttonSymbols();
+    const auto bounds=field->style()->subControlRect(QStyle::CC_SpinBox,&option,control,field);
+    check(bounds.isValid()&&field->rect().contains(bounds),"Numeric step button is outside its field");
+    const auto local=QPointF(bounds.center());
+    const auto global=QPointF(field->mapToGlobal(bounds.center()));
+    QMouseEvent press(QEvent::MouseButtonPress,local,global,Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);
+    QMouseEvent release(QEvent::MouseButtonRelease,local,global,Qt::LeftButton,Qt::NoButton,Qt::NoModifier);
+    QApplication::sendEvent(field,&press);QApplication::sendEvent(field,&release);
 }
 void try_type(QDoubleSpinBox* field) {
     field->setFocus();field->selectAll();QKeyEvent event(QEvent::KeyPress,Qt::Key_9,Qt::NoModifier,"9");QApplication::sendEvent(field,&event);
@@ -54,6 +68,14 @@ int verify_numeric_value_locks(QApplication& application,QWidget& parent) {
     for(int i=0;i<12;++i)application.processEvents();
     for(auto* field:dialog->findChildren<QDoubleSpinBox*>())
         if(field->isVisible()&&action(field))check_lock_layout(field);
+    click_step(length,QStyle::SC_SpinBoxUp);
+    check(length->value()==30,"Step button changed a locked length");
+    click_lock(length);
+    click_step(length,QStyle::SC_SpinBoxUp);
+    check(length->value()>30,"Step-up button did not advance the unlocked value");
+    click_step(length,QStyle::SC_SpinBoxDown);
+    check(qFuzzyCompare(length->value(),30.0),"Step-down button did not restore the value");
+    click_lock(length);
     const auto stable_size=dialog->size();
     for(int i=0;i<20;++i){
         click_lock(length);application.processEvents();

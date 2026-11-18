@@ -121,14 +121,15 @@ Install the Debian build dependencies:
 
 ```sh
 sudo apt-get install build-essential cmake ninja-build curl patchelf \
-  qt6-base-dev qt6-base-private-dev qt6-svg-dev qt6-wayland \
-  qt6-svg-plugins qt6-image-formats-plugins libssl-dev libharfbuzz-dev \
-  libfreetype-dev nlohmann-json3-dev libxkbcommon-dev python3-cryptography
+  libssl-dev libharfbuzz-dev libfreetype-dev nlohmann-json3-dev \
+  libxkbcommon-dev libgl-dev libegl-dev python3-cryptography
 ```
 
 Debian 13's OCCT 7.8 does not meet the application requirement. Build the pinned
-OCCT 8.0.0 SDK (matching the Windows dependency pin), verified against its
-source archive SHA-256:
+OCCT 8.0.1 SDK (matching the Windows dependency pin), verified against its
+source archive SHA-256. Install the complete official Qt 6.11.0 Linux kit,
+including Qt WebEngine, WebChannel and the SDK's SBOM directory, at
+`build/native-sdk/qt-6.11.0` or set `ZIMA_QT_SDK_ROOT` to its location.
 
 ```sh
 ./tools/distribution/build-linux-sdk.sh
@@ -137,7 +138,7 @@ cmake --build build/cpp-release --parallel 12
 ```
 
 The retained preset names now select native dependencies under
-`build/native-sdk/occt-8.0.0`, with Debian Qt and OpenSSL. No Conda location is used.
+`build/native-sdk/occt-8.0.1`, with the official Qt 6.11.0 SDK and Debian OpenSSL.
 An explicit `-DCMAKE_PREFIX_PATH=/path/to/native/sdk` remains supported.
 The SDK disables Draw, visualization and optional Tcl/Tk/TBB/FreeType support;
 the application uses OCCT as a geometry kernel and its own Qt/OpenGL viewer.
@@ -153,7 +154,7 @@ staging path and output directory:
 
 ```sh
 python3 tools/distribution/build-linux.py \
-  --sdk "$PWD/build/native-sdk/occt-8.0.0" \
+  --sdk "$PWD/build/native-sdk/occt-8.0.1" \
   --stage /tmp/zima-linux-candidate --output .dist-output/linux-candidate
 ```
 
@@ -162,6 +163,9 @@ Only Git objects at `--commit` (HEAD by default) are exported and compiled.
 requires clean input and the exact `ZIMA-CAD-<VERSION>` tag. `--reuse-build`
 validates the prior staged source before reusing compilation, and always assembles
 and validates a new package. Existing archives are never overwritten.
+
+The candidate builder also accepts `--qt-sdk /path/to/6.11.0/gcc_64`.
+CMake and runtime deployment select the same kit.
 
 The builder bundles Qt, the pinned OCCT, OpenSSL, image/TLS/Wayland/X11 plugins
 and their recursively resolved dependencies. Debian's libc and graphics

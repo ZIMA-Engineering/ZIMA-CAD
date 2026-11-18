@@ -36,8 +36,18 @@ def dependencies(binary, env):
     return [Path(p) for p in re.findall(r'=>\s+(/\S+)', output)]
 
 
-def deploy(runtime, sdk):
-    query = lambda key: Path(shared.run(['qmake6', '-query', key], stdout=subprocess.PIPE).stdout.decode().strip())
+def deploy(runtime, sdk, qt_sdk):
+    qmake = qt_sdk / 'bin/qmake'
+    library_paths = [qt_sdk / 'lib', sdk / 'lib']
+    env = dict(os.environ, LD_LIBRARY_PATH=os.pathsep.join(map(str, library_paths)))
+
+    def query(key):
+        path = Path(shared.run([qmake, '-query', key], env=env,
+                               stdout=subprocess.PIPE).stdout.decode().strip())
+        if not path.resolve().is_relative_to(qt_sdk):
+            raise ValueError('Qt SDK path escapes the selected kit: ' + str(path))
+        return path
+
     plugins = query('QT_INSTALL_PLUGINS')
     helper = query('QT_INSTALL_LIBEXECS') / 'QtWebEngineProcess'
     web_resources = query('QT_INSTALL_DATA') / 'resources'
@@ -53,14 +63,13 @@ def deploy(runtime, sdk):
                   'wayland-decoration-client'):
         if (plugins / group).is_dir():
             shutil.copytree(plugins / group, runtime / 'plugins' / group)
-    for relative in ('platforms/libqwayland-generic.so', 'platforms/libqxcb.so',
+    for relative in ('platforms/libqwayland.so', 'platforms/libqxcb.so',
                      'platforms/libqoffscreen.so', 'imageformats/libqjpeg.so', 'imageformats/libqsvg.so',
                      'tls/libqopensslbackend.so'):
         if not (runtime / 'plugins' / relative).is_file():
             raise ValueError('Required Qt plugin missing: ' + relative)
     libraries = runtime / 'lib'; libraries.mkdir()
     licenses = runtime / 'licenses'; licenses.mkdir()
-    env = dict(os.environ, LD_LIBRARY_PATH=str(sdk / 'lib'))
     pending = list((runtime / 'bin').iterdir()) + list((runtime / 'plugins').rglob('*.so'))
     origins = {p: plugins / p.relative_to(runtime / 'plugins') for p in (runtime / 'plugins').rglob('*.so')}
     origins[packaged_helper] = helper
@@ -69,7 +78,12 @@ def deploy(runtime, sdk):
         binary = pending.pop()
         if binary in inspected: continue
         inspected.add(binary)
-        for path in dependencies(binary, env):
+        # Resolve each dependency from its original location before rewriting
+        # RPATHs. An SDK library's $ORIGIN may otherwise see an already-staged
+        # copy of a host dependency and make that copy look like a conflict.
+        for path in dependencies(origins.get(binary, binary), env):
+            if path.name.startswith('libQt6') and not path.resolve().is_relative_to(qt_sdk):
+                raise ValueError('Qt dependency escapes the selected kit: ' + str(path))
             if HOST.fullmatch(path.name):
                 host.add(path.name); continue
             destination = libraries / path.name
@@ -82,6 +96,7 @@ def deploy(runtime, sdk):
     packages = {}
     for path in origins.values():
         if sdk in path.resolve().parents: continue
+        if path.resolve().is_relative_to(qt_sdk): continue
         # Debian's merged /usr layout reports canonical package-owned paths.
         ownership = shared.run(['dpkg-query', '-S', str(path.resolve())], stdout=subprocess.PIPE).stdout.decode().splitlines()[0]
         package = ownership.rsplit(': ', 1)[0]
@@ -90,6 +105,10 @@ def deploy(runtime, sdk):
         if not notice.is_file(): raise ValueError('Missing dependency license: ' + name)
         shutil.copy2(notice, licenses / (name + '.txt'))
         packages[package] = shared.run(['dpkg-query', '-W', '-f=${Version}', package], stdout=subprocess.PIPE).stdout.decode()
+    shutil.copytree(qt_sdk / 'sbom', licenses / 'qt-sdk-sbom')
+    (licenses / 'qt-sdk.txt').write_text(
+        'Official Qt 6.11.0 Linux SDK binaries. License and copyright inventories are in qt-sdk-sbom/.\n',
+        encoding='utf-8')
     resources = sdk / 'share/opencascade/resources'
     if not resources.is_dir(): raise ValueError('Missing OCCT resources')
     shutil.copytree(resources, runtime / 'resources/occt')
@@ -116,12 +135,18 @@ def main():
     parser.add_argument('--stage', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--sdk', type=Path, required=True)
+    parser.add_argument('--qt-sdk', type=Path,
+                        default=os.environ.get('ZIMA_QT_SDK_ROOT') or shared.ROOT / 'build/native-sdk/qt-6.11.0',
+                        help='Override the complete Qt 6.11.0 Linux SDK')
     parser.add_argument('--jobs', type=int, default=12)
     parser.add_argument('--release', action='store_true')
     parser.add_argument('--reuse-build', action='store_true')
     args = parser.parse_args()
     metadata = baseline()
     repo, sdk = args.repo.resolve(), args.sdk.resolve()
+    qt_sdk = args.qt_sdk.resolve()
+    if not (qt_sdk / 'bin/qmake').is_file() or not (qt_sdk / 'sbom').is_dir():
+        raise ValueError('Expected a complete Qt 6.11.0 SDK with qmake and SBOM at ' + str(qt_sdk))
     commit = shared.git(repo, 'rev-parse', args.commit + '^{commit}').decode().strip()
     version = shared.version_id(shared.git(repo, 'show', commit + ':VERSION').decode().strip())
     if args.release:
@@ -138,8 +163,10 @@ def main():
         stage.mkdir(parents=True, exist_ok=False)
         shared.export_source(repo, commit, source)
     shared.write_json(stage / 'source.json', dict(commit=commit))
-    shared.run(['cmake', '-S', source / 'cpp', '-B', build, '-G', 'Ninja', '-DCMAKE_BUILD_TYPE=Release',
+    shared.run(['cmake', '-S', source / 'cpp', '-B', build, '-G', 'Ninja', '-U', 'Qt6*_DIR',
+                '-DCMAKE_BUILD_TYPE=Release',
                 '-DZIMA_BUILD_TESTS=OFF', '-DZIMA_SOURCE_COMMIT=' + commit, '-DCMAKE_PREFIX_PATH=' + str(sdk),
+                '-DZIMA_QT_SDK_ROOT=' + str(qt_sdk),
                 '-DOpenCASCADE_DIR=' + str(sdk / 'lib/cmake/opencascade')])
     shared.run(['cmake', '--build', build, '--target', 'zima-cad-cpp', 'zima-cad-cli', 'zima-cad-update', '--parallel', str(args.jobs)])
     assembly = Path(tempfile.mkdtemp(prefix='p-', dir=stage)); root = assembly / 'ZIMA-CAD'
@@ -149,7 +176,7 @@ def main():
     for name in ('config', 'resources'):
         shutil.copytree(source / name, runtime / name, ignore=shutil.ignore_patterns('.gitkeep', '*.ini.[0-9]*', '*.frmz.[0-9]*', '*.tblz.[0-9]*'))
     shared.prepare_factory_config(runtime)
-    metadata.update(deploy(runtime, sdk))
+    metadata.update(deploy(runtime, sdk, qt_sdk))
     metadata['occt_sdk'] = json.loads((sdk / 'sdk.json').read_text())
     shutil.copy2(source / 'LICENSE', root / 'LICENSE')
     shutil.copy2(source / 'LICENSE', runtime / 'licenses/ZIMA-CAD.txt')
@@ -160,6 +187,8 @@ def main():
     identity = json.loads(shared.run([runtime / 'bin/zima-cad-cli', '--build-info'], env=shared.clean_environment(runtime), stdout=subprocess.PIPE).stdout)
     if identity['version'] != version or identity['commit'] != commit or identity['source_modified']:
         raise ValueError('Executable/source identity mismatch')
+    if identity['qt'] != '6.11.0':
+        raise ValueError('Executable Qt version differs from the shared SDK pin')
     metadata.update(identity, origin='release-candidate' if args.release else 'committed-candidate', signed=False)
     shared.write_json(runtime / 'version.json', metadata)
     (runtime / 'build.ini').write_text(f'[build]\nproduct=ZIMA-CAD\nversion={version}\nplatform=linux-x86_64\n')

@@ -1,5 +1,6 @@
 #pragma once
 #include <QAction>
+#include <QApplication>
 #include <QIcon>
 #include <QDoubleSpinBox>
 #include <QLineEdit>
@@ -96,7 +97,9 @@ inline QAction* bind_numeric_value_lock(QDoubleSpinBox* field,const std::string&
     }
     field->setProperty("zimaValueLockKey",QString::fromStdString(key));
     if(!field->property("zimaValueLockStyle").toBool()) {
-        auto* style=new NumericValueLockStyle(field->style()->name());style->setParent(field);
+        // A dialog stylesheet can wrap the field's style in an unnamed style.
+        // Use the application style to preserve its numeric editor metrics.
+        auto* style=new NumericValueLockStyle(QApplication::style()->name());style->setParent(field);
         field->setStyle(style);field->setProperty("zimaValueLockStyle",true);
     }
     auto* button=field->findChild<QToolButton*>("numericValueLockButton");
