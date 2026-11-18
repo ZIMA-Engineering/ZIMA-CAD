@@ -1,0 +1,416 @@
+{
+  "release": {
+    "tag": "ZIMA-CAD-2026111811",
+    "commit": "55ae5be9a426e1772d9d77978e7980b9a81ddfd5",
+    "published_at": "2026-11-18T20:44:01Z",
+    "url": "https://github.com/ZIMA-Engineering/ZIMA-CAD/releases/tag/ZIMA-CAD-2026111811",
+    "draft": false,
+    "prerelease": false
+  },
+  "candidate": {
+    "archive_sha256": "f1294c02e92c2e5df3adbf2bfd134f40eec0b2245b83d7098eaae5054ca4cae0",
+    "windows_smoke": "passed",
+    "native_factory_assets_loaded": 1185,
+    "native_factory_asset_failures": 0
+  },
+  "signed_release": {
+    "fileCount": 17601,
+    "name": "ZIMA-CAD-2026111811.zip",
+    "sha256": "ddfb651fee21d4bd39c85845f94ebcdfb5e53468111f5edf19130f97b9dbccef",
+    "size": 967897783,
+    "unpackedSize": 3233806895,
+    "checksums_sha256": "74542d5decb7c65bb217b77d1663ceeba8f611236182c793dd2279f4d39f0658",
+    "source_tree_sha256": "07f972bcc31ededef2ab06f2ac07171252e8166c8f5d5541f035f671e5b387f3",
+    "windows_smoke": "passed",
+    "linux_smoke": "not-run",
+    "publisher_key_id": "zcp-8fa1f825cbde5d81"
+  },
+  "public_assets": [
+    {
+      "name": "ZIMA-CAD-2026111811.zip",
+      "size": 967897783,
+      "sha256": "ddfb651fee21d4bd39c85845f94ebcdfb5e53468111f5edf19130f97b9dbccef",
+      "github_digest_matches": true,
+      "anonymous_download_matches": true
+    },
+    {
+      "name": "update-manifest.json",
+      "size": 703,
+      "sha256": "e8183aaf5b718b6b1050dbf2be7d451de7469e343c5d45f27cc075ffa8efe1d5",
+      "github_digest_matches": true,
+      "anonymous_download_matches": true
+    },
+    {
+      "name": "update-manifest.sig",
+      "size": 176,
+      "sha256": "c447731d10e74060066d3f2a3a2fc62fd736fe6259461982265fa084969c4cda",
+      "github_digest_matches": true,
+      "anonymous_download_matches": true
+    }
+  ],
+  "verification": {
+    "public_archive_safe_extraction": "passed",
+    "packaged_identities": {
+      "zima-cad-cpp.exe": {
+        "product": "ZIMA-CAD",
+        "version": "2026111811",
+        "commit": "55ae5be9a426e1772d9d77978e7980b9a81ddfd5",
+        "source_modified": false,
+        "platform": "windows-x64",
+        "qt": "6.11.0",
+        "occt": "8.0.1",
+        "compiler": "MSVC 19.51.36248.0",
+        "configuration": "Release"
+      },
+      "zima-cad-cli.exe": {
+        "product": "ZIMA-CAD",
+        "version": "2026111811",
+        "commit": "55ae5be9a426e1772d9d77978e7980b9a81ddfd5",
+        "source_modified": false,
+        "platform": "windows-x64",
+        "qt": "6.11.0",
+        "occt": "8.0.1",
+        "compiler": "MSVC 19.51.36248.0",
+        "configuration": "Release"
+      }
+    },
+    "updater_binary_version": "2026111811",
+    "public_updater_status": {
+      "event": "result",
+      "installedVersion": "2026111811",
+      "schemaVersion": 1,
+      "status": "idle",
+      "trusted": true
+    },
+    "public_updater_check": {
+      "event": "result",
+      "installedVersion": "2026111811",
+      "schemaVersion": 1,
+      "status": "current"
+    },
+    "native_and_component_checks": [
+      {
+        "name": "zima_cpp_multibody_contract_tests",
+        "status": "passed",
+        "seconds": 0.951237
+      },
+      {
+        "name": "zima_cpp_curve3d_sweep_contract_tests",
+        "status": "passed",
+        "seconds": 8.27553
+      },
+      {
+        "name": "zima_cpp_helical_sweep_contract_tests",
+        "status": "passed",
+        "seconds": 20.7301
+      },
+      {
+        "name": "zima_cpp_curve_presentation_ui_contract",
+        "status": "passed",
+        "seconds": 1.63758
+      },
+      {
+        "name": "zima_cpp_translations_contract",
+        "status": "passed",
+        "seconds": 21.0433
+      },
+      {
+        "name": "zima_cpp_feature_axis_highlight_contract",
+        "status": "passed",
+        "seconds": 14.2265
+      },
+      {
+        "name": "zima_cpp_numeric_value_locks_contract",
+        "status": "passed",
+        "seconds": 1.07586
+      },
+      {
+        "name": "zima_cpp_numeric_fields_contract",
+        "status": "passed",
+        "seconds": 8.42656
+      },
+      {
+        "name": "zima_cpp_numeric_fields_windows_contract",
+        "status": "passed",
+        "seconds": 9.6843
+      },
+      {
+        "name": "zima_cpp_numeric_fields_windows11_contract",
+        "status": "passed",
+        "seconds": 10.1973
+      },
+      {
+        "name": "zima_cpp_curve_placement_contract_tests",
+        "status": "passed",
+        "seconds": 1.35347
+      },
+      {
+        "name": "zima_cpp_sketcher_contract_tests",
+        "status": "passed",
+        "seconds": 19.7875
+      },
+      {
+        "name": "zima_cpp_model_calculation_tests",
+        "status": "passed",
+        "seconds": 8.17488
+      },
+      {
+        "name": "zima_cpp_sketch_spline_command_tests",
+        "status": "passed",
+        "seconds": 0.270688
+      },
+      {
+        "name": "zima_cpp_assembly_history_command_tests",
+        "status": "passed",
+        "seconds": 0.337503
+      },
+      {
+        "name": "zima_cpp_placement_reference_removal_tests",
+        "status": "passed",
+        "seconds": 0.721443
+      },
+      {
+        "name": "zima_cpp_placement_reference_assignment_tests",
+        "status": "passed",
+        "seconds": 0.268119
+      },
+      {
+        "name": "zima_cpp_placement_command_tests",
+        "status": "passed",
+        "seconds": 0.869758
+      },
+      {
+        "name": "zima_cpp_construction_command_tests",
+        "status": "passed",
+        "seconds": 0.414174
+      },
+      {
+        "name": "zima_cpp_derived_copy_command_tests",
+        "status": "passed",
+        "seconds": 4.48046
+      },
+      {
+        "name": "zima_cpp_edge_treatment_command_tests",
+        "status": "passed",
+        "seconds": 5.48314
+      },
+      {
+        "name": "zima_cpp_sweep_command_tests",
+        "status": "passed",
+        "seconds": 11.1002
+      },
+      {
+        "name": "zima_cpp_sweep_point_reference_tests",
+        "status": "passed",
+        "seconds": 0.472259
+      },
+      {
+        "name": "zima_cpp_bend_command_tests",
+        "status": "passed",
+        "seconds": 45.6435
+      },
+      {
+        "name": "zima_cpp_ui_contract_tests",
+        "status": "passed",
+        "seconds": 4.37795
+      }
+    ],
+    "initial_local_gui": [
+      {
+        "name": "zima_cpp_helical_sweep_ui_contract",
+        "status": "passed",
+        "seconds": 10.3666
+      },
+      {
+        "name": "zima_cpp_body_preview_ui_contract",
+        "status": "passed",
+        "seconds": 3.94833
+      },
+      {
+        "name": "zima_cpp_whole_origin_ui_contract",
+        "status": "passed",
+        "seconds": 10.2574
+      },
+      {
+        "name": "zima_cpp_save_copy_ui_contract",
+        "status": "passed",
+        "seconds": 49.6588
+      },
+      {
+        "name": "zima_cpp_form_library_path_ui_contract",
+        "status": "passed",
+        "seconds": 3.22968
+      },
+      {
+        "name": "zima_cpp_feature_axes_ui_contract",
+        "status": "failed",
+        "seconds": 2.4899
+      },
+      {
+        "name": "zima_cpp_pending_curve_point_ui_contract",
+        "status": "passed",
+        "seconds": 3.22449
+      },
+      {
+        "name": "zima_cpp_placement_origin_preview_ui_contract",
+        "status": "passed",
+        "seconds": 5.21381
+      },
+      {
+        "name": "zima_cpp_console_ui_contract",
+        "status": "failed",
+        "seconds": 14.4213
+      },
+      {
+        "name": "zima_cpp_template_ui_contract",
+        "status": "passed",
+        "seconds": 25.7184
+      },
+      {
+        "name": "zima_cpp_start_templates_mm_ui_contract",
+        "status": "passed",
+        "seconds": 48.5059
+      },
+      {
+        "name": "zima_cpp_drawing_ui_contract",
+        "status": "passed",
+        "seconds": 18.0247
+      },
+      {
+        "name": "zima_cpp_drawing_view_controls_ui_contract",
+        "status": "passed",
+        "seconds": 7.77846
+      },
+      {
+        "name": "zima_cpp_sketch_four_equal_corners_ui_contract",
+        "status": "passed",
+        "seconds": 13.0654
+      },
+      {
+        "name": "zima_cpp_sketch_equal_corner_drag_ui_contract",
+        "status": "passed",
+        "seconds": 10.5409
+      },
+      {
+        "name": "zima_cpp_system_setup_ui_contract",
+        "status": "passed",
+        "seconds": 5.56028
+      },
+      {
+        "name": "zima_cpp_spline_tangent_ui_contract",
+        "status": "failed",
+        "seconds": 12.7787
+      }
+    ],
+    "isolated_local_spline": "passed",
+    "portable_gui": [
+      {
+        "name": "zima_cpp_helical_sweep_ui_contract",
+        "status": "passed",
+        "exit_code": 0,
+        "seconds": 10.102
+      },
+      {
+        "name": "zima_cpp_body_preview_ui_contract",
+        "status": "passed",
+        "exit_code": 0,
+        "seconds": 3.092
+      },
+      {
+        "name": "zima_cpp_whole_origin_ui_contract",
+        "status": "passed",
+        "exit_code": 0,
+        "seconds": 8.948
+      },
+      {
+        "name": "zima_cpp_save_copy_ui_contract",
+        "status": "passed",
+        "exit_code": 0,
+        "seconds": 45.773
+      },
+      {
+        "name": "zima_cpp_form_library_path_ui_contract",
+        "status": "passed",
+        "exit_code": 0,
+        "seconds": 2.556
+      },
+      {
+        "name": "zima_cpp_feature_axes_ui_contract",
+        "status": "failed",
+        "exit_code": 1,
+        "seconds": 2.184
+      },
+      {
+        "name": "zima_cpp_pending_curve_point_ui_contract",
+        "status": "passed",
+        "exit_code": 0,
+        "seconds": 2.772
+      },
+      {
+        "name": "zima_cpp_placement_origin_preview_ui_contract",
+        "status": "passed",
+        "exit_code": 0,
+        "seconds": 4.646
+      },
+      {
+        "name": "zima_cpp_template_ui_contract",
+        "status": "passed",
+        "exit_code": 0,
+        "seconds": 12.936
+      },
+      {
+        "name": "zima_cpp_start_templates_mm_ui_contract",
+        "status": "passed",
+        "exit_code": 0,
+        "seconds": 44.103
+      },
+      {
+        "name": "zima_cpp_sketch_four_equal_corners_ui_contract",
+        "status": "passed",
+        "exit_code": 0,
+        "seconds": 11.869
+      },
+      {
+        "name": "zima_cpp_sketch_equal_corner_drag_ui_contract",
+        "status": "passed",
+        "exit_code": 0,
+        "seconds": 8.336
+      },
+      {
+        "name": "zima_cpp_system_setup_ui_contract",
+        "status": "passed",
+        "exit_code": 0,
+        "seconds": 4.567
+      },
+      {
+        "name": "zima_cpp_spline_tangent_ui_contract",
+        "status": "passed",
+        "exit_code": 0,
+        "seconds": 9.628
+      }
+    ],
+    "baseline_windows_1703": [
+      {
+        "name": "axes",
+        "exit_code": 1,
+        "stdout": "",
+        "stderr": "Explicit command entry did not reveal transient axis endpoints\n"
+      },
+      {
+        "name": "spline",
+        "exit_code": 1,
+        "stdout": "",
+        "stderr": "Startup contract failed: Drawn spline tangent seam is not smooth\n"
+      }
+    ],
+    "packaging_and_publisher_tests": {
+      "passed": 29,
+      "skipped_linux_only": 2
+    },
+    "limits": [
+      "Two broader GUI checks remain unsuccessful: axis endpoints and console linked-segment persistence.",
+      "Initial shared-workspace spline picking failed; isolated local and portable complete scenarios passed.",
+      "No full repository suite, exhaustive Sketch dimension matrix, Linux execution or live update activation."
+    ]
+  }
+}

@@ -1,5 +1,18 @@
 # Application updates
 
+Signed Windows [2026111811](releases/2026111811.md#windows-publication-acceptance)
+was published at `2026-11-18T20:44:01Z` from immutable source
+`55ae5be9a426e1772d9d77978e7980b9a81ddfd5`. It incorporates the current shared Curve/Sweep,
+Point placement, editing-context, spline and System Setup changes.
+Candidate and signed Windows smoke pass, including 1,185 native factory assets.
+Twenty-five selected native/component checks and thirteen of fourteen portable
+GUI scenarios pass. Two older broad GUI failures and the initial workstation
+spline test limitation are recorded explicitly in the
+[finite validation record](verification/20261118-windows-1811-validation.md).
+GitHub digests, anonymous downloads, safe extraction and production updater
+trust/current status pass. Linux execution remains separate. See the
+[publication evidence](verification/20261118-windows-1811-publication.json).
+
 Signed Windows [2026111703](releases/2026111703.md#windows-publication-acceptance)
 was published at `2026-11-17T12:19:47Z` from immutable source
 `b6933ccac29ffca730f521ef26283921ded79e1b`. Deprecated OCCT collection and scalar aliases were replaced with their identical current types; geometry, persistence and interaction regression checks passed.
