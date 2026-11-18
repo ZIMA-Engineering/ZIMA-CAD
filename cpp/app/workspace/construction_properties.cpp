@@ -518,6 +518,7 @@ void AssemblyWorkspaceWindow::show_curve_point_properties(
             parent_guard->set_curve_point(slot, std::move(point), false);
             *committed = true;
         }, this, decimal_places);
+    point_dialog->setProperty("sweepPathPoint", curve_dialog->is_sweep());
 
     set_local_origin_selection_mode(false);
     curve_dialog->hide();

@@ -478,7 +478,11 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
             else return std::set<std::string>{};
         }();
         auto mesh = [&] {
-            if(construction_preview_mesh_)return *construction_preview_mesh_;
+            const bool sweep_preview = construction_preview_mesh_ &&
+                construction_reference_dialog_ &&
+                (construction_reference_dialog_->is_sweep() ||
+                 construction_reference_dialog_->property("sweepPathPoint").toBool());
+            if (construction_preview_mesh_ && !sweep_preview) return *construction_preview_mesh_;
             if constexpr(requires { document.history; }) {
                 std::set<std::string> hidden;
                 std::set<std::string> visible;
@@ -491,7 +495,11 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
                        (part_rollback_&&part_rollback_->part_document_id==document.document_id&&i>=part_rollback_->history_limit))
                         hidden.insert(feature.id);
                 }
-                return document.construction_viewer_mesh({},scene_size,false,hidden);
+                auto context = document.construction_viewer_mesh({},scene_size,false,hidden);
+                // The Sweep draft adds a path and profiles. Its existing
+                // visible construction geometry remains available as context.
+                if (sweep_preview) append_mesh(context, *construction_preview_mesh_);
+                return context;
             } else return document.construction_viewer_mesh({},scene_size);
         }();
         if (!active_sketch_id_.empty()) {

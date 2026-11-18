@@ -3180,9 +3180,20 @@ int verify_body_curve_references(QApplication& application, const std::filesyste
     for (bool sweep : {false,true}) {
         auto part=PartDocument::create_default();
         auto box=zima::test::rectangular_feature(part,{10,10,10});part.history={box};
+        auto curve=PartDocument::create_construction(ConstructionKind::Curve3D);
+        for (const auto origin : {zima::kernel::Vec3{30,0,0}, zima::kernel::Vec3{30,0,20}}) {
+            auto point=PartDocument::create_construction(ConstructionKind::Point);
+            point.parent_construction_id=curve.id;
+            point.origin=origin;
+            curve.curve_points.push_back(std::move(point));
+        }
         BodyHistoryGraph graph;
         const auto body_id=graph.create_body("Reference body");
         graph.insert({PartHistoryKind::Feature,box.id});
+        if (sweep) {
+            part.constructions.push_back(curve);
+            graph.insert({PartHistoryKind::Construction,curve.id});
+        }
         auto body=*graph.find(body_id);body.scope.placement={20,30,40};graph.update_body(body);
         part.set_body_history(graph);part.resolve_constructions();
         zima::kernel::OcctKernel kernel;
@@ -3193,6 +3204,13 @@ int verify_body_curve_references(QApplication& application, const std::filesyste
         const auto flush=[&] { application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents(); };
         if (!verify(window.open_document_path(QString::fromStdString(path.string())),"Cannot open Body reference fixture")) return 1;
         flush();
+        auto* view=dynamic_cast<zima::viewer::MeshView*>(window.findChild<QOpenGLWidget*>());
+        const auto curve_visible=[&] {
+            return view && std::ranges::any_of(view->mesh().edges,[&](const auto& edge) {
+                return edge.display_owner_id==curve.id;
+            });
+        };
+        if (sweep && !verify(curve_visible(),"Sweep fixture must initially display its independent 3D Curve")) return 1;
         window.findChild<QAction*>("constructionPointAction")->setEnabled(false);
         window.findChild<QAction*>("sketchAction")->setEnabled(false);
         window.findChild<QAction*>(sweep ? "sweep3DAction" : "curve3DAction")->trigger();flush();
@@ -3203,9 +3221,11 @@ int verify_body_curve_references(QApplication& application, const std::filesyste
         };
         auto* parent=dialog();
         if (!verify(parent!=nullptr,"Cannot open Curve/Sweep properties in Body")) return 1;
+        if (sweep && !verify(curve_visible(),"Opening 3D Sweep hid an independent visible 3D Curve")) return 1;
         {auto* rows=parent->findChild<QTableWidget*>("curve3DPoints");emit rows->cellClicked(rows->rowCount()-1,0);}flush();
         auto* point=dialog();
         if (!verify(point && point!=parent,"Cannot add Curve/Sweep point in Body")) return 1;
+        if (sweep && !verify(curve_visible(),"Editing a Sweep path point hid the independent 3D Curve")) return 1;
         auto* point_type=point->findChild<QComboBox*>("featureType");
         if (!verify(point_type && !point_type->isEnabled() && point_type->currentIndex()==0 &&
             !point->findChild<QDoubleSpinBox*>("constructionOffset")->isVisible(),
@@ -3213,7 +3233,6 @@ int verify_body_curve_references(QApplication& application, const std::filesyste
         const auto pending_point=point->pending_value();
         if (!verify(pending_point.parent_construction_id==parent->pending_value().id,
             "Owned Point became a standalone container")) return 1;
-        auto* view=dynamic_cast<zima::viewer::MeshView*>(window.findChild<QOpenGLWidget*>());
         std::optional<QPointF> hit;
         zima::viewer::ViewerCandidate chosen;
         for(int y=15;y<view->height()-15 && !hit;y+=3)
@@ -3243,9 +3262,11 @@ int verify_body_curve_references(QApplication& application, const std::filesyste
         if (!verify(std::hypot(std::hypot(located.x-expected.x,located.y-expected.y),located.z-expected.z)<1e-7,
                 "Endpoint reference did not resolve in the translated Body frame")) return 1;
         parent->buttons()->button(QDialogButtonBox::Cancel)->click();flush();
+        if (sweep && !verify(curve_visible(),"Cancel did not retain the independent 3D Curve display")) return 1;
         window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
         const auto canceled=PartDocument::load(path);
-        if (!verify(canceled.history.size()==1 && canceled.constructions.empty(),
+        if (!verify(canceled.history.size()==1 && canceled.constructions.size()==(sweep?1u:0u) &&
+                        (!sweep || canceled.find_construction(curve.id)!=nullptr),
                 "Cancel persisted the Curve/Sweep reference preview")) return 1;
     }
     std::cout << "Body Curve/Sweep reference contracts passed\n";
