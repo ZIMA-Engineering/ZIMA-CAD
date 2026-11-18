@@ -106,8 +106,10 @@ int numeric_width(QDoubleSpinBox* spin) {
 void fit_numeric_field(QDoubleSpinBox* spin) {
     if (!spin->isVisible()) return;
     const int width=numeric_width(spin);
-    if (spin->maximumWidth()<width) spin->setMaximumWidth(width);
-    if (spin->minimumWidth()!=width) spin->setMinimumWidth(width);
+    if (!spin->property("zimaUniformNumericColumn").toBool()) {
+        if (spin->maximumWidth()<width) spin->setMaximumWidth(width);
+        if (spin->minimumWidth()!=width) spin->setMinimumWidth(width);
+    }
     for (auto* ancestor=spin->parentWidget(); ancestor; ancestor=ancestor->parentWidget()) {
         auto* table=qobject_cast<QTableWidget*>(ancestor);
         if (!table) continue;
@@ -120,9 +122,19 @@ void fit_numeric_field(QDoubleSpinBox* spin) {
         int required=0;
         if (auto* item=table->horizontalHeaderItem(column))
             required=header->fontMetrics().horizontalAdvance(item->text())+18;
+        int widest_field=0;
         for(int row=0;row<table->rowCount();++row)
             if(auto* field=qobject_cast<QDoubleSpinBox*>(table->cellWidget(row,column)))
-                required=std::max(required,numeric_width(field)+2);
+                widest_field=std::max(widest_field,numeric_width(field));
+        required=std::max(required,widest_field+2);
+        if (spin->property("zimaUniformNumericColumn").toBool()) {
+            for (int row=0;row<table->rowCount();++row) {
+                auto* field=qobject_cast<QDoubleSpinBox*>(table->cellWidget(row,column));
+                if (field && field->property("zimaUniformNumericColumn").toBool() &&
+                    (field->minimumWidth()!=widest_field || field->maximumWidth()!=widest_field))
+                    field->setFixedWidth(widest_field);
+            }
+        }
         // Reference columns retain their Stretch mode and give the numeric
         // column the space it needs, including disabled and read-only values.
         if(header->sectionResizeMode(column)!=QHeaderView::Fixed)

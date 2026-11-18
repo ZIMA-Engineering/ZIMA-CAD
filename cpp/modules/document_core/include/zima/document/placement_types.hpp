@@ -7,6 +7,8 @@
 
 namespace zima::document {
 
+enum class PlacementStationMode { None, Distance, Fraction };
+
 struct ConstructionReference {
     std::string instance_path;
     std::string owner_id;
@@ -55,6 +57,9 @@ struct ConstructionReference {
     // bind its meaning to the defining references, never to a viewer index.
     int solution_branch{};
     std::vector<std::array<std::string,3>> branch_sources;
+    // The second placement row can measure from a referenced point on a route.
+    // Distance is stored in millimetres; Fraction is unitless.
+    PlacementStationMode station_mode{PlacementStationMode::None};
     bool operator==(const ConstructionReference&) const = default;
 };
 

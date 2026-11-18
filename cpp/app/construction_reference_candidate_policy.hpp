@@ -2,6 +2,7 @@
 
 #include <zima/viewer/picking.hpp>
 #include <zima/kernel/boolean_face_ancestry.hpp>
+#include <zima/kernel/placement_route.hpp>
 
 #include <vector>
 #include <algorithm>
@@ -28,6 +29,9 @@ namespace zima::app {
         return ref.owner_id==candidate.owner_id && ref.semantic_key==candidate.semantic_key &&
             ref.instance_path==local_path;
     };
+    if (candidate.semantic_key.starts_with(zima::kernel::placement_route_prefix))
+        return !zima::kernel::placement_route_pieces(geometry.edges,candidate.owner_id,
+            candidate.semantic_key,local_path).empty();
     return std::ranges::any_of(geometry.points,[&](const auto& p){return matches(p.reference);}) ||
         std::ranges::any_of(geometry.edges,[&](const auto& e){return matches(e.reference);}) ||
         std::ranges::any_of(geometry.axes,[&](const auto& a){return matches(a.reference);}) ||

@@ -52,7 +52,60 @@ document::ConstructionReference prepare_placement_pick(PlacementReferenceDialog*
                 ref=section->prepare_reference(index,std::move(ref));break;
             }
     ref.measured_offset=measured;
+    if (index==1 && !ref.orientation_only) {
+        const auto references=dialog->references_without(index);
+        const auto anchor=std::ranges::find_if(geometry.points,[&](const auto& p) {
+            return p.reference.owner_id==ref.owner_id && p.reference.semantic_key==ref.semantic_key &&
+                p.reference.instance_path==ref.instance_path;
+        });
+        if (!references.empty() && anchor!=geometry.points.end()) {
+            const auto& route=references.front();
+            const auto pieces=document::placement_route_for_reference(route,geometry);
+            if (const auto start=kernel::placement_route_span(pieces,anchor->position)) {
+                ref.station_mode=document::PlacementStationMode::Distance;
+                const auto current=kernel::placement_route_span(pieces,origin);
+                const double delta=current ? current->start-start->start : 0.;
+                ref.offset=start->closed && delta<0. ? delta+start->total : std::max(0.,delta);
+                ref.supports_offset=true;
+                ref.offset_locked=false;
+                ref.orientation_role="position_only";
+                ref.orientation_drives_rotation=false;
+            }
+        }
+    }
     return ref;
+}
+
+std::optional<kernel::Vec3> picked_route_origin(const viewer::MeshView& view,
+        const viewer::ViewerCandidate& offered, const document::ConstructionReference& reference,
+        const kernel::ViewerReferenceGeometry& local_geometry) {
+    const auto ray=view.ray_at(view.last_pointer_position());
+    if (!ray) return {};
+    const auto world=kernel::Vec3{ray->first.x+ray->second.x*offered.distance,
+        ray->first.y+ray->second.y*offered.distance,ray->first.z+ray->second.z*offered.distance};
+    const auto& edges=offered.geometry==viewer::CandidateGeometry::OriginalReference
+        ? view.mesh().original_references.edges : view.mesh().edges;
+    const auto scene=kernel::placement_route_pieces(edges,reference.owner_id,reference.semantic_key,offered.instance_path);
+    const auto local=document::placement_route_for_reference(reference,local_geometry);
+    double distance=std::numeric_limits<double>::infinity();
+    std::optional<kernel::Vec3> hit;
+    for (const auto& piece:scene) {
+        const auto projected=piece.project(world);
+        if (projected.squared_distance>=distance) continue;
+        const auto normalized_key=[](const kernel::ViewerEdge& edge) {
+            std::string_view key=edge.reference.semantic_key;
+            if (key.starts_with(kernel::placement_evaluated_prefix))
+                key.remove_prefix(kernel::placement_evaluated_prefix.size());
+            return key;
+        };
+        const auto matching=std::ranges::find_if(local,[&](const auto& value) {
+            return normalized_key(*value.edge)==normalized_key(*piece.edge);
+        });
+        if (matching==local.end()) continue;
+        hit=matching->point(matching->reversed==piece.reversed ? projected.parameter : 1.-projected.parameter);
+        distance=projected.squared_distance;
+    }
+    return hit;
 }
 
 bool sheet_reference_owner_available(
@@ -108,9 +161,14 @@ QString AssemblyWorkspaceWindow::placement_reference_hover_label(
     const auto candidate = placement_reference_source_candidate(offered);
     const auto& geometry = pending_construction_reference_index_
         ? construction_reference_geometry_ : primitive_reference_geometry_;
-    const auto short_label = reference_display_label(
-        zima::kernel::EdgeReference{candidate.owner_id,
-            candidate.semantic_key, candidate.instance_path}, geometry);
+    const bool first_row = pending_construction_reference_index_==0 ||
+        pending_primitive_reference_index_==0;
+    const auto short_label = candidate.semantic_key.starts_with(kernel::placement_route_prefix)
+        ? std::optional{tr("Celá dráha")}
+        : first_row && kernel::is_placement_route_member(candidate.semantic_key)
+            ? std::optional{tr("Dráha")}
+            : reference_display_label(zima::kernel::EdgeReference{candidate.owner_id,
+                  candidate.semantic_key, candidate.instance_path}, geometry);
     if (!short_label) return {};
 
     std::string source_document_id = workspace_.active_document_id();
@@ -774,6 +832,7 @@ void AssemblyWorkspaceWindow::start_construction_reference_selection(
     // The active container contract interprets a candidate after hover/RMB
     // cycling instead of prematurely hiding valid placement references here.
     viewer_->set_selection_contract(placement_reference_candidate_kinds());
+    viewer_->set_placement_route_offers(index==0);
     const auto prefix = workspace_.active_occurrence_path().empty()
         ? zima::assembly::InstancePath{}
         : zima::assembly::InstancePath::decode(workspace_.active_occurrence_path());
@@ -1089,6 +1148,16 @@ void AssemblyWorkspaceWindow::accept_construction_reference(
     // slots by ContainerPlacementSection; position rows themselves never
     // acquire a second rotational meaning.
     committed_reference.measured_offset=zima::document::measure_placement_reference_offset(committed_reference,construction_reference_geometry_,orientation_origin);
+    if (proposed_reference.station_mode!=document::PlacementStationMode::None)
+        committed_reference=proposed_reference;
+    if (selected_index==0 && committed_reference.semantic_key.starts_with(kernel::placement_route_prefix)) {
+        if (const auto hit=picked_route_origin(*viewer_,offered,committed_reference,construction_reference_geometry_))
+            committed_reference.picked_position=std::array{hit->x,hit->y,hit->z};
+        if (candidate_drives_rotation(candidate)) {
+            committed_reference.orientation_drives_rotation=true;
+            committed_reference.orientation_role="front";
+        }
+    }
     const bool auto_advance = construction_reference_auto_advance_;
     if (!construction_reference_dialog_->set_reference(
         selected_index, committed_reference, reference_label, definition)) {
@@ -1170,6 +1239,11 @@ void AssemblyWorkspaceWindow::start_primitive_reference_selection(
     // when validating/storing the placement reference.
     viewer_->set_original_face_selection(false);
     viewer_->set_selection_contract(placement_reference_candidate_kinds());
+    const auto* route_dialog=dynamic_cast<const PrimitivePropertiesDialog*>(primitive_reference_dialog_);
+    const auto* route_sketch=dynamic_cast<const SketchPropertiesDialog*>(primitive_reference_dialog_);
+    viewer_->set_placement_route_offers(index==0 &&
+        !(route_dialog && (route_dialog->is_sheet_form() || route_dialog->is_sheet_edge_feature())) &&
+        !(route_sketch && route_sketch->is_sheet_edge_feature()));
     const auto prefix = workspace_.active_occurrence_path().empty()
         ? zima::assembly::InstancePath{}
         : zima::assembly::InstancePath::decode(workspace_.active_occurrence_path());
@@ -1306,6 +1380,13 @@ void AssemblyWorkspaceWindow::start_primitive_reference_selection(
         if(!proposed_geometry)proposed_geometry=geometry_index->select(proposed);
         auto proposed_placement = baseline_placement;
         proposed_placement.references = proposed;
+        if (index==0 && candidate.semantic_key.starts_with(kernel::placement_route_prefix)) {
+            const auto route=kernel::placement_route_pieces(proposed_geometry->edges,candidate.owner_id,
+                candidate.semantic_key,source_reference.instance_path);
+            if (route.empty()) return remember(false);
+            const auto seed=route.front().point(.5);
+            proposed_placement.x=seed.x;proposed_placement.y=seed.y;proposed_placement.z=seed.z;
+        }
         if (!zima::document::resolve_placement(proposed_placement, *proposed_geometry)) return remember(false);
         profile.phase("placement solve");
         const zima::kernel::Vec3 proposed_origin{proposed_placement.x, proposed_placement.y, proposed_placement.z};
@@ -1555,11 +1636,12 @@ void AssemblyWorkspaceWindow::accept_primitive_reference(
     proposed_reference=prepare_placement_pick(primitive_reference_dialog_,selected_index,
         std::move(proposed_reference),proposed_geometry,orientation_origin);
     auto committed_reference = proposed_reference;
-    const bool point_curve_pick = (candidate.kind == viewer::CandidateKind::Edge ||
+    const bool point_curve_pick = candidate.semantic_key.starts_with(kernel::placement_route_prefix) ||
+        ((candidate.kind == viewer::CandidateKind::Edge ||
         candidate.kind == viewer::CandidateKind::SketchSegment ||
         candidate.kind == viewer::CandidateKind::SketchCurve) && form_dialog &&
         form_dialog->feature_kind() == document::FeatureKind::Feature &&
-        form_dialog->pending_value().feature.type == document::FeatureType::Point;
+        form_dialog->pending_value().feature.type == document::FeatureType::Point);
     if(from_view && selected_index==0 && baseline_references.empty() &&
        primitive_reference_dialog_->first_empty_position_index()==0 &&
        (candidate.kind==zima::viewer::CandidateKind::Face || point_curve_pick)) {

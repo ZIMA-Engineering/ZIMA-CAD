@@ -1,3 +1,4 @@
+#include <zima/kernel/placement_route.hpp>
 #include <zima/kernel/transition_edge_display.hpp>
 #include <zima/kernel/axis_display.hpp>
 #include <zima/kernel/feature_side_identity.hpp>
@@ -307,6 +308,7 @@ struct MeshView::Impl {
     bool offer_original_faces{};
     bool offer_original_containers{};
     bool advance_selection_on_hover{true};
+    bool offer_placement_routes{};
     std::map<std::pair<std::string,std::string>,bool> sketch_hv_mapping;
     std::function<void()> sketch_hv_changed;
     bool sketch_hv_notification_pending{};
@@ -1404,7 +1406,13 @@ void MeshView::set_selection_filter(SelectionFilter filter) {
 
 SelectionFilter MeshView::selection_filter() const { return impl_->selection_filter; }
 
+void MeshView::set_placement_route_offers(bool enabled) {
+    impl_->offer_placement_routes=enabled;
+    impl_->candidates.clear();
+}
+
 void MeshView::set_selection_contract(std::vector<CandidateKind> allowed_kinds) {
+    impl_->offer_placement_routes=false;
     impl_->allowed_kinds = std::move(allowed_kinds);
     impl_->candidate_filter = {};
     impl_->candidate_priority = {};
@@ -1817,6 +1825,22 @@ std::vector<ViewerCandidate> MeshView::selection_candidates_at(
     });
     if (!impl_->show_symbols) std::erase_if(candidates, [](const auto& candidate) { return candidate.kind == CandidateKind::Symbol; });
     if (!impl_->show_dimensions) std::erase_if(candidates, [](const auto& candidate) { return candidate.kind == CandidateKind::Dimension; });
+    if (impl_->offer_placement_routes) {
+        std::vector<ViewerCandidate> route_offers;
+        for (const auto& candidate:candidates) {
+            if ((candidate.kind!=CandidateKind::Edge && candidate.kind!=CandidateKind::SketchSegment &&
+                 candidate.kind!=CandidateKind::SketchCurve) ||
+                !kernel::is_placement_route_member(candidate.semantic_key)) continue;
+            auto whole=candidate;
+            whole.kind=CandidateKind::Edge;
+            whole.semantic_key=kernel::placement_route_key(candidate.semantic_key);
+            if (std::ranges::none_of(route_offers,[&](const auto& existing) {
+                    return existing.owner_id==whole.owner_id && existing.instance_path==whole.instance_path &&
+                        existing.semantic_key==whole.semantic_key;
+                })) route_offers.push_back(std::move(whole));
+        }
+        candidates.insert(candidates.end(),route_offers.begin(),route_offers.end());
+    }
     auto filtered = filter_candidates(candidates,
         impl_->allowed_kinds, impl_->candidate_filter);
     if (impl_->drag_begin_callback) {
@@ -2861,6 +2885,19 @@ void MeshView::set_sketch_relation_highlights(std::set<EdgeKey> references) {
 void MeshView::set_constraint_reference_highlights(
     std::set<std::string> owner_ids, std::set<EdgeKey> edges) {
     impl_->constraint_reference_owner_ids = std::move(owner_ids);
+    std::set<EdgeKey> route_members;
+    for (const auto& key:edges) {
+        if (!key.semantic_key.starts_with(kernel::placement_route_prefix)) continue;
+        auto route=kernel::placement_route_pieces(impl_->mesh.original_references.edges,key.owner_id,
+            key.semantic_key,key.instance_path);
+        if (route.empty())
+            route=kernel::placement_route_pieces(impl_->mesh.edges,key.owner_id,key.semantic_key,key.instance_path);
+        for (const auto& piece:route) {
+            const auto& ref=piece.edge->reference;
+            route_members.insert({ref.owner_id,ref.semantic_key,ref.instance_path});
+        }
+    }
+    edges.merge(route_members);
     if(edges.empty())impl_->confirmed_reference_faces.clear();
     if (impl_->constraint_reference_edges != edges) {
         impl_->constraint_reference_edges = std::move(edges);
@@ -5618,8 +5655,9 @@ if (impl_->show_origins) {
                         edge.reference.semantic_key == "border"))) ||
                      (highlighted->kind == CandidateKind::Container &&
                       highlighted->semantic_key == "plane" &&
-                      highlighted->owner_id + ":entity" ==
-                          edge.reference.owner_id) ||
+                      edge.reference.semantic_key == "border" &&
+                      (highlighted->owner_id == edge.reference.owner_id ||
+                       highlighted->owner_id + ":entity" == edge.reference.owner_id)) ||
                      // A ray landing exactly on the Plane container's own
                      // defining-point marker (see construction_viewer_mesh)
                      // resolves to a Vertex pick of that point -- or, under
@@ -6403,7 +6441,14 @@ if (impl_->show_origins) {
                 (selectable_edges[highlighted->geometry_index].construction ||
                  selectable_edges[highlighted->geometry_index].dash_dot) &&
                 !selectable_edges[highlighted->geometry_index].filled_text;
-            if (late_dashed_sketch_wire) {
+            if (highlighted->semantic_key.starts_with(kernel::placement_route_prefix)) {
+                const auto pieces=kernel::placement_route_pieces(selectable_edges,highlighted->owner_id,
+                    highlighted->semantic_key,highlighted->instance_path);
+                for (const auto& piece:pieces)
+                    for (std::size_t index=1;index<piece.edge->points.size();++index)
+                        draw_reference_segment(project(piece.edge->points[index-1]),
+                            project(piece.edge->points[index]), color, wire_width);
+            } else if (late_dashed_sketch_wire) {
                 // Origin axes and their arrowheads are painted after the main
                 // styled Sketch pass. Repaint only the selected/hovered dashed
                 // wire in the final layer, retaining its exact dash rhythm.

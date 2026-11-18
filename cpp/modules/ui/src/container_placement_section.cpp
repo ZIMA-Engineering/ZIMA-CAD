@@ -1,3 +1,4 @@
+#include <zima/document/placement_reference_geometry.hpp>
 #include <zima/ui/numeric_value_lock.hpp>
 #include <zima/document/placement_reference_assignment.hpp>
 #include <zima/document/placement_orientation.hpp>
@@ -39,6 +40,7 @@ namespace zima::ui {
 namespace {
 
 QString readable_reference_kind(const std::string& semantic) {
+    if (semantic.starts_with("placement-route:")) return QObject::tr("Celá dráha");
     const auto key = QString::fromStdString(semantic);
     if (key == QStringLiteral("point") || key.contains(QStringLiteral("point")))
         return QObject::tr("Bod");
@@ -688,6 +690,7 @@ void ContainerPlacementSection::prepare_position_orientation(
         std::size_t index,zima::document::ConstructionReference& reference) const {
     using zima::document::placement_position_only_role;
     if(!with_orientation_ || index>=3 || property("wholeOriginEntry").toBool() || reference.orientation_only ||
+       reference.station_mode!=zima::document::PlacementStationMode::None ||
        (!reference.orientation_drives_rotation && !reference.supports_offset))return;
     const auto previous=index<references_.size() && !references_[index].owner_id.empty()
         ? &references_[index] : nullptr;
@@ -1133,8 +1136,14 @@ void ContainerPlacementSection::refresh_reference_table() {
         reference_items_[index] = reference;
         reference_table_->setItem(static_cast<int>(index), 1, reference);
 
-        auto* offset = new UnitDoubleSpinBox(InputQuantity::Length,reference_table_);
-        offset->setRange(-1'000'000'000.0, 1'000'000'000.0);
+        const auto station_mode = populated ? references_[index].station_mode
+            : zima::document::PlacementStationMode::None;
+        const bool fraction = station_mode == zima::document::PlacementStationMode::Fraction;
+        auto* offset = new UnitDoubleSpinBox(fraction ? InputQuantity::Scalar : InputQuantity::Length,
+            reference_table_);
+        offset->setProperty("zimaUniformNumericColumn", true);
+        offset->setRange(station_mode == zima::document::PlacementStationMode::None ? -1'000'000'000.0 : 0.,
+            fraction ? 1. : 1'000'000'000.0);
         offset->set_display_decimals(decimal_places_);
         // Keep the offset column no wider than one value at the configured
         // display precision. QDoubleSpinBox::sizeHint() otherwise uses
@@ -1193,11 +1202,17 @@ void ContainerPlacementSection::refresh_reference_table() {
         auto* type=new QComboBox(reference_table_);
         type->setObjectName(QStringLiteral("placementReferenceType%1").arg(index));
         const auto* surface=populated&&surface_resolver_?surface_resolver_(references_[index]):nullptr;
-        if(surface || (populated && references_[index].supports_offset)) {
-            type->addItem(tr("Na ploše"),false);
+        if (station_mode != zima::document::PlacementStationMode::None) {
+            type->addItem(tr("Vzdálenost po dráze"),false);
+            type->addItem(tr("Poměr délky dráhy"),true);
+            type->setCurrentIndex(fraction ? 1 : 0);
+        } else if (populated && references_[index].orientation_only) {
+            type->addItem(tr("Směr"));
+        } else if(surface || (populated && references_[index].supports_offset)) {
+            type->addItem(tr("Plocha"),false);
             if(surface && zima::document::placement_surface_has_axis(*surface))type->addItem(tr("V ose"),true);
             type->setCurrentIndex(type->findData(references_[index].use_axis));
-        } else if(populated && (references_[index].orientation_only || references_[index].orientation_drives_rotation)) {
+        } else if(populated && references_[index].orientation_drives_rotation) {
             type->addItem(tr("Směr"));
         }
         type->setEnabled(type->count()>0&&!missing&&type->currentData().isValid());
@@ -1205,6 +1220,31 @@ void ContainerPlacementSection::refresh_reference_table() {
         connect(type,&QComboBox::currentIndexChanged,this,[this,index,type](int selected) {
             if(selected<0||index>=references_.size()||!type->currentData().isValid())return;
             auto& ref=references_[index];
+            if (ref.station_mode != zima::document::PlacementStationMode::None) {
+                const bool fraction=type->currentData().toBool();
+                if (!branch_geometry_ || references_.empty()) return;
+                const auto& geometry=branch_geometry_();
+                const auto anchor=std::ranges::find_if(geometry.points,[&](const auto& point) {
+                    return point.reference.owner_id==ref.owner_id && point.reference.semantic_key==ref.semantic_key &&
+                        point.reference.instance_path==ref.instance_path;
+                });
+                if (anchor==geometry.points.end()) return;
+                const auto route=zima::document::placement_route_for_reference(references_.front(),geometry);
+                const auto span=zima::kernel::placement_route_span(route,anchor->position);
+                if (!span) return;
+                const double available=span->available();
+                if (fraction && ref.offset > available) {
+                    const QSignalBlocker unchanged(type);
+                    type->setCurrentIndex(0);
+                    return;
+                }
+                ref.offset=fraction ? (available>0. ? ref.offset/available : 0.) : ref.offset*available;
+                ref.station_mode=fraction ? zima::document::PlacementStationMode::Fraction
+                    : zima::document::PlacementStationMode::Distance;
+                refresh_reference_table();
+                notify_changed();
+                return;
+            }
             for(auto& stored:references_){stored.solution_branch=0;stored.branch_sources.clear();}
             ref.use_axis=type->currentData().toBool();
             ref.supports_offset=!ref.use_axis;

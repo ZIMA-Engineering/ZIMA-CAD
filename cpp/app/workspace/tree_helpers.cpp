@@ -264,7 +264,7 @@ void add_history_container_tree_children(QTreeWidgetItem* parent,
     }
     if(container.feature_kind==zima::document::FeatureKind::HelicalSweep){
         const std::array<QString,3> names{QObject::tr("Základní kružnice"),QObject::tr("Radiální dráha"),QObject::tr("Průřez")};
-        for(unsigned i=0;i<3;++i){auto* child=new QTreeWidgetItem(parent,{names[i]});child->setIcon(0,resource_icon("sketch"));
+        for(unsigned i=0;i<(container.helical.curve_only ? 2u : 3u);++i){auto* child=new QTreeWidgetItem(parent,{names[i]});child->setIcon(0,resource_icon("sketch"));
             child->setData(0,Qt::UserRole,QString::fromStdString(container.id));child->setData(0,Qt::UserRole+1,QString::fromStdString(instance_path.encoded()));
             child->setData(0,Qt::UserRole+3,"part-helical-sketch");child->setData(0,Qt::UserRole+6,static_cast<int>(i));}
         return;

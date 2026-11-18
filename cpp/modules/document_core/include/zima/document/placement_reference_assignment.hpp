@@ -58,7 +58,10 @@ struct PlacementReferenceAssignment {
     if(rows.position.size()<=index)rows.position.resize(index+1);
     const bool capture_once=rows.position[index].semantic_key.empty()&&rows.empty_position_locks[index];
     const bool locked=!rows.position[index].semantic_key.empty()?rows.position[index].offset_locked:rows.empty_position_locks[index];
-    if(reference.supports_offset) {
+    if (reference.station_mode!=PlacementStationMode::None) {
+        reference.offset_locked=false;
+        derive_orientation=false;
+    } else if(reference.supports_offset) {
         reference.offset_locked=locked&&!capture_once;
         if(locked&&!reference.measured_offset)return {PlacementReferenceError::MissingMeasuredOffset,{}};
         if(locked)reference.offset=*reference.measured_offset;

@@ -1,6 +1,7 @@
 #pragma once
 #include <zima/kernel/geometry_kernel.hpp>
 #include <zima/kernel/axis_display.hpp>
+#include <zima/kernel/placement_route.hpp>
 #include <QString>
 #include <QObject>
 #include <optional>
@@ -15,6 +16,11 @@ std::optional<QString> reference_display_label(const Reference& wanted,
         if constexpr (requires { wanted.instance_path.encoded(); }) return wanted.instance_path.encoded();
         else return wanted.instance_path;
     }();
+    if (wanted.semantic_key.starts_with(kernel::placement_route_prefix)) {
+        if (kernel::placement_route_pieces(geometry.edges,wanted.owner_id,wanted.semantic_key,wanted_path).empty())
+            return std::nullopt;
+        return QObject::tr("Celá dráha");
+    }
     const auto number = [&](const auto& entries, const auto& descriptor) {
         std::set<std::string> seen;
         for (const auto& entry : entries) {

@@ -1,3 +1,5 @@
+#include <zima/kernel/placement_route.hpp>
+#include <zima/document/trajectory_point_release.hpp>
 #include <zima/document/placement_reference_assignment.hpp>
 #include "../../../common/datum_display.hpp"
 #include <zima/document/derived_copy_json.hpp>
@@ -3577,6 +3579,19 @@ std::optional<PlacementReferenceAxis> placement_reference_axis(
     const ConstructionReference& reference,
     const zima::kernel::ViewerReferenceGeometry& geometry,
     const zima::kernel::Vec3& origin = {}, bool secondary_direction = false) {
+    if (reference.semantic_key.starts_with(kernel::placement_route_prefix)) {
+        const auto route=kernel::placement_route_pieces(geometry.edges,reference.owner_id,
+            reference.semantic_key,reference.instance_path);
+        std::optional<PlacementReferenceAxis> tangent;
+        for (const auto& piece:route) {
+            const auto projection=piece.project(origin);
+            if (projection.squared_distance>1e-12 || !projection.unique_tangent) continue;
+            const auto direction=placement_vec_normalized(projection.tangent);
+            if (tangent && placement_vec_dot(direction,tangent->direction)<1.-1e-6) return {};
+            tangent=PlacementReferenceAxis{projection.point,direction};
+        }
+        return tangent;
+    }
     if(reference.use_axis) {
         const auto* surface=placement_surface(reference,geometry);
         if(!surface || !placement_surface_has_axis(*surface))return std::nullopt;
@@ -3831,6 +3846,57 @@ bool placement_solve_position_step(
 bool placement_solve_position(
     const std::vector<std::reference_wrapper<const ConstructionReference>>& references,
     const zima::kernel::ViewerReferenceGeometry& geometry,zima::kernel::Vec3& origin) {
+    if (!references.empty()) {
+        const auto& route=references.front().get();
+        if (route.station_mode!=PlacementStationMode::None) return false;
+        const bool whole=route.semantic_key.starts_with(kernel::placement_route_prefix);
+        const auto station=references.size()>1 ? &references[1].get() : nullptr;
+        if (whole || (station && station->station_mode!=PlacementStationMode::None)) {
+            std::vector<kernel::PlacementRoutePiece> pieces;
+            if (whole) {
+                pieces=kernel::placement_route_pieces(geometry.edges,route.owner_id,route.semantic_key,route.instance_path);
+            } else if (kernel::is_placement_route_member(route.semantic_key)) {
+                const auto edge=std::ranges::find_if(geometry.edges,[&](const auto& value) {
+                    return placement_reference_matches(value.reference,route);
+                });
+                if (edge!=geometry.edges.end() && kernel::has_exact_placement_route_geometry(*edge)) pieces.push_back({&*edge,false});
+            }
+            if (pieces.empty()) return false;
+            if (station && station->station_mode!=PlacementStationMode::None) {
+                if (references.size()!=2) return false;
+                const auto anchor=placement_reference_point(*station,geometry);
+                if (!anchor) return false;
+                const auto placed=kernel::placement_route_station(pieces,*anchor,station->offset,
+                    station->station_mode==PlacementStationMode::Fraction);
+                if (!placed) return false;
+                origin=*placed;
+                return true;
+            }
+            std::optional<kernel::Vec3> closest;
+            double distance=std::numeric_limits<double>::infinity();
+            for (const auto& piece:pieces) {
+                auto projected=piece.project(origin);
+                if (station) {
+                    auto member=route;
+                    member.semantic_key=piece.edge->reference.semantic_key;
+                    member.solution_branch=0;
+                    member.branch_sources.clear();
+                    auto local=references;
+                    local.front()=std::cref(member);
+                    auto candidate=projected.point;
+                    if (!placement_solve_position(local,geometry,candidate)) continue;
+                    projected=piece.project(candidate);
+                    if (projected.squared_distance>1e-12) continue;
+                }
+                const auto delta=placement_vec_sub(projected.point,origin);
+                const double square=placement_vec_dot(delta,delta);
+                if (square<distance) {distance=square;closest=projected.point;}
+            }
+            if (!closest) return false;
+            origin=*closest;
+            return true;
+        }
+    }
     if(const auto mesh=placement_mesh_solutions(references,geometry,origin)) {
         if(mesh->points.empty())return false;
         origin=*std::ranges::min_element(mesh->points,{},[&](auto p){return placement_mesh::square(placement_mesh::sub(p,origin));});
@@ -5003,6 +5069,83 @@ std::vector<std::optional<double>> point_circle_plane_offsets(
     return result;
 }
 
+namespace {
+bool is_external_curve_point_reference(
+        const ConstructionObject& curve, const ConstructionReference& reference) {
+    if (reference.owner_id.empty()) return false;
+    if (!reference.instance_path.empty()) return true;
+    const auto owns_reference = [&](const ConstructionObject& object) {
+        return reference.owner_id == object.id || reference.owner_id == object.entity_id ||
+            reference.owner_id == object.container_origin.id;
+    };
+    return !owns_reference(curve) && !std::ranges::any_of(curve.curve_points, owns_reference);
+}
+}
+
+bool curve_has_external_point_references(const ConstructionObject& curve) {
+    return std::ranges::any_of(curve.curve_points, [&](const auto& point) {
+        return std::ranges::any_of(point.references, [&](const auto& reference) {
+            return is_external_curve_point_reference(curve, reference);
+        });
+    });
+}
+
+bool release_curve_point_references(ConstructionObject& curve) {
+    if (!curve_has_external_point_references(curve)) return false;
+    auto released = curve;
+    std::optional<kernel::ViewerReferenceGeometry> local_geometry;
+    for (auto& point : released.curve_points) {
+        if (!std::erase_if(point.references, [&](const auto& reference) {
+                return is_external_curve_point_reference(curve, reference);
+            })) continue;
+        for (auto& reference : point.references) {
+            reference.solution_branch = 0;
+            reference.branch_sources.clear();
+        }
+        const auto origin = point.origin;
+        const auto rotation = point.rotation;
+        point.definition = ConstructionDefinition::Absolute;
+        point.absolute_rotation = rotation;
+        point.orientation_back = false;
+        point.orientation_quarter_turns = 0;
+        point.rotation_offset_x = point.rotation_offset_y = point.rotation_offset_z = 0;
+        if (std::ranges::all_of(point.references, [](const auto& ref) {return ref.owner_id.empty();})) {
+            point.references.clear();
+            point.rotation_base = {};
+            point.reference_valid = true;
+            continue;
+        }
+
+        // Evaluate the remaining dependencies in the original route-local
+        // frame, including the stored frames of preceding points.
+        if (!local_geometry) {
+            PartDocument carrier;
+            carrier.constructions.push_back(curve);
+            local_geometry = carrier.construction_reference_geometry_for(point.id, {});
+        }
+        if (!resolve_construction(point, *local_geometry))
+            throw std::runtime_error("The remaining point references cannot preserve the trajectory.");
+        const auto target = placement_rotation_matrix_from_euler_degrees(rotation);
+        if (std::ranges::any_of(point.references, [](const auto& ref) {return ref.orientation_drives_rotation;})) {
+            const auto base = placement_rotation_matrix_from_euler_degrees(point.rotation_base);
+            const auto correction = placement_euler_degrees_from_rotation_matrix(
+                placement_rotation_matrix_multiply(placement_rotation_matrix_transpose(base), target));
+            point.absolute_rotation = correction;
+            point.rotation_offset_x = correction.x;
+            point.rotation_offset_y = correction.y;
+            point.rotation_offset_z = correction.z;
+        }
+        if (!resolve_construction(point, *local_geometry) ||
+            std::hypot(point.origin.x - origin.x, point.origin.y - origin.y, point.origin.z - origin.z) > 1e-7 ||
+            !placement_rotation_matrices_equal(target, placement_rotation_matrix_from_euler_degrees(point.rotation)))
+            throw std::runtime_error("The remaining point references cannot preserve the trajectory.");
+        point.origin = origin;
+        point.rotation = rotation;
+    }
+    curve.curve_points = std::move(released.curve_points);
+    return true;
+}
+
 bool resolve_point_placement(Placement& placement,const kernel::ViewerReferenceGeometry& geometry,
     kernel::Vec3* base_rotation,bool* orientation_from_reference) {
     const auto derived=point_circle_plane_offsets(placement.references,geometry);
@@ -5270,6 +5413,21 @@ PointConstraintState point_constraint_state(
         // used for orientation must not drop it from the position rank
         // count, matching the equivalent fix in resolve_construction().
         if (reference.orientation_only) continue;
+        if (reference.semantic_key.starts_with(kernel::placement_route_prefix)) {
+            const auto route=kernel::placement_route_pieces(geometry.edges,reference.owner_id,
+                reference.semantic_key,reference.instance_path);
+            auto nearest=std::numeric_limits<double>::infinity();
+            kernel::Vec3 tangent{};
+            for (const auto& piece:route) {
+                const auto projection=piece.project(origin);
+                if (projection.squared_distance<nearest) {
+                    nearest=projection.squared_distance;
+                    tangent=projection.tangent;
+                }
+            }
+            append_axis_rows(tangent);
+            continue;
+        }
         if(reference.use_axis) {
             if(const auto axis=placement_reference_axis(reference,geometry,origin))
                 append_axis_rows(axis->direction);
@@ -6511,6 +6669,11 @@ zima::kernel::ViewerMesh PartDocument::construction_viewer_mesh(
     // with the solid's wire when the whole history container is hovered or
     // selected.  This is ZIMA viewer data; no OCCT topology is inspected.
     for (const auto& container : history) {
+        if (container.feature_kind==FeatureKind::HelicalSweep && container.helical.reference_valid &&
+            !container.suppressed && !excluded_features.contains(container.id)) {
+            try { append_body_mesh(mesh,helical_curve_geometry(container)); }
+            catch (const std::runtime_error&) { /* Incomplete drafts have no path to display. */ }
+        }
         if((container.feature_kind==FeatureKind::GeneralSurface||container.feature_kind==FeatureKind::Loft)&&!container.suppressed&&!excluded_features.contains(container.id)) {
             for(const auto& boundary:container.feature_kind==FeatureKind::Loft?container.loft.sketches:container.general_surface.boundaries)if(boundary.sketch_feature) {
                 PartDocument carrier;carrier.sketches={general_surface_display_sketch(container,boundary)};
@@ -7058,8 +7221,12 @@ void PartDocument::resolve_constructions(
             }
         }
         if(container.feature_kind==FeatureKind::HelicalSweep){
-            try {reframe_helical_sketches(container);container.helical.reference_valid=true;}
-            catch(const std::exception&) {container.helical.reference_valid=false;}
+            try {
+                reframe_helical_sketches(container);
+                const auto path=helical_curve_geometry(container);
+                append(source_geometry,path.original_references);
+                container.helical.reference_valid=true;
+            } catch(const std::exception&) {container.helical.reference_valid=false;}
         }
         // A Sweep owns an ordinary Curve3D, but that curve is deliberately not a
         // second top-level Construction object.  Resolve its child Points in the
@@ -9523,6 +9690,7 @@ void PartDocument::reframe_helical_sketches(HistoryContainer& c,unsigned through
     c.helical.sketches[1]=guide.serialized();
     if(through_stage<2)return;
     p=path(c);
+    if (c.helical.curve_only) return;
     auto section=zima::sketcher::Sketch::from_serialized(c.helical.sketches[2]);
     section.plane_reference_owner_id=c.id+":helical:section";
     section.resolved_origin=p.at(0,0);
@@ -9531,14 +9699,13 @@ void PartDocument::reframe_helical_sketches(HistoryContainer& c,unsigned through
     section.resolved_y_axis=unit(cross(section.resolved_normal,section.resolved_x_axis));
     c.helical.sketches[2]=section.serialized();
 }
-zima::kernel::Sweep3DRequest PartDocument::helical_sweep_request(const HistoryContainer& input, std::optional<double> override_tolerance) {
-    const double linear_tolerance=override_tolerance.value_or(input.sweep_precision.effective());
+namespace {
+zima::kernel::Sweep3DRequest helical_path_request(const HistoryContainer& c,double linear_tolerance) {
     if(!std::isfinite(linear_tolerance)||linear_tolerance<=0)throw std::invalid_argument("Invalid sweep tolerance");
     using namespace helical_geometry;
-    auto c=input; reframe_helical_sketches(c);
     const auto p=path(c); zima::kernel::Sweep3DRequest request;request.transported=true;request.linear_tolerance=linear_tolerance;
     request.attachment_endpoints=true;
-    request.rotation_axis=helical_axis_geometry(c).axes.at(0);
+    request.rotation_axis=PartDocument::helical_axis_geometry(c).axes.at(0);
     request.path_points.push_back(p.at(0,0));request.path_point_ids.push_back(c.helical.start_point_id);
     std::function<void(std::size_t,double,double,unsigned)> approximate;
     approximate=[&](std::size_t i,double a,double b,unsigned depth){
@@ -9557,6 +9724,13 @@ zima::kernel::Sweep3DRequest PartDocument::helical_sweep_request(const HistoryCo
         request.path_point_ids.push_back(p.curves[i].id+":sample:"+std::to_string(b));
     };
     for(std::size_t i=0;i<p.curves.size();++i)approximate(i,0,1,0);
+    return request;
+}
+}
+zima::kernel::Sweep3DRequest PartDocument::helical_sweep_request(const HistoryContainer& input, std::optional<double> override_tolerance) {
+    auto c=input;
+    reframe_helical_sketches(c);
+    auto request=helical_path_request(c,override_tolerance.value_or(c.sweep_precision.effective()));
     auto section=zima::sketcher::Sketch::from_serialized(c.helical.sketches[2]);
     request.make_solid=c.helical.result_type!=ProfileResultType::Surface;
     if(c.helical.result_type==ProfileResultType::Thin) {
@@ -9621,7 +9795,7 @@ std::vector<zima::kernel::ViewerEdge> PartDocument::helical_sketch_edges(const H
     try { reframe_helical_sketches(c); } catch(const std::exception&) {}
     std::vector<zima::kernel::ViewerEdge> result;
     const std::array<std::string,3> roles{"base:","radial:","section:"};
-    for(unsigned i=0;i<3;++i){
+    for(unsigned i=0;i<(c.helical.curve_only ? 2u : 3u);++i){
         const auto sketch=zima::sketcher::Sketch::from_serialized(c.helical.sketches[i]);
         for(auto edge:sketch.viewer_mesh().edges){
             if(!is_profile_preview_source_edge(edge))continue;
@@ -9635,8 +9809,44 @@ std::vector<zima::kernel::ViewerEdge> PartDocument::helical_sketch_edges(const H
     }
     return result;
 }
+zima::kernel::ViewerMesh PartDocument::helical_curve_geometry(const HistoryContainer& input) {
+    auto container=input;
+    reframe_helical_sketches(container,1);
+    const auto request=helical_path_request(container,container.sweep_precision.effective());
+    zima::kernel::ViewerMesh mesh;
+    for (std::size_t first=0;first<request.path_segments.size();) {
+        const auto& segment=request.path_segments[first];
+        std::size_t last=first+1;
+        while (last<request.path_segments.size() &&
+            request.path_segments[last].source_id==segment.source_id) ++last;
+        zima::kernel::ViewerEdge edge;
+        edge.reference={container.id,"curve:segment:helical:"+segment.source_id,{}};
+        edge.display_owner_id=container.id;
+        edge.overlay=true;
+        zima::kernel::BSplineGeometry curve;
+        curve.degree=3;
+        curve.knots.assign(4,0.);
+        for (std::size_t index=first;index<last;++index) {
+            const auto& poles=request.path_segments[index].bezier_control_points;
+            curve.poles.insert(curve.poles.end(),poles.begin()+(index==first?0:1),poles.end());
+            if (index+1<last) curve.knots.insert(curve.knots.end(),3,double(index+1-first));
+        }
+        curve.knots.insert(curve.knots.end(),4,double(last-first));
+        curve.weights.assign(curve.poles.size(),1.);
+        const auto samples=12*(last-first);
+        for (std::size_t index=0;index<=samples;++index)
+            edge.points.push_back(zima::kernel::bspline_value(curve,double(index)/samples));
+        edge.exact_spline=std::move(curve);
+        if (input.helical.curve_only) mesh.edges.push_back(edge);
+        mesh.original_references.edges.push_back(std::move(edge));
+        first=last;
+    }
+    return mesh;
+}
+
 std::vector<zima::kernel::ViewerEdge> PartDocument::helical_preview_edges(const HistoryContainer& input) {
     using namespace helical_geometry;
+    if (input.helical.curve_only) return helical_curve_geometry(input).edges;
     auto c=input;reframe_helical_sketches(c,0);const auto p=path(c);std::vector<zima::kernel::ViewerEdge> edges;
     std::vector<V> positions,tangents;
     for(std::size_t i=0;i<p.curves.size();++i){
@@ -11750,7 +11960,13 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
             primitive = sweep2d_request(container, container.sweep_precision.effective());
         } else if (container.feature_kind == FeatureKind::HelicalSweep) {
             if(!container.helical.reference_valid)throw std::runtime_error("Neplatné reference šroubovicového tažení");
-            primitive = helical_sweep_request(container, container.sweep_precision.effective());
+            if (container.helical.curve_only) {
+                kernel::FeatureGroupRequest datum;
+                datum.allow_empty=true;
+                primitive=std::move(datum);
+            } else {
+                primitive=helical_sweep_request(container, container.sweep_precision.effective());
+            }
         } else if (container.feature_kind == FeatureKind::Sweep3D) {
             auto resolved_container = container;
             auto& path = resolved_container.sweep3d.path;
@@ -13322,6 +13538,7 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
         } else if (container.feature_kind == FeatureKind::HelicalSweep) {
             const auto& h=source.at("helical");
             container.helical.sketches=h.at("sketches").get<std::array<std::string,3>>();
+            container.helical.curve_only=h.value("curve_only",false);
             container.helical.circle_id=h.at("circle_id").get<std::string>();
             container.helical.start_point_id=h.at("start_point_id").get<std::string>();
             container.helical.guide_start_point_id=h.at("guide_start_point_id").get<std::string>();
@@ -14142,7 +14359,10 @@ nlohmann::json PartDocument::serialized(
             std::set<std::string> ids;
             for(const auto& data:container.helical.sketches){const auto s=zima::sketcher::Sketch::from_serialized(data);
                 if(s.owner_container_id!=container.id||!ids.insert(s.id).second)throw std::runtime_error("Neplatné vlastnictví skic šroubovicového tažení");}
-            static_cast<void>(helical_sweep_request(container));
+            if (container.helical.curve_only)
+                static_cast<void>(helical_curve_geometry(container));
+            else
+                static_cast<void>(helical_sweep_request(container));
         } else if (container.feature_kind == FeatureKind::Sweep3D) {
             const auto& path = container.sweep3d.path;
             if (path.kind != ConstructionKind::Curve3D ||
@@ -14702,6 +14922,7 @@ nlohmann::json PartDocument::serialized(
                 {"pitch",h.pitch},{"left_handed",h.left_handed},
                 {"result_type",h.result_type==ProfileResultType::Thin?"thin":h.result_type==ProfileResultType::Surface?"surface":"solid"},
                 {"thickness",h.thickness},{"thin_mode",h.thin_mode==ThinMode::OneSide?"one_side":h.thin_mode==ThinMode::OtherSide?"other_side":"symmetric"}};
+            if (h.curve_only) serialized["helical"]["curve_only"]=true;
         } else if (container.feature_kind == FeatureKind::Sweep3D) {
             const auto& path = container.sweep3d.path;
             std::unordered_set<std::string> embedded_construction_ids;

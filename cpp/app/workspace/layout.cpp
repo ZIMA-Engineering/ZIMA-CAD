@@ -1,3 +1,5 @@
+#include <zima/document/trajectory_point_release.hpp>
+#include <zima/workspace/sweep_point_operations.hpp>
 #include <zima/workspace/assembly_cut_operations.hpp>
 #include <zima/workspace/assembly_history_operations.hpp>
 #include <zima/workspace/opening_component_operations.hpp>
@@ -234,7 +236,8 @@ void AssemblyWorkspaceWindow::create_layout() {
             if(std::ranges::any_of(part->session.document().sketches,[&](const auto& sketch){return sketch.id==owner;}))return true;
             if(const auto* feature=part->session.document().find_container(owner)) {
                 if (feature->feature_kind == document::FeatureKind::Feature &&
-                    feature->feature.type == document::FeatureType::Axis) return false;
+                    (feature->feature.type == document::FeatureType::Axis ||
+                     feature->feature.type == document::FeatureType::Plane)) return false;
                 if(authored_sketch_profile(*feature)||feature->feature_kind==document::FeatureKind::Feature||
                     feature->feature_kind==document::FeatureKind::DerivedCopy||feature->feature_kind==document::FeatureKind::Loft||
                     feature->feature_kind==document::FeatureKind::Flat||feature->feature_kind==document::FeatureKind::Bend||
@@ -247,7 +250,8 @@ void AssemblyWorkspaceWindow::create_layout() {
         if(const auto* assembly=workspace_.open_assembly(workspace_.active_document_id()))
             if(const auto* cut=assembly->session.document().find_cut(owner))
                 return cut->definition.feature_kind != document::FeatureKind::Feature ||
-                    cut->definition.feature.type != document::FeatureType::Axis;
+                    (cut->definition.feature.type != document::FeatureType::Axis &&
+                     cut->definition.feature.type != document::FeatureType::Plane);
         return false;
     });
     viewer_->set_preserve_screen_position_on_resize(true);
@@ -2707,6 +2711,26 @@ void AssemblyWorkspaceWindow::create_layout() {
                 else if (activate && selected == activate) activate_body(id);
                 return;
             }
+            const auto add_release_points = [this](QMenu& menu, const document::ConstructionObject& curve) {
+                auto* action = menu.addAction(tr("Uvolnit body"));
+                action->setObjectName("releaseTrajectoryPointsAction");
+                action->setToolTip(tr("Odpojí vnější vazby bodů dráhy a zachová jejich polohu a orientaci."));
+                menu.setToolTipsVisible(true);
+                action->setEnabled(document::curve_has_external_point_references(curve));
+                return action;
+            };
+            const auto release_points = [this](const std::string& id) {
+                try {
+                    if (workspace::release_trajectory_points(workspace_, kernel_,
+                            workspace_.active_document_id(), id)) {
+                        preserve_view_on_refresh_ = true;
+                        refresh_tabs();
+                        refresh_scene();
+                    }
+                } catch (const std::exception& error) {
+                    state_->setText(tr(error.what()));
+                }
+            };
             const auto delete_tree_selection = [this, item] {
                 struct Target { std::string id; QString kind; };
                 std::vector<Target> targets;
@@ -2925,6 +2949,13 @@ void AssemblyWorkspaceWindow::create_layout() {
                 if (container == nullptr) return;
                 QMenu menu(this);
                 menu.setObjectName("partHistoryMenu");
+                auto* release = container->feature_kind == document::FeatureKind::Sweep3D
+                    ? add_release_points(menu, container->sweep3d.path) : nullptr;
+                const bool from_helical_curve = container->helical.curve_only;
+                auto* convert_helical = container->feature_kind == document::FeatureKind::HelicalSweep
+                    ? menu.addAction(from_helical_curve ? tr("Převést na H tažení") : tr("Převést na H křivku"))
+                    : nullptr;
+                if (convert_helical) convert_helical->setObjectName("convertHelicalTrajectoryAction");
                 auto* edit = menu.addAction(resource_icon("edit"),tr("Upravit"));
                 auto* properties = menu.addAction(resource_icon("properties"),tr("Vlastnosti…"));
                 edit->setObjectName("editHistoryObject");
@@ -3021,6 +3052,13 @@ void AssemblyWorkspaceWindow::create_layout() {
                     } else {
                         show_primitive_properties(container->feature_kind, id);
                     }
+                } else if (release && selected == release) {
+                    release_points(id);
+                } else if (convert_helical && selected == convert_helical) {
+                    show_tree_item_properties(item);
+                    if (properties_dialog_)
+                        if (auto* mode = properties_dialog_->findChild<QComboBox*>("helicalFeatureMode"))
+                            mode->setCurrentIndex(from_helical_curve ? 1 : 0);
                 } else if (selected == transform_extrusion) {
                     transform_sketch_container(
                         id, zima::document::FeatureKind::Extrusion);
@@ -3068,6 +3106,8 @@ void AssemblyWorkspaceWindow::create_layout() {
                         ? assembly->session.document().find_construction(id) : nullptr;
                 if (object == nullptr) return;
                 QMenu menu(this);
+                auto* release = object->kind == document::ConstructionKind::Curve3D
+                    ? add_release_points(menu, *object) : nullptr;
                 auto* edit = menu.addAction(resource_icon("edit"),tr("Upravit"));
                 auto* properties = menu.addAction(resource_icon("properties"),tr("Vlastnosti…"));
                 QAction* suppress{};
@@ -3080,6 +3120,8 @@ void AssemblyWorkspaceWindow::create_layout() {
                     show_parameter_dimensions(id);
                 } else if (selected == properties) {
                     show_construction_properties(object->kind, id);
+                } else if (release && selected == release) {
+                    release_points(id);
                 } else if (selected == suppress) {
                     toggle_part_container_suppressed(id);
                 } else if (selected == remove) {

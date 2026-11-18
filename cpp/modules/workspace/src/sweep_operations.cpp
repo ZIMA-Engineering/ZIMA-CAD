@@ -261,6 +261,15 @@ void commit_sweep(Workspace& live, const kernel::OcctKernel& kernel, const std::
     document::HistoryContainer feature, SweepEditMode mode) {
     auto* state = live.open_part(id);
     if (!state) throw SweepOperationError("unsupported_document", "Sweep operations require an open Part.");
+    if (feature.feature_kind==Kind::HelicalSweep && feature.helical.curve_only) {
+        const auto former=sketcher::Sketch::from_serialized(feature.helical.sketches[2]);
+        auto empty=sketcher::Sketch::create_default();
+        empty.id=former.id;
+        empty.owner_container_id=feature.id;
+        empty.name=former.name;
+        feature.helical.sketches[2]=empty.serialized();
+        feature.combine_mode=document::CombineMode::Add;
+    }
     validate_sweep(feature);
     const auto& before = state->session.document();
     const auto container_id = feature.id;

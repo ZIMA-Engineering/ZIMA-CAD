@@ -93,7 +93,8 @@ void AssemblyWorkspaceWindow::show_sweep2d_properties(const std::string& id) {
 void AssemblyWorkspaceWindow::show_helical_sweep_properties(const std::string& id) {
     show_sweep_properties(zima::document::FeatureKind::HelicalSweep,id);
 }
-void AssemblyWorkspaceWindow::show_sweep_properties(zima::document::FeatureKind kind,const std::string& id,bool rectangular) {
+void AssemblyWorkspaceWindow::show_sweep_properties(zima::document::FeatureKind kind,const std::string& id,
+        bool rectangular,bool helical_curve) {
     if(properties_dialog_||!active_sketch_id_.empty())return;
     auto* part=workspace_.open_part(workspace_.active_document_id());if(!part)return;
     const auto occurrence=resolve_active_occurrence(part->session.document().document_id);if(!occurrence)return;
@@ -104,6 +105,10 @@ void AssemblyWorkspaceWindow::show_sweep_properties(zima::document::FeatureKind 
         state_->setText(tr("A Part can contain only one sheet transition."));return;
     }
     auto initial=general?zima::document::create_general_surface():transition?zima::document::create_sheet_transition(rectangular):planar?zima::document::PartDocument::create_sweep2d_container():zima::document::PartDocument::create_helical_sweep_container();
+    if (kind==document::FeatureKind::HelicalSweep && helical_curve) {
+        initial.helical.curve_only=true;
+        initial.name=tr("H křivka").toStdString();
+    }
     if(!transition&&!general)initial.sweep_precision.default_tolerance=planar?application_settings_.sweep_precision_defaults.sweep2d:application_settings_.sweep_precision_defaults.helical;
     initial.name=tr(initial.name.c_str()).toStdString();
     if(id.empty())initial.name=part->session.document().next_numbered_name(
@@ -288,7 +293,9 @@ void AssemblyWorkspaceWindow::show_sweep_properties(zima::document::FeatureKind 
             else if(planar)preview_mesh=zima::document::PartDocument::sweep2d_preview_mesh(c);
             else if(transition)preview_mesh=zima::document::sheet_transition_preview(c,sheet_defaults);
             else edges=zima::document::PartDocument::helical_preview_edges(c);
-            dialog->set_status(general?QString{}:transition?tr("Upravte obě skici a polohu druhého počátku. OK vytvoří plech."):tr("Dráha připravena. OK vytvoří těleso."));
+            dialog->set_status(general?QString{}:transition?tr("Upravte obě skici a polohu druhého počátku. OK vytvoří plech."):c.feature_kind==document::FeatureKind::HelicalSweep && c.helical.curve_only
+                    ? tr("Dráha připravena. OK vytvoří křivku.")
+                    : tr("Dráha připravena. OK vytvoří těleso."));
         }catch(const std::exception& e){dialog->set_status((transition||general)?tr(e.what()):QString::fromUtf8(e.what()));}
         auto sketches=(transition||general)?std::vector<zima::kernel::ViewerEdge>{}:planar?zima::document::PartDocument::sweep2d_sketch_edges(c):
             zima::document::PartDocument::helical_sketch_edges(c);

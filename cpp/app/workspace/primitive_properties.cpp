@@ -1503,7 +1503,9 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                 std::move(primitive_origin_preview_mesh_->dimensions);
             primitive_origin_preview_mesh_->dimensions.clear();
         }
-        if (lightweight_context)
+        const bool invalid_point = preview.feature_kind == document::FeatureKind::Feature &&
+            preview.feature.type == document::FeatureType::Point && !preview.placement.reference_valid;
+        if (lightweight_context && !invalid_point)
             append_nonzero_parameter_dimensions(live_dimensions,
                 zima::document::container_placement_dimensions(
                     preview.id, preview.placement, primitive_reference_geometry_));
@@ -1513,6 +1515,7 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
         const auto& placement = preview.placement;
         std::vector<double> signature{
             lightweight_context ? 1.0 : 0.0,
+            invalid_point ? 1.0 : 0.0,
             placement.x, placement.y, placement.z,
             placement.rotation_x, placement.rotation_y, placement.rotation_z,
             placement.absolute_rotation_x, placement.absolute_rotation_y,

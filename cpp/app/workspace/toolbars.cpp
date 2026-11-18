@@ -352,9 +352,10 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
             if(auto* shortcut=findChild<QAction*>(QStringLiteral("featureShortcut%1Action").arg(i)))add_command(shortcut);
         add_command(twist);
         add_group_separator();
-        add_command(curve_3d_action_);
         add_command(sweep2d_action_);
+        add_command(curve_3d_action_);
         add_command(sweep_3d_action_);
+        add_command(helical_curve_action_);
         add_command(helical_sweep_action_);
         add_command(loft_action_);
         for(bool restore:{false,true}) {

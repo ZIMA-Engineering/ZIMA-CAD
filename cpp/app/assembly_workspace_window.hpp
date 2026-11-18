@@ -330,6 +330,7 @@ private:
     QAction* construction_point_action_{};
     QAction* curve_3d_action_{};
     QAction* sweep_3d_action_{};
+    QAction* helical_curve_action_{};
     QAction* helical_sweep_action_{};
     QAction* loft_action_{};
     QAction* sweep2d_action_{};
@@ -904,7 +905,8 @@ private:
         zima::document::FeatureKind feature_kind,
         const std::string& container_id = {}, bool sheet_metal = false,
         std::optional<zima::document::FeatureType> feature_preset = {}, bool rotation_preset = false, bool twist_preset = false);
-    void show_sweep_properties(zima::document::FeatureKind kind, const std::string& container_id,bool rectangular=false);
+    void show_sweep_properties(zima::document::FeatureKind kind, const std::string& container_id,
+        bool rectangular=false, bool helical_curve=false);
     void show_sweep2d_properties(const std::string& container_id = {});
     void show_general_surface_curve_properties(GeneralSurfaceDialog*,unsigned);
     void show_general_surface_sketch_properties(GeneralSurfaceDialog*,unsigned);

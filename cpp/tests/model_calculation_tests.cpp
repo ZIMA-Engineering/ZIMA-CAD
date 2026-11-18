@@ -1,3 +1,6 @@
+#include <zima/document/placement_json.hpp>
+#include <zima/kernel/placement_route.hpp>
+#include <zima/document/trajectory_point_release.hpp>
 #include "profile_solid_fixture.hpp"
 #include <zima/document/edge_treatment_selection.hpp>
 #include <zima/kernel/stable_id.hpp>
@@ -9,6 +12,7 @@
 #include <cmath>
 #include <filesystem>
 #include <iostream>
+#include <numbers>
 #include <set>
 #include <stdexcept>
 #include <tuple>
@@ -1209,6 +1213,104 @@ void verify_assembly(const kernel::OcctKernel& kernel){
 }
 int main(){try{
     kernel::OcctKernel kernel;
+    {
+        kernel::ViewerReferenceGeometry geometry;
+        geometry.edges.push_back({{{0,0,0},{10,0,0}},{"path","curve:segment:a:b",{}}});
+        geometry.edges.push_back({{{10,0,0},{10,20,0}},{"path","curve:segment:b:c",{}}});
+        geometry.points.push_back({{4,0,0},{"start","point",{}}});
+        document::ConstructionReference path{{},"path",kernel::placement_route_key("curve:segment:a:b")};
+        document::ConstructionReference start{{},"start","point"};
+        start.station_mode=document::PlacementStationMode::Distance;
+        start.offset=11.;
+        document::Placement placement;
+        placement.references={path,start};
+        require(document::resolve_placement(placement,geometry),"Cannot resolve whole route placement");
+        near(placement.x,10.,"Whole route did not pass the corner");
+        near(placement.y,5.,"Whole route length from the anchor is incorrect");
+        nlohmann::json saved=placement;
+        auto reopened=saved.get<document::Placement>();
+        require(reopened==placement,"Native station mode did not round trip");
+        reopened.references[1].station_mode=document::PlacementStationMode::Fraction;
+        reopened.references[1].offset=.5;
+        require(document::resolve_placement(reopened,geometry),"Cannot resolve route fraction");
+        near(reopened.y,7.,"Open-route fraction did not use the remainder after the anchor");
+        reopened.references[1].station_mode=document::PlacementStationMode::Distance;
+        reopened.references[1].offset=27.;
+        require(!document::resolve_placement(reopened,geometry),"Out-of-range route station was accepted");
+        near(reopened.y,7.,"Invalid station moved the last valid frame");
+        geometry.vertices={{0,8,0},{0,8,1},{10,8,1}};
+        geometry.triangles={0,1,2};
+        geometry.triangle_references.push_back({"offset-plane","plane",{}});
+        document::ConstructionReference plane{{},"offset-plane","plane",4.,true};
+        auto intersect=placement;
+        intersect.references={path,plane};
+        intersect.x=5.;intersect.y=0.;
+        require(document::resolve_placement(intersect,geometry),"Route and plane did not find the next span");
+        near(intersect.x,10.,"Plane intersection did not stay on the route");
+        near(intersect.y,12.,"Plane offset is wrong on the whole route");
+        geometry.edges.push_back({{{10,20,0},{0,0,0}},{"path","curve:segment:c:a",{}}});
+        reopened.references[1].station_mode=document::PlacementStationMode::Fraction;
+        reopened.references[1].offset=1.;
+        require(document::resolve_placement(reopened,geometry),"Cannot wrap a closed route");
+        near(reopened.x,4.,"A full closed-route lap did not return to its anchor");
+        near(reopened.y,0.,"Closed route wrap has the wrong position");
+    }
+    {
+        auto sketch=sketcher::Sketch::create_default();
+        const auto first=sketch.add_segment(0,0,10,0);
+        const auto second=sketch.add_segment(10,0,10,10);
+        static_cast<void>(sketch.add_corner_fillet(first,second,2.));
+        const auto check_rounding=[](const auto& pieces,const kernel::Vec3& anchor,const kernel::Vec3& midpoint) {
+            const auto span=kernel::placement_route_span(pieces,anchor);
+            require(pieces.size()==3 && span,"Rounded route must include two trimmed legs and its arc");
+            near(span->total,16.+std::numbers::pi,"Rounded route length used the sharp corner or a tessellation");
+            const auto position=kernel::placement_route_station(pieces,anchor,8.+std::numbers::pi/2.,false);
+            require(position && kernel::same_route_point(*position,midpoint),
+                "Distance through a rounded corner did not follow the arc");
+        };
+        const auto sketch_geometry=sketch.placement_reference_geometry();
+        check_rounding(kernel::placement_route_pieces(sketch_geometry.edges,sketch.id,
+                kernel::placement_route_key("segment:"+first),{}),
+            sketch.world_point(0,0),sketch.world_point(8.+std::sqrt(2.),2.-std::sqrt(2.)));
+        auto part=document::PartDocument::create_default();
+        auto route=document::PartDocument::create_construction(document::ConstructionKind::Curve3D);
+        route.curve_type=document::Curve3DType::Polyline;
+        route.curve_rounding_enabled=true;
+        for (const auto position : {kernel::Vec3{0,0,0},{10,0,0},{10,10,0}}) {
+            auto point=document::PartDocument::create_construction(document::ConstructionKind::Point);
+            point.parent_construction_id=route.id;point.origin=position;
+            route.curve_points.push_back(std::move(point));
+        }
+        route.curve_points[1].curve_radius=2.;
+        part.constructions.push_back(route);
+        const auto spatial=part.construction_viewer_mesh().original_references;
+        check_rounding(kernel::placement_route_pieces(spatial.edges,route.entity_id,"placement-route:3d",{}),
+            {0,0,0},{8.+std::sqrt(2.),2.-std::sqrt(2.),0});
+    }
+    {
+        auto route=document::PartDocument::create_construction(document::ConstructionKind::Curve3D);
+        auto first=document::PartDocument::create_construction(document::ConstructionKind::Point);
+        first.parent_construction_id=route.id;
+        first.origin={2,3,4};first.rotation={22,-17,31};
+        first.references.push_back({{},"outside","point"});
+        auto second=document::PartDocument::create_construction(document::ConstructionKind::Point);
+        second.parent_construction_id=route.id;
+        second.origin={9,8,7};second.rotation={17,29,-10};
+        document::ConstructionReference local{{},route.container_origin.id,"origin:plane:xy"};
+        local.orientation_only=true;local.orientation_drives_rotation=true;local.orientation_role="front";
+        second.references={local,{{},"outside","point"}};
+        auto independent=document::PartDocument::create_construction(document::ConstructionKind::Point);
+        independent.parent_construction_id=route.id;
+        independent.origin={10,12,7};
+        route.curve_points={first,second,independent};
+        require(document::release_curve_point_references(route),"Curve points were not released");
+        require(route.curve_points[0].references.empty() && route.curve_points[0].origin==first.origin &&
+                route.curve_points[0].rotation==first.rotation && route.curve_points[0].absolute_rotation==first.rotation &&
+                route.curve_points[1].references==std::vector{local} &&
+                route.curve_points[1].origin==second.origin && route.curve_points[1].rotation==second.rotation &&
+                route.curve_points[2]==independent && !document::release_curve_point_references(route),
+            "Releasing Curve points changed their frames or modified internal dependencies");
+    }
     {
         auto part=document::PartDocument::create_default();
         auto solid=zima::test::rectangular_feature(part);

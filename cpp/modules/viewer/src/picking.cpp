@@ -369,6 +369,7 @@ std::vector<EdgePickCandidate> ordered_edge_candidates(
     for (std::size_t slot = 0; slot < count; ++slot) {
         const auto edge_index=index?slots[slot]:slot;
         const auto& edge = mesh.edges[edge_index];
+        if (edge.reference.semantic_key.starts_with("placement-evaluated:")) continue;
         const bool cosmetic_thread = !edge.display_owner_id.empty() &&
             (edge.reference.semantic_key.starts_with("thread:wire:") ||
              edge.reference.semantic_key.starts_with(
@@ -880,7 +881,7 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
                                 item.instance_path == edge.reference.instance_path;
                         })) {
                     result.push_back({CandidateKind::Container, edge.distance, edge.edge,
-                                      container_owner, datum_entity ? "plane" : "",
+                                      container_owner, edge.reference.semantic_key == "border" ? "plane" : "",
                                       edge.reference.instance_path, geometry});
                 }
                 continue;
@@ -1276,7 +1277,8 @@ std::optional<ViewerCandidate> container_candidate(
         const auto triangle = std::find_if(
         references.begin(), references.end(),
         [&](const zima::kernel::FaceReference& reference) {
-            return reference.valid() && (source_face_owner(reference) == owner_id ||
+            return reference.valid() && reference.semantic_key != "plane" &&
+                (source_face_owner(reference) == owner_id ||
                 (geometry==CandidateGeometry::Display&&reference.display_owner_id==owner_id)) &&
                 reference.instance_path == instance_path;
         });
@@ -1334,7 +1336,7 @@ std::optional<ViewerCandidate> container_candidate(
         -> std::optional<ViewerCandidate> {
         const auto plane = std::find_if(references.begin(), references.end(),
             [&](const auto& value) {
-                return value.owner_id == entity_id &&
+                return (value.owner_id == entity_id || value.owner_id == owner_id) &&
                     value.semantic_key == "plane" &&
                     value.instance_path == instance_path;
             });

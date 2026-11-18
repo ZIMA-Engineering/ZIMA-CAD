@@ -17711,6 +17711,32 @@ zima::kernel::ViewerReferenceGeometry Sketch::placement_reference_geometry() con
     for (const auto& c:ellipses) add(c.id,"ellipse:",c.construction);
     for (const auto& c:elliptical_arcs) add(c.id,"elliptical_arc:",c.construction);
     for (const auto& c:bsplines) add(c.id,"bspline:",c.construction);
+    if (std::ranges::any_of(corner_radii,[](const auto& radius) {
+            return !radius.suppressed && radius.radius>1e-9;
+        })) {
+        // Existing element references retain their authored support.
+        // Only the route consumer receives the trimmed, visible contour.
+        zima::kernel::ViewerReferenceGeometry evaluated;
+        try {
+            evaluated=evaluated_profile_sketch(true).placement_reference_geometry();
+        } catch (const std::exception&) {
+            zima::kernel::ViewerEdge invalid;
+            invalid.reference={id,"placement-evaluated:invalid",{}};
+            result.edges.push_back(std::move(invalid));
+            return result;
+        }
+        for (auto& edge:evaluated.edges) {
+            if (edge.reference.semantic_key.starts_with("arc:") &&
+                std::ranges::any_of(corner_radii,[&](const auto& radius) {
+                    return edge.reference.semantic_key=="arc:"+radius.id;
+                })) {
+                edge.reference.semantic_key="corner_radius:"+edge.reference.semantic_key.substr(4);
+                result.edges.push_back(edge);
+            }
+            edge.reference.semantic_key="placement-evaluated:"+edge.reference.semantic_key;
+            result.edges.push_back(std::move(edge));
+        }
+    }
     return result;
 }
 

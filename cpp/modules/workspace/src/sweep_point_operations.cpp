@@ -1,3 +1,4 @@
+#include <zima/document/trajectory_point_release.hpp>
 #include <zima/workspace/sweep_point_operations.hpp>
 #include <zima/workspace/construction_reference_operations.hpp>
 #include <zima/workspace/feature_reference_input.hpp>
@@ -5,6 +6,31 @@
 #include <cmath>
 
 namespace zima::workspace {
+bool release_trajectory_points(Workspace& live, const kernel::OcctKernel& kernel,
+    const std::string& id, const std::string& object) {
+    const auto* part = live.open_part(id);
+    const auto* assembly = live.open_assembly(id);
+    if (part) {
+        const auto& before = part->session.document();
+        if (const auto* body = before.body_owner_for_object(object); body &&
+            (body->derived_copy || body->scope.id != before.body_history.active_body_id()))
+            throw PlacementEditError("inactive_body", "Activate the owning Body before editing its history.");
+        if (const auto* original = before.find_container(object);
+            original && original->feature_kind == document::FeatureKind::Sweep3D) {
+            auto draft = *original;
+            if (!document::release_curve_point_references(draft.sweep3d.path)) return false;
+            commit_sweep(live, kernel, id, std::move(draft), SweepEditMode::Replace);
+            return true;
+        }
+    }
+    const auto* curve = part ? part->session.document().find_construction(object)
+        : assembly ? assembly->session.document().find_construction(object) : nullptr;
+    if (!curve || curve->kind != document::ConstructionKind::Curve3D) return false;
+    auto draft = *curve;
+    return document::release_curve_point_references(draft) &&
+        commit_construction(live, id, std::move(draft), ConstructionEditMode::Replace);
+}
+
 bool set_sweep_point_reference(Workspace& live,const kernel::OcctKernel& kernel,
     const std::string& id,const std::string& object,std::size_t index,
     document::ConstructionReference reference,bool derive_orientation) {

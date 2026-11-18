@@ -25,12 +25,25 @@ public:
       : SweepPlacementDialog(tr("Vlastnosti H-tažení"),std::move(initial),parent),commit_(std::move(commit)) {
         setObjectName("helicalSweepDialog");setAttribute(Qt::WA_DeleteOnClose);setMinimumWidth(360);
         auto* form=new QFormLayout;
+        auto* mode=new QComboBox(this);
+        mode->setObjectName("helicalFeatureMode");
+        mode->addItems({tr("H křivka"),tr("H-tažení")});
+        mode->setCurrentIndex(pending.helical.curve_only ? 0 : 1);
+        form->addRow(tr("Typ prvku"),mode);
         auto* name=new QLineEdit(QString::fromStdString(pending.name),this);form->addRow(tr("Název"),name);
         connect(name,&QLineEdit::textChanged,this,[this](auto v){pending.name=v.toStdString();});
         content_layout()->addLayout(form);install_placement();
         form=new QFormLayout;
         const std::array<QString,3> names{tr("1. Kružnice a počáteční bod…"),tr("2. Radiální vodicí skica…"),tr("3. Skica průřezu…")};
-        for(unsigned i=0;i<3;++i){auto* button=new QPushButton(names[i],this);button->setObjectName(QString("helicalSketch%1").arg(i));style_sketch_button(button);form->addRow(button);connect(button,&QPushButton::clicked,this,[this,i]{if(edit_sketch)edit_sketch(i);});}
+        QPushButton* section{};
+        for(unsigned i=0;i<3;++i){
+            auto* button=new QPushButton(names[i],this);
+            button->setObjectName(QString("helicalSketch%1").arg(i));
+            style_sketch_button(button);
+            form->addRow(button);
+            if (i==2) section=button;
+            connect(button,&QPushButton::clicked,this,[this,i]{if(edit_sketch)edit_sketch(i);});
+        }
         auto* result=new QComboBox(this);result->setObjectName("helicalResultType");
         result->addItems({tr("Těleso"),tr("Tenkostěnný prvek"),tr("Plocha")});
         result->setCurrentIndex(pending.helical.result_type==document::ProfileResultType::Surface?2:pending.helical.result_type==document::ProfileResultType::Thin?1:0);
@@ -43,12 +56,30 @@ public:
         side->setCurrentIndex(pending.helical.thin_mode==document::ThinMode::OneSide?0:pending.helical.thin_mode==document::ThinMode::OtherSide?1:2);
         side->setToolTip(tr("Symetricky: polovina celkové tloušťky na každou stranu. U otevřené kontury stranu určuje její směr."));
         form->addRow(tr("Strana tloušťky"),side);
-        const auto update_thin=[this,form,thickness,side]{const bool thin=pending.helical.result_type==document::ProfileResultType::Thin;
-            form->setRowVisible(thickness,thin);form->setRowVisible(side,thin);
+        const auto update_thin=[this,form,section,result,thickness,side] {
+            const bool sweep=!pending.helical.curve_only;
+            const bool thin=sweep && pending.helical.result_type==document::ProfileResultType::Thin;
+            form->setRowVisible(section,sweep);
+            form->setRowVisible(result,sweep);
+            form->setRowVisible(thickness,thin);
+            form->setRowVisible(side,thin);
             if(auto* subtract=findChild<QPushButton*>("primitiveSubtractOperation")) {
-                if(pending.is_surface_result()&&subtract->isChecked())findChild<QPushButton*>("primitiveAddOperation")->click();
-                subtract->setEnabled(!pending.is_surface_result());
-            }};
+                auto* add=findChild<QPushButton*>("primitiveAddOperation");
+                if (sweep && pending.is_surface_result() && subtract->isChecked()) add->click();
+                subtract->setEnabled(sweep && !pending.is_surface_result());
+                subtract->setVisible(sweep);
+                add->setVisible(sweep);
+            }
+        };
+        connect(mode,&QComboBox::currentIndexChanged,this,[this,name,update_thin](int row) {
+            const auto previous=pending.helical.curve_only ? tr("H křivka") : tr("H-tažení");
+            pending.helical.curve_only=row==0;
+            const auto current=pending.helical.curve_only ? tr("H křivka") : tr("H-tažení");
+            if (name->text()==previous || name->text().startsWith(previous+QStringLiteral(" ")))
+                name->setText(current+name->text().sliced(previous.size()));
+            update_thin();
+            notify();
+        });
         connect(result,&QComboBox::currentIndexChanged,this,[this,update_thin](int i){
             pending.helical.result_type=i==2?document::ProfileResultType::Surface:i==1?document::ProfileResultType::Thin:document::ProfileResultType::Solid;
             update_thin();notify();});

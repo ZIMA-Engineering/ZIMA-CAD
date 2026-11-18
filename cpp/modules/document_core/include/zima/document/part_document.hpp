@@ -558,6 +558,7 @@ struct HelicalSweepParameters {
     std::string guide_start_point_id;
     double pitch{5.0};
     bool left_handed{};
+    bool curve_only{};
     bool operator==(const HelicalSweepParameters&) const = default;
 };
 
@@ -1170,6 +1171,7 @@ public:
     static void reframe_helical_sketches(HistoryContainer& container, unsigned through_stage = 2);
     [[nodiscard]] static zima::kernel::Sweep3DRequest helical_sweep_request(const HistoryContainer& container, std::optional<double> linear_tolerance = std::nullopt);
     [[nodiscard]] static std::vector<zima::kernel::ViewerEdge> helical_preview_edges(const HistoryContainer& container);
+    [[nodiscard]] static zima::kernel::ViewerMesh helical_curve_geometry(const HistoryContainer& container);
     [[nodiscard]] static zima::kernel::ViewerMesh helical_axis_geometry(const HistoryContainer& container, bool provisional = false);
     [[nodiscard]] static std::vector<zima::kernel::ViewerEdge> helical_sketch_edges(const HistoryContainer& container);
 

@@ -1281,10 +1281,13 @@ bool complete_history_geometry(const kernel::BodyResult& value,
         &operation.primitive);
     const bool datum=group&&group->allow_empty&&group->children.empty();
     if(!value.mesh.triangles.empty()) {
-        // A datum does not consume the preceding solid. Its compact packet
-        // can still contain triangles for selected reference faces. Require
-        // the complete input boundary before displaying it for Properties.
-        if(datum && value.has_solid() && value.kernel_shape.empty())return false;
+        // A datum passes through the preceding solid. A saved intermediate
+        // packet can retain a B-Rep and some triangles without representing
+        // the exact material at this boundary. Verify the prefix once before
+        // displaying that packet as the input to Properties.
+        if(datum && value.has_solid() &&
+            (value.kernel_shape.empty() || !value.calculation_provenance))
+            return false;
         // Sheet commands attach to the actual current boundary wire. A cached
         // viewer solid without its authored edge packet is therefore still a
         // deferred rollback boundary, even though it is sufficient to draw.

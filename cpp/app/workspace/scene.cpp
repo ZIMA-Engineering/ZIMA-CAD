@@ -800,8 +800,13 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
                 // Euler angles are derived, not authored parameters.  Showing
                 // them on inspection makes the child look independently
                 // editable and obscures the real Profile dimensions.
+                const bool invalid_point_preview = parameter_dimension_preview_ &&
+                    parameter_dimension_preview_->id == container->id &&
+                    container->feature_kind == document::FeatureKind::Feature &&
+                    container->feature.type == document::FeatureType::Point &&
+                    !container->placement.reference_valid;
                 auto placement_dimensions =
-                    (container->feature_kind==
+                    (invalid_point_preview || container->feature_kind==
                             zima::document::FeatureKind::SheetProfile||
                      !container->sheet_profile_binding.parent_id.empty()||
                      document.sheet_from_body_child_bound(container->id))
@@ -1384,7 +1389,7 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
         regenerate_action_->setEnabled(false);
         for (auto* action : {thread_action_, holes_action_, shaft_thread_action_, drill_point_action_, construction_point_action_,
                              curve_3d_action_,
-                             sweep_3d_action_, helical_sweep_action_, sweep2d_action_, loft_action_,
+                             sweep_3d_action_, helical_curve_action_, helical_sweep_action_, sweep2d_action_, loft_action_,
                              construction_axis_action_, construction_plane_action_,
                              sketch_action_, extrusion_action_, revolution_action_,
                              fillet_action_, chamfer_action_, shell_action_,
@@ -2275,6 +2280,7 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
         construction_point_action_->setEnabled(true);
         curve_3d_action_->setEnabled(true);
         sweep_3d_action_->setEnabled(true);
+        helical_curve_action_->setEnabled(true);
         helical_sweep_action_->setEnabled(true);
         {const auto* body=document.body_history.find(document.body_history.active_body_id());
          loft_action_->setEnabled(body&&!body->derived_copy&&!properties_dialog_&&active_sketch_id_.empty());}
@@ -2435,7 +2441,10 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
             if (const auto* cut = source.find_cut(construction_dimension_object_id_);
                 cut && cut->definition.feature_kind == document::FeatureKind::Feature) {
                 const auto& feature = cut->definition;
-                if (feature.feature.type == document::FeatureType::Point) {
+                const bool invalid_point_preview = parameter_dimension_preview_ &&
+                    parameter_dimension_preview_->id == feature.id &&
+                    !parameter_dimension_preview_->placement.reference_valid;
+                if (feature.feature.type == document::FeatureType::Point && !invalid_point_preview) {
                     append_nonzero_parameter_dimensions(mesh.dimensions,
                         document::container_placement_dimensions(feature.id,
                             feature.placement, mesh.original_references));
@@ -2660,13 +2669,15 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
         const auto path = workspace_.active_occurrence_path();
         viewer_->set_candidate_filter([this, path](const auto& candidate) {
             if (candidate.kind != viewer::CandidateKind::Container) return true;
-            if ((candidate.semantic_key != "point" && candidate.semantic_key != "axis") ||
+            if ((candidate.semantic_key != "point" && candidate.semantic_key != "axis" &&
+                 candidate.semantic_key != "plane") ||
                 candidate.instance_path != path) return false;
             const auto* active = workspace_.open_assembly(workspace_.active_document_id());
             const auto* cut = active ? active->session.document().find_cut(candidate.owner_id) : nullptr;
             return cut && cut->definition.feature_kind == document::FeatureKind::Feature &&
                 (cut->definition.feature.type == document::FeatureType::Point ||
-                 cut->definition.feature.type == document::FeatureType::Axis);
+                 cut->definition.feature.type == document::FeatureType::Axis ||
+                 cut->definition.feature.type == document::FeatureType::Plane);
         }, false);
     }
     const bool fit_assembly_view = !preserve_view_on_refresh_ && active_sketch_id_.empty();
@@ -2839,6 +2850,7 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
     construction_point_action_->setEnabled(supports_constructions);
     curve_3d_action_->setEnabled(supports_constructions);
     sweep_3d_action_->setEnabled(active_part != nullptr);
+    helical_curve_action_->setEnabled(active_part != nullptr);
     helical_sweep_action_->setEnabled(active_part != nullptr);
     {const auto* body=active_part?active_part->session.document().body_history.find(active_part->session.document().body_history.active_body_id()):nullptr;
      loft_action_->setEnabled(body&&!body->derived_copy&&!properties_dialog_&&active_sketch_id_.empty());}

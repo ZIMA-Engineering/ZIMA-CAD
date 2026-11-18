@@ -1,3 +1,4 @@
+#include <zima/workspace/sweep_point_operations.hpp>
 #include "profile_command_fixture.hpp"
 #include "sweep_test_support.hpp"
 #include <zima/command_host/host.hpp>
@@ -350,6 +351,111 @@ void verify_trajectory_conversion(const kernel::OcctKernel& kernel, const fs::pa
                 !reopened.find_container(sweep_id),
         "The saved converted path lost native points or retained the Sweep");
 }
+void verify_helical_curve_conversion(const kernel::OcctKernel& kernel, const fs::path& directory) {
+    Fixture f(kernel,directory);
+    f.run("new",{{"type","part"},{"name","helical-curve-conversion"}});
+    auto feature=test_support::sweep_fixture(document::FeatureKind::HelicalSweep);
+    const auto section=feature.helical.sketches[2];
+    feature.helical.curve_only=true;
+    const auto id=f.live.active_document_id(), owner=feature.id;
+    workspace::commit_sweep(f.live,kernel,id,feature,workspace::SweepEditMode::Create);
+    auto& session=f.state().session;
+    const auto path=[&] {return document::PartDocument::helical_curve_geometry(
+        *session.document().find_container(owner));};
+    const auto refs=path().original_references.edges;
+    const auto same_path=[&](const auto& edges) {
+        return std::ranges::equal(edges,refs,[](const auto& a,const auto& b) {
+            return a.reference==b.reference && a.points==b.points && a.exact_spline==b.exact_spline;
+        });
+    };
+    require(!refs.empty() && !path().edges.empty() && !session.calculated_boundaries().back().has_solid(),
+        "Helical Curve did not publish its path independently of material");
+    auto sweep=*session.document().find_container(owner);
+    sweep.helical.curve_only=false;
+    sweep.helical.sketches[2]=section;
+    workspace::commit_sweep(f.live,kernel,id,sweep,workspace::SweepEditMode::Replace);
+    require(session.calculated_boundaries().back().has_solid() &&
+        same_path(path().original_references.edges),
+        "Helical Sweep changed the curve or failed to add material");
+    auto curve=*session.document().find_container(owner);
+    curve.helical.curve_only=true;
+    workspace::commit_sweep(f.live,kernel,id,curve,workspace::SweepEditMode::Replace);
+    const auto check=[&](const auto& part) {
+        const auto* current=part.find_container(owner);
+        const auto profile=sketcher::Sketch::from_serialized(current->helical.sketches[2]);
+        require(current->helical.curve_only && profile.points.empty() &&
+                same_path(document::PartDocument::helical_curve_geometry(*current).original_references.edges),
+            "Helical mode conversion retained the profile or changed the owned path");
+    };
+    check(session.document());
+    f.run("undo");
+    require(!session.document().find_container(owner)->helical.curve_only &&
+            session.calculated_boundaries().back().has_solid(),
+            "Undo did not restore the Helical Sweep and its profile");
+    f.run("redo");
+    check(session.document());
+    f.run("save");
+    check(document::PartDocument::load(directory/"helical-curve-conversion.prtz"));
+}
+
+void verify_release_trajectory_points(const kernel::OcctKernel& kernel, const fs::path& directory) {
+    for (const bool as_sweep : {false, true}) {
+        Fixture f(kernel, directory);
+        const std::string name = as_sweep ? "release-sweep-points" : "release-curve-points";
+        f.run("new", {{"type","part"},{"name",name}});
+        const auto source_id = f.run("construction.create",
+            {{"kind","point"},{"name","External source"},{"values",{{"z",4}}}}).at("construction").get<std::string>();
+        auto& session = f.state().session;
+        const auto source_origin = session.document().find_construction(source_id)->container_origin.id;
+        const auto path_id = f.run("construction.create",
+            {{"kind","curve3d"},{"name","Trajectory"},
+                {"points",Json::array({Json{{"values",{{"z",4}}}},Json{{"values",{{"z",24}}}}})}})
+                .at("construction").get<std::string>();
+        const auto first_id = session.document().find_construction(path_id)->curve_points.front().id;
+        f.run("construction.reference.set", {{"construction",first_id},{"index",0},
+            {"reference",{{"owner",source_origin},{"key","point"}}}});
+        const auto original = *session.document().find_construction(path_id);
+        const auto id = f.live.active_document_id();
+        auto owner = path_id;
+        if (as_sweep) {
+            auto sweep = test_support::sweep_fixture(document::FeatureKind::Sweep3D);
+            sweep.placement = workspace::read_placement(f.live,id,path_id).placement;
+            document::PartDocument::set_sweep3d_owned_path(sweep, original);
+            sweep.sweep3d.profiles.front().point_id = first_id;
+            require(document::PartDocument::reframe_sweep3d_profile(sweep,0),"Cannot frame release fixture");
+            owner = sweep.id;
+            workspace::convert_curve_to_sweep(f.live,kernel,id,std::move(sweep));
+        }
+        const auto route = [&](const auto& part) -> const document::ConstructionObject& {
+            return as_sweep ? part.find_container(owner)->sweep3d.path : *part.find_construction(owner);
+        };
+        const auto before = route(session.document());
+        const auto volume = as_sweep ? f.volume() : 0.;
+        const auto revision = session.revision();
+        require(workspace::release_trajectory_points(f.live,kernel,id,owner) &&
+            session.revision()==revision+1, "Point release is not one history transaction");
+        const auto check = [&](const auto& part) {
+            const auto& points = route(part).curve_points;
+            require(points.front().references.empty() && points.front().id == first_id &&
+                    points.front().origin == before.curve_points.front().origin &&
+                    points.front().rotation == before.curve_points.front().rotation &&
+                    points.back() == before.curve_points.back(),
+                    "Point release moved or replaced trajectory points");
+        };
+        check(session.document());
+        if (as_sweep) near(f.volume(), volume);
+        require(!workspace::release_trajectory_points(f.live,kernel,id,owner) &&
+            session.revision()==revision+1, "Repeated release created an Undo transaction");
+        f.run("undo");
+        require(route(session.document()).curve_points == before.curve_points,
+            "Undo did not restore point references");
+        f.run("redo");
+        check(session.document());
+        f.run("save");
+        check(document::PartDocument::load(directory/(name+".prtz")));
+    }
+}
+
 void verify_creation(const kernel::OcctKernel& kernel, const fs::path& directory) {
     Fixture f(kernel, directory); f.run("new", {{"type", "part"}, {"name", "sweep-created"}});
     const auto path = f.run("construction.create", {{"kind", "curve3d"}, {"name", "Source path"},
@@ -865,6 +971,8 @@ int main() {
         for(const auto kind:{document::FeatureKind::Sweep2D,document::FeatureKind::Sweep3D,document::FeatureKind::HelicalSweep})verify_sweep_references(kernel,directory,kind);
         verify_creation(kernel, directory);
         verify_trajectory_conversion(kernel, directory);
+        verify_release_trajectory_points(kernel, directory);
+        verify_helical_curve_conversion(kernel, directory);
         verify_creation_profiles(kernel, directory);
         verify_planar_creation(kernel, directory);
         verify_planar_curved_creation(kernel, directory);
