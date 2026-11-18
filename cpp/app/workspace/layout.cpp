@@ -241,7 +241,9 @@ void AssemblyWorkspaceWindow::create_layout() {
     },[this](const std::string& owner,const std::string&) {
         if(const auto* part=workspace_.open_part(workspace_.active_document_id())) {
             if(std::ranges::any_of(part->session.document().sketches,[&](const auto& sketch){return sketch.id==owner;}))return true;
-            if(const auto* feature=part->session.document().find_container(owner))
+            if(const auto* feature=part->session.document().find_container(owner)) {
+                if (feature->feature_kind == document::FeatureKind::Feature &&
+                    feature->feature.type == document::FeatureType::Axis) return false;
                 if(authored_sketch_profile(*feature)||feature->feature_kind==document::FeatureKind::Feature||
                     feature->feature_kind==document::FeatureKind::DerivedCopy||feature->feature_kind==document::FeatureKind::Loft||
                     feature->feature_kind==document::FeatureKind::Flat||feature->feature_kind==document::FeatureKind::Bend||
@@ -249,10 +251,12 @@ void AssemblyWorkspaceWindow::create_layout() {
                     feature->feature_kind==document::FeatureKind::SheetTransition||
                     feature->feature_kind==document::FeatureKind::Fillet||
                     feature->feature_kind==document::FeatureKind::Chamfer)return true;
+            }
         }
         if(const auto* assembly=workspace_.open_assembly(workspace_.active_document_id()))
             if(const auto* cut=assembly->session.document().find_cut(owner))
-                return true;
+                return cut->definition.feature_kind != document::FeatureKind::Feature ||
+                    cut->definition.feature.type != document::FeatureType::Axis;
         return false;
     });
     viewer_->set_preserve_screen_position_on_resize(true);

@@ -1008,8 +1008,13 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
             constexpr std::string_view origin_suffix{":origin"};
             const auto& display_owner = source.points[vertex.point].display_owner_id;
             if (!display_owner.empty()) {
+                const bool visible_datum = geometry == CandidateGeometry::Display &&
+                    vertex.reference.semantic_key == "point" &&
+                    display_owner == vertex.reference.owner_id &&
+                    source.points[vertex.point].always_visible;
                 result.push_back({CandidateKind::Container, vertex.distance,
-                    vertex.point, display_owner, {}, vertex.reference.instance_path, geometry, true});
+                    vertex.point, display_owner, visible_datum ? "point" : "",
+                    vertex.reference.instance_path, geometry, true});
             } else if (vertex.reference.semantic_key == "point" &&
                 vertex.reference.owner_id.ends_with(origin_suffix)) {
                 result.push_back({CandidateKind::Container, vertex.distance,
@@ -1052,7 +1057,7 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
                         point.reference.semantic_key=="point";
                 })) {
                 result.push_back({CandidateKind::Container,axis.distance,axis.axis,
-                    axis.reference.owner_id,{},axis.reference.instance_path,geometry});
+                    axis.reference.owner_id,"axis",axis.reference.instance_path,geometry});
             }
         }
         // The two axis hit corridors overlap in a square around their common
@@ -1311,7 +1316,8 @@ std::optional<ViewerCandidate> container_candidate(
     const auto find_axis = [&](const auto& axes, CandidateGeometry geometry)
         -> std::optional<ViewerCandidate> {
         const auto axis = std::find_if(axes.begin(), axes.end(), [&](const auto& value) {
-            return value.reference.owner_id == entity_id &&
+            return (value.reference.owner_id == entity_id ||
+                    value.reference.owner_id == owner_id) &&
                 value.reference.semantic_key == "axis" &&
                 value.reference.instance_path == instance_path;
         });

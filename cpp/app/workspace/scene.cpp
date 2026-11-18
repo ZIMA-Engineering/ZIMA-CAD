@@ -2410,6 +2410,13 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
                     ? &*construction_parameter_preview_
                     : source.find_construction(construction_dimension_object_id_);
             append_curve_radii(mesh, inspected);
+            if (const auto* cut = source.find_cut(construction_dimension_object_id_);
+                cut && cut->definition.feature_kind == document::FeatureKind::Feature &&
+                cut->definition.feature.type == document::FeatureType::Point) {
+                append_nonzero_parameter_dimensions(mesh.dimensions,
+                    document::container_placement_dimensions(cut->definition.id,
+                        cut->definition.placement, mesh.original_references));
+            }
         }
         if (active) for (const auto& sketch : source.sketches) {
             const auto* owner = source.find_sketch_container(sketch.owner_container_id);
@@ -2607,6 +2614,19 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
         const auto path = *active_part_occurrence;
         viewer_->set_candidate_filter([path](const auto& candidate) {
             return candidate.instance_path == path;
+        }, false);
+    } else if (active_part == nullptr && active_sketch_id_.empty() &&
+        properties_dialog_ == nullptr) {
+        const auto path = workspace_.active_occurrence_path();
+        viewer_->set_candidate_filter([this, path](const auto& candidate) {
+            if (candidate.kind != viewer::CandidateKind::Container) return true;
+            if ((candidate.semantic_key != "point" && candidate.semantic_key != "axis") ||
+                candidate.instance_path != path) return false;
+            const auto* active = workspace_.open_assembly(workspace_.active_document_id());
+            const auto* cut = active ? active->session.document().find_cut(candidate.owner_id) : nullptr;
+            return cut && cut->definition.feature_kind == document::FeatureKind::Feature &&
+                (cut->definition.feature.type == document::FeatureType::Point ||
+                 cut->definition.feature.type == document::FeatureType::Axis);
         }, false);
     }
     const bool fit_assembly_view = !preserve_view_on_refresh_ && active_sketch_id_.empty();

@@ -5173,7 +5173,8 @@ if (impl_->show_origins) {
                         (whole_feature_axis ||
                          (feature_axis && highlighted->kind == CandidateKind::Container &&
                           highlighted->owner_id == axis.reference.owner_id &&
-                          (highlighted->semantic_key.empty() || highlighted->semantic_key == "axis")) ||
+                          (highlighted->semantic_key.empty() || highlighted->semantic_key == "axis" ||
+                           highlighted->semantic_key == "point")) ||
                          ((highlighted->kind == CandidateKind::Axis ||
                            highlighted->kind == CandidateKind::SketchAxis) &&
                           highlighted->owner_id == axis.reference.owner_id &&

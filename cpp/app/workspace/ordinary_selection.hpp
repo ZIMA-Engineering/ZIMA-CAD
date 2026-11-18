@@ -13,8 +13,9 @@ inline std::vector<viewer::CandidateKind> ordinary_selection_kinds(
         case Filter::Origins:
         case Filter::Points: return {Kind::Vertex};
         case Filter::Axes: return {Kind::Axis};
-        default: return {Kind::Dimension, Kind::Symbol,
-            part ? Kind::Container : Kind::Occurrence};
+        default: return part
+            ? std::vector{Kind::Dimension, Kind::Symbol, Kind::Container}
+            : std::vector{Kind::Dimension, Kind::Symbol, Kind::Container, Kind::Occurrence};
     }
 }
 }

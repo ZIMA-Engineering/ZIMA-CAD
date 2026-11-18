@@ -507,6 +507,24 @@ void AssemblyWorkspaceWindow::edit_dimension_inline(
                     return;
                 }
             }
+            constexpr std::string_view placement_key_prefix{"parameter:placement:"};
+            if (candidate.semantic_key.starts_with(placement_key_prefix) &&
+                candidate.instance_path == workspace_.active_occurrence_path()) {
+                const auto document_id = workspace_.active_document_id();
+                const auto* assembly = workspace_.open_assembly(document_id);
+                const auto* cut = assembly ? assembly->session.document().find_cut(candidate.owner_id) : nullptr;
+                if (cut && cut->definition.feature_kind == document::FeatureKind::Feature &&
+                    cut->definition.feature.type == document::FeatureType::Point) {
+                    const auto key = candidate.semantic_key.substr(placement_key_prefix.size());
+                    static_cast<void>(workspace::set_placement_values(
+                        workspace_, kernel_, document_id, candidate.owner_id, {{key, next_value}}));
+                    guarded->hide();
+                    guarded->deleteLater();
+                    refresh_tabs();
+                    show_parameter_dimensions(candidate.owner_id);
+                    return;
+                }
+            }
             auto* part = workspace_.open_part(workspace_.active_document_id());
             if (part == nullptr) throw std::runtime_error(
                 "Inline dimension editing currently requires an active Part");

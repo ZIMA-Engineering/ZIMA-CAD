@@ -3446,7 +3446,8 @@ int verify_pending_container_tree(QApplication& application,
             ? point_feature->findChild<QPushButton*>("containerDefaultOriginButton") : nullptr;
         if (!verify(use_origin, "Point shortcut did not open Feature Properties")) return 1;
         const auto feature_id = point_feature->pending_value().id;
-        use_origin->click(); flush();
+        if (!verify(point_feature->set_inline_parameter_value("placement:x", 22),
+                "Point fixture cannot set X")) return 1;
         point_feature->buttons()->button(QDialogButtonBox::Ok)->click(); flush();
         const auto point_visible = [&] {
             model_view->clear_selection();
@@ -3480,6 +3481,120 @@ int verify_pending_container_tree(QApplication& application,
                 window.open_document_path(QString::fromStdString(path.string())),
                 "Point fixture could not reopen")) return 1;
         if (!verify(point_visible(), "Native reopen lost the Point marker")) return 1;
+        const auto authored_point = std::ranges::find_if(model_view->mesh().points,
+            [&](const auto& point) {
+                return point.reference.owner_id == feature_id &&
+                    point.reference.semantic_key == "point";
+            });
+        if (!verify(authored_point != model_view->mesh().points.end(),
+                "Reopened Point has no marker to click")) return 1;
+        model_view->fit_points({authored_point->position});
+        flush();
+        const QPointF center(model_view->width() / 2.0, model_view->height() / 2.0);
+        const auto mouse = [&](QEvent::Type type, Qt::MouseButton button, Qt::MouseButtons buttons) {
+            QMouseEvent event(type, center, model_view->mapToGlobal(center.toPoint()),
+                button, buttons, Qt::NoModifier);
+            QApplication::sendEvent(model_view, &event);
+            flush();
+        };
+        const auto history_before = window.execute_console_command("history.list");
+        const auto selected_point = [&](const auto& candidate) {
+            return candidate && candidate->kind == zima::viewer::CandidateKind::Container &&
+                candidate->owner_id == feature_id;
+        };
+        const auto tree_has_point = [&] {
+            return tree->currentItem() &&
+                tree->currentItem()->data(0, Qt::UserRole).toString().toStdString() == feature_id;
+        };
+        const auto has_dimensions = [&] {
+            return std::ranges::any_of(model_view->mesh().dimensions, [&](const auto& dimension) {
+                return dimension.reference.owner_id == feature_id &&
+                    dimension.reference.semantic_key.starts_with("parameter:placement:");
+            });
+        };
+        const auto azure_at_view_center = [&] {
+            const auto frame = model_view->grabFramebuffer();
+            const auto pixel = (center * frame.devicePixelRatio()).toPoint();
+            for (int y = pixel.y() - 2; y <= pixel.y() + 2; ++y)
+                for (int x = pixel.x() - 2; x <= pixel.x() + 2; ++x) {
+                    const auto color = frame.pixelColor(x, y);
+                    if (color.red() < 110 && color.green() > 170 && color.blue() > 170)
+                        return true;
+                }
+            return false;
+        };
+        mouse(QEvent::MouseMove, Qt::NoButton, Qt::NoButton);
+        if (!verify(selected_point(model_view->hovered_candidate()),
+                "Point marker did not offer its owning feature")) return 1;
+        if (!verify(azure_at_view_center(), "Hovered Point marker is not azure")) return 1;
+        mouse(QEvent::MouseButtonPress, Qt::LeftButton, Qt::LeftButton);
+        mouse(QEvent::MouseButtonRelease, Qt::LeftButton, Qt::NoButton);
+        if (!verify(selected_point(model_view->confirmed_candidate()) && tree_has_point() &&
+                !has_dimensions(), "Single Point click did not synchronize selection without dimensions")) return 1;
+        if (!verify(azure_at_view_center(), "Selected Point marker is not azure")) return 1;
+        mouse(QEvent::MouseButtonDblClick, Qt::LeftButton, Qt::LeftButton);
+        mouse(QEvent::MouseButtonRelease, Qt::LeftButton, Qt::NoButton);
+        const auto history_after = window.execute_console_command("history.list");
+        if (!verify(tree_has_point() && has_dimensions() && history_before.ok &&
+                history_after.ok && history_before.data == history_after.data,
+                "Double-click did not inspect the Point without changing history")) return 1;
+
+        window.findChild<QAction*>("featureShortcut1Action")->trigger(); flush();
+        auto* axis_feature = dynamic_cast<zima::app::PrimitivePropertiesDialog*>(
+            window.findChild<QWidget*>("featurePropertiesDialog"));
+        if (!verify(axis_feature, "Axis shortcut did not open Feature Properties")) return 1;
+        const auto axis_id = axis_feature->pending_value().id;
+        if (!verify(axis_feature->set_inline_parameter_value("placement:y", 90),
+                "Axis fixture cannot set Y")) return 1;
+        axis_feature->buttons()->button(QDialogButtonBox::Ok)->click(); flush();
+        model_view->set_standard_view(zima::viewer::StandardView::Isometric);
+        model_view->set_reference_visibility(zima::viewer::ReferenceVisibility::Axes, true);
+        model_view->set_reference_visibility(zima::viewer::ReferenceVisibility::Origins, false);
+        const auto axis = std::ranges::find_if(model_view->mesh().axes, [&](const auto& value) {
+            return value.reference.owner_id == axis_id && value.reference.semantic_key == "axis";
+        });
+        if (!verify(axis != model_view->mesh().axes.end(), "Axis has no View line to hover")) return 1;
+        const double step = axis->display_length / 4;
+        model_view->fit_points({{axis->point.x + step * axis->direction.x,
+            axis->point.y + step * axis->direction.y, axis->point.z + step * axis->direction.z}});
+        model_view->clear_selection(); flush();
+        const auto idle_axis = model_view->grabFramebuffer();
+        const auto highlighted_axis_pixels = [&] {
+            const auto frame = model_view->grabFramebuffer();
+            int highlighted = 0;
+            // The line has gaps and subpixel coverage. Check its color change
+            // across the frame, including antialiased pixels.
+            for (int y = 0; y < frame.height(); ++y)
+                for (int x = 0; x < frame.width(); ++x) {
+                    const auto before = idle_axis.pixelColor(x, y);
+                    const auto after = frame.pixelColor(x, y);
+                    if (before.red() > before.green() &&
+                        before.red() - after.red() > 20 &&
+                        after.green() - before.green() > 15 &&
+                        after.blue() - before.blue() > 35) ++highlighted;
+                }
+            if (highlighted < 10) {
+                idle_axis.save(QString::fromStdString((directory / "axis-idle.png").string()));
+                frame.save(QString::fromStdString((directory / "axis-highlight.png").string()));
+            }
+            return highlighted >= 10;
+        };
+        mouse(QEvent::MouseMove, Qt::NoButton, Qt::NoButton);
+        const auto hovered_axis = model_view->hovered_candidate();
+        if (!hovered_axis || hovered_axis->owner_id != axis_id) {
+            std::cerr << (assembly ? "Assembly" : "Part") << " Axis candidate " << axis_id << '\n';
+            for (const auto& candidate : model_view->selection_candidates_at(center))
+                std::cerr << int(candidate.kind) << ' ' << candidate.owner_id << ' '
+                          << candidate.semantic_key << '\n';
+        }
+        if (!verify(hovered_axis && hovered_axis->owner_id == axis_id,
+                "Axis line did not offer its owning feature")) return 1;
+        if (!verify(highlighted_axis_pixels(), "Hovered Axis line is not azure")) return 1;
+        mouse(QEvent::MouseButtonPress, Qt::LeftButton, Qt::LeftButton);
+        mouse(QEvent::MouseButtonRelease, Qt::LeftButton, Qt::NoButton);
+        if (!verify(tree->currentItem() &&
+                tree->currentItem()->data(0, Qt::UserRole).toString().toStdString() == axis_id &&
+                highlighted_axis_pixels(), "Selected Axis line is not azure or synchronized with Tree")) return 1;
 
         window.findChild<QAction*>("constructionPointAction")->trigger(); flush();
         auto* created = dialog();
