@@ -243,7 +243,7 @@ bool commit_edge_treatment(Workspace& live,const kernel::OcctKernel& kernel,cons
                 throw Error("invalid_reference","R1 must identify an endpoint of one connected open input route.");
         }
     }
-    const bool require_valid_result=parameters.calculation_method==
+    const bool require_valid_result=!fillet&&parameters.calculation_method==
         Parameters::CalculationMethod::Zima;
     const auto feature_id=feature.id;auto next=before;
     for (const auto& entry : layouts) {
@@ -262,8 +262,8 @@ bool commit_edge_treatment(Workspace& live,const kernel::OcctKernel& kernel,cons
     const auto& previous=state->session.calculated_boundaries();
     auto policy=feature_definition_calculation_policy(before,previous,feature_id);
     if(stored){policy.edited_document_id=id;policy.edited_history_limit=before.history_index(feature_id);}
-    // Validate the newly evaluated feature below. Unrelated errors elsewhere
-    // in the history remain attached to their existing owners.
+    // Fillet keeps a valid definition even when the kernel cannot build it.
+    // Unrelated errors remain attached to their existing history owners.
     policy.reject_errors=false;
     // Preserve the Tree route-edit contract: dependent placements and Sketch
     // projections must describe the same explicitly calculated result.  Edge

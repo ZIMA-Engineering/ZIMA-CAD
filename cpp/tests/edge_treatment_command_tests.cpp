@@ -261,22 +261,6 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
         "Fillet command accepted the removed Automatic method name");
     run(host,"fillet.get",{{"container",id}});require(!run(host,"fillet.set",{{"container",id},{"radius_mm",2}}).data.at("changed").get<bool>(),"Fillet equal patch committed");
     require(state->session.revision()==revision&&state->session.calculated_boundaries().data()==cache,"Fillet read/no-op recalculated");
-    auto recovery_preview=original;
-    recovery_preview.edge_treatment.primary_size=3;
-    const auto recovery_expected=calculate_candidate_body(
-        state->session,kernel,recovery_preview);
-    const auto strict_failure=host.execute({{"command","fillet.set"},
-        {"arguments",{{"container",id},{"radius_mm",500},
-            {"calculation_method","zima"}}}});
-    require(!strict_failure.ok&&strict_failure.code=="calculation_failed"&&state->session.revision()==revision&&
-            *state->session.document().find_container(id)==original,
-        "Failed explicit ZIMA calculation changed the authored Fillet");
-    const auto recovery_actual=calculate_candidate_body(
-        state->session,kernel,recovery_preview);
-    require(recovery_actual.vertices==recovery_expected.vertices&&
-            recovery_actual.triangles==recovery_expected.triangles&&
-            state->session.revision()==revision,
-        "Rejected Fillet poisoned a subsequent valid preview");
     for(const auto& patch:std::vector<Json>{{{"radius_mm",0}},{{"radius_mm",1000001}},{{"mode","nonsense"}},{{"mode","linear"}},
         {{"routes",Json::array()}},{{"routes",Json::array({Json{{"edges",Json::array({edge,edge})}}})}},
         {{"routes",Json::array({Json{{"edges",Json::array({Json{{"owner",box},{"key","missing"}}})}}})}},
@@ -289,9 +273,20 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
         auto args=patch;args["container"]=id;require(!host.execute({{"command","fillet.set"},{"arguments",args}}).ok,"Invalid Fillet accepted");
         require(state->session.revision()==revision&&state->session.calculated_boundaries().data()==cache&&*state->session.document().find_container(id)==original,"Invalid Fillet partly committed");
     }
-    // A well-formed definition that the geometry kernel cannot currently
-    // construct remains authored and red, so its exact references can be
-    // inspected and corrected instead of being discarded by OK.
+    run(host,"fillet.set",{{"container",id},{"radius_mm",1000},
+        {"calculation_method","zima"}});
+    const auto& failed_zima=*state->session.document().find_container(id);
+    require(failed_zima.edge_treatment.primary_size==1000&&
+            failed_zima.edge_treatment.calculation_method==
+                document::EdgeTreatmentParameters::CalculationMethod::Zima&&
+            state->session.revision()==revision+1&&
+            state->session.calculated_boundaries().back().calculation_errors.contains(id),
+        "Failed ZIMA Fillet did not retain its definition and calculation error");
+    run(host,"undo");
+    require(*state->session.document().find_container(id)==original&&
+            state->session.calculated_boundaries().back().calculation_errors.empty(),
+        "Undo did not restore the Fillet after a failed ZIMA edit");
+    // Exercise the same recovery contract with the original calculation method.
     run(host,"fillet.set",{{"container",id},{"radius_mm",500}});
     require(state->session.document().find_container(id)->edge_treatment.primary_size==500&&
             state->session.calculated_boundaries().back().calculation_errors.contains(id),

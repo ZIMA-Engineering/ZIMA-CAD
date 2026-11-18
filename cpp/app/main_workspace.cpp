@@ -4311,14 +4311,6 @@ int verify_history_recovery_ui(QApplication& application, const std::filesystem:
         }
     });
     prompt_guard.start(20);
-    const auto failed_edit = window.execute_console_command(
-        QString::fromStdString(nlohmann::json{{"command","fillet.set"},
-            {"arguments",{{"container",first.id},{"radius_mm",1000}}}}.dump()));
-    if (!failed_edit.ok) std::cerr << failed_edit.message << std::endl;
-    if (!verify(failed_edit.ok,
-            "GUI fixture could not invalidate the first Fillet")) return 1;
-    flush();
-    const auto invalidation_prompts = prompts.size();
     auto* tree = window.findChild<QTreeWidget*>("documentTree");
     auto* view = dynamic_cast<zima::viewer::MeshView*>(
         window.findChild<QOpenGLWidget*>("modelWorkspace"));
@@ -4332,11 +4324,40 @@ int verify_history_recovery_ui(QApplication& application, const std::filesystem:
         return item&&item->foreground(0).color()==QColor(210,75,65)&&
             !item->toolTip(0).isEmpty();
     };
+    window.show_tree_item_properties(row(first.id)); flush();
+    QPointer<zima::app::PrimitivePropertiesDialog> source_dialog;
+    for (auto* candidate : window.findChildren<QDialog*>())
+        if (auto* primitive = dynamic_cast<zima::app::PrimitivePropertiesDialog*>(candidate);
+                primitive && primitive->isVisible() && primitive->container_id() == first.id)
+            source_dialog = primitive;
+    auto* source_radius = source_dialog
+        ? source_dialog->findChild<QDoubleSpinBox*>("edgeTreatmentPrimary") : nullptr;
+    if (!verify(source_radius, "Source Fillet lost its radius editor")) return 1;
+    source_radius->setValue(1000); flush();
+    auto* source_ok = source_dialog->buttons()->button(QDialogButtonBox::Ok);
+    if (!verify(source_ok && source_ok->isEnabled(),
+            "Oversize Fillet radius disabled OK")) return 1;
+    source_ok->click(); flush();
+    if (!verify((!source_dialog || !source_dialog->isVisible()) &&
+                failed_row(row(first.id)),
+            "Fillet OK did not retain the failed source definition")) return 1;
+    const auto invalidation_prompts = prompts.size();
     auto* dependent = row(second->id);
     if (!verify(failed_row(dependent),
             "Dependent invalid Fillet is missing from the Tree")) return 1;
     if (!verify(view && !view->mesh().triangles.empty(),
             "Invalid Fillet dependency hid the last valid Body")) return 1;
+    window.findChild<QAction*>("saveDocumentAction")->trigger(); flush();
+    std::vector<zima::kernel::BodyResult> failed_bodies;
+    const auto failed_document = PartDocument::load(path, &failed_bodies);
+    const auto* failed_source = failed_document.find_container(first.id);
+    if (!verify(failed_source && failed_source->edge_treatment.primary_size == 1000 &&
+                failed_source->edge_treatment.calculation_method ==
+                    EdgeTreatmentParameters::CalculationMethod::Zima &&
+                !failed_bodies.empty() &&
+                failed_bodies.back().calculation_errors.contains(first.id) &&
+                failed_bodies.back().calculation_errors.contains(second->id),
+            "Saved Fillet lost the radius, method or dependent errors")) return 1;
     const auto invalid_revision = window.execute_console_command(
         "documents").data.at(0).at("revision");
     window.show_tree_item_properties(dependent); flush();
