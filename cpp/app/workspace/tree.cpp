@@ -428,8 +428,11 @@ void AssemblyWorkspaceWindow::add_pending_tree_item(QTreeWidgetItem* parent,
             if (feature) { feature->name = pending_sketch->name; feature->placement = value.second; }
         }
         else if (auto* dialog = dynamic_cast<ConstructionPropertiesDialog*>(tree_edit_dialog_.data())) {
-            if (dialog->is_sweep()) feature = dialog->pending_sweep_value();
-            else construction = dialog->pending_value();
+            if (dialog->sweep_mode()) feature = dialog->pending_sweep_value();
+            else {
+                construction = dialog->pending_value();
+                if (dialog->is_sweep()) construction->parent_construction_id.clear();
+            }
         }
     } else if (pending_profile_feature_) {
         feature = *pending_profile_feature_;

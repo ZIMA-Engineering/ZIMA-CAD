@@ -2,6 +2,7 @@
 #include "sweep_test_support.hpp"
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/sweep_operations.hpp>
+#include <zima/workspace/placement_edit.hpp>
 #include <zima/workspace/sketch_operations.hpp>
 #include <zima/kernel/stable_id.hpp>
 #include <cmath>
@@ -290,6 +291,64 @@ void verify_sweep_commands(const kernel::OcctKernel& kernel, const fs::path& dir
             "Reading an invalid route changed the Part or hid its editable parameters");
         f.run("undo");
     }
+}
+void verify_trajectory_conversion(const kernel::OcctKernel& kernel, const fs::path& directory) {
+    Fixture f(kernel, directory);
+    f.run("new", {{"type","part"},{"name","trajectory-conversion"}});
+    const auto response = f.run("construction.create", {{"kind","curve3d"},{"name","Trajectory"},
+        {"values",{{"x",7},{"y",-3},{"z",8},{"rotation_y",30}}},
+        {"points",Json::array({Json{{"values",{{"z",0}}}},Json{{"values",{{"z",20}}}}})}});
+    const auto path_id = response.at("construction").get<std::string>();
+    const auto id = f.live.active_document_id();
+    auto& session = f.state().session;
+    const auto original = *session.document().find_construction(path_id);
+    const auto consumer_id = f.run("construction.create", {{"kind","point"},{"name","Path consumer"}})
+        .at("construction").get<std::string>();
+    f.run("construction.reference.set", {{"construction",consumer_id},{"index",0},
+        {"reference",{{"owner",original.curve_points.back().container_origin.id},{"key","point"}}}});
+    const auto consumer = *session.document().find_construction(consumer_id);
+    const auto check_consumer = [&](const char* stage) {
+        const auto* value = session.document().find_construction(consumer_id);
+        if (!value || !value->reference_valid || value->references!=consumer.references ||
+            std::hypot(value->origin.x-consumer.origin.x,value->origin.y-consumer.origin.y,
+                       value->origin.z-consumer.origin.z)>=1e-8) {
+            std::cerr << stage << ": original " << consumer.origin.x << ',' << consumer.origin.y << ',' << consumer.origin.z;
+            if (value) std::cerr << " current " << value->origin.x << ',' << value->origin.y << ',' << value->origin.z
+                << " valid " << value->reference_valid << " refs " << value->references.size();
+            throw std::runtime_error("Conversion broke a reference to a retained trajectory point");
+        }
+    };
+    const auto initial_order = session.document().history_order;
+    auto sweep = test_support::sweep_fixture(document::FeatureKind::Sweep3D);
+    sweep.placement = workspace::read_placement(f.live,id,path_id).placement;
+    document::PartDocument::set_sweep3d_owned_path(sweep, original);
+    sweep.sweep3d.profiles.front().point_id = original.curve_points.front().id;
+    require(document::PartDocument::reframe_sweep3d_profile(sweep,0),"Cannot frame conversion profile");
+    const auto sweep_id = sweep.id;
+    const auto revision = session.revision();
+    workspace::convert_curve_to_sweep(f.live,kernel,id,std::move(sweep));
+    const auto& converted = session.document();
+    require(session.revision()==revision+1 && converted.history_order.size()==initial_order.size() &&
+                !converted.find_construction(path_id) && converted.find_container(sweep_id),
+        "Curve conversion did not replace exactly one item in a single transaction");
+    require(converted.find_container(sweep_id)->sweep3d.path.curve_points==original.curve_points,
+        "Curve conversion replaced its native point definitions");
+    check_consumer("curve to sweep");
+    near(f.volume(),80*std::numbers::pi);
+    workspace::convert_sweep_to_curve(f.live,kernel,id,sweep_id,original);
+    require(session.revision()==revision+2 && session.document().history_order==initial_order &&
+                !session.document().find_container(sweep_id) && session.document().find_construction(path_id),
+        "Sweep conversion did not restore the standalone path at its original history position");
+    check_consumer("sweep to curve");
+    f.run("undo");
+    require(session.document().find_container(sweep_id)!=nullptr,"Undo did not restore the Sweep and its profiles");
+    near(f.volume(),80*std::numbers::pi);
+    f.run("redo");
+    f.run("save");
+    const auto reopened=document::PartDocument::load(directory/"trajectory-conversion.prtz");
+    require(reopened.find_construction(path_id) && reopened.find_construction(path_id)->curve_points==original.curve_points &&
+                !reopened.find_container(sweep_id),
+        "The saved converted path lost native points or retained the Sweep");
 }
 void verify_creation(const kernel::OcctKernel& kernel, const fs::path& directory) {
     Fixture f(kernel, directory); f.run("new", {{"type", "part"}, {"name", "sweep-created"}});
@@ -805,6 +864,7 @@ int main() {
         for (const auto kind : {document::FeatureKind::Sweep2D, document::FeatureKind::Sweep3D, document::FeatureKind::HelicalSweep}) verify_sweep_commands(kernel, directory, kind);
         for(const auto kind:{document::FeatureKind::Sweep2D,document::FeatureKind::Sweep3D,document::FeatureKind::HelicalSweep})verify_sweep_references(kernel,directory,kind);
         verify_creation(kernel, directory);
+        verify_trajectory_conversion(kernel, directory);
         verify_creation_profiles(kernel, directory);
         verify_planar_creation(kernel, directory);
         verify_planar_curved_creation(kernel, directory);

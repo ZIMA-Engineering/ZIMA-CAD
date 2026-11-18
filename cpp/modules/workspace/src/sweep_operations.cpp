@@ -6,6 +6,7 @@
 #include <zima/document/feature_sketches.hpp>
 #include <zima/document/sweep_inputs.hpp>
 #include <zima/workspace/history_policy.hpp>
+#include <zima/workspace/history_deletion.hpp>
 #include <zima/workspace/profile_operations.hpp>
 #include <zima/kernel/stable_id.hpp>
 #include <algorithm>
@@ -17,6 +18,29 @@ namespace {
 using Kind = document::FeatureKind;
 bool supported(Kind kind) {
     return kind == Kind::Sweep2D || kind == Kind::Sweep3D || kind == Kind::HelicalSweep;
+}
+void replace_trajectory_history_entry(document::PartDocument& part,
+        const std::string& id, document::PartHistoryEntry replacement) {
+    const auto update = [&](auto& entries, std::size_t cursor) {
+        const auto entry = std::ranges::find(entries, id, &document::PartHistoryEntry::id);
+        if (entry == entries.end() || static_cast<std::size_t>(entry - entries.begin()) >= cursor)
+            throw SweepOperationError("inactive_input", "Sweep inputs must be active before the history cursor.");
+        *entry = std::move(replacement);
+    };
+    if (part.body_history.bodies().empty()) {
+        update(part.history_order, part.effective_history_cursor());
+        return;
+    }
+    const auto* owner = part.body_history.owner(id);
+    if (!owner || owner->scope.id != part.body_history.active_body_id())
+        throw SweepOperationError("inactive_body", "Activate the owning Body before editing its history.");
+    if (owner->derived_copy || owner->scale || owner->link || owner->suppressed)
+        throw SweepOperationError("read_only_body", "A derived Body cannot be edited directly.");
+    auto body = *owner;
+    update(body.entries, body.cursor);
+    auto graph = part.body_history;
+    graph.update_body(std::move(body));
+    part.set_body_history(std::move(graph));
 }
 void inherit_sketch_placement(document::HistoryContainer& feature, const document::Placement& source) {
     feature.placement = source;
@@ -293,6 +317,66 @@ void commit_sweep(Workspace& live, const kernel::OcctKernel& kernel, const std::
     next.resolve_constructions(references);
     auto calculated = calculate_part_with_resolved_references(kernel, next, &previous, policy);
     commit_part_document(live,id,std::move(next), std::move(calculated));
+}
+void replace_curve_with_sweep_draft(document::PartDocument& next, document::HistoryContainer feature) {
+    const auto path_id = feature.sweep3d.path.id;
+    const auto source = std::ranges::find(next.constructions, path_id, &document::ConstructionObject::id);
+    const auto at = std::ranges::find(next.history_order, path_id, &document::PartHistoryEntry::id);
+    if (feature.feature_kind != Kind::Sweep3D || next.find_container(feature.id) ||
+        source == next.constructions.end() || at == next.history_order.end() ||
+        source->kind != document::ConstructionKind::Curve3D || source->suppressed ||
+        source->entity_id != feature.sweep3d.path.entity_id)
+        throw SweepOperationError("construction_not_found", "Select a standalone 3D curve for the Sweep path.");
+    const auto following = std::find_if(std::next(at), next.history_order.end(), [&](const auto& entry) {
+        return next.find_container(entry.id) != nullptr;
+    });
+    const auto position = following == next.history_order.end() ? next.history.end() :
+        std::ranges::find(next.history, following->id, &document::HistoryContainer::id);
+    const auto feature_id = feature.id;
+    next.constructions.erase(source);
+    next.history.insert(position, std::move(feature));
+    replace_trajectory_history_entry(next, path_id, {document::PartHistoryKind::Feature, feature_id});
+}
+
+void convert_curve_to_sweep(Workspace& live, const kernel::OcctKernel& kernel,
+        const std::string& id, document::HistoryContainer feature) {
+    auto* state = live.open_part(id);
+    if (!state) throw SweepOperationError("unsupported_document", "Sweep operations require an open Part.");
+    validate_sweep(feature);
+    const auto feature_id = feature.id;
+    auto next = state->session.document();
+    replace_curve_with_sweep_draft(next, std::move(feature));
+    const auto& previous = state->session.calculated_boundaries();
+    const auto policy = feature_definition_calculation_policy(next, previous, feature_id);
+    auto calculated = calculate_part_with_resolved_references(kernel,next,&previous,policy);
+    commit_part_document(live,id,std::move(next),std::move(calculated));
+}
+
+void convert_sweep_to_curve(Workspace& live, const kernel::OcctKernel& kernel,
+        const std::string& id, const std::string& sweep_id, document::ConstructionObject path) {
+    auto* state = live.open_part(id);
+    if (!state) throw SweepOperationError("unsupported_document", "Sweep operations require an open Part.");
+    auto next = state->session.document();
+    const auto* feature = next.find_container(sweep_id);
+    if (!feature || feature->feature_kind != Kind::Sweep3D ||
+        path.kind != document::ConstructionKind::Curve3D || path.id != feature->sweep3d.path.id ||
+        path.entity_id != feature->sweep3d.path.entity_id)
+        throw SweepOperationError("wrong_feature", "This container is not the requested Sweep type.");
+    const auto path_id = path.id;
+    path.parent_construction_id.clear();
+    // Register the recovered path before planning deletion. Its retained
+    // identities belong to the standalone curve, while calculated faces and
+    // profiles still belong to the Sweep being removed.
+    next.constructions.push_back(std::move(path));
+    const auto deletion = plan_history_deletion(next, sweep_id);
+    detach_deleted_history_references(next, deletion);
+    std::erase_if(next.history, [&](const auto& value) { return value.id == sweep_id; });
+    std::erase_if(next.sketches, [&](const auto& value) { return value.owner_container_id == sweep_id; });
+    next.reference_errors.erase(sweep_id);
+    next.removed_reference_states.erase(sweep_id);
+    replace_trajectory_history_entry(next, sweep_id, {document::PartHistoryKind::Construction, path_id});
+    auto calculated = calculate_part_with_resolved_references(kernel,next,&state->session.calculated_boundaries());
+    commit_part_document(live,id,std::move(next),std::move(calculated));
 }
 bool set_sweep_placement_reference(Workspace& live,const kernel::OcctKernel& kernel,
     const std::string& id,const std::string& container,std::size_t index,

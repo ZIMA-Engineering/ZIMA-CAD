@@ -160,6 +160,11 @@ void AssemblyWorkspaceWindow::show_tree_item_properties(QTreeWidgetItem* item) {
                         feature->feature_kind==document::FeatureKind::DrillPoint)&&
                         part->session.document().history_index(id).has_value()&&
                         resolve_active_occurrence(part->session.document().document_id).has_value();
+        if(kind==QStringLiteral("part-construction")&&!properties_dialog_&&active_sketch_id_.empty())
+            if(const auto* part=workspace_.open_part(workspace_.active_document_id()))
+                if(const auto* curve=part->session.document().find_construction(id))
+                    command_preview_follows=curve->kind==document::ConstructionKind::Curve3D&&
+                        !curve->suppressed&&curve->parent_construction_id.empty();
         if(kind==QStringLiteral("assembly-cut")&&!properties_dialog_&&active_sketch_id_.empty())
             if(const auto* assembly=workspace_.open_assembly(workspace_.active_document_id()))
                 if(const auto* cut=assembly->session.document().find_cut(id))

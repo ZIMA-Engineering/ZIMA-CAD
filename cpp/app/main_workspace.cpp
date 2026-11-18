@@ -3221,6 +3221,15 @@ int verify_body_curve_references(QApplication& application, const std::filesyste
         };
         auto* parent=dialog();
         if (!verify(parent!=nullptr,"Cannot open Curve/Sweep properties in Body")) return 1;
+        auto* trajectory_mode=parent->findChild<QComboBox*>("trajectoryFeatureType");
+        auto* profiles=parent->findChild<QTableWidget*>("sweep3DProfiles");
+        if (!verify(trajectory_mode && profiles && trajectory_mode->currentIndex()==int(sweep) &&
+                        profiles->isVisible()==sweep,
+                    "Curve and Sweep must open the same type control with the appropriate profile visibility")) return 1;
+        trajectory_mode->setCurrentIndex(int(!sweep));flush();
+        if (!verify(dialog()==parent && profiles->isVisible()!=sweep,
+                    "Switching trajectory type must update the same dialog")) return 1;
+        trajectory_mode->setCurrentIndex(int(sweep));flush();
         if (sweep && !verify(curve_visible(),"Opening 3D Sweep hid an independent visible 3D Curve")) return 1;
         {auto* rows=parent->findChild<QTableWidget*>("curve3DPoints");emit rows->cellClicked(rows->rowCount()-1,0);}flush();
         auto* point=dialog();
@@ -3268,6 +3277,49 @@ int verify_body_curve_references(QApplication& application, const std::filesyste
         if (!verify(canceled.history.size()==1 && canceled.constructions.size()==(sweep?1u:0u) &&
                         (!sweep || canceled.find_construction(curve.id)!=nullptr),
                 "Cancel persisted the Curve/Sweep reference preview")) return 1;
+        if (!sweep) continue;
+        auto* tree=window.findChild<QTreeWidget*>("documentTree");
+        const auto edit=[&](const std::string& id) {
+            QTreeWidgetItem* row=nullptr;
+            for (QTreeWidgetItemIterator it(tree); *it; ++it) {
+                if ((*it)->data(0,Qt::UserRole).toString().toStdString()!=id) continue;
+                row=*it;
+                break;
+            }
+            if (!row) return static_cast<zima::app::ConstructionPropertiesDialog*>(nullptr);
+            window.show_tree_item_properties(row);
+            flush();
+            return dialog();
+        };
+        parent=edit(curve.id);
+        if (!verify(parent,"Cannot edit the existing 3D Curve")) return 1;
+        parent->findChild<QComboBox*>("trajectoryFeatureType")->setCurrentIndex(1);flush();
+        profiles=parent->findChild<QTableWidget*>("sweep3DProfiles");
+        auto* first_station=qobject_cast<QPushButton*>(profiles->cellWidget(0,1));
+        if (!verify(first_station && first_station->isEnabled(),"Converted curve cannot accept its first profile")) return 1;
+        first_station->click();flush();
+        window.findChild<QAction*>("finishSketchAction")->trigger();flush();
+        if (!verify(dialog()==parent && parent->sweep_profile(0),"Cannot resume trajectory Properties after closing its profile editor")) return 1;
+        auto section=zima::sketcher::Sketch::from_serialized(parent->sweep_profile(0)->sketch_serialized);
+        static_cast<void>(section.add_circle(0,0,2));
+        parent->set_sweep_profile_sketch(0,section);
+        const auto sweep_id=parent->pending_sweep_value().id;
+        parent->buttons()->button(QDialogButtonBox::Ok)->click();flush();
+        if (!verify(!dialog(),"Confirming conversion from Curve to Sweep failed")) return 1;
+        window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
+        const auto converted=PartDocument::load(path);
+        if (!verify(converted.find_container(sweep_id) && !converted.find_construction(curve.id),
+                    "OK did not replace the existing Curve with a Sweep")) return 1;
+        parent=edit(sweep_id);
+        if (!verify(parent,"Cannot edit the converted Sweep")) return 1;
+        parent->findChild<QComboBox*>("trajectoryFeatureType")->setCurrentIndex(0);flush();
+        parent->buttons()->button(QDialogButtonBox::Ok)->click();flush();
+        if (!verify(!dialog(),"Confirming conversion from Sweep to Curve failed")) return 1;
+        window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
+        const auto restored=PartDocument::load(path);
+        if (!verify(!restored.find_container(sweep_id) && restored.find_construction(curve.id) &&
+                    restored.find_construction(curve.id)->curve_points==curve.curve_points,
+                    "Converting back did not restore the original trajectory")) return 1;
     }
     std::cout << "Body Curve/Sweep reference contracts passed\n";
     return 0;

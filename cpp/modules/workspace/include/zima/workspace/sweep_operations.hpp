@@ -34,6 +34,11 @@ struct HelicalSources {
 // The supplied definition owns its embedded Sketches and path Point identities.
 void commit_sweep(Workspace&, const kernel::OcctKernel&, const std::string& document_id,
     document::HistoryContainer, SweepEditMode);
+void convert_curve_to_sweep(Workspace&, const kernel::OcctKernel&, const std::string& document_id,
+    document::HistoryContainer);
+void replace_curve_with_sweep_draft(document::PartDocument&, document::HistoryContainer);
+void convert_sweep_to_curve(Workspace&, const kernel::OcctKernel&, const std::string& document_id,
+    const std::string& sweep_id, document::ConstructionObject);
 // Reuse the original-reference assignment and the normal Sweep OK transaction.
 [[nodiscard]] bool set_sweep_placement_reference(Workspace&,const kernel::OcctKernel&,
     const std::string& document_id,const std::string& container,std::size_t index,

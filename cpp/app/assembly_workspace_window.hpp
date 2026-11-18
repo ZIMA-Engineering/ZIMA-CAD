@@ -911,7 +911,7 @@ private:
     void show_owned_sketch_properties(SweepPlacementDialog*,unsigned);
     void show_loft_properties(const std::string& container_id = {});
     void show_helical_sweep_properties(const std::string& container_id = {});
-    void show_sweep3d_properties(const std::string& container_id = {});
+    void show_sweep3d_properties(const std::string& container_id = {}, bool start_as_curve = false);
     void transform_sketch_container(
         const std::string& container_id,
         zima::document::FeatureKind target_kind);

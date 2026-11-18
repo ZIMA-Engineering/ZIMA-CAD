@@ -7073,8 +7073,13 @@ void PartDocument::resolve_constructions(
                 source_geometry);
             const bool children_valid =
                 resolve_curve_children(carrier_path, std::move(local_geometry));
+            // The trajectory remains a source of references after it moves
+            // under a Sweep. Expose its original identities at this boundary.
+            std::swap(carrier.constructions.front(), carrier_path);
+            append(source_geometry,
+                carrier.construction_viewer_mesh({}, scene_size).original_references);
             container.sweep3d.path.curve_points =
-                std::move(carrier_path.curve_points);
+                std::move(carrier.constructions.front().curve_points);
             container.sweep3d.path.reference_valid = children_valid;
             for (std::size_t profile = 0;
                  profile < container.sweep3d.profiles.size(); ++profile) {

@@ -586,6 +586,9 @@ void ConstructionPropertiesDialog::showEvent(QShowEvent* event) {
 void ConstructionPropertiesDialog::initialize_sweep_ui() {
     if (!initial_sweep_) return;
     content_layout()->removeWidget(error_);
+    sweep_options_ = new QWidget(this);
+    auto* sweep_layout = new QVBoxLayout(sweep_options_);
+    sweep_layout->setContentsMargins(0, 0, 0, 0);
     auto* thin_form = new QFormLayout;
     sweep_result_type_ = new QComboBox(this);
     sweep_result_type_->setObjectName("sweep3DResultType");
@@ -630,7 +633,7 @@ void ConstructionPropertiesDialog::initialize_sweep_ui() {
     connect(sweep_thin_mode_,&QComboBox::currentIndexChanged,this,[this] { notify_preview(); });
     auto* title = new QLabel(tr("Profily 3D tažení"), this);
     title->setStyleSheet("color:#9fd7e5;font-weight:700;");
-    content_layout()->addWidget(title);
+    sweep_layout->addWidget(title);
     sweep_profiles_table_ = new QTableWidget(this);
     sweep_profiles_table_->setObjectName("sweep3DProfiles");
     sweep_profiles_table_->setColumnCount(5);
@@ -655,8 +658,8 @@ void ConstructionPropertiesDialog::initialize_sweep_ui() {
     // In Sweep, extra height belongs to the lower profile table. A zero
     // stretch alone still lets the upper point table grow toward sizeHint().
     curve_points_table_->setFixedHeight(curve_points_table_->minimumHeight());
-    content_layout()->addWidget(sweep_profiles_table_,1);
-    content_layout()->addLayout(thin_form);
+    sweep_layout->addWidget(sweep_profiles_table_,1);
+    sweep_layout->addLayout(thin_form);
     auto* operation_row = new QWidget(this);
     auto* operation_layout = new QHBoxLayout(operation_row);
     operation_layout->setContentsMargins(0, 0, 0, 0);
@@ -678,7 +681,8 @@ void ConstructionPropertiesDialog::initialize_sweep_ui() {
     operation_layout->addWidget(subtract_sweep_operation_);
     auto* operation_form = new QFormLayout;
     operation_form->addRow(tr("Operace"), operation_row);
-    content_layout()->addLayout(operation_form);
+    sweep_layout->addLayout(operation_form);
+    content_layout()->addWidget(sweep_options_, 1);
 
     content_layout()->addWidget(error_);
     const auto select_operation = [this](bool subtract_selected) {
@@ -695,6 +699,38 @@ void ConstructionPropertiesDialog::initialize_sweep_ui() {
         [select_operation] { select_operation(true); });
     update_thin();
     refresh_sweep_profiles();
+}
+
+bool ConstructionPropertiesDialog::sweep_mode() const {
+    return is_sweep() && (!trajectory_mode_ || trajectory_mode_->currentIndex() == 1);
+}
+
+void ConstructionPropertiesDialog::enable_curve_and_sweep_modes(
+        bool start_as_curve, CommitCallback commit_curve) {
+    commit_ = std::move(commit_curve);
+    if (start_as_curve) {
+        setProperty("zimaValueLockOwner", QString::fromStdString(initial_.id));
+        if (initial_.references.empty())
+            definition_->setCurrentIndex(definition_->findData(
+                static_cast<int>(zima::document::ConstructionDefinition::Absolute)));
+    }
+    auto* form = new QFormLayout;
+    trajectory_mode_ = new QComboBox(this);
+    trajectory_mode_->setObjectName("trajectoryFeatureType");
+    trajectory_mode_->addItems({tr("3D křivka"), tr("3D tažení")});
+    trajectory_mode_->setCurrentIndex(start_as_curve ? 0 : 1);
+    form->addRow(tr("Typ prvku"), trajectory_mode_);
+    content_layout()->insertLayout(0, form);
+    const auto refresh = [this] {
+        curve_points_table_->setMaximumHeight(sweep_mode() ? curve_points_table_->minimumHeight() : QWIDGETSIZE_MAX);
+        content_layout()->setStretchFactor(curve_points_table_, sweep_mode() ? 0 : 1);
+        sweep_precision_->setVisible(sweep_mode());
+        sweep_options_->setVisible(sweep_mode());
+        set_internal_title(sweep_mode() ? tr("Vlastnosti 3D tažení") : construction_properties_title(initial_.kind));
+        notify_preview();
+    };
+    connect(trajectory_mode_, &QComboBox::currentIndexChanged, this, refresh);
+    refresh();
 }
 
 void ConstructionPropertiesDialog::set_reference_request_callback(
@@ -1640,7 +1676,7 @@ bool ConstructionPropertiesDialog::submit() {
         error_->setText(tr("Název nesmí být prázdný."));
         return false;
     }
-    if (initial_sweep_) {
+    if (sweep_mode()) {
         if (sweep_profiles_.empty()) {
             error_->setText(tr(
                 "3D tažení vyžaduje alespoň jednu profilovou skicu."));
@@ -1660,6 +1696,7 @@ bool ConstructionPropertiesDialog::submit() {
         sweep_commit_(std::move(sweep));
         return true;
     }
+    if (trajectory_mode_) value.parent_construction_id.clear();
     commit_(std::move(value));
     return true;
 }

@@ -1,4 +1,5 @@
 #include <zima/workspace/placement_edit.hpp>
+#include <zima/workspace/sweep_operations.hpp>
 #include <zima/document/general_surface.hpp>
 #include <zima/document/solid_state_reference_views.hpp>
 #include "workspace_internal.hpp"
@@ -13,6 +14,10 @@ void AssemblyWorkspaceWindow::show_construction_properties(
     auto* part = workspace_.open_part(workspace_.active_document_id());
     auto* assembly = workspace_.open_assembly(workspace_.active_document_id());
     if (part == nullptr && assembly == nullptr) return;
+    if (part && kind == zima::document::ConstructionKind::Curve3D) {
+        show_sweep3d_properties(object_id, true);
+        return;
+    }
     const auto* edited = object_id.empty() ? nullptr : part != nullptr
         ? part->session.document().find_construction(object_id)
         : assembly->session.document().find_construction(object_id);
@@ -519,6 +524,8 @@ void AssemblyWorkspaceWindow::show_curve_point_properties(
             *committed = true;
         }, this, decimal_places);
     point_dialog->setProperty("sweepPathPoint", curve_dialog->is_sweep());
+    if (curve_dialog->is_sweep())
+        point_dialog->setProperty("sweepPathOwner", QString::fromStdString(curve_dialog->construction_id()));
 
     set_local_origin_selection_mode(false);
     curve_dialog->hide();
@@ -576,6 +583,8 @@ void AssemblyWorkspaceWindow::show_curve_point_properties(
                 auto sweep = parent_guard->pending_sweep_value();
                 sweep.sweep3d.path.curve_points = curve_preview.curve_points;
                 if (auto* target = next.find_container(sweep.id)) *target = sweep;
+                else if (next.find_construction(sweep.sweep3d.path.id))
+                    workspace::replace_curve_with_sweep_draft(next, std::move(sweep));
                 else {
                     next.insert_history_entry(zima::document::PartHistoryKind::Feature, sweep.id);
                     next.history.push_back(sweep);

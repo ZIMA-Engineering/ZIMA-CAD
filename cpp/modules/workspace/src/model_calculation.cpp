@@ -100,6 +100,10 @@ history_boundary_reference_demands(
         references_by_consumer;
     std::set<std::string_view> sketch_owners;
     for (const auto& sketch : document.sketches) sketch_owners.insert(sketch.id);
+    HistoryDependencyCollector sweep_trajectories;
+    for (const auto& feature : document.history)
+        if (feature.feature_kind == document::FeatureKind::Sweep3D)
+            sweep_trajectories.register_construction(feature.sweep3d.path, feature.id);
     for(const auto& [consumer,path,owner,key]:graph.references) {
         // Owned Sketch geometry is published by ordered document resolution
         // after its frame is resolved. Treating these identities as calculated
@@ -109,6 +113,9 @@ history_boundary_reference_demands(
              key.starts_with("circle:") || key.starts_with("arc:") ||
              key.starts_with("ellipse:") || key.starts_with("elliptical_arc:") ||
              key.starts_with("bspline:"))) continue;
+        // Ordered document resolution publishes trajectory points and curves
+        // independently of the Sweep's calculated result.
+        if (path.empty() && sweep_trajectories.owners.contains(owner)) continue;
         const auto alias=graph.owners.find(owner);
         if(alias==graph.owners.end()||
            !operation_by_owner.contains(alias->second))continue;

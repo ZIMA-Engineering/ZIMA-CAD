@@ -2,6 +2,7 @@
 #include <zima/document/container_origin_display.hpp>
 #include <zima/document/solid_state_reference_views.hpp>
 #include <zima/workspace/sweep_operations.hpp>
+#include <zima/workspace/placement_edit.hpp>
 #include <zima/workspace/sheet_transition_operations.hpp>
 #include <zima/document/metadata.hpp>
 #include "../sheet_transition_dialog.hpp"
@@ -436,13 +437,18 @@ void AssemblyWorkspaceWindow::show_sweep_properties(zima::document::FeatureKind 
 }
 
 void AssemblyWorkspaceWindow::show_sweep3d_properties(
-    const std::string& container_id) {
+    const std::string& container_id, bool start_as_curve) {
     if (properties_dialog_ != nullptr) return;
     auto* part = workspace_.open_part(workspace_.active_document_id());
     if (part == nullptr) return;
-    const auto* edited = container_id.empty()
+    const auto* edited = container_id.empty() || start_as_curve
         ? nullptr : part->session.document().find_container(container_id);
-    if (!container_id.empty() &&
+    const auto* edited_curve = start_as_curve && !container_id.empty()
+        ? part->session.document().find_construction(container_id) : nullptr;
+    if (start_as_curve && !container_id.empty() &&
+        (!edited_curve || edited_curve->kind != document::ConstructionKind::Curve3D ||
+         !edited_curve->parent_construction_id.empty() || edited_curve->suppressed)) return;
+    if (!start_as_curve && !container_id.empty() &&
         (edited == nullptr || edited->feature_kind !=
             zima::document::FeatureKind::Sweep3D)) return;
     const bool edit_mode = edited != nullptr;
@@ -456,17 +462,47 @@ void AssemblyWorkspaceWindow::show_sweep3d_properties(
         initial.sweep3d.path.name=tr(initial.sweep3d.path.name.c_str()).toStdString();
     }
     const std::string document_id = part->session.document().document_id;
+    if (start_as_curve) {
+        auto path = edited_curve ? *edited_curve :
+            document::PartDocument::create_construction(document::ConstructionKind::Curve3D);
+        initial.name = edited_curve ? path.name : part->session.document().next_numbered_name(
+            tr("3D křivka").toStdString(),path.id);
+        if (edited_curve) initial.placement = workspace::read_placement(workspace_,document_id,path.id).placement;
+        document::PartDocument::set_sweep3d_owned_path(initial, std::move(path));
+    }
     const int decimal_places = document_decimal_places(part->session.document());
     const bool allow_subtract = !part->session.document().history.empty() &&
         !(edit_mode && part->session.document().history.front().id == initial.id);
 
-    auto* dialog = new ConstructionPropertiesDialog(initial, edit_mode,
+    auto* dialog = new ConstructionPropertiesDialog(initial, edit_mode || edited_curve,
         allow_subtract,
-        [this, document_id, edit_mode](
+        [this, document_id, edit_mode, converting_curve = edited_curve != nullptr](
                 zima::document::HistoryContainer committed) {
+            if (converting_curve) {
+                workspace::convert_curve_to_sweep(workspace_,kernel_,document_id,std::move(committed));
+                return;
+            }
             zima::workspace::commit_sweep(workspace_,kernel_,document_id,std::move(committed),
                 edit_mode?zima::workspace::SweepEditMode::Replace:zima::workspace::SweepEditMode::Create);
         }, this, decimal_places);
+    dialog->enable_curve_and_sweep_modes(start_as_curve,
+        [this, document_id, container_id, edit_mode, replacing_curve = edited_curve != nullptr](document::ConstructionObject path) {
+            if (edit_mode) {
+                workspace::convert_sweep_to_curve(workspace_,kernel_,document_id,container_id,std::move(path));
+                return;
+            }
+            if (replacing_curve) {
+                const auto* state = workspace_.open_part(document_id);
+                if (!state) return;
+                if (const auto* previous = state->session.document().find_construction(path.id)) {
+                    path.entity_origin = previous->entity_origin;
+                    path.reference_valid = previous->reference_valid;
+                    if (path == *previous) return;
+                }
+            }
+            static_cast<void>(workspace::commit_construction(workspace_,document_id,std::move(path),
+                replacing_curve ? workspace::ConstructionEditMode::Replace : workspace::ConstructionEditMode::Create));
+        });
 
     dialog->set_reference_request_callback(
         [this](std::size_t index) {
@@ -501,8 +537,27 @@ void AssemblyWorkspaceWindow::show_sweep3d_properties(
     // The initial preview callback publishes the scene synchronously. Install
     // rollback first so it publishes the real input once, without an interim
     // full-history scene followed by a second rollback rebuild.
-    if (edit_mode) {
-        if (const auto boundary = part_history_rollback_boundary(initial.id)) {
+    auto rollback_id = edit_mode ? container_id : std::string{};
+    if (edited_curve) {
+        const auto& document = part->session.document();
+        const auto* body = document.body_history.owner(container_id);
+        const auto& entries = body ? body->entries : document.history_order;
+        const auto cursor = body ? body->cursor : document.effective_history_cursor();
+        const auto end = entries.begin() + std::min(cursor, entries.size());
+        const auto curve = std::find_if(entries.begin(), end, [&](const auto& entry) {
+            return entry.id == container_id;
+        });
+        if (curve != end) {
+            const auto after = std::find_if(std::next(curve), end, [&](const auto& entry) {
+                return document.find_container(entry.id) != nullptr;
+            });
+            if (after != end) rollback_id = after->id;
+        }
+    }
+    if (!rollback_id.empty()) {
+        const auto boundary = edit_mode ? part_history_rollback_boundary(rollback_id)
+                                       : part->session.rollback_boundary(rollback_id);
+        if (boundary) {
             part_rollback_ = PartRollbackContext{document_id,
                 workspace_.active_occurrence_path(), boundary->history_index,
                 boundary->input_body};
@@ -517,6 +572,8 @@ void AssemblyWorkspaceWindow::show_sweep3d_properties(
             auto next = source->session.document();
             if (auto* existing = next.find_container(pending.id)) {
                 *existing = pending;
+            } else if (next.find_construction(pending.sweep3d.path.id)) {
+                workspace::replace_curve_with_sweep_draft(next, pending);
             } else {
                 next.insert_history_entry(zima::document::PartHistoryKind::Feature, pending.id);
                 next.history.push_back(pending);
@@ -539,9 +596,9 @@ void AssemblyWorkspaceWindow::show_sweep3d_properties(
             construction_preview_mesh_ =
                 carrier.construction_viewer_mesh(display_path.id, 0.0, true);
             construction_preview_mesh_->points.push_back(zima::document::container_origin_marker(*resolved,true));
-            append_mesh(*construction_preview_mesh_,
+            if (dialog->sweep_mode()) append_mesh(*construction_preview_mesh_,
                 zima::document::sweep3d_profiles_viewer_mesh(*resolved));
-            zima::document::visit_feature_sketches(*resolved,[&](const auto& data,std::size_t){
+            if (dialog->sweep_mode()) zima::document::visit_feature_sketches(*resolved,[&](const auto& data,std::size_t){
                 const auto display=zima::sketcher::Sketch::from_serialized(data).viewer_mesh();
                 construction_preview_mesh_->dimensions.insert(construction_preview_mesh_->dimensions.end(),display.dimensions.begin(),display.dimensions.end());
             });
