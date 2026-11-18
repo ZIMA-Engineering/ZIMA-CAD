@@ -16195,6 +16195,7 @@ int verify_startup_contract(
         auto opening=zima::document::PartDocument::create_thread_container();
         opening.placement.z=-20.0;
         document.history={block,opening};
+        const auto top_face_key = zima::test::profile_key(document, block, "z_max");
         zima::kernel::OcctKernel opening_kernel;
         const auto calculated=opening_kernel.evaluate_history(document.kernel_operations());
         const auto opening_path=test_directory / "opening-dimensions.prtz";
@@ -16359,7 +16360,8 @@ int verify_startup_contract(
                 const QPointF position(x,y);
                 const auto offered=view->selection_candidates_at(position);
                 if (!offered.empty() && offered.front().kind==zima::viewer::CandidateKind::Face &&
-                    offered.front().semantic_key=="z_max") { target_position=position; break; }
+                    offered.front().owner_id==block.id &&
+                    offered.front().semantic_key==top_face_key) { target_position=position; break; }
             }
         if (!verify(target_position.has_value(),"Opening Up To offered no target face")) return 1;
         QMouseEvent move(QEvent::MouseMove,*target_position,
@@ -16408,9 +16410,10 @@ int verify_startup_contract(
                 saved_opening->thread.end_condition_forward==zima::document::EndCondition::UpTo &&
                 saved_opening->thread.length_end_condition==zima::document::EndCondition::UpTo &&
                 saved_opening->thread.length_end_targets.size()==1 &&
-                saved_opening->thread.length_end_targets.front().reference.semantic_key=="z_max" &&
+                saved_opening->thread.length_end_targets.front().reference.semantic_key==top_face_key &&
                 saved_opening->placement.references.empty() &&
-                saved_opening->thread.end_targets_forward.front().reference.semantic_key=="z_max",
+                saved_opening->thread.end_targets_forward.size()==1 &&
+                saved_opening->thread.end_targets_forward.front().reference.semantic_key==top_face_key,
                 "Opening Up To target or untouched placement did not survive save")) return 1;
         const double drill_radius=saved_opening->thread.profile_diameter*0.5;
         const double expected_volume=64000.0-std::acos(-1.0)*drill_radius*drill_radius*40.0-
