@@ -17465,7 +17465,10 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
             } else if (standalone_import_result) {
                 boundaries.push_back(std::move(*standalone_import_result));
             } else if(result_shape.IsNull()) {
-                boundaries.emplace_back();
+                // A cut against empty material has a calculated but empty
+                // result. Record the requested identities even when their
+                // generated topology is absent from that exact result.
+                boundaries.push_back(publish_pass_through_result(BodyResult{}));
             } else {
                 boundaries.push_back(make_published_result(
                     result_shape, owned_topology->faces, owned_topology->edges,

@@ -104,6 +104,20 @@ void verify_axis_endpoint_history_reference(const kernel::OcctKernel& kernel) {
         const auto& boundary=in_body?exact.back().body_boundaries.begin()->second[1]:exact[1];
         require(std::ranges::any_of(boundary.mesh.original_references.points,[&](const auto& p){return p.reference.owner_id==reference.owner_id&&p.reference.semantic_key==reference.semantic_key;}),
             "Exact requested boundary omitted its authored axis endpoint");
+        auto without_base=part;
+        without_base.erase_history_object(prefix.id);
+        const kernel::HistoryReferenceIdentity missing_cut_edge{stock.id,"generated:missing-cut-edge",{}};
+        auto empty_output=output;
+        empty_output.reference_output_owners[stock.id].insert(missing_cut_edge);
+        const auto empty=kernel.evaluate_history_recovering(without_base.kernel_operations(),{},empty_output);
+        const auto& empty_boundary=in_body?empty.back().body_boundaries.begin()->second[0]:empty[0];
+        require(empty_boundary.mesh.triangles.empty()&&
+                    empty_boundary.history_reference_coverage.contains(missing_cut_edge),
+            "Deleting the base must leave an exact empty cut boundary with evaluated references");
+        require(std::ranges::none_of(empty_boundary.mesh.original_references.edges,[&](const auto& edge) {
+                    return edge.reference.owner_id==stock.id&&edge.reference.semantic_key=="generated:missing-cut-edge";
+                }),
+            "An empty cut boundary supplied a generated edge without material");
         for(double length:{14.,8.,10.}) {
             part.history[1].feature.sides[0].length=length;
             calculated=workspace::calculate_part_with_resolved_references(kernel,part,&calculated);
