@@ -14274,13 +14274,12 @@ int verify_startup_contract(
                 "New Assembly must become a visible second document") ||
         !verify(insert != nullptr && insert->isEnabled() && insert_menu != nullptr,
                 "calculated open Part must be insertable into the Assembly") ||
-        !verify(construction_point != nullptr && construction_point->isEnabled() &&
-                    construction_axis != nullptr && construction_axis->isEnabled() &&
-                    construction_plane != nullptr && construction_plane->isEnabled() &&
-                    tools_toolbar->actions().contains(construction_point) &&
-                    tools_toolbar->actions().contains(construction_axis) &&
-                    tools_toolbar->actions().contains(construction_plane),
-                "Assembly toolbar is missing its Point/Axis/Plane commands")) {
+        !verify(std::ranges::all_of(std::array{0, 1, 2}, [&](int index) {
+                    auto* shortcut = window.findChild<QAction*>(
+                        QStringLiteral("featureShortcut%1Action").arg(index));
+                    return shortcut != nullptr && shortcut->isEnabled() &&
+                           tools_toolbar->actions().contains(shortcut);
+                }), "Assembly toolbar is missing an enabled Point, Axis or Plane Feature shortcut")) {
         return 1;
     }
     if (!verify(sketch->isEnabled(),
