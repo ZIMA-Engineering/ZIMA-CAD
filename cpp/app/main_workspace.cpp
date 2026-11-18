@@ -227,18 +227,7 @@ bool contains_rendered_geometry(const QImage& image) {
     return sampled != 0 && changed * 20 > sampled;
 }
 
-bool contains_orange_hover(const QImage& image) {
-    for (int y = 0; y < image.height(); ++y) {
-        for (int x = 0; x < image.width(); ++x) {
-            const QColor pixel = image.pixelColor(x, y);
-            if (pixel.red() >= 225 && pixel.green() >= 80 &&
-                pixel.green() <= 175 && pixel.blue() <= 55) return true;
-        }
-    }
-    return false;
-}
-
-bool contains_cyan_selection(const QImage& image) {
+bool contains_azure_highlight(const QImage& image) {
     for (int y = 0; y < image.height(); ++y) {
         for (int x = 0; x < image.width(); ++x) {
             const QColor pixel = image.pixelColor(x, y);
@@ -11917,7 +11906,8 @@ int verify_startup_contract(
     if (!verify(directory_change.ok, "Cannot select isolated startup fixture directory")) return 1;
     std::cout << "Startup fixtures: " << zima::document::path_to_utf8(test_directory) << std::endl;
     const bool rectangular_feature_only = qEnvironmentVariableIsSet("ZIMA_VERIFY_STARTUP_RECTANGULAR_FEATURE_ONLY");
-    if (!rectangular_feature_only) {
+    const bool point_highlight_only = qEnvironmentVariableIsSet("ZIMA_VERIFY_STARTUP_POINT_HIGHLIGHT_ONLY");
+    if (!rectangular_feature_only && !point_highlight_only) {
         if (verify_component_references(application, test_directory) != 0) return 1;
         if (verify_save_copy_ui(application, test_directory) != 0) return 1;
         if (verify_body_placement_offsets(application, test_directory) != 0) return 1;
@@ -12623,8 +12613,8 @@ int verify_startup_contract(
     if (!verify(point_viewer->hovered_candidate() &&
                     point_viewer->hovered_candidate()->semantic_key.starts_with(
                         "origin:axis:") &&
-                    contains_orange_hover(point_viewer->grabFramebuffer()),
-                "Origin axis hover was not rendered orange during placement")) return 1;
+                    contains_azure_highlight(point_viewer->grabFramebuffer()),
+                "Origin axis hover was not rendered azure during placement")) return 1;
     auto* point_x_field =
         point_dialog->findChild<QDoubleSpinBox*>("constructionX");
     if (!verify(point_x_field != nullptr,
@@ -12790,7 +12780,7 @@ int verify_startup_contract(
                     selected_origin_axis->kind ==
                         zima::viewer::CandidateKind::Axis &&
                     selected_origin_axis->semantic_key == "origin:axis:x" &&
-                    contains_cyan_selection(point_viewer->grabFramebuffer()),
+                    contains_azure_highlight(point_viewer->grabFramebuffer()),
                 "Tree Origin axis did not select its complete View presentation")) {
         return 1;
     }
@@ -12812,7 +12802,7 @@ int verify_startup_contract(
                     selected_container_origin_point->kind ==
                         zima::viewer::CandidateKind::Vertex &&
                     selected_container_origin_point->semantic_key == "point" &&
-                    contains_cyan_selection(point_viewer->grabFramebuffer()),
+                    contains_azure_highlight(point_viewer->grabFramebuffer()),
                 "Point container Origin Point did not select its View marker")) {
         return 1;
     }
@@ -12872,7 +12862,7 @@ int verify_startup_contract(
                     hovered_point_container->kind ==
                         zima::viewer::CandidateKind::Container &&
                     hovered_point_container->owner_id == point_container_id,
-                "Point marker did not become the orange View hover candidate")) {
+                "Point marker did not become the View hover candidate")) {
         return 1;
     }
     application.processEvents();
@@ -12882,16 +12872,16 @@ int verify_startup_contract(
         point_viewer->grabFramebuffer().save(
             part_capture_path + QStringLiteral(".point-hover.png"));
     }
-    if (!verify(contains_orange_hover(point_viewer->grabFramebuffer()),
-                "Point hover candidate was not rendered orange")) return 1;
+    if (!verify(contains_azure_highlight(point_viewer->grabFramebuffer()),
+                "Point hover candidate was not rendered azure")) return 1;
     QMouseEvent point_container_press(QEvent::MouseButtonPress,
         *point_offer_position,
         point_viewer->mapToGlobal(point_offer_position->toPoint()),
         Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
     QApplication::sendEvent(point_viewer, &point_container_press);
     application.processEvents();
-    if (!verify(contains_cyan_selection(point_viewer->grabFramebuffer()),
-                "Point LMB confirmation was not rendered cyan")) return 1;
+    if (!verify(contains_azure_highlight(point_viewer->grabFramebuffer()),
+                "Point LMB confirmation was not rendered azure")) return 1;
     const auto valid_origin_branch = [](QTreeWidgetItem* container) {
         if (container == nullptr || container->childCount() < 1) return false;
         auto* origin = container->child(0);
@@ -12979,10 +12969,15 @@ int verify_startup_contract(
                     "Wayland OpenGL viewer framebuffer is null") ||
             !verify(contains_rendered_geometry(framebuffer),
                     "Wayland OpenGL viewer framebuffer contains no body geometry") ||
-            !verify(contains_orange_hover(framebuffer),
-                    "Wayland OpenGL framebuffer contains no orange Point hover")) {
+            !verify(contains_azure_highlight(framebuffer),
+                    "Wayland OpenGL framebuffer contains no azure Point hover")) {
             return 1;
         }
+    }
+
+    if (point_highlight_only) {
+        std::cout << "Origin axis and Point azure highlights passed" << std::endl;
+        return 0;
     }
 
     sketch->trigger();
