@@ -4604,45 +4604,61 @@ int verify_body_history_ui(QApplication& application, const std::filesystem::pat
             }
         return false;
     };
-    const auto menu_offered = [&](const auto& request) {
-        bool offered = false;
+    const auto menu_actions = [&](const auto& request) {
+        QStringList actions;
         QTimer::singleShot(0, &window, [&] {
             if (auto* menu = qobject_cast<QMenu*>(QApplication::activePopupWidget())) {
-                offered = !menu->actions().empty();
+                for (auto* action : menu->actions())
+                    if (!action->isSeparator())
+                        actions.push_back(action->objectName());
                 menu->close();
             }
         });
         request(); flush();
-        return offered;
+        return actions;
     };
-    const auto tree_menu_offered = [&](const std::string& id) {
+    const auto tree_menu_actions = [&](const std::string& id) {
         auto* item = row("part-container", id);
-        if (!item) return false;
+        if (!item) throw std::runtime_error("Missing feature row for the Tree context-menu regression");
         for (auto* parent = item->parent(); parent; parent = parent->parent()) tree->expandItem(parent);
         tree->scrollToItem(item);
-        return menu_offered([&] { tree->customContextMenuRequested(tree->visualItemRect(item).center()); });
+        return menu_actions([&] { tree->customContextMenuRequested(tree->visualItemRect(item).center()); });
     };
-    const auto view_menu_offered = [&](const std::string& id) {
+    const auto view_menu_actions = [&](const std::string& id) {
         viewer->confirm_container(id);
         if (!viewer->confirmed_candidate() || viewer->confirmed_candidate()->owner_id != id)
             throw std::runtime_error("Cannot confirm the feature for the View context-menu regression");
         const QPointF point(viewer->rect().center());
         const QPointF global(viewer->mapToGlobal(point.toPoint()));
-        return menu_offered([&] {
+        return menu_actions([&] {
             QMouseEvent press(QEvent::MouseButtonPress, point, global, Qt::RightButton, Qt::RightButton, Qt::NoModifier);
             QMouseEvent release(QEvent::MouseButtonRelease, point, global, Qt::RightButton, Qt::NoButton, Qt::NoModifier);
             QApplication::sendEvent(viewer, &press); QApplication::sendEvent(viewer, &release);
         });
     };
-    if (!verify(!tree_menu_offered(first.id) && tree_menu_offered(second.id) &&
-            !view_menu_offered(first.id) && view_menu_offered(second.id),
-            "Tree/View feature menus do not follow the second active Body")) return 1;
+    const QStringList rename_only{"renameTreeItemAction"};
+    const auto verify_body_feature_menus = [&](const std::string& active,
+                                               const std::string& inactive) {
+        const auto active_tree = tree_menu_actions(active);
+        return verify(tree_menu_actions(inactive) == rename_only,
+                      "Inactive Body feature Tree menu should only offer Rename") &&
+               verify(active_tree.contains("historyObjectProperties") &&
+                      active_tree.contains("deleteHistoryObject"),
+                      "Active Body feature Tree menu lost modeling actions") &&
+               verify(view_menu_actions(inactive).empty(),
+                      "View offered feature actions for an inactive Body") &&
+               verify(view_menu_actions(active) == active_tree,
+                      "Active Body feature View menu differs from the Tree menu");
+    };
+    if (!verify_body_feature_menus(second.id, first.id)) return 1;
     if (!verify(activate_from_tree(tree->topLevelItem(0),"activatePartAction") &&
             !row("part-insert-here") && row("part-body-insert-here"),
             "Part root context menu did not activate document-level modeling")) return 1;
-    if (!verify(!tree_menu_offered(first.id) && !tree_menu_offered(second.id) &&
-            !view_menu_offered(first.id) && !view_menu_offered(second.id),
-            "Tree/View offered feature menus without an active Body")) return 1;
+    if (!verify(tree_menu_actions(first.id) == rename_only &&
+                tree_menu_actions(second.id) == rename_only,
+            "Without an active Body the feature Tree menus should only offer Rename") ||
+        !verify(view_menu_actions(first.id).empty() && view_menu_actions(second.id).empty(),
+            "View offered feature actions without an active Body")) return 1;
     auto* root_toolbar=window.findChild<QToolBar*>("toolsToolbar");
     const std::array<const char*,5> root_command_names{
         "createBodyAction","mirrorAction","patternAction","bodyScaleAction",
@@ -4652,10 +4668,12 @@ int verify_body_history_ui(QApplication& application, const std::filesystem::pat
     for(std::size_t index=0;index<root_command_names.size();++index)
         if(!verify(root_toolbar->actions()[index]==window.findChild<QAction*>(root_command_names[index]),
                 "Part root Body commands are not in their required order"))return 1;
-    if(!verify(window.findChild<QAction*>("applicationModeAction0")->isEnabled() &&
+    auto* modeling_mode = window.findChild<QToolButton*>("modelingModeButton");
+    auto* sheet_metal_mode = window.findChild<QToolButton*>("sheetMetalModeButton");
+    if(!verify(modeling_mode && sheet_metal_mode &&
+            window.findChild<QAction*>("applicationModeAction0")->isEnabled() &&
             !window.findChild<QAction*>("applicationModeAction2")->isEnabled() &&
-            !window.findChild<QToolButton*>("modelingModeButton") &&
-            !window.findChild<QToolButton*>("sheetMetalModeButton"),
+            !modeling_mode->isVisible() && !sheet_metal_mode->isVisible(),
             "Part root exposes Modeling or Sheet Metal workspace selectors"))return 1;
     const auto origin_extent = [&](const std::string& owner) {
         double extent = 0;
@@ -4671,11 +4689,9 @@ int verify_body_history_ui(QApplication& application, const std::filesystem::pat
             "First Body context menu did not activate its history")) return 1;
     if(!verify(window.findChild<QAction*>("applicationModeAction0")->isEnabled() &&
             window.findChild<QAction*>("applicationModeAction2")->isEnabled() &&
-            window.findChild<QToolButton*>("modelingModeButton") &&
-            window.findChild<QToolButton*>("sheetMetalModeButton"),
+            modeling_mode->isVisible() && sheet_metal_mode->isVisible(),
             "Active Body did not restore Modeling and Sheet Metal selectors"))return 1;
-    if (!verify(tree_menu_offered(first.id) && !tree_menu_offered(second.id) && view_menu_offered(first.id),
-            "Tree/View feature menus did not follow activation of the first Body")) return 1;
+    if (!verify_body_feature_menus(first.id, second.id)) return 1;
     if (!verify(origin_extent(a+":origin") > 0 && origin_extent(b+":origin")==0 &&
             origin_extent(part.document_id+":origin")==0 &&
             std::abs(document_origin_extent/origin_extent(a+":origin")-1.25)<1e-9,
@@ -4904,7 +4920,8 @@ int verify_body_history_ui(QApplication& application, const std::filesystem::pat
     window.findChild<QAction*>("newDocumentAction")->trigger();flush();
     auto* new_document=window.findChild<QDialog*>("newDocumentDialog");
     if (!verify(new_document!=nullptr,"New document dialog is unavailable")) return 1;
-    const auto fresh_name=QStringLiteral("body-new-document-ui-")+QUuid::createUuid().toString(QUuid::Id128);
+    const auto fresh_name=(QStringLiteral("BODY-NEW-DOCUMENT-UI-")+
+        QUuid::createUuid().toString(QUuid::Id128)).toUpper();
     new_document->findChild<QLineEdit*>("newDocumentFileName")->setText(fresh_name);
     new_document->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
     window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
