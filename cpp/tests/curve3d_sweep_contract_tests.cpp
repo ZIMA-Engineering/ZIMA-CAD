@@ -1,5 +1,6 @@
 #include "profile_solid_fixture.hpp"
 #include <zima/document/part_document.hpp>
+#include <zima/document/placement_orientation.hpp>
 #include <zima/document/viewer_packet_json.hpp>
 #include <nlohmann/json.hpp>
 #include <zima/kernel/stable_id.hpp>
@@ -172,6 +173,41 @@ static void thin_sweep_contracts() {
     }
 }
 int main(){try{
+    for (const bool interpolate : {false, true}) {
+        auto doc=document::PartDocument::create_default();
+        auto curve=fixture(5).sweep3d.path;
+        curve.parent_construction_id.clear();
+        if (interpolate) curve.curve_type=document::Curve3DType::InterpolatingSpline;
+        doc.constructions.push_back(curve);
+        const auto route=document::curve3d_route(curve);
+        const auto& segment=route.segments[interpolate?0:1];
+        const auto geometry=doc.construction_viewer_mesh().original_references;
+        const auto edge=std::ranges::find_if(geometry.edges,[&](const auto& edge) {
+            return edge.reference.semantic_key==segment.source_id;
+        });
+        require(edge!=geometry.edges.end() && edge->exact_spline.has_value(),
+            "3D curve did not publish its exact placement geometry");
+        auto contact=segment.arc_midpoint.value_or(kernel::Vec3{});
+        if (interpolate) {
+            const auto& p=segment.bezier_control_points;
+            contact={(p[0].x+3*p[1].x+3*p[2].x+p[3].x)/8,0,
+                     (p[0].z+3*p[1].z+3*p[2].z+p[3].z)/8};
+        }
+        auto point=document::PartDocument::create_feature_container(kernel::make_stable_id());
+        point.feature.type=document::FeatureType::Point;
+        point.placement.x=contact.x;point.placement.y=2;point.placement.z=contact.z;
+        point.placement.references.push_back({{},edge->reference.owner_id,edge->reference.semantic_key});
+        document::assign_container_orientation_role(point.placement.references.back(),{});
+        doc.history.push_back(point);
+        doc.history_order={{document::PartHistoryKind::Construction,curve.id},
+                           {document::PartHistoryKind::Feature,point.id}};
+        doc.history_cursor=doc.history_order.size();
+        doc.resolve_constructions();
+        const auto& placement=doc.history.front().placement;
+        require(placement.reference_valid,"Could not place a Point feature on the 3D curve");
+        require(std::hypot(placement.x-contact.x,placement.y,placement.z-contact.z)<1e-7,
+            "Feature origin did not project onto the exact 3D curve");
+    }
     {
         auto curve = fixture(5).sweep3d.path;
         curve.origin = {10,20,30};

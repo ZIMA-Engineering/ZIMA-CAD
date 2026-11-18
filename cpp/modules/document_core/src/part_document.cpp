@@ -6351,19 +6351,37 @@ zima::kernel::ViewerMesh PartDocument::construction_viewer_mesh(
                 }
                 for(const auto& segment:route.segments){
                     std::vector<zima::kernel::Vec3> samples;
+                    std::optional<zima::kernel::BSplineGeometry> exact;
                     if(segment.arc_midpoint){
                         const auto station=std::ranges::find_if(route.stations,[&](const auto& value){
                             return value.incoming && segment.source_id=="curve:rounding:"+value.point_id;
                         });
                         samples=sample_arc_from_start(segment.start,station->tangent,segment.end);
+                        const auto midpoint = *segment.arc_midpoint;
+                        const auto half_chord = trajectory_scale(trajectory_add(segment.start, segment.end), 0.5);
+                        const auto sagitta = trajectory_length(trajectory_subtract(midpoint, half_chord));
+                        const auto half_span = trajectory_length(trajectory_subtract(segment.end, half_chord));
+                        const double weight = (half_span * half_span - sagitta * sagitta) /
+                            (half_span * half_span + sagitta * sagitta);
+                        if (weight > 0.0) {
+                            const auto control = trajectory_add(midpoint,
+                                trajectory_scale(trajectory_subtract(midpoint, half_chord), 1.0 / weight));
+                            exact = zima::kernel::BSplineGeometry{2,
+                                {world_point(segment.start), world_point(control), world_point(segment.end)},
+                                {0,0,0,1,1,1}, {1,weight,1}};
+                        }
                     }else if(!segment.bezier_control_points.empty()){
                         const auto& p=segment.bezier_control_points;
+                        exact = zima::kernel::BSplineGeometry{3,
+                            {world_point(p[0]), world_point(p[1]), world_point(p[2]), world_point(p[3])},
+                            {0,0,0,0,1,1,1,1}, {1,1,1,1}};
                         for(int i=0;i<=24;++i){const double t=i/24.0,u=1-t;
                             samples.push_back({u*u*u*p[0].x+3*u*u*t*p[1].x+3*u*t*t*p[2].x+t*t*t*p[3].x,
                                 u*u*u*p[0].y+3*u*u*t*p[1].y+3*u*t*t*p[2].y+t*t*t*p[3].y,
                                 u*u*u*p[0].z+3*u*u*t*p[1].z+3*u*t*t*p[2].z+t*t*t*p[3].z});}
                     }else samples={segment.start,segment.end};
                     zima::kernel::ViewerEdge edge;
+                    edge.exact_spline = std::move(exact);
                     for(const auto& point:samples)edge.points.push_back(world_point(point));
                     edge.reference={object.entity_id,segment.source_id,{}};
                     edge.display_owner_id=object.id;edge.overlay=true;
