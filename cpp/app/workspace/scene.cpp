@@ -2652,7 +2652,11 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
             return candidate.instance_path == path;
         }, false);
     } else if (active_part == nullptr && active_sketch_id_.empty() &&
-        properties_dialog_ == nullptr) {
+        (properties_dialog_ == nullptr ||
+         (component_placement_dialog_ && !pending_component_placement_index_))) {
+        // While moving a component in Properties, its own body faces must
+        // offer the occurrence just as they do in ordinary Assembly selection.
+        // The source Part's history containers otherwise preempt that hit.
         const auto path = workspace_.active_occurrence_path();
         viewer_->set_candidate_filter([this, path](const auto& candidate) {
             if (candidate.kind != viewer::CandidateKind::Container) return true;
