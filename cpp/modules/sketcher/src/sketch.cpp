@@ -6351,6 +6351,122 @@ std::optional<std::string> Sketch::spline_tangent_contact(
     return junction ? std::optional{junction->contact} : std::nullopt;
 }
 
+namespace {
+struct SplineSeamSeed {
+    std::array<std::string,5> point_ids;
+    std::array<double,3> coordinates;
+    bool vertical{};
+    double movement{};
+};
+
+// Solve the transverse coordinates together for an axis-bound spline arm
+// that also lies on a native spline. Keep the longitudinal coordinates and
+// use the same sampled support as the incidence equation.
+std::vector<SplineSeamSeed> spline_seam_seeds(
+        const Sketch& sketch, const SketchConstraint& tangent) {
+    if (tangent.suppressed || tangent.kind!=ConstraintKind::Tangent ||
+        tangent.geometry_id!=tangent.second_geometry_id) return {};
+    const auto seam=spline_junction(sketch,tangent.geometry_id,tangent.geometry_id);
+    if(!seam)return {};
+    const auto joins=[](const SketchConstraint& c,const std::string& a,const std::string& b) {
+        return (c.first_point_id==a&&c.second_point_id==b)||
+               (c.first_point_id==b&&c.second_point_id==a);
+    };
+    const auto alignment=std::ranges::find_if(sketch.constraints,[&](const auto& c) {
+        return !c.suppressed&&(c.kind==ConstraintKind::Vertical||c.kind==ConstraintKind::Horizontal)&&
+            (joins(c,seam->contact,seam->first_arm)||joins(c,seam->contact,seam->second_arm));
+    });
+    if(alignment==sketch.constraints.end())return {};
+    const bool vertical=alignment->kind==ConstraintKind::Vertical;
+    const auto& shared=joins(*alignment,seam->contact,seam->second_arm)?seam->second_arm:seam->first_arm;
+    const auto& on_support=shared==seam->second_arm?seam->first_arm:seam->second_arm;
+    const auto has_axis=std::ranges::any_of(sketch.constraints,[&](const auto& c) {
+        return !c.suppressed&&c.kind==ConstraintKind::PointOnLine&&c.first_point_id==on_support&&
+            c.geometry_id==(vertical?"sketch_axis:x":"sketch_axis:y");
+    });
+    if(!has_axis)return {};
+    const auto incidence=std::ranges::find_if(sketch.constraints,[&](const auto& c) {
+        return !c.suppressed&&c.kind==ConstraintKind::PointOnCircle&&c.first_point_id==on_support&&
+            c.geometry_id!=tangent.geometry_id;
+    });
+    if(incidence==sketch.constraints.end())return {};
+    const auto support=std::ranges::find(sketch.bsplines,incidence->geometry_id,&SketchBSpline::id);
+    if(support==sketch.bsplines.end()||support->interpolating||!support->knots.empty())return {};
+    const auto support_seam=spline_junction(sketch,support->id,support->id);
+    if(!support_seam||(support_seam->first_arm!=shared&&support_seam->second_arm!=shared)||
+       std::ranges::none_of(sketch.constraints,[&](const auto& c) {
+           return !c.suppressed&&c.kind==ConstraintKind::Tangent&&
+               c.geometry_id==support->id&&c.second_geometry_id==support->id;
+       }))return {};
+    const auto& other=support_seam->first_arm==shared?support_seam->second_arm:support_seam->first_arm;
+    const std::array ids{support_seam->contact,other,shared,seam->contact,on_support};
+    if(std::set<std::string>(ids.begin(),ids.end()).size()!=ids.size())return {};
+    const auto linked=externally_linked_point_ids(sketch);
+    if(std::ranges::any_of(ids,[&](const auto& id) {
+        return sketch.find_point(id)->fixed||linked.contains(id)||
+            std::ranges::any_of(sketch.constraints,[&](const auto& c) {
+                return !c.suppressed&&c.kind==ConstraintKind::PointReference&&c.first_point_id==id;
+            });
+    }))return {};
+
+    const auto transverse=[vertical](auto& p)->auto& {return vertical?p.x:p.y;};
+    const auto longitudinal=[vertical](const auto& p) {return vertical?p.y:p.x;};
+    std::array<double,5> coordinates{},along{};
+    for(std::size_t i=0;i<ids.size();++i) {
+        const auto& p=*sketch.find_point(ids[i]);
+        coordinates[i]=transverse(p);along[i]=longitudinal(p);
+    }
+    if ((along[2]-along[3])*(along[4]-along[3])>=0) return {};
+    const std::array inverse_weights{1.,1.,1./3.};
+    const std::array tangent_equation{along[1]-along[2],along[2]-along[0],along[0]-along[1]};
+    const std::array desired{coordinates[0],coordinates[1],
+        (coordinates[2]+coordinates[3]+coordinates[4])/3.};
+    const auto path=sampled_bspline_points(sketch,*support);
+    const auto curve=sketch_curve_geometry(sketch,support->id);
+    std::array<kernel::BSplineGeometry,3> basis{curve,curve,curve};
+    for(std::size_t j=0;j<basis.size();++j)
+        for(std::size_t k=0;k<curve.poles.size();++k)
+            basis[j].poles[k].x=support->control_point_ids[k]==ids[j]?1.:0.;
+    std::vector<SplineSeamSeed> seeds;
+    const auto axis=vertical?1:0;
+    for(std::size_t i=1;i<path.size();++i) {
+        const double left=path[i-1][axis]-along[4],right=path[i][axis]-along[4];
+        if((left>=0)==(right>=0))continue;
+        const double ratio=left/(left-right);
+        const double lo=static_cast<double>(i-1)/(path.size()-1);
+        const double hi=static_cast<double>(i)/(path.size()-1);
+        std::array<double,3> incidence_equation{};
+        double rhs=std::lerp(path[i-1][1-axis],path[i][1-axis],ratio);
+        for(std::size_t j=0;j<basis.size();++j) {
+            incidence_equation[j]=std::lerp(kernel::bspline_value(basis[j],lo).x,
+                kernel::bspline_value(basis[j],hi).x,ratio);
+            rhs-=incidence_equation[j]*coordinates[j];
+        }
+        incidence_equation[2]-=1.;
+        double rr{},rq{},qq{},rx{},qx{rhs};
+        for(std::size_t j=0;j<desired.size();++j) {
+            const double r=tangent_equation[j],q=incidence_equation[j],w=inverse_weights[j];
+            rr+=r*r*w;rq+=r*q*w;qq+=q*q*w;
+            rx+=r*desired[j];qx+=q*desired[j];
+        }
+        const double determinant=rr*qq-rq*rq;
+        if(determinant<=1e-10)continue;
+        const double u=(qq*rx-rq*qx)/determinant,v=(rr*qx-rq*rx)/determinant;
+        auto position=desired;
+        for(std::size_t j=0;j<position.size();++j)
+            position[j]-=inverse_weights[j]*(u*tangent_equation[j]+v*incidence_equation[j]);
+        double movement{};
+        for(std::size_t j=0;j<ids.size();++j) {
+            const double delta=position[std::min(j,position.size()-1)]-coordinates[j];
+            movement+=delta*delta;
+        }
+        if(std::isfinite(movement))seeds.push_back({ids,position,vertical,movement});
+    }
+    std::ranges::stable_sort(seeds,{},&SplineSeamSeed::movement);
+    return seeds;
+}
+}
+
 std::string Sketch::add_tangent_constraint(
     const std::string& reference_input_id,
     const std::string& driven_input_id,
@@ -11077,6 +11193,25 @@ void Sketch::apply_dimension(SketchDimension dimension) {
 SolveResult Sketch::solve(std::size_t maximum_iterations) {
     if(std::ranges::any_of(external_references,[](const auto& ref){return ref.kind==ExternalReferenceKind::AxisPoint&&ref.broken;}))return {};
     auto result=solve_impl(maximum_iterations, true);
+    if (result.status==SolveStatus::Conflicting) {
+        for(const auto& tangent:constraints) {
+            for(const auto& seed:spline_seam_seeds(*this,tangent)) {
+                auto candidate=*this;
+                for(std::size_t i=0;i<seed.point_ids.size();++i) {
+                    auto* point=candidate.find_point(seed.point_ids[i]);
+                    (seed.vertical?point->x:point->y)=
+                        seed.coordinates[std::min(i,seed.coordinates.size()-1)];
+                }
+                const auto checked=candidate.solve_impl(maximum_iterations,true);
+                if(checked.status!=SolveStatus::Solved&&checked.status!=SolveStatus::UnderConstrained)
+                    continue;
+                *this=std::move(candidate);
+                result=checked;
+                break;
+            }
+            if(result.status!=SolveStatus::Conflicting)break;
+        }
+    }
     if (result.status == SolveStatus::Conflicting &&
         std::ranges::any_of(constraints, [](const auto& c) { return !c.suppressed && c.kind == ConstraintKind::EqualLength; })) {
         auto before = *this;

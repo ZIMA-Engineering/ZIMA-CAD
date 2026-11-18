@@ -10,6 +10,8 @@
 #include <QDirIterator>
 #include <QShortcut>
 #include <zima/sketcher/sketch_trim.hpp>
+#include <zima/sketcher/curve_geometry.hpp>
+#include <zima/kernel/curve_evaluation.hpp>
 #include <zima/sketcher/external_curve_center.hpp>
 #include <zima/document/viewer_packet_json.hpp>
 #include "../common/datum_display.hpp"
@@ -3021,19 +3023,67 @@ int verify_spline_tangent_selection(QApplication& application,
         splines.back().control_point_ids.front()==splines.back().control_point_ids.back(),
         "Clicking the first spline point did not persist a single shared endpoint"))return 1;
     const auto closed_id=splines.back().id;
+    const auto smooth_seam=[&](const zima::sketcher::Sketch& state) {
+        const auto curve=zima::sketcher::sketch_curve_geometry(state,closed_id);
+        const auto first=zima::kernel::bspline_derivative(curve,0.);
+        const auto last=zima::kernel::bspline_derivative(curve,1.);
+        const double length=std::hypot(first.x,first.y)*std::hypot(last.x,last.y);
+        return length>1e-12 && std::abs(first.x*last.y-first.y*last.x)<length*1e-7 &&
+            first.x*last.x+first.y*last.y>0;
+    };
     tangent->trigger();application.processEvents();
     if(!verify(pick(closed_id)&&pick(closed_id,true),"Drawn closed spline cannot receive self tangency"))return 1;
+    const auto before_tangent=closed_doc.sketches.front().constraints;
+    const auto has_tangent=[&](const zima::sketcher::Sketch* state) {
+        return state&&state->constraints.size()==before_tangent.size()+1&&
+            std::equal(before_tangent.begin(),before_tangent.end(),state->constraints.begin())&&
+            state->constraints.back().kind==zima::sketcher::ConstraintKind::Tangent&&
+            state->constraints.back().geometry_id==closed_id&&
+            state->constraints.back().second_geometry_id==closed_id&&smooth_seam(*state);
+    };
+    if(!verify(has_tangent(window.active_sketch_for_test()),
+            "Spline self tangency did not preserve existing equations"))return 1;
     if(!save_and_reopen())return 1;
     const auto tangent_doc=PartDocument::load(path);
     const auto& result=tangent_doc.sketches.front();
-    if(!verify(result.constraints.size()==closed_doc.sketches.front().constraints.size()+1&&
-        result.constraints.back().kind==zima::sketcher::ConstraintKind::Tangent&&
-        result.constraints.back().geometry_id==closed_id&&result.constraints.back().second_geometry_id==closed_id,
+    if(!verify(has_tangent(&result),
         "Drawn spline self tangency did not persist"))return 1;
-    const auto& ids=result.bsplines.back().control_point_ids;
-    const auto* c=result.find_point(ids.front());const auto* a=result.find_point(ids[1]);const auto* b=result.find_point(ids[ids.size()-2]);
-    const double ax=a->x-c->x,ay=a->y-c->y,bx=b->x-c->x,by=b->y-c->y;
-    if(!verify(std::abs(ax*by-ay*bx)<1e-6&&ax*bx+ay*by<0,"Drawn spline tangent seam is not smooth"))return 1;
+    if(result.bsplines.back().interpolating) {
+        const auto point_id=result.bsplines.back().control_point_ids[2];
+        const auto state_point=[&] {return *window.active_sketch_for_test()->find_point(point_id);};
+        const auto hit_point=[&]()->std::optional<QPointF> {
+            for(int y=20;y<view->height()-20;y+=3)
+                for(int x=20;x<view->width()-20;x+=3) {
+                    const QPointF pos(x,y);
+                    const auto offered=view->selection_candidates_at(pos);
+                    if(!offered.empty()&&offered.front().semantic_key=="point:"+point_id)return pos;
+                }
+            return {};
+        };
+        const auto mouse=[&](QEvent::Type type,QPointF pos,Qt::MouseButton button,Qt::MouseButtons buttons) {
+            QMouseEvent e(type,pos,QPointF(view->mapToGlobal(pos.toPoint())),button,buttons,Qt::NoModifier);
+            QApplication::sendEvent(view,&e);application.processEvents();
+        };
+        for(int offset:{12,-15,9}) {
+            const auto hit=hit_point();
+            if(!verify(hit.has_value(),"Interpolating spline point cannot be picked for drag"))return 1;
+            const auto before=state_point();
+            const auto to=*hit+QPointF(0,offset);
+            mouse(QEvent::MouseMove,*hit,Qt::NoButton,Qt::NoButton);
+            mouse(QEvent::MouseButtonPress,*hit,Qt::LeftButton,Qt::LeftButton);
+            mouse(QEvent::MouseMove,to,Qt::NoButton,Qt::LeftButton);
+            mouse(QEvent::MouseButtonRelease,to,Qt::LeftButton,Qt::NoButton);
+            const auto after=state_point();
+            if(!verify(std::abs(after.y-before.y)>1e-5&&has_tangent(window.active_sketch_for_test()),
+                    "Dragging interpolating spline lost movement or the seam equations"))return 1;
+            window.findChild<QAction*>("undoAction")->trigger();application.processEvents();
+            if(!verify(state_point()==before&&has_tangent(window.active_sketch_for_test()),
+                    "Spline drag Undo lost the seam or coordinates"))return 1;
+            window.findChild<QAction*>("redoAction")->trigger();application.processEvents();
+            if(!verify(state_point()==after&&has_tangent(window.active_sketch_for_test()),
+                    "Spline drag Redo lost the seam or coordinates"))return 1;
+        }
+    }
     }
     std::cout<<"Both spline types: first-point hover, nearby closure click, shared endpoint, self T and persistence passed\n";
     return 0;
