@@ -193,9 +193,11 @@ GlobalSettingsDialog::GlobalSettingsDialog(
         row_layout->addWidget(edit, 1);
         row_layout->addWidget(browse);
         path_fields_.insert(it.key(), edit);
-        (it.key()=="Forms"?sheet_form:form)->addRow(it.value(), row);
+        auto* row_form = it.key() == "Forms" ? sheet_form : form;
+        row_form->addRow(it.value(), row);
         if(system_setup_&&it.key()!="WorkingDirectory"&&it.key()!="Templates") {
-            row->hide();form->labelForField(row)->hide();
+            row->hide();
+            if (auto* label = row_form->labelForField(row)) label->hide();
         }
     }
     general_layout->addLayout(form);
