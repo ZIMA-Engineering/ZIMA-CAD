@@ -11909,8 +11909,9 @@ int verify_startup_contract(
     const bool point_highlight_only = qEnvironmentVariableIsSet("ZIMA_VERIFY_STARTUP_POINT_HIGHLIGHT_ONLY");
     const bool sketch_text_dialog_only = qEnvironmentVariableIsSet("ZIMA_VERIFY_STARTUP_SKETCH_TEXT_DIALOG_ONLY");
     const bool extrusion_history_only = qEnvironmentVariableIsSet("ZIMA_VERIFY_STARTUP_EXTRUSION_HISTORY_ONLY");
+    const bool nested_activation_only = qEnvironmentVariableIsSet("ZIMA_VERIFY_STARTUP_NESTED_ACTIVATION_ONLY");
     if (!rectangular_feature_only && !point_highlight_only && !sketch_text_dialog_only &&
-        !extrusion_history_only) {
+        !extrusion_history_only && !nested_activation_only) {
         if (verify_component_references(application, test_directory) != 0) return 1;
         if (verify_save_copy_ui(application, test_directory) != 0) return 1;
         if (verify_body_placement_offsets(application, test_directory) != 0) return 1;
@@ -14608,15 +14609,22 @@ int verify_startup_contract(
                     "multi-level occurrence tree item has no composed instance path")) {
             return 1;
         }
-        // Insertion leaves its Properties open. Activation must not abandon
-        // that pending edit; finish it through the same GUI Cancel action.
+        // Activation must leave pending insertion alone. Confirm the new
+        // occurrence before using its composed path for source activation.
         zima::app::ComponentPropertiesDialog* insertion_properties=nullptr;
         for(auto* candidate:window.findChildren<QDialog*>())if(candidate->isVisible())
             if(auto* component=dynamic_cast<zima::app::ComponentPropertiesDialog*>(candidate))insertion_properties=component;
         if(!verify(insertion_properties&&!window.activate_occurrence_for_test(nested_instance_path),
             "Nested activation abandoned pending insertion Properties"))return 1;
-        insertion_properties->buttons()->button(QDialogButtonBox::Cancel)->click();
+        const QPointer<zima::app::ComponentPropertiesDialog> pending_insertion(insertion_properties);
+        auto* insert_ok = insertion_properties->buttons()->button(QDialogButtonBox::Ok);
+        if (!verify(insert_ok && insert_ok->isEnabled(),
+                    "Nested insertion must offer an enabled confirmation")) return 1;
+        insert_ok->click();
+        application.processEvents();
         QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();
+        if (!verify(pending_insertion == nullptr,
+                    "Confirming nested insertion must close its Properties")) return 1;
         if (!verify(window.activate_occurrence_for_test(nested_instance_path),
                     "activating a two-level-deep Assembly occurrence through the real window failed")) {
             return 1;
@@ -14640,6 +14648,10 @@ int verify_startup_contract(
         if (!verify(window.active_occurrence_path_for_test().empty(),
                     "returning from a two-level-deep occurrence did not clear the active occurrence path")) {
             return 1;
+        }
+        if (nested_activation_only) {
+            std::cout << "Nested Assembly insertion and exact Part occurrence activation passed" << std::endl;
+            return 0;
         }
 
         // Save/close/reopen must preserve the outer Assembly's nested
