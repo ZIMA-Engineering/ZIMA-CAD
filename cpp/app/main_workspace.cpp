@@ -11908,7 +11908,9 @@ int verify_startup_contract(
     const bool rectangular_feature_only = qEnvironmentVariableIsSet("ZIMA_VERIFY_STARTUP_RECTANGULAR_FEATURE_ONLY");
     const bool point_highlight_only = qEnvironmentVariableIsSet("ZIMA_VERIFY_STARTUP_POINT_HIGHLIGHT_ONLY");
     const bool sketch_text_dialog_only = qEnvironmentVariableIsSet("ZIMA_VERIFY_STARTUP_SKETCH_TEXT_DIALOG_ONLY");
-    if (!rectangular_feature_only && !point_highlight_only && !sketch_text_dialog_only) {
+    const bool extrusion_history_only = qEnvironmentVariableIsSet("ZIMA_VERIFY_STARTUP_EXTRUSION_HISTORY_ONLY");
+    if (!rectangular_feature_only && !point_highlight_only && !sketch_text_dialog_only &&
+        !extrusion_history_only) {
         if (verify_component_references(application, test_directory) != 0) return 1;
         if (verify_save_copy_ui(application, test_directory) != 0) return 1;
         if (verify_body_placement_offsets(application, test_directory) != 0) return 1;
@@ -13937,34 +13939,31 @@ int verify_startup_contract(
     if (!verify(pending_height!=nullptr,"Pending extrusion has no length input")) return 1;
     pending_height->setValue(pending_height->value()+2);application.processEvents();
     if (!verify(preceding_box_visible(),"Changing extrusion length discarded its input solid")) return 1;
+    auto* extrusion_properties = dynamic_cast<zima::app::PrimitivePropertiesDialog*>(properties);
+    if (!verify(extrusion_properties != nullptr &&
+                    extrusion_properties->pending_value().feature_kind == zima::document::FeatureKind::Extrusion,
+                "Owned Sketch must return to Extrusion Properties")) return 1;
+    const auto rectangular_extrusion_id = extrusion_properties->pending_value().id;
     buttons->button(QDialogButtonBox::Ok)->click();
     application.processEvents();
     QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
     application.processEvents();
-    bool extrusion_in_tree = false;
-    if (tree->topLevelItemCount() == 1) {
+    if (!verify(window.findChild<QDialog*>("zimaPropertiesSubWindow") == nullptr,
+                "Confirming the rectangular Extrusion must close Properties")) return 1;
+    const auto find_rectangular_extrusion = [&]() -> QTreeWidgetItem* {
         const auto* root = part_history_root();
-        for (int index = 0; index < root->childCount(); ++index) {
-            const auto* child = root->child(index);
-            if (child->data(0, Qt::UserRole + 3).toString() ==
-                    QStringLiteral("part-container") &&
-                child->text(0).endsWith(QStringLiteral("Tažení"))) {
-                extrusion_in_tree = true;
-                break;
-            }
+        for (int index = 0; root != nullptr && index < root->childCount(); ++index) {
+            auto* item = root->child(index);
+            if (item->data(0, Qt::UserRole + 3).toString() == "part-container" &&
+                item->data(0, Qt::UserRole).toString().toStdString() == rectangular_extrusion_id)
+                return item;
         }
-    }
-    if (!verify(extrusion_in_tree,
-                "Sketch rectangle must produce a committed Extrusion history item")) {
-        return 1;
-    }
+        return nullptr;
+    };
+    if (!verify(find_rectangular_extrusion() != nullptr,
+                "Sketch rectangle must produce its own committed Extrusion history item")) return 1;
     // Offering preceding container references must not invent an axis for
     // a rectangular extrusion. Real profile axes come from persisted geometry.
-    std::string rectangular_extrusion_id;
-    for (QTreeWidgetItemIterator it(tree);*it;++it)
-        if ((*it)->data(0,Qt::UserRole+3).toString()=="part-container" &&
-                (*it)->text(0).endsWith(QStringLiteral("Tažení")))
-            rectangular_extrusion_id=(*it)->data(0,Qt::UserRole).toString().toStdString();
     box->trigger();application.processEvents();
     auto* axis_check_dialog=window.findChild<QDialog*>("featurePropertiesDialog");
     if (!verify(axis_check_dialog && !rectangular_extrusion_id.empty() &&
@@ -13974,19 +13973,7 @@ int verify_startup_contract(
     axis_check_dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();
     QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();
     auto open_extrusion_properties = [&]() {
-        auto* root = part_history_root();
-        QTreeWidgetItem* item{};
-        if (root != nullptr) {
-            for (int index = 0; index < root->childCount(); ++index) {
-                auto* candidate = root->child(index);
-                if (candidate->data(0, Qt::UserRole + 3).toString() ==
-                        QStringLiteral("part-container") &&
-                    candidate->text(0).endsWith(QStringLiteral("Tažení"))) {
-                    item = candidate;
-                    break;
-                }
-            }
-        }
+        auto* item = find_rectangular_extrusion();
         if (item != nullptr) window.show_tree_item_properties(item);
         application.processEvents();
         auto* dialog = window.findChild<QDialog*>("zimaPropertiesSubWindow");
@@ -13997,6 +13984,10 @@ int verify_startup_contract(
     if (!verify(edit_dialog != nullptr && edit_height != nullptr,
                 "existing Extrusion did not reopen with its persisted value")) {
         return 1;
+    }
+    if (extrusion_history_only) {
+        std::cout << "Rectangular Extrusion commit, history identity and Properties reopening passed" << std::endl;
+        return 0;
     }
     auto* up_to_combo = edit_dialog->findChild<QComboBox*>(
         "extrusionForwardEndCondition");
