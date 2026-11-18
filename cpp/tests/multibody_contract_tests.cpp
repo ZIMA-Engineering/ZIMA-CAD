@@ -540,6 +540,14 @@ int main() {
             "Undo did not restore body ownership");
         require(session.redo() && session.document().body_history.owner(added.id),
             "Redo did not restore body ownership");
+        const auto former_final_index = part_boundaries.size()-1;
+        const auto& extended_boundaries = session.calculated_boundaries();
+        require(former_final_index+1<extended_boundaries.size() &&
+                extended_boundaries[former_final_index].kernel_compound_bodies.empty() &&
+                std::ranges::all_of(extended_boundaries[former_final_index].mesh.triangle_references,
+                    [&](const auto& face){return face.owner_id==second.id;}),
+            "Extending Body history reused the former whole-Part result as a local boundary");
+        volume(extended_boundaries[former_final_index],1000);
         const auto part_path = std::filesystem::temp_directory_path() /
             ("zima-body-part-" + kernel::make_stable_id() + ".prtz");
         session.document().save(part_path, session.calculated_boundaries());

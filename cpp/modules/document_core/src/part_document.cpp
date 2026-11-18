@@ -408,7 +408,8 @@ std::vector<zima::kernel::BodyResult> restore_final_body_cache(
     // deterministic compaction so the reconstructed cache is byte-for-byte
     // equivalent to the evaluator output without invoking OCCT.
     for(std::size_t index=0;index+1<restored.size();++index) {
-        restored[index].mesh.original_references={};
+        if(restored[index].history_reference_coverage.empty())
+            restored[index].mesh.original_references={};
         restored[index].incremental_history.reset();
     }
     restored.back()=std::move(final);

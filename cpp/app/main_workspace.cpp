@@ -9975,10 +9975,21 @@ int verify_nested_body_sketch_ui(QApplication& application, const std::filesyste
     auto* camera_view=dynamic_cast<zima::viewer::MeshView*>(window.findChild<QOpenGLWidget*>());
     const auto stable_geometry=camera_view->geometry();const auto stable_camera=camera_view->camera_state();
     auto* body_tree=window.findChild<QTreeWidget*>("documentTree");
+    const auto revision_before=window.execute_console_command("documents");
+    QTreeWidgetItem* inspected_body{};
     for(QTreeWidgetItemIterator i(body_tree);*i;++i)if((*i)->data(0,Qt::UserRole).toString().toStdString()==body_id&&(*i)->data(0,Qt::UserRole+3).toString()=="part-body") {
-        body_tree->itemDoubleClicked(*i,0);break;
+        inspected_body=*i;break;
     }
+    if(!verify(inspected_body,"Nested Body inspection row is missing"))return 1;
+    body_tree->setCurrentItem(inspected_body);
+    body_tree->itemDoubleClicked(inspected_body,0);
     flush();
+    const auto revision_after=window.execute_console_command("documents");
+    if(!verify(body_tree->currentItem()==inspected_body &&
+            window.active_occurrence_path_for_test()==active_path &&
+            revision_before.ok && revision_after.ok &&
+            revision_before.data==revision_after.data,
+            "Nested Body inspection changed the Tree row, occurrence or document state"))return 1;
     std::cerr<<"Body double-click canvas "<<stable_geometry.x()<<","<<stable_geometry.y()<<","<<stable_geometry.width()<<","<<stable_geometry.height()<<" -> "<<camera_view->geometry().x()<<","<<camera_view->geometry().y()<<","<<camera_view->width()<<","<<camera_view->height()<<" camera equal="<<(stable_camera==camera_view->camera_state())<<"\n";
     if(!verify(stable_geometry==camera_view->geometry()&&stable_camera==camera_view->camera_state(),"Body double-click moved the assembly View"))return 1;
     auto* tree=window.findChild<QTreeWidget*>("documentTree");

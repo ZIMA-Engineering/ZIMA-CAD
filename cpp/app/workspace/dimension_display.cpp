@@ -125,7 +125,15 @@ void AssemblyWorkspaceWindow::show_parameter_dimensions(
         std::string{}:owner_id;
     opening_component_edit_={owner_id,component};
     preserve_view_on_refresh_ = true;
-    if(component.empty()&&!properties_dialog_&&active_sketch_id_.empty()) {
+    if(!properties_dialog_&&active_sketch_id_.empty()&&
+            workspace_.open_assembly(workspace_.displayed_document_id())&&
+            tree_->topLevelItemCount()>0) {
+        // Parameter inspection changes the scene but leaves the assembly's
+        // occurrence rows intact while a Tree double-click is being handled.
+        const QSignalBlocker selection_signals(tree_);
+        refresh_scene({},false);
+        if(component.empty())select_container(owner_id);
+    } else if(component.empty()&&!properties_dialog_&&active_sketch_id_.empty()) {
         // Rebuilding the Tree is not a new user selection. Keep the requested
         // inspector while replacing its rows, then restore the matching row.
         // Re-confirming the View would obstruct dimension hover and editing.

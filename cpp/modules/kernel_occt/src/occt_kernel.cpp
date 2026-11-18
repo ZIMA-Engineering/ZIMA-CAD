@@ -10923,8 +10923,10 @@ std::vector<BodyResult> OcctKernel::evaluate_body_histories(
                         boundary.calculation_errors&&
                     cached_local[local_index].source_fingerprint==
                         boundary.source_fingerprint;
+                // The old last slot holds the whole document. If an edit
+                // extends history, publish the local packet at that index.
                 if(unchanged_local&&
-                   boundaries.size()<previous_boundaries.size()) {
+                   boundaries.size()+1<previous_boundaries.size()) {
                     // The local evaluator may temporarily restore reference
                     // coverage needed by a later changed suffix. The final
                     // document owns that live coverage in body_boundaries;

@@ -248,7 +248,8 @@ void append_surface_shell_source_pick_aliases(
 }
 
 
-void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMesh()> assembly_preview) {
+void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMesh()> assembly_preview,
+                                            bool rebuild_tree) {
     if(!sketch_intersection_choices_.empty() && (!sketch_external_intersection_active_ ||
             !sketch_intersection_inputs_ || *sketch_intersection_inputs_!=sketch_intersection_inputs())) {
         sketch_intersection_choices_.clear();sketch_intersection_inputs_.reset();
@@ -384,12 +385,16 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
     update_document_area_visibility();
     const QStringList tree_context{QString::fromStdString(workspace_.displayed_document_id()),
         QString::fromStdString(workspace_.active_document_id()),QString::fromStdString(workspace_.active_occurrence_path())};
-    auto expansion=tree_context==tree_->property("renderedModelContext").toStringList()?capture_tree_expansion(tree_):TreeExpansionState{};
-    tree_->setProperty("renderedModelContext",tree_context);
-    const auto restore_expansion=qScopeGuard([this,expansion=std::move(expansion)]{restore_tree_expansion(tree_,expansion);});
-    tree_->setRootIndex(QModelIndex{});
-    tree_->clear();
-    tree_->headerItem()->setIcon(0,{});
+    auto expansion=rebuild_tree&&tree_context==tree_->property("renderedModelContext").toStringList()?capture_tree_expansion(tree_):TreeExpansionState{};
+    const auto restore_expansion=qScopeGuard([this,rebuild_tree,expansion=std::move(expansion)]{
+        if(rebuild_tree)restore_tree_expansion(tree_,expansion);
+    });
+    if (rebuild_tree) {
+        tree_->setProperty("renderedModelContext",tree_context);
+        tree_->setRootIndex(QModelIndex{});
+        tree_->clear();
+        tree_->headerItem()->setIcon(0,{});
+    }
     update_document_kind_button();
     viewer_->set_transient_point_transform({});
     if (const auto* sketch = active_sketch()) {
@@ -2528,7 +2533,7 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
     if(sweep_profile_sketch_draft_)editing_sketch=active_sketch();
     if (editing_sketch != nullptr) {
         populate_sketch_tree(*editing_sketch);
-    } else {
+    } else if (rebuild_tree) {
         tree_->setHeaderLabels({QString{}});
         auto* root = new QTreeWidgetItem(
             tree_, {QString::fromStdString(assembly->path.empty() ? document.name : zima::document::path_to_utf8(assembly->path.filename()))});

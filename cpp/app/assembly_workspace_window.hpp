@@ -1283,7 +1283,8 @@ private:
     std::set<std::string> background_physical_analysis_jobs_;
     // Optional command-owned Assembly scene, built synchronously after source
     // refresh. Tree, actions and selection preparation still run normally.
-    void refresh_scene(std::function<zima::kernel::ViewerMesh()> assembly_preview = {});
+    void refresh_scene(std::function<zima::kernel::ViewerMesh()> assembly_preview = {},
+                       bool rebuild_tree = true);
     [[nodiscard]] bool part_history_insertion_allowed() const;
     void track_tree_edit(QDialog* dialog);
     void add_pending_tree_item(QTreeWidgetItem* parent,
