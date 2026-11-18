@@ -4132,10 +4132,16 @@ int verify_body_activation(QApplication& application, const std::filesystem::pat
     const auto& body=part.body_history.bodies().front();
     if(!verify(activate(row(body.scope.id),"activateBodyAction"),"Cannot activate consumed body after Boolean and Mirror"))return 1;
     if(!verify(!activate(row(body.scope.id),"deleteBodyAction"),"Body-level delete is offered while a Body is active"))return 1;
-    if(!verify(!view->mesh().triangles.empty(),"Activating hidden body displayed no original geometry"))return 1;
+    if(!verify(!view->mesh().triangles.empty()&&!view->mesh().triangle_references.empty(),
+            "Activating hidden body displayed no original geometry"))return 1;
     std::set<std::string> owners;for(const auto& entry:body.entries)owners.insert(entry.id);
     for(const auto& face:view->mesh().triangle_references)
         if(!verify(owners.contains(face.owner_id),"Body activation retained downstream result faces"))return 1;
+    viewer::ViewerCandidate active_feature;
+    active_feature.kind=viewer::CandidateKind::Container;
+    active_feature.owner_id=view->mesh().triangle_references.front().owner_id;
+    if(!verify(view->candidate_filter()&&view->candidate_filter()(active_feature),
+            "Activated hidden Body geometry is excluded from selection"))return 1;
     for(QTreeWidgetItemIterator it(tree);*it;++it)if((*it)->data(0,Qt::UserRole+3).toString()=="part-body-boolean")
         if(!verify((*it)->foreground(0).color()==QColor(125,125,125),"Downstream Boolean is not marked as outside active history"))return 1;
     window.grab().save(QString::fromStdString((directory/"body-activation.png").string()));
@@ -4156,7 +4162,15 @@ int verify_body_activation(QApplication& application, const std::filesystem::pat
         });messages.start(20);
         const auto mirror_id=part.body_history.order().back();
         for(const auto& id:{mirror_id,cut,b,a}) {
-            if(!verify(activate(row(id),"deleteBodyAction")&&failure.isEmpty()&&!row(id),"Part-level delete failed to remove Body/Mirror/Boolean"))return 1;
+            if(!verify(activate(row(id),"deleteBodyAction"),
+                    "Part-level delete action is unavailable"))return 1;
+            auto* confirmation=dynamic_cast<zima::ui::PropertiesSubWindow*>(
+                window.findChild<QDialog*>("deleteHistoryDialog"));
+            if(!verify(confirmation&&confirmation->isVisible(),
+                    "Part-level delete did not open history confirmation"))return 1;
+            confirmation->buttons()->button(QDialogButtonBox::Ok)->click();flush();
+            if(!verify(failure.isEmpty()&&!row(id),
+                    "Part-level delete failed to remove Body/Mirror/Boolean"))return 1;
             if(id==cut||id==b)if(!verify(std::ranges::any_of(view->mesh().triangle_references,[&](const auto& face){return face.owner_id==first.id;}),"Deleting Boolean did not restore solid display of its hidden input"))return 1;
         }
         if(!verify(view->mesh().triangles.empty(),"Deleting the last Body retained cached geometry"))return 1;

@@ -125,16 +125,26 @@ inline void filter_surface_shell_datums(kernel::ViewerMesh& mesh,const document:
     std::erase_if(mesh.edges,hidden);std::erase_if(mesh.points,hidden);std::erase_if(mesh.axes,hidden);
 }
 
+inline bool reveals_hidden_active_body(const document::BodyHistoryGraph& history) {
+    const auto* active = history.find(history.active_body_id());
+    if (!active || active->visible) return false;
+    const auto context = history.visible_context();
+    return std::ranges::find(context, active->scope.id) != context.end();
+}
+
 inline void filter_hidden_body_geometry(kernel::ViewerMesh& mesh,const document::PartDocument& part) {
     filter_surface_shell_datums(mesh,part);
     if(std::ranges::none_of(part.body_history.bodies(),[](const auto& body){return !body.visible;}))return;
+    const bool reveal_active = reveals_hidden_active_body(part.body_history);
     std::unordered_map<std::string,bool> hidden_owners;
     const auto hidden=[&](const auto& item) {
         const auto& owner=item.reference.owner_id;
         if(const auto found=hidden_owners.find(owner);found!=hidden_owners.end())return found->second;
         const auto* body=part.body_history.find(owner);
         if(!body)body=part.body_owner_for_object(owner);
-        const bool value=body&&!body->visible;hidden_owners.emplace(owner,value);return value;
+        const bool value=body&&!body->visible&&
+            !(reveal_active&&body->scope.id==part.body_history.active_body_id());
+        hidden_owners.emplace(owner,value);return value;
     };
     std::erase_if(mesh.edges,hidden);std::erase_if(mesh.points,hidden);
     std::erase_if(mesh.axes,hidden);std::erase_if(mesh.dimensions,hidden);std::erase_if(mesh.constraint_markers,hidden);

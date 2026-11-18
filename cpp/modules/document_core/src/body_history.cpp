@@ -326,22 +326,50 @@ std::vector<std::string> BodyHistoryGraph::available_before(std::size_t boundary
 }
 
 std::vector<std::string> BodyHistoryGraph::visible_context() const {
-    std::set<std::string> available;
-    for (const auto& id : order_) {
-        if (const auto* op = find_boolean(id)) {
-            available.erase(op->target_id);
-            available.erase(op->tool_id);
+    const auto available = available_before(order_.size());
+    const bool editing_consumed = !active_.empty() &&
+        std::ranges::find(available, active_) == available.end();
+    std::set<std::string> editing_branch;
+    if (editing_consumed) {
+        editing_branch.insert(active_);
+        for (std::size_t index = 0; index < order_.size(); ++index) {
+            const auto& id = order_[index];
+            if (const auto* op = find_boolean(id)) {
+                if (editing_branch.contains(op->target_id) ||
+                    editing_branch.contains(op->tool_id))
+                    editing_branch.insert(id);
+            } else if (const auto* body = find(id)) {
+                if (body->scale && editing_branch.contains(body->scale->source_id))
+                    editing_branch.insert(id);
+                if (body->derived_copy) {
+                    const auto& copy = *body->derived_copy;
+                    const bool input_in_branch = std::ranges::any_of(copy.source_ids, [&](const auto& source) {
+                        const auto* source_body = owner(source);
+                        return editing_branch.contains(source_body ? source_body->scope.id : source);
+                    });
+                    if (input_in_branch || (copy.subtract_source && editing_branch.contains(
+                            copy_target_before(primary_derived_copy_source(copy), index))))
+                        editing_branch.insert(id);
+                }
+            }
         }
-        if(const auto* body=find(id);body&&body->derived_copy&&body->derived_copy->subtract_source)
-            available.erase(copy_target_before(
-                primary_derived_copy_source(*body->derived_copy),
-                static_cast<std::size_t>(std::ranges::find(order_,id)-order_.begin())));
-        available.insert(id);
     }
+    // A consumed active Body uses its local editing boundary. Its downstream
+    // results give way to that input while independent results remain visible.
     std::vector<std::string> result;
-    for (const auto& id : order_)
-        if (available.contains(id) && (find(id) ? find(id)->visible && !find(id)->suppressed : find_boolean(id)->visible && !find_boolean(id)->suppressed))
+    auto available_id = available.begin();
+    for (const auto& id : order_) {
+        const bool is_available = available_id != available.end() && *available_id == id;
+        if (is_available) ++available_id;
+        if (editing_consumed && id == active_) {
             result.push_back(id);
+        } else if (is_available && !editing_branch.contains(id)) {
+            const auto* body = find(id);
+            if (body ? body->visible && !body->suppressed :
+                       find_boolean(id)->visible && !find_boolean(id)->suppressed)
+                result.push_back(id);
+        }
+    }
     return result;
 }
 

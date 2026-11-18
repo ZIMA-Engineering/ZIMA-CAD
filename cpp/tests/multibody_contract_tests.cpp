@@ -153,6 +153,17 @@ int main() {
         const auto c = graph.create_body("Další těleso");
         require(graph.visible_context() == std::vector<std::string>({cut,c}),
             "Active body context duplicated consumed branches");
+        auto editing_graph = graph;
+        auto hidden_input = *editing_graph.find(a);
+        hidden_input.visible = false;
+        editing_graph.update_body(hidden_input);
+        editing_graph.activate(a);
+        require(editing_graph.visible_context() == std::vector<std::string>({a,c}) &&
+                !editing_graph.find(a)->visible,
+            "Editing a consumed hidden Body lost its original or changed stored visibility");
+        editing_graph.activate({});
+        require(editing_graph.visible_context() == std::vector<std::string>({cut,c}),
+            "Ending consumed Body editing did not restore the final results");
         graph.move_body(c, 0);
         require(graph.bodies().front().scope.id == c && graph.find_boolean(cut)->target_id == a,
             "Independent body reorder detached a Boolean from its body");

@@ -2173,12 +2173,14 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
         }
         if (!document.body_history.bodies().empty() && properties_dialog_ == nullptr && active_sketch_id_.empty()) {
             const auto active_body = document.body_history.active_body_id();
+            const bool reveal_active = reveals_hidden_active_body(document.body_history);
             std::map<std::string,std::string> owners;
             std::set<std::string> visible_bodies;
             std::set<std::string> surface_shell_sources;
             for (const auto& body : document.body_history.bodies())
             {
-                if(body.visible&&!body.suppressed)visible_bodies.insert(body.scope.id);
+                if((body.visible||(reveal_active&&body.scope.id==active_body))&&!body.suppressed)
+                    visible_bodies.insert(body.scope.id);
                 for (const auto& entry : body.entries) owners.emplace(entry.id, body.scope.id);
             }
             for(const auto& feature:document.history) {
