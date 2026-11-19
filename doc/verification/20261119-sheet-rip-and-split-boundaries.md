@@ -20,8 +20,9 @@ RIP selection had no Sheet-from-Body Tree dispatch. The View could select an
 ordinary standalone Sketch, but clicking its Tree row did nothing. The command
 now accepts Tree containers and exact Sketch rows through its existing reference
 callback. An owned Sketch retains its own ID; its parent feature is not used
-as an ambiguous substitute. Eligibility still requires visible, unsuppressed
-ordinary geometry in the selected source Body before the conversion boundary.
+as an ambiguous substitute. Eligibility still requires an unsuppressed Sketch
+with ordinary geometry in the selected visible source Body before the
+conversion boundary.
 Native RIP calculation already supports these owned Sketches.
 
 ## Finite verification
@@ -41,7 +42,8 @@ Native RIP calculation already supports these owned Sketches.
   including exact owned-Sketch selection, rejection of its ambiguous parent
   feature and unchanged document/scene revisions during selection.
 - The translation/catalog/UI contract passes in 62.41 seconds. Packaging and
-  publisher unit tests pass: 32 executed, with two Linux-only skips on Windows.
+  publisher unit tests pass: 32 cases, with 30 passes and two Linux-only skips
+  on Windows.
 - On the isolated `25.prtz` copy, conversion with no RIP still creates eleven
   children with zero skipped regions and zero calculation errors. The vertical
   attachment now runs from approximately z = -68.4545 to +68.4545 mm instead
@@ -58,3 +60,20 @@ the existing five-language reference controls are reused. Test diagnostics and
 this documentation are English. The native Windows tests use Qt 6.11.0 and
 OCCT 8.0.1. Linux execution remains unverified on its separate host. The finite
 matrix does not assert every arbitrary split topology or every RIP curve shape.
+
+## Published Windows acceptance
+
+The exact committed candidate repeats all twelve mandatory branch gates and
+both RIP GUI suites successfully. The candidate and signed archive pass native
+smoke and all 1,185 factory loads. The anonymous public download matches the
+signed assets and passes updater trust, exact GUI/CLI/updater build-identity
+checks and both RIP GUI suites.
+See the [artifact evidence](20261119-windows-1907-publication.json).
+The local development launcher uses those same verified executables.
+
+The first public GUI invocation failed its localization assertion because the
+verification harness used the installation root as its working directory.
+The fixture explicitly resolves `config/localization` from that directory.
+The repeated invocation uses the packaged runtime directory and separate
+writable test directories; both suites pass without changing the published
+artifacts. The initial failure and correction remain in the artifact evidence.
