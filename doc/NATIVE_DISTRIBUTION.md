@@ -1,5 +1,17 @@
 # Native versioned distribution
 
+Signed Windows [2026111901](releases/2026111901.md#windows-publication-acceptance)
+was published at `2026-11-19T04:13:44Z` from immutable source
+`b41dc8dcc21b14390ea55273dfcfd917947253ed`. It adds persisted Loft correspondence,
+guided profile points, exact cut-edge and midpoint sheet attachment, and the
+Curve/Sweep selection and editing corrections. Candidate and signed smoke pass,
+including all 1,185 native factory assets. Targeted portable GUI checks, GitHub
+digests, anonymous downloads, safe extraction and production updater trust/current
+status pass. The [finite validation record](verification/20261119-loft-correspondence.md)
+retains the Thin Loft, older ancestry and protected-project verification limits.
+Linux execution remains separate. See the
+[publication evidence](verification/20261119-windows-1901-publication.json).
+
 Signed Windows [2026111811](releases/2026111811.md#windows-publication-acceptance)
 was published at `2026-11-18T20:44:01Z` from immutable source
 `55ae5be9a426e1772d9d77978e7980b9a81ddfd5`. It incorporates the current shared Curve/Sweep,

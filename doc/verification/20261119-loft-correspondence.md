@@ -1,7 +1,8 @@
 # Loft correspondence, route and sheet attachment follow-up
 
-Status: targeted Windows verification passed; package/publication acceptance is
-recorded separately with the immutable release artifacts.
+Status: targeted Windows verification and signed/public package acceptance passed.
+Publication evidence is recorded with the immutable release artifacts in
+[the release record](20261119-windows-1901-publication.json).
 
 Baseline: `9559490a34bb219b2313251cfb597b9b7605280f`, Windows native Release,
 Qt 6.11.0 and OCCT 8.0.1. The implementation is shared C++ for Windows/Linux.
@@ -203,5 +204,5 @@ proven to have the same cause. No coordinate-based reference remapping or legacy
 execution path has been introduced. Newly calculated source geometry and the
 newly created attachment have passed cold regeneration. Conversion of an
 existing reference to an older packet's different ancestry is not claimed.
-Package publication still requires the committed-source and signed-runtime
-validation gates.
+The committed-source and signed-runtime publication gates passed; the public
+artifact record does not expand the finite geometry coverage described above.
