@@ -11,6 +11,11 @@ end-constraint test in both platform packagers and requires its registration.
 The user authorized finishing the entire list, commit, push and a Windows GitHub
 release on 2026-11-19. This supersedes the earlier wait-for-review instruction.
 
+Post-publication reports add RIP Sketch Tree selection and the half-height Bend
+in automatic conversion of `25.prtz`. Their fixes and finite tests are tracked
+in the [split-boundary verification record](verification/20261119-sheet-rip-and-split-boundaries.md)
+and [Windows 2026111907 release record](releases/2026111907.md).
+
 ## Completion checklist
 
 - Cached complete Fillet routes, symmetric/two-sided current face picking and

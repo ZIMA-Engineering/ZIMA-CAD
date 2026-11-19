@@ -316,6 +316,44 @@ struct Node {
     std::optional<std::size_t> parent;
     kernel::ViewerEdge entry;
 };
+kernel::ViewerEdge complete_straight_boundary(const kernel::ViewerMesh& mesh,
+        const kernel::ViewerEdge& seed) {
+    if(!straight(seed)||seed.edge_treatment_side_references.size()!=2)return seed;
+    const auto first=edge_face_fragment(mesh,seed.edge_treatment_side_references[0],seed);
+    const auto second=edge_face_fragment(mesh,seed.edge_treatment_side_references[1],seed);
+    if(!first||!second)return seed;
+    const auto origin=seed.points.front();
+    const auto delta=sub(seed.points.back(),origin);
+    const double length=std::sqrt(dot(delta,delta));
+    const auto direction=mul(delta,1/length);
+    constexpr double tolerance=1e-6;
+    double low=0,high=length;
+    bool extended=true;
+    while(extended) {
+        extended=false;
+        for(const auto& edge:mesh.edges) {
+            if(edge.parameter_seam||!straight(edge)||edge.edge_treatment_side_references.size()!=2)continue;
+            const auto a=sub(edge.points.front(),origin),b=sub(edge.points.back(),origin);
+            if(std::sqrt(dot(cross(a,direction),cross(a,direction)))>tolerance||
+                    std::sqrt(dot(cross(b,direction),cross(b,direction)))>tolerance)continue;
+            const double start=std::min(dot(a,direction),dot(b,direction));
+            const double end=std::max(dot(a,direction),dot(b,direction));
+            if(start>high+tolerance||end<low-tolerance||
+                    (start>=low-tolerance&&end<=high+tolerance))continue;
+            const auto side_a=edge_face_fragment(mesh,edge.edge_treatment_side_references[0],edge);
+            const auto side_b=edge_face_fragment(mesh,edge.edge_treatment_side_references[1],edge);
+            if(!side_a||!side_b||!((same_fragment(*first,*side_a)&&same_fragment(*second,*side_b))||
+                    (same_fragment(*first,*side_b)&&same_fragment(*second,*side_a))))continue;
+            low=std::min(low,start);high=std::max(high,end);extended=true;
+        }
+    }
+    auto result=seed;
+    // This is a private geometric span, not a replacement topology identity.
+    // Source bindings below still record every original edge and its endpoints.
+    if(low< -tolerance||high>length+tolerance)
+        result.points={add(origin,mul(direction,low)),add(origin,mul(direction,high))};
+    return result;
+}
 std::optional<V> sampled_normal(const kernel::ViewerMesh& mesh,const Face& face,V at) {
     double best=INFINITY;std::optional<V> result;
     for(std::size_t i=0;i<mesh.triangle_references.size();++i) {
@@ -387,7 +425,7 @@ std::vector<Node> skin(const kernel::ViewerMesh& mesh,const Face& first) {
                             mesh,result[*result[i].parent].face,current))
                     continue;
             }
-            visited.push_back(*next);result.push_back({*next,i,edge});
+            visited.push_back(*next);result.push_back({*next,i,complete_straight_boundary(mesh,edge)});
         }
     }
     return result;
@@ -1162,11 +1200,15 @@ void outline(sketcher::Sketch& sketch,const kernel::ViewerMesh& mesh,const Face&
             edge.points[edge.points.size()/2])),radius};
     };
     std::vector<bool> consumed(boundary.size());
+    std::vector<kernel::ViewerEdge> straight_boundaries;
     for(std::size_t edge_index=0;edge_index<boundary.size();++edge_index) {
         if(consumed[edge_index])continue;
         const auto& edge=*boundary[edge_index].edge;
         if(straight(edge)) {
-            const auto a=sketch.local_point(edge.points.front()),b=sketch.local_point(edge.points.back());
+            const auto joined=complete_straight_boundary(mesh,edge);
+            if(std::ranges::any_of(straight_boundaries,[&](const auto& existing){return same_edge_geometry(existing,joined);}))continue;
+            straight_boundaries.push_back(joined);
+            const auto a=sketch.local_point(joined.points.front()),b=sketch.local_point(joined.points.back());
             static_cast<void>(sketch.add_segment(a[0],a[1],b[0],b[1],1e-6,false));continue;
         }
         if(const auto circle=circular(boundary[edge_index])) {

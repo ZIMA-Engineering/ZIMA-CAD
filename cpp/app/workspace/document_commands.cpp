@@ -71,7 +71,7 @@ void AssemblyWorkspaceWindow::show_sheet_from_body() {
         for(const auto& sketch:source.sketches) {
             const auto* feature=source.find_container(sketch.owner_container_id);
             const auto* owner=source.body_owner_for_object(sketch.owner_container_id);
-            if(sketch.suppressed||!feature||feature->suppressed||feature->feature_kind!=document::FeatureKind::Sketch||
+            if(sketch.suppressed||!feature||feature->suppressed||
                     !owner||!owner->visible||!has_ordinary_geometry(sketch)||
                     !(target->entries.empty()?std::ranges::find(order,owner->scope.id)<target_position:
                         owner->scope.id==target->scope.id&&
@@ -79,7 +79,10 @@ void AssemblyWorkspaceWindow::show_sheet_from_body() {
                             target->entries.begin()+static_cast<std::ptrdiff_t>(target->cursor)))continue;
             const RipCandidate candidate{sketch.id,QString::fromStdString(sketch.name),owner->scope.id};
             offered_rips->emplace(sketch.id,candidate);
-            offered_rips->emplace(feature->id,candidate);
+            // A standalone Sketch row identifies its single Sketch. Other
+            // feature rows may own several profiles: require the exact child.
+            if(feature->feature_kind==document::FeatureKind::Sketch)
+                offered_rips->emplace(feature->id,candidate);
         }
         auto* dialog=new SheetFromBodyDialog(document::sheet_metal_defaults(source).thickness_mm.value_or(1.),
             [this,document_id](auto face,double thickness,
@@ -123,7 +126,8 @@ void AssemblyWorkspaceWindow::show_sheet_from_body() {
                 document.body_owner_for_object(dialog->selected()->owner_id)?std::optional{found->second}:std::nullopt;
         };
         const auto candidate_rip=[this,offered_rips,dialog,document_id,path=*path](const viewer::ViewerCandidate& candidate)->std::optional<RipCandidate> {
-            if((candidate.kind!=viewer::CandidateKind::SketchSegment&&candidate.kind!=viewer::CandidateKind::SketchCurve)||
+            if((candidate.kind!=viewer::CandidateKind::SketchSegment&&candidate.kind!=viewer::CandidateKind::SketchCurve&&
+                    candidate.kind!=viewer::CandidateKind::Container)||
                     candidate.instance_path!=path||!dialog->selected())return {};
             const auto found=offered_rips->find(candidate.owner_id);if(found==offered_rips->end())return {};
             const auto* state=workspace_.open_part(document_id);if(!state)return {};
@@ -134,7 +138,7 @@ void AssemblyWorkspaceWindow::show_sheet_from_body() {
         dialog->changed=[this,dialog,candidate_face,candidate_rip,document_id,path=*path] {
             viewer_->set_original_face_selection(dialog->face_entry());
             viewer_->set_selection_contract(dialog->face_entry()?std::vector<viewer::CandidateKind>{viewer::CandidateKind::Face}:
-                dialog->rip_entry()?std::vector<viewer::CandidateKind>{viewer::CandidateKind::SketchSegment,viewer::CandidateKind::SketchCurve}:
+                dialog->rip_entry()?std::vector<viewer::CandidateKind>{viewer::CandidateKind::SketchSegment,viewer::CandidateKind::SketchCurve,viewer::CandidateKind::Container}:
                 std::vector<viewer::CandidateKind>{});
             viewer_->set_candidate_filter([dialog,candidate_face,candidate_rip](const auto& candidate){return dialog->active()&&
                 (dialog->face_entry()?candidate_face(candidate).has_value():dialog->rip_entry()&&candidate_rip(candidate).has_value());},false);

@@ -7,6 +7,7 @@ int verify_sheet_exchange_ui(QApplication& application,const std::filesystem::pa
         auto part=document::PartDocument::create_default();
         const auto fixture=qEnvironmentVariable("ZIMA_VERIFY_SHEET_EXCHANGE");
         const bool same_body=qEnvironmentVariableIsSet("ZIMA_VERIFY_SHEET_SAME_BODY");
+        std::string rip_id,rip_owner;
         if(fixture!="1")part=document::PartDocument::load(fixture.toStdString(),&cache);
         else {
             static_cast<void>(part.body_history.create_body("Source"));
@@ -15,6 +16,14 @@ int verify_sheet_exchange_ui(QApplication& application,const std::filesystem::pa
                 part.sketches.back().segments.front().id);
             part.sketches.back().apply_dimension(size);
             part.insert_history_entry(document::PartHistoryKind::Feature,box.id);part.history.push_back(box);
+            auto rip_feature=document::PartDocument::create_sketch_container();
+            rip_feature.feature_kind=document::FeatureKind::Sketch;
+            auto rip=sketcher::Sketch::create_default();
+            rip.owner_container_id=rip_feature.id;
+            static_cast<void>(rip.add_segment(-50,0,50,0));
+            rip_id=rip.id;rip_owner=rip_feature.id;
+            part.insert_history_entry(document::PartHistoryKind::Feature,rip_feature.id);
+            part.history.push_back(rip_feature);part.sketches.push_back(rip);
             cache=workspace::calculate_part_with_resolved_references(kernel,part);
             if(!same_body)static_cast<void>(part.body_history.create_body("Sheet"));
         }
@@ -151,6 +160,68 @@ int verify_sheet_exchange_ui(QApplication& application,const std::filesystem::pa
             current->buttons()->button(QDialogButtonBox::Cancel)->click();flush();
         }
         app::apply_application_translations(application,settings_before);
+        if(!rip_id.empty())for(const bool commit:{false,true}) {
+            action->trigger();flush();pick();
+            const auto selection_revision=view->base_mesh_revision();
+            const auto selection_state=window.execute_console_command("documents").data;
+            auto* current=dialog();auto* rips=current->findChild<QTableWidget*>("sheetRipSketches");
+            rips->cellClicked(0,1);flush();
+            std::optional<QPointF> hit;
+            for(int y=10;y<view->height()&&!hit;y+=7)
+                for(int x=10;x<view->width();x+=7) {
+                    const auto candidates=view->selection_candidates_at(QPointF(x,y));
+                    if(!candidates.empty()&&(candidates.front().owner_id==rip_id||candidates.front().owner_id==rip_owner)) {hit=QPointF(x,y);break;}
+                }
+            check(hit.has_value(),"RIP Sketch has no selectable View geometry");
+            QMouseEvent move(QEvent::MouseMove,*hit,*hit,*hit,Qt::NoButton,Qt::NoButton,Qt::NoModifier);
+            QMouseEvent press(QEvent::MouseButtonPress,*hit,*hit,*hit,Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);
+            QMouseEvent release(QEvent::MouseButtonRelease,*hit,*hit,*hit,Qt::LeftButton,Qt::NoButton,Qt::NoModifier);
+            QApplication::sendEvent(view,&move);QApplication::sendEvent(view,&press);QApplication::sendEvent(view,&release);flush();
+            check(current->rip_sketches()==std::vector<std::string>{rip_id},"RIP Sketch View click was not accepted");
+            auto* remove=qobject_cast<QPushButton*>(rips->cellWidget(0,0)->property("_removeWidget").value<QObject*>());
+            check(remove,"RIP Sketch remove action missing");remove->click();flush();
+            auto* tree=window.findChild<QTreeWidget*>("documentTree");
+            const auto click_tree=[&](const std::string& id) {
+                QTreeWidgetItem* row=nullptr;
+                for(QTreeWidgetItemIterator it(tree);*it;++it)
+                    if((*it)->data(0,Qt::UserRole).toString().toStdString()==id&&
+                            ((*it)->data(0,Qt::UserRole+3)=="part-container"||(*it)->data(0,Qt::UserRole+3)=="part-sketch")){row=*it;break;}
+                check(row,"RIP Sketch Tree row missing");
+                for(auto* parent=row->parent();parent;parent=parent->parent())parent->setExpanded(true);
+                tree->scrollToItem(row);flush();const QPointF position=tree->visualItemRect(row).center();
+                QMouseEvent tree_press(QEvent::MouseButtonPress,position,position,position,Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);
+                QMouseEvent tree_release(QEvent::MouseButtonRelease,position,position,position,Qt::LeftButton,Qt::NoButton,Qt::NoModifier);
+                QApplication::sendEvent(tree->viewport(),&tree_press);QApplication::sendEvent(tree->viewport(),&tree_release);flush();
+            };
+            click_tree(part.sketches.front().owner_container_id);
+            check(current->rip_sketches().empty(),"RIP selected a feature instead of its exact Sketch");
+            click_tree(part.sketches.front().id);
+            check(current->rip_sketches()==std::vector<std::string>{part.sketches.front().id},"Owned RIP Sketch Tree click lost the exact Sketch identity");
+            remove=qobject_cast<QPushButton*>(rips->cellWidget(0,0)->property("_removeWidget").value<QObject*>());
+            check(remove,"Owned RIP remove action missing");remove->click();flush();
+            click_tree(rip_owner);
+            check(current->rip_sketches()==std::vector<std::string>{rip_id},"RIP Sketch Tree click was not accepted");
+            check(view->base_mesh_revision()==selection_revision&&window.execute_console_command("documents").data==selection_state,
+                "RIP selection recalculated the scene or changed the document");
+            current->buttons()->button(commit?QDialogButtonBox::Ok:QDialogButtonBox::Cancel)->click();flush();
+            check(!window.findChild<QDialog*>("sheetFromBodyDialog"),"RIP confirmation did not close the dialog");
+            const auto saved_conversion=[&] {
+                window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
+                auto saved=document::PartDocument::load(path);
+                const auto conversion=std::ranges::find_if(saved.history,[](const auto& feature){return feature.feature_kind==document::FeatureKind::SheetFromBody;});
+                check(conversion!=saved.history.end()&&conversion->sheet_from_body.rip_sketches==std::vector<std::string>{rip_id},
+                    "Selected RIP Sketch did not persist");
+                check(!conversion->sheet_from_body.generated_features.empty(),"RIP conversion produced no sheet features");
+            };
+            if(commit) {
+                saved_conversion();
+                window.findChild<QAction*>("undoAction")->trigger();flush();
+                window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
+                check(document::PartDocument::load(path).history.size()==original,"RIP conversion Undo changed source history");
+                window.findChild<QAction*>("redoAction")->trigger();flush();saved_conversion();
+                window.findChild<QAction*>("undoAction")->trigger();flush();
+            }
+        }
         action->trigger();flush();pick();dialog()->buttons()->button(QDialogButtonBox::Cancel)->click();flush();
         window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
         check(document::PartDocument::load(path).history.size()==original,"Conversion Cancel modified history");

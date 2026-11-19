@@ -1174,7 +1174,7 @@ void contract(bool include_oblique_corners = true) {
                 deleted.calculated_boundaries().back().calculation_errors.empty(),
             "Middle-Bend deletion Redo did not retain the remaining sheets");
     }
-    {
+    for(const int extent:{0,1,2}) {
         // A vertical corner fillet crossed by the two cap fillets has the same
         // topology as the 04 native-solid fixture.  Starting on one side must
         // always grow outwards: the adjacent side is the common branch Flat
@@ -1204,6 +1204,17 @@ void contract(bool include_oblique_corners = true) {
             profile.id);
         profile.owner_container_id=source.id;
         source.feature.sides[0].length=height;
+        double bottom_z=0,top_z=height;
+        if(extent==1) {
+            source.feature.symmetric=true;
+            source.feature.sides[0].length=height/2;
+            bottom_z=-height/2;top_z=height/2;
+        } else if(extent==2) {
+            source.feature.sides[0].length=height*.35;
+            source.feature.sides[1].operation=document::FeatureSideOperation::Extrusion;
+            source.feature.sides[1].length=height*.65;
+            bottom_z=-height*.65;top_z=height*.35;
+        }
         part.insert_history_entry(document::PartHistoryKind::Feature,
             source.id);
         part.history.push_back(source);
@@ -1276,8 +1287,8 @@ void contract(bool include_oblique_corners = true) {
             return std::vector<kernel::EdgeReference>{
                 first_side->reference,arc->reference,second_side->reference};
         };
-        auto bottom_route=cap_route(0);
-        auto top_route=cap_route(height);
+        auto bottom_route=cap_route(bottom_z);
+        auto top_route=cap_route(top_z);
         auto caps=document::PartDocument::create_fillet_container(
             bottom_route);
         caps.edge_treatment.routes={
@@ -1305,6 +1316,28 @@ void contract(bool include_oblique_corners = true) {
                 "Outward corner did not create six Flats and five Bends: created="+
                 std::to_string(converted.created.size())+" skipped="+
                 std::to_string(converted.skipped));
+        const auto check_vertical_span=[&](const document::PartDocument& document) {
+            std::size_t vertical_edges{};
+            for(const auto& id:converted.created) {
+                const auto* feature=document.find_container(id);
+                check(feature!=nullptr,"Corner conversion changed a generated feature identity");
+                if(feature->feature_kind!=document::FeatureKind::Bend)continue;
+                const auto sketch=std::ranges::find(document.sketches,
+                    feature->bend.sketch_id,&sketcher::Sketch::id);
+                check(sketch!=document.sketches.end(),"Corner Bend lost its profile");
+                const auto preview=document::bend_preview(*feature,*sketch,
+                    document::sheet_metal_defaults(document));
+                for(const auto& edge:preview.edges)
+                    if(edge.reference.semantic_key.find("outer-start")!=std::string::npos&&
+                            edge.points.size()>=2&&std::abs(edge.points.front().z-edge.points.back().z)>radius) {
+                        ++vertical_edges;
+                        near(std::min(edge.points.front().z,edge.points.back().z),bottom_z+radius,1e-5);
+                        near(std::max(edge.points.front().z,edge.points.back().z),top_z-radius,1e-5);
+                    }
+            }
+            check(vertical_edges==1,"Corner conversion lost its complete vertical Bend span");
+        };
+        check_vertical_span(converted.document);
         std::size_t cap_flats{},side_flats{};
         std::size_t bends{};
         for(const auto& id:converted.created) {
@@ -1334,6 +1367,17 @@ void contract(bool include_oblique_corners = true) {
         check(cold.back().calculation_errors.empty()&&
                 cold.back().body_outputs.at(body)->has_solid(),
             "Outward corner continuation failed cold regeneration");
+        check_vertical_span(reopened);
+        for(const double change:{7.,-7.}) {
+            reopened.find_container(source.id)->feature.sides[0].length+=change;
+            top_z+=change;
+            if(extent==1)bottom_z-=change;
+            const auto edited=workspace::calculate_part_with_resolved_references(
+                kernel,reopened);
+            check(edited.back().calculation_errors.empty(),
+                "Split-boundary conversion failed after a source length edit");
+            check_vertical_span(reopened);
+        }
     }
     {
         // A thick ordinary solid is a valid source. Its opposite-face spacing
