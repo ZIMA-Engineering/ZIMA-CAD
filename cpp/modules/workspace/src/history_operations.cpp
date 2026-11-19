@@ -4,6 +4,7 @@
 #include <zima/workspace/history_deletion.hpp>
 #include <zima/workspace/history_policy.hpp>
 #include <zima/workspace/reference_index.hpp>
+#include <zima/workspace/sheet_exchange_operations.hpp>
 #include <algorithm>
 #include <cmath>
 
@@ -190,7 +191,33 @@ void delete_part_history(Workspace& live,const std::string& document_id,
             removed_feature->feature_kind==document::FeatureKind::TwistedSheet||
             removed_feature->feature_kind==document::FeatureKind::SheetFromBody||
             removed_feature->feature_kind==document::FeatureKind::SheetProfile));
-        const auto deletion=plan_history_deletion(next,id);
+        auto deletion=plan_history_deletion(next,id);
+        const auto aliases=part_history_dependency_graph(next).owners;
+        const auto lost=[&](const auto& reference) {
+            if(!reference.instance_path.empty())return false;
+            const auto found=aliases.find(reference.owner_id);
+            return deletion.unavailable.contains(found==aliases.end()?reference.owner_id:found->second);
+        };
+        std::vector<std::string> release;
+        for(const auto& conversion:next.history) {
+            if(conversion.feature_kind!=document::FeatureKind::SheetFromBody||
+                    deletion.removed.contains(conversion.id))continue;
+            bool source_lost=deletion.unavailable.contains(conversion.sheet_from_body.source_body_id);
+            for(const auto& rip:conversion.sheet_from_body.rip_sketches) {
+                const auto owner=aliases.find(rip);
+                source_lost|=deletion.unavailable.contains(owner==aliases.end()?rip:owner->second);
+            }
+            for(const auto& binding:conversion.sheet_from_body.child_bindings)if(!binding.detached) {
+                source_lost|=std::ranges::any_of(binding.faces,[&](const auto& face){return lost(face.reference);});
+                source_lost|=std::ranges::any_of(binding.edges,[&](const auto& edge){return lost(edge.reference);});
+            }
+            if(source_lost)release.push_back(conversion.id);
+        }
+        for(const auto& conversion:release)
+            rebuild_sheet_union|=release_sheet_from_body_bindings(next,conversion);
+        // Released children no longer depend on the removed source. Rebuild
+        // the plan before ordinary lost-reference handling sees those links.
+        if(!release.empty())deletion=plan_history_deletion(next,id);
         detach_deleted_history_references(next,deletion);
         next.erase_history_object(id);
         // A selected history group owns every object in deletion.removed.

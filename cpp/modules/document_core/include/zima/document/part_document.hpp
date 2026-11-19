@@ -775,6 +775,9 @@ struct TwistedSheetParameters {
 struct BendParameters {
     std::array<bool,2> corner{};
     double corner_gap{0.05};
+    // Present only while a conversion owns the computed allowance. Native
+    // endpoint dimensions then express the user's delta from this basis.
+    std::optional<std::array<double,2>> conversion_base_extensions;
     std::string sketch_id;
     bool sheet_attachment{};
     // Path and end profile; the start profile is the ordinary owned Sketch.

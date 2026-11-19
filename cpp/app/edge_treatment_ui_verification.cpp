@@ -270,6 +270,7 @@ int verify_edge_treatment_ui(QApplication& application, AssemblyWorkspaceWindow&
             std::filesystem::copy_file(std::filesystem::u8path(model.toStdString()),file,
                 std::filesystem::copy_options::overwrite_existing);
             run("open",{{"path",document::path_to_utf8(file)}});
+            if(qEnvironmentVariableIsSet("ZIMA_VERIFY_PICK_REGENERATE"))run("regenerate");
             view->set_standard_view(viewer::StandardView::Isometric);
             view->fit_all();flush();
             const auto pick_owner=qEnvironmentVariable("ZIMA_VERIFY_PICK_OWNER").toStdString();
@@ -322,7 +323,16 @@ int verify_edge_treatment_ui(QApplication& application, AssemblyWorkspaceWindow&
                 method_zima->click();flush();std::cerr<<"PICK zima on"<<std::endl;
             }
             auto* pending=dialog();
-            pending->findChild<QDoubleSpinBox*>("edgeTreatmentPrimary")->setValue(1);flush();
+            const auto requested_radius=qEnvironmentVariable("ZIMA_VERIFY_PICK_RADIUS");
+            pending->findChild<QDoubleSpinBox*>("edgeTreatmentPrimary")->setValue(
+                requested_radius.isEmpty()?1.:requested_radius.toDouble());flush();
+            if(qEnvironmentVariableIsSet("ZIMA_VERIFY_PICK_STALE_ENDPOINT")) {
+                const auto value=pending->pending_value();
+                check(!value.edge_treatment.route_end_faces.empty(),"Missing endpoint test route");
+                auto ends=value.edge_treatment.route_end_faces.front();
+                ends.first_vertex.semantic_key+=":missing";
+                pending->set_edge_route_end_vertices(0,ends.first_vertex,ends.last_vertex);
+            }
             std::cout<<"PICK routes="<<pending->pending_value().edge_treatment.routes.size()<<'\n';
             for(auto* label:pending->findChildren<QLabel*>())
                 if(label->isVisible()&&!label->text().isEmpty()&&
@@ -336,6 +346,29 @@ int verify_edge_treatment_ui(QApplication& application, AssemblyWorkspaceWindow&
                 check(ok->isEnabled()&&kernel::body_calculation_count.load()==draft_calculations,
                     "Picked treatment calculated a Body before OK");
                 const auto owner=pending->container_id();
+                if(qEnvironmentVariableIsSet("ZIMA_VERIFY_PICK_STALE_ENDPOINT")) {
+                    QPointer<PrimitivePropertiesDialog> held=pending;
+                    ok->click();flush();
+                    auto* notice=held?held->findChild<QLabel*>("propertiesSubmitError"):nullptr;
+                    check(held&&notice&&notice->isVisible()&&
+                        run("documents").at(0).at("revision")==revision,
+                        "First invalid endpoint OK did not retain the unchanged draft and retry notice");
+                    const auto count=kernel::body_calculation_count.load();
+                    ok->click();flush();
+                    check(!held&&kernel::body_calculation_count.load()==count,
+                        "Second invalid endpoint OK did not close without calculation");
+                    run("save");
+                    std::vector<kernel::BodyResult> saved;
+                    const auto reopened=document::PartDocument::load(file,&saved);
+                    check(reopened.find_container(owner)&&!saved.empty()&&
+                        saved.back().calculation_errors.contains(owner),
+                        "Invalid endpoint definition was not saved as unresolved");
+                    run("undo");run("redo");run("save");
+                    check(document::PartDocument::load(file).find_container(owner),
+                        "Invalid endpoint definition was lost through Undo/Redo");
+                    std::cout<<"Invalid endpoint GUI: first/second OK, native reopen, Undo/Redo passed\n";
+                    return 0;
+                }
                 finish(true);
                 check(kernel::body_calculation_count.load()>draft_calculations,
                     "Picked treatment did not calculate on OK");
@@ -382,14 +415,30 @@ int verify_edge_treatment_ui(QApplication& application, AssemblyWorkspaceWindow&
                 const auto rejected_owner=pending->container_id();
                 QPointer<PrimitivePropertiesDialog> rejected=pending;
                 ok->click();flush();
-                check(!rejected&&kernel::body_calculation_count.load()>draft_calculations,
-                    "Failed ZIMA construction did not close Properties");
+                check(rejected&&rejected->isVisible()&&kernel::body_calculation_count.load()>draft_calculations,
+                    "First failed ZIMA OK did not retain Properties");
                 check(run("documents").at(0).at("revision")==revision,
                     "Failed construction changed the document revision");
                 check(!window.execute_console_command(QString::fromStdString(Json{
                     {"command",chamfer?"chamfer.get":"fillet.get"},
                     {"arguments",{{"container",rejected_owner}}}}.dump())).ok,
                     "Failed construction inserted a treatment definition");
+                auto* notice=rejected->findChild<QLabel*>("propertiesSubmitError");
+                check(notice&&notice->isVisible()&&!notice->text().isEmpty(),"First failed OK omitted the unresolved-definition notice");
+                const auto failed_count=kernel::body_calculation_count.load();
+                size->setValue(9000);ok->click();flush();
+                check(rejected&&run("documents").at(0).at("revision")==revision&&
+                    kernel::body_calculation_count.load()>failed_count,"Changed draft reused a previous failure acknowledgement");
+                const auto retry_count=kernel::body_calculation_count.load();
+                ok->click();flush();
+                check(!rejected&&kernel::body_calculation_count.load()==retry_count,
+                    "Second unchanged OK did not close using the already calculated failure");
+                run("save");
+                std::vector<kernel::BodyResult> unresolved_cache;
+                const auto unresolved=document::PartDocument::load(file,&unresolved_cache);
+                check(unresolved.find_container(rejected_owner)&&!unresolved_cache.empty()&&
+                    unresolved_cache.back().calculation_errors.contains(rejected_owner),"Second OK lost the unresolved native feature");
+                run("undo");run("redo");run("undo");
                 for(const bool next_chamfer:{chamfer,!chamfer}) {
                     const auto before_draft=kernel::body_calculation_count.load();
                     window.findChild<QAction*>(next_chamfer?"chamferAction":"filletAction")->trigger();flush();
@@ -425,15 +474,20 @@ int verify_edge_treatment_ui(QApplication& application, AssemblyWorkspaceWindow&
                     const QPointF confirmation(view->width()*.5,view->height()*.5);
                     mouse(QEvent::MouseButtonDblClick,confirmation,Qt::MiddleButton,Qt::MiddleButton);
                     mouse(QEvent::MouseButtonRelease,confirmation,Qt::MiddleButton,Qt::NoButton);
-                    check(!failed_edit&&run("documents").at(0).at("revision")==before&&
+                    check(failed_edit&&run("documents").at(0).at("revision")==before&&
                             run(query,{{"container",owner}})==created,
-                        "Failed edit did not close and retain the previous treatment");
-                    run("undo");run("redo");
+                        "First failed middle-button confirmation changed the previous treatment");
+                    const auto edit_retry_count=kernel::body_calculation_count.load();
+                    mouse(QEvent::MouseButtonDblClick,confirmation,Qt::MiddleButton,Qt::MiddleButton);
+                    mouse(QEvent::MouseButtonRelease,confirmation,Qt::MiddleButton,Qt::NoButton);
+                    check(!failed_edit&&kernel::body_calculation_count.load()==edit_retry_count,
+                        "Second middle-button confirmation did not retain the failed definition without recalculation");
+                    run("undo");run("redo");run("undo");
                     check(run(query,{{"container",owner}})==created,
                         "Recovered treatment lost its references through Undo/Redo");
                     run("undo");
                 }
-                std::cout<<"Pocket recovery: failed OK closes without insertion/replacement, new Fillet and Chamfer, native reopen, Undo/Redo and unchanged OK passed\n";
+                std::cout<<"Pocket recovery: two-OK unresolved definitions, changed draft, new/edit Fillet and Chamfer, middle button, native reopen, Undo/Redo and unchanged OK passed\n";
                 return 0;
             }
             finish(false);

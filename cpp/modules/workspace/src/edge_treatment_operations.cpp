@@ -1,9 +1,11 @@
 #include <zima/workspace/edge_treatment_operations.hpp>
+#include <zima/workspace/modeling_confirmation.hpp>
 #include <zima/workspace/operation_input.hpp>
 #include <zima/workspace/history_operations.hpp>
 #include <zima/document/edge_treatment_selection.hpp>
 #include <zima/kernel/edge_treatment_chain.hpp>
 #include <zima/kernel/edge_treatment_route_plan.hpp>
+#include <zima/kernel/tangent_edge_route.hpp>
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
@@ -84,6 +86,62 @@ std::vector<kernel::VertexReference> endpoints(const Groups& available,const std
 }
 std::vector<kernel::VertexReference> edge_treatment_route_endpoints(const std::vector<kernel::ViewerEdge>& edges,const std::vector<kernel::EdgeReference>& route) {
     return endpoints(group_edges(edges),route);
+}
+bool refresh_edge_treatment_references(document::PartDocument& doc,
+        const std::vector<kernel::BodyResult>& calculated) {
+    bool changed{};
+    for(auto& feature:doc.history) {
+        if(feature.suppressed||(feature.feature_kind!=document::FeatureKind::Fillet&&
+                feature.feature_kind!=document::FeatureKind::Chamfer))continue;
+        const auto* input=calculated_operation_input(doc,calculated,feature.id);
+        if(!input||input->mesh.edges.empty()||!input->calculation_errors.empty())continue;
+        auto& parameters=feature.edge_treatment;
+        for(std::size_t index=0;index<parameters.routes.size();++index) {
+            if(index>=parameters.route_end_faces.size())continue;
+            auto route=parameters;
+            route.routes={parameters.routes[index]};
+            route.route_end_faces={parameters.route_end_faces[index]};
+            route.route_start_vertices=index<parameters.route_start_vertices.size()
+                ?std::vector{parameters.route_start_vertices[index]}:std::vector<kernel::VertexReference>{};
+            const auto original=route;
+            static_cast<void>(document::prune_unresolved_treatment_references(route,input->mesh));
+            // Total reference loss must retain the unresolved definition for
+            // repair. It must never silently remove the feature or its intent.
+            if(route.routes.empty())continue;
+            const auto current=document::current_treatment_selection_wire(route,0,{},input->mesh);
+            const auto& ends=original.route_end_faces.front();
+            const auto same_span=[&](const auto& terminals) {
+                return ends.first_vertex.valid()&&ends.last_vertex.valid()&&ends.first_vertex!=ends.last_vertex&&
+                    terminals.size()==2&&std::ranges::find(terminals,ends.first_vertex)!=terminals.end()&&
+                    std::ranges::find(terminals,ends.last_vertex)!=terminals.end();
+            };
+            const auto retained_ends=edge_treatment_route_endpoints(input->mesh.edges,route.routes.front());
+            if(same_span(retained_ends)) {
+                // An interior member can disappear without moving either
+                // physical terminal. Keep its authored Cut/NoCut choices.
+                route.route_end_faces=original.route_end_faces;
+            } else if(!current.empty()&&ends.first_vertex.valid()&&ends.last_vertex.valid()&&
+                    ends.first_vertex!=ends.last_vertex) {
+                const auto restored=kernel::tangent_edge_route(input->mesh.edges,current.front().reference);
+                const auto terminals=edge_treatment_route_endpoints(input->mesh.edges,restored);
+                const auto includes=[&](const auto& identity) {return std::ranges::find(restored,identity)!=restored.end();};
+                // A branch stops the shared tangent traversal. Requiring all
+                // surviving members AND both original terminals excludes an
+                // unrelated route, an extension and a deliberate deselection.
+                if(same_span(terminals)&&std::ranges::all_of(current,[&](const auto& edge){return includes(edge.reference);})&&
+                        std::ranges::any_of(restored,[&](const auto& ref){return std::ranges::none_of(current,[&](const auto& edge){return edge.reference==ref;});})) {
+                    route.routes.front()=restored;
+                    route.route_end_faces=original.route_end_faces;
+                    route.route_start_vertices=original.route_start_vertices;
+                }
+            }
+            if(route==original)continue;
+            parameters.routes[index]=std::move(route.routes.front());
+            parameters.route_end_faces[index]=std::move(route.route_end_faces.front());
+            changed=true;
+        }
+    }
+    return changed;
 }
 bool commit_edge_treatment(Workspace& live,const kernel::OcctKernel& kernel,const std::string& id,
     document::HistoryContainer feature,EdgeTreatmentEditMode mode,
@@ -197,13 +255,20 @@ bool commit_edge_treatment(Workspace& live,const kernel::OcctKernel& kernel,cons
                 "Route endpoints must identify two different vertices.");
         bool closed_route{};
         const auto current_endpoints=endpoints(route_available,route,&closed_route);
+        const auto* confirmation=ModelingConfirmationAttempt::current();
+        const bool interactive_confirmation=confirmation&&confirmation->applies(before);
         for(const auto* vertex:{&route_ends.first_vertex,
                 &route_ends.last_vertex})
             if(vertex->valid()&&
                std::ranges::find(current_endpoints,*vertex)==
-                   current_endpoints.end())
+                   current_endpoints.end()&&!interactive_confirmation)
                 throw Error("invalid_reference",
                     "Stored route endpoint is not an endpoint of the selected route.");
+        // Interactive OK lets the exact native endpoint validation report the
+        // failed owner through the common two-OK transaction. Rejecting here
+        // would leave a stale Cut endpoint permanently trapped in Properties.
+        // Structural/identity/numeric guards above and native CLI preflight
+        // remain strict; the kernel still validates the actual Cut endpoint.
         if(!start.instance_path.empty())throw Error("invalid_reference","Select a local persisted input reference.");
         if(asymmetric_chamfer) {
             std::vector<const kernel::ViewerEdge*> segments;
@@ -275,7 +340,7 @@ bool commit_edge_treatment(Workspace& live,const kernel::OcctKernel& kernel,cons
     auto calculated=calculate_part_with_resolved_references(kernel,next,&previous,policy);
     if(require_valid_result&&!calculated.empty()) {
         const auto& errors=calculated.back().calculation_errors;
-        if(const auto issue=errors.find(feature_id);issue!=errors.end())
+        if(const auto issue=errors.find(feature_id);issue!=errors.end()&&!confirmed_unresolved_modeling_definition(feature_id))
             throw Error("calculation_failed",issue->second.c_str());
     }
     state->session.commit(std::move(next),std::move(calculated));return true;

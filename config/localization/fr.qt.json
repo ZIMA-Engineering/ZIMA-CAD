@@ -1,4 +1,6 @@
 {
+  "Corner closure must be 0 or 1.": "La fermeture du coin doit valoir 0 ou 1.",
+  "Bend end profile constraints cannot be solved.": "Les contraintes du profil de fin du pli ne peuvent pas être résolues.",
   "Flat attachment requires a straight boundary of a sheet end face.": "Le raccordement de la tôle exige une arête de bord droite d’une face d’extrémité de tôle.",
   "Střed hrany": "Milieu de l’arête",
   "Umístit počátek do středu vybraného úseku hrany a kótovat od středu.": "Placer l’origine au milieu du segment d’arête sélectionné et coter à partir de ce milieu.",
@@ -932,7 +934,7 @@
   "Generated Sheet Profile Bend start point is missing.": "Le point de départ du pli de profil généré est manquant.",
   "Generated Sheet Profile Bend start edge is too short.": "L’arête de départ du pli de profil généré est trop courte.",
   "Edit this generated Flat through its parent Profile Sketch.": "Modifiez cette tôle générée par l’intermédiaire de son esquisse de profil parente.",
-  "A generated Profile Bend permits only its end corrections.": "Un pli de profil généré n’autorise que ses corrections d’extrémité.",
+  "A generated Profile Bend permits only its end corrections and corner closure.": "Un pli de profil généré n’autorise que ses corrections d’extrémité et la fermeture du coin.",
   "Sheet Profile driver Sketch is missing.": "L’esquisse pilote du profil est manquante.",
   "Sheet Profile Flat target envelope is invalid.": "L’enveloppe cible de la tôle de profil est invalide.",
   "Sheet Profile Flat target envelope is too small.": "L’enveloppe cible de la tôle de profil est trop petite.",
@@ -2848,5 +2850,7 @@
   "zima::app::AssemblyWorkspaceWindow|Řez": "Coupe",
   "zima::app::AssemblyWorkspaceWindow|Řez %1": "Coupe %1",
   "zima::app::AssemblyWorkspaceWindow|Edge treatment preview did not produce an exact result wire.": "L’aperçu du traitement d’arête n’a pas produit de géométrie résultante exacte.",
-  "zima::app::AssemblyWorkspaceWindow|Zaoblený přechod": "Raccord arrondi"
+  "zima::app::AssemblyWorkspaceWindow|Zaoblený přechod": "Raccord arrondi",
+  "Sheet from Body Bend correction basis is missing or inconsistent.": "La base de correction du pli de Tôle à partir du corps est absente ou incohérente.",
+  "Calculation failed: %1\nPress OK again to save this unchanged definition as unresolved, or Cancel to discard it.": "Échec du calcul : %1\nAppuyez de nouveau sur OK pour enregistrer cette définition inchangée comme non résolue, ou sur Annuler pour l’abandonner."
 }

@@ -47,6 +47,10 @@ void prepare_bend_sketches(HistoryContainer&,const sketcher::Sketch&,const Sheet
 void accept_bend_sketch(HistoryContainer&,const sketcher::Sketch&,std::size_t,sketcher::Sketch,const SheetMetalDefaults&);
 [[nodiscard]] std::array<double,2> bend_profile_extensions(const HistoryContainer&);
 void set_bend_profile_extensions(HistoryContainer&,double first,double last);
+// Change the coordinate basis, preserving the solved endpoint geometry and
+// native identities. An empty basis releases absolute endpoint corrections.
+void rebase_bend_profile_extensions(HistoryContainer&,const sketcher::Sketch&,
+    std::optional<std::array<double,2>>,const SheetMetalDefaults&);
 // Local-X material interval at the calculated Bend end.  Profile-owned Bends
 // use a target-driven reference interval plus the ordinary signed endpoint
 // differences; ordinary Bends retain their start interval as the reference.

@@ -1,4 +1,6 @@
 #include <zima/workspace/model_calculation.hpp>
+#include <zima/workspace/modeling_confirmation.hpp>
+#include <zima/workspace/edge_treatment_operations.hpp>
 #include <zima/kernel/placement_route.hpp>
 #include <zima/kernel/sheet_attachment_reference.hpp>
 #include <zima/workspace/relation_operations.hpp>
@@ -246,6 +248,26 @@ static kernel::HistoryOutputPolicy history_output_policy(
         if(!feature.suppressed&&document::is_solid_state(feature.feature_kind))
             result.retained_output_owners.insert(feature.id);
 
+    // Associative conversion consumes the current source Body, including cuts
+    // inserted before the conversion. Authored historical supports do not
+    // represent that boundary: their edges can still extend through removed
+    // material. Retain only the exact source output needed by each live link.
+    for(const auto& feature:document.history) {
+        if(feature.suppressed||
+                feature.feature_kind!=document::FeatureKind::SheetFromBody||
+                std::ranges::none_of(feature.sheet_from_body.child_bindings,
+                    [](const auto& binding) {return !binding.detached;}))
+            continue;
+        std::string source_output;
+        for(const auto& operation:operations) {
+            if(operation.owner_id==feature.id)break;
+            if(operation.body.id==feature.sheet_from_body.source_body_id)
+                source_output=operation.owner_id;
+        }
+        if(!source_output.empty())
+            result.retained_output_owners.insert(source_output);
+    }
+
     // Saved Body Properties remain analysis-only unless their Origin is used
     // as a real placement/construction input.  In that case AggregateProperty
     // demand is already exact; retain the measured history boundary as well so
@@ -334,6 +356,14 @@ std::vector<zima::kernel::BodyResult> calculate_part(
     const zima::document::PartDocument& document,
     const std::vector<zima::kernel::BodyResult>* previous,
     const PartCalculationPolicy& policy) {
+    if(auto* attempt=ModelingConfirmationAttempt::current();attempt&&attempt->applies(document)) {
+        auto candidate=document;
+        auto result=attempt->calculate(candidate,policy,[&](auto& input,const auto& effective) {
+            return calculate_part(kernel,input,previous,effective);
+        });
+        if(!attempt->accepted())validate_part_calculation(candidate,result,policy);
+        return result;
+    }
     if (calculation_runner) {
         std::vector<kernel::BodyResult> result;
         const auto runner = calculation_runner;
@@ -892,6 +922,9 @@ calculate_part_reference_state(
         calculation_policy.edited_history_limit=policy.edited_history_limit;
         calculated = calculate_part(kernel, document, incremental_source, calculation_policy);
         phase("calculation");
+        if(refresh_edge_treatment_references(document,calculated)) {
+            incremental_source=&calculated;continue;
+        }
         for(const auto& boundary:calculated)if(!boundary.resolved_up_to_limits.empty())for(auto& feature:document.history)
             if(feature.feature_kind==document::FeatureKind::Feature&&!boundary.calculation_errors.contains(feature.id))
                 static_cast<void>(document::resolve_feature_up_to_choices(feature.feature,feature.id,feature.feature_id,boundary.resolved_up_to_limits));
@@ -1060,6 +1093,13 @@ calculate_part_reference_state(
 std::vector<kernel::BodyResult> calculate_part_with_resolved_references(
     const kernel::OcctKernel& kernel,document::PartDocument& document,
     const std::vector<kernel::BodyResult>* previous,const PartCalculationPolicy& policy) {
+    if(auto* attempt=ModelingConfirmationAttempt::current();attempt&&attempt->applies(document)) {
+        auto result=attempt->calculate(document,policy,[&](auto& input,const auto& effective) {
+            return calculate_part_with_resolved_references(kernel,input,previous,effective);
+        });
+        if(!attempt->accepted())validate_part_calculation(document,result,policy);
+        return result;
+    }
     if (calculation_runner) {
         std::vector<kernel::BodyResult> result;
         const auto runner = calculation_runner;

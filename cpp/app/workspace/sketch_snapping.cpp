@@ -595,8 +595,12 @@ bool AssemblyWorkspaceWindow::accept_sketch_segment_ray(
             pending_segment_start_snap_geometry_id_.find("||")==std::string::npos&&
             end_snap_geometry_id.find("||")==std::string::npos;
         const bool keep_offered_line_relation=sketch_endpoint_inference_cycle_||
-            line_contact_pair||!offered_equal_reference.empty();
-        // C owns the exact endpoint while RMB, a pair of sliding contacts, or
+            line_contact_pair||!offered_equal_reference.empty()||
+            (*end_snap_kind==zima::sketcher::ConstraintKind::PointOnLine&&
+             end_snap_geometry_id.find("||")==std::string::npos&&
+             !offered_parallel_reference.empty());
+        // C on a single line leaves its sliding freedom for Parallel. RMB,
+        // a pair of sliding contacts, or
         // Equal may still own an independent direction relation. Preserve that
         // compatible relation, but never persist a merely nearby automatic
         // offer at a fixed composite intersection. Parallel remains first.

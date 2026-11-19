@@ -757,7 +757,22 @@ void append_source_binding(document::PartDocument& part,
                 existing.region_id==binding.region_id;
         }))throw std::invalid_argument(
             "Sheet conversion produced a duplicate source region.");
+    if(binding.bend)part.find_container(binding.feature_id)->bend.
+        conversion_base_extensions=std::array{0.,0.};
     bindings.push_back(std::move(binding));
+}
+
+void capture_conversion_allowances(SheetBodyConversion& result) {
+    for(const auto& id:result.created) {
+        auto* feature=result.document.find_container(id);
+        if(!feature||feature->feature_kind!=document::FeatureKind::Bend||
+                !result.document.sheet_from_body_child_bound(id))continue;
+        const auto sketch=std::ranges::find(result.document.sketches,id,
+            &sketcher::Sketch::owner_container_id);
+        if(sketch==result.document.sketches.end())throw std::invalid_argument("Bend requires its own Sketch.");
+        document::rebase_bend_profile_extensions(*feature,*sketch,
+            document::bend_profile_extensions(*feature),document::sheet_metal_defaults(result.document));
+    }
 }
 
 struct ContinuationBend {
@@ -2502,6 +2517,7 @@ SheetBodyConversion prepare_sheet_from_body(const document::PartDocument& source
             result.created.push_back(added.id);
             imported_authored[index]=added.id;
         }
+        capture_conversion_allowances(result);
         result.document.validate_sheet_from_body();
         return result;
     }
@@ -2982,6 +2998,7 @@ SheetBodyConversion prepare_sheet_from_body(const document::PartDocument& source
         result.calculated=calculate_part_with_resolved_references(
             kernel,result.document,&result.calculated,policy);
     }
+    capture_conversion_allowances(result);
     result.document.validate_sheet_from_body();
     return result;
 }
@@ -3095,10 +3112,6 @@ kernel::ViewerMesh source_mesh_in_target_coordinates(
         if(output==calculated.back().body_outputs.end())return {};
         mesh=output->second->mesh;
     }
-    // Intermediate Body boundaries deliberately compact their authored
-    // reference database. The final aggregate retains the exact source
-    // supports in world coordinates; use those supports for association
-    // comparison while keeping the pre-conversion current edges above.
     // Keep the exact pre-conversion references: Boolean split edges that
     // define a converted region may no longer be published by the final
     // aggregate after the generated sheet replaces the source Body. Add the
@@ -3125,7 +3138,8 @@ kernel::ViewerMesh source_mesh_in_target_coordinates(
 
 const Face* find_source_face(const kernel::ViewerMesh& mesh,
         const kernel::FaceReference& reference,
-        const document::SheetFromBodySurfaceSignature* previous=nullptr) {
+        const document::SheetFromBodySurfaceSignature* previous=nullptr,
+        bool adjacent=false) {
     const Face* result=nullptr;
     double best=std::numeric_limits<double>::infinity();
     const auto consider=[&](const auto& candidates) {
@@ -3149,14 +3163,21 @@ const Face* find_source_face(const kernel::ViewerMesh& mesh,
                             previous->origin),a);
                         score+=std::sqrt(dot(offset,offset));
                     }
-                    if(current.reversed!=previous->reversed)score+=1e9;
                 }
             }
-            if(score<best) {best=score;result=&candidate;}
+            if(score<best-1e-7) {best=score;result=&candidate;}
         }
     };
-    consider(mesh.original_references.triangle_references);
+    // Adjacency is authored from edge_face_fragment(), which resolves the
+    // original analytic support packet. Use that same source and orientation
+    // when checking its association, rather than a rendered Boolean face.
+    if(adjacent)consider(mesh.original_references.triangle_references);
     consider(mesh.triangle_references);
+    // One ancestry identity can describe several analytic face fragments.
+    // Resolve the support as well as its identity. Prefer the current input
+    // on equal support distance, including its actual Boolean orientation;
+    // reversal is a property of that current face, not a different support.
+    consider(mesh.original_references.triangle_references);
     return result;
 }
 
@@ -3182,8 +3203,8 @@ const kernel::ViewerEdge* find_source_edge(const kernel::ViewerMesh& mesh,
             if(score<best) {best=score;result=&candidate;}
         }
     };
-    consider(mesh.original_references.edges);
     consider(mesh.edges);
+    if(!result)consider(mesh.original_references.edges);
     return result;
 }
 
@@ -3308,7 +3329,8 @@ bool refresh_sheet_from_body_associations(
                     ++face_index) {
                 const auto& face=binding.faces[face_index];
                 const auto* current=find_source_face(source_mesh,
-                    face.reference,&face.last_valid_surface);
+                    face.reference,&face.last_valid_surface,
+                    face.role==document::SheetFromBodyFaceRole::Adjacent);
                 if(!current) {
                     // The primary source support owns the stable region. Its
                     // loss is broken topology. Opposite/adjacent supports may
@@ -3495,10 +3517,17 @@ bool refresh_sheet_from_body_associations(
                 replace_generated_identity(next.bend.sketch_id,replacements);
                 for(auto& sketch:next.bend.auxiliary_sketches)
                     replace_generated_identity(sketch,replacements);
+                // Source geometry owns the computed allowance and frame;
+                // the native output Sketch owns the user's delta/constraints.
+                next.bend.auxiliary_sketches[1]=current->bend.auxiliary_sketches[1];
+                next.bend.corner=current->bend.corner;
+                next.bend.corner_gap=current->bend.corner_gap;
             }
             std::string sketch_data=generated_sketch->serialized();
             replace_generated_identity(sketch_data,replacements);
             auto next_sketch=sketcher::Sketch::from_serialized(sketch_data);
+            if(next.feature_kind==document::FeatureKind::Bend)
+                document::prepare_bend_sketches(next,next_sketch,document::sheet_metal_defaults(source));
             if(next!=*current) {
                 *current=std::move(next);
                 document_changed=true;
@@ -3553,6 +3582,69 @@ bool refresh_sheet_from_body_associations(
     return document_changed;
 }
 
+bool release_sheet_from_body_bindings(document::PartDocument& document,
+        const std::string& conversion_id) {
+    auto* conversion=document.find_container(conversion_id);
+    if(!conversion||conversion->feature_kind!=document::FeatureKind::SheetFromBody)
+        throw std::invalid_argument("Sheet from Body does not exist.");
+    const auto* owner=document.body_owner_for_object(conversion_id);
+    if(!owner)throw std::invalid_argument("Sheet from Body is missing from Body history");
+    if(std::ranges::all_of(conversion->sheet_from_body.child_bindings,
+            [](const auto& binding){return binding.detached;}))return false;
+    const auto body=*document.body_history.find(owner->scope.id);
+    const auto row=std::ranges::find(body.entries,conversion_id,
+        &document::PartHistoryEntry::id);
+    if(row==body.entries.end())
+        throw std::invalid_argument(
+            "Sheet from Body is missing from Body history");
+    if(conversion->sheet_from_body.replaces_body) {
+        // The conversion marker is an empty replacement operation: it
+        // removes the same-Body source solid before the generated sheet
+        // starts. Exploding the marker must preserve that exact material
+        // boundary. Retain the authored source prefix for inspection and
+        // Undo, but suppress its material-producing features.
+        for(auto entry=body.entries.begin();entry!=row;++entry)
+            if(entry->kind==document::PartHistoryKind::Feature)
+                if(auto* source=document.find_container(entry->id))
+                    source->suppressed=true;
+    }
+    // A complete explode releases every generated child but retains this
+    // command boundary in the Tree. It remains the explicit divider
+    // between the suppressed source construction and the independent
+    // native sheet features. Freeze the already resolved authored frame
+    // into ordinary numeric placement so no child asks the retained
+    // association marker to resolve its placement again.
+    for(const auto& generated:
+            conversion->sheet_from_body.generated_features) {
+        auto* child=document.find_container(generated);
+        auto* sketch=child?owned_sketch(document,child->id):nullptr;
+        if(!child||!sketch)continue;
+        if(child->feature_kind==document::FeatureKind::Bend)
+            document::rebase_bend_profile_extensions(*child,*sketch,std::nullopt,
+                document::sheet_metal_defaults(document));
+        const auto origin=sketch->resolved_origin;
+        const auto x=sketch->resolved_x_axis;
+        const auto y=sketch->resolved_y_axis;
+        const auto normal=sketch->resolved_normal;
+        child->placement.references.clear();
+        child->placement.reference_valid=true;
+        child->placement.orientation_back=false;
+        child->placement.orientation_quarter_turns=0;
+        child->placement.rotation_offset_x=0;
+        child->placement.rotation_offset_y=0;
+        child->placement.rotation_offset_z=0;
+        numeric_frame(*child,*sketch,origin,x,y,normal);
+        if(child->feature_kind==document::FeatureKind::Flat)
+            child->flat.sheet_attachment=false;
+        else if(child->feature_kind==document::FeatureKind::Bend)
+            child->bend.sheet_attachment=false;
+    }
+    bool changed=false;
+    for(auto& binding:conversion->sheet_from_body.child_bindings)
+        changed|=!std::exchange(binding.detached,true);
+    if(!changed)return false;
+    return true;
+}
 bool explode_sheet_from_body(Workspace& live,const kernel::OcctKernel& kernel,
         const std::string& id,const std::string& conversion_id,
         std::optional<std::string> child_id) {
@@ -3584,8 +3676,13 @@ bool explode_sheet_from_body(Workspace& live,const kernel::OcctKernel& kernel,
         bool changed=false;
         for(auto& candidate:
                 next_conversion->sheet_from_body.child_bindings)
-            if(descendants.contains(candidate.feature_id))
+            if(descendants.contains(candidate.feature_id)) {
                 changed|=!std::exchange(candidate.detached,true);
+                auto* feature=next.find_container(candidate.feature_id);
+                if(feature&&feature->feature_kind==document::FeatureKind::Bend)
+                    document::rebase_bend_profile_extensions(*feature,*owned_sketch(next,feature->id),
+                        std::nullopt,document::sheet_metal_defaults(next));
+            }
         if(!changed)return false;
         // Detaching changes only the association owner and Tree nesting. The
         // selected native Flat/Bend and every generated consumer keep their
@@ -3595,57 +3692,7 @@ bool explode_sheet_from_body(Workspace& live,const kernel::OcctKernel& kernel,
         commit_part_document(live,id,std::move(next),
             state->session.calculated_boundaries());
         return true;
-    } else {
-        const auto body=*next.body_history.find(owner->scope.id);
-        const auto row=std::ranges::find(body.entries,conversion_id,
-            &document::PartHistoryEntry::id);
-        if(row==body.entries.end())
-            throw std::invalid_argument(
-                "Sheet from Body is missing from Body history");
-        if(next_conversion->sheet_from_body.replaces_body) {
-            // The conversion marker is an empty replacement operation: it
-            // removes the same-Body source solid before the generated sheet
-            // starts. Exploding the marker must preserve that exact material
-            // boundary. Retain the authored source prefix for inspection and
-            // Undo, but suppress its material-producing features.
-            for(auto entry=body.entries.begin();entry!=row;++entry)
-                if(entry->kind==document::PartHistoryKind::Feature)
-                    if(auto* source=next.find_container(entry->id))
-                        source->suppressed=true;
-        }
-        // A complete explode releases every generated child but retains this
-        // command boundary in the Tree. It remains the explicit divider
-        // between the suppressed source construction and the independent
-        // native sheet features. Freeze the already resolved authored frame
-        // into ordinary numeric placement so no child asks the retained
-        // association marker to resolve its placement again.
-        for(const auto& generated:
-                next_conversion->sheet_from_body.generated_features) {
-            auto* child=next.find_container(generated);
-            auto* sketch=child?owned_sketch(next,child->id):nullptr;
-            if(!child||!sketch)continue;
-            const auto origin=sketch->resolved_origin;
-            const auto x=sketch->resolved_x_axis;
-            const auto y=sketch->resolved_y_axis;
-            const auto normal=sketch->resolved_normal;
-            child->placement.references.clear();
-            child->placement.reference_valid=true;
-            child->placement.orientation_back=false;
-            child->placement.orientation_quarter_turns=0;
-            child->placement.rotation_offset_x=0;
-            child->placement.rotation_offset_y=0;
-            child->placement.rotation_offset_z=0;
-            numeric_frame(*child,*sketch,origin,x,y,normal);
-            if(child->feature_kind==document::FeatureKind::Flat)
-                child->flat.sheet_attachment=false;
-            else if(child->feature_kind==document::FeatureKind::Bend)
-                child->bend.sheet_attachment=false;
-        }
-        bool changed=false;
-        for(auto& binding:next_conversion->sheet_from_body.child_bindings)
-            changed|=!std::exchange(binding.detached,true);
-        if(!changed)return false;
-    }
+    } else if(!release_sheet_from_body_bindings(next,conversion_id))return false;
 
     PartCalculationPolicy policy;
     policy.reject_errors=true;

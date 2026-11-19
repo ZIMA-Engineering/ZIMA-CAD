@@ -46,6 +46,18 @@ static void verify_infinite_reference_viewport() {
 
 static void verify_treatment_surface_selection() {
     using namespace zima;using viewer::CandidateKind;
+    for(bool reverse:{false,true}) {
+        kernel::ViewerMesh mesh;
+        mesh.points={{{0,0,0},{"end-profile","point:reference:first",{}},{},true,true},
+                     {{0,0,0},{"end-profile","point:endpoint:first",{}},{},true,false}};
+        if(reverse)std::ranges::reverse(mesh.points);
+        const auto candidates=viewer::filter_candidates(
+            viewer::ordered_viewer_candidates(mesh,{0,0,10},{0,0,-1},.01),{CandidateKind::SketchPoint});
+        require(candidates.size()==2&&candidates.front().semantic_key=="point:endpoint:first",
+            "Zero-correction profile endpoint lost selection to its construction anchor");
+        require(candidates.back().semantic_key=="point:reference:first",
+            "Construction anchor disappeared from candidate cycling");
+    }
     for(const auto role:{"fillet:face:rounded-corner","chamfer:face:beveled-corner"}) {
         kernel::ViewerMesh mesh;
         mesh.vertices={{-10,-10,0},{10,-10,0},{0,10,0}};mesh.triangles={0,1,2};

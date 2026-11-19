@@ -1,6 +1,9 @@
 #pragma once
 #include <zima/document/document_session.hpp>
 namespace zima::workspace {
+[[nodiscard]] const kernel::BodyResult* calculated_operation_input(
+    const document::PartDocument&,const std::vector<kernel::BodyResult>&,
+    const std::string& container_id);
 // Read the already calculated body before editing a feature or at the current
 // insertion cursor. Borrowed data: valid until the session changes. No OCCT,
 // original-reference hydration, or copy of the full triangulation is needed.

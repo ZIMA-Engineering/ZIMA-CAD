@@ -166,6 +166,35 @@ void rip_conversion_contract(kernel::OcctKernel& engine) {
         "RIP Sheet from Body failed cold regeneration");
     near(measured_volume(engine,cold.back().body_outputs.at(body)),
         source_volume,.001);
+    workspace::Workspace live;
+    auto before=converted.document;
+    before.body_history.activate(body);
+    const auto id=before.document_id;
+    live.add_part(before,converted.calculated);
+    auto& session=live.open_part(id)->session;
+    const auto revision=session.revision();
+    workspace::delete_part_history(live,id,engine,rip_feature.id);
+    check(session.revision()==revision+1&&!session.document().find_container(rip_feature.id),
+        "RIP source deletion did not commit exactly once");
+    const auto verify_release=[&] {
+        const auto* conversion=session.document().find_container(converted.container_id);
+        check(conversion&&std::ranges::all_of(conversion->sheet_from_body.child_bindings,
+            [](const auto& binding){return binding.detached;}),
+            "Deleting the RIP Sketch did not release its converted sheet");
+        auto saved=document::PartDocument::from_serialized(session.document().serialized());
+        const auto regenerated=workspace::calculate_part_with_resolved_references(engine,saved);
+        check(regenerated.back().calculation_errors.empty(),"Released RIP sheet failed cold regeneration");
+        near(measured_volume(engine,regenerated.back().body_outputs.at(body)),source_volume,.001);
+    };
+    verify_release();
+    for(int repeat=0;repeat<2;++repeat) {
+        check(workspace::step_part_document_history(live,id,false)&&
+            session.document().find_container(rip_feature.id),"RIP source deletion Undo failed");
+        check(std::ranges::none_of(session.document().find_container(converted.container_id)->sheet_from_body.child_bindings,
+            [](const auto& binding){return binding.detached;}),"RIP Undo did not restore source bindings");
+        check(workspace::step_part_document_history(live,id,true),"RIP source deletion Redo failed");
+        verify_release();
+    }
 }
 void line_bend_contract(kernel::OcctKernel& engine) {
     auto part=document::PartDocument::create_default();
@@ -1702,6 +1731,37 @@ void contract(bool include_oblique_corners = true) {
         check(cold.back().calculation_errors.empty()&&
                 cold.back().body_outputs.at(sheet_body)->has_solid(),
             "Oblique zero-gap Bend corners failed cold regeneration");
+        for(const auto& removed:{fillet.id,source.id,body}) {
+            workspace::Workspace released;
+            auto before=converted.document;before.body_history.activate(body);
+            const auto document_id=before.document_id;
+            released.add_part(before,converted.calculated);
+            auto& session=released.open_part(document_id)->session;
+            const auto revision=session.revision();
+            const double volume=measured_volume(kernel,converted.calculated.back().body_outputs.at(sheet_body));
+            workspace::delete_part_history(released,document_id,kernel,removed);
+            check(session.revision()==revision+1&&!session.document().find_container(removed)&&
+                    !session.document().body_history.find(removed),
+                "Source deletion and sheet release did not form one transaction");
+            const auto verify_release=[&] {
+                const auto* conversion=session.document().find_container(converted.container_id);
+                check(conversion&&std::ranges::all_of(conversion->sheet_from_body.child_bindings,
+                    [](const auto& binding){return binding.detached;}),"Source deletion did not release the bound sheet");
+                near(measured_volume(kernel,session.calculated_boundaries().back().body_outputs.at(sheet_body)),volume,.001);
+                auto reopened=document::PartDocument::from_serialized(session.document().serialized());
+                auto rebuilt=workspace::calculate_part_with_resolved_references(kernel,reopened);
+                near(measured_volume(kernel,rebuilt.back().body_outputs.at(sheet_body)),volume,.001);
+            };
+            verify_release();
+            for(int repeat=0;repeat<2;++repeat) {
+                check(workspace::step_part_document_history(released,document_id,false),"Source deletion Undo failed");
+                check((session.document().find_container(removed)||session.document().body_history.find(removed))&&std::ranges::none_of(
+                    session.document().find_container(converted.container_id)->sheet_from_body.child_bindings,
+                    [](const auto& binding){return binding.detached;}),"Undo did not restore source associations");
+                check(workspace::step_part_document_history(released,document_id,true),"Source deletion Redo failed");
+                verify_release();
+            }
+        }
         workspace::Workspace deletion_live;
         const auto deletion_document=converted.document.document_id;
         deletion_live.add_part(converted.document,converted.calculated);
@@ -2802,6 +2862,7 @@ void contract(bool include_oblique_corners = true) {
             // are authored once and must survive repeated source edits.
             auto radius_linked=converted;
             const auto generated_ids=radius_linked.created;
+            bool user_corrections{};
             std::vector<std::string> sketch_ids;
             for(const auto& id:generated_ids) {
                 const auto* child=radius_linked.document.find_container(id);
@@ -2848,12 +2909,22 @@ void contract(bool include_oblique_corners = true) {
                         "Source radius edit changed a generated identity");
                     if(child->feature_kind==document::FeatureKind::Bend) {
                         near(child->bend.radius,radius,.001);
+                        check(child->bend.conversion_base_extensions.has_value(),"Converted Bend lost its allowance basis");
+                        const auto end=sketcher::Sketch::from_serialized(child->bend.auxiliary_sketches[1]);
+                        for(bool last:{false,true}) {
+                            const auto dimension=std::ranges::find(end.dimensions,end.id+
+                                (last?":difference:last":":difference:first"),&sketcher::SketchDimension::id);
+                            near(dimension->value,user_corrections?(last?2.5:1.25):0.,1e-9);
+                            const auto* point=end.find_point(end.id+(last?":endpoint:last":":endpoint:first"));
+                            const auto* reference=end.find_point(end.id+(last?":reference:last":":reference:first"));
+                            near(point->x-reference->x,dimension->value*dimension->solution_side,1e-8);
+                        }
                         checked_bend=true;
                     }
                 }
                 check(checked_bend,
                     "Source radius edit lost its generated Bend");
-                near(measured_volume(kernel,radius_linked.calculated.back().
+                if(!user_corrections)near(measured_volume(kernel,radius_linked.calculated.back().
                         body_outputs.at(target)),
                     measured_volume(kernel,radius_linked.calculated.back().
                         body_outputs.at(source)),.02);
@@ -2892,6 +2963,22 @@ void contract(bool include_oblique_corners = true) {
                     generated_features==generated_ids&&
                     radius_cold.back().calculation_errors.empty(),
                 "Radius-linked Sheet from Body changed after reopen");
+            for(const auto& id:generated_ids) {
+                auto* child=radius_linked.document.find_container(id);
+                if(child->feature_kind!=document::FeatureKind::Bend)continue;
+                auto end=sketcher::Sketch::from_serialized(child->bend.auxiliary_sketches[1]);
+                check(end.set_dimension_value(end.id+":difference:first",1.25)&&
+                    end.set_dimension_value(end.id+":difference:last",2.5),"Cannot edit conversion-relative corrections");
+                const auto start=std::ranges::find(radius_linked.document.sketches,child->bend.sketch_id,&sketcher::Sketch::id);
+                document::accept_bend_sketch(*child,*start,1,end,document::sheet_metal_defaults(radius_linked.document));
+            }
+            user_corrections=true;
+            update_source_radius(8);update_source_radius(6);
+            auto corrected_reopened=document::PartDocument::from_serialized(radius_linked.document.serialized());
+            const auto corrected_cold=workspace::calculate_part_with_resolved_references(kernel,corrected_reopened);
+            check(corrected_cold.back().calculation_errors.empty(),"Corrected conversion failed cold reopen");
+            near(measured_volume(kernel,corrected_cold.back().body_outputs.at(target)),
+                measured_volume(kernel,radius_linked.calculated.back().body_outputs.at(target)),.001);
         }
         const double folded_volume=measured_volume(kernel,converted.calculated.back().body_outputs.at(target));
         near(folded_volume,measured_volume(kernel,cache.back().body_outputs.at(source)),.01);

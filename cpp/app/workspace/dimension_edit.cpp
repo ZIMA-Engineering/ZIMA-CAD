@@ -639,6 +639,11 @@ void AssemblyWorkspaceWindow::edit_dimension_inline(
                         workspace_, workspace_.active_document_id(), candidate.owner_id);
                     changed = workspace::assign_placement_dimension(
                         *container, geometry, placement_key, next_value);
+                } else if(container->feature_kind==FeatureKind::Bend&&
+                        (key=="corner_first"||key=="corner_last")) {
+                    if(next_value!=0.&&next_value!=1.)throw std::runtime_error("Corner closure must be 0 or 1.");
+                    const auto side=key=="corner_last"?1:0;
+                    container->bend.corner[side]=next_value==1.;changed=true;
                 } else if (container->feature_kind == FeatureKind::Sketch &&
                            key == "profile_offset") {
                     const auto sketch = std::find_if(next.sketches.begin(),
@@ -858,7 +863,13 @@ void AssemblyWorkspaceWindow::edit_dimension_inline(
                         break;
                     }
             }
-            if(profile_parent!=next.history.end()) {
+            if(edited_feature&&edited_feature->feature_kind==document::FeatureKind::Bend&&
+                    (candidate.semantic_key=="parameter:corner_first"||candidate.semantic_key=="parameter:corner_last")) {
+                const auto start=std::ranges::find(next.sketches,edited_feature->bend.sketch_id,&sketcher::Sketch::id);
+                if(start==next.sketches.end())throw std::runtime_error("Bend start profile is missing.");
+                static_cast<void>(workspace::commit_bend(workspace_,kernel_,next.document_id,*edited_feature,*start));
+                construction_dimension_object_id_=edited_feature->id;
+            } else if(profile_parent!=next.history.end()) {
                 const auto route=std::ranges::find(next.sketches,
                     profile_parent->sheet_profile.sketch_id,
                     &zima::sketcher::Sketch::id);

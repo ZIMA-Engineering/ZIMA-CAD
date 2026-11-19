@@ -553,7 +553,9 @@ def package(args):
             'Corresponding source: https://download.qt.io/archive/qt/6.11/6.11.0/submodules/\n', encoding='utf-8')
     if not list(licenses.glob('qt*.txt')) or not (licenses / 'opencascade.txt').exists():
         raise ValueError('Missing Qt/OCCT license notices')
-    shutil.copytree(source, root / 'source' / version)
+    # Native acceptance tests may generate disposable fixtures below source.
+    # The distributed source must still come exclusively from Git objects.
+    export_source(ROOT, commit, root / 'source' / version)
     metadata = json.loads(run([runtime / 'zima-cad-cli.exe', '--build-info'], stdout=subprocess.PIPE).stdout)
     if metadata['commit'] != commit or metadata['version'] != version or metadata['source_modified']:
         raise ValueError('Built executable/source identity mismatch')

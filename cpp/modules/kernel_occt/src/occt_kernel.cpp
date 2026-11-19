@@ -6939,6 +6939,50 @@ BodyResult make_result(
     std::optional<TopologyReferenceIndex<VertexReference, OwnedVertex>>
         vertex_references;
     face_references.emplace(owned_faces);
+    // A two-sided Feature can join its two coplanar side faces while keeping
+    // both authored aliases. Its cap edge still identifies the exact Feature
+    // side. Resolve that local support only for the edge-guide packet; keep
+    // the native aliases and ordinary ambiguous-face selection unchanged.
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> guide_alias_faces;
+    std::vector<std::vector<FaceReference>> guide_aliases;
+    const auto edge_support_reference=[&](const TopoDS_Shape& face,
+            const EdgeReference& edge_reference) {
+        auto reference=face_references->reference_for(face);
+        if(reference.valid())return reference;
+        const auto separator=edge_reference.semantic_key.find(':');
+        if(separator==std::string::npos)return reference;
+        const auto role=edge_reference.semantic_key.substr(0,separator);
+        if(role!="start"&&role!="end")return reference;
+        const auto side=feature_side_parent(std::string_view(
+            edge_reference.semantic_key).substr(separator+1));
+        if(!side)return reference;
+        const int index=guide_alias_faces.Add(face);
+        if(static_cast<std::size_t>(index)>guide_aliases.size()) {
+            std::vector<FaceReference> aliases;
+            for(const auto& owned:owned_faces)
+                if(owned.shape.IsSame(face)&&owned.reference.valid()&&
+                   std::ranges::find(aliases,owned.reference)==aliases.end())
+                    aliases.push_back(owned.reference);
+            guide_aliases.push_back(std::move(aliases));
+        }
+        const auto& aliases=guide_aliases.at(static_cast<std::size_t>(index-1));
+        if(aliases.size()!=2)return reference;
+        std::optional<FeatureSideParent> first;
+        for(const auto& alias:aliases) {
+            constexpr std::string_view prefix="generated:";
+            if(alias.owner_id!=edge_reference.owner_id||
+               alias.instance_path!=edge_reference.instance_path||
+               !alias.semantic_key.starts_with(prefix))return FaceReference{};
+            const auto parent=feature_side_parent(std::string_view(
+                alias.semantic_key).substr(prefix.size()));
+            if(!parent||parent->feature_id!=side->feature_id||
+               parent->source_id!=side->source_id||
+               (first&&first->side==parent->side))return FaceReference{};
+            first=parent;
+            if(parent->side==side->side)reference=alias;
+        }
+        return reference;
+    };
     if (original_reference_geometry || collect_original_references ||
             requested_references) {
         vertex_references.emplace(feature_endpoint_vertices(shape,owned_faces,owned_edges,owned_vertices));
@@ -7264,10 +7308,11 @@ BodyResult make_result(
             for (NCollection_List<TopoDS_Shape>::Iterator iterator(
                      edge_faces.FindFromIndex(edge_index));
                  iterator.More(); iterator.Next()) {
-                const auto reference = face_references->reference_for(iterator.Value());
-                if (!reference.valid()) continue;
-                if (!first) first = reference;
-                else if (*first != reference) return true;
+                const auto support = edge_support_reference(iterator.Value(),
+                    reference);
+                if (!support.valid()) continue;
+                if (!first) first = support;
+                else if (*first != support) return true;
             }
             return false;
         }();
@@ -7278,8 +7323,8 @@ BodyResult make_result(
             for (NCollection_List<TopoDS_Shape>::Iterator iterator(
                      edge_faces.FindFromIndex(edge_index));
                  iterator.More(); iterator.Next()) {
-                auto face_reference =
-                    face_references->reference_for(iterator.Value());
+                auto face_reference = edge_support_reference(iterator.Value(),
+                    reference);
                 if (!face_reference.valid()) continue;
                 const bool form_side=symbolic_form_face(face_reference);
                 const bool step_side=face_reference.semantic_key.starts_with("step:face:#");

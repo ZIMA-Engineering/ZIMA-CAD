@@ -400,8 +400,12 @@ void AssemblyWorkspaceWindow::preview_sketch_segment_ray(
         pending_segment_start_snap_geometry_id_.find("||")==std::string::npos&&
         endpoint_snap_geometry.find("||")==std::string::npos;
     const bool keep_offered_line_relation=sketch_endpoint_inference_cycle_||
-        line_contact_pair||!offered_equal_reference.empty();
-    // Preserve a relation that the RMB cycle selected, that joins two sliding
+        line_contact_pair||!offered_equal_reference.empty()||
+        (endpoint_snap_kind==zima::sketcher::ConstraintKind::PointOnLine&&
+         endpoint_snap_geometry.find("||")==std::string::npos&&
+         !offered_parallel_reference.empty());
+    // Parallel also consumes the free slide along a single C support. Preserve
+    // a relation that the RMB cycle selected, that joins two sliding
     // line contacts, or that forms a combined Equal+direction inference.
     // A merely nearby relation at an already fixed composite intersection is
     // not one of those cases and remains absent.

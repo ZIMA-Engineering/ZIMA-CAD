@@ -31,6 +31,7 @@ public:
     void set_internal_title(const QString& title);
     void set_centered_on_show(bool centered = true);
     void set_initial_size(const QSize& size);
+    void show_submission_error(const QString& message);
     QSize sizeHint() const override;
     QSize minimumSizeHint() const override;
     [[nodiscard]] QPushButton* ensure_origin_selection_button();

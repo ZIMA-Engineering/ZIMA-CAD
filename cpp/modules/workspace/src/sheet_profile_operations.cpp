@@ -1214,9 +1214,10 @@ PreparedSheetProfile prepare_sheet_profile_master_edit(
         edited.sheet_profile_binding=existing->sheet_profile_binding;
         auto allowed=*existing;
         allowed.bend.auxiliary_sketches[1]=edited.bend.auxiliary_sketches[1];
+        allowed.bend.corner=edited.bend.corner;
         if(edited!=allowed||edited_sketch.serialized()!=old_sketch->serialized())
             throw std::invalid_argument(
-                "A generated Profile Bend permits only its end corrections.");
+                "A generated Profile Bend permits only its end corrections and corner closure.");
         auto intermediate=before;
         *intermediate.find_container(edited.id)=std::move(edited);
         auto* pending_parent=intermediate.find_container(parent->id);

@@ -53,10 +53,14 @@ template<class Request> void profile(Request& request,const HistoryContainer& fe
     request.outer_vertex_source_ids={child(feature,"outer",f.first_point),child(feature,"outer",f.last_point),
         child(feature,"inner",f.last_point),child(feature,"inner",f.first_point)};
 }
-sketcher::SketchDimension& difference(sketcher::Sketch& sketch,bool last) {
+sketcher::SketchDimension* find_difference(sketcher::Sketch& sketch,bool last) {
     const auto id=sketch.id+(last?":difference:last":":difference:first");
     const auto found=std::ranges::find(sketch.dimensions,id,&sketcher::SketchDimension::id);
-    if(found==sketch.dimensions.end())throw std::invalid_argument("Bend endpoint difference dimension is missing.");
+    return found==sketch.dimensions.end()?nullptr:&*found;
+}
+sketcher::SketchDimension& difference(sketcher::Sketch& sketch,bool last) {
+    auto* found=find_difference(sketch,last);
+    if(!found)throw std::invalid_argument("Bend endpoint difference dimension is missing.");
     return *found;
 }
 double extension(const sketcher::SketchDimension& dimension,bool last) {
@@ -611,6 +615,9 @@ void orient_bend_start_toward_edge(sketcher::Sketch& sketch,const Placement& pla
 }
 BendParameters resolved_bend_parameters(const HistoryContainer& feature,const SheetMetalDefaults& defaults) {
     auto p=feature.bend;
+    if(p.conversion_base_extensions&&std::ranges::any_of(*p.conversion_base_extensions,
+            [](double value){return !std::isfinite(value);}))
+        throw std::invalid_argument("Bend extension must be finite.");
     if(!p.thickness_override&&!p.sheet_attachment)p.thickness=defaults.thickness_mm.value_or(1.0);
     if(!p.k_factor_override)p.k_factor=defaults.k_factor;
     if(p.radius_follows_thickness)p.radius=p.thickness;
@@ -689,30 +696,91 @@ void prepare_bend_sketches(HistoryContainer& feature,const sketcher::Sketch& sta
     }
     const bool target_driven_reference=
         !feature.sheet_profile_binding.parent_id.empty()&&!data[1].empty();
+    bool constraint_driven_end=!end.external_references.empty()||
+        end.constraints.size()!=2||end.dimensions.size()!=2||
+        !std::ranges::all_of(end.constraints,[&](const auto& c) {
+            return !c.suppressed&&c.kind==sketcher::ConstraintKind::PointOnLine&&
+                c.geometry_id=="sketch_axis:x"&&
+                (c.first_point_id==end.id+":endpoint:first"||
+                 c.first_point_id==end.id+":endpoint:last");
+        });
     for(bool last:{false,true}) {
         const double start_x=f.first_coordinate+(last?f.width:0);
-        const auto& d=difference(end,last);
+        const auto* d=find_difference(end,last);
         auto* reference=end.find_point(end.id+(last?":reference:last":":reference:first"));
         auto* point=end.find_point(end.id+(last?":endpoint:last":":endpoint:first"));
         if(!reference||!point)throw std::invalid_argument("Bend end profile endpoint is missing.");
-        if(!target_driven_reference)reference->x=start_x;
+        if(p.conversion_base_extensions)
+            reference->x=start_x+(*p.conversion_base_extensions)[last?1:0]*(last?1:-1);
+        else if(!target_driven_reference)reference->x=start_x;
         reference->y=0;reference->fixed=true;reference->construction=true;
-        point->x=reference->x+d.value*d.solution_side;point->y=0;
+        if(d&&d->driving&&!d->suppressed)point->x=reference->x+d->value*d->solution_side;
+        else constraint_driven_end=true;
+        point->y=0;
     }
+    // The generated difference dimension is an initial editing aid, not a
+    // required topology identity. A user may replace it with ordinary native
+    // constraints (including C on a read-only intersection reference).
+    if(constraint_driven_end) {
+        const auto status=end.solve().status;
+        if(status==sketcher::SolveStatus::Conflicting||status==sketcher::SolveStatus::Invalid)
+            throw std::invalid_argument("Bend end profile constraints cannot be solved.");
+    }
+    for(const auto& segment:end.segments)if(!segment.construction)
+        for(const auto& id:{segment.first_point_id,segment.second_point_id}) {
+            const auto* point=end.find_point(id);
+            if(!point||std::abs(point->y)>1e-5)
+                throw std::invalid_argument("Bend end profile cannot rotate independently of the trajectory.");
+        }
     end.validate();data[1]=end.serialized();
     static_cast<void>(end_profile_interval(feature));
 }
 std::array<double,2> bend_profile_extensions(const HistoryContainer& feature) {
     auto end=sketcher::Sketch::from_serialized(feature.bend.auxiliary_sketches[1]);
-    return {extension(difference(end,false),false),extension(difference(end,true),true)};
+    const auto value=[&](bool last) {
+        const auto effective=[&](double delta) {
+            const double base=feature.bend.conversion_base_extensions?
+                (*feature.bend.conversion_base_extensions)[last?1:0]:0.;
+            return base==0.?delta:base+delta;
+        };
+        if(const auto* d=find_difference(end,last);d&&d->driving&&!d->suppressed)
+            return effective(extension(*d,last));
+        const auto* point=end.find_point(end.id+(last?":endpoint:last":":endpoint:first"));
+        const auto* reference=end.find_point(end.id+(last?":reference:last":":reference:first"));
+        if(!point||!reference)throw std::invalid_argument("Bend end profile endpoint is missing.");
+        return effective((point->x-reference->x)*(last?1:-1));
+    };
+    return {value(false),value(true)};
 }
 void set_bend_profile_extensions(HistoryContainer& feature,double first,double last) {
     auto end=sketcher::Sketch::from_serialized(feature.bend.auxiliary_sketches[1]);
     for(bool side:{false,true}) {
-        const double v=side?last:first;if(!std::isfinite(v))throw std::invalid_argument("Bend extension must be finite.");
-        auto& d=difference(end,side);d.value=std::abs(v);d.solution_side=(side?1:-1)*(v<0?-1:1);
+        double v=side?last:first;if(!std::isfinite(v))throw std::invalid_argument("Bend extension must be finite.");
+        if(feature.bend.conversion_base_extensions) {
+            const double base=(*feature.bend.conversion_base_extensions)[side?1:0];
+            if(base!=0.)v-=base;
+        }
+        auto& d=difference(end,side);d.value=std::abs(v);d.solution_side=(side?1:-1)*(std::signbit(v)?-1:1);
     }
     feature.bend.auxiliary_sketches[1]=end.serialized();
+}
+void rebase_bend_profile_extensions(HistoryContainer& feature,const sketcher::Sketch& start,
+        std::optional<std::array<double,2>> base,const SheetMetalDefaults& defaults) {
+    auto next=feature;
+    prepare_bend_sketches(next,start,defaults);
+    const auto effective=bend_profile_extensions(next);
+    auto end=sketcher::Sketch::from_serialized(next.bend.auxiliary_sketches[1]);
+    next.bend.conversion_base_extensions=base;
+    for(bool last:{false,true})if(auto* dimension=find_difference(end,last);
+            dimension&&dimension->driving&&!dimension->suppressed) {
+        double delta=effective[last?1:0];
+        if(base&&(*base)[last?1:0]!=0.)delta-=(*base)[last?1:0];
+        dimension->value=std::abs(delta);
+        dimension->solution_side=(last?1:-1)*(std::signbit(delta)?-1:1);
+    }
+    next.bend.auxiliary_sketches[1]=end.serialized();
+    prepare_bend_sketches(next,start,defaults);
+    feature=std::move(next);
 }
 std::array<double,2> bend_end_profile_interval(const HistoryContainer& feature) {
     return end_profile_interval(feature);
@@ -732,8 +800,9 @@ void set_bend_end_profile_reference_interval(HistoryContainer& feature,
         if(!reference||!point)
             throw std::invalid_argument("Bend end profile endpoint is missing.");
         reference->x=side?last:first;reference->y=0;
-        const auto& delta=difference(end,side);
-        point->x=reference->x+delta.value*delta.solution_side;point->y=0;
+        if(const auto* delta=find_difference(end,side);delta&&delta->driving&&!delta->suppressed)
+            point->x=reference->x+delta->value*delta->solution_side;
+        point->y=0;
     }
     end.validate();feature.bend.auxiliary_sketches[1]=end.serialized();
     static_cast<void>(end_profile_interval(feature));
@@ -769,13 +838,17 @@ void accept_bend_sketch(HistoryContainer& feature,const sketcher::Sketch& start,
         if(std::ranges::count_if(edited.segments,[](const auto& s){return !s.construction;})!=1||
             !edited.arcs.empty()||!edited.circles.empty()||!edited.bsplines.empty()||!edited.ellipses.empty()||!edited.elliptical_arcs.empty())
             throw std::invalid_argument("Bend end profile requires one straight segment.");
-        for(bool last:{false,true})static_cast<void>(difference(edited,last));
         const auto& segment=*std::ranges::find_if(edited.segments,[](const auto& s){return !s.construction;});
-        const auto& previous=*std::ranges::find_if(before.segments,[](const auto& s){return !s.construction;});
-        if(segment.id!=previous.id||segment.first_point_id!=previous.first_point_id||segment.second_point_id!=previous.second_point_id)
+        const auto previous=std::ranges::find_if(before.segments,[](const auto& s){return !s.construction;});
+        if((previous!=before.segments.end()&&segment.id!=previous->id)||
+                segment.first_point_id!=edited.id+":endpoint:first"||
+                segment.second_point_id!=edited.id+":endpoint:last")
             throw std::invalid_argument("Bend end profile must preserve its segment and endpoint identities.");
-        for(const auto& point:edited.points)if(!point.construction&&std::abs(point.y)>1e-5)
-            throw std::invalid_argument("Bend end profile cannot rotate independently of the trajectory.");
+        for(const auto& id:{segment.first_point_id,segment.second_point_id}) {
+            const auto* point=edited.find_point(id);
+            if(!point||std::abs(point->y)>1e-5)
+                throw std::invalid_argument("Bend end profile cannot rotate independently of the trajectory.");
+        }
     }
     next.bend.auxiliary_sketches[stage]=edited.serialized();prepare_bend_sketches(next,start,defaults);
     feature=std::move(next);

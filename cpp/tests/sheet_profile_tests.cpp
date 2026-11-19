@@ -462,6 +462,22 @@ void multiple_up_to_targets_and_bend_corrections() {
             "Profile Bend correction did not survive save/reopen");
         calculate(regenerated.document);
 
+        auto corner_document=regenerated.document;
+        for(const auto flags:{std::array{true,false},std::array{false,true},std::array{true,true},std::array{false,false}}) {
+            auto corner=*corner_document.find_container(corrected->id);
+            corner.bend.corner=flags;
+            const auto corner_start=*std::ranges::find(corner_document.sketches,corner.bend.sketch_id,&sketcher::Sketch::id);
+            const auto changed_corner=workspace::prepare_sheet_profile_master_edit(corner_document,corner,corner_start);
+            const auto* saved_corner=changed_corner.document.find_container(corrected->id);
+            require(saved_corner->bend.corner==flags,"Generated Profile Bend lost independently authored corner flags");
+            require(document::bend_profile_extensions(*saved_corner)==std::array<double,2>{2,3},
+                "Corner closure changed the endpoint corrections");
+            calculate(changed_corner.document);
+            corner_document=document::PartDocument::from_serialized(changed_corner.document.serialized());
+            require(corner_document.find_container(corrected->id)->bend.corner==flags,
+                "Generated corner flags did not survive save/reopen");
+        }
+
         bool rejected=false;
         try {
             auto invalid=*corrected;invalid.bend.radius+=1;

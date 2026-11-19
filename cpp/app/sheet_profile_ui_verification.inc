@@ -1759,7 +1759,9 @@ static int verify_converted_sheet_selection_ui(QApplication& application,
                 for(const auto& binding:feature.sheet_from_body.child_bindings) {
                     if(binding.detached)continue;
                     children.emplace(binding.feature_id,binding.bend);
-                    for(const auto& face:binding.faces)sources.insert(face.reference.owner_id);
+                    for(const auto& face:binding.faces) {
+                        sources.insert(face.reference.owner_id);
+                    }
                 }
         check(!sources.empty()&&!children.empty(),"Selection fixture has no converted sheet children");
         app::AssemblyWorkspaceWindow window(QString::fromStdWString(parent.wstring()));
@@ -1771,6 +1773,36 @@ static int verify_converted_sheet_selection_ui(QApplication& application,
         auto* sheet_mode=window.findChild<QToolButton*>("sheetMetalModeButton");
         auto* solid_mode=window.findChild<QToolButton*>("modelingModeButton");
         check(view&&tree&&sheet_mode&&solid_mode,"Selection workspace missing");
+        // The saved report has its cursor immediately after the conversion
+        // group, before its generated children. Dragging below that collapsed
+        // group must restore the complete executable history, not count the
+        // group as a single operation.
+        if(model.effective_history_cursor()<model.history_order.size()) {
+            QTreeWidgetItem* marker{};QTreeWidgetItem* group{};
+            for(QTreeWidgetItemIterator it(tree);*it;++it) {
+                if((*it)->data(0,Qt::UserRole+3)=="part-insert-here")marker=*it;
+                const auto* owner=model.find_container((*it)->data(0,Qt::UserRole).toString().toStdString());
+                if(owner&&owner->feature_kind==document::FeatureKind::SheetFromBody&&
+                    (*it)->data(0,Qt::UserRole+3)=="part-container")group=*it;
+            }
+            check(marker&&group,"Conversion history cursor rows are missing");
+            group->setExpanded(false);tree->scrollToItem(group);flush();
+            const QPointF from=tree->visualItemRect(marker).center();
+            const QPointF to(tree->visualItemRect(group).center().x(),
+                std::max(tree->visualItemRect(group).bottom(),tree->visualItemRect(marker).bottom())+20);
+            for(const auto type:{QEvent::MouseButtonPress,QEvent::MouseMove,QEvent::MouseButtonRelease}) {
+                const auto position=type==QEvent::MouseButtonPress?from:to;
+                QMouseEvent event(type,position,QPointF(tree->viewport()->mapToGlobal(position.toPoint())),
+                    type==QEvent::MouseMove?Qt::NoButton:Qt::LeftButton,
+                    type==QEvent::MouseButtonRelease?Qt::NoButton:Qt::LeftButton,Qt::NoModifier);
+                QApplication::sendEvent(tree->viewport(),&event);flush();
+            }
+            window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
+            const auto restored=document::PartDocument::load(path);
+            check(restored.effective_history_cursor()==restored.history_order.size()&&
+                !view->mesh().triangles.empty(),"Dragging Insert here past conversion did not restore its complete model");
+            std::cout<<"Converted history cursor restored all "<<restored.history_order.size()<<" rows\n";
+        }
         for(const auto visibility:{viewer::ReferenceVisibility::Origins,viewer::ReferenceVisibility::Planes,
                 viewer::ReferenceVisibility::Sketches,viewer::ReferenceVisibility::Axes})
             view->set_reference_visibility(visibility,false);
@@ -1800,6 +1832,13 @@ static int verify_converted_sheet_selection_ui(QApplication& application,
                               {point.x+15,point.y+15,point.z+15}});
         };
         const auto& mesh=view->mesh().original_references;
+        std::cout<<"Converted selection geometry: actual="<<view->mesh().triangle_references.size()
+            <<" original="<<mesh.triangle_references.size()<<" vertices="<<mesh.vertices.size()<<'\n';
+        std::set<std::tuple<std::string,std::string,std::string>> selection_owners;
+        for(const auto& reference:mesh.triangle_references)
+            selection_owners.emplace(reference.owner_id,reference.display_owner_id,reference.sheet_owner);
+        for(const auto& [owner,display,sheet]:selection_owners)
+            std::cout<<"Converted selection owner="<<owner<<" display="<<display<<" sheet="<<sheet<<'\n';
         std::map<std::string,int> sample_counts;
         for(const auto direction:std::array<kernel::Vec3,8>{{{1,1,1},{-1,1,1},{1,-1,1},{-1,-1,1},{1,1,-1},{-1,1,-1},{1,-1,-1},{-1,-1,-1}}}) {
         view->set_view_direction(direction);
@@ -1840,13 +1879,25 @@ static int verify_converted_sheet_selection_ui(QApplication& application,
         }
         check(positions.size()==2,"Cannot find both Flat and Bend surfaces with their original solid aliases");
         for(int repeat=0;repeat<3;++repeat)for(const auto& [bend,position]:positions) {
-            const auto& [screen,owner,center,camera]=position;
-            focus(center);view->set_camera_state(camera);view->clear_selection();
+            const auto& [sample_screen,owner,center,camera]=position;
             sheet_mode->click();flush();
+            focus(center);view->set_camera_state(camera);view->clear_selection();flush();
+            auto screen=project(center);
             const auto candidates=view->selection_candidates_at(screen);
             check(!candidates.empty()&&candidates.front().owner_id==owner,"Sheet Metal did not prioritize the actual child");
             check(std::ranges::any_of(candidates,[&](const auto& candidate){return candidate.kind==viewer::CandidateKind::Container&&sources.contains(candidate.owner_id);}),
                 "Sheet Metal lost the original Solid cycling choice");
+            const auto first_source=std::ranges::find_if(candidates,[&](const auto& candidate) {
+                return candidate.kind==viewer::CandidateKind::Container&&sources.contains(candidate.owner_id);
+            });
+            check(first_source!=candidates.end(),"Converted source selection is missing");
+            const auto non_fillet_source=std::ranges::find_if(candidates,[&](const auto& candidate) {
+                const auto* source=model.find_container(candidate.owner_id);
+                return sources.contains(candidate.owner_id)&&source&&source->feature_kind!=document::FeatureKind::Fillet;
+            });
+            if(non_fillet_source!=candidates.end())
+                check(model.find_container(first_source->owner_id)->feature_kind!=document::FeatureKind::Fillet,
+                    "Source Fillet preempted the original Solid");
             const auto mouse=[&](QEvent::Type type,Qt::MouseButton button,Qt::MouseButtons buttons) {
                 QMouseEvent event(type,screen,QPointF(view->mapToGlobal(screen.toPoint())),button,buttons,Qt::NoModifier);
                 QApplication::sendEvent(view,&event);flush();
@@ -1871,6 +1922,7 @@ static int verify_converted_sheet_selection_ui(QApplication& application,
                 tree->currentItem()&&tree->currentItem()->data(0,Qt::UserRole).toString().toStdString()==owner,
                 "Workspace switch desynchronized the confirmed View/Tree selection");
             view->clear_selection();
+            screen=project(center);
             const auto original=view->selection_candidates_at(screen);
             check(std::ranges::any_of(original,[&](const auto& candidate){return sources.contains(candidate.owner_id);}),"Modeling lost the original Solid/Fillet offer");
             mouse(QEvent::MouseMove,Qt::NoButton,Qt::NoButton);
@@ -1879,6 +1931,202 @@ static int verify_converted_sheet_selection_ui(QApplication& application,
                 "Mode switch or selection changed the document or republished geometry");
             std::cout<<"Converted "<<(bend?"Bend":"Flat")<<" hover/click/mode cycle "<<repeat<<" passed\n"<<std::flush;
         }
+        // Conversion allowance is the user's zero. Exercise the ordinary
+        // View editor, not a second command-specific correction control.
+        const auto bend_child=std::find_if(model.history.rbegin(),model.history.rend(),[&](const auto& entry){
+            const auto child=children.find(entry.id);return child!=children.end()&&child->second;
+        });
+        check(bend_child!=model.history.rend(),"Converted correction fixture has no Bend");
+        const auto bend_id=bend_child->id;
+        const auto* original_bend=model.find_container(bend_id);
+        check(original_bend&&original_bend->bend.conversion_base_extensions.has_value(),"Converted correction basis is missing");
+        const auto basis=*original_bend->bend.conversion_base_extensions;
+        sheet_mode->click();window.show_parameter_dimensions(bend_id);flush();
+        for(const auto& dimension:view->mesh().dimensions)
+            check(dimension.reference.semantic_key.find(":position:")==std::string::npos,
+                "Bound Bend exposes its source attachment as an editable correction");
+        for(bool last:{false,true})for(double delta:{.25,-.5,0.}) {
+            const auto suffix=last?":difference:last":":difference:first";
+            const auto& dimensions=view->mesh().dimensions;
+            const auto found=std::ranges::find_if(dimensions,[&](const auto& value){return value.reference.semantic_key.ends_with(suffix);});
+            check(found!=dimensions.end(),"Converted output correction is absent from View");
+            viewer::ViewerCandidate candidate;candidate.kind=viewer::CandidateKind::Dimension;
+            candidate.owner_id=found->reference.owner_id;candidate.semantic_key=found->reference.semantic_key;
+            candidate.instance_path=found->reference.instance_path;candidate.geometry_index=std::distance(dimensions.begin(),found);
+            window.edit_dimension_inline(candidate);flush();
+            QPointer<QLineEdit> editor=view->findChild<QLineEdit*>("inlineDimensionValueEdit");
+            check(editor&&editor->isVisible(),"Converted correction cannot be edited in View");
+            if(delta==.25)check(editor->text().startsWith("0"),"Conversion allowance did not display as user zero");
+            editor->setText(QString::number(delta));
+            QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);QApplication::sendEvent(editor,&enter);flush();
+            check(!editor||!editor->isVisible(),"Converted correction edit was rejected");
+            window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
+            const auto saved=document::PartDocument::load(path);
+            const auto* edited=saved.find_container(bend_id);
+            check(edited&&edited->bend.conversion_base_extensions==original_bend->bend.conversion_base_extensions,
+                "User correction rewrote the computed conversion allowance");
+            check(std::abs(document::bend_profile_extensions(*edited)[last?1:0]-basis[last?1:0]-delta)<1e-7,
+                "View correction did not add the authored delta to its computed allowance");
+            window.findChild<QAction*>("undoAction")->trigger();flush();
+            window.findChild<QAction*>("redoAction")->trigger();flush();
+            window.show_parameter_dimensions(bend_id);flush();
+        }
+        std::cout<<"Converted Bend user-zero View corrections, negative deltas, persistence and Undo/Redo passed\n";
+        check(window.finish_parameter_dimensions(),"Converted Bend inspection cannot finish");flush();
+        // Add an isolated read-only support before the converted Body. The
+        // production input's earlier rounded end caps do not cross the local
+        // endpoint axis: binding to their finite curves must rightly fail.
+        auto contact_model=document::PartDocument::load(path);
+        const auto contact_body=contact_model.body_history.active_body_id();
+        const auto support_body=contact_model.body_history.create_body("Intersection support");
+        contact_model.body_history.activate(support_body);
+        auto support_sketch=sketcher::Sketch::create_default();
+        static_cast<void>(support_sketch.add_rectangle(140.,-5.,145.,8.));
+        auto contact_support=document::PartDocument::create_feature_container(support_sketch.id);
+        support_sketch.owner_container_id=contact_support.id;contact_support.feature.sides[0].length=12.;
+        contact_model.sketches.push_back(support_sketch);
+        contact_model.insert_history_entry(document::PartHistoryKind::Feature,contact_support.id);
+        contact_model.history.push_back(contact_support);
+        contact_model.body_history.move_body(support_body,0);
+        contact_model.body_history.activate(contact_body);
+        contact_model.set_body_history(contact_model.body_history);
+        kernel::OcctKernel contact_kernel;
+        const auto support_calculation=workspace::calculate_part_with_resolved_references(contact_kernel,contact_model);
+        check(!support_calculation.empty()&&support_calculation.back().calculation_errors.empty(),"Intersection support fixture failed");
+        contact_model.save(path,support_calculation);
+        check(window.execute_console_command(QString::fromStdString(nlohmann::json{{"command","close"},{"arguments",{{"discard",true}}}}.dump())).ok,
+            "Cannot reopen isolated contact fixture");
+        check(window.open_document_path(QString::fromStdWString(path.wstring())),"Cannot open isolated contact fixture");flush();
+        check(activate_test_body(application,window,contact_body),"Cannot activate contact fixture Body");
+        QTreeWidgetItem* bend_row{};
+        for(QTreeWidgetItemIterator it(tree);*it;++it)
+            if((*it)->data(0,Qt::UserRole).toString().toStdString()==original_bend->bend.sketch_id&&
+                (*it)->data(0,Qt::UserRole+3)=="part-sketch"){bend_row=*it;break;}
+        check(bend_row,"Converted Bend row missing before endpoint contact edit");
+        window.show_tree_item_properties(bend_row);flush();
+        auto* properties=window.findChild<QDialog*>("bendPropertiesDialog");
+        check(properties,"Converted Bend Properties cannot open");
+        properties->findChild<QPushButton*>("bendEndSketchButton")->click();flush();
+        QEventLoop end_camera;QTimer::singleShot(950,&end_camera,&QEventLoop::quit);end_camera.exec();
+        check(window.active_sketch_for_test(),"Converted end Sketch did not open");
+        const auto end_frame=*window.active_sketch_for_test();
+        const auto end_segment=std::ranges::find_if(end_frame.segments,[](const auto& s){return !s.construction;});
+        check(end_segment!=end_frame.segments.end(),"Converted end Sketch has no native line");
+        const auto point_id=end_segment->first_point_id;
+        QTreeWidgetItem* dimension_row{};
+        for(QTreeWidgetItemIterator it(tree);*it;++it)
+            if((*it)->data(0,Qt::UserRole).toString().toStdString()==end_frame.id+":difference:first")dimension_row=*it;
+        check(dimension_row,"Converted end correction dimension row missing");
+        tree->setCurrentItem(dimension_row);flush();
+        QKeyEvent remove(QEvent::KeyPress,Qt::Key_Delete,Qt::NoModifier);
+        QApplication::sendEvent(&window,&remove);flush();
+        check(window.active_sketch_for_test()->dimensions.size()+1==end_frame.dimensions.size(),
+            "Converted endpoint dimension was not deleted");
+        // Locate a real preceding source face whose intersection crosses the
+        // endpoint's local X support. Selection and C below use mouse events.
+        std::optional<kernel::FaceReference> contact_face;
+        kernel::Vec3 face_center{};double expected_x{};
+        const auto& visible_input=view->mesh();
+        kernel::ViewerReferenceGeometry input;
+        input.vertices=visible_input.vertices;
+        input.triangles=visible_input.triangles;
+        input.triangle_references=visible_input.triangle_references;
+        std::set<std::pair<std::string,std::string>> checked_faces;
+        double nearest=std::numeric_limits<double>::infinity();
+        for(std::size_t t=0;t<visible_input.triangle_references.size();++t) {
+            const auto& face=visible_input.triangle_references[t];
+            if(face.owner_id!=contact_support.id)continue;
+            if(face.owner_id==bend_id||!checked_faces.emplace(face.owner_id,face.semantic_key).second)continue;
+            const auto paths=end_frame.intersect_external_face(input,face);
+            if(!paths||paths->size()!=1||paths->front().size()<2)continue;
+            const auto a=paths->front().front(),b=paths->front().back();
+            if(std::ranges::any_of(paths->front(),[&](const auto& p) {
+                return std::abs((p[0]-a[0])*(b[1]-a[1])-(p[1]-a[1])*(b[0]-a[0]))>1e-6;
+            }))continue;
+            // External finite curves retain their real domain. Test a real
+            // crossing, not an extrapolation beyond the selected source face.
+            if(std::abs(a[1]-b[1])<1e-6||a[1]*b[1]>1e-8)continue;
+            const double x=a[0]-a[1]*(b[0]-a[0])/(b[1]-a[1]);
+            const double distance=std::abs(x-end_frame.find_point(point_id)->x);
+            if(distance>=nearest||distance>20)continue;
+            nearest=distance;contact_face=face;expected_x=x;face_center={};
+            for(unsigned corner=0;corner<3;++corner) {
+                const auto p=visible_input.vertices.at(visible_input.triangles.at(t*3+corner));
+                face_center.x+=p.x/3;face_center.y+=p.y/3;face_center.z+=p.z/3;
+            }
+        }
+        check(contact_face.has_value(),"Converted end fixture has no crossing source face");
+        const auto mouse=[&](QPointF p,QEvent::Type type,Qt::MouseButton button,Qt::MouseButtons buttons=Qt::NoButton) {
+            QMouseEvent event(type,p,QPointF(view->mapToGlobal(p.toPoint())),button,
+                type==QEvent::MouseButtonPress?Qt::MouseButtons(button):buttons,Qt::NoModifier);
+            QApplication::sendEvent(view,&event);flush();
+        };
+        const auto pick=[&](kernel::Vec3 position,const std::string& owner,const std::string& key,viewer::CandidateKind kind) {
+            const auto p=project(position);mouse(p,QEvent::MouseMove,Qt::NoButton);
+            const auto candidates=view->selection_candidates_at(p);
+            std::cout<<"Converted endpoint pick "<<owner<<' '<<key<<" candidates="<<candidates.size()<<std::endl;
+            const auto matches=[&](const auto& c){return c.owner_id==owner&&c.semantic_key==key&&c.kind==kind;};
+            check(std::ranges::any_of(candidates,matches),
+                "Converted endpoint contact candidate is absent from the real picker");
+            for(std::size_t cycle=0;cycle<candidates.size()&&(!view->hovered_candidate()||!matches(*view->hovered_candidate()));++cycle) {
+                mouse(p,QEvent::MouseButtonPress,Qt::RightButton);mouse(p,QEvent::MouseButtonRelease,Qt::RightButton);
+            }
+            check(view->hovered_candidate()&&matches(*view->hovered_candidate()),"Converted endpoint contact cycling chose another identity");
+            mouse(p,QEvent::MouseButtonPress,Qt::LeftButton);mouse(p,QEvent::MouseButtonRelease,Qt::LeftButton);
+        };
+        view->set_view_direction({1,-1,-1},0);view->fit_all();flush();
+        QEventLoop contact_camera;QTimer::singleShot(950,&contact_camera,&QEventLoop::quit);contact_camera.exec();flush();
+        window.findChild<QAction*>("sketchIntersectionReferenceAction")->trigger();flush();
+        pick(face_center,contact_face->owner_id,contact_face->semantic_key,viewer::CandidateKind::Face);
+        const auto* intersected=window.active_sketch_for_test();
+        const auto intersection=std::ranges::find_if(intersected->external_references,[](const auto& r){return r.intersection.has_value();});
+        check(intersection!=intersected->external_references.end()&&!intersection->broken&&intersection->cached_points.size()==2,
+            "Embedded Bend face intersection did not create one valid reference line");
+        const auto reference=*intersection;
+        const auto& cached=reference.cached_points;
+        const auto midpoint=intersected->world_point((cached[0][0]+cached[1][0])/2,(cached[0][1]+cached[1][1])/2);
+        const auto edge=std::ranges::find_if(view->mesh().edges,[&](const auto& e){return e.reference.owner_id==end_frame.id&&
+            e.reference.semantic_key=="external_edge:"+reference.id;});
+        check(edge!=view->mesh().edges.end()&&edge->points.size()>=2,"Embedded intersection line is absent from Sketch display");
+        for(const auto& p:edge->points) {
+            const auto delta=kernel::Vec3{p.x-intersected->resolved_origin.x,p.y-intersected->resolved_origin.y,p.z-intersected->resolved_origin.z};
+            const auto n=intersected->resolved_normal;
+            check(std::abs(delta.x*n.x+delta.y*n.y+delta.z*n.z)<1e-6,"Intersection line is drawn outside its Sketch plane");
+        }
+        window.findChild<QAction*>("sketchCoincidentAction")->trigger();flush();
+        const auto* endpoint=window.active_sketch_for_test()->find_point(point_id);
+        pick(window.active_sketch_for_test()->world_point(endpoint->x,endpoint->y),end_frame.id,"point:"+point_id,viewer::CandidateKind::SketchPoint);
+        pick(midpoint,end_frame.id,"external_edge:"+reference.id,viewer::CandidateKind::SketchExternalReference);
+        const auto* contacted=window.active_sketch_for_test();
+        if(std::ranges::none_of(contacted->constraints,[&](const auto& c){return !c.suppressed&&
+            c.kind==sketcher::ConstraintKind::PointOnLine&&c.geometry_id==reference.id&&c.first_point_id==point_id;})) {
+            std::ofstream(parent/"endpoint-contact-sketch.json")<<contacted->serialized();
+            window.grab().save(QString::fromStdWString((parent/"endpoint-contact-failure.png").wstring()));
+            std::cerr<<"Endpoint C wanted "<<point_id<<" x="<<expected_x<<" source="<<reference.id<<'\n';
+            for(auto* label:window.findChildren<QLabel*>())if(label->isVisible()&&!label->text().isEmpty())
+                std::cerr<<"Endpoint C status "<<label->text().toStdString()<<'\n';
+            try {auto probe=*contacted;static_cast<void>(probe.add_point_on_line_constraint(point_id,reference.id));
+                std::cerr<<"Endpoint C native probe succeeded\n";}
+            catch(const std::exception& error){std::cerr<<"Endpoint C native probe: "<<error.what()<<'\n';}
+        }
+        check(std::ranges::any_of(contacted->constraints,[&](const auto& c){return !c.suppressed&&
+            c.kind==sketcher::ConstraintKind::PointOnLine&&c.geometry_id==reference.id&&c.first_point_id==point_id;}),
+            "C did not bind the ordinary Bend endpoint to the intersection");
+        check(std::abs(contacted->find_point(point_id)->x-expected_x)<1e-5&&
+            std::abs(contacted->find_point(point_id)->y)<1e-6,"Embedded C did not satisfy both support equations");
+        window.findChild<QAction*>("finishSketchAction")->trigger();flush();
+        check(properties->isVisible()&&!window.active_sketch_for_test(),"Intersection-driven Bend cannot leave Sketcher");
+        properties->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+        check(!window.findChild<QDialog*>("bendPropertiesDialog"),"Intersection-driven Bend cannot commit");
+        window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
+        const auto contacted_part=document::PartDocument::load(path);
+        const auto* saved_support=contacted_part.find_container(contact_support.id);
+        check(saved_support&&*saved_support==contact_support,"Endpoint C modified its source feature");
+        const auto stored=sketcher::Sketch::from_serialized(contacted_part.find_container(bend_id)->bend.auxiliary_sketches[1]);
+        check(std::abs(stored.find_point(point_id)->x-expected_x)<1e-5&&
+            std::ranges::none_of(stored.dimensions,[&](const auto& d){return d.id==end_frame.id+":difference:first";}),
+            "Commit/reopen recreated the deleted dimension or lost the C endpoint");
+        std::cout<<"Converted Bend endpoint face intersection display, C selection, equations and commit passed\n";
         return 0;
     }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}
 }

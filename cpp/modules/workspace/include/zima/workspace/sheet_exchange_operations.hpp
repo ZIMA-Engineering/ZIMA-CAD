@@ -29,9 +29,13 @@ struct SheetBodyConversion {
 [[nodiscard]] bool refresh_sheet_from_body_associations(
     document::PartDocument&,const std::vector<kernel::BodyResult>&,
     const kernel::OcctKernel&);
+// Prepare the ordinary full release in a caller-owned transaction. Retains
+// the conversion boundary and freezes each child's last valid native frame.
+[[nodiscard]] bool release_sheet_from_body_bindings(
+    document::PartDocument&,const std::string& conversion_id);
 // Detaches one generated native Flat/Bend when child_id is present. Without a
-// child, removes the conversion owner and keeps every generated feature as
-// ordinary Body history. Both forms are one calculated Undo transaction.
+// child, releases every generated feature and retains the conversion boundary.
+// Both forms are one calculated Undo transaction.
 [[nodiscard]] bool explode_sheet_from_body(
     Workspace&,const kernel::OcctKernel&,const std::string& document_id,
     const std::string& conversion_id,

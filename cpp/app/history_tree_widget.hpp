@@ -10,6 +10,9 @@
 #include <optional>
 
 namespace zima::app {
+// Exclusive executable-history boundary represented by a visible Tree row.
+// Grouped Profile/conversion children are not separate Body-level siblings.
+inline constexpr int history_cursor_end_role = Qt::UserRole + 70;
 class HistoryTreeWidget final : public QTreeWidget {
 public:
     explicit HistoryTreeWidget(QWidget* parent=nullptr) : QTreeWidget(parent) {
@@ -165,7 +168,12 @@ protected:
                     role == "assembly-sketch-container" || role == "assembly-cut" || role == "assembly-construction"
                     : document_level ? role == "part-body" || role == "part-body-boolean"
                     : role == "part-container" || role == "part-sketch" || role == "part-construction";
-                if (entry && visualItemRect(child).center().y() < event->position().toPoint().y()) ++cursor;
+                if (entry && visualItemRect(child).center().y() < event->position().toPoint().y()) {
+                    const auto boundary=child->data(0,history_cursor_end_role);
+                    if(!document_level&&!assembly_level&&boundary.isValid())
+                        cursor=std::max(cursor,static_cast<std::size_t>(boundary.toULongLong()));
+                    else ++cursor;
+                }
             }
             if (valid_parent) {
                 if(assembly_level && assembly_cursor_moved)assembly_cursor_moved(cursor);

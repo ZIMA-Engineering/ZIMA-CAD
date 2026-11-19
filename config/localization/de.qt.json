@@ -1,4 +1,6 @@
 {
+  "Corner closure must be 0 or 1.": "Der Eckverschluss muss 0 oder 1 sein.",
+  "Bend end profile constraints cannot be solved.": "Die Abhängigkeiten des Biegeendprofils können nicht gelöst werden.",
   "Flat attachment requires a straight boundary of a sheet end face.": "Die Anbindung der Platte erfordert eine gerade Begrenzungskante einer Blechstirnfläche.",
   "Střed hrany": "Kantenmittelpunkt",
   "Umístit počátek do středu vybraného úseku hrany a kótovat od středu.": "Den Ursprung in die Mitte des gewählten Kantenabschnitts setzen und von dort bemaßen.",
@@ -932,7 +934,7 @@
   "Generated Sheet Profile Bend start point is missing.": "Der Startpunkt der erzeugten Profilbiegung fehlt.",
   "Generated Sheet Profile Bend start edge is too short.": "Die Startkante der erzeugten Profilbiegung ist zu kurz.",
   "Edit this generated Flat through its parent Profile Sketch.": "Bearbeiten Sie diese erzeugte Tafel über ihre übergeordnete Profilskizze.",
-  "A generated Profile Bend permits only its end corrections.": "Eine erzeugte Profilbiegung erlaubt nur ihre Endkorrekturen.",
+  "A generated Profile Bend permits only its end corrections and corner closure.": "Eine erzeugte Profilbiegung erlaubt nur ihre Endkorrekturen und den Eckenschluss.",
   "Sheet Profile driver Sketch is missing.": "Die steuernde Profilskizze fehlt.",
   "Sheet Profile Flat target envelope is invalid.": "Die Zielhüllkurve der Profiltafel ist ungültig.",
   "Sheet Profile Flat target envelope is too small.": "Die Zielhüllkurve der Profiltafel ist zu klein.",
@@ -2848,5 +2850,7 @@
   "zima::app::AssemblyWorkspaceWindow|Řez": "Schnitt",
   "zima::app::AssemblyWorkspaceWindow|Řez %1": "Schnitt %1",
   "zima::app::AssemblyWorkspaceWindow|Edge treatment preview did not produce an exact result wire.": "Die Vorschau der Kantenbearbeitung hat keine exakte Ergebnisgeometrie erzeugt.",
-  "zima::app::AssemblyWorkspaceWindow|Zaoblený přechod": "Abgerundeter Übergang"
+  "zima::app::AssemblyWorkspaceWindow|Zaoblený přechod": "Abgerundeter Übergang",
+  "Sheet from Body Bend correction basis is missing or inconsistent.": "Die Korrekturbasis der Biegung von Blech aus Körper fehlt oder ist inkonsistent.",
+  "Calculation failed: %1\nPress OK again to save this unchanged definition as unresolved, or Cancel to discard it.": "Berechnung fehlgeschlagen: %1\nDrücken Sie erneut OK, um diese unveränderte Definition als ungelöst zu speichern, oder Abbrechen, um sie zu verwerfen."
 }

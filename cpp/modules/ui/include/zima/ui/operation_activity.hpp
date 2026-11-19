@@ -30,6 +30,9 @@ public:
     [[nodiscard]] static QWidget* create_confirmation_indicator(QWidget* parent);
     std::function<void()> started;
     std::function<void()> finished;
+    // The owning application may wrap an explicit Properties submission.
+    // Calculation and transaction policy remain outside this presentation layer.
+    std::function<bool(QWidget*,const std::function<bool()>&)> submit_properties;
 
     class Scope final {
     public:

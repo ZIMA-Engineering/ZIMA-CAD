@@ -1,4 +1,6 @@
 {
+  "Corner closure must be 0 or 1.": "Uzavření rohu musí mít hodnotu 0 nebo 1.",
+  "Bend end profile constraints cannot be solved.": "Vazby koncového profilu ohybu nelze vyřešit.",
   "Flat attachment requires a straight boundary of a sheet end face.": "Navázání tabule vyžaduje přímou obvodovou hranu koncové plochy plechu.",
   "Střed hrany": "Střed hrany",
   "Umístit počátek do středu vybraného úseku hrany a kótovat od středu.": "Umístit počátek do středu vybraného úseku hrany a kótovat od středu.",
@@ -932,7 +934,7 @@
   "Generated Sheet Profile Bend start point is missing.": "Počáteční bod generovaného ohybu Profilu chybí.",
   "Generated Sheet Profile Bend start edge is too short.": "Počáteční hrana generovaného ohybu Profilu je příliš krátká.",
   "Edit this generated Flat through its parent Profile Sketch.": "Tuto generovanou tabuli upravte prostřednictvím nadřazené skici Profilu.",
-  "A generated Profile Bend permits only its end corrections.": "Generovaný ohyb Profilu dovoluje pouze korekce svého konce.",
+  "A generated Profile Bend permits only its end corrections and corner closure.": "Generovaný ohyb Profilu dovoluje pouze korekce svého konce a uzavření rohu.",
   "Sheet Profile driver Sketch is missing.": "Řídicí skica Profilu chybí.",
   "Sheet Profile Flat target envelope is invalid.": "Cílový obal tabule Profilu je neplatný.",
   "Sheet Profile Flat target envelope is too small.": "Cílový obal tabule Profilu je příliš malý.",
@@ -2848,5 +2850,7 @@
   "zima::app::AssemblyWorkspaceWindow|Řez": "Řez",
   "zima::app::AssemblyWorkspaceWindow|Řez %1": "Řez %1",
   "zima::app::AssemblyWorkspaceWindow|Edge treatment preview did not produce an exact result wire.": "Náhled úpravy hrany nevytvořil přesnou výslednou geometrii.",
-  "zima::app::AssemblyWorkspaceWindow|Zaoblený přechod": "Zaoblený přechod"
+  "zima::app::AssemblyWorkspaceWindow|Zaoblený přechod": "Zaoblený přechod",
+  "Sheet from Body Bend correction basis is missing or inconsistent.": "Základ korekcí ohybu Plech z tělesa chybí nebo je nekonzistentní.",
+  "Calculation failed: %1\nPress OK again to save this unchanged definition as unresolved, or Cancel to discard it.": "Výpočet selhal: %1\nDalším stisknutím OK uložíte tuto nezměněnou definici jako nevyřešenou. Tlačítkem Zrušit změny zahodíte."
 }

@@ -12,8 +12,9 @@ static int verify_sketch_parallel_inference_ui(
     };
     try {
         unsigned case_index{};
-        for (const int scenario : {0, 1, 2, 3}) {
-            const bool external = scenario != 1;
+        for (const int scenario : {0, 1, 2, 3, 4, 5}) {
+            const bool external = scenario != 1&&scenario!=5;
+            const bool line_contact=scenario>=4;
             const bool horizontal = scenario == 2;
             const bool broken = scenario == 3;
             auto part = document::PartDocument::create_default();
@@ -24,6 +25,7 @@ static int verify_sketch_parallel_inference_ui(
             const auto source_segment = horizontal
                 ? source.add_segment(-40.0, -18.0, 40.0, -18.0)
                 : source.add_segment(-40.0, -20.0, 40.0, 20.0);
+            const auto source_contact=line_contact?source.add_segment(-45.,38.,45.,38.):std::string{};
             for (auto& point : source.points) point.fixed = true;
 
             auto target = sketcher::Sketch::create_default();
@@ -50,6 +52,20 @@ static int verify_sketch_parallel_inference_ui(
                     target.segments, support_id, &sketcher::SketchSegment::id);
                 target.find_point(support->first_point_id)->fixed = true;
                 target.find_point(support->second_point_id)->fixed = true;
+            }
+            std::string contact_id;
+            if(line_contact) {
+                if(external) {
+                    auto reference=sketcher::Sketch::create_external_reference(sketcher::ExternalReferenceKind::Edge);
+                    reference.source_document_id=part.document_id;reference.source_owner_id=source.id;
+                    reference.source_semantic_key="segment:"+source_contact;
+                    reference.cached_points={{-45.,38.},{45.,38.}};
+                    contact_id=reference.id;target.add_external_reference(reference);
+                } else {
+                    contact_id=target.add_segment(-45.,38.,45.,38.,1e-6,true);
+                    const auto support=*std::ranges::find(target.segments,contact_id,&sketcher::SketchSegment::id);
+                    target.set_point_fixed(support.first_point_id,true);target.set_point_fixed(support.second_point_id,true);
+                }
             }
             const auto target_id = target.id;
             const auto source_definition = source.serialized();
@@ -196,10 +212,14 @@ static int verify_sketch_parallel_inference_ui(
 
             const auto* active = window.active_sketch_for_test();
             check(active != nullptr, "Parallel inference lost its active Sketch");
-            const auto expected_segments = scenario == 1 ? 2U : 1U;
+            const auto expected_segments = external?1U:(line_contact?3U:2U);
             check(active->segments.size() == expected_segments,
                 "Parallel inference created the wrong segment count");
             const auto created_id = active->segments.back().id;
+            if(line_contact)check(std::ranges::any_of(active->constraints,[&](const auto& relation) {
+                return relation.kind==K::PointOnLine&&relation.geometry_id==contact_id&&
+                    relation.first_point_id==active->segments.back().second_point_id;
+            }),"Automatic Parallel lost its endpoint C contact");
             const auto has_parallel = [&] {
                 return std::ranges::any_of(active->constraints,
                     [&](const auto& relation) {
@@ -273,6 +293,12 @@ static int verify_sketch_parallel_inference_ui(
                         "Underconstrained Parallel endpoint did not move in GUI");
                     check(parallel_equation() < 1.0e-8,
                         "GUI drag escaped the Parallel equation");
+                    if(line_contact) {
+                        const auto* current=window.active_sketch_for_test();
+                        const auto& line=*std::ranges::find(current->segments,created_id,&sketcher::SketchSegment::id);
+                        check(std::abs(current->find_point(line.second_point_id)->y-38.)<1e-8,
+                            "Parallel endpoint drag escaped its C support");
+                    }
                     if (external) {
                         check(window.active_sketch_for_test()->external_references ==
                                 external_definition,

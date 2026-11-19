@@ -51,6 +51,37 @@ int verify_arc_only_bend_ui(QApplication& application,const std::filesystem::pat
             auto* finish=window.findChild<QAction*>("finishSketchAction");check(finish&&finish->isEnabled(),"Owned Bend Sketch did not activate");
             finish->trigger();flush();check(bend->isVisible(),"Owned Bend Sketch did not return to properties");
         }
+        {
+            auto* end_button=bend->findChild<QPushButton*>("bendEndSketchButton");
+            end_button->click();flush();
+            const auto* draft=window.active_sketch_for_test();check(draft,"Bend end draft missing");
+            const auto end_id=draft->id;
+            const auto remove_row=[&](const std::string& id) {
+                QTreeWidgetItem* row=nullptr;
+                for(QTreeWidgetItemIterator it(tree);*it;++it)
+                    if((*it)->data(0,Qt::UserRole).toString().toStdString()==id){row=*it;break;}
+                check(row,"Bend end editing row missing");tree->setCurrentItem(row);flush();
+                QKeyEvent remove(QEvent::KeyPress,Qt::Key_Delete,Qt::NoModifier);
+                QApplication::sendEvent(&window,&remove);flush();
+            };
+            remove_row(end_id+":difference:first");
+            check(window.active_sketch_for_test()->dimensions.size()==1,"Bend endpoint dimension deletion failed");
+            window.findChild<QAction*>("undoAction")->trigger();flush();
+            check(window.active_sketch_for_test()->dimensions.size()==2,"Bend endpoint deletion Undo failed");
+            window.findChild<QAction*>("redoAction")->trigger();flush();
+            check(window.active_sketch_for_test()->dimensions.size()==1,"Bend endpoint deletion Redo failed");
+            window.findChild<QAction*>("finishSketchAction")->trigger();flush();
+            check(bend->isVisible()&&!window.active_sketch_for_test(),"Deleted endpoint dimension trapped Bend Sketch editor");
+            end_button->click();flush();
+            check(window.active_sketch_for_test()->dimensions.size()==1,"Bend recreated a deleted endpoint dimension");
+            remove_row(window.active_sketch_for_test()->segments.front().id);
+            window.findChild<QAction*>("finishSketchAction")->trigger();flush();
+            check(bend->isVisible()&&!window.active_sketch_for_test(),"Invalid Bend profile trapped Sketch editor");
+            end_button->click();flush();
+            check(!bend->isVisible()&&window.active_sketch_for_test(),"Invalid Bend draft cannot be reopened for repair");
+            window.findChild<QAction*>("finishSketchAction")->trigger();flush();
+            check(bend->isVisible(),"Invalid Bend draft failed second return to Properties");
+        }
         override->setChecked(true);thickness->setValue(3.);override->setChecked(false);check(thickness->value()==2.,"Disabling local thickness did not restore Part value");
         bend->findChild<QDoubleSpinBox*>("bendRadius")->setValue(7.);bend->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();
         window.findChild<QAction*>("saveDocumentAction")->trigger();flush();check(document::PartDocument::load(bend_path).history.empty(),"Bend Cancel inserted history");
@@ -122,6 +153,16 @@ int verify_arc_only_bend_ui(QApplication& application,const std::filesystem::pat
             ++outside_offsets;
         }
         check(outside_offsets==4,"Bend inspection must show all four outside offsets");
+        for(const auto flags:{std::array{true,false},std::array{false,true},std::array{false,false}}) {
+            inline_edit("parameter:corner_first",flags[0]?"1":"0");
+            inline_edit("parameter:corner_last",flags[1]?"1":"0");
+            window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
+            check(document::PartDocument::load(bend_path).history.front().bend.corner==flags,
+                "View CC labels did not persist independent corner closure flags");
+            window.findChild<QAction*>("undoAction")->trigger();flush();
+            window.findChild<QAction*>("redoAction")->trigger();flush();
+            window.show_parameter_dimensions(bend_id);flush();
+        }
         window.grab().save("build/bend-three-sketch-view.png");
         auto* annotation_view=dynamic_cast<viewer::MeshView*>(model_view);
         annotation_view->set_standard_view(viewer::StandardView::Isometric);annotation_view->fit_all();flush();
@@ -246,8 +287,21 @@ int verify_arc_only_bend_ui(QApplication& application,const std::filesystem::pat
         auto equations=saved_profile;check(equations.solve().remaining_degrees_of_freedom==0&&equations.solve().maximum_residual<1e-8,
             "Saved prepared Flat is not fully constrained");
         const auto before_cancel=window.execute_console_command("documents").data;
+        // The first Flat consumes the parent's joining cap in its authored
+        // branch. A second creation must pick a current free boundary, just
+        // as the View does, instead of injecting that obsolete cap reference.
+        std::optional<kernel::ViewerEdge> cancel_edge;
+        for(const auto& edge:flat_view->mesh().edges)
+            if(edge.reference.owner_id==attached_part.history.back().id)try {
+                const auto refs=document::flat_sheet_references(edge);
+                if(document::bend_attachment_profile_direction(refs,
+                        document::sheet_attachment_reference_geometry(flat_view->mesh()))) {
+                    cancel_edge=edge;break;
+                }
+            }catch(const std::exception&){}
+        check(cancel_edge.has_value(),"Attached Flat has no current free boundary for a second Flat");
         flat_action->trigger();flush();flat=flat_dialog();check(flat,"Second attached Flat did not open");
-        check(flat->set_reference(0,{flat_edge->reference.instance_path,flat_edge->reference.owner_id,flat_edge->reference.semantic_key},"Bend end"),
+        check(flat->set_reference(0,{cancel_edge->reference.instance_path,cancel_edge->reference.owner_id,cancel_edge->reference.semantic_key},"Flat boundary"),
             "Second Flat attachment failed");flush();
         check(flat->pending_value().first.segments.size()==4,"Second Flat was not seeded before Cancel");
         flat->buttons()->button(QDialogButtonBox::Cancel)->click();flush();

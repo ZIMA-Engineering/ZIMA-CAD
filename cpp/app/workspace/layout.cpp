@@ -4,6 +4,8 @@
 #include <zima/workspace/assembly_history_operations.hpp>
 #include <zima/workspace/opening_component_operations.hpp>
 #include <zima/workspace/edge_treatment_operations.hpp>
+#include <zima/workspace/modeling_confirmation.hpp>
+#include <zima/ui/properties_subwindow.hpp>
 #include "workspace_internal.hpp"
 #include <zima/workspace/sheet_exchange_operations.hpp>
 #include <zima/workspace/sheet_profile_operations.hpp>
@@ -264,6 +266,25 @@ void AssemblyWorkspaceWindow::create_layout() {
             [this](auto task) { run_background_task(std::move(task), viewer_); });
     };
     operation_activity_->finished = [calculation_execution] { calculation_execution->reset(); };
+    auto confirmations=std::make_shared<std::map<QWidget*,std::shared_ptr<workspace::ModelingConfirmation>>>();
+    operation_activity_->submit_properties=[this,confirmations](QWidget* widget,const auto& submit) {
+        auto* dialog=dynamic_cast<ui::PropertiesSubWindow*>(widget);
+        if(!dialog||widget!=properties_dialog_||!workspace_.open_part(workspace_.active_document_id()))return submit();
+        auto [entry,inserted]=confirmations->try_emplace(widget,std::make_shared<workspace::ModelingConfirmation>());
+        if(inserted)connect(widget,&QObject::destroyed,this,[confirmations,widget]{confirmations->erase(widget);});
+        const auto confirmation=entry->second;
+        workspace::ModelingConfirmationAttempt attempt(*confirmation,workspace_,workspace_.active_document_id());
+        bool accepted{};
+        try {accepted=submit();}
+        catch(...) {if(!attempt.failed()){confirmation->clear();throw;}}
+        if(attempt.failed()) {
+            dialog->show_submission_error(tr("Calculation failed: %1\nPress OK again to save this unchanged definition as unresolved, or Cancel to discard it.")
+                .arg(tr(confirmation->failure().c_str())));
+            return false;
+        }
+        confirmation->clear();
+        return accepted;
+    };
     viewer_->set_origin_visibility_filter([this](const auto& reference) {
         if (!workspace_.open_assembly(workspace_.displayed_document_id())) return true;
         if (component_placement_dialog_ &&

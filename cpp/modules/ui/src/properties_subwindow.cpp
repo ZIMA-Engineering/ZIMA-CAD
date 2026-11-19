@@ -326,7 +326,10 @@ PropertiesSubWindow::PropertiesSubWindow(const QString& title, QWidget* parent)
                 const auto restore = qScopeGuard([this, enabled] { buttons_->setEnabled(enabled); });
                 OperationActivity::Scope activity(OperationActivity::find(this),
                     tr("Pracuji: %1").arg(windowTitle()), confirmation_activity_);
-                accepted = submit();
+                auto* coordinator=OperationActivity::find(this);
+                const auto action=[this]{return submit();};
+                accepted=coordinator&&coordinator->submit_properties?
+                    coordinator->submit_properties(this,action):action();
             }
             if (accepted) accept();
         } catch (const std::exception& error) {
@@ -352,6 +355,10 @@ PropertiesSubWindow::~PropertiesSubWindow() {
 }
 
 QVBoxLayout* PropertiesSubWindow::content_layout() const { return content_layout_; }
+void PropertiesSubWindow::show_submission_error(const QString& message) {
+    submit_error_->setText(message);
+    submit_error_->setVisible(!message.isEmpty());
+}
 QDialogButtonBox* PropertiesSubWindow::buttons() const { return buttons_; }
 
 QSize PropertiesSubWindow::minimumSizeHint() const {

@@ -1088,6 +1088,10 @@ bool SketchPropertiesDialog::sheet_reference_allowed(std::size_t index,const zim
     return false;
 }
 
+void SketchPropertiesDialog::set_sketch_error(const QString& message) {
+    error_->setText(message);
+}
+
 void SketchPropertiesDialog::notify_preview() {
     if (!preview_) return;
     if(reference_update_){reference_preview_pending_=true;return;}

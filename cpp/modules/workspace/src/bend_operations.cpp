@@ -1,4 +1,5 @@
 #include <zima/workspace/bend_operations.hpp>
+#include <zima/workspace/modeling_confirmation.hpp>
 #include <zima/workspace/origin_display_operations.hpp>
 #include <zima/workspace/operation_input.hpp>
 #include <zima/workspace/part_transactions.hpp>
@@ -67,10 +68,10 @@ bool commit_bend(Workspace& live,const kernel::OcctKernel& kernel,const std::str
     if(attached_input)resolve_sheet_feature_drafts(next,{container},std::move(references));
     else next.resolve_constructions(std::move(references));
     auto calculated=calculate_part_with_resolved_references(kernel,next,&state->session.calculated_boundaries(),policy);
-    if(!next.find_container(container)->placement.reference_valid)throw std::invalid_argument("Bend placement references cannot be resolved.");
+    if(!next.find_container(container)->placement.reference_valid&&!confirmed_unresolved_modeling_definition(container))throw std::invalid_argument("Bend placement references cannot be resolved.");
     for(const auto& boundary:calculated)
         if(const auto failed=boundary.calculation_errors.find(container);
-                failed!=boundary.calculation_errors.end())
+                failed!=boundary.calculation_errors.end()&&!confirmed_unresolved_modeling_definition(container))
             throw std::runtime_error(failed->second);
     if(next.serialized()==before.serialized()) {
         state->session.update_calculated_boundaries(std::move(calculated));return false;

@@ -646,6 +646,111 @@ void verify_prepared_start() {
         const auto ext=document::bend_profile_extensions(feature);near(ext[0],3);near(ext[1],4);
     }
 }
+void verify_constraint_driven_bend_end() {
+    for(const auto baseline:{std::array{2.,4.},std::array{-2.,4.},std::array{0.,-0.}}) {
+        auto start=sketcher::Sketch::create_default();
+        auto feature=document::PartDocument::create_sketch_container();
+        feature.feature_kind=document::FeatureKind::Bend;
+        start.owner_container_id=feature.id;feature.bend.sketch_id=start.id;
+        document::initialize_bend_start_profile(start,40);
+        document::prepare_bend_sketches(feature,start,{});
+        document::set_bend_profile_extensions(feature,baseline[0],baseline[1]);
+        document::prepare_bend_sketches(feature,start,{});
+        const auto before=document::bend_end_profile_interval(feature);
+        document::rebase_bend_profile_extensions(feature,start,baseline,{});
+        check(document::bend_end_profile_interval(feature)==before,"Conversion basis moved Bend endpoints");
+        auto end=sketcher::Sketch::from_serialized(feature.bend.auxiliary_sketches[1]);
+        for(const auto& dimension:end.dimensions)near(dimension.value,0.);
+        const auto segment_id=end.segments.front().id;
+        for(bool last:{false,true})for(double delta:{3.,1.,5.}) {
+            const auto dimension=end.id+(last?":difference:last":":difference:first");
+            const auto side=std::ranges::find(end.dimensions,dimension,&sketcher::SketchDimension::id)->solution_side;
+            check(end.set_dimension_value(dimension,delta),"Relative Bend correction cannot be edited");
+            document::accept_bend_sketch(feature,start,1,end,{});
+            const auto interval=document::bend_end_profile_interval(feature);
+            near(interval[last?1:0],(last?40.:0.)+(last?1.:-1.)*baseline[last?1:0]+side*delta);
+            end=sketcher::Sketch::from_serialized(feature.bend.auxiliary_sketches[1]);
+            check(end.segments.front().id==segment_id,"Relative correction changed segment identity");
+        }
+        const auto corrected=document::bend_end_profile_interval(feature);
+        const auto effective=document::bend_profile_extensions(feature);
+        document::rebase_bend_profile_extensions(feature,start,std::nullopt,{});
+        check(!feature.bend.conversion_base_extensions,"Released Bend retained its conversion basis");
+        near(document::bend_end_profile_interval(feature)[0],corrected[0]);
+        near(document::bend_end_profile_interval(feature)[1],corrected[1]);
+        near(document::bend_profile_extensions(feature)[0],effective[0]);
+        near(document::bend_profile_extensions(feature)[1],effective[1]);
+    }
+    // Every cell exercises repeated edits, drags, serialization and preparation;
+    // the unchanged generated dimension on the other end must remain driving.
+    for(bool last:{false,true})for(bool external:{false,true})
+        for(bool reversed:{false,true})for(auto mode:{0,1,2}) {
+        auto start=sketcher::Sketch::create_default();
+        auto feature=document::PartDocument::create_sketch_container();
+        feature.feature_kind=document::FeatureKind::Bend;
+        start.owner_container_id=feature.id;feature.bend.sketch_id=start.id;
+        document::initialize_bend_start_profile(start,40);
+        document::prepare_bend_sketches(feature,start,{});
+        auto end=sketcher::Sketch::from_serialized(feature.bend.auxiliary_sketches[1]);
+        const auto point_id=end.id+(last?":endpoint:last":":endpoint:first");
+        const auto dimension_id=end.id+(last?":difference:last":":difference:first");
+        const auto opposite_id=end.id+(last?":difference:first":":difference:last");
+        if(mode==0)end.remove_dimension(dimension_id);
+        else {
+            auto& dimension=*std::ranges::find(end.dimensions,dimension_id,&sketcher::SketchDimension::id);
+            if(mode==1)dimension.driving=false;
+            else dimension.suppressed=true;
+        }
+        for(double displacement:{2.,5.,3.}) {
+            const double x=(last?40.:0.)+(last?1.:-1.)*displacement;
+            check(end.move_point(point_id,x,0),"Released Bend end cannot be dragged");
+            near(end.find_point(point_id)->x,x);near(end.find_point(point_id)->y,0);
+            document::accept_bend_sketch(feature,start,1,end,{});
+            near(document::bend_profile_extensions(feature)[last?1:0],displacement);
+            end=sketcher::Sketch::from_serialized(feature.bend.auxiliary_sketches[1]);
+        }
+        const double initial_x=last?44.:-4.;
+        std::string support;
+        std::string native_first,native_last;
+        if(external) {
+            sketcher::SketchExternalReference reference;
+            reference.id="end-intersection";reference.kind=sketcher::ExternalReferenceKind::Edge;
+            reference.source_document_id="read-only-part";reference.source_owner_id="flat";
+            reference.source_semantic_key="intersection-line";
+            reference.cached_points={{{initial_x,-10}},{{initial_x,10}}};
+            if(reversed)std::ranges::reverse(reference.cached_points);
+            end.add_external_reference(reference);support=reference.id;
+        } else {
+            support=end.add_segment(initial_x,reversed?10.:-10.,initial_x,reversed?-10.:10.,1e-6,true);
+            const auto& segment=*std::ranges::find(end.segments,support,&sketcher::SketchSegment::id);
+            native_first=segment.first_point_id;native_last=segment.second_point_id;
+            end.set_point_fixed(native_first,true);end.set_point_fixed(native_last,true);
+        }
+        static_cast<void>(end.add_point_on_line_constraint(point_id,support));
+        for(double displacement:{4.,7.,2.}) {
+            const double x=(last?40.:0.)+(last?1.:-1.)*displacement;
+            if(external)for(auto& p:end.external_references.front().cached_points)p[0]=x;
+            else {end.find_point(native_first)->x=x;end.find_point(native_last)->x=x;}
+            const auto expected_references=end.external_references;
+            document::accept_bend_sketch(feature,start,1,end,{});
+            end=sketcher::Sketch::from_serialized(feature.bend.auxiliary_sketches[1]);
+            near(end.find_point(point_id)->x,x);near(end.find_point(point_id)->y,0);
+            near(document::bend_profile_extensions(feature)[last?1:0],displacement);
+            static_cast<void>(end.move_point(point_id,x+2,3));
+            near(end.find_point(point_id)->x,x);near(end.find_point(point_id)->y,0);
+            if(external)check(end.external_references.front().cached_points==expected_references.front().cached_points,
+                "Bend end drag moved its external source");
+            check(end.set_dimension_value(opposite_id,1.),"Other end dimension stopped being editable");
+            document::accept_bend_sketch(feature,start,1,end,{});
+            document::prepare_bend_sketches(feature,start,{});
+            end=sketcher::Sketch::from_serialized(feature.bend.auxiliary_sketches[1]);
+            near(end.find_point(point_id)->x,x);
+            check(end.segments.front().first_point_id==end.id+":endpoint:first"&&
+                end.segments.front().second_point_id==end.id+":endpoint:last","Bend end lost its native segment");
+        }
+    }
+    std::cout<<"24 Bend endpoint constraint cells: native/external, both ends, orientations, deleted/reference/suppressed dimensions passed\n";
+}
 void verify(std::filesystem::path directory) {
     kernel::OcctKernel kernel;workspace::Workspace live;command_host::Options options;
     options.settings=[] {command_host::Settings s;s.templates={std::filesystem::absolute("config/templates"),"START_PART_mm.prtz","START_ASSEMBLY_mm.asmz","Body"};return s;};
@@ -1777,8 +1882,12 @@ int main(int argc,char** argv) {
         try{verify_cross_branch_box(directory);std::filesystem::remove_all(directory);return 0;}
         catch(const std::exception& e){std::cerr<<e.what()<<"; fixture: "<<directory<<'\n';return 1;}
     }
+    if(argc==2&&std::string_view(argv[1])=="--verify-bend-end-constraints") {
+        try{verify_constraint_driven_bend_end();std::filesystem::remove_all(directory);return 0;}
+        catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}
+    }
     if(argc==2&&std::string_view(argv[1])=="--arc-only") {
-        try{verify_arc_only(directory);verify_sheet_attachment(directory);verify_bend_inserted_before_unbend(directory);verify_prepared_start();verify_attachment(directory);verify(directory);
+        try{verify_constraint_driven_bend_end();verify_arc_only(directory);verify_sheet_attachment(directory);verify_bend_inserted_before_unbend(directory);verify_prepared_start();verify_attachment(directory);verify(directory);
             std::filesystem::remove_all(directory);std::cout<<"Arc-only Bend contracts passed\n";return 0;}
         catch(const std::exception& e){std::cerr<<e.what()<<"; fixture: "<<directory<<'\n';return 1;}
     }

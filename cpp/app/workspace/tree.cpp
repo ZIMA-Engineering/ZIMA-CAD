@@ -14,6 +14,7 @@
 #include "../surface_wire_visibility.hpp"
 #include <zima/sketcher/external_curve_center.hpp>
 #include "../tree_visibility.hpp"
+#include "../history_tree_widget.hpp"
 
 namespace zima::app {
 using namespace workspace_detail;
@@ -845,9 +846,15 @@ void AssemblyWorkspaceWindow::add_part_tree_children(
                         QString::fromStdString(source_id));
                 }
             }
+            std::size_t entry_boundary{};
             for (const auto& entry : definition->entries) {
+                ++entry_boundary;
                 const auto found = entries.find(entry.id);
-                if (found != entries.end()) { row->addChild(found->second); entries.erase(found); }
+                if (found != entries.end()) {
+                    found->second->setData(0,history_cursor_end_role,
+                        QVariant::fromValue(static_cast<qulonglong>(entry_boundary)));
+                    row->addChild(found->second); entries.erase(found);
+                }
             }
             const auto& pending_body = sketch_properties_body_id_.empty()
                 ? graph.active_body_id() : sketch_properties_body_id_;
@@ -901,6 +908,10 @@ void AssemblyWorkspaceWindow::add_part_tree_children(
             child_row->parent()->takeChild(
                 child_row->parent()->indexOfChild(child_row));
             profile_row->addChild(child_row);
+            if(child_row->data(0,history_cursor_end_role).isValid())
+                profile_row->setData(0,history_cursor_end_role,
+                std::max(profile_row->data(0,history_cursor_end_role).toULongLong(),
+                    child_row->data(0,history_cursor_end_role).toULongLong()));
         }
         profile_row->setExpanded(true);
     }
@@ -926,6 +937,10 @@ void AssemblyWorkspaceWindow::add_part_tree_children(
             child_row->parent()->takeChild(
                 child_row->parent()->indexOfChild(child_row));
             conversion_row->addChild(child_row);
+            if(child_row->data(0,history_cursor_end_role).isValid())
+                conversion_row->setData(0,history_cursor_end_role,
+                std::max(conversion_row->data(0,history_cursor_end_role).toULongLong(),
+                    child_row->data(0,history_cursor_end_role).toULongLong()));
         }
         conversion_row->setExpanded(true);
     }

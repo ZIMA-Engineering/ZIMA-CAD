@@ -1,4 +1,5 @@
 #include <zima/workspace/loft_operations.hpp>
+#include <zima/workspace/modeling_confirmation.hpp>
 #include <zima/workspace/part_transactions.hpp>
 #include <zima/workspace/model_calculation.hpp>
 #include <zima/workspace/origin_display_operations.hpp>
@@ -28,7 +29,7 @@ bool commit_loft(Workspace& live,const kernel::OcctKernel& kernel,const std::str
     if(existing){policy.edited_document_id=id;policy.edited_history_limit=before.history_index(owner);}
     if(keep_definition)policy.reject_errors=false;
     auto calculated=calculate_part_with_resolved_references(kernel,next,&state->session.calculated_boundaries(),policy);
-    if(!keep_definition)for(const auto& boundary:calculated)if(const auto failed=boundary.calculation_errors.find(owner);failed!=boundary.calculation_errors.end())
+    if(!keep_definition&&!confirmed_unresolved_modeling_definition(owner))for(const auto& boundary:calculated)if(const auto failed=boundary.calculation_errors.find(owner);failed!=boundary.calculation_errors.end())
         throw std::runtime_error(failed->second);
 
     if(next.serialized()==before.serialized()){state->session.update_calculated_boundaries(std::move(calculated));return false;}

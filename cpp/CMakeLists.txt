@@ -384,6 +384,7 @@ add_library(zima_workspace modules/workspace/src/workspace.cpp
     modules/workspace/src/native_documents.cpp
     modules/workspace/src/part_references.cpp
     modules/workspace/src/model_calculation.cpp
+    modules/workspace/src/modeling_confirmation.cpp
     modules/workspace/src/placement_edit.cpp
     modules/workspace/src/placement_reference_removal.cpp
     modules/workspace/src/feature_reference_input.cpp
@@ -1155,6 +1156,11 @@ if(ZIMA_BUILD_TESTS)
     set_target_properties(zima_cpp_ui_contract_tests PROPERTIES AUTORCC ON)
     add_test(NAME zima_cpp_ui_contract_tests COMMAND zima_cpp_ui_contract_tests)
     set_tests_properties(zima_cpp_ui_contract_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
+    add_test(NAME zima_cpp_history_tree_contract COMMAND zima_cpp_ui_contract_tests)
+    set_tests_properties(zima_cpp_history_tree_contract PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.."
+        ENVIRONMENT "ZIMA_VERIFY_HISTORY_TREE_ONLY=1"
+        LABELS "sheet-history;mandatory")
     add_test(NAME zima_cpp_sketch_constraint_buttons_contract COMMAND zima_cpp_ui_contract_tests)
     set_tests_properties(zima_cpp_sketch_constraint_buttons_contract PROPERTIES
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.."
@@ -1900,7 +1906,7 @@ if(ZIMA_BUILD_TESTS)
     set_tests_properties(zima_cpp_sketch_profile_wire_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
     target_link_libraries(zima_cpp_edge_treatment_command_tests PRIVATE zima_command_host zima_edge_treatment_preview TKTopAlgo TKGeomAlgo)
     add_test(NAME zima_cpp_edge_treatment_command_tests COMMAND zima_cpp_edge_treatment_command_tests)
-    set_tests_properties(zima_cpp_edge_treatment_command_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
+    set_tests_properties(zima_cpp_edge_treatment_command_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." LABELS "mandatory;modeling;topology")
 
     add_executable(zima_cpp_boolean_split_edge_tests tests/boolean_split_edge_tests.cpp)
     target_link_libraries(zima_cpp_boolean_split_edge_tests PRIVATE zima_command_host TKTopAlgo)
@@ -2699,6 +2705,11 @@ if(ZIMA_BUILD_TESTS)
     set_tests_properties(zima_cpp_sheet_profile_ui_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_SHEET_PROFILE_ONLY=1;ZIMA_VERIFY_HIDDEN_WINDOWS=1"
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." RUN_SERIAL TRUE TIMEOUT 180)
+    add_executable(zima_cpp_modeling_confirmation_tests tests/modeling_confirmation_tests.cpp)
+    target_link_libraries(zima_cpp_modeling_confirmation_tests PRIVATE zima_workspace)
+    target_compile_options(zima_cpp_modeling_confirmation_tests PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
+    add_test(NAME zima_cpp_modeling_confirmation_tests COMMAND zima_cpp_modeling_confirmation_tests)
+    set_tests_properties(zima_cpp_modeling_confirmation_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." LABELS "mandatory;modeling")
     add_executable(zima_cpp_sheet_exchange_tests tests/sheet_exchange_tests.cpp)
     file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/boundary-surface-ui-contract")
     add_test(NAME zima_cpp_boundary_surface_ui_contract COMMAND zima-cad-cpp --verify-startup
@@ -2962,6 +2973,8 @@ if(ZIMA_BUILD_TESTS)
     target_link_libraries(zima_cpp_bend_command_tests PRIVATE zima_command_host TKBO TKTopAlgo)
     target_compile_options(zima_cpp_bend_command_tests PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
     add_test(NAME zima_cpp_bend_arc_only_contract COMMAND zima_cpp_bend_command_tests --arc-only)
+    add_test(NAME zima_cpp_bend_end_constraints_contract COMMAND zima_cpp_bend_command_tests --verify-bend-end-constraints)
+    set_tests_properties(zima_cpp_bend_end_constraints_contract PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." LABELS "mandatory;sheet-branch;sketcher")
     set_tests_properties(zima_cpp_bend_arc_only_contract PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
     file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/bend-arc-ui-contract")
     add_test(NAME zima_cpp_bend_arc_ui_contract COMMAND zima-cad-cpp --verify-startup

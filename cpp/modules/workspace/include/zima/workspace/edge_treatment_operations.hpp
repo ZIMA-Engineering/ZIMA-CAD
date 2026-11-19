@@ -8,6 +8,10 @@ public:
     const char* code;
 };
 enum class EdgeTreatmentEditMode { Create, Replace };
+// Explicit regeneration repairs surviving route members against their exact
+// input boundary. New tangent members must stay between the stored terminals.
+[[nodiscard]] bool refresh_edge_treatment_references(document::PartDocument&,
+    const std::vector<kernel::BodyResult>&);
 // Two endpoints only for one connected, unbranched open path of exact input
 // identities. No spatial welding, kernel traversal or invented endpoints.
 [[nodiscard]] std::vector<kernel::VertexReference> edge_treatment_route_endpoints(

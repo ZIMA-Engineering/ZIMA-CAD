@@ -312,22 +312,33 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
                 prepared_sketch->resolved_y_axis=resolved_y_axis;
                 prepared_sketch->resolved_normal=resolved_normal;
                 if(stage) {
-                    try {zima::document::prepare_bend_sketches(*sketch_feature,*prepared_sketch,defaults);}
-                    catch(const std::exception& error){state_->setText(QObject::tr(error.what()));return;}
+                    try {
+                        auto next=*sketch_feature;
+                        zima::document::prepare_bend_sketches(next,*prepared_sketch,defaults);
+                        *sketch_feature=std::move(next);
+                    } catch(const std::exception& error) {
+                        state_->setText(QObject::tr(error.what()));
+                        // An existing pending Sketch remains editable even
+                        // when it cannot yet produce a valid Bend.
+                        if(sketch_feature->bend.auxiliary_sketches.at(*stage).empty())return;
+                    }
                     sweep_profile_sketch_draft_=zima::sketcher::Sketch::from_serialized(sketch_feature->bend.auxiliary_sketches.at(*stage));
                 } else sweep_profile_sketch_draft_ = *prepared_sketch;
                 using Finish=std::function<void(zima::sketcher::Sketch)>;
-                auto finish=std::make_shared<Finish>();const std::weak_ptr<Finish> retry=finish;
-                *finish=[this,dialog,prepared_sketch,sketch_feature,stage,defaults,retry](auto sketch) {
+                auto finish=std::make_shared<Finish>();
+                *finish=[this,dialog,prepared_sketch,sketch_feature,stage,defaults](auto sketch) {
+                    QString sketch_error;
                     if(stage) {
                         try {
                             auto next=*sketch_feature;
                             zima::document::accept_bend_sketch(next,*prepared_sketch,*stage,sketch,defaults);
                             *sketch_feature=std::move(next);
                         } catch(const std::exception& error) {
-                            sweep_profile_sketch_draft_=std::move(sketch);active_sketch_id_=sweep_profile_sketch_draft_->id;
-                            if(auto callback=retry.lock())embedded_sketch_finished_=[callback](auto value){(*callback)(std::move(value));};
-                            preserve_view_on_refresh_=true;refresh_scene();state_->setText(QObject::tr(error.what()));return;
+                            // Preserve the draft in Properties, where the user
+                            // can repair it or Cancel. Validation must never
+                            // trap an editor whose owning dialog is hidden.
+                            sketch_feature->bend.auxiliary_sketches.at(*stage)=sketch.serialized();
+                            sketch_error=QObject::tr(error.what());
                         }
                     }
                     properties_dialog_ = dialog; primitive_reference_dialog_ = dialog;
@@ -339,6 +350,10 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
                     if(stage)dialog->set_pending_bend_parameters(
                         sketch_feature->bend);
                     else dialog->set_pending_sketch(std::move(sketch));
+                    if(!sketch_error.isEmpty()) {
+                        dialog->set_sketch_error(sketch_error);
+                        state_->setText(sketch_error);
+                    }
                 };
                 embedded_sketch_finished_=[finish](auto value){(*finish)(std::move(value));};
                 pending_primitive_reference_index_.reset(); primitive_reference_auto_advance_ = false;

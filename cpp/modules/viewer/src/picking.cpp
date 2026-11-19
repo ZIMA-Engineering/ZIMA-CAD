@@ -1188,6 +1188,16 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
         if (std::abs(left.distance - right.distance) > 1.0e-9) {
             return left.distance < right.distance;
         }
+        if(left.kind==CandidateKind::SketchPoint&&right.kind==left.kind) {
+            const auto auxiliary=[&](const auto& candidate) {
+                const auto& points=candidate.geometry==CandidateGeometry::Display?mesh.points:references.points;
+                return candidate.geometry_index<points.size()&&points[candidate.geometry_index].construction;
+            };
+            // A profile endpoint can coincide with its fixed construction
+            // anchor (zero correction). Prefer the actual profile point;
+            // the anchor remains available through ordinary candidate cycling.
+            if(auxiliary(left)!=auxiliary(right))return !auxiliary(left);
+        }
         return false;
     });
     return result;

@@ -177,7 +177,11 @@ void append_sheet_from_body_source_pick_aliases(
             if(binding.detached)continue;
             std::vector<zima::kernel::FaceReference> sources;
             for(const auto& face:binding.faces)
-                if(face.reference.valid()&&
+                // Adjacent faces constrain conversion, but do not own this
+                // child's material. Offering them here made a Flat selectable
+                // as its neighbouring Fillet even away from the rounded face.
+                if(face.role!=zima::document::SheetFromBodyFaceRole::Adjacent&&
+                        face.reference.valid()&&
                         std::ranges::find(sources,face.reference)==
                             sources.end())
                     sources.push_back(face.reference);
@@ -779,6 +783,21 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
                         ?zima::document::general_surface_display_sketch(*container,container->loft.sketches.at(stage)).viewer_mesh()
                         :container->feature_kind==zima::document::FeatureKind::Bend
                             ?zima::document::bend_offset_dimension_display(sketch).viewer_mesh():sketch.viewer_mesh();
+                    if(container->feature_kind==zima::document::FeatureKind::Bend&&stage==1&&!properties_dialog_)
+                        for(std::size_t side=0;side<2;++side) {
+                            const auto* point=sketch.find_point(sketch.id+(side?":endpoint:last":":endpoint:first"));
+                            if(!point)continue;
+                            const auto anchor=sketch.world_point(point->x,point->y);
+                            zima::kernel::ViewerDimension corner;
+                            corner.witness_first=corner.witness_second=corner.line_first=corner.line_second=anchor;
+                            corner.value=container->bend.corner[side]?1.:0.;
+                            corner.reference={container->id,side?"parameter:corner_last":"parameter:corner_first",{}};
+                            corner.label_prefix="CC = ";corner.unit_suffix="";corner.label_only=true;
+                            corner.display_text_override=container->bend.corner[side]?"CC = 1":"CC = 0";
+                            corner.label_position=sketch.world_point(point->x,point->y+(side?12.:-12.));
+                            corner.plane_normal=sketch.resolved_normal;
+                            display.dimensions.push_back(std::move(corner));
+                        }
                     const auto* body=document.body_owner_for_object(container->id);
                     const auto body_id=body?body->scope.id:document.body_history.active_body_id();
                     if(!body_id.empty())display=document.place_body_mesh(std::move(display),body_id);
@@ -1309,7 +1328,16 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
                 if constexpr(requires { document.body_history; })
                     if(const auto* body=document.body_owner_for_object(shown.owner_container_id.empty()?shown.id:shown.owner_container_id))
                         sketch_mesh=document.place_body_mesh(std::move(sketch_mesh),body->scope.id);
-                mesh.dimensions.insert(mesh.dimensions.end(),
+                bool bound_bend_start{};
+                if constexpr(requires { document.sheet_from_body_child_bound(shown.owner_container_id); })
+                    if(const auto* owner=document.find_container(shown.owner_container_id))
+                        bound_bend_start=owner->feature_kind==zima::document::FeatureKind::Bend&&
+                            owner->bend.sketch_id==shown.id&&
+                            document.sheet_from_body_child_bound(owner->id);
+                // The converted Bend starts on its source edge. Its owned
+                // start Sketch defines attachment, not an editable correction.
+                // Output-profile dimensions above remain available at +/-0.
+                if(!bound_bend_start)mesh.dimensions.insert(mesh.dimensions.end(),
                     sketch_mesh.dimensions.begin(), sketch_mesh.dimensions.end());
                 const auto base = zima::kernel::Vec3{
                     sketch->resolved_origin.x - sketch->resolved_normal.x *
@@ -2242,7 +2270,7 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
                     converted_sources=converted_sheet_source_owners(document)](const auto& candidate) {
                 return active_application_==ApplicationMode::SheetMetal&&
                     candidate.kind==zima::viewer::CandidateKind::Container&&
-                    converted_sources.contains(candidate.owner_id)?1:0;
+                    converted_sources.contains(candidate.owner_id)?converted_sources.at(candidate.owner_id):0;
             });
             viewer_->set_candidate_filter([active_body, owners = std::move(owners),
                     visible_bodies=std::move(visible_bodies),
@@ -2693,7 +2721,7 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
                     active_part->session.document())](const auto& candidate) {
             return active_application_==ApplicationMode::SheetMetal&&
                 candidate.kind==zima::viewer::CandidateKind::Container&&
-                converted_sources.contains(candidate.owner_id)?1:0;
+                converted_sources.contains(candidate.owner_id)?converted_sources.at(candidate.owner_id):0;
         });
         viewer_->set_candidate_filter([path](const auto& candidate) {
             return candidate.instance_path == path;

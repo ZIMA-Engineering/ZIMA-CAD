@@ -9,7 +9,10 @@ bool owns_kernel_operation(const document::HistoryContainer* feature) {
 }
 const kernel::BodyResult* calculated_operation_input(const document::DocumentSession& session,
     const std::string& id) {
-    const auto& doc=session.document();const auto& calculated=session.calculated_boundaries();
+    return calculated_operation_input(session.document(),session.calculated_boundaries(),id);
+}
+const kernel::BodyResult* calculated_operation_input(const document::PartDocument& doc,
+    const std::vector<kernel::BodyResult>& calculated,const std::string& id) {
     if(calculated.empty()||(!id.empty()&&!doc.find_container(id)))return nullptr;
     std::size_t count{};const std::vector<kernel::BodyResult>* boundaries=&calculated;
     if(!doc.body_history.bodies().empty()) {

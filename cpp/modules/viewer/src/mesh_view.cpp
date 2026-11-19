@@ -3479,6 +3479,12 @@ bool MeshView::event(QEvent* event) {
     if(event->type()==QEvent::ToolTip) {
         const auto candidate=hovered_candidate();
         if(candidate&&candidate->kind==CandidateKind::Dimension) {
+            if(candidate->semantic_key=="parameter:corner_first"||candidate->semantic_key=="parameter:corner_last") {
+                const auto* help=static_cast<QHelpEvent*>(event);
+                QToolTip::showText(help->globalPos(),tr("Uzavření rohu")+QStringLiteral(" · ")+
+                    (candidate->semantic_key=="parameter:corner_first"?tr("První konec"):tr("Druhý konec")),this);
+                return true;
+            }
             const auto relation=impl_->dimension_relations.find({candidate->owner_id,candidate->semantic_key});
             if(relation!=impl_->dimension_relations.end()) {
                 const auto* help=static_cast<QHelpEvent*>(event);

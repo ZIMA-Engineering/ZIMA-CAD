@@ -917,6 +917,13 @@ void verify_container_frame_dialog(QWidget& parent) {
         } else enter_references();
         const auto pending=dialog.pending_value();auto solved=pending.second;
         require(document::resolve_placement(solved,geometry),"Dialog draft failed to solve");
+        if(document::orientation_constraint_remaining_dof(solved.references,geometry,true,{solved.x,solved.y,solved.z})!=0) {
+            std::cerr<<"Unresolved dialog frame sequence:";
+            for(const auto& ref:sequence)std::cerr<<' '<<ref.semantic_key;
+            std::cerr<<"; actual roles:";
+            for(const auto& ref:solved.references)std::cerr<<' '<<ref.semantic_key<<'/'<<ref.orientation_role;
+            std::cerr<<'\n';
+        }
         require(document::orientation_constraint_remaining_dof(solved.references,geometry,true,{solved.x,solved.y,solved.z})==0,
             "Sketch/Bend/Flat/Holes dialog lost TOP");
         // A freshly picked first support plane, ordered Edge/Plane/Point and
@@ -1891,10 +1898,170 @@ static void verify_adjacent_constraint_hover(QApplication& application,
     std::cout << "Adjacent constraint hover highlights exactly one glyph passed\n";
 }
 
+static void verify_history_tree_contract(QApplication& application, bool hidden=false) {
+    using namespace zima::app;
+    auto document=zima::document::PartDocument::create_default();
+    using namespace zima::workspace;
+    auto source=zima::document::PartDocument::create_twisted_sheet_container();
+    auto consumer=zima::document::PartDocument::create_twisted_sheet_container();
+    auto independent=zima::document::PartDocument::create_twisted_sheet_container();
+    zima::document::ConstructionReference ref;
+    ref.owner_id=source.feature_id;ref.semantic_key="z_max";
+    consumer.placement.references.push_back(ref);
+    document.history={source,independent,consumer};
+    const std::vector<std::string> order{source.id,independent.id,consumer.id};
+    const auto graph=part_history_dependencies(document);
+    require(!history_order_preserves_dependencies(order,reordered_history(order,consumer.id,source.id),graph),
+        "Moving consumer before source was allowed");
+    require(!history_order_preserves_dependencies(order,reordered_history(order,source.id,""),graph),
+        "Moving source after consumer was allowed");
+    require(history_order_preserves_dependencies(order,reordered_history(order,independent.id,""),graph),
+        "Independent feature could not move through history");
+    document.history.back().placement.references.clear();
+    zima::sketcher::Sketch sketch;
+    sketch.id="owned-sketch";sketch.owner_container_id=consumer.id;
+    zima::sketcher::SketchExternalReference external;
+    external.id="external-edge";external.source_owner_id=source.feature_id;
+    external.source_semantic_key="edge";
+    sketch.external_references.push_back(external);
+    document.sketches.push_back(sketch);
+    require(!history_order_preserves_dependencies(order,reordered_history(order,source.id,""),part_history_dependencies(document)),
+        "Owned Sketch external reference did not protect its source");
+    zima::assembly::AssemblyDocument assembly;
+    zima::assembly::PartOccurrence a,b,c;
+    a.occurrence_id="a";b.occurrence_id="b";c.occurrence_id="c";
+    zima::assembly::ComponentPlacementReference mate;
+    mate.target_reference.instance_path.occurrence_ids={"a","nested-part"};
+    c.placement_references.push_back(mate);
+    assembly.components={a,b,c};
+    const std::vector<std::string> components{"a","b","c"};
+    require(!history_order_preserves_dependencies(components,{"b","c","a"},assembly_component_dependencies(assembly)),
+        "Assembly mate on nested occurrence did not protect parent order");
+    assembly.components.back().placement_references.clear();
+    zima::assembly::ComponentDependency dependency;
+    dependency.prerequisite_occurrence_id="a";dependency.dependent_occurrence_id="c";
+    dependency.kind=zima::assembly::ComponentDependencyKind::ExternalSketchReference;
+    assembly.dependencies.push_back(dependency);
+    require(!history_order_preserves_dependencies(components,{"c","a","b"},assembly_component_dependencies(assembly)),
+        "Assembly external Sketch dependency was ignored");
+
+    HistoryTreeWidget tree;
+    tree.setAttribute(Qt::WA_DontShowOnScreen,hidden);
+    tree.resize(320,340);tree.setHeaderHidden(true);
+    auto* root=new QTreeWidgetItem(&tree,{"Part"});root->setExpanded(true);
+    std::vector<QTreeWidgetItem*> rows;
+    for (const auto& id : {"a","b","c"}) {
+        auto* row=new QTreeWidgetItem(root,{id});
+        row->setData(0,Qt::UserRole,id);row->setData(0,Qt::UserRole+3,"part-container");
+        rows.push_back(row);
+    }
+    int commits=0;QString target;
+    int clicks=0;
+    QObject::connect(&tree,&QTreeWidget::itemClicked,&tree,[&]{++clicks;});
+    tree.reorder_enabled=[](auto*){return true;};
+    tree.reorder_requested=[&](auto*,const QString& before,bool commit) {
+        if (before=="a") return false;
+        if (commit) { ++commits;target=before; }
+        return true;
+    };
+    tree.show();application.processEvents();
+    const auto drag=[&](QTreeWidgetItem* row,const QPoint& destination,bool cancel=false) {
+        const QPoint start=tree.visualItemRect(row).center();
+        QMouseEvent press(QEvent::MouseButtonPress,QPointF(start),QPointF(tree.viewport()->mapToGlobal(start)),
+            Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);
+        QApplication::sendEvent(tree.viewport(),&press);
+        QMouseEvent move(QEvent::MouseMove,QPointF(destination),QPointF(tree.viewport()->mapToGlobal(destination)),
+            Qt::NoButton,Qt::LeftButton,Qt::NoModifier);
+        QApplication::sendEvent(tree.viewport(),&move);
+        if (cancel) { QKeyEvent escape(QEvent::KeyPress,Qt::Key_Escape,Qt::NoModifier);QApplication::sendEvent(&tree,&escape); }
+        else if (destination.y()>tree.visualItemRect(rows.back()).center().y()) {
+            const auto frame=tree.viewport()->grab().toImage();
+            const int y=tree.visualItemRect(rows.back()).bottom()+1;
+            const auto scale=frame.devicePixelRatio();
+            require(frame.pixelColor(qRound(8*scale),qRound(y*scale))==QColor("#00D1FF"),
+                "History drag did not draw azure line at sibling boundary");
+        }
+        QMouseEvent release(QEvent::MouseButtonRelease,QPointF(destination),QPointF(tree.viewport()->mapToGlobal(destination)),
+            Qt::LeftButton,Qt::NoButton,Qt::NoModifier);
+        QApplication::sendEvent(tree.viewport(),&release);
+    };
+    drag(rows.front(),tree.visualItemRect(rows.front()).center());
+    drag(rows.front(),tree.visualItemRect(rows.front()).center());
+    require(clicks==2 && commits==0,"Arming a drag swallowed ordinary/repeated Tree clicks");
+    const auto bottom=tree.visualItemRect(rows.back()).bottomLeft()+QPoint(25,0);
+    drag(rows.front(),bottom);
+    require(commits==1 && target.isEmpty(),"Tree drag did not commit end insertion exactly once");
+    drag(rows.back(),tree.visualItemRect(rows.front()).topLeft()+QPoint(25,1));
+    require(commits==1,"Forbidden Tree drag committed a change");
+    rows[0]->setData(0,Qt::UserRole+3,"part-body");
+    rows[1]->setData(0,Qt::UserRole+3,"part-body-boolean");
+    rows[2]->setData(0,Qt::UserRole+3,"part-body");
+    const int body_commits=commits;
+    drag(rows[0],tree.visualItemRect(rows[1]).topLeft()+QPoint(25,1));
+    require(commits==body_commits+1 && target=="b", "Body and Boolean are not a common drag family");
+    drag(rows.front(),bottom,true);
+    require(commits==body_commits+1,"Escape did not cancel body history drag");
+    auto* cursor = new QTreeWidgetItem(root,{"Vložit zde"});
+    cursor->setData(0,Qt::UserRole+3,"part-body-insert-here");
+    std::optional<std::size_t> moved_cursor;
+    tree.body_cursor_moved=[&](const QString& owner,std::size_t index) {
+        require(owner.isEmpty(),"Document cursor acquired a body owner"); moved_cursor=index;
+    };
+    application.processEvents();
+    drag(cursor,tree.visualItemRect(rows[1]).topLeft()+QPoint(25,1));
+    require(moved_cursor==1,"Document cursor drag did not count both bodies and Booleans");
+    moved_cursor.reset();
+    drag(cursor,tree.visualItemRect(rows[0]).topLeft()+QPoint(25,1),true);
+    require(!moved_cursor,"Escape committed a body cursor drag");
+    // A conversion/Profile row groups executable children. Dropping
+    // after the group must reach their real history boundary, whether
+    // the presentation is expanded or collapsed.
+    tree.reorder_enabled={};
+    cursor->setData(0,Qt::UserRole,"body");
+    cursor->setData(0,Qt::UserRole+3,"part-insert-here");
+    for(std::size_t i=0;i<rows.size();++i) {
+        rows[i]->setData(0,Qt::UserRole+3,"part-container");
+        rows[i]->setData(0,history_cursor_end_role,
+            QVariant::fromValue(static_cast<qulonglong>(i==2?12:i+1)));
+    }
+    for(int i=0;i<9;++i)new QTreeWidgetItem(rows.back(),{"generated child"});
+    tree.body_cursor_moved=[&](const QString& owner,std::size_t index) {
+        require(owner=="body","Grouped cursor lost its Body");moved_cursor=index;
+    };
+    tree.resize(320,600);
+    const auto move_marker=[&](QPoint destination) {
+        const QPoint start=tree.visualItemRect(cursor).center();
+        for(auto type:{QEvent::MouseButtonPress,QEvent::MouseMove,QEvent::MouseButtonRelease}) {
+            const QPoint point=type==QEvent::MouseButtonPress?start:destination;
+            QMouseEvent event(type,QPointF(point),QPointF(tree.viewport()->mapToGlobal(point)),
+                type==QEvent::MouseMove?Qt::NoButton:Qt::LeftButton,
+                type==QEvent::MouseButtonRelease?Qt::NoButton:Qt::LeftButton,Qt::NoModifier);
+            QApplication::sendEvent(tree.viewport(),&event);
+        }
+    };
+    for(bool expanded:{false,true,false}) {
+        rows.back()->setExpanded(expanded);application.processEvents();
+        move_marker(tree.visualItemRect(rows.back()).topLeft()+QPoint(25,1));
+        require(moved_cursor==2,"Rollback before a group skipped its preceding entries");
+        move_marker({100,tree.viewport()->height()-20});
+        require(moved_cursor==12,"End cursor counted grouped Tree rows instead of executable history");
+    }
+}
+
 int main(int argc, char* argv[]) {
     QApplication application(argc, argv);
     zima::app::apply_application_appearance(application, zima::app::ApplicationSettings{});
     zima::app::install_dialog_button_icons();
+    if(qEnvironmentVariableIsSet("ZIMA_VERIFY_HISTORY_TREE_ONLY")) {
+        try {
+            verify_history_tree_contract(application,true);
+            std::cout<<"History Tree selection, reorder and grouped rollback passed\n";
+            return 0;
+        } catch(const std::exception& error) {
+            std::cerr<<error.what()<<'\n';
+            return 1;
+        }
+    }
     SyntheticViewPointer synthetic_pointer;
     application.installEventFilter(&synthetic_pointer);
     QWidget parent;
@@ -2437,121 +2604,7 @@ int main(int argc, char* argv[]) {
             QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
         }
 
-        {
-            using namespace zima::app;
-            auto document=zima::document::PartDocument::create_default();
-            using namespace zima::workspace;
-            auto source=zima::document::PartDocument::create_twisted_sheet_container();
-            auto consumer=zima::document::PartDocument::create_twisted_sheet_container();
-            auto independent=zima::document::PartDocument::create_twisted_sheet_container();
-            zima::document::ConstructionReference ref;
-            ref.owner_id=source.feature_id;ref.semantic_key="z_max";
-            consumer.placement.references.push_back(ref);
-            document.history={source,independent,consumer};
-            const std::vector<std::string> order{source.id,independent.id,consumer.id};
-            const auto graph=part_history_dependencies(document);
-            require(!history_order_preserves_dependencies(order,reordered_history(order,consumer.id,source.id),graph),
-                "Moving consumer before source was allowed");
-            require(!history_order_preserves_dependencies(order,reordered_history(order,source.id,""),graph),
-                "Moving source after consumer was allowed");
-            require(history_order_preserves_dependencies(order,reordered_history(order,independent.id,""),graph),
-                "Independent feature could not move through history");
-            document.history.back().placement.references.clear();
-            zima::sketcher::Sketch sketch;
-            sketch.id="owned-sketch";sketch.owner_container_id=consumer.id;
-            zima::sketcher::SketchExternalReference external;
-            external.id="external-edge";external.source_owner_id=source.feature_id;
-            external.source_semantic_key="edge";
-            sketch.external_references.push_back(external);
-            document.sketches.push_back(sketch);
-            require(!history_order_preserves_dependencies(order,reordered_history(order,source.id,""),part_history_dependencies(document)),
-                "Owned Sketch external reference did not protect its source");
-            zima::assembly::AssemblyDocument assembly;
-            zima::assembly::PartOccurrence a,b,c;
-            a.occurrence_id="a";b.occurrence_id="b";c.occurrence_id="c";
-            zima::assembly::ComponentPlacementReference mate;
-            mate.target_reference.instance_path.occurrence_ids={"a","nested-part"};
-            c.placement_references.push_back(mate);
-            assembly.components={a,b,c};
-            const std::vector<std::string> components{"a","b","c"};
-            require(!history_order_preserves_dependencies(components,{"b","c","a"},assembly_component_dependencies(assembly)),
-                "Assembly mate on nested occurrence did not protect parent order");
-            assembly.components.back().placement_references.clear();
-            zima::assembly::ComponentDependency dependency;
-            dependency.prerequisite_occurrence_id="a";dependency.dependent_occurrence_id="c";
-            dependency.kind=zima::assembly::ComponentDependencyKind::ExternalSketchReference;
-            assembly.dependencies.push_back(dependency);
-            require(!history_order_preserves_dependencies(components,{"c","a","b"},assembly_component_dependencies(assembly)),
-                "Assembly external Sketch dependency was ignored");
-
-            HistoryTreeWidget tree;
-            tree.resize(320,340);tree.setHeaderHidden(true);
-            auto* root=new QTreeWidgetItem(&tree,{"Part"});root->setExpanded(true);
-            std::vector<QTreeWidgetItem*> rows;
-            for (const auto& id : {"a","b","c"}) {
-                auto* row=new QTreeWidgetItem(root,{id});
-                row->setData(0,Qt::UserRole,id);row->setData(0,Qt::UserRole+3,"part-container");
-                rows.push_back(row);
-            }
-            int commits=0;QString target;
-            int clicks=0;
-            QObject::connect(&tree,&QTreeWidget::itemClicked,&tree,[&]{++clicks;});
-            tree.reorder_enabled=[](auto*){return true;};
-            tree.reorder_requested=[&](auto*,const QString& before,bool commit) {
-                if (before=="a") return false;
-                if (commit) { ++commits;target=before; }
-                return true;
-            };
-            tree.show();application.processEvents();
-            const auto drag=[&](QTreeWidgetItem* row,const QPoint& destination,bool cancel=false) {
-                const QPoint start=tree.visualItemRect(row).center();
-                QMouseEvent press(QEvent::MouseButtonPress,QPointF(start),QPointF(tree.viewport()->mapToGlobal(start)),
-                    Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);
-                QApplication::sendEvent(tree.viewport(),&press);
-                QMouseEvent move(QEvent::MouseMove,QPointF(destination),QPointF(tree.viewport()->mapToGlobal(destination)),
-                    Qt::NoButton,Qt::LeftButton,Qt::NoModifier);
-                QApplication::sendEvent(tree.viewport(),&move);
-                if (cancel) { QKeyEvent escape(QEvent::KeyPress,Qt::Key_Escape,Qt::NoModifier);QApplication::sendEvent(&tree,&escape); }
-                else if (destination.y()>tree.visualItemRect(rows.back()).center().y()) {
-                    const auto frame=tree.viewport()->grab().toImage();
-                    const int y=tree.visualItemRect(rows.back()).bottom()+1;
-                    const auto scale=frame.devicePixelRatio();
-                    require(frame.pixelColor(qRound(8*scale),qRound(y*scale))==QColor("#00D1FF"),
-                        "History drag did not draw azure line at sibling boundary");
-                }
-                QMouseEvent release(QEvent::MouseButtonRelease,QPointF(destination),QPointF(tree.viewport()->mapToGlobal(destination)),
-                    Qt::LeftButton,Qt::NoButton,Qt::NoModifier);
-                QApplication::sendEvent(tree.viewport(),&release);
-            };
-            drag(rows.front(),tree.visualItemRect(rows.front()).center());
-            drag(rows.front(),tree.visualItemRect(rows.front()).center());
-            require(clicks==2 && commits==0,"Arming a drag swallowed ordinary/repeated Tree clicks");
-            const auto bottom=tree.visualItemRect(rows.back()).bottomLeft()+QPoint(25,0);
-            drag(rows.front(),bottom);
-            require(commits==1 && target.isEmpty(),"Tree drag did not commit end insertion exactly once");
-            drag(rows.back(),tree.visualItemRect(rows.front()).topLeft()+QPoint(25,1));
-            require(commits==1,"Forbidden Tree drag committed a change");
-            rows[0]->setData(0,Qt::UserRole+3,"part-body");
-            rows[1]->setData(0,Qt::UserRole+3,"part-body-boolean");
-            rows[2]->setData(0,Qt::UserRole+3,"part-body");
-            const int body_commits=commits;
-            drag(rows[0],tree.visualItemRect(rows[1]).topLeft()+QPoint(25,1));
-            require(commits==body_commits+1 && target=="b", "Body and Boolean are not a common drag family");
-            drag(rows.front(),bottom,true);
-            require(commits==body_commits+1,"Escape did not cancel body history drag");
-            auto* cursor = new QTreeWidgetItem(root,{"Vložit zde"});
-            cursor->setData(0,Qt::UserRole+3,"part-body-insert-here");
-            std::optional<std::size_t> moved_cursor;
-            tree.body_cursor_moved=[&](const QString& owner,std::size_t index) {
-                require(owner.isEmpty(),"Document cursor acquired a body owner"); moved_cursor=index;
-            };
-            application.processEvents();
-            drag(cursor,tree.visualItemRect(rows[1]).topLeft()+QPoint(25,1));
-            require(moved_cursor==1,"Document cursor drag did not count both bodies and Booleans");
-            moved_cursor.reset();
-            drag(cursor,tree.visualItemRect(rows[0]).topLeft()+QPoint(25,1),true);
-            require(!moved_cursor,"Escape committed a body cursor drag");
-        }
+        verify_history_tree_contract(application);
 
         {
             using namespace zima::app;

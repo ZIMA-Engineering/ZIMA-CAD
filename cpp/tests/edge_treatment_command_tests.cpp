@@ -9,6 +9,7 @@
 #include <zima/document/viewer_packet_json.hpp>
 #include <zima/kernel/calculation_diagnostics.hpp>
 #include <zima/kernel/calculated_body_shape.hpp>
+#include <zima/kernel/tangent_edge_route.hpp>
 #include <BRepClass3d_SolidClassifier.hxx>
 #include <algorithm>
 #include <chrono>
@@ -40,6 +41,133 @@ using commands::Json;
 namespace fs=std::filesystem;
 namespace {
 void require(bool value,const char* message){if(!value)throw std::runtime_error(message);}
+void verify_two_sided_supports(const kernel::OcctKernel& engine) {
+    for(int mode=0;mode<3;++mode) {
+        auto part=document::PartDocument::create_default();
+        document::BodyHistoryGraph graph;static_cast<void>(graph.create_body("Two-sided supports"));part.set_body_history(graph);
+        auto sketch=sketcher::Sketch::create_default();
+        static_cast<void>(sketch.add_rectangle(0,0,40,30));
+        auto box=document::PartDocument::create_feature_container(sketch.id);
+        sketch.owner_container_id=box.id;part.sketches.push_back(std::move(sketch));
+        box.feature.sides[0].length=30.;box.feature.symmetric=mode==1;
+        if(mode==2) {box.feature.sides[1].operation=document::FeatureSideOperation::Extrusion;box.feature.sides[1].length=17.;}
+        part.insert_history_entry(document::PartHistoryKind::Feature,box.id);part.history.push_back(box);
+        auto cache=workspace::calculate_part_with_resolved_references(engine,part);
+        document::DocumentSession source(part,cache);
+        const auto* input=workspace::calculated_operation_input(source);
+        require(input&&!input->mesh.edges.empty(),"Two-sided fixture input missing");
+        const auto rail=std::ranges::find_if(input->mesh.edges,[](const auto& edge) {
+            return edge.reference.valid()&&edge.points.size()>1&&
+                std::abs(edge.points.front().x)<1e-7&&std::abs(edge.points.back().x)<1e-7&&
+                std::abs(edge.points.front().y)<1e-7&&std::abs(edge.points.back().y)<1e-7&&
+                std::abs(edge.points.front().z-edge.points.back().z)>1.;
+        });
+        require(rail!=input->mesh.edges.end(),"Two-sided fixture corner rail missing");
+        auto first=document::PartDocument::create_fillet_container(kernel::tangent_edge_route(input->mesh.edges,rail->reference));
+        first.edge_treatment.primary_size=4.;
+        first.edge_treatment.calculation_method=document::EdgeTreatmentParameters::CalculationMethod::Zima;
+        workspace::Workspace live;live.add_part(part,cache);live.activate(part.document_id);
+        static_cast<void>(workspace::commit_edge_treatment(live,engine,part.document_id,first,workspace::EdgeTreatmentEditMode::Create));
+        auto* state=live.open_part(part.document_id);input=workspace::calculated_operation_input(state->session);
+        require(input&&input->calculation_errors.empty(),"Two-sided fixture first Fillet failed");
+        const auto base=state->session.document();const auto boundaries=state->session.calculated_boundaries();
+        for(bool upper:{false,true}) {
+            const auto cap=std::ranges::find_if(input->mesh.edges,[&](const auto& edge) {
+                return edge.reference.owner_id==first.id&&edge.points.size()>2&&
+                    std::abs(edge.points.front().z-edge.points.back().z)<1e-7&&
+                    std::abs(edge.points.front().z-(upper?30.:(mode==0?0.:(mode==1?-30.:-17.))))<1e-7;
+            });
+            require(cap!=input->mesh.edges.end(),"Two-sided fixture rounded cap missing");
+            const auto route=kernel::tangent_edge_route(input->mesh.edges,cap->reference);
+            if(route.size()!=3)std::cerr<<"Two-sided mode="<<mode<<" upper="<<upper<<" route="<<route.size()<<" cap="<<cap->reference.semantic_key<<'\n';
+            require(route.size()==3,"Two-sided cap did not offer straight/arc/straight");
+            auto second=document::PartDocument::create_fillet_container(route);
+            second.edge_treatment.primary_size=1.;second.edge_treatment.calculation_method=first.edge_treatment.calculation_method;
+            const auto wire=document::current_treatment_selection_wire(second.edge_treatment,0,{},input->mesh);
+            require(wire.size()==3&&std::ranges::all_of(wire,[](const auto& edge){return edge.edge_treatment_side_references.size()==2;}),
+                "Two-sided alias dropped a straight edge support");
+            const auto paths=app::workspace_detail::ordered_edge_treatment_preview_paths(wire);
+            require(paths.size()==1&&paths.front().edges.size()==3,"Two-sided preview lost part of its route");
+            const auto preview=app::workspace_detail::edge_treatment_preview_wire({wire},second.edge_treatment,second.feature_kind,second.id,&input->mesh);
+            const auto ends=workspace::edge_treatment_route_endpoints(input->mesh.edges,route);
+            require(ends.size()==2&&preview.terminal_labels.size()==2,"Two-sided route terminals missing");
+            for(const auto& label:preview.terminal_labels) {
+                require(std::ranges::find(ends,label.vertex)!=ends.end(),"Preview chose internal arc endpoints");
+                auto& slot=second.edge_treatment.route_end_faces.front();
+                (label.first?slot.first_vertex:slot.last_vertex)=label.vertex;
+                (label.first?slot.first_mode:slot.last_mode)=document::EdgeTreatmentParameters::RouteEndMode::Cut;
+            }
+            for(bool reverse:{false,true}) {
+                auto feature=second;if(reverse)std::ranges::reverse(feature.edge_treatment.routes.front());
+                workspace::Workspace edited;edited.add_part(base,boundaries);edited.activate(base.document_id);
+                auto* entry=edited.open_part(base.document_id);
+                for(double radius:{1.,1.25,.75}) {
+                    feature.edge_treatment.primary_size=radius;
+                    static_cast<void>(workspace::commit_edge_treatment(edited,engine,base.document_id,feature,
+                        entry->session.document().find_container(feature.id)?workspace::EdgeTreatmentEditMode::Replace:workspace::EdgeTreatmentEditMode::Create));
+                    require(entry->session.calculated_boundaries().back().calculation_errors.empty(),"Two-sided cap Fillet failed");
+                }
+                require(entry->session.undo()&&entry->session.redo(),"Two-sided cap Undo/Redo failed");
+                const auto file=fs::path("build")/("two-sided-support-"+std::to_string(mode)+(upper?"-upper":"-lower")+(reverse?"-reverse":"")+".prtz");
+                entry->session.document().save(file,entry->session.calculated_boundaries());
+                std::vector<kernel::BodyResult> loaded;auto reopened=document::PartDocument::load(file,&loaded);
+                require(reopened.find_container(feature.id)->edge_treatment==feature.edge_treatment,"Two-sided cap persistence lost route or sides");
+                const auto cold=workspace::calculate_part_with_resolved_references(engine,reopened);
+                require(!cold.empty()&&cold.back().calculation_errors.empty(),"Two-sided cap cold regeneration failed");
+                if(!reverse&&upper) {
+                    auto lost=entry->session.document();
+                    auto missing=route.front();missing.semantic_key+=":removed-member";
+                    lost.find_container(feature.id)->edge_treatment.routes.front().push_back(missing);
+                    const auto repaired_loss=workspace::calculate_part_with_resolved_references(engine,lost,&entry->session.calculated_boundaries());
+                    require(!repaired_loss.empty()&&repaired_loss.back().calculation_errors.empty()&&
+                        lost.find_container(feature.id)->edge_treatment==feature.edge_treatment,
+                        "Regeneration did not calculate a valid surviving route without Properties");
+                    auto partial=entry->session.document();
+                    auto& selected=partial.find_container(feature.id)->edge_treatment;
+                    selected.routes={{route.front()}};
+                    const auto single_ends=workspace::edge_treatment_route_endpoints(input->mesh.edges,selected.routes.front());
+                    require(single_ends.size()==2,"Partial selection fixture terminals missing");
+                    selected.route_end_faces.front().first_vertex=single_ends.front();
+                    selected.route_end_faces.front().last_vertex=single_ends.back();
+                    require(!workspace::refresh_edge_treatment_references(partial,entry->session.calculated_boundaries()),
+                        "Automatic repair expanded a deliberately partial route");
+                    selected.routes={{missing}};const auto missing_definition=selected;
+                    require(!workspace::refresh_edge_treatment_references(partial,entry->session.calculated_boundaries())&&selected==missing_definition,
+                        "Automatic repair discarded a fully unresolved route");
+                    auto changed=entry->session.document();
+                    changed.find_container(first.id)->suppressed=true;
+                    auto removed=workspace::calculate_part_with_resolved_references(engine,changed,&entry->session.calculated_boundaries());
+                    require(changed.find_container(feature.id)->edge_treatment.routes.front().size()==2,
+                        "Regeneration did not remove a vanished interior member");
+                    // Removing this round creates a sharp right-angle route.
+                    // Its current sweep may fail, but must remain editable;
+                    // restoring the source must rediscover the missing arc.
+                    require(!removed.empty()&&changed.find_container(feature.id),
+                        "Interior reference loss discarded the treatment");
+                    const auto surviving=changed;
+                    changed.find_container(first.id)->suppressed=false;
+                    auto restored=workspace::calculate_part_with_resolved_references(engine,changed,&removed);
+                    require(changed.find_container(feature.id)->edge_treatment.routes.front().size()==3,
+                        "Regeneration did not rediscover a new tangent interior member");
+                    require(!restored.empty()&&restored.back().calculation_errors.empty(),
+                        "Restored tangent treatment failed");
+                    require(changed.find_container(feature.id)->edge_treatment.route_end_faces==feature.edge_treatment.route_end_faces,
+                        "Automatic topology repair changed authored terminal choices");
+                    entry->session.commit(surviving,removed);entry->session.commit(changed,restored);
+                    require(entry->session.undo()&&entry->session.document().find_container(feature.id)->edge_treatment.routes.front().size()==2&&
+                        entry->session.redo()&&entry->session.document().find_container(feature.id)->edge_treatment.routes.front().size()==3,
+                        "Automatic topology repair Undo/Redo failed");
+                    changed.save(file,restored);auto repaired=document::PartDocument::load(file);
+                    const auto regenerated=workspace::calculate_part_with_resolved_references(engine,repaired);
+                    require(!regenerated.empty()&&regenerated.back().calculation_errors.empty()&&
+                        repaired.find_container(feature.id)->edge_treatment==changed.find_container(feature.id)->edge_treatment,
+                        "Automatic topology repair did not survive cold native reopening");
+                }
+            }
+        }
+    }
+    std::cout<<"One-sided/symmetric/two-sided: both caps, reversed routes, three radii, preview endpoints, native reopening and Undo/Redo passed\n";
+}
 void verify_support_packet_roundtrip(const kernel::OcctKernel& engine) {
     test::ProfilePrism box{30,40,50};box.translation={17,-11,8};box.rotation_degrees={13,21,37};
     std::vector<kernel::HistoryOperation> history{{"support-box",box}};
@@ -1272,6 +1400,7 @@ void verify_saved_nodes(const kernel::OcctKernel& kernel,const fs::path& path,
 }
 }
 int main(){try{kernel::OcctKernel kernel;
+    if(std::getenv("ZIMA_VERIFY_TWO_SIDED_SUPPORTS")){verify_two_sided_supports(kernel);return 0;}
     if(std::getenv("ZIMA_VERIFY_SUPPORT_PACKET")){verify_support_packet_roundtrip(kernel);std::cout<<"Current analytic supports and native packet roundtrip passed\n";return 0;}
     if(const auto* path=std::getenv("ZIMA_VERIFY_SAVED_TREATMENT")) {
         const auto* owner=std::getenv("ZIMA_VERIFY_SAVED_TREATMENT_OWNER");
@@ -1285,6 +1414,6 @@ int main(){try{kernel::OcctKernel kernel;
         verify_preview_recovery_script(kernel,fs::u8path(script));return 0;
     }
     const auto directory=fs::temp_directory_path()/("zima-edge-commands-"+document::PartDocument::create_default().document_id);
-    require(fs::create_directory(directory),"Cannot create test directory");verify_support_packet_roundtrip(kernel);verify(kernel,directory);verify_node_wires(kernel,directory);fs::remove_all(directory);
+    require(fs::create_directory(directory),"Cannot create test directory");verify_two_sided_supports(kernel);verify_support_packet_roundtrip(kernel);verify(kernel,directory);verify_node_wires(kernel,directory);fs::remove_all(directory);
     std::cout<<"Edge treatment commands: radii, section distances, volumes, reference ownership, locks, rollback and native files passed\n";return 0;
 }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}}

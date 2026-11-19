@@ -10462,12 +10462,14 @@ void PartDocument::validate_sheet_from_body() const {
         if(!owner)throw std::invalid_argument(
             "Sheet from Body must remain in one Body");
         const auto* source_body=body_history.find(definition.source_body_id);
-        if(!source_body||
+        const bool has_bound_children=std::ranges::any_of(definition.child_bindings,
+            [](const auto& binding){return !binding.detached;});
+        if((!source_body&&has_bound_children)||(source_body&&
                 (definition.replaces_body?source_body!=owner:
-                    source_body==owner))
+                    source_body==owner)))
             throw std::invalid_argument(
                 "Invalid Sheet from Body source boundary");
-        if(!definition.replaces_body) {
+        if(!definition.replaces_body&&source_body) {
             const auto& bodies=body_history.order();
             if(std::ranges::find(bodies,source_body->scope.id)>=
                     std::ranges::find(bodies,owner->scope.id))
@@ -10515,7 +10517,7 @@ void PartDocument::validate_sheet_from_body() const {
                 return std::isfinite(value.x)&&std::isfinite(value.y)&&
                     std::isfinite(value.z);
             };
-            return valid_source_owner(face.reference,true)&&
+            return valid_source_owner(face.reference,has_bound_children)&&
                 (face.side==1||face.side==-1)&&
                 finite(surface.origin)&&finite(surface.axis)&&
                 finite(surface.radial)&&
@@ -10550,9 +10552,9 @@ void PartDocument::validate_sheet_from_body() const {
                 const auto* sketch_owner=sketch==sketches.end()?nullptr:
                     body_owner_for_object(sketch->owner_container_id);
                 if(id.empty()||!rip_ids.insert(id).second||
-                        sketch==sketches.end()||sketch->suppressed||
-                        sketch_owner!=source_body||
-                        !before_boundary(sketch->owner_container_id))
+                        (has_bound_children&&(sketch==sketches.end()||sketch->suppressed||
+                         sketch_owner!=source_body||
+                         !before_boundary(sketch->owner_container_id))))
                     throw std::invalid_argument(
                         "Invalid Sheet from Body RIP Sketch reference");
             }
@@ -10580,6 +10582,8 @@ void PartDocument::validate_sheet_from_body() const {
                     (binding.bend?"Bend":"Flat")+" actual "+
                     (child?std::to_string(static_cast<int>(
                         child->feature_kind)):"missing"));
+            if(binding.bend&&child->bend.conversion_base_extensions.has_value()==binding.detached)
+                throw std::invalid_argument("Sheet from Body Bend correction basis is missing or inconsistent.");
             const auto child_entry=std::ranges::find(owner->entries,
                 child->id,&PartHistoryEntry::id);
             if(child_entry==owner->entries.end()||child_entry<=boundary)
@@ -10596,7 +10600,7 @@ void PartDocument::validate_sheet_from_body() const {
                         std::isfinite(value.z);
                 };
                 if(!valid_source_owner(face.reference,
-                        binding.references_valid)||
+                        binding.references_valid&&!binding.detached)||
                         (face.side!=1&&face.side!=-1)||
                         !finite(surface.origin)||!finite(surface.axis)||
                         !finite(surface.radial)||
@@ -10627,7 +10631,7 @@ void PartDocument::validate_sheet_from_body() const {
             std::set<std::tuple<std::string,std::string,std::string>> edges;
             for(const auto& edge:binding.edges) {
                 if(!valid_source_owner(edge.reference,
-                        binding.references_valid)||
+                        binding.references_valid&&!binding.detached)||
                         (edge.direction!=1&&edge.direction!=-1)||
                         !edges.emplace(edge.reference.owner_id,
                             edge.reference.semantic_key,
@@ -13237,6 +13241,8 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
             p.thickness=b.at("thickness");p.k_factor=b.at("k_factor");
             p.thickness_override=b.at("thickness_override");p.k_factor_override=b.at("k_factor_override");
             p.radius_follows_thickness=b.at("radius_follows_thickness");
+            if(b.contains("conversion_base_extensions"))
+                p.conversion_base_extensions=b.at("conversion_base_extensions").get<std::array<double,2>>();
             if(b.contains("corner_closure")) {
                 const auto& corner=b.at("corner_closure");
                 p.corner=corner.at("ends").get<std::array<bool,2>>();p.corner_gap=corner.at("gap");
@@ -14734,6 +14740,8 @@ nlohmann::json PartDocument::serialized(
                 {"sheet_attachment",p.sheet_attachment}};
             if(p.corner[0]||p.corner[1]||p.corner_gap!=.05)
                 serialized["bend"]["corner_closure"]={{"ends",p.corner},{"gap",p.corner_gap}};
+            if(p.conversion_base_extensions)
+                serialized["bend"]["conversion_base_extensions"]=*p.conversion_base_extensions;
         } else if (container.feature_kind == FeatureKind::LineBend) {
             const auto& p=container.line_bend;
             serialized["line_bend"]={{"sketch_id",p.sketch_id},
