@@ -43,7 +43,8 @@ def sheet_branch_gate(ctest, build, stage, env):
     names = {test['name'] for test in tests}
     required = {'zima_cpp_sheet_branch_' + case for case in (
         'separated', 'point-contact', 'edge-contact', 'face-contact', 'overlap', 'contained', 'common-parent', 'line-bend', 'gui')}
-    required.update(('zima_cpp_sheet_exchange_tests', 'zima_cpp_sheet_transition_command_tests'))
+    required.update(('zima_cpp_sheet_exchange_tests', 'zima_cpp_sheet_transition_command_tests',
+                     'zima_cpp_bend_end_constraints_contract'))
     missing = required - names
     if missing:
         raise ValueError('Mandatory sheet branch tests are missing: ' + ', '.join(sorted(missing)))
@@ -517,7 +518,8 @@ def package(args):
          '-DVCPKG_INSTALLED_DIR=' + str(args.installed.resolve().parent), '-DVCPKG_TARGET_TRIPLET=x64-windows', *qt_options])
     run([args.cmake, '--build', build, '--target', 'zima-cad-cpp', 'zima-cad-cli', 'zima-cad-launcher', 'zima-cad-update',
          'zima_cpp_sheet_branch_tests', 'zima_cpp_sheet_exchange_tests',
-         'zima_cpp_sheet_transition_command_tests', '--parallel', str(args.jobs)])
+         'zima_cpp_sheet_transition_command_tests', 'zima_cpp_bend_command_tests',
+         '--parallel', str(args.jobs)])
     ctest = Path(args.cmake).with_name('ctest.exe')
     # Execute the committed tests against the same freshly built native code.
     # A failure stops packaging before a candidate archive is created.

@@ -170,7 +170,8 @@ def main():
                 '-DOpenCASCADE_DIR=' + str(sdk / 'lib/cmake/opencascade')])
     shared.run(['cmake', '--build', build, '--target', 'zima-cad-cpp', 'zima-cad-cli', 'zima-cad-update',
                 'zima_cpp_sheet_branch_tests', 'zima_cpp_sheet_exchange_tests',
-                'zima_cpp_sheet_transition_command_tests', '--parallel', str(args.jobs)])
+                'zima_cpp_sheet_transition_command_tests', 'zima_cpp_bend_command_tests',
+                '--parallel', str(args.jobs)])
     branch_env = dict(os.environ, LD_LIBRARY_PATH=os.pathsep.join(map(str, (qt_sdk / 'lib', sdk / 'lib'))))
     branch_acceptance = shared.sheet_branch_gate('ctest', build, stage, branch_env)
     assembly = Path(tempfile.mkdtemp(prefix='p-', dir=stage)); root = assembly / 'ZIMA-CAD'

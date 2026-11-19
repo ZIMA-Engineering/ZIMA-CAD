@@ -14,7 +14,8 @@ class PackageTests(unittest.TestCase):
     def test_sheet_branch_release_gate_rejects_missing_and_failed_cases(self):
         names = ['zima_cpp_sheet_branch_' + case for case in (
             'separated', 'point-contact', 'edge-contact', 'face-contact', 'overlap', 'contained', 'common-parent', 'line-bend', 'gui')]
-        names += ['zima_cpp_sheet_exchange_tests', 'zima_cpp_sheet_transition_command_tests']
+        names += ['zima_cpp_sheet_exchange_tests', 'zima_cpp_sheet_transition_command_tests',
+                  'zima_cpp_bend_end_constraints_contract']
         with tempfile.TemporaryDirectory() as temp:
             stage = Path(temp)
             for registered in ([], names[:-1]):

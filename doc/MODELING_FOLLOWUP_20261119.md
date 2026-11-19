@@ -4,6 +4,8 @@ Status: implementation completed for Windows build 2026111905. The current
 [verification matrix and explicit limits](verification/20261119-modeling-completion.md)
 supersede the earlier partial status below. Committed-source packaging, signing
 and public download checks remain release gates, recorded in the release note.
+The final publication build is 2026111906; it additionally builds the new Bend
+end-constraint test in both platform packagers and requires its registration.
 
 The user authorized finishing the entire list, commit, push and a Windows GitHub
 release on 2026-11-19. This supersedes the earlier wait-for-review instruction.
@@ -30,7 +32,7 @@ release on 2026-11-19. This supersedes the earlier wait-for-review instruction.
 - Five-language coverage and catalog/UI validation pass. The stable root BAT
   continues to launch the local native C++ executable.
 - Commit, push and signed Windows publication are authorized; exact artifact
-  acceptance is tracked in [the release record](releases/2026111905.md).
+  acceptance is tracked in [the release record](releases/2026111906.md).
 
 The later Sheet Transition discussion supplied no concrete new behavior and
 remains a future specification task. Linux execution belongs on the Linux host.

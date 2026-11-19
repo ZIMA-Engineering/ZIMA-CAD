@@ -65,3 +65,11 @@ See the [finite Windows evidence and limits](verification/20261119-independent-s
 The user accepted new models instead of legacy union-reference repair on
 2026-11-19. Keep unsupported multi-branch deformation work explicit; these tests
 do not authorize silently fusing independent inputs in another command.
+
+Build 2026111905 adds the Bend end-constraint regression to this label. Its final
+local Windows run passes all 12 gates (166.78 s), with actual parallel jobs and
+sequential-equivalence assertions retained. Committed-candidate results and
+public artifact acceptance are recorded in the
+[release record](releases/2026111906.md). Both platform packagers in 2026111906
+explicitly build the Bend test executable and reject registration without this
+twelfth gate before any archive is assembled.

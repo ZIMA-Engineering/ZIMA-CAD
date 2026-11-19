@@ -54,6 +54,14 @@ validation. Local logs are under `build/fillet24/`: `curve-final-test.log`,
 `version1905-tests2.log`, `final-native-suite.log`, `final-translations.log`,
 `gui-completion-tests5.log` and `gui-completion-tests3.log`.
 
+The final local `sheet-branch` run passes all 12 registered gates in 166.78 s,
+including the parallel-job assertions. The saved `24.prtz` copy also passes all
+six cap-route selections without a preliminary Regenerate, then the same six
+selections with regeneration. The stale-terminal second-OK case, the saved
+`23.prtz` end-profile contact case and all five language checks pass with the
+ordinary executable. Logs: `final-sheet-branch.log`, `final-noregen.log` and
+`final-user-models.log`. The original user documents remain unchanged.
+
 | Area | Cases and actions |
 | --- | --- |
 | Native curve fillets | Every ordered pair of line, circular arc, elliptical arc, control-point spline and interpolating spline; four rotations, mirrored geometry and both selection orders. Virtual radii 0.5/1/0.75, unchanged source points and reopening. Real fillets retain exact curves, native contact identity and no automatic dimension. |
