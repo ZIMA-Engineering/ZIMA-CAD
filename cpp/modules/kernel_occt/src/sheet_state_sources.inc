@@ -16,6 +16,10 @@ struct Contribution {
     // copied native Part. A present empty flat operand means no precut.
     std::string form_owner;
     std::optional<PrimitiveData> flat_material;
+    // A deformation snapshot can contain several material regions belonging
+    // to one branch. Keep its branch without pretending all faces have one
+    // region/frame, which would also deform the fixed side of a Line Bend.
+    std::string branch_owner;
 };
 using Sources=std::shared_ptr<const Contribution>;
 // Keep connectivity failure distinct from an invalid boundary or lost material.
@@ -83,7 +87,7 @@ Sources capture(Sources sources,const PrimitiveData& before,const PrimitiveData&
     if(operation.suppressed||std::holds_alternative<SheetStateRequest>(operation.primitive)||regions.empty())return sources;
     if(!sources&&!before.shape.IsNull())sources=std::make_shared<Contribution>(Contribution{before,{},BooleanOperation::Add,{}});
     const auto domains=sources;
-    const auto retain=[&](PrimitiveData material,BooleanOperation mode,std::string region) {
+    const auto retain=[&](PrimitiveData material,BooleanOperation mode,std::string region,std::string branch=std::string{}) {
         if(material.shape.IsNull()||!TopExp_Explorer(material.shape,TopAbs_SOLID).More())return;
         if(!BRepCheck_Analyzer(material.shape).IsValid())throw std::runtime_error("Authored sheet material change is invalid.");
         if(region.empty()) {
@@ -98,6 +102,7 @@ Sources capture(Sources sources,const PrimitiveData& before,const PrimitiveData&
             face.reference.sheet_owner=region;
         }
         Contribution contribution{std::move(material),regions,mode,sources,region,operation.boolean_tolerance,material_tolerance};
+        contribution.branch_owner=std::move(branch);
         const auto domain=std::ranges::find(regions,region,&SheetMaterialDefinition::owner_id);
         if(domain!=regions.end()&&domain->kind==SheetMaterialDefinition::Kind::Form) {
             contribution.form_owner=region;contribution.flat_material.emplace();
@@ -107,12 +112,29 @@ Sources capture(Sources sources,const PrimitiveData& before,const PrimitiveData&
     const bool treatment=std::holds_alternative<FilletRequest>(operation.primitive)||
         std::holds_alternative<ChamferRequest>(operation.primitive)||std::holds_alternative<ShellRequest>(operation.primitive);
     if(operation.operation==BooleanOperation::Subtract||treatment) {
-        auto remaining=difference(before,after,operation.owner_id);
+        sheet_branch_geometry::Branches branches;std::set<std::string> branch_ids;
+        for(const auto& region:regions){branches[region.owner_id]=region.branch_owner_id;branch_ids.insert(region.branch_owner_id);}
+        std::map<std::string,PrimitiveData> removed;
+        if(branch_ids.size()>1) {
+            const auto old=sheet_branch_geometry::partition(before,branches);
+            const auto current=sheet_branch_geometry::partition(after,branches);
+            for(const auto& [branch,piece]:old) {
+                const auto found=current.find(branch);
+                removed.emplace(branch,difference(piece,found==current.end()?PrimitiveData{}:found->second,operation.owner_id));
+            }
+        } else removed.emplace(std::string{},difference(before,after,operation.owner_id));
+        for(auto& [branch,remaining]:removed) {
         // Removed material may be completely enclosed by the thickness and
         // have no original skin left on its boundary. Intersect with authored
         // positive material domains; face adjacency alone cannot identify it.
         for(auto domain=domains;domain&&TopExp_Explorer(remaining.shape,TopAbs_SOLID).More();domain=domain->previous) {
-            if(domain->operation!=BooleanOperation::Add||domain->created_region.empty())continue;
+            if(domain->operation!=BooleanOperation::Add||
+                    (domain->created_region.empty()&&domain->branch_owner.empty()))continue;
+            if(branch_ids.size()>1) {
+                const auto source_branch=branches.find(domain->created_region);
+                if(!domain->branch_owner.empty()) {if(domain->branch_owner!=branch)continue;}
+                else if(source_branch==branches.end()||source_branch->second!=branch)continue;
+            }
             auto material=sheet_state_geometry::transform(domain->material,transitions_to(*domain,regions),
                 tolerance,operation.owner_id,domain->created_region);
             Bnd_Box a,b;BRepBndLib::Add(remaining.shape,a);BRepBndLib::Add(material.shape,b);if(a.IsOut(b))continue;
@@ -124,9 +146,10 @@ Sources capture(Sources sources,const PrimitiveData& before,const PrimitiveData&
             piece.edges=complete_boolean_edges(piece.shape,piece.faces,propagate_topology(common,remaining.edges,material.edges),operation.owner_id,"sheet-domain");
             piece.vertices=complete_boolean_vertices(piece.shape,piece.faces,piece.edges,propagate_topology(common,remaining.vertices,material.vertices),operation.owner_id,"sheet-domain");
             remaining=difference(remaining,piece,operation.owner_id);
-            retain(std::move(piece),BooleanOperation::Subtract,domain->created_region);
+            retain(std::move(piece),BooleanOperation::Subtract,domain->created_region,branch);
         }
-        retain(std::move(remaining),BooleanOperation::Subtract,{});
+        retain(std::move(remaining),BooleanOperation::Subtract,{},branch);
+        }
     }
     if(operation.operation==BooleanOperation::Add||treatment)
         retain(authored_additive?*authored_additive:
@@ -153,11 +176,17 @@ Sources capture_form(Sources sources,const PrimitiveData& before,
 PrimitiveData calculate(Sources sources,const std::vector<SheetMaterialDefinition>& target,
         double tolerance,const std::string& owner,std::size_t expected_solids) {
     std::vector<Sources> ordered;for(auto source=sources;source;source=source->previous)ordered.push_back(source);
+    sheet_branch_geometry::Branches branch_owners;
+    std::set<std::string> branch_ids;
+    for(const auto& region:target) {
+        branch_owners[region.owner_id]=region.branch_owner_id;
+        branch_ids.insert(region.branch_owner_id);
+    }
     const bool restoring_authored=std::ranges::all_of(ordered,[&](const auto& source){return transitions_to(*source,target).empty();});
     const auto reconstruct=[&](bool refine,double requested_tolerance) {
         // A native sheet authored only from explicit additive regions has no
         // order-dependent material removal. Transform those immutable region
-        // operands independently and join them in one parallel Boolean. The
+        // operands independently and join each authored branch in parallel. The
         // former left-to-right Fuse rebuilt an ever larger solid for every
         // Flat/Bend and made Unbend quadratic in the number of regions.
         const bool batch_additive=ordered.size()>1&&
@@ -192,36 +221,48 @@ PrimitiveData calculate(Sources sources,const std::vector<SheetMaterialDefinitio
                 }));
             for(auto& job:jobs)job.get();
 
-            NCollection_List<TopoDS_Shape> arguments,tools;
-            arguments.Append(materials.front().shape);
-            std::vector<OwnedFace> faces;
-            std::vector<OwnedEdge> edges;
-            std::vector<OwnedVertex> vertices;
+            std::map<std::string,std::vector<std::size_t>> grouped;
             for(std::size_t index=0;index<materials.size();++index) {
-                if(index)tools.Append(materials[index].shape);
-                faces.insert(faces.end(),materials[index].faces.begin(),
-                    materials[index].faces.end());
-                edges.insert(edges.end(),materials[index].edges.begin(),
-                    materials[index].edges.end());
-                vertices.insert(vertices.end(),materials[index].vertices.begin(),
-                    materials[index].vertices.end());
+                const auto& source=*ordered[ordered.size()-1-index];
+                const auto region=std::ranges::find(target,source.created_region,&SheetMaterialDefinition::owner_id);
+                grouped[region==target.end()?std::string{}:region->branch_owner_id].push_back(index);
             }
-            BRepAlgoAPI_Fuse fuse;
-            fuse.SetArguments(arguments);fuse.SetTools(tools);
-            fuse.SetRunParallel(true);fuse.SetToFillHistory(true);
-            fuse.SetFuzzyValue(restoring_authored?ordered.back()->boolean_tolerance:
-                requested_tolerance/8);
-            fuse.Build();
-            if(!fuse.IsDone()||fuse.Shape().IsNull())
-                throw std::runtime_error(
-                    "Cannot batch reconstruct additive sheet material.");
-            PrimitiveData result;result.shape=fuse.Shape();
-            result.faces=propagate_topology(fuse,faces,
-                std::vector<OwnedFace>{});
-            result.edges=propagate_topology(fuse,edges,
-                std::vector<OwnedEdge>{});
-            result.vertices=propagate_topology(fuse,vertices,
-                std::vector<OwnedVertex>{});
+            std::vector<const std::vector<std::size_t>*> groups;
+            for(const auto& [branch,indices]:grouped)groups.push_back(&indices);
+            std::vector<PrimitiveData> ready(groups.size());
+            std::atomic_size_t next_branch{};
+            jobs.clear();
+            for(std::size_t worker=0;worker<std::min(workers,groups.size());++worker)
+                jobs.push_back(std::async(std::launch::async,[&] {
+                    while(true) {
+                        const auto group=next_branch.fetch_add(1);if(group>=groups.size())break;
+                        parallel_sheet_branch_jobs.fetch_add(1,std::memory_order_relaxed);
+                        const auto& indices=*groups[group];
+                        if(indices.size()==1){ready[group]=materials[indices.front()];continue;}
+                        NCollection_List<TopoDS_Shape> arguments,tools;
+                        arguments.Append(materials[indices.front()].shape);
+                        std::vector<OwnedFace> faces;std::vector<OwnedEdge> edges;std::vector<OwnedVertex> vertices;
+                        for(const auto index:indices) {
+                            if(index!=indices.front())tools.Append(materials[index].shape);
+                            faces.insert(faces.end(),materials[index].faces.begin(),materials[index].faces.end());
+                            edges.insert(edges.end(),materials[index].edges.begin(),materials[index].edges.end());
+                            vertices.insert(vertices.end(),materials[index].vertices.begin(),materials[index].vertices.end());
+                        }
+                        BRepAlgoAPI_Fuse fuse;fuse.SetArguments(arguments);fuse.SetTools(tools);
+                        if(groups.size()>1)fuse.SetNonDestructive(true);
+                        fuse.SetRunParallel(true);fuse.SetToFillHistory(true);
+                        fuse.SetFuzzyValue(restoring_authored?ordered.back()->boolean_tolerance:requested_tolerance/8);
+                        fuse.Build();
+                        if(!fuse.IsDone()||fuse.Shape().IsNull())
+                            throw std::runtime_error("Cannot batch reconstruct additive sheet material.");
+                        auto& value=ready[group];value.shape=fuse.Shape();
+                        value.faces=propagate_topology(fuse,faces,std::vector<OwnedFace>{});
+                        value.edges=propagate_topology(fuse,edges,std::vector<OwnedEdge>{});
+                        value.vertices=propagate_topology(fuse,vertices,std::vector<OwnedVertex>{});
+                    }
+                }));
+            for(auto& job:jobs)job.get();
+            auto result=sheet_branch_geometry::compound(ready);
             if(!BRepCheck_Analyzer(result.shape).IsValid())
                 throw std::runtime_error(
                     "Batch reconstructed sheet material is invalid.");
@@ -251,10 +292,6 @@ PrimitiveData calculate(Sources sources,const std::vector<SheetMaterialDefinitio
             const auto& authored=form!=target.end()&&form->unfolded&&source.flat_material?*source.flat_material:source.material;
             if(authored.shape.IsNull())continue;
             auto material=sheet_state_geometry::transform(authored,transitions,refine?effective_tolerance:requested_tolerance,owner,source.created_region);
-            if(result.shape.IsNull()) {
-                if(source.operation==BooleanOperation::Subtract)continue;
-                result=std::move(material);continue;
-            }
             const auto combine=[&](auto& algorithm) {
                 // A valid single solid can still be an incomplete Boolean
                 // result at an approximated compound junction. Addition may
@@ -275,8 +312,28 @@ PrimitiveData calculate(Sources sources,const std::vector<SheetMaterialDefinitio
                 result.edges=propagate_topology(algorithm,result.edges,material.edges);
                 result.vertices=propagate_topology(algorithm,result.vertices,material.vertices);result.shape=algorithm.Shape();
             };
-            if(source.operation==BooleanOperation::Subtract){BRepAlgoAPI_Cut cut;combine(cut);}
-            else {BRepAlgoAPI_Fuse fuse;combine(fuse);}
+            const auto apply=[&] {
+                if(result.shape.IsNull()) {
+                    if(source.operation==BooleanOperation::Add)result=material;
+                } else if(source.operation==BooleanOperation::Subtract){BRepAlgoAPI_Cut cut;combine(cut);}
+                else {BRepAlgoAPI_Fuse fuse;combine(fuse);}
+            };
+            if(branch_ids.size()>1) {
+                auto pieces=sheet_branch_geometry::partition(result,branch_owners);
+                const auto region=branch_owners.find(source.created_region);
+                if(region==branch_owners.end()&&source.branch_owner.empty()&&source.operation==BooleanOperation::Subtract) {
+                    for(auto& [branch,piece]:pieces) {
+                        result=std::move(piece);apply();piece=std::move(result);
+                    }
+                } else {
+                    const auto branch=!source.branch_owner.empty()?source.branch_owner:
+                        region==branch_owners.end()?std::string{}:region->second;
+                    result=std::move(pieces[branch]);apply();pieces[branch]=std::move(result);
+                }
+                std::vector<PrimitiveData> combined;
+                for(auto& [branch,piece]:pieces)combined.push_back(std::move(piece));
+                result=sheet_branch_geometry::compound(combined);
+            } else apply();
         }
         if(result.shape.IsNull()||!BRepCheck_Analyzer(result.shape).IsValid())throw std::runtime_error("Reconstructed sheet state is not a valid solid.");
         std::size_t solids=0;for(TopExp_Explorer it(result.shape,TopAbs_SOLID);it.More();it.Next())++solids;

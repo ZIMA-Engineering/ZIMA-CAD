@@ -11,6 +11,32 @@ import zipfile
 import package
 
 class PackageTests(unittest.TestCase):
+    def test_sheet_branch_release_gate_rejects_missing_and_failed_cases(self):
+        names = ['zima_cpp_sheet_branch_' + case for case in (
+            'separated', 'point-contact', 'edge-contact', 'face-contact', 'overlap', 'contained', 'common-parent', 'line-bend', 'gui')]
+        names += ['zima_cpp_sheet_exchange_tests', 'zima_cpp_sheet_transition_command_tests']
+        with tempfile.TemporaryDirectory() as temp:
+            stage = Path(temp)
+            for registered in ([], names[:-1]):
+                inventory = subprocess.CompletedProcess([], 0,
+                    json.dumps({'tests': [{'name': name} for name in registered]}).encode())
+                with patch.object(package, 'run', return_value=inventory) as execute:
+                    with self.assertRaisesRegex(ValueError, 'Mandatory sheet branch tests are missing'):
+                        package.sheet_branch_gate('ctest', stage, stage, {})
+                    self.assertEqual(execute.call_count, 1)
+            inventory = subprocess.CompletedProcess([], 0,
+                json.dumps({'tests': [{'name': name} for name in names]}).encode())
+            failure = subprocess.CalledProcessError(8, ['ctest'], output=b'overlap regression failed')
+            with patch.object(package, 'run', side_effect=[inventory, failure]):
+                with self.assertRaises(subprocess.CalledProcessError):
+                    package.sheet_branch_gate('ctest', stage, stage, {})
+                self.assertEqual((stage / 'sheet-branch-tests.log').read_bytes(), failure.stdout)
+            success = subprocess.CompletedProcess([], 0, b'all mandatory cases passed')
+            with patch.object(package, 'run', side_effect=[inventory, success]):
+                accepted = package.sheet_branch_gate('ctest', stage, stage, {})
+                self.assertEqual(accepted['tests'], sorted(names))
+                self.assertEqual(accepted['log_sha256'], package.sha(stage / 'sheet-branch-tests.log'))
+
     def test_msvc_include_prefix_preserves_utf8(self):
         for prefix in ('Note: including file: ', 'Poznámka: Včetně souboru: '):
             stream=('prefix.cpp\n'+prefix+'C:\\probe\\prefix.hpp\n').encode('utf-8')

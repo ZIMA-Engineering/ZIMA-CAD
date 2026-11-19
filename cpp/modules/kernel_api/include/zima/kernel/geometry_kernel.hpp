@@ -1076,6 +1076,9 @@ struct SheetMaterialDefinition {
     double thickness_sign{-1};
     bool unfolded{};
     std::string curved_source_id, continuation_source_id;
+    // Calculation-only partition derived from the complete authored attachment
+    // graph. Never stored as an additional document/reference identity.
+    std::string branch_owner_id;
     bool operator==(const SheetMaterialDefinition&) const = default;
 };
 

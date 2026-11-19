@@ -1554,13 +1554,29 @@ static int verify_cut_sheet_attachments_ui(QApplication& application,
             check(!cached.empty()&&cached.back().calculation_errors.empty(),"Cut attachment source regeneration failed");
         }
         std::vector<kernel::ViewerEdge> fragments;
-        for(const auto& edge:cached.back().mesh.edges) {
+        const bool branches=qEnvironmentVariableIsSet("ZIMA_VERIFY_SHEET_BRANCH_MODE");
+        if(branches) {
+            for(const auto& feature:fixture.history)if(feature.feature_kind==document::FeatureKind::Flat&&feature.flat.sheet_attachment)
+                for(const auto side:{kernel::SheetFaceRole::SideA,kernel::SheetFaceRole::SideB}) {
+                    const kernel::ViewerEdge* selected=nullptr;double highest=-INFINITY;
+                    for(const auto& edge:cached.back().mesh.edges) {
+                        if(edge.reference.owner_id!=feature.id||edge.points.size()!=2||
+                                kernel::sheet_edge_role(edge)!=kernel::SheetEdgeRole::Boundary||
+                                std::ranges::none_of(edge.edge_treatment_side_references,[&](const auto& face){return face.sheet_role==side;}))continue;
+                        const auto height=(edge.points[0].z+edge.points[1].z)*.5;
+                        if(height>highest){highest=height;selected=&edge;}
+                    }
+                    check(selected,"Branch GUI fixture has lost one material-side boundary");
+                    fragments.push_back(*selected);
+                }
+            check(fragments.size()==4,"Branch GUI fixture must have two walls with both material skins");
+        } else for(const auto& edge:cached.back().mesh.edges) {
             if(!edge.reference.semantic_key.starts_with("boolean:subtract:split-edge:"))continue;
             if(std::ranges::none_of(edge.edge_treatment_side_references,[](const auto& face){return face.sheet_role==kernel::SheetFaceRole::SideA;}))continue;
             try {static_cast<void>(document::flat_sheet_references(edge));fragments.push_back(edge);}
             catch(const std::exception&) {}
         }
-        check(fragments.size()==2,"Cut fixture must have two surviving Side A fragments");
+        if(!branches)check(fragments.size()==2,"Cut fixture must have two surviving Side A fragments");
         QTemporaryDir isolated(QString::fromStdWString((parent/"cut-attachment-ui-XXXXXX").wstring()));
         check(isolated.isValid(),"Cannot isolate cut attachment GUI");
         const auto directory=std::filesystem::path(isolated.path().toStdWString());

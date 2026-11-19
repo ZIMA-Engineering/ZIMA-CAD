@@ -2851,7 +2851,7 @@ if(ZIMA_BUILD_TESTS)
     set_tests_properties(zima_cpp_transition_attachment_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 900 ENVIRONMENT "ZIMA_CPP_EAGER_ANALYSIS=1")
     target_link_libraries(zima_cpp_sheet_transition_command_tests PRIVATE zima_workspace TKBRep TKTopAlgo)
     add_test(NAME zima_cpp_sheet_transition_command_tests COMMAND zima_cpp_sheet_transition_command_tests)
-    set_tests_properties(zima_cpp_sheet_transition_command_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 180)
+    set_tests_properties(zima_cpp_sheet_transition_command_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 180 LABELS "sheet-branch;mandatory")
     set_tests_properties(zima_cpp_sheet_transition_command_tests PROPERTIES FIXTURES_SETUP sheet_transition_fixture ENVIRONMENT "ZIMA_CPP_EAGER_ANALYSIS=1")
     add_test(NAME zima_cpp_sheet_transition_thickness_contract COMMAND zima_cpp_sheet_transition_command_tests)
     set_tests_properties(zima_cpp_sheet_transition_thickness_contract PROPERTIES
@@ -2876,7 +2876,7 @@ if(ZIMA_BUILD_TESTS)
         target_link_options(zima_cpp_sheet_exchange_tests PRIVATE /STACK:8388608)
     endif()
     add_test(NAME zima_cpp_sheet_exchange_tests COMMAND zima_cpp_sheet_exchange_tests)
-    set_tests_properties(zima_cpp_sheet_exchange_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
+    set_tests_properties(zima_cpp_sheet_exchange_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." LABELS "sheet-branch;mandatory")
     file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/sheet-exchange-ui-contract")
     add_test(NAME zima_cpp_sheet_exchange_ui_contract COMMAND zima-cad-cpp --verify-startup
         --working-directory "${CMAKE_BINARY_DIR}/sheet-exchange-ui-contract")
@@ -2939,6 +2939,22 @@ if(ZIMA_BUILD_TESTS)
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_SOLID_STATE_SWEEPS_ONLY=1"
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 240 RUN_SERIAL TRUE)
     add_executable(zima_cpp_flat_command_tests tests/flat_command_tests.cpp)
+    add_executable(zima_cpp_sheet_branch_tests tests/sheet_branch_tests.cpp)
+    target_link_libraries(zima_cpp_sheet_branch_tests PRIVATE zima_command_host zima_kernel_occt TKTopAlgo)
+    target_compile_options(zima_cpp_sheet_branch_tests PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
+    foreach(contact IN ITEMS separated point-contact edge-contact face-contact overlap contained common-parent line-bend)
+        add_test(NAME zima_cpp_sheet_branch_${contact} COMMAND zima_cpp_sheet_branch_tests ${contact} "${CMAKE_CURRENT_BINARY_DIR}/sheet-branch-contract")
+        set_tests_properties(zima_cpp_sheet_branch_${contact} PROPERTIES
+            LABELS "sheet-branch;mandatory" WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 180)
+    endforeach()
+    set_tests_properties(zima_cpp_sheet_branch_common-parent PROPERTIES FIXTURES_SETUP sheet_branch_fixture)
+    file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/sheet-branch-ui-contract")
+    add_test(NAME zima_cpp_sheet_branch_gui COMMAND zima-cad-cpp --verify-startup
+        --working-directory "${CMAKE_CURRENT_BINARY_DIR}/sheet-branch-ui-contract")
+    set_tests_properties(zima_cpp_sheet_branch_gui PROPERTIES
+        LABELS "sheet-branch;mandatory" FIXTURES_REQUIRED sheet_branch_fixture
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 600 RUN_SERIAL TRUE
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_HIDDEN_WINDOWS=1;ZIMA_VERIFY_CUT_SHEET_ATTACHMENTS=${CMAKE_CURRENT_BINARY_DIR}/sheet-branch-contract/common-parent/fork-overlap.prtz;ZIMA_VERIFY_SHEET_BRANCH_MODE=1")
     target_link_libraries(zima_cpp_flat_command_tests PRIVATE zima_command_host zima_kernel_occt TKTopAlgo)
     target_compile_options(zima_cpp_flat_command_tests PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
     add_test(NAME zima_cpp_flat_command_tests COMMAND zima_cpp_flat_command_tests)

@@ -511,6 +511,40 @@ anchored. The shared properties-window implementation owns this layout policy.
   equivalent modeling intent. This is a binding user requirement reaffirmed
   on 2026-09-19, not an optional implementation preference.
 
+## Independent sheet-metal branches (mandatory, permanent modeling contract)
+
+- Sheet-metal branches remain independent when separated, touching at a point,
+  edge or face, or intersecting and overlapping in volume. Spatial contact is
+  never an instruction to fuse branches, transfer their ownership, consume
+  their material or replace their reference identities. This also applies to
+  branches authored by Sheet from Body and compound Sheet Profiles.
+- Preserve each branch's own current edges, faces, endpoints, midpoint and
+  material sides, including after trimming. Flats, Bends and Profiles attach
+  to the selected branch and remain editable when another branch touches or
+  intersects it. Never substitute an untrimmed source edge, another branch's
+  edge or a merged Body edge to conceal a lost reference.
+- Authored parent-child attachments remain intact. A connection specified by
+  history does not authorize additional connections to nearby branches. The
+  ordinary coplanar Solid Add contract below does not authorize merging
+  independent sheet-metal branches.
+- Preserve parallel calculation. Prepare independent operands and evaluate
+  independent branches concurrently while respecting dependencies within each
+  branch. Do not implement independence by globally disabling parallel/batched
+  calculation. Verify use of the parallel path, equivalent output and measured
+  timings on representative user models as well as deterministic fixtures.
+- Regression tests for this contract are release gates, not optional examples.
+  Maintain the required matrix in `doc/SHEET_BRANCH_TEST_CONTRACT.md` and run
+  the affected native and GUI gates before publishing a sheet-metal change.
+  Test separated, touching and intersecting branches, both material sides,
+  dependent Flat/Bend/Profile creation and repeated edits, trimmed boundaries,
+  incremental and cold regeneration, Undo/Redo and native save/reopen.
+- Assert branch/reference identity and independently expected material geometry,
+  not merely a nonempty solid, a plausible picture or the absence of red Tree
+  rows. A failing or unverified applicable gate blocks release; do not delete,
+  skip or weaken it to obtain a passing result. Record platform coverage.
+- This requirement and its mandatory regression gates were explicitly requested
+  by the user on 2026-11-19.
+
 ## Oldest coplanar face identity (mandatory, permanent modeling contract)
 
 - When later operations extend, merge, trim or split a face while retaining

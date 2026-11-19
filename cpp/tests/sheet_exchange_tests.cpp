@@ -1,10 +1,12 @@
 #include <zima/kernel/sheet_exchange.hpp>
 #include <zima/document/part_document.hpp>
 #include <zima/kernel/occt_kernel.hpp>
+#include <zima/kernel/calculated_body_shape.hpp>
 #include <zima/workspace/sheet_exchange_operations.hpp>
 #include <zima/interchange/dxf.hpp>
 #include <zima/interchange/step_model.hpp>
 #include <QTemporaryDir>
+#include <source_location>
 #include <zima/document/flat.hpp>
 #include <zima/document/profile_status.hpp>
 #include <zima/document/bend.hpp>
@@ -35,7 +37,7 @@
 namespace {
 using namespace zima;
 void check(bool value,const char* message){if(!value)throw std::runtime_error(message);}
-void near(double a,double b,double tolerance=1e-5){if(std::abs(a-b)>tolerance)throw std::runtime_error("Mismatch: "+std::to_string(a)+" versus "+std::to_string(b));}
+void near(double a,double b,double tolerance=1e-5,const std::source_location location=std::source_location::current()){if(std::abs(a-b)>tolerance)throw std::runtime_error("Mismatch at line "+std::to_string(location.line())+": "+std::to_string(a)+" versus "+std::to_string(b));}
 double measured_volume(const kernel::OcctKernel& engine,const kernel::BodySnapshot& snapshot) {
     auto body=snapshot.get();engine.ensure_body_properties(body);return body.volume;
 }
@@ -261,6 +263,8 @@ void line_bend_contract(kernel::OcctKernel& engine) {
         state_part.history.push_back(unbend);
         auto state=workspace::calculate_part_with_resolved_references(
             engine,state_part);
+        for(const auto& [owner,error]:state.back().calculation_errors)
+            std::cerr<<"Line Bend Unbend "<<owner<<": "<<error<<'\n';
         check(state.back().calculation_errors.empty(),
             "Line Bend cannot be unbent");
         near(measured_volume(engine,state.back().body_outputs.at(body)),
@@ -2158,7 +2162,15 @@ void contract(bool include_oblique_corners = true) {
                         calculation_errors.empty(),
                 "Deleting the divider invalidated its independent Flat");
             near(measured_volume(kernel,session->calculated_boundaries().back().
-                body_outputs.at(source)),expected*7/3,.001);
+                body_outputs.at(source)),expected*(7+2)/3,.001);
+            // Removing the divider exposes the original 7 mm sheet and the
+            // detached 2 mm sheet. Their containment must not consume either
+            // independent root's material or turn them into a single solid.
+            const auto detached_shape=kernel::read_calculated_body_shape(
+                session->calculated_boundaries().back().body_outputs.at(source).get());
+            std::size_t detached_solids=0;
+            for(TopExp_Explorer it(detached_shape,TopAbs_SOLID);it.More();it.Next())++detached_solids;
+            check(detached_solids==2,"Deleting the divider fused independent contained sheets");
             check(workspace::step_part_document_history(live,document_id,false)&&
                     session->document().find_container(same.container_id),
                 "Sheet from Body deletion Undo did not restore the divider");

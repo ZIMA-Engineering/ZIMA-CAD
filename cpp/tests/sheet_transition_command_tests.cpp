@@ -14,6 +14,7 @@
 #include <zima/workspace/family_operations.hpp>
 #include <zima/workspace/relation_operations.hpp>
 #include <zima/workspace/bend_operations.hpp>
+#include <zima/workspace/operation_input.hpp>
 #include <transition_sketches.hpp>
 #include <transition_sheet.hpp>
 #include <BRepTools.hxx>
@@ -38,20 +39,20 @@ void check_transition_lines(const kernel::BodyResult& body) {
     std::cout<<"Transition display: "<<hidden<<" smooth junctions, "<<borders<<" borders"<<std::endl;
     check(hidden>0&&borders>0,"Transition display did not distinguish smooth junctions from borders");
 }
-void check_solid(const kernel::BodyResult& body) {
+void check_solid(const kernel::BodyResult& body,unsigned expected_solids=1) {
     check(body.calculation_errors.empty(),"Transition calculation contains errors");
     check(body.physical_properties_current&&body.volume>0,"Transition verification requires current physical analysis");
     if(body.kernel_shape==kernel::kernel_body_compound) {
         unsigned solids=0;double volume=0;
         for(const auto& [id,output]:body.body_outputs)if(output->has_solid()) {
-            check_solid(output.get());++solids;volume+=output->volume;
+            check_solid(output.get(),expected_solids);++solids;volume+=output->volume;
         }
         check(solids==1&&std::abs(volume-body.volume)<1e-6,"Transition Part does not contain exactly one complete solid Body");return;
     }
     TopoDS_Shape shape;BRep_Builder builder;std::istringstream stream(body.kernel_shape);BRepTools::Read(shape,stream,builder);
     check(!shape.IsNull()&&BRepCheck_Analyzer(shape).IsValid(),"Transition has invalid B-Rep");
     unsigned solids=0;for(TopExp_Explorer it(shape,TopAbs_SOLID);it.More();it.Next())++solids;
-    if(solids!=1)throw std::runtime_error("Transition solid count: "+std::to_string(solids));
+    if(solids!=expected_solids)throw std::runtime_error("Transition solid count: "+std::to_string(solids));
 }
 void check_material_preview(document::HistoryContainer feature) {
     using namespace kernel::sheet_material;
@@ -559,15 +560,18 @@ int main()try {
             check(std::abs(attachment.z-(owner==feature.container_origin.id?0.:150.))<1e-8,"Transition Origin resolved to the wrong profile");
         }
     }
-    // A real downstream Bend consumes the same original edge/face/point packet
-    // as the interactive sheet commands; display-only edges are insufficient.
+    // A real downstream Bend consumes the same current edge/face/point packet
+    // as the interactive sheet commands. Original untrimmed operands are not
+    // the selected support after the transition panels have been joined.
     {
-        const auto& geometry=recalculated.back().mesh.original_references;
+        const auto* input=workspace::calculated_operation_input(state->session,{});
+        check(input,"Transition has no current editable Body input");
+        const auto geometry=document::sheet_attachment_reference_geometry(input->mesh);
         const auto edge=std::ranges::find_if(geometry.edges,[&](const auto& candidate){
-            if(candidate.reference.owner_id!=feature.id||candidate.reference.semantic_key.find("rectangle-rim")==std::string::npos)return false;
+            if(candidate.reference.owner_id!=feature.id)return false;
             try {return document::bend_sheet_references(candidate).size()==3;}catch(const std::exception&){return false;}
         });
-        check(edge!=geometry.edges.end(),"Transition has no attachable original rectangle rim");
+        check(edge!=geometry.edges.end(),"Transition has no attachable current rectangle rim");
         auto bend=document::PartDocument::create_sketch_container();bend.feature_kind=document::FeatureKind::Bend;
         bend.bend.sheet_attachment=true;bend.bend.radius=3;bend.bend.angle_degrees=30;
         bend.placement.references=document::bend_sheet_references(*edge);
@@ -589,11 +593,13 @@ int main()try {
         for(bool unfold:{true,false}) {
             auto change=document::PartDocument::create_sketch_container();change.feature_kind=unfold?document::FeatureKind::Unbend:document::FeatureKind::BendBack;change.sheet_state.all=true;
             check(workspace::commit_sheet_state(live,kernel,id,change),"Attached transition state change failed");
-            const auto& result=state->session.calculated_boundaries().back();check_solid(result);check_transition_lines(result);
+            // The extra Bend forks from an authored transition panel. Its
+            // branch must stay separate through Unbend and Bend Back.
+            const auto& result=state->session.calculated_boundaries().back();check_solid(result,2);check_transition_lines(result);
             check(std::abs(result.volume-attached_volume)<(unfold?attached_volume*2e-4:1e-6),"Attached transition state lost material");
         }
         check(workspace::step_part_document_history(live,id,false)&&workspace::step_part_document_history(live,id,false),"Attached state Undo failed");
-        std::cout<<"Original transition edge/face/point attachment: create, edit, save/reopen and cold regeneration passed\n";
+        std::cout<<"Current transition edge/face/point attachment: create, edit, save/reopen and cold regeneration passed\n";
         check(workspace::step_part_document_history(live,id,false),"Attached source edit Undo failed");
         check(workspace::step_part_document_history(live,id,false)&&!state->session.document().find_container(bend.id),"Bend attachment Undo failed");
     }

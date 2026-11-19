@@ -186,7 +186,8 @@ public:
         double boolean_tolerance,double mesh_deflection,
         const std::string& source_fingerprint = {},
         std::span<const std::string> history_fingerprints = {},
-        bool publish_result = true) const;
+        bool publish_result = true,
+        const std::map<std::string,std::string>& sheet_branches = {}) const;
     // Completes one contiguous set of independent subtractive tools with one
     // exact Cut while retaining authored topology ancestry. Experimental: it
     // does not alter ordinary history evaluation or native persistence.
@@ -196,7 +197,8 @@ public:
         std::span<const std::string> history_owners,
         double boolean_tolerance,double mesh_deflection,
         const std::string& source_fingerprint = {},
-        bool publish_result = true) const;
+        bool publish_result = true,
+        const std::map<std::string,std::string>& sheet_branches = {}) const;
     [[nodiscard]] SolidStraighteningPlan prepare_straightening(
         const RevolutionRequest& source, double coefficient = 1.0) const;
     [[nodiscard]] SolidStraighteningPlan prepare_straightening(

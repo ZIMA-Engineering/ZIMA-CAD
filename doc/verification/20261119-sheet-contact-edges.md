@@ -1,6 +1,8 @@
 # Sheet contact edges and Profile controls — 2026-11-19
 
-Status: local native and hidden GUI acceptance passed; portable acceptance pending.
+Status: earlier bounded checks passed, but release is blocked by the subsequently
+saved 18.prtz touching-branch failure. Those checks do not establish independent
+branches. See `../SHEET_BRANCH_TEST_CONTRACT.md` for the mandatory wider gates.
 
 ## Cause and bounded changes
 

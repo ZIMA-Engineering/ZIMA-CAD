@@ -35,6 +35,7 @@
 #include <zima/kernel/feature_side_identity.hpp>
 #include <zima/kernel/profile_centerlines.hpp>
 #include <zima/kernel/sheet_material.hpp>
+#include <zima/kernel/sheet_branch.hpp>
 #include <zima/kernel/feature_rotation_direction.hpp>
 #include <zima/kernel/boolean_face_ancestry.hpp>
 #include <zima/document/cache_storage.hpp>
@@ -12416,8 +12417,10 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
                 ? std::min(boolean_tolerance,operation.boolean_tolerance) : boolean_tolerance;
             if (!local.contains(operation.owner_id)) operation.mesh_deflection = mesh_deflection;
         }
+        kernel::sheet_branch::assign(compiled);
         return compiled;
     }
+    kernel::sheet_branch::assign(operations);
     return operations;
 }
 

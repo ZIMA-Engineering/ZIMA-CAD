@@ -37,6 +37,28 @@ def git(repo, *args):
     return run(['git', '-C', repo, *args], stdout=subprocess.PIPE).stdout
 
 
+def sheet_branch_gate(ctest, build, stage, env):
+    tests = json.loads(run([ctest, '--test-dir', build, '-L', '^sheet-branch$',
+        '--show-only=json-v1'], stdout=subprocess.PIPE).stdout)['tests']
+    names = {test['name'] for test in tests}
+    required = {'zima_cpp_sheet_branch_' + case for case in (
+        'separated', 'point-contact', 'edge-contact', 'face-contact', 'overlap', 'contained', 'common-parent', 'line-bend', 'gui')}
+    required.update(('zima_cpp_sheet_exchange_tests', 'zima_cpp_sheet_transition_command_tests'))
+    missing = required - names
+    if missing:
+        raise ValueError('Mandatory sheet branch tests are missing: ' + ', '.join(sorted(missing)))
+    log = stage / 'sheet-branch-tests.log'
+    try:
+        result = run([ctest, '--test-dir', build, '-L', '^sheet-branch$',
+            '--output-on-failure', '--no-tests=error'], env=env,
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    except subprocess.CalledProcessError as error:
+        log.write_bytes(error.stdout or b'')
+        raise
+    log.write_bytes(result.stdout)
+    return dict(result='passed', tests=sorted(names), log_sha256=sha(log))
+
+
 def msvc_include_prefix(output):
     text = output.decode('utf-8')
     match = re.search(r'^([^\r\n]+?:[ \t]+)(?=[A-Za-z]:[\\/])', text, re.M)
@@ -488,12 +510,18 @@ def package(args):
     compiler_prefix = probe_msvc_include_prefix(stage)
     qt_options = ['-DZIMA_QT_SDK_ROOT=' + str(args.qt_sdk.resolve())] if args.qt_sdk else []
     run([args.cmake, '-S', source / 'cpp', '-B', build, '-G', 'Ninja',
-         '-DCMAKE_BUILD_TYPE=Release', '-DZIMA_BUILD_TESTS=OFF', '-DZIMA_SOURCE_COMMIT=' + commit,
+         '-DCMAKE_BUILD_TYPE=Release', '-DZIMA_BUILD_TESTS=ON', '-DZIMA_SOURCE_COMMIT=' + commit,
          '-DZIMA_MSVC_SHOWINCLUDES_PREFIX=' + compiler_prefix,
          '-DCMAKE_TOOLCHAIN_FILE=' + str(args.toolchain.resolve()),
          '-DVCPKG_MANIFEST_INSTALL=OFF',
          '-DVCPKG_INSTALLED_DIR=' + str(args.installed.resolve().parent), '-DVCPKG_TARGET_TRIPLET=x64-windows', *qt_options])
-    run([args.cmake, '--build', build, '--target', 'zima-cad-cpp', 'zima-cad-cli', 'zima-cad-launcher', 'zima-cad-update', '--parallel', str(args.jobs)])
+    run([args.cmake, '--build', build, '--target', 'zima-cad-cpp', 'zima-cad-cli', 'zima-cad-launcher', 'zima-cad-update',
+         'zima_cpp_sheet_branch_tests', 'zima_cpp_sheet_exchange_tests',
+         'zima_cpp_sheet_transition_command_tests', '--parallel', str(args.jobs)])
+    ctest = Path(args.cmake).with_name('ctest.exe')
+    # Execute the committed tests against the same freshly built native code.
+    # A failure stops packaging before a candidate archive is created.
+    branch_acceptance = sheet_branch_gate(ctest, build, stage, clean_environment(build))
     assembly = Path(tempfile.mkdtemp(prefix='p-', dir=stage))
     root = assembly / 'ZIMA-CAD'; runtime = root / 'windows' / version
     runtime.mkdir(parents=True)
@@ -555,6 +583,7 @@ def package(args):
         raise ValueError('Final archive copy differs')
     write_json(output / (archive.stem + '.validation.json'), {'archive': archive.name, 'sha256': digest,
         'commit': commit, 'version': version, 'windows_smoke': 'passed', 'linux_smoke': 'not-run', 'signed': False,
+        'sheet_branch_tests': branch_acceptance,
         **smoke_result})
     print('Validated candidate:', archive)
 

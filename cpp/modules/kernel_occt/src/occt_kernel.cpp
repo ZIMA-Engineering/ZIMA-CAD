@@ -48,6 +48,7 @@
 #include <BRepGProp_VinertGK.hxx>
 #include <BRepGProp_Vinert.hxx>
 #include <future>
+#include <mutex>
 #include <numeric>
 #include <atomic>
 #include <thread>
@@ -185,6 +186,7 @@
 #include <NCollection_Array2.hxx>
 #include <NCollection_HArray1.hxx>
 #include <zima/kernel/sheet_material.hpp>
+#include <zima/kernel/sheet_branch.hpp>
 #include <GeomConvert_SurfToAnaSurf.hxx>
 #include <GeomAdaptor_Surface.hxx>
 #include <GeomAPI_ProjectPointOnSurf.hxx>
@@ -4172,6 +4174,7 @@ Sweep3DRequest expand_profile_twist(const Sweep3DRequest& source,
 #include "sheet_cut_clearance.inc"
 #include "sheet_state_geometry.inc"
 #include "sheet_rip_geometry.inc"
+#include "sheet_branch_geometry.inc"
 #include "sheet_state_sources.inc"
 
 PrimitiveData select_sheet_clearance_projection(const TopoDS_Face& face,
@@ -8240,7 +8243,8 @@ BodyResult OcctKernel::calculate_add_block(const BodyResult& input,
         double boolean_tolerance,double mesh_deflection,
         const std::string& source_fingerprint,
         std::span<const std::string> history_fingerprints,
-        bool publish_result) const {
+        bool publish_result,
+        const std::map<std::string,std::string>& sheet_branches) const {
     if(tools.empty()||tools.size()!=tool_history_indices.size())
         throw std::invalid_argument(
             "Add block requires one history index per tool");
@@ -8375,7 +8379,14 @@ BodyResult OcctKernel::calculate_add_block(const BodyResult& input,
         operands.push_back(boundary_operand(tools[index],
             tool_history_indices[index]));
     }
-    const auto batch_fuse_boundary=[&] {
+    const auto batch_fuse_boundary=[&](const std::vector<OcctBoundarySolid>& operands) {
+        if(operands.size()==1) {
+            OcctBoundaryUnion result;result.shape=operands.front().shape;
+            for(const auto& face:operands.front().faces)result.faces.push_back({face.shape,face.references,face.history_index});
+            for(const auto& edge:operands.front().edges)result.edges.push_back({edge.shape,edge.references,edge.history_index});
+            for(const auto& vertex:operands.front().vertices)result.vertices.push_back({vertex.shape,vertex.references,vertex.history_index});
+            return result;
+        }
         std::vector<OwnedFace> source_faces;
         std::vector<OwnedEdge> source_edges;
         std::vector<OwnedVertex> source_vertices;
@@ -8397,6 +8408,7 @@ BodyResult OcctKernel::calculate_add_block(const BodyResult& input,
         BRepAlgoAPI_Fuse fuse;
         fuse.SetArguments(arguments);
         fuse.SetTools(fuse_tools);
+        if(!sheet_branches.empty())fuse.SetNonDestructive(true);
         fuse.SetRunParallel(true);
         fuse.SetToFillHistory(true);
         fuse.SetFuzzyValue(std::max(1.0e-7,boolean_tolerance));
@@ -8472,10 +8484,57 @@ BodyResult OcctKernel::calculate_add_block(const BodyResult& input,
                 "Batch Add Fuse lost authored face ancestry");
         return result;
     };
-    const auto boundary=std::getenv("ZIMA_CPP_DISABLE_DIRECT_BATCH_FUSE")
-        ?occt_boundary_union(operands,
-            std::max(1.0e-7,boolean_tolerance))
-        :batch_fuse_boundary();
+    const auto fuse_group=[&](const std::vector<OcctBoundarySolid>& group) {
+        return std::getenv("ZIMA_CPP_DISABLE_DIRECT_BATCH_FUSE")
+            ?occt_boundary_union(group,std::max(1.0e-7,boolean_tolerance))
+            :batch_fuse_boundary(group);
+    };
+    const auto boundary=[&] {
+        if(sheet_branches.empty())return fuse_group(operands);
+        std::map<std::string,std::vector<OcctBoundarySolid>> grouped;
+        for(const auto& operand:operands) {
+            const auto split=[&](const TopoDS_Shape& shape) {
+                NCollection_IndexedMap<TopoDS_Shape,TopTools_ShapeMapHasher> members;
+                TopExp::MapShapes(shape,members);
+                OcctBoundarySolid piece;piece.shape=shape;
+                const auto select=[&](auto& target,const auto& source) {
+                    for(const auto& value:source)if(members.Contains(value.shape))target.push_back(value);
+                };
+                select(piece.faces,operand.faces);select(piece.edges,operand.edges);select(piece.vertices,operand.vertices);
+                std::set<std::string> owners;
+                for(const auto& face:piece.faces)for(const auto& ref:face.references)
+                    if(const auto found=sheet_branches.find(ref.sheet_owner);found!=sheet_branches.end())owners.insert(found->second);
+                if(owners.size()>1)throw std::runtime_error("Cannot retain the authored sheet material change.");
+                grouped[owners.empty()?std::string{}:*owners.begin()].push_back(std::move(piece));
+            };
+            for(TopExp_Explorer it(operand.shape,TopAbs_SOLID);it.More();it.Next())split(it.Current());
+        }
+        std::vector<const std::vector<OcctBoundarySolid>*> groups;
+        for(const auto& [owner,group]:grouped)groups.push_back(&group);
+        std::vector<OcctBoundaryUnion> ready(groups.size());
+        std::atomic_size_t next{};
+        const auto workers=std::min<std::size_t>(8,std::min<std::size_t>(groups.size(),
+            std::max(2u,std::thread::hardware_concurrency())));
+        std::vector<std::future<void>> jobs;
+        for(std::size_t worker=0;worker<workers;++worker)
+            jobs.push_back(std::async(std::launch::async,[&] {
+                while(true) {
+                    const auto index=next.fetch_add(1);if(index>=groups.size())break;
+                    parallel_sheet_branch_jobs.fetch_add(1,std::memory_order_relaxed);
+                    ready[index]=fuse_group(*groups[index]);
+                }
+            }));
+        for(auto& job:jobs)job.get();
+        OcctBoundaryUnion result;TopoDS_Compound shape;BRep_Builder builder;builder.MakeCompound(shape);
+        for(auto& value:ready) {
+            builder.Add(shape,value.shape);
+            result.faces.insert(result.faces.end(),value.faces.begin(),value.faces.end());
+            result.edges.insert(result.edges.end(),value.edges.begin(),value.edges.end());
+            result.vertices.insert(result.vertices.end(),value.vertices.begin(),value.vertices.end());
+        }
+        result.shape=shape;
+        return result;
+    }();
     const auto named=occt_boundary_named_topology(boundary,history_owners,
         std::max(1.0e-7,boolean_tolerance));
     std::vector<OwnedFace> faces;
@@ -8630,7 +8689,8 @@ BodyResult OcctKernel::calculate_subtract_block(const BodyResult& input,
         std::span<const std::string> history_owners,
         double boolean_tolerance,double mesh_deflection,
         const std::string& source_fingerprint,
-        bool publish_result) const {
+        bool publish_result,
+        const std::map<std::string,std::string>& sheet_branches) const {
     if(tools.empty()||tools.size()!=tool_history_indices.size())
         throw std::invalid_argument(
             "Subtract block requires one history index per tool");
@@ -8686,8 +8746,7 @@ BodyResult OcctKernel::calculate_subtract_block(const BodyResult& input,
     };
 
     auto target=block_geometry(input);
-    NCollection_List<TopoDS_Shape> arguments,cut_shapes;
-    arguments.Append(target.shape);
+    NCollection_List<TopoDS_Shape> cut_shapes;
     std::vector<PrimitiveData> operands;
     operands.reserve(tools.size());
     for(const auto& tool:tools) {
@@ -8701,18 +8760,6 @@ BodyResult OcctKernel::calculate_subtract_block(const BodyResult& input,
         operands.push_back(block_geometry(tool));
         cut_shapes.Append(operands.back().shape);
     }
-    BRepAlgoAPI_BooleanOperation cut;
-    cut.SetOperation(BOPAlgo_CUT);
-    cut.SetArguments(arguments);
-    cut.SetTools(cut_shapes);
-    cut.SetRunParallel(true);
-    cut.SetToFillHistory(true);
-    cut.SetFuzzyValue(std::max(1.0e-7,boolean_tolerance));
-    cut.Build();
-    if(!cut.IsDone()||cut.Shape().IsNull()||
-       !BRepCheck_Analyzer(cut.Shape(),true,true,false).IsValid())
-        throw std::runtime_error("OCCT subtract block failed");
-
     std::vector<OwnedFace> tool_faces;
     std::vector<OwnedEdge> tool_edges;
     std::vector<OwnedVertex> tool_vertices;
@@ -8724,15 +8771,47 @@ BodyResult OcctKernel::calculate_subtract_block(const BodyResult& input,
         tool_vertices.insert(tool_vertices.end(),operand.vertices.begin(),
             operand.vertices.end());
     }
-    const auto propagated_faces=propagate_topology(cut,target.faces,
-        tool_faces);
-    const auto propagated_edges=propagate_topology(cut,target.edges,
-        tool_edges);
-    const auto propagated_vertices=propagate_topology(cut,target.vertices,
-        tool_vertices);
+    const auto trim=[&](const PrimitiveData& piece) {
+        NCollection_List<TopoDS_Shape> arguments;arguments.Append(piece.shape);
+        BRepAlgoAPI_BooleanOperation cut;cut.SetOperation(BOPAlgo_CUT);
+        cut.SetArguments(arguments);cut.SetTools(cut_shapes);
+        cut.SetNonDestructive(true);cut.SetRunParallel(true);cut.SetToFillHistory(true);
+        cut.SetFuzzyValue(std::max(1.0e-7,boolean_tolerance));cut.Build();
+        if(!cut.IsDone()||cut.Shape().IsNull()||
+                !BRepCheck_Analyzer(cut.Shape(),true,true,false).IsValid())
+            throw std::runtime_error("OCCT subtract block failed");
+        PrimitiveData result;result.shape=cut.Shape();
+        result.faces=propagate_topology(cut,piece.faces,tool_faces);
+        result.edges=propagate_topology(cut,piece.edges,tool_edges);
+        result.vertices=propagate_topology(cut,piece.vertices,tool_vertices);
+        return result;
+    };
+    const auto trimmed=[&] {
+        if(sheet_branches.empty())return trim(target);
+        const auto partitions=sheet_branch_geometry::partition(target,sheet_branches);
+        std::vector<const PrimitiveData*> pieces;
+        for(const auto& [branch,piece]:partitions)pieces.push_back(&piece);
+        std::vector<PrimitiveData> ready(pieces.size());std::atomic_size_t next{};
+        std::vector<std::future<void>> jobs;
+        const auto workers=std::min<std::size_t>(8,std::min<std::size_t>(pieces.size(),
+            std::max(2u,std::thread::hardware_concurrency())));
+        for(std::size_t worker=0;worker<workers;++worker)
+            jobs.push_back(std::async(std::launch::async,[&] {
+                while(true) {
+                    const auto index=next.fetch_add(1);if(index>=pieces.size())break;
+                    parallel_sheet_branch_jobs.fetch_add(1,std::memory_order_relaxed);
+                    ready[index]=trim(*pieces[index]);
+                }
+            }));
+        for(auto& job:jobs)job.get();
+        return sheet_branch_geometry::compound(ready);
+    }();
+    const auto& propagated_faces=trimmed.faces;
+    const auto& propagated_edges=trimmed.edges;
+    const auto& propagated_vertices=trimmed.vertices;
 
     OcctBoundaryUnion boundary;
-    boundary.shape=cut.Shape();
+    boundary.shape=trimmed.shape;
     NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> actual_faces,actual_edges,actual_vertices;
     TopExp::MapShapes(boundary.shape,TopAbs_FACE,actual_faces);
     TopExp::MapShapes(boundary.shape,TopAbs_EDGE,actual_edges);
@@ -8830,7 +8909,10 @@ BodyResult OcctKernel::calculate_subtract_block(const BodyResult& input,
             aggregate_property_demand==AggregatePropertyDemand::All||
             aggregate_property_demand==AggregatePropertyDemand::Final||
             aggregate_property_demand==AggregatePropertyDemand::DeferredAdaptive;
-        result=make_result(boundary.shape,faces,edges,vertices,false,true,
+        // Publish the exact named cut boundary, as in the direct Add path.
+        // Dropping its references makes surviving branch skins and edges
+        // unselectable even though the calculated solid is correct.
+        result=make_result(boundary.shape,faces,edges,vertices,true,true,
             false,{},mesh_deflection,calculate_properties);
     } else {
         // See calculate_add_block(): this is a calculated native boundary,
@@ -10305,6 +10387,10 @@ std::vector<BodyResult> OcctKernel::evaluate_history_recovering(
     const std::vector<HistoryOperation>& operations,
     const std::vector<BodyResult>& previous_boundaries,
     const HistoryOutputPolicy& output_policy) const {
+    if(sheet_branch::unassigned(operations)) {
+        auto prepared=operations;sheet_branch::assign(prepared);
+        return evaluate_history_recovering(prepared,previous_boundaries,output_policy);
+    }
     if (operations.empty()) return {};
     if (std::ranges::any_of(operations, [](const auto& operation) {
             return !(operation.body == BodyHistoryScope{});
@@ -11000,6 +11086,10 @@ std::vector<BodyResult> OcctKernel::evaluate_body_histories(
 std::vector<BodyResult> OcctKernel::evaluate_history_incremental(
     const std::vector<HistoryOperation>& operations,
     const std::vector<BodyResult>& previous_boundaries) const {
+    if(sheet_branch::unassigned(operations)) {
+        auto prepared=operations;sheet_branch::assign(prepared);
+        return evaluate_history_incremental(prepared,previous_boundaries);
+    }
     if (operations.empty()) return {};
     if (std::any_of(operations.begin(), operations.end(), [](const auto& operation) {
             return !(operation.body == BodyHistoryScope{});
@@ -11021,6 +11111,10 @@ OcctKernel::evaluate_flat_history_batched(
         const std::vector<HistoryOperation>& operations,
         const std::vector<BodyResult>& previous_boundaries,
         HistoryContext& context) const {
+    const auto branch_owners=sheet_branch::owners(operations);
+    std::set<std::string> sheet_branches;
+    for(const auto& [owner,branch]:branch_owners)sheet_branches.insert(branch);
+    const std::map<std::string,std::string> no_branches;
     if(operations.size()<2||!context.final_boundary_first||
        context.preview_wire||context.direct_batch_active||
        aggregate_property_demand==AggregatePropertyDemand::All)
@@ -11415,11 +11509,13 @@ OcctKernel::evaluate_flat_history_batched(
             ?calculate_subtract_block(input,tools,tool_indices,
                 history_owners,tolerance,
                 operations[end-1].mesh_deflection,
-                prefix_fingerprints[end-1],publish)
+                prefix_fingerprints[end-1],publish,
+                sheet_branches.size()>1?branch_owners:no_branches)
             :calculate_add_block(input,tools,tool_indices,
                 history_owners,tolerance,
                 operations[end-1].mesh_deflection,
-                prefix_fingerprints[end-1],prefix_fingerprints,publish);
+                prefix_fingerprints[end-1],prefix_fingerprints,publish,
+                sheet_branches.size()>1?branch_owners:no_branches);
         const auto union_ms=elapsed_ms(union_start);
         if(!subtract_block&&std::ranges::all_of(tool_indices,
                 [&](const auto tool_index) {
@@ -11486,17 +11582,22 @@ OcctKernel::evaluate_flat_history_batched(
                 auto material=authored_tools[tool];
                 const auto& definition=
                     *operations[operation_index].sheet_material;
-                if(!definition.parent_owner_id.empty()) {
+                const auto parent_branch=branch_owners.find(definition.parent_owner_id);
+                if(!definition.parent_owner_id.empty()&&parent_branch!=branch_owners.end()&&
+                        parent_branch->second==definition.branch_owner_id) {
                     const auto parent=authored_owners.find(
                         definition.parent_owner_id);
                     if(parent!=authored_owners.end())
                         material=sheet_state_sources::difference(material,
                             authored_tools[parent->second],
                             operations[operation_index].owner_id);
-                    else if(!input_geometry.shape.IsNull())
-                        material=sheet_state_sources::difference(material,
-                            input_geometry,
-                            operations[operation_index].owner_id);
+                    else if(!input_geometry.shape.IsNull()) {
+                        const auto partitions=sheet_branch_geometry::partition(input_geometry,branch_owners);
+                        const auto branch=partitions.find(definition.branch_owner_id);
+                        if(branch!=partitions.end())
+                            material=sheet_state_sources::difference(material,branch->second,
+                                operations[operation_index].owner_id);
+                    }
                     else complete=false;
                 }
                 if(!complete)break;
@@ -11664,6 +11765,10 @@ OcctKernel::evaluate_flat_history_batched(
 std::vector<BodyResult> OcctKernel::evaluate_flat_history(
     const std::vector<HistoryOperation>& operations,
     const std::vector<BodyResult>& previous_boundaries,HistoryContext& context) const {
+    const auto sheet_branch_owners=sheet_branch::owners(operations);
+    std::set<std::string> sheet_branch_ids;
+    for(const auto& [owner,branch]:sheet_branch_owners)sheet_branch_ids.insert(branch);
+    const bool independent_sheet_branches=sheet_branch_ids.size()>1;
     body_calculation_count.fetch_add(1,std::memory_order_relaxed);
     context.original_faces.reset();
     context.source_solids.clear();
@@ -11869,7 +11974,20 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                 PrimitiveData output;output.shape=shape;output.faces=topology->faces;
                 output.edges=topology->edges;output.vertices=topology->vertices;
                 const auto regions=sheet_material::regions_before(operations,current_operation+1);
-                if(form_operands) {
+                if(std::holds_alternative<LineBendRequest>(operations[current_operation].primitive)&&
+                        !operations[current_operation].sheet_regions.empty()) {
+                    // Line Bend replaces material rather than adding a new
+                    // operand. Retain each complete deformed branch as an
+                    // immutable snapshot; spatial difference against the old
+                    // body would erase overlapping branch contributions.
+                    sheet_sources={};
+                    for(auto& [branch,piece]:sheet_branch_geometry::partition(output,sheet_branch_owners)) {
+                        sheet_state_sources::Contribution source{std::move(piece),regions.regions,
+                            BooleanOperation::Add,sheet_sources};
+                        source.branch_owner=branch;
+                        sheet_sources=std::make_shared<sheet_state_sources::Contribution>(std::move(source));
+                    }
+                } else if(form_operands) {
                     sheet_sources=sheet_state_sources::capture_form(sheet_sources,sheet_input,
                         form_operands->cut,form_operands->flat,form_operands->formed,regions.regions,operations[current_operation]);
                 } else if(!copied_form_operands.empty()) {
@@ -11895,7 +12013,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                         // Each child retains its own material domain, including
                         // the ownership needed for enclosed cuts before unfolding.
                         sheet_sources=sheet_state_sources::capture(sheet_sources,sheet_input,group_inputs[i],
-                            regions.regions,child,sheet_state_tolerance,material_tolerance);
+                            regions.regions,child,sheet_state_tolerance,material_tolerance,&group_inputs[i]);
                     }
                 }
             }
@@ -15259,8 +15377,30 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                 [&] {
                     PrimitiveData input{result_shape,owned_topology->faces,
                         owned_topology->edges,owned_topology->vertices};
-                    auto changed=sheet_state_geometry::line_bend(input,
-                        *line_bend,operation.owner_id);
+                    PrimitiveData changed;
+                    if(operation.sheet_regions.empty())
+                        changed=sheet_state_geometry::line_bend(input,
+                            *line_bend,operation.owner_id);
+                    else {
+                        auto branches=sheet_branch_geometry::partition(input,sheet_branch_owners);
+                        std::vector<PrimitiveData> results(operation.sheet_regions.size());
+                        std::atomic_size_t next{};
+                        std::vector<std::future<void>> jobs;
+                        const auto workers=std::min<std::size_t>(8,std::min<std::size_t>(results.size(),
+                            std::max(2u,std::thread::hardware_concurrency())));
+                        for(std::size_t worker=0;worker<workers;++worker)
+                            jobs.push_back(std::async(std::launch::async,[&] {
+                                while(true) {
+                                    const auto index=next.fetch_add(1);if(index>=results.size())break;
+                                    const auto& region=operation.sheet_regions[index];
+                                    parallel_sheet_branch_jobs.fetch_add(1,std::memory_order_relaxed);
+                                    results[index]=sheet_state_geometry::line_bend(branches.at(region.branch_owner_id),
+                                        *line_bend,region.owner_id);
+                                }
+                            }));
+                        for(auto& job:jobs)job.get();
+                        changed=sheet_branch_geometry::compound(results);
+                    }
                     sheet_state_geometry::identify_feature(changed,
                         operation.owner_id);
                     ViewerAxis axis;
@@ -16934,6 +17074,26 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                             continue;
                         }
                         if(context.preview_wire)continue; // Authored children are displayed separately.
+                        if(independent_sheet_branches&&!operation.sheet_regions.empty()) {
+                            const auto join=[&](const PrimitiveData& a,const PrimitiveData& b) {
+                                BRepAlgoAPI_Fuse fuse;set_boolean_inputs(fuse,a.shape,b.shape);
+                                fuse.SetNonDestructive(true);fuse.SetToFillHistory(true);
+                                fuse.SetFuzzyValue(std::max(1.0e-7,operation.boolean_tolerance));fuse.Build();
+                                if(!fuse.IsDone()||fuse.Shape().IsNull()||!BRepCheck_Analyzer(fuse.Shape()).IsValid())
+                                    throw std::runtime_error("OCCT feature-group fuse failed");
+                                PrimitiveData result;result.shape=fuse.Shape();
+                                result.faces=propagate_topology(fuse,a.faces,b.faces);
+                                result.edges=propagate_topology(fuse,a.edges,b.edges);
+                                result.vertices=propagate_topology(fuse,a.vertices,b.vertices);
+                                return result;
+                            };
+                            auto result=sheet_branch_geometry::add(*grouped,child_data,sheet_branch_owners,join);
+                            result.source_caps=std::move(grouped->source_caps);
+                            result.source_caps.insert(result.source_caps.end(),child_data.source_caps.begin(),child_data.source_caps.end());
+                            result.profile_references=std::move(grouped->profile_references);
+                            append_reference_geometry(result.profile_references,std::move(child_data.profile_references));
+                            grouped=std::move(result);continue;
+                        }
                         BRepAlgoAPI_Fuse fuse;
                         set_boolean_inputs(fuse, grouped->shape, child_data.shape);
                         fuse.SetToFillHistory(true);
@@ -16962,6 +17122,17 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
 
                     }
                     if(!grouped)grouped.emplace();
+                    if(!operation.sheet_regions.empty()&&!context.preview_wire&&!grouped->shape.IsNull()) {
+                        // Joining authored panels can create new rim vertices.
+                        // Complete their ancestry before publishing this sheet
+                        // group's current boundary for downstream attachments.
+                        grouped->faces=complete_boolean_faces(grouped->shape,grouped->faces,
+                            grouped->edges,grouped->vertices,operation.owner_id,"add",operations);
+                        grouped->edges=complete_boolean_edges(grouped->shape,grouped->faces,
+                            grouped->edges,operation.owner_id,"add");
+                        grouped->vertices=complete_boolean_vertices(grouped->shape,grouped->faces,
+                            grouped->edges,grouped->vertices,operation.owner_id,"add");
+                    }
                     grouped->profile_references.points.insert(grouped->profile_references.points.end(),
                         primitive.reference_points.begin(),primitive.reference_points.end());
                     for(const auto& plane:primitive.reference_planes) {
@@ -17065,7 +17236,14 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                             cut_topology.hidden_display_edges.push_back(edge);
                     return algorithm.Shape();
                 };
-                if(solids&&surfaces) {
+                if(independent_sheet_branches) {
+                    // A cut acts on every current branch independently. A
+                    // compound Boolean can otherwise repartition contacting
+                    // input solids before applying its tool.
+                    for(TopExp_Explorer it(result_shape,TopAbs_SOLID);it.More();it.Next())trim(it.Current());
+                    if(surfaces)trim(surface_input);
+                    result_shape=combined;
+                } else if(solids&&surfaces) {
                     trim(solid_input);trim(surface_input);result_shape=combined;
                 } else result_shape=trim(result_shape);
                 cut_topology.faces=complete_boolean_faces(result_shape,
@@ -17398,6 +17576,36 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                 append_original_reference_geometry(original_references,std::move(cap_mesh));
             }
             operation_phase("reference-packets");
+            PrimitiveData passive_sheet_branches;
+            std::vector<TopoDS_Shape> passive_sheet_hidden_edges;
+            std::string added_sheet_branch;
+            bool multiple_added_sheet_branches=false;
+            if(operation.sheet_material&&operation.sheet_material->kind!=SheetMaterialDefinition::Kind::Form)
+                added_sheet_branch=operation.sheet_material->branch_owner_id;
+            else if(!operation.sheet_regions.empty()) {
+                added_sheet_branch=operation.sheet_regions.front().branch_owner_id;
+                multiple_added_sheet_branches=std::ranges::any_of(operation.sheet_regions,
+                    [&](const auto& region){return region.branch_owner_id!=added_sheet_branch;});
+            }
+            if(independent_sheet_branches&&!multiple_added_sheet_branches&&!added_sheet_branch.empty()&&
+                    feature_copy_operation==BooleanOperation::Add&&!operation.replaces_body&&
+                    !reference_only&&!operand.empty_material_operand&&!result_shape.IsNull()) {
+                PrimitiveData input;input.shape=result_shape;input.faces=owned_topology->faces;
+                input.edges=owned_topology->edges;input.vertices=owned_topology->vertices;
+                auto partitions=sheet_branch_geometry::partition(input,sheet_branch_owners);
+                auto active=std::move(partitions[added_sheet_branch]);partitions.erase(added_sheet_branch);
+                std::vector<PrimitiveData> passive;
+                for(auto& [owner,piece]:partitions)passive.push_back(std::move(piece));
+                passive_sheet_branches=sheet_branch_geometry::compound(passive);
+                NCollection_IndexedMap<TopoDS_Shape,TopTools_ShapeMapHasher> active_members;
+                if(!active.shape.IsNull())TopExp::MapShapes(active.shape,active_members);
+                auto active_topology=std::make_shared<LiveCache::Topology>();
+                active_topology->faces=std::move(active.faces);active_topology->edges=std::move(active.edges);
+                active_topology->vertices=std::move(active.vertices);
+                for(const auto& edge:owned_topology->hidden_display_edges)
+                    (active_members.Contains(edge)?active_topology->hidden_display_edges:passive_sheet_hidden_edges).push_back(edge);
+                result_shape=active.shape;owned_topology=std::move(active_topology);
+            }
             if(reference_only || operand.empty_material_operand) {
                 // Reference-only history boundaries leave material untouched.
             } else if (result_shape.IsNull() &&
@@ -17429,6 +17637,35 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                     combined_topology->vertices.end(), operand.vertices.begin(),
                     operand.vertices.end());
                 owned_topology = std::move(combined_topology);
+            } else if (feature_copy_operation == BooleanOperation::Add&&multiple_added_sheet_branches) {
+                PrimitiveData input;input.shape=result_shape;input.faces=owned_topology->faces;
+                input.edges=owned_topology->edges;input.vertices=owned_topology->vertices;
+                std::mutex hidden_mutex;std::vector<TopoDS_Shape> joined_hidden;
+                const auto join=[&](const PrimitiveData& a,const PrimitiveData& b) {
+                    BRepAlgoAPI_Fuse fuse;set_boolean_inputs(fuse,a.shape,b.shape);
+                    fuse.SetNonDestructive(true);fuse.SetToFillHistory(true);
+                    fuse.SetFuzzyValue(std::max(1.0e-7,operation.boolean_tolerance));fuse.Build();
+                    if(!fuse.IsDone()||fuse.Shape().IsNull())throw std::runtime_error("OCCT fuse failed");
+                    auto unified=unify_preserving_face_provenance(fuse.Shape(),
+                        propagate_topology(fuse,a.faces,b.faces),propagate_topology(fuse,a.edges,b.edges),
+                        propagate_topology(fuse,a.vertices,b.vertices),std::max(1.0e-7,operation.boolean_tolerance),true);
+                    if(!unified.validated&&!BRepCheck_Analyzer(unified.shape,true,true,false).IsValid())
+                        throw std::runtime_error("OCCT fuse failed");
+                    PrimitiveData value;value.shape=std::move(unified.shape);
+                    value.faces=complete_boolean_faces(value.shape,unified.faces,unified.edges,unified.vertices,operation.owner_id,"add",operations);
+                    value.edges=complete_boolean_edges(value.shape,value.faces,unified.edges,operation.owner_id,"add");
+                    value.vertices=complete_boolean_vertices(value.shape,value.faces,value.edges,unified.vertices,operation.owner_id,"add");
+                    {std::lock_guard lock(hidden_mutex);
+                        joined_hidden.insert(joined_hidden.end(),unified.hidden_display_edges.begin(),unified.hidden_display_edges.end());}
+                    return value;
+                };
+                auto combined=sheet_branch_geometry::add(input,operand,sheet_branch_owners,join);
+                result_shape=combined.shape;
+                auto topology=std::make_shared<LiveCache::Topology>(*owned_topology);
+                topology->faces=std::move(combined.faces);topology->edges=std::move(combined.edges);
+                topology->vertices=std::move(combined.vertices);
+                topology->hidden_display_edges.insert(topology->hidden_display_edges.end(),joined_hidden.begin(),joined_hidden.end());
+                owned_topology=std::move(topology);
             } else if (feature_copy_operation == BooleanOperation::Add) {
                 BRepAlgoAPI_Fuse algorithm;
                 TopoDS_Compound solid_input,surface_input;BRep_Builder split_builder;
@@ -17520,6 +17757,18 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                 apply_subtract_operand(operand);
             }
             operation_phase("body-boolean");
+            if(!passive_sheet_branches.shape.IsNull()) {
+                PrimitiveData active;active.shape=result_shape;active.faces=owned_topology->faces;
+                active.edges=owned_topology->edges;active.vertices=owned_topology->vertices;
+                auto combined=sheet_branch_geometry::compound({passive_sheet_branches,active});
+                result_shape=combined.shape;
+                auto topology=std::make_shared<LiveCache::Topology>(*owned_topology);
+                topology->faces=std::move(combined.faces);topology->edges=std::move(combined.edges);
+                topology->vertices=std::move(combined.vertices);
+                topology->hidden_display_edges.insert(topology->hidden_display_edges.end(),
+                    passive_sheet_hidden_edges.begin(),passive_sheet_hidden_edges.end());
+                owned_topology=std::move(topology);
+            }
             if (reference_only) {
                 auto retained = boundaries.empty()?BodyResult{}:boundaries.back();
                 // A preceding final-first packet may intentionally have no

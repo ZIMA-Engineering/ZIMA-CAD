@@ -1,4 +1,5 @@
 #include <zima/kernel/geometry_kernel.hpp>
+#include <zima/kernel/sheet_branch.hpp>
 namespace zima::kernel {
 namespace {
 // Each prefix starts with its own count. Encode each operation once and feed
@@ -74,6 +75,8 @@ std::string encode_history_fingerprint(
             for(double v:{material.radius,material.neutral_radius,material.angle,material.thickness,material.continuation,material.cone_half_angle,material.thickness_sign})
                 u64(std::bit_cast<std::uint64_t>(v));
             byte(material.unfolded);
+            byte(0xbd);u64(material.branch_owner_id.size());
+            for(unsigned char c:material.branch_owner_id)byte(c);
         }
         if(!operation.sheet_regions.empty()) {
             byte(0xeb);u64(operation.sheet_regions.size());
@@ -1048,9 +1051,17 @@ std::string encode_history_fingerprint(
 
 } // namespace
 std::string history_fingerprint(const std::vector<HistoryOperation>& operations,std::size_t count) {
+    if(sheet_branch::unassigned(operations)) {
+        auto prepared=operations;sheet_branch::assign(prepared);
+        return encode_history_fingerprint<false>(prepared,count);
+    }
     return encode_history_fingerprint<false>(operations,count);
 }
 std::vector<std::string> history_fingerprints(const std::vector<HistoryOperation>& operations) {
+    if(sheet_branch::unassigned(operations)) {
+        auto prepared=operations;sheet_branch::assign(prepared);
+        return history_fingerprints(prepared);
+    }
     if(operations.empty())return {history_fingerprint(operations,0)};
     if(operations.size()==1)return {history_fingerprint(operations,0),history_fingerprint(operations,1)};
     FingerprintBatch state;state.hashes.resize(operations.size()+1,1469598103934665603ULL);

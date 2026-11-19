@@ -165,10 +165,14 @@ def main():
     shared.write_json(stage / 'source.json', dict(commit=commit))
     shared.run(['cmake', '-S', source / 'cpp', '-B', build, '-G', 'Ninja', '-U', 'Qt6*_DIR',
                 '-DCMAKE_BUILD_TYPE=Release',
-                '-DZIMA_BUILD_TESTS=OFF', '-DZIMA_SOURCE_COMMIT=' + commit, '-DCMAKE_PREFIX_PATH=' + str(sdk),
+                '-DZIMA_BUILD_TESTS=ON', '-DZIMA_SOURCE_COMMIT=' + commit, '-DCMAKE_PREFIX_PATH=' + str(sdk),
                 '-DZIMA_QT_SDK_ROOT=' + str(qt_sdk),
                 '-DOpenCASCADE_DIR=' + str(sdk / 'lib/cmake/opencascade')])
-    shared.run(['cmake', '--build', build, '--target', 'zima-cad-cpp', 'zima-cad-cli', 'zima-cad-update', '--parallel', str(args.jobs)])
+    shared.run(['cmake', '--build', build, '--target', 'zima-cad-cpp', 'zima-cad-cli', 'zima-cad-update',
+                'zima_cpp_sheet_branch_tests', 'zima_cpp_sheet_exchange_tests',
+                'zima_cpp_sheet_transition_command_tests', '--parallel', str(args.jobs)])
+    branch_env = dict(os.environ, LD_LIBRARY_PATH=os.pathsep.join(map(str, (qt_sdk / 'lib', sdk / 'lib'))))
+    branch_acceptance = shared.sheet_branch_gate('ctest', build, stage, branch_env)
     assembly = Path(tempfile.mkdtemp(prefix='p-', dir=stage)); root = assembly / 'ZIMA-CAD'
     runtime = root / 'linux' / version; (runtime / 'bin').mkdir(parents=True)
     for name in ('zima-cad-cpp', 'zima-cad-cli', 'zima-cad-update'):
@@ -209,6 +213,7 @@ def main():
     if shared.sha(archive) != digest: raise ValueError('Archive copy differs')
     shared.write_json(output / (archive.stem + '.validation.json'), dict(archive=archive.name, sha256=digest,
                       commit=commit, version=version, windows_smoke='not-run', linux_smoke='passed', signed=False,
+                      sheet_branch_tests=branch_acceptance,
                       **smoke_result))
     print('Validated candidate:', archive)
 
