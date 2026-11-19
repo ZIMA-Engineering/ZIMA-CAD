@@ -47,6 +47,8 @@ struct EdgeTreatmentTerminalNode {
 std::vector<EdgeTreatmentTerminalNode> edge_treatment_terminal_nodes(
     const std::vector<EdgeTreatmentPreviewGeometry::TerminalLabel>& labels);
 
+// Orders the complete source route even when optional face guides are absent.
+// Guide availability must not change persisted terminal or linear-R1 identity.
 std::vector<EdgeTreatmentPreviewPath> ordered_edge_treatment_preview_paths(
     std::vector<zima::kernel::ViewerEdge> edges);
 

@@ -220,6 +220,7 @@ add_library(zima_sketcher
     modules/sketcher/src/rectilinear_template_solver.cpp
     modules/sketcher/src/sketch_trim.cpp
     modules/sketcher/src/curve_geometry.cpp
+    modules/sketcher/src/curve_fillet.cpp
     modules/sketcher/src/external_curve_center.cpp
     modules/sketcher/src/sketch_offset.cpp)
 target_include_directories(zima_sketcher PUBLIC modules/sketcher/include modules/symbols/include)
@@ -1344,6 +1345,10 @@ if(ZIMA_BUILD_TESTS)
     target_compile_options(zima_cpp_sketch_serialization_tests PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
     add_test(NAME zima_cpp_sketch_serialization_tests COMMAND zima_cpp_sketch_serialization_tests)
     add_executable(zima_cpp_sketcher_contract_tests tests/sketcher_contract_tests.cpp)
+    add_executable(zima_cpp_curve_fillet_tests tests/curve_fillet_tests.cpp)
+    target_link_libraries(zima_cpp_curve_fillet_tests PRIVATE zima_sketcher)
+    add_test(NAME zima_cpp_curve_fillet_contract COMMAND zima_cpp_curve_fillet_tests)
+    set_tests_properties(zima_cpp_curve_fillet_contract PROPERTIES LABELS "mandatory;sketcher")
     if(MSVC)
         # Match the GUI stack reserve for native-document fixture loading.
         target_link_options(zima_cpp_sketcher_contract_tests PRIVATE /STACK:8388608)
@@ -1901,12 +1906,21 @@ if(ZIMA_BUILD_TESTS)
     add_test(NAME zima_cpp_thin_feature_wire_tests COMMAND zima_cpp_thin_feature_wire_tests)
     set_tests_properties(zima_cpp_thin_feature_wire_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
     add_test(NAME zima_cpp_edge_treatment_wire_tests COMMAND zima_cpp_thin_feature_wire_tests --edge-treatment-wire)
-    set_tests_properties(zima_cpp_edge_treatment_wire_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
+    set_tests_properties(zima_cpp_edge_treatment_wire_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." LABELS "mandatory;modeling;topology")
     add_test(NAME zima_cpp_sketch_profile_wire_tests COMMAND zima_cpp_thin_feature_wire_tests --sketch-profile-wire)
     set_tests_properties(zima_cpp_sketch_profile_wire_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
     target_link_libraries(zima_cpp_edge_treatment_command_tests PRIVATE zima_command_host zima_edge_treatment_preview TKTopAlgo TKGeomAlgo)
     add_test(NAME zima_cpp_edge_treatment_command_tests COMMAND zima_cpp_edge_treatment_command_tests)
     set_tests_properties(zima_cpp_edge_treatment_command_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." LABELS "mandatory;modeling;topology")
+    set_tests_properties(zima_cpp_edge_treatment_command_tests PROPERTIES FIXTURES_SETUP two_sided_treatment_models)
+    foreach(side_mode IN ITEMS 1 2)
+        add_test(NAME zima_cpp_two_sided_face_selection_${side_mode}_contract
+            COMMAND zima-cad-cpp --verify-startup --working-directory "${CMAKE_CURRENT_BINARY_DIR}/two-sided-face-${side_mode}")
+        set_tests_properties(zima_cpp_two_sided_face_selection_${side_mode}_contract PROPERTIES
+            WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 120 RUN_SERIAL TRUE
+            FIXTURES_REQUIRED two_sided_treatment_models LABELS "mandatory;modeling;topology"
+            ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_HIDDEN_WINDOWS=1;ZIMA_VERIFY_CONSOLE_ONLY=1;ZIMA_VERIFY_EDGE_TREATMENT_ONLY=1;ZIMA_VERIFY_MERGED_FACE_MODEL=${CMAKE_SOURCE_DIR}/../build/two-sided-support-${side_mode}-upper.prtz")
+    endforeach()
 
     add_executable(zima_cpp_boolean_split_edge_tests tests/boolean_split_edge_tests.cpp)
     target_link_libraries(zima_cpp_boolean_split_edge_tests PRIVATE zima_command_host TKTopAlgo)
@@ -2593,6 +2607,16 @@ if(ZIMA_BUILD_TESTS)
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_HIDDEN_WINDOWS=1;ZIMA_VERIFY_SKETCH_MECHANISM_ONLY=1"
         TIMEOUT 180 RUN_SERIAL TRUE)
     add_test(NAME zima_cpp_sketch_arc_size_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    add_test(NAME zima_cpp_sketch_curve_fillet_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    add_test(NAME zima_cpp_flat_end_correction_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    set_tests_properties(zima_cpp_flat_end_correction_ui_contract PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.."
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_HIDDEN_WINDOWS=1;ZIMA_VERIFY_FLAT_END_CORRECTION_ONLY=1"
+        TIMEOUT 240 RUN_SERIAL TRUE LABELS "mandatory;sheet;sketcher")
+    set_tests_properties(zima_cpp_sketch_curve_fillet_ui_contract PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.."
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_HIDDEN_WINDOWS=1;ZIMA_VERIFY_CURVE_FILLET_ONLY=1"
+        TIMEOUT 240 RUN_SERIAL TRUE LABELS "mandatory;sketcher")
     set_tests_properties(zima_cpp_sketch_arc_size_ui_contract PROPERTIES
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.."
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_HIDDEN_WINDOWS=1;ZIMA_VERIFY_SKETCH_ARC_SIZE_ONLY=1"

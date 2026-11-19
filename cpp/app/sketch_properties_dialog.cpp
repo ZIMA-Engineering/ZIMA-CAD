@@ -621,13 +621,8 @@ void SketchPropertiesDialog::set_pending_bend_parameters(zima::document::BendPar
 }
 
 void SketchPropertiesDialog::set_profile_bend_correction_only() {
-    name_->setEnabled(false);plane_selector_->setEnabled(false);
-    offset_->setEnabled(false);sketch_button_->setEnabled(false);
-    placement_->reference_table()->setEnabled(false);
-    if(auto* table=placement_->orientation_table())table->setEnabled(false);
-    for(auto* field:placement_->translation_fields())if(field)field->setEnabled(false);
-    for(auto* field:placement_->rotation_fields())if(field)field->setEnabled(false);
-    for(auto* field:placement_->rotation_offset_fields())if(field)field->setEnabled(false);
+    set_profile_flat_correction_only();
+    sketch_button_->setEnabled(false);
     const std::array<const char*,15> owned{
         "bendHem","bendRadiusOverride","bendRadius","bendAngle",
         "bendOtherEndpoint","bendManualPlacement","bendThicknessOverride",
@@ -638,6 +633,25 @@ void SketchPropertiesDialog::set_profile_bend_correction_only() {
         if(auto* widget=findChild<QWidget*>(name))widget->setEnabled(false);
     if(auto* end=findChild<QPushButton*>("bendEndSketchButton"))
         end->setEnabled(true);
+}
+
+void SketchPropertiesDialog::set_profile_flat_correction_only() {
+    name_->setEnabled(false);
+    if(flat_pending_) {
+        // The Sketch button shares this row; retain its edit action while
+        // the inherited work plane remains read-only.
+        plane_->setEnabled(false);
+        if(auto* view=plane_selector_->findChild<QTableWidget*>("sketchPlaneView"))view->setEnabled(false);
+    } else plane_selector_->setEnabled(false);
+    offset_->setEnabled(false);sketch_button_->setEnabled(true);
+    placement_->reference_table()->setEnabled(false);
+    if(auto* table=placement_->orientation_table())table->setEnabled(false);
+    for(auto* field:placement_->translation_fields())if(field)field->setEnabled(false);
+    for(auto* field:placement_->rotation_fields())if(field)field->setEnabled(false);
+    for(auto* field:placement_->rotation_offset_fields())if(field)field->setEnabled(false);
+    for(const auto* name:{"flatDirection","flatDirectionSwitch","flatThicknessOverride",
+            "flatThickness","flatManualPlacement","flatOtherEndpoint"})
+        if(auto* widget=findChild<QWidget*>(name))widget->setEnabled(false);
 }
 
 void SketchPropertiesDialog::set_line_bend_mode(

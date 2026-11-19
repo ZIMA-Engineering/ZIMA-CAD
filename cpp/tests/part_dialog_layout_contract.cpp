@@ -58,8 +58,11 @@ int verify_part_dialog_layout(QApplication& application, QWidget& parent) {
                 const auto original_size=dialog->size();
                 std::vector<std::pair<QAbstractItemView*,int>> expanding;
                 if(dialog->property("expandBottomTable").toBool())
-                    for(int i=0;i<dialog->content_layout()->count();++i)
-                        if(auto* view=qobject_cast<QAbstractItemView*>(dialog->content_layout()->itemAt(i)->widget());view&&view->isVisible())
+                    // Sweep's expanding profile table is inside its options
+                    // panel. The direct child is the intentionally fixed
+                    // point table, so include nested editable tables too.
+                    for(auto* view:dialog->findChildren<QTableWidget*>())
+                        if(view->isVisible()&&view->maximumHeight()>view->minimumHeight())
                             expanding.emplace_back(view,view->height());
                 dialog->resize(dialog->width(),std::min(available.height(),dialog->height()+100));flush();
                 for(const auto& [field,y]:anchored)if(field->mapTo(dialog.get(),QPoint{}).y()!=y)

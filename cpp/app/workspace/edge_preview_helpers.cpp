@@ -99,7 +99,10 @@ void edge_preview_reverse(zima::kernel::ViewerEdge& edge) {
 std::vector<EdgeTreatmentPreviewPath> ordered_edge_treatment_preview_paths(
     std::vector<zima::kernel::ViewerEdge> edges) {
     std::erase_if(edges, [](const auto& edge) {
-        return !edge_preview_has_face_guides(edge);
+        // Route topology is independent of optional cross-section guides.
+        // Dropping an unsupported member turns its neighbouring junction into
+        // a false terminal, which must never become a persisted Cut or R1.
+        return edge.points.size() < 2;
     });
     std::vector<EdgeTreatmentPreviewPath> paths;
     while (!edges.empty()) {
@@ -1829,6 +1832,12 @@ EdgeTreatmentPreviewGeometry edge_treatment_preview_wire(
                     path.edges.back().edge_treatment_endpoint_references.back()});
             }
             ++source_path_index;
+            // A partial guide packet can still identify every source node,
+            // but cannot describe the complete treatment cage. Keep its true
+            // terminals and the ordinary selected source wire; never present
+            // an isolated guided fragment as the whole requested treatment.
+            if(!std::ranges::all_of(path.edges,edge_preview_has_face_guides))
+                continue;
             double path_length{};
             for (const auto& edge : path.edges) {
                 for (std::size_t point = 1; point < edge.points.size(); ++point) {

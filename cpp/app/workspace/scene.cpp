@@ -1,3 +1,4 @@
+#include "sketch_fillet_helpers.hpp"
 #include "../parameter_value_labels.hpp"
 #include "../tree_expansion_state.hpp"
 #include <zima/document/loft.hpp>
@@ -1565,7 +1566,7 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
             : sketch_trim_active_
                 ? std::vector{zima::viewer::CandidateKind::SketchTrimPiece}
             : sketch_corner_fillet_active_
-                ? std::vector{zima::viewer::CandidateKind::SketchSegment}
+                ? std::vector{zima::viewer::CandidateKind::SketchSegment, zima::viewer::CandidateKind::SketchCurve}
             : sketch_mirror_active_
                 ? sketch_mirror_selecting_sources_
                     ? std::vector{zima::viewer::CandidateKind::SketchSegment,
@@ -1804,15 +1805,11 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
                              candidate.semantic_key.starts_with("external_face:")));
                 });
         } else if (sketch_corner_fillet_active_) {
-            const auto owner_id = active_sketch_id_;
             const auto first_id = pending_corner_fillet_segment_id_;
-            viewer_->set_candidate_filter(
-                [owner_id, first_id](const auto& candidate) {
-                    return candidate.owner_id == owner_id &&
-                        candidate.kind == zima::viewer::CandidateKind::SketchSegment &&
-                        candidate.semantic_key.starts_with("segment:") &&
-                        (first_id.empty() || candidate.semantic_key.substr(8) != first_id);
-                });
+            viewer_->set_candidate_filter([this, first_id](const auto& candidate) {
+                const auto id = sketch_fillet_candidate_id(active_sketch(), candidate);
+                return !id.empty() && id != first_id;
+            });
         } else if (sketch_rectangle_axis_selecting_) {
             const auto* sketch = active_sketch();
             std::set<std::string> construction_axes;

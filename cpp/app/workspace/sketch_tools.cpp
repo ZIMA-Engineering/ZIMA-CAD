@@ -1,3 +1,4 @@
+#include "sketch_fillet_helpers.hpp"
 #include "workspace_internal.hpp"
 
 namespace zima::app {
@@ -612,40 +613,33 @@ void AssemblyWorkspaceWindow::cancel_sketch_trim() {
     if (viewer_ != nullptr) viewer_->set_transient_edges({});
 }
 
-void AssemblyWorkspaceWindow::start_sketch_corner_fillet() {
+void AssemblyWorkspaceWindow::start_sketch_corner_fillet(bool materialized) {
     if (properties_dialog_ != nullptr || active_sketch_id_.empty()) return;
     cancel_sketch_segment();
     sketch_corner_fillet_active_ = true;
+    sketch_curve_fillet_materialized_ = materialized;
     pending_corner_fillet_segment_id_.clear();
     selection_action_->setChecked(true);
-    viewer_->set_selection_contract({
-        zima::viewer::CandidateKind::SketchSegment});
-    const auto owner_id = active_sketch_id_;
-    viewer_->set_candidate_filter([owner_id](const auto& candidate) {
-        return candidate.owner_id == owner_id &&
-            candidate.kind == zima::viewer::CandidateKind::SketchSegment &&
-            candidate.semantic_key.starts_with("segment:");
+    viewer_->set_selection_contract({zima::viewer::CandidateKind::SketchSegment,
+        zima::viewer::CandidateKind::SketchCurve});
+    viewer_->set_candidate_filter([this](const auto& candidate) {
+        return !sketch_fillet_candidate_id(active_sketch(), candidate).empty();
     });
-    state_->setText(tr("Zaoblení rohu: vyberte první úsečku."));
+    state_->setText(tr("Zaoblení: vyberte první křivku."));
 }
 
 void AssemblyWorkspaceWindow::accept_sketch_corner_fillet_segment(
     const zima::viewer::ViewerCandidate& candidate) {
-    if (!sketch_corner_fillet_active_ ||
-        candidate.owner_id != active_sketch_id_ ||
-        candidate.kind != zima::viewer::CandidateKind::SketchSegment ||
-        !candidate.semantic_key.starts_with("segment:")) return;
-    const auto segment_id = candidate.semantic_key.substr(8);
+    if (!sketch_corner_fillet_active_) return;
+    const auto segment_id = sketch_fillet_candidate_id(active_sketch(), candidate);
+    if (segment_id.empty()) return;
     if (pending_corner_fillet_segment_id_.empty()) {
         pending_corner_fillet_segment_id_ = segment_id;
-        viewer_->set_candidate_filter(
-            [owner_id = active_sketch_id_, segment_id](const auto& value) {
-                return value.owner_id == owner_id &&
-                    value.kind == zima::viewer::CandidateKind::SketchSegment &&
-                    value.semantic_key.starts_with("segment:") &&
-                    value.semantic_key.substr(8) != segment_id;
-            });
-        state_->setText(tr("Zaoblení rohu: vyberte druhou připojenou úsečku."));
+        viewer_->set_candidate_filter([this, segment_id](const auto& candidate) {
+            const auto id = sketch_fillet_candidate_id(active_sketch(), candidate);
+            return !id.empty() && id != segment_id;
+        });
+        state_->setText(tr("Zaoblení: vyberte druhou křivku."));
         return;
     }
     const auto first_segment_id = pending_corner_fillet_segment_id_;
@@ -659,16 +653,18 @@ void AssemblyWorkspaceWindow::accept_sketch_corner_fillet_segment(
     auto* dialog = new SketchDimensionPropertiesDialog(
         std::move(initial), active_sketch()->plane, false,
         [this, sketch_id = active_sketch_id_, first_segment_id,
-         second_segment_id = segment_id](zima::sketcher::SketchDimension value) {
+         second_segment_id = segment_id, materialized = sketch_curve_fillet_materialized_](zima::sketcher::SketchDimension value) {
             if (active_sketch_id_ != sketch_id ||
                 !mutate_active_sketch([&](auto& sketch) {
-                    static_cast<void>(sketch.add_corner_fillet(
+                    if (materialized) static_cast<void>(zima::sketcher::fillet_sketch_curves(
+                        sketch, first_segment_id, second_segment_id, value.value));
+                    else static_cast<void>(sketch.add_corner_fillet(
                         first_segment_id, second_segment_id, value.value));
                 })) {
                 throw std::runtime_error("Sketch is no longer active");
             }
             preserve_view_on_refresh_ = true;
-        }, this, tr("Zaoblení rohu"));
+        }, this, sketch_curve_fillet_materialized_ ? tr("Zaoblení křivek") : tr("Zaoblení rohu"));
     properties_dialog_ = dialog;
     connect(dialog, &QObject::destroyed, this, [this] {
         properties_dialog_ = nullptr;

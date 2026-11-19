@@ -820,13 +820,17 @@ void verify_flat_attachment_dialog(QWidget& parent) {
     int flat_edits=0;
     dialog.set_flat_mode(flat.flat,{},flat.value_locks,[&](auto p){flat.flat=p;},[&]{++flat_edits;});
     dialog.set_preview_callback([](auto,auto){});dialog.show();QApplication::processEvents();
-    int accepted=0,rejected=0;
+    int accepted=0,rejected=0,side_a=0,side_b=0;
     for(const auto& edge:body.mesh.original_references.edges) {
         const document::ConstructionReference reference{{},edge.reference.owner_id,edge.reference.semantic_key};
         bool allowed=false;try {static_cast<void>(document::flat_sheet_references(edge));allowed=true;}catch(const std::exception&){}
         require(dialog.sheet_reference_allowed(0,reference)==allowed,"Flat hover contract accepts an invalid Bend edge");
         if(!allowed){require(!dialog.set_reference(0,reference,"Rejected"),"Flat click bypassed edge filter");++rejected;continue;}
         require(dialog.set_reference(0,reference,"Outer"),"Flat rejected outer Bend boundary");++accepted;
+        for(const auto& face:edge.edge_treatment_side_references) {
+            side_a+=face.sheet_role==kernel::SheetFaceRole::SideA;
+            side_b+=face.sheet_role==kernel::SheetFaceRole::SideB;
+        }
         auto pending=dialog.pending_value();
         require(flat.flat.sheet_attachment&&flat.flat.direction==document::ExtrusionDirection::Reverse,"Flat did not default to inward thickness");
         require(pending.second.references.size()==3&&pending.first.external_references.size()==2,"Flat did not derive references and external endpoints");
@@ -852,7 +856,8 @@ void verify_flat_attachment_dialog(QWidget& parent) {
             require(!document::sheet_attachment_at_midpoint(dialog.pending_value().second.references),"Flat endpoint restoration failed");
         }
     }
-    require(accepted==2&&rejected>0,"Flat must offer only two straight outer Bend cap boundaries");
+    require(accepted==4&&side_a==2&&side_b==2&&rejected>0,
+        "Flat must offer both Bend cap boundaries on each material skin");
     dialog.findChild<QPushButton*>("flatManualPlacement")->click();
     require(!flat.flat.sheet_attachment&&dialog.findChild<QComboBox*>("sketchPlane")->isEnabled(),"Flat manual placement did not restore controls");
     require(dialog.findChild<QPushButton*>("sketchOpenButton")->isVisible(),"Manual Flat lost its restored Sketch editor");
@@ -913,8 +918,28 @@ void verify_container_frame_dialog(QWidget& parent) {
         }
         };
         if(sequence==std::vector{g,f,n}) {
-            const auto origin_entry=dialog.whole_origin_entry_scope();enter_references();
+            const auto origin_entry=dialog.whole_origin_entry_scope();
+            ui::ContainerPlacementSection* section{};
+            for(auto* object:dialog.findChildren<QObject*>())if(auto* candidate=dynamic_cast<ui::ContainerPlacementSection*>(object)){section=candidate;break;}
+            require(section,"Whole-Origin test lost the shared placement section");
+            section->setProperty("wholeOriginEntry",true);enter_references();section->setProperty("wholeOriginEntry",false);
         } else enter_references();
+        if(sequence==edge_plane_point) {
+            const auto draft=dialog.pending_value().second;
+            require(document::orientation_constraint_remaining_dof(draft.references,geometry,true,{draft.x,draft.y,draft.z})==1,
+                "A later positional plane unexpectedly replaced the explicit FRONT");
+            auto top=f;top.orientation_only=true;top.supports_offset=false;
+            top.orientation_role="top";top.orientation_drives_rotation=true;
+            require(dialog.set_reference(4,top,"TOP"),"Dialog rejected explicit TOP support");
+        }
+        if(sequence==std::vector{f,e,p}) {
+            const auto draft=dialog.pending_value().second;
+            require(document::orientation_constraint_remaining_dof(draft.references,geometry,true,{draft.x,draft.y,draft.z})==1,
+                "A later positional edge unexpectedly replaced the explicit TOP");
+            auto front=e;front.orientation_only=true;front.supports_offset=false;
+            front.orientation_role="front";front.orientation_drives_rotation=true;
+            require(dialog.set_reference(3,front,"FRONT"),"Dialog rejected explicit FRONT support");
+        }
         const auto pending=dialog.pending_value();auto solved=pending.second;
         require(document::resolve_placement(solved,geometry),"Dialog draft failed to solve");
         if(document::orientation_constraint_remaining_dof(solved.references,geometry,true,{solved.x,solved.y,solved.z})!=0) {
@@ -926,7 +951,7 @@ void verify_container_frame_dialog(QWidget& parent) {
         }
         require(document::orientation_constraint_remaining_dof(solved.references,geometry,true,{solved.x,solved.y,solved.z})==0,
             "Sketch/Bend/Flat/Holes dialog lost TOP");
-        // A freshly picked first support plane, ordered Edge/Plane/Point and
+        // A freshly picked first support plane and
         // ordered P1/P2/P3 define local XY. Point/curve and the other generic
         // frames use FRONT/local XZ. A whole Origin is an explicit XY frame.
         const auto expected_plane=sequence==std::vector{g,f,n}||
@@ -5085,7 +5110,8 @@ int main(int argc, char* argv[]) {
         require(committed_plane.references.size() == 3 &&
                     committed_plane.base_plane ==
                         zima::document::LocalDatumPlane::XY &&
-                    !committed_plane.references[0].orientation_drives_rotation &&
+                    committed_plane.references[0].orientation_drives_rotation &&
+                    committed_plane.references[0].orientation_role == "front" &&
                     !committed_plane.references[0].orientation_only &&
                     committed_plane.references[0].owner_id == "plane-source" &&
                     !committed_plane.references[1].orientation_only &&
@@ -5169,6 +5195,16 @@ int main(int argc, char* argv[]) {
             "Počátek dílu — Rovina YZ",
             zima::document::ConstructionDefinition::PointReference);
         application.processEvents();
+        require(position_only_orientation_table->item(0,1)->text().contains("Rovina XY")&&
+                    position_only_orientation_table->item(1,1)->text().contains("Vybrat"),
+                "A later positional plane silently replaced the first orientation choice");
+        // Only the first selected positional support owns automatic orientation.
+        // TOP is an independent explicit choice, as in ordinary containers.
+        plane_position_only_dialog->set_reference(4,
+            {{}, "plane-third", "origin:plane:yz", 0.0, true},
+            "Počátek dílu — Rovina YZ",
+            zima::document::ConstructionDefinition::PointReference);
+        application.processEvents();
         require(position_only_position_table->item(1, 1) != nullptr &&
                     position_only_position_table->item(2, 1) != nullptr &&
                     position_only_orientation_table->item(0, 1) != nullptr &&
@@ -5183,7 +5219,7 @@ int main(int argc, char* argv[]) {
                         0, 2))->findData(QStringLiteral("back")) >= 0 &&
                     qobject_cast<QComboBox*>(position_only_orientation_table->cellWidget(
                         1, 2))->findData(QStringLiteral("right")) >= 0,
-                "Plane position references did not auto-fill the editable "
+                "Plane references did not retain the explicitly selected editable "
                 "FRONT/BACK and TOP/BOTTOM/LEFT/RIGHT mappings");
         plane_position_only_dialog->buttons()->button(QDialogButtonBox::Cancel)->click();
 

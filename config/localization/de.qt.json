@@ -436,7 +436,6 @@
   "Zahrnutá plocha": "Einbezogene Fläche",
   "Vyberte plochu ve View.": "Wählen Sie eine Fläche in der Ansicht.",
   "Vyberte RIP skicu ve View.": "Wählen Sie eine RIP-Skizze in der Ansicht.",
-  "Select a calculated planar source face.": "Wählen Sie eine berechnete ebene Quellfläche.",
   "The first face defines the material side. An empty included-face list converts the complete connected sheet branch. RIP consumes all ordinary geometry of each selected Sketch without removing material.": "Die erste Fläche bestimmt die Materialseite. Bei einer leeren Liste einbezogener Flächen wird der gesamte zusammenhängende Blechzweig umgewandelt. RIP verwendet die gesamte normale Geometrie jeder ausgewählten Skizze, ohne Material zu entfernen.",
   "Vytvoří samostatné tabule a ohyby v aktivním prázdném tělese. Zdroj zůstane beze změny. Složité přechody mohou vyžadovat ruční dokončení.": "Erstellt unabhängige Bleche und Biegungen im aktiven leeren Körper. Die Quelle bleibt unverändert. Komplexe Übergänge müssen eventuell manuell nachbearbeitet werden.",
   "Vytvářím plech z tělesa…": "Blech wird aus Körper erstellt…",
@@ -2852,5 +2851,12 @@
   "zima::app::AssemblyWorkspaceWindow|Edge treatment preview did not produce an exact result wire.": "Die Vorschau der Kantenbearbeitung hat keine exakte Ergebnisgeometrie erzeugt.",
   "zima::app::AssemblyWorkspaceWindow|Zaoblený přechod": "Abgerundeter Übergang",
   "Sheet from Body Bend correction basis is missing or inconsistent.": "Die Korrekturbasis der Biegung von Blech aus Körper fehlt oder ist inkonsistent.",
-  "Calculation failed: %1\nPress OK again to save this unchanged definition as unresolved, or Cancel to discard it.": "Berechnung fehlgeschlagen: %1\nDrücken Sie erneut OK, um diese unveränderte Definition als ungelöst zu speichern, oder Abbrechen, um sie zu verwerfen."
+  "Calculation failed: %1\nPress OK again to save this unchanged definition as unresolved, or Cancel to discard it.": "Berechnung fehlgeschlagen: %1\nDrücken Sie erneut OK, um diese unveränderte Definition als ungelöst zu speichern, oder Abbrechen, um sie zu verwerfen.",
+  "Zaoblení křivek": "Kurven abrunden",
+  "Zaoblení: vyberte první křivku.": "Abrunden: erste Kurve auswählen.",
+  "Zaoblení: vyberte druhou křivku.": "Abrunden: zweite Kurve auswählen.",
+  "Zaoblení rohu: táhněte společným bodem dvou vybraných křivek.": "Ecke abrunden: gemeinsamen Punkt zweier ausgewählter Kurven ziehen.",
+  "Fillet requires editable native curves.": "Abrunden erfordert bearbeitbare native Kurven.",
+  "Sheet Profile Flat end constraints cannot be solved.": "Die Bedingungen am Ende der Profiltafel können nicht gelöst werden.",
+  "Sheet Profile Flat correction exceeds its target surface.": "Die Korrektur der Profiltafel überschreitet die Zielfläche."
 }

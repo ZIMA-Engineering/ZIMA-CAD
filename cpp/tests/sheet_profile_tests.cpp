@@ -396,7 +396,7 @@ void multiple_up_to_targets_and_bend_corrections() {
             sketch->id+":profile:point:2");
         const auto* end_last=sketch->find_point(
             sketch->id+":profile:point:3");
-        require(sketch->points.size()==5&&sketch->segments.size()==5&&
+        require(std::ranges::count_if(sketch->points,[](const auto& p){return !p.construction;})==5&&std::ranges::count_if(sketch->segments,[](const auto& e){return !e.construction;})==5&&
                 start_last&&switch_last&&end_last&&
                 std::abs(start_last->x-10)<1e-8&&
                 std::abs(switch_last->x-15)<1e-8&&
@@ -489,6 +489,180 @@ void multiple_up_to_targets_and_bend_corrections() {
     }
 }
 
+void flat_target_material_envelope() {
+    for(int material:{-1,1})for(bool negative:{false,true})for(double slope:{-.7,.4}) {
+        Fixture f;static_cast<void>(f.driver.add_segment(0,0,20,0));
+        f.profile.sheet_profile.material_side=material;
+        auto& width=f.profile.sheet_profile.width;width.symmetric=false;width.reversed_sides=false;
+        const std::size_t side=negative?1:0;
+        width.sides[1-side].operation=document::FeatureSideOperation::None;
+        width.sides[side].operation=document::FeatureSideOperation::Extrusion;
+        width.sides[side].extrusion_extent=document::EndCondition::UpTo;
+        document::ExtrusionParameters::EndTarget target;target.kind=document::EndTargetKind::Face;
+        target.reference={"slanted-stop","face",{}};width.sides[side].targets={target};
+        auto plane=std::make_shared<kernel::SurfaceGeometry>();plane->kind=kernel::SurfaceGeometry::Kind::Plane;
+        plane->origin={0,0,negative?-10.:10.};plane->axis={.1,slope,negative?-1.:1.};
+        kernel::FaceReference face{"slanted-stop","face",{}};face.surface=plane;
+        kernel::ViewerReferenceGeometry geometry;geometry.vertices={{-100,-100,0},{100,-100,0},{0,100,0}};
+        for(auto& p:geometry.vertices)p.z=plane->origin.z-(plane->axis.x*p.x+plane->axis.y*p.y)/plane->axis.z;
+        geometry.triangles={0,1,2};geometry.triangle_references={face};
+        auto prepared=workspace::prepare_sheet_profile(f.part,f.profile,f.driver,geometry);
+        const auto verify=[&](const auto& result) {
+            const auto& flat=child(result,0);
+            const auto& s=*std::ranges::find(result.document.sketches,flat.flat.sketch_id,&sketcher::Sketch::id);
+            for(const auto& point:s.points)if(!point.construction&&point.id.starts_with(s.id+":profile:")) {
+                const auto p=s.world_point(point.x,point.y);
+                for(double t:{0.,flat.flat.thickness}) {
+                    const double offset=t*(flat.flat.direction==document::ExtrusionDirection::Reverse?-1.:1.);
+                    const kernel::Vec3 q{p.x+s.resolved_normal.x*offset,p.y+s.resolved_normal.y*offset,p.z+s.resolved_normal.z*offset};
+                    require((q.x-plane->origin.x)*plane->axis.x+(q.y-plane->origin.y)*plane->axis.y+(q.z-plane->origin.z)*plane->axis.z<=1e-7,
+                        "Profile material exceeds its slanted target plane");
+                }
+            }
+            calculate(result.document);
+        };
+        verify(prepared);
+        const auto flat=child(prepared,0);
+        const auto original=*std::ranges::find(prepared.document.sketches,flat.flat.sketch_id,&sketcher::Sketch::id);
+        const auto dimension_id=original.id+":difference:end"+(negative?":first":":last");
+        for(double correction:{.3,.8,0.}) {
+            auto sketch=original;auto dimension=*std::ranges::find(sketch.dimensions,dimension_id,&sketcher::SketchDimension::id);
+            dimension.value=negative?correction:-correction;sketch.apply_dimension(dimension);
+            const auto next=workspace::prepare_sheet_profile_master_edit(prepared.document,flat,sketch,geometry);verify(next);
+            const auto reopened=document::PartDocument::from_serialized(next.document.serialized());
+            require(reopened.find_container(flat.id)!=nullptr,"Target correction lost its native Flat");
+        }
+        const auto before=prepared.document.serialized();auto invalid=original;
+        auto dimension=*std::ranges::find(invalid.dimensions,dimension_id,&sketcher::SketchDimension::id);
+        dimension.value=negative?-.5:.5;invalid.apply_dimension(dimension);
+        bool rejected=false;try{static_cast<void>(workspace::prepare_sheet_profile_master_edit(prepared.document,flat,invalid,geometry));}catch(const std::invalid_argument&){rejected=true;}
+        require(rejected&&prepared.document.serialized()==before,"Outward target correction modified the document");
+        // The opposite, untargeted end remains freely editable.
+        auto free=original;const auto free_id=original.id+":difference:end"+(negative?":last":":first");
+        dimension=*std::ranges::find(free.dimensions,free_id,&sketcher::SketchDimension::id);
+        dimension.value=negative?.5:-.5;free.apply_dimension(dimension);
+        verify(workspace::prepare_sheet_profile_master_edit(prepared.document,flat,free,geometry));
+    }
+    std::cout<<"Slanted Profile target: both sides/material directions, full thickness, corrections, atomic rejection and reopen passed\n";
+}
+
+void flat_end_correction_chain() {
+    for(int material:{-1,1})for(std::size_t stage:{0u,2u}) {
+        Fixture fixture;fixture.two_bends();fixture.profile.sheet_profile.material_side=material;
+        auto prepared=workspace::prepare_sheet_profile(fixture.part,fixture.profile,fixture.driver);
+        const auto initial=prepared.logical_children;
+        const auto& nominal_flat=*std::ranges::find(prepared.document.sketches,child(prepared,stage).flat.sketch_id,&sketcher::Sketch::id);
+        const auto& nominal_bend=*std::ranges::find(prepared.document.sketches,child(prepared,stage+1).bend.sketch_id,&sketcher::Sketch::id);
+        const auto station=nominal_flat.world_point(0,nominal_flat.find_point(nominal_flat.id+":end-reference:first")->y);
+        const kernel::Vec3 skin_offset{nominal_bend.resolved_origin.x-station.x,nominal_bend.resolved_origin.y-station.y,nominal_bend.resolved_origin.z-station.z};
+        for(double delta:{1.,-2.,.5,0.}) {
+            const auto flat=child(prepared,stage);
+            auto sketch=*std::ranges::find(prepared.document.sketches,flat.flat.sketch_id,&sketcher::Sketch::id);
+            const auto base0=*sketch.find_point(sketch.id+":profile:point:0"),base1=*sketch.find_point(sketch.id+":profile:point:1");
+            for(const auto suffix:{":first",":last"}) {
+                auto d=*std::ranges::find(sketch.dimensions,sketch.id+":difference:end"+suffix,&sketcher::SketchDimension::id);
+                d.value=(std::string(suffix)==":last"?delta:-delta);
+                sketch.apply_dimension(d);
+            }
+            require(sketch.solve().status!=sketcher::SolveStatus::Conflicting,"Flat end difference cannot solve");
+            auto next=workspace::prepare_sheet_profile_master_edit(prepared.document,flat,sketch);
+            require(next.logical_children==initial,"Flat end correction changed child identities");
+            const auto& following=child(next,stage+1);
+            const auto& start=*std::ranges::find(next.document.sketches,following.bend.sketch_id,&sketcher::Sketch::id);
+            const auto& actual=*std::ranges::find(next.document.sketches,flat.flat.sketch_id,&sketcher::Sketch::id);
+            require(*actual.find_point(base0.id)==base0&&*actual.find_point(base1.id)==base1,"End correction moved the inherited start edge");
+            std::array<kernel::Vec3,2> expected;
+            for(std::size_t side=0;side<2;++side) {
+                const auto suffix=side?":last":":first";
+                const auto& d=*std::ranges::find(actual.dimensions,actual.id+":difference:end"+suffix,&sketcher::SketchDimension::id);
+                const auto* point=actual.find_point(d.second_point_id);const auto* reference=actual.find_point(d.first_point_id);
+                require(std::abs(point->x-reference->x-(side?delta:-delta))<1e-7,"Flat correction is not relative to its current nominal end");
+                expected[side]=actual.world_point(point->x,point->y);
+                expected[side].x+=skin_offset.x;expected[side].y+=skin_offset.y;expected[side].z+=skin_offset.z;
+            }
+            const auto& edge=*std::ranges::find_if(start.segments,[](const auto& e){return !e.construction;});
+            const auto* a=start.find_point(edge.first_point_id);const auto* b=start.find_point(edge.second_point_id);
+            const auto p=start.world_point(a->x,a->y),q=start.world_point(b->x,b->y);
+            const auto separation=[](auto a,auto b){return std::sqrt((a.x-b.x)*(a.x-b.x)+(a.y-b.y)*(a.y-b.y)+(a.z-b.z)*(a.z-b.z));};
+            require((separation(p,expected[0])<1e-7&&separation(q,expected[1])<1e-7)||
+                    (separation(p,expected[1])<1e-7&&separation(q,expected[0])<1e-7),"Following Bend did not inherit the corrected Flat edge");
+            calculate(next.document);
+            auto settled=next.document;kernel::OcctKernel kernel;
+            auto cache=workspace::calculate_part_with_resolved_references(kernel,settled);
+            require(!cache.empty()&&cache.back().calculation_errors.empty(),"Flat correction failed explicit dependency regeneration");
+            const auto& settled_sketch=*std::ranges::find(settled.sketches,actual.id,&sketcher::Sketch::id);
+            require(settled_sketch.serialized()==actual.serialized(),"Explicit regeneration changed the authored Flat correction");
+            prepared=std::move(next);prepared.document=document::PartDocument::from_serialized(prepared.document.serialized());
+            const auto* parent=prepared.document.find_container(fixture.profile.id);
+            const auto driver=*std::ranges::find(prepared.document.sketches,parent->sheet_profile.sketch_id,&sketcher::Sketch::id);
+            auto regenerated=workspace::prepare_sheet_profile(prepared.document,*parent,driver);
+            for(const auto& current:prepared.document.sketches) {const auto updated=std::ranges::find(regenerated.document.sketches,current.id,&sketcher::Sketch::id);require(updated!=regenerated.document.sketches.end()&&updated->serialized()==current.serialized(),"Regeneration changed stable Flat correction geometry");}
+            prepared=std::move(regenerated);
+        }
+    }
+    std::cout<<"Flat end correction: both material sides, master/intermediate Flats, repeated positive/negative/zero changes, following Bend, cold calculation and native reopen passed\n";
+}
+
+void flat_end_native_constraints() {
+    for(const std::size_t stage:{0u,2u})for(bool last:{false,true})for(bool external:{false,true}) {
+        Fixture fixture;fixture.two_bends();
+        auto prepared=workspace::prepare_sheet_profile(fixture.part,fixture.profile,fixture.driver);
+        const auto flat=child(prepared,stage);
+        auto sketch=*std::ranges::find(prepared.document.sketches,flat.flat.sketch_id,&sketcher::Sketch::id);
+        const std::string dim_id=sketch.id+":difference:end"+(last?":last":":first");
+        const auto d=*std::ranges::find(sketch.dimensions,dim_id,&sketcher::SketchDimension::id);
+        auto* end=sketch.find_point(d.second_point_id);const double station=end->y;
+        std::erase_if(sketch.dimensions,[&](const auto& value){return value.id==dim_id;});
+        // The former coordinate dimension may be replaced by another ordinary
+        // dimension, free dragging, or C to an exact native/external support.
+        for(auto kind:{sketcher::DimensionKind::DistanceX,sketcher::DimensionKind::Distance})for(bool locked:{false,true}) {
+            auto candidate=sketch;auto size=candidate.create_point_dimension(d.first_point_id,d.second_point_id,kind);
+            size.value=kind==sketcher::DimensionKind::DistanceX?(last?-1.:1.):1.;size.locked=locked;
+            candidate.apply_dimension(size);
+            for(double value:{.5,1.5,.75}) {
+                require(candidate.set_dimension_value(size.id,kind==sketcher::DimensionKind::DistanceX?(last?-value:value):value),"Replacement Flat dimension did not edit");
+                const auto* a=candidate.find_point(d.first_point_id);const auto* b=candidate.find_point(d.second_point_id);
+                require(std::abs(b->y-station)<1e-8&&std::abs(std::abs(b->x-a->x)-value)<1e-7,"Replacement Flat dimension equation failed");
+            }
+        }
+        for(double shift:{1.,-1.5,.5}) {
+            end=sketch.find_point(d.second_point_id);const auto before=*end;
+            require(sketch.move_point(end->id,end->x+shift,end->y+2.),"Free Flat end could not move");
+            end=sketch.find_point(d.second_point_id);
+            require(std::abs(end->y-station)<1e-8&&std::abs(end->x-before.x)>.1,"Flat free drag escaped station or did not move");
+        }
+        std::string support;
+        if(external) {
+            auto ref=sketcher::Sketch::create_external_reference(sketcher::ExternalReferenceKind::Edge);
+            ref.source_document_id="external-test-document";ref.source_owner_id="native-test-support";
+            ref.source_semantic_key="segment:test-support";ref.cached_points={{last?8.:-8.,station-10.},{last?8.:-8.,station+10.}};
+            support=ref.id;sketch.add_external_reference(ref);
+        } else {
+            support=sketch.add_segment(last?8.:-8.,station-10.,last?8.:-8.,station+10.,1e-6,true);
+            const auto line=*std::ranges::find(sketch.segments,support,&sketcher::SketchSegment::id);
+            sketch.set_point_fixed(line.first_point_id,true);sketch.set_point_fixed(line.second_point_id,true);
+        }
+        static_cast<void>(sketch.add_point_on_line_constraint(d.second_point_id,support));
+        const auto refs=sketch.external_references;
+        for(double width:{8.,6.,9.}) {
+            if(external)for(auto& p:sketch.external_references.front().cached_points)p[0]=last?width:-width;
+            else {const auto& line=*std::ranges::find(sketch.segments,support,&sketcher::SketchSegment::id);
+                sketch.find_point(line.first_point_id)->x=sketch.find_point(line.second_point_id)->x=last?width:-width;}
+            require(sketch.solve().status!=sketcher::SolveStatus::Conflicting,"Flat endpoint C could not solve");
+            const auto next=workspace::prepare_sheet_profile_master_edit(prepared.document,flat,sketch);
+            const auto& stored=*std::ranges::find(next.document.sketches,sketch.id,&sketcher::Sketch::id);
+            require(std::abs(stored.find_point(d.second_point_id)->x-(last?width:-width))<1e-7&&
+                std::abs(stored.find_point(d.second_point_id)->y-station)<1e-7,"Flat endpoint C equation failed");
+            require(std::ranges::none_of(stored.dimensions,[&](const auto& value){return value.id==dim_id;}),"Deleted Flat end dimension was recreated");
+            require(stored.external_references==sketch.external_references,"Flat correction modified its read-only source");
+            calculate(next.document);
+            prepared=next;prepared.document=document::PartDocument::from_serialized(prepared.document.serialized());
+            sketch=stored;
+        }
+    }
+    std::cout<<"Flat end native matrix: master/intermediate, both endpoints, replacement X/distance dimensions, locks, repeated drags, native/external C and reopen passed\n";
+}
+
 void master_edit_propagation() {
     {
         Fixture fixture;fixture.line_arc_line();
@@ -513,6 +687,7 @@ void master_edit_propagation() {
         bool rejected=false;
         try {
             auto later=child(regenerated,2);
+            later.flat.thickness+=1.;
             const auto later_sketch=*std::ranges::find(
                 regenerated.document.sketches,later.flat.sketch_id,
                 &sketcher::Sketch::id);
@@ -520,7 +695,7 @@ void master_edit_propagation() {
                 regenerated.document,later,later_sketch));
         } catch(const std::invalid_argument&) {rejected=true;}
         require(rejected,
-            "A non-master Profile Flat accepted independent native editing");
+            "A non-master Profile Flat accepted an independent thickness edit");
         calculate(regenerated.document);
     }
     {
@@ -1208,7 +1383,7 @@ void attached_profile_seed_and_history() {
             const auto flat_sketch=std::ranges::find(chained.sketches,
                 feature->flat.sketch_id,&sketcher::Sketch::id);
             require(flat_sketch!=chained.sketches.end()&&
-                    flat_sketch->segments.size()==4,
+                    std::ranges::count_if(flat_sketch->segments,[](const auto& e){return !e.construction;})==4,
                 "Extended Profile Flat lost its rectangular Sketch");
             input=world_edge(*flat_sketch,flat_sketch->segments[0]);
             output=world_edge(*flat_sketch,flat_sketch->segments[2]);
@@ -1878,6 +2053,9 @@ int main() {
         free_width_directions();
         free_up_to_targets();
         multiple_up_to_targets_and_bend_corrections();
+        flat_target_material_envelope();
+        flat_end_correction_chain();
+        flat_end_native_constraints();
         master_edit_propagation();
         attached_profile_seed_and_history();
         group_history_contracts();

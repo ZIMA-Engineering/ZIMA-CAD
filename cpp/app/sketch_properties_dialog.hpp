@@ -89,6 +89,7 @@ public:
     // end-profile endpoint corrections; route, placement and material values
     // remain owned by the parent Profile.
     void set_profile_bend_correction_only();
+    void set_profile_flat_correction_only();
     void set_line_bend_mode(zima::document::LineBendParameters,
         const zima::document::SheetMetalDefaults&,std::set<std::string>& locks,
         std::function<void(zima::document::LineBendParameters)> changed,

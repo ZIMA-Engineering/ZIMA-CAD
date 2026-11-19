@@ -269,7 +269,9 @@ void AssemblyWorkspaceWindow::create_layout() {
     auto confirmations=std::make_shared<std::map<QWidget*,std::shared_ptr<workspace::ModelingConfirmation>>>();
     operation_activity_->submit_properties=[this,confirmations](QWidget* widget,const auto& submit) {
         auto* dialog=dynamic_cast<ui::PropertiesSubWindow*>(widget);
-        if(!dialog||widget!=properties_dialog_||!workspace_.open_part(workspace_.active_document_id()))return submit();
+        if(!dialog||widget!=properties_dialog_||
+                (!workspace_.open_part(workspace_.active_document_id())&&
+                 !workspace_.open_assembly(workspace_.active_document_id())))return submit();
         auto [entry,inserted]=confirmations->try_emplace(widget,std::make_shared<workspace::ModelingConfirmation>());
         if(inserted)connect(widget,&QObject::destroyed,this,[confirmations,widget]{confirmations->erase(widget);});
         const auto confirmation=entry->second;

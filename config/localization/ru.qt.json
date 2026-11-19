@@ -110,7 +110,7 @@
   "This generated sheet group cannot be reordered independently.": "Эту созданную листовую группу нельзя переупорядочивать независимо.",
   "Sheet from Body requires an editable active Body.": "Преобразование в лист требует активного редактируемого тела.",
   "Select a planar face of the active Body.": "Выберите плоскую грань активного тела.",
-  "Select a calculated planar source face.": "Выберите рассчитанную плоскую грань источника.",
+  "Select a calculated planar source face.": "Выберите рассчитанную плоскую исходную грань.",
   "Show a calculated planar face in the active Body, or activate an empty Body after the source Body.": "Покажите рассчитанную плоскую грань активного тела или активируйте пустое тело после исходного.",
   "Sheet conversion cannot reproduce this surface transition.": "Преобразование в лист не может воспроизвести этот переход поверхностей.",
   "Sheet conversion cannot reproduce every connected face.": "Преобразование в лист не может воспроизвести все связанные грани.",
@@ -436,7 +436,6 @@
   "Zahrnutá plocha": "Включённая грань",
   "Vyberte plochu ve View.": "Выберите грань в окне вида.",
   "Vyberte RIP skicu ve View.": "Выберите эскиз RIP в окне вида.",
-  "Select a calculated planar source face.": "Выберите рассчитанную плоскую исходную грань.",
   "The first face defines the material side. An empty included-face list converts the complete connected sheet branch. RIP consumes all ordinary geometry of each selected Sketch without removing material.": "Первая грань определяет сторону материала. Пустой список включённых граней преобразует всю связанную ветвь листа. RIP использует всю обычную геометрию каждого выбранного эскиза без удаления материала.",
   "Vytvoří samostatné tabule a ohyby v aktivním prázdném tělese. Zdroj zůstane beze změny. Složité přechody mohou vyžadovat ruční dokončení.": "Создаёт независимые плоские участки и сгибы в активном пустом теле. Источник не изменяется. Сложные переходы могут потребовать ручной доработки.",
   "Vytvářím plech z tělesa…": "Создание листа из тела…",
@@ -2852,5 +2851,12 @@
   "zima::app::AssemblyWorkspaceWindow|Edge treatment preview did not produce an exact result wire.": "Предпросмотр обработки кромки не создал точную результирующую геометрию.",
   "zima::app::AssemblyWorkspaceWindow|Zaoblený přechod": "Скруглённый переход",
   "Sheet from Body Bend correction basis is missing or inconsistent.": "Базовое значение коррекций сгиба листа из тела отсутствует или несогласованно.",
-  "Calculation failed: %1\nPress OK again to save this unchanged definition as unresolved, or Cancel to discard it.": "Ошибка вычисления: %1\nНажмите OK ещё раз, чтобы сохранить это неизменённое определение как нерешённое, или Отмена, чтобы отбросить изменения."
+  "Calculation failed: %1\nPress OK again to save this unchanged definition as unresolved, or Cancel to discard it.": "Ошибка вычисления: %1\nНажмите OK ещё раз, чтобы сохранить это неизменённое определение как нерешённое, или Отмена, чтобы отбросить изменения.",
+  "Zaoblení křivek": "Скругление кривых",
+  "Zaoblení: vyberte první křivku.": "Скругление: выберите первую кривую.",
+  "Zaoblení: vyberte druhou křivku.": "Скругление: выберите вторую кривую.",
+  "Zaoblení rohu: táhněte společným bodem dvou vybraných křivek.": "Скругление угла: перетащите общую точку двух выбранных кривых.",
+  "Fillet requires editable native curves.": "Для скругления требуются редактируемые собственные кривые.",
+  "Sheet Profile Flat end constraints cannot be solved.": "Не удалось решить ограничения конца панели профиля.",
+  "Sheet Profile Flat correction exceeds its target surface.": "Коррекция панели профиля выходит за целевую поверхность."
 }

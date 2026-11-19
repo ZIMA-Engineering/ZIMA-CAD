@@ -276,6 +276,7 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
         add_command(sketch_intersection_profile_action_);
         tools_toolbar_->addSeparator();
         add_command(sketch_trim_action_);
+        add_command(sketch_curve_fillet_action_);
         add_command(sketch_mirror_action_);
         add_command(sketch_offset_action_);
         add_group_separator();
@@ -600,6 +601,7 @@ void AssemblyWorkspaceWindow::sync_sketch_tool_action_checks() {
     set_checked(sketch_interpolating_spline_action_,
         sketch_bspline_active_ && sketch_bspline_interpolating_);
     set_checked(sketch_trim_action_, sketch_trim_active_);
+    set_checked(sketch_curve_fillet_action_, sketch_corner_fillet_active_ && sketch_curve_fillet_materialized_);
     set_checked(sketch_universal_dimension_action_,
         sketch_universal_dimension_active_);
     set_checked(selection_action_, !sketch_command_active());

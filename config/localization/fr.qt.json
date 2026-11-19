@@ -436,7 +436,6 @@
   "Zahrnutá plocha": "Face incluse",
   "Vyberte plochu ve View.": "Sélectionnez une face dans la vue.",
   "Vyberte RIP skicu ve View.": "Sélectionnez une esquisse RIP dans la vue.",
-  "Select a calculated planar source face.": "Sélectionnez une face source plane calculée.",
   "The first face defines the material side. An empty included-face list converts the complete connected sheet branch. RIP consumes all ordinary geometry of each selected Sketch without removing material.": "La première face définit le côté matière. Une liste vide de faces incluses convertit toute la branche de tôle connectée. RIP utilise toute la géométrie ordinaire de chaque esquisse sélectionnée sans retirer de matière.",
   "Vytvoří samostatné tabule a ohyby v aktivním prázdném tělese. Zdroj zůstane beze změny. Složité přechody mohou vyžadovat ruční dokončení.": "Crée des tôles planes et des plis indépendants dans le corps actif vide. La source reste inchangée. Les transitions complexes peuvent nécessiter une finition manuelle.",
   "Vytvářím plech z tělesa…": "Création de la tôle depuis le corps…",
@@ -2852,5 +2851,12 @@
   "zima::app::AssemblyWorkspaceWindow|Edge treatment preview did not produce an exact result wire.": "L’aperçu du traitement d’arête n’a pas produit de géométrie résultante exacte.",
   "zima::app::AssemblyWorkspaceWindow|Zaoblený přechod": "Raccord arrondi",
   "Sheet from Body Bend correction basis is missing or inconsistent.": "La base de correction du pli de Tôle à partir du corps est absente ou incohérente.",
-  "Calculation failed: %1\nPress OK again to save this unchanged definition as unresolved, or Cancel to discard it.": "Échec du calcul : %1\nAppuyez de nouveau sur OK pour enregistrer cette définition inchangée comme non résolue, ou sur Annuler pour l’abandonner."
+  "Calculation failed: %1\nPress OK again to save this unchanged definition as unresolved, or Cancel to discard it.": "Échec du calcul : %1\nAppuyez de nouveau sur OK pour enregistrer cette définition inchangée comme non résolue, ou sur Annuler pour l’abandonner.",
+  "Zaoblení křivek": "Congé entre courbes",
+  "Zaoblení: vyberte první křivku.": "Congé : sélectionnez la première courbe.",
+  "Zaoblení: vyberte druhou křivku.": "Congé : sélectionnez la deuxième courbe.",
+  "Zaoblení rohu: táhněte společným bodem dvou vybraných křivek.": "Congé de coin : faites glisser le point commun des deux courbes sélectionnées.",
+  "Fillet requires editable native curves.": "Le congé nécessite des courbes natives modifiables.",
+  "Sheet Profile Flat end constraints cannot be solved.": "Les contraintes à l’extrémité du panneau du profil ne peuvent pas être résolues.",
+  "Sheet Profile Flat correction exceeds its target surface.": "La correction du panneau du profil dépasse la surface cible."
 }

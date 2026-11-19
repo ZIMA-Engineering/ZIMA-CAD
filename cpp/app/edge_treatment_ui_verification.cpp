@@ -8,6 +8,7 @@
 #include <QTimer>
 #include "assembly_workspace_window.hpp"
 #include "primitive_properties_dialog.hpp"
+#include "sheet_from_body_dialog.hpp"
 #include "drawing_depth_view.hpp"
 #include "workspace/workspace_internal.hpp"
 #include <zima/viewer/mesh_view.hpp>
@@ -19,6 +20,8 @@
 #include <zima/document/viewer_packet_json.hpp>
 #include <zima/document/edge_treatment_selection.hpp>
 #include <zima/kernel/occt_kernel.hpp>
+#include <zima/workspace/edge_treatment_operations.hpp>
+#include <zima/workspace/operation_input.hpp>
 #include <numbers>
 #include <QAction>
 #include <QDialogButtonBox>
@@ -265,6 +268,106 @@ int verify_edge_treatment_ui(QApplication& application, AssemblyWorkspaceWindow&
             std::cout<<"Connected Fillet: actual hover/LMB, deduplicated route, OK/Cancel, real volume change, Undo/Redo and unchanged OK passed\n";
             return 0;
         }
+        if(const auto model=qEnvironmentVariable("ZIMA_VERIFY_MERGED_FACE_MODEL");!model.isEmpty()) {
+            std::filesystem::create_directories(directory);
+            const auto file=directory/"merged-face-input.prtz";
+            std::filesystem::copy_file(std::filesystem::u8path(model.toStdString()),file,
+                std::filesystem::copy_options::overwrite_existing);
+            run("open",{{"path",document::path_to_utf8(file)}});
+            run("regenerate");run("save");run("close");
+            run("open",{{"path",document::path_to_utf8(file)}});
+            std::vector<kernel::BodyResult> cache;
+            const auto source=document::PartDocument::load(file,&cache);
+            document::DocumentSession session(source,cache);
+            const auto* body=workspace::calculated_operation_input(session);
+            check(body,"Merged-face fixture has no current Body");
+            std::map<std::string,std::vector<kernel::FaceReference>> aliases;
+            for(const auto& binding:body->kernel_faces)aliases[binding.locator].push_back(binding.reference);
+            std::vector<kernel::FaceReference> faces;
+            for(const auto& [locator,group]:aliases)if(group.size()==2) {
+                const auto& references=body->mesh.original_references.triangle_references;
+                const auto face=std::ranges::find_if(references,[&](const auto& item) {
+                    return item.surface&&item.surface->kind==kernel::SurfaceGeometry::Kind::Plane&&
+                        std::ranges::find(group,item)!=group.end()&&
+                        std::ranges::find(body->mesh.triangle_references,item)!=body->mesh.triangle_references.end();
+                });
+                if(face!=references.end())faces.push_back(*face);
+            }
+            check(!faces.empty(),"Merged-face fixture has no selectable two-sided wall");
+            const auto revision=run("documents").at(0).at("revision");
+            const auto calculations=kernel::body_calculation_count.load();
+            const auto select_face=[&](const kernel::FaceReference& face) {
+                for(const double sign:{1.,-1.}) {
+                    const auto normal=face.surface->axis;
+                    view->set_view_direction({sign*normal.x,sign*normal.y,sign*normal.z});
+                    for(auto* animation:view->findChildren<QVariantAnimation*>())animation->setCurrentTime(animation->duration());
+                    view->fit_all();flush();
+                    for(int y=20;y<view->height()-20;y+=12)for(int x=20;x<view->width()-20;x+=12) {
+                        const auto candidates=view->selection_candidates_at({double(x),double(y)});
+                        if(!candidates.empty()&&candidates.front().kind==viewer::CandidateKind::Face&&
+                                candidates.front().owner_id==face.owner_id&&candidates.front().semantic_key==face.semantic_key) {
+                            click({double(x),double(y)});return;
+                        }
+                    }
+                }
+                throw std::runtime_error("Merged wall is not selectable: "+face.semantic_key);
+            };
+            for(const auto& face:faces) {
+                window.findChild<QAction*>("featureShortcut1Action")->trigger();flush();
+                auto* feature=dynamic_cast<PrimitivePropertiesDialog*>(window.findChild<QWidget*>("featurePropertiesDialog"));
+                check(feature,"Merged-face Extrusion Properties missing");
+                feature->findChild<QTableWidget*>("primitiveReferenceTable")->cellClicked(0,1);flush();
+                select_face(face);
+                const auto refs=feature->pending_value().placement.references;
+                check(!refs.empty()&&refs.front().owner_id==face.owner_id&&refs.front().semantic_key==face.semantic_key,
+                    "Extrusion mouse click did not accept the merged wall");
+                feature->reject();flush();
+                window.show_sheet_from_body();flush();
+                auto* sheet=dynamic_cast<SheetFromBodyDialog*>(window.findChild<QWidget*>("sheetFromBodyDialog"));
+                check(sheet,"Merged-face Sheet from Body Properties missing");
+                select_face(face);
+                check(sheet->selected()&&*sheet->selected()==face,
+                    "Sheet from Body mouse click did not accept the merged wall");
+                sheet->reject();flush();
+                check(run("documents").at(0).at("revision")==revision,
+                    "Merged-face selection/Cancel changed the document");
+            }
+            check(kernel::body_calculation_count.load()==calculations,
+                "Merged-face opening, selection or Cancel calculated geometry");
+            std::cout<<"Merged faces: "<<faces.size()<<" walls selected by actual mouse in Extrusion and Sheet from Body after save/reopen; Cancel and zero calculations passed\n";
+            if(qEnvironmentVariableIsSet("ZIMA_VERIFY_MERGED_FACE_CONVERT"))for(const auto& face:faces) {
+                window.show_sheet_from_body();flush();
+                auto* sheet=dynamic_cast<SheetFromBodyDialog*>(window.findChild<QWidget*>("sheetFromBodyDialog"));
+                check(sheet,"Merged-face conversion dialog missing");select_face(face);
+                QPointer<SheetFromBodyDialog> guard(sheet);
+                sheet->buttons()->button(QDialogButtonBox::Ok)->click();flush();
+                if(guard&&guard->isVisible()) {
+                    std::string error="Merged-face conversion did not close:";
+                    for(auto* label:guard->findChildren<QLabel*>())if(label->isVisible())error+=" "+label->text().toStdString();
+                    throw std::runtime_error(error);
+                }
+                run("save");
+                std::vector<kernel::BodyResult> converted_cache;
+                const auto converted=document::PartDocument::load(file,&converted_cache);
+                check(converted.history.size()>source.history.size()&&
+                    std::equal(source.history.begin(),source.history.end(),converted.history.begin()),
+                    "Merged-face conversion changed source history or created no sheet features");
+                check(!converted_cache.empty()&&converted_cache.back().calculation_errors.empty(),
+                    "Merged-face conversion saved an unresolved result");
+                const auto converted_history=converted.history;
+                run("undo");run("save");
+                check(document::PartDocument::load(file).history==source.history,"Merged-face conversion Undo changed source history");
+                run("redo");run("save");
+                check(document::PartDocument::load(file).history==converted_history,"Merged-face conversion Redo lost its definitions");
+                run("close");run("open",{{"path",document::path_to_utf8(file)}});run("regenerate");run("save");
+                converted_cache.clear();static_cast<void>(document::PartDocument::load(file,&converted_cache));
+                check(!converted_cache.empty()&&converted_cache.back().calculation_errors.empty(),
+                    "Merged-face conversion failed after cold reopening");
+                run("close");source.save(file,cache);run("open",{{"path",document::path_to_utf8(file)}});
+                std::cout<<"Merged-face full conversion, source preservation, native reopen, cold regeneration and Undo/Redo passed\n";
+            }
+            return 0;
+        }
         if(const auto model=qEnvironmentVariable("ZIMA_VERIFY_PICK_MODEL");!model.isEmpty()) {
             const auto file=directory/"pick-input.prtz";
             std::filesystem::copy_file(std::filesystem::u8path(model.toStdString()),file,
@@ -326,6 +429,19 @@ int verify_edge_treatment_ui(QApplication& application, AssemblyWorkspaceWindow&
             const auto requested_radius=qEnvironmentVariable("ZIMA_VERIFY_PICK_RADIUS");
             pending->findChild<QDoubleSpinBox*>("edgeTreatmentPrimary")->setValue(
                 requested_radius.isEmpty()?1.:requested_radius.toDouble());flush();
+            const auto picked_definition=pending->pending_value().edge_treatment;
+            for(std::size_t route=0;route<picked_definition.routes.size();++route) {
+                const auto terminals=workspace::edge_treatment_route_endpoints(
+                    view->mesh().edges,picked_definition.routes[route]);
+                if(terminals.size()!=2)continue;
+                check(route<picked_definition.route_end_faces.size(),
+                    "Picked route did not retain its physical terminals");
+                const auto& ends=picked_definition.route_end_faces[route];
+                check(ends.first_vertex!=ends.last_vertex&&
+                    std::ranges::find(terminals,ends.first_vertex)!=terminals.end()&&
+                    std::ranges::find(terminals,ends.last_vertex)!=terminals.end(),
+                    "Picked route learned an internal preview junction as a terminal");
+            }
             if(qEnvironmentVariableIsSet("ZIMA_VERIFY_PICK_STALE_ENDPOINT")) {
                 const auto value=pending->pending_value();
                 check(!value.edge_treatment.route_end_faces.empty(),"Missing endpoint test route");
@@ -369,7 +485,14 @@ int verify_edge_treatment_ui(QApplication& application, AssemblyWorkspaceWindow&
                     std::cout<<"Invalid endpoint GUI: first/second OK, native reopen, Undo/Redo passed\n";
                     return 0;
                 }
+                QPointer<PrimitivePropertiesDialog> submitted=pending;
                 finish(true);
+                if(submitted) {
+                    for(auto* label:submitted->findChildren<QLabel*>())
+                        if(label->isVisible()&&!label->text().isEmpty())
+                            std::cerr<<"FIRST-OK: "<<label->text().toStdString()<<'\n';
+                    check(false,"Valid picked treatment did not close on its first OK");
+                }
                 check(kernel::body_calculation_count.load()>draft_calculations,
                     "Picked treatment did not calculate on OK");
                 const auto get=chamfer?"chamfer.get":"fillet.get";

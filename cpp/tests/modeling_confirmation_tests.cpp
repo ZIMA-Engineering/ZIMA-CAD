@@ -2,6 +2,7 @@
 #include <zima/workspace/modeling_confirmation.hpp>
 #include <zima/workspace/edge_treatment_operations.hpp>
 #include <zima/workspace/shell_operations.hpp>
+#include <zima/workspace/profile_operations.hpp>
 #include <iostream>
 #include <filesystem>
 using namespace zima;
@@ -127,10 +128,78 @@ void verify_shell(bool edit) {
         check(state->session.redo()&&state->session.calculated_boundaries().back().calculation_errors.contains(feature.id),"Shell confirmation Redo failed");
     }
 }
+
+void verify_assembly_profile(bool edit,bool shared_feature,bool revolve) {
+    auto part=document::PartDocument::create_default();
+    document::BodyHistoryGraph graph;static_cast<void>(graph.create_body("Source"));part.set_body_history(graph);
+    auto box=test::rectangular_feature(part,{40,30,20});
+    part.insert_history_entry(document::PartHistoryKind::Feature,box.id);part.history.push_back(box);
+    kernel::OcctKernel kernel;auto cache=workspace::calculate_part_with_resolved_references(kernel,part);
+    const auto source_path=std::filesystem::absolute("build/confirmation-assembly-source.prtz");
+    part.save(source_path,cache);
+    auto owner=assembly::AssemblyDocument::create_default();
+    for(int i=0;i<2;++i)owner.components.push_back(assembly::AssemblyDocument::create_part_occurrence(
+        "Target",part.document_id,source_path,cache.back()));
+    owner.synchronize_history();
+    workspace::Workspace live;live.add_part(part,cache,source_path);live.add_assembly(owner);live.activate(owner.document_id);
+    auto* state=live.open_assembly(owner.document_id);
+    auto sketch=sketcher::Sketch::create_default();static_cast<void>(sketch.add_rectangle(2,2,4,5));
+    auto feature=shared_feature?document::PartDocument::create_feature_container(sketch.id):
+        revolve?document::PartDocument::create_revolution_container(sketch.id):
+        document::PartDocument::create_extrusion_container(sketch.id);
+    feature.combine_mode=document::CombineMode::Subtract;sketch.owner_container_id=feature.id;
+    feature.feature.sides[0].length=5;feature.extrusion.length_forward=5;
+    if(revolve) {
+        const auto axis=sketch.add_segment(0,0,0,10);
+        sketch.set_segment_centerline(axis,true);
+        feature.feature.axis_segment_id=axis;
+        feature.feature.sides[0].operation=document::FeatureSideOperation::Revolution;
+        feature.feature.sides[0].angle_degrees=360;
+        feature.revolution.axis_segment_id=axis;feature.revolution.angle_degrees=360;
+    }
+    std::vector<std::string> targets;for(const auto& component:owner.components)targets.push_back(component.occurrence_id);
+    if(edit)workspace::commit_assembly_profile(live,kernel,owner.document_id,feature,targets,workspace::ProfileEditMode::Create,sketch);
+    const auto before=state->session.document().serialized();const auto revision=state->session.revision();
+    const auto source_before=live.open_part(part.document_id)->session.document().serialized();
+    sketch.segments.erase(sketch.segments.begin()); // Valid authored open Sketch; invalid solid cutter.
+    workspace::ModelingConfirmation confirmation;
+    int calculations{};workspace::CalculationExecutionScope counted([&](auto task){++calculations;task();});
+    const auto submit=[&](bool failure) {
+        bool rejected{};workspace::ModelingConfirmationAttempt attempt(confirmation,live,owner.document_id);
+        try {workspace::commit_assembly_profile(live,kernel,owner.document_id,feature,targets,
+            edit?workspace::ProfileEditMode::Replace:workspace::ProfileEditMode::Create,sketch);}
+        catch(const std::exception& error){rejected=true;if(!attempt.failed())std::cerr<<"Assembly preflight: "<<error.what()<<'\n';}
+        check(rejected==failure&&attempt.failed()==failure,"Assembly first/second OK failed");
+    };
+    submit(true);
+    check(state->session.revision()==revision&&state->session.document().serialized()==before,"Failed Assembly OK changed document");
+    const auto first_count=calculations;
+    sketch.points.front().x+=.2;submit(true);check(calculations>first_count,"Changed Assembly draft reused failure");
+    const auto count=calculations;submit(false);
+    check(calculations==count&&state->session.revision()==revision+1,"Second Assembly OK calculated or duplicated transaction");
+    const auto verify=[&](const assembly::AssemblyDocument& document) {
+        check(document.find_cut(feature.id),"Unresolved Assembly definition missing");
+        for(const auto& component:document.components) {
+            const auto& body=component.calculated_source.get();
+            check(body.calculation_errors.contains(feature.id),"Assembly unresolved status missing");
+            check(std::abs(body.volume-cache.back().volume)<1e-7,"Unresolved cutter changed its input material");
+        }
+    };
+    verify(state->session.document());
+    const auto path=std::filesystem::path("build")/(std::string("confirmation-assembly-")+(shared_feature?"feature-":"extrusion-")+(edit?"edit.asmz":"new.asmz"));
+    state->session.document().save(path);auto reopened=assembly::AssemblyDocument::load(path);verify(reopened);
+    for(int repeat=0;repeat<2;++repeat) {
+        check(state->session.undo()&&authored(state->session.document().serialized())==authored(before),"Assembly unresolved Undo failed");
+        check(state->session.redo(),"Assembly unresolved Redo failed");verify(state->session.document());
+    }
+    workspace::regenerate_assembly(live,kernel,owner.document_id);verify(state->session.document());
+    check(live.open_part(part.document_id)->session.document().serialized()==source_before,"Assembly confirmation changed source Part");
+}
 }
 int main(){try {
     for(bool edit:{false,true})for(bool chamfer:{false,true})for(bool stale_endpoint:{false,true})verify(edit,chamfer,stale_endpoint);
     for(bool edit:{false,true})verify_shell(edit);
+    for(bool edit:{false,true})for(bool shared:{false,true})for(bool revolve:{false,true})verify_assembly_profile(edit,shared,revolve);
     std::cout<<"Modeling confirmation: new/edit, Fillet/Chamfer, unchanged retry, changed draft/source, Cancel, persistence and Undo/Redo passed\n";
     return 0;
 }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}}

@@ -363,9 +363,19 @@ bool seed_circular_equations(Sketch& sketch,const std::vector<std::string>& anch
     // immutable projected supports (e.g. a washer split following both rims).
     const bool external_circle=!line_component&&sketch.arcs.empty()&&sketch.circles.empty()&&
         std::ranges::any_of(sketch.external_references,[](const auto& r){return external_reference_circle(r).has_value();});
+    const bool curved_contact=std::ranges::any_of(sketch.constraints,[&](const auto& c) {
+        if(c.suppressed||c.kind!=ConstraintKind::Tangent||c.first_point_id.empty())return false;
+        const auto support=[&](const std::string& id) {
+            return std::ranges::any_of(sketch.elliptical_arcs,[&](const auto& arc){return arc.id==id&&
+                (arc.start_point_id==c.first_point_id||arc.end_point_id==c.first_point_id);}) ||
+                std::ranges::any_of(sketch.bsplines,[&](const auto& spline){return spline.id==id&&!spline.closed&&!spline.interpolating&&
+                    (spline.control_point_ids.front()==c.first_point_id||spline.control_point_ids.back()==c.first_point_id);});
+        };
+        return support(c.geometry_id)||support(c.second_geometry_id);
+    });
     if((!line_component&&sketch.arcs.empty()&&sketch.circles.empty()&&!external_circle)||
-       !sketch.ellipses.empty()||!sketch.elliptical_arcs.empty()||
-       !sketch.bsplines.empty()||!sketch.offsets.empty()||!sketch.curve_trims.empty())return false;
+       !sketch.ellipses.empty()||(!curved_contact&&(!sketch.elliptical_arcs.empty()||!sketch.bsplines.empty()))||
+       !sketch.offsets.empty()||!sketch.curve_trims.empty())return false;
     auto next=sketch;
     const auto point=[&](const std::string& id)->std::optional<std::array<double,2>> {
         if(id=="sketch_origin")return std::array{0.,0.};
@@ -408,6 +418,15 @@ bool seed_circular_equations(Sketch& sketch,const std::vector<std::string>& anch
         const auto external=std::ranges::find(next.external_references,id,&SketchExternalReference::id);
         if(external!=next.external_references.end())return external_reference_circle(*external);
         return {};
+    };
+    const auto ellipse_frame=[&](const SketchEllipticalArc& arc) {
+        const auto c=point(arc.center_point_id),a=point(arc.major_point_id),b=point(arc.minor_point_id);
+        return std::array{(*c)[0],(*c)[1],(*a)[0]-(*c)[0],(*a)[1]-(*c)[1],(*b)[0]-(*c)[0],(*b)[1]-(*c)[1]};
+    };
+    const auto ellipse_coordinates=[](const auto& frame,const auto& p) {
+        const double det=frame[2]*frame[5]-frame[3]*frame[4];
+        return std::array{((p[0]-frame[0])*frame[5]-(p[1]-frame[1])*frame[4])/det,
+            (frame[2]*(p[1]-frame[1])-frame[3]*(p[0]-frame[0]))/det};
     };
     // A corner radius is a scalar modifier of its two native support lines,
     // not another circular support in the underlying constraint graph. Keep
@@ -458,6 +477,16 @@ bool seed_circular_equations(Sketch& sketch,const std::vector<std::string>& anch
             const auto c=point(a.center_point_id);
             for(const auto& id:{a.start_point_id,a.end_point_id}) {
                 const auto p=point(id);r.push_back(std::hypot((*p)[0]-(*c)[0],(*p)[1]-(*c)[1])-a.radius);
+            }
+        }
+        for(const auto& arc:next.elliptical_arcs) {
+            const auto frame=ellipse_frame(arc);
+            const double a=std::hypot(frame[2],frame[3]),b=std::hypot(frame[4],frame[5]);
+            if(a<1e-9||b<1e-9||std::abs(frame[2]*frame[5]-frame[3]*frame[4])<1e-10)return {};
+            r.push_back((frame[2]*frame[4]+frame[3]*frame[5])/std::max(a,b));
+            for(const auto& id:{arc.start_point_id,arc.end_point_id}) {
+                const auto uv=ellipse_coordinates(frame,*point(id));
+                r.push_back((uv[0]*uv[0]+uv[1]*uv[1]-1)*std::min(a,b));
             }
         }
         for(const auto& c:next.constraints) {
@@ -523,6 +552,28 @@ bool seed_circular_equations(Sketch& sketch,const std::vector<std::string>& anch
                         }
                     }
                     continue;
+                }
+                if(first || second) {
+                    const auto& other_id=first?c.second_geometry_id:c.geometry_id;
+                    const auto circle=first?first:second;const auto p=point(c.first_point_id);
+                    const auto ellipse=std::ranges::find(next.elliptical_arcs,other_id,&SketchEllipticalArc::id);
+                    const auto spline=std::ranges::find(next.bsplines,other_id,&SketchBSpline::id);
+                    if(p&&ellipse!=next.elliptical_arcs.end() &&
+                       (ellipse->start_point_id==c.first_point_id||ellipse->end_point_id==c.first_point_id)) {
+                        const auto f=ellipse_frame(*ellipse);const auto uv=ellipse_coordinates(f,*p);
+                        const double nx=f[5]*uv[0]-f[3]*uv[1],ny=f[2]*uv[1]-f[4]*uv[0];
+                        r.push_back((((*circle)[0]-(*p)[0])*ny-((*circle)[1]-(*p)[1])*nx)/std::hypot(nx,ny));
+                        continue;
+                    }
+                    if(p&&spline!=next.bsplines.end()&&!spline->closed&&!spline->interpolating&&
+                       (spline->control_point_ids.front()==c.first_point_id||spline->control_point_ids.back()==c.first_point_id)) {
+                        const auto& ids=spline->control_point_ids;
+                        const auto arm=point(ids[ids.front()==c.first_point_id?1:ids.size()-2]);
+                        const double dx=(*arm)[0]-(*p)[0],dy=(*arm)[1]-(*p)[1],length=std::hypot(dx,dy);
+                        if(length<1e-10)return {};
+                        r.push_back((((*circle)[0]-(*p)[0])*dx+((*circle)[1]-(*p)[1])*dy)/length);
+                        continue;
+                    }
                 }
                 const auto circle=first?first:second;
                 const auto& circle_id=first?c.geometry_id:c.second_geometry_id;
@@ -698,6 +749,20 @@ bool seed_circular_equations(Sketch& sketch,const std::vector<std::string>& anch
                 a.end_angle=std::atan2((*q)[1]-(*c)[1],(*q)[0]-(*c)[0]);
                 while(a.end_angle<=a.start_angle)a.end_angle+=6.283185307179586;
                 if(std::abs(a.end_angle-a.start_angle-old_sweep)>3.141592653589793)return false;
+            }
+            for(auto& arc:next.elliptical_arcs) {
+                const auto f=ellipse_frame(arc);
+                if((f[2]*f[5]-f[3]*f[4]<0)!=arc.reversed)return false;
+                arc.major_radius=std::hypot(f[2],f[3]);arc.minor_radius=std::hypot(f[4],f[5]);
+                arc.rotation=std::atan2(f[3],f[2]);
+                const auto p=ellipse_coordinates(f,*point(arc.start_point_id)),q=ellipse_coordinates(f,*point(arc.end_point_id));
+                const double old_start=arc.start_parameter,old_sweep=arc.end_parameter-arc.start_parameter;
+                arc.start_parameter=std::atan2(p[1],p[0]);
+                while(arc.start_parameter-old_start>3.141592653589793)arc.start_parameter-=6.283185307179586;
+                while(arc.start_parameter-old_start<-3.141592653589793)arc.start_parameter+=6.283185307179586;
+                arc.end_parameter=std::atan2(q[1],q[0]);
+                while(arc.end_parameter<=arc.start_parameter)arc.end_parameter+=6.283185307179586;
+                if(std::abs(arc.end_parameter-arc.start_parameter-old_sweep)>3.141592653589793)return false;
             }
             if(!next.corner_radii.empty()) {
                 try { static_cast<void>(next.evaluated_profile_sketch()); }

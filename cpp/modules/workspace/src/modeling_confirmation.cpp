@@ -42,6 +42,7 @@ struct ModelingConfirmation::Pending {
     std::vector<kernel::BodyResult> calculated;
     std::set<std::string> failed_owners;
     std::string message;
+    std::optional<assembly::AssemblyDocument> assembly_result;
 };
 ModelingConfirmation::ModelingConfirmation()=default;
 ModelingConfirmation::~ModelingConfirmation()=default;
@@ -59,6 +60,9 @@ ModelingConfirmationAttempt::~ModelingConfirmationAttempt() { active_attempt=pre
 ModelingConfirmationAttempt* ModelingConfirmationAttempt::current() { return active_attempt; }
 bool ModelingConfirmationAttempt::applies(const document::PartDocument& part) const {
     return part.document_id==document_id_&&workspace_.open_part(document_id_);
+}
+bool ModelingConfirmationAttempt::applies(const assembly::AssemblyDocument& assembly) const {
+    return assembly.document_id==document_id_&&workspace_.open_assembly(document_id_);
 }
 bool ModelingConfirmationAttempt::accepted(const std::string& owner) const {
     return owner.empty()?!accepted_owners_.empty():accepted_owners_.contains(owner);
@@ -99,6 +103,43 @@ std::vector<kernel::BodyResult> ModelingConfirmationAttempt::calculate(
     pending=std::make_unique<ModelingConfirmation::Pending>(ModelingConfirmation::Pending{
         std::move(input),std::move(sources),candidate,std::move(calculated),std::move(failures),message});
     failed_=true;
+    throw std::runtime_error(message);
+}
+
+void ModelingConfirmationAttempt::calculate(assembly::AssemblyDocument& candidate,
+        const AssemblyCalculation& calculate) {
+    struct Restore {
+        ModelingConfirmationAttempt* previous=active_attempt;
+        Restore(){active_attempt=nullptr;}
+        ~Restore(){active_attempt=previous;}
+    } restore;
+    auto input=candidate.serialized();
+    auto sources=source_generations(workspace_);
+    auto& pending=confirmation_.pending_;
+    if(pending&&pending->assembly_result&&pending->input==input&&pending->sources==sources) {
+        candidate=*pending->assembly_result;
+        accepted_owners_=pending->failed_owners;
+        return;
+    }
+    confirmation_.clear();
+    const auto* state=workspace_.open_assembly(document_id_);
+    auto changed=changed_owners(state->session.document().feature_document(),candidate.feature_document());
+    for(const auto& cut:candidate.cuts) {
+        const auto* old=state->session.document().find_cut(cut.definition.id);
+        if(!old||old->target_occurrence_ids!=cut.target_occurrence_ids)changed.insert(cut.definition.id);
+    }
+    calculate(candidate,true);
+    std::set<std::string> failures;std::string message;
+    for(const auto& component:candidate.components)
+        for(const auto& [owner,error]:component.calculated_source.get().calculation_errors) {
+            if(!changed.contains(owner))continue;
+            failures.insert(owner);if(message.empty())message=error;
+        }
+    if(failures.empty())return;
+    pending=std::make_unique<ModelingConfirmation::Pending>();
+    pending->input=std::move(input);pending->sources=std::move(sources);
+    pending->assembly_result=candidate;pending->failed_owners=std::move(failures);
+    pending->message=message;failed_=true;
     throw std::runtime_error(message);
 }
 } // namespace zima::workspace

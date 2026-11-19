@@ -31,9 +31,14 @@ struct PreparedSheetProfile {
     document::PartDocument&, const std::string& source_container_id,
     const kernel::ViewerReferenceGeometry&);
 
+// Explicit calculation only: consume current resolved native Sketches and
+// targets, then propagate the generated chain in route order. No kernel calls.
+[[nodiscard]] bool refresh_sheet_profile_definitions(document::PartDocument&,
+    const kernel::ViewerReferenceGeometry&);
+
 // Reconcile edits made through the ordinary first Flat/Bend editor back into
 // the parent route, then regenerate the stable child group. Non-master
-// generated children are edited through the parent Profile Sketch instead.
+// children retain independent Flat-end/Bend-end corrections and corner closure.
 [[nodiscard]] PreparedSheetProfile prepare_sheet_profile_master_edit(
     const document::PartDocument&, document::HistoryContainer,
     sketcher::Sketch, kernel::ViewerReferenceGeometry references = {});

@@ -378,6 +378,11 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
             dialog->set_flat_mode(sketch_feature->flat,zima::document::sheet_metal_defaults(part->session.document()),
                 sketch_feature->value_locks,[sketch_feature](auto p){sketch_feature->flat=std::move(p);},
                 [edit_owned_sketch]{edit_owned_sketch(std::nullopt);});
+            if(!sketch_feature->sheet_profile_binding.parent_id.empty()) {
+                const auto* parent=part->session.document().find_container(sketch_feature->sheet_profile_binding.parent_id);
+                if(parent&&parent->sheet_profile.master_feature_id!=sketch_feature->id)
+                    dialog->set_profile_flat_correction_only();
+            }
         } else if(bend_mode) {
             const auto defaults=zima::document::sheet_metal_defaults(part->session.document());
             dialog->set_bend_mode(sketch_feature->bend,defaults,

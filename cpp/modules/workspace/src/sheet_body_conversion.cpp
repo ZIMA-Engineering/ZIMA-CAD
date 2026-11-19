@@ -8,6 +8,8 @@
 #include <zima/document/sheet_rip.hpp>
 #include <zima/kernel/boolean_face_ancestry.hpp>
 #include <zima/kernel/sheet_material.hpp>
+#include <zima/kernel/sheet_exchange.hpp>
+#include <zima/kernel/dimension_layout.hpp>
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -1236,7 +1238,8 @@ void outline(sketcher::Sketch& sketch,const kernel::ViewerMesh& mesh,const Face&
 }
 void split_outline(sketcher::Sketch& sketch,const kernel::ViewerMesh& mesh,
         const Face& face,const std::vector<kernel::ViewerEdge>& incoming,
-        std::size_t region) {
+        std::size_t region,const kernel::BodyResult& native_source,
+        const kernel::ModelEnvelope& body_frame,const kernel::OcctKernel& engine) {
     if(incoming.size()<2||region>=incoming.size()) {
         outline(sketch,mesh,face);
         return;
@@ -1244,6 +1247,7 @@ void split_outline(sketcher::Sketch& sketch,const kernel::ViewerMesh& mesh,
     constexpr double point_tolerance=1e-6;
     std::vector<V> vertices;
     std::vector<std::array<std::size_t,2>> segments;
+    bool curved{};
     const auto vertex=[&](V point) {
         const auto found=std::ranges::find_if(vertices,[&](V candidate) {
             const auto delta=sub(candidate,point);
@@ -1265,11 +1269,9 @@ void split_outline(sketcher::Sketch& sketch,const kernel::ViewerMesh& mesh,
             }
         }
         if(!belongs)continue;
-        // A corner partition must retain exact editable source geometry. The
-        // current rule is intentionally limited to straight planar borders;
-        // do not replace a curved border by display tessellation.
-        if(!straight(edge))throw std::invalid_argument(
-            "Sheet conversion cannot split a curved continuation face.");
+        // Endpoints order the loop and orient its entry distances. Curved
+        // borders are clipped from the native face below, never these chords.
+        curved|=!straight(edge);
         const std::array connection{vertex(edge.points.front()),
             vertex(edge.points.back())};
         if(connection[0]==connection[1])continue;
@@ -1352,6 +1354,36 @@ void split_outline(sketcher::Sketch& sketch,const kernel::ViewerMesh& mesh,
             throw std::invalid_argument(
                 "Sheet conversion cannot bisect a concave continuation face.");
         borders.push_back(line);
+    }
+    if(curved) {
+        std::vector<std::array<double,3>> half_planes;
+        for(std::size_t other=0;other<borders.size();++other)if(other!=region)
+            half_planes.push_back({borders[other].normal[0]-borders[region].normal[0],
+                borders[other].normal[1]-borders[region].normal[1],
+                borders[other].constant-borders[region].constant});
+        kernel::ModelEnvelope frame;frame.origin=sketch.resolved_origin;
+        frame.axes={sketch.resolved_x_axis,sketch.resolved_y_axis,sketch.resolved_normal};
+        frame=kernel::composed_annotation_frame(body_frame,frame);
+        const auto contour=kernel::clip_sheet_face_contour(
+            engine.capture_reference_face(native_source,face),frame,half_planes,point_tolerance);
+        for(const auto& arc:contour.arcs) {
+            if(arc.full)static_cast<void>(sketch.add_circle(arc.center.x,arc.center.y,arc.radius));
+            else static_cast<void>(sketch.add_arc(arc.center.x,arc.center.y,arc.start.x,arc.start.y,
+                arc.end.x,arc.end.y,false,point_tolerance,arc.clockwise));
+        }
+        for(const auto& curve:contour.curves) {
+            if(curve.degree==1&&curve.poles.size()==2) {
+                const auto a=curve.poles.front(),b=curve.poles.back();
+                static_cast<void>(sketch.add_segment(a.x,a.y,b.x,b.y,point_tolerance,false));
+            }else {
+                std::vector<std::array<double,2>> poles;
+                for(const auto p:curve.poles)poles.push_back({p.x,p.y});
+                const auto id=sketch.add_bspline(poles,curve.degree,false,false,point_tolerance,false);
+                auto& spline=*std::ranges::find(sketch.bsplines,id,&sketcher::SketchBSpline::id);
+                spline.knots=curve.knots;spline.weights=curve.weights;
+            }
+        }
+        return;
     }
     const auto clip=[&](std::vector<P> input,const Line& keep,
             const Line& other) {
@@ -1477,6 +1509,10 @@ void bind_flat_outline_to_attachment(sketcher::Sketch& sketch,
         if(!joining)throw std::invalid_argument(
             "Flat profile conflicts with its sheet endpoint references.");
         const std::array delta{target[0]-joining->x,target[1]-joining->y};
+        if(std::hypot(delta[0],delta[1])<=1e-9) {
+            joining->x=target[0];joining->y=target[1];
+            return;
+        }
         if(!translate_adjacent_sides) {
             joining->x=target[0];joining->y=target[1];
             return;
@@ -1979,16 +2015,44 @@ SheetBodyConversion prepare_sheet_from_body(const document::PartDocument& source
     // Body outputs already include their Body placement. Convert that world
     // packet once to the active Body's local coordinates through the public API.
     auto mesh=input->second->mesh;
+    // A joined two-sided wall has one current face and two native aliases.
+    // Cap guides retain their authored Start/End side. For traversal of this
+    // private conversion skin, resolve both through the same native locator
+    // to the single published current face. Never rewrite the source packet,
+    // the selected source reference, or a user's persisted side choice.
+    std::map<std::string,std::vector<Face>> native_aliases;
+    for(const auto& binding:input->second->kernel_faces)
+        native_aliases[binding.locator].push_back(binding.reference);
+    std::map<std::string,Face> current_faces;
+    for(const auto& face:mesh.triangle_references)if(face.valid())current_faces.emplace(key(face),face);
+    std::map<std::string,Face> joined_faces;
+    for(const auto& [locator,aliases]:native_aliases)if(aliases.size()==2) {
+        const Face* current=nullptr;std::size_t matches{};
+        for(const auto& alias:aliases)if(const auto found=current_faces.find(key(alias));found!=current_faces.end()) {
+            current=&found->second;++matches;
+        }
+        if(matches==1)for(const auto& alias:aliases)joined_faces.emplace(key(alias),*current);
+    }
+    const auto current_face=[&](Face face) {
+        if(const auto found=joined_faces.find(key(face));found!=joined_faces.end()) {
+            face.owner_id=found->second.owner_id;face.semantic_key=found->second.semantic_key;
+            face.instance_path=found->second.instance_path;
+        }
+        return face;
+    };
+    for(auto& face:mesh.original_references.triangle_references)face=current_face(std::move(face));
+    for(auto* edges:{&mesh.edges,&mesh.original_references.edges})
+        for(auto& edge:*edges)for(auto& face:edge.edge_treatment_side_references)face=current_face(std::move(face));
     auto local_context=sketcher::Sketch::create_default();local_context.owner_container_id=target->scope.id;
     kernel::ViewerReferenceGeometry packet{std::move(mesh.vertices),std::move(mesh.triangles),std::move(mesh.triangle_references),std::move(mesh.edges),std::move(mesh.points),std::move(mesh.axes)};
     packet=source.sketch_reference_geometry_for(local_context,std::move(packet));
     mesh.vertices=std::move(packet.vertices);mesh.triangles=std::move(packet.triangles);mesh.triangle_references=std::move(packet.triangle_references);
     mesh.edges=std::move(packet.edges);mesh.points=std::move(packet.points);mesh.axes=std::move(packet.axes);
     mesh.original_references=source.sketch_reference_geometry_for(local_context,std::move(mesh.original_references));
-    auto local_selected=selected;
+    auto local_selected=current_face(selected);
     if(selected.surface) {
         kernel::ViewerReferenceGeometry selection;
-        selection.triangle_references.push_back(selected);
+        selection.triangle_references.push_back(local_selected);
         selection=source.sketch_reference_geometry_for(
             local_context,std::move(selection));
         if(!selection.triangle_references.empty())
@@ -2642,7 +2706,8 @@ SheetBodyConversion prepare_sheet_from_body(const document::PartDocument& source
         if(!bend) {
             if(std::abs(dot(placed.resolved_normal,surface.axis))<1-1e-6){skip("flat frame");continue;}
             if(continuations_by_target.contains(i))
-                split_outline(placed,mesh,node.face,incoming_edges(i),0);
+                split_outline(placed,mesh,node.face,incoming_edges(i),0,input->second.get(),
+                    kernel::annotation_frame(target->scope.translation(),target->scope.rotation_degrees()),kernel);
             else outline(placed,mesh,node.face);
             // A converted outline is real editable Sketch geometry.  Bind its
             // two joining vertices to the stable End vertices exactly like a
@@ -2977,7 +3042,8 @@ SheetBodyConversion prepare_sheet_from_body(const document::PartDocument& source
         const std::size_t region=1+static_cast<std::size_t>(
             position-target_group.begin());
         split_outline(placed_flat,mesh,nodes[target_index].face,
-            target_incoming,region);
+            target_incoming,region,input->second.get(),
+            kernel::annotation_frame(target->scope.translation(),target->scope.rotation_degrees()),kernel);
         bind_flat_outline_to_attachment(placed_flat,thickness,
             !imported_step_source);
         auto flat_calculated=calculate_part_with_resolved_references(

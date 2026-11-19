@@ -110,7 +110,7 @@
   "This generated sheet group cannot be reordered independently.": "Tuto vytvořenou skupinu plechu nelze samostatně přesouvat v historii.",
   "Sheet from Body requires an editable active Body.": "Plech z tělesa vyžaduje aktivní editovatelné těleso.",
   "Select a planar face of the active Body.": "Vyberte rovinnou plochu aktivního tělesa.",
-  "Select a calculated planar source face.": "Vyberte vypočítanou rovinnou plochu zdroje.",
+  "Select a calculated planar source face.": "Vyberte vypočtenou rovinnou zdrojovou plochu.",
   "Show a calculated planar face in the active Body, or activate an empty Body after the source Body.": "Zobrazte vypočítanou rovinnou plochu aktivního tělesa nebo aktivujte prázdné těleso za zdrojovým tělesem.",
   "Sheet conversion cannot reproduce this surface transition.": "Převod na plech nedokáže vytvořit tento přechod ploch.",
   "Sheet conversion cannot reproduce every connected face.": "Převod na plech nedokáže vytvořit všechny navazující plochy.",
@@ -436,7 +436,6 @@
   "Zahrnutá plocha": "Zahrnutá plocha",
   "Vyberte plochu ve View.": "Vyberte plochu ve View.",
   "Vyberte RIP skicu ve View.": "Vyberte RIP skicu ve View.",
-  "Select a calculated planar source face.": "Vyberte vypočtenou rovinnou zdrojovou plochu.",
   "The first face defines the material side. An empty included-face list converts the complete connected sheet branch. RIP consumes all ordinary geometry of each selected Sketch without removing material.": "První plocha určuje stranu materiálu. Prázdný seznam zahrnutých ploch převede celou propojenou větev plechu. RIP použije veškerou běžnou geometrii každé vybrané skici bez odebrání materiálu.",
   "Vytvoří samostatné tabule a ohyby v aktivním prázdném tělese. Zdroj zůstane beze změny. Složité přechody mohou vyžadovat ruční dokončení.": "Vytvoří samostatné tabule a ohyby v aktivním prázdném tělese. Zdroj zůstane beze změny. Složité přechody mohou vyžadovat ruční dokončení.",
   "Vytvářím plech z tělesa…": "Vytvářím plech z tělesa…",
@@ -2852,5 +2851,12 @@
   "zima::app::AssemblyWorkspaceWindow|Edge treatment preview did not produce an exact result wire.": "Náhled úpravy hrany nevytvořil přesnou výslednou geometrii.",
   "zima::app::AssemblyWorkspaceWindow|Zaoblený přechod": "Zaoblený přechod",
   "Sheet from Body Bend correction basis is missing or inconsistent.": "Základ korekcí ohybu Plech z tělesa chybí nebo je nekonzistentní.",
-  "Calculation failed: %1\nPress OK again to save this unchanged definition as unresolved, or Cancel to discard it.": "Výpočet selhal: %1\nDalším stisknutím OK uložíte tuto nezměněnou definici jako nevyřešenou. Tlačítkem Zrušit změny zahodíte."
+  "Calculation failed: %1\nPress OK again to save this unchanged definition as unresolved, or Cancel to discard it.": "Výpočet selhal: %1\nDalším stisknutím OK uložíte tuto nezměněnou definici jako nevyřešenou. Tlačítkem Zrušit změny zahodíte.",
+  "Zaoblení křivek": "Zaoblení křivek",
+  "Zaoblení: vyberte první křivku.": "Zaoblení: vyberte první křivku.",
+  "Zaoblení: vyberte druhou křivku.": "Zaoblení: vyberte druhou křivku.",
+  "Zaoblení rohu: táhněte společným bodem dvou vybraných křivek.": "Zaoblení rohu: táhněte společným bodem dvou vybraných křivek.",
+  "Fillet requires editable native curves.": "Zaoblení vyžaduje upravitelné vlastní křivky skici.",
+  "Sheet Profile Flat end constraints cannot be solved.": "Vazby konce tabule Profilu nelze vyřešit.",
+  "Sheet Profile Flat correction exceeds its target surface.": "Korekce tabule Profilu přesahuje cílovou plochu."
 }

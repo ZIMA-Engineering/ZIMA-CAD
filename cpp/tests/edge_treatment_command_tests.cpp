@@ -5,6 +5,7 @@
 #include <zima/workspace/edge_treatment_operations.hpp>
 #include <zima/workspace/operation_input.hpp>
 #include <zima/workspace/model_calculation.hpp>
+#include <zima/workspace/sheet_exchange_operations.hpp>
 #include <zima/document/edge_treatment_selection.hpp>
 #include <zima/document/viewer_packet_json.hpp>
 #include <zima/kernel/calculation_diagnostics.hpp>
@@ -70,6 +71,31 @@ void verify_two_sided_supports(const kernel::OcctKernel& engine) {
         static_cast<void>(workspace::commit_edge_treatment(live,engine,part.document_id,first,workspace::EdgeTreatmentEditMode::Create));
         auto* state=live.open_part(part.document_id);input=workspace::calculated_operation_input(state->session);
         require(input&&input->calculation_errors.empty(),"Two-sided fixture first Fillet failed");
+        const auto verify_faces=[](const kernel::BodyResult& body) {
+            require(std::ranges::all_of(body.mesh.triangle_references,[](const auto& face){return face.valid();}),
+                "Two-sided treatment left a visible face without a selectable identity");
+            std::map<std::string,std::vector<kernel::FaceReference>> aliases;
+            for(const auto& binding:body.kernel_faces)aliases[binding.locator].push_back(binding.reference);
+            BRep_Builder builder;BRepTools_ShapeSet archive(builder);
+            std::istringstream stream(body.kernel_shape.get());archive.Read(stream);
+            for(const auto& [locator,faces]:aliases)if(faces.size()==2) {
+                for(const auto& face:faces)
+                    require(std::ranges::find(body.mesh.original_references.triangle_references,face)!=
+                        body.mesh.original_references.triangle_references.end(),
+                        "Merged side publication lost an authored face alias");
+                TopoDS_Shape face;std::istringstream face_locator(locator);archive.Read(face,face_locator);
+                NCollection_IndexedMap<TopoDS_Shape,TopTools_ShapeMapHasher> borders;
+                TopExp::MapShapes(face,TopAbs_EDGE,borders);
+                for(const auto& binding:body.kernel_edges) {
+                    TopoDS_Shape edge;std::istringstream edge_locator(binding.locator);archive.Read(edge,edge_locator);
+                    if(!borders.Contains(edge))continue;
+                    const auto packet=std::ranges::find(body.mesh.edges,binding.reference,&kernel::ViewerEdge::reference);
+                    require(packet!=body.mesh.edges.end()&&packet->edge_treatment_side_references.size()==2,
+                        "Two-sided treatment lost a boundary support of its merged wall");
+                }
+            }
+        };
+        verify_faces(*input);
         const auto base=state->session.document();const auto boundaries=state->session.calculated_boundaries();
         for(bool upper:{false,true}) {
             const auto cap=std::ranges::find_if(input->mesh.edges,[&](const auto& edge) {
@@ -106,14 +132,45 @@ void verify_two_sided_supports(const kernel::OcctKernel& engine) {
                     static_cast<void>(workspace::commit_edge_treatment(edited,engine,base.document_id,feature,
                         entry->session.document().find_container(feature.id)?workspace::EdgeTreatmentEditMode::Replace:workspace::EdgeTreatmentEditMode::Create));
                     require(entry->session.calculated_boundaries().back().calculation_errors.empty(),"Two-sided cap Fillet failed");
+                    verify_faces(*workspace::calculated_operation_input(entry->session));
                 }
                 require(entry->session.undo()&&entry->session.redo(),"Two-sided cap Undo/Redo failed");
                 const auto file=fs::path("build")/("two-sided-support-"+std::to_string(mode)+(upper?"-upper":"-lower")+(reverse?"-reverse":"")+".prtz");
                 entry->session.document().save(file,entry->session.calculated_boundaries());
                 std::vector<kernel::BodyResult> loaded;auto reopened=document::PartDocument::load(file,&loaded);
+                document::DocumentSession reopened_session(reopened,loaded);
+                verify_faces(*workspace::calculated_operation_input(reopened_session));
                 require(reopened.find_container(feature.id)->edge_treatment==feature.edge_treatment,"Two-sided cap persistence lost route or sides");
                 const auto cold=workspace::calculate_part_with_resolved_references(engine,reopened);
                 require(!cold.empty()&&cold.back().calculation_errors.empty(),"Two-sided cap cold regeneration failed");
+                if(!reverse&&mode>0) {
+                    document::DocumentSession current(reopened,cold);
+                    const auto* skin=workspace::calculated_operation_input(current);
+                    std::map<std::string,std::vector<kernel::FaceReference>> aliases;
+                    for(const auto& binding:skin->kernel_faces)aliases[binding.locator].push_back(binding.reference);
+                    std::size_t converted_count{};
+                    for(const auto& [locator,faces]:aliases)if(faces.size()==2) {
+                        const auto selected=std::ranges::find_if(skin->mesh.triangle_references,[&](const auto& face) {
+                            return std::ranges::find(faces,face)!=faces.end();
+                        });
+                        require(selected!=skin->mesh.triangle_references.end(),"Joined conversion wall is not selectable");
+                        // The final cap radius is 0.75 mm. A 1 mm sheet is
+                        // physically impossible there; exercise a 0.25 mm sheet.
+                        const auto converted=workspace::prepare_sheet_from_body(reopened,cold,*selected,.25,engine);
+                        require(converted.created.size()>3&&converted.skipped==0&&
+                            converted.calculated.back().calculation_errors.empty(),"Joined wall conversion omitted a connected branch");
+                        for(const auto& feature:reopened.history)
+                            require(*converted.document.find_container(feature.id)==feature,"Conversion changed its source history");
+                        const auto converted_file=fs::path("build")/("two-sided-sheet-"+std::to_string(mode)+
+                            (upper?"-upper-":"-lower-")+std::to_string(converted_count++)+".prtz");
+                        converted.document.save(converted_file,converted.calculated);
+                        auto restored=document::PartDocument::load(converted_file);
+                        const auto regenerated=workspace::calculate_part_with_resolved_references(engine,restored);
+                        require(!regenerated.empty()&&regenerated.back().calculation_errors.empty(),
+                            "Joined wall conversion did not survive native cold reopening");
+                    }
+                    require(converted_count==2,"Joined wall conversion did not cover both side faces");
+                }
                 if(!reverse&&upper) {
                     auto lost=entry->session.document();
                     auto missing=route.front();missing.semantic_key+=":removed-member";

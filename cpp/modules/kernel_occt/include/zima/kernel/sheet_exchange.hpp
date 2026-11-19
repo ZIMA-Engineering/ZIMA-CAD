@@ -11,4 +11,9 @@ struct FlatContour {
 };
 // Explicit export calculation. Curves are returned in millimetres in XY.
 [[nodiscard]] FlatContour sheet_flat_contour(const BodyResult&,double thickness,double tolerance);
+// Explicit conversion calculation. Intersect a bounded native planar face
+// with local XY half-planes a*x+b*y+c >= 0, retaining exact contour curves.
+[[nodiscard]] FlatContour clip_sheet_face_contour(const BodyResult& face,
+    const ModelEnvelope& frame,const std::vector<std::array<double,3>>& half_planes,
+    double tolerance);
 }

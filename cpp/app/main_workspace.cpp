@@ -24,6 +24,7 @@
 #include "workspace/workspace_internal.hpp"
 #include <numbers>
 #include <zima/workspace/model_calculation.hpp>
+#include <zima/workspace/sheet_profile_operations.hpp>
 #include <zima/workspace/document_operations.hpp>
 #include <zima_build_info.hpp>
 #include "installationclient.h"
@@ -8571,6 +8572,7 @@ using zima::test::check_coupled_equations;
 #include "sketch_coupled_dimension_ui_verification.inc"
 #include "sketch_mechanism_ui_verification.inc"
 #include "sketch_arc_size_ui_verification.inc"
+#include "sketch_curve_fillet_ui_verification.inc"
 #include "assembly_presentation_ui_verification.inc"
 #include "sketch_angle_sector_ui_verification.inc"
 #include "sketch_external_midpoint_ui_verification.inc"
@@ -11699,6 +11701,7 @@ int verify_selection_filter(QApplication& application,
 #include "sheet_exchange_ui_verification.inc"
 #include "sheet_transition_ui_verification.inc"
 #include "sheet_profile_ui_verification.inc"
+#include "flat_end_correction_ui_verification.inc"
 #include "symbol_ui_verification.inc"
 #include "sketch_symbol_controls_ui_verification.inc"
 #include "sketch_coordinate_incidence_ui_verification.inc"
@@ -11749,6 +11752,7 @@ int verify_startup_contract(
     if(qEnvironmentVariableIsSet("ZIMA_VERIFY_CONVERTED_SHEET_SELECTION"))return verify_converted_sheet_selection_ui(application,test_directory);
     if(qEnvironmentVariableIsSet("ZIMA_VERIFY_SHEET_REFERENCE_TREE"))return verify_sheet_reference_tree_ui(application,test_directory);
     if(qEnvironmentVariableIsSet("ZIMA_VERIFY_CUT_SHEET_ATTACHMENTS"))return verify_cut_sheet_attachments_ui(application,test_directory);
+    if(qEnvironmentVariableIsSet("ZIMA_VERIFY_FLAT_END_CORRECTION_ONLY"))return verify_flat_end_correction_ui(application,test_directory);
     if(qEnvironmentVariableIsSet("ZIMA_VERIFY_SHEET_PROFILE_ONLY"))return verify_sheet_profile_ui(application,test_directory);
     if(qEnvironmentVariableIsSet("ZIMA_VERIFY_MIDPOINT_ONLY"))return verify_midpoint_profile_ui(application,test_directory);
     if(qEnvironmentVariableIsSet("ZIMA_VERIFY_EQUAL_CIRCLE_ONLY"))return verify_equal_circle_ui(application,test_directory);
@@ -12019,6 +12023,7 @@ int verify_startup_contract(
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_LINE_BEND_ONLY")) return verify_line_bend_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SHEET_TRANSITION")) return verify_sheet_transition_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_EQUAL_ENDPOINT_ONLY")) return verify_sketch_equal_endpoint_ui(application,test_directory);
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_CURVE_FILLET_ONLY")) return verify_sketch_curve_fillet_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SYMMETRIC_EQUAL_ONLY")) return verify_sketch_symmetric_equal_ui(application,test_directory);
     if(qEnvironmentVariableIsSet("ZIMA_VERIFY_SHELL_VALUE_ONLY"))return verify_shell_value_label_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_MULTISOLID_SHELL_UI_FILE")) return verify_multisolid_shell_ui(application,test_directory);

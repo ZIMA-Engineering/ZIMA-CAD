@@ -359,6 +359,7 @@ private:
     QAction* sketch_polygon_action_{};
     QAction* sketch_trim_action_{};
     QAction* sketch_corner_fillet_action_{};
+    QAction* sketch_curve_fillet_action_{};
     QAction* sketch_mirror_action_{};
     QAction* sketch_circle_action_{};
     QAction* sketch_arc_action_{};
@@ -628,6 +629,7 @@ private:
     std::optional<std::array<double, 2>> pending_polygon_center_;
     bool sketch_trim_active_{};
     bool sketch_corner_fillet_active_{};
+    bool sketch_curve_fillet_materialized_{};
     std::string pending_corner_fillet_segment_id_;
     bool sketch_trim_changed_{};
     std::optional<zima::sketcher::Sketch> sketch_trim_preview_;
@@ -1009,7 +1011,7 @@ private:
     void start_sketch_polygon(unsigned sides);
     void cancel_sketch_polygon();
     void start_sketch_trim();
-    void start_sketch_corner_fillet();
+    void start_sketch_corner_fillet(bool materialized = false);
     void accept_sketch_corner_fillet_segment(
         const zima::viewer::ViewerCandidate& candidate);
     void cancel_sketch_trim();

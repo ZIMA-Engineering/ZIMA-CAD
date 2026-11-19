@@ -6940,22 +6940,26 @@ BodyResult make_result(
         vertex_references;
     face_references.emplace(owned_faces);
     // A two-sided Feature can join its two coplanar side faces while keeping
-    // both authored aliases. Its cap edge still identifies the exact Feature
-    // side. Resolve that local support only for the edge-guide packet; keep
-    // the native aliases and ordinary ambiguous-face selection unchanged.
+    // both authored aliases. Its cap edge identifies the exact Feature side.
+    // The merged face itself uses the End alias for ordinary presentation;
+    // both aliases remain native references to the same exact trimmed face.
+    // Unrelated parents remain ambiguous, rather than choosing an owner.
     NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> guide_alias_faces;
     std::vector<std::vector<FaceReference>> guide_aliases;
-    const auto edge_support_reference=[&](const TopoDS_Shape& face,
-            const EdgeReference& edge_reference) {
+    const auto feature_side_reference=[&](const TopoDS_Shape& face,
+            const EdgeReference* edge_reference) {
         auto reference=face_references->reference_for(face);
         if(reference.valid())return reference;
-        const auto separator=edge_reference.semantic_key.find(':');
-        if(separator==std::string::npos)return reference;
-        const auto role=edge_reference.semantic_key.substr(0,separator);
-        if(role!="start"&&role!="end")return reference;
-        const auto side=feature_side_parent(std::string_view(
-            edge_reference.semantic_key).substr(separator+1));
-        if(!side)return reference;
+        std::optional<FeatureSideParent> side;
+        if(edge_reference) {
+            const auto separator=edge_reference->semantic_key.find(':');
+            if(separator!=std::string::npos) {
+                const auto role=edge_reference->semantic_key.substr(0,separator);
+                if(role=="start"||role=="end")
+                    side=feature_side_parent(std::string_view(
+                        edge_reference->semantic_key).substr(separator+1));
+            }
+        }
         const int index=guide_alias_faces.Add(face);
         if(static_cast<std::size_t>(index)>guide_aliases.size()) {
             std::vector<FaceReference> aliases;
@@ -6970,16 +6974,20 @@ BodyResult make_result(
         std::optional<FeatureSideParent> first;
         for(const auto& alias:aliases) {
             constexpr std::string_view prefix="generated:";
-            if(alias.owner_id!=edge_reference.owner_id||
-               alias.instance_path!=edge_reference.instance_path||
+            if(alias.owner_id!=aliases.front().owner_id||
+               alias.instance_path!=aliases.front().instance_path||
+               (side&&(alias.owner_id!=edge_reference->owner_id||
+                   alias.instance_path!=edge_reference->instance_path))||
                !alias.semantic_key.starts_with(prefix))return FaceReference{};
             const auto parent=feature_side_parent(std::string_view(
                 alias.semantic_key).substr(prefix.size()));
-            if(!parent||parent->feature_id!=side->feature_id||
-               parent->source_id!=side->source_id||
-               (first&&first->side==parent->side))return FaceReference{};
+            if(!parent||(side&&(parent->feature_id!=side->feature_id||
+                   parent->source_id!=side->source_id))||
+               (first&&(first->side==parent->side||
+                   first->feature_id!=parent->feature_id||
+                   first->source_id!=parent->source_id)))return FaceReference{};
             first=parent;
-            if(parent->side==side->side)reference=alias;
+            if(parent->side==(side?side->side:FeatureSide::End))reference=alias;
         }
         return reference;
     };
@@ -7011,9 +7019,14 @@ BodyResult make_result(
     double face_measurement_seconds=0.;
     for (TopExp_Explorer explorer(shape, TopAbs_FACE); explorer.More(); explorer.Next()) {
         const TopoDS_Face face = TopoDS::Face(explorer.Current());
-        FaceReference reference = face_references->reference_for(face);
+        FaceReference reference = feature_side_reference(face,nullptr);
+        const std::vector<FaceReference>* merged_side_aliases{};
+        if(reference.valid()&&!face_references->reference_for(face).valid())
+            merged_side_aliases=&guide_aliases.at(
+                static_cast<std::size_t>(guide_alias_faces.FindIndex(face)-1));
         const bool requested_face=reference.valid()&&
-            reference_requested(reference);
+            (reference_requested(reference)||(merged_side_aliases&&
+                std::ranges::any_of(*merged_side_aliases,reference_requested)));
         if(dependency_edges_only&&!requested_face)continue;
         TopLoc_Location location;
         const Handle(Poly_Triangulation) triangulation =
@@ -7104,6 +7117,24 @@ BodyResult make_result(
                         reference_base + static_cast<std::uint32_t>(third - 1)});
                 result.mesh.original_references.triangle_references.push_back(
                     reference);
+                // Preserve both authored side references with the same current
+                // bounded geometry. The visible mesh still has one triangle,
+                // so rendering neither doubles nor depends on alias order.
+                if(merged_side_aliases)for(const auto& alias:*merged_side_aliases) {
+                    if(alias==reference||(!collect_original_references&&
+                            !reference_requested(alias)))continue;
+                    auto counterpart=reference;
+                    counterpart.owner_id=alias.owner_id;
+                    counterpart.semantic_key=alias.semantic_key;
+                    counterpart.instance_path=alias.instance_path;
+                    result.mesh.original_references.triangles.insert(
+                        result.mesh.original_references.triangles.end(),{
+                            reference_base+static_cast<std::uint32_t>(first-1),
+                            reference_base+static_cast<std::uint32_t>(second-1),
+                            reference_base+static_cast<std::uint32_t>(third-1)});
+                    result.mesh.original_references.triangle_references.push_back(
+                        std::move(counterpart));
+                }
             }
         }
     }
@@ -7308,8 +7339,8 @@ BodyResult make_result(
             for (NCollection_List<TopoDS_Shape>::Iterator iterator(
                      edge_faces.FindFromIndex(edge_index));
                  iterator.More(); iterator.Next()) {
-                const auto support = edge_support_reference(iterator.Value(),
-                    reference);
+                const auto support = feature_side_reference(iterator.Value(),
+                    &reference);
                 if (!support.valid()) continue;
                 if (!first) first = support;
                 else if (*first != support) return true;
@@ -7323,8 +7354,8 @@ BodyResult make_result(
             for (NCollection_List<TopoDS_Shape>::Iterator iterator(
                      edge_faces.FindFromIndex(edge_index));
                  iterator.More(); iterator.Next()) {
-                auto face_reference = edge_support_reference(iterator.Value(),
-                    reference);
+                auto face_reference = feature_side_reference(iterator.Value(),
+                    &reference);
                 if (!face_reference.valid()) continue;
                 const bool form_side=symbolic_form_face(face_reference);
                 const bool step_side=face_reference.semantic_key.starts_with("step:face:#");

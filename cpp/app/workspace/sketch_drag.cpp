@@ -1,3 +1,5 @@
+#include "sketch_fillet_helpers.hpp"
+#include <zima/sketcher/curve_geometry.hpp>
 #include "workspace_internal.hpp"
 #include <QElapsedTimer>
 
@@ -72,16 +74,9 @@ bool AssemblyWorkspaceWindow::begin_sketch_point_drag(
     // the corner gesture. The workspace mirror can outlive a viewer clear or
     // a Sketch switch; using that stale pair blocked every unrelated point.
     for (const auto& selected : viewer_selection) {
-        if (selected.owner_id != active_sketch_id_ ||
-            selected.kind != zima::viewer::CandidateKind::SketchSegment ||
-            !selected.semantic_key.starts_with("segment:")) continue;
-        const auto selected_id = selected.semantic_key.substr(8);
-        if (std::any_of(sketch->segments.begin(), sketch->segments.end(),
-                [&](const auto& segment) { return segment.id == selected_id; }) &&
-            std::find(selected_segments.begin(), selected_segments.end(),
-                selected_id) == selected_segments.end()) {
+        const auto selected_id=sketch_fillet_candidate_id(sketch,selected);
+        if(!selected_id.empty() && std::ranges::find(selected_segments,selected_id)==selected_segments.end())
             selected_segments.push_back(selected_id);
-        }
     }
     // Tree/box selection is the persistent application-side truth. During
     // the press that starts a drag, MeshView may already have promoted the
@@ -91,49 +86,22 @@ bool AssemblyWorkspaceWindow::begin_sketch_point_drag(
     for (const auto& selected_id : selected_sketch_geometry_ids_) {
         if (std::ranges::find(selected_segments, selected_id) !=
             selected_segments.end()) continue;
-        if (std::ranges::any_of(sketch->segments,
-                [&](const auto& segment) { return segment.id == selected_id; })) {
+        if (zima::sketcher::fillet_curve_endpoints(*sketch,selected_id)) {
             selected_segments.push_back(selected_id);
         }
     }
     if (selected_segments.size() == 2) {
-        const auto first = std::find_if(sketch->segments.begin(), sketch->segments.end(),
-            [&](const auto& value) { return value.id == selected_segments[0]; });
-        const auto second = std::find_if(sketch->segments.begin(), sketch->segments.end(),
-            [&](const auto& value) { return value.id == selected_segments[1]; });
-        if (first != sketch->segments.end() && second != sketch->segments.end()) {
+        const auto first = zima::sketcher::fillet_curve_endpoints(*sketch,selected_segments[0]);
+        const auto second = zima::sketcher::fillet_curve_endpoints(*sketch,selected_segments[1]);
+        if (first && second) {
             std::string shared_point_id;
             std::string offered_corner_point_id;
-            const auto coincident = [&](const std::string& start,
-                                        const std::string& target) {
-                std::vector<std::string> pending{start};
-                std::unordered_set<std::string> visited;
-                while (!pending.empty()) {
-                    auto point_id = std::move(pending.back());
-                    pending.pop_back();
-                    if (!visited.insert(point_id).second) continue;
-                    if (point_id == target) return true;
-                    for (const auto& constraint : sketch->constraints) {
-                        if (constraint.suppressed || constraint.kind !=
-                                zima::sketcher::ConstraintKind::Coincident) continue;
-                        if (constraint.first_point_id == point_id)
-                            pending.push_back(constraint.second_point_id);
-                        else if (constraint.second_point_id == point_id)
-                            pending.push_back(constraint.first_point_id);
-                    }
-                }
-                return false;
-            };
-            for (const auto& first_point_id : {
-                     first->first_point_id, first->second_point_id}) {
-                for (const auto& second_point_id : {
-                         second->first_point_id, second->second_point_id}) {
-                    if (coincident(first_point_id, second_point_id)) {
+            for (const auto& first_point_id : *first) {
+                for (const auto& second_point_id : *second) {
+                    if (first_point_id == second_point_id) {
                         shared_point_id = first_point_id;
                         if (candidate.semantic_key == "point:" + first_point_id)
                             offered_corner_point_id = first_point_id;
-                        else if (candidate.semantic_key == "point:" + second_point_id)
-                            offered_corner_point_id = second_point_id;
                         break;
                     }
                 }
@@ -149,8 +117,8 @@ bool AssemblyWorkspaceWindow::begin_sketch_point_drag(
             if (!shared_point_id.empty() && pressed_shared_point) {
                 if (qEnvironmentVariableIsSet("ZIMA_SKETCH_TRACE")) {
                     qInfo().noquote() << "SKETCH_TRACE|BRANCH|CORNER_FILLET|segments="
-                        << QString::fromStdString(first->id) << ','
-                        << QString::fromStdString(second->id) << "|point="
+                        << QString::fromStdString(selected_segments[0]) << ','
+                        << QString::fromStdString(selected_segments[1]) << "|point="
                         << QString::fromStdString(shared_point_id);
                 }
                 if(sweep_profile_sketch_draft_) { section_drag_sketches_={*sweep_profile_sketch_draft_}; }
@@ -163,30 +131,8 @@ bool AssemblyWorkspaceWindow::begin_sketch_point_drag(
                     return false;
                 }
                 sketch_corner_drag_source_ = *sketch;
-                // Normalize a C-connected pair to one persisted vertex in
-                // the transient source. The same normalization is committed
-                // transactionally by add_corner_fillet during the drag.
-                static_cast<void>(sketch_corner_drag_source_->add_corner_fillet(
-                    first->id, second->id, 0.0));
-                const auto normalized_first = std::ranges::find_if(
-                    sketch_corner_drag_source_->segments,
-                    [&](const auto& value) { return value.id == first->id; });
-                const auto normalized_second = std::ranges::find_if(
-                    sketch_corner_drag_source_->segments,
-                    [&](const auto& value) { return value.id == second->id; });
-                if (normalized_first == sketch_corner_drag_source_->segments.end() ||
-                    normalized_second == sketch_corner_drag_source_->segments.end())
-                    return false;
-                for (const auto& point_id : {normalized_first->first_point_id,
-                                             normalized_first->second_point_id}) {
-                    if (point_id == normalized_second->first_point_id ||
-                        point_id == normalized_second->second_point_id) {
-                        shared_point_id = point_id;
-                        break;
-                    }
-                }
-                sketch_corner_drag_first_segment_id_ = first->id;
-                sketch_corner_drag_second_segment_id_ = second->id;
+                sketch_corner_drag_first_segment_id_ = selected_segments[0];
+                sketch_corner_drag_second_segment_id_ = selected_segments[1];
                 sketch_corner_drag_vertex_id_ = shared_point_id;
                 sketch_drag_point_id_.clear();
                 sketch_drag_changed_ = false;
@@ -200,7 +146,7 @@ bool AssemblyWorkspaceWindow::begin_sketch_point_drag(
             // that made the whole constrained geometry jump instead of
             // explaining why the fillet could not start.
             state_->setText(tr(
-                "Zaoblení rohu: táhněte společným bodem dvou vybraných úseček."));
+                "Zaoblení rohu: táhněte společným bodem dvou vybraných křivek."));
             return false;
         }
     }
@@ -256,28 +202,29 @@ void AssemblyWorkspaceWindow::update_sketch_point_drag(
         [&](const auto& value) { return value.id == active_sketch_id_; });
     if (sketch_corner_drag_source_) {
         const auto& source = *sketch_corner_drag_source_;
-        const auto first = std::find_if(source.segments.begin(), source.segments.end(),
-            [&](const auto& value) {
-                return value.id == sketch_corner_drag_first_segment_id_;
-            });
-        const auto second = std::find_if(source.segments.begin(), source.segments.end(),
-            [&](const auto& value) {
-                return value.id == sketch_corner_drag_second_segment_id_;
-            });
-        const auto* vertex = source.find_point(sketch_corner_drag_vertex_id_);
-        if (first == source.segments.end() || second == source.segments.end() ||
-            vertex == nullptr) return;
-        const auto outer_point = [&](const auto& segment) {
-            return source.find_point(segment.first_point_id == vertex->id
-                ? segment.second_point_id : segment.first_point_id);
+        const auto* vertex=source.find_point(sketch_corner_drag_vertex_id_);
+        if(!vertex)return;
+        const auto inward_vector=[&](const std::string& id) {
+            const auto ends=zima::sketcher::fillet_curve_endpoints(source,id);
+            if(!ends)return std::array{0.,0.};
+            const bool start=(*ends)[0]==vertex->id;
+            const auto curve=zima::sketcher::sketch_curve_geometry(source,id);
+            const double parameter=start?0.:1.;
+            const auto p=zima::kernel::bspline_value(curve,parameter);
+            const auto q=zima::kernel::bspline_value(curve,1.-parameter);
+            const auto n=zima::sketcher::curve_offset_point(curve,parameter,1.);
+            const double scale=std::hypot(p.x-q.x,p.y-q.y)*(start?1.:-1.);
+            return std::array{scale*(n.y-p.y),-scale*(n.x-p.x)};
         };
-        const auto* first_outer = outer_point(*first);
-        const auto* second_outer = outer_point(*second);
-        if (first_outer == nullptr || second_outer == nullptr) return;
-        const std::array first_vector{
-            first_outer->x - vertex->x, first_outer->y - vertex->y};
-        const std::array second_vector{
-            second_outer->x - vertex->x, second_outer->y - vertex->y};
+        std::array<double,2> first_vector,second_vector;
+        try {
+            first_vector=inward_vector(sketch_corner_drag_first_segment_id_);
+            second_vector=inward_vector(sketch_corner_drag_second_segment_id_);
+        } catch(const std::exception&) {
+            // An unusable draft tangent must not terminate a mouse gesture or
+            // replace the last valid preview.
+            return;
+        }
         const double first_length = std::hypot(first_vector[0], first_vector[1]);
         const double second_length = std::hypot(second_vector[0], second_vector[1]);
         if (first_length <= 1.0e-12 || second_length <= 1.0e-12) return;

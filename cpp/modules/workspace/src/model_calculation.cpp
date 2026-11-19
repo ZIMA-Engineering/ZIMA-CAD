@@ -15,6 +15,7 @@
 #include <zima/workspace/sketch_operations.hpp>
 #include <zima/workspace/sketch_reference_operations.hpp>
 #include <zima/workspace/sheet_exchange_operations.hpp>
+#include <zima/workspace/sheet_profile_operations.hpp>
 #include <zima/workspace/history_policy.hpp>
 #include <zima/document/viewer_packet_json.hpp>
 #include <zima/document/feature_material_wire.hpp>
@@ -1049,6 +1050,9 @@ calculate_part_reference_state(
             prune_missing_drill_point_references(document, calculated);
         phase("Drill Point references");
         const bool profile_targets_changed=refresh_profile_end_targets(document,calculated);
+        const bool sheet_profiles_changed=std::ranges::any_of(document.history,[](const auto& feature){
+            return feature.feature_kind==document::FeatureKind::SheetProfile&&!feature.suppressed;
+        })&&refresh_sheet_profile_definitions(document,construction_resolution_geometry(document,calculated));
         phase("profile targets");
         const bool opening_targets_changed=refresh_opening_end_targets(document,calculated);
         phase("opening targets");
@@ -1067,7 +1071,7 @@ calculate_part_reference_state(
                 group_solid_state_cached_operations(document,&calculated),
                 calculated.size());
         };
-        if (!external_references_changed && !drill_points_changed && !profile_targets_changed && !opening_targets_changed &&
+        if (!external_references_changed && !drill_points_changed && !profile_targets_changed && !opening_targets_changed && !sheet_profiles_changed &&
             attached_flat_profiles()==flat_profiles_before && sketch_frames()==sketch_frames_before &&
             document.history == history_before &&
             document.constructions == constructions_before &&
@@ -1114,12 +1118,19 @@ std::vector<kernel::BodyResult> calculate_part_with_resolved_references(
 
 void calculate_resolved_assembly_cuts(
     const zima::kernel::OcctKernel& kernel,
-    zima::assembly::AssemblyDocument& document,bool refresh_physical_properties,const Workspace* authoritative_sources) {
+    zima::assembly::AssemblyDocument& document,bool refresh_physical_properties,const Workspace* authoritative_sources,
+    bool recover_errors) {
+    if(auto* attempt=ModelingConfirmationAttempt::current();attempt&&attempt->applies(document)) {
+        attempt->calculate(document,[&](auto& candidate,bool recover) {
+            calculate_resolved_assembly_cuts(kernel,candidate,refresh_physical_properties,authoritative_sources,recover);
+        });
+        return;
+    }
     if (calculation_runner) {
         const auto runner = calculation_runner;
         runner([&] {
             CalculationExecutionScope synchronous({});
-            calculate_resolved_assembly_cuts(kernel,document,refresh_physical_properties,authoritative_sources);
+            calculate_resolved_assembly_cuts(kernel,document,refresh_physical_properties,authoritative_sources,recover_errors);
         });
         return;
     }
@@ -1161,6 +1172,11 @@ void calculate_resolved_assembly_cuts(
         }
         refresh_standalone_before(order_index(cut.definition.id));
         if (cut.definition.suppressed) continue;
+        try {
+        for(const auto& target_id:cut.target_occurrence_ids)
+            if(const auto* target=document.find_occurrence(target_id);target&&!target->suppressed&&
+                    !target->calculated_source.get().calculation_errors.empty())
+                throw std::runtime_error(target->calculated_source.get().calculation_errors.begin()->second);
         for(auto& sketch:document.sketches)if(sketch.owner_container_id==cut.definition.id&&
             std::ranges::any_of(sketch.external_references,[](const auto& reference){return reference.body_edge;})) {
             const auto body=assembly_sketch_body_reference_geometry(document,sketch);
@@ -1239,6 +1255,8 @@ void calculate_resolved_assembly_cuts(
         if (cutter_boundaries.empty()) {
             throw std::runtime_error("Assembly cut body is empty");
         }
+        if(!cutter_boundaries.back().calculation_errors.empty())
+            throw std::runtime_error(cutter_boundaries.back().calculation_errors.begin()->second);
         if(cut.definition.feature_kind==document::FeatureKind::Feature)
             for(const auto& boundary:cutter_boundaries)
                 static_cast<void>(document::resolve_feature_up_to_choices(cut.definition.feature,cut.definition.id,
@@ -1260,6 +1278,24 @@ void calculate_resolved_assembly_cuts(
         for (const auto& edge : cutter_boundaries.back().mesh.original_references.edges)
             if (document::feature_material_wire_edge(cut.definition,edge))
                 cut.preview_wire.push_back(edge);
+        } catch(const std::exception& error) {
+            if(!recover_errors)throw;
+            // Every target retains its real input. A failure on a later target
+            // rolls back earlier subtractions in this same operation as well.
+            // BodyResult already persists calculation errors in .asmz; neither
+            // a new file field nor a successful-looking cached cutter is needed.
+            bool retained{};
+            for(const auto& target_id:cut.target_occurrence_ids) {
+                auto* target=document.find_occurrence(target_id);
+                const auto input=cut.input_component_bodies.find(target_id);
+                if(!target||input==cut.input_component_bodies.end())continue;
+                auto body=input->second;
+                body.calculation_errors[cut.definition.id]=error.what();
+                target->calculated_source=std::move(body);retained=true;
+            }
+            cut.preview_wire.clear();
+            if(!retained)throw;
+        }
     }
     refresh_standalone_before(order.size());
     document.calculate_derived_copies(kernel);
@@ -1785,7 +1821,7 @@ static void regenerate_assembly_impl(Workspace& workspace, const kernel::OcctKer
             });return result;
         };
         const auto before_intersections=intersection_sketches(next);
-        calculate_resolved_assembly_cuts(kernel,next,false,&workspace);
+        calculate_resolved_assembly_cuts(kernel,next,false,&workspace,true);
         const bool intersections_changed=before_intersections!=intersection_sketches(next);
         if (references_changed || intersections_changed || !next.cuts.empty()) {
             regenerated->session.commit(std::move(next));

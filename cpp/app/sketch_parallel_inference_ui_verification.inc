@@ -12,8 +12,9 @@ static int verify_sketch_parallel_inference_ui(
     };
     try {
         unsigned case_index{};
-        for (const int scenario : {0, 1, 2, 3, 4, 5}) {
-            const bool external = scenario != 1&&scenario!=5;
+        for (const int scenario : {0, 1, 2, 3, 4, 5, 6, 7}) {
+            const bool external = scenario != 1&&scenario!=5&&scenario!=7;
+            const bool trim_after=scenario>=6;
             const bool line_contact=scenario>=4;
             const bool horizontal = scenario == 2;
             const bool broken = scenario == 3;
@@ -68,6 +69,11 @@ static int verify_sketch_parallel_inference_ui(
                 }
             }
             const auto target_id = target.id;
+            if(trim_after) {
+                const auto cut=target.add_segment(-5,0,-5,70,1e-6,true);
+                const auto edge=*std::ranges::find(target.segments,cut,&sketcher::SketchSegment::id);
+                target.set_point_fixed(edge.first_point_id,true);target.set_point_fixed(edge.second_point_id,true);
+            }
             const auto source_definition = source.serialized();
             const auto external_definition = target.external_references;
             part.history = {source_feature, target_feature};
@@ -212,7 +218,7 @@ static int verify_sketch_parallel_inference_ui(
 
             const auto* active = window.active_sketch_for_test();
             check(active != nullptr, "Parallel inference lost its active Sketch");
-            const auto expected_segments = external?1U:(line_contact?3U:2U);
+            const auto expected_segments = (external?1U:(line_contact?3U:2U))+(trim_after?1U:0U);
             check(active->segments.size() == expected_segments,
                 "Parallel inference created the wrong segment count");
             const auto created_id = active->segments.back().id;
@@ -307,6 +313,32 @@ static int verify_sketch_parallel_inference_ui(
                 }
             }
 
+            if(trim_after) {
+                active=window.active_sketch_for_test();
+                const auto edge=*std::ranges::find(active->segments,created_id,&sketcher::SketchSegment::id);
+                const auto a=*active->find_point(edge.first_point_id),b=*active->find_point(edge.second_point_id);
+                const double t=(-5.-a.x)/(b.x-a.x);check(t>.05&&t<.95,"Angled Trim fixture no longer crosses its cutter");
+                const auto before=active->serialized();
+                window.findChild<QAction*>("sketchTrimAction")->trigger();flush();
+                click(screen(a.x+(b.x-a.x)*t*.5,a.y+(b.y-a.y)*t*.5));
+                window.findChild<QAction*>("viewSelectionAction")->trigger();flush();
+                active=window.active_sketch_for_test();
+                check(active->serialized()!=before&&has_parallel(),"Angled GUI Trim lost the Parallel identity");
+                check(parallel_equation()<1e-8,"Angled GUI Trim escaped parallelism");
+                const auto trimmed=active->serialized();
+                window.findChild<QAction*>("undoAction")->trigger();flush();
+                check(window.active_sketch_for_test()->serialized()==before,"Angled Trim Undo changed the constraint graph");
+                window.findChild<QAction*>("redoAction")->trigger();flush();
+                check(window.active_sketch_for_test()->serialized()==trimmed,"Angled Trim Redo changed identity");
+                for(double offset:{2.,-1.,3.}) {
+                    active=window.active_sketch_for_test();const auto& line=*std::ranges::find(active->segments,created_id,&sketcher::SketchSegment::id);
+                    const auto p=*active->find_point(line.first_point_id);
+                    mouse(screen(p.x,p.y),QEvent::MouseButtonPress,Qt::LeftButton);
+                    mouse(screen(p.x+offset,p.y+offset*.5),QEvent::MouseMove,Qt::NoButton,Qt::LeftButton);
+                    mouse(screen(p.x+offset,p.y+offset*.5),QEvent::MouseButtonRelease,Qt::LeftButton);
+                    check(parallel_equation()<1e-8,"Post-Trim GUI drag lost parallelism");
+                }
+            }
             window.findChild<QAction*>("finishSketchAction")->trigger();
             flush();
             for (auto* dialog : window.findChildren<QDialog*>()) {

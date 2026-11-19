@@ -82,7 +82,8 @@ cached_sheet_attachment_reference_status(const document::PartDocument& document,
 // Workspace's dependency refresh continues using its existing cached-cut path.
 void calculate_resolved_assembly_cuts(
     const kernel::OcctKernel& kernel, assembly::AssemblyDocument& document,
-    bool refresh_physical_properties=false,const Workspace* authoritative_sources=nullptr);
+    bool refresh_physical_properties=false,const Workspace* authoritative_sources=nullptr,
+    bool recover_errors=false);
 
 struct PartRegenerationResult { bool references_changed{}; };
 struct HistoryCursorChange {

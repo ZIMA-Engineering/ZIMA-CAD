@@ -17,9 +17,78 @@
 #include <TopoDS_Shape.hxx>
 #include <TopTools_ShapeMapHasher.hxx>
 #include <gp_Pln.hxx>
+#include <BRepBuilderAPI_MakePolygon.hxx>
+#include <BRepBuilderAPI_MakeFace.hxx>
+#include <BRepBuilderAPI_Transform.hxx>
+#include <BRepCheck_Analyzer.hxx>
+#include <BRepBndLib.hxx>
+#include <Bnd_Box.hxx>
+#include <gp_Ax3.hxx>
 #include <sstream>
 
 namespace zima::kernel {
+FlatContour clip_sheet_face_contour(const BodyResult& body,
+        const ModelEnvelope& frame,
+        const std::vector<std::array<double,3>>& half_planes,double tolerance) {
+    const auto fail=[] {throw std::invalid_argument(
+        "Sheet conversion cannot split a curved continuation face.");};
+    const auto point=[](Vec3 p){return gp_Pnt(p.x,p.y,p.z);};
+    const auto direction=[](Vec3 p){return gp_Dir(p.x,p.y,p.z);};
+    auto shape=read_calculated_body_shape(body);
+    if(shape.IsNull()||!(tolerance>0))fail();
+    gp_Trsf local;local.SetTransformation(gp_Ax3(point(frame.origin),
+        direction(frame.axes[2]),direction(frame.axes[0])));
+    shape=BRepBuilderAPI_Transform(shape,local,true).Shape();
+    for(TopExp_Explorer it(shape,TopAbs_FACE);it.More();it.Next())
+        if(BRepAdaptor_Surface(TopoDS::Face(it.Current())).GetType()!=GeomAbs_Plane)fail();
+    Bnd_Box bounds;BRepBndLib::AddOptimal(shape,bounds,false,true);
+    if(bounds.IsVoid())fail();
+    double x0,y0,z0,x1,y1,z1;bounds.Get(x0,y0,z0,x1,y1,z1);
+    if(std::max(std::abs(z0),std::abs(z1))>tolerance*10)fail();
+    const double margin=std::max({x1-x0,y1-y0,1.});
+    using P=std::array<double,2>;
+    std::vector<P> polygon{{x0-margin,y0-margin},{x1+margin,y0-margin},
+        {x1+margin,y1+margin},{x0-margin,y1+margin}};
+    for(const auto& plane:half_planes) {
+        if(polygon.empty())fail();
+        const auto value=[&](P p){return plane[0]*p[0]+plane[1]*p[1]+plane[2];};
+        std::vector<P> clipped;auto previous=polygon.back();double before=value(previous);
+        for(const auto p:polygon) {
+            const double after=value(p);
+            if((before>=0)!=(after>=0)) {
+                const double t=before/(before-after);
+                clipped.push_back({previous[0]+t*(p[0]-previous[0]),previous[1]+t*(p[1]-previous[1])});
+            }
+            if(after>=0)clipped.push_back(p);
+            previous=p;before=after;
+        }
+        polygon=std::move(clipped);
+    }
+    if(polygon.size()<3)fail();
+    BRepBuilderAPI_MakePolygon boundary;
+    for(const auto p:polygon)boundary.Add(gp_Pnt(p[0],p[1],0));
+    boundary.Close();if(!boundary.IsDone())fail();
+    BRepBuilderAPI_MakeFace mask(boundary.Wire(),true);if(!mask.IsDone())fail();
+    BRepAlgoAPI_Common clipped(shape,mask.Face());
+    if(!clipped.IsDone()||clipped.Shape().IsNull()||!BRepCheck_Analyzer(clipped.Shape()).IsValid())fail();
+    GProp_GProps measured;BRepGProp::SurfaceProperties(clipped.Shape(),measured);
+    if(measured.Mass()<=tolerance*tolerance)fail();
+    FlatContour result;result.x_axis={1,0,0};result.y_axis={0,1,0};
+    NCollection_IndexedMap<TopoDS_Shape,TopTools_ShapeMapHasher> edges;
+    TopExp::MapShapes(clipped.Shape(),TopAbs_EDGE,edges);
+    const auto vec=[](const auto& p)->Vec3{return {p.X(),p.Y(),p.Z()};};
+    for(int index=1;index<=edges.Extent();++index) {
+        BRepAdaptor_Curve curve(TopoDS::Edge(edges(index)));
+        if(curve.GetType()==GeomAbs_Circle) {
+            const auto circle=curve.Circle();
+            result.arcs.push_back({vec(circle.Location()),vec(curve.Value(curve.FirstParameter())),
+                vec(curve.Value(curve.LastParameter())),circle.Radius(),circle.Axis().Direction().Z()<0,
+                std::abs(curve.LastParameter()-curve.FirstParameter()-2*std::acos(-1.))<1e-7});
+        }else if(auto exact=capture_bspline_geometry(curve))result.curves.push_back(std::move(*exact));
+        else fail();
+    }
+    return result;
+}
 FlatContour sheet_flat_contour(const BodyResult& body,double thickness,double tolerance) {
     using namespace sheet_material;
     if(body.kernel_shape.empty()||!(thickness>0)||!(tolerance>0))

@@ -436,7 +436,6 @@
   "Zahrnutá plocha": "Included face",
   "Vyberte plochu ve View.": "Select a face in the View.",
   "Vyberte RIP skicu ve View.": "Select a RIP Sketch in the View.",
-  "Select a calculated planar source face.": "Select a calculated planar source face.",
   "The first face defines the material side. An empty included-face list converts the complete connected sheet branch. RIP consumes all ordinary geometry of each selected Sketch without removing material.": "The first face defines the material side. An empty included-face list converts the complete connected sheet branch. RIP consumes all ordinary geometry of each selected Sketch without removing material.",
   "Vytvoří samostatné tabule a ohyby v aktivním prázdném tělese. Zdroj zůstane beze změny. Složité přechody mohou vyžadovat ruční dokončení.": "Creates independent flats and bends in the active empty Body. The source stays unchanged. Complex transitions may require manual finishing.",
   "Vytvářím plech z tělesa…": "Creating sheet from Body…",
@@ -2852,5 +2851,12 @@
   "zima::app::AssemblyWorkspaceWindow|Edge treatment preview did not produce an exact result wire.": "Edge treatment preview did not produce an exact result wire.",
   "zima::app::AssemblyWorkspaceWindow|Zaoblený přechod": "Rounded transition",
   "Sheet from Body Bend correction basis is missing or inconsistent.": "Sheet from Body Bend correction basis is missing or inconsistent.",
-  "Calculation failed: %1\nPress OK again to save this unchanged definition as unresolved, or Cancel to discard it.": "Calculation failed: %1\nPress OK again to save this unchanged definition as unresolved, or Cancel to discard it."
+  "Calculation failed: %1\nPress OK again to save this unchanged definition as unresolved, or Cancel to discard it.": "Calculation failed: %1\nPress OK again to save this unchanged definition as unresolved, or Cancel to discard it.",
+  "Zaoblení křivek": "Curve fillet",
+  "Zaoblení: vyberte první křivku.": "Fillet: select the first curve.",
+  "Zaoblení: vyberte druhou křivku.": "Fillet: select the second curve.",
+  "Zaoblení rohu: táhněte společným bodem dvou vybraných křivek.": "Corner fillet: drag the shared point of two selected curves.",
+  "Fillet requires editable native curves.": "Fillet requires editable native curves.",
+  "Sheet Profile Flat end constraints cannot be solved.": "Sheet Profile Flat end constraints cannot be solved.",
+  "Sheet Profile Flat correction exceeds its target surface.": "Sheet Profile Flat correction exceeds its target surface."
 }

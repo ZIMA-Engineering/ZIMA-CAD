@@ -7,6 +7,7 @@
 #include <zima/sketcher/sketch.hpp>
 #include <zima/sketcher/face_curve_reference.hpp>
 #include <zima/sketcher/curve_geometry.hpp>
+#include <zima/sketcher/curve_fillet.hpp>
 #include <zima/sketcher/external_curve_center.hpp>
 #include "exact_external_circle.hpp"
 #include "exact_spline_coincidence.hpp"
@@ -1354,8 +1355,37 @@ bool native_circular_tangent_contact(const Sketch& sketch,const SketchConstraint
     return true;
 }
 
+struct EllipticalArcContact {
+    std::string contact, circle_center;
+    double nx{}, ny{}, radius{};
+};
+std::optional<EllipticalArcContact> elliptical_arc_contact(const Sketch& sketch,const SketchConstraint& relation) {
+    if(relation.kind!=ConstraintKind::Tangent||relation.first_point_id.empty())return {};
+    for(bool reverse:{false,true}) {
+        const auto& ellipse_id=reverse?relation.second_geometry_id:relation.geometry_id;
+        const auto& circle_id=reverse?relation.geometry_id:relation.second_geometry_id;
+        const auto ellipse=std::ranges::find(sketch.elliptical_arcs,ellipse_id,&SketchEllipticalArc::id);
+        const auto circle=std::ranges::find(sketch.arcs,circle_id,&SketchArc::id);
+        if(ellipse==sketch.elliptical_arcs.end()||circle==sketch.arcs.end())continue;
+        const auto& id=relation.first_point_id;
+        if((id!=ellipse->start_point_id&&id!=ellipse->end_point_id)||
+           (id!=circle->start_point_id&&id!=circle->end_point_id))continue;
+        const auto* p=sketch.find_point(id);const auto* c=sketch.find_point(ellipse->center_point_id);
+        const auto* a=sketch.find_point(ellipse->major_point_id);const auto* b=sketch.find_point(ellipse->minor_point_id);
+        const double ax=a->x-c->x,ay=a->y-c->y,bx=b->x-c->x,by=b->y-c->y;
+        const double det=ax*by-ay*bx;if(std::abs(det)<1e-12)return {};
+        const double u=((p->x-c->x)*by-(p->y-c->y)*bx)/det;
+        const double v=(ax*(p->y-c->y)-ay*(p->x-c->x))/det;
+        const double nx=(by*u-ay*v)/det,ny=(ax*v-bx*u)/det,length=std::hypot(nx,ny);
+        if(length<1e-12)return {};
+        return EllipticalArcContact{id,circle->center_point_id,nx/length,ny/length,circle->radius};
+    }
+    return {};
+}
+
 struct SplineJunction {
     std::string contact, first_arm, second_arm;
+    bool perpendicular{}; // Spline tangent arm against a circular radius.
 };
 std::optional<SplineJunction> spline_junction(const Sketch& sketch,
     const std::string& first_id, const std::string& second_id) {
@@ -1363,6 +1393,18 @@ std::optional<SplineJunction> spline_junction(const Sketch& sketch,
         [&](const auto& spline){return spline.id==first_id;});
     const auto second=std::ranges::find_if(sketch.bsplines,
         [&](const auto& spline){return spline.id==second_id;});
+    if ((first==sketch.bsplines.end()) != (second==sketch.bsplines.end())) {
+        const auto spline=first!=sketch.bsplines.end()?first:second;
+        const auto arc=std::ranges::find(sketch.arcs,
+            first!=sketch.bsplines.end()?second_id:first_id,&SketchArc::id);
+        if (arc==sketch.arcs.end() || spline->closed || spline->interpolating ||
+            spline->control_point_ids.size()<2) return std::nullopt;
+        const auto& points=spline->control_point_ids;
+        for (const auto index : {std::size_t{0},points.size()-1})
+            if (points[index]==arc->start_point_id || points[index]==arc->end_point_id)
+                return SplineJunction{points[index],points[index==0?1:points.size()-2],arc->center_point_id,true};
+        return std::nullopt;
+    }
     if(first==sketch.bsplines.end() || second==sketch.bsplines.end() ||
        first->closed || second->closed || first->degree<2 || second->degree<2 ||
        first->control_point_ids.size()<3 || second->control_point_ids.size()<3)
@@ -2516,20 +2558,14 @@ void Sketch::validate() const {
     };
     ids.clear();
     for (const auto& radius : corner_radii) {
-        const auto first = std::find_if(segments.begin(), segments.end(),
-            [&](const auto& value) { return value.id == radius.first_segment_id; });
-        const auto second = std::find_if(segments.begin(), segments.end(),
-            [&](const auto& value) { return value.id == radius.second_segment_id; });
-        const bool first_owns_vertex = first != segments.end() &&
-            (first->first_point_id == radius.vertex_id ||
-             first->second_point_id == radius.vertex_id);
-        const bool second_owns_vertex = second != segments.end() &&
-            (second->first_point_id == radius.vertex_id ||
-             second->second_point_id == radius.vertex_id);
+        const auto first = fillet_curve_endpoints(*this, radius.first_segment_id);
+        const auto second = fillet_curve_endpoints(*this, radius.second_segment_id);
+        const auto owns = [&](const auto& ends) { return ends &&
+            ((*ends)[0] == radius.vertex_id || (*ends)[1] == radius.vertex_id); };
         if (radius.id.empty() || !ids.insert(radius.id).second ||
             radius.vertex_id.empty() || find_point(radius.vertex_id) == nullptr ||
-            first == segments.end() || second == segments.end() ||
-            first == second || !first_owns_vertex || !second_owns_vertex ||
+            radius.first_segment_id == radius.second_segment_id ||
+            !owns(first) || !owns(second) ||
             !std::isfinite(radius.radius) || radius.radius < 0.0) {
             throw std::runtime_error("Sketch corner radius is invalid");
         }
@@ -3741,6 +3777,23 @@ bool Sketch::move_point(const std::string& point_id, double x, double y) {
                     }
                 }
             }
+            // A shared endpoint also connects an elliptical arc or spline.
+            // Translate its complete native frame/control polygon; moving
+            // only the contact leaves the solver an unnecessarily distorted
+            // initial graph and can collapse a neighbouring unlocked arc.
+            const auto include_curve = [&](const auto& ids) {
+                if (std::ranges::any_of(ids, [&](const auto& id) {
+                        return component.contains(id);
+                    })) for (const auto& id : ids) insert(id);
+            };
+            for (const auto& arc : next.elliptical_arcs)
+                include_curve(std::array{arc.center_point_id, arc.major_point_id,
+                    arc.minor_point_id, arc.start_point_id, arc.end_point_id});
+            for (const auto& ellipse : next.ellipses)
+                include_curve(std::array{ellipse.center_point_id,
+                    ellipse.major_point_id, ellipse.minor_point_id});
+            for (const auto& spline : next.bsplines)
+                include_curve(spline.control_point_ids);
             for (const auto& circle : next.circles) {
                 bool connected = component.contains(circle.center_point_id);
                 for (const auto& constraint : next.constraints) {
@@ -8013,7 +8066,8 @@ static CornerFilletResult materialize_corner_fillet(
         [&](const auto& value) { return value.id == second_segment_id; });
     if (first_segment == next.segments.end() ||
         second_segment == next.segments.end()) {
-        throw std::invalid_argument("Corner fillet segments do not exist");
+        return fillet_sketch_curves(source, first_segment_id,
+            second_segment_id, radius, true);
     }
     std::string corner_id;
     if (first_segment->first_point_id == second_segment->first_point_id ||
@@ -8222,16 +8276,14 @@ CornerFilletResult Sketch::add_corner_fillet(
         throw std::invalid_argument("Corner radius input is invalid");
     }
     auto next = *this;
-    auto first = std::find_if(next.segments.begin(), next.segments.end(),
-        [&](const auto& value) { return value.id == first_segment_id; });
-    auto second = std::find_if(next.segments.begin(), next.segments.end(),
-        [&](const auto& value) { return value.id == second_segment_id; });
-    if (first == next.segments.end() || second == next.segments.end()) {
+    const auto first = fillet_curve_endpoints(next, first_segment_id);
+    const auto second = fillet_curve_endpoints(next, second_segment_id);
+    if (!first || !second) {
         throw std::invalid_argument("Corner radius segments do not exist");
     }
     std::string vertex_id;
-    for (const auto& point_id : {first->first_point_id, first->second_point_id}) {
-        if (point_id == second->first_point_id || point_id == second->second_point_id) {
+    for (const auto& point_id : *first) {
+        if (point_id == (*second)[0] || point_id == (*second)[1]) {
             vertex_id = point_id;
             break;
         }
@@ -8350,6 +8402,14 @@ Sketch Sketch::evaluated_profile_sketch(bool allow_broken_axis_points) const {
                 if (value.start_point_id == old_id) value.start_point_id = new_id;
                 if (value.end_point_id == old_id) value.end_point_id = new_id;
             }
+            for (auto& value : result.elliptical_arcs) {
+                if (value.center_point_id == old_id) value.center_point_id = new_id;
+                if (value.start_point_id == old_id) value.start_point_id = new_id;
+                if (value.end_point_id == old_id) value.end_point_id = new_id;
+            }
+            for (auto& value : result.bsplines)
+                for (auto& point : value.control_point_ids)
+                    if (point == old_id) point = new_id;
             for (auto& constraint : result.constraints) {
                 if (constraint.first_point_id == old_id)
                     constraint.first_point_id = new_id;
@@ -8416,7 +8476,15 @@ Sketch::visible_segment_endpoints(const std::string& segment_id) const {
         const auto other_segment = std::find_if(segments.begin(), segments.end(),
             [&](const auto& value) { return value.id == other_segment_id; });
         const auto* vertex = find_point(vertex_id);
-        if (other_segment == segments.end() || vertex == nullptr) return;
+        if (vertex == nullptr) return;
+        if (other_segment == segments.end()) {
+            if (radius->radius <= 1e-9) return;
+            const auto trim = curve_fillet_geometry(*this, radius->first_segment_id,
+                radius->second_segment_id, radius->radius, radius->vertex_id);
+            const auto p = trim.contacts[radius->first_segment_id == segment_id ? 0 : 1];
+            endpoint = {p.x, p.y};
+            return;
+        }
         const auto outer_point = [&](const SketchSegment& value) {
             return find_point(value.first_point_id == vertex_id
                 ? value.second_point_id : value.first_point_id);
@@ -10660,7 +10728,12 @@ void Sketch::apply_dimension(SketchDimension dimension) {
                 }
                 corner->radius = dimension_kind == DimensionKind::Diameter
                     ? dimension_value * 0.5 : dimension_value;
-            } else {
+            } else if (!std::ranges::any_of(next.elliptical_arcs,[&](const auto& ellipse) {
+                    return ellipse.start_point_id==arc->start_point_id||ellipse.start_point_id==arc->end_point_id||
+                        ellipse.end_point_id==arc->start_point_id||ellipse.end_point_id==arc->end_point_id;
+                })) {
+                // A shared elliptical endpoint must enter the coupled solve
+                // from its last valid geometry, not a radial-only deformation.
                 const auto linked = externally_linked_point_ids(next);
                 const auto anchored = [&](const SketchPoint& point) {
                     return point.fixed || linked.contains(point.id) ||
@@ -12274,6 +12347,17 @@ SolveResult Sketch::solve_impl(
         for (const auto& constraint : constraints) {
             if (constraint.suppressed) continue;
             if (constraint.kind == ConstraintKind::Tangent) {
+                if(const auto contact=elliptical_arc_contact(*this,constraint)) {
+                    const auto* p=find_point(contact->contact);auto* c=find_point(contact->circle_center);
+                    const double side=(c->x-p->x)*contact->nx+(c->y-p->y)*contact->ny<0?-1.:1.;
+                    const double x=p->x+side*contact->radius*contact->nx,y=p->y+side*contact->radius*contact->ny;
+                    const double residual=std::hypot(c->x-x,c->y-y);
+                    maximum_residual=std::max(maximum_residual,residual);
+                    if(residual>tolerance) {
+                        if(!immutable(*c)){c->x=x;c->y=y;}else immovable_conflict=true;
+                    }
+                    continue;
+                }
                 if(const auto junction=spline_junction(*this,
                         constraint.geometry_id,constraint.second_geometry_id)) {
                     auto* contact=find_point(junction->contact);
@@ -12287,6 +12371,22 @@ SolveResult Sketch::solve_impl(
                     }
                     const double ax=(first->x-contact->x)/a, ay=(first->y-contact->y)/a;
                     const double bx=(second->x-contact->x)/b, by=(second->y-contact->y)/b;
+                    if (junction->perpendicular) {
+                        const double residual=std::abs(ax*bx+ay*by);
+                        maximum_residual=std::max(maximum_residual,residual);
+                        if(residual<=tolerance)continue;
+                        const double side=ax*by-ay*bx>=0?1.:-1.;
+                        // Keep the current contact side; a radius edit must
+                        // never flip the arc across the native spline arm.
+                        if(!immutable(*second)) {
+                            second->x=contact->x-side*b*ay;
+                            second->y=contact->y+side*b*ax;
+                        } else if(!immutable(*first)) {
+                            first->x=contact->x+side*a*by;
+                            first->y=contact->y-side*a*bx;
+                        } else immovable_conflict=true;
+                        continue;
+                    }
                     const double residual=std::hypot(ax+bx,ay+by);
                     maximum_residual=std::max(maximum_residual,residual);
                     if(residual<=tolerance) continue;
@@ -14326,6 +14426,11 @@ SolveResult Sketch::solve_impl(
             // geometric residual above still validate both persisted relations.
             if (constraint.suppressed || implied_keypoint_contact(constraint)) continue;
             if (constraint.kind == ConstraintKind::Tangent) {
+                if(const auto contact=elliptical_arc_contact(*this,constraint)) {
+                    const auto* p=find_point(contact->contact);const auto* c=find_point(contact->circle_center);
+                    result.push_back(((c->x-p->x)*contact->ny-(c->y-p->y)*contact->nx)/std::max(1.,contact->radius));
+                    continue;
+                }
                 if(const auto junction=spline_junction(*this,
                         constraint.geometry_id,constraint.second_geometry_id)) {
                     const auto* c=find_point(junction->contact);
@@ -14334,7 +14439,8 @@ SolveResult Sketch::solve_impl(
                     const double ax=a->x-c->x, ay=a->y-c->y;
                     const double bx=b->x-c->x, by=b->y-c->y;
                     const double length=std::hypot(ax,ay)*std::hypot(bx,by);
-                    result.push_back(length>1e-24?(ax*by-ay*bx)/length:1e12);
+                    result.push_back(length>1e-24?
+                        (junction->perpendicular?ax*bx+ay*by:ax*by-ay*bx)/length:1e12);
                     continue;
                 }
 
@@ -16999,8 +17105,14 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh(
         const auto radius=std::ranges::find_if(corner_radii,
             [&](const auto& value) { return value.id==radius_id; });
         if (radius==corner_radii.end()) continue;
+        const auto key = [&](const std::string& id) {
+            if (std::ranges::any_of(arcs, [&](const auto& c) { return c.id == id; })) return "arc:" + id;
+            if (std::ranges::any_of(elliptical_arcs, [&](const auto& c) { return c.id == id; })) return "elliptical_arc:" + id;
+            if (std::ranges::any_of(bsplines, [&](const auto& c) { return c.id == id; })) return "bspline:" + id;
+            return "segment:" + id;
+        };
         rendered.participant_semantic_keys={"point:"+radius->vertex_id,
-            "segment:"+radius->first_segment_id,"segment:"+radius->second_segment_id};
+            key(radius->first_segment_id),key(radius->second_segment_id)};
     }
     const auto append_image=[&](const TemplateImage& image) {
         image.validate();if(!image.visible)return;

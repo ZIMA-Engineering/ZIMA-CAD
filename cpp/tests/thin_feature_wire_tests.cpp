@@ -378,6 +378,42 @@ void edge_treatment_source_node_labels() {
         require(reordered_preview.labels[index].second==loop_names[index]&&
                 same(reordered_preview.labels[index].first,loop_nodes[index]),
             "Closed route source-node numbering depends on edge order or direction");
+    for(const bool closed:{false,true})for(const bool reverse:{false,true})
+        for(const auto kind:{document::FeatureKind::Fillet,document::FeatureKind::Chamfer}) {
+            const auto& complete=closed?loop:open;
+            for(unsigned mask=1;mask<(1u<<complete.size());++mask) {
+                auto incomplete=complete;
+                for(std::size_t i=0;i<incomplete.size();++i)if(mask&(1u<<i)) {
+                    incomplete[i].edge_treatment_side_directions.clear();
+                    incomplete[i].edge_treatment_side_references.clear();
+                }
+                if(reverse) {
+                    std::ranges::reverse(incomplete);
+                    for(auto& item:incomplete) {
+                        std::ranges::reverse(item.points);
+                        std::ranges::reverse(item.edge_treatment_endpoint_references);
+                        for(auto& directions:item.edge_treatment_side_directions)
+                            std::ranges::reverse(directions);
+                    }
+                }
+                const auto paths=app::workspace_detail::ordered_edge_treatment_preview_paths(incomplete);
+                require(paths.size()==1&&paths.front().edges.size()==complete.size(),
+                    "Missing face guides split the authored route");
+                const auto actual=app::workspace_detail::edge_treatment_preview_wire(
+                    {incomplete},parameters,kind,"missing-guides",nullptr);
+                require(actual.edges.empty()&&actual.dimensions.empty(),
+                    "Incomplete guides published a misleading partial cage");
+                require(actual.labels.size()+actual.terminal_labels.size()==4,
+                    "Missing guides changed source node identity");
+                require(actual.terminal_labels.size()==(closed?0:2),
+                    "Missing guides turned a closed route into an open path");
+                if(!closed) {
+                    require(actual.terminal_labels[0].vertex==open.front().edge_treatment_endpoint_references.front()&&
+                        actual.terminal_labels[1].vertex==open.back().edge_treatment_endpoint_references.back(),
+                        "Missing guides promoted an internal junction to a terminal");
+                }
+            }
+        }
     std::cout<<"Fillet/Chamfer source-node labels: open, sampled curve, disconnected route and closed/reordered loops passed\n";
 }
 void rolling_edge_treatment_preview() {

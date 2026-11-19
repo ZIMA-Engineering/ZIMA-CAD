@@ -608,6 +608,9 @@ void AssemblyWorkspaceWindow::create_actions() {
     sketch_corner_fillet_action_->setObjectName("sketchCornerFilletAction");
     sketch_corner_fillet_action_->setEnabled(false);
     sketch_corner_fillet_action_->setVisible(false);
+    sketch_curve_fillet_action_ = make_action(tr("Zaoblení křivek"), "sketch-fillet");
+    sketch_curve_fillet_action_->setObjectName("sketchCurveFilletAction");
+    sketch_curve_fillet_action_->setEnabled(false);
     sketch_offset_action_ = make_action(tr("Offset"), "sketch-offset");
     sketch_offset_action_->setObjectName("sketchOffsetAction");
     connect(sketch_offset_action_, &QAction::triggered, this, [this]{show_sketch_offset_properties();});
@@ -824,10 +827,13 @@ void AssemblyWorkspaceWindow::create_actions() {
         [this] { start_sketch_trim(); });
     connect(sketch_corner_fillet_action_, &QAction::triggered, this,
         [this] { start_sketch_corner_fillet(); });
+    connect(sketch_curve_fillet_action_, &QAction::triggered, this,
+        [this] { start_sketch_corner_fillet(true); });
     connect(sketch_trim_action_, &QAction::changed,
         sketch_corner_fillet_action_, [this] {
             sketch_corner_fillet_action_->setEnabled(
                 sketch_trim_action_->isEnabled());
+            sketch_curve_fillet_action_->setEnabled(sketch_trim_action_->isEnabled());
         });
     connect(sketch_mirror_action_, &QAction::triggered, this,
         [this] { start_sketch_mirror(); });

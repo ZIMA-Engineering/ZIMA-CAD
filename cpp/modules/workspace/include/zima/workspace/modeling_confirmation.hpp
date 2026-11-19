@@ -30,6 +30,9 @@ public:
     [[nodiscard]] bool failed() const { return failed_; }
     [[nodiscard]] bool accepted(const std::string& owner = {}) const;
     [[nodiscard]] bool applies(const document::PartDocument&) const;
+    [[nodiscard]] bool applies(const assembly::AssemblyDocument&) const;
+    using AssemblyCalculation = std::function<void(assembly::AssemblyDocument&, bool)>;
+    void calculate(assembly::AssemblyDocument&, const AssemblyCalculation&);
     using Calculation = std::function<std::vector<kernel::BodyResult>(
         document::PartDocument&, const PartCalculationPolicy&)>;
     std::vector<kernel::BodyResult> calculate(document::PartDocument&,

@@ -41,6 +41,47 @@ void near(double a,double b,double tolerance=1e-5,const std::source_location loc
 double measured_volume(const kernel::OcctKernel& engine,const kernel::BodySnapshot& snapshot) {
     auto body=snapshot.get();engine.ensure_body_properties(body);return body.volume;
 }
+void curved_partition_contract(kernel::OcctKernel& engine) {
+    for(const auto rotation:std::array<kernel::Vec3,2>{{{0,0,0},{17,31,43}}}) {
+        test::CircularExtrusion cylinder{10,5};cylinder.translation={23,-41,7};cylinder.rotation_degrees=rotation;
+        const auto body=engine.evaluate_history({{"curved-partition",static_cast<kernel::ExtrusionRequest>(cylinder)}}).back();
+        const auto source_shape=body.kernel_shape.get();
+        for(bool upper:{false,true}) {
+            const auto cap=std::ranges::find_if(body.mesh.original_references.triangle_references,[&](const auto& face) {
+                return face.semantic_key.starts_with(upper?"end:":"start:")&&face.surface&&
+                    face.surface->kind==kernel::SurfaceGeometry::Kind::Plane;
+            });
+            check(cap!=body.mesh.original_references.triangle_references.end(),"Curved partition cap missing");
+            auto frame=kernel::annotation_frame(cylinder.translation,rotation);
+            frame.origin=frame.world({0,0,upper?5.:0.});
+            const auto native=engine.capture_reference_face(body,*cap);
+            for(double sign:{-1.,1.})for(bool quarter:{false,true}) {
+                std::vector<std::array<double,3>> planes{{sign,0,0}};
+                if(quarter)planes.push_back({0,sign,0});
+                const auto result=kernel::clip_sheet_face_contour(native,frame,planes,1e-6);
+                check(!result.arcs.empty()&&result.curves.size()==(quarter?2:1),"Curved partition omitted its arc or cut borders");
+                double sweep{};
+                for(const auto& arc:result.arcs) {
+                    near(arc.radius,10,1e-7);near(arc.center.x,0,1e-7);near(arc.center.y,0,1e-7);
+                    double angle=std::atan2(arc.end.y,arc.end.x)-std::atan2(arc.start.y,arc.start.x);
+                    if(arc.clockwise)angle=-angle;
+                    if(angle<0)angle+=2*std::numbers::pi;
+                    sweep+=angle;
+                    const double middle=std::atan2(arc.start.y,arc.start.x)+(arc.clockwise?-1:1)*angle*.5;
+                    check(sign*std::cos(middle)>=-1e-8&&(!quarter||sign*std::sin(middle)>=-1e-8),
+                        "Curved partition retained the opposite side");
+                }
+                near(sweep,quarter?std::numbers::pi*.5:std::numbers::pi,1e-7);
+                for(const auto& curve:result.curves) {
+                    check(curve.degree==1&&curve.poles.size()==2,"Curved partition approximated a cut border");
+                    for(const auto p:curve.poles)check(sign*p.x>=-1e-7&&(!quarter||sign*p.y>=-1e-7),
+                        "Curved partition border escaped its half-planes");
+                }
+            }
+        }
+        check(body.kernel_shape.get()==source_shape,"Curved partition changed its source");
+    }
+}
 void rip_contract(kernel::OcctKernel& engine) {
     // RIP consumes every exact ordinary native curve while construction
     // geometry remains inert. Open curves split the sheet into branches;
@@ -613,6 +654,7 @@ void line_bend_contract(kernel::OcctKernel& engine) {
 }
 void contract(bool include_oblique_corners = true) {
     kernel::OcctKernel kernel;
+    curved_partition_contract(kernel);
     rip_contract(kernel);
     rip_conversion_contract(kernel);
     line_bend_contract(kernel);

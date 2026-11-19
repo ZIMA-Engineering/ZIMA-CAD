@@ -1,14 +1,41 @@
 # Modeling follow-up agreed on 2026-11-19
 
-Status: Windows repair batch verified for local review after build 2026111904;
-separate design work and verification limitations are recorded below.
-The user requested commit/push for review on 2026-11-19. Do not publish another
-Windows GitHub release until the user explicitly approves that review.
-Preserve known working
-modeling cases while investigating these reports; a plausible result in the
-new example does not establish absence of regressions.
+Status: implementation completed for Windows build 2026111905. The current
+[verification matrix and explicit limits](verification/20261119-modeling-completion.md)
+supersede the earlier partial status below. Committed-source packaging, signing
+and public download checks remain release gates, recorded in the release note.
 
-## Verified changes and remaining gates
+The user authorized finishing the entire list, commit, push and a Windows GitHub
+release on 2026-11-19. This supersedes the earlier wait-for-review instruction.
+
+## Completion checklist
+
+- Cached complete Fillet routes, symmetric/two-sided current face picking and
+  exact curved Sheet-from-Body continuation partitions are implemented.
+- Shared unresolved-definition confirmation covers Part and Assembly modeling
+  calculation paths. Actual Fillet/Chamfer GUI and eight Assembly cut variants
+  verify the first/second OK transaction; every command-specific validation
+  combination is not exhaustively covered.
+- Angled Parallel + C survives actual GUI Trim, subsequent edits and reopening.
+- Virtual curve corner rounding and the separate native Curve fillet command
+  are implemented without automatically inserting a radius dimension.
+- View-only Flat-end dimensions/constraints and propagation to the following
+  Bend are implemented, with planar full-material Up-to limits.
+- Independent branches, parallel calculation, source deletion/release, history,
+  relative-zero corrections, CC and embedded Sketch repair remain covered by
+  their mandatory/native/GUI regression paths.
+- The broad placement and Sweep3D test fixtures now reflect the established
+  first-reference orientation and nested-table resizing contracts. The protected
+  placement implementation was not changed.
+- Five-language coverage and catalog/UI validation pass. The stable root BAT
+  continues to launch the local native C++ executable.
+- Commit, push and signed Windows publication are authorized; exact artifact
+  acceptance is tracked in [the release record](releases/2026111905.md).
+
+The later Sheet Transition discussion supplied no concrete new behavior and
+remains a future specification task. Linux execution belongs on the Linux host.
+
+## Earlier repair evidence (before the completion batch)
 
 ### Two-sided Fillet route regression (`24.prtz`)
 
@@ -139,10 +166,10 @@ published release. Diagnostic logs and copies live under
 - Windows checks use the native C++ runtime. Linux has not been built or tested
   in this Windows session. No separate platform modeling implementation exists.
 
-The generalized Sketcher Fillet and View-only Flat-end design below remain
-separate work. The user deferred the Sketcher extension while prioritizing
-the sheet-metal repairs. Do not describe the entire design backlog or the
-known broad UI-suite failures as resolved by this repair batch.
+The generalized Sketcher Fillet and View-only Flat-end requirements below were
+subsequently implemented in 2026111905. Historical failures and incomplete
+coverage above describe the earlier repair batch; the current matrix records
+the completed work and remaining finite verification limits.
 
 ## Sheet from Body follow-up
 
