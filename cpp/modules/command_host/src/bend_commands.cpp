@@ -2,6 +2,8 @@
 #include <zima/workspace/bend_operations.hpp>
 #include <zima/workspace/sheet_state_operations.hpp>
 #include <zima/document/bend.hpp>
+#include <zima/kernel/sheet_attachment_reference.hpp>
+#include <zima/workspace/operation_input.hpp>
 #include <algorithm>
 #include <cmath>
 
@@ -64,7 +66,7 @@ void Host::register_bend_commands() {
         if(!create)arguments.push_back({"container",true});
         if(create)arguments.push_back({"width_mm",false,Type::Number});
         for(const auto* key:{"radius_mm","angle_degrees","thickness_mm","k_factor","first_extension_mm","last_extension_mm","corner_gap_mm"})arguments.push_back({key,false,Type::Number});
-        for(const auto* key:{"thickness_override","k_factor_override","radius_follows_thickness","origin_last","corner_first","corner_last"})arguments.push_back({key,false,Type::Boolean});
+        for(const auto* key:{"thickness_override","k_factor_override","radius_follows_thickness","origin_last","origin_midpoint","corner_first","corner_last"})arguments.push_back({key,false,Type::Boolean});
         for(const auto* key:{"name","document","edge_owner","edge_key"})arguments.push_back({key,false});
         dispatcher_.add({create?"bend.create":"bend.set",tr("Create or edit a Bend."),arguments,true},[this,create](const Json& args){
             if(auto result=target(args);!result.ok)return result;
@@ -107,17 +109,23 @@ void Host::register_bend_commands() {
                 if(args.contains("radius_mm")&&feature.bend.radius_follows_thickness)
                     throw std::invalid_argument("Disable radius linked to thickness before editing the radius.");
                 if(args.contains("name"))feature.name=args.at("name");sketch.name=feature.name;
-                if(args.contains("edge_owner")||args.contains("edge_key")||args.contains("origin_last")) {
+                if(args.contains("edge_owner")||args.contains("edge_key")||args.contains("origin_last")||args.contains("origin_midpoint")) {
+                    const bool was_center=document::sheet_attachment_at_midpoint(feature.placement.references);
+                    const bool center=args.value("origin_midpoint",false);
                     auto owner=args.value("edge_owner",std::string{}),key=args.value("edge_key",std::string{});
                     if(owner.empty()&&key.empty()&&feature.bend.sheet_attachment&&!feature.placement.references.empty()) {
                         owner=feature.placement.references.front().owner_id;key=feature.placement.references.front().semantic_key;
                     }
                     std::optional<kernel::ViewerEdge> selected;
-                    for(const auto& boundary:state->session.calculated_boundaries())for(const auto& edge:boundary.mesh.original_references.edges)
+                    const auto* input=workspace::calculated_operation_input(state->session,create?std::string{}:feature.id);
+                    if(input)for(const auto& edge:input->mesh.edges)
                         if(edge.reference.owner_id==owner&&edge.reference.semantic_key==key&&edge.reference.instance_path.empty())selected=edge;
                     if(!selected)throw std::invalid_argument("Bend attachment edge does not exist.");
                     feature.placement.references=document::bend_sheet_references(*selected);
                     if(args.value("origin_last",false))feature.placement.references=document::bend_sheet_references(*selected,selected->edge_treatment_endpoint_references.back());
+                    if(center)feature.placement.references=document::bend_sheet_references(*selected,kernel::sheet_edge_midpoint_reference(selected->reference));
+                    if(center&&!was_center)document::center_sheet_attachment_profile(sketch,false);
+                    else if(was_center&&!center)document::restore_sheet_endpoint_profile(sketch,false);
                     feature.bend.sheet_attachment=true;
                 }
                 document::prepare_bend_sketches(feature,sketch,document::sheet_metal_defaults(state->session.document()));

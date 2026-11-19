@@ -4,6 +4,12 @@
 
 namespace zima::workspace {
 
+// Prepare only the edited sheet feature/group against its calculated local
+// input. Earlier containers must retain their already resolved definitions;
+// the explicit calculation owns full ordered history resolution.
+void resolve_sheet_feature_drafts(document::PartDocument&,
+    const std::vector<std::string>&,kernel::ViewerReferenceGeometry);
+
 struct PreparedSheetProfile {
     document::PartDocument document;
     // Child IDs follow the authored contour, independently of executable Body

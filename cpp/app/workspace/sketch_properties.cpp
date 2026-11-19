@@ -432,7 +432,9 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
             if (const auto* input = rollback_input?rollback_input:
                     zima::workspace::calculated_operation_input(part->session,
                         edit_mode?initial.owner_container_id:std::string{}))
-                reference_geometry = input->mesh.original_references;
+                reference_geometry = dialog->is_sheet_edge_feature()
+                    ? zima::document::sheet_attachment_reference_geometry(input->mesh)
+                    : input->mesh.original_references;
             const auto& document = part->session.document();
             append_reference_geometry(reference_geometry,
                 document.sketch_placement_reference_geometry(initial.owner_container_id));
@@ -804,7 +806,8 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
             }
             if(sketch_feature&&sketch_feature->feature_kind==
                     zima::document::FeatureKind::SheetProfile&&
-                    !sketch_feature->sheet_profile.sheet_attachment) {
+                    (!sketch_feature->sheet_profile.sheet_attachment||
+                     zima::document::sheet_attachment_at_midpoint(sketch_feature->placement.references))) {
                 auto extent=*sketch_feature;
                 extent.feature_kind=zima::document::FeatureKind::Feature;
                 extent.feature=sketch_feature->sheet_profile.width;

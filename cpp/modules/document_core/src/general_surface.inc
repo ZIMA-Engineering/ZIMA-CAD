@@ -16,10 +16,10 @@ HistoryContainer create_general_surface() {
     for(unsigned i=0;i<4;++i)feature.general_surface.boundaries.push_back(create_general_surface_sketch(feature));
     reframe_general_surface(feature);return feature;
 }
-void validate_general_surface(const HistoryContainer& feature) {
+void validate_general_surface(const HistoryContainer& feature,bool require_complete) {
     if(feature.feature_kind!=FeatureKind::GeneralSurface||feature.combine_mode!=CombineMode::Add)
         throw std::invalid_argument("Invalid owned surface boundary.");
-    if(feature.general_surface.boundaries.size()<2)
+    if(require_complete&&feature.general_surface.boundaries.size()<2)
         throw std::invalid_argument("Boundary surface requires at least two boundaries.");
     std::set<std::string> ids{feature.id,feature.feature_id,feature.container_origin.id};
     const auto unique=[&](const std::string& id){if(id.empty()||!ids.insert(id).second)throw std::invalid_argument("Invalid owned surface boundary.");};
@@ -73,7 +73,7 @@ void validate_general_surface_document_ownership(const PartDocument& part) {
             visit_feature_sketches(feature,[&](const auto& data,std::size_t){occupied.insert(sketcher::Sketch::from_serialized(data).id);});
     }
     for(const auto& stored:part.history)if(stored.feature_kind==FeatureKind::GeneralSurface||stored.feature_kind==FeatureKind::Loft) {
-        if(stored.feature_kind==FeatureKind::Loft)validate_loft(stored);else validate_general_surface(stored);
+        if(stored.feature_kind==FeatureKind::Loft)validate_loft(stored,false);else validate_general_surface(stored);
         const auto owned=[&](auto&& self,const ConstructionObject& object)->void {
             // Point entities also alias their Origin point child. Check each
             // native object's primary identity once, then reserve all aliases.

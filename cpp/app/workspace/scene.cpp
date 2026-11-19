@@ -592,7 +592,7 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
                 }
                 if (construction_dimension_object_id_ == feature.id) {
                     zima::kernel::ViewerMesh annotations;
-                    annotations.dimensions=zima::document::curve3d_radius_dimensions(sweep_display_path(feature));
+                    annotations.dimensions=zima::document::curve3d_radius_dimensions(zima::document::sweep3d_display_path(feature));
                     if(const auto* body=document.body_owner_for_object(feature.id))
                         annotations=document.place_body_mesh(std::move(annotations),body->scope.id);
                     append_mesh(mesh,std::move(annotations));
@@ -1700,7 +1700,7 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
                     const bool stable_geometry = sketch_external_reference_has_stable_geometry(candidate,profile,sketch_external_intersection_active_,&viewer_->mesh());
                     const auto source=sketch_external_reference_source_candidate(candidate);
                     return stable_geometry && candidate.instance_path.empty() &&
-                        source_owners.contains(source.owner_id) &&
+                        (source_owners.contains(source.owner_id)||is_loft_profile_point_reference(source)) &&
                         sketch_external_reference_kind(candidate).has_value();
                 });
         } else if (sketch_coincident_active_) {
@@ -2658,7 +2658,8 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
                 if (!sketch_external_reference_has_stable_geometry(candidate,sketch_external_profile_active_,sketch_external_intersection_active_,&viewer_->mesh()) ||
                     candidate.instance_path.empty()) return false;
                 if (candidate.instance_path == dependent_path) {
-                    return allowed_local_owners.contains(sketch_external_reference_source_candidate(candidate).owner_id);
+                    const auto source=sketch_external_reference_source_candidate(candidate);
+                    return allowed_local_owners.contains(source.owner_id)||is_loft_profile_point_reference(source);
                 }
                 try {
                     const auto address = workspace_.resolve_occurrence(

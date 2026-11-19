@@ -52,13 +52,72 @@ std::vector<occ::handle<Geom_Curve>> loft_guide_branches(
     if(branches.empty())throw std::runtime_error("Loft requires a compatible intersecting profile and guide network.");
     return branches;
 }
+std::pair<TopoDS_Face,double> loft_network_face(
+        const NCollection_Array1<occ::handle<Geom_Curve>>& profiles,
+        const NCollection_Array1<occ::handle<Geom_Curve>>& rails,double tolerance,bool numbered_patch=false) {
+        // Exact native contacts should not inherit a coarse parameterization
+        // tolerance: it can make a valid rational skin unsuitable for offsets.
+        // Retry at the authored contact budget only when the fine network fails.
+        double construction_tolerance=std::min(tolerance*.01,1e-7);
+        GeomFill_Gordon build;build.Init(profiles,rails,construction_tolerance);
+        build.SetApproximationMode(GeomFill_Gordon::ApproximationMode::ExactOnly);
+        build.Perform();
+        if(!build.IsDone()&&construction_tolerance<tolerance) {
+            construction_tolerance=tolerance;build.Init(profiles,rails,tolerance);
+            build.SetApproximationMode(GeomFill_Gordon::ApproximationMode::ExactOnly);build.Perform();
+        }
+        if(!build.IsDone()&&numbered_patch&&profiles.Size()==2&&rails.Size()==2&&
+           build.Status()==GeomFill_Gordon::ResultStatus::CurveCompatibilityFailed) {
+            // A two-station numbered span has four exact boundaries. The
+            // native stretch patch supports mixed rational/polynomial curves
+            // which Gordon 8.0.1 cannot combine. No sampled surface is used.
+            const auto copy=[](const auto& curve) {
+                return GeomConvert::CurveToBSplineCurve(occ::down_cast<Geom_Curve>(curve->Copy()));
+            };
+            GeomFill_BSplineCurves patch(copy(profiles(1)),copy(rails(2)),
+                copy(profiles(2)),copy(rails(1)),GeomFill_StretchStyle);
+            const auto surface=patch.Surface();
+            if(surface.IsNull())throw std::runtime_error("Loft could not construct the profile transition.");
+            double u0,u1,v0,v1;surface->Bounds(u0,u1,v0,v1);
+            // Certify all four boundaries using common B-spline coefficients.
+            // Equal positive weights and bounded pole displacement bound the
+            // complete curves, including between display/test samples.
+            const auto same_boundary=[&](const auto& authored,const auto& actual) {
+                auto expected=copy(authored);auto edge=copy(actual);
+                if(expected->StartPoint().Distance(edge->StartPoint())>
+                   expected->EndPoint().Distance(edge->StartPoint()))expected->Reverse();
+                GeomFill_Profiler basis;basis.AddCurve(expected);basis.AddCurve(edge);
+                basis.Perform(Precision::PConfusion());
+                expected=occ::down_cast<Geom_BSplineCurve>(basis.Curve(1));
+                edge=occ::down_cast<Geom_BSplineCurve>(basis.Curve(2));
+                if(expected->NbPoles()!=edge->NbPoles())return false;
+                for(int i=1;i<=expected->NbPoles();++i)
+                    if(expected->Pole(i).Distance(edge->Pole(i))>tolerance||
+                       std::abs(expected->Weight(i)/expected->Weight(1)-edge->Weight(i)/edge->Weight(1))>1e-10)return false;
+                return true;
+            };
+            if(!same_boundary(profiles(1),surface->VIso(v0))||!same_boundary(profiles(2),surface->VIso(v1))||
+               !same_boundary(rails(1),surface->UIso(u0))||!same_boundary(rails(2),surface->UIso(u1)))
+                throw std::runtime_error("Loft exceeds the document geometry tolerance.");
+            const double precision=std::min(tolerance*.01,1e-7);
+            return {BRepBuilderAPI_MakeFace(surface,precision).Face(),precision};
+        }
+        if(!build.IsDone()||build.IsApproximate())
+            throw std::runtime_error("Loft requires a compatible intersecting profile and guide network.");
+        const auto& report=build.Report();
+        if(std::max({report.MaxContactGap,report.MaxReparametrizationDeviation,
+                     report.MaxProfileDeviation,report.MaxGuideDeviation})>tolerance)
+            throw std::runtime_error("Loft exceeds the document geometry tolerance.");
+        const auto skin=BRepBuilderAPI_MakeFace(build.Surface(),construction_tolerance).Face();
+        return {skin,construction_tolerance};
+}
 PrimitiveData make_loft_data(const LoftRequest& request,const std::string& owner) {
     const double tolerance=request.tolerance;
     if(request.profiles.size()<2||!std::isfinite(tolerance)||tolerance<=0||
        request.profile_owners.size()!=request.profiles.size()||request.guide_owners.size()!=request.guides.size())
         throw std::runtime_error("Loft requires at least two different profile Sketches.");
-    if(request.guides.size()==1)
-        throw std::runtime_error("A guided Loft requires at least two guide Sketches.");
+    if(request.guides.size()==1&&!request.match_profile_vertices)
+        throw std::runtime_error("A single Loft guide requires matching numbered profile points.");
     if(request.thin) {
         if(!request.make_solid)throw std::runtime_error("Thin Loft requires a solid result.");
         auto skin_request=request;skin_request.thin=false;
@@ -90,16 +149,20 @@ PrimitiveData make_loft_data(const LoftRequest& request,const std::string& owner
             if(profile&&request.make_solid&&!input.open_profile_end_id.empty())
                 throw std::runtime_error("A solid Loft requires closed profile Sketches.");
             std::vector<TopoDS_Edge> edges;
-            output.push_back(make_profile_wire(input.outer_profile,input.direction,std::nullopt,&edges));
+            const auto radial=profile&&output.size()<request.profile_radial_directions.size()?request.profile_radial_directions[output.size()]:std::nullopt;
+            output.push_back(make_profile_wire(input.outer_profile,input.direction,radial,&edges));
             if(profile)source_edges.push_back(std::move(edges));
         }
     };
     prepare(request.profiles,wires,true);prepare(request.guides,guides,false);
     PrimitiveData result;
     std::vector<std::pair<TopoDS_Shape,std::string>> authored_faces;
+    std::vector<std::pair<TopoDS_Shape,std::string>> authored_longitudinals;
+    bool split_profiles=std::ranges::any_of(source_edges,[&](const auto& edges){return edges.size()!=source_edges.front().size();});
     if(guides.empty()) {
         BRepOffsetAPI_ThruSections build(request.make_solid,false,tolerance);
         for(const auto& wire:wires)build.AddWire(wire);
+        build.CheckCompatibility(!request.match_profile_vertices);
         build.Build();
         if(!build.IsDone())throw std::runtime_error("Loft could not construct the profile transition.");
         result.shape=build.Shape();
@@ -108,12 +171,134 @@ PrimitiveData make_loft_data(const LoftRequest& request,const std::string& owner
             const auto key="loft:skin:from:"+request.profile_owners.front()+":"+
                 (edge<profile.outer_edge_source_ids.size()?profile.outer_edge_source_ids[edge]:profile.outer_boundary_id);
             const auto& generated=build.Generated(source_edges.front()[edge]);
+            std::vector<TopoDS_Shape> faces;
             for(NCollection_List<TopoDS_Shape>::Iterator it(generated);it.More();it.Next())
-                if(it.Value().ShapeType()==TopAbs_FACE)authored_faces.emplace_back(it.Value(),key);
+                if(it.Value().ShapeType()==TopAbs_FACE)faces.push_back(it.Value());
+            for(const auto& face:faces) {
+                auto identity=key;
+                if(faces.size()>1) {
+                    split_profiles=true;
+                    // Compatibility can divide one smooth source curve into
+                    // several spans. Identify each span by its authored curve
+                    // partners, never by OCCT traversal or a generated index.
+                    for(std::size_t station=1;station<source_edges.size();++station)
+                        for(std::size_t other=0;other<source_edges[station].size();++other) {
+                            const auto& partners=build.Generated(source_edges[station][other]);
+                            for(NCollection_List<TopoDS_Shape>::Iterator it(partners);it.More();it.Next())
+                                if(face.IsSame(it.Value())) {
+                                    const auto& p=request.profiles[station];
+                                    identity+=":with:"+request.profile_owners[station]+":"+
+                                        (other<p.outer_edge_source_ids.size()?p.outer_edge_source_ids[other]:p.outer_boundary_id);
+                                    break;
+                                }
+                        }
+                }
+                authored_faces.emplace_back(face,std::move(identity));
+            }
+        }
+        for(std::size_t station=0;station<source_edges.size();++station) {
+            const auto& p=request.profiles[station];
+            for(std::size_t point=0;point<source_edges[station].size();++point) {
+                const auto vertex=TopExp::FirstVertex(source_edges[station][point],true);
+                const auto parent=request.profile_owners[station]+":"+
+                    (point<p.outer_vertex_source_ids.size()?p.outer_vertex_source_ids[point]:p.outer_boundary_id);
+                const auto& generated=build.Generated(vertex);
+                for(NCollection_List<TopoDS_Shape>::Iterator it(generated);it.More();it.Next())
+                    if(it.Value().ShapeType()==TopAbs_EDGE)authored_longitudinals.emplace_back(it.Value(),parent);
+            }
+        }
+        std::map<std::string,std::size_t> span_counts;
+        for(const auto& [face,key]:authored_faces)++span_counts[key];
+        for(auto& [face,key]:authored_faces)if(span_counts.at(key)>1) {
+            // A periodic source seam can also split the opposite polygon
+            // edge. The two children share curve parents but have different
+            // authored point parents on their longitudinal boundaries.
+            for(const auto& [span,parent]:authored_longitudinals)
+                for(TopExp_Explorer it(face,TopAbs_EDGE);it.More();it.Next())if(it.Current().IsSame(span)) {
+                    key+=":bounded-by:"+parent;break;
+                }
         }
         if(request.make_solid) {
             authored_faces.emplace_back(build.FirstShape(),"loft:cap:from:"+request.profile_owners.front());
             authored_faces.emplace_back(build.LastShape(),"loft:cap:from:"+request.profile_owners.back());
+        }
+    } else if(request.match_profile_vertices) {
+        const auto spans=source_edges.front().size();
+        const bool closed=request.profiles.front().open_profile_end_id.empty();
+        const auto count=spans+(closed?0:1);
+        for(std::size_t station=0;station<wires.size();++station)
+            if(source_edges[station].size()!=spans||request.profiles[station].open_profile_end_id.empty()!=closed)
+                throw std::runtime_error("Loft correspondence requires the same number of points on every profile.");
+        const auto vertex=[&](std::size_t station,std::size_t point) {
+            return point==spans?TopExp::LastVertex(source_edges[station].back(),true):
+                TopExp::FirstVertex(source_edges[station][point],true);
+        };
+        // The matched profile-only Loft supplies the ordinary interpolating
+        // longitudinal curves. Explicit side guides replace their own spans;
+        // no sampled or invented polyline approximation is introduced.
+        BRepOffsetAPI_ThruSections baseline(false,false,tolerance);
+        for(const auto& wire:wires)baseline.AddWire(wire);
+        baseline.CheckCompatibility(false);baseline.Build();
+        if(!baseline.IsDone())throw std::runtime_error("Loft could not construct the profile transition.");
+        std::vector<occ::handle<Geom_Curve>> rails(count);
+        for(std::size_t point=0;point<count;++point) {
+            const auto& generated=baseline.Generated(vertex(0,point));
+            for(NCollection_List<TopoDS_Shape>::Iterator it(generated);it.More();it.Next())if(it.Value().ShapeType()==TopAbs_EDGE) {
+                BRepBuilderAPI_MakeWire wire(TopoDS::Edge(it.Value()));
+                if(!rails[point].IsNull())throw std::runtime_error("Loft requires a compatible intersecting profile and guide network.");
+                rails[point]=loft_network_curve(wire.Wire(),tolerance);
+            }
+            if(rails[point].IsNull())throw std::runtime_error("Loft requires a compatible intersecting profile and guide network.");
+        }
+        std::set<std::size_t> assigned;
+        for(const auto& guide:guides)for(const auto& branch:loft_guide_branches(guide,wires.front(),wires.back(),tolerance)) {
+            std::optional<std::size_t> match;
+            for(std::size_t point=0;point<count;++point) {
+                bool touches=true;std::vector<double> parameters;
+                for(std::size_t station=0;station<wires.size();++station) {
+                    GeomAPI_ProjectPointOnCurve projection(BRep_Tool::Pnt(vertex(station,point)),branch);
+                    if(projection.NbPoints()==0||projection.LowerDistance()>tolerance){touches=false;break;}
+                    parameters.push_back(projection.LowerDistanceParameter());
+                }
+                if(touches) {
+                    const bool forward=parameters.back()>parameters.front();
+                    for(std::size_t i=1;i<parameters.size();++i)
+                        if(forward?parameters[i]<=parameters[i-1]:parameters[i]>=parameters[i-1])touches=false;
+                }
+                if(touches){if(match)throw std::runtime_error("Loft guide must pass through the same numbered point on every profile.");match=point;}
+            }
+            if(!match||!assigned.insert(*match).second)
+                throw std::runtime_error("Loft guide must pass through the same numbered point on every profile.");
+            rails[*match]=branch;
+        }
+        double construction_tolerance=std::min(tolerance*.01,1e-7);
+        for(std::size_t span=0;span<spans;++span) {
+            NCollection_Array1<occ::handle<Geom_Curve>> profiles(1,static_cast<int>(wires.size()));
+            for(std::size_t station=0;station<wires.size();++station) {
+                BRepBuilderAPI_MakeWire wire(source_edges[station][span]);
+                profiles(static_cast<int>(station+1))=loft_network_curve(wire.Wire(),tolerance);
+            }
+            NCollection_Array1<occ::handle<Geom_Curve>> sides(1,2);
+            sides(1)=rails[span];sides(2)=rails[(span+1)%count];
+            const auto [face,precision]=loft_network_face(profiles,sides,tolerance,true);
+            construction_tolerance=std::max(construction_tolerance,precision);
+            authored_faces.emplace_back(face,"loft:skin:from:"+request.profile_owners.front()+":"+request.profiles.front().outer_edge_source_ids.at(span));
+        }
+        if(request.make_solid)for(const auto endpoint:{std::size_t{0},wires.size()-1}) {
+            BRepBuilderAPI_MakeFace cap(wires[endpoint],true);
+            if(!cap.IsDone())throw std::runtime_error("Loft requires planar closed end profiles.");
+            authored_faces.emplace_back(cap.Face(),"loft:cap:from:"+request.profile_owners[endpoint]);
+        }
+        BRepBuilderAPI_Sewing sewing(construction_tolerance);
+        for(const auto& [face,key]:authored_faces)sewing.Add(face);
+        sewing.Perform();
+        for(auto& [face,key]:authored_faces)if(sewing.IsModifiedSubShape(face))face=sewing.ModifiedSubShape(face);
+        result.shape=sewing.SewedShape();
+        if(request.make_solid) {
+            if(result.shape.ShapeType()!=TopAbs_SHELL)throw std::runtime_error("Loft did not form one closed shell.");
+            BRepBuilderAPI_MakeSolid solid(TopoDS::Shell(result.shape));auto shape=solid.Solid();
+            if(!BRepLib::OrientClosedSolid(shape))throw std::runtime_error("Loft did not form one closed solid.");
+            result.shape=shape;
         }
     } else {
         NCollection_Array1<occ::handle<Geom_Curve>> profiles(1,static_cast<int>(wires.size()));
@@ -125,24 +310,7 @@ PrimitiveData make_loft_data(const LoftRequest& request,const std::string& owner
         NCollection_Array1<occ::handle<Geom_Curve>> rails(1,static_cast<int>(branches.size()));
         for(std::size_t i=0;i<wires.size();++i)profiles(static_cast<int>(i+1))=loft_network_curve(wires[i],tolerance);
         for(std::size_t i=0;i<branches.size();++i)rails(static_cast<int>(i+1))=branches[i];
-        // Exact native contacts should not inherit a coarse parameterization
-        // tolerance: it can make a valid rational skin unsuitable for offsets.
-        // Retry at the authored contact budget only when the fine network fails.
-        double construction_tolerance=std::min(tolerance*.01,1e-7);
-        GeomFill_Gordon build;build.Init(profiles,rails,construction_tolerance);
-        build.SetApproximationMode(GeomFill_Gordon::ApproximationMode::ExactOnly);
-        build.Perform();
-        if(!build.IsDone()&&construction_tolerance<tolerance) {
-            construction_tolerance=tolerance;build.Init(profiles,rails,tolerance);
-            build.SetApproximationMode(GeomFill_Gordon::ApproximationMode::ExactOnly);build.Perform();
-        }
-        if(!build.IsDone()||build.IsApproximate())
-            throw std::runtime_error("Loft requires a compatible intersecting profile and guide network.");
-        const auto& report=build.Report();
-        if(std::max({report.MaxContactGap,report.MaxReparametrizationDeviation,
-                     report.MaxProfileDeviation,report.MaxGuideDeviation})>tolerance)
-            throw std::runtime_error("Loft exceeds the document geometry tolerance.");
-        const auto skin=BRepBuilderAPI_MakeFace(build.Surface(),construction_tolerance).Face();
+        const auto [skin,construction_tolerance]=loft_network_face(profiles,rails,tolerance);
         authored_faces.emplace_back(skin,"loft:skin:from:"+request.region_id);
         result.shape=skin;
         if(request.make_solid) {
@@ -165,10 +333,12 @@ PrimitiveData make_loft_data(const LoftRequest& request,const std::string& owner
     }
     if(result.shape.IsNull()||!BRepCheck_Analyzer(result.shape).IsValid())
         throw std::runtime_error("Loft produced invalid native geometry.");
+    std::set<std::string> face_keys;
     for(TopExp_Explorer it(result.shape,TopAbs_FACE);it.More();it.Next()) {
         bool found=false;
         for(const auto& [source,key]:authored_faces)if(!source.IsNull()&&it.Current().IsSame(source)) {
             FaceReference reference{owner,key,{}};reference.surface_result=!request.make_solid;
+            if(!face_keys.insert(key).second)throw std::runtime_error("Loft face ancestry could not be resolved.");
             result.faces.push_back({it.Current(),std::move(reference)});found=true;break;
         }
         if(!found)throw std::runtime_error("Loft face ancestry could not be resolved.");
@@ -190,7 +360,14 @@ PrimitiveData make_loft_data(const LoftRequest& request,const std::string& owner
                 key="loft:point:from:"+request.profile_owners[endpoint]+":"+p.open_profile_end_id;
             if(key.empty()&&p.open_profile_end_id.empty()) {
                 BRepExtrema_DistShapeShape distance(vertex,wires[endpoint]);
-                if(distance.IsDone()&&distance.Value()<=tolerance)key="loft:point:seam:from:"+request.profile_owners[endpoint];
+                if(distance.IsDone()&&distance.Value()<=tolerance) {
+                    if(split_profiles)for(const auto& [span,parent]:authored_longitudinals)
+                        if(vertex.IsSame(TopExp::FirstVertex(TopoDS::Edge(span),true))||
+                           vertex.IsSame(TopExp::LastVertex(TopoDS::Edge(span),true))) {
+                            key="loft:point:from:"+request.profile_owners[endpoint]+":corresponding:"+parent;break;
+                        }
+                    if(key.empty())key="loft:point:seam:from:"+request.profile_owners[endpoint];
+                }
             }
             if(!key.empty())break;
         }
@@ -226,8 +403,24 @@ PrimitiveData make_loft_data(const LoftRequest& request,const std::string& owner
                 key="loft:longitudinal:from:"+vertex.reference.semantic_key;break;
             }
         }
-        if(key.empty()||!edge_keys.insert(key).second)throw std::runtime_error("Loft edge ancestry could not be resolved.");
+        if(key.empty())throw std::runtime_error("Loft edge ancestry could not be resolved.");
         result.edges.push_back({edge,{owner,std::move(key),{}}});
+    }
+    // Splitting a smooth end curve leaves several rim edges with the same
+    // curve parent. Their incident authored skin spans distinguish the children.
+    std::map<std::string,std::size_t> rim_counts;
+    for(const auto& edge:result.edges)++rim_counts[edge.reference.semantic_key];
+    for(auto& edge:result.edges) {
+        auto& key=edge.reference.semantic_key;
+        if(rim_counts.at(key)>1&&key.starts_with("loft:edge:from:")) {
+            for(const auto& face:result.faces) {
+                if(!face.reference.semantic_key.starts_with("loft:skin:from:"))continue;
+                for(TopExp_Explorer it(face.shape,TopAbs_EDGE);it.More();it.Next())if(it.Current().IsSame(edge.shape)) {
+                    key+=":span:"+face.reference.semantic_key;break;
+                }
+            }
+        }
+        if(!edge_keys.insert(key).second)throw std::runtime_error("Loft edge ancestry could not be resolved.");
     }
     return result;
 }

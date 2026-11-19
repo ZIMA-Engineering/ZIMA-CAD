@@ -145,6 +145,19 @@ int verify_translations(QApplication& application, QWidget& parent) {
         check(settings.translations.contains("global.language") &&
             !settings.translations.contains("Zamknout hodnotu"), "INI sections were mixed");
         app::apply_application_translations(application, settings);
+        for(unsigned kind=0;kind<3;++kind) {
+            auto sketch=sketcher::Sketch::create_default();
+            app::SketchPropertiesDialog dialog(sketch,{},false,{},[](auto,auto,bool){},&parent);
+            std::set<std::string> locks;
+            QString prefix;
+            if(kind==0) {prefix="flat";dialog.set_flat_mode({}, {}, locks,[](auto){},[]{});}
+            else if(kind==1) {prefix="bend";dialog.set_bend_mode({}, {}, locks,[](auto){},[]{},[](auto){});}
+            else {prefix="sheetProfile";dialog.set_sheet_profile_mode({}, {}, locks,[](auto){},[]{});}
+            const auto* center=dialog.findChild<QPushButton*>(prefix+"Midpoint");
+            check(center&&center->text()==settings.qt_translations.value("Střed hrany")&&
+                center->toolTip()==settings.qt_translations.value("Umístit počátek do středu vybraného úseku hrany a kótovat od středu."),
+                "Sheet midpoint controls are untranslated");
+        }
         check(QObject::tr("Invalid compressed document data.")==
             settings.qt_translations.value("Invalid compressed document data.")&&
             !settings.qt_translations.value("Invalid compressed document data.").isEmpty(),

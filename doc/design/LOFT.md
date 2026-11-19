@@ -24,8 +24,33 @@ Provide Solid, Thin and Surface results through the existing terminology.
 At least two profiles are required. Profile-only transitions use
 BRepOffsetAPI_ThruSections. Guided networks use GeomFill_Gordon in ExactOnly mode;
 each profile must intersect every guide in a compatible monotone network.
-The current guided algorithm requires at least two guides. Never silently accept
-a sampled fallback, missing contacts, extra contours or holes.
+Unnumbered networks require at least two guides. Numbered profiles accept any
+subset of longitudinal guides, including one; missing rails come from the exact
+profile-only transition. Never silently accept a sampled fallback, missing
+contacts, extra contours or holes.
+
+Profile correspondence reuses the Sweep profile-point extractor and first-point
+editor. Native polygon junctions and explicit circle contact points carry the
+numbers; display samples never become attachment identities. Equal-sized point
+sets connect 1 to 1, 2 to 2 and so on. A selected first point is persisted by
+owned profile feature ID and native Sketch point ID. Removing that point leaves
+a repairable failed definition rather than silently selecting another point.
+Without an explicit selection, unmatched point counts and smooth unmarked
+profiles retain the ordinary automatic OCCT compatibility path.
+
+For numbered profiles, guide contacts must pass through the same numbered point
+at every station. Each authored guide replaces that corresponding longitudinal
+rail; remaining rails come from the exact profile-only Loft. Adjacent rails and
+profile spans form exact Gordon patches. When OCCT rejects the mixed rational
+curve families of a two-station patch, the four exact native boundaries use a
+`GeomFill_StretchStyle` patch. All four boundary curves are verified in a common
+native B-spline basis, including their poles and normalized weights, before the
+face is accepted. This is not a sampled curve approximation. A guide through another number or
+between numbered points is rejected with a diagnostic. Preceding profile points
+are numbered and pickable in owned guide Properties and Sketcher, including while
+the parent is still a draft. Their external references retain native source
+identity and refresh from preceding profiles; downstream and self references
+remain unavailable.
 
 The shared exact Sketch/profile packet preserves native lines, arcs, ellipses
 and B-splines. Kernel curve joining does not use display polylines. Stable face,
@@ -49,7 +74,9 @@ ordinary hover/click/double-click inspection. Do not extract a second preview
 from calculated result edges or fill faces as selection feedback.
 
 Unchanged OK performs no calculation and creates no Undo transaction. Changed
-OK validates, calculates and commits once. Cancel restores the complete unchanged
+OK validates, calculates and commits once. A structurally valid incomplete or
+failed definition may be retained with its calculation diagnostic, without
+publishing invalid material, so it can be saved and repaired later. Cancel restores the complete unchanged
 history and scene. Reference entry ends on a short middle click; middle double
 click uses the shared OK mechanism. Both lists keep fixed row heights and
 compact indicator/eye columns; surplus height expands their viewports.
@@ -58,6 +85,10 @@ compact indicator/eye columns; surplus height expands their viewports.
 
 The additive Loft-only native record stores profile/guide ordering and complete
 owned Sketch definitions, placement, constraints, value locks and identities.
+The November correspondence extension adds the required `correspondence_starts`
+map to the Loft record. Existing Loft files require the explicitly authorized
+offline copy conversion and native calculation/save/reopen verification; the
+product reader has no legacy fallback.
 The ordinary owned-Sketch framing and Properties implementation is shared with
 General Surface; the Loft entry points permit no Curve3D data. Existing feature
 records and document extensions remain unchanged. No required sidecars or legacy
@@ -69,10 +100,13 @@ regeneration gates. Never publish stale affected assets. Verify ordinary new
 documents from actual templates in the GUI, and library Body activation/editing,
 Family, insertion, dependent operations and save/reopen as affected.
 
-The protected ZE0176-TOYOTA-G92K1X production project was inventoried before
-persistence changes: 145 files, four native documents. A complete recoverable
-copy has verified per-file SHA-256 hashes. Originals are not conversion targets.
-Local evidence is build/loft-audit/project-inventory.json. Resolve native
+The protected ZE0176-TOYOTA-G92K1X production project was inventoried again for
+the November correspondence extension. Its verified recoverable copy contains
+172 files, including ten native documents and historical recovery files. The
+user explicitly authorized verification of the copy's affected Skeleton Loft.
+Originals are not conversion targets. Local evidence is
+`build/release-2026111813/loft-format-inventory.json` and
+`protected-project-before-correspondence.sha256.json` in that same directory. Resolve native
 dependencies and verify reopening/affected operations on copies before any
 proposed replacement. Preserve custom libraries and edited factory files.
 

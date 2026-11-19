@@ -3,8 +3,11 @@
 #include "kernel_history_version.hpp"
 #include "occt_edge_treatment_terminals.hpp"
 #include <zima/kernel/ordered_up_to_resolution.hpp>
+#include <zima/kernel/sheet_attachment_reference.hpp>
 #include <BRepOffsetAPI_MakeFilling.hxx>
 #include <GeomFill_Gordon.hxx>
+#include <GeomFill_Profiler.hxx>
+#include <GeomFill_BSplineCurves.hxx>
 #include <GeomAPI_ProjectPointOnCurve.hxx>
 #include <GeomConvert_CompCurveToBSplineCurve.hxx>
 #include <BRepBuilderAPI_MakeSolid.hxx>
@@ -7083,7 +7086,8 @@ BodyResult make_result(
         sampled_edges.Add(edge);
         const EdgeReference reference = edge_references->reference_for(edge);
         const bool requested_edge=reference.valid()&&
-            reference_requested(reference);
+            (reference_requested(reference)||reference_requested(
+                sheet_edge_midpoint_reference(reference)));
         if(dependency_edges_only&&!retain_all_dependency_edges&&
                 !requested_edge)continue;
         BRepAdaptor_Curve curve(edge);
@@ -7375,6 +7379,15 @@ BodyResult make_result(
             viewer_edge.edge_treatment_side_directions.clear();
             viewer_edge.edge_treatment_side_references.clear();
         }
+        // Publish the exact straight-edge midpoint as a stable attachment
+        // datum during calculation. Selection and editing only consume this
+        // packet; they do not query the kernel or alter the placement solver.
+        if(reference.valid()&&reference_requested(sheet_edge_midpoint_reference(reference))) {
+            auto native_edge=viewer_edge;native_edge.reference=reference;
+            if(const auto midpoint=sheet_edge_midpoint(native_edge)) {
+                result.mesh.original_references.points.push_back(*midpoint);
+            }
+        }
         if ((collect_original_references||requested_edge) &&
                 reference.valid()) {
             auto reference_edge = viewer_edge;
@@ -7630,8 +7643,9 @@ ViewerReferenceGeometry reference_geometry_for_owners(
     return result;
 }
 
+template<class Geometry>
 ViewerReferenceGeometry reference_geometry_for_history_references(
-    const ViewerReferenceGeometry& source,
+    const Geometry& source,
     const std::set<HistoryReferenceIdentity>& requested,
     bool selected = true) {
     ViewerReferenceGeometry result;
@@ -7681,9 +7695,12 @@ bool contains_history_reference(const Geometry& geometry,
 bool contains_history_references(const BodyResult& boundary,
         const std::set<HistoryReferenceIdentity>& requested) {
     return std::ranges::all_of(requested,[&](const auto& identity) {
+        const VertexReference datum{std::get<0>(identity),std::get<1>(identity),std::get<2>(identity)};
         return contains_history_reference(
                    boundary.mesh.original_references,identity)||
-            contains_history_reference(boundary.mesh,identity);
+            contains_history_reference(boundary.mesh,identity)||
+            find_sheet_edge_midpoint(boundary.mesh,datum).has_value()||
+            find_sheet_edge_midpoint(boundary.mesh.original_references,datum).has_value();
     });
 }
 
@@ -11999,6 +12016,17 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                     context.reference_output_boundaries) {
                 if(boundary==0||boundary>values.size())continue;
                 auto& value=values[boundary-1];
+                // New edge-midpoint consumers can reuse an unchanged native
+                // boundary. The persisted edge already contains its exact
+                // endpoints; material does not need another Boolean operation.
+                for(const auto& identity:requested)
+                    if(std::get<1>(identity).starts_with("sheet-midpoint:edge:")&&
+                            !contains_history_reference(value.mesh.original_references,identity)) {
+                        const VertexReference datum{std::get<0>(identity),std::get<1>(identity),std::get<2>(identity)};
+                        auto point=find_sheet_edge_midpoint(value.mesh,datum);
+                        if(!point)point=find_sheet_edge_midpoint(value.mesh.original_references,datum);
+                        if(point)value.mesh.original_references.points.push_back(*point);
+                    }
                 if(contains_history_references(value,requested))
                     value.history_reference_coverage.insert(
                         requested.begin(),requested.end());
@@ -12084,6 +12112,30 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                 previous_boundaries.begin(),
                     previous_boundaries.begin() +
                         static_cast<std::ptrdiff_t>(matching_prefix)};
+            const auto terminal_request=context.reference_output_boundaries.find(matching_prefix);
+            ViewerReferenceGeometry terminal_references;
+            if(shortened_history&&terminal_request!=context.reference_output_boundaries.end()) {
+                // The unchanged prefix already owns the exact requested
+                // fragments. Preserve both presence and deliberate absence
+                // before republishing its display and cumulative authored
+                // geometry. Neither packet may replace these boundary inputs.
+                const auto& retained=reused.back().mesh;
+                terminal_references=reference_geometry_for_history_references(
+                    retained.original_references,terminal_request->second);
+                auto missing=terminal_request->second;
+                std::erase_if(missing,[&](const auto& identity) {
+                    return contains_history_reference(terminal_references,identity);
+                });
+                append_reference_geometry(terminal_references,
+                    reference_geometry_for_history_references(retained,missing));
+                for(const auto& identity:missing) {
+                    const VertexReference datum{std::get<0>(identity),std::get<1>(identity),std::get<2>(identity)};
+                    if(contains_history_reference(terminal_references,identity))continue;
+                    auto point=find_sheet_edge_midpoint(retained,datum);
+                    if(!point)point=find_sheet_edge_midpoint(retained.original_references,datum);
+                    if(point)terminal_references.points.push_back(*point);
+                }
+            }
             if(shortened_history) {
                 // Final-first evaluation deliberately keeps intermediate rows
                 // lightweight. Deleting the suffix turns the last retained row
@@ -12126,6 +12178,12 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                     live_cache_->copy_references.at(previous_boundaries[matching_prefix-1].source_fingerprint);
                 else reused.back().mesh.original_references=reference_geometry_for_owners(
                     previous_boundaries.back().mesh.original_references,owners);
+            }
+            if(shortened_history&&terminal_request!=context.reference_output_boundaries.end()) {
+                auto remainder=reference_geometry_for_history_references(
+                    reused.back().mesh.original_references,terminal_request->second,false);
+                append_reference_geometry(terminal_references,std::move(remainder));
+                reused.back().mesh.original_references=std::move(terminal_references);
             }
             restore_persisted_reference_coverage(reused);
             attach_native_history(reused);
@@ -12631,6 +12689,20 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                                 current->edge_treatment_endpoint_references[1],
                                 current->edge_treatment_endpoint_references[0]};
                         }
+                        // Full output packets and compact dependency packets
+                        // must expose the same requested edge datums. The full
+                        // packet builder has no request filter of its own.
+                        const auto publish_midpoint=[&](const ViewerEdge& edge) {
+                            const auto reference=sheet_edge_midpoint_reference(edge.reference);
+                            const HistoryReferenceIdentity identity{reference.owner_id,
+                                reference.semantic_key,reference.instance_path};
+                            if(!requested_references->contains(identity)||
+                                    contains_history_reference(result.mesh.original_references,identity))return;
+                            if(const auto point=sheet_edge_midpoint(edge))
+                                result.mesh.original_references.points.push_back(*point);
+                        };
+                        for(const auto& edge:result.mesh.edges)publish_midpoint(edge);
+                        for(const auto& edge:result.mesh.original_references.edges)publish_midpoint(edge);
                         // Axis endpoints are native authored datums, not OCCT
                         // body vertices. In particular, a cutting tool's endpoint
                         // may lie outside the retained solid. Publish its current
@@ -17655,6 +17727,17 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                         rollback.original_references.edges.push_back(*source);
                 }
             }
+            // The terminal packet is replaced by cumulative authored geometry
+            // below. Retain the explicitly requested midpoints from its exact
+            // current Body boundary; they are calculated edge datums, not
+            // vertices contributed by an individual operand.
+            for(const auto& point:boundaries.back().mesh.original_references.points)
+                if(point.reference.semantic_key.starts_with("sheet-midpoint:edge:")) {
+                    const auto existing=std::ranges::find(original_references.points,
+                        point.reference,&ViewerPoint::reference);
+                    if(existing==original_references.points.end())original_references.points.push_back(point);
+                    else *existing=point;
+                }
             boundaries.back().mesh.original_references =
                 std::move(original_references);
             for(const auto& edge:boundaries.back().mesh.original_references.edges) {

@@ -11746,6 +11746,7 @@ int verify_startup_contract(
         return 0;
     }
     if(qEnvironmentVariableIsSet("ZIMA_VERIFY_SKETCH_DOCUMENT_BUTTON_ONLY"))return verify_sketch_document_button_ui(application,test_directory);
+    if(qEnvironmentVariableIsSet("ZIMA_VERIFY_CUT_SHEET_ATTACHMENTS"))return verify_cut_sheet_attachments_ui(application,test_directory);
     if(qEnvironmentVariableIsSet("ZIMA_VERIFY_SHEET_PROFILE_ONLY"))return verify_sheet_profile_ui(application,test_directory);
     if(qEnvironmentVariableIsSet("ZIMA_VERIFY_MIDPOINT_ONLY"))return verify_midpoint_profile_ui(application,test_directory);
     if(qEnvironmentVariableIsSet("ZIMA_VERIFY_EQUAL_CIRCLE_ONLY"))return verify_equal_circle_ui(application,test_directory);

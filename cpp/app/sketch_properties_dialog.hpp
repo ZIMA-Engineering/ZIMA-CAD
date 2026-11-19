@@ -19,6 +19,7 @@
 
 class QComboBox;
 class QDoubleSpinBox;
+class QFormLayout;
 class QLabel;
 class QLineEdit;
 class QPushButton;
@@ -186,6 +187,9 @@ private:
     bool sheet_profile_target_active_{};
     void request_sheet_profile_target(std::size_t side);
     void refresh_sheet_profile_targets();
+    void set_sheet_work_plane_visible(bool visible);
+    void add_sheet_anchor_controls(QFormLayout*,const QString& prefix);
+    void refresh_sheet_anchor_controls(const QString& prefix,bool attached);
     void lock_flat_attachment_fields();
     void lock_bend_attachment_fields();
     void lock_sheet_profile_attachment_fields();

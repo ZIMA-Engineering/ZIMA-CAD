@@ -152,8 +152,9 @@ static int verify_sheet_profile_ui(QApplication& application,
         require(!dialog->findChild<QComboBox*>("sheetProfileMaterialSide")&&
             !dialog->findChild<QPushButton*>(
                 "sheetProfileMaterialSideSwitch")&&
-            !dialog->findChild<QPushButton*>(
+            dialog->findChild<QPushButton*>(
                 "sheetProfileOtherEndpoint")&&
+            dialog->findChild<QPushButton*>("sheetProfileMidpoint")&&
             !dialog->findChild<QPushButton*>(
                 "sheetProfileManualPlacement")&&
             dialog->findChild<QPushButton*>("sketchOpenButton"),
@@ -706,7 +707,15 @@ static int verify_sheet_profile_ui(QApplication& application,
                 std::abs(draft_length->value-40.)<1e-8&&
                 std::abs(draft_angle->value-90.)<1e-8,
             "Attached Profile UI did not preserve its R, angle and line length");
-        dialog->findChild<QPushButton*>("sketchOpenButton")->click();flush();
+        auto* attached_edit=dialog->findChild<QPushButton*>("sketchOpenButton");
+        require(attached_edit&&attached_edit->isVisible()&&attached_edit->isEnabled(),
+            "Attached Profile hides its Sketch editor");
+        for(const auto type:{QEvent::MouseButtonPress,QEvent::MouseButtonRelease}) {
+            const QPointF at=attached_edit->rect().center();
+            QMouseEvent event(type,at,QPointF(attached_edit->mapToGlobal(at.toPoint())),
+                Qt::LeftButton,type==QEvent::MouseButtonPress?Qt::LeftButton:Qt::NoButton,Qt::NoModifier);
+            QApplication::sendEvent(attached_edit,&event);flush();
+        }
         require(!dialog->isVisible(),
             "Attached Profile did not enter Sketcher");
         QEventLoop settle;
@@ -1503,4 +1512,197 @@ static int verify_sheet_profile_ui(QApplication& application,
     } catch(const std::exception& error) {
         std::cerr<<error.what()<<'\n';return 1;
     }
+}
+
+static int verify_cut_sheet_attachments_ui(QApplication& application,
+        const std::filesystem::path& parent) {
+    using namespace zima;
+    const auto check=[](bool ok,const char* message){if(!ok)throw std::runtime_error(message);};
+    const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
+    const auto click=[&](QWidget* widget,QPointF at,Qt::MouseButton button=Qt::LeftButton) {
+        for(const auto type:{QEvent::MouseButtonPress,QEvent::MouseButtonRelease}) {
+            QMouseEvent event(type,at,QPointF(widget->mapToGlobal(at.toPoint())),button,
+                type==QEvent::MouseButtonPress?Qt::MouseButtons(button):Qt::NoButton,Qt::NoModifier);
+            QApplication::sendEvent(widget,&event);flush();
+        }
+    };
+    try {
+        const auto source=std::filesystem::path(qEnvironmentVariable("ZIMA_VERIFY_CUT_SHEET_ATTACHMENTS").toStdWString());
+        std::vector<kernel::BodyResult> cached;
+        auto fixture=document::PartDocument::load(source,&cached);
+        check(!cached.empty(),"Cut attachment fixture has no calculated data");
+        const bool fresh=qEnvironmentVariableIsSet("ZIMA_VERIFY_CUT_SHEET_FRESH");
+        if(fresh) {
+            kernel::OcctKernel native;
+            cached=workspace::calculate_part_with_resolved_references(native,fixture);
+            check(!cached.empty()&&cached.back().calculation_errors.empty(),"Cut attachment source regeneration failed");
+        }
+        std::vector<kernel::ViewerEdge> fragments;
+        for(const auto& edge:cached.back().mesh.edges) {
+            if(!edge.reference.semantic_key.starts_with("boolean:subtract:split-edge:"))continue;
+            try {static_cast<void>(document::flat_sheet_references(edge));fragments.push_back(edge);}
+            catch(const std::exception&) {}
+        }
+        check(fragments.size()==2,"Cut fixture must have two surviving Side A fragments");
+        QTemporaryDir isolated(QString::fromStdWString((parent/"cut-attachment-ui-XXXXXX").wstring()));
+        check(isolated.isValid(),"Cannot isolate cut attachment GUI");
+        const auto directory=std::filesystem::path(isolated.path().toStdWString());
+        for(std::size_t segment=0;segment<fragments.size();++segment)for(int kind=0;kind<3;++kind)for(bool center:{false,true}) {
+            if(qEnvironmentVariableIsSet("ZIMA_VERIFY_CUT_SHEET_LAST")&&!(segment==1&&kind==2&&center))continue;
+            const auto path=directory/("case-"+std::to_string(segment)+"-"+std::to_string(kind)+(center?"-center":"-end")+".prtz");
+            if(fresh)fixture.save(path,cached);else std::filesystem::copy_file(source,path);
+            app::AssemblyWorkspaceWindow window(isolated.path());
+            window.setAttribute(Qt::WA_DontShowOnScreen);window.resize(1600,1000);window.show();
+            check(window.open_document_path(QString::fromStdWString(path.wstring())),"Cannot open cut attachment copy");flush();
+            check(activate_test_body(application,window,fixture.body_history.active_body_id()),"Cannot activate cut fixture Body");
+            window.findChild<QAction*>("applicationModeAction2")->trigger();flush();
+            auto* view=dynamic_cast<viewer::MeshView*>(window.findChild<QOpenGLWidget*>("modelWorkspace"));
+            check(view,"Missing cut attachment View");
+            view->set_standard_view(viewer::StandardView::Isometric);view->fit_all();flush();
+            {QEventLoop settle;QTimer::singleShot(950,&settle,&QEventLoop::quit);settle.exec();}
+            const auto& edge=fragments[segment];
+            const auto open=[&] {
+                window.findChild<QAction*>(kind==0?"flatAction":kind==1?"bendAction":"sheetProfileAction")->trigger();flush();
+                return dynamic_cast<app::SketchPropertiesDialog*>(window.findChild<QDialog*>(
+                    kind==0?"flatPropertiesDialog":kind==1?"bendPropertiesDialog":"sheetProfilePropertiesDialog"));
+            };
+            auto* dialog=open();check(dialog,"Cut attachment Properties did not open");
+            auto* references=dialog->findChild<QTableWidget*>("sketchReferenceTable");
+            references->cellClicked(0,1);view->set_selection_filter(viewer::SelectionFilter::Curves);flush();
+            const auto a=edge.points.front(),b=edge.points.back();
+        const auto project=[&](kernel::Vec3 point) {
+            const auto center=view->ray_at(
+                {view->width()*.5,view->height()*.5});
+            check(center.has_value(),
+                "Sheet Profile width manipulator camera ray is missing");
+            const auto normal=center->second;
+            const auto dot=[](kernel::Vec3 a,kernel::Vec3 b) {
+                return a.x*b.x+a.y*b.y+a.z*b.z;
+            };
+            const auto sub=[](kernel::Vec3 a,kernel::Vec3 b) {
+                return kernel::Vec3{a.x-b.x,a.y-b.y,a.z-b.z};
+            };
+            const auto hit=[&](QPointF screen) {
+                const auto ray=view->ray_at(screen);
+                check(ray.has_value(),
+                    "Sheet Profile width manipulator projection ray is missing");
+                const double t=dot(sub(point,ray->first),normal)/
+                    dot(ray->second,normal);
+                return kernel::Vec3{ray->first.x+t*ray->second.x,
+                    ray->first.y+t*ray->second.y,
+                    ray->first.z+t*ray->second.z};
+            };
+            const auto origin=hit({0,0});
+            const auto u=sub(hit({100,0}),origin);
+            const auto v=sub(hit({0,100}),origin);
+            const auto r=sub(point,origin);
+            const double uu=dot(u,u),vv=dot(v,v),uv=dot(u,v);
+            const double determinant=uu*vv-uv*uv;
+            check(std::abs(determinant)>1e-12,
+                "Sheet Profile width manipulator projection is degenerate");
+            return QPointF(100*(dot(r,u)*vv-dot(r,v)*uv)/determinant,
+                100*(dot(r,v)*uu-dot(r,u)*uv)/determinant);
+        };
+            const auto projected=project({(a.x+b.x)*.5,(a.y+b.y)*.5,(a.z+b.z)*.5});
+            std::optional<QPointF> hit;std::size_t offered_index{};
+            for(int dy=-5;dy<=5&&!hit;++dy)for(int dx=-5;dx<=5&&!hit;++dx) {
+                const auto at=projected+QPointF(dx,dy);const auto candidates=view->selection_candidates_at(at);
+                for(std::size_t i=0;i<candidates.size();++i)
+                    if(candidates[i].kind==viewer::CandidateKind::Edge&&candidates[i].owner_id==edge.reference.owner_id&&
+                            candidates[i].semantic_key==edge.reference.semantic_key) {hit=at;offered_index=i;break;}
+            }
+            check(hit.has_value(),"Common picker does not offer the short cut edge");
+            QMouseEvent move(QEvent::MouseMove,*hit,QPointF(view->mapToGlobal(hit->toPoint())),Qt::NoButton,Qt::NoButton,Qt::NoModifier);
+            QApplication::sendEvent(view,&move);flush();
+            for(std::size_t i=0;i<offered_index;++i)click(view,*hit,Qt::RightButton);
+            check(view->hovered_candidate()&&view->hovered_candidate()->semantic_key==edge.reference.semantic_key,
+                "Hover cycles to a different cut fragment");
+            click(view,*hit);view->set_selection_filter(viewer::SelectionFilter::All);flush();
+            if(center) {
+                auto* midpoint=dialog->findChild<QPushButton*>(kind==0?"flatMidpoint":kind==1?"bendMidpoint":"sheetProfileMidpoint");
+                check(midpoint&&midpoint->isVisible()&&midpoint->isEnabled(),"Midpoint attachment control is unavailable");
+                click(midpoint,midpoint->rect().center());
+                check(midpoint->isChecked(),"Midpoint attachment click was rejected");
+            }
+            const auto pending=dialog->pending_value();
+            check(pending.second.references.size()==3&&pending.second.references.front().semantic_key==edge.reference.semantic_key,
+                "Cut edge click lost the selected fragment");
+            const auto created=pending.first.owner_container_id;
+            check(document::sheet_attachment_at_midpoint(pending.second.references)==center,"Wrong attachment anchor in preview");
+            auto* editor=dialog->findChild<QPushButton*>("sketchOpenButton");
+            check(editor&&editor->isVisible()&&editor->isEnabled(),"Attached feature hides its Sketch editor");
+            click(editor,editor->rect().center());check(!dialog->isVisible(),"Visible Sketch button did not open Sketcher");
+            if(center&&kind<2)for(double value:{6.,8.,10.}) {
+                const auto key="dimension:"+pending.first.id+(kind==0?":midpoint:last":":position:last");
+                const auto& dimensions=view->mesh().dimensions;
+                const auto shown=std::ranges::find_if(dimensions,[&](const auto& d) {
+                    return d.reference.owner_id==pending.first.id&&d.reference.semantic_key==key;
+                });
+                check(shown!=dimensions.end(),"Midpoint dimension is missing in Sketcher");
+                viewer::ViewerCandidate candidate;candidate.kind=viewer::CandidateKind::Dimension;
+                candidate.owner_id=shown->reference.owner_id;candidate.semantic_key=key;
+                candidate.geometry_index=std::distance(dimensions.begin(),shown);
+                const auto position=view->candidate_dimension_label_position(candidate);
+                check(position.has_value(),"Midpoint dimension label is missing");
+                for(auto type:{QEvent::MouseButtonPress,QEvent::MouseButtonRelease,QEvent::MouseButtonDblClick}) {
+                    QMouseEvent event(type,QPointF(*position),QPointF(view->mapToGlobal(*position)),Qt::LeftButton,
+                        type==QEvent::MouseButtonRelease?Qt::NoButton:Qt::LeftButton,Qt::NoModifier);
+                    QApplication::sendEvent(view,&event);flush();
+                }
+                auto* input=view->findChild<QLineEdit*>("inlineDimensionValueEdit");
+                check(input,"Midpoint dimension double-click did not open its editor");
+                input->setText(QString::number(value));QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);
+                QApplication::sendEvent(input,&enter);flush();
+                check(view->candidate_dimension_value(candidate)&&std::abs(*view->candidate_dimension_value(candidate)-value)<1e-8,
+                    "Midpoint dimension mouse edit failed");
+                window.findChild<QAction*>("undoAction")->trigger();flush();
+                window.findChild<QAction*>("redoAction")->trigger();flush();
+                check(view->candidate_dimension_value(candidate)&&std::abs(*view->candidate_dimension_value(candidate)-value)<1e-8,
+                    "Midpoint dimension Undo/Redo failed");
+            }
+            window.findChild<QAction*>("finishSketchAction")->trigger();flush();check(dialog->isVisible(),"Sketcher did not return to attached Properties");
+            dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+            if(auto* failed=window.findChild<QDialog*>(kind==0?"flatPropertiesDialog":kind==1?"bendPropertiesDialog":"sheetProfilePropertiesDialog")) {
+                QString messages;for(auto* label:failed->findChildren<QLabel*>())messages+=label->text()+"; ";
+                throw std::runtime_error("Cut attachment OK failed kind "+std::to_string(kind)+": "+messages.toStdString());
+            }
+            window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
+            std::vector<kernel::BodyResult> saved_cache;const auto saved=document::PartDocument::load(path,&saved_cache);
+            const auto* feature=saved.find_container(created);
+            check(feature&&feature->placement.reference_valid&&!saved_cache.empty()&&saved_cache.back().calculation_errors.empty(),
+                "Cut attachment did not save valid geometry and references");
+            if(center)check(document::sheet_attachment_at_midpoint(feature->placement.references)&&
+                std::hypot(feature->placement.x-(a.x+b.x)*.5,feature->placement.y-(a.y+b.y)*.5,feature->placement.z-(a.z+b.z)*.5)<1e-6,
+                "Saved midpoint is not the center of the selected cut fragment");
+            auto* tree=window.findChild<QTreeWidget*>("documentTree");QTreeWidgetItem* row{};
+            for(QTreeWidgetItemIterator it(tree);*it;++it)
+                if((*it)->data(0,Qt::UserRole).toString().toStdString()==created&&(*it)->data(0,Qt::UserRole+3)=="part-container") {row=*it;break;}
+            check(row,"Attached feature is missing from Tree");window.show_tree_item_properties(row);flush();
+            dialog=dynamic_cast<app::SketchPropertiesDialog*>(window.findChild<QDialog*>(
+                kind==0?"flatPropertiesDialog":kind==1?"bendPropertiesDialog":"sheetProfilePropertiesDialog"));
+            check(dialog,"Attached feature cannot reopen Properties");editor=dialog->findChild<QPushButton*>("sketchOpenButton");
+            check(editor&&editor->isVisible()&&editor->isEnabled(),"Reopened attachment hides its Sketch editor");
+            click(editor,editor->rect().center());check(!dialog->isVisible(),"Reopened attachment cannot enter Sketcher");
+            window.findChild<QAction*>("finishSketchAction")->trigger();flush();
+            dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();
+            window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
+            check(document::PartDocument::load(path).serialized()==saved.serialized(),"Attachment Cancel changed the saved document");
+            if(fresh) {
+                auto regenerated=saved;kernel::OcctKernel native;
+                const auto calculated=workspace::calculate_part_with_resolved_references(native,regenerated);
+                if(!regenerated.find_container(created)->placement.reference_valid||!calculated.back().calculation_errors.empty()) {
+                    saved.save(parent/"cut-attachment-failed-input.prtz",saved_cache);
+                    regenerated.save(parent/"cut-attachment-failed-output.prtz",calculated);
+                    std::cerr<<"Cold attachment valid="<<regenerated.find_container(created)->placement.reference_valid<<'\n';
+                    for(const auto& [owner,error]:calculated.back().calculation_errors)std::cerr<<owner<<": "<<error<<'\n';
+                }
+                check(regenerated.find_container(created)->placement.reference_valid&&calculated.back().calculation_errors.empty(),
+                    "Cut attachment failed cold regeneration after GUI editing");
+                const auto& references=regenerated.find_container(created)->placement.references;
+                check(references==feature->placement.references,"Cold regeneration changed the exact cut attachment identity");
+            }
+            std::cout<<"Cut attachment GUI fragment "<<segment<<" kind "<<kind<<" midpoint="<<center<<" passed\n"<<std::flush;
+        }
+        return 0;
+    }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}
 }

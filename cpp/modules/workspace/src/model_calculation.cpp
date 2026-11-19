@@ -1,4 +1,6 @@
 #include <zima/workspace/model_calculation.hpp>
+#include <zima/kernel/placement_route.hpp>
+#include <zima/kernel/sheet_attachment_reference.hpp>
 #include <zima/workspace/relation_operations.hpp>
 #include <zima/workspace/history_deletion.hpp>
 #include <zima/document/physical_properties.hpp>
@@ -98,13 +100,23 @@ history_boundary_reference_demands(
         operation_by_owner.emplace(operation.owner_id,&operation);
     std::map<std::string,std::vector<document::ConstructionReference>>
         references_by_consumer;
-    std::set<std::string_view> sketch_owners;
+    std::set<std::string> sketch_owners;
     for (const auto& sketch : document.sketches) sketch_owners.insert(sketch.id);
+    for(const auto& feature:document.history)if(feature.feature_kind==document::FeatureKind::Loft)
+        for(const auto& owned:feature.loft.sketches)
+            sketch_owners.insert(sketcher::Sketch::from_serialized(owned.sketch_serialized).id);
+    std::set<std::string> planar_path_owners;
+    for(const auto& feature:document.history)if(feature.feature_kind==document::FeatureKind::Sweep2D&&!feature.sweep2d.path_sketch.empty())
+        planar_path_owners.insert(sketcher::Sketch::from_serialized(feature.sweep2d.path_sketch).id);
     HistoryDependencyCollector sweep_trajectories;
     for (const auto& feature : document.history)
         if (feature.feature_kind == document::FeatureKind::Sweep3D)
             sweep_trajectories.register_construction(feature.sweep3d.path, feature.id);
     for(const auto& [consumer,path,owner,key]:graph.references) {
+        // A 2D Sweep owns an ordinary native path Sketch. Ordered resolution
+        // publishes it before the Point; calculated material is not its source.
+        if(path.empty()&&planar_path_owners.contains(owner)&&
+            (key.starts_with("placement-route:")||key.starts_with("point:")||kernel::is_placement_route_member(key)))continue;
         // Owned Sketch geometry is published by ordered document resolution
         // after its frame is resolved. Treating these identities as calculated
         // Body topology masks the live Sketch with an empty history packet.
@@ -469,6 +481,17 @@ static kernel::ViewerReferenceGeometry select_boundary_references(
         if(!originals.contains(reference))missing.push_back(reference);
     if(!missing.empty())append_reference_geometry(result,
         select_visible_references(boundary.mesh,missing));
+    // A newly selected midpoint may not have been requested when this exact
+    // saved boundary was calculated. Derive the datum from that boundary's
+    // current native edge without replaying the solid or changing its identity.
+    for(const auto& reference:missing)if(reference.semantic_key.starts_with("sheet-midpoint:edge:")) {
+        const kernel::VertexReference datum{reference.owner_id,reference.semantic_key,reference.instance_path};
+        auto point=kernel::find_sheet_edge_midpoint(boundary.mesh,datum);
+        if(!point)point=kernel::find_sheet_edge_midpoint(boundary.mesh.original_references,datum);
+        if(point)
+            if(std::ranges::none_of(result.points,[&](const auto& p){return p.reference==point->reference;}))
+                result.points.push_back(*point);
+    }
     return result;
 }
 

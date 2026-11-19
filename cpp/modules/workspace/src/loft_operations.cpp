@@ -5,7 +5,7 @@
 #include <zima/document/loft.hpp>
 #include <zima/document/metadata.hpp>
 namespace zima::workspace {
-bool commit_loft(Workspace& live,const kernel::OcctKernel& kernel,const std::string& id,document::HistoryContainer feature) {
+bool commit_loft(Workspace& live,const kernel::OcctKernel& kernel,const std::string& id,document::HistoryContainer feature,LoftFailurePolicy failure_policy) {
     auto* state=live.open_part(id);
     if(!state||feature.feature_kind!=document::FeatureKind::Loft)
         throw std::invalid_argument("Loft requires an open Part.");
@@ -17,7 +17,8 @@ bool commit_loft(Workspace& live,const kernel::OcctKernel& kernel,const std::str
         throw std::invalid_argument("Activate an editable Body before creating a Loft.");
     document::validate_native_metadata_text(feature.name);
     if(feature.name.empty())throw std::invalid_argument("Specify a Loft name.");
-    document::validate_loft(feature);
+    const bool keep_definition=failure_policy==LoftFailurePolicy::KeepDefinition;
+    document::validate_loft(feature,!keep_definition);
     if(existing)if(const auto changed=commit_origin_display_only(live,id,feature))return *changed;
     if(existing&&*existing==feature&&!state->session.calculated_boundaries().empty())return false;
     auto next=before;const auto owner=feature.id;
@@ -25,8 +26,9 @@ bool commit_loft(Workspace& live,const kernel::OcctKernel& kernel,const std::str
     else {next.insert_history_entry(document::PartHistoryKind::Feature,owner);next.history.push_back(std::move(feature));}
     auto policy=feature_definition_calculation_policy(before,state->session.calculated_boundaries(),owner);
     if(existing){policy.edited_document_id=id;policy.edited_history_limit=before.history_index(owner);}
+    if(keep_definition)policy.reject_errors=false;
     auto calculated=calculate_part_with_resolved_references(kernel,next,&state->session.calculated_boundaries(),policy);
-    for(const auto& boundary:calculated)if(const auto failed=boundary.calculation_errors.find(owner);failed!=boundary.calculation_errors.end())
+    if(!keep_definition)for(const auto& boundary:calculated)if(const auto failed=boundary.calculation_errors.find(owner);failed!=boundary.calculation_errors.end())
         throw std::runtime_error(failed->second);
 
     if(next.serialized()==before.serialized()){state->session.update_calculated_boundaries(std::move(calculated));return false;}

@@ -5,7 +5,9 @@ namespace zima::document {
 void resolve_loft_sketches(HistoryContainer&,const kernel::ViewerReferenceGeometry&);
 [[nodiscard]] HistoryContainer create_loft();
 [[nodiscard]] GeneralSurfaceBoundary create_loft_sketch(const HistoryContainer&);
-void validate_loft(const HistoryContainer&);
+void validate_loft(const HistoryContainer&,bool require_complete=true);
 [[nodiscard]] kernel::LoftRequest loft_request(const PartDocument&,const HistoryContainer&);
 [[nodiscard]] kernel::ViewerMesh loft_definition_mesh(const PartDocument&,const HistoryContainer&,const kernel::ViewerReferenceGeometry& = {});
+// Real authored profile points, numbered in the same order used by calculation.
+[[nodiscard]] kernel::ViewerMesh loft_profile_anchor_mesh(const HistoryContainer&,std::size_t before);
 }

@@ -1,7 +1,10 @@
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/flat_operations.hpp>
 #include <zima/workspace/model_calculation.hpp>
+#include <zima/workspace/operation_input.hpp>
 #include <zima/document/flat.hpp>
+#include <zima/document/bend.hpp>
+#include <zima/kernel/sheet_attachment_reference.hpp>
 #include <algorithm>
 #include <cmath>
 
@@ -36,6 +39,7 @@ void Host::register_flat_commands() {
         else arguments.push_back({"container",true});
         arguments.push_back({"thickness_mm",false,Type::Number});arguments.push_back({"thickness_override",false,Type::Boolean});
         arguments.push_back({"origin_last",false,Type::Boolean});
+        arguments.push_back({"origin_midpoint",false,Type::Boolean});
         for(const auto* key:{"direction","name","document","edge_owner","edge_key"})arguments.push_back({key,false});
         dispatcher_.add({create?"flat.create":"flat.set",tr("Create or edit a Flat sheet from an owned closed Sketch."),arguments,true},[this,create](const Json& args){
             if(auto result=target(args);!result.ok)return result;
@@ -58,28 +62,34 @@ void Host::register_flat_commands() {
                     if(found==state->session.document().sketches.end())throw std::invalid_argument("Flat source Sketch is missing.");
                     sketch=*found;
                 }
-                if(args.contains("edge_owner")||args.contains("edge_key")||args.contains("origin_last")) {
+                if(args.contains("edge_owner")||args.contains("edge_key")||args.contains("origin_last")||args.contains("origin_midpoint")) {
+                    const bool was_center=document::sheet_attachment_at_midpoint(feature.placement.references);
+                    const bool center=args.value("origin_midpoint",false);
                     auto owner=args.value("edge_owner",std::string{}),key=args.value("edge_key",std::string{});
                     if(owner.empty()&&key.empty()&&feature.flat.sheet_attachment&&!feature.placement.references.empty()) {
                         owner=feature.placement.references.front().owner_id;key=feature.placement.references.front().semantic_key;
                     }
                     std::optional<kernel::ViewerEdge> selected;
-                    for(const auto& boundary:state->session.calculated_boundaries())for(const auto& edge:boundary.mesh.original_references.edges)
+                    const auto* input=workspace::calculated_operation_input(state->session,create?std::string{}:feature.id);
+                    const auto geometry=input?document::sheet_attachment_reference_geometry(input->mesh):kernel::ViewerReferenceGeometry{};
+                    for(const auto& edge:geometry.edges)
                         if(edge.reference.owner_id==owner&&edge.reference.semantic_key==key&&edge.reference.instance_path.empty())selected=edge;
                     if(!selected)throw std::invalid_argument("Flat attachment edge does not exist.");
                     feature.placement.references=document::flat_sheet_references(*selected);
                     if(args.value("origin_last",false))feature.placement.references=document::flat_sheet_references(*selected,selected->edge_treatment_endpoint_references.back());
+                    if(center)feature.placement.references=document::flat_sheet_references(*selected,kernel::sheet_edge_midpoint_reference(selected->reference));
                     if(!feature.flat.sheet_attachment)feature.flat.direction=document::ExtrusionDirection::Reverse;
                     feature.flat.sheet_attachment=true;feature.flat.thickness_override=false;
                     feature.flat.thickness=selected->edge_treatment_side_references.front().sheet_thickness;
                     if(create) {
-                        const auto geometry=workspace::construction_reference_source_geometry(state->session.calculated_boundaries());
                         if(!document::resolve_placement(feature.placement,geometry))throw std::invalid_argument("Flat attachment cannot be resolved.");
                         document::update_flat_sheet_attachment(feature,sketch,geometry,id);
                         const auto a=sketch.local_point(selected->points.front()),b=sketch.local_point(selected->points.back());
                         const auto width=args.value("width_mm",std::abs(b[0]-a[0]));
                         for(auto& point:sketch.points)point.x=std::min(a[0],b[0])+point.x/args.value("width_mm",40.0)*width;
                     }
+                    if(center&&!was_center)document::center_sheet_attachment_profile(sketch,true);
+                    else if(was_center&&!center)document::restore_sheet_endpoint_profile(sketch,true);
                 }
                 if(feature.flat.sheet_attachment&&(args.contains("thickness_mm")||args.value("thickness_override",false)))
                     throw std::invalid_argument("Attached Flat inherits its source sheet thickness.");

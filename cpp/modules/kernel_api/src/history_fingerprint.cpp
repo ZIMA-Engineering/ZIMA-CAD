@@ -829,6 +829,12 @@ std::string encode_history_fingerprint(
                     for (const unsigned char value : fingerprint) byte(value);
                 }
             } else if constexpr (std::is_same_v<Request, LoftRequest>) {
+                byte(primitive.match_profile_vertices);
+                u64(primitive.profile_radial_directions.size());
+                for(const auto& radial:primitive.profile_radial_directions) {
+                    byte(radial.has_value());
+                    if(radial)for(double value:{radial->x,radial->y,radial->z})u64(std::bit_cast<std::uint64_t>(value));
+                }
                 byte(primitive.make_solid);byte(primitive.thin);
                 u64(std::bit_cast<std::uint64_t>(primitive.thickness));
                 byte(static_cast<std::uint8_t>(primitive.thickness_side));

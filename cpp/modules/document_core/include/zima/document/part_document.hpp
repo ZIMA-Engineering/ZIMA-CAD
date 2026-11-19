@@ -884,6 +884,8 @@ struct LoftParameters {
     // Owned planar Sketch identities, with independent parent-local placement.
     std::vector<GeneralSurfaceBoundary> sketches;
     std::vector<std::string> profiles, guides;
+    // Authored first point keyed by owned profile Feature identity.
+    std::map<std::string,std::string> correspondence_starts;
     ProfileResultType result_type{ProfileResultType::Solid};
     ThinMode thin_mode{ThinMode::OneSide};
     double thickness{1.};
@@ -968,6 +970,8 @@ struct GeneralSurfaceBoundary {
 
 [[nodiscard]] zima::kernel::ViewerMesh sweep3d_profiles_viewer_mesh(
     const HistoryContainer& container);
+[[nodiscard]] ConstructionObject sweep3d_display_path(const HistoryContainer&);
+[[nodiscard]] zima::kernel::ViewerMesh sweep3d_preview_mesh(const HistoryContainer&,bool include_profiles=true);
 
 class PartDocument {
 public:

@@ -1,8 +1,10 @@
 #include <zima/workspace/flat_operations.hpp>
 #include <zima/workspace/origin_display_operations.hpp>
+#include <zima/workspace/operation_input.hpp>
 #include <zima/workspace/part_transactions.hpp>
 #include <zima/workspace/sheet_profile_operations.hpp>
 #include <zima/document/flat.hpp>
+#include <zima/document/bend.hpp>
 #include <zima/document/sketch_placement.hpp>
 #include <algorithm>
 
@@ -81,9 +83,16 @@ bool commit_flat(Workspace& live,const kernel::OcctKernel& kernel,const std::str
     auto policy=feature_definition_calculation_policy(before,state->session.calculated_boundaries(),container);
     if(existing){policy.edited_document_id=id;policy.edited_history_limit=before.history_index(container);}
     auto references=construction_reference_source_geometry(state->session.calculated_boundaries());
+    bool attached_input=false;
+    if(next.find_container(container)->flat.sheet_attachment)
+        if(const auto* input=calculated_operation_input(state->session,existing?container:std::string{})) {
+            references=document::sheet_attachment_reference_geometry(input->mesh);
+            attached_input=true;
+        }
     append_reference_geometry(references,next.origin_viewer_mesh().original_references);
     append_reference_geometry(references,next.construction_viewer_mesh().original_references);
-    next.resolve_constructions(std::move(references));
+    if(attached_input)resolve_sheet_feature_drafts(next,{container},std::move(references));
+    else next.resolve_constructions(std::move(references));
     auto calculated=calculate_part_with_resolved_references(kernel,next,&state->session.calculated_boundaries(),policy);
     const auto dependent_references=
         construction_reference_source_geometry(calculated);

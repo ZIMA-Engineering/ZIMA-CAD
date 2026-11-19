@@ -12,6 +12,31 @@ int verify_loft_ui(QApplication& application,AssemblyWorkspaceWindow& window,con
     };
     try {
         window.resize(1400,1050);window.show();flush();
+        {
+            // The zero-offset working plane coincides with its parent datum.
+            // Check real rendering, not merely the existence of a preview edge.
+            viewer::MeshView probe(&window);probe.resize(500,400);probe.show();
+            // This is a draw-order check; the desktop pointer must not add a hover overlay.
+            probe.set_candidate_filter([](const auto&){return false;});
+            probe.set_reference_visibility(viewer::ReferenceVisibility::Planes,true);
+            probe.set_reference_visibility(viewer::ReferenceVisibility::Origins,true);
+            probe.set_feature_preview_owners({"owned-work-plane"});
+            kernel::ViewerMesh scene;kernel::ViewerEdge plane;
+            plane.reference={"owned-work-plane","border",{}};
+            plane.points={{-10,-10,0},{10,-10,0},{10,10,0},{-10,10,0},{-10,-10,0}};
+            plane.construction=true;scene.edges.push_back(plane);
+            probe.set_mesh(scene);probe.set_view_direction({0,0,1});probe.fit_all();flush();
+            const auto cyan=[](const QImage& image) {
+                std::size_t count{};for(int y=0;y<image.height();++y)for(int x=0;x<image.width();++x) {
+                    const auto color=image.pixelColor(x,y);if(color.red()<60&&color.green()>140&&color.blue()>180)++count;
+                }return count;
+            };
+            const auto visible=cyan(probe.grabFramebuffer());check(visible>100,"Working plane preview was not rendered cyan");
+            plane.reference={"parent-origin","origin:plane:xy",{}};scene.edges.push_back(plane);
+            probe.set_mesh(scene,false);flush();
+            const auto overlap=cyan(probe.grabFramebuffer());
+            if(overlap<visible*.9)throw std::runtime_error("Coincident parent datum erased the zero-offset cyan working plane: "+std::to_string(visible)+" -> "+std::to_string(overlap));
+        }
         const auto output_order=[&](QWidget* editor,const char* result_name,const char* operation_name,const char* profiles_name) {
             auto* result=editor->findChild<QComboBox*>(result_name);auto* operation=editor->findChild<QPushButton*>(operation_name);auto* profiles=editor->findChild<QTableWidget*>(profiles_name);
             check(result&&operation&&profiles,"Sweep output controls missing");
@@ -141,7 +166,7 @@ int verify_loft_ui(QApplication& application,AssemblyWorkspaceWindow& window,con
             check(ref.owner_id==dialog->pending.container_origin.id,"New profile defaults to Body Origin");
         const auto id=dialog->pending.id;auto* profile_table=dialog->findChild<QTableWidget*>("loftProfiles");
         auto* guide_table=dialog->findChild<QTableWidget*>("loftGuides");
-        check(profile_table&&guide_table&&profile_table->columnCount()==5&&guide_table->columnCount()==5,"Loft reference list structure is wrong");
+        check(profile_table&&guide_table&&profile_table->columnCount()==6&&guide_table->columnCount()==5,"Loft reference list structure is wrong");
         check(profile_table->mapTo(dialog,QPoint(0,0)).y()<guide_table->mapTo(dialog,QPoint(0,0)).y(),"Loft lists are side by side or reversed");
         auto* operation=dialog->findChild<QPushButton*>("primitiveAddOperation");
         auto* output_type=dialog->findChild<QComboBox*>("loftResultType");
@@ -412,6 +437,108 @@ int verify_loft_ui(QApplication& application,AssemblyWorkspaceWindow& window,con
         child->buttons()->button(QDialogButtonBox::Cancel)->click();flush();
         dialog->buttons()->button(QDialogButtonBox::Cancel)->click();flush();
         check(window.execute_console_command("documents").data==thin_selection_state,"View-face entry Cancel changed the source Part");
+        action->trigger();flush();dialog=editor();check(dialog,"Incomplete Loft creation did not open");
+        const auto incomplete_id=dialog->pending.id;
+        dialog->buttons()->button(QDialogButtonBox::Ok)->click();flush();
+        check(!editor(),"OK refused to retain an incomplete Loft");
+        window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
+        std::vector<kernel::BodyResult> incomplete_cache;
+        const auto retained=document::PartDocument::load(path,&incomplete_cache);
+        check(retained.find_container(incomplete_id)&&retained.find_container(incomplete_id)->loft.profiles.empty()&&
+            !incomplete_cache.empty()&&incomplete_cache.back().calculation_errors.contains(incomplete_id),
+            "Incomplete Loft save/reopen lost its definition or diagnostic");
+        check(!view->mesh().triangles.empty(),"Incomplete Loft hid the preceding valid material");
+        const auto retained_state=window.execute_console_command("documents").data;
+        auto* incomplete_row=row(incomplete_id);check(incomplete_row,"Incomplete Loft disappeared from Tree");
+        window.show_tree_item_properties(incomplete_row);flush();dialog=editor();
+        check(dialog&&dialog->pending.id==incomplete_id,"Incomplete Loft could not reopen for repair");
+        dialog->buttons()->button(QDialogButtonBox::Cancel)->click();flush();
+        check(window.execute_console_command("documents").data==retained_state,"Incomplete Loft Properties Cancel changed the document");
+        check(window.execute_console_command("new part numbered-loft-ui").ok,"Cannot create numbered Loft test Part");flush();
+        action->trigger();flush();dialog=editor();check(dialog,"Numbered Loft Properties missing");
+        for(unsigned station=0;station<2;++station) {
+            auto owned=document::create_general_surface_sketch(dialog->pending);
+            auto sketch=sketcher::Sketch::from_serialized(owned.sketch_serialized);sketch.plane_auto=false;
+            owned.sketch_feature->placement.z=20.*station;
+            if(station==0)static_cast<void>(sketch.add_rectangle(-10,-10,10,10));
+            else {
+                const auto circle=sketch.add_circle(0,0,10);
+                for(unsigned i=0;i<4;++i) {
+                    const double angle=(i+.5)*std::numbers::pi/2;
+                    const auto point=sketch.add_point(10*std::cos(angle),10*std::sin(angle));
+                    static_cast<void>(sketch.add_point_on_circle_constraint(point,circle));
+                }
+            }
+            owned.sketch_serialized=sketch.serialized();dialog->pending.loft.profiles.push_back(owned.sketch_feature->id);
+            dialog->pending.loft.sketches.push_back(std::move(owned));
+        }
+        dialog->refresh();dialog->changed();flush();
+        const auto second=dialog->pending.loft.profiles.back();
+        const auto numbering=document::sweep3d_profile_correspondence(sketcher::Sketch::from_serialized(dialog->pending.loft.sketches.back().sketch_serialized));
+        for(bool accept:{false,true}) {
+            dialog->findChild<QPushButton*>("loftPointOrder1")->click();flush();
+            auto* order=dynamic_cast<SweepPointOrderDialog*>(window.findChild<QWidget*>("sweepPointOrderDialog"));
+            check(order&&order->isVisible(),"Loft did not reuse the profile point-order editor");
+            auto* first=order->findChild<QComboBox*>("sweepFirstCorrespondencePoint");
+            first->setCurrentIndex(first->findData(QString::fromStdString(numbering.point_ids[2])));flush();
+            order->buttons()->button(accept?QDialogButtonBox::Ok:QDialogButtonBox::Cancel)->click();flush();
+            check(accept?dialog->pending.loft.correspondence_starts.at(second)==numbering.point_ids[2]:dialog->pending.loft.correspondence_starts.empty(),
+                "Loft first-point OK/Cancel did not retain the correct draft");
+        }
+        const auto anchors=document::loft_profile_anchor_mesh(dialog->pending,2);
+        check(anchors.points.size()==8,"Numbered Loft profile anchors missing");
+        field(dialog->findChild<QTableWidget*>("loftGuides"),0,3);flush();
+        child=dynamic_cast<PrimitivePropertiesDialog*>(window.findChild<QWidget*>("generalSurfaceSketchProperties"));
+        check(child,"Numbered Loft guide Properties missing");
+        for(const auto& point:anchors.points)check(std::ranges::any_of(view->mesh().points,[&](const auto& shown){return shown.reference==point.reference&&shown.label==point.label;}),
+            "Guide placement does not display the numbered native profile points");
+        auto* references=child->findChild<QTableWidget*>("primitiveReferenceTable");
+        for(int i=2;i>=0;--i)if(auto* cell=references->cellWidget(i,0))if(auto* clear=cell->findChild<QPushButton*>();clear&&clear->isEnabled())clear->click();
+        references->cellClicked(0,1);flush();
+        view->set_standard_view(viewer::StandardView::Isometric);view->fit_all();flush();
+        QEventLoop settle;QTimer::singleShot(950,&settle,&QEventLoop::quit);settle.exec();
+        std::optional<QPoint> anchor_pixel;std::size_t anchor_index{};
+        for(int y=10;y<view->height()-10&&!anchor_pixel;y+=3)for(int x=10;x<view->width()-10&&!anchor_pixel;x+=3) {
+            const auto offered=view->selection_candidates_at(QPointF(x,y));
+            for(std::size_t i=0;i<offered.size();++i)if(offered[i].owner_id==anchors.points.front().reference.owner_id&&offered[i].semantic_key==anchors.points.front().reference.semantic_key) {
+                anchor_pixel=QPoint(x,y);anchor_index=i;break;
+            }
+        }
+        check(anchor_pixel.has_value(),"Numbered profile point cannot be picked for guide placement");
+        QMouseEvent move_anchor(QEvent::MouseMove,QPointF(*anchor_pixel),QPointF(view->mapToGlobal(*anchor_pixel)),Qt::NoButton,Qt::NoButton,Qt::NoModifier);
+        QApplication::sendEvent(view,&move_anchor);flush();
+        for(std::size_t i=0;i<anchor_index;++i)click(view,*anchor_pixel,Qt::RightButton);
+        click(view,*anchor_pixel);flush();
+        check(!child->pending_value().placement.references.empty()&&child->pending_value().placement.references.front().owner_id==anchors.points.front().reference.owner_id&&
+            child->pending_value().placement.references.front().semantic_key==anchors.points.front().reference.semantic_key,"Guide placement replaced the native profile point identity");
+        const auto profile_sources=dialog->pending.loft.sketches;
+        child->findChild<QPushButton*>("featureSketchButton")->click();flush();
+        auto* external=window.findChild<QAction*>("sketchExternalReferenceAction");
+        check(external&&external->isEnabled(),"Owned guide Sketch cannot enter external reference mode");external->trigger();flush();
+        view->fit_all();flush();QEventLoop align;QTimer::singleShot(950,&align,&QEventLoop::quit);align.exec();
+        anchor_pixel.reset();
+        for(int y=10;y<view->height()-10&&!anchor_pixel;y+=3)for(int x=10;x<view->width()-10&&!anchor_pixel;x+=3) {
+            const auto offered=view->selection_candidates_at(QPointF(x,y));
+            for(std::size_t i=0;i<offered.size();++i)if(offered[i].owner_id==anchors.points.front().reference.owner_id&&offered[i].semantic_key==anchors.points.front().reference.semantic_key) {
+                anchor_pixel=QPoint(x,y);anchor_index=i;break;
+            }
+        }
+        check(anchor_pixel.has_value(),"Guide Sketcher cannot reference its preceding numbered profile point");
+        for(std::size_t i=0;i<anchor_index;++i)click(view,*anchor_pixel,Qt::RightButton);
+        click(view,*anchor_pixel);flush();
+        window.findChild<QAction*>("finishSketchAction")->trigger();flush();
+        child->buttons()->button(QDialogButtonBox::Ok)->click();flush();
+        const auto guide=sketcher::Sketch::from_serialized(dialog->pending.loft.sketches.back().sketch_serialized);
+        check(std::ranges::any_of(guide.external_references,[&](const auto& reference){return !reference.broken&&reference.source_owner_id==anchors.points.front().reference.owner_id&&
+            reference.source_semantic_key==anchors.points.front().reference.semantic_key;}),"Guide Sketch lost the native numbered point reference");
+        check(dialog->pending.loft.sketches[0]==profile_sources[0]&&dialog->pending.loft.sketches[1]==profile_sources[1],"Guide reference entry changed its source profiles");
+        dialog->pending.loft.guides.clear();dialog->pending.loft.sketches.resize(2);dialog->refresh();dialog->changed();
+        const auto numbered_id=dialog->pending.id;
+        dialog->buttons()->button(QDialogButtonBox::Ok)->click();flush();check(!editor(),"Numbered square/circle Loft OK did not close");
+        check(!view->mesh().triangles.empty(),"Numbered square/circle Loft did not create visible material");
+        window.show_tree_item_properties(row(numbered_id));flush();dialog=editor();
+        check(dialog&&dialog->pending.loft.correspondence_starts.at(second)==numbering.point_ids[2],"Loft Properties lost saved profile numbering");
+        dialog->buttons()->button(QDialogButtonBox::Cancel)->click();flush();
         std::cout<<"Loft GUI: five languages, automatic XY first-plane placement, manual XY/XZ/YZ preview and Sketcher alignment, View-plane and two real solid-face picks, stacked lists, owned 2D Sketch edit/add/remove, eye/order, whole Origin, numeric placement, resize, rollback, no-op, middle confirmation, View/Tree single/double inspection, Thin sides, native reopen and Undo/Redo passed"<<std::endl;
         return 0;
     }catch(const std::exception& error){std::cerr<<error.what()<<std::endl;return 1;}

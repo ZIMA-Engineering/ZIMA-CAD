@@ -428,24 +428,4 @@ zima::kernel::ViewerEdge ellipse_preview_edge(
     return edge;
 }
 
-zima::document::ConstructionObject sweep_display_path(
-    const zima::document::HistoryContainer& container) {
-    auto path = container.sweep3d.path;
-    path.parent_construction_id.clear();
-    path.origin = {container.placement.x,
-        container.placement.y, container.placement.z};
-    path.entity_origin = path.origin;
-    path.rotation = {container.placement.rotation_x,
-        container.placement.rotation_y, container.placement.rotation_z};
-    path.absolute_rotation = path.rotation;
-    path.rotation_offset_x = 0.0;
-    path.rotation_offset_y = 0.0;
-    path.rotation_offset_z = 0.0;
-    path.orientation_back = false;
-    path.orientation_quarter_turns = 0;
-    path.references.clear();
-    path.definition = zima::document::ConstructionDefinition::Absolute;
-    return path;
-}
-
 } // namespace zima::app::workspace_detail

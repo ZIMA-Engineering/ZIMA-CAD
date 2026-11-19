@@ -681,7 +681,7 @@ void verify_sheet_attachment_dialog(QWidget& parent) {
     static_cast<void>(profile.add_segment(0,30,0,0));
     part.history={flat};part.sketches={profile};part.resolve_constructions();
     kernel::OcctKernel kernel;const auto result=kernel.evaluate_history(part.kernel_operations()).back();
-    const auto& geometry=result.mesh.original_references;
+    const auto geometry=document::sheet_attachment_reference_geometry(result.mesh);
     auto feature=document::PartDocument::create_sketch_container();feature.feature_kind=document::FeatureKind::Bend;
     auto sketch=sketcher::Sketch::create_default();sketch.owner_container_id=feature.id;feature.bend.sketch_id=sketch.id;
     document::initialize_bend_start_profile(sketch,5);
@@ -709,6 +709,14 @@ void verify_sheet_attachment_dialog(QWidget& parent) {
         require(after.second.references[2].semantic_key!=before.semantic_key,"Origin endpoint button did not replace the origin");
         require(std::hypot(pending.first.resolved_y_axis.x-after.first.resolved_y_axis.x,pending.first.resolved_y_axis.y-after.first.resolved_y_axis.y,
             pending.first.resolved_y_axis.z-after.first.resolved_y_axis.z)<1e-6,"Origin switch flipped Bend side");
+        for(unsigned repeat=0;repeat<2;++repeat) {
+            auto* center=dialog.findChild<QPushButton*>("bendMidpoint");center->click();
+            auto centered=dialog.pending_value();
+            require(center->isChecked()&&document::sheet_attachment_at_midpoint(centered.second.references),"Bend midpoint switch failed");
+            require(centered.first.solve().maximum_residual<1e-8,"Bend midpoint constraints conflict");
+            center->click();
+            require(!document::sheet_attachment_at_midpoint(dialog.pending_value().second.references),"Bend endpoint restoration failed");
+        }
     }
 
     auto sheet_profile=document::PartDocument::create_sheet_profile_container(
@@ -720,10 +728,11 @@ void verify_sheet_attachment_dialog(QWidget& parent) {
         [](auto,auto,bool){},&parent);
     profile_dialog.set_reference_document_id(part.document_id);
     profile_dialog.set_reference_geometry(geometry);
+    int profile_edits=0;
     profile_dialog.set_sheet_profile_mode(sheet_profile.sheet_profile,{},
         sheet_profile.value_locks,[&](auto value) {
             sheet_profile.sheet_profile=value;
-        },[]{});
+        },[&]{++profile_edits;});
     profile_dialog.set_preview_callback([](auto,auto){});
     profile_dialog.show();QApplication::processEvents();
     require(!profile_dialog.findChild<QComboBox*>(
@@ -741,6 +750,11 @@ void verify_sheet_attachment_dialog(QWidget& parent) {
         boundary->reference.semantic_key};
     require(profile_dialog.set_reference(0,boundary_reference,"Boundary"),
         "Sheet Profile rejected an attachable Bend edge");
+    auto* profile_edit=profile_dialog.findChild<QPushButton*>("sketchOpenButton");
+    require(profile_edit&&profile_edit->isVisible()&&profile_edit->isEnabled(),
+        "Attached Sheet Profile hid its Sketch editor with the work plane");
+    profile_edit->click();
+    require(profile_edits==1,"Attached Sheet Profile cannot open its owned Sketch");
     auto attached=profile_dialog.pending_value();
     const auto attached_route=document::sheet_profile_route(
         attached.first,sheet_profile.sheet_profile.start_point_id);
@@ -771,11 +785,17 @@ void verify_sheet_attachment_dialog(QWidget& parent) {
                 return point.x>=-1e-9&&point.y>=-1e-9;
             }),
         "Attached Sheet Profile route is not tangent in positive X/Y");
-    require(!profile_dialog.findChild<QPushButton*>(
-                "sheetProfileOtherEndpoint")&&
+    require(profile_dialog.findChild<QPushButton*>(
+                "sheetProfileOtherEndpoint")&&profile_dialog.findChild<QPushButton*>("sheetProfileMidpoint")&&
             !profile_dialog.findChild<QPushButton*>(
                 "sheetProfileManualPlacement"),
-        "Sheet Profile restored redundant endpoint/manual-placement buttons");
+        "Sheet Profile anchor controls are incomplete");
+    for(unsigned repeat=0;repeat<2;++repeat) {
+        auto* center=profile_dialog.findChild<QPushButton*>("sheetProfileMidpoint");center->click();
+        require(center->isChecked()&&document::sheet_attachment_at_midpoint(profile_dialog.pending_value().second.references),"Profile midpoint switch failed");
+        center->click();
+        require(!document::sheet_attachment_at_midpoint(profile_dialog.pending_value().second.references),"Profile endpoint restoration failed");
+    }
 }
 void verify_flat_attachment_dialog(QWidget& parent) {
     using namespace zima;
@@ -789,8 +809,9 @@ void verify_flat_attachment_dialog(QWidget& parent) {
     auto sketch=sketcher::Sketch::create_default();sketch.owner_container_id=flat.id;flat.flat.sketch_id=sketch.id;
     app::SketchPropertiesDialog dialog(sketch,{},false,{},[](auto,auto,bool){},&parent);
     dialog.set_reference_document_id(source.document_id);
-    dialog.set_reference_geometry(body.mesh.original_references);
-    dialog.set_flat_mode(flat.flat,{},flat.value_locks,[&](auto p){flat.flat=p;},[]{});
+    dialog.set_reference_geometry(document::sheet_attachment_reference_geometry(body.mesh));
+    int flat_edits=0;
+    dialog.set_flat_mode(flat.flat,{},flat.value_locks,[&](auto p){flat.flat=p;},[&]{++flat_edits;});
     dialog.set_preview_callback([](auto,auto){});dialog.show();QApplication::processEvents();
     int accepted=0,rejected=0;
     for(const auto& edge:body.mesh.original_references.edges) {
@@ -804,6 +825,9 @@ void verify_flat_attachment_dialog(QWidget& parent) {
         require(pending.second.references.size()==3&&pending.first.external_references.size()==2,"Flat did not derive references and external endpoints");
         require(!dialog.findChild<QComboBox*>("sketchPlane")->isEnabled(),"Attached Flat plane is editable");
         require(!dialog.findChild<QComboBox*>("sketchPlane")->isVisible(),"Attached Flat exposes an unrelated automatic plane label");
+        auto* edit=dialog.findChild<QPushButton*>("sketchOpenButton");
+        require(edit&&edit->isVisible()&&edit->isEnabled(),"Attached Flat hid its Sketch editor with the work plane");
+        edit->click();require(flat_edits==accepted,"Attached Flat cannot open its owned Sketch");
         require(!dialog.findChild<QDoubleSpinBox*>("flatThickness")->isEnabled(),"Attached thickness is editable");
         require(!dialog.set_reference(1,pending.second.references[1],"Face"),"Flat derived face can be replaced");
         dialog.findChild<QPushButton*>("flatOtherEndpoint")->click();
@@ -812,10 +836,19 @@ void verify_flat_attachment_dialog(QWidget& parent) {
         require(other.first.external_references[0].id==pending.first.external_references[0].id,"Flat endpoint switch replaced external identity");
         dialog.set_pending_sketch(other.first);
         require(dialog.pending_value().first.external_references.size()==2,"Sketch return lost Flat endpoints");
+        for(unsigned repeat=0;repeat<2;++repeat) {
+            auto* center=dialog.findChild<QPushButton*>("flatMidpoint");center->click();
+            auto centered=dialog.pending_value();
+            require(center->isChecked()&&document::sheet_attachment_at_midpoint(centered.second.references),"Flat midpoint switch failed");
+            require(centered.first.solve().maximum_residual<1e-8,"Flat midpoint constraints conflict");
+            center->click();
+            require(!document::sheet_attachment_at_midpoint(dialog.pending_value().second.references),"Flat endpoint restoration failed");
+        }
     }
     require(accepted==2&&rejected>0,"Flat must offer only two straight outer Bend cap boundaries");
     dialog.findChild<QPushButton*>("flatManualPlacement")->click();
     require(!flat.flat.sheet_attachment&&dialog.findChild<QComboBox*>("sketchPlane")->isEnabled(),"Flat manual placement did not restore controls");
+    require(dialog.findChild<QPushButton*>("sketchOpenButton")->isVisible(),"Manual Flat lost its restored Sketch editor");
 }
 void verify_line_bend_dialog(QWidget& parent) {
     using namespace zima;

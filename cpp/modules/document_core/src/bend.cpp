@@ -1,4 +1,5 @@
 #include <zima/document/bend.hpp>
+#include <zima/kernel/sheet_attachment_reference.hpp>
 #include <algorithm>
 #include <cmath>
 #include <numbers>
@@ -93,6 +94,115 @@ double end_extension(const BendParameters& p,double authored,std::size_t end,dou
         throw std::invalid_argument("Corner closure requires an angle between 0 and 180 degrees and a gap from 0 to 1 mm.");
     return (authored-p.corner_gap*.5)*std::sin(angle*fraction)/std::sin(angle);
 }
+}
+kernel::ViewerReferenceGeometry sheet_attachment_reference_geometry(
+        const kernel::ViewerMesh& mesh) {
+    kernel::ViewerReferenceGeometry result{mesh.vertices,mesh.triangles,mesh.triangle_references,
+        mesh.edges,mesh.points,mesh.axes};
+    kernel::append_sheet_edge_midpoints(result);
+    return result;
+}
+bool sheet_attachment_at_midpoint(
+        const std::vector<ConstructionReference>& references) {
+    const auto edge=std::ranges::find_if(references,[](const auto& ref) {
+        return ref.orientation_drives_rotation&&
+            (ref.orientation_role=="front"||ref.orientation_role=="direction");
+    });
+    if(edge==references.end())return false;
+    const auto midpoint=kernel::sheet_edge_midpoint_reference(
+        {edge->owner_id,edge->semantic_key,edge->instance_path});
+    return std::ranges::any_of(references,[&](const auto& ref) {
+        return !ref.orientation_drives_rotation&&ref.owner_id==midpoint.owner_id&&
+            ref.semantic_key==midpoint.semantic_key&&ref.instance_path==midpoint.instance_path;
+    });
+}
+void center_sheet_attachment_profile(sketcher::Sketch& sketch,bool flat) {
+    if(flat&&std::ranges::any_of(sketch.dimensions,[&](const auto& d) {
+            return d.id==sketch.id+":midpoint:first";
+        }))return;
+    auto draft=sketch;
+    std::vector<std::string> anchors;
+    if(flat) {
+        for(const auto& constraint:draft.constraints)
+            if(!constraint.suppressed&&constraint.kind==sketcher::ConstraintKind::PointReference&&
+               (constraint.second_point_id==draft.id+":flat-attachment:first"||
+                constraint.second_point_id==draft.id+":flat-attachment:last"))
+                anchors.push_back(constraint.first_point_id);
+        if(anchors.empty())for(const auto& point:draft.points)
+            if(std::abs(point.y)<1e-8)anchors.push_back(point.id);
+    } else if(const auto segment=std::ranges::find_if(draft.segments,
+            [](const auto& s){return !s.construction;});segment!=draft.segments.end())
+        anchors={segment->first_point_id,segment->second_point_id};
+    std::ranges::sort(anchors);anchors.erase(std::unique(anchors.begin(),anchors.end()),anchors.end());
+    if(anchors.size()!=2)return;
+    std::ranges::sort(anchors,{},[&](const auto& id){return draft.find_point(id)->x;});
+    const double center=(draft.find_point(anchors[0])->x+draft.find_point(anchors[1])->x)*.5;
+    for(auto& point:draft.points)point.x-=center;
+    for(auto& reference:draft.external_references)
+        for(auto& point:reference.cached_points)point[0]-=center;
+    if(flat) {
+        std::erase_if(draft.constraints,[&](const auto& c) {
+            return (c.kind==sketcher::ConstraintKind::Horizontal&&
+                ((c.first_point_id==anchors[0]&&c.second_point_id==anchors[1])||
+                 (c.first_point_id==anchors[1]&&c.second_point_id==anchors[0])))||
+                (c.kind==sketcher::ConstraintKind::PointReference&&
+                (c.second_point_id==draft.id+":flat-attachment:first"||
+                 c.second_point_id==draft.id+":flat-attachment:last"));
+        });
+        for(std::size_t i=0;i<2;++i) {
+            const auto id=draft.add_point_on_line_constraint(anchors[i],"sketch_axis:x");
+            std::ranges::find(draft.constraints,id,&sketcher::SketchConstraint::id)->id=
+                draft.id+(i?":midpoint:axis:last":":midpoint:axis:first");
+            auto dimension=draft.create_point_dimension("sketch_origin",anchors[i],sketcher::DimensionKind::DistanceX);
+            dimension.id=draft.id+(i?":midpoint:last":":midpoint:first");
+            dimension.placement=std::array{draft.find_point(anchors[i])->x*.5,-8.};
+            draft.dimensions.push_back(std::move(dimension));
+        }
+    } else for(auto& dimension:draft.dimensions)
+        if(dimension.id==draft.id+":position:first"||dimension.id==draft.id+":position:last") {
+            dimension.first_point_id="sketch_origin";
+            dimension.value=draft.find_point(dimension.second_point_id)->x;
+            dimension.solution_side=std::signbit(dimension.value)?-1:1;
+        }
+    const auto status=draft.solve().status;
+    if(status==sketcher::SolveStatus::Conflicting||status==sketcher::SolveStatus::Invalid)
+        throw std::invalid_argument("The profile dimensions conflict with the edge midpoint attachment.");
+    sketch=std::move(draft);
+}
+void restore_sheet_endpoint_profile(sketcher::Sketch& sketch,bool flat) {
+    auto draft=sketch;
+    if(flat) {
+        std::array<std::string,2> points;
+        for(std::size_t i=0;i<2;++i) {
+            const auto id=draft.id+(i?":midpoint:last":":midpoint:first");
+            const auto dimension=std::ranges::find(draft.dimensions,id,&sketcher::SketchDimension::id);
+            if(dimension==draft.dimensions.end())return;
+            points[i]=dimension->second_point_id;
+        }
+        std::array<std::string,2> supports{draft.id+":flat-attachment:first",draft.id+":flat-attachment:last"};
+        const auto coordinate=[&](const auto& id) {
+            const auto ref=std::ranges::find(draft.external_references,id,&sketcher::SketchExternalReference::id);
+            if(ref==draft.external_references.end()||ref->cached_points.size()!=1)
+                throw std::invalid_argument("Incomplete Flat sheet attachment.");
+            return ref->cached_points.front()[0];
+        };
+        if(coordinate(supports[1])<coordinate(supports[0]))std::swap(supports[0],supports[1]);
+        std::erase_if(draft.dimensions,[&](const auto& d) {
+            return d.id==draft.id+":midpoint:first"||d.id==draft.id+":midpoint:last";
+        });
+        std::erase_if(draft.constraints,[&](const auto& c) {
+            return c.id==draft.id+":midpoint:axis:first"||c.id==draft.id+":midpoint:axis:last";
+        });
+        for(std::size_t i=0;i<2;++i)
+            static_cast<void>(draft.add_point_reference_constraint(points[i],supports[i]));
+    } else for(auto& dimension:draft.dimensions)
+        if(dimension.id==draft.id+":position:first"||dimension.id==draft.id+":position:last") {
+            const bool last=dimension.id.ends_with(":last");
+            dimension.first_point_id=draft.id+(last?":attachment:last":":attachment:first");
+            dimension.value=std::copysign(0.,last?-1.:1.);
+            dimension.solution_side=last?-1:1;
+        }
+    sketch=std::move(draft);
 }
 std::optional<double> bend_attachment_profile_direction(
         const std::vector<ConstructionReference>& references,
@@ -191,7 +301,8 @@ std::vector<ConstructionReference> bend_sheet_references(const kernel::ViewerEdg
     if(face==edge.edge_treatment_side_references.end())
         throw std::invalid_argument("Sheet attachment edge has no joining thickness face.");
     const auto point=start.valid()?start:edge.edge_treatment_endpoint_references.front();
-    if(std::ranges::find(edge.edge_treatment_endpoint_references,point)==edge.edge_treatment_endpoint_references.end())
+    if(point!=kernel::sheet_edge_midpoint_reference(edge.reference)&&
+       std::ranges::find(edge.edge_treatment_endpoint_references,point)==edge.edge_treatment_endpoint_references.end())
         throw std::invalid_argument("Bend origin must be an endpoint of its attachment edge.");
     return {{edge.reference.instance_path,edge.reference.owner_id,edge.reference.semantic_key,0,false,"front",true},
         {face->instance_path,face->owner_id,face->semantic_key,0,true,"top",true},
@@ -199,6 +310,8 @@ std::vector<ConstructionReference> bend_sheet_references(const kernel::ViewerEdg
 }
 kernel::VertexReference current_sheet_attachment_anchor(
         const kernel::ViewerEdge& edge,const Placement& placement) {
+    if(sheet_attachment_at_midpoint(placement.references))
+        return kernel::sheet_edge_midpoint_reference(edge.reference);
     if(placement.references.size()<3||edge.points.size()<2||
             edge.edge_treatment_endpoint_references.size()!=2)
         throw std::invalid_argument("Bend origin must be an endpoint of its attachment edge.");
@@ -297,6 +410,10 @@ void update_sheet_edge_profile(const Placement& placement,double& thickness,sket
         face->instance_path!=expected[1].instance_path||face->offset!=0||face->flip||source->flip)
         throw std::invalid_argument("The Bend joining face and direction are derived from its sheet edge.");
     if(sketch.plane_offset!=0)throw std::invalid_argument("Bend does not support an offset profile plane.");
+    // The edge supplies the frame and inherited thickness. The section's own
+    // origin dimensions supply its width; changing the source edge length
+    // must not replace them by offsets from its endpoints.
+    if(sheet_attachment_at_midpoint(placement.references))return;
     std::array<std::pair<double,kernel::VertexReference>,2> ends;
     for(std::size_t i=0;i<2;++i) {
         const auto& reference=edge->edge_treatment_endpoint_references[i];

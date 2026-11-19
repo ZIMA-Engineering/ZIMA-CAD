@@ -16,24 +16,27 @@ HistoryContainer create_loft() {
     feature.feature_kind=FeatureKind::Loft;feature.name="Přechod";
     return feature;
 }
-void validate_loft(const HistoryContainer& feature) {
+void validate_loft(const HistoryContainer& feature,bool require_complete) {
     const auto& p=feature.loft;
     static_cast<void>(feature.sweep_precision.effective());
-    if(feature.feature_kind!=FeatureKind::Loft||p.profiles.size()<2||p.guides.size()==1)
-        throw std::invalid_argument("Loft requires at least two profiles and either no guides or at least two guides.");
+    if(feature.feature_kind!=FeatureKind::Loft||(require_complete&&p.profiles.size()<2))
+        throw std::invalid_argument("Loft requires at least two different profile Sketches.");
     if(static_cast<unsigned>(p.result_type)>static_cast<unsigned>(ProfileResultType::Surface)||
        (p.thin_mode!=ThinMode::OneSide&&p.thin_mode!=ThinMode::OtherSide&&p.thin_mode!=ThinMode::Symmetric)||
        !std::isfinite(p.thickness)||p.thickness<=0.)
         throw std::invalid_argument("Invalid Loft result or thickness.");
     if(p.result_type==ProfileResultType::Surface&&feature.combine_mode!=CombineMode::Add)
         throw std::invalid_argument("A surface Loft cannot subtract material.");
-    auto carrier=loft_sketch_editor_carrier(feature);validate_general_surface(carrier);
+    auto carrier=loft_sketch_editor_carrier(feature);validate_general_surface(carrier,require_complete);
     if(p.sketches.size()!=p.profiles.size()+p.guides.size())throw std::invalid_argument("Loft source Sketch is unavailable.");
     for(const auto& value:p.sketches)if(value.curve)throw std::invalid_argument("Loft source Sketch is unavailable.");
     std::set<std::string> unique;
     for(const auto* family:{&p.profiles,&p.guides})for(const auto& id:*family)
         if(id.empty()||!unique.insert(id).second||std::ranges::none_of(p.sketches,[&](const auto& value){return value.sketch_feature&&value.sketch_feature->id==id;}))
             throw std::invalid_argument("Select different profile and guide Sketches for Loft.");
+    for(const auto& [profile,point]:p.correspondence_starts)
+        if(point.empty()||std::ranges::find(p.profiles,profile)==p.profiles.end())
+            throw std::invalid_argument("Loft source Sketch is unavailable.");
 }
 HistoryContainer loft_sketch_editor_carrier(const HistoryContainer& feature) {
     auto carrier=feature;carrier.feature_kind=FeatureKind::GeneralSurface;carrier.combine_mode=CombineMode::Add;
@@ -72,7 +75,58 @@ kernel::LoftRequest loft_request(const PartDocument& part,const HistoryContainer
     };
     append(p.profiles,result.profiles,result.profile_owners);
     append(p.guides,result.guides,result.guide_owners);
+    std::vector<kernel::Sweep3DRequest::Section> sections;
+    bool all_numbered=true;
+    for(const auto& id:p.profiles) {
+        const auto owned=std::ranges::find_if(p.sketches,[&](const auto& value){return value.sketch_feature->id==id;});
+        const auto sketch=sketcher::Sketch::from_serialized(owned->sketch_serialized);
+        const auto start=p.correspondence_starts.find(id);
+        const auto first=start==p.correspondence_starts.end()?std::string{}:start->second;
+        const auto mapping=sweep3d_profile_correspondence(sketch,first,p.result_type!=ProfileResultType::Solid);
+        all_numbered=all_numbered&&!mapping.point_ids.empty();
+        sections.push_back(profile_correspondence_section(sketch,first,p.result_type!=ProfileResultType::Solid,false));
+    }
+    if(all_numbered) {
+        const auto count=sections.front().profile.outer_vertex_source_ids.size();
+        all_numbered=std::ranges::all_of(sections,[&](const auto& section){return section.profile.outer_vertex_source_ids.size()==count;});
+    }
+    if(!all_numbered&&!p.correspondence_starts.empty())
+        throw std::runtime_error("Loft correspondence requires the same number of points on every profile.");
+    if(all_numbered) {
+        result.match_profile_vertices=true;
+        result.profile_radial_directions.reserve(sections.size());
+        for(std::size_t i=0;i<sections.size();++i) {
+            auto& section=sections[i];auto& curve=result.profiles[i];
+            curve.outer_profile=std::move(section.profile.outer_profile);
+            curve.outer_edge_source_ids=std::move(section.profile.outer_edge_source_ids);
+            curve.outer_vertex_source_ids=std::move(section.profile.outer_vertex_source_ids);
+            curve.direction=section.profile_normal;curve.open_profile_end_id=section.thin_end_point_id;
+            apply_container_placement(curve,feature.placement);
+            auto radial=section.circle_radial_direction;
+            if(radial)*radial=placement_transform_point(placement_rotation_matrix_from_euler_degrees(
+                {feature.placement.rotation_x,feature.placement.rotation_y,feature.placement.rotation_z}),{},*radial);
+            result.profile_radial_directions.push_back(radial);
+        }
+    }
     return result;
+}
+kernel::ViewerMesh loft_profile_anchor_mesh(const HistoryContainer& feature,std::size_t before) {
+    kernel::ViewerMesh result;
+    for(std::size_t i=0;i<std::min(before,feature.loft.sketches.size());++i) {
+        const auto& owned=feature.loft.sketches[i];
+        if(!owned.sketch_feature||std::ranges::find(feature.loft.profiles,owned.sketch_feature->id)==feature.loft.profiles.end())continue;
+        try {
+            const auto sketch=general_surface_display_sketch(feature,owned);
+            const auto found=feature.loft.correspondence_starts.find(owned.sketch_feature->id);
+            const auto order=sweep3d_profile_correspondence(sketch,found==feature.loft.correspondence_starts.end()?std::string{}:found->second,
+                feature.loft.result_type!=ProfileResultType::Solid);
+            for(std::size_t n=0;n<order.point_ids.size();++n) {
+                kernel::ViewerPoint point{order.positions[n],{sketch.id,"point:"+order.point_ids[n],{}},std::to_string(n+1)};
+                point.display_owner_id=sketch.id;result.points.push_back(std::move(point));
+            }
+        }catch(const std::exception&) { /* Incomplete profiles retain their ordinary Sketch preview. */ }
+    }
+    result.original_references.points=result.points;return result;
 }
 kernel::ViewerMesh loft_definition_mesh(const PartDocument& part,const HistoryContainer& feature,const kernel::ViewerReferenceGeometry& geometry) {
     auto carrier=loft_sketch_editor_carrier(feature);
@@ -112,6 +166,11 @@ kernel::ViewerMesh loft_definition_mesh(const PartDocument& part,const HistoryCo
     }
     parameters=general_surface_place_definition_mesh(feature.placement,std::move(parameters));
     result.dimensions.insert(result.dimensions.end(),parameters.dimensions.begin(),parameters.dimensions.end());
+    const auto anchors=loft_profile_anchor_mesh(feature,feature.loft.sketches.size());
+    for(const auto& point:anchors.points) {
+        std::erase_if(result.points,[&](const auto& old){return old.reference==point.reference;});
+        result.points.push_back(point);
+    }
     for(auto& edge:result.edges) {edge.reference.semantic_key="loft:input:from:"+edge.reference.owner_id+":"+edge.reference.semantic_key;edge.reference.owner_id=feature.id;edge.display_owner_id=feature.id;}
     for(auto& point:result.points){point.reference.semantic_key="loft:input:from:"+point.reference.owner_id+":"+point.reference.semantic_key;point.reference.owner_id=feature.id;point.display_owner_id=feature.id;}
     result.original_references.edges=result.edges;result.original_references.points=result.points;return result;

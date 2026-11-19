@@ -2984,6 +2984,7 @@ void AssemblyWorkspaceWindow::create_layout() {
                         })) edit->setEnabled(false);
                 QAction* transform_extrusion{};
                 QAction* transform_revolution{};
+                QAction* transform_twist{};
                 if (container->feature_kind == zima::document::FeatureKind::Sketch ||
                     (container->feature_kind == zima::document::FeatureKind::Feature &&
                      container->feature.type == zima::document::FeatureType::Sketch)) {
@@ -2992,6 +2993,9 @@ void AssemblyWorkspaceWindow::create_layout() {
                         resource_icon("protrusion"), tr("Tažení"));
                     transform_revolution = menu.addAction(
                         resource_icon("revolve"), tr("Rotace"));
+                    transform_twist = menu.addAction(
+                        resource_icon("sheet-twist"), tr("Krut"));
+                    transform_twist->setObjectName("sketchTwistAction");
                     menu.addSeparator();
                 }
                 QAction* explode_profile{};
@@ -3065,6 +3069,9 @@ void AssemblyWorkspaceWindow::create_layout() {
                 } else if (selected == transform_revolution) {
                     transform_sketch_container(
                         id, zima::document::FeatureKind::Revolution);
+                } else if (transform_twist && selected == transform_twist) {
+                    transform_sketch_container(
+                        id, zima::document::FeatureKind::Feature);
                 } else if(selected==explode_profile) {
                     try {
                         static_cast<void>(workspace::explode_sheet_profile(
@@ -3111,6 +3118,12 @@ void AssemblyWorkspaceWindow::create_layout() {
                 auto* edit = menu.addAction(resource_icon("edit"),tr("Upravit"));
                 auto* properties = menu.addAction(resource_icon("properties"),tr("Vlastnosti…"));
                 QAction* suppress{};
+                QAction* convert_sweep{};
+                if (part && object->kind == document::ConstructionKind::Curve3D &&
+                    object->parent_construction_id.empty() && !object->suppressed) {
+                    convert_sweep = menu.addAction(resource_icon("sweep"), tr("3D tažení"));
+                    convert_sweep->setObjectName("curve3DSweepAction");
+                }
                 if (part != nullptr) {
                     suppress = menu.addAction(resource_icon(object->suppressed ? "restore" : "suppress"), object->suppressed ? tr("Obnovit") : tr("Potlačit"));
                 }
@@ -3120,6 +3133,11 @@ void AssemblyWorkspaceWindow::create_layout() {
                     show_parameter_dimensions(id);
                 } else if (selected == properties) {
                     show_construction_properties(object->kind, id);
+                } else if (convert_sweep && selected == convert_sweep) {
+                    show_sweep3d_properties(id, true);
+                    if (properties_dialog_)
+                        if (auto* mode = properties_dialog_->findChild<QComboBox*>("trajectoryFeatureType"))
+                            mode->setCurrentIndex(1);
                 } else if (release && selected == release) {
                     release_points(id);
                 } else if (selected == suppress) {

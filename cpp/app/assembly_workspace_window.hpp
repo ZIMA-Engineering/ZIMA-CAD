@@ -563,6 +563,8 @@ private:
     std::optional<zima::sketcher::Sketch> sweep_profile_sketch_draft_;
     std::function<void(zima::sketcher::Sketch)> embedded_sketch_finished_;
     std::optional<zima::kernel::ViewerMesh> helical_sketch_context_;
+    zima::kernel::ViewerReferenceGeometry loft_profile_reference_geometry_;
+    bool is_loft_profile_point_reference(const zima::viewer::ViewerCandidate&) const;
     std::function<void(const zima::viewer::ViewerCandidate&)> feature_reference_pick_;
     std::function<void()> feature_reference_end_;
     ConstructionPropertiesDialog* sweep_profile_parent_dialog_{};

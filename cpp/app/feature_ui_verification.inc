@@ -1781,37 +1781,58 @@ static void verify_sketch_context_conversion(QApplication& application, Assembly
         const auto result=window.execute_console_command(QString::fromStdString(commands::Json{{"command",command},{"arguments",args}}.dump()));
         if(!result.ok)throw std::runtime_error(result.message);flush();
     };
-    for(bool rotation:{false,true}) {
+    for(const auto operation:{document::FeatureSideOperation::Extrusion,document::FeatureSideOperation::Revolution,document::FeatureSideOperation::Twist}) {
+        const bool rotation=operation==document::FeatureSideOperation::Revolution;
+        const bool twist=operation==document::FeatureSideOperation::Twist;
         auto part=document::PartDocument::create_default();auto sketch=sketcher::Sketch::create_default();
         auto feature=document::PartDocument::create_feature_container(sketch.id);feature.feature.type=document::FeatureType::Sketch;
         feature.name="Authored profile";sketch.owner_container_id=feature.id;
         sketch.add_rectangle(10,10,30,30);const auto axis=sketch.add_segment(0,0,0,50);sketch.set_segment_centerline(axis,true);feature.feature.axis_segment_id=axis;
         part.history={feature};part.sketches={sketch};document::BodyHistoryGraph graph;const auto body=graph.create_body("Body");
         graph.insert({document::PartHistoryKind::Feature,feature.id});part.set_body_history(graph);part.resolve_constructions();
-        const auto path=directory/(std::string(rotation?"context-rotation-":"context-extrusion-")+feature.id+".prtz");
+        const auto path=directory/(std::string(twist?"context-twist-":rotation?"context-rotation-":"context-extrusion-")+feature.id+".prtz");
         kernel::OcctKernel kernel;part.save(path,kernel.evaluate_history(part.kernel_operations()));
         check(window.open_document_path(QString::fromStdString(path.string())),"Context fixture failed to open");flush();run("body.activate",{{"body",body}});
-        const auto open=[&] {
+        const auto open=[&](bool from_view=false) {
             auto* tree=window.findChild<QTreeWidget*>("documentTree");QTreeWidgetItem* row{};
             for(QTreeWidgetItemIterator it(tree);*it;++it)if((*it)->data(0,Qt::UserRole).toString().toStdString()==feature.id&&(*it)->data(0,Qt::UserRole+3)=="part-container"){row=*it;break;}
             check(row,"Sketch Feature context row missing");for(auto* parent=row->parent();parent;parent=parent->parent())parent->setExpanded(true);
             tree->setCurrentItem(row);tree->scrollToItem(row);flush();bool found=false,wire_visibility=false;
+            auto* canvas=dynamic_cast<viewer::MeshView*>(window.findChild<QWidget*>("modelWorkspace"));std::optional<QPoint> hit;
+            if(from_view) {
+                canvas->set_standard_view(viewer::StandardView::Isometric);canvas->fit_all();flush();
+                QEventLoop settle;QTimer::singleShot(950,&settle,&QEventLoop::quit);settle.exec();
+                for(int y=10;y<canvas->height()-10&&!hit;y+=3)for(int x=10;x<canvas->width()-10&&!hit;x+=3) {
+                    const auto candidates=canvas->selection_candidates_at(QPointF(x,y));
+                    if(!candidates.empty()&&candidates.front().owner_id==feature.id)hit=QPoint(x,y);
+                }
+                check(hit.has_value(),"Sketch context has no selectable View target");
+                for(auto type:{QEvent::MouseButtonPress,QEvent::MouseButtonRelease}) {
+                    QMouseEvent event(type,QPointF(*hit),QPointF(canvas->mapToGlobal(*hit)),Qt::LeftButton,type==QEvent::MouseButtonPress?Qt::LeftButton:Qt::NoButton,Qt::NoModifier);
+                    QApplication::sendEvent(canvas,&event);flush();
+                }
+            }
             QTimer::singleShot(0,&window,[&]{
                 auto* menu=qobject_cast<QMenu*>(QApplication::activePopupWidget());if(!menu)return;
                 wire_visibility=std::ranges::any_of(menu->actions(),[](const auto* action){return action->objectName()=="surfaceWireVisibilityAction";});
-                for(auto* action:menu->actions())if(action->text()==QObject::tr(rotation?"Rotace":"Tažení")) {
+                for(auto* action:menu->actions())if(action->text()==QObject::tr(twist?"Krut":rotation?"Rotace":"Tažení")) {
                     found=true;menu->setActiveAction(action);QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);QApplication::sendEvent(menu,&enter);return;
                 }menu->close();
             });
-            tree->customContextMenuRequested(tree->visualItemRect(row).center());flush();check(found,"Sketch conversion shortcut missing");
+            if(from_view) {
+                QMouseEvent event(QEvent::MouseButtonPress,QPointF(*hit),QPointF(canvas->mapToGlobal(*hit)),Qt::RightButton,Qt::RightButton,Qt::NoModifier);
+                QApplication::sendEvent(canvas,&event);
+            }else tree->customContextMenuRequested(tree->visualItemRect(row).center());
+            flush();check(found,"Sketch conversion shortcut missing");
             check(wire_visibility,"Standalone Sketch context lost its wire visibility action");
             auto* dialog=dynamic_cast<PrimitivePropertiesDialog*>(window.findChild<QWidget*>("featurePropertiesDialog"));
             check(dialog&&dialog->pending_value().id==feature.id,"Shortcut did not edit the same Feature");
             const auto pending=dialog->pending_value();check(pending.feature.type==document::FeatureType::Modeling&&pending.feature.sketch_id==sketch.id,"Shortcut lost type or Sketch identity");
-            check(pending.feature.sides[0].operation==(rotation?document::FeatureSideOperation::Revolution:document::FeatureSideOperation::Extrusion),"Shortcut chose incorrect operation");
+            check(pending.feature.sides[0].operation==operation,"Shortcut chose incorrect operation");
             return dialog;
         };
         open()->reject();flush();run("save");check(document::PartDocument::load(path).find_container(feature.id)->feature==feature.feature,"Shortcut Cancel modified Feature");
+        open(true)->reject();flush();run("save");check(document::PartDocument::load(path).find_container(feature.id)->feature==feature.feature,"View shortcut Cancel modified Feature");
         open()->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();run("save");
         auto saved=document::PartDocument::load(path);check(saved.history.size()==1&&saved.find_container(feature.id)->feature.type==document::FeatureType::Modeling&&saved.find_container(feature.id)->name==feature.name,"Shortcut commit replaced identity or authored name");
         check(saved.sketches.front().id==sketch.id,"Shortcut commit replaced Sketch");

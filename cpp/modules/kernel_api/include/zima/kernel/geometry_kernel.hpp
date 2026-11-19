@@ -1167,6 +1167,8 @@ struct LoftRequest {
     double thickness{1.};
     SurfaceThicknessSide thickness_side{SurfaceThicknessSide::Second};
     double tolerance{0.001};
+    bool match_profile_vertices{};
+    std::vector<std::optional<Vec3>> profile_radial_directions;
 };
 
 struct SurfaceThickenRequest {

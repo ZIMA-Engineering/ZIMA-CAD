@@ -6181,8 +6181,11 @@ zima::kernel::ViewerReferenceGeometry PartDocument::sketch_placement_reference_g
         if(owner==before)return;
         const auto entry=std::ranges::find(history_order,owner,&PartHistoryEntry::id);
         if(!before.empty() && (entry==history_order.end() || static_cast<std::size_t>(entry-history_order.begin())>=limit))return;
-        if(const auto* feature=find_container(owner);feature && feature->suppressed)return;
+        const auto* feature=find_container(owner);
+        if(feature&&feature->suppressed)return;
         auto geometry=sketch.placement_reference_geometry();
+        if(feature&&feature->feature_kind==FeatureKind::Sweep2D)
+            for(auto& edge:geometry.edges)edge.display_owner_id=owner;
         if(const auto* body=body_owner_for_object(owner))geometry=transform_reference_geometry(
             std::move(geometry),body->scope.translation(),body->scope.rotation_degrees(),false);
         append_reference_geometry(result,geometry);
@@ -9450,27 +9453,14 @@ ProfileStatus profile_status(const zima::sketcher::Sketch& source) {
 }
 
 namespace {
-void fill_sweep_sections(zima::kernel::Sweep3DRequest& sweep, const std::vector<Sweep3DProfile>& profiles, bool allow_holes=false) {
-std::unordered_set<std::string> assigned_points;
-for (const auto& profile : profiles) {
-    const auto point = std::find(
-        sweep.path_point_ids.begin(), sweep.path_point_ids.end(),
-        profile.point_id + (profile.incoming ? ":in" : ":out"));
-    if (point == sweep.path_point_ids.end() && profile.incoming) continue;
-    if (point == sweep.path_point_ids.end() ||
-        !assigned_points.insert(profile.point_id + (profile.incoming ? ":in" : ":out")).second) {
-        throw std::runtime_error(
-            "Sweep/Loft permits at most one profile per path Point");
-    }
-    const auto sketch = zima::sketcher::Sketch::from_serialized(
-        profile.sketch_serialized);
-    if (!sweep3d_profile_has_geometry(sketch)) continue;
+kernel::Sweep3DRequest::Section profile_correspondence_section(
+        const sketcher::Sketch& sketch,const std::string& start_point_id,bool allow_open,bool allow_holes) {
     zima::kernel::ExtrusionRequest source;
     std::string thin_end;
     try { source=extrusion_request(sketch,1.0,ExtrusionDirection::Forward); }
     catch (const std::exception&) {
-        if (!sweep.thin && sweep.make_solid) throw;
-        source=open_sweep_profile(sketch,thin_end,profile.correspondence_start_point_id);
+        if (!allow_open) throw;
+        source=open_sweep_profile(sketch,thin_end,start_point_id);
     }
     if ((!allow_holes && !source.inner_profiles.empty()) ||
         !source.additional_profile_regions.empty()) {
@@ -9492,7 +9482,7 @@ for (const auto& profile : profiles) {
     region.outer_profile = std::move(source.outer_profile);
     region.inner_profiles = std::move(source.inner_profiles);
     const auto mapping=sweep3d_profile_correspondence(
-        sketch,profile.correspondence_start_point_id,sweep.thin || !sweep.make_solid);
+        sketch,start_point_id,allow_open);
     std::optional<zima::kernel::Vec3> circle_radial;
     if(const auto* circle=std::get_if<zima::kernel::ExtrusionRequest::CircleProfile>(&region.outer_profile)) {
         const auto center=circle->center;
@@ -9543,11 +9533,27 @@ for (const auto& profile : profiles) {
         else if(auto* curves=std::get_if<zima::kernel::ExtrusionRequest::CurvedProfile>(&region.outer_profile))
             rotate(curves->curves);
     }
-    sweep.sections.push_back({profile.id, *point,
-        static_cast<std::size_t>(std::distance(
-            sweep.path_point_ids.begin(), point)),
-        source.direction,
-        std::move(region),circle_radial,thin_end});
+    return {{},{},0,source.direction,std::move(region),circle_radial,thin_end};
+}
+void fill_sweep_sections(zima::kernel::Sweep3DRequest& sweep, const std::vector<Sweep3DProfile>& profiles, bool allow_holes=false) {
+std::unordered_set<std::string> assigned_points;
+for (const auto& profile : profiles) {
+    const auto point = std::find(
+        sweep.path_point_ids.begin(), sweep.path_point_ids.end(),
+        profile.point_id + (profile.incoming ? ":in" : ":out"));
+    if (point == sweep.path_point_ids.end() && profile.incoming) continue;
+    if (point == sweep.path_point_ids.end() ||
+        !assigned_points.insert(profile.point_id + (profile.incoming ? ":in" : ":out")).second) {
+        throw std::runtime_error(
+            "Sweep/Loft permits at most one profile per path Point");
+    }
+    const auto sketch=sketcher::Sketch::from_serialized(profile.sketch_serialized);
+    if(!sweep3d_profile_has_geometry(sketch))continue;
+    auto section=profile_correspondence_section(sketch,profile.correspondence_start_point_id,
+        sweep.thin||!sweep.make_solid,allow_holes);
+    section.profile_id=profile.id;section.point_id=*point;
+    section.point_index=static_cast<std::size_t>(std::distance(sweep.path_point_ids.begin(),point));
+    sweep.sections.push_back(std::move(section));
 }
 std::ranges::sort(sweep.sections,
     [](const auto& first, const auto& second) {
@@ -10165,6 +10171,29 @@ Sweep3DCorrespondence sweep3d_profile_correspondence(
     return result;
 }
 
+ConstructionObject sweep3d_display_path(const HistoryContainer& container) {
+    auto path=container.sweep3d.path;
+    path.parent_construction_id.clear();
+    path.origin={container.placement.x,container.placement.y,container.placement.z};
+    path.entity_origin=path.origin;
+    path.rotation={container.placement.rotation_x,container.placement.rotation_y,container.placement.rotation_z};
+    path.absolute_rotation=path.rotation;
+    path.rotation_offset_x=0.;path.rotation_offset_y=0.;path.rotation_offset_z=0.;
+    path.orientation_back=false;path.orientation_quarter_turns=0;
+    path.references.clear();path.definition=ConstructionDefinition::Absolute;
+    return path;
+}
+zima::kernel::ViewerMesh sweep3d_preview_mesh(const HistoryContainer& container,bool include_profiles) {
+    PartDocument carrier;carrier.constructions.push_back(sweep3d_display_path(container));
+    auto result=carrier.construction_viewer_mesh(carrier.constructions.front().id,0.,true);
+    if(include_profiles) {
+        auto profiles=sweep3d_profiles_viewer_mesh(container);
+        result.edges.insert(result.edges.end(),std::make_move_iterator(profiles.edges.begin()),std::make_move_iterator(profiles.edges.end()));
+        result.points.insert(result.points.end(),std::make_move_iterator(profiles.points.begin()),std::make_move_iterator(profiles.points.end()));
+        result.constraint_markers.insert(result.constraint_markers.end(),std::make_move_iterator(profiles.constraint_markers.begin()),std::make_move_iterator(profiles.constraint_markers.end()));
+    }
+    return result;
+}
 zima::kernel::ViewerMesh sweep3d_profiles_viewer_mesh(const HistoryContainer& container) {
     zima::kernel::ViewerMesh result;
     const auto route=curve3d_route(container.sweep3d.path);
@@ -13406,6 +13435,7 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
             const auto& data=source.at("loft");auto& p=container.loft;
             p.profiles=data.at("profiles").get<std::vector<std::string>>();
             p.guides=data.at("guides").get<std::vector<std::string>>();
+            p.correspondence_starts=data.at("correspondence_starts").get<std::map<std::string,std::string>>();
             const std::string type=data.at("result"),side=data.at("thickness_side");
             p.result_type=type=="solid"?ProfileResultType::Solid:type=="thin"?ProfileResultType::Thin:type=="surface"?ProfileResultType::Surface:
                 throw std::runtime_error("Invalid Loft result or thickness.");
@@ -13422,7 +13452,7 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
                 owned.origin_point_visible=owned_data.at("origin_point_visible");owned.origin_text_visible=owned_data.at("origin_text_visible");
                 boundary.sketch_feature=std::move(owned);p.sketches.push_back(std::move(boundary));
             }
-            p.thickness=data.at("thickness");validate_loft(container);
+            p.thickness=data.at("thickness");validate_loft(container,!failed_containers.contains(container.id));
         } else if (container.feature_kind == FeatureKind::GeneralSurface) {
             const auto& data=source.at("general_surface");
             if(!data.is_array())throw std::runtime_error("Invalid owned surface boundary.");
@@ -14838,8 +14868,8 @@ nlohmann::json PartDocument::serialized(
                 {"thickness_override",p.thickness_override},
                 {"attachment_material_side",p.attachment_material_side}};
         } else if (container.feature_kind == FeatureKind::Loft) {
-            validate_loft(container);const auto& p=container.loft;
-            serialized["loft"]={{"profiles",p.profiles},{"guides",p.guides},
+            validate_loft(container,!failed_containers.contains(container.id));const auto& p=container.loft;
+            serialized["loft"]={{"profiles",p.profiles},{"guides",p.guides},{"correspondence_starts",p.correspondence_starts},
                 {"result",p.result_type==ProfileResultType::Surface?"surface":p.result_type==ProfileResultType::Thin?"thin":"solid"},
                 {"thickness",p.thickness},{"thickness_side",p.thin_mode==ThinMode::OneSide?"inside":p.thin_mode==ThinMode::OtherSide?"outside":"symmetric"}};
             auto rows=nlohmann::json::array();

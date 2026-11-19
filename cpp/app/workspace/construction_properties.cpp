@@ -610,7 +610,7 @@ void AssemblyWorkspaceWindow::show_curve_point_properties(
                 if (!sweep) return;
                 if (const auto* owner=next.body_owner_for_object(sweep->id)) sweep_body=owner->scope.id;
                 sweep_carrier=sweep_body.empty() ? next : next.body_document(sweep_body);
-                sweep_carrier->constructions.push_back(sweep_display_path(*sweep));
+                sweep_carrier->constructions.push_back(zima::document::sweep3d_display_path(*sweep));
             }
             if(surface) {
                 const auto* feature=next.find_container(surface->id);if(!feature)return;

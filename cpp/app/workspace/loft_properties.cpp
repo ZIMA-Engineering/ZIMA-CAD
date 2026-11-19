@@ -14,6 +14,7 @@ namespace {
 struct LoftEditorCache {
     std::uint64_t revision=std::numeric_limits<std::uint64_t>::max(),generation{};
     std::vector<std::string> profiles,guides;
+    std::map<std::string,std::string> correspondence_starts;
     std::optional<document::Placement> placement,scene_placement;
     std::optional<std::pair<bool,bool>> origin_display;
     std::optional<std::pair<document::ProfileResultType,double>> dimensions;
@@ -54,7 +55,7 @@ void AssemblyWorkspaceWindow::show_loft_properties(const std::string& id) {
     if(input)if(const auto found=input->body_outputs.find(body->scope.id);found!=input->body_outputs.end())
         allow_subtract=found->second->has_solid();
     auto* dialog=new LoftDialog(feature,[this,document_id](auto pending){
-        static_cast<void>(workspace::commit_loft(workspace_,kernel_,document_id,std::move(pending)));
+        static_cast<void>(workspace::commit_loft(workspace_,kernel_,document_id,std::move(pending),workspace::LoftFailurePolicy::KeepDefinition));
     },allow_subtract,this);
     if(rollback)part_rollback_=PartRollbackContext{document_id,*occurrence,rollback->history_index,rollback->input_body};
     properties_dialog_=dialog;properties_dialog_instance_path_=*occurrence;
@@ -86,7 +87,7 @@ void AssemblyWorkspaceWindow::show_loft_properties(const std::string& id) {
         start_primitive_reference_selection(index);
     };
     dialog->changed=[this,dialog,document_id,geometry,body_id=body->scope.id,path=*occurrence,cache]{
-        if(!dialog->isVisible())return;
+        if(!dialog->isVisible()&&!dialog->property("loftCorrespondenceEditing").toBool())return;
         auto* live=workspace_.open_part(document_id);if(!live)return;
         if(cache->revision!=live->session.revision()||cache->generation!=live->session.data_generation()) {
             cache->revision=live->session.revision();cache->generation=live->session.data_generation();cache->placement.reset();
@@ -100,9 +101,11 @@ void AssemblyWorkspaceWindow::show_loft_properties(const std::string& id) {
         parameter_dimension_preview_=pending;construction_dimension_object_id_=pending.id;
         viewer_->set_feature_preview_owners({pending.feature_id,pending.container_origin.id});
         const bool preview_changed=!cache->placement||*cache->placement!=pending.placement||
-            cache->profiles!=pending.loft.profiles||cache->guides!=pending.loft.guides||cache->sketches!=pending.loft.sketches;
+            cache->profiles!=pending.loft.profiles||cache->guides!=pending.loft.guides||cache->sketches!=pending.loft.sketches||
+            cache->correspondence_starts!=pending.loft.correspondence_starts;
         if(preview_changed) {
             cache->definition=document::loft_definition_mesh(live->session.document(),pending,geometry);
+            cache->correspondence_starts=pending.loft.correspondence_starts;
             cache->placement=pending.placement;cache->profiles=pending.loft.profiles;cache->guides=pending.loft.guides;cache->sketches=pending.loft.sketches;++cache->preview_builds;
         }
         const bool base_changed=preview_changed||!cache->scene_placement||*cache->scene_placement!=pending.placement||

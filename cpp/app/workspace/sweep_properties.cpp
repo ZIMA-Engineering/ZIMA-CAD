@@ -43,14 +43,16 @@ void AssemblyWorkspaceWindow::transform_sketch_container(
     using zima::document::FeatureKind;
     if (properties_dialog_ != nullptr ||
         (target_kind != FeatureKind::Extrusion &&
-         target_kind != FeatureKind::Revolution)) return;
+         target_kind != FeatureKind::Revolution &&
+         target_kind != FeatureKind::Feature)) return;
     auto* part = workspace_.open_part(workspace_.active_document_id());
     if (part == nullptr) return;
     const auto* source = part->session.document().find_container(container_id);
     if (source && source->feature_kind == FeatureKind::Feature &&
         source->feature.type == zima::document::FeatureType::Sketch) {
         show_primitive_properties(FeatureKind::Feature, container_id, false,
-            zima::document::FeatureType::Modeling, target_kind == FeatureKind::Revolution);
+            zima::document::FeatureType::Modeling, target_kind == FeatureKind::Revolution,
+            target_kind == FeatureKind::Feature);
         return;
     }
     if (source == nullptr || source->feature_kind != FeatureKind::Sketch) return;
@@ -61,7 +63,14 @@ void AssemblyWorkspaceWindow::transform_sketch_container(
     if (sketch == part->session.document().sketches.end()) return;
 
     auto draft = zima::workspace::profile_from_sketch(part->session.document(), sketch->id, target_kind);
-    if (target_kind == FeatureKind::Extrusion) {
+    if (target_kind == FeatureKind::Feature) {
+        draft.name = source->name;
+        draft.feature.type = document::FeatureType::Modeling;
+        draft.feature.sides[0].operation = document::FeatureSideOperation::Twist;
+        draft.feature.sides[1].operation = document::FeatureSideOperation::None;
+        draft.feature.symmetric = false;
+        draft.feature.result_type = document::ProfileResultType::Solid;
+    } else if (target_kind == FeatureKind::Extrusion) {
         draft.extrusion.profile_plane_offset = sketch->plane_offset;
     } else {
         draft.revolution.profile_plane_offset = sketch->plane_offset;
@@ -597,14 +606,9 @@ void AssemblyWorkspaceWindow::show_sweep3d_properties(
             if(!calculated.empty())reference_geometry=zima::document::solid_state_editor_reference_geometry(
                 next,calculated.back(),pending.id,std::move(reference_geometry));
 
-            auto display_path = sweep_display_path(*resolved);
-            zima::document::PartDocument carrier;
-            carrier.constructions.push_back(display_path);
-            construction_preview_mesh_ =
-                carrier.construction_viewer_mesh(display_path.id, 0.0, true);
+            auto display_path = zima::document::sweep3d_display_path(*resolved);
+            construction_preview_mesh_ = zima::document::sweep3d_preview_mesh(*resolved,dialog->sweep_mode());
             construction_preview_mesh_->points.push_back(zima::document::container_origin_marker(*resolved,true));
-            if (dialog->sweep_mode()) append_mesh(*construction_preview_mesh_,
-                zima::document::sweep3d_profiles_viewer_mesh(*resolved));
             if (dialog->sweep_mode()) zima::document::visit_feature_sketches(*resolved,[&](const auto& data,std::size_t){
                 const auto display=zima::sketcher::Sketch::from_serialized(data).viewer_mesh();
                 construction_preview_mesh_->dimensions.insert(construction_preview_mesh_->dimensions.end(),display.dimensions.begin(),display.dimensions.end());

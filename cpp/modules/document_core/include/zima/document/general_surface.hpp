@@ -4,7 +4,7 @@ namespace zima::document {
 [[nodiscard]] HistoryContainer create_general_surface();
 [[nodiscard]] GeneralSurfaceBoundary create_general_surface_sketch(const HistoryContainer&);
 [[nodiscard]] GeneralSurfaceBoundary create_general_surface_curve(const HistoryContainer&);
-void validate_general_surface(const HistoryContainer&);
+void validate_general_surface(const HistoryContainer&,bool require_complete=true);
 void reframe_general_surface(HistoryContainer&);
 void resolve_general_surface_sketch(GeneralSurfaceBoundary&, const kernel::ViewerReferenceGeometry&);
 [[nodiscard]] sketcher::Sketch general_surface_display_sketch(const HistoryContainer&,const GeneralSurfaceBoundary&);

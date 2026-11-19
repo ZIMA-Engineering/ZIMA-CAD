@@ -11,6 +11,13 @@
 #include <zima/document/sketch_placement.hpp>
 namespace zima::app {
 using namespace workspace_detail;
+bool AssemblyWorkspaceWindow::is_loft_profile_point_reference(const viewer::ViewerCandidate& candidate) const {
+    if(!sweep_profile_sketch_draft_||sweep_profile_sketch_draft_->id!=active_sketch_id_||
+       (!candidate.instance_path.empty()&&candidate.instance_path!=workspace_.active_occurrence_path()))return false;
+    return std::ranges::any_of(loft_profile_reference_geometry_.points,[&](const auto& point){
+        return point.reference.owner_id==candidate.owner_id&&point.reference.semantic_key==candidate.semantic_key;
+    });
+}
 void AssemblyWorkspaceWindow::show_general_surface_sketch_properties(GeneralSurfaceDialog* parent,unsigned stage) {
     show_owned_sketch_properties(parent,stage);
 }
@@ -76,12 +83,22 @@ void AssemblyWorkspaceWindow::show_owned_sketch_properties(SweepPlacementDialog*
         *draft=feature.general_surface.boundaries.at(stage);
         sweep_profile_sketch_draft_=document::general_surface_display_sketch(feature,*draft);
         helical_sketch_context_=document::general_surface_definition_mesh(feature);
+        loft_profile_reference_geometry_={};
+        if(guard->pending.feature_kind==document::FeatureKind::Loft) {
+            auto loft=guard->pending;loft.loft.sketches=feature.general_surface.boundaries;
+            const auto anchors=document::loft_profile_anchor_mesh(loft,stage);
+            loft_profile_reference_geometry_=anchors.original_references;
+            for(const auto& point:anchors.points) {
+                std::erase_if(helical_sketch_context_->points,[&](const auto& old){return old.reference==point.reference;});
+                helical_sketch_context_->points.push_back(point);
+            }
+        }
         const auto id=sweep_profile_sketch_draft_->id;
         std::erase_if(helical_sketch_context_->edges,[&](const auto& edge){return edge.reference.owner_id==id;});
         std::erase_if(helical_sketch_context_->points,[&](const auto& point){return point.reference.owner_id==id;});
         QPointer<PrimitivePropertiesDialog> sketch_guard(dialog);
         embedded_sketch_finished_=[this,sketch_guard,draft,local_pick](auto sketch) {
-            helical_sketch_context_.reset();if(!sketch_guard)return;
+            helical_sketch_context_.reset();loft_profile_reference_geometry_={};if(!sketch_guard)return;
             draft->sketch_serialized=sketch.serialized();
             properties_dialog_=sketch_guard;sketch_guard->show();sketch_guard->raise();
             primitive_reference_dialog_=sketch_guard;
@@ -107,6 +124,7 @@ void AssemblyWorkspaceWindow::show_owned_sketch_properties(SweepPlacementDialog*
     connect(dialog,&QObject::destroyed,this,[this,guard,sketch_id,source_geometry] {
         feature_reference_pick_={};feature_reference_end_={};
         helical_sketch_context_.reset();
+        loft_profile_reference_geometry_={};
         if(active_sketch_id_==sketch_id)active_sketch_id_.clear();
         if(selected_sketch_id_==sketch_id)selected_sketch_id_.clear();
         properties_dialog_=guard;primitive_reference_dialog_=guard;
@@ -161,6 +179,7 @@ void AssemblyWorkspaceWindow::show_owned_sketch_properties(SweepPlacementDialog*
         primitive_origin_preview_mesh_->axes.insert(primitive_origin_preview_mesh_->axes.end(),parent_origin.axes.begin(),parent_origin.axes.end());
         if(guard->pending.feature_kind==document::FeatureKind::Loft) {
             auto loft=guard->pending;loft.loft.sketches=feature.general_surface.boundaries;
+            append_mesh(*primitive_origin_preview_mesh_,document::loft_profile_anchor_mesh(loft,stage));
             if(const auto* live=workspace_.open_part(workspace_.active_document_id()))
                 primitive_origin_preview_mesh_->dimensions=document::loft_definition_mesh(live->session.document(),loft,source_geometry).dimensions;
         }

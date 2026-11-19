@@ -143,6 +143,19 @@ std::set<std::string> sketch_external_reference_source_owners(
         }
     }
     std::set<std::string> owners;
+    // An owned Loft guide may reference preceding profile Sketches from the
+    // same draft/history container. Keep the parent result, the edited Sketch
+    // and later inputs outside this one-way source boundary.
+    if(first_consumer<document.history.size()) {
+        const auto& parent=document.history[first_consumer];
+        if(parent.feature_kind==document::FeatureKind::Loft)
+            for(const auto& boundary:parent.loft.sketches) {
+                const auto source=zima::sketcher::Sketch::from_serialized(boundary.sketch_serialized);
+                if(source.id==sketch_id)break;
+                if(boundary.sketch_feature&&std::ranges::find(parent.loft.profiles,boundary.sketch_feature->id)!=parent.loft.profiles.end())
+                    owners.insert(source.id);
+            }
+    }
     if (!document.body_history.bodies().empty()) {
         const auto consumer = first_consumer < document.history.size()
             ? document.history[first_consumer].id : sketch_id;
@@ -239,6 +252,15 @@ zima::kernel::ViewerReferenceGeometry sketch_external_reference_source_geometry(
     append_missing(source.axes, sketches.axes);
     for(const auto& feature:document.history)if((feature.feature_kind==zima::document::FeatureKind::GeneralSurface||feature.feature_kind==zima::document::FeatureKind::Loft)&&!feature.suppressed) {
         auto mesh=feature.feature_kind==document::FeatureKind::Loft?document::general_surface_definition_mesh(document::loft_sketch_editor_carrier(feature)):document::general_surface_definition_mesh(feature);
+        if(feature.feature_kind==document::FeatureKind::Loft) {
+            // Owned-feature markers carry their local frame. Numbered profile
+            // points use the exact same parent-composed packet as guide entry.
+            for(const auto& point:document::loft_profile_anchor_mesh(feature,feature.loft.sketches.size()).points) {
+                std::erase_if(source.points,[&](const auto& old){return old.reference==point.reference;});
+                std::erase_if(mesh.original_references.points,[&](const auto& old){return old.reference==point.reference;});
+                mesh.original_references.points.push_back(point);
+            }
+        }
         if(const auto* body=document.body_owner_for_object(feature.id))mesh=document.place_body_mesh(std::move(mesh),body->scope.id);
         append_reference_geometry(source,std::move(mesh.original_references));
     }

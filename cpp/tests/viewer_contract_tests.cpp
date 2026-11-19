@@ -1,6 +1,7 @@
 #include <zima/kernel/transition_edge_display.hpp>
 #include <zima/kernel/state_display.hpp>
 #include <zima/viewer/picking.hpp>
+#include <zima/viewer/sweep_axis_route.hpp>
 #include <zima/viewer/infinite_line.hpp>
 #include <zima/viewer/shading.hpp>
 #include <zima/viewer/silhouette.hpp>
@@ -415,6 +416,19 @@ int main() {
             require(zima::viewer::candidate_recolors_wire_edge(axis,line),"Original-solid selection omits its centerline");
             axis.instance_path="other-occurrence";
             require(!zima::viewer::candidate_recolors_wire_edge(axis,line),"Sweep highlights another occurrence's centerline");
+        }
+        for(const auto* member:{"segment:source","arc:source","placement-evaluated:arc:source","curve:segment:a:b","curve:rounding:b"}) {
+            zima::kernel::ViewerEdge edge;edge.reference={"owned-path",member,"occurrence"};edge.display_owner_id="sweep";
+            std::string key=member;if(key.starts_with("placement-evaluated:"))key.erase(0,std::string("placement-evaluated:").size());
+            zima::viewer::ViewerCandidate axis;axis.kind=zima::viewer::CandidateKind::Axis;axis.owner_id="sweep";
+            axis.instance_path="occurrence";axis.semantic_key="centerline:from:"+(key.starts_with("curve:")?key:std::string("source"));
+            const auto source=zima::viewer::sweep_axis_route_source(axis,{edge});
+            require(source&&source->owner_id=="owned-path"&&source->semantic_key==key&&source->instance_path==axis.instance_path,
+                "Sweep axis whole-route offer lost its authored segment or occurrence");
+            axis.instance_path="other";
+            require(!zima::viewer::sweep_axis_route_source(axis,{edge}),"Sweep axis route crossed occurrences");
+            axis.instance_path="occurrence";axis.owner_id="other-sweep";
+            require(!zima::viewer::sweep_axis_route_source(axis,{edge}),"Sweep axis route crossed feature ownership");
         }
         zima::kernel::ViewerMesh mesh;
         mesh.vertices = {

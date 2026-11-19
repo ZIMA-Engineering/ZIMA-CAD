@@ -139,6 +139,10 @@ inline std::vector<kernel::ViewerEdge> authored_feature_wire(
         return place(document::loft_definition_mesh(doc,*feature));
     case FeatureKind::Sweep2D:
         return place(document::PartDocument::sweep2d_preview_mesh(*feature));
+    case FeatureKind::Sweep3D:
+        wire=document::sweep3d_preview_mesh(*feature);
+        std::erase_if(wire.edges,[](const auto& edge){return !edge.reference.semantic_key.starts_with("curve:");});
+        return place(std::move(wire));
     case FeatureKind::HelicalSweep:
         wire.edges=document::PartDocument::helical_preview_edges(*feature);return place(std::move(wire));
     case FeatureKind::SheetTransition:

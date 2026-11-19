@@ -7,6 +7,7 @@
 #include <zima/document/sketch_placement.hpp>
 #include <zima/document/profile_targets.hpp>
 #include <zima/workspace/part_transactions.hpp>
+#include <zima/workspace/operation_input.hpp>
 
 #include <algorithm>
 #include <cmath>
@@ -762,6 +763,27 @@ void update_master_bend_route(sketcher::Sketch& driver,
 }
 }
 
+void resolve_sheet_feature_drafts(document::PartDocument& next,
+        const std::vector<std::string>& ids,kernel::ViewerReferenceGeometry references) {
+    document::PartDocument carrier;
+    carrier.document_id=next.document_id;
+    carrier.user_parameters=next.user_parameters;
+    carrier.physical_parameters=next.physical_parameters;
+    carrier.document_units=next.document_units;
+    carrier.document_precision=next.document_precision;
+    for(const auto& id:ids)if(const auto* feature=next.find_container(id)) {
+        carrier.history.push_back(*feature);
+        carrier.history_order.push_back({document::PartHistoryKind::Feature,id});
+        for(const auto& sketch:next.sketches)if(sketch.owner_container_id==id)
+            carrier.sketches.push_back(sketch);
+    }
+    carrier.history_cursor=carrier.history_order.size();
+    carrier.resolve_constructions(std::move(references));
+    for(auto& feature:carrier.history)*next.find_container(feature.id)=std::move(feature);
+    for(auto& sketch:carrier.sketches)
+        *std::ranges::find(next.sketches,sketch.id,&sketcher::Sketch::id)=std::move(sketch);
+}
+
 PreparedSheetProfile prepare_sheet_profile(const document::PartDocument& before,
         document::HistoryContainer profile,sketcher::Sketch driver,
         kernel::ViewerReferenceGeometry references) {
@@ -831,22 +853,24 @@ PreparedSheetProfile prepare_sheet_profile(const document::PartDocument& before,
     const auto width_axis=unit(driver.normal());
 
     profile.sheet_profile.width.sketch_id=driver.id;
-    auto interval=profile.sheet_profile.sheet_attachment
+    const bool endpoint_width=profile.sheet_profile.sheet_attachment&&
+        !document::sheet_attachment_at_midpoint(profile.placement.references);
+    auto interval=endpoint_width
         ?attached_width_interval(profile,driver,references)
         :width_interval(profile.sheet_profile,driver.resolved_origin,
             width_axis,references);
     const bool width_edited=existing&&
         profile.sheet_profile.width!=existing->sheet_profile.width;
-    if(!profile.sheet_profile.sheet_attachment&&existing&&!width_edited&&
+    if(!endpoint_width&&existing&&!width_edited&&
        !width_uses_up_to(profile.sheet_profile.width))
         if(const auto authored=master_width_interval(before,*existing))
             interval=*authored;
     const auto [width_first,width_last]=interval;
-    if(profile.sheet_profile.sheet_attachment) {
+    if(endpoint_width) {
         profile.sheet_profile.width.symmetric=false;
         profile.sheet_profile.width.reversed_sides=width_last<=0;
     }
-    if(profile.sheet_profile.sheet_attachment||
+    if(endpoint_width||
        (existing&&!width_edited&&!width_uses_up_to(
             profile.sheet_profile.width)))
         store_length_interval(profile.sheet_profile.width,
@@ -877,7 +901,7 @@ PreparedSheetProfile prepare_sheet_profile(const document::PartDocument& before,
     std::vector<Child> logical;logical.reserve(route.spans.size());
     auto route_origin=driver.world_point(
         route.spans.front().start[0],route.spans.front().start[1]);
-    const bool station_targets=!profile.sheet_profile.sheet_attachment&&
+    const bool station_targets=!endpoint_width&&
         width_uses_up_to(profile.sheet_profile.width);
     const auto nominal_width_edge=[&](V origin) {
         const auto station=station_targets
@@ -1007,11 +1031,11 @@ PreparedSheetProfile prepare_sheet_profile(const document::PartDocument& before,
             }
             const auto local_width=project_width_edge(incoming_width_edge,
                 outer_start,along);
-            const auto offsets=attached_start
+            const auto offsets=attached_start&&endpoint_width
                 ?attached_profile_bend_offsets(child.sketch)
                 :std::array<double,2>{};
             set_bend_width(child.sketch,local_width[0],local_width[1]);
-            if(attached_start)
+            if(attached_start&&endpoint_width)
                 restore_attached_profile_bend_offsets(child.sketch,offsets);
             document::prepare_bend_sketches(child.feature,child.sketch,defaults);
             if(attached_start) {
@@ -1106,7 +1130,9 @@ PreparedSheetProfile prepare_sheet_profile(const document::PartDocument& before,
     next.set_body_history(std::move(graph));
     // The generated attached Bend must consume the same edge and endpoint
     // packet as its parent before the first cyan preview is published.
-    next.resolve_constructions(std::move(references));
+    std::vector<std::string> draft_ids;
+    for(const auto& entry:group)draft_ids.push_back(entry.id);
+    resolve_sheet_feature_drafts(next,draft_ids,std::move(references));
     next.validate_sheet_profiles();
     PreparedSheetProfile result{std::move(next),{}};
     for(const auto& child:logical)result.logical_children.push_back(child.feature.id);
@@ -1252,8 +1278,18 @@ bool commit_sheet_profile(Workspace& live,const kernel::OcctKernel& kernel,
     auto* state=live.open_part(id);
     if(!state)throw std::invalid_argument("Sheet Profile is available only in a Part.");
     const auto& before=state->session.document();
+    const auto existing_driver=std::ranges::find(before.sketches,driver.id,&sketcher::Sketch::id);
+    const auto* existing=before.find_container(profile.id);
+    const auto* owner=before.body_owner_for_object(profile.id);
+    if(existing&&*existing==profile&&existing_driver!=before.sketches.end()&&
+       existing_driver->serialized()==driver.serialized()&&owner&&!owner->derived_copy&&
+       owner->scope.id==before.body_history.active_body_id())return false;
     auto references=construction_reference_source_geometry(
         state->session.calculated_boundaries());
+    if(profile.sheet_profile.sheet_attachment)
+        if(const auto* input=calculated_operation_input(state->session,
+                before.find_container(profile.id)?profile.id:std::string{}))
+            references=document::sheet_attachment_reference_geometry(input->mesh);
     auto prepared=prepare_sheet_profile(before,std::move(profile),
         std::move(driver),std::move(references));
     if(prepared.document.serialized()==before.serialized())return false;
@@ -1274,6 +1310,10 @@ bool commit_sheet_profile_master_edit(Workspace& live,
     const auto& before=state->session.document();
     auto references=construction_reference_source_geometry(
         state->session.calculated_boundaries());
+    if(const auto* parent=before.find_container(edited.sheet_profile_binding.parent_id);
+            parent&&parent->sheet_profile.sheet_attachment)
+        if(const auto* input=calculated_operation_input(state->session,parent->id))
+            references=document::sheet_attachment_reference_geometry(input->mesh);
     auto prepared=prepare_sheet_profile_master_edit(before,std::move(edited),
         std::move(edited_sketch),std::move(references));
     if(prepared.document.serialized()==before.serialized())return false;

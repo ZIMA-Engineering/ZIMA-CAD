@@ -3,6 +3,7 @@
 #include <zima/document/bend.hpp>
 #include <zima/document/flat.hpp>
 #include <zima/document/sheet_profile.hpp>
+#include <zima/kernel/sheet_attachment_reference.hpp>
 #include <zima/ui/numeric_value_lock.hpp>
 #include <zima/ui/unit_spin_box.hpp>
 #include "sketch_button_style.hpp"
@@ -85,7 +86,8 @@ SketchPropertiesDialog::SketchPropertiesDialog(
         this, content_layout(), /*with_orientation=*/true,
         /*position_rows_can_define_rotation=*/true, zima::ui::numeric_decimal_places(this));
     placement_->initialize_from_references(initial_placement_.references,
-        [](const std::string& semantic) {
+        [this](const std::string& semantic) {
+            if(semantic.starts_with("sheet-midpoint:edge:"))return tr("Střed hrany");
             return QString::fromStdString(semantic);
         });
     placement_->initialize_numeric_values(initial_placement_);
@@ -224,17 +226,7 @@ void SketchPropertiesDialog::set_flat_mode(zima::document::FlatParameters initia
     });
     connect(thickness,&QDoubleSpinBox::valueChanged,this,[=,this](double value){pending->thickness=value;changed(*pending);notify_preview();});
     form->addRow(tr("Směr"),direction_row);form->addRow(custom);form->addRow(tr("Tloušťka"),thickness);
-    auto* other=new QPushButton(tr("Druhý konec hrany"),this);other->setObjectName("flatOtherEndpoint");form->addRow(other);
-    connect(other,&QPushButton::clicked,this,[this] {
-        if(!flat_pending_->sheet_attachment)return;
-        const auto refs=placement_->combined_references(3);
-        for(const auto& edge:reference_geometry_.edges)if(edge.reference.owner_id==refs[0].owner_id&&
-            edge.reference.semantic_key==refs[0].semantic_key&&edge.reference.instance_path==refs[0].instance_path)
-            for(const auto& point:edge.edge_treatment_endpoint_references)
-                if(point.semantic_key!=refs[2].semantic_key) {
-                    set_reference(2,{point.instance_path,point.owner_id,point.semantic_key},QString::fromStdString(point.semantic_key));return;
-                }
-    });
+    add_sheet_anchor_controls(form,QStringLiteral("flat"));
     auto* manual=new QPushButton(tr("Ruční reference umístění"),this);manual->setObjectName("flatManualPlacement");form->addRow(manual);
     connect(manual,&QPushButton::clicked,this,[this,pending,changed] {
         pending->sheet_attachment=false;changed(*pending);
@@ -299,6 +291,7 @@ void SketchPropertiesDialog::set_sheet_profile_mode(
         tr("Bez zaškrtnutí se použije tloušťka vybraného plechu nebo nastavení plechu v dílu."),this);
     note->setWordWrap(true);
     thickness_form->addRow(note);
+    add_sheet_anchor_controls(thickness_form,QStringLiteral("sheetProfile"));
 
     auto* width_scroll=new QScrollArea(this);
     width_scroll->setObjectName("sheetProfileWidthScroll");
@@ -418,7 +411,7 @@ void SketchPropertiesDialog::refresh_sheet_profile_targets() {
 
 void SketchPropertiesDialog::request_sheet_profile_target(std::size_t side) {
     if(!sheet_profile_width_panel_||side>=2||
-       sheet_profile_pending_->sheet_attachment)return;
+       (sheet_profile_pending_->sheet_attachment&&!zima::document::sheet_attachment_at_midpoint(placement_->combined_references(3))))return;
     auto* limits=sheet_profile_width_panel_->limit_table(side);
     if(!limits->active_row())
         limits->begin_entry(sheet_profile_width_panel_->targets(side).size(),
@@ -469,7 +462,7 @@ SketchPropertiesDialog::sheet_profile_width_parameters() const {
 
 bool SketchPropertiesDialog::set_sheet_profile_signed_length(
         std::size_t side,double value,bool baseline_reversed) {
-    if(!sheet_profile_width_panel_||sheet_profile_pending_->sheet_attachment||
+    if(!sheet_profile_width_panel_||(sheet_profile_pending_->sheet_attachment&&!zima::document::sheet_attachment_at_midpoint(placement_->combined_references(3)))||
        !sheet_profile_width_panel_->set_signed_length(
             side,value,baseline_reversed))return false;
     sheet_profile_pending_->width=sheet_profile_width_panel_->parameters();
@@ -534,21 +527,7 @@ void SketchPropertiesDialog::set_bend_mode(zima::document::BendParameters initia
         pending->radius_follows_thickness=!enabled;publish();
     });
     refresh_radius();
-    auto* change_end=new QPushButton(tr("Druhý konec hrany"),this);
-    change_end->setObjectName("bendOtherEndpoint");form->addRow(change_end);
-    connect(change_end,&QPushButton::clicked,this,[this] {
-        if(!bend_pending_->sheet_attachment)return;
-        const auto refs=placement_->combined_references(3);
-        if(refs.size()<3)return;
-        for(const auto& edge:reference_geometry_.edges) {
-            if(edge.reference.owner_id!=refs[0].owner_id||edge.reference.semantic_key!=refs[0].semantic_key||
-                edge.reference.instance_path!=refs[0].instance_path)continue;
-            for(const auto& end:edge.edge_treatment_endpoint_references) {
-                if(end.owner_id==refs[2].owner_id&&end.semantic_key==refs[2].semantic_key&&end.instance_path==refs[2].instance_path)continue;
-                set_reference(2,{end.instance_path,end.owner_id,end.semantic_key},QString::fromStdString(end.semantic_key));return;
-            }
-        }
-    });
+    add_sheet_anchor_controls(form,QStringLiteral("bend"));
     auto* manual=new QPushButton(tr("Ruční reference umístění"),this);
     manual->setObjectName("bendManualPlacement");form->addRow(manual);
     connect(manual,&QPushButton::clicked,this,[this,pending,changed] {
@@ -878,7 +857,7 @@ void SketchPropertiesDialog::lock_bend_attachment_fields() {
         thickness->setEnabled(!automatic&&bend_pending_->thickness_override);
         if(automatic) {const QSignalBlocker blocker(thickness);thickness->setValue(bend_pending_->thickness);}
     }
-    if(auto* button=findChild<QPushButton*>("bendOtherEndpoint"))button->setEnabled(automatic);
+    refresh_sheet_anchor_controls(QStringLiteral("bend"),automatic);
     for(const auto* name:{"containerOrientationFlipButton","containerOrientationRotateButton"})
         if(auto* button=findChild<QPushButton*>(name))button->setEnabled(!automatic);
     if(!automatic)return;
@@ -898,6 +877,55 @@ void SketchPropertiesDialog::lock_bend_attachment_fields() {
     }
 }
 
+void SketchPropertiesDialog::add_sheet_anchor_controls(QFormLayout* form,const QString& prefix) {
+    auto* row=new QWidget(this);auto* layout=new QHBoxLayout(row);
+    layout->setContentsMargins(0,0,0,0);
+    auto* other=new QPushButton(tr("Druhý konec hrany"),row);
+    other->setObjectName(prefix+QStringLiteral("OtherEndpoint"));
+    auto* midpoint=new QPushButton(tr("Střed hrany"),row);
+    midpoint->setObjectName(prefix+QStringLiteral("Midpoint"));midpoint->setCheckable(true);
+    midpoint->setToolTip(tr("Umístit počátek do středu vybraného úseku hrany a kótovat od středu."));
+    layout->addWidget(other);layout->addWidget(midpoint);form->addRow(row);
+    const auto select=[this](bool center) {
+        const auto refs=placement_->combined_references(3);
+        const auto* edge=zima::document::current_sheet_attachment_edge(refs,reference_geometry_);
+        if(!edge||refs.size()<3||edge->edge_treatment_endpoint_references.size()!=2)return;
+        auto point=edge->edge_treatment_endpoint_references.front();
+        if(center)point=zima::kernel::sheet_edge_midpoint_reference(edge->reference);
+        else if(point.owner_id==refs[2].owner_id&&point.semantic_key==refs[2].semantic_key&&point.instance_path==refs[2].instance_path)
+            point=edge->edge_treatment_endpoint_references.back();
+        set_reference(2,{point.instance_path,point.owner_id,point.semantic_key},
+            center?tr("Střed hrany"):QString::fromStdString(point.semantic_key));
+        lock_flat_attachment_fields();lock_bend_attachment_fields();lock_sheet_profile_attachment_fields();
+    };
+    connect(other,&QPushButton::clicked,this,[select]{select(false);});
+    connect(midpoint,&QPushButton::clicked,this,[select](bool checked){select(checked);});
+}
+
+void SketchPropertiesDialog::refresh_sheet_anchor_controls(const QString& prefix,bool attached) {
+    if(auto* other=findChild<QPushButton*>(prefix+QStringLiteral("OtherEndpoint")))other->setEnabled(attached);
+    if(auto* center=findChild<QPushButton*>(prefix+QStringLiteral("Midpoint"))) {
+        const QSignalBlocker blocker(center);center->setEnabled(attached);
+        center->setChecked(attached&&zima::document::sheet_attachment_at_midpoint(placement_->combined_references(3)));
+    }
+}
+
+void SketchPropertiesDialog::set_sheet_work_plane_visible(bool visible) {
+    // The attached feature derives its plane, but still owns an editable Sketch.
+    // Keep its existing editor button outside the hidden plane row.
+    if(visible&&sketch_button_->parentWidget()!=plane_selector_) {
+        content_layout()->removeWidget(sketch_button_);
+        place_sketch_button_beside_work_plane(plane_selector_,sketch_button_);
+    } else if(!visible&&sketch_button_->parentWidget()==plane_selector_) {
+        plane_selector_->layout()->removeWidget(sketch_button_);
+        sketch_button_->setParent(this);
+        content_layout()->insertWidget(content_layout()->indexOf(error_),sketch_button_,0,Qt::AlignRight);
+    }
+    if(auto* form=findChild<QFormLayout*>("sketchPlaneForm"))
+        form->setRowVisible(plane_selector_,visible);
+    sketch_button_->show();
+}
+
 void SketchPropertiesDialog::lock_flat_attachment_fields() {
     if(!flat_pending_)return;
     const bool automatic=flat_pending_->sheet_attachment;
@@ -913,13 +941,13 @@ void SketchPropertiesDialog::lock_flat_attachment_fields() {
         direction->setEnabled(!automatic);
     }
     plane_->setEnabled(!automatic);
-    if(auto* form=findChild<QFormLayout*>("sketchPlaneForm"))form->setRowVisible(plane_selector_,!automatic);
+    set_sheet_work_plane_visible(!automatic);
     if(auto* box=findChild<QCheckBox*>("flatThicknessOverride"))box->setEnabled(!automatic);
     if(auto* field=findChild<QDoubleSpinBox*>("flatThickness")) {
         field->setEnabled(!automatic&&flat_pending_->thickness_override);
         if(automatic){const QSignalBlocker blocker(field);field->setValue(flat_pending_->thickness);}
     }
-    if(auto* button=findChild<QPushButton*>("flatOtherEndpoint"))button->setEnabled(automatic);
+    refresh_sheet_anchor_controls(QStringLiteral("flat"),automatic);
     for(const auto* name:{"containerOrientationFlipButton","containerOrientationRotateButton"})
         if(auto* button=findChild<QPushButton*>(name))button->setEnabled(!automatic);
     if(!automatic)return;
@@ -940,13 +968,14 @@ void SketchPropertiesDialog::lock_flat_attachment_fields() {
 void SketchPropertiesDialog::lock_sheet_profile_attachment_fields() {
     if(!sheet_profile_pending_)return;
     const bool automatic=sheet_profile_pending_->sheet_attachment;
+    const bool centered=zima::document::sheet_attachment_at_midpoint(placement_->combined_references(3));
+    refresh_sheet_anchor_controls(QStringLiteral("sheetProfile"),automatic);
     if(sheet_profile_width_panel_)
-        sheet_profile_width_panel_->setVisible(!automatic);
-    if(automatic&&sheet_profile_target_active_)
+        sheet_profile_width_panel_->setVisible(!automatic||centered);
+    if(automatic&&!centered&&sheet_profile_target_active_)
         finish_sheet_profile_target_entry();
     plane_->setEnabled(!automatic);
-    if(auto* form=findChild<QFormLayout*>("sketchPlaneForm"))
-        form->setRowVisible(plane_selector_,!automatic);
+    set_sheet_work_plane_visible(!automatic);
     if(auto* box=findChild<QCheckBox*>("sheetProfileThicknessOverride"))
         box->setEnabled(!automatic);
     if(auto* thickness=findChild<QDoubleSpinBox*>("sheetProfileThickness")) {
@@ -1030,8 +1059,11 @@ bool SketchPropertiesDialog::sheet_reference_allowed(std::size_t index,const zim
     if(index!=2)return false;
     const auto refs=placement_->combined_references(3);
     if(refs.empty())return false;
-    for(const auto& e:reference_geometry_.edges)if(e.reference.owner_id==refs[0].owner_id&&e.reference.semantic_key==refs[0].semantic_key&&e.reference.instance_path==refs[0].instance_path)
-        return std::ranges::any_of(e.edge_treatment_endpoint_references,[&](const auto& p){return p.owner_id==reference.owner_id&&p.semantic_key==reference.semantic_key&&p.instance_path==reference.instance_path;});
+    for(const auto& e:reference_geometry_.edges)if(e.reference.owner_id==refs[0].owner_id&&e.reference.semantic_key==refs[0].semantic_key&&e.reference.instance_path==refs[0].instance_path) {
+        const auto matches=[&](const auto& p){return p.owner_id==reference.owner_id&&p.semantic_key==reference.semantic_key&&p.instance_path==reference.instance_path;};
+        return matches(zima::kernel::sheet_edge_midpoint_reference(e.reference))||
+            std::ranges::any_of(e.edge_treatment_endpoint_references,matches);
+    }
     return false;
 }
 
@@ -1136,6 +1168,33 @@ bool SketchPropertiesDialog::set_reference(std::size_t index,
     });
     const QScopedValueRollback update(reference_update_,true);
     if(!sheet_reference_allowed(index,reference))return false;
+    std::optional<zima::sketcher::Sketch> previous_anchor_sketch;
+    std::optional<double> midpoint_half_width;
+    if(index==2&&is_sheet_edge_feature()) {
+        auto refs=placement_->combined_references(3);
+        const bool was_center=zima::document::sheet_attachment_at_midpoint(refs);
+        if(refs.size()==3) {
+            refs[2]=reference;
+            const bool center=zima::document::sheet_attachment_at_midpoint(refs);
+            if(center!=was_center) {
+                auto changed=initial_;
+                try {
+                    if(flat_pending_||bend_pending_) {
+                        if(center)zima::document::center_sheet_attachment_profile(changed,static_cast<bool>(flat_pending_));
+                        else zima::document::restore_sheet_endpoint_profile(changed,static_cast<bool>(flat_pending_));
+                    }
+                } catch(const std::exception& failure) {error_->setText(tr(failure.what()));return false;}
+                previous_anchor_sketch=initial_;initial_=std::move(changed);
+                if(center&&sheet_profile_width_panel_) {
+                    const auto* edge=zima::document::current_sheet_attachment_edge(refs,reference_geometry_);
+                    if(edge&&edge->points.size()>=2) {
+                        const auto a=edge->points.front(),b=edge->points.back();
+                        midpoint_half_width=std::hypot(b.x-a.x,b.y-a.y,b.z-a.z)*.5;
+                    }
+                }
+            }
+        }
+    }
     if(sheet_profile_pending_&&index==0) {
         const auto edge=std::ranges::find_if(reference_geometry_.edges,
             [&](const auto& value) {
@@ -1217,6 +1276,13 @@ bool SketchPropertiesDialog::set_reference(std::size_t index,
     const bool accepted = placement_->set_reference(
         index, std::move(reference), label, &error,
         /*derive_orientation=*/index == 0);
+    if(!accepted&&previous_anchor_sketch)initial_=std::move(*previous_anchor_sketch);
+    if(accepted&&midpoint_half_width) {
+        if(auto* symmetric=sheet_profile_width_panel_->findChild<QCheckBox*>("featureSymmetric"))symmetric->setChecked(true);
+        static_cast<void>(sheet_profile_width_panel_->set_signed_length(0,*midpoint_half_width));
+        sheet_profile_pending_->width=sheet_profile_width_panel_->parameters();
+        sheet_profile_changed_(*sheet_profile_pending_);
+    }
     if (accepted && zima::document::placement_references_use_whole_origin(placement_->combined_references(3))) {
         update_automatic_work_plane(plane_, static_cast<int>(zima::sketcher::SketchPlane::XY));
         notify_preview();

@@ -460,9 +460,6 @@ zima::kernel::ViewerEdge ellipse_preview_edge(
     const zima::sketcher::Sketch& sketch, const SketchPosition& center,
     const SketchPosition& major, const SketchPosition& minor);
 
-zima::document::ConstructionObject sweep_display_path(
-    const zima::document::HistoryContainer& container);
-
 std::pair<double, double> camera_angles_for_view_direction(const zima::kernel::Vec3& direction);
 double camera_roll_for_direction(const zima::kernel::Vec3& view_direction, const zima::kernel::Vec3& world_direction, double target_angle_degrees);
 

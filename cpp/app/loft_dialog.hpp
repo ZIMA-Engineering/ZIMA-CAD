@@ -1,5 +1,6 @@
 #pragma once
 #include "sweep_placement_dialog.hpp"
+#include "sweep_point_order_dialog.hpp"
 #include <zima/document/loft.hpp>
 #include <zima/document/general_surface.hpp>
 #include <zima/document/sketch_placement.hpp>
@@ -10,6 +11,7 @@
 #include <QFormLayout>
 #include <QHeaderView>
 #include <QLineEdit>
+#include <QPointer>
 #include <QSignalBlocker>
 #include <QSplitter>
 #include <QToolButton>
@@ -69,11 +71,13 @@ public:
             auto* table=new QTableWidget(0,5,group);tables_[guides?1:0]=table;
             table->setObjectName(guides?"loftGuides":"loftProfiles");
             table->setHorizontalHeaderLabels({tr("Č."),{}, {},guides?tr("Řídicí skica"):tr("Skica profilu"),{}});
+            if(!guides){table->setColumnCount(6);table->setHorizontalHeaderItem(5,new QTableWidgetItem(tr("Pořadí bodů")));}
             table->verticalHeader()->hide();table->verticalHeader()->setDefaultSectionSize(34);
             table->setSelectionMode(QAbstractItemView::NoSelection);table->setEditTriggers(QAbstractItemView::NoEditTriggers);
             ui::install_reference_cell_delegate(table);
             for(int column:{0,1,2,4}){table->horizontalHeader()->setSectionResizeMode(column,QHeaderView::Fixed);table->setColumnWidth(column,32);}
             table->horizontalHeader()->setSectionResizeMode(3,QHeaderView::Stretch);
+            if(!guides)table->horizontalHeader()->setSectionResizeMode(5,QHeaderView::ResizeToContents);
             table->setMinimumHeight(115);layout->addWidget(table,1);
             auto* ordering=new QHBoxLayout;
             for(bool down:{false,true}) {
@@ -169,13 +173,39 @@ public:
                     notify();
                 });
                 table->setCellWidget(row,4,ui::centered_cell_widget(eye));
+                if(!guides&&!id.empty()) {
+                    auto* button=new QPushButton(tr("Pořadí bodů"),table);
+                    button->setObjectName(QString("loftPointOrder%1").arg(row));
+                    button->setToolTip(tr("Určit první bod a zkontrolovat párování obvodu profilu."));
+                    table->setCellWidget(row,5,button);
+                    connect(button,&QPushButton::clicked,this,[this,id] {
+                        try {
+                            const auto owned=std::ranges::find_if(pending.loft.sketches,[&](const auto& value){return value.sketch_feature->id==id;});
+                            const auto found=pending.loft.correspondence_starts.find(id);
+                            const auto initial=found==pending.loft.correspondence_starts.end()?std::string{}:found->second;
+                            const QPointer<LoftDialog> self(this);
+                            const auto preview=[self,id](std::string point){if(self){
+                                if(point.empty())self->pending.loft.correspondence_starts.erase(id);
+                                else self->pending.loft.correspondence_starts[id]=std::move(point);
+                                self->notify();
+                            }};
+                            auto* editor=new SweepPointOrderDialog(sketcher::Sketch::from_serialized(owned->sketch_serialized),
+                                initial,preview,parentWidget(),pending.loft.result_type!=document::ProfileResultType::Solid);
+                            connect(editor,&QDialog::finished,this,[self,preview,initial](int result){if(self){
+                                if(result!=QDialog::Accepted)preview(initial);
+                                self->setProperty("loftCorrespondenceEditing",false);self->show();self->raise();self->notify();
+                            }});
+                            setProperty("loftCorrespondenceEditing",true);hide();editor->show();
+                        }catch(const std::exception& error){set_status(tr(error.what()));}
+                    });
+                }
             }
             update_moves(guides);
         }
     }
 protected:
     bool submit()override {
-        try{read_placement();document::validate_loft(pending);commit_(pending);return true;}
+        try{read_placement();document::validate_loft(pending,false);commit_(pending);return true;}
         catch(const std::exception& error){set_status(tr(error.what()));return false;}
     }
 private:
@@ -199,6 +229,7 @@ private:
         auto& values=family(guides);if(row<0||row>=static_cast<int>(values.size()))return;
         const auto id=values[row];inspected_.erase(id);if(ordered_[guides?1:0]==id)ordered_[guides?1:0].clear();
         values.erase(values.begin()+row);
+        pending.loft.correspondence_starts.erase(id);
         std::erase_if(pending.loft.sketches,[&](const auto& value){return value.sketch_feature->id==id;});
         set_active_reference_index({});refresh();notify();
     }

@@ -297,20 +297,23 @@ void verify_sweep_commands(const kernel::OcctKernel& kernel, const fs::path& dir
 }
 std::string add_route_point(Fixture& f, const kernel::OcctKernel& kernel,
         const std::string& route_owner, const document::ConstructionReference& anchor,
-        double distance) {
+        double distance,const std::string& route_key="placement-route:3d") {
     auto next=f.state().session.document();
     auto sketch=sketcher::Sketch::create_default();
     auto point=document::PartDocument::create_feature_container(sketch.id);
     sketch.owner_container_id=point.id;next.sketches.push_back(std::move(sketch));
     point.feature.type=document::FeatureType::Point;
-    point.placement.references={document::ConstructionReference{{},route_owner,"placement-route:3d"},anchor};
+    point.placement.references={document::ConstructionReference{{},route_owner,route_key},anchor};
     point.placement.references.back().station_mode=document::PlacementStationMode::Distance;
     point.placement.references.back().supports_offset=true;
     point.placement.references.back().offset=distance;
     const auto id=point.id;
     next.insert_history_entry(document::PartHistoryKind::Feature,id);next.history.push_back(point);
     auto calculated=workspace::calculate_part_with_resolved_references(kernel,next,&f.state().session.calculated_boundaries());
-    require(next.find_container(id)->placement.reference_valid,"Route Point fixture did not resolve");
+    if(!next.find_container(id)->placement.reference_valid) {
+        for(const auto& [owner,error]:next.reference_errors)std::cerr<<owner<<": "<<error<<'\n';
+        throw std::runtime_error("Route Point fixture did not resolve: "+route_owner+" / "+route_key);
+    }
     f.state().session.commit(std::move(next),std::move(calculated));return id;
 }
 void verify_trajectory_conversion(const kernel::OcctKernel& kernel, const fs::path& directory) {
@@ -358,6 +361,16 @@ void verify_trajectory_conversion(const kernel::OcctKernel& kernel, const fs::pa
     const auto revision = session.revision();
     workspace::convert_curve_to_sweep(f.live,kernel,id,std::move(sweep));
     std::cout<<"  Converted to Sweep\n"<<std::flush;
+    static_cast<void>(workspace::materialize_part_history_input_boundary(f.live,kernel,id,route_point));
+    const auto input=session.rollback_boundary(route_point);
+    require(input&&input->input_body&&!input->input_body->mesh.triangles.empty(),
+        "Point Properties input lost the preceding converted Sweep solid");
+    auto context=session.document().body_history;
+    const auto boundary=context.rollback_before(route_point);
+    context.activate(boundary.body_id);
+    context.set_history_cursor(boundary.body_id,boundary.entry_count);
+    require(!session.body_context_mesh(&context).triangles.empty(),
+        "Point Properties Body context hid the preceding converted Sweep solid");
     const auto& converted = session.document();
     require(session.revision()==revision+1 && converted.history_order.size()==initial_order.size() &&
                 !converted.find_construction(path_id) && converted.find_container(sweep_id),
@@ -392,6 +405,28 @@ void verify_trajectory_conversion(const kernel::OcctKernel& kernel, const fs::pa
     require(reopened.find_construction(path_id) && reopened.find_construction(path_id)->curve_points==original.curve_points &&
                 !reopened.find_container(sweep_id),
         "The saved converted path lost native points or retained the Sweep");
+}
+void verify_planar_point_route(const kernel::OcctKernel& kernel,const fs::path& directory) {
+    Fixture f(kernel,directory);f.run("new",{{"type","part"},{"name","planar-route-point"}});
+    auto sweep=test_support::sweep_fixture(document::FeatureKind::Sweep2D);
+    auto path=sketcher::Sketch::from_serialized(sweep.sweep2d.path_sketch);
+    static_cast<void>(path.add_segment(0,20,0,40));sweep.sweep2d.path_sketch=path.serialized();
+    const auto owner=f.live.active_document_id();
+    workspace::commit_sweep(f.live,kernel,owner,sweep,workspace::SweepEditMode::Create);
+    const auto route_key="placement-route:segment:"+path.segments.front().id;
+    document::ConstructionReference anchor{{},path.id,"point:"+path.segments.front().first_point_id,0.,true};
+    const auto point=add_route_point(f,kernel,path.id,anchor,23.,route_key);
+    auto& session=f.state().session;
+    require(session.document().find_container(point)->placement.reference_valid,"2D Sweep whole-route Point is unresolved");
+    const auto geometry=session.document().sketch_placement_reference_geometry(point);
+    require(std::ranges::any_of(geometry.edges,[&](const auto& edge){return edge.reference.owner_id==path.id&&edge.display_owner_id==sweep.id;}),
+        "2D Sweep axis has no authored path association");
+    require(kernel::placement_route_pieces(geometry.edges,path.id,route_key,{}).size()==2,"2D Sweep whole route omits a segment");
+    static_cast<void>(workspace::materialize_part_history_input_boundary(f.live,kernel,owner,point));
+    const auto boundary=session.rollback_boundary(point);
+    require(boundary&&boundary->input_body&&!boundary->input_body->mesh.triangles.empty(),"2D Sweep Point Properties hid its source solid");
+    if(const auto* output=std::getenv("ZIMA_VERIFY_ROUTE_FIXTURES"))session.document().save(fs::path(output)/"planar-sweep.prtz",session.calculated_boundaries());
+    std::cout<<"2D Sweep multi-segment route Point, source ownership and rollback solid passed\n";
 }
 void verify_helical_curve_conversion(const kernel::OcctKernel& kernel, const fs::path& directory) {
     std::cout<<"Whole-route Helical conversion fixture\n"<<std::flush;
@@ -1028,6 +1063,7 @@ int main(int argc,char** argv) {
         if(argc==2&&std::string_view(argv[1])=="--route-conversion") {
             verify_trajectory_conversion(kernel,directory);
             verify_helical_curve_conversion(kernel,directory);
+            verify_planar_point_route(kernel,directory);
             require(directory.parent_path()==root,"Unexpected cleanup path");fs::remove_all(directory);
             std::cout<<"3D/Helical whole-route Point conversion, native reopen and Undo/Redo passed\n";
             return 0;

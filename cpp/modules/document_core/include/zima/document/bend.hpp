@@ -3,6 +3,16 @@
 #include <zima/document/metadata.hpp>
 
 namespace zima::document {
+[[nodiscard]] bool sheet_attachment_at_midpoint(
+    const std::vector<ConstructionReference>& references);
+// Explicitly change the owned profile from endpoint offsets/contacts to its
+// own signed distances from the edge midpoint. Never run during regeneration.
+void center_sheet_attachment_profile(sketcher::Sketch&,bool flat);
+void restore_sheet_endpoint_profile(sketcher::Sketch&,bool flat);
+// Sheet edge attachment consumes the actual calculated input boundary, including
+// cut fragments, their joining faces and endpoints. No topology is reconstructed.
+[[nodiscard]] kernel::ViewerReferenceGeometry sheet_attachment_reference_geometry(
+    const kernel::ViewerMesh&);
 // Native sheet attachment consumes persisted adjacency and endpoint identities.
 [[nodiscard]] std::vector<ConstructionReference> bend_sheet_references(
     const kernel::ViewerEdge&, const kernel::VertexReference& start = {});

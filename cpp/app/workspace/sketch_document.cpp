@@ -100,8 +100,19 @@ void AssemblyWorkspaceWindow::accept_sketch_external_reference(
             (sketch_external_profile_active_||
              (candidate.geometry==viewer::CandidateGeometry::Display&&
               sketcher::is_edge_treatment_body_edge_key(source.semantic_key)));
-        auto reference=workspace::prepare_sketch_external_reference(workspace_,owner,pending,*kind,
-            source.owner_id,source.semantic_key,path,sketch_reference_draft_body_id(),section_dialog_!=nullptr,body_edge);
+        auto reference=[&] {
+            if(is_loft_profile_point_reference(source)) {
+                // Only real points of preceding owned profiles are published
+                // by this command-local draft context. Use the ordinary exact
+                // projection and persisted reference representation.
+                auto point=sketcher::Sketch::create_external_reference(sketcher::ExternalReferenceKind::Point);
+                point.source_document_id=owner;point.source_owner_id=source.owner_id;point.source_semantic_key=source.semantic_key;
+                workspace::populate_external_reference_cache(pending,point,loft_profile_reference_geometry_);
+                return point;
+            }
+            return workspace::prepare_sketch_external_reference(workspace_,owner,pending,*kind,
+                source.owner_id,source.semantic_key,path,sketch_reference_draft_body_id(),section_dialog_!=nullptr,body_edge);
+        }();
         if(candidate.kind==viewer::CandidateKind::Face&&!reference.infinite&&
            !(reference.exact_spline&&sketcher::external_reference_circle(reference)))
             throw std::runtime_error("Source face cannot be projected into the Sketch plane");

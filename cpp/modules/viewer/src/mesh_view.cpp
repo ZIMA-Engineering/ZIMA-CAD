@@ -1,4 +1,5 @@
 #include <zima/kernel/placement_route.hpp>
+#include <zima/viewer/sweep_axis_route.hpp>
 #include <zima/kernel/transition_edge_display.hpp>
 #include <zima/kernel/axis_display.hpp>
 #include <zima/kernel/feature_side_identity.hpp>
@@ -1830,12 +1831,14 @@ std::vector<ViewerCandidate> MeshView::selection_candidates_at(
         grouped.reserve(candidates.size()*2);
         for (const auto& candidate:candidates) {
             grouped.push_back(candidate);
-            if ((candidate.kind!=CandidateKind::Edge && candidate.kind!=CandidateKind::SketchSegment &&
-                 candidate.kind!=CandidateKind::SketchCurve) ||
-                !kernel::is_placement_route_member(candidate.semantic_key)) continue;
-            auto whole=candidate;
+            auto member=candidate;
+            if(const auto source=sweep_axis_route_source(candidate,impl_->mesh.original_references.edges))member=*source;
+            if ((member.kind!=CandidateKind::Edge && member.kind!=CandidateKind::SketchSegment &&
+                 member.kind!=CandidateKind::SketchCurve) ||
+                !kernel::is_placement_route_member(member.semantic_key)) continue;
+            auto whole=member;
             whole.kind=CandidateKind::Edge;
-            whole.semantic_key=kernel::placement_route_key(candidate.semantic_key);
+            whole.semantic_key=kernel::placement_route_key(member.semantic_key);
             if (std::ranges::none_of(grouped,[&](const auto& existing) {
                     return existing.owner_id==whole.owner_id && existing.instance_path==whole.instance_path &&
                         existing.semantic_key==whole.semantic_key;
@@ -1894,6 +1897,25 @@ std::vector<ViewerCandidate> MeshView::selection_candidates_at(
     std::erase_if(filtered, [&](const auto& candidate) {
         return !matches_selection_filter(candidate, impl_->selection_filter);
     });
+    if(impl_->offer_placement_routes) {
+        // Command priorities distinguish axes from edges. Group only after
+        // those priorities and all eligibility filters have been applied.
+        std::vector<ViewerCandidate> ordered;
+        ordered.reserve(filtered.size());
+        for(const auto& candidate:filtered) {
+            if(candidate.semantic_key.starts_with(kernel::placement_route_prefix))continue;
+            ordered.push_back(candidate);
+            auto member=candidate;
+            if(const auto source=sweep_axis_route_source(candidate,impl_->mesh.original_references.edges))member=*source;
+            if(!kernel::is_placement_route_member(member.semantic_key))continue;
+            const auto key=kernel::placement_route_key(member.semantic_key);
+            const auto same=[&](const auto& value){return value.owner_id==member.owner_id&&
+                value.instance_path==member.instance_path&&value.semantic_key==key;};
+            const auto route=std::ranges::find_if(filtered,same);
+            if(route!=filtered.end()&&std::ranges::none_of(ordered,same))ordered.push_back(*route);
+        }
+        filtered=std::move(ordered);
+    }
     return filtered;
 }
 
@@ -3996,6 +4018,7 @@ void MeshView::paintGL() {
                    (highlighted_plane->kind == CandidateKind::Plane &&
                     highlighted_plane->semantic_key == ref.semantic_key))));
             return !selected &&
+                !(ref.semantic_key=="border"&&impl_->feature_preview_owner_ids.contains(ref.owner_id)) &&
                 !impl_->constraint_reference_edges.contains(edge_key(ref));
         });
     glClear(GL_DEPTH_BUFFER_BIT);

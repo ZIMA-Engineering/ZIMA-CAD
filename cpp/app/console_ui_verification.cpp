@@ -71,6 +71,7 @@
 #include "drawing_window.hpp"
 #include <zima/drawing/measurement_dimension.hpp>
 #include "console_ui_verification.hpp"
+#include <zima/viewer/sweep_axis_route.hpp>
 #include "history_tree_widget.hpp"
 #include <QMenu>
 #include <QFileDialog>
@@ -893,11 +894,106 @@ static int verify_general_command_console(QApplication& application,AssemblyWork
             auto* view=dynamic_cast<zima::viewer::MeshView*>(window.findChild<QWidget*>("modelWorkspace"));
             auto* tree=window.findChild<QTreeWidget*>("documentTree");
             check(view&&tree,"Curve selection UI missing");
+            if(qEnvironmentVariableIsSet("ZIMA_VERIFY_POINT_SWEEP_CONTEXT")) {
+                const auto source=document::PartDocument::load(std::filesystem::path(qEnvironmentVariable("ZIMA_VERIFY_CURVE_SELECTION").toStdString()));
+                const auto point=std::ranges::find_if(source.history,[](const auto& c){return c.feature_kind==document::FeatureKind::Feature&&c.feature.type==document::FeatureType::Point;});
+                check(point!=source.history.end(),"Sweep context fixture has no Point");
+                check(!view->mesh().triangles.empty(),"Sweep context fixture has no visible solid");
+                const auto tree_row=[&](const std::string& id,const char* role)->QTreeWidgetItem* {
+                    for(QTreeWidgetItemIterator it(tree);*it;++it)if((*it)->data(0,Qt::UserRole).toString().toStdString()==id&&(*it)->data(0,Qt::UserRole+3)==role)return *it;
+                    return nullptr;
+                };
+                const auto sweep=std::ranges::find_if(source.history,[](const auto& c){return c.feature_kind==document::FeatureKind::Sweep3D;});
+                if(sweep!=source.history.end()) {
+                    auto* row=tree_row(sweep->id,"part-container");check(row,"3D Sweep Tree row missing");
+                    window.show_tree_item_properties(row);flush();
+                    auto* trajectory=dynamic_cast<ConstructionPropertiesDialog*>(window.findChild<QWidget*>("constructionPropertiesDialog"));
+                    if(!trajectory)for(auto* widget:window.findChildren<QWidget*>())if(auto* candidate=dynamic_cast<ConstructionPropertiesDialog*>(widget);candidate&&candidate->isVisible())trajectory=candidate;
+                    check(trajectory,"3D Sweep Properties missing");
+                    trajectory->findChild<QComboBox*>("trajectoryFeatureType")->setCurrentIndex(0);flush();
+                    trajectory->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+                    row=tree_row(sweep->sweep3d.path.id,"part-construction");check(row,"Sweep conversion did not restore its Curve Tree row");
+                    view->set_standard_view(viewer::StandardView::Isometric);view->fit_all();flush();
+                    QEventLoop curve_settle;QTimer::singleShot(950,&curve_settle,&QEventLoop::quit);curve_settle.exec();
+                    std::optional<QPoint> curve_hit;
+                    for(int y=10;y<view->height()-10&&!curve_hit;y+=3)for(int x=10;x<view->width()-10&&!curve_hit;x+=3) {
+                        const auto offered=view->selection_candidates_at(QPointF(x,y));
+                        if(!offered.empty()&&offered.front().owner_id==sweep->sweep3d.path.id)curve_hit=QPoint(x,y);
+                    }
+                    check(curve_hit.has_value(),"Converted Curve has no selectable View target");
+                    for(auto type:{QEvent::MouseButtonPress,QEvent::MouseButtonRelease}) {
+                        QMouseEvent event(type,QPointF(*curve_hit),QPointF(view->mapToGlobal(*curve_hit)),Qt::LeftButton,type==QEvent::MouseButtonPress?Qt::LeftButton:Qt::NoButton,Qt::NoModifier);
+                        QApplication::sendEvent(view,&event);flush();
+                    }
+                    bool view_action=false;
+                    QTimer::singleShot(0,&window,[&]{if(auto* menu=qobject_cast<QMenu*>(QApplication::activePopupWidget())) {
+                        view_action=menu->findChild<QAction*>("curve3DSweepAction")!=nullptr;menu->close();
+                    }});
+                    QMouseEvent context(QEvent::MouseButtonPress,QPointF(*curve_hit),QPointF(view->mapToGlobal(*curve_hit)),Qt::RightButton,Qt::RightButton,Qt::NoModifier);
+                    QApplication::sendEvent(view,&context);flush();check(view_action,"3D Curve View context omitted 3D Sweep");
+                    for(auto* parent=row->parent();parent;parent=parent->parent())parent->setExpanded(true);
+                    tree->setCurrentItem(row);tree->scrollToItem(row);flush();bool offered=false;
+                    QTimer::singleShot(0,&window,[&]{
+                        auto* menu=qobject_cast<QMenu*>(QApplication::activePopupWidget());if(!menu)return;
+                        auto* action=menu->findChild<QAction*>("curve3DSweepAction");
+                        if(!action){menu->close();return;}offered=true;menu->setActiveAction(action);
+                        QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);QApplication::sendEvent(menu,&enter);
+                    });
+                    tree->customContextMenuRequested(tree->visualItemRect(row).center());flush();
+                    check(offered,"3D Curve context menu omitted 3D Sweep");trajectory=nullptr;
+                    for(auto* widget:window.findChildren<QWidget*>())if(auto* candidate=dynamic_cast<ConstructionPropertiesDialog*>(widget);candidate&&candidate->isVisible())trajectory=candidate;
+                    check(trajectory&&trajectory->sweep_mode(),"3D Sweep context action did not select Sweep mode");
+                    // Create the profile row through the same station action
+                    // as the user; an empty Curve owns no Sweep profiles yet.
+                    trajectory->set_sweep_profile_edit_request_callback([](std::size_t){});
+                    qobject_cast<QPushButton*>(trajectory->findChild<QTableWidget*>("sweep3DProfiles")->cellWidget(0,1))->click();flush();
+                    trajectory->set_sweep_profile_sketch(0,sketcher::Sketch::from_serialized(sweep->sweep3d.profiles.front().sketch_serialized));
+                    const auto converted_id=trajectory->pending_sweep_value().id;
+                    trajectory->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+                    check(!view->mesh().triangles.empty(),"Live Curve to Sweep conversion lost its solid");
+                    const auto selection_state=run("documents").data;
+                    view->set_standard_view(viewer::StandardView::Isometric);view->fit_all();flush();
+                    QEventLoop settle;QTimer::singleShot(950,&settle,&QEventLoop::quit);settle.exec();
+                    std::optional<QPoint> hit;
+                    for(int y=10;y<view->height()-10&&!hit;y+=3)for(int x=10;x<view->width()-10&&!hit;x+=3) {
+                        const auto choices=view->selection_candidates_at(QPointF(x,y));
+                        if(!choices.empty()&&choices.front().owner_id==converted_id)hit=QPoint(x,y);
+                    }
+                    check(hit.has_value(),"Converted Sweep has no selectable View geometry");
+                    const auto mouse=[&](QEvent::Type type) {
+                        QMouseEvent event(type,QPointF(*hit),QPointF(view->mapToGlobal(*hit)),Qt::LeftButton,
+                            type==QEvent::MouseButtonRelease?Qt::NoButton:Qt::LeftButton,Qt::NoModifier);
+                        QApplication::sendEvent(view,&event);flush();
+                    };
+                    mouse(QEvent::MouseButtonPress);mouse(QEvent::MouseButtonRelease);
+                    check(tree_row(converted_id,"part-container")->isSelected(),"Sweep View selection lost Tree synchronization");
+                    check(std::ranges::none_of(view->mesh().dimensions,[&](const auto& d){return d.reference.owner_id==converted_id;}),"Sweep single click exposed dimensions");
+                    mouse(QEvent::MouseButtonDblClick);mouse(QEvent::MouseButtonRelease);
+                    check(std::ranges::any_of(view->container_inspection_wire(),[](const auto& edge){return edge.reference.semantic_key.starts_with("curve:segment:");}),
+                        "Selected 3D Sweep authored wire omitted its entire path");
+                    check(run("documents").data==selection_state,"Sweep selection or inspection modified the document");
+                }
+                const auto before=run("documents").data;
+                for(int repeat=0;repeat<3;++repeat) {
+                    QTreeWidgetItem* row{};
+                    for(QTreeWidgetItemIterator it(tree);*it;++it)if((*it)->data(0,Qt::UserRole).toString().toStdString()==point->id&&(*it)->data(0,Qt::UserRole+3)=="part-container"){row=*it;break;}
+                    check(row,"Route Point Tree row missing");window.show_tree_item_properties(row);flush();
+                    auto* dialog=dynamic_cast<PrimitivePropertiesDialog*>(window.findChild<QWidget*>("featurePropertiesDialog"));
+                    check(dialog,"Route Point Properties missing");
+                    check(!view->mesh().triangles.empty(),"Opening Point Properties hid the preceding Sweep solid");
+                    dialog->reject();flush();
+                    check(!view->mesh().triangles.empty()&&run("documents").data==before,"Point Properties Cancel changed the solid or document");
+                }
+                std::cout<<"Repeated route Point Properties retain the preceding Sweep solid and Cancel state\n";return 0;
+            }
             if(qEnvironmentVariableIsSet("ZIMA_VERIFY_SWEEP_ROUTE_ENTRY")) {
                 const auto source=document::PartDocument::load(std::filesystem::path(qEnvironmentVariable("ZIMA_VERIFY_CURVE_SELECTION").toStdString()));
-                const auto sweep=std::ranges::find_if(source.history,[](const auto& c){return c.feature_kind==document::FeatureKind::Sweep3D||c.feature_kind==document::FeatureKind::HelicalSweep;});
+                const auto sweep=std::ranges::find_if(source.history,[](const auto& c){return c.feature_kind==document::FeatureKind::Sweep3D||c.feature_kind==document::FeatureKind::Sweep2D||c.feature_kind==document::FeatureKind::HelicalSweep;});
                 check(sweep!=source.history.end(),"Route entry fixture has no Sweep");
-                const auto owner=sweep->feature_kind==document::FeatureKind::Sweep3D?sweep->sweep3d.path.entity_id:sweep->id;
+                const bool planar=sweep->feature_kind==document::FeatureKind::Sweep2D;
+                const auto path_sketch=planar?std::optional{sketcher::Sketch::from_serialized(sweep->sweep2d.path_sketch)}:std::nullopt;
+                const auto owner=planar?path_sketch->id:sweep->feature_kind==document::FeatureKind::Sweep3D?sweep->sweep3d.path.entity_id:sweep->id;
+                const auto route_key=planar?"placement-route:segment:"+path_sketch->segments.front().id:std::string("placement-route:3d");
                 const auto before=run("documents").data;
                 auto* action=window.findChild<QAction*>("featureShortcut0Action");check(action&&action->isEnabled(),"Point action unavailable");action->trigger();flush();
                 auto* dialog=dynamic_cast<PrimitivePropertiesDialog*>(window.findChild<QWidget*>("featurePropertiesDialog"));check(dialog,"Point dialog missing");
@@ -907,8 +1003,10 @@ static int verify_general_command_console(QApplication& application,AssemblyWork
                 std::optional<QPoint> pixel;std::size_t route_index{};
                 for(int y=12;y<view->height()-12&&!pixel;y+=3)for(int x=12;x<view->width()-12&&!pixel;x+=3) {
                     const auto all=view->selection_candidates_at(QPointF(x,y));
-                    for(std::size_t i=0;i<all.size();++i)if(all[i].owner_id==owner&&all[i].semantic_key=="placement-route:3d") {
-                        check(i>0&&all[i-1].owner_id==owner&&kernel::is_placement_route_member(all[i-1].semantic_key),"Sweep whole route is not immediately after its segment");
+                    for(std::size_t i=0;i<all.size();++i)if(all[i].owner_id==owner&&all[i].semantic_key==route_key) {
+                        const auto axis_source=i?viewer::sweep_axis_route_source(all[i-1],view->mesh().original_references.edges):std::nullopt;
+                        check(i>0&&((all[i-1].owner_id==owner&&kernel::is_placement_route_member(all[i-1].semantic_key))||axis_source),"Sweep whole route is not immediately after its segment");
+                        if((planar||sweep->feature_kind==document::FeatureKind::Sweep3D)&&!axis_source)continue;
                         pixel=QPoint(x,y);route_index=i;break;
                     }
                 }
@@ -918,9 +1016,9 @@ static int verify_general_command_console(QApplication& application,AssemblyWork
                 };
                 send(QEvent::MouseMove,Qt::NoButton,Qt::NoButton);
                 for(std::size_t i=0;i<route_index;++i){send(QEvent::MouseButtonPress,Qt::RightButton,Qt::RightButton);send(QEvent::MouseButtonRelease,Qt::RightButton,Qt::NoButton);}
-                check(view->hovered_candidate()&&view->hovered_candidate()->owner_id==owner&&view->hovered_candidate()->semantic_key=="placement-route:3d","RMB did not offer the authored Sweep route");
+                check(view->hovered_candidate()&&view->hovered_candidate()->owner_id==owner&&view->hovered_candidate()->semantic_key==route_key,"RMB did not offer the authored Sweep route");
                 send(QEvent::MouseButtonPress,Qt::LeftButton,Qt::LeftButton);send(QEvent::MouseButtonRelease,Qt::LeftButton,Qt::NoButton);
-                check(!dialog->pending_value().placement.references.empty()&&dialog->pending_value().placement.references.front().owner_id==owner&&dialog->pending_value().placement.references.front().semantic_key=="placement-route:3d","Point entry replaced the retained route identity");
+                check(!dialog->pending_value().placement.references.empty()&&dialog->pending_value().placement.references.front().owner_id==owner&&dialog->pending_value().placement.references.front().semantic_key==route_key,"Point entry replaced the retained route identity");
                 dialog->reject();flush();check(run("documents").data==before,"Cancelled route entry changed the document");
                 std::cout<<"Sweep Point entry: authored segment/whole-route order, actual hover/RMB/LMB, retained identity and Cancel passed\n";return 0;
             }

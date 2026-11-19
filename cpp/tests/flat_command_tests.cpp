@@ -1,8 +1,15 @@
 #include <zima/command_host/host.hpp>
 #include <zima/document/flat.hpp>
 #include <zima/document/bend.hpp>
+#include <zima/document/placement_reference_geometry.hpp>
 #include <zima/workspace/flat_operations.hpp>
+#include <zima/workspace/profile_operations.hpp>
+#include <zima/workspace/sheet_profile_operations.hpp>
+#include <zima/workspace/model_calculation.hpp>
+#include <zima/workspace/operation_input.hpp>
+#include <zima/document/sheet_profile.hpp>
 #include <zima/kernel/calculated_body_shape.hpp>
+#include <zima/kernel/sheet_attachment_reference.hpp>
 #include <TopExp_Explorer.hxx>
 #include <TopoDS_Shape.hxx>
 #include <zima/workspace/sketch_operations.hpp>
@@ -38,7 +45,7 @@ std::pair<double,double> span(const std::vector<kernel::Vec3>& vertices,const sk
     }return {lo,hi};
 }
 void verify_default_attached_profile() {
-    for(bool reverse:{false,true})for(double start:{-40.,0.,17.}) {
+    for(bool centered:{false,true})for(bool reverse:{false,true})for(double start:{-40.,0.,17.}) {
         auto sketch=sketcher::Sketch::create_default();
         for(int i=0;i<2;++i) {
             sketcher::SketchExternalReference ref;
@@ -52,6 +59,7 @@ void verify_default_attached_profile() {
         check(sketch.points.size()==4&&sketch.segments.size()==4&&sketch.dimensions.size()==1,"Default Flat is not a dimensioned rectangle");
         const auto initial=sketch.serialized();
         check(!workspace::initialize_attached_flat_profile(sketch)&&sketch.serialized()==initial,"Default Flat replaced an existing profile");
+        if(centered)document::center_sheet_attachment_profile(sketch,true);
         const auto height=sketch.dimensions.front().id;
         const auto supports=sketch.external_references;
         auto final_scene_refresh=sketch;
@@ -75,6 +83,10 @@ void verify_default_attached_profile() {
                 near(point->x,ref->cached_points.front()[0]);near(point->y,ref->cached_points.front()[1]);
             }
             check(s.external_references==supports,"Default Flat changed read-only supports");
+            if(centered)for(const auto& d:s.dimensions)if(d.id==s.id+":midpoint:first"||d.id==s.id+":midpoint:last") {
+                const auto* point=s.find_point(d.second_point_id);check(point,"Midpoint dimension lost its native point");
+                near(point->y,0.);near(point->x,d.value);
+            }
         };
         equations(sketch,50);
         check(sketch.solve().remaining_degrees_of_freedom==0,"Dimensioned Flat is not fully constrained");
@@ -116,6 +128,58 @@ void verify_default_attached_profile() {
             for(double value:{60.,40.,50.}){check(alternate.set_dimension_value(dimension.id,value),"Alternate Flat height dimension edit failed");equations(alternate,value);}
         }
     }
+}
+void verify_midpoint_profile_dimensions() {
+    for(bool flat:{false,true}) {
+        auto initial=sketcher::Sketch::create_default();
+        if(flat) {
+            for(bool last:{false,true}) {
+                sketcher::SketchExternalReference ref;
+                ref.id=initial.id+(last?":flat-attachment:last":":flat-attachment:first");
+                ref.kind=sketcher::ExternalReferenceKind::Point;
+                ref.source_document_id="source";ref.source_owner_id="sheet";
+                ref.source_semantic_key=last?"end:last":"end:first";
+                ref.cached_points={{{last?40.:0.,0.}}};initial.external_references.push_back(ref);
+            }
+            check(workspace::initialize_attached_flat_profile(initial),"Cannot prepare midpoint Flat");
+        } else document::initialize_bend_start_profile(initial,40.);
+        document::center_sheet_attachment_profile(initial,flat);
+        for(bool last:{false,true})for(bool reverse:{false,true})
+            for(auto kind:{sketcher::DimensionKind::DistanceX,sketcher::DimensionKind::Distance}) {
+                auto s=initial;
+                const auto id=s.id+(flat?":midpoint":":position")+(last?":last":":first");
+                const auto old=*std::ranges::find(s.dimensions,id,&sketcher::SketchDimension::id);
+                s.remove_dimension(id);
+                auto d=s.create_point_dimension(reverse?old.second_point_id:"sketch_origin",
+                    reverse?"sketch_origin":old.second_point_id,kind);
+                s.apply_dimension(d);
+                const auto supports=s.external_references;
+                for(double length:{12.,18.,20.}) {
+                    const double signed_value=kind==sketcher::DimensionKind::Distance?length:
+                        (last?length:-length);
+                    check(s.set_dimension_value(d.id,signed_value),"Midpoint dimension cannot be edited");
+                    near(s.find_point(old.second_point_id)->x,last?length:-length);
+                    near(s.find_point(old.second_point_id)->y,0.);
+                    check(s.solve().maximum_residual<1e-8&&s.external_references==supports,"Midpoint edit changed its equations or source");
+                    s=sketcher::Sketch::from_serialized(s.serialized());
+                }
+                auto locked=s;for(auto& dimension:locked.dimensions)if(dimension.driving)dimension.locked=true;
+                const auto point=*locked.find_point(old.second_point_id);
+                static_cast<void>(locked.move_point(point.id,point.x+3,point.y+4));
+                near(locked.find_point(point.id)->x,point.x);near(locked.find_point(point.id)->y,point.y);
+                auto reference=s;
+                auto& dimension=*std::ranges::find(reference.dimensions,d.id,&sketcher::SketchDimension::id);
+                dimension.driving=false;dimension.locked=false;
+                check(reference.solve().remaining_degrees_of_freedom==1,"Midpoint reference dimension constrains its point");
+                for(double length:{14.,23.,20.}) {
+                    check(reference.move_point(point.id,last?length:-length,0.),"Midpoint free point cannot move");
+                    near(reference.find_point(point.id)->x,last?length:-length);
+                    near(reference.find_point(point.id)->y,0.);
+                    check(reference.solve().maximum_residual<1e-8&&reference.external_references==supports,"Midpoint drag changed its equations or source");
+                }
+            }
+    }
+    std::cout<<"Midpoint Flat/Bend dimensions: X/distance, both orders/sides, repeated edits/drags, reference/locked states and Sketch reopen passed\n";
 }
 void verify_flat_to_flat_attachment(std::filesystem::path directory) {
     kernel::OcctKernel kernel;
@@ -189,6 +253,213 @@ void verify_flat_to_flat_attachment(std::filesystem::path directory) {
         }
     }
     std::cout<<"Flat-on-Flat: all four edges, both endpoint origins and coplanar orientation passed\n";
+}
+void verify_cut_edge_attachment(std::filesystem::path directory,bool placed_body=false) {
+    kernel::OcctKernel kernel;
+    workspace::Workspace seed;
+    command_host::Options options;
+    options.settings=[] {command_host::Settings s;s.templates={std::filesystem::absolute("config/templates"),"START_PART_mm.prtz","START_ASSEMBLY_mm.asmz","Body"};return s;};
+    command_host::Host seed_host(seed,kernel,directory,options);
+    run(seed_host,"new",{{"type","part"},{"name","cut-edge-attachment"}});
+    const auto id=seed.active_document_id();
+    run(seed_host,"flat.create",{{"width_mm",40.},{"height_mm",30.},{"thickness_mm",1.}});
+    auto* source=seed.open_part(id);
+    auto cut=document::PartDocument::create_sketch_container();
+    cut.feature_kind=document::FeatureKind::Extrusion;cut.name="Notch";
+    cut.combine_mode=document::CombineMode::Subtract;cut.extrusion.sheet_cut=true;
+    cut.extrusion.end_condition_forward=document::EndCondition::ThroughAll;
+    cut.extrusion.end_condition_reverse=document::EndCondition::ThroughAll;
+    cut.extrusion.extent_mode=document::ProfileExtentMode::TwoSides;
+    auto sketch=sketcher::Sketch::create_default();sketch.owner_container_id=cut.id;
+    cut.extrusion.sketch_id=sketch.id;
+    static_cast<void>(sketch.add_rectangle(15,20,25,40));
+    workspace::commit_profile(seed,kernel,id,cut,workspace::ProfileEditMode::Create,sketch);
+    auto input=source->session.document();
+    auto cached=source->session.calculated_boundaries();
+    if(placed_body) {
+        auto graph=input.body_history;
+        auto body=*graph.find(graph.active_body_id());
+        body.scope.placement.x=23.;body.scope.placement.y=-17.;body.scope.placement.z=11.;
+        body.scope.placement.rotation_x=body.scope.placement.absolute_rotation_x=19.;
+        body.scope.placement.rotation_y=body.scope.placement.absolute_rotation_y=-31.;
+        body.scope.placement.rotation_z=body.scope.placement.absolute_rotation_z=47.;
+        graph.update_body(std::move(body));input.set_body_history(std::move(graph));
+        cached=workspace::calculate_part_with_resolved_references(kernel,input);
+    }
+    const auto& local=cached.back().body_boundaries.at(input.body_history.active_body_id()).get().back();
+    const auto geometry=document::sheet_attachment_reference_geometry(local.mesh);
+    std::vector<kernel::ViewerEdge> fragments;
+    for(const auto& edge:geometry.edges) {
+        if(edge.points.size()<2||!std::ranges::all_of(edge.points,[](const auto& p){return std::abs(p.y-30)<1e-7;}))continue;
+        try {static_cast<void>(document::flat_sheet_references(edge));fragments.push_back(edge);}
+        catch(const std::exception&) {}
+    }
+    check(fragments.size()==2,"Notch must leave two independent attachable top edges");
+    check(fragments[0].reference!=fragments[1].reference,"Cut fragments share one attachment identity");
+    near(measured_volume(kernel,cached.back()),1100.);
+    for(const auto& edge:fragments) {
+        // Recovery and rollback can temporarily end history at this Cut.
+        // Republishing that unchanged prefix must retain its exact trimmed
+        // references, including a requested midpoint, before extending again.
+        const auto references=document::flat_sheet_references(edge,
+            kernel::sheet_edge_midpoint_reference(edge.reference));
+        auto operations=input.kernel_operations();
+        auto suffix=operations.back();suffix.owner_id+="-suppressed-tail";
+        suffix.suppressed=true;operations.push_back(suffix);
+        kernel::HistoryOutputPolicy output;output.final_boundary_first=true;
+        for(const auto& reference:references)
+            output.reference_output_owners[cut.id].emplace(
+                reference.owner_id,reference.semantic_key,reference.instance_path);
+        kernel::OcctKernel prefix_kernel;
+        auto prefix=prefix_kernel.evaluate_history_recovering(operations,{},output);
+        for(int cycle=0;cycle<3;++cycle) {
+            auto shortened=operations;shortened.pop_back();
+            prefix=prefix_kernel.evaluate_history_recovering(shortened,prefix,output);
+            const auto& boundary=prefix.back().body_boundaries.at(
+                input.body_history.active_body_id()).back();
+            const document::PlacementReferenceGeometryIndex index(
+                boundary.mesh.original_references,references);
+            check(std::ranges::all_of(references,[&](const auto& r){return index.contains(r);}),
+                "Shortened Cut history lost exact attachment references");
+            prefix=prefix_kernel.evaluate_history_recovering(operations,prefix,output);
+        }
+        const auto a=edge.points.front(),b=edge.points.back();
+        near(std::hypot(b.x-a.x,b.y-a.y,b.z-a.z),15.);
+        for(int anchor=0;anchor<3;++anchor)for(int kind=0;kind<3;++kind) {
+            const bool last=anchor==1,center=anchor==2;
+            std::cout<<"Cut fragment "<<a.x<<" anchor="<<anchor<<" kind="<<kind<<std::endl;
+            workspace::Workspace live;live.add_part(input,cached);live.activate(id);
+            command_host::Host host(live,kernel,directory);
+            const auto before=live.open_part(id)->session.document().serialized();
+            std::string created;
+            if(kind<2) {
+                Json arguments{{"edge_owner",edge.reference.owner_id},{"edge_key",edge.reference.semantic_key},{"origin_last",last},{"origin_midpoint",center}};
+                if(center)arguments["width_mm"]=8.;
+                const auto result=run(host,kind==0?"flat.create":"bend.create",arguments);
+                created=result.data.at("container").get<std::string>();
+            } else {
+                auto profile=document::PartDocument::create_sketch_container();
+                profile.feature_kind=document::FeatureKind::SheetProfile;profile.name="Notch Profile";
+                auto route=sketcher::Sketch::create_default();route.owner_container_id=profile.id;
+                profile.sheet_profile.sketch_id=route.id;profile.sheet_profile.sheet_attachment=true;
+                profile.placement.references=document::bend_sheet_references(edge,
+                    center?kernel::sheet_edge_midpoint_reference(edge.reference):edge.edge_treatment_endpoint_references[last?1:0]);
+                if(center) {profile.sheet_profile.width.symmetric=true;profile.sheet_profile.width.sides[0].length=4.;}
+                profile.sheet_profile.start_point_id=document::initialize_attached_sheet_profile(route,1.);
+                created=profile.id;
+                check(workspace::commit_sheet_profile(live,kernel,id,std::move(profile),std::move(route)),
+                    "Profile on cut edge did not commit");
+            }
+            auto* state=live.open_part(id);
+            const auto* feature=state->session.document().find_container(created);
+            check(feature&&feature->placement.reference_valid,"Cut edge attachment is unresolved");
+            if(center) {
+                check(document::sheet_attachment_at_midpoint(feature->placement.references),"Midpoint identity was replaced");
+                near(feature->placement.x,(a.x+b.x)*.5);near(feature->placement.y,(a.y+b.y)*.5);near(feature->placement.z,(a.z+b.z)*.5);
+            }
+            check(feature->placement.references.front().owner_id==edge.reference.owner_id&&
+                feature->placement.references.front().semantic_key==edge.reference.semantic_key,
+                "Attachment replaced its selected cut fragment with the parent edge");
+            if(center) {
+                const auto revision=state->session.revision();
+                const auto shape=state->session.calculated_boundaries().back().kernel_shape;
+                const auto provenance=state->session.calculated_boundaries().back().calculation_provenance;
+                bool changed{};
+                if(kind<2)changed=run(host,kind==0?"flat.set":"bend.set",{{"container",created}}).data.at("changed");
+                else {
+                    const auto driver=std::ranges::find(state->session.document().sketches,
+                        feature->sheet_profile.sketch_id,&sketcher::Sketch::id);
+                    check(driver!=state->session.document().sketches.end(),"Midpoint Profile lost its driver");
+                    changed=workspace::commit_sheet_profile(live,kernel,id,*feature,*driver);
+                }
+                check(!changed&&state->session.revision()==revision&&
+                    shape.shares_with(state->session.calculated_boundaries().back().kernel_shape)&&
+                    provenance==state->session.calculated_boundaries().back().calculation_provenance,
+                    "Unchanged midpoint OK calculated geometry or changed the document");
+            }
+            const auto after=state->session.document().serialized();
+            const auto volume=measured_volume(kernel,state->session.calculated_boundaries().back());
+            check(state->session.calculated_boundaries().back().calculation_errors.empty()&&volume>1100,
+                "Attachment on cut edge failed to add material");
+            if(kind==0)near(volume,1100+(center?8:15)*30);
+            run(host,"undo");
+            auto undone=state->session.document().serialized(),expected=before;
+            // Dimension numbers are deliberately never reused after Undo.
+            for(const auto& entry:before.at("dimension_identifiers").at("entries"))
+                check(std::ranges::find(undone.at("dimension_identifiers").at("entries"),entry)!=
+                    undone.at("dimension_identifiers").at("entries").end(),"Undo renumbered an existing dimension");
+            for(const auto* key:{"dimension_identifiers","calculation_definition_fingerprint"}) {undone.erase(key);expected.erase(key);}
+            check(undone==expected,"Cut attachment Undo changed its input");
+            run(host,"redo");check(state->session.document().serialized()==after,"Cut attachment Redo changed its references");
+            const auto path=directory/("cut-attachment-"+std::to_string(kind)+(center?"-midpoint":last?"-last":"-first")+".prtz");
+            state->session.document().save(path,state->session.calculated_boundaries());
+            std::vector<kernel::BodyResult> reopened_cache;
+            auto reopened=document::PartDocument::load(path,&reopened_cache);
+            check(reopened.serialized()==after,"Cut attachment save/reopen changed its definition");
+            const auto regenerated=workspace::calculate_part_with_resolved_references(kernel,reopened,&reopened_cache);
+            check(regenerated.back().calculation_errors.empty()&&reopened.find_container(created)->placement.reference_valid,
+                "Cut attachment failed regeneration after reopening");
+            near(measured_volume(kernel,regenerated.back()),volume);
+            if(center) {
+                const auto own_width=[&](const document::PartDocument& part) {
+                    const auto* attached=part.find_container(created);
+                    const auto owner=kind==2?attached->sheet_profile.master_feature_id:created;
+                    const auto profile=std::ranges::find(part.sketches,owner,&sketcher::Sketch::owner_container_id);
+                    check(profile!=part.sketches.end(),"Midpoint feature lost its owned profile");
+                    double lo=INFINITY,hi=-INFINITY;
+                    for(const auto& p:profile->points){lo=std::min(lo,p.x);hi=std::max(hi,p.x);}
+                    near(hi-lo,8.);near(lo,-4.);near(hi,4.);
+                };
+                own_width(reopened);
+                for(double source_width:{46.,34.,40.}) {
+                    auto base=input.history.front();
+                    auto base_sketch=*std::ranges::find(input.sketches,base.flat.sketch_id,&sketcher::Sketch::id);
+                    for(auto& point:base_sketch.points)if(std::abs(point.x-40.)<1e-8)point.x=source_width;
+                    check(workspace::commit_flat(live,kernel,id,base,base_sketch),"Source width edit did not commit");
+                    const auto& changed=state->session.document();
+                    const auto* attached=changed.find_container(created);
+                    if(!attached->placement.reference_valid) {
+                        state->session.document().save(directory/"broken-center.prtz",state->session.calculated_boundaries());
+                        std::cerr<<"Midpoint source width="<<source_width<<" kind="<<kind<<" parent="<<created<<'\n';
+                        for(const auto& [owner,error]:state->session.calculated_boundaries().back().calculation_errors)std::cerr<<owner<<": "<<error<<'\n';
+                        throw std::runtime_error("Source length change broke its midpoint reference");
+                    }
+                    const auto* boundary=workspace::calculated_operation_input(state->session,created);
+                    check(boundary,"Midpoint attachment lost its input boundary");
+                    const auto actual=std::ranges::find(boundary->mesh.edges,edge.reference,&kernel::ViewerEdge::reference);
+                    check(actual!=boundary->mesh.edges.end(),"Source length edit changed the cut fragment identity");
+                    const auto p=actual->points.front(),q=actual->points.back();
+                    near(attached->placement.x,(p.x+q.x)*.5);near(attached->placement.y,(p.y+q.y)*.5);near(attached->placement.z,(p.z+q.z)*.5);
+                    own_width(changed);
+                    check(state->session.calculated_boundaries().back().calculation_errors.empty(),"Midpoint source edit failed material calculation");
+                }
+                auto lost=state->session.document();
+                const auto retained=lost.find_container(created)->placement;
+                const auto retained_sketches=lost.sketches;
+                lost.find_container(edge.reference.owner_id)->suppressed=true;
+                auto lost_cache=workspace::calculate_part_with_resolved_references(kernel,lost,
+                    &state->session.calculated_boundaries());
+                const auto broken=lost.find_container(created)->placement;
+                check(!broken.reference_valid,"Deleted midpoint source remained resolved");
+                near(broken.x,retained.x);near(broken.y,retained.y);near(broken.z,retained.z);
+                near(broken.rotation_x,retained.rotation_x);near(broken.rotation_y,retained.rotation_y);near(broken.rotation_z,retained.rotation_z);
+                for(const auto& sketch:lost.sketches)if(sketch.owner_container_id==created) {
+                    const auto old=std::ranges::find(retained_sketches,sketch.id,&sketcher::Sketch::id);
+                    check(old!=retained_sketches.end()&&old->resolved_origin==sketch.resolved_origin&&
+                        old->resolved_x_axis==sketch.resolved_x_axis&&old->resolved_y_axis==sketch.resolved_y_axis,
+                        "Broken midpoint source moved its Sketch frame");
+                }
+                const auto broken_file=directory/("lost-midpoint-"+std::to_string(kind)+".prtz");
+                lost.save(broken_file,lost_cache);lost=document::PartDocument::load(broken_file,&lost_cache);
+                check(lost.find_container(created)->placement==broken,"Broken midpoint frame changed on reopen");
+                lost.find_container(edge.reference.owner_id)->suppressed=false;
+                auto repaired=workspace::calculate_part_with_resolved_references(kernel,lost,&lost_cache);
+                check(lost.find_container(created)->placement.reference_valid&&repaired.back().calculation_errors.empty(),"Midpoint source repair failed");
+                own_width(lost);
+            }
+        }
+    }
+    std::cout<<"Cut edge attachment: two fragments, both endpoints, Flat/Bend/Profile, native reopen, regeneration and Undo/Redo passed\n";
 }
 void verify_bend_attachment(const std::filesystem::path& directory) {
     kernel::OcctKernel kernel;
@@ -616,6 +887,6 @@ void verify_ellipse_regions() {
 int main() {
     const auto directory=std::filesystem::temp_directory_path()/("zima-flat-"+std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     std::filesystem::create_directories(directory);
-    try{verify_default_attached_profile();verify_flat_to_flat_attachment(directory);verify_revolution_attachment(directory);verify_bend_attachment(directory);verify_attached_history(directory);verify(directory);verify_ellipse_regions();std::filesystem::remove_all(directory);std::cout<<"Flat geometry, directions, defaults, topology and history passed\n";return 0;}
+    try{verify_default_attached_profile();verify_midpoint_profile_dimensions();verify_cut_edge_attachment(directory);verify_cut_edge_attachment(directory,true);verify_flat_to_flat_attachment(directory);verify_revolution_attachment(directory);verify_bend_attachment(directory);verify_attached_history(directory);verify(directory);verify_ellipse_regions();std::filesystem::remove_all(directory);std::cout<<"Flat geometry, directions, defaults, topology and history passed\n";return 0;}
     catch(const std::exception& e){std::cerr<<e.what()<<"; fixture: "<<directory<<'\n';return 1;}
 }

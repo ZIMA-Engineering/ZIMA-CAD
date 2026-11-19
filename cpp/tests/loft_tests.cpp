@@ -63,6 +63,61 @@ LoftRequest rectangle(bool guided,bool open=false) {
 }
 int main(){try{
  OcctKernel kernel;
+ unsigned numbered_thin_valid{},numbered_thin_existing_rejections{};
+ for(bool guided:{false,true})for(bool open:{false,true})for(auto side:{SurfaceThicknessSide::First,SurfaceThicknessSide::Second,SurfaceThicknessSide::Symmetric}) {
+  auto request=rectangle(guided,open);request.match_profile_vertices=true;request.thin=true;request.thickness=.5;request.thickness_side=side;request.make_solid=true;
+  if(guided&&open) {request.guides.erase(request.guides.begin()+1);request.guide_owners.erase(request.guide_owners.begin()+1);}
+  std::cout<<"Numbered Thin guided="<<guided<<" open="<<open<<" side="<<static_cast<unsigned>(side)<<std::endl;
+  std::optional<BodyResult> body;std::string failure;
+  try {body=kernel.evaluate_history({{"loft",request}}).back();if(!body->calculation_errors.empty()){failure=body->calculation_errors.begin()->second;body.reset();}}
+  catch(const std::exception& error){failure=error.what();}
+  if(!body) {
+   auto baseline=request;baseline.match_profile_vertices=false;bool rejected=false;
+   try {rejected=!kernel.evaluate_history({{"loft",baseline}}).back().calculation_errors.empty();}catch(const std::exception&){rejected=true;}
+   require(rejected,"Numbered thin/open Loft regressed a supported automatic profile");
+   std::cout<<"Both numbered and automatic Thin reject this case: "<<failure<<std::endl;++numbered_thin_existing_rejections;
+  }else {
+   require(BRepCheck_Analyzer(read_calculated_body_shape(*body)).IsValid(),"Numbered thin/open Loft B-Rep invalid");++numbered_thin_valid;
+  }
+ }
+ std::cout<<"Twelve numbered Thin cases: "<<numbered_thin_valid<<" valid, "<<numbered_thin_existing_rejections<<" existing automatic-path rejections"<<std::endl;
+ for(bool guided:{false,true}) {
+  auto request=rectangle(guided);request.match_profile_vertices=true;
+  auto body=kernel.evaluate_history({{"loft",request}}).back();
+  for(const auto& [owner,error]:body.calculation_errors)std::cerr<<error<<std::endl;
+  require(body.calculation_errors.empty(),"Numbered rectangle Loft failed");
+  require(BRepCheck_Analyzer(read_calculated_body_shape(body)).IsValid(),"Numbered Loft B-Rep invalid");
+  kernel.ensure_body_properties(body);near(body.volume,2000);
+  if(guided) {
+   auto& curve=std::get<ExtrusionRequest::CurvedProfile>(request.guides.front().outer_profile);
+   std::get<ExtrusionRequest::LineCurve>(curve.curves.front()).end.x=5;
+   bool rejected=false;
+   try {rejected=!kernel.evaluate_history({{"loft",request}}).back().calculation_errors.empty();}
+   catch(const std::exception&){rejected=true;}
+   require(rejected,"Side guide between unrelated numbered points was accepted");
+  }
+  std::cout<<"Numbered rectangle guided "<<guided<<" passed"<<std::endl;
+ }
+ for(bool reverse:{false,true})for(bool elliptical:{false,true}) {
+  auto request=rectangle(false);request.profiles.resize(2);request.profile_owners.resize(2);
+  auto& smooth=request.profiles[reverse?0:1];const double z=reverse?0.:5.;
+  smooth.outer_vertex_source_ids.clear();smooth.outer_edge_source_ids={"smooth"};
+  if(elliptical)smooth.outer_profile=ExtrusionRequest::EllipseProfile{{5,10,z},{1,0,0},8,5};
+  else smooth.outer_profile=ExtrusionRequest::CircleProfile{{5,10,z},8};
+  auto result=kernel.evaluate_history({{"loft",request}}).back();
+  for(const auto& error:result.calculation_errors)std::cerr<<error.second<<std::endl;
+  require(result.calculation_errors.empty(),"Polygon/smooth Loft failed");
+  require(BRepCheck_Analyzer(read_calculated_body_shape(result)).IsValid(),"Polygon/smooth Loft is not a valid B-Rep");
+  kernel.ensure_body_properties(result);require(result.volume>0,"Polygon/smooth Loft has no material");
+  OcctKernel fresh;auto rebuilt=fresh.evaluate_history({{"loft",request}}).back();
+  require(rebuilt.calculation_errors.empty()&&identities(result)==identities(rebuilt),"Polygon/smooth Loft cold regeneration changed ancestry");
+  std::set<std::string> edge_ids,point_ids;
+  for(const auto& edge:result.mesh.original_references.edges)if(edge.reference.owner_id=="loft")
+   require(edge_ids.insert(edge.reference.semantic_key).second,"Polygon/smooth Loft edge identity is ambiguous");
+  for(const auto& point:result.mesh.original_references.points)if(point.reference.owner_id=="loft")
+   require(point_ids.insert(point.reference.semantic_key).second,"Polygon/smooth Loft point identity is ambiguous");
+  std::cout<<"polygon/smooth reverse "<<reverse<<" ellipse "<<elliptical<<" passed"<<std::endl;
+ }
  for(bool guided:{false,true})for(bool cone:{false,true}) {
   auto request=cylinder(guided,cone);
   const auto started=std::chrono::steady_clock::now();
