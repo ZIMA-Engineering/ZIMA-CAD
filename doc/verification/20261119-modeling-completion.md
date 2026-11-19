@@ -77,8 +77,8 @@ ordinary executable. Logs: `final-sheet-branch.log`, `final-noregen.log` and
 | Layout and placement tests | The 660-case dialog layout matrix measures nested expanding Sweep3D tables. Placement fixtures now explicitly choose TOP after the first positional orientation and use the actual whole-Origin entry scope. Both material skins are asserted in Flat hover/click tests. Product placement behavior was not changed to satisfy obsolete test assumptions. |
 | Localization | Source coverage, catalog keys/placeholders and affected controls pass in cs/en/de/fr/ru. |
 
-The independent-branch release label must pass again in the committed candidate.
-Its actual parallel-job counters and sequential comparison remain mandatory;
+The independent-branch release label passes all 12 gates in the committed
+2026111906 candidate. Its actual parallel-job counters and sequential comparison remain mandatory;
 see [the branch contract](../SHEET_BRANCH_TEST_CONTRACT.md).
 
 ## Finite scope and compatibility limits
@@ -103,3 +103,20 @@ format are not migrated. Original user files, including 18/21/23/24.prtz and
 the protected production project, are not overwritten. A future Sheet Transition
 redesign still needs a concrete behavior specification; no such redesign was
 included in the user's current list.
+
+## Published artifact acceptance
+
+The modeling implementation ships in Windows build 2026111906, commit
+`99574204137975784176eca3f63a6cf279178ef9`. The final packaging correction builds
+the new Bend test executable in both platform recipes and requires all twelve
+branch-gate registrations. Package tests pass on Windows with the two
+Unix-permission/Linux-launcher cases skipped on this host. No UI text changed
+in that packaging-only correction.
+
+The exact committed candidate passes all twelve branch gates (149.93 s), and
+its three targeted GUI suites pass in 100.68 s. Both unsigned and finalized
+signed packages pass the factory-library and native runtime gates. Anonymous
+GitHub downloads match the publisher assets and pass signature, safe extraction,
+identity, production updater and targeted GUI acceptance. The local development
+executables match the public package. Exact hashes, public GUI timings and
+metadata are recorded in the [publication evidence](20261119-windows-1906-publication.json).

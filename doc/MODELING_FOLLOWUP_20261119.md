@@ -2,8 +2,9 @@
 
 Status: implementation completed for Windows build 2026111905. The current
 [verification matrix and explicit limits](verification/20261119-modeling-completion.md)
-supersede the earlier partial status below. Committed-source packaging, signing
-and public download checks remain release gates, recorded in the release note.
+supersede the earlier partial status below. Windows 2026111906 is published;
+committed-source packaging, signing and anonymous public download checks passed.
+The release record contains the exact artifact identities and verification.
 The final publication build is 2026111906; it additionally builds the new Bend
 end-constraint test in both platform packagers and requires its registration.
 

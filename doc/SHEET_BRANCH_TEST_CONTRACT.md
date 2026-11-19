@@ -73,3 +73,8 @@ public artifact acceptance are recorded in the
 [release record](releases/2026111906.md). Both platform packagers in 2026111906
 explicitly build the Bend test executable and reject registration without this
 twelfth gate before any archive is assembled.
+
+The exact committed Windows 2026111906 candidate passes all twelve gates in
+149.93 s. Its signed public archive and anonymous download have matching
+identities and passing runtime acceptance; see the
+[publication evidence](verification/20261119-windows-1906-publication.json).
