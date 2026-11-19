@@ -182,6 +182,13 @@ void verify_sketch_reference_icons(QApplication& application) {
             return image;
         };
         const auto reference=rendered("sketch-reference");
+        const auto helix_curve=rendered("helical-curve");
+        const auto helix_sweep=rendered("helical-sweep");
+        require(pixels_near(helix_curve,neutral)>50&&pixels_near(helix_sweep,QColor("#00D1FF"))>50,
+            "Helical Curve/Sweep icons lost their neutral/azure colors");
+        for(int y=0;y<helix_curve.height();++y)for(int x=0;x<helix_curve.width();++x)
+            require(helix_curve.pixelColor(x,y).alpha()==helix_sweep.pixelColor(x,y).alpha(),
+                "Helical Curve and Sweep icons have different shapes");
         require(pixels_near(reference,reference_points)>60,
             "Sketch reference icon is not entirely brown");
         const auto reference_outline=rendered("sketch-reference-outline");

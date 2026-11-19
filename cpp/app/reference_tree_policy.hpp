@@ -8,9 +8,10 @@
 #include <tuple>
 
 namespace zima::app {
-inline std::string placement_reference_issue(const document::Placement& placement,const zima::workspace::ReferenceIndex& index) {
+inline std::string placement_reference_issue(const document::Placement& placement,const zima::workspace::ReferenceIndex& index,
+        const workspace::HistoryReferenceStatus* history=nullptr) {
     std::string issue=placement.reference_valid ? "" : "placement";
-    for (const auto& ref : placement.references) issue+=index.missing(ref);
+    for (const auto& ref : placement.references) issue+=history?history->missing(ref,index):index.missing(ref);
     return issue;
 }
 inline std::string construction_reference_issue(const document::ConstructionObject& object,const zima::workspace::ReferenceIndex& index) {
@@ -32,8 +33,9 @@ template<class Document> std::string sketch_reference_issue(const sketcher::Sket
     return issue;
 }
 template<class Document> std::string feature_reference_issue(const document::HistoryContainer& feature,
-        const Document& document,const zima::workspace::ReferenceIndex& index,const kernel::ViewerMesh* input=nullptr) {
-    std::string issue=placement_reference_issue(feature.placement,index);
+        const Document& document,const zima::workspace::ReferenceIndex& index,const kernel::ViewerMesh* input=nullptr,
+        const workspace::HistoryReferenceStatus* history=nullptr) {
+    std::string issue=placement_reference_issue(feature.placement,index,history);
     const auto profile=[&](const std::string& id) {
         const auto found=std::ranges::find_if(document.sketches,[&](const auto& s){return s.id==id;});
         if (found==document.sketches.end()) issue+="profile:"+id;

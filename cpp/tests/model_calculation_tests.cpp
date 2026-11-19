@@ -80,6 +80,62 @@ void verify_reference_chain(const kernel::OcctKernel& kernel){
     require(state->session.redo(),"Placement regeneration cannot be redone");
     near(state->session.document().history[2].placement.x,11,"Redo lost the recalculated placement");
 }
+void verify_history_frame_roundoff() {
+    for(bool in_body:{false,true})for(bool flip:{false,true})for(double zero:{0.,-0.}) {
+        auto part=document::PartDocument::create_default();
+        auto target=test::rectangular_feature(part,{2,2,2});
+        kernel::ViewerReferenceGeometry geometry;
+        geometry.points.push_back({{100,20,30},{"support","anchor",{}}});
+        geometry.axes.push_back({{}, {0,1,0},10,{"support","front",{}}});
+        geometry.axes.push_back({{}, {0,0,1},10,{"support","top",{}}});
+        target.placement.references={{{},"support","anchor"},
+            {{},"support","front",zero,false,"front",true,true},
+            {{},"support","top",zero,false,"top",true,true}};
+        target.placement.references[1].flip=flip;
+        part.history={target};
+        if(in_body) {
+            document::BodyHistoryGraph graph;static_cast<void>(graph.create_body("Frame roundoff"));
+            graph.insert({document::PartHistoryKind::Feature,target.id});part.set_body_history(graph);
+        }
+        part.resolve_constructions(geometry);
+        auto& placement=part.find_container(target.id)->placement;
+        require(placement.reference_valid,"Roundoff fixture did not resolve");
+        const auto solved_rotation_y=placement.rotation_y;
+        placement.x+=1e-12;
+        placement.rotation_y+=1.5e-12;placement.absolute_rotation_y+=1.5e-12;
+        const auto retained=placement;
+        document::HistoryReferenceViews views;
+        views[target.id].owners.emplace("support","");
+        views[target.id].geometry=geometry;
+        views[target.id].unchanged_placement_input=true;
+        for(int repeat=0;repeat<4;++repeat) {
+            part.resolve_constructions(geometry,views);
+            const auto& current=part.find_container(target.id)->placement;
+            require(current==retained,"Unchanged history references rounded the persisted frame again");
+            require(std::signbit(current.references[1].offset)==std::signbit(zero),"Frame retention normalized a signed offset");
+            part=document::PartDocument::from_serialized(part.serialized());
+        }
+        part.resolve_constructions(geometry);
+        require(part.find_container(target.id)->placement.rotation_y==solved_rotation_y,
+            "An unproven input retained a previous rounded frame");
+        geometry.points.front().position.x+=1e-6;
+        part.resolve_constructions(geometry);
+        require(std::abs(part.find_container(target.id)->placement.x-geometry.points.front().position.x)<1e-13,
+            "Frame retention ignored a real source movement");
+        auto& corrected=part.find_container(target.id)->placement;
+        corrected.rotation_offset_x=2.;
+        const auto old_rotation=corrected.rotation_x;
+        part.resolve_constructions(geometry);
+        require(std::abs(part.find_container(target.id)->placement.rotation_x-old_rotation)>1.,
+            "Frame retention ignored an authored correction");
+        const auto before_loss=part.find_container(target.id)->placement;
+        geometry.points.clear();part.resolve_constructions(geometry);
+        const auto& lost=part.find_container(target.id)->placement;
+        require(!lost.reference_valid&&lost.x==before_loss.x&&lost.rotation_x==before_loss.rotation_x,
+            "Missing reference lost its last valid frame or became valid");
+    }
+    std::cout<<"History frame roundoff: Body/no Body, both sides, signed zeros, repeated resolution/reopen, source movement, correction and loss passed\n";
+}
 void verify_axis_endpoint_history_reference(const kernel::OcctKernel& kernel) {
     for(bool in_body:{false,true}) {
         auto part=document::PartDocument::create_default();
@@ -1345,7 +1401,7 @@ int main(){try{
         std::filesystem::remove(file);
         verify_input(std::move(reopened),std::move(saved),"Reopened Point rollback lost the preceding solid");
     }
-    verify_reference_chain(kernel);verify_profile_frame_convergence(kernel);
+    verify_history_frame_roundoff();verify_reference_chain(kernel);verify_profile_frame_convergence(kernel);
     verify_terminal_reference_publication(kernel);
     verify_axis_endpoint_history_reference(kernel);
     verify_native_feature_datums_through_history(kernel);

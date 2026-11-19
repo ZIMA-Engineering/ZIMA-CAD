@@ -17,6 +17,11 @@ struct HistoryReferenceView {
     using Owner = std::pair<std::string,std::string>; // owner ID, occurrence path
     std::set<Owner> owners;
     kernel::ViewerReferenceGeometry geometry;
+    // The evaluator proved that both the source boundary and the consumer's
+    // complete definition match their saved fingerprints. This is transient
+    // evidence for retaining a frame through solver roundoff, never a tolerance
+    // with which to ignore actual source or parameter changes.
+    bool unchanged_placement_input{};
 };
 using HistoryReferenceViews = std::map<std::string,HistoryReferenceView>;
 

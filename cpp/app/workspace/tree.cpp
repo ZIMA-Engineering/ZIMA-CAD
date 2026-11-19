@@ -540,9 +540,11 @@ void AssemblyWorkspaceWindow::add_part_tree_children(
         ? zima::assembly::InstancePath{}
         : zima::assembly::InstancePath::decode(workspace_.active_occurrence_path());
     auto references=part_reference_index(document);
+    std::map<std::string,zima::workspace::HistoryReferenceStatus> sheet_reference_status;
     if (const auto* part=workspace_.open_part(document.document_id)) {
         const auto& boundaries=part->session.calculated_boundaries();
         if (!boundaries.empty()) references.add_geometry(boundaries.back().mesh.original_references);
+        sheet_reference_status=zima::workspace::cached_sheet_attachment_reference_status(document,boundaries);
     }
     add_origin_tree_item(parent, document.document_id, false, construction_path);
     for (std::size_t index = 0; index < document.history.size(); ++index) {
@@ -576,8 +578,10 @@ void AssemblyWorkspaceWindow::add_part_tree_children(
             container.feature_kind == zima::document::FeatureKind::Chamfer;
         const auto boundary=part && needs_input_geometry
             ? part->session.rollback_boundary(container.id) : std::nullopt;
+        const auto sheet_status=sheet_reference_status.find(container.id);
         const auto issue=feature_reference_issue(container,document,references,
-            boundary && boundary->input_body ? &boundary->input_body->mesh : nullptr);
+            boundary && boundary->input_body ? &boundary->input_body->mesh : nullptr,
+            sheet_status==sheet_reference_status.end()?nullptr:&sheet_status->second);
         tree_reference_state_.apply(item,document.document_id,container.id,issue);
         for (int child=0;child<item->childCount();++child) {
             auto* row=item->child(child);

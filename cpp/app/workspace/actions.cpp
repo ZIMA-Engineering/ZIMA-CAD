@@ -481,7 +481,7 @@ void AssemblyWorkspaceWindow::create_actions() {
     sweep2d_action_->setObjectName("sweep2dAction");
     sweep2d_action_->setToolTip(tr("2D tažení / přechod mezi profily po rovinné dráze."));
     connect(sweep2d_action_, &QAction::triggered, this, [this] { show_sweep2d_properties(); });
-    helical_curve_action_ = make_action(tr("H křivka"), "sketch-3d");
+    helical_curve_action_ = make_action(tr("H křivka"), "helical-curve");
     helical_curve_action_->setObjectName("helicalCurveAction");
     helical_curve_action_->setToolTip(tr("Vytvoří samostatnou šroubovicovou dráhu."));
     connect(helical_curve_action_, &QAction::triggered, this, [this] {

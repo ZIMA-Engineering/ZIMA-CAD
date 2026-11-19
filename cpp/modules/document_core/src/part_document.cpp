@@ -6773,6 +6773,44 @@ zima::kernel::ViewerMesh PartDocument::construction_viewer_mesh(
     return mesh;
 }
 
+namespace {
+// Re-solving the same persisted references can round a derived Euler angle
+// differently even with the exact saved input packet. Keep the prior frame
+// within floating-point roundoff, only with independently proven unchanged
+// inputs, so a no-op does not invalidate downstream history fingerprints.
+// This applies only at history resolution, never to
+// authored offsets, correction angles, side choices or the placement solver.
+void retain_unchanged_reference_frame(Placement& resolved,const Placement& previous) {
+    if(!previous.reference_valid||!resolved.reference_valid||previous.references.empty()||
+       resolved.references!=previous.references||
+       resolved.orientation_back!=previous.orientation_back||
+       resolved.orientation_quarter_turns!=previous.orientation_quarter_turns||
+       resolved.rotation_offset_x!=previous.rotation_offset_x||
+       resolved.rotation_offset_y!=previous.rotation_offset_y||
+       resolved.rotation_offset_z!=previous.rotation_offset_z)return;
+    constexpr double roundoff=256*std::numeric_limits<double>::epsilon();
+    const auto close=[&](double a,double b,double scale) {
+        return std::isfinite(a)&&std::isfinite(b)&&std::abs(a-b)<=roundoff*scale;
+    };
+    const double scale=std::max({1.,std::abs(previous.x),std::abs(previous.y),
+        std::abs(previous.z),std::abs(resolved.x),std::abs(resolved.y),std::abs(resolved.z)});
+    if(!close(resolved.x,previous.x,scale)||!close(resolved.y,previous.y,scale)||
+       !close(resolved.z,previous.z,scale)||
+       !close(resolved.rotation_x,previous.rotation_x,180.)||
+       !close(resolved.rotation_y,previous.rotation_y,180.)||
+       !close(resolved.rotation_z,previous.rotation_z,180.)||
+       !close(resolved.absolute_rotation_x,previous.absolute_rotation_x,180.)||
+       !close(resolved.absolute_rotation_y,previous.absolute_rotation_y,180.)||
+       !close(resolved.absolute_rotation_z,previous.absolute_rotation_z,180.))return;
+    resolved.x=previous.x;resolved.y=previous.y;resolved.z=previous.z;
+    resolved.rotation_x=previous.rotation_x;resolved.rotation_y=previous.rotation_y;
+    resolved.rotation_z=previous.rotation_z;
+    resolved.absolute_rotation_x=previous.absolute_rotation_x;
+    resolved.absolute_rotation_y=previous.absolute_rotation_y;
+    resolved.absolute_rotation_z=previous.absolute_rotation_z;
+}
+}
+
 void PartDocument::resolve_constructions(
     zima::kernel::ViewerReferenceGeometry source_geometry) {
     resolve_constructions(std::move(source_geometry),{});
@@ -6784,6 +6822,10 @@ void PartDocument::resolve_constructions(
     // Publish eligible frames again at their own history boundary below.
     remove_body_properties_references(*this,source_geometry);
     const HistoryReferenceResolver boundary_references(source_geometry,boundary_views);
+    const auto unchanged_placement_input=[&](const std::string& owner) {
+        const auto view=boundary_views.find(owner);
+        return view!=boundary_views.end()&&view->second.unchanged_placement_input;
+    };
     if (!body_history.bodies().empty()) {
         validate_body_ownership();
         auto next = *this;
@@ -7112,6 +7154,8 @@ void PartDocument::resolve_constructions(
             zima::kernel::Vec3 geometric_base_rotation;
             static_cast<void>(resolve_placement(geometric_placement, source_geometry,
                 &geometric_base_rotation));
+            if(unchanged_placement_input(owner->id))
+                retain_unchanged_reference_frame(geometric_placement,owner->placement);
             zima::kernel::Vec3 rotation{geometric_placement.rotation_x,
                 geometric_placement.rotation_y, geometric_placement.rotation_z};
             const bool has_position_top = orientation_constraint_remaining_dof(
@@ -7298,11 +7342,15 @@ void PartDocument::resolve_constructions(
             container.placement.reference_valid = false;
             return;
         }
+        const auto previous_placement=unchanged_placement_input(container.id)
+            ?std::optional{container.placement}:std::nullopt;
         if(container.feature_kind==FeatureKind::Feature && container.feature.type==FeatureType::Point)
             static_cast<void>(resolve_point_placement(container.placement, source_geometry));
         else if(container.feature_kind==FeatureKind::SheetForm)
             static_cast<void>(resolve_sheet_form_feature_placement(container.sheet_form,container.placement,source_geometry));
         else static_cast<void>(resolve_placement(container.placement, source_geometry));
+        if(previous_placement)
+            retain_unchanged_reference_frame(container.placement,*previous_placement);
         if (!container.placement.reference_valid) return;
         if(container.feature_kind==FeatureKind::DerivedCopy) {
             try {

@@ -1,5 +1,6 @@
 #pragma once
 #include <zima/workspace/workspace.hpp>
+#include <zima/workspace/reference_index.hpp>
 #include <zima/kernel/occt_kernel.hpp>
 #include <optional>
 #include <set>
@@ -72,6 +73,11 @@ struct PartCalculationPolicy {
     const kernel::OcctKernel& kernel, document::PartDocument& document,
     const std::vector<kernel::BodyResult>* previous = nullptr,
     const PartCalculationPolicy& policy = {});
+// Read-only Tree validation of attached Flat/Bend/Profile against their stored
+// input boundaries. Does not materialize a mesh, solve placement or call OCCT.
+[[nodiscard]] std::map<std::string,HistoryReferenceStatus>
+cached_sheet_attachment_reference_status(const document::PartDocument& document,
+    const std::vector<kernel::BodyResult>& calculated);
 // Explicit interactive calculation also resolves Assembly-owned cutter references.
 // Workspace's dependency refresh continues using its existing cached-cut path.
 void calculate_resolved_assembly_cuts(

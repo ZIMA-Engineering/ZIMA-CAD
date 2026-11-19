@@ -1677,7 +1677,9 @@ static int verify_cut_sheet_attachments_ui(QApplication& application,
             auto* tree=window.findChild<QTreeWidget*>("documentTree");QTreeWidgetItem* row{};
             for(QTreeWidgetItemIterator it(tree);*it;++it)
                 if((*it)->data(0,Qt::UserRole).toString().toStdString()==created&&(*it)->data(0,Qt::UserRole+3)=="part-container") {row=*it;break;}
-            check(row,"Attached feature is missing from Tree");window.show_tree_item_properties(row);flush();
+            check(row,"Attached feature is missing from Tree");
+            check(!row->data(0,app::missing_reference_role).toBool(),"Valid cut attachment is red in Tree");
+            window.show_tree_item_properties(row);flush();
             dialog=dynamic_cast<app::SketchPropertiesDialog*>(window.findChild<QDialog*>(
                 kind==0?"flatPropertiesDialog":kind==1?"bendPropertiesDialog":"sheetProfilePropertiesDialog"));
             check(dialog,"Attached feature cannot reopen Properties");editor=dialog->findChild<QPushButton*>("sketchOpenButton");
@@ -1704,5 +1706,71 @@ static int verify_cut_sheet_attachments_ui(QApplication& application,
             std::cout<<"Cut attachment GUI fragment "<<segment<<" kind "<<kind<<" midpoint="<<center<<" passed\n"<<std::flush;
         }
         return 0;
+    }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}
+}
+
+// Verify a saved production case without controlling the user's desktop.
+static int verify_sheet_reference_tree_ui(QApplication& application,
+        const std::filesystem::path& parent) {
+    using namespace zima;
+    const auto check=[](bool ok,const char* message){if(!ok)throw std::runtime_error(message);};
+    const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
+    try {
+        const auto source=std::filesystem::path(qEnvironmentVariable("ZIMA_VERIFY_SHEET_REFERENCE_TREE").toStdWString());
+        const auto path=parent/"sheet-reference-tree-copy.prtz";
+        std::filesystem::copy_file(source,path,std::filesystem::copy_options::overwrite_existing);
+        const auto initial=document::PartDocument::load(path);
+        std::vector<std::string> attached;
+        for(const auto& f:initial.history)
+            if(!f.suppressed&&((f.feature_kind==document::FeatureKind::Bend&&f.bend.sheet_attachment)||
+               (f.feature_kind==document::FeatureKind::Flat&&f.flat.sheet_attachment)||
+               (f.feature_kind==document::FeatureKind::SheetProfile&&f.sheet_profile.sheet_attachment)))attached.push_back(f.id);
+        check(!attached.empty(),"Tree fixture has no sheet attachments");
+        app::AssemblyWorkspaceWindow window(QString::fromStdWString(parent.wstring()));
+        window.setAttribute(Qt::WA_DontShowOnScreen);window.resize(1600,1000);window.show();
+        check(window.open_document_path(QString::fromStdWString(path.wstring())),"Cannot open Tree fixture");flush();
+        check(activate_test_body(application,window,initial.body_history.active_body_id()),"Cannot activate Tree fixture Body");
+        window.findChild<QAction*>("applicationModeAction2")->trigger();flush();
+        const auto row=[&](const std::string& id) {
+            auto* tree=window.findChild<QTreeWidget*>("documentTree");
+            for(QTreeWidgetItemIterator it(tree);*it;++it)
+                if((*it)->data(0,Qt::UserRole).toString().toStdString()==id&&(*it)->data(0,Qt::UserRole+3)=="part-container")return *it;
+            return static_cast<QTreeWidgetItem*>(nullptr);
+        };
+        const auto verify=[&](const char* phase) {
+            for(const auto& id:attached) {
+                auto* item=row(id);check(item,"Attached feature is missing from Tree");
+                if(item->data(0,app::missing_reference_role).toBool())
+                    throw std::runtime_error(std::string(phase)+": red Tree row "+item->text(0).toStdString());
+            }
+            std::cout<<"Sheet reference Tree "<<phase<<": "<<attached.size()<<" valid rows\n"<<std::flush;
+        };
+        verify("open");
+        for(const auto& id:attached) {
+            // Converted children are controlled by Sheet from Body. Their
+            // derived Properties are intentionally not independently editable.
+            if(initial.sheet_from_body_child_bound(id))continue;
+            window.show_tree_item_properties(row(id));flush();
+            auto* dialog=window.findChild<QDialog*>("bendPropertiesDialog");
+            if(!dialog)dialog=window.findChild<QDialog*>("flatPropertiesDialog");
+            if(!dialog)dialog=window.findChild<QDialog*>("sheetProfilePropertiesDialog");
+            check(dialog,"Cannot reopen sheet attachment Properties");
+            dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();
+            verify("Properties Cancel");
+        }
+        window.findChild<QAction*>("regenerateDocumentAction")->trigger();flush();verify("Regenerate");
+        window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
+        std::vector<kernel::BodyResult> cache;const auto saved=document::PartDocument::load(path,&cache);
+        check(!cache.empty()&&cache.back().calculation_errors.empty(),"Tree fixture regeneration failed material calculation");
+        for(const auto& id:attached)check(saved.find_container(id)->placement.reference_valid,
+            "Tree fixture lost a placement during Regenerate/save");
+        app::AssemblyWorkspaceWindow reopened(QString::fromStdWString(parent.wstring()));
+        reopened.setAttribute(Qt::WA_DontShowOnScreen);reopened.show();
+        check(reopened.open_document_path(QString::fromStdWString(path.wstring())),"Cannot reopen Tree result");flush();
+        auto* tree=reopened.findChild<QTreeWidget*>("documentTree");
+        for(QTreeWidgetItemIterator it(tree);*it;++it)
+            if((*it)->data(0,Qt::UserRole+3)=="part-container")
+                check(!(*it)->data(0,app::missing_reference_role).toBool(),"Saved result reopened with red Tree row");
+        std::cout<<"Sheet reference Tree save/reopen passed\n";return 0;
     }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}
 }

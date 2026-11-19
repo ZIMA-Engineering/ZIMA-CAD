@@ -10,6 +10,8 @@
 #include <zima/document/sheet_profile.hpp>
 #include <zima/kernel/calculated_body_shape.hpp>
 #include <zima/kernel/sheet_attachment_reference.hpp>
+#include "../app/part_reference_index.hpp"
+#include "../app/reference_tree_policy.hpp"
 #include <TopExp_Explorer.hxx>
 #include <TopoDS_Shape.hxx>
 #include <zima/workspace/sketch_operations.hpp>
@@ -353,6 +355,27 @@ void verify_cut_edge_attachment(std::filesystem::path directory,bool placed_body
             auto* state=live.open_part(id);
             const auto* feature=state->session.document().find_container(created);
             check(feature&&feature->placement.reference_valid,"Cut edge attachment is unresolved");
+            const auto verify_tree=[&](const document::PartDocument& part,const auto& boundaries,bool valid) {
+                const auto status=workspace::cached_sheet_attachment_reference_status(part,boundaries);
+                const auto exact=status.find(created);
+                check(exact!=status.end(),"Sheet attachment has no exact Tree reference check");
+                const auto index=app::part_reference_index(part,boundaries.back().mesh.original_references);
+                const auto issue=app::feature_reference_issue(*part.find_container(created),part,index,nullptr,&exact->second);
+                check(issue.empty()==valid,"Sheet attachment Tree reference state disagrees with its input boundary");
+            };
+            verify_tree(state->session.document(),state->session.calculated_boundaries(),true);
+            // The final body can contain an old identity which is absent from
+            // this consumer's input. It must not conceal a genuinely lost ref.
+            {
+                auto broken=state->session.document();
+                auto& reference=broken.find_container(created)->placement.references.front();
+                reference.semantic_key+="-missing";
+                auto status=workspace::cached_sheet_attachment_reference_status(broken,state->session.calculated_boundaries());
+                auto stale=app::part_reference_index(broken,state->session.calculated_boundaries().back().mesh.original_references);
+                stale.add(reference);
+                check(!app::feature_reference_issue(*broken.find_container(created),broken,stale,nullptr,&status.at(created)).empty(),
+                    "Stale final reference hid a missing input-boundary identity");
+            }
             if(center) {
                 check(document::sheet_attachment_at_midpoint(feature->placement.references),"Midpoint identity was replaced");
                 near(feature->placement.x,(a.x+b.x)*.5);near(feature->placement.y,(a.y+b.y)*.5);near(feature->placement.z,(a.z+b.z)*.5);
@@ -396,10 +419,12 @@ void verify_cut_edge_attachment(std::filesystem::path directory,bool placed_body
             std::vector<kernel::BodyResult> reopened_cache;
             auto reopened=document::PartDocument::load(path,&reopened_cache);
             check(reopened.serialized()==after,"Cut attachment save/reopen changed its definition");
+            verify_tree(reopened,reopened_cache,true);
             const auto regenerated=workspace::calculate_part_with_resolved_references(kernel,reopened,&reopened_cache);
             check(regenerated.back().calculation_errors.empty()&&reopened.find_container(created)->placement.reference_valid,
                 "Cut attachment failed regeneration after reopening");
             near(measured_volume(kernel,regenerated.back()),volume);
+            verify_tree(reopened,regenerated,true);
             if(center) {
                 const auto own_width=[&](const document::PartDocument& part) {
                     const auto* attached=part.find_container(created);

@@ -23,4 +23,15 @@ struct ReferenceIndex {
         return "["+ref.instance_path+"|"+ref.owner_id+"|"+ref.semantic_key+"]";
     }
 };
+// Exact input-boundary checks override the final scene only for the identities
+// requested by this consumer. Missing inputs must not fall back to stale or
+// later geometry; unrelated native datums retain the ordinary lookup.
+struct HistoryReferenceStatus {
+    ReferenceIndex requested;
+    ReferenceIndex available;
+    template<class Ref> std::string missing(const Ref& ref,const ReferenceIndex& fallback) const {
+        return (requested.contains(ref.owner_id,ref.semantic_key,ref.instance_path)
+            ? available : fallback).missing(ref);
+    }
+};
 }

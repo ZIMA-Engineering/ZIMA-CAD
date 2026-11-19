@@ -528,6 +528,31 @@ static const kernel::BodyResult& exact_operation_output(
     return *result;
 }
 
+std::map<std::string,HistoryReferenceStatus> cached_sheet_attachment_reference_status(
+        const document::PartDocument& document,
+        const std::vector<kernel::BodyResult>& calculated) {
+    std::map<std::string,HistoryReferenceStatus> result;
+    if(calculated.empty())return result;
+    const auto attachment=[](const document::HistoryContainer& feature) {
+        return !feature.suppressed&&
+            ((feature.feature_kind==document::FeatureKind::Flat&&feature.flat.sheet_attachment)||
+             (feature.feature_kind==document::FeatureKind::Bend&&feature.bend.sheet_attachment)||
+             (feature.feature_kind==document::FeatureKind::SheetProfile&&feature.sheet_profile.sheet_attachment));
+    };
+    if(std::ranges::none_of(document.history,attachment))return result;
+    const auto operations=document.kernel_operations();
+    for(const auto& [consumer,demand]:history_boundary_reference_demands(document,operations)) {
+        const auto* feature=document.find_container(consumer);
+        if(!feature||!attachment(*feature))continue;
+        auto& status=result[consumer];
+        for(const auto& reference:demand.references)status.requested.add(reference);
+        if(calculated.back().calculation_errors.contains(demand.output_owner))continue;
+        if(const auto* boundary=find_exact_operation_output(operations,calculated,demand.output_owner))
+            status.available.add_geometry(select_boundary_references(*boundary,demand.references));
+    }
+    return result;
+}
+
 static void remove_reference_identities(
         kernel::ViewerReferenceGeometry& geometry,
         const std::set<kernel::HistoryReferenceIdentity>& identities) {
@@ -645,6 +670,7 @@ static PlacementHistoryReferenceViews placement_history_reference_views(
         };
         auto& boundary=exact_operation_output(operations,calculated,
             demand.output_owner);
+        bool unchanged_placement_input=false;
         if(baseline)if(const auto* saved=find_exact_operation_output(
                 operations,*baseline,demand.output_owner)) {
             const auto operation=std::ranges::find(operations,
@@ -665,6 +691,29 @@ static PlacementHistoryReferenceViews placement_history_reference_views(
                     })) {
                     replace_exact_operation_references(operations,calculated,
                         demand.output_owner,identities,saved_geometry);
+                    const auto consumer_operation=std::ranges::find(operations,
+                        consumer,&kernel::HistoryOperation::owner_id);
+                    const auto consumer_index=static_cast<std::size_t>(
+                        consumer_operation-operations.begin());
+                    const auto* consumer_feature=document.find_container(consumer);
+                    const bool complete_placement_input=consumer_feature&&
+                        std::ranges::all_of(consumer_feature->placement.references,
+                            [&](const auto& reference) {
+                                return identities.contains({reference.owner_id,
+                                    reference.semantic_key,reference.instance_path});
+                            });
+                    if(complete_placement_input&&consumer_operation!=operations.end()&&
+                       consumer_index<baseline->size()&&
+                       consumer_index<calculated.size()) {
+                        const auto* saved_consumer=find_exact_operation_output(
+                            operations,*baseline,consumer);
+                        const auto* current_consumer=find_exact_operation_output(
+                            operations,calculated,consumer);
+                        unchanged_placement_input=saved_consumer&&current_consumer&&
+                            baseline->at(consumer_index).source_fingerprint==
+                                calculated.at(consumer_index).source_fingerprint&&
+                            saved_consumer->source_fingerprint==current_consumer->source_fingerprint;
+                    }
                 }
             }
         }
@@ -680,6 +729,7 @@ static PlacementHistoryReferenceViews placement_history_reference_views(
                 throw std::runtime_error(
                     "Exact history reference boundary was not calculated");
         document::HistoryReferenceView view;
+        view.unchanged_placement_input=unchanged_placement_input&&!output_failed;
         for(const auto& reference:requested)
             view.owners.emplace(reference.owner_id,
                 reference.instance_path);
@@ -750,6 +800,7 @@ static void merge_history_reference_views(
     for(auto& [entry,view]:source) {
         auto& existing=target[entry];
         if(state_output_consumers.contains(entry)&&!existing.owners.empty()) {
+            view.unchanged_placement_input=false;
             // An exact boundary produced by Solid State retains the ordinary
             // authored reference packet; its transformed correspondence is
             // published separately in the state view. Keep that state packet
@@ -766,6 +817,7 @@ static void merge_history_reference_views(
             existing=std::move(view);
             continue;
         }
+        existing.unchanged_placement_input=existing.owners.empty()&&view.unchanged_placement_input;
         document::history_reference_detail::retain(existing.geometry,
             view.owners,false);
         document::history_reference_detail::append(existing.geometry,
