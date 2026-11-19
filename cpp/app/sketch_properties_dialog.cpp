@@ -251,7 +251,16 @@ void SketchPropertiesDialog::set_sheet_profile_mode(
     set_internal_title(tr("Vlastnosti profilu"));
     setObjectName("sheetProfilePropertiesDialog");
     offset_->setValue(0);
-    findChild<QFormLayout*>("sketchPlaneForm")->setRowVisible(offset_,false);
+    auto* plane_form=findChild<QFormLayout*>("sketchPlaneForm");
+    plane_form->setRowVisible(offset_,false);
+    // Complete the placement block with its status before the Profile's
+    // work-plane/Sketch row. Move the existing layout items only.
+    for(int index=0;index+1<content_layout()->count();++index)
+        if(content_layout()->itemAt(index)->layout()==plane_form) {
+            content_layout()->insertItem(index,
+                content_layout()->takeAt(index+1));
+            break;
+        }
     auto pending=std::make_shared<zima::document::SheetProfileParameters>(initial);
     sheet_profile_pending_=pending;
     sheet_profile_changed_=changed;
@@ -354,6 +363,7 @@ void SketchPropertiesDialog::set_sheet_profile_mode(
     const auto schedule_fit=[this,fit_profile_controls] {
         QTimer::singleShot(0,this,fit_profile_controls);
     };
+    sheet_profile_fit_=schedule_fit;
     for(std::size_t side=0;side<2;++side) {
         auto* limits=sheet_profile_width_panel_->limit_table(side);
         limits->on_pick([this,side]{request_sheet_profile_target(side);});
@@ -970,12 +980,23 @@ void SketchPropertiesDialog::lock_sheet_profile_attachment_fields() {
     const bool automatic=sheet_profile_pending_->sheet_attachment;
     const bool centered=zima::document::sheet_attachment_at_midpoint(placement_->combined_references(3));
     refresh_sheet_anchor_controls(QStringLiteral("sheetProfile"),automatic);
-    if(sheet_profile_width_panel_)
-        sheet_profile_width_panel_->setVisible(!automatic||centered);
+    const bool show_width=!automatic||centered;
+    if(sheet_profile_width_panel_)sheet_profile_width_panel_->setVisible(show_width);
+    if(auto* scroll=findChild<QScrollArea*>("sheetProfileWidthScroll")) {
+        const bool changed=scroll->isHidden()==show_width;
+        scroll->setVisible(show_width);
+        if(changed&&sheet_profile_fit_)sheet_profile_fit_();
+    }
     if(automatic&&!centered&&sheet_profile_target_active_)
         finish_sheet_profile_target_entry();
     plane_->setEnabled(!automatic);
-    set_sheet_work_plane_visible(!automatic);
+    set_sheet_work_plane_visible(true);
+    for(auto* button:plane_selector_->findChildren<QToolButton*>(QString{},Qt::FindDirectChildrenOnly))
+        button->setEnabled(!automatic);
+    if(auto* view=plane_selector_->findChild<QTableWidget*>("sketchPlaneView"))
+        view->setEnabled(!automatic);
+    if(auto* form=findChild<QFormLayout*>("sketchPlaneForm"))
+        if(auto* label=form->labelForField(plane_selector_))label->setEnabled(!automatic);
     if(auto* box=findChild<QCheckBox*>("sheetProfileThicknessOverride"))
         box->setEnabled(!automatic);
     if(auto* thickness=findChild<QDoubleSpinBox*>("sheetProfileThickness")) {

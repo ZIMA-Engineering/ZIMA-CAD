@@ -183,7 +183,8 @@ void append_sheet_from_body_source_pick_aliases(
                     sources.push_back(face.reference);
             if(sources.empty())continue;
             for(std::size_t triangle=0;triangle<triangle_count;++triangle) {
-                const auto& generated=geometry.triangle_references[triangle];
+                // Appending several source aliases may reallocate the vector.
+                const auto generated=geometry.triangle_references[triangle];
                 const auto& owner=generated.display_owner_id.empty()?
                     generated.sheet_owner:generated.display_owner_id;
                 if(owner!=binding.feature_id||
@@ -2237,6 +2238,12 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
             for(const auto& sketch:document.sketches)
                 if(const auto* body=document.body_owner_for_object(sketch.id))
                     owners.emplace(sketch.id,body->scope.id);
+            viewer_->set_candidate_priority([this,
+                    converted_sources=converted_sheet_source_owners(document)](const auto& candidate) {
+                return active_application_==ApplicationMode::SheetMetal&&
+                    candidate.kind==zima::viewer::CandidateKind::Container&&
+                    converted_sources.contains(candidate.owner_id)?1:0;
+            });
             viewer_->set_candidate_filter([active_body, owners = std::move(owners),
                     visible_bodies=std::move(visible_bodies),
                     surface_shell_sources=std::move(surface_shell_sources)](
@@ -2681,6 +2688,13 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
         // can therefore present its original authored owner without exposing
         // Unbend/Bend Back as selectable modeling features.
         const auto path = *active_part_occurrence;
+        viewer_->set_candidate_priority([this,
+                converted_sources=converted_sheet_source_owners(
+                    active_part->session.document())](const auto& candidate) {
+            return active_application_==ApplicationMode::SheetMetal&&
+                candidate.kind==zima::viewer::CandidateKind::Container&&
+                converted_sources.contains(candidate.owner_id)?1:0;
+        });
         viewer_->set_candidate_filter([path](const auto& candidate) {
             return candidate.instance_path == path;
         }, false);

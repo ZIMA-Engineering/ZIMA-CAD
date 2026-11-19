@@ -130,6 +130,10 @@ void AssemblyWorkspaceWindow::set_active_application(ApplicationMode mode) {
     document_application_modes_[workspace_.active_document_id()]=mode;
     application_actions_[index]->setChecked(true);
     rebuild_application_toolbar();
+    // Ordinary priorities read the active workspace. Retire an unconfirmed
+    // hover/cycling list while preserving an existing View/Tree selection.
+    if(viewer_&&!viewer_->confirmed_candidate())viewer_->set_candidate_filter(viewer_->candidate_filter(),
+        viewer_->advances_selection_on_hover());
 }
 
 void AssemblyWorkspaceWindow::rebuild_application_toolbar() {

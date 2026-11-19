@@ -1,4 +1,5 @@
 {
+  "Flat attachment requires a straight boundary of a sheet end face.": "Flat attachment requires a straight boundary of a sheet end face.",
   "Střed hrany": "Edge midpoint",
   "Umístit počátek do středu vybraného úseku hrany a kótovat od středu.": "Place the origin at the midpoint of the selected edge segment and dimension from the midpoint.",
   "The profile dimensions conflict with the edge midpoint attachment.": "The profile dimensions conflict with the edge midpoint attachment.",

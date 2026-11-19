@@ -9251,8 +9251,9 @@ zima::kernel::ExtrusionRequest body_profile_request(
 
 std::vector<ConstructionReference> flat_sheet_references(const kernel::ViewerEdge& edge,
         const kernel::VertexReference& start) {
-    const bool outer=std::ranges::any_of(edge.edge_treatment_side_references,[](const auto& face) {
-        return face.sheet_role==kernel::SheetFaceRole::SideA;
+    const bool skin=std::ranges::any_of(edge.edge_treatment_side_references,[](const auto& face) {
+        return face.sheet_role==kernel::SheetFaceRole::SideA||
+            face.sheet_role==kernel::SheetFaceRole::SideB;
     });
     const bool cap=std::ranges::any_of(edge.edge_treatment_side_references,[](const auto& face) {
         std::string_view key=face.semantic_key;
@@ -9282,7 +9283,7 @@ std::vector<ConstructionReference> flat_sheet_references(const kernel::ViewerEdg
         return face.sheet_role==kernel::SheetFaceRole::ThicknessFace&&
             has_cap_ancestry();
     });
-    if(!outer||!cap)throw std::invalid_argument("Flat attachment requires a straight Side A boundary of a sheet end face.");
+    if(!skin||!cap)throw std::invalid_argument("Flat attachment requires a straight boundary of a sheet end face.");
     return bend_sheet_references(edge,start);
 }
 
@@ -9313,7 +9314,7 @@ void update_flat_sheet_attachment(HistoryContainer& feature,sketcher::Sketch& sk
         throw std::invalid_argument("Flat attachment orientation is derived from its sheet edge.");
     const auto side=bend_attachment_profile_direction(placement.references,geometry);
     if(!side)throw std::invalid_argument("Flat requires a planar sheet joining face.");
-    // The selected Side A skin is the authored attachment plane.  The new
+    // The selected skin is the authored attachment plane. The new
     // sheet must continue between that skin and the existing opposite skin;
     // a forward or symmetric extrusion would place material on the wrong
     // side of the joining surface.

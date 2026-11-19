@@ -84,6 +84,8 @@ static int verify_sheet_profile_ui(QApplication& application,
             "Free Sheet Profile does not expose the shared one-side Feature extent");
         require(width_scroll&&extent_options&&first_side&&dof&&sketch&&
                 plane_selector&&sketch->parentWidget()==plane_selector&&
+                mapped(dof).bottom()<mapped(plane_selector).top()&&
+                mapped(plane_selector).bottom()<mapped(custom).top()&&
                 mapped(dof).bottom()<mapped(custom).top()&&
                 mapped(thickness).bottom()<mapped(width_scroll).top()&&
                 mapped(extent_options).bottom()<mapped(first_side).top(),
@@ -623,6 +625,8 @@ static int verify_sheet_profile_ui(QApplication& application,
             window.findChild<QDialog*>("sheetProfilePropertiesDialog"));
         require(dialog,"Attached Profile Properties did not open");
         const auto unattached_draft=dialog->pending_value().first;
+        const int unattached_height=dialog->height();
+        const auto unattached_position=dialog->pos();
         require(unattached_draft.points.empty()&&
                 unattached_draft.segments.empty()&&
                 unattached_draft.arcs.empty(),
@@ -710,6 +714,18 @@ static int verify_sheet_profile_ui(QApplication& application,
         auto* attached_edit=dialog->findChild<QPushButton*>("sketchOpenButton");
         require(attached_edit&&attached_edit->isVisible()&&attached_edit->isEnabled(),
             "Attached Profile hides its Sketch editor");
+        auto* attached_plane=dialog->findChild<QWidget*>("sketchPlaneSelector");
+        require(attached_plane&&attached_plane->isVisible()&&
+                attached_edit->parentWidget()==attached_plane&&
+                !dialog->findChild<QTableWidget*>("sketchPlaneView")->isEnabled(),
+            "Attached Profile moved Sketch or hid its disabled work-plane row");
+        for(const auto* name:{"sketchPlaneChoiceXY","sketchPlaneChoiceXZ","sketchPlaneChoiceYZ"})
+            require(dialog->findChild<QToolButton*>(name)->isVisible()&&
+                    !dialog->findChild<QToolButton*>(name)->isEnabled(),
+                "Attached Profile plane presets must stay visible and disabled");
+        require(!dialog->findChild<QWidget*>("sheetProfileWidthScroll")->isVisible()&&
+                dialog->height()<unattached_height&&dialog->pos()==unattached_position,
+            "Attached Profile did not compact its height in place");
         for(const auto type:{QEvent::MouseButtonPress,QEvent::MouseButtonRelease}) {
             const QPointF at=attached_edit->rect().center();
             QMouseEvent event(type,at,QPointF(attached_edit->mapToGlobal(at.toPoint())),
@@ -1540,6 +1556,7 @@ static int verify_cut_sheet_attachments_ui(QApplication& application,
         std::vector<kernel::ViewerEdge> fragments;
         for(const auto& edge:cached.back().mesh.edges) {
             if(!edge.reference.semantic_key.starts_with("boolean:subtract:split-edge:"))continue;
+            if(std::ranges::none_of(edge.edge_treatment_side_references,[](const auto& face){return face.sheet_role==kernel::SheetFaceRole::SideA;}))continue;
             try {static_cast<void>(document::flat_sheet_references(edge));fragments.push_back(edge);}
             catch(const std::exception&) {}
         }
@@ -1704,6 +1721,147 @@ static int verify_cut_sheet_attachments_ui(QApplication& application,
                 check(references==feature->placement.references,"Cold regeneration changed the exact cut attachment identity");
             }
             std::cout<<"Cut attachment GUI fragment "<<segment<<" kind "<<kind<<" midpoint="<<center<<" passed\n"<<std::flush;
+        }
+        return 0;
+    }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}
+}
+
+static int verify_converted_sheet_selection_ui(QApplication& application,
+        const std::filesystem::path& parent) {
+    using namespace zima;
+    const auto check=[](bool ok,const char* message){if(!ok)throw std::runtime_error(message);};
+    const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
+    try {
+        const auto source=std::filesystem::path(qEnvironmentVariable("ZIMA_VERIFY_CONVERTED_SHEET_SELECTION").toStdWString());
+        const auto path=parent/"converted-sheet-selection-copy.prtz";
+        std::filesystem::copy_file(source,path,std::filesystem::copy_options::overwrite_existing);
+        const auto model=document::PartDocument::load(path);
+        std::set<std::string> sources;
+        std::map<std::string,bool> children;
+        for(const auto& feature:model.history)
+            if(feature.feature_kind==document::FeatureKind::SheetFromBody)
+                for(const auto& binding:feature.sheet_from_body.child_bindings) {
+                    if(binding.detached)continue;
+                    children.emplace(binding.feature_id,binding.bend);
+                    for(const auto& face:binding.faces)sources.insert(face.reference.owner_id);
+                }
+        check(!sources.empty()&&!children.empty(),"Selection fixture has no converted sheet children");
+        app::AssemblyWorkspaceWindow window(QString::fromStdWString(parent.wstring()));
+        window.setAttribute(Qt::WA_DontShowOnScreen);window.resize(1600,1000);window.show();
+        check(window.open_document_path(QString::fromStdWString(path.wstring())),"Cannot open selection fixture");flush();
+        check(activate_test_body(application,window,model.body_history.active_body_id()),"Cannot activate selection fixture Body");
+        auto* view=dynamic_cast<viewer::MeshView*>(window.findChild<QOpenGLWidget*>("modelWorkspace"));
+        auto* tree=window.findChild<QTreeWidget*>("documentTree");
+        auto* sheet_mode=window.findChild<QToolButton*>("sheetMetalModeButton");
+        auto* solid_mode=window.findChild<QToolButton*>("modelingModeButton");
+        check(view&&tree&&sheet_mode&&solid_mode,"Selection workspace missing");
+        for(const auto visibility:{viewer::ReferenceVisibility::Origins,viewer::ReferenceVisibility::Planes,
+                viewer::ReferenceVisibility::Sketches,viewer::ReferenceVisibility::Axes})
+            view->set_reference_visibility(visibility,false);
+        sheet_mode->click();view->fit_all();flush();
+        const auto state=window.execute_console_command("documents").data;
+        const auto revision=view->base_mesh_revision();
+        const auto project=[&](kernel::Vec3 point) {
+            const auto center=view->ray_at({view->width()*.5,view->height()*.5});check(center.has_value(),"Selection camera ray missing");
+            const auto normal=center->second;
+            const auto dot=[](kernel::Vec3 a,kernel::Vec3 b){return a.x*b.x+a.y*b.y+a.z*b.z;};
+            const auto sub=[](kernel::Vec3 a,kernel::Vec3 b){return kernel::Vec3{a.x-b.x,a.y-b.y,a.z-b.z};};
+            const auto hit=[&](QPointF screen) {
+                const auto ray=view->ray_at(screen);check(ray.has_value(),"Selection projection ray missing");
+                const double t=dot(sub(point,ray->first),normal)/dot(ray->second,normal);
+                return kernel::Vec3{ray->first.x+t*ray->second.x,ray->first.y+t*ray->second.y,ray->first.z+t*ray->second.z};
+            };
+            const auto origin=hit({0,0}),u=sub(hit({100,0}),origin),v=sub(hit({0,100}),origin),r=sub(point,origin);
+            const double uu=dot(u,u),vv=dot(v,v),uv=dot(u,v),det=uu*vv-uv*uv;
+            return QPointF(100*(dot(r,u)*vv-dot(r,v)*uv)/det,100*(dot(r,v)*uu-dot(r,u)*uv)/det);
+        };
+        struct SelectionSample {QPointF screen;std::string owner;kernel::Vec3 center;std::array<float,8> camera;};
+        std::map<bool,SelectionSample> positions;
+        const auto focus=[&](kernel::Vec3 point) {
+            // Inspect the narrow bend face at the same useful close-up scale
+            // as the reported interaction, outside nearby Sketch wire picks.
+            view->fit_points({{point.x-15,point.y-15,point.z-15},
+                              {point.x+15,point.y+15,point.z+15}});
+        };
+        const auto& mesh=view->mesh().original_references;
+        std::map<std::string,int> sample_counts;
+        for(const auto direction:std::array<kernel::Vec3,8>{{{1,1,1},{-1,1,1},{1,-1,1},{-1,-1,1},{1,1,-1},{-1,1,-1},{1,-1,-1},{-1,-1,-1}}}) {
+        view->set_view_direction(direction);
+        // View changes animate for 850 ms. Sample a settled camera so the
+        // projection, hover and subsequent clicks use the same orientation.
+        QEventLoop camera_wait;QTimer::singleShot(900,&camera_wait,&QEventLoop::quit);camera_wait.exec();
+        view->fit_all();flush();
+        for(std::size_t triangle=0;triangle<mesh.triangle_references.size()&&positions.size()<2;++triangle) {
+            const auto& ref=mesh.triangle_references[triangle];
+            const auto owner=ref.display_owner_id.empty()?ref.sheet_owner:ref.display_owner_id;
+            const auto child=children.find(owner);
+            if(child==children.end()||positions.contains(child->second)||triangle*3+2>=mesh.triangles.size())continue;
+            kernel::Vec3 point{};
+            for(std::size_t corner=0;corner<3;++corner) {
+                const auto& vertex=mesh.vertices.at(mesh.triangles[triangle*3+corner]);
+                point.x+=vertex.x/3;point.y+=vertex.y/3;point.z+=vertex.z/3;
+            }
+            focus(point);
+            const auto screen=project(point);if(!view->rect().contains(screen.toPoint()))continue;
+            const auto candidates=view->selection_candidates_at(screen);
+            if(candidates.empty())++sample_counts["empty"];
+            else {
+                const auto& first=candidates.front();
+                ++sample_counts[std::to_string(static_cast<int>(first.kind))+":"+first.owner_id+
+                    (std::ranges::any_of(candidates,[&](const auto& c){return sources.contains(c.owner_id);})?":source":":no-source")];
+            }
+            if(candidates.empty()||candidates.front().kind!=viewer::CandidateKind::Container)continue;
+            const auto offered_child=children.find(candidates.front().owner_id);
+            if(offered_child==children.end())continue;
+            if(std::ranges::any_of(candidates,[&](const auto& candidate){return sources.contains(candidate.owner_id);}))
+                positions.emplace(offered_child->second,SelectionSample{screen,offered_child->first,point,view->camera_state()});
+        }
+        if(positions.size()==2)break;
+        }
+        if(positions.size()!=2) {
+            std::cerr<<"Selection samples positions="<<positions.size()<<" children="<<children.size()<<" sources="<<sources.size()<<'\n';
+            for(const auto& [key,count]:sample_counts)std::cerr<<key<<" "<<count<<'\n';
+        }
+        check(positions.size()==2,"Cannot find both Flat and Bend surfaces with their original solid aliases");
+        for(int repeat=0;repeat<3;++repeat)for(const auto& [bend,position]:positions) {
+            const auto& [screen,owner,center,camera]=position;
+            focus(center);view->set_camera_state(camera);view->clear_selection();
+            sheet_mode->click();flush();
+            const auto candidates=view->selection_candidates_at(screen);
+            check(!candidates.empty()&&candidates.front().owner_id==owner,"Sheet Metal did not prioritize the actual child");
+            check(std::ranges::any_of(candidates,[&](const auto& candidate){return candidate.kind==viewer::CandidateKind::Container&&sources.contains(candidate.owner_id);}),
+                "Sheet Metal lost the original Solid cycling choice");
+            const auto mouse=[&](QEvent::Type type,Qt::MouseButton button,Qt::MouseButtons buttons) {
+                QMouseEvent event(type,screen,QPointF(view->mapToGlobal(screen.toPoint())),button,buttons,Qt::NoModifier);
+                QApplication::sendEvent(view,&event);flush();
+            };
+            mouse(QEvent::MouseMove,Qt::NoButton,Qt::NoButton);
+            check(view->offered_candidate()&&view->offered_candidate()->owner_id==owner,"Actual hover offers the wrong converted child");
+            for(std::size_t cycle=0;cycle<candidates.size()&&
+                    (!view->offered_candidate()||!sources.contains(view->offered_candidate()->owner_id));++cycle) {
+                mouse(QEvent::MouseButtonPress,Qt::RightButton,Qt::RightButton);
+                mouse(QEvent::MouseButtonRelease,Qt::RightButton,Qt::NoButton);
+            }
+            check(view->offered_candidate()&&sources.contains(view->offered_candidate()->owner_id),
+                "Right-click cycling did not offer the original Solid");
+            view->clear_selection();mouse(QEvent::MouseMove,Qt::NoButton,Qt::NoButton);
+            mouse(QEvent::MouseButtonPress,Qt::LeftButton,Qt::LeftButton);
+            mouse(QEvent::MouseButtonRelease,Qt::LeftButton,Qt::NoButton);
+            check(tree->currentItem()&&tree->currentItem()->data(0,Qt::UserRole).toString().toStdString()==owner,
+                "Converted child click did not synchronize Tree");
+            check(view->confirmed_candidate()&&view->confirmed_candidate()->owner_id==owner,"Converted child confirmation lost ownership");
+            solid_mode->click();flush();
+            check(view->confirmed_candidate()&&view->confirmed_candidate()->owner_id==owner&&
+                tree->currentItem()&&tree->currentItem()->data(0,Qt::UserRole).toString().toStdString()==owner,
+                "Workspace switch desynchronized the confirmed View/Tree selection");
+            view->clear_selection();
+            const auto original=view->selection_candidates_at(screen);
+            check(std::ranges::any_of(original,[&](const auto& candidate){return sources.contains(candidate.owner_id);}),"Modeling lost the original Solid/Fillet offer");
+            mouse(QEvent::MouseMove,Qt::NoButton,Qt::NoButton);
+            check(view->offered_candidate()&&view->offered_candidate()->owner_id==original.front().owner_id,"Mode switch retained stale Sheet Metal hover");
+            check(window.execute_console_command("documents").data==state&&view->base_mesh_revision()==revision,
+                "Mode switch or selection changed the document or republished geometry");
+            std::cout<<"Converted "<<(bend?"Bend":"Flat")<<" hover/click/mode cycle "<<repeat<<" passed\n"<<std::flush;
         }
         return 0;
     }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}

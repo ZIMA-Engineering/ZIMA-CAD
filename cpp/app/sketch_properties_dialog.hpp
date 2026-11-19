@@ -181,6 +181,7 @@ private:
     std::function<void(zima::document::SheetProfileParameters)>
         sheet_profile_changed_;
     FeatureParameterPanel* sheet_profile_width_panel_{};
+    std::function<void()> sheet_profile_fit_;
     std::function<void()> sheet_profile_target_request_;
     std::function<void()> sheet_profile_target_cancel_;
     std::size_t sheet_profile_target_side_{};

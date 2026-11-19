@@ -22,6 +22,16 @@ using namespace kernel::sheet_material;
 using V=kernel::Vec3;
 using Face=kernel::FaceReference;
 constexpr double join_tolerance=.05;
+// Automatic conversion keeps its authored outer-skin convention. Interactive
+// Flat attachment also accepts the opposite skin, without changing which
+// reference an existing conversion algorithm chooses for a reproduced wall.
+std::vector<document::ConstructionReference> conversion_flat_references(
+        const kernel::ViewerEdge& edge,const kernel::VertexReference& start={}) {
+    if(std::ranges::none_of(edge.edge_treatment_side_references,[](const auto& face) {
+            return face.sheet_role==kernel::SheetFaceRole::SideA;
+        }))throw std::invalid_argument("Sheet conversion cannot attach a continuation Flat.");
+    return document::flat_sheet_references(edge,start);
+}
 thread_local unsigned sheet_conversion_authoring_depth{};
 struct SheetConversionAuthoringScope {
     SheetConversionAuthoringScope(){++sheet_conversion_authoring_depth;}
@@ -2365,7 +2375,7 @@ SheetBodyConversion prepare_sheet_from_body(const document::PartDocument& source
                         continue;
                     try {
                         static_cast<void>(
-                            document::flat_sheet_references(edge));
+                            conversion_flat_references(edge));
                     } catch(const std::invalid_argument&) {continue;}
                     const double error=edge_distance(edge,output_end);
                     if(error<attachment_error) {
@@ -2428,7 +2438,7 @@ SheetBodyConversion prepare_sheet_from_body(const document::PartDocument& source
                 added.flat.thickness=thickness;
                 added.flat.direction=document::ExtrusionDirection::Reverse;
                 added.placement.references=
-                    document::flat_sheet_references(
+                    conversion_flat_references(
                         *attachment,attachment_anchor);
             }
             next.insert_history_entry(document::PartHistoryKind::Feature,
@@ -2544,7 +2554,7 @@ SheetBodyConversion prepare_sheet_from_body(const document::PartDocument& source
         const kernel::ViewerEdge* attachment=nullptr;double best=INFINITY;
         for(const auto& edge:local_geometry.edges) {
             if(edge.reference.owner_id!=parent||!straight(edge))continue;
-            try {if(bend)static_cast<void>(document::bend_sheet_references(edge));else static_cast<void>(document::flat_sheet_references(edge));}
+            try {if(bend)static_cast<void>(document::bend_sheet_references(edge));else static_cast<void>(conversion_flat_references(edge));}
             catch(const std::invalid_argument&){continue;}
             const auto mismatch=[&](V p,V q) {
                 if(bend)return distance(p,q);
@@ -2590,7 +2600,7 @@ SheetBodyConversion prepare_sheet_from_body(const document::PartDocument& source
             added.flat.thickness_override=thickness_override;
             added.flat.thickness=thickness;
             added.flat.direction=document::ExtrusionDirection::Reverse;
-            added.placement.references=document::flat_sheet_references(*attachment);
+            added.placement.references=conversion_flat_references(*attachment);
         }
         next.insert_history_entry(document::PartHistoryKind::Feature,added.id);
         next.history.push_back(added);next.sketches.push_back(profile);
@@ -2771,7 +2781,7 @@ SheetBodyConversion prepare_sheet_from_body(const document::PartDocument& source
                 try {
                     if(bend_attachment)
                         static_cast<void>(document::bend_sheet_references(edge));
-                    else static_cast<void>(document::flat_sheet_references(edge));
+                    else static_cast<void>(conversion_flat_references(edge));
                 } catch(const std::invalid_argument&) {continue;}
                 const double error=edge_distance(edge,source_edge);
                 if(error<best_error) {
@@ -2898,7 +2908,7 @@ SheetBodyConversion prepare_sheet_from_body(const document::PartDocument& source
         for(const auto& edge:local_flat_geometry.edges) {
             if(edge.reference.owner_id!=bend.id||!straight(edge))continue;
             try {
-                static_cast<void>(document::flat_sheet_references(edge));
+                static_cast<void>(conversion_flat_references(edge));
             } catch(const std::invalid_argument&) {continue;}
             const double error=edge_distance(edge,continuation.edges[1]);
             if(error<flat_attachment_error) {
@@ -2920,7 +2930,7 @@ SheetBodyConversion prepare_sheet_from_body(const document::PartDocument& source
         flat.flat.thickness=thickness;
         flat.flat.direction=document::ExtrusionDirection::Reverse;
         flat.placement.references=
-            document::flat_sheet_references(*flat_attachment);
+            conversion_flat_references(*flat_attachment);
         flat_profile.owner_container_id=flat.id;
         flat_profile.name=flat.name;
         flat_next.insert_history_entry(document::PartHistoryKind::Feature,

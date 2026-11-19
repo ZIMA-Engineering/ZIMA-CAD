@@ -1,4 +1,5 @@
 {
+  "Flat attachment requires a straight boundary of a sheet end face.": "Le raccordement de la tôle exige une arête de bord droite d’une face d’extrémité de tôle.",
   "Střed hrany": "Milieu de l’arête",
   "Umístit počátek do středu vybraného úseku hrany a kótovat od středu.": "Placer l’origine au milieu du segment d’arête sélectionné et coter à partir de ce milieu.",
   "The profile dimensions conflict with the edge midpoint attachment.": "Les cotes du profil sont en conflit avec le rattachement au milieu de l’arête.",

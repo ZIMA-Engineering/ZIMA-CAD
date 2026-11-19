@@ -244,7 +244,7 @@ std::optional<double> bend_attachment_profile_direction(
         if(!reference.orientation_drives_rotation ||
             (reference.orientation_role!="top"&&reference.orientation_role!="bottom"))continue;
         if(matches(*edge_reference,reference))continue; // Mirrored FRONT row.
-        V normal{},interior{};double area=0;
+        V normal{};double area=0;
         std::vector<V> vertices;
         for(std::size_t i=0;i<geometry.triangle_references.size();++i) {
             if(!matches(geometry.triangle_references[i],reference))continue;
@@ -257,7 +257,7 @@ std::optional<double> bend_attachment_profile_direction(
             if(weight<1e-14)continue;
             if(area==0)normal=scale(n,1/weight);
             vertices.insert(vertices.end(),{a,b,c});
-            interior=add(interior,scale(add(add(a,b),c),weight/3));area+=weight;
+            area+=weight;
         }
         // A different secondary direction must retain its normal placement
         // meaning; do not reinterpret a later unrelated face as the join.
@@ -272,13 +272,31 @@ std::optional<double> bend_attachment_profile_direction(
         // preserving the same face identity. Select the profile sign in the
         // actual generic placement frame so +Y always enters the material.
         const auto inward=cross(frame_normal,frame_along);
-        const double side=dot(add(scale(interior,1/area),scale(first,-1)),inward);
-        if(std::abs(side)<1e-7)return std::nullopt;
-        const double sign=side>0?1.:-1.;
-        // Only a boundary edge determines a unique material side. A datum
-        // plane crossing the line or a curved face is not an attachment face.
-        if(std::ranges::any_of(vertices,[&](V p){return sign*dot(add(p,scale(first,-1)),inward)<-1e-7;}))
-            return std::nullopt;
+        // A Boolean can merge coplanar thickness faces from several branches.
+        // Such a face may cross the infinite line of a valid boundary edge;
+        // its centroid and remote vertices do not describe the local material
+        // side. Use only face triangles incident to the interior of this edge.
+        // These are available in both full and compact dependency packets.
+        const auto middle=scale(add(first,edge->points.back()),.5);
+        double sign=0;
+        for(std::size_t i=0;i+2<vertices.size();i+=3) {
+            const auto a=vertices[i],b=vertices[i+1],c=vertices[i+2];
+            const auto ab=add(b,scale(a,-1)),ac=add(c,scale(a,-1)),ap=add(middle,scale(a,-1));
+            const double aa=dot(ab,ab),cc=dot(ac,ac),bc=dot(ab,ac);
+            const double determinant=aa*cc-bc*bc;
+            if(determinant<=0)continue;
+            const double u=(dot(ap,ab)*cc-dot(ap,ac)*bc)/determinant;
+            const double v=(dot(ap,ac)*aa-dot(ap,ab)*bc)/determinant;
+            if(u<-1e-7||v<-1e-7||u+v>1+1e-7)continue;
+            for(const auto p:{a,b,c}) {
+                const double side=dot(add(p,scale(first,-1)),inward);
+                if(std::abs(side)<1e-7)continue;
+                const double local=side>0?1.:-1.;
+                if(sign!=0&&sign!=local)return std::nullopt;
+                sign=local;
+            }
+        }
+        if(sign==0)return std::nullopt;
         return sign;
     }
     return std::nullopt;

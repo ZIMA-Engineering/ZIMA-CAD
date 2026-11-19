@@ -208,6 +208,7 @@ void verify_flat_to_flat_attachment(std::filesystem::path directory) {
         std::vector<kernel::ViewerEdge> edges;
         for(const auto& edge:state->session.calculated_boundaries().back().mesh.original_references.edges) {
             if(edge.reference.owner_id!=base_id)continue;
+            if(std::ranges::none_of(edge.edge_treatment_side_references,[](const auto& face){return face.sheet_role==kernel::SheetFaceRole::SideA;}))continue;
             try {static_cast<void>(document::flat_sheet_references(edge));edges.push_back(edge);}
             catch(const std::exception&) {}
         }
@@ -296,8 +297,9 @@ void verify_cut_edge_attachment(std::filesystem::path directory,bool placed_body
         try {static_cast<void>(document::flat_sheet_references(edge));fragments.push_back(edge);}
         catch(const std::exception&) {}
     }
-    check(fragments.size()==2,"Notch must leave two independent attachable top edges");
-    check(fragments[0].reference!=fragments[1].reference,"Cut fragments share one attachment identity");
+    check(fragments.size()==4,"Notch must leave two attachable top fragments on each skin");
+    for(std::size_t a=0;a<fragments.size();++a)for(std::size_t b=a+1;b<fragments.size();++b)
+        check(fragments[a].reference!=fragments[b].reference,"Cut fragments share one attachment identity");
     near(measured_volume(kernel,cached.back()),1100.);
     for(const auto& edge:fragments) {
         // Recovery and rollback can temporarily end history at this Cut.
@@ -484,7 +486,7 @@ void verify_cut_edge_attachment(std::filesystem::path directory,bool placed_body
             }
         }
     }
-    std::cout<<"Cut edge attachment: two fragments, both endpoints, Flat/Bend/Profile, native reopen, regeneration and Undo/Redo passed\n";
+    std::cout<<"Cut edge attachment: two fragments on both skins, both endpoints, Flat/Bend/Profile, native reopen, regeneration and Undo/Redo passed\n";
 }
 void verify_bend_attachment(const std::filesystem::path& directory) {
     kernel::OcctKernel kernel;
@@ -511,6 +513,9 @@ void verify_bend_attachment(const std::filesystem::path& directory) {
         const auto end=sketcher::Sketch::from_serialized(source.history.front().bend.auxiliary_sketches[1]);
         const auto edge=std::ranges::find_if(geometry.edges,[&](const auto& e) {
             if(!edge_key.empty())return e.reference.semantic_key==edge_key;
+            if(std::ranges::none_of(e.edge_treatment_side_references,[](const auto& face) {
+                    return face.sheet_role==kernel::SheetFaceRole::SideA;
+                }))return false;
             try {const auto refs=document::flat_sheet_references(e);
                 return refs[1].semantic_key.starts_with("sweep:cap:end:from:");}
             catch(const std::exception&){return false;}
@@ -627,7 +632,11 @@ void verify_bend_attachment(const std::filesystem::path& directory) {
             const bool inner=std::ranges::any_of(e.edge_treatment_side_references,[](const auto& f){return f.sheet_role==kernel::SheetFaceRole::SideB;});
             if(!inner&&kernel::sheet_edge_role(e)!=kernel::SheetEdgeRole::Thickness)continue;
             bool rejected=false;try{document::flat_sheet_references(e);}catch(const std::exception&){rejected=true;}
-            check(rejected,"Flat accepted inner or thickness edge");
+            if(kernel::sheet_edge_role(e)==kernel::SheetEdgeRole::Thickness)
+                check(rejected,"Flat accepted a thickness edge");
+            else if(!rejected)
+                check(document::bend_attachment_profile_direction(document::flat_sheet_references(e),geometry).has_value(),
+                    "Opposite skin Flat boundary lost its material side");
         }
         target.save(directory/"attached-flat.prtz");target=document::PartDocument::load(directory/"attached-flat.prtz");
         check(target.history.front().flat.sheet_attachment,"Native reopen lost Flat attachment");
@@ -718,6 +727,96 @@ void verify_attached_history(std::filesystem::path directory) {
     }
     check(!edge_key.empty(),"Attached Bend lost its outer End");
     const auto attached_flat=run(host,"flat.create",{{"edge_owner",attached_bend},{"edge_key",edge_key},{"height_mm",12.}}).data;
+    {
+        // The three sheets have coplanar end faces unified across their L
+        // section. Remote branches cross the line of the inner boundary;
+        // each real straight edge must still supply its local material side.
+        const auto source_document=state->session.document();
+        const auto source_boundaries=state->session.calculated_boundaries();
+        const auto geometry=document::sheet_attachment_reference_geometry(source_boundaries.back().mesh);
+        std::vector<kernel::ViewerEdge> opposite;
+        for(const auto& edge:geometry.edges) {
+            if(edge.points.size()!=2||kernel::sheet_edge_role(edge)!=kernel::SheetEdgeRole::Boundary)continue;
+            check(document::bend_attachment_profile_direction(document::bend_sheet_references(edge),geometry).has_value(),
+                "Merged coplanar branch face hid a valid straight sheet boundary");
+            if(edge.reference.owner_id==base&&std::abs(edge.points.front().x)<1e-7&&
+                    std::abs(edge.points.back().x)<1e-7)opposite.push_back(edge);
+        }
+        check(opposite.size()==2,"Merged branch fixture lost the opposite boundary pair");
+        std::optional<double> flat_side_volume;
+        for(const auto& edge:opposite)for(int kind=0;kind<3;++kind) {
+            workspace::Workspace probe;probe.add_part(source_document,source_boundaries);probe.activate(flip_id);
+            command_host::Host probe_host(probe,kernel,directory);
+            const auto before=probe.open_part(flip_id)->session.document().serialized();
+            std::string created;
+            if(kind<2) {
+                created=run(probe_host,kind==0?"flat.create":"bend.create",
+                    {{"edge_owner",edge.reference.owner_id},{"edge_key",edge.reference.semantic_key},
+                     {"origin_midpoint",true},{"width_mm",10.}}).data.at("container").get<std::string>();
+            } else {
+                auto feature=document::PartDocument::create_sketch_container();
+                feature.feature_kind=document::FeatureKind::SheetProfile;feature.name="Merged face Profile";
+                auto route=sketcher::Sketch::create_default();route.owner_container_id=feature.id;
+                feature.sheet_profile.sketch_id=route.id;feature.sheet_profile.sheet_attachment=true;
+                feature.sheet_profile.width.symmetric=true;feature.sheet_profile.width.sides[0].length=5.;
+                feature.placement.references=document::bend_sheet_references(edge,kernel::sheet_edge_midpoint_reference(edge.reference));
+                feature.sheet_profile.start_point_id=document::initialize_attached_sheet_profile(route,
+                    edge.edge_treatment_side_references.front().sheet_thickness);
+                created=feature.id;
+                check(workspace::commit_sheet_profile(probe,kernel,flip_id,std::move(feature),std::move(route)),
+                    "Profile could not attach to a merged branch face");
+            }
+            auto* probe_state=probe.open_part(flip_id);
+            const double volume=measured_volume(kernel,probe_state->session.calculated_boundaries().back());
+            check(volume>measured_volume(kernel,source_boundaries.back()),"Merged branch attachment added no material");
+            if(kind==0) {
+                if(flat_side_volume)near(volume,*flat_side_volume);
+                else flat_side_volume=volume;
+            }
+            const auto after=probe_state->session.document().serialized();
+            run(probe_host,"undo");
+            auto undone=probe_state->session.document().serialized(),expected=before;
+            // Allocated dimension numbers survive Undo by design.
+            for(const auto& entry:before.at("dimension_identifiers").at("entries"))
+                check(std::ranges::find(undone.at("dimension_identifiers").at("entries"),entry)!=
+                    undone.at("dimension_identifiers").at("entries").end(),"Merged attachment Undo renumbered a source dimension");
+            for(const auto* key:{"dimension_identifiers","calculation_definition_fingerprint"}) {undone.erase(key);expected.erase(key);}
+            check(undone==expected,
+                "Merged branch attachment Undo changed its source");
+            run(probe_host,"redo");
+            check(probe_state->session.document().serialized()==after,"Merged branch attachment Redo changed its references");
+            run(probe_host,"regenerate");
+            check(probe_state->session.calculated_boundaries().back().calculation_errors.empty(),
+                "Merged branch attachment failed explicit regeneration");
+            near(measured_volume(kernel,probe_state->session.calculated_boundaries().back()),volume);
+            const auto saved_path=directory/(created+"-merged.prtz");
+            probe_state->session.document().save(saved_path,probe_state->session.calculated_boundaries());
+            std::vector<kernel::BodyResult> saved_boundaries;
+            auto reopened=document::PartDocument::load(saved_path,&saved_boundaries);
+            workspace::PartCalculationPolicy policy;policy.history_reference_baseline=&saved_boundaries;
+            kernel::OcctKernel cold_kernel;
+            const auto cold=workspace::calculate_part_with_resolved_references(cold_kernel,reopened,nullptr,policy);
+            check(reopened.find_container(created)->placement.reference_valid&&cold.back().calculation_errors.empty(),
+                "Merged branch attachment did not survive native save/reopen and cold regeneration");
+            near(measured_volume(cold_kernel,cold.back()),volume);
+        }
+        workspace::Workspace overhang_probe;
+        overhang_probe.add_part(source_document,source_boundaries);overhang_probe.activate(flip_id);
+        command_host::Host overhang_host(overhang_probe,kernel,directory);
+        const auto flat_id=attached_flat.at("container").get<std::string>();
+        for(double overhang:{3.,-2.,0.}) {
+            run(overhang_host,"bend.set",{{"container",attached_bend},{"first_extension_mm",overhang},{"last_extension_mm",overhang}});
+            run(overhang_host,"regenerate");
+            const auto* updated=overhang_probe.open_part(flip_id);
+            check(updated->session.document().find_container(flat_id)->placement.reference_valid&&
+                    updated->session.calculated_boundaries().back().calculation_errors.empty(),
+                "Changing a merged branch Bend overhang broke its dependent Flat");
+            const auto volume=measured_volume(kernel,updated->session.calculated_boundaries().back());
+            run(overhang_host,"undo");run(overhang_host,"redo");
+            near(measured_volume(kernel,updated->session.calculated_boundaries().back()),volume);
+        }
+        std::cout<<"Merged branch faces: both thickness edges, Flat/Bend/Profile, overhang edits, Undo/Redo and cold reopen passed\n";
+    }
     const auto attached_sketch=attached_flat.at("sketch").get<std::string>();
     const auto initial_refs=workspace::document_sketch(live,flip_id,attached_sketch).external_references;
     for(int side:{1,0,1}) {
