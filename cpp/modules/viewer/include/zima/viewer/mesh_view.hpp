@@ -124,12 +124,12 @@ public:
     // Read-only viewport ray, using the same camera as the common picker.
     [[nodiscard]] std::optional<std::pair<zima::kernel::Vec3, zima::kernel::Vec3>>
         ray_at(const QPointF& position) const;
-    [[nodiscard]] std::array<float, 8> camera_state() const;
-    void set_camera_state(const std::array<float, 8>& state);
+    [[nodiscard]] std::array<float, 11> camera_state() const;
+    void set_camera_state(const std::array<float, 11>& state);
     // Animates a full camera-state restore (orientation, pan, zoom),
     // matching Python's animate_camera_state used to restore custom saved
     // "Pohled kolmo" views.
-    void animate_camera_state(const std::array<float, 8>& state);
+    void animate_camera_state(const std::array<float, 11>& state);
     void fit_all();
     // Workspace side-panel width changes crop the view without recentering it.
     void set_preserve_screen_position_on_resize(bool enabled);
@@ -141,6 +141,8 @@ public:
     [[nodiscard]] ProjectionMode projection_mode() const;
     void set_fly_navigation_enabled(bool enabled);
     [[nodiscard]] bool fly_navigation_enabled() const;
+    void set_cursor_orbit_enabled(bool enabled);
+    [[nodiscard]] bool cursor_orbit_enabled() const;
     void set_standard_view(StandardView view);
     void set_document_origin(const std::string& owner_id);
     void set_view_direction(const zima::kernel::Vec3& direction);

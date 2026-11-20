@@ -2356,7 +2356,7 @@ int verify_sweep2d_command(QApplication& application,zima::app::AssemblyWorkspac
     static_cast<void>(closed_guide.add_segment(27,31,27,11));
     static_cast<void>(closed_guide.add_arc(17,11,27,11,7,11,false,1e-6,true));
     dialog->set_sketch(0,closed_guide);application.processEvents();
-    if(!verify(dialog->findChild<QTableWidget*>("sweep2dProfiles")->rowCount()==4 &&
+    if(!verify(dialog->findChild<QTableWidget*>("sweep2dProfiles")->rowCount()==8 &&
         dialog->pending.sweep2d.profiles.size()==1,"Closed path was rejected by Properties"))return 1;
     auto closed_section=zima::sketcher::Sketch::from_serialized(dialog->pending.sweep2d.sketch_data(1));
     static_cast<void>(closed_section.add_circle(0,0,1));dialog->set_sketch(1,closed_section);
@@ -5224,6 +5224,9 @@ int verify_body_history_ui(QApplication& application, const std::filesystem::pat
     tree->itemClicked(other_body_row,0);flush();
     if (!verify(origin_extent(b+":origin")>0&&!origin_button->isChecked(),
             "Origin selection did not reveal another Body origin and return to reference entry")) return 1;
+    if(!verify(tree->currentItem()==row("document-origin",b+":origin")&&
+        row("document-origin",b+":origin")->isSelected()&&row("part-body",b)->isExpanded()&&
+        origin_point_dialog->references_without(99).empty(),"Body Origin reveal did not locate its Tree row or prematurely placed the Point"))return 1;
     tree->setCurrentItem(row("document-origin",a+":origin"));flush();
     if (!verify(origin_point_dialog->references_without(99).size()>=3,
             "Feature did not accept the owning Body Origin shortcut")) return 1;
@@ -7719,6 +7722,10 @@ int verify_rectangle_external_contact_ui(QApplication& application,const std::fi
 
 #include "form_sweep_sketch_ui_verification.inc"
 #include "placed_sketch_reference_ui_verification.inc"
+#include "cylindrical_angle_ui_verification.inc"
+#include "sweep_surface_ui_verification.inc"
+#include "curve_context_ui_verification.inc"
+#include "inspection_history_ui_verification.inc"
 #include "sketch_corner_chain_ui_verification.inc"
 #include "rolled_l_dimension_ui_verification.inc"
 #include "sketch_external_dimension_ui_verification.inc"
@@ -12369,6 +12376,9 @@ int verify_startup_contract(
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SKETCH_KEYPOINT_CONTACT_ONLY")) return verify_sketch_keypoint_contact_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SKETCH_COINCIDENT_ONLY")) return verify_sketch_coincident_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_PLACED_SKETCH_REFERENCE_ONLY")) return verify_placed_sketch_reference_ui(application,test_directory);
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_CYLINDRICAL_ANGLE_ONLY")) return verify_cylindrical_angle_ui(application,test_directory);
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SWEEP_SURFACE_ONLY")) return verify_sweep_surface_ui(application,test_directory);
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_CURVE_CONTEXT_FILE")) return verify_curve_context_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_FORM_SWEEP_SKETCH_ONLY")) return verify_form_sweep_sketch_ui(application,test_directory);
     if(qEnvironmentVariableIsSet("ZIMA_VERIFY_SKETCH_HV_VIEW_ONLY"))return verify_sketch_hv_view_ui(application,test_directory);
     if(qEnvironmentVariableIsSet("ZIMA_VERIFY_SKETCH_COMBINED_ENDPOINT_ONLY"))
@@ -12452,6 +12462,8 @@ int verify_startup_contract(
         return verify_shaft_thread_command(application,window,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_HISTORY_DRAG_ONLY"))
         return verify_history_tree_drag(application,test_directory);
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_INSPECTION_HISTORY_ONLY"))
+        return verify_inspection_history_ui(application,test_directory);
     // Keep unexpected test prompts bounded even when a platform does not
     // report its visible message box through activeModalWidget().
     bool unexpected_prompt = false;

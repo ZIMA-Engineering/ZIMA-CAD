@@ -1,5 +1,6 @@
 #pragma once
 #include <zima/sketcher/sketch.hpp>
+#include <zima/sketcher/point_presentation.hpp>
 #include <set>
 #include <optional>
 #include <cmath>
@@ -133,7 +134,9 @@ inline std::optional<SketchPointAlignment> infer_sketch_point_alignment(
         const SketchInferenceSettings& settings) {
     std::optional<SketchPointAlignment> result;
     double best=tolerance;
+    const auto hidden_poles=sketcher::hidden_derived_control_points(sketch);
     for (const auto& point : sketch.points) {
+        if(hidden_poles.contains(point.id))continue;
         if (std::hypot(position[0]-point.x,position[1]-point.y)<=1e-9) continue;
         if (settings.enabled(sketcher::ConstraintKind::Horizontal) && std::abs(position[1]-point.y)<best) {
             best=std::abs(position[1]-point.y);

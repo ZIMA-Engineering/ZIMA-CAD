@@ -32,6 +32,11 @@ inline bool placement_references_use_whole_origin(
 
 inline void assign_container_orientation_role(ConstructionReference& reference,
         const std::vector<ConstructionReference>& existing) {
+    if (reference.use_angle) {
+        reference.orientation_role=placement_position_only_role;
+        reference.orientation_drives_rotation=false;
+        return;
+    }
     const bool has_front = std::ranges::any_of(existing, [](const auto& ref) {
         return ref.orientation_drives_rotation &&
             (ref.orientation_role == "front" || ref.orientation_role == "back" ||
@@ -53,7 +58,7 @@ inline void normalize_container_front_references(
                 front = true;
             continue;
         }
-        if (ref.orientation_role == placement_position_only_role) continue;
+        if (ref.use_angle || ref.orientation_role == placement_position_only_role) continue;
         if (!ref.supports_offset && !ref.orientation_drives_rotation) continue;
         // An authored TOP/BOTTOM/FRONT/BACK is already a real orientation
         // equation. Normalization must not reinterpret it as another axis.

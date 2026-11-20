@@ -33,7 +33,7 @@ SourceCurve from_edge(const kernel::ViewerEdge& edge) {
         result.closed=edge.edge_treatment_endpoint_references.front()==edge.edge_treatment_endpoint_references.back();
     return result;
 }
-SourceCurve part_source(const document::DocumentSession& session,const Reference& source) {
+SourceCurve part_source(const document::DocumentSession& session,const Reference& source,const std::string& draft_body={}) {
     const auto& doc=session.document();
     std::optional<SourceCurve> native;
     visit_document_sketches(doc,[&](const auto& sketch) {
@@ -72,12 +72,15 @@ SourceCurve part_source(const document::DocumentSession& session,const Reference
         for(auto& pole:result.geometry.poles)pole=sketch.world_point(pole.x,pole.y);
         kernel::ViewerMesh packet;kernel::ViewerEdge edge;edge.exact_spline=std::move(result.geometry);packet.edges.push_back(std::move(edge));
         const auto* body=doc.body_owner_for_object(sketch.owner_container_id);
-        if(!body)if(const auto* parent=surface_parent(doc,sketch))body=doc.body_owner_for_object(parent->id);
+        if(!body)if(const auto* parent=surface_parent(doc,sketch)) {
+            body=doc.body_owner_for_object(parent->id);
+            if(!body&&!draft_body.empty())body=doc.body_history.find(draft_body);
+        }
         if(body)packet=doc.place_body_mesh(std::move(packet),body->scope.id);
         result.geometry=std::move(*packet.edges.front().exact_spline);native=std::move(result);return false;
     });
     if(native)return std::move(*native);
-    for(const auto& object:doc.constructions)if(object.entity_id==source.source_owner_id&&object.kind==document::ConstructionKind::Curve3D) {
+    const auto native_3d=[&](const document::ConstructionObject& object,const document::BodyHistory* body)->SourceCurve {
         if(object.suppressed||!object.reference_valid)throw SketchOperationError("intersection_source",error);
         const auto route=document::curve3d_route(object);
         const auto segment=std::ranges::find(route.segments,source.source_semantic_key,&kernel::Sweep3DRequest::PathSegment::source_id);
@@ -86,10 +89,18 @@ SourceCurve part_source(const document::DocumentSession& session,const Reference
         const auto frame=kernel::annotation_frame(object.origin,object.rotation);
         for(auto& pole:curve.poles)pole=frame.world(pole);
         kernel::ViewerMesh mesh;kernel::ViewerEdge edge;edge.exact_spline=std::move(curve);mesh.edges.push_back(std::move(edge));
-        if(const auto* body=doc.body_owner_for_object(object.id))mesh=doc.place_body_mesh(std::move(mesh),body->scope.id);
+        if(body)mesh=doc.place_body_mesh(std::move(mesh),body->scope.id);
         std::vector<std::string> ids;for(const auto& point:object.curve_points)ids.push_back(point.id);
         return {*mesh.edges.front().exact_spline,false,"authored-3d:"+identities(ids)};
-    }
+    };
+    for(const auto& object:doc.constructions)if(object.entity_id==source.source_owner_id&&object.kind==document::ConstructionKind::Curve3D)
+        return native_3d(object,doc.body_owner_for_object(object.id));
+    for(const auto& parent:doc.history)if(parent.feature_kind==document::FeatureKind::GeneralSurface)
+        for(const auto& boundary:parent.general_surface.boundaries)if(boundary.curve&&boundary.curve->entity_id==source.source_owner_id) {
+            auto* body=doc.body_owner_for_object(parent.id);
+            if(!body&&!draft_body.empty())body=doc.body_history.find(draft_body);
+            return native_3d(document::general_surface_display_curve(parent,*boundary.curve),body);
+        }
     if(session.calculated_boundaries().empty())throw SketchOperationError("intersection_source",error);
     const auto& edges=session.calculated_boundaries().back().mesh.original_references.edges;
     const kernel::ViewerEdge* selected{};
@@ -245,6 +256,23 @@ template<class Accept,class Source> std::vector<Reference> recalculate(const ske
     }
     return result;
 }
+}
+std::vector<Reference> prepare_owned_sketch_curve_intersection_branches(const document::PartDocument& document,
+        const document::HistoryContainer& parent,const sketcher::Sketch& sketch,
+        const kernel::EdgeReference& offered,const std::string& draft) {
+    if(!offered.instance_path.empty())throw SketchOperationError("intersection_source",error);
+    auto snapshot=document;
+    if(auto* existing=snapshot.find_container(parent.id))*existing=parent;
+    else snapshot.history.push_back(parent);
+    const auto allowed=sketch_external_reference_source_owners(snapshot,sketch.id,draft);
+    if(!allowed.contains(offered.owner_id))throw SketchOperationError("intersection_source",error);
+    auto source=sketcher::Sketch::create_external_reference(sketcher::ExternalReferenceKind::Point);
+    source.source_document_id=document.document_id;source.source_owner_id=offered.owner_id;
+    source.source_semantic_key=offered.semantic_key;
+    const document::DocumentSession session(std::move(snapshot));
+    auto curve=part_source(session,source,draft);
+    into_sketch_frame(curve,session.document(),sketch,draft,SketchIntersectionFrame::Body);
+    return branches(curve,sketch,source,document::precision_value(document.document_precision,"linear_tolerance",.001));
 }
 std::vector<Reference> prepare_sketch_curve_intersection_branches(const Workspace& live,const std::string& document,
         const sketcher::Sketch& sketch,const kernel::EdgeReference& offered,const std::string& draft,bool section) {

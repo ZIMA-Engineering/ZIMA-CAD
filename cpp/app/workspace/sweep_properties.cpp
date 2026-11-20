@@ -152,6 +152,7 @@ void AssemblyWorkspaceWindow::show_sweep_properties(zima::document::FeatureKind 
     SweepPlacementDialog* dialog=general?static_cast<SweepPlacementDialog*>(new GeneralSurfaceDialog(initial,commit,this)):transition?static_cast<SweepPlacementDialog*>(new SheetTransitionDialog(initial,commit,this,sheet_defaults)):planar?static_cast<SweepPlacementDialog*>(new Sweep2DDialog(initial,commit,this)):
         static_cast<SweepPlacementDialog*>(new HelicalSweepDialog(initial,commit,this));
     properties_dialog_=dialog;properties_dialog_instance_path_=*occurrence;
+    dialog->setProperty("pointOrderInstancePath",QString::fromStdString(*occurrence));
     primitive_parameter_owner_id_=initial.id;primitive_reference_dialog_=dialog;
 
     auto geometry=part->session.calculated_boundaries().empty()?zima::kernel::ViewerReferenceGeometry{}:part->session.calculated_boundaries().back().mesh.original_references;
@@ -330,7 +331,9 @@ void AssemblyWorkspaceWindow::show_sweep_properties(zima::document::FeatureKind 
         std::vector<zima::kernel::Vec3> points;
         const auto scene_point=[&](zima::kernel::Vec3 point){return properties_dialog_instance_path_.empty()?point:
             workspace_.occurrence_point_to_scene(workspace_.displayed_document_id(),zima::assembly::InstancePath::decode(properties_dialog_instance_path_),point);};
-        for(const auto& marker:preview_mesh.constraint_markers)labels.emplace_back(scene_point(marker.position),marker.label);
+        for(const auto& marker:preview_mesh.constraint_markers)labels.emplace_back(scene_point(marker.position),
+            marker.reference.semantic_key.starts_with("sweep2d:profile-point:")&&marker.label=="1 – začátek"
+                ?QObject::tr("1 – začátek").toStdString():marker.label);
         for(const auto& point:preview_mesh.points)points.push_back(scene_point(point.position));
         viewer_->set_transient_edges(std::move(edges));
         // A new edge frame clears its preceding point/label overlays.
@@ -345,6 +348,11 @@ void AssemblyWorkspaceWindow::show_sweep_properties(zima::document::FeatureKind 
                     inspected.insert({point.reference.owner_id,point.reference.semantic_key,properties_dialog_instance_path_});
             }
             viewer_->set_constraint_reference_highlights({},std::move(inspected));
+            viewer_->set_transient_model_points(std::move(preview_mesh.points));
+        } else if(planar) {
+            for(auto& point:preview_mesh.points) {
+                point.position=scene_point(point.position);point.reference.instance_path=properties_dialog_instance_path_;
+            }
             viewer_->set_transient_model_points(std::move(preview_mesh.points));
         } else viewer_->set_transient_points(std::move(points));
         if(!pending_primitive_reference_index_&&!feature_reference_pick_&&!local_origin_selection_active_)set_primitive_properties_dimension_selection();
@@ -560,6 +568,7 @@ void AssemblyWorkspaceWindow::show_sweep3d_properties(
         viewer_->set_constraint_reference_highlights(
             {}, highlighted_reference_edge_keys(*dialog));
     });
+    dialog->setProperty("pointOrderInstancePath",QString::fromStdString(workspace_.active_occurrence_path()));
     construction_reference_dialog_ = dialog;
     properties_dialog_ = dialog;
 
@@ -621,11 +630,16 @@ void AssemblyWorkspaceWindow::show_sweep3d_properties(
 
             auto display_path = zima::document::sweep3d_display_path(*resolved);
             construction_preview_mesh_ = zima::document::sweep3d_preview_mesh(*resolved,dialog->sweep_mode());
+            for(auto& marker:construction_preview_mesh_->constraint_markers)
+                if(marker.reference.semantic_key.starts_with("profile-point:")&&marker.label=="1 – začátek")
+                    marker.label=QObject::tr("1 – začátek").toStdString();
             construction_preview_mesh_->points.push_back(zima::document::container_origin_marker(*resolved,true));
             if (dialog->sweep_mode()) zima::document::visit_feature_sketches(*resolved,[&](const auto& data,std::size_t){
                 const auto display=zima::sketcher::Sketch::from_serialized(data).viewer_mesh();
                 construction_preview_mesh_->dimensions.insert(construction_preview_mesh_->dimensions.end(),display.dimensions.begin(),display.dimensions.end());
             });
+            if(const auto* body=next.body_owner_for_object(pending.id))
+                construction_preview_mesh_=next.place_body_mesh(std::move(*construction_preview_mesh_),body->scope.id);
             construction_parameter_preview_ = display_path;
             append_reference_geometry(reference_geometry,
                 next.origin_viewer_mesh().original_references);

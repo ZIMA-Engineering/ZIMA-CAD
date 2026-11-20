@@ -1401,6 +1401,9 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
             origin_preview.rotation = {placement.rotation_x,
                 placement.rotation_y, placement.rotation_z};
             origin_preview.reference_valid = false;
+            if(resolved_preview.feature_kind==zima::document::FeatureKind::TwistedSheet)
+                origin_preview.direction=zima::document::construction_direction_from_local_axis("z",
+                    origin_preview.rotation);
             if(resolved_preview.feature_kind==zima::document::FeatureKind::SheetForm)
                 origin_preview.direction=zima::document::construction_direction_from_local_axis("y",
                     {placement.rotation_x,placement.rotation_y,placement.rotation_z});

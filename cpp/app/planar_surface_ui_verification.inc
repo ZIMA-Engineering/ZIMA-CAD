@@ -49,6 +49,10 @@ int verify_planar_surface_ui(QApplication& application,
         auto* sketch=dialog->findChild<QPushButton*>("sketchOpenButton");
         check(name&&plane&&offset&&offset->isVisible()&&sketch&&sketch->isVisible(),
             "Planar Surface is missing Name, work plane, offset or owned Sketch");
+        auto* plane_view=dialog->findChild<QTableWidget*>("sketchPlaneView");
+        check(plane_view&&sketch->mapTo(dialog,QPoint{}).x()>plane_view->mapTo(dialog,QPoint{}).x()&&
+            std::abs(sketch->mapTo(dialog,sketch->rect().center()).y()-plane_view->mapTo(dialog,plane_view->rect().center()).y())<=2,
+            "Planar Surface Sketch button is not beside the View plane field");
         check(!dialog->findChild<QWidget*>("featureDirection")&&
                 !dialog->findChild<QWidget*>("featureResult")&&
                 !dialog->findChild<QWidget*>("flatDirection"),

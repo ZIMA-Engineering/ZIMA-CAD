@@ -8,7 +8,7 @@ namespace zima::document {
 // Consume resolved placement data without solving references or bodies.
 inline bool has_primitive_parameter_dimensions(FeatureKind kind) {
     return kind==FeatureKind::Hole||kind==FeatureKind::Thread||
-        kind==FeatureKind::Loft;
+        kind==FeatureKind::Loft||kind==FeatureKind::TwistedSheet;
 }
 inline kernel::ViewerMesh primitive_parameter_dimensions(const HistoryContainer& feature) {
     kernel::ViewerMesh mesh;
@@ -116,6 +116,34 @@ inline kernel::ViewerMesh primitive_parameter_dimensions(const HistoryContainer&
                         zima::kernel::ViewerDimensionKind::Radius;
                 };
                 using zima::document::FeatureKind;
+                if(container->feature_kind==FeatureKind::TwistedSheet) {
+                    const auto& p=container->twisted_sheet;
+                    const double width_sign=p.sheet_attachment&&container->placement.references.size()>=3&&
+                        container->placement.references[2].flip?-1.:1.;
+                    const kernel::Vec3 center=p.sheet_attachment?kernel::Vec3{-p.attachment_material_side*p.thickness/2,width_sign*p.width/2,0}:kernel::Vec3{};
+                    const kernel::Vec3 radial=p.sheet_attachment?kernel::Vec3{0,width_sign,0}:kernel::Vec3{1,0,0};
+                    const kernel::Vec3 across=p.sheet_attachment?kernel::Vec3{-static_cast<double>(p.attachment_material_side),0,0}:kernel::Vec3{0,1,0};
+                    const auto start=local(center.x,center.y,0),end=local(center.x,center.y,p.length);
+                    const double arm=p.width/2+12;
+                    linear("length","",start,end,kernel::dimension_scale(radial,arm),p.length);
+                    const double sign=p.reverse?-1.:1.;
+                    const double radians=sign*p.angle_degrees*std::numbers::pi/180.;
+                    const auto ray=local_vector(kernel::dimension_scale(radial,arm));
+                    const auto turned=local_vector(kernel::dimension_scale(kernel::dimension_add(
+                        kernel::dimension_scale(radial,std::cos(radians)),kernel::dimension_scale(across,std::sin(radians))),arm));
+                    kernel::ViewerDimension angle{end,end,kernel::dimension_add(end,ray),kernel::dimension_add(end,turned),
+                        p.angle_degrees,{container->id,"parameter:angle",{}},"","°"};
+                    angle.kind=kernel::ViewerDimensionKind::Angular;
+                    angle.plane_normal=local_vector(kernel::dimension_scale(kernel::dimension_cross(radial,across),sign));
+                    angle.sweep_degrees=p.angle_degrees;angle.value_lock_key="angle";
+                    mesh.dimensions.push_back(std::move(angle));
+                    const auto anchor=local(center.x-radial.x*arm,center.y-radial.y*arm,p.length/2);
+                    kernel::ViewerDimension direction{anchor,anchor,anchor,anchor,p.reverse?1.:0.,
+                        {container->id,"parameter:twist_direction",{}},"",""};
+                    direction.label_only=true;direction.label_position=anchor;
+                    direction.display_text_override=p.reverse?"L":"R";
+                    mesh.dimensions.push_back(std::move(direction));
+                }
                 if(container->feature_kind==FeatureKind::Loft&&container->loft.result_type==ProfileResultType::Thin)
                     linear("thickness","t = ",local(0,0,0),local(container->loft.thickness,0,0),{0,8,0},container->loft.thickness);
                 if (container->feature_kind == FeatureKind::Thread) {

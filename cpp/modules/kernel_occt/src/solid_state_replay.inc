@@ -244,7 +244,7 @@ std::vector<HistoryOperation> prepare(const std::vector<HistoryOperation>& histo
     }
     // Carry already-calculated contour coordinates, including in-plane rotation.
     // This is a material operation, not another invocation of placement solving.
-    struct CarriedEnd {gp_Trsf movement;gp_Pnt center;gp_Vec tangent;};
+    struct CarriedEnd {gp_Trsf movement;gp_Pnt center;gp_Vec tangent;bool rigid_attachment{};};
     std::map<std::string,CarriedEnd> carried_ends;
     // A curved continuation has its own state timeline. Retain the movement of
     // its input frame separately from its formed/straight end-section change.
@@ -259,14 +259,21 @@ std::vector<HistoryOperation> prepare(const std::vector<HistoryOperation>& histo
             gp_Trsf result;const auto& o=value[0];const auto& x=value[1];const auto& y=value[2];const auto& z=value[3];
             result.SetValues(x.x,y.x,z.x,o.x,x.y,y.y,z.y,o.y,x.z,y.z,z.z,o.z);return result;
         };
-        gp_Trsf movement;gp_Pnt old_center;gp_Vec old_tangent;
+        gp_Trsf movement;gp_Pnt old_center;gp_Vec old_tangent;bool rigid_attachment=false;
         if(const auto parent=carried_ends.find(transfer.source_owner_id);parent!=carried_ends.end()) {
             movement=parent->second.movement;old_center=parent->second.center;old_tangent=parent->second.tangent;
+            rigid_attachment=parent->second.rigid_attachment;
         } else {
             const auto before_states=solid_states_before(authored,changes,static_cast<std::size_t>(found-replay.begin()));
             const auto before=before_states.find(transfer.source_owner_id),after=states.find(transfer.source_owner_id);
             if(before==before_states.end()||after==states.end())
                 throw std::invalid_argument("Solid state replay cannot yet preserve this operation.");
+            const auto& source=authored.at(before->second.source_index).primitive;
+            if(const auto* sweep=std::get_if<Sweep3DRequest>(&source))rigid_attachment=sweep->twist.has_value();
+            else if(const auto* group=std::get_if<FeatureGroupRequest>(&source))
+                rigid_attachment=std::ranges::any_of(group->children,[](const auto& child) {
+                    const auto* sweep=std::get_if<Sweep3DRequest>(&child);return sweep&&sweep->twist.has_value();
+                });
             const auto& old_plan=plan_for(before->second.source_index,before->second.coefficient);
             const auto& new_plan=plan_for(after->second.source_index,after->second.coefficient);
             const auto end_frame=[&](const SolidSourceState& state,const SolidStraighteningPlan& plan) {
@@ -304,7 +311,8 @@ std::vector<HistoryOperation> prepare(const std::vector<HistoryOperation>& histo
                 request.sheet_cut||request.surface_result)
                 throw std::invalid_argument("Solid state replay cannot yet preserve this operation.");
             const auto d=request.direction;const gp_Vec direction(d.x,d.y,d.z);
-            if(direction.Magnitude()<Precision::Confusion()||direction.Normalized().Dot(old_tangent)<1.-1e-9||request.start_offset!=0)
+            if(direction.Magnitude()<Precision::Confusion()||(!rigid_attachment&&
+                (direction.Normalized().Dot(old_tangent)<1.-1e-9||request.start_offset!=0)))
                 throw std::invalid_argument("Straightening requires coincident profile centroids and tangent-continuous directions.");
             // Measure the actual filled section, including voids and thin walls.
             // No swept body, Boolean, or tessellation is needed for this check.
@@ -322,9 +330,11 @@ std::vector<HistoryOperation> prepare(const std::vector<HistoryOperation>& histo
                 profile.inner_edge_source_ids=region.inner_edge_source_ids;profile.inner_vertex_source_ids=region.inner_vertex_source_ids;
                 measure(profile);
             }
-            if(!std::isfinite(area.Mass())||area.Mass()<=0||area.CentreOfMass().Distance(old_center)>1e-7)
+            if(!std::isfinite(area.Mass())||area.Mass()<=0||(!rigid_attachment&&area.CentreOfMass().Distance(old_center)>1e-7))
                 throw std::invalid_argument("Straightening requires coincident profile centroids and tangent-continuous directions.");
-            const CarriedEnd end{movement,area.CentreOfMass().Translated(direction),direction.Normalized()};
+            if(rigid_attachment&&std::abs(gp_Vec(old_center,area.CentreOfMass()).Dot(old_tangent))>1e-7)
+                throw std::invalid_argument("Solid state replay cannot yet preserve this operation.");
+            const CarriedEnd end{movement,area.CentreOfMass().Translated(direction),direction.Normalized(),rigid_attachment};
             // Draft may move the end-section centroid relative to this start.
             // Carrying the feature is rigid, but extending a chain needs that
             // separate end-section calculation and must not guess its center.

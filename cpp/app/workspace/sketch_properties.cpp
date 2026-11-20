@@ -1105,8 +1105,8 @@ void AssemblyWorkspaceWindow::show_sketch_text_properties(
             state_->setText(edit_mode
                 ? tr("Text skici byl upraven jako jedna revize.")
                 : tr("Text skici byl vytvořen jako jedna revize."));
-        }, this, sketch->drawing_template.has_value()||symbol_document_sketch()!=nullptr, false,
-        action_settings,symbol_document_sketch()!=nullptr);
+        }, this, true, false,
+        action_settings,symbol_document_sketch()!=nullptr,sketch->drawing_template.has_value());
     properties_dialog_ = dialog;
     sketch_text_dialog_ = dialog;
     connect(dialog, &QObject::destroyed, this, [this, dialog] {

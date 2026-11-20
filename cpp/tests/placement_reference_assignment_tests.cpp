@@ -5,6 +5,8 @@
 #include <zima/ui/container_placement_section.hpp>
 #include <QApplication>
 #include <QCheckBox>
+#include <QComboBox>
+#include <QDoubleSpinBox>
 #include <QVBoxLayout>
 #include <QWidget>
 #include <QPushButton>
@@ -17,6 +19,7 @@ namespace {
 void require(bool value,const char* text){if(!value)throw std::runtime_error(text);}
 void near(double value,double expected,const char* text){if(!std::isfinite(value)||std::abs(value-expected)>1e-9)throw std::runtime_error(text);}
 ConstructionReference plane(std::string owner,std::string path={}) {ConstructionReference r;r.owner_id=std::move(owner);r.instance_path=std::move(path);r.semantic_key="plane";r.supports_offset=true;return r;}
+#include "cylindrical_angle_placement_tests.inc"
 void model() {
     std::vector<ConstructionReference> position,orientation;std::array<bool,3> locks{};
     const auto assign=[&](std::size_t i,ConstructionReference ref,bool automatic=true,bool oriented=true){return document::assign_placement_reference({position,orientation,locks},oriented,i,std::move(ref),automatic);};
@@ -506,4 +509,4 @@ void orientation_poles() {
     }
 }
 }
-int main(int argc,char** argv){QApplication app(argc,argv);try{orientation_poles();model();widget();position_orientation_column();repeated_source();removal_model();removal_widget();final_removal_preserves_frame();mesh_capture();analytic_curved_capture();planar_face_capture();std::cout<<"Placement reference rows, exact occurrences, locks, orientation and GUI adapter passed\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}
+int main(int argc,char** argv){QApplication app(argc,argv);try{cylindrical_angle_model();cylindrical_angle_widget();orientation_poles();model();widget();position_orientation_column();repeated_source();removal_model();removal_widget();final_removal_preserves_frame();mesh_capture();analytic_curved_capture();planar_face_capture();std::cout<<"Placement reference rows, exact occurrences, locks, orientation and GUI adapter passed\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

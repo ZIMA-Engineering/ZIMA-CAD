@@ -160,6 +160,11 @@ void AssemblyWorkspaceWindow::create_actions() {
 
     fit_view_action_ = make_action(tr("Obnovit pohled"), "view-fit");
     fit_view_action_->setObjectName("fitViewAction");
+    auto* cursor_orbit_action=make_action(tr("Otáčet kolem kurzoru"),"view-orbit-cursor");
+    cursor_orbit_action->setObjectName("cursorOrbitAction");
+    cursor_orbit_action->setCheckable(true);
+    cursor_orbit_action->setToolTip(tr("Otáčet kolem místa stisku prostředního tlačítka v aktuální hloubce pohledu"));
+    connect(cursor_orbit_action,&QAction::toggled,this,[this](bool enabled){if(viewer_)viewer_->set_cursor_orbit_enabled(enabled);});
     connect(fit_view_action_, &QAction::triggered, this, [this] {
         if(workspace_.open_drawing(workspace_.displayed_document_id())) drawing_workspace_->fit_sheet();
         else if (viewer_ != nullptr) viewer_->fit_all();
@@ -299,6 +304,7 @@ void AssemblyWorkspaceWindow::create_actions() {
     auto* view = menuBar()->addMenu(t("menu.view", "Zobrazení"));
     view->setObjectName("viewMenu");
     view->addAction(fit_view_action_);
+    view->addAction(cursor_orbit_action);
     auto* dimension_frame=view->addAction(tr("Prostorový rám kót"));
     dimension_frame->setObjectName("showDimensionFrameAction");dimension_frame->setCheckable(true);
     connect(dimension_frame,&QAction::toggled,this,[this](bool shown){if(viewer_)viewer_->set_dimension_frame_visible(shown);});
@@ -1035,6 +1041,7 @@ void AssemblyWorkspaceWindow::create_actions() {
     connect(section_action_,&QAction::triggered,this,[this]{show_section_properties();});
     view_toolbar_->addSeparator();
     view_toolbar_->addAction(fit_view_action_);
+    view_toolbar_->addAction(cursor_orbit_action);
     view_toolbar_->addAction(normal_view_action);
     standard_view_combo_ = new QComboBox(view_toolbar_);
     standard_view_combo_->setObjectName("standardViewCombo");

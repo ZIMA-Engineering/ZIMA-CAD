@@ -8,7 +8,7 @@ namespace zima::app {
 inline std::vector<viewer::CandidateKind> sketch_external_reference_candidate_kinds(bool profile,bool intersection=false,bool branches=false) {
     using Kind=viewer::CandidateKind;
     if(intersection)return branches?std::vector{Kind::SketchExternalReference}:std::vector{Kind::Face,Kind::Edge,Kind::SketchSegment,Kind::SketchCurve};
-    if(profile)return {Kind::Edge,Kind::Face};
+    if(profile)return {Kind::Edge,Kind::Face,Kind::SketchSegment,Kind::SketchCurve};
     return {Kind::Edge,Kind::Face,Kind::Plane,Kind::SketchSegment,Kind::SketchCurve,
         Kind::SketchPoint,Kind::Vertex,Kind::Axis};
 }

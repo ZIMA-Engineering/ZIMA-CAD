@@ -99,6 +99,86 @@ void helical_frame() {
     check(rejected,"Drafted end-section centroid was guessed for a descendant");
     std::cout<<"Spring section frame and tangential continuation agree with independently calculated source vertices\n";
 }
+void native_twist_attachment(bool reverse=false,double angle=90) {
+    kernel::OcctKernel kernel;workspace::Workspace live;auto doc=document::PartDocument::create_default();
+    if(doc.body_history.bodies().empty())static_cast<void>(doc.body_history.create_body("Twist attachment"));
+    const auto id=doc.document_id;live.add_part(doc,{});live.activate(id);
+    auto section=sketcher::Sketch::create_default();static_cast<void>(section.add_rectangle(-5,-2,5,2));
+    auto root=document::PartDocument::create_feature_container(section.id);
+    root.feature.sides[0].operation=document::FeatureSideOperation::Twist;
+    root.feature.sides[0].length=40;root.feature.sides[0].angle_degrees=angle;root.feature.sides[0].twist_reverse=reverse;
+    workspace::commit_profile(live,kernel,id,root,workspace::ProfileEditMode::Create,section);
+    const auto root_geometry=live.open_part(id)->session.calculated_boundaries().back().mesh.original_references;
+    const auto fixed_cap=std::ranges::find_if(root_geometry.triangle_references,[&](const auto& face) {
+        return face.owner_id==root.id&&face.semantic_key.starts_with("sweep:cap:start:")&&face.surface;
+    });
+    check(fixed_cap!=root_geometry.triangle_references.end(),"Twist fixed start cap missing");
+    auto foot_sketch=sketcher::Sketch::create_default();static_cast<void>(foot_sketch.add_rectangle(-.5,-.4,.5,.4));
+    auto foot=document::PartDocument::create_feature_container(foot_sketch.id);foot.feature.sides[0].length=3;
+    document::ConstructionReference foot_ref;foot_ref.owner_id=root.id;foot_ref.semantic_key=fixed_cap->semantic_key;foot_ref.supports_offset=true;
+    auto foot_orientation=foot_ref;foot_orientation.orientation_only=true;foot_orientation.orientation_drives_rotation=true;foot_orientation.orientation_role="top";
+    foot.placement.references={foot_ref,foot_orientation};
+    workspace::commit_profile(live,kernel,id,foot,workspace::ProfileEditMode::Create,foot_sketch);
+    auto tail_sketch=sketcher::Sketch::create_default();static_cast<void>(tail_sketch.add_rectangle(-1,-.5,1,.5));
+    auto tail=document::PartDocument::create_feature_container(tail_sketch.id);tail.feature.sides[0].length=8;
+    const auto& geometry=live.open_part(id)->session.calculated_boundaries().back().mesh.original_references;
+    const auto cap=std::ranges::find_if(geometry.triangle_references,[&](const auto& face) {
+        return face.owner_id==root.id&&face.semantic_key.starts_with("sweep:cap:end:")&&face.surface;
+    });
+    check(cap!=geometry.triangle_references.end(),"Twist source end cap missing");
+    document::ConstructionReference position;position.owner_id=root.id;position.semantic_key=cap->semantic_key;position.supports_offset=true;
+    auto orientation=position;orientation.orientation_only=true;orientation.orientation_drives_rotation=true;orientation.orientation_role="top";
+    tail.placement.references={position,orientation};tail.placement.x=1;tail.placement.y=2;tail.placement.z=40;tail.placement.rotation_offset_z=30;
+    workspace::commit_profile(live,kernel,id,tail,workspace::ProfileEditMode::Create,tail_sketch);
+    auto tip_sketch=sketcher::Sketch::create_default();static_cast<void>(tip_sketch.add_rectangle(-.4,-.3,.4,.3));
+    auto tip=document::PartDocument::create_feature_container(tip_sketch.id);tip.feature.sides[0].length=3;
+    const auto tail_geometry=live.open_part(id)->session.calculated_boundaries().back().mesh.original_references;
+    const auto tail_cap=std::ranges::find_if(tail_geometry.triangle_references,[&](const auto& face) {
+        return face.owner_id==tail.id&&face.semantic_key.starts_with("end:from:")&&face.surface;
+    });
+    check(tail_cap!=tail_geometry.triangle_references.end(),"Twist attached extrusion end cap missing");
+    position.owner_id=tail.id;position.semantic_key=tail_cap->semantic_key;
+    orientation=position;orientation.orientation_only=true;orientation.orientation_drives_rotation=true;orientation.orientation_role="top";
+    tip.placement.references={position,orientation};tip.placement.x=1.1;tip.placement.y=2.1;tip.placement.z=48;tip.placement.rotation_offset_z=15;
+    workspace::commit_profile(live,kernel,id,tip,workspace::ProfileEditMode::Create,tip_sketch);
+    auto* state=live.open_part(id);const auto authored=*state->session.document().find_container(tail.id);
+    const auto authored_tip=*state->session.document().find_container(tip.id);
+    std::vector<kernel::ViewerPoint> points;
+    for(const auto& point:state->session.calculated_boundaries().back().mesh.original_references.points)
+        if(point.reference.owner_id==tail.id||point.reference.owner_id==tip.id||point.reference.owner_id==foot.id)points.push_back(point);
+    check(!points.empty(),"Twist attachment has no native reference vertices");
+    for(bool restore:{false,true,false,true}) {
+        auto operation=document::PartDocument::create_solid_state_container(restore);
+        operation.solid_state.coefficient=.8;
+        check(workspace::commit_solid_state(live,kernel,id,operation),"Twist attachment state did not commit");
+        const auto verify=[&](const document::PartDocument& doc,const kernel::BodyResult& result) {
+        check(result.calculation_errors.empty(),"Twist attachment replay failed");
+        const auto& packet=*result.solid_state_reference_views.at(operation.id);
+        for(const auto& before:points) {
+            const auto after=std::ranges::find(packet.points,before.reference,&kernel::ViewerPoint::reference);
+            check(after!=packet.points.end(),"Twist attachment reference disappeared");
+            const auto p=before.position;
+            const bool fixed=restore||before.reference.owner_id==foot.id;
+            const double radians=(reverse?1.:-1.)*angle*std::numbers::pi/180.;
+            near(after->position.x,fixed?p.x:p.x*std::cos(radians)-p.y*std::sin(radians));
+            near(after->position.y,fixed?p.y:p.x*std::sin(radians)+p.y*std::cos(radians));
+            near(after->position.z,fixed?p.z:p.z-8);
+        }
+        check(*doc.find_container(tail.id)==authored&&*doc.find_container(tip.id)==authored_tip,"Straightening rewrote the attached feature definition");
+        };
+        verify(state->session.document(),state->session.calculated_boundaries().back());
+        const auto generation=state->session.data_generation(),revision=state->session.revision();
+        check(!workspace::commit_solid_state(live,kernel,id,operation)&&state->session.data_generation()==generation&&state->session.revision()==revision,
+            "Twist attachment unchanged OK created a calculation or transaction");
+        check(workspace::step_part_document_history(live,id,false)&&workspace::step_part_document_history(live,id,true),"Twist attachment Undo/Redo failed");
+        verify(state->session.document(),state->session.calculated_boundaries().back());
+        std::vector<kernel::BodyResult> cache;
+        auto loaded=document::PartDocument::from_serialized(state->session.document().serialized(state->session.calculated_boundaries()),&cache);
+        verify(loaded,cache.back());kernel::OcctKernel cold;
+        verify(loaded,workspace::calculate_part_with_resolved_references(cold,loaded).back());
+    }
+    std::cout<<"Twist attachment angle="<<angle<<", reverse="<<reverse<<": two off-center rotated extrusions, four state transitions, no-op, Undo/Redo and cold native reopen passed\n";
+}
 void native_curved_chain(bool initially_straight,int sweep_kind=0) {
     kernel::OcctKernel kernel;workspace::Workspace live;auto doc=document::PartDocument::create_default();
     if(doc.body_history.bodies().empty())static_cast<void>(doc.body_history.create_body("Body"));
@@ -732,6 +812,7 @@ int main(int argc,char** argv)try {
         }
         std::cout<<"User model straightened and restored: "<<straight_volume<<" mm3\n";return 0;
     }
+    if(argc==2&&std::string(argv[1])=="--twist-attachment") {for(bool reverse:{false,true})for(double angle:{30.,90.,120.})native_twist_attachment(reverse,angle);return 0;}
     if(argc==2&&std::string(argv[1])=="--curved-continuation") {
         native_curved_chain(false);native_curved_chain(true);return 0;
     }

@@ -143,11 +143,21 @@ std::set<std::string> sketch_external_reference_source_owners(
         }
     }
     std::set<std::string> owners;
-    // An owned Loft guide may reference preceding profile Sketches from the
-    // same draft/history container. Keep the parent result, the edited Sketch
+    // Owned Surface Sketches and Loft guides may reference preceding inputs
+    // from the same history container. Keep the parent result, the edited Sketch
     // and later inputs outside this one-way source boundary.
     if(first_consumer<document.history.size()) {
         const auto& parent=document.history[first_consumer];
+        if(parent.feature_kind==document::FeatureKind::GeneralSurface)
+            for(const auto& boundary:parent.general_surface.boundaries) {
+                if(boundary.sketch_feature) {
+                    const auto source=zima::sketcher::Sketch::from_serialized(boundary.sketch_serialized);
+                    if(source.id==sketch_id)break;
+                    owners.insert(source.id);
+                }else if(boundary.curve) {
+                    owners.insert(boundary.curve->id);owners.insert(boundary.curve->entity_id);
+                }
+            }
         if(parent.feature_kind==document::FeatureKind::Loft)
             for(const auto& boundary:parent.loft.sketches) {
                 const auto source=zima::sketcher::Sketch::from_serialized(boundary.sketch_serialized);
@@ -262,7 +272,10 @@ zima::kernel::ViewerReferenceGeometry sketch_external_reference_source_geometry(
             }
         }
         if(const auto* body=document.body_owner_for_object(feature.id))mesh=document.place_body_mesh(std::move(mesh),body->scope.id);
-        append_reference_geometry(source,std::move(mesh.original_references));
+        // The native Sketch packet above already owns these exact curves.
+        // Add only the remaining owned construction/Origin identities; duplicate
+        // curve identities would make an ordinary projection ambiguous.
+        append_missing_reference_geometry(source,mesh.original_references);
     }
     return source;
 }

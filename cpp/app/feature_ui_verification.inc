@@ -1,4 +1,63 @@
 #include "mesh_surface_ui_verification.inc"
+static void verify_twist_centroid_endpoints(QApplication& application,AssemblyWorkspaceWindow& window,const std::filesystem::path& directory) {
+    const auto check=[](bool ok,const char* message){if(!ok)throw std::runtime_error(message);};
+    const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
+    auto part=document::PartDocument::create_default();auto sketch=sketcher::Sketch::create_default();
+    static_cast<void>(sketch.add_rectangle(0,0,4,2));static_cast<void>(sketch.add_rectangle(10,0,14,2));
+    auto feature=document::PartDocument::create_feature_container(sketch.id);sketch.owner_container_id=feature.id;
+    feature.feature.sides[0].operation=document::FeatureSideOperation::Twist;
+    feature.feature.sides[0].length=100;feature.feature.sides[0].angle_degrees=90;
+    feature.feature.individual_centroid_centerlines=true;
+    part.history={feature};part.sketches={sketch};document::BodyHistoryGraph graph;
+    const auto body=graph.create_body("Twist axes");graph.insert({document::PartHistoryKind::Feature,feature.id});part.set_body_history(graph);part.resolve_constructions();
+    const auto calculated=kernel::OcctKernel{}.evaluate_history(part.kernel_operations());
+    check(calculated.back().calculation_errors.empty(),"Twist GUI fixture did not calculate");
+    std::vector<kernel::ViewerPoint> endpoints;
+    std::set<std::string> paths;
+    for(const auto& edge:calculated.back().mesh.original_references.edges)
+        if(edge.reference.semantic_key.starts_with("centerline:from:centroid:region:")&&edge.exact_spline)paths.insert(edge.reference.semantic_key);
+    check(paths.size()==2,"Twist did not publish two curved individual centroid paths");
+    for(const auto& point:calculated.back().mesh.original_references.points)
+        if(point.reference.semantic_key.starts_with("profile:path-point:")&&std::ranges::any_of(paths,[&](const auto& key){return point.reference.semantic_key.ends_with(key);}))endpoints.push_back(point);
+    check(endpoints.size()==4,"Twist needs both endpoints of both centroid paths");
+    const auto path=directory/"twist-centroid-endpoints.prtz";part.save(path,calculated);
+    window.resize(1366,850);window.show();flush();
+    for(int reopen=0;reopen<2;++reopen) {
+        check(window.open_document_path(QString::fromStdString(path.string())),"Twist axes document cannot reopen");flush();
+        check(window.execute_console_command(QString::fromStdString(commands::Json{{"command","body.activate"},{"arguments",{{"body",body}}}}.dump())).ok,"Twist axes Body activation failed");flush();
+        auto* view=dynamic_cast<viewer::MeshView*>(window.findChild<QOpenGLWidget*>("modelWorkspace"));check(view,"Twist View missing");
+        window.findChild<QAction*>("showAxesAction")->setChecked(true);
+        view->set_view_direction({1,1,.2});{QEventLoop wait;QTimer::singleShot(950,&wait,&QEventLoop::quit);wait.exec();}flush();
+        view->fit_points({{-10,-10,-10},{25,15,110}});flush();
+        const auto revision=window.execute_console_command("documents").data;
+        for(const auto& endpoint:endpoints) {
+            auto* action=window.findChild<QAction*>("featureShortcut0Action");check(action&&action->isEnabled(),"Point reference command missing");action->trigger();flush();
+            auto* dialog=dynamic_cast<PrimitivePropertiesDialog*>(window.findChild<QWidget*>("featurePropertiesDialog"));check(dialog,"Point Properties missing");
+            const auto a=view->ray_at({0,0})->first,b=view->ray_at({100,0})->first,c=view->ray_at({0,100})->first;
+            const auto u=kernel::dimension_scale(kernel::dimension_sub(b,a),.01),v=kernel::dimension_scale(kernel::dimension_sub(c,a),.01),d=kernel::dimension_sub(endpoint.position,a);
+            const auto dot=[](auto p,auto q){return kernel::dimension_dot(p,q);};
+            const double uu=dot(u,u),vv=dot(v,v),uv=dot(u,v),det=uu*vv-uv*uv;
+            const QPointF at((dot(d,u)*vv-dot(d,v)*uv)/det,(dot(d,v)*uu-dot(d,u)*uv)/det);
+            const auto click=[&](Qt::MouseButton button) {
+                for(auto type:{QEvent::MouseMove,QEvent::MouseButtonPress,QEvent::MouseButtonRelease}) {
+                    QMouseEvent event(type,at,QPointF(view->mapToGlobal(at.toPoint())),type==QEvent::MouseMove?Qt::NoButton:button,
+                        type==QEvent::MouseButtonPress?button:Qt::NoButton,Qt::NoModifier);QApplication::sendEvent(view,&event);flush();
+                }
+            };
+            const auto candidates=view->selection_candidates_at(at);
+            const auto selected=std::ranges::find_if(candidates,[&](const auto& candidate){return candidate.owner_id==endpoint.reference.owner_id&&candidate.semantic_key==endpoint.reference.semantic_key;});
+            check(selected!=candidates.end(),"Twisted centroid endpoint cannot be picked in the Point command");
+            for(auto i=candidates.begin();i!=selected;++i)click(Qt::RightButton);click(Qt::LeftButton);
+            const auto pending=dialog->pending_value();
+            check(std::ranges::any_of(pending.placement.references,[&](const auto& ref){return ref.semantic_key==endpoint.reference.semantic_key&&ref.owner_id==endpoint.reference.owner_id;}),"Point command did not retain the clicked Twist endpoint identity");
+            check(std::hypot(pending.placement.x-endpoint.position.x,pending.placement.y-endpoint.position.y,pending.placement.z-endpoint.position.z)<1e-7,"Point preview is displaced from the twisted centroid endpoint");
+            dialog->reject();flush();check(window.execute_console_command("documents").data==revision,"Twist endpoint inspection changed the document");
+        }
+        window.grab().save(QString::fromStdString((directory/("twist-centroid-endpoints-"+std::to_string(reopen)+".png")).string()));
+        check(window.execute_console_command("close").ok,"Twist axes document cannot close");flush();
+    }
+    std::cout<<"Twist centroid paths: four real endpoint mouse references, exact identity/position, Cancel and native reopen passed\n";
+}
 static void verify_feature_profile_axes(QApplication& application,const std::filesystem::path& directory) {
     const auto check=[](bool ok,const char* message){if(!ok)throw std::runtime_error(message);};
     const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};

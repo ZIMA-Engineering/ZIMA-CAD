@@ -69,6 +69,8 @@ void check_material_preview(document::HistoryContainer feature) {
     const auto preview=document::sheet_transition_preview(feature);
     const auto ms=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-started).count();
     check(std::ranges::none_of(preview.edges,[](const auto& e){return e.construction;}),"Half transition exposed construction closure in cyan wire");
+    check(std::ranges::none_of(preview.edges,[](const auto& e){return e.reference.semantic_key.starts_with("origin:axis:");}),
+        "Transition material preview contains loose Sketch origin axes");
     const auto has=[&](kernel::Vec3 expected) {
         return std::ranges::any_of(preview.edges,[&](const auto& edge) {
             return std::ranges::any_of(edge.points,[&](auto actual){const auto d=sub(actual,expected);return std::hypot(d.x,d.y,d.z)<1e-7;});

@@ -1112,6 +1112,54 @@ void verify_point_marker_colours(QApplication& application,QWidget& parent) {
 }
 
 int verify_stable_placement_rows() {
+    {
+        using namespace zima;
+        const auto source=document::PartDocument::create_default();
+        const auto geometry=source.origin_viewer_mesh().original_references;
+        std::array<std::string,3> keys{"origin:plane:xy","origin:plane:xz","origin:plane:yz"};
+        do {
+            QWidget parent;auto* layout=new QVBoxLayout(&parent);
+            ui::ContainerPlacementSection section(&parent,layout,true,true);
+            section.set_branch_geometry_resolver([&]()->const auto& {return geometry;});
+            QString error;
+            for(unsigned cycle=0;cycle<2;++cycle) {
+                for(unsigned i=0;i<3;++i) {
+                    require(section.set_reference(i,{{},source.document_id+":origin",keys[i],0,true},QString::fromStdString(keys[i]),&error),"Cannot select placement plane");
+                    require(document::orientation_constraint_remaining_dof(section.combined_references(3),geometry,true)==(i==0?1:0),
+                        "New manual planes did not automatically complete orientation");
+                }
+                require(document::point_constraint_remaining_dof(section.combined_references(3),geometry)==0,
+                    "Three independent planes did not constrain position");
+                auto* table=section.reference_table();
+                auto* second=table->cellWidget(1,5)->findChild<QCheckBox*>();
+                require(second&&second->isEnabled()&&second->isChecked(),"Automatic orientation cannot be disabled manually");
+                second->click();
+                require(document::orientation_constraint_remaining_dof(section.combined_references(3),geometry,true)==1&&
+                    section.references()[0].orientation_drives_rotation,"Disabling TOP removed the independent FRONT choice");
+                second=table->cellWidget(1,5)->findChild<QCheckBox*>();second->click();
+                require(document::orientation_constraint_remaining_dof(section.combined_references(3),geometry,true)==0,
+                    "Re-enabling TOP did not restore the frame");
+                const auto persisted=section.combined_references(3);
+                section.initialize_from_references(persisted,{});
+                require(section.combined_references(3)==persisted,"Reopening placement changed stored reference choices");
+                for(unsigned i=0;i<3;++i)table->cellWidget(i,0)->findChild<QPushButton*>()->click();
+                require(section.combined_references(3).empty(),"Clearing placement retained an orientation twin");
+            }
+        }while(std::next_permutation(keys.begin(),keys.end()));
+        QWidget parent;auto* layout=new QVBoxLayout(&parent);
+        ui::ContainerPlacementSection section(&parent,layout,true,true);
+        auto parallel_geometry=geometry;
+        for(const auto& face:geometry.triangle_references) {auto copy=face;copy.owner_id="parallel";parallel_geometry.triangle_references.push_back(copy);}
+        const auto offset=parallel_geometry.vertices.size();
+        parallel_geometry.vertices.insert(parallel_geometry.vertices.end(),geometry.vertices.begin(),geometry.vertices.end());
+        for(auto index:geometry.triangles)parallel_geometry.triangles.push_back(index+offset);
+        section.set_branch_geometry_resolver([&]()->const auto& {return parallel_geometry;});QString error;
+        require(section.set_reference(0,{{},source.document_id+":origin","origin:plane:xy",0,true},"XY",&error)&&
+            section.set_reference(1,{{},"parallel","origin:plane:xy",0,true},"Parallel XY",&error)&&
+            !section.references()[1].orientation_drives_rotation&&
+            section.set_reference(2,{{},source.document_id+":origin","origin:plane:xz",0,true},"XZ",&error)&&
+            section.references()[2].orientation_drives_rotation,"Parallel plane consumed the automatic TOP choice");
+    }
     QWidget host;
     auto* layout = new QVBoxLayout(&host);
     zima::ui::ContainerPlacementSection placement(&host, layout, true, true);
@@ -6641,15 +6689,15 @@ int main(int argc, char* argv[]) {
         }
         for(bool template_coordinates:{false,true})for(bool mirrored:{false,true}) {
             auto initial=initial_text;initial.value="ZIMA-Engineering";initial.flipped=mirrored!=template_coordinates;initial.angle_degrees=17;
-            zima::app::rebuild_sketch_text_contours(initial,template_coordinates);
+            zima::app::rebuild_sketch_text_contours(initial,true);
             std::optional<zima::sketcher::SketchText> saved;
             auto* props=new zima::app::SketchTextPropertiesDialog(initial,std::array{initial.anchor_x,initial.anchor_y},
-                [](const auto&){},[&](auto text){saved=std::move(text);},&parent,template_coordinates);
+                [](const auto&){},[&](auto text){saved=std::move(text);},&parent,true,false,std::nullopt,false,template_coordinates);
             require(props->findChild<QCheckBox*>("sketchTextFlipped")->isChecked()==mirrored,"Text flip exposes the template coordinate reflection");
             props->buttons()->button(QDialogButtonBox::Ok)->click();application.processEvents();
             require(saved&&saved->flipped==initial.flipped&&saved->contours==initial.contours,"Opening and accepting Text mirrored existing geometry");
             saved.reset();props=new zima::app::SketchTextPropertiesDialog(initial,std::array{initial.anchor_x,initial.anchor_y},
-                [](const auto&){},[&](auto text){saved=std::move(text);},&parent,template_coordinates);
+                [](const auto&){},[&](auto text){saved=std::move(text);},&parent,true,false,std::nullopt,false,template_coordinates);
             props->findChild<QCheckBox*>("sketchTextFlipped")->setChecked(!mirrored);props->buttons()->button(QDialogButtonBox::Ok)->click();application.processEvents();
             require(saved&&saved->flipped!=initial.flipped&&saved->contours!=initial.contours,"Explicit Text flip no longer mirrors text");
         }

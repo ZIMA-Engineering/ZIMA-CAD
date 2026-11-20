@@ -81,6 +81,8 @@ void AssemblyWorkspaceWindow::accept_sketch_external_reference(
     if (!sketch_external_reference_active_ ||
         (sketch_external_profile_active_ &&
          candidate.kind != zima::viewer::CandidateKind::Edge&&
+         candidate.kind != zima::viewer::CandidateKind::SketchSegment&&
+         candidate.kind != zima::viewer::CandidateKind::SketchCurve&&
          candidate.kind != zima::viewer::CandidateKind::Face) ||
         !sketch_external_reference_has_stable_geometry(candidate,sketch_external_profile_active_,false,&viewer_->mesh()) ||
         !kind) return;
@@ -101,6 +103,13 @@ void AssemblyWorkspaceWindow::accept_sketch_external_reference(
              (candidate.geometry==viewer::CandidateGeometry::Display&&
               sketcher::is_edge_treatment_body_edge_key(source.semantic_key)));
         auto reference=[&] {
+            if(is_owned_sketch_reference(source)) {
+                auto reference=sketcher::Sketch::create_external_reference(*kind);
+                reference.source_document_id=owner;reference.source_owner_id=source.owner_id;
+                reference.source_semantic_key=source.semantic_key;
+                workspace::populate_external_reference_cache(pending,reference,owned_sketch_reference_geometry_);
+                return reference;
+            }
             if(is_loft_profile_point_reference(source)) {
                 // Only real points of preceding owned profiles are published
                 // by this command-local draft context. Use the ordinary exact
@@ -214,7 +223,12 @@ void AssemblyWorkspaceWindow::accept_sketch_intersection_reference(const viewer:
         if(candidate.kind==viewer::CandidateKind::Face)sketch_intersection_choices_=workspace::prepare_sketch_intersection_branches(workspace_,kernel_,owner,*active,
             {candidate.owner_id,candidate.semantic_key,path},{source.owner_id,source.semantic_key,path},
             sketch_reference_draft_body_id(),section_dialog_!=nullptr);
-        else sketch_intersection_choices_=workspace::prepare_sketch_curve_intersection_branches(workspace_,owner,*active,
+        else if(is_owned_sketch_reference(source)&&owned_sketch_reference_parent_) {
+            const auto* part=workspace_.open_part(owner);if(!part)return;
+            sketch_intersection_choices_=workspace::prepare_owned_sketch_curve_intersection_branches(
+                part->session.document(),*owned_sketch_reference_parent_,*active,
+                {source.owner_id,source.semantic_key,{}},sketch_reference_draft_body_id());
+        } else sketch_intersection_choices_=workspace::prepare_sketch_curve_intersection_branches(workspace_,owner,*active,
             {candidate.owner_id,candidate.semantic_key,path},sketch_reference_draft_body_id(),section_dialog_!=nullptr);
         if(sketch_intersection_choices_.empty()){state_->setText(tr("The selected source does not intersect the Sketch plane."));return;}
         sketch_intersection_inputs_=sketch_intersection_inputs();

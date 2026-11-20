@@ -6,6 +6,8 @@
 #include <TopoDS.hxx>
 #include <TopLoc_Location.hxx>
 #include <zima/sketcher/sketch.hpp>
+#include <zima/sketcher/point_presentation.hpp>
+#include "../app/sketch_inference_policy.hpp"
 #include <zima/kernel/occt_kernel.hpp>
 #include <zima/kernel/mirror_geometry.hpp>
 #include <zima/document/part_document.hpp>
@@ -68,6 +70,30 @@ int main(){try{
     const auto id=sketch.add_external_profile_geometry(ref.id);
     require(sketch.bsplines.size()==1,"Exact source was replaced with a sampled line");
     const auto poles=sketch.bsplines.front().control_point_ids;
+    {
+        auto projected=sketcher::Sketch::create_default();auto source=ref;
+        source.exact_spline=kernel::BSplineGeometry{2,{{0,0,0},{3,7,0},{10,0,0}},{0,0,0,1,1,1},{1,1,1}};
+        source.cached_points={{0,0},{10,0}};projected.add_external_reference(source);
+        projected.add_external_profile_geometry(source.id);
+        for(const auto hint:{std::array{20.,7.01},std::array{3.01,20.}})
+            require(!app::infer_sketch_point_alignment(projected,hint,.1,{}),"Hidden source pole attracts H/V point inference");
+        auto detached=projected;detached.remove_geometry(source.id);
+        for(const auto hint:{std::array{20.,7.01},std::array{3.01,20.}})
+            require(app::infer_sketch_point_alignment(detached,hint,.1,{}).has_value(),"Editable spline pole lost H/V inference");
+    }
+    const auto hidden=sketcher::hidden_derived_control_points(sketch);
+    require(hidden==std::set<std::string>{poles[1]},"Reference Profile exposes internal spline poles as contour points");
+    const auto before_presentation=sketch.serialized();
+    const auto profile_mesh=sketch.viewer_mesh();
+    require(sketch.serialized()==before_presentation,"Point presentation changed exact profile data");
+    for(std::size_t i=0;i<poles.size();++i)require(std::ranges::any_of(profile_mesh.points,[&](const auto& point){return point.reference.semantic_key=="point:"+poles[i];})==(i!=1),"Projected spline endpoint/pole presentation is inconsistent");
+    {
+        auto shared=sketch;const auto* p=shared.find_point(poles[1]);
+        static_cast<void>(shared.add_segment(p->x,p->y,p->x+3,p->y+4));
+        require(!sketcher::hidden_derived_control_points(shared).contains(poles[1]),"A derived pole shared by authored geometry became hidden");
+        auto editable=sketch;editable.remove_geometry(ref.id);
+        require(sketcher::hidden_derived_control_points(editable).empty(),"Detached editable spline lost its control handles");
+    }
     auto restored=sketcher::Sketch::from_serialized(sketch.serialized());
     require(restored.bsplines==sketch.bsplines && restored.external_references==sketch.external_references,
         "Exact projected spline did not survive persistence");

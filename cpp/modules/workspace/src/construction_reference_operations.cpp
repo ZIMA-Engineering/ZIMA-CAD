@@ -36,14 +36,16 @@ document::ConstructionObject prepare_construction_reference(Object value,
     const auto baseline=combined(position,orientation,index);
     const auto translation=document::point_constraint_remaining_dof(baseline,geometry,value.origin);
     const auto rotation=document::orientation_constraint_remaining_dof(baseline,geometry,true,value.origin);
-    if(index<3&&translation==0&&rotation>0) {
+    if(reference.use_angle && index<3) {
+        reference.orientation_role="position_only";derive_orientation=false;
+    } else if(index<3&&translation==0&&rotation>0) {
         reference.orientation_drives_rotation=true;reference.orientation_role="direction";reference.orientation_only=true;reference.supports_offset=false;
     }
     if(index<3 && !reference.orientation_only && derive_orientation && (face||axis||edge))
         document::assign_container_orientation_role(reference,baseline);
     // Position and orientation share the same ordered directional contract.
     const bool first_plane=value.kind==document::ConstructionKind::Plane&&index==0&&reference.supports_offset;
-    reference.measured_offset=document::measure_placement_reference_offset(reference,geometry,value.origin);
+    reference.measured_offset=document::measure_placement_reference_value(reference,baseline,geometry,value.origin);
     const auto assigned=document::assign_placement_reference({position,orientation,empty_locks},true,index,std::move(reference),derive_orientation);
     using Error=document::PlacementReferenceError;
     if(assigned.error==Error::Duplicate)reject("duplicate_reference","The same placement reference cannot be assigned twice.");

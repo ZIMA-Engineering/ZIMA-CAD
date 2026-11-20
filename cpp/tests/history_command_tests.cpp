@@ -2,6 +2,8 @@
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/history_operations.hpp>
 #include <zima/workspace/reference_index.hpp>
+#include <zima/workspace/body_properties_edits.hpp>
+#include <zima/workspace/measurement_operations.hpp>
 #include <cmath>
 #include <algorithm>
 #include <iostream>
@@ -133,11 +135,12 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     require(cursor.ok&&!cursor.data.at("changed").get<bool>()&&live.open_assembly(active)->session.revision()==assembly_revision,
         "Unchanged empty Assembly cursor created history");
 }
+#include "inspection_history_reorder_tests.inc"
 }
 int main() {
     try {
         kernel::OcctKernel kernel;const auto directory=fs::canonical(fs::temp_directory_path())/("zima-history-commands-"+document::PartDocument::create_default().document_id);
-        fs::create_directory(directory);verify(kernel,directory);
+        fs::create_directory(directory);verify(kernel,directory);verify_inspection_reordering(kernel,directory);
         require(directory.parent_path()==fs::canonical(fs::temp_directory_path()),"Unsafe test cleanup");fs::remove_all(directory);
         std::cout<<"History order, suppression, deletion, cursors, volumes, references, atomicity and persistence passed without Qt\n";return 0;
     } catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}

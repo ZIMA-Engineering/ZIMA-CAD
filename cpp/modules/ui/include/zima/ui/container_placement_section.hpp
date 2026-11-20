@@ -129,10 +129,10 @@ public:
         const std::function<QString(const std::string&)>& label_for_semantic);
 
     // Assigns reference `index` (0-2 = position row, 3-4 = FRONT/TOP
-    // orientation row when `with_orientation` is enabled). Position and
-    // orientation rows are now always independent: if the user wants a
-    // reference to drive FRONT/TOP, they must pick it into the dedicated
-    // orientation table explicitly. Returns false (and sets `error_text`)
+    // orientation row when `with_orientation` is enabled). New sequential
+    // plane entry supplies FRONT and then an independent TOP orientation;
+    // each row can opt out. Loaded choices retain their authored roles.
+    // Returns false (and sets `error_text`)
     // on a duplicate-reference conflict.
     bool set_reference(std::size_t index,
         zima::document::ConstructionReference reference, const QString& label,

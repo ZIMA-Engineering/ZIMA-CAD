@@ -205,6 +205,10 @@ public:
         const Sweep3DRequest& source, double coefficient = 1.0) const;
     [[nodiscard]] SolidStraighteningPlan prepare_straightening(
         const FeatureGroupRequest& source, double coefficient = 1.0) const;
+    // Resolve a terminal state to authored primitives with material-carried
+    // attachments. Shares the exact replay used by evaluate_history.
+    [[nodiscard]] std::vector<HistoryOperation> prepare_solid_state_replay(
+        const std::vector<HistoryOperation>& operations) const;
     [[nodiscard]] std::vector<BodyResult> evaluate_history(
         const std::vector<HistoryOperation>& operations) const override;
     [[nodiscard]] std::vector<BodyResult> evaluate_history_incremental(

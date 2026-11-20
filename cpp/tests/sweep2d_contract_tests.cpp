@@ -1,6 +1,7 @@
 #include "profile_solid_fixture.hpp"
 #include <zima/document/part_document.hpp>
 #include <zima/kernel/occt_kernel.hpp>
+#include <zima/kernel/surface_results.hpp>
 #include <zima/document/helical_geometry.hpp>
 #include <cmath>
 #include <filesystem>
@@ -32,6 +33,98 @@ static document::HistoryContainer fixture(bool arc=false,bool open=false){
 }
 int main(int argc,char** argv){try{
     kernel::OcctKernel kernel;
+    if(argc==3&&std::string_view(argv[1])=="--surface") {
+        auto native=document::PartDocument::load(std::filesystem::u8path(argv[2]));
+        auto& sweep=native.history.back();require(sweep.feature_kind==document::FeatureKind::Sweep2D,"Fixture does not end in 2D Sweep");
+        sweep.sweep2d.result_type=document::ProfileResultType::Surface;sweep.combine_mode=document::CombineMode::Add;
+        const auto request=document::PartDocument::sweep2d_request(sweep);
+        const auto isolated=kernel.evaluate_history({{sweep.id,request}}).back();
+        for(const auto* faces:{&isolated.mesh.triangle_references,&isolated.mesh.original_references.triangle_references}) {
+            std::map<std::string,std::size_t> owners;for(const auto& f:*faces)++owners[f.owner_id];
+            std::cout<<"Isolated Sweep owners:"<<std::endl;for(const auto& [owner,count]:owners)std::cout<<owner<<": "<<count<<std::endl;
+        }
+        std::cout<<"Sweep segments="<<request.path_segments.size()<<" sections="<<request.sections.size()<<std::endl;
+        for(const auto& s:request.sections)std::cout<<"section "<<s.point_index<<" curves="<<s.profile.outer_edge_source_ids.size()<<" points="<<s.profile.outer_vertex_source_ids.size()<<std::endl;
+        const auto results=kernel.evaluate_history(native.kernel_operations());
+        require(results.back().calculation_errors.empty(),"Actual Surface calculation failed");
+        for(const auto* faces:{&results.back().mesh.triangle_references,&results.back().mesh.original_references.triangle_references}) {
+            std::size_t found{},surface{};
+            for(const auto& face:*faces)if(face.owner_id==sweep.id||face.owner_id==sweep.feature_id){++found;surface+=face.surface_result;}
+            std::cout<<"Actual Sweep triangles="<<found<<" surface="<<surface<<std::endl;
+            if(found!=surface||!found){std::map<std::string,std::size_t> owners;for(const auto& face:*faces)++owners[face.owner_id];for(const auto& [id,count]:owners)std::cout<<id<<": "<<count<<std::endl;}
+            require(found>0&&found==surface,"Actual Surface lost its yellow style");
+        }
+        return 0;
+    }
+    for(bool open:{false,true}) {
+        auto native=document::PartDocument::create_default();
+        auto sweep=fixture(false,open);
+        auto guide=sketcher::Sketch::from_serialized(sweep.sweep2d.path_sketch);
+        static_cast<void>(guide.add_arc(10,20,0,20,10,30,false,1e-6,true));
+        sweep.sweep2d.path_sketch=guide.serialized();
+        document::PartDocument::reframe_sweep2d_sketches(sweep);
+        sweep.sweep2d.result_type=document::ProfileResultType::Surface;
+        native.history={sweep};
+        const auto bodies=kernel.evaluate_history(native.kernel_operations());
+        const auto check_surface=[&](const auto& body) {
+            require(body.calculation_errors.empty(),"Line/arc Surface calculation failed");
+            require(!body.mesh.triangle_references.empty(),"Line/arc Surface has no triangles");
+            for(const auto* refs:{&body.mesh.triangle_references,&body.mesh.original_references.triangle_references})
+                for(const auto& face:*refs)require(face.surface_result,"Line/arc Surface lost its yellow result style");
+            auto hidden=body.mesh;kernel::hide_surface_results(hidden);
+            require(hidden.triangles.empty(),"Hidden line/arc Surface retains gray triangles");
+        };
+        check_surface(bodies.back());
+        const auto file=std::filesystem::temp_directory_path()/("zima-sweep-surface-"+sweep.id+".prtz");
+        native.save(file,bodies);std::vector<kernel::BodyResult> restored;
+        const auto loaded=document::PartDocument::load(file,&restored);std::filesystem::remove(file);
+        require(loaded.history==native.history,"Surface save/reopen changed its definition");
+        check_surface(restored.back());
+    }
+    // Direction is independent of the first native point and of the material
+    // side of a closed Thin profile. Exercise actual geometry and persistence.
+    for(bool circle:{false,true})for(auto type:{document::ProfileResultType::Solid,
+            document::ProfileResultType::Surface,document::ProfileResultType::Thin})
+        for(auto side:{document::ThinMode::OneSide,document::ThinMode::OtherSide,document::ThinMode::Symmetric}) {
+        auto sweep=fixture();auto& profile=sweep.sweep2d.profiles.front();
+        auto sketch=sketcher::Sketch::from_serialized(profile.sketch_serialized);
+        if(circle) {
+            const auto circle_id=sketch.circles.front().id;
+            for(unsigned q=0;q<4;++q) {
+                const auto p=sketch.add_point(2*std::cos(q*std::numbers::pi/2),2*std::sin(q*std::numbers::pi/2));
+                static_cast<void>(sketch.add_point_reference_constraint(p,"sketch_keypoint:circle:"+circle_id+":"+std::to_string(q)));
+            }
+        } else {
+            sketch=sketcher::Sketch::create_default();sketch.id=profile.sketch_id;
+            static_cast<void>(sketch.add_rectangle(-2,-2,2,2));
+        }
+        profile.sketch_serialized=sketch.serialized();document::PartDocument::reframe_sweep2d_sketches(sweep);
+        const auto mapping=document::sweep3d_profile_correspondence(sketch);
+        profile.correspondence_start_point_id=mapping.point_ids[1];
+        sweep.sweep2d.result_type=type;sweep.sweep2d.thickness=.25;sweep.sweep2d.thin_mode=side;
+        auto native=document::PartDocument::create_default();native.history={sweep};
+        const auto normal=kernel.evaluate_history(native.kernel_operations()).back();
+        sweep.sweep2d.profiles.front().correspondence_reversed=true;native.history={sweep};
+        const auto request=document::PartDocument::sweep2d_request(sweep);
+        const auto& ids=request.sections.front().profile.outer_vertex_source_ids;
+        require(ids==std::vector<std::string>{mapping.point_ids[1],mapping.point_ids[0],mapping.point_ids[3],mapping.point_ids[2]},
+            "Reversed profile did not retain its first native point and adjacent traversal");
+        const auto backwards=kernel.evaluate_history(native.kernel_operations());
+        require(backwards.back().calculation_errors.empty(),"Reversing closed profile failed");
+        close(backwards.back().volume,normal.volume,"Reversing a profile changed its material side/volume");
+        close(backwards.back().surface_area,normal.surface_area,"Reversing a profile changed its surface area");
+        if(type==document::ProfileResultType::Solid)close(backwards.back().volume,(circle?4*std::numbers::pi:16)*20,
+            "Reversed solid has incorrect independent volume");
+        if(type==document::ProfileResultType::Surface)
+            for(const auto& ref:backwards.back().mesh.triangle_references)require(ref.surface_result&&ref.valid(),
+                "Reversed surface lost its native identity/style");
+        const auto file=std::filesystem::temp_directory_path()/("zima-direction-"+sweep.id+".prtz");
+        native.save(file,backwards);std::vector<kernel::BodyResult> restored;
+        const auto reopened=document::PartDocument::load(file,&restored);std::filesystem::remove(file);
+        require(reopened.history==native.history&&reopened.history.front().sweep2d.profiles.front().correspondence_reversed,
+            "Native reopen lost profile direction");
+        close(restored.back().volume,backwards.back().volume,"Native reopen changed reversed geometry");
+    }
     for(bool at_origin:{false,true})for(bool rotated:{false,true}) {
         auto c=document::PartDocument::create_sweep2d_container();
         auto guide=sketcher::Sketch::from_serialized(c.sweep2d.path_sketch);
@@ -292,6 +385,20 @@ int main(int argc,char** argv){try{
         auto rectangle=sketcher::Sketch::from_serialized(c.sweep2d.profiles[index].sketch_serialized);static_cast<void>(rectangle.add_rectangle(-2,-2,2,2));
         c.sweep2d.profiles[index].sketch_serialized=rectangle.serialized();
         require(calculate(c).volume>0,"C/K circle to rectangle Loft failed");
+        {
+            auto surface=c;surface.sweep2d.result_type=document::ProfileResultType::Surface;
+            const auto body=calculate(surface);
+            require(!body.mesh.triangle_references.empty(),"Variable Surface has no geometry");
+            const auto prefix="sweep:"+document::PartDocument::sweep2d_request(surface).path_segments.front().source_id+
+                ":profile:"+surface.sweep2d.profiles.front().id+":from:";
+            for(const auto* refs:{&body.mesh.triangle_references,&body.mesh.original_references.triangle_references}) {
+                require(!refs->empty(),"Variable Surface has no original ancestry");
+                for(const auto& face:*refs)require(face.owner_id==surface.id&&face.surface_result&&
+                    face.semantic_key.starts_with(prefix),"Variable Surface lost its unique start-profile parent or yellow style");
+            }
+            auto hidden=body.mesh;kernel::hide_surface_results(hidden);
+            require(hidden.triangles.empty(),"Variable Surface cannot be hidden by result type");
+        }
         const auto preview=document::PartDocument::sweep2d_preview_mesh(c);
         require(preview.constraint_markers.size()==8&&preview.constraint_markers.front().label=="1 – začátek",
             "Numbered profile correspondence preview is missing");

@@ -1823,7 +1823,7 @@ static int verify_converted_sheet_selection_ui(QApplication& application,
             const double uu=dot(u,u),vv=dot(v,v),uv=dot(u,v),det=uu*vv-uv*uv;
             return QPointF(100*(dot(r,u)*vv-dot(r,v)*uv)/det,100*(dot(r,v)*uu-dot(r,u)*uv)/det);
         };
-        struct SelectionSample {QPointF screen;std::string owner;kernel::Vec3 center;std::array<float,8> camera;};
+        struct SelectionSample {QPointF screen;std::string owner;kernel::Vec3 center;std::array<float,11> camera;};
         std::map<bool,SelectionSample> positions;
         const auto focus=[&](kernel::Vec3 point) {
             // Inspect the narrow bend face at the same useful close-up scale

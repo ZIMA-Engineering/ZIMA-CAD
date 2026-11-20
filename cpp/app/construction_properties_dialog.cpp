@@ -950,21 +950,26 @@ void ConstructionPropertiesDialog::refresh_sweep_profiles() {
         connect(order,&QPushButton::clicked,this,[this,profile_index] {
             try {
                 const auto initial=sweep_profiles_.at(profile_index).correspondence_start_point_id;
+                const auto reversed=sweep_profiles_.at(profile_index).correspondence_reversed;
                 const QPointer<ConstructionPropertiesDialog> self(this);
-                const auto preview=[self,profile_index](std::string id) {
+                const auto preview=[self,profile_index](std::string id,bool reverse) {
                     if(!self)return;
                     self->sweep_profiles_.at(profile_index).correspondence_start_point_id=std::move(id);
+                    self->sweep_profiles_.at(profile_index).correspondence_reversed=reverse;
                     self->notify_preview();
                 };
                 auto* dialog=new SweepPointOrderDialog(
                     zima::sketcher::Sketch::from_serialized(sweep_profiles_.at(profile_index).sketch_serialized),
-                    initial,preview,parentWidget(),sweep_result_type_->currentIndex()!=0);
-                connect(dialog,&QDialog::finished,this,[self,preview,initial](int result) {
+                    initial,reversed,preview,parentWidget(),sweep_result_type_->currentIndex()!=0);
+                connect(dialog,&QDialog::finished,this,[self,preview,initial,reversed](int result) {
                     if(!self)return;
-                    if(result!=QDialog::Accepted)preview(initial);
+                    if(result!=QDialog::Accepted)preview(initial,reversed);
                     self->show();self->raise();
                 });
                 hide();dialog->show();
+                const auto& profile=sweep_profiles_.at(profile_index);
+                dialog->bind_view(dynamic_cast<zima::viewer::MeshView*>(parentWidget()->findChild<QOpenGLWidget*>("modelWorkspace")),initial_sweep_->id,
+                    "profile-point:"+profile.point_id+(profile.incoming?":in:":":out:"),property("pointOrderInstancePath").toString().toStdString());
             } catch(const std::exception& error) { error_->setText(QObject::tr(error.what())); }
         });
         sweep_profiles_table_->setCellWidget(row,2,order);

@@ -171,6 +171,7 @@ void disconnected_twist(const kernel::OcctKernel& kernel) {
     static_cast<void>(sketch.add_rectangle(1,.5,2,1.5));
     feature.feature_kind=document::FeatureKind::Feature;feature.feature.sketch_id=sketch.id;
     feature.feature.centroid_centerline=feature.feature.origin_centerline=true;
+    feature.feature.individual_centroid_centerlines=true;
     feature.feature.sides[0].operation=document::FeatureSideOperation::Twist;
     feature.feature.sides[0].length=100;feature.feature.sides[0].angle_degrees=90;
     const double area=11,cx=(60-1.5)/area;
@@ -201,6 +202,34 @@ void disconnected_twist(const kernel::OcctKernel& kernel) {
             near(plan.source_end_centroid,{cx+(reverse?1:-1)*(plan.source_start_centroid.y-1),
                 1+(reverse?-1:1)*(plan.source_start_centroid.x-cx),100});
             near(plan.straight_end_centroid,{plan.source_start_centroid.x,plan.source_start_centroid.y,90});
+            const auto axis_key="centerline:from:centroid:region:"+section.profile.region_id;
+            const auto curved_axis=std::ranges::find_if(datums.edges,[&](const auto& edge){return edge.reference.semantic_key==axis_key;});
+            check(curved_axis!=datums.edges.end()&&curved_axis->exact_spline&&curved_axis->dash_dot,
+                "Disconnected Twist omitted an individual curved centroid trajectory");
+            near(curved_axis->points.front(),plan.source_start_centroid);near(curved_axis->points.back(),plan.source_end_centroid);
+            for(unsigned sample=0;sample<=80;++sample) {
+                const auto p=kernel::bspline_value(*curved_axis->exact_spline,double(sample)/80);
+                const double t=p.z/100;
+                const auto ramp_integral=[](double u){return u*u*u*(1-.5*u);};
+                const double progress=!smooth?t:t<.2?.25*ramp_integral(t/.2):
+                    t>.8?1-.25*ramp_integral((1-t)/.2):(t-.1)/.8;
+                const double angle=(reverse?-1:1)*std::numbers::pi*.5*progress;
+                const double dx=plan.source_start_centroid.x-cx,dy=plan.source_start_centroid.y-1;
+                check(std::hypot(p.x-(cx+dx*std::cos(angle)-dy*std::sin(angle)),
+                    p.y-(1+dx*std::sin(angle)+dy*std::cos(angle)))<=twist.linear_tolerance,
+                    "Individual centroid path does not follow the authored Twist law");
+            }
+            for(bool start:{true,false}) {
+                const auto key="profile:path-point:"+std::string(start?"start:from:":"end:from:")+axis_key;
+                const auto point=std::ranges::find_if(datums.points,[&](const auto& value){return value.reference.semantic_key==key;});
+                check(point!=datums.points.end(),"Twisted centroid axis has no independently selectable endpoint");
+                near(point->position,start?plan.source_start_centroid:plan.source_end_centroid);
+                auto follower=document::PartDocument::create_construction(document::ConstructionKind::Point);
+                follower.definition=document::ConstructionDefinition::PointReference;
+                follower.references={{"",point->reference.owner_id,point->reference.semantic_key}};
+                check(document::resolve_construction(follower,datums),"Twist endpoint cannot drive a dependent native point");
+                near(follower.origin,point->position);
+            }
             for(std::size_t i=0;i<vertices.size();++i) {
                 const auto& p=vertices[i];
                 const kernel::Vec3 end{cx+(reverse?1:-1)*(p.y-1),1+(reverse?-1:1)*(p.x-cx),100};

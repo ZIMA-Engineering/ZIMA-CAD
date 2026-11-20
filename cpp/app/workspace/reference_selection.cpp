@@ -51,8 +51,8 @@ document::ConstructionReference prepare_placement_pick(PlacementReferenceDialog*
             if(auto* section=dynamic_cast<ui::ContainerPlacementSection*>(object)) {
                 ref=section->prepare_reference(index,std::move(ref));break;
             }
-    ref.measured_offset=measured;
-    if (index==1 && !ref.orientation_only) {
+    if (!ref.use_angle) ref.measured_offset=measured;
+    if (index==1 && !ref.orientation_only && !ref.use_angle) {
         const auto references=dialog->references_without(index);
         const auto anchor=std::ranges::find_if(geometry.points,[&](const auto& p) {
             return p.reference.owner_id==ref.owner_id && p.reference.semantic_key==ref.semantic_key &&
@@ -676,6 +676,8 @@ void AssemblyWorkspaceWindow::set_local_origin_selection_mode(bool active) {
         if (construction_reference_dialog_)
             construction_reference_dialog_->set_active_reference_index(std::nullopt);
         selectable_local_origin_container_ids_.clear();
+        for(const auto& [id,origin]:owned_sketch_origin_ids_)
+            selectable_local_origin_container_ids_.insert(id);
         if (const auto* part = workspace_.open_part(workspace_.active_document_id())) {
             for (const auto& container : part->session.document().history)
                 selectable_local_origin_container_ids_.insert(container.id);
@@ -719,6 +721,22 @@ void AssemblyWorkspaceWindow::set_local_origin_selection_mode(bool active) {
 void AssemblyWorkspaceWindow::toggle_local_origin_visibility(
         const zima::viewer::ViewerCandidate& candidate) {
     if (!local_origin_selection_active_) return;
+    const auto reveal_origin_row=[this](const std::string& id,const std::string& path) {
+        // Revealing an Origin is inspection, not confirmation of a placement.
+        // Block selection callbacks; a subsequent actual click enters it.
+        const QSignalBlocker blocked(tree_);
+        for(QTreeWidgetItemIterator it(tree_);*it;++it) {
+            auto* row=*it;
+            const auto kind=row->data(0,Qt::UserRole+3).toString();
+            if(row->data(0,Qt::UserRole).toString().toStdString()!=id ||
+                row->data(0,Qt::UserRole+1).toString().toStdString()!=path ||
+                (kind!="document-origin"&&kind!="construction-origin"))continue;
+            for(auto* parent=row->parent();parent;parent=parent->parent())parent->setExpanded(true);
+            tree_->clearSelection();tree_->setCurrentItem(row);row->setSelected(true);
+            tree_->scrollToItem(row,QAbstractItemView::EnsureVisible);
+            break;
+        }
+    };
     if (candidate.kind == zima::viewer::CandidateKind::Occurrence &&
         !candidate.instance_path.empty()) {
         const auto address = workspace_.resolve_occurrence(workspace_.displayed_document_id(),
@@ -732,6 +750,8 @@ void AssemblyWorkspaceWindow::toggle_local_origin_visibility(
         set_local_origin_selection_mode(false);
         preserve_view_on_refresh_ = true;
         refresh_scene();
+        if(visible_occurrence_origin_paths_.contains(candidate.instance_path))
+            reveal_origin_row(address->source_document_id+":origin",candidate.instance_path);
         return;
     }
     if (!selectable_local_origin_container_ids_.contains(candidate.owner_id)) return;
@@ -740,8 +760,9 @@ void AssemblyWorkspaceWindow::toggle_local_origin_visibility(
     const auto& document = part->session.document();
     const auto* container = document.find_container(candidate.owner_id);
     const auto* body = document.body_history.find(candidate.owner_id);
-    if (!container && !body) return;
-    const auto id = body ? body->origin().id : container->container_origin.id;
+    const auto owned=owned_sketch_origin_ids_.find(candidate.owner_id);
+    if (!container && !body && owned==owned_sketch_origin_ids_.end()) return;
+    const auto id = body ? body->origin().id : container ? container->container_origin.id : owned->second;
     if (!visible_local_origin_ids_.erase(id)) visible_local_origin_ids_.insert(id);
     if(container&&container->feature_kind==zima::document::FeatureKind::SheetTransition){
         if(visible_local_origin_ids_.contains(id))visible_local_origin_ids_.insert(container->sheet_transition.end_origin_id);
@@ -749,7 +770,10 @@ void AssemblyWorkspaceWindow::toggle_local_origin_visibility(
     }
     set_local_origin_selection_mode(false);
     preserve_view_on_refresh_ = true;
-    refresh_scene();
+    if(owned!=owned_sketch_origin_ids_.end()) {
+        if(auto* dialog=dynamic_cast<PrimitivePropertiesDialog*>(primitive_reference_dialog_))dialog->refresh_sketch_preview();
+    }else refresh_scene();
+    if(visible_local_origin_ids_.contains(id))reveal_origin_row(id,candidate.instance_path);
 }
 
 
@@ -1148,7 +1172,7 @@ void AssemblyWorkspaceWindow::accept_construction_reference(
     // slots by ContainerPlacementSection; position rows themselves never
     // acquire a second rotational meaning.
     committed_reference.measured_offset=zima::document::measure_placement_reference_offset(committed_reference,construction_reference_geometry_,orientation_origin);
-    if (proposed_reference.station_mode!=document::PlacementStationMode::None)
+    if (proposed_reference.station_mode!=document::PlacementStationMode::None || proposed_reference.use_angle)
         committed_reference=proposed_reference;
     if (selected_index==0 && committed_reference.semantic_key.starts_with(kernel::placement_route_prefix)) {
         if (const auto hit=picked_route_origin(*viewer_,offered,committed_reference,construction_reference_geometry_))
@@ -1737,7 +1761,8 @@ void AssemblyWorkspaceWindow::accept_primitive_reference(
             if (!cap_label.empty()) reference_label=QString::fromStdString(owner->name+" — "+cap_label);
         }
     }
-    committed_reference.measured_offset=zima::document::measure_placement_reference_offset(committed_reference,proposed_geometry,orientation_origin);
+    if (proposed_reference.use_angle) committed_reference=proposed_reference;
+    else committed_reference.measured_offset=zima::document::measure_placement_reference_offset(committed_reference,proposed_geometry,orientation_origin);
     const bool auto_advance = primitive_reference_auto_advance_;
     const auto bend_edge=selected_index==0&&properties_dialog_&&properties_dialog_->objectName()=="bendPropertiesDialog"
         ?viewer_->candidate_edge(candidate):std::optional<zima::kernel::ViewerEdge>{};

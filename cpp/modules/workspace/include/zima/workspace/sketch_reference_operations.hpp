@@ -5,6 +5,11 @@ namespace zima::workspace {
 // Owned General Surface/Loft Sketch definitions are parent-local; their interactive
 // display Sketch is already in Body coordinates. Consumers declare the frame.
 enum class SketchIntersectionFrame { Definition, Body };
+// Query a command-local parent snapshot with the ordinary native curve and
+// branch identities. The snapshot is never committed to the source document.
+[[nodiscard]] std::vector<sketcher::SketchExternalReference> prepare_owned_sketch_curve_intersection_branches(
+    const document::PartDocument&,const document::HistoryContainer&,const sketcher::Sketch&,
+    const kernel::EdgeReference&,const std::string& draft_body_id);
 [[nodiscard]] std::vector<sketcher::SketchExternalReference> prepare_sketch_curve_intersection_branches(
     const Workspace&,const std::string& document,const sketcher::Sketch&,const kernel::EdgeReference&,
     const std::string& draft_body_id = {},bool draft_section = false);

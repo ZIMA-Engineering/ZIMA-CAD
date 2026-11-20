@@ -100,6 +100,7 @@
     <file alias="icons/title-block.svg">../../resources/icons/title-block.svg</file>
     <file alias="icons/select.svg">../../resources/icons/select.svg</file>
     <file alias="icons/view-fit.svg">../../resources/icons/view-fit.svg</file>
+    <file alias="icons/view-orbit-cursor.svg">../../resources/icons/view-orbit-cursor.svg</file>
     <file alias="icons/view-normal.svg">../../resources/icons/view-normal.svg</file>
     <file alias="icons/view-orthographic.svg">../../resources/icons/view-orthographic.svg</file>
     <file alias="icons/view-perspective.svg">../../resources/icons/view-perspective.svg</file>

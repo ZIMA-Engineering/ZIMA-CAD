@@ -829,6 +829,7 @@ if(ZIMA_BUILD_TESTS)
     add_executable(zima_cpp_solid_state_face_transfer_document_tests tests/solid_state_face_transfer_document_tests.cpp)
     target_link_libraries(zima_cpp_solid_state_face_transfer_document_tests PRIVATE zima_workspace zima_kernel_occt TKTopAlgo)
     add_test(NAME zima_cpp_solid_state_face_transfer_document_tests COMMAND zima_cpp_solid_state_face_transfer_document_tests)
+    add_test(NAME zima_cpp_solid_state_twist_attachment_tests COMMAND zima_cpp_solid_state_face_transfer_document_tests --twist-attachment)
     add_test(NAME zima_cpp_solid_state_formed_chain_tests COMMAND zima_cpp_solid_state_face_transfer_document_tests --formed-chains)
     add_test(NAME zima_cpp_solid_state_formed_point_tests COMMAND zima_cpp_solid_state_face_transfer_document_tests --formed-points)
     add_test(NAME zima_cpp_solid_state_formed_point_chain_tests COMMAND zima_cpp_solid_state_face_transfer_document_tests --formed-point-chains)
@@ -2587,6 +2588,11 @@ if(ZIMA_BUILD_TESTS)
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_HIDDEN_WINDOWS=1;ZIMA_VERIFY_SKETCH_PARALLEL_INFERENCE_ONLY=1"
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." RUN_SERIAL TRUE TIMEOUT 180)
     add_test(NAME zima_cpp_placed_sketch_reference_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    add_test(NAME zima_cpp_cylindrical_angle_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    set_tests_properties(zima_cpp_cylindrical_angle_ui_contract PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/.."
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_HIDDEN_WINDOWS=1;ZIMA_VERIFY_CYLINDRICAL_ANGLE_ONLY=1"
+        TIMEOUT 120 RUN_SERIAL TRUE)
     set_tests_properties(zima_cpp_placed_sketch_reference_ui_contract PROPERTIES
         WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/.."
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_PLACED_SKETCH_REFERENCE_ONLY=1"
@@ -3021,9 +3027,13 @@ if(ZIMA_BUILD_TESTS)
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 120 RUN_SERIAL TRUE)
     set_tests_properties(zima_cpp_bend_command_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
     add_executable(zima_cpp_twisted_sheet_tests tests/twisted_sheet_tests.cpp)
-    target_link_libraries(zima_cpp_twisted_sheet_tests PRIVATE zima_workspace zima_kernel_occt)
+    target_link_libraries(zima_cpp_twisted_sheet_tests PRIVATE zima_workspace zima_kernel_occt TKTopAlgo)
     target_compile_options(zima_cpp_twisted_sheet_tests PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
     add_test(NAME zima_cpp_twisted_sheet_tests COMMAND zima_cpp_twisted_sheet_tests)
+    add_test(NAME zima_cpp_twisted_sheet_axis_transport_tests COMMAND zima_cpp_twisted_sheet_tests --axis-transport)
+    add_test(NAME zima_cpp_twisted_sheet_dimension_tests COMMAND zima_cpp_twisted_sheet_tests --dimensions)
+    set_tests_properties(zima_cpp_twisted_sheet_axis_transport_tests zima_cpp_twisted_sheet_dimension_tests
+        zima_cpp_solid_state_twist_attachment_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
     set_tests_properties(zima_cpp_twisted_sheet_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
     target_link_libraries(zima_cpp_holes_command_tests PRIVATE zima_command_host)
     target_compile_options(zima_cpp_holes_command_tests PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)

@@ -174,6 +174,8 @@ void SketchPropertiesDialog::set_planar_surface_mode(
         std::function<void()> edit_sketch) {
     set_internal_title(tr("Vlastnosti plochy"));
     setObjectName("planarSurfacePropertiesDialog");
+    content_layout()->removeWidget(sketch_button_);
+    place_sketch_button_beside_work_plane(plane_selector_,sketch_button_);
     edit_pending_sketch_=std::move(edit_sketch);
 }
 

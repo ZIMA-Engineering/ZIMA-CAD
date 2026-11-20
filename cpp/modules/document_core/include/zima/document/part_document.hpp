@@ -471,6 +471,7 @@ struct Sweep3DProfile {
     std::string sketch_serialized;
     bool incoming{};
     std::string correspondence_start_point_id;
+    bool correspondence_reversed{};
     bool operator==(const Sweep3DProfile&) const = default;
 };
 
@@ -480,7 +481,8 @@ struct Sweep3DCorrespondence {
     bool closed{true};
 };
 [[nodiscard]] Sweep3DCorrespondence sweep3d_profile_correspondence(
-    const zima::sketcher::Sketch& sketch, const std::string& start_point_id = {}, bool allow_open = false);
+    const zima::sketcher::Sketch& sketch, const std::string& start_point_id = {}, bool allow_open = false,
+    bool reversed = false);
 
 struct Sweep3DParameters {
     // A complete ordinary Curve3D is embedded in the history feature.  Its
@@ -572,6 +574,21 @@ struct HelicalSweepParameters {
 // the under-constrained fallback.
 [[nodiscard]] std::optional<double> measure_placement_reference_offset(const ConstructionReference&,
     const zima::kernel::ViewerReferenceGeometry&, const zima::kernel::Vec3& point);
+
+struct CylindricalAngleFrame {
+    zima::kernel::Vec3 axis_origin, axis, zero, radial;
+    double radius{};
+    const ConstructionReference* cylinder{};
+};
+[[nodiscard]] const ConstructionReference* placement_angle_cylinder(
+    const std::vector<ConstructionReference>&, const zima::kernel::ViewerReferenceGeometry&);
+// Uses the same exact source geometry as placement. No modeling calculation.
+[[nodiscard]] std::optional<CylindricalAngleFrame> cylindrical_angle_frame(
+    const ConstructionReference&, const std::vector<ConstructionReference>&,
+    const zima::kernel::ViewerReferenceGeometry&);
+[[nodiscard]] std::optional<double> measure_placement_reference_value(
+    const ConstructionReference&, const std::vector<ConstructionReference>&,
+    const zima::kernel::ViewerReferenceGeometry&, const zima::kernel::Vec3&);
 
 // Ordered three-point and edge/plane/point definitions establish the
 // container's complete local XY frame.  This query keeps automatic Sketch
@@ -890,6 +907,7 @@ struct LoftParameters {
     std::vector<std::string> profiles, guides;
     // Authored first point keyed by owned profile Feature identity.
     std::map<std::string,std::string> correspondence_starts;
+    std::set<std::string> correspondence_reversed;
     ProfileResultType result_type{ProfileResultType::Solid};
     ThinMode thin_mode{ThinMode::OneSide};
     double thickness{1.};

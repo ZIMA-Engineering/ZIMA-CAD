@@ -4,10 +4,11 @@
 #include <vector>
 
 namespace zima::document {
-// Viewer camera: quaternion (w,x,y,z), zoom, pan in logical pixels, reference scale.
+// Viewer camera: quaternion (w,x,y,z), zoom, pan in logical pixels, reference
+// scale, and world-space orbit-center offset from the fitted model center.
 struct NamedView {
     std::string name;
-    std::array<float,8> camera{1,0,0,0,1,0,0,1};
+    std::array<float,11> camera{1,0,0,0,1,0,0,1};
     bool operator==(const NamedView&) const = default;
 };
 void normalize_named_view(NamedView& view);

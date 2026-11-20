@@ -369,6 +369,8 @@ struct MeshView::Impl {
     bool middle_dragged{};
     bool middle_double_clicked{};
     QPoint middle_press_position;
+    bool cursor_orbit_enabled{};
+    std::optional<QVector3D> middle_orbit_pivot;
     std::vector<zima::kernel::ViewerEdge> transient_edges;
     zima::kernel::ViewerMesh transient_context_mesh;
     zima::kernel::ViewerMesh read_only_profile_context;
@@ -481,6 +483,7 @@ struct MeshView::Impl {
     std::map<std::string, QColor> body_surface_face_colors;
     QPoint last_pointer;
     QVector3D center;
+    QVector3D orbit_center_offset;
     QPointF pan_pixels;
     QPointF resize_shift_pixels;
     int viewport_width{};
@@ -925,7 +928,7 @@ struct MeshView::Impl {
             -static_cast<float>(pan_pixels.x()) * units_per_pixel,
             static_cast<float>(pan_pixels.y()) * units_per_pixel,
             orbit_distance());
-        fly_position = center +
+        fly_position = center + orbit_center_offset +
             orientation.inverted().rotatedVector(camera_translation);
     }
 
@@ -943,7 +946,7 @@ struct MeshView::Impl {
                          projection_mode == ProjectionMode::Perspective
                             ? -orbit_distance() : 0.0F);
         result.rotate(orientation);
-        result.translate(-center);
+        result.translate(-center-orbit_center_offset);
         return result;
     }
 
@@ -1361,21 +1364,23 @@ int MeshView::dimension_decimal_places() const {
     return impl_->dimension_decimal_places;
 }
 
-std::array<float, 8> MeshView::camera_state() const {
+std::array<float, 11> MeshView::camera_state() const {
     return {impl_->orientation.scalar(), impl_->orientation.x(),
             impl_->orientation.y(), impl_->orientation.z(), impl_->view_scale,
             static_cast<float>(impl_->pan_pixels.x()),
             static_cast<float>(impl_->pan_pixels.y()),
-            impl_->reference_view_scale};
+            impl_->reference_view_scale,impl_->orbit_center_offset.x(),
+            impl_->orbit_center_offset.y(),impl_->orbit_center_offset.z()};
 }
 
-void MeshView::set_camera_state(const std::array<float, 8>& state) {
+void MeshView::set_camera_state(const std::array<float, 11>& state) {
     if (!std::all_of(state.begin(), state.end(), [](float value) {
             return std::isfinite(value);
         }) || state[4] <= 0.0F) return;
     impl_->orientation = QQuaternion(state[0], state[1], state[2], state[3]).normalized();
     impl_->view_scale = state[4];
     impl_->pan_pixels = QPointF(state[5], state[6]);
+    impl_->orbit_center_offset = QVector3D(state[8],state[9],state[10]);
     // reference_view_scale must be restored alongside view_scale so the
     // screen-constant origin axis/plane ratio (view_scale /
     // reference_view_scale) stays 1.0 across saves/undo/tab switches, not
@@ -2566,6 +2571,8 @@ void MeshView::set_transient_context_mesh(zima::kernel::ViewerMesh mesh) {
             for(auto& point:edge.points)point=transform(point);
         }
         for(auto& point:mesh.points)point.position=transform(point.position);
+        for(auto& image:mesh.images)
+            for(auto& corner:image.corners)corner=transform(corner);
         for(auto& axis:mesh.axes) {
             const auto origin=transform(axis.point);
             const auto endpoint=transform({
@@ -3029,7 +3036,7 @@ double MeshView::world_tolerance_for_pixels(double pixels) const {
     double visible_half_height = impl_->view_scale;
     if (impl_->fly_navigation_enabled &&
         impl_->projection_mode == ProjectionMode::Perspective) {
-        const double distance = (impl_->center - impl_->fly_position).length();
+        const double distance = (impl_->center + impl_->orbit_center_offset - impl_->fly_position).length();
         visible_half_height = std::max(0.001, distance * std::tan(
             kPerspectiveFieldOfViewDegrees * std::numbers::pi / 360.0));
     }
@@ -3057,6 +3064,7 @@ void MeshView::fit_points(const std::vector<zima::kernel::Vec3>& points) {
     }
     impl_->resize_shift_pixels={};
     impl_->center=QVector3D((minimum.x+maximum.x)/2,(minimum.y+maximum.y)/2,(minimum.z+maximum.z)/2);
+    impl_->orbit_center_offset={};
     const double radius=std::hypot(maximum.x-minimum.x,maximum.y-minimum.y,maximum.z-minimum.z)/2;
     const double dpi=physicalDpiY()>=50&&physicalDpiY()<=400?physicalDpiY():96.;
     const double aspect=static_cast<double>(std::max(width(),1))/std::max(height(),1);
@@ -3071,6 +3079,7 @@ void MeshView::fit_points(const std::vector<zima::kernel::Vec3>& points) {
 
 void MeshView::fit_all() {
     impl_->resize_shift_pixels={};
+    impl_->orbit_center_offset={};
     // World coordinates are millimetres. Qt reports widget DPI in the same
     // logical-pixel units as height(), so startup is approximately 1:1 on
     // this monitor, independently of window size and desktop scaling.
@@ -3335,6 +3344,13 @@ bool MeshView::fly_navigation_enabled() const {
     return impl_->fly_navigation_enabled;
 }
 
+void MeshView::set_cursor_orbit_enabled(bool enabled) {
+    impl_->cursor_orbit_enabled=enabled;
+    impl_->middle_orbit_pivot.reset();
+}
+
+bool MeshView::cursor_orbit_enabled() const {return impl_->cursor_orbit_enabled;}
+
 namespace {
 // Shared camera transition helper for set_standard_view/set_view_direction,
 // matching Python's animate_standard_view/animate_view_normal: slerp the
@@ -3350,17 +3366,19 @@ void MeshView::animate_orientation_to(const QQuaternion& target, bool preserve_p
     }
     const QQuaternion start_orientation = impl_->orientation;
     const QPointF start_pan = impl_->pan_pixels;
+    const auto start_center_offset=impl_->orbit_center_offset;
     auto* animation = new QVariantAnimation(this);
     animation->setStartValue(0.0);
     animation->setEndValue(1.0);
     animation->setDuration(kAnimationDurationMs);
     animation->setEasingCurve(QEasingCurve::InOutCubic);
     connect(animation, &QVariantAnimation::valueChanged, this,
-        [this, start_orientation, target, start_pan, preserve_pan](const QVariant& raw) {
+        [this, start_orientation, target, start_pan, start_center_offset, preserve_pan](const QVariant& raw) {
             const float progress = static_cast<float>(raw.toDouble());
             impl_->orientation =
                 QQuaternion::slerp(start_orientation, target, progress);
             impl_->pan_pixels = preserve_pan ? start_pan : start_pan * (1.0 - progress);
+            impl_->orbit_center_offset=preserve_pan?start_center_offset:start_center_offset*(1.0F-progress);
             update();
         });
     connect(animation, &QVariantAnimation::finished, this, [this, animation] {
@@ -3370,7 +3388,7 @@ void MeshView::animate_orientation_to(const QQuaternion& target, bool preserve_p
     animation->start(QAbstractAnimation::DeleteWhenStopped);
 }
 
-void MeshView::animate_camera_state(const std::array<float, 8>& state) {
+void MeshView::animate_camera_state(const std::array<float, 11>& state) {
     if (!std::all_of(state.begin(), state.end(), [](float value) {
             return std::isfinite(value);
         }) || state[4] <= 0.0F) return;
@@ -3382,6 +3400,8 @@ void MeshView::animate_camera_state(const std::array<float, 8>& state) {
     const QPointF start_pan = impl_->pan_pixels;
     const float start_scale = impl_->view_scale;
     const float start_reference_scale = impl_->reference_view_scale;
+    const auto start_center_offset=impl_->orbit_center_offset;
+    const QVector3D target_center_offset(state[8],state[9],state[10]);
     const QQuaternion target_orientation =
         QQuaternion(state[0], state[1], state[2], state[3]).normalized();
     const QPointF target_pan(state[5], state[6]);
@@ -3398,7 +3418,7 @@ void MeshView::animate_camera_state(const std::array<float, 8>& state) {
     connect(animation, &QVariantAnimation::valueChanged, this,
         [this, start_orientation, target_orientation, start_pan, target_pan,
             start_scale, target_scale, start_reference_scale,
-            target_reference_scale](const QVariant& raw) {
+            target_reference_scale,start_center_offset,target_center_offset](const QVariant& raw) {
             const float progress = static_cast<float>(raw.toDouble());
             impl_->orientation = QQuaternion::slerp(
                 start_orientation, target_orientation, progress);
@@ -3408,6 +3428,7 @@ void MeshView::animate_camera_state(const std::array<float, 8>& state) {
                 (target_scale - start_scale) * progress;
             impl_->reference_view_scale = start_reference_scale +
                 (target_reference_scale - start_reference_scale) * progress;
+            impl_->orbit_center_offset=start_center_offset+(target_center_offset-start_center_offset)*progress;
             impl_->candidates.clear();
             update();
         });
@@ -4097,7 +4118,8 @@ void MeshView::paintGL() {
             for(unsigned i=0;i<8;++i)for(unsigned bit:{1U,2U,4U})if(!(i&bit))painter.drawLine(project(corners[i]),project(corners[i|bit]));
         }
         paint_normal_text(painter,impl_->mesh.edges,impl_->transient_edges,project,impl_->show_sketches,impl_->show_symbols);
-        for(const auto& image:impl_->mesh.images) {
+        for(const auto* images:{&impl_->mesh.images,&impl_->transient_context_mesh.images})
+        for(const auto& image:*images) {
             QPolygonF target;for(const auto& p:image.corners)target<<project(p);
             painter.save();painter.setOpacity(image.opacity);
             paint_embedded_image(painter,image.data_base64,image.format,target);
@@ -5019,7 +5041,7 @@ if (impl_->show_origins) {
     const bool dimensions_visible = !impl_->mesh.dimensions.empty() ||
         !impl_->transient_dimensions.empty();
     const bool overlay_edges_visible=std::ranges::any_of(impl_->mesh.edges,[](const auto& edge){return edge.overlay&&edge.reference.semantic_key=="section:sketch";});
-    if (!impl_->mesh.images.empty() ||
+    if (!impl_->mesh.images.empty() || !impl_->transient_context_mesh.images.empty() ||
         impl_->command_snap_points_visible || overlay_edges_visible || axes_visible || points_visible || planes_visible ||
         sketch_geometry_visible || curve3d_geometry_visible ||
         dimensions_visible ||
@@ -5058,7 +5080,8 @@ if (impl_->show_origins) {
             for(unsigned i=0;i<8;++i)for(unsigned bit:{1U,2U,4U})if(!(i&bit))painter.drawLine(project(corners[i]),project(corners[i|bit]));
         }
         paint_normal_text(painter,impl_->mesh.edges,impl_->transient_edges,project,impl_->show_sketches,impl_->show_symbols);
-        for(const auto& image:impl_->mesh.images) {
+        for(const auto* images:{&impl_->mesh.images,&impl_->transient_context_mesh.images})
+        for(const auto& image:*images) {
             QPolygonF target;for(const auto& p:image.corners)target<<project(p);
             painter.save();painter.setOpacity(image.opacity);
             paint_embedded_image(painter,image.data_base64,image.format,target);
@@ -5824,10 +5847,16 @@ if (impl_->show_origins) {
         }
         for(const auto& point:impl_->transient_model_points) {
             const auto& ref=point.reference;
+            const bool loft_anchor=ref.semantic_key.starts_with("loft:input:from:")||ref.semantic_key.starts_with("sweep2d:profile-point:");
             const bool inspected=impl_->constraint_reference_edges.contains(EdgeKey{ref.owner_id,ref.semantic_key,ref.instance_path});
-            const auto color=inspected?interaction::selected:
+            const auto color=loft_anchor?interaction::hover:inspected?interaction::selected:
                 !ref.semantic_key.starts_with("point:")?interaction::axis:theme.foreground;
-            draw_circular_marker(painter,project(point.position),color);
+            const auto screen=project(point.position);
+            draw_circular_marker(painter,screen,color);
+            if(loft_anchor&&!point.label.empty()) {
+                painter.setPen(QPen(color,1.0));
+                painter.drawText(screen+QPointF(8.0,-6.0),QString::fromStdString(point.label));
+            }
         }
         // Fixed profile guides survive cursor previews, constraint solving and
         // point drags without becoming editable or introducing snap candidates.
@@ -6861,6 +6890,22 @@ void MeshView::mousePressEvent(QMouseEvent* event) {
     if (event->button() == Qt::MiddleButton) {
         impl_->middle_dragged = false;
         impl_->middle_press_position = event->position().toPoint();
+        impl_->middle_orbit_pivot.reset();
+        if(impl_->cursor_orbit_enabled&&!impl_->fly_navigation_enabled) {
+            // Capture the cursor at the current orbit depth, without picking
+            // or calculating model geometry. A click alone never moves a camera.
+            if(const auto ray=ray_at(event->position())) {
+                const QVector3D origin(ray->first.x,ray->first.y,ray->first.z);
+                const QVector3D direction(ray->second.x,ray->second.y,ray->second.z);
+                const auto normal=impl_->orientation.inverted().rotatedVector(QVector3D(0,0,1));
+                const float denominator=QVector3D::dotProduct(direction,normal);
+                if(std::abs(denominator)>1e-8F) {
+                    const auto center=impl_->center+impl_->orbit_center_offset;
+                    const float distance=QVector3D::dotProduct(center-origin,normal)/denominator;
+                    impl_->middle_orbit_pivot=origin+direction*distance;
+                }
+            }
+        }
     }
     const bool additive_sketch_click = event->button() == Qt::LeftButton &&
         event->modifiers().testFlag(Qt::ControlModifier);
@@ -7318,7 +7363,17 @@ void MeshView::mouseMoveEvent(QMouseEvent* event) {
                 0.0F, 1.0F, 0.0F, movement.x() * degrees_per_pixel);
             const auto vertical = QQuaternion::fromAxisAndAngle(
                 1.0F, 0.0F, 0.0F, movement.y() * degrees_per_pixel);
-            impl_->orientation = (vertical * horizontal * impl_->orientation).normalized();
+            const auto next_orientation=(vertical * horizontal * impl_->orientation).normalized();
+            if(!impl_->fly_navigation_enabled) {
+                const auto pivot=impl_->middle_orbit_pivot.value_or(impl_->center);
+                // Rotate the camera about the fixed world pivot. Its camera
+                // coordinates, depth and projection stay constant in both
+                // Ortho and Perspective; zoom and pan retain their meanings.
+                const auto relative=impl_->center+impl_->orbit_center_offset-pivot;
+                impl_->orbit_center_offset=pivot-impl_->center+
+                    next_orientation.inverted().rotatedVector(impl_->orientation.rotatedVector(relative));
+            }
+            impl_->orientation=next_orientation;
         }
         impl_->candidates.clear();
         update();

@@ -66,6 +66,33 @@ std::pair<TopoDS_Face,double> loft_network_face(
             construction_tolerance=tolerance;build.Init(profiles,rails,tolerance);
             build.SetApproximationMode(GeomFill_Gordon::ApproximationMode::ExactOnly);build.Perform();
         }
+        if(!build.IsDone()&&build.Status()==GeomFill_Gordon::ResultStatus::CurveCompatibilityFailed&&
+           !(numbered_patch&&profiles.Size()==2&&rails.Size()==2)) {
+            // OCCT's exact network path requires rational families to already
+            // share a basis. Degree elevation and knot insertion preserve the
+            // complete curves; unit weights retain polynomial members exactly.
+            const auto common_basis=[](const auto& curves) {
+                GeomFill_Profiler basis;
+                for(const auto& curve:curves)basis.AddCurve(occ::down_cast<Geom_Curve>(curve->Copy()));
+                basis.Perform(Precision::PConfusion());
+                NCollection_Array1<occ::handle<Geom_Curve>> prepared(curves.Lower(),curves.Upper());
+                for(int i=curves.Lower();i<=curves.Upper();++i) {
+                    const auto curve=occ::down_cast<Geom_BSplineCurve>(basis.Curve(i-curves.Lower()+1));
+                    NCollection_Array1<double> weights(1,curve->NbPoles());curve->Weights(weights);
+                    prepared(i)=new Geom_BSplineCurve(curve->Poles(),weights,curve->Knots(),
+                        curve->Multiplicities(),curve->Degree(),curve->IsPeriodic(),false);
+                }
+                return prepared;
+            };
+            const auto prepared_profiles=common_basis(profiles),prepared_rails=common_basis(rails);
+            construction_tolerance=std::min(tolerance*.01,1e-7);
+            build.Init(prepared_profiles,prepared_rails,construction_tolerance);
+            build.SetApproximationMode(GeomFill_Gordon::ApproximationMode::ExactOnly);build.Perform();
+            if(!build.IsDone()&&construction_tolerance<tolerance) {
+                construction_tolerance=tolerance;build.Init(prepared_profiles,prepared_rails,tolerance);
+                build.SetApproximationMode(GeomFill_Gordon::ApproximationMode::ExactOnly);build.Perform();
+            }
+        }
         if(!build.IsDone()&&numbered_patch&&profiles.Size()==2&&rails.Size()==2&&
            build.Status()==GeomFill_Gordon::ResultStatus::CurveCompatibilityFailed) {
             // A two-station numbered span has four exact boundaries. The
@@ -102,6 +129,8 @@ std::pair<TopoDS_Face,double> loft_network_face(
             const double precision=std::min(tolerance*.01,1e-7);
             return {BRepBuilderAPI_MakeFace(surface,precision).Face(),precision};
         }
+        if(std::getenv("ZIMA_CPP_PROFILE_COMMAND"))std::fprintf(stderr,
+            "Loft network: profiles=%zu rails=%zu done=%d status=%d\n",profiles.Size(),rails.Size(),int(build.IsDone()),int(build.Status()));
         if(!build.IsDone()||build.IsApproximate())
             throw std::runtime_error("Loft requires a compatible intersecting profile and guide network.");
         const auto& report=build.Report();
@@ -156,6 +185,7 @@ PrimitiveData make_loft_data(const LoftRequest& request,const std::string& owner
     };
     prepare(request.profiles,wires,true);prepare(request.guides,guides,false);
     PrimitiveData result;
+    bool bounded_network=false;
     std::vector<std::pair<TopoDS_Shape,std::string>> authored_faces;
     std::vector<std::pair<TopoDS_Shape,std::string>> authored_longitudinals;
     bool split_profiles=std::ranges::any_of(source_edges,[&](const auto& edges){return edges.size()!=source_edges.front().size();});
@@ -280,9 +310,39 @@ PrimitiveData make_loft_data(const LoftRequest& request,const std::string& owner
             }
             NCollection_Array1<occ::handle<Geom_Curve>> sides(1,2);
             sides(1)=rails[span];sides(2)=rails[(span+1)%count];
-            const auto [face,precision]=loft_network_face(profiles,sides,tolerance,true);
-            construction_tolerance=std::max(construction_tolerance,precision);
-            authored_faces.emplace_back(face,"loft:skin:from:"+request.profile_owners.front()+":"+request.profiles.front().outer_edge_source_ids.at(span));
+            const auto identity="loft:skin:from:"+request.profile_owners.front()+":"+request.profiles.front().outer_edge_source_ids.at(span);
+            try {
+                const auto [face,precision]=loft_network_face(profiles,sides,tolerance,true);
+                construction_tolerance=std::max(construction_tolerance,precision);
+                authored_faces.emplace_back(face,identity);
+            } catch(const std::runtime_error&) {
+                if(wires.size()<=2)throw;
+                bounded_network=true;
+                // Mixed rational stations can have incompatible longitudinal
+                // parameterizations for a single Gordon patch. Preserve every
+                // authored station and complete guide by bounding patches at
+                // their exact contacts, using the existing four-boundary path.
+                std::vector<std::array<double,2>> contacts(wires.size());
+                for(std::size_t station=0;station<wires.size();++station)
+                    for(unsigned side=0;side<2;++side) {
+                        GeomAPI_ProjectPointOnCurve projection(BRep_Tool::Pnt(vertex(station,(span+side)%count)),sides(side+1));
+                        if(projection.NbPoints()==0||projection.LowerDistance()>tolerance)throw;
+                        contacts[station][side]=projection.LowerDistanceParameter();
+                    }
+                for(std::size_t station=0;station+1<wires.size();++station) {
+                    NCollection_Array1<occ::handle<Geom_Curve>> bounded_profiles(1,2),bounded_sides(1,2);
+                    bounded_profiles(1)=profiles(int(station+1));bounded_profiles(2)=profiles(int(station+2));
+                    for(unsigned side=0;side<2;++side) {
+                        const double a=contacts[station][side],b=contacts[station+1][side];
+                        if(std::abs(a-b)<=Precision::PConfusion())throw;
+                        occ::handle<Geom_TrimmedCurve> bounded=new Geom_TrimmedCurve(sides(side+1),std::min(a,b),std::max(a,b));
+                        if(b<a)bounded->Reverse();bounded_sides(side+1)=bounded;
+                    }
+                    const auto [face,precision]=loft_network_face(bounded_profiles,bounded_sides,tolerance,true);
+                    construction_tolerance=std::max(construction_tolerance,precision);
+                    authored_faces.emplace_back(face,identity+":between:"+request.profile_owners[station]+":"+request.profile_owners[station+1]);
+                }
+            }
         }
         if(request.make_solid)for(const auto endpoint:{std::size_t{0},wires.size()-1}) {
             BRepBuilderAPI_MakeFace cap(wires[endpoint],true);
@@ -344,11 +404,13 @@ PrimitiveData make_loft_data(const LoftRequest& request,const std::string& owner
         if(!found)throw std::runtime_error("Loft face ancestry could not be resolved.");
     }
     std::vector<TopoDS_Vertex> seen_vertices;std::set<std::string> vertex_keys;
+    std::vector<std::size_t> boundary_stations{0,wires.size()-1};
+    if(bounded_network)for(std::size_t station=1;station+1<wires.size();++station)boundary_stations.push_back(station);
     for(TopExp_Explorer it(result.shape,TopAbs_VERTEX);it.More();it.Next()) {
         const auto vertex=TopoDS::Vertex(it.Current());
         if(std::ranges::any_of(seen_vertices,[&](const auto& old){return old.IsSame(vertex);}))continue;
         seen_vertices.push_back(vertex);const auto position=BRep_Tool::Pnt(vertex);std::string key;
-        for(const auto endpoint:{std::size_t{0},wires.size()-1}) {
+        for(const auto endpoint:boundary_stations) {
             const auto& p=request.profiles[endpoint];
             for(std::size_t i=0;i<source_edges[endpoint].size();++i) {
                 if(position.Distance(BRep_Tool::Pnt(TopExp::FirstVertex(source_edges[endpoint][i],true)))>tolerance)continue;
@@ -388,7 +450,7 @@ PrimitiveData make_loft_data(const LoftRequest& request,const std::string& owner
         const auto edge=TopoDS::Edge(it.Current());
         if(BRep_Tool::Degenerated(edge)||std::ranges::any_of(seen_edges,[&](const auto& old){return old.IsSame(edge);}))continue;
         seen_edges.push_back(edge);std::string key;
-        for(const auto endpoint:{std::size_t{0},wires.size()-1}) {
+        for(const auto endpoint:boundary_stations) {
             const auto& p=request.profiles[endpoint];
             for(std::size_t i=0;i<source_edges[endpoint].size();++i)if(lies_on(edge,source_edges[endpoint][i])) {
                 key="loft:edge:from:"+request.profile_owners[endpoint]+":"+
@@ -397,13 +459,26 @@ PrimitiveData make_loft_data(const LoftRequest& request,const std::string& owner
             if(!key.empty())break;
         }
         if(key.empty())for(const auto& vertex:result.vertices) {
-            if(!vertex.reference.semantic_key.starts_with("loft:point:from:"+request.profile_owners.front()+":")&&
-               vertex.reference.semantic_key!="loft:point:seam:from:"+request.profile_owners.front())continue;
+            const bool starts_span=std::ranges::any_of(boundary_stations,[&](const auto station){
+                return station+1<wires.size()&&
+                    (vertex.reference.semantic_key.starts_with("loft:point:from:"+request.profile_owners[station]+":")||
+                     vertex.reference.semantic_key=="loft:point:seam:from:"+request.profile_owners[station]);
+            });
+            if(!starts_span)continue;
             if(vertex.shape.IsSame(TopExp::FirstVertex(edge,true))||vertex.shape.IsSame(TopExp::LastVertex(edge,true))) {
                 key="loft:longitudinal:from:"+vertex.reference.semantic_key;break;
             }
         }
         if(key.empty())throw std::runtime_error("Loft edge ancestry could not be resolved.");
+        if(bounded_network&&key.starts_with("loft:longitudinal:from:")) {
+            std::vector<std::string> ends;
+            for(const auto& point:result.vertices)
+                if(point.shape.IsSame(TopExp::FirstVertex(edge,true))||point.shape.IsSame(TopExp::LastVertex(edge,true)))
+                    ends.push_back(point.reference.semantic_key);
+            std::ranges::sort(ends);
+            if(ends.size()!=2)throw std::runtime_error("Loft edge ancestry could not be resolved.");
+            key="loft:longitudinal:from:"+ends.front()+":to:"+ends.back();
+        }
         result.edges.push_back({edge,{owner,std::move(key),{}}});
     }
     // Splitting a smooth end curve leaves several rim edges with the same

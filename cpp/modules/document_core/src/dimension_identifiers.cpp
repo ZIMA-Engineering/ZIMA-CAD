@@ -132,7 +132,7 @@ void append_dimension_parameters(std::vector<DimensionParameter>& out,
                 name=="side0_up_to_angle_correction"||name=="side1_up_to_angle_correction"||
                 name=="drill_point_angle"||name=="chamfer_angle"||name=="end_rx"||name=="end_ry"||name=="end_rz"||
                 (feature.feature_kind==FeatureKind::Revolution&&name=="length_reverse");
-            const auto quantity=name=="runout_pitch_factor"||name=="direction"?DimensionQuantity::Scalar:
+            const auto quantity=name=="runout_pitch_factor"||name=="direction"||name=="twist_direction"?DimensionQuantity::Scalar:
                 angular?DimensionQuantity::Angle:DimensionQuantity::Length;
             out.push_back({feature.id, std::string("parameter:") + key, feature.name,quantity});
         }
@@ -203,6 +203,8 @@ void append_dimension_parameters(std::vector<DimensionParameter>& out,
         if(feature.sheet_transition.thickness_override)add({"thickness"});
         for(const auto& sketch:feature.sheet_transition.sketches)embedded_sketch(out,sketch);
         break;
+    case FeatureKind::TwistedSheet:
+        add({"length","angle","twist_direction"});break;
     case FeatureKind::HelicalSweep:
         add({"pitch"});
         for (const auto& sketch : feature.helical.sketches) embedded_sketch(out, sketch);

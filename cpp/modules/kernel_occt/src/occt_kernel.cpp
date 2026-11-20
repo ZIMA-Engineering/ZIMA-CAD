@@ -111,6 +111,8 @@
 #include <GCE2d_MakeSegment.hxx>
 #include <Geom2d_TrimmedCurve.hxx>
 #include <Geom2d_BSplineCurve.hxx>
+#include <Geom2dAdaptor_Curve.hxx>
+#include <Adaptor3d_CurveOnSurface.hxx>
 #include <BRepTools_ShapeSet.hxx>
 #include <BRepTools_History.hxx>
 #include <BRep_Tool.hxx>
@@ -2386,6 +2388,12 @@ PrimitiveData make_sweep3d_data(
                             }
                         }
                     }
+                    // A longitudinal child belongs to the authored start
+                    // profile of this path segment. Both section builders can
+                    // report that same child; naming it again from the end
+                    // profile makes a variable-profile Sweep ambiguous. End
+                    // rims/vertices above retain their own section ancestry.
+                    if(!start)continue;
                     const auto semantic="sweep:"+request.path_segments[i].source_id+":profile:"+
                         station.profile_id+":from:"+station.curve_ids[e];
                     const auto& generated=builder.Generated(station.edges[e]);
@@ -2422,6 +2430,7 @@ PrimitiveData make_sweep3d_data(
                     if(position.Distance(BRep_Tool::Pnt(TopoDS::Vertex(v.Current())))<=request.linear_tolerance) {
                         piece.vertices.push_back({v.Current(),{owner_id,semantic}});break;
                     }
+                if(index!=first_station(i))continue;
                 const auto& generated=builder.Generated(endpoint);
                 for(NCollection_List<TopoDS_Shape>::Iterator it(generated);it.More();it.Next())
                     if(it.Value().ShapeType()==TopAbs_EDGE)piece.edges.push_back({it.Value(),{owner_id,
@@ -4162,39 +4171,51 @@ Sweep3DRequest expand_profile_twist(const Sweep3DRequest& source,
         if(i)target.path_segments.push_back({span_id,target.path_points[i-1],center});
         target.sections.push_back(std::move(section));
     }
-    if(law.centerlines.origin_enabled||law.centerlines.centroid_enabled) {
+    if(law.centerlines.origin_enabled||law.centerlines.centroid_enabled||law.centerlines.individual_centroids_enabled) {
         ViewerReferenceGeometry datums;
         const auto center=solid_straightening::vector(axis.Location().XYZ());
         const auto direction=solid_straightening::vector(axis.Direction().XYZ());
         const auto shift=dimension_scale(direction,law.length*coefficient);
         if(law.centerlines.centroid_enabled)
             profile_centerlines::line(datums,{},"centerline:from:centroid:"+law.centerlines.profile_id,center,dimension_add(center,shift));
-        if(law.centerlines.origin_enabled) {
-            const auto key="centerline:from:origin:"+law.centerlines.origin_id;
-            const auto origin=solid_straightening::point(law.centerlines.origin);
+        const auto append_path=[&](const std::string& key,const Vec3& seed_point) {
+            const auto origin=solid_straightening::point(seed_point);
             if(straight||std::abs(law.angle_degrees)<1e-12||gp_Vec(axis.Location(),origin).Crossed(gp_Vec(axis.Direction())).Magnitude()<1e-12) {
-                profile_centerlines::line(datums,{},key,law.centerlines.origin,dimension_add(law.centerlines.origin,shift));
+                profile_centerlines::line(datums,{},key,seed_point,dimension_add(seed_point,shift));
             } else {
-                Handle(NCollection_HArray1<gp_Pnt>) samples=new NCollection_HArray1<gp_Pnt>(1,intervals+1);
-                for(int i=0;i<=intervals;++i) {
-                    const double fraction=double(i)/intervals;
-                    gp_Trsf turn;turn.SetRotation(axis,law.angle_degrees*(law.smooth?sheet_material::twist_progress(fraction):fraction)*std::numbers::pi/180.);
-                    const auto point=origin.Transformed(turn).Translated(gp_Vec(axis.Direction().XYZ()*(law.length*coefficient*fraction)));
-                    samples->SetValue(i+1,point);
-                }
-                GeomAPI_Interpolate interpolation(samples,false,source.linear_tolerance);
-                interpolation.Perform();
-                if(!interpolation.IsDone())throw std::runtime_error("OCCT profile interpolating spline failed");
-                BRepAdaptor_Curve curve(BRepBuilderAPI_MakeEdge(interpolation.Curve()).Edge());
+                // Represent the authored angular law exactly in cylinder UV,
+                // then use OCCT's tolerance-controlled 3D approximation. A
+                // fixed station interpolant can miss smooth end ramps and
+                // degenerates to a straight chord for a small nonzero angle.
+                const gp_Vec delta(axis.Location(),origin),normal(axis.Direction());
+                const auto foot=axis.Location().Translated(normal.Multiplied(delta.Dot(normal)));
+                const gp_Vec radial(foot,origin);
+                Handle(Geom_CylindricalSurface) cylinder=new Geom_CylindricalSurface(gp_Ax3(foot,axis.Direction(),gp_Dir(radial)),radial.Magnitude());
+                constexpr std::array<double,13> stations{0,.05,.1,.15,.2,.35,.5,.65,.8,.85,.9,.95,1};
+                constexpr std::array<double,13> smooth_turns{0,0,0,.0625,.125,.3125,.5,.6875,.875,.9375,1,1,1};
+                NCollection_Array1<gp_Pnt2d> poles(1,13);
+                for(int i=1;i<=13;++i)poles(i)={law.angle_degrees*std::numbers::pi/180.*(law.smooth?smooth_turns[i-1]:stations[i-1]),law.length*coefficient*stations[i-1]};
+                NCollection_Array1<double> knots(1,4);knots(1)=0;knots(2)=.2;knots(3)=.8;knots(4)=1;
+                NCollection_Array1<int> multiplicities(1,4);multiplicities(1)=multiplicities(4)=5;multiplicities(2)=multiplicities(3)=4;
+                Handle(Geom2d_BSplineCurve) uv=new Geom2d_BSplineCurve(poles,knots,multiplicities,4);
+                Handle(Adaptor3d_CurveOnSurface) path=new Adaptor3d_CurveOnSurface(new Geom2dAdaptor_Curve(uv),new GeomAdaptor_Surface(cylinder));
+                GeomConvert_ApproxCurve approximation(path,source.linear_tolerance*.5,GeomAbs_C2,4096,8);
+                if(!approximation.IsDone()||approximation.MaxError()>source.linear_tolerance*.5)
+                    throw std::runtime_error("OCCT profile interpolating spline failed");
+                BRepAdaptor_Curve curve(BRepBuilderAPI_MakeEdge(approximation.Curve()).Edge());
                 ViewerEdge edge;edge.reference.semantic_key=key;edge.construction=edge.overlay=edge.dash_dot=true;
                 edge.exact_spline=capture_bspline_geometry(curve);
                 GCPnts_TangentialDeflection points(curve,.15,source.linear_tolerance);
                 for(int i=1;i<=points.NbPoints();++i)edge.points.push_back(solid_straightening::vector(points.Value(i).XYZ()));
                 datums.edges.push_back(std::move(edge));
-                profile_centerlines::endpoints(datums,{},key,solid_straightening::vector(samples->Value(1).XYZ()),
-                    solid_straightening::vector(samples->Value(intervals+1).XYZ()));
+                profile_centerlines::endpoints(datums,{},key,solid_straightening::vector(path->Value(0).XYZ()),
+                    solid_straightening::vector(path->Value(1).XYZ()));
             }
-        }
+        };
+        if(law.centerlines.origin_enabled)append_path("centerline:from:origin:"+law.centerlines.origin_id,law.centerlines.origin);
+        if(law.centerlines.individual_centroids_enabled)
+            append_path("centerline:from:centroid:region:"+seed.profile.region_id,
+                solid_straightening::vector(area.CentreOfMass().XYZ()));
         target.profile_references=std::move(datums);
     }
     validate_sweep3d(target);return target;
@@ -7971,6 +7992,12 @@ SolidStraighteningPlan OcctKernel::prepare_straightening(
     }
     if(!result)throw std::invalid_argument("Select at least one eligible solid element.");
     result->primitive=std::move(target);return std::move(*result);
+}
+std::vector<HistoryOperation> OcctKernel::prepare_solid_state_replay(
+        const std::vector<HistoryOperation>& operations) const {
+    if(operations.empty()||!std::holds_alternative<SolidStateRequest>(operations.back().primitive))
+        throw std::invalid_argument("History reference view is invalid.");
+    return solid_state_replay::prepare(operations,operations.size()-1,*this);
 }
 OcctKernel::~OcctKernel() = default;
 
@@ -18195,6 +18222,48 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                         axis.point=transition.map(axis.point);axis.direction=transition.rigid_vector(axis.direction);
                     }
                     boundary.mesh.axes.push_back(std::move(axis));
+                }
+            }
+            // A Flat's circular profile axes belong to its material frame,
+            // including when its parent is a Twisted Sheet. Keep authored
+            // references immutable and publish separate current-state axes
+            // and exact endpoint references, as for sheet-cut axes below.
+            if(!sheet_display_state.empty())for(std::size_t i=0;i<display_material.regions.size();++i) {
+                const auto& region=display_material.regions[i];
+                const auto& source=display_material.sources[i];
+                if(region.kind!=SheetMaterialDefinition::Kind::Plane||source.kind!=SheetMaterialDefinition::Kind::Plane)continue;
+                std::vector<ViewerAxis> axes;
+                for(const auto& axis:boundary.mesh.original_references.axes)
+                    if(axis.reference.owner_id==source.owner_id&&(axis.reference.semantic_key=="axis:primary"||
+                            axis.reference.semantic_key.starts_with("axis:profile:")||axis.reference.semantic_key.starts_with("centerline:from:")))
+                        axes.push_back(axis);
+                for(auto axis:axes) {
+                    const auto original=axis.reference;
+                    const auto key="sheet-state:from:"+original.owner_id+":"+original.semantic_key+":region:"+region.owner_id;
+                    std::erase_if(boundary.mesh.axes,[&](const auto& existing){return existing.reference==original||existing.reference.semantic_key==key;});
+                    std::vector<ViewerPoint> points;
+                    for(const auto& point:boundary.mesh.original_references.points)
+                        if(point.reference.owner_id==original.owner_id&&axis_endpoint_parent_key(point.reference.semantic_key)==original.semantic_key)
+                            points.push_back(point);
+                    std::erase_if(boundary.mesh.points,[&](const auto& point) {
+                        const auto parent=axis_endpoint_parent_key(point.reference.semantic_key);
+                        return (point.reference.owner_id==original.owner_id&&parent==original.semantic_key)||parent==key;
+                    });
+                    const sheet_material::Transition transition{source,region};
+                    axis.point=transition.map(axis.point);axis.direction=transition.rigid_vector(axis.direction);
+                    axis.reference={sheet_display_state,key,original.instance_path};
+                    if(std::ranges::none_of(boundary.mesh.original_references.axes,[&](const auto& existing){return existing.reference==axis.reference;}))
+                        boundary.mesh.original_references.axes.push_back(axis);
+                    boundary.mesh.axes.push_back(std::move(axis));
+                    for(auto point:points) {
+                        const bool end=point.reference.semantic_key.find(":end")!=std::string::npos;
+                        point.position=transition.map(point.position);
+                        point.reference={sheet_display_state,"profile:path-point:"+std::string(end?"end:from:":"start:from:")+key,original.instance_path};
+                        point.display_owner_id=sheet_display_state;
+                        if(std::ranges::none_of(boundary.mesh.original_references.points,[&](const auto& existing){return existing.reference==point.reference;}))
+                            boundary.mesh.original_references.points.push_back(point);
+                        boundary.mesh.points.push_back(std::move(point));
+                    }
                 }
             }
             // Treatments with their own calculation branch must retain the

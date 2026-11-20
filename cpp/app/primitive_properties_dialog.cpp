@@ -1507,10 +1507,10 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
         setProperty("expandBottomTable",true);
     }
 
-    // Sheet Cut always subtracts. Omitting its non-editable operation row also
-    // leaves room for both end conditions and the owned Sketch action.
-    // The hidden combo remains an internal value adapter for other features.
-    if (operation_ != nullptr && !feature_panel_ && !(initial.feature_kind == zima::document::FeatureKind::Extrusion &&
+    // Sheet creation already forces Add; Sheet Cut always subtracts.
+    // Neither exposes a Boolean selector. The hidden combo remains the
+    // shared value adapter for other features.
+    if (operation_ != nullptr && !feature_panel_ && !is_sheet_edge_feature() && !(initial.feature_kind == zima::document::FeatureKind::Extrusion &&
         initial.extrusion.sheet_cut)) {
         const auto operation_buttons = add_feature_operation_buttons(
             this, content_layout(), operation_->currentData() == "subtract",
@@ -2484,8 +2484,14 @@ void PrimitivePropertiesDialog::set_feature_name_provider(
 
 void PrimitivePropertiesDialog::set_preview_callback(
     std::function<void(const zima::document::HistoryContainer&)> callback) {
+    const bool initial_setup = !preview_;
     preview_ = std::move(callback);
     notify_preview();
+    // FORM's support-derived frame is initialized after construction, when
+    // its exact input reference packet becomes available. Compare unchanged
+    // OK with that initial displayed draft, before any user edit takes place.
+    if(initial_setup && edit_mode_ && initial_.feature_kind==zima::document::FeatureKind::SheetForm)
+        accepted_baseline_=values();
 }
 
 void PrimitivePropertiesDialog::set_profile_sketch_status(const zima::sketcher::Sketch& sketch) {
@@ -3392,6 +3398,11 @@ bool PrimitivePropertiesDialog::set_inline_parameter_value(
         field->setValue(value);
         return true;
     };
+    if(initial_.feature_kind==zima::document::FeatureKind::TwistedSheet&&(key=="length"||key=="angle")) {
+        auto* field=key=="length"?length_:radius_;
+        if(!field||!std::isfinite(value)||value<field->minimum()||value>field->maximum())return false;
+        return set_field(field);
+    }
     if (initial_.feature_kind == zima::document::FeatureKind::Thread) {
         if (key == "bore_length") return set_field(hole_bore_length_);
         if (key == "chamfer_depth") return set_field(hole_entrance_chamfer_);
@@ -3469,6 +3480,9 @@ bool PrimitivePropertiesDialog::set_inline_parameter_value(
     if (key == "length_reverse") return set_field(reverse_length_);
     if (key == "profile_offset") return set_field(profile_plane_offset_);
     if(initial_.feature_kind==zima::document::FeatureKind::TwistedSheet) {
+        if(key=="twist_direction"&&twist_direction_&&(value==0.||value==1.)) {
+            twist_direction_->setCurrentIndex(value==1.?1:0);return true;
+        }
         if(key=="thickness")return set_field(height_);
         if(key=="angle")return set_field(radius_);
         if(key=="developed_length_correction")return set_field(twist_developed_correction_);

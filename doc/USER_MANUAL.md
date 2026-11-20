@@ -221,6 +221,14 @@ Panning does not open the context menu. Reset View and standard views animate
 the camera transition. Part, Assembly and Drawing use the same wheel direction.
 Each document tab retains its own camera; switching tabs does not fit or reset it.
 
+**Orbit around cursor**, the three-color Origin icon beside Restore View, starts
+disabled. Enable it to capture the rotation center at the cursor when pressing
+MMB, at the current view-center depth. The center stays fixed for that drag in
+both orthographic and perspective views. With the mode disabled, rotation uses
+the fitted model center. Restore View resets the camera center without changing
+the toggle. Named views retain the camera center as well as orientation, scale
+and pan.
+
 The toolbar above View starts with **Regenerate**, followed by the terminal icon
 for the existing CAD console. This order is shared by Part, Assembly and Drawing.
 See [CAD console](CAD_CONSOLE.md) for commands and scripting.

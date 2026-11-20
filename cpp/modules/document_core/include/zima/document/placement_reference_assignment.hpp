@@ -40,6 +40,12 @@ struct PlacementReferenceAssignment {
 [[nodiscard]] inline PlacementReferenceAssignment assign_placement_reference(
     PlacementReferenceRows rows,bool with_orientation,std::size_t index,
     ConstructionReference reference,bool derive_orientation=true) {
+    if (reference.use_angle) {
+        if (index>=3 || reference.use_axis || !reference.supports_offset ||
+            reference.station_mode!=PlacementStationMode::None) return {PlacementReferenceError::InvalidSlot,{}};
+        reference.orientation_only=false;reference.orientation_drives_rotation=false;
+        reference.orientation_role="position_only";derive_orientation=false;
+    }
     // Duplicate checks also run after the reference has moved into its row.
     const auto path=reference.instance_path,owner=reference.owner_id,key=reference.semantic_key;
     const auto duplicate=[&](const auto& existing) {
@@ -68,7 +74,7 @@ struct PlacementReferenceAssignment {
     } else {reference.offset=0;reference.offset_locked=true;}
     const auto previous = rows.position[index];
     if (previous.owner_id != reference.owner_id || previous.semantic_key != reference.semantic_key ||
-            previous.instance_path != reference.instance_path) {
+            previous.instance_path != reference.instance_path || (reference.use_angle && !previous.use_angle)) {
         for (auto& oriented : rows.orientation)
             if (oriented.owner_id == previous.owner_id && oriented.semantic_key == previous.semantic_key &&
                     oriented.instance_path == previous.instance_path) oriented = {};

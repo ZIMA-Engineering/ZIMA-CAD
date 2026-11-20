@@ -963,6 +963,39 @@ void verify_independent_history_continues_after_failure(
                 contains(broken.id),
         "An existing failed container could not be saved and reopened");
 }
+void verify_valid_reference_across_failed_history(const kernel::OcctKernel& kernel) {
+    auto part=document::PartDocument::create_default();
+    auto stock=test::rectangular_feature(part,{10,10,10});part.history={stock};
+    auto cache=workspace::calculate_part_with_resolved_references(kernel,part);
+    const auto corner=upper_corner(cache.back().mesh.original_references,stock.id);
+    auto broken=test::rectangular_feature(part,{4,4,4});broken.extrusion.sketch_id="missing-profile";
+    auto sketch=sketcher::Sketch::create_default();
+    auto owner=document::PartDocument::create_sketch_container();
+    owner.feature.sketch_id=sketch.id;owner.placement.references={reference_to(corner)};
+    sketch.owner_container_id=owner.id;sketch.plane_reference_owner_id=owner.container_origin.id;
+    part.sketches.push_back(sketch);part.history={stock,broken,owner};
+    document::BodyHistoryGraph graph;const auto body=graph.create_body("Reference across failure");
+    for(const auto& feature:part.history)graph.insert({document::PartHistoryKind::Feature,feature.id});
+    graph.set_history_cursor(body,3);part.set_body_history(graph);
+    workspace::Workspace live;
+    for(unsigned step=0;step<3;++step) {
+        test::resize_rectangular_feature(part,part.history.front(),{10.+2*step,10,10});
+        cache=workspace::calculate_part_with_resolved_references(kernel,part,&cache);
+        require(cache.back().calculation_errors.contains(broken.id)&&part.history.back().placement.reference_valid,
+            "An unrelated failed predecessor invalidated a Sketch reference to a surviving earlier source");
+        require(part.history.back().placement.references==owner.placement.references,"Surviving source identity changed");
+        near(part.history.back().placement.x,5.+step,"Sketch did not follow the surviving source through failed history");
+        near(part.sketches.back().resolved_origin.x,5.+step,"Owned Sketch frame did not follow the valid placement");
+        part=document::PartDocument::from_serialized(part.serialized(cache),&cache);
+        require(part.history.back().placement.reference_valid,"Save/reopen invalidated the independent Sketch");
+        if(!step)live.add_part(part,cache);else live.open_part(part.document_id)->session.commit(part,cache);
+    }
+    auto& session=live.open_part(part.document_id)->session;
+    require(session.undo()&&session.document().history.back().placement.reference_valid,"Undo lost valid Sketch placement");
+    near(session.document().history.back().placement.x,6,"Undo lost the earlier Sketch frame");
+    require(session.redo()&&session.document().history.back().placement.reference_valid,"Redo lost valid Sketch placement");
+    near(session.document().history.back().placement.x,7,"Redo lost the current Sketch frame");
+}
 void verify_failed_predecessor_rollback_remains_editable(
         const kernel::OcctKernel& kernel) {
     auto part=document::PartDocument::create_default();
@@ -1408,6 +1441,7 @@ int main(){try{
     verify_history_boundary_placement_isolation(kernel);
     verify_failed_source_reference_is_reported_downstream(kernel);
     verify_independent_history_continues_after_failure(kernel);
+    verify_valid_reference_across_failed_history(kernel);
     verify_failed_predecessor_rollback_remains_editable(kernel);
     verify_zima_edge_treatment_dependent_cut_identity(kernel);
     verify_edge_treatment_preserves_history_boundary_placement(kernel);

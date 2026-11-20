@@ -724,8 +724,15 @@ Q_NEVER_INLINE static int verify_sheet_form_ui(QApplication& application,Assembl
             "Reopened Form exposes topology identifiers instead of readable reference labels");
         check(std::ranges::none_of(view->mesh().triangle_references,[&](const auto& face){return face.owner_id==id;})&&
             std::ranges::any_of(view->mesh().triangle_references,[&](const auto& face){return face.owner_id==stock.id;}),"FORM rollback failed");
+        const auto unchanged_document=document::PartDocument::load(path);
         const auto unchanged_revision=run("documents").data;
-        dialog->buttons()->button(QDialogButtonBox::Ok)->click();wait_closed();check(run("documents").data==unchanged_revision,"Unchanged FORM OK created an Undo revision");
+        dialog->buttons()->button(QDialogButtonBox::Ok)->click();wait_closed();
+        const auto after_unchanged=run("documents").data;
+        if(after_unchanged!=unchanged_revision) {
+            std::cerr<<"FORM no-op state difference: "<<commands::Json::diff(unchanged_revision,after_unchanged).dump()<<std::endl;
+            std::cerr<<"FORM no-op definition difference: "<<commands::Json::diff(unchanged_document.serialized(),native().first.serialized()).dump()<<std::endl;
+        }
+        check(after_unchanged==unchanged_revision,"Unchanged FORM OK created an Undo revision");
         window.show_tree_item_properties(row(id));flush();dialog=editor();check(dialog,"FORM replacement Properties missing");
         choose(replacement,[&]{dialog->findChild<QPushButton*>("sheetFormReplaceDefinition")->click();});
         check(dialog->pending_value().sheet_form.source_name==renamed.name,"FORM pending replacement did not load the new definition");
@@ -752,6 +759,8 @@ Q_NEVER_INLINE static int verify_sheet_form_ui(QApplication& application,Assembl
         definition.part.save(skin_path,*definition.calculated);
         check(window.open_document_path(QString::fromStdString(document::path_to_utf8(skin_path))),"Connected FORM shell cannot open");flush();
         run(QString::fromStdString("body.activate "+definition.bodies[1]));flush();view->fit_all();flush();
+        auto* surface_mode=window.findChild<QAction*>("applicationModeAction3");
+        check(surface_mode&&surface_mode->isEnabled(),"Connected shell Surface workspace unavailable");surface_mode->trigger();flush();
         auto* thicken_action=window.findChild<QAction*>("surfaceThickenAction");
         check(thicken_action&&thicken_action->isEnabled(),"Connected shell thickening unavailable");thicken_action->trigger();flush();
         const auto thick_editor=[&]{return dynamic_cast<SurfaceThickenDialog*>(window.findChild<QWidget*>("surfaceThickenDialog"));};

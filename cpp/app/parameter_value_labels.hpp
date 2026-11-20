@@ -10,6 +10,10 @@ template<class Translate> void localize_parameter_value_labels(
     std::vector<kernel::ViewerDimension>& dimensions,Translate translate) {
     for(auto& dimension:dimensions)if(dimension.label_only) {
         const auto& key=dimension.reference.semantic_key;
+        if(key=="parameter:twist_direction") {
+            dimension.display_text_override=translate("Směr kroucení").toStdString()+" = "+(dimension.value==1.?"L":"R");
+            continue;
+        }
         const char* label=nullptr;
         if(key=="parameter:direction")label="Směr tažení";
         else if(key=="parameter:thin_thickness")label="Tloušťka";

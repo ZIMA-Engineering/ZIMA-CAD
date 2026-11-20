@@ -51,7 +51,8 @@ Json sweep_details(const workspace::PartState& state, const document::HistoryCon
         auto profiles = Json::array();
         for (const auto& profile : planar ? feature.sweep2d.profiles : feature.sweep3d.profiles)
             profiles.push_back({{"profile", profile.id}, {"point", profile.point_id}, {"incoming", profile.incoming},
-                {"sketch", profile.sketch_id}, {"start_point", profile.correspondence_start_point_id}});
+                {"sketch", profile.sketch_id}, {"start_point", profile.correspondence_start_point_id},
+                {"reversed",profile.correspondence_reversed}});
         result["profiles"] = std::move(profiles);
         if (planar) {
             result["path_sketch"] = sketcher::Sketch::from_serialized(feature.sweep2d.path_sketch).id;
@@ -85,11 +86,11 @@ workspace::SweepProfileSource profile_source(const Json& entry) {
     if (!entry.is_object() || !entry.contains("sketch") || !entry.contains("point"))
         throw Error("invalid_profile", "Each Sweep profile requires a Sketch and a path Point.");
     for (const auto& [key, field] : entry.items()) {
-        const bool valid = key == "incoming" ? field.is_boolean()
+        const bool valid = (key == "incoming" || key == "reversed") ? field.is_boolean()
             : (key == "sketch" || key == "point" || key == "start_point") && field.is_string();
         if (!valid) throw Error("invalid_profile", "Unknown or incorrectly typed Sweep profile property.");
     }
-    return {entry.at("sketch"), entry.at("point"), entry.value("incoming", false), entry.value("start_point", std::string{})};
+    return {entry.at("sketch"), entry.at("point"), entry.value("incoming", false), entry.value("start_point", std::string{}),entry.value("reversed",false)};
 }
 void validate_profile_stations(const document::HistoryContainer& value, const std::vector<document::Sweep3DProfile>& previous) {
     std::optional<document::Curve3DRoute> route;
@@ -114,7 +115,7 @@ bool replace_profiles(document::HistoryContainer& value, const document::History
     for (const auto& entry : entries) {
         if (entry.is_object() && entry.contains("profile")) {
             for (const auto& [key, field] : entry.items()) {
-                const bool valid = key == "incoming" ? field.is_boolean()
+                const bool valid = (key == "incoming" || key == "reversed") ? field.is_boolean()
                     : (key == "profile" || key == "point" || key == "start_point") && field.is_string();
                 if (!valid) throw Error("invalid_profile", "Unknown or incorrectly typed Sweep profile property.");
             }
@@ -124,6 +125,7 @@ bool replace_profiles(document::HistoryContainer& value, const document::History
             if (entry.contains("point")) profile.point_id = entry.at("point").get<std::string>();
             if (entry.contains("incoming")) profile.incoming = entry.at("incoming").get<bool>();
             if (entry.contains("start_point")) profile.correspondence_start_point_id = entry.at("start_point").get<std::string>();
+            if (entry.contains("reversed")) profile.correspondence_reversed = entry.at("reversed").get<bool>();
             profiles.push_back(std::move(profile));
         } else {
             profiles.push_back(workspace::sweep_profile_from_source(part, value.id, profile_source(entry)));

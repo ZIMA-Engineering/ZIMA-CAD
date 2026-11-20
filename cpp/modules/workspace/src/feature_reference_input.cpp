@@ -33,7 +33,8 @@ document::HistoryContainer assign_feature_reference(document::HistoryContainer v
         return point_feature ? document::resolve_point_placement(placement,geometry) : document::resolve_placement(placement,geometry);
     };
     auto baseline=value.placement;baseline.references=combined(position,orientation,index);
-    if(!solve(baseline))reject("invalid_placement","Existing feature placement references cannot be resolved.");
+    if(!solve(baseline) && !std::ranges::any_of(baseline.references,[](const auto& ref){return ref.use_angle;}))
+        reject("invalid_placement","Existing feature placement references cannot be resolved.");
     if(point_feature) {
         const auto derived=document::point_circle_plane_offsets(baseline.references,geometry);
         for(std::size_t i=0;i<derived.size();++i)if(derived[i])baseline.references[i].offset=*derived[i];
@@ -42,7 +43,9 @@ document::HistoryContainer assign_feature_reference(document::HistoryContainer v
     const auto translation=document::point_constraint_remaining_dof(baseline.references,geometry,origin);
     const auto rotation=document::orientation_constraint_remaining_dof(baseline.references,geometry,true,origin);
     const bool direction=index<3&&translation==0&&rotation>0;
-    if(index>=3 || (!point_feature && direction)) {
+    if(source.use_angle && index<3) {
+        source.orientation_role="position_only";derive_orientation=false;
+    } else if(index>=3 || (!point_feature && direction)) {
         source.orientation_drives_rotation=true;source.orientation_role=direction?"direction":index==3?"front":"top";
         source.orientation_only=direction;if(direction)source.supports_offset=false;
     }else if(!point_feature && (face||axis||edge)) {
@@ -56,7 +59,7 @@ document::HistoryContainer assign_feature_reference(document::HistoryContainer v
         }
         source.orientation_drives_rotation=source.orientation_role!="none";
     }
-    source.measured_offset=document::measure_placement_reference_offset(source,geometry,origin);
+    source.measured_offset=document::measure_placement_reference_value(source,baseline.references,geometry,origin);
     const auto assigned=document::assign_placement_reference({position,orientation,empty_locks},true,index,std::move(source),
         derive_orientation && !(point_feature && index < 3));
     using Error=document::PlacementReferenceError;

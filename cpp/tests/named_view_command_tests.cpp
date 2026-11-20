@@ -55,7 +55,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
         return result.data;
     };
     std::string source,owner;
-    const Json camera{{"rotation",{2,0,0,2}},{"zoom",3.25},{"pan_x",-17.5},{"pan_y",41.25},{"reference_scale",7.5}};
+    const Json camera{{"rotation",{2,0,0,2}},{"zoom",3.25},{"pan_x",-17.5},{"pan_y",41.25},{"reference_scale",7.5},{"center_offset",{13.25,-4.5,9.75}}};
     for(const bool assembly:{false,true}) {
         const auto name=assembly?"named-assembly":"named-part";
         run("new",{{"type",assembly?"assembly":"part"},{"name",name}});
@@ -108,7 +108,8 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
         // Quaternion (1/sqrt(2),0,0,1/sqrt(2)) rotates the X axis to +Y, independently of the codec.
         const double w=view.camera[0],x=view.camera[1],y=view.camera[2],z=view.camera[3];
         require(std::abs(1-2*(y*y+z*z))<1e-6 && std::abs(2*(x*y+w*z)-1)<1e-6 &&
-            view.camera[4]==3.25F && view.camera[5]==-17.5F && view.camera[6]==41.25F && view.camera[7]==7.5F,
+            view.camera[4]==3.25F && view.camera[5]==-17.5F && view.camera[6]==41.25F && view.camera[7]==7.5F&&
+            view.camera[8]==13.25F&&view.camera[9]==-4.5F&&view.camera[10]==9.75F,
             "Saved quarter-turn orientation or camera scale/pan is incorrect");
         geometry();run("undo");require(workspace::named_views(live,id).empty(),"Named view Undo failed");
         run("redo");require(workspace::named_view(live,id,"Čtvrtotáčka")==view,"Named view Redo failed");
@@ -132,7 +133,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
         reject("view.named.delete",{{"name","missing"}},"named_view_not_found");
         for(const auto* name:{""," leading","trailing ","bad\nname"})
             reject("view.named.set",{{"name",name},{"camera",camera}},std::string_view(name).empty()?"missing_argument":"invalid_arguments");
-        for(const auto* field:{"rotation","zoom","pan_x","pan_y","reference_scale"}) {
+        for(const auto* field:{"rotation","zoom","pan_x","pan_y","reference_scale","center_offset"}) {
             auto invalid=camera;invalid.erase(field);reject("view.named.set",{{"name","Bad"},{"camera",invalid}});
             invalid=camera;invalid[field]="wrong";reject("view.named.set",{{"name","Bad"},{"camera",invalid}});
         }
@@ -143,6 +144,8 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
         }
         auto invalid=camera;invalid["rotation"]={0,0,0,0};reject("view.named.set",{{"name","Bad"},{"camera",invalid}});
         invalid=camera;invalid["rotation"]={1,0,0};reject("view.named.set",{{"name","Bad"},{"camera",invalid}});
+        invalid=camera;invalid["center_offset"]={1,0};reject("view.named.set",{{"name","Bad"},{"camera",invalid}});
+        invalid=camera;invalid["center_offset"]={1,0,1e100};reject("view.named.set",{{"name","Bad"},{"camera",invalid}});
         invalid=camera;invalid["name"]="nested";reject("view.named.set",{{"name","Bad"},{"camera",invalid}});
         invalid=camera;invalid["typo"]=42;reject("view.named.set",{{"name","Bad"},{"camera",invalid}});
         editing=true;reject("view.named.delete",{{"name","Second"}},"editing_in_progress");run("view.named.list");editing=false;

@@ -159,7 +159,7 @@ private:
     QPointer<SectionPropertiesDialog> section_dialog_;
     bool section_component_picking_{};
     std::vector<zima::sketcher::Sketch> section_sketch_undo_,section_sketch_redo_,section_drag_sketches_;
-    std::array<float,8> section_camera_{};
+    std::array<float,11> section_camera_{};
     zima::kernel::ViewerMesh section_preview_source_;
     struct SectionPreviewCache {
         std::string key;
@@ -478,7 +478,7 @@ private:
     // to be perpendicular to the picked face and the mode is exited.
     bool normal_view_selection_active_{};
     zima::app::OrientationDialog* orientation_dialog_{};
-    std::array<float, 8> orientation_dialog_original_camera_{};
+    std::array<float, 11> orientation_dialog_original_camera_{};
     std::map<std::string, zima::viewer::ViewerCandidate>
         orientation_reference_candidates_;
     std::size_t pending_orientation_reference_index_{};
@@ -547,6 +547,8 @@ private:
     std::set<std::string> visible_occurrence_origin_paths_;
     std::set<std::string> shown_occurrence_origin_paths_;
     std::set<std::string> selectable_local_origin_container_ids_;
+    // Previous owned Sketches in the current, possibly uncommitted, parent.
+    std::map<std::string,std::string> owned_sketch_origin_ids_;
     std::optional<std::size_t> suspended_primitive_reference_index_;
     bool suspended_primitive_reference_auto_advance_{};
     PlacementReferenceDialog* local_origin_selection_dialog_{};
@@ -565,6 +567,9 @@ private:
     std::function<void(zima::sketcher::Sketch)> embedded_sketch_finished_;
     std::optional<zima::kernel::ViewerMesh> helical_sketch_context_;
     zima::kernel::ViewerReferenceGeometry loft_profile_reference_geometry_;
+    zima::kernel::ViewerReferenceGeometry owned_sketch_reference_geometry_;
+    std::optional<zima::document::HistoryContainer> owned_sketch_reference_parent_;
+    bool is_owned_sketch_reference(const zima::viewer::ViewerCandidate&) const;
     bool is_loft_profile_point_reference(const zima::viewer::ViewerCandidate&) const;
     std::function<void(const zima::viewer::ViewerCandidate&)> feature_reference_pick_;
     std::function<void()> feature_reference_end_;
@@ -722,7 +727,7 @@ private:
     std::optional<std::array<double, 2>> universal_dimension_cursor_;
     zima::kernel::DimensionLayout universal_dimension_layout_;
     bool preserve_view_on_refresh_{};
-    std::map<std::string, std::array<float, 8>> document_camera_states_;
+    std::map<std::string, std::array<float, 11>> document_camera_states_;
     std::optional<zima::document::PartDocument> sketch_drag_document_;
     std::optional<zima::assembly::AssemblyDocument> assembly_sketch_drag_document_;
     // Point/dimension dragging owns only a lightweight Sketch overlay.  The

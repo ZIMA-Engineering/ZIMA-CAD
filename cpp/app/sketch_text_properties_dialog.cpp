@@ -22,12 +22,12 @@ namespace zima::app {
 SketchTextPropertiesDialog::SketchTextPropertiesDialog(
     zima::sketcher::SketchText initial,
     std::optional<std::array<double, 2>> anchor,
-    PreviewCallback preview, CommitCallback commit, QWidget* parent, bool y_up, bool drawing_text, std::optional<std::map<std::string,std::string>> action_settings, bool symbol_definition)
+    PreviewCallback preview, CommitCallback commit, QWidget* parent, bool y_up, bool drawing_text, std::optional<std::map<std::string,std::string>> action_settings, bool symbol_definition, bool template_x_left)
     : PropertiesSubWindow(tr(drawing_text ? "Text výkresu" : "Text skici"), parent),
       initial_(std::move(initial)), anchor_(anchor),
       preview_(std::move(preview)), commit_(std::move(commit)), y_up_(y_up), drawing_text_(drawing_text) {
     setAttribute(Qt::WA_DeleteOnClose, true);
-    inverted_flip_ui_=y_up_&&!symbol_definition;
+    inverted_flip_ui_=template_x_left;
     setProperty("dialogKind", QStringLiteral("sketchText"));
     setObjectName(drawing_text ? "drawingTextProperties" : "sketchTextProperties");
     setMinimumWidth(420);

@@ -54,6 +54,8 @@ public:
         side_=new QComboBox(this);side_->setObjectName("loftThinSide");side_->addItems({tr("Dovnitř"),tr("Ven"),tr("Symetricky")});
         side_->setCurrentIndex(pending.loft.thin_mode==document::ThinMode::OneSide?0:pending.loft.thin_mode==document::ThinMode::OtherSide?1:2);
         thin_form_->addRow(tr("Strana tloušťky"),side_);
+        const auto thickness_help=tr("Obrysy v rovinách profilů orientačně ukazují tloušťku a její stranu. Výsledná tloušťka se počítá kolmo k ploše Přechodu.");
+        thickness_->setToolTip(thickness_help);side_->setToolTip(thickness_help);
         connect(result_,&QComboBox::currentIndexChanged,this,[this](int value){
             pending.loft.result_type=value==2?document::ProfileResultType::Surface:value==1?document::ProfileResultType::Thin:document::ProfileResultType::Solid;
             update_result();notify();
@@ -183,19 +185,24 @@ public:
                             const auto owned=std::ranges::find_if(pending.loft.sketches,[&](const auto& value){return value.sketch_feature->id==id;});
                             const auto found=pending.loft.correspondence_starts.find(id);
                             const auto initial=found==pending.loft.correspondence_starts.end()?std::string{}:found->second;
+                            const auto reversed=pending.loft.correspondence_reversed.contains(id);
                             const QPointer<LoftDialog> self(this);
-                            const auto preview=[self,id](std::string point){if(self){
+                            const auto preview=[self,id](std::string point,bool reverse){if(self){
                                 if(point.empty())self->pending.loft.correspondence_starts.erase(id);
                                 else self->pending.loft.correspondence_starts[id]=std::move(point);
+                                if(reverse)self->pending.loft.correspondence_reversed.insert(id);
+                                else self->pending.loft.correspondence_reversed.erase(id);
                                 self->notify();
                             }};
                             auto* editor=new SweepPointOrderDialog(sketcher::Sketch::from_serialized(owned->sketch_serialized),
-                                initial,preview,parentWidget(),pending.loft.result_type!=document::ProfileResultType::Solid);
-                            connect(editor,&QDialog::finished,this,[self,preview,initial](int result){if(self){
-                                if(result!=QDialog::Accepted)preview(initial);
+                                initial,reversed,preview,parentWidget(),pending.loft.result_type!=document::ProfileResultType::Solid);
+                            connect(editor,&QDialog::finished,this,[self,preview,initial,reversed](int result){if(self){
+                                if(result!=QDialog::Accepted)preview(initial,reversed);
                                 self->setProperty("loftCorrespondenceEditing",false);self->show();self->raise();self->notify();
                             }});
                             setProperty("loftCorrespondenceEditing",true);hide();editor->show();
+                            editor->bind_view(dynamic_cast<viewer::MeshView*>(parentWidget()->findChild<QOpenGLWidget*>("modelWorkspace")),pending.id,
+                                "loft:input:from:"+owned->sketch_feature->feature.sketch_id+":point:",property("pointOrderInstancePath").toString().toStdString());
                         }catch(const std::exception& error){set_status(tr(error.what()));}
                     });
                 }
@@ -230,6 +237,7 @@ private:
         const auto id=values[row];inspected_.erase(id);if(ordered_[guides?1:0]==id)ordered_[guides?1:0].clear();
         values.erase(values.begin()+row);
         pending.loft.correspondence_starts.erase(id);
+        pending.loft.correspondence_reversed.erase(id);
         std::erase_if(pending.loft.sketches,[&](const auto& value){return value.sketch_feature->id==id;});
         set_active_reference_index({});refresh();notify();
     }

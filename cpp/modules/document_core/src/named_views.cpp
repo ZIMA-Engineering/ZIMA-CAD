@@ -34,7 +34,7 @@ std::string serialize_sketch_views(const SketchViewStates& views) {
 }
 namespace {
 using Json=nlohmann::json;
-constexpr auto invalid="Named views require a name, a rotation quaternion, zoom, pan and reference scale.";
+constexpr auto invalid="Named views require a name, a rotation quaternion, zoom, pan, reference scale and center offset.";
 float number(const Json& value) {
     if(!value.is_number())throw std::invalid_argument(invalid);
     const auto result=value.get<float>();
@@ -62,13 +62,15 @@ std::vector<NamedView> parse_named_views(const std::string& serialized) {
         if(!data.is_array())throw std::invalid_argument(invalid);
         std::vector<NamedView> result;std::set<std::string> names;
         for(const auto& entry:data) {
-            if(!entry.is_object() || entry.size()!=6 || !entry.at("name").is_string() ||
-               !entry.at("rotation").is_array() || entry.at("rotation").size()!=4)
+            if(!entry.is_object() || entry.size()!=7 || !entry.at("name").is_string() ||
+               !entry.at("rotation").is_array() || entry.at("rotation").size()!=4 ||
+               !entry.at("center_offset").is_array() || entry.at("center_offset").size()!=3)
                 throw std::invalid_argument(invalid);
             NamedView view;view.name=entry.at("name").get<std::string>();
             for(std::size_t i=0;i<4;++i)view.camera[i]=number(entry.at("rotation").at(i));
             view.camera[4]=number(entry.at("zoom"));view.camera[5]=number(entry.at("pan_x"));
             view.camera[6]=number(entry.at("pan_y"));view.camera[7]=number(entry.at("reference_scale"));
+            for(std::size_t i=0;i<3;++i)view.camera[8+i]=number(entry.at("center_offset").at(i));
             normalize_named_view(view);
             if(!names.insert(view.name).second)throw std::invalid_argument("Named view names must be unique.");
             result.push_back(std::move(view));
@@ -82,7 +84,8 @@ std::string serialize_named_views(const std::vector<NamedView>& views) {
         normalize_named_view(view);
         if(!names.insert(view.name).second)throw std::invalid_argument("Named view names must be unique.");
         result.push_back({{"name",view.name},{"rotation",{view.camera[0],view.camera[1],view.camera[2],view.camera[3]}},
-            {"zoom",view.camera[4]},{"pan_x",view.camera[5]},{"pan_y",view.camera[6]},{"reference_scale",view.camera[7]}});
+            {"zoom",view.camera[4]},{"pan_x",view.camera[5]},{"pan_y",view.camera[6]},{"reference_scale",view.camera[7]},
+            {"center_offset",{view.camera[8],view.camera[9],view.camera[10]}}});
     }
     // JSON also validates UTF-8 before any caller publishes the metadata.
     try{return result.dump();}catch(const Json::exception&){throw std::invalid_argument(invalid);}

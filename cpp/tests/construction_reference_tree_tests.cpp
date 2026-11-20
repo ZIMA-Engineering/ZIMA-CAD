@@ -1,6 +1,7 @@
 #include "../app/part_reference_index.hpp"
 #include "../app/reference_tree_policy.hpp"
 #include "../app/tree_reference_state.hpp"
+#include <zima/workspace/model_calculation.hpp>
 #include <QApplication>
 #include <iostream>
 #include <stdexcept>
@@ -36,6 +37,53 @@ template<class Document,class Index> void verify(Document document,Index index) 
     require(!issue().empty(),"Suppressed source point was accepted");
 }
 int main(int argc,char** argv) {QApplication app(argc,argv);try {
+    if(argc==3&&(std::string(argv[1])=="--inspect"||std::string(argv[1])=="--resolve")) {
+        std::vector<kernel::BodyResult> cache;
+        auto part=document::PartDocument::load(argv[2],&cache);
+        if(std::string(argv[1])=="--resolve") {
+            kernel::OcctKernel kernel;
+            cache=workspace::calculate_part_with_resolved_references(kernel,part,&cache);
+            require(part.history.back().placement.reference_valid,"User Sketch remains unresolved after regeneration");
+            std::vector<kernel::BodyResult> reopened_cache;
+            auto reopened=document::PartDocument::from_serialized(part.serialized(cache),&reopened_cache);
+            require(reopened.history.back().placement==part.history.back().placement,"Reopen changed recovered Sketch placement");
+        }
+        const auto geometry=workspace::construction_reference_source_geometry(cache);
+        const auto index=app::part_reference_index(part,geometry);
+        for(const auto& feature:part.history) {
+            auto placement=feature.placement;
+            std::cout<<feature.name<<" stored="<<placement.reference_valid
+                <<" resolved="<<document::resolve_placement(placement,geometry)
+                <<" issue="<<app::feature_reference_issue(feature,part,index)<<'\n';
+            if(!feature.placement.reference_valid)for(std::size_t i=0;i<feature.placement.references.size();++i) {
+                auto single=feature.placement;single.references={single.references[i]};
+                std::cout<<"  reference "<<i<<" exists="<<index.missing(single.references.front()).empty()
+                    <<" resolves="<<document::resolve_placement(single,geometry)<<'\n';
+            }
+        }
+        return 0;
+    }
+    {
+        auto part=document::PartDocument::create_default();
+        auto sketch=sketcher::Sketch::create_default();
+        auto feature=document::PartDocument::create_feature_container(sketch.id);
+        feature.feature.type=document::FeatureType::Sketch;
+        sketch.owner_container_id=feature.id;sketch.plane_reference_owner_id=feature.container_origin.id;
+        part.sketches={sketch};part.history={feature};
+        const auto issue=[&]{return app::feature_reference_issue(part.history.back(),part,app::part_reference_index(part));};
+        require(issue().empty(),"A Sketch's own container Origin is incorrectly treated as a missing construction Plane");
+        auto broken=document::PartDocument::create_sketch_container();broken.placement.reference_valid=false;
+        part.history.insert(part.history.begin(),broken);
+        require(issue().empty(),"An unrelated preceding failure marks a valid Sketch red");
+        part.sketches.front().plane_reference_owner_id="missing-plane";
+        require(!issue().empty(),"A genuinely missing Sketch plane was accepted");
+        part.sketches.front()=sketch;part.history.back().placement.reference_valid=false;
+        require(!issue().empty(),"A broken owner placement was accepted");
+        part.history.back().placement.reference_valid=true;
+        auto reference=sketcher::Sketch::create_external_reference(sketcher::ExternalReferenceKind::Point);
+        reference.broken=true;part.sketches.front().external_references.push_back(reference);
+        require(!issue().empty(),"A broken external Sketch reference was accepted");
+    }
     {
         auto part=document::PartDocument::create_default();
         auto curve=document::PartDocument::create_construction(document::ConstructionKind::Curve3D);

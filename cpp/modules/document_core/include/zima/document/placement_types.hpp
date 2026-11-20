@@ -39,9 +39,9 @@ struct ConstructionReference {
     // the solving equations themselves. A Point reference carries this
     // field too (for a uniform, non-kind-specific reference model) but it
     // is always a no-op there: a point has no direction to invert. Angles/
-    // rotations never use this flag -- the whole system is a fixed
-    // right-handed frame (right-hand rule), so a positive angle already
-    // has one unambiguous rotation direction.
+    // rotations never reverse their sense with this flag. An Angle reference
+    // uses the flipped source-plane normal as its zero direction; its positive
+    // rotation still follows the fixed right-hand rule.
     bool flip{};
     bool offset_locked{};
     // Transient distance measured before confirming a newly selected reference.
@@ -60,6 +60,11 @@ struct ConstructionReference {
     // The second placement row can measure from a referenced point on a route.
     // Distance is stored in millimetres; Fraction is unitless.
     PlacementStationMode station_mode{PlacementStationMode::None};
+    // A planar zero-direction reference around the unique positional cylinder.
+    // In this mode offset is an angle in degrees, not a distance. The source
+    // plane's oriented normal (including flip) defines zero; positive values
+    // always follow the right-hand rule about the cylinder's persisted axis.
+    bool use_angle{};
     bool operator==(const ConstructionReference&) const = default;
 };
 

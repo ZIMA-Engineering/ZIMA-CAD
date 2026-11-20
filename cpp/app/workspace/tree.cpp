@@ -4,6 +4,7 @@
 #include "../surface_intersection_dialog.hpp"
 #include "../surface_trim_dialog.hpp"
 #include "workspace_internal.hpp"
+#include <zima/sketcher/point_presentation.hpp>
 #include <zima/document/sheet_profile.hpp>
 #include <zima/document/sheet_from_body.hpp>
 #include "../sketch_external_reference_selection.hpp"
@@ -238,7 +239,9 @@ void AssemblyWorkspaceWindow::populate_sketch_tree(
     };
     int point_index = 0;
     std::unordered_map<std::string, QString> point_labels;
+    const auto hidden_poles=sketcher::hidden_derived_control_points(sketch);
     for (const auto& point : sketch.points) {
+        if(hidden_poles.contains(point.id))continue;
         const QString label = indexed_geometry_label(
             tr("Bod"), ++point_index, point.construction);
         point_labels.emplace(point.id, label);

@@ -2450,6 +2450,12 @@ void AssemblyWorkspaceWindow::create_layout() {
             if(item&&accept_body_scale_tree_reference(item))return;
             if (local_origin_selection_active_ && item) {
                 auto id = item->data(0, Qt::UserRole).toString().toStdString();
+                const auto role=item->data(0,Qt::UserRole+3).toString();
+                if(role=="general-surface-boundary"||role=="loft-sketch")
+                    for(int i=0;i<item->childCount();++i)
+                        if(item->child(i)->data(0,Qt::UserRole+3)=="construction-origin") {
+                            id=item->child(i)->data(0,Qt::UserRole).toString().toStdString();break;
+                        }
                 if (id.ends_with(":origin")) id.resize(id.size() - 7);
                 zima::viewer::ViewerCandidate candidate;
                 candidate.owner_id = id;
@@ -2466,7 +2472,8 @@ void AssemblyWorkspaceWindow::create_layout() {
             // use the ordinary whole-Origin placement shortcut. A successful
             // earlier selection handler either rebuilt the Tree or finished
             // entry, so this does not start another placement transaction.
-            if (item && primitive_reference_dialog_ && pending_primitive_reference_index_ &&
+            if (item && ((primitive_reference_dialog_ && pending_primitive_reference_index_) ||
+                        (construction_reference_dialog_ && pending_construction_reference_index_)) &&
                 (item->data(0, Qt::UserRole + 3) == "document-origin" ||
                  item->data(0, Qt::UserRole + 3) == "construction-origin")) {
                 synchronize_tree_selection();

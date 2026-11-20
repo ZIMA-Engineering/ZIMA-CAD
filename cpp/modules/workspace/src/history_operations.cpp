@@ -10,6 +10,39 @@
 
 namespace zima::workspace {
 namespace {
+std::optional<std::string> inspection_scope(const document::PartDocument& document,const std::string& id) {
+    for(const auto& row:document.body_properties)if(row.id==id)return row.body_id;
+    for(const auto& row:document.measurements)if(row.id==id)return row.body_id;
+    return {};
+}
+std::vector<std::string> with_inspection_rows(const document::PartDocument& document,
+        const std::string& scope,const std::vector<std::string>& features) {
+    std::vector<std::string> result;
+    const auto append=[&](const std::string& anchor) {
+        for(const auto& row:document.body_properties)
+            if(row.body_id==scope&&row.after_object_id==anchor)result.push_back(row.id);
+        for(const auto& row:document.measurements)
+            if(row.body_id==scope&&row.after_object_id==anchor)result.push_back(row.id);
+    };
+    append({});for(const auto& id:features){result.push_back(id);append(id);}return result;
+}
+HistoryDependencies inspection_dependencies(const document::PartDocument& document,bool bodies) {
+    auto graph=part_history_dependency_graph(document);
+    for(const auto& row:document.body_properties){graph.alias(row.id,row.id);graph.alias(row.id+":origin",row.id);}
+    for(const auto& row:document.measurements)graph.alias(row.id,row.id);
+    // Existing feature references already carry the exact saved analysis owner.
+    // Resolve these aliases only for reordering; an analysis row is not a kernel operation.
+    for(const auto& [consumer,path,owner,key]:graph.references)if(path.empty())graph.use(consumer,owner);
+    for(const auto& row:document.measurements)for(const auto& reference:row.references)
+        if(reference.instance_path.empty())graph.use(row.id,reference.owner_id);
+    if(bodies) {
+        auto edges=part_body_dependencies(document);
+        for(const auto& body:document.body_history.bodies())for(const auto& reference:body.scope.placement.references)
+            if(reference.instance_path.empty())graph.use(body.scope.id,reference.owner_id);
+        edges.insert(graph.edges.begin(),graph.edges.end());return edges;
+    }
+    return graph.edges;
+}
 void require_editable(const document::PartDocument& document,const std::string& id) {
     if (document.body_history.find(id) || document.body_history.find_boolean(id)) return;
     if (const auto* owner=document.body_owner_for_object(id);
@@ -71,23 +104,41 @@ bool move_part_history(Workspace& live,const std::string& document_id,const kern
     if(original.sheet_from_body_child_bound(id))
         throw HistoryOperationError("bound_sheet_from_body_child",
             "Detach this Sheet from Body part before editing it independently.");
-    const bool body_step = original.body_history.find(id) || original.body_history.find_boolean(id);
-    const auto* owner = original.body_history.owner(id);
+    const auto inspection=inspection_scope(original,id);
+    const bool body_step = original.body_history.find(id) || original.body_history.find_boolean(id) ||
+        (inspection&&inspection->empty()&&!original.body_history.bodies().empty());
+    const auto* owner = inspection ? original.body_history.find(*inspection) : original.body_history.owner(id);
+    if(owner&&owner->scope.id!=original.body_history.active_body_id())
+        throw HistoryOperationError("inactive_body", "Activate the owning Body before editing its history.");
     std::vector<std::string> order;
     if (body_step) order=original.body_history.order();
     else if (owner) {
-        if (!before.empty() && original.body_history.owner(before)!=owner) throw HistoryOperationError("invalid_history_move", "The object and destination must belong to the same history scope.");
         for (const auto& entry : owner->entries) order.push_back(entry.id);
     } else for (const auto& entry : original.history_order) order.push_back(entry.id);
+    const auto scope=owner?owner->scope.id:std::string{};
+    order=with_inspection_rows(original,scope,order);
     if (std::ranges::find(order,id)==order.end() || (!before.empty() && std::ranges::find(order,before)==order.end())) throw HistoryOperationError("invalid_history_move", "The object and destination must belong to the same history scope.");
-    const auto reordered=reordered_history(order,id,before);
+    auto reordered=reordered_history(order,id,before);
+    // The native format stores the two inspection families separately at
+    // each boundary. Compare/check the actual persisted order, including a
+    // no-op when only the visual family grouping would have changed.
+    for(auto begin=reordered.begin();begin!=reordered.end();) {
+        if(!inspection_scope(original,*begin)){++begin;continue;}
+        const auto end=std::find_if(begin,reordered.end(),[&](const auto& value){return !inspection_scope(original,value);});
+        std::stable_partition(begin,end,[&](const auto& value){return std::ranges::any_of(original.body_properties,
+            [&](const auto& row){return row.id==value;});});
+        begin=end;
+    }
     if (!history_order_preserves_dependencies(order,reordered,
-            body_step ? part_body_dependencies(original) : part_history_dependencies(original)))
+            inspection_dependencies(original,body_step)))
         throw HistoryOperationError("history_dependency", "The move would break a history dependency.");
     std::optional<zima::document::BodyHistoryGraph> changed_graph;
     if (body_step) {
         auto graph=original.body_history;
-        graph.move_step(id,static_cast<std::size_t>(std::distance(reordered.begin(),std::ranges::find(reordered,id))));
+        if(!inspection) {
+            std::size_t position{};for(const auto& entry:reordered){if(entry==id)break;if(!inspection_scope(original,entry))++position;}
+            graph.move_step(id,position);
+        }
         changed_graph=std::move(graph);
     } else if (owner) {
         auto graph=original.body_history;
@@ -99,6 +150,14 @@ bool move_part_history(Workspace& live,const std::string& document_id,const kern
     if (!commit) return true;
     auto next=original;
     if (changed_graph) next.set_body_history(std::move(*changed_graph));
+    std::string anchor;
+    for(const auto& entry:reordered) {
+        if(!inspection_scope(original,entry)){anchor=entry;continue;}
+        for(auto& row:next.body_properties)if(row.id==entry)row.after_object_id=anchor;
+        for(auto& row:next.measurements)if(row.id==entry)row.after_object_id=anchor;
+    }
+    sort_history_records(next.body_properties,reordered,[](const auto& row){return row.id;});
+    sort_history_records(next.measurements,reordered,[](const auto& row){return row.id;});
     std::vector<std::string> storage_order;
     if (body_step || owner) for (const auto& entry : next.history_order) storage_order.push_back(entry.id);
     else storage_order=reordered;

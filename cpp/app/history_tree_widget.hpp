@@ -238,6 +238,10 @@ private:
         if (under && under->parent()!=parent) under=nullptr;
         const auto family=[](QTreeWidgetItem* row) {
             const auto role=row->data(0,Qt::UserRole+3).toString();
+            if(role=="body-properties"||role=="document-measurement") {
+                const auto parent_role=row->parent()?row->parent()->data(0,Qt::UserRole+3).toString():QString{};
+                return parent_role=="part-body"?QString("part-history"):QString("body-history");
+            }
             if (role=="part-body" || role=="part-body-boolean") return QString("body-history");
             if (role=="part-occurrence" || role=="assembly-occurrence") return QString("occurrence");
             if (role=="part-container" || role=="part-sketch" || role=="part-construction") return QString("part-history");

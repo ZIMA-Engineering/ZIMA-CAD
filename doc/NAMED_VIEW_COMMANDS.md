@@ -45,7 +45,8 @@ not the displayed top-level Assembly. Unknown names return `named_view_not_found
   "zoom": 3.25,
   "pan_x": -17.5,
   "pan_y": 41.25,
-  "reference_scale": 7.5
+  "reference_scale": 7.5,
+  "center_offset": [13.25, -4.5, 9.75]
 }
 ```
 
@@ -53,9 +54,12 @@ not the displayed top-level Assembly. Unknown names return `named_view_not_found
 `pan_x/pan_y` are logical viewer pixels. Scales have MeshView semantics, not geometry
 accuracy/import tolerance. A view refers to the displayed scene, not topology or
 component placement.
+`center_offset` is a world-space displacement from the fitted model center. It
+preserves the complete camera position after orbiting around a cursor-selected
+pivot, including perspective depth.
 
 `view.named.set` stores supplied data; `get/list` return it without changing the live
-camera. Dialog restoration uses all eight stored values. Seven standard directions
+camera. Dialog restoration uses all eleven stored values. Seven standard directions
 remain viewer functions, not user-stored entries.
 
 ## Shared transaction
@@ -65,7 +69,7 @@ Qt-free `document/named_views.hpp` validates/serializes records.
 name preserves list position; saving identical state creates no transaction or Undo.
 
 Names are 1–1024 UTF-8 bytes without control characters or surrounding spaces.
-All eight numbers must be finite, both scales positive, and quaternion nonzero.
+All eleven numbers must be finite, both scales positive, and quaternion nonzero.
 Unnormalized quaternions are normalized. All fields are required; unknown fields
 and duplicate names are rejected before publication.
 
@@ -96,10 +100,13 @@ no kernel calculation is required to obtain their normal.
 ## Native files and verification
 
 Records persist only in `.prtz/.asmz` as `named_views`: name, four `rotation`
-components, `zoom`, `pan_x`, `pan_y`, and `reference_scale`. At this stage Part uses
-INI **20** / JSON **44**, Assembly INI **19** / JSON **28**. Start templates and shared
-test documents were updated. Extensions remain; no required additional files or
-legacy migration. `.drwz` is unchanged.
+components, `zoom`, `pan_x`, `pan_y`, `reference_scale`, and three `center_offset`
+components. The pending development format uses Part INI **56** / JSON **79** and
+Assembly INI **38** / JSON **50**. The center extension is part of this unpublished
+format change. Existing empty view lists retain their representation. Current
+readers require complete records; explicit offline conversion supplies zero
+offsets for earlier authored views. Extensions remain; no required additional
+files or runtime compatibility path. `.drwz` is unchanged.
 
 `zima_cpp_named_view_command_tests` verifies:
 
@@ -110,7 +117,7 @@ legacy migration. `.drwz` is unchanged.
 - Activated subassembly and inactive-document write rejection.
 
 GUI opens the actual dialog, captures rotated/panned camera state, saves/reopens,
-selects the view, and checks all eight values. It compares full native files from
+selects the view, and checks all eleven values. It compares full native files from
 GUI/CLI and tests errors/deletion. It also checks workspace destruction with Views
 still open: the dialog must be destroyed while window members used by its `destroyed`
 callback remain alive.

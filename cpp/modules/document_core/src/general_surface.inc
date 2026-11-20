@@ -205,12 +205,23 @@ kernel::ViewerMesh general_surface_definition_mesh(const HistoryContainer& sourc
             PartDocument carrier;carrier.constructions.push_back(general_surface_display_curve(feature,*boundary.curve));
             mesh=carrier.construction_viewer_mesh();
         }else if(!boundary.sketch_serialized.empty()) {
-            mesh=general_surface_display_sketch(feature,boundary).viewer_mesh();
+            const auto sketch=general_surface_display_sketch(feature,boundary);
+            mesh=sketch.viewer_mesh(false);
+            mesh.original_references=sketch.placement_reference_geometry();
+            // A boundary preview contains its authored curves and points.
+            // Reference supports and inference markers belong to its editor;
+            // their exact identities remain in original_references for entry.
+            std::erase_if(mesh.edges,[](const auto& edge){return
+                edge.reference.semantic_key.starts_with("external_")||
+                edge.reference.semantic_key.starts_with("sketch_axis:");});
+            std::erase_if(mesh.points,[](const auto& point){return
+                point.reference.semantic_key.starts_with("external_");});
+            mesh.axes.clear();
             PartDocument carrier;carrier.history={*boundary.sketch_feature};
             carrier.sketches={general_surface_display_sketch(feature,boundary)};
             auto marker=carrier.feature_result_mesh(*boundary.sketch_feature);
             append_reference_geometry(mesh.original_references,std::move(marker.original_references));
-            mesh.points.insert(mesh.points.end(),marker.points.begin(),marker.points.end());
+            for(const auto& point:marker.points)if(point.always_visible)mesh.points.push_back(point);
             auto references=carrier.history_origin_reference_geometry_before({});
             const auto& p=feature.placement;
             append_reference_geometry(mesh.original_references,transform_reference_geometry(std::move(references),

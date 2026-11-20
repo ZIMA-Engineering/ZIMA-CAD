@@ -1034,12 +1034,12 @@ nlohmann::json read_part_ini(const std::filesystem::path& path,
     const auto ini = read_ini(path);
     profile.phase("INI scan");
     const auto native_format=ini_value(ini, "Document", "format_version");
-    if (native_format != "54") {
+    if (native_format != "56") {
         throw std::runtime_error("Unsupported ZIMA-CAD Part document format");
     }
     nlohmann::json root = {
         {"format", "zima-cad-cpp"},
-        {"format_version", 77},
+        {"format_version", 79},
         {"document_id", ini_required(ini, "Document", "document_id")},
         {"type", ini_value(ini, "Document", "type", "part")},
         {"name", ini_value(ini, "Document", "name", "Nový díl")},
@@ -1237,7 +1237,7 @@ NativeCalculatedCachePtr write_part_ini(
     NativeIoProfile profile("Part write");
     IniSections ini;
     ini["Document"] = {
-        {"format_version", "54"},
+        {"format_version", "56"},
         {"calculated_definition", "zima-part-definition-sha256-v1"},
         {"type", "part"},
         {"document_id", root.at("document_id").get<std::string>()},
@@ -3721,6 +3721,47 @@ bool construction_reference_is_planar_face(
     return matched_triangle;
 }
 
+const ConstructionReference* placement_angle_cylinder_source(
+        const std::vector<std::reference_wrapper<const ConstructionReference>>& references,
+        const kernel::ViewerReferenceGeometry& geometry) {
+    const ConstructionReference* cylinder{};
+    for (const auto& item:references) {
+        const auto& ref=item.get();
+        if (ref.orientation_only || ref.use_axis || ref.use_angle) continue;
+        const auto* candidate=placement_surface(ref,geometry);
+        if (!candidate || candidate->kind!=kernel::SurfaceGeometry::Kind::Cylinder) continue;
+        if (cylinder) return {}; // No implicit choice between different axes.
+        cylinder=&ref;
+    }
+    return cylinder;
+}
+
+std::optional<CylindricalAngleFrame> placement_angle_frame(
+        const ConstructionReference& angle,
+        const std::vector<std::reference_wrapper<const ConstructionReference>>& references,
+        const kernel::ViewerReferenceGeometry& geometry) {
+    if (angle.use_axis || angle.orientation_only || angle.orientation_drives_rotation ||
+        angle.station_mode!=PlacementStationMode::None || !angle.supports_offset ||
+        !std::isfinite(angle.offset) || !construction_reference_is_planar_face(angle,geometry)) return {};
+    const auto plane=placement_reference_plane(angle,geometry);
+    if (!plane) return {};
+    const auto* cylinder=placement_angle_cylinder_source(references,geometry);
+    if (!cylinder || !std::isfinite(cylinder->offset)) return {};
+    const auto* surface=placement_surface(*cylinder,geometry);
+    const double radius=surface->radius+(surface->reversed?-cylinder->offset:cylinder->offset);
+    if (!(radius>1e-9)) return {}; // An origin on the axis has no angular station.
+    const auto axis=placement_vec_normalized(surface->axis);
+    auto normal=placement_vec_scale(plane->normal,angle.flip?-1.:1.);
+    auto zero=placement_vec_sub(normal,placement_vec_scale(axis,placement_vec_dot(normal,axis)));
+    if (std::hypot(zero.x,zero.y,zero.z)<=1e-9) return {};
+    zero=placement_vec_normalized(zero);
+    const auto tangent=placement_vec_cross(axis,zero);
+    const double radians=std::remainder(angle.offset,360.)*std::numbers::pi/180.;
+    const auto radial=placement_vec_add(placement_vec_scale(zero,std::cos(radians)),
+        placement_vec_scale(tangent,std::sin(radians)));
+    return CylindricalAngleFrame{surface->origin,axis,zero,radial,radius,cylinder};
+}
+
 // Solves the origin from an arbitrary set of point/axis/plane position
 // references using the same weighted least-squares projection as
 // ConstructionDefinition::PointReference, so a container can be positioned
@@ -3770,8 +3811,19 @@ bool placement_solve_position_step(
         equations.push_back({first, placement_vec_dot(first, value.point)});
         equations.push_back({second, placement_vec_dot(second, value.point)});
     };
+    std::optional<CylindricalAngleFrame> angular;
+    for (const auto& item:placement_references) if (item.get().use_angle) {
+        if (angular) return false;
+        angular=placement_angle_frame(item.get(),placement_references,geometry);
+        if (!angular) return false;
+        // Cylinder + directed angle is an exact line parallel to its axis.
+        // Reuse the established linear solve for axial distance and free motion.
+        add_axis_equations({placement_vec_add(angular->axis_origin,
+            placement_vec_scale(angular->radial,angular->radius)),angular->axis});
+    }
     for (const auto& wrapped : placement_references) {
         const auto& reference = wrapped.get();
+        if (reference.use_angle || (angular && angular->cylinder==&reference)) continue;
         if(reference.use_axis) {
             const auto axis=placement_reference_axis(reference,geometry);
             if(!axis || reference.offset!=0)return false;
@@ -3849,6 +3901,22 @@ bool placement_solve_position_step(
 bool placement_solve_position(
     const std::vector<std::reference_wrapper<const ConstructionReference>>& references,
     const zima::kernel::ViewerReferenceGeometry& geometry,zima::kernel::Vec3& origin) {
+    if (std::ranges::any_of(references,[](const auto& ref){return ref.get().use_angle;})) {
+        // The angle removes the cylinder's two-root intersection ambiguity.
+        // Other curved loci still require their established nonlinear solver;
+        // do not mistake a tangent plane for an exact additional constraint.
+        for (const auto& item:references) {
+            const auto& ref=item.get();
+            if (ref.station_mode!=PlacementStationMode::None) return false;
+            const auto* surface=placement_surface(ref,geometry);
+            if (!ref.use_axis && !ref.use_angle && surface &&
+                surface->kind!=kernel::SurfaceGeometry::Kind::Plane &&
+                surface->kind!=kernel::SurfaceGeometry::Kind::Cylinder) return false;
+            if (!ref.use_axis && !surface && placement_mesh::is_surface(ref,geometry) &&
+                !construction_reference_is_planar_face(ref,geometry)) return false;
+        }
+        return placement_solve_position_step(references,geometry,origin);
+    }
     if (!references.empty()) {
         const auto& route=references.front().get();
         if (route.station_mode!=PlacementStationMode::None) return false;
@@ -4005,7 +4073,7 @@ PlacementDirections placement_resolve_directions(
     PlacementDirections result;
     std::vector<const ConstructionReference*> seen;
     for (const auto& reference : references) {
-        if (marked_only && !reference.orientation_drives_rotation) continue;
+        if (reference.use_angle || (marked_only && !reference.orientation_drives_rotation)) continue;
         if (std::ranges::any_of(seen, [&](const auto* prior) {
                 return prior->owner_id == reference.owner_id &&
                     prior->semantic_key == reference.semantic_key &&
@@ -4102,6 +4170,7 @@ bool placement_references_define_local_xy_work_plane(
 
 void initialize_placement_solution_branch(std::vector<ConstructionReference>& references,
         const kernel::ViewerReferenceGeometry& geometry,kernel::Vec3 seed) {
+    if (std::ranges::any_of(references,[](const auto& ref){return ref.use_angle;})) return;
     std::vector<std::reference_wrapper<const ConstructionReference>> refs;
     for(const auto& ref:references)if(!ref.orientation_only && !ref.owner_id.empty())refs.push_back(ref);
     const auto branches=placement_branches(refs,geometry,seed);
@@ -4115,6 +4184,7 @@ void initialize_placement_solution_branch(std::vector<ConstructionReference>& re
 
 std::vector<Placement> placement_solution_branches(Placement placement,
         const kernel::ViewerReferenceGeometry& geometry) {
+    if (std::ranges::any_of(placement.references,[](const auto& ref){return ref.use_angle;})) return {};
     for(auto& ref:placement.references){ref.solution_branch=0;ref.branch_sources.clear();}
     std::vector<std::reference_wrapper<const ConstructionReference>> refs;
     for(const auto& ref:placement.references)if(!ref.orientation_only)refs.push_back(ref);
@@ -4143,9 +4213,36 @@ std::vector<Placement> placement_solution_branches(Placement placement,
 
 std::optional<double> measure_placement_reference_offset(const ConstructionReference& reference,
         const zima::kernel::ViewerReferenceGeometry& geometry,const zima::kernel::Vec3& point) {
-    if(!reference.supports_offset)return std::nullopt;
+    if(!reference.supports_offset || reference.use_angle)return std::nullopt;
     const auto plane=placement_contact_plane(reference,geometry,point);if(!plane)return std::nullopt;
     return (point.x-plane->point.x)*plane->normal.x+(point.y-plane->point.y)*plane->normal.y+(point.z-plane->point.z)*plane->normal.z;
+}
+
+std::optional<CylindricalAngleFrame> cylindrical_angle_frame(const ConstructionReference& reference,
+        const std::vector<ConstructionReference>& references,const kernel::ViewerReferenceGeometry& geometry) {
+    std::vector<std::reference_wrapper<const ConstructionReference>> positional;
+    for (const auto& ref:references) if (!ref.orientation_only) positional.push_back(ref);
+    return placement_angle_frame(reference,positional,geometry);
+}
+
+const ConstructionReference* placement_angle_cylinder(const std::vector<ConstructionReference>& references,
+        const kernel::ViewerReferenceGeometry& geometry) {
+    std::vector<std::reference_wrapper<const ConstructionReference>> positional;
+    for (const auto& ref:references) if (!ref.orientation_only) positional.push_back(ref);
+    return placement_angle_cylinder_source(positional,geometry);
+}
+
+std::optional<double> measure_placement_reference_value(const ConstructionReference& reference,
+        const std::vector<ConstructionReference>& references,const kernel::ViewerReferenceGeometry& geometry,
+        const kernel::Vec3& point) {
+    if (!reference.use_angle) return measure_placement_reference_offset(reference,geometry,point);
+    const auto frame=cylindrical_angle_frame(reference,references,geometry);
+    if (!frame) return {};
+    const auto delta=placement_vec_sub(point,frame->axis_origin);
+    const auto radial=placement_vec_sub(delta,placement_vec_scale(frame->axis,placement_vec_dot(delta,frame->axis)));
+    if (std::hypot(radial.x,radial.y,radial.z)<=1e-9) return {};
+    return std::atan2(placement_vec_dot(radial,placement_vec_cross(frame->axis,frame->zero)),
+        placement_vec_dot(radial,frame->zero))*180./std::numbers::pi;
 }
 
 namespace {
@@ -5416,6 +5513,11 @@ PointConstraintState point_constraint_state(
         // used for orientation must not drop it from the position rank
         // count, matching the equivalent fix in resolve_construction().
         if (reference.orientation_only) continue;
+        if (reference.use_angle) {
+            if (const auto frame=cylindrical_angle_frame(reference,references,geometry))
+                rows.push_back(placement_vec_cross(frame->axis,frame->radial));
+            continue;
+        }
         if (reference.semantic_key.starts_with(kernel::placement_route_prefix)) {
             const auto route=kernel::placement_route_pieces(geometry.edges,reference.owner_id,
                 reference.semantic_key,reference.instance_path);
@@ -5612,7 +5714,7 @@ std::vector<zima::kernel::ViewerDimension> construction_point_dimensions(
     // actual definition (not on an arbitrary plane floating through space).
     std::vector<zima::kernel::Vec3> constraint_normals;
     for (const auto& reference : object.references) {
-        if (reference.orientation_only ||
+        if (reference.orientation_only || reference.use_angle ||
             (reference.owner_id.empty() && reference.semantic_key.empty())) {
             continue;
         }
@@ -5629,6 +5731,22 @@ std::vector<zima::kernel::ViewerDimension> construction_point_dimensions(
             continue;
         }
         const std::size_t current_index = position_index++;
+        if (reference.use_angle && current_index<3) {
+            const auto frame=cylindrical_angle_frame(reference,object.references,geometry);
+            if (!frame) continue;
+            const auto center=placement_vec_add(frame->axis_origin,placement_vec_scale(frame->axis,
+                placement_vec_dot(placement_vec_sub(object.origin,frame->axis_origin),frame->axis)));
+            const double radius=frame->radius+8.;
+            result.push_back({center,center,placement_vec_add(center,placement_vec_scale(frame->zero,radius)),
+                placement_vec_add(center,placement_vec_scale(frame->radial,radius)),reference.offset,
+                {object.id,"parameter:reference_offset:"+std::to_string(current_index),{}},{}," °"});
+            auto& dimension=result.back();
+            dimension.kind=kernel::ViewerDimensionKind::Angular;
+            dimension.plane_normal=frame->axis;
+            dimension.sweep_degrees=reference.offset;
+            dimension.value_lock_key="reference_offset:"+std::to_string(current_index);
+            continue;
+        }
         if (current_index >= 3 || !reference.supports_offset ||
             std::abs(reference.offset) <= 1.0e-12) continue;
         const auto plane = placement_reference_plane(reference, geometry, object.origin);
@@ -5691,6 +5809,8 @@ std::vector<zima::kernel::ViewerDimension> container_placement_dimensions(
             dimension.reference.semantic_key = "parameter:placement:" +
                 dimension.reference.semantic_key.substr(parameter_prefix.size());
         }
+        if (dimension.value_lock_key.starts_with("reference_offset:"))
+            dimension.value_lock_key="placement:"+dimension.value_lock_key;
     }
     const bool orientation_from_reference = std::any_of(
         placement.references.begin(), placement.references.end(),
@@ -6197,9 +6317,15 @@ zima::kernel::ViewerReferenceGeometry PartDocument::sketch_placement_reference_g
     // Opening profiles are generated parameter diagrams in feature-local
     // coordinates, not independently placed user Sketches.
     for(const auto& container:history)if(container.feature_kind!=FeatureKind::Hole &&
-            container.feature_kind!=FeatureKind::Thread)visit_feature_sketches(container,[&](const auto& data,std::size_t) {
-        append_sketch(zima::sketcher::Sketch::from_serialized(data),container.id);
-    });
+            container.feature_kind!=FeatureKind::Thread) {
+        if(container.feature_kind==FeatureKind::GeneralSurface||container.feature_kind==FeatureKind::Loft) {
+            const auto parent=container.feature_kind==FeatureKind::Loft?loft_sketch_editor_carrier(container):container;
+            for(const auto& boundary:parent.general_surface.boundaries)
+                if(boundary.sketch_feature)append_sketch(general_surface_display_sketch(parent,boundary),container.id);
+        }else visit_feature_sketches(container,[&](const auto& data,std::size_t) {
+            append_sketch(zima::sketcher::Sketch::from_serialized(data),container.id);
+        });
+    }
     return result;
 }
 
@@ -9506,7 +9632,8 @@ ProfileStatus profile_status(const zima::sketcher::Sketch& source) {
 
 namespace {
 kernel::Sweep3DRequest::Section profile_correspondence_section(
-        const sketcher::Sketch& sketch,const std::string& start_point_id,bool allow_open,bool allow_holes) {
+        const sketcher::Sketch& sketch,const std::string& start_point_id,bool allow_open,bool allow_holes,
+        bool reversed=false) {
     zima::kernel::ExtrusionRequest source;
     std::string thin_end;
     try { source=extrusion_request(sketch,1.0,ExtrusionDirection::Forward); }
@@ -9534,7 +9661,7 @@ kernel::Sweep3DRequest::Section profile_correspondence_section(
     region.outer_profile = std::move(source.outer_profile);
     region.inner_profiles = std::move(source.inner_profiles);
     const auto mapping=sweep3d_profile_correspondence(
-        sketch,start_point_id,allow_open);
+        sketch,start_point_id,allow_open,reversed);
     std::optional<zima::kernel::Vec3> circle_radial;
     if(const auto* circle=std::get_if<zima::kernel::ExtrusionRequest::CircleProfile>(&region.outer_profile)) {
         const auto center=circle->center;
@@ -9557,7 +9684,8 @@ kernel::Sweep3DRequest::Section profile_correspondence_section(
                 const auto* c=sketch.find_point(native->center_point_id);
                 double first=std::atan2(a->y-c->y,a->x-c->x);
                 double last=std::atan2(b->y-c->y,b->x-c->x);
-                while(last<=first)last+=2*std::numbers::pi;
+                if(reversed) {while(last>=first)last-=2*std::numbers::pi;}
+                else {while(last<=first)last+=2*std::numbers::pi;}
                 const double middle=(first+last)*.5;
                 split.curves.push_back(zima::kernel::ExtrusionRequest::ArcCurve{
                     mapping.positions[i],
@@ -9584,6 +9712,29 @@ kernel::Sweep3DRequest::Section profile_correspondence_section(
             rotate(polygon->vertices);
         else if(auto* curves=std::get_if<zima::kernel::ExtrusionRequest::CurvedProfile>(&region.outer_profile))
             rotate(curves->curves);
+        if(reversed) {
+            // Keep the selected first native point. The preceding source edge
+            // becomes its outgoing edge when traversal is reversed.
+            std::reverse(region.outer_edge_source_ids.begin(),region.outer_edge_source_ids.end());
+            std::reverse(region.outer_vertex_source_ids.begin()+1,region.outer_vertex_source_ids.end());
+            if(auto* polygon=std::get_if<kernel::ExtrusionRequest::PolygonProfile>(&region.outer_profile))
+                std::reverse(polygon->vertices.begin()+1,polygon->vertices.end());
+            else if(auto* curves=std::get_if<kernel::ExtrusionRequest::CurvedProfile>(&region.outer_profile)) {
+                std::reverse(curves->curves.begin(),curves->curves.end());
+                for(auto& entry:curves->curves)std::visit([](auto& curve) {
+                    std::swap(curve.start,curve.end);
+                    using Curve=std::decay_t<decltype(curve)>;
+                    if constexpr(std::is_same_v<Curve,kernel::ExtrusionRequest::EllipticalArcCurve>) {
+                        const auto first=curve.start_parameter;
+                        curve.start_parameter=-curve.end_parameter;curve.end_parameter=-first;
+                        curve.reversed=!curve.reversed;
+                    } else if constexpr(std::is_same_v<Curve,kernel::ExtrusionRequest::BSplineCurve>) {
+                        std::reverse(curve.control_points.begin(),curve.control_points.end());
+                        kernel::reverse_bspline_parameters(curve.knots,curve.weights);
+                    }
+                },entry);
+            }
+        }
     }
     return {{},{},0,source.direction,std::move(region),circle_radial,thin_end};
 }
@@ -9602,7 +9753,7 @@ for (const auto& profile : profiles) {
     const auto sketch=sketcher::Sketch::from_serialized(profile.sketch_serialized);
     if(!sweep3d_profile_has_geometry(sketch))continue;
     auto section=profile_correspondence_section(sketch,profile.correspondence_start_point_id,
-        sweep.thin||!sweep.make_solid,allow_holes);
+        sweep.thin||!sweep.make_solid,allow_holes,profile.correspondence_reversed);
     section.profile_id=profile.id;section.point_id=*point;
     section.point_index=static_cast<std::size_t>(std::distance(sweep.path_point_ids.begin(),point));
     sweep.sections.push_back(std::move(section));
@@ -9714,7 +9865,7 @@ zima::kernel::ViewerMesh PartDocument::sweep2d_preview_mesh(const HistoryContain
         const auto key=station.point_id+(station.incoming?":in:":":out:");
         for(auto edge:edges){edge.reference.owner_id=c.id;edge.reference.semantic_key="sweep2d:profile:"+key+edge.reference.semantic_key;result.edges.push_back(std::move(edge));}
         try {
-            const auto mapping=sweep3d_profile_correspondence(sketch,source->correspondence_start_point_id,c.sweep2d.result_type!=ProfileResultType::Solid);
+            const auto mapping=sweep3d_profile_correspondence(sketch,source->correspondence_start_point_id,c.sweep2d.result_type!=ProfileResultType::Solid,source->correspondence_reversed);
             for(std::size_t i=0;i<mapping.positions.size();++i) {
                 const kernel::EdgeReference ref{c.id,"sweep2d:profile-point:"+key+mapping.point_ids[i],{}};
                 result.points.push_back({mapping.positions[i],{ref.owner_id,ref.semantic_key,ref.instance_path}});
@@ -10145,12 +10296,12 @@ bool sweep3d_profile_has_geometry(const zima::sketcher::Sketch& sketch) {
 }
 
 Sweep3DCorrespondence sweep3d_profile_correspondence(
-    const zima::sketcher::Sketch& sketch, const std::string& start_point_id, bool allow_open) {
+    const zima::sketcher::Sketch& sketch, const std::string& start_point_id, bool allow_open, bool reversed) {
     // Match the same materialized profile consumed by extrusion_request.
     // Corner tangency vertices retain the Sketch's persisted ancestry keys.
     if(std::ranges::any_of(sketch.corner_radii,[](const auto& corner) {
         return !corner.suppressed&&corner.radius>1.0e-9;
-    }))return sweep3d_profile_correspondence(sketch.evaluated_profile_sketch(),start_point_id,allow_open);
+    }))return sweep3d_profile_correspondence(sketch.evaluated_profile_sketch(),start_point_id,allow_open,reversed);
     Sweep3DCorrespondence result;
     std::string effective_start=start_point_id;
     if(!sweep3d_profile_has_geometry(sketch)) return result;
@@ -10213,6 +10364,10 @@ Sweep3DCorrespondence sweep3d_profile_correspondence(
         const auto offset=std::distance(result.point_ids.begin(),first);
         std::rotate(result.point_ids.begin(),first,result.point_ids.end());
         std::rotate(result.positions.begin(),result.positions.begin()+offset,result.positions.end());
+    }
+    if(result.closed&&reversed&&result.point_ids.size()>1) {
+        std::reverse(result.point_ids.begin()+1,result.point_ids.end());
+        std::reverse(result.positions.begin()+1,result.positions.end());
     }
     for(std::size_t i=0;i<result.positions.size();++i)
         for(std::size_t j=0;j<i;++j) {
@@ -10287,7 +10442,7 @@ zima::kernel::ViewerMesh sweep3d_profiles_viewer_mesh(const HistoryContainer& co
             result.edges.push_back(std::move(edge));
         }
         try {
-            const auto mapping=sweep3d_profile_correspondence(sketch,profile.correspondence_start_point_id,container.sweep3d.result_type!=ProfileResultType::Solid);
+            const auto mapping=sweep3d_profile_correspondence(sketch,profile.correspondence_start_point_id,container.sweep3d.result_type!=ProfileResultType::Solid,profile.correspondence_reversed);
             for(std::size_t i=0;i<mapping.positions.size();++i) {
                 const zima::kernel::EdgeReference ref{container.id,
                     "profile-point:"+station_key+":"+mapping.point_ids[i],{}};
@@ -11786,7 +11941,6 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
                     twist.twist=zima::kernel::Sweep3DRequest::Twist{settings.length,
                         settings.twist_reverse?-settings.angle_degrees:settings.angle_degrees,settings.twist_smooth};
                     twist.twist->centerlines=profile.centerlines;
-                    twist.twist->centerlines.individual_centroids_enabled=false;
                     if(!profile.additional_profile_regions.empty()) {
                         twist.twist->axis_point=zima::kernel::profile_centerlines::centroid(profile);
                     }
@@ -12995,6 +13149,8 @@ PartDocument PartDocument::load(
 }
 PartDocument PartDocument::from_serialized(const nlohmann::json& root,
     std::vector<zima::kernel::BodyResult>* calculated_boundaries) {
+    if (root.value("format","")!="zima-cad-cpp" || root.at("format_version")!=79 || root.value("type","")!="part")
+        throw std::runtime_error("Unsupported ZIMA-CAD Part document format");
     NativeIoProfile profile("Part reconstruction");
     const auto& calculated_cache=root.at("calculated_boundaries");
     if (!calculated_cache.empty() && root.at("calculation_definition_fingerprint") !=
@@ -13512,6 +13668,7 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
             p.profiles=data.at("profiles").get<std::vector<std::string>>();
             p.guides=data.at("guides").get<std::vector<std::string>>();
             p.correspondence_starts=data.at("correspondence_starts").get<std::map<std::string,std::string>>();
+            p.correspondence_reversed=data.at("correspondence_reversed").get<std::set<std::string>>();
             const std::string type=data.at("result"),side=data.at("thickness_side");
             p.result_type=type=="solid"?ProfileResultType::Solid:type=="thin"?ProfileResultType::Thin:type=="surface"?ProfileResultType::Surface:
                 throw std::runtime_error("Invalid Loft result or thickness.");
@@ -13638,7 +13795,7 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
             std::set<std::string> ids;
             for(const auto& profile:data.at("profiles")) {
                 Sweep3DProfile value{profile.at("id"),profile.at("point_id"),profile.at("sketch_id"),profile.at("sketch_serialized"),
-                    profile.at("incoming"),profile.at("correspondence_start_point_id")};
+                    profile.at("incoming"),profile.at("correspondence_start_point_id"),profile.at("correspondence_reversed")};
                 if(value.id.empty()||value.point_id.empty()||!ids.insert(value.id).second||
                     zima::sketcher::Sketch::from_serialized(value.sketch_serialized).id!=value.sketch_id)
                     throw std::runtime_error("Invalid 2D Sweep/Loft profile identity");
@@ -13734,7 +13891,8 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
                     serialized_profile.at("sketch_id").get<std::string>(),
                     serialized_profile.at("sketch_serialized").get<std::string>(),
                     serialized_profile.at("incoming").get<bool>(),
-                    serialized_profile.at("correspondence_start_point_id").get<std::string>()};
+                    serialized_profile.at("correspondence_start_point_id").get<std::string>(),
+                    serialized_profile.at("correspondence_reversed").get<bool>()};
                 if (profile.id.empty() || profile.point_id.empty() ||
                     profile.sketch_id.empty() ||
                     !profile_ids.insert(profile.id).second ||
@@ -14948,6 +15106,7 @@ nlohmann::json PartDocument::serialized(
         } else if (container.feature_kind == FeatureKind::Loft) {
             validate_loft(container,!failed_containers.contains(container.id));const auto& p=container.loft;
             serialized["loft"]={{"profiles",p.profiles},{"guides",p.guides},{"correspondence_starts",p.correspondence_starts},
+                {"correspondence_reversed",p.correspondence_reversed},
                 {"result",p.result_type==ProfileResultType::Surface?"surface":p.result_type==ProfileResultType::Thin?"thin":"solid"},
                 {"thickness",p.thickness},{"thickness_side",p.thin_mode==ThinMode::OneSide?"inside":p.thin_mode==ThinMode::OtherSide?"outside":"symmetric"}};
             auto rows=nlohmann::json::array();
@@ -15029,7 +15188,8 @@ nlohmann::json PartDocument::serialized(
             nlohmann::json profiles=nlohmann::json::array(),plane=nullptr;
             for(const auto& profile:p.profiles)profiles.push_back({{"id",profile.id},{"point_id",profile.point_id},
                 {"sketch_id",profile.sketch_id},{"sketch_serialized",profile.sketch_serialized},{"incoming",profile.incoming},
-                {"correspondence_start_point_id",profile.correspondence_start_point_id}});
+                {"correspondence_start_point_id",profile.correspondence_start_point_id},
+                {"correspondence_reversed",profile.correspondence_reversed}});
             if(p.path_plane){const auto& ref=*p.path_plane;plane={{"instance_path",ref.instance_path},{"owner_id",ref.owner_id},
                 {"semantic_key",ref.semantic_key},{"offset",ref.offset}};}
             serialized["sweep2d"]={{"path_sketch_serialized",p.path_sketch},{"path_plane",plane},{"profiles",profiles},{"thickness",p.thickness},
@@ -15079,6 +15239,7 @@ nlohmann::json PartDocument::serialized(
                     {"point_id", profile.point_id},
                     {"incoming", profile.incoming},
                     {"correspondence_start_point_id", profile.correspondence_start_point_id},
+                    {"correspondence_reversed", profile.correspondence_reversed},
                     {"sketch_id", profile.sketch_id},
                     {"sketch_serialized", profile.sketch_serialized}});
             }
@@ -15295,7 +15456,7 @@ nlohmann::json PartDocument::serialized(
     static_cast<void>(zima::document::parse_named_views(named_views));
     nlohmann::json root = {
         {"format", "zima-cad-cpp"},
-        {"format_version", 77},
+        {"format_version", 79},
         {"reference_errors", reference_errors},
         {"removed_reference_states",removed_reference_states},
         {"document_id", document_id},

@@ -27,8 +27,15 @@ static int verify_sketch_symbol_controls(QApplication& application,
         auto* finish=window.findChild<QAction*>("finishSketchAction");
         check(tree&&view&&text_action&&finish,"Sketch symbol controls are missing");
         const auto definition=symbols::projection_method();
+        sketcher::TemplateImage background;
+        background.id="drag-background";background.name="Drag background";
+        background.format="svg";background.pixel_width=background.pixel_height=10;
+        background.data_base64=QByteArray("<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"10\" height=\"10\"><rect width=\"10\" height=\"10\" fill=\"#e020c0\"/></svg>").toBase64().toStdString();
+        background.template_coordinates=false;background.selection_locked=true;
+        background.x=-30;background.y=5;background.width=20;background.height=20;
         for(bool assembly:{false,true}) {
             auto sketch=sketcher::Sketch::create_default();
+            sketch.reference_images.push_back(background);
             sketcher::SymbolInstance instance;instance.id="movable-symbol";instance.definition=definition.serialized();
             instance.variant=definition.default_variant;instance.x=25;instance.y=15;sketch.add_symbol(instance);
             const auto grip=sketch.symbols.front().anchor_point_id;
@@ -63,6 +70,15 @@ static int verify_sketch_symbol_controls(QApplication& application,
                     throw std::runtime_error("Text command did not open its dialog in an editable Sketch");
                 }
                 dialog->set_anchor(10,10);dialog->findChild<QPlainTextEdit*>("sketchTextValue")->setPlainText("ZIMA");
+                check(!dialog->findChild<QCheckBox*>("sketchTextFlipped")->isChecked(),"Ordinary text inherited the template horizontal flip");
+                const auto preview=view->transient_edges();
+                bool above_anchor=false;
+                for(const auto& edge:preview)for(const auto& point:edge.points) {
+                    const auto local=sketch.local_point(point);
+                    check(local[1]>=10-1e-8,"Ordinary text is upside down below its bottom anchor");
+                    above_anchor=above_anchor||local[1]>11;
+                }
+                check(above_anchor,"Ordinary text has no upright preview outlines");
                 auto* mode=dialog->findChild<QComboBox*>("sketchTextMode");mode->setCurrentIndex(mode->findData(false));
                 auto* horizontal=dialog->findChild<QComboBox*>("sketchTextHorizontalAlignment");
                 auto* vertical=dialog->findChild<QComboBox*>("sketchTextVerticalAlignment");
@@ -88,6 +104,15 @@ static int verify_sketch_symbol_controls(QApplication& application,
             const auto screen=[&](double x,double y){return QPointF(((x-a[0])*vy-(y-a[1])*vx)/det,(ux*(y-a[1])-uy*(x-a[0]))/det);};
             const auto mouse=[&](QEvent::Type type,QPointF point,Qt::MouseButton button,Qt::MouseButtons buttons){
                 QMouseEvent event(type,point,QPointF(view->mapToGlobal(point.toPoint())),button,buttons,Qt::NoModifier);QApplication::sendEvent(view,&event);flush();};
+            const auto image_visible=[&] {
+                const auto framebuffer=view->grabFramebuffer();
+                check(!framebuffer.isNull(),"Reference image test has no framebuffer");
+                const auto at=screen(-20,15)*view->devicePixelRatioF();
+                check(framebuffer.rect().contains(at.toPoint()),"Reference image sample is outside the View");
+                const auto color=framebuffer.pixelColor(at.toPoint());
+                check(color.red()>180&&color.green()<70&&color.blue()>140,"Reference image disappeared during Sketch drag");
+            };
+            image_visible();
             for(int step=0;step<3;++step) {
                 const auto previous=stored();const auto& symbol=previous.symbols.front();const auto from=screen(symbol.x,symbol.y),to=from+QPointF(35,20);
                 const auto candidates=view->selection_candidates_at(from);
@@ -95,8 +120,11 @@ static int verify_sketch_symbol_controls(QApplication& application,
                 mouse(QEvent::MouseMove,from,Qt::NoButton,Qt::NoButton);
                 mouse(QEvent::MouseButtonPress,from,Qt::LeftButton,Qt::LeftButton);
                 mouse(QEvent::MouseMove,to,Qt::NoButton,Qt::LeftButton);
+                image_visible();
                 mouse(QEvent::MouseButtonRelease,to,Qt::LeftButton,Qt::NoButton);
+                image_visible();
                 const auto moved=stored();const auto& value=moved.symbols.front();const auto* point=moved.find_point(grip);
+                check(moved.reference_images==std::vector{background},"Symbol drag changed the persisted image");
                 check(point&&value.anchor_point_id==grip&&std::hypot(value.x-symbol.x,value.y-symbol.y)>1e-3,"Mouse drag did not move the symbol");
                 check(std::abs(value.x-point->x)<1e-8&&std::abs(value.y-point->y)<1e-8,"Mouse drag detached symbol geometry from its point");
             }
@@ -158,7 +186,7 @@ static int verify_sketch_symbol_controls(QApplication& application,
             std::cout<<"Annotation GUI dimension text="<<text_case<<" kind="<<static_cast<int>(kind)<<" state="<<state<<std::endl;
             auto sketch=sketcher::Sketch::create_default();std::string grip;
             if(text_case){auto text=sketcher::Sketch::create_text();text.value="X";text.height=3;text.anchor_x=30;text.anchor_y=40;text.modeling_geometry=false;
-                app::rebuild_sketch_text_contours(text,false);sketch.add_text(std::move(text));grip=sketch.texts.front().anchor_point_id;}
+                app::rebuild_sketch_text_contours(text,true);sketch.add_text(std::move(text));grip=sketch.texts.front().anchor_point_id;}
             else {sketcher::SymbolInstance symbol;symbol.id="dimensioned-symbol";symbol.definition=definition.serialized();symbol.variant=definition.default_variant;symbol.x=30;symbol.y=40;sketch.add_symbol(symbol);grip=sketch.symbols.front().anchor_point_id;}
             const auto fixed=sketch.add_point(0,0);sketch.set_point_fixed(fixed,true);
             auto dimension=sketch.create_point_dimension(fixed,grip,kind);dimension.driving=state!=0;dimension.locked=state>=2;sketch.apply_dimension(dimension);

@@ -3,6 +3,7 @@
 #include <zima/document/viewer_packet_json.hpp>
 #include <zima/workspace/model_calculation.hpp>
 #include <zima/document/feature_sketches.hpp>
+#include <zima/document/cache_storage.hpp>
 #include <zima/document/relation_program.hpp>
 #include <zima/document/engineering_metadata.hpp>
 #include <zima/workspace/family_operations.hpp>
@@ -1573,8 +1574,15 @@ void attach_verified_legacy_part_cache(
 }
 }
 
+#include "angular_format_upgrade.inc"
+
 int main(int argc,char** argv){try{
     using namespace zima;
+    if(argc==5 && std::string_view(argv[1])=="--upgrade-angular-native-asset") {
+        upgrade_angular_native_asset(std::filesystem::u8path(argv[2]),
+            std::filesystem::u8path(argv[3]),std::filesystem::u8path(argv[4]));
+        std::cout<<"Angular native asset calculated, compared, saved and reopened\n";return 0;
+    }
     if(argc==5&&std::string_view(argv[1])==
             "--upgrade-part-format53-to54") {
         upgrade_native_part_format_53_to_54(

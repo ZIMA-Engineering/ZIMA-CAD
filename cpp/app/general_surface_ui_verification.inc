@@ -65,6 +65,8 @@ int verify_general_surface_ui(QApplication& application,AssemblyWorkspaceWindow&
             "Uninspected Surface boundaries are not visible as context");
         const auto uninspected_edges=view->transient_edges();
         const auto uninspected_points=view->transient_model_points();
+        check(std::ranges::none_of(uninspected_points,[](const auto& point){return point.reference.semantic_key.starts_with("sketch_curve_keypoint:")||point.reference.semantic_key.starts_with("external_");}),
+            "Surface preview exposes inactive Sketch inference/reference markers");
         check(std::ranges::any_of(uninspected_points,[&](const auto& point){return point.reference.owner_id==first_sketch&&!point.construction;}),
             "Surface draft lost ordinary Sketch point presentation");
         const auto check_inspection=[&](const std::string& owner) {
@@ -98,6 +100,22 @@ int verify_general_surface_ui(QApplication& application,AssemblyWorkspaceWindow&
             !sketch_properties->findChild<QComboBox*>("featureType")->isEnabled()&&
             sketch_properties->findChild<QTableWidget*>("primitiveReferenceTable")->isVisible(),
             "Owned Sketch is not a complete placed Feature with a fixed type");
+        for(const auto& [label,normal]:std::vector<std::pair<const char*,kernel::Vec3>>{
+                {"XY",{0,0,1}},{"XZ",{0,1,0}},{"YZ",{1,0,0}},{"XY",{0,0,1}}}) {
+            auto* choice=sketch_properties->findChild<QToolButton*>(QString("featureProfilePlaneChoice")+label);
+            check(choice&&choice->isEnabled(),"Surface owned Sketch plane choice missing");choice->click();flush();
+            const auto owner=sketch_properties->pending_value().feature_id;
+            const auto border=std::ranges::find_if(view->mesh().edges,[&](const auto& edge){return edge.reference.owner_id==owner&&edge.reference.semantic_key=="border";});
+            check(border!=view->mesh().edges.end()&&border->points.size()==5,"Surface owned Sketch has no working-plane highlight");
+            const auto first=border->points.front();
+            for(const auto& p:border->points)check(std::abs((p.x-first.x)*normal.x+(p.y-first.y)*normal.y+(p.z-first.z)*normal.z)<1e-7,
+                "Surface working-plane highlight uses the wrong XY/XZ/YZ orientation");
+            const auto pixels=view->grabFramebuffer();std::size_t cyan=0;
+            for(int y=0;y<pixels.height();++y)for(int x=0;x<pixels.width();++x) {
+                const auto color=pixels.pixelColor(x,y);if(color.red()<60&&color.green()>140&&color.blue()>180)++cyan;
+            }
+            check(cyan>30,"Surface working plane is present but not highlighted in the rendered View");
+        }
         sketch_properties->findChild<QDoubleSpinBox*>("featureProfileOffset")->setValue(12);
         check(sketch_properties->set_inline_parameter_value("placement:x",7),"Owned Sketch has no independent placement");
         sketch_properties->buttons()->button(QDialogButtonBox::Cancel)->click();flush();
@@ -129,6 +147,72 @@ int verify_general_surface_ui(QApplication& application,AssemblyWorkspaceWindow&
         own_references->cellClicked(0,1);flush();
         origin=row(body+":origin","document-origin");tree->setCurrentItem(origin);flush();
         check(sketch_properties->first_empty_position_index()==3,"Owned Sketch whole-Origin placement failed");
+        {
+            const auto sources=parent->pending.general_surface.boundaries;
+            sketch_properties->findChild<QPushButton*>("featureSketchButton")->click();flush();
+            const auto active=*window.active_sketch_for_test();
+            view->set_view_direction(active.resolved_normal);
+            {QEventLoop settle;QTimer::singleShot(950,&settle,&QEventLoop::quit);settle.exec();}flush();
+            view->fit_points({active.world_point(-20,-20),active.world_point(140,100)});flush();
+            const auto screen=[&](kernel::Vec3 world) {
+                const auto local=[&](QPointF p){const auto ray=view->ray_at(p);return *active.intersect_ray(ray->first,ray->second);};
+                const auto a=local({0,0}),b=local({100,0}),c=local({0,100}),q=active.local_point(world);
+                const double ux=(b[0]-a[0])/100,uy=(b[1]-a[1])/100,vx=(c[0]-a[0])/100,vy=(c[1]-a[1])/100,det=ux*vy-uy*vx;
+                return QPointF(((q[0]-a[0])*vy-(q[1]-a[1])*vx)/det,(ux*(q[1]-a[1])-uy*(q[0]-a[0]))/det);
+            };
+            const auto click=[&](QPointF at,Qt::MouseButton button) {
+                for(auto type:{QEvent::MouseMove,QEvent::MouseButtonPress,QEvent::MouseButtonRelease}) {
+                    QMouseEvent event(type,at,QPointF(view->mapToGlobal(at.toPoint())),type==QEvent::MouseMove?Qt::NoButton:button,
+                        type==QEvent::MouseButtonPress?button:Qt::NoButton,Qt::NoModifier);QApplication::sendEvent(view,&event);flush();
+                }
+            };
+            for(unsigned source_index=0;source_index<3;++source_index) {
+                auto* reference_action=window.findChild<QAction*>(source_index==2?"sketchExternalProfileAction":"sketchExternalReferenceAction");
+                if(!reference_action->isChecked())reference_action->trigger();flush();
+                const auto source=document::general_surface_display_sketch(parent->pending,sources[source_index]);
+                const auto source_mesh=source.viewer_mesh(false);
+                const auto edge=*std::ranges::find_if(source_mesh.edges,[](const auto& value){return value.reference.semantic_key.starts_with("segment:");});
+                const auto p=edge.points.front(),q=edge.points.back();const auto at=screen({(p.x+q.x)/2,(p.y+q.y)/2,(p.z+q.z)/2});
+                const auto candidates=view->selection_candidates_at(at);
+                auto selected=std::ranges::find_if(candidates,[&](const auto& candidate){return candidate.owner_id==source.id&&candidate.semantic_key==edge.reference.semantic_key;});
+                if(selected==candidates.end()) {
+                    std::fprintf(stderr,"Owned reference source %u %s %s at %.1f %.1f: %zu candidates, %zu exact edges\n",source_index,source.id.c_str(),edge.reference.semantic_key.c_str(),at.x(),at.y(),candidates.size(),view->mesh().original_references.edges.size());
+                    for(const auto& candidate:candidates)std::fprintf(stderr,"candidate %s %s kind=%d geometry=%d\n",candidate.owner_id.c_str(),candidate.semantic_key.c_str(),int(candidate.kind),int(candidate.geometry));
+                    window.grab().save(QString::fromStdString((directory/"owned-reference-failure.png").string()));
+                    throw std::runtime_error("Preceding owned Sketch curve is not available for Reference/outline");
+                }
+                for(auto i=candidates.begin();i!=selected;++i)click(at,Qt::RightButton);
+                click(at,Qt::LeftButton);
+                const auto* draft=window.active_sketch_for_test();
+                check(draft&&std::ranges::any_of(draft->external_references,[&](const auto& reference){return
+                    reference.source_owner_id==source.id&&reference.source_semantic_key==edge.reference.semantic_key&&!reference.broken;}),
+                    "Owned Sketch reference was offered but not retained");
+                check(parent->pending.general_surface.boundaries==sources,"Reference entry modified its read-only source Sketch");
+            }
+            check(!window.active_sketch_for_test()->segments.empty(),"Reference outline did not create exact native geometry");
+            const auto referenced=window.active_sketch_for_test()->serialized();
+            window.findChild<QAction*>("undoAction")->trigger();flush();
+            check(window.active_sketch_for_test()->segments.empty(),"Owned reference outline Undo failed");
+            window.findChild<QAction*>("redoAction")->trigger();flush();
+            check(window.active_sketch_for_test()->serialized()==referenced,"Owned reference outline Redo changed its identity");
+            finish->trigger();flush();
+            sketch_properties->buttons()->button(QDialogButtonBox::Ok)->click();flush();
+            auto snapshot=part;snapshot.history={parent->pending};auto ownership=snapshot.body_history;
+            ownership.insert({document::PartHistoryKind::Feature,parent->pending.id});snapshot.set_body_history(ownership);
+            const auto reference_file=directory/"owned-reference-roundtrip.prtz";snapshot.save(reference_file);
+            auto reopened=document::PartDocument::load(reference_file);
+            const auto original_sources=reopened.history.front().general_surface.boundaries;
+            static_cast<void>(workspace::refresh_sketch_external_references(reopened,{}));
+            const auto persisted=sketcher::Sketch::from_serialized(reopened.history.front().general_surface.boundaries.back().sketch_serialized);
+            check(std::ranges::count(persisted.external_references,sketcher::ExternalReferenceKind::Edge,&sketcher::SketchExternalReference::kind)==3&&
+                std::ranges::none_of(persisted.external_references,[](const auto& reference){return reference.broken;}),
+                "Owned Sketch references broke after native reopen and reference refresh");
+            for(unsigned i=0;i<3;++i)check(reopened.history.front().general_surface.boundaries[i]==original_sources[i],
+                "Refreshing owned references changed a read-only preceding Sketch");
+            boundaries->cellClicked(3,3);flush();
+            sketch_properties=dynamic_cast<PrimitivePropertiesDialog*>(window.findChild<QWidget*>("generalSurfaceSketchProperties"));
+            check(sketch_properties&&sketch_properties->isVisible(),"Referenced owned Sketch Properties did not reopen");
+        }
         auto* sketch_plane=sketch_properties->findChild<QComboBox*>("featureProfilePlane");
         sketch_plane->setCurrentIndex(sketch_plane->findData(static_cast<int>(sketcher::SketchPlane::XZ)));
         sketch_properties->findChild<QDoubleSpinBox*>("featureProfileOffset")->setValue(12);
@@ -199,6 +283,29 @@ int verify_general_surface_ui(QApplication& application,AssemblyWorkspaceWindow&
         parent->edit_sketch_properties(1);flush();
         sketch_properties=dynamic_cast<PrimitivePropertiesDialog*>(window.findChild<QWidget*>("generalSurfaceSketchProperties"));
         check(sketch_properties&&context_visible(curve_id),"Sketch Properties hid an existing Curve boundary");
+        sketch_properties->findChild<QPushButton*>("containerDefaultOriginButton")->click();flush();
+        const auto inherited=sketch_properties->pending_value().placement;
+        check(document::placement_references_use_whole_origin(inherited.references)&&
+            std::ranges::all_of(inherited.references,[&](const auto& reference){return reference.owner_id==parent->pending.container_origin.id;}),
+            "Owned Surface Sketch Default Origin did not use its parent Surface");
+        check(std::hypot(inherited.x,inherited.y,inherited.z)<1e-8,"Parent Origin was applied twice to the owned Sketch frame");
+        sketch_properties->findChild<QPushButton*>("containerOriginSelectionButton")->click();flush();
+        QTreeWidgetItem* preceding{};
+        for(QTreeWidgetItemIterator it(tree);*it;++it)if((*it)->data(0,Qt::UserRole).toString().toStdString()==id&&
+            (*it)->data(0,Qt::UserRole+3)=="general-surface-boundary"&&(*it)->data(0,Qt::UserRole+6).toUInt()==0)preceding=*it;
+        check(preceding,"Preceding owned Sketch is missing from the Tree");
+        for(auto* ancestor=preceding->parent();ancestor;ancestor=ancestor->parent())ancestor->setExpanded(true);
+        tree->scrollToItem(preceding);flush();
+        const QPointF location(tree->visualItemRect(preceding).center());
+        for(auto type:{QEvent::MouseButtonPress,QEvent::MouseButtonRelease}) {
+            QMouseEvent event(type,location,QPointF(tree->viewport()->mapToGlobal(location.toPoint())),Qt::LeftButton,
+                type==QEvent::MouseButtonPress?Qt::LeftButton:Qt::NoButton,Qt::NoModifier);
+            QApplication::sendEvent(tree->viewport(),&event);flush();
+        }
+        const auto previous_origin=parent->pending.general_surface.boundaries[0].sketch_feature->container_origin.id;
+        check(std::ranges::any_of(view->mesh().points,[&](const auto& point){return point.reference.owner_id==previous_origin&&point.reference.semantic_key=="origin:point";}),
+            "Origin command did not reveal the preceding owned Sketch Origin");
+        window.grab().save(QString::fromStdString((directory/"owned-sketch-previous-origin.png").string()));
         sketch_properties->findChild<QPushButton*>("featureSketchButton")->click();flush();
         check(context_visible(first_sketch)&&context_visible(third_sketch)&&context_visible(curve_id),
             "Sketcher did not retain mixed Sketch and Curve context");

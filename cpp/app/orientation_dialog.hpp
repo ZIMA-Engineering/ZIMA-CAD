@@ -44,7 +44,7 @@ struct OrientationReferenceRow {
 struct OrientationSavedView {
     QString name;
     std::string standard;  // non-empty for built-in views, empty for custom
-    std::array<float, 8> camera_state{};  // valid only when standard is empty
+    std::array<float, 11> camera_state{};  // valid only when standard is empty
     [[nodiscard]] bool is_custom() const { return standard.empty(); }
 };
 

@@ -15,9 +15,11 @@ struct LoftEditorCache {
     std::uint64_t revision=std::numeric_limits<std::uint64_t>::max(),generation{};
     std::vector<std::string> profiles,guides;
     std::map<std::string,std::string> correspondence_starts;
+    std::set<std::string> correspondence_reversed;
     std::optional<document::Placement> placement,scene_placement;
     std::optional<std::pair<bool,bool>> origin_display;
     std::optional<std::pair<document::ProfileResultType,double>> dimensions;
+    std::optional<std::tuple<document::ProfileResultType,double,document::ThinMode>> profile_output;
     std::set<std::string> inspected;
     std::vector<document::GeneralSurfaceBoundary> sketches;
     kernel::ViewerMesh definition;
@@ -59,6 +61,7 @@ void AssemblyWorkspaceWindow::show_loft_properties(const std::string& id) {
     },allow_subtract,this);
     if(rollback)part_rollback_=PartRollbackContext{document_id,*occurrence,rollback->history_index,rollback->input_body};
     properties_dialog_=dialog;properties_dialog_instance_path_=*occurrence;
+    dialog->setProperty("pointOrderInstancePath",QString::fromStdString(*occurrence));
     primitive_parameter_owner_id_=feature.id;primitive_reference_dialog_=dialog;
     auto geometry=input?input->mesh.original_references:kernel::ViewerReferenceGeometry{};
     if(stored&&!part->session.calculated_boundaries().empty())
@@ -100,15 +103,20 @@ void AssemblyWorkspaceWindow::show_loft_properties(const std::string& id) {
         primitive_translation_dof_=document::point_constraint_remaining_dof(pending.placement.references,geometry);
         parameter_dimension_preview_=pending;construction_dimension_object_id_=pending.id;
         viewer_->set_feature_preview_owners({pending.feature_id,pending.container_origin.id});
-        const bool preview_changed=!cache->placement||*cache->placement!=pending.placement||
+        const auto profile_output=std::tuple{pending.loft.result_type,pending.loft.thickness,pending.loft.thin_mode};
+        const bool sketches_changed=cache->sketches!=pending.loft.sketches;
+        const bool preview_changed=!cache->placement||*cache->placement!=pending.placement||cache->profile_output!=profile_output||
             cache->profiles!=pending.loft.profiles||cache->guides!=pending.loft.guides||cache->sketches!=pending.loft.sketches||
-            cache->correspondence_starts!=pending.loft.correspondence_starts;
+            cache->correspondence_starts!=pending.loft.correspondence_starts||
+            cache->correspondence_reversed!=pending.loft.correspondence_reversed;
         if(preview_changed) {
             cache->definition=document::loft_definition_mesh(live->session.document(),pending,geometry);
             cache->correspondence_starts=pending.loft.correspondence_starts;
+            cache->correspondence_reversed=pending.loft.correspondence_reversed;
+            cache->profile_output=profile_output;
             cache->placement=pending.placement;cache->profiles=pending.loft.profiles;cache->guides=pending.loft.guides;cache->sketches=pending.loft.sketches;++cache->preview_builds;
         }
-        const bool base_changed=preview_changed||!cache->scene_placement||*cache->scene_placement!=pending.placement||
+        const bool base_changed=sketches_changed||!cache->scene_placement||*cache->scene_placement!=pending.placement||
             cache->origin_display!=std::pair{pending.origin_point_visible,pending.origin_text_visible}||
             cache->dimensions!=std::pair{pending.loft.result_type,pending.loft.thickness};
         if(base_changed) {

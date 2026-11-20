@@ -767,15 +767,24 @@ static PlacementHistoryReferenceViews placement_history_reference_views(
         if(const auto* output=document.find_container(demand.output_owner);
                 output&&document::is_solid_state(output->feature_kind))
             result.state_output_consumers.insert(consumer);
-        // A failed operation has no valid authored output boundary.  Its
-        // recovery packet intentionally contains the last valid input and may
-        // not carry exact-output coverage.  Publishing that input as the
-        // failed operation's geometry would silently retarget later
-        // references. Leave those calculated identities unresolved so their
-        // dependent container can recover when real source geometry returns.
+        // A failed operation has no authored output of its own. Its recovery
+        // packet still carries the unchanged input from earlier valid owners.
+        // Keep those exact identities available without exposing retained
+        // geometry as a result of any failed source operation.
         if(!output_failed)
             view.geometry=select_boundary_references(
                 resolved_boundary,requested);
+        else {
+            const auto graph=part_history_dependency_graph(document);
+            auto retained=requested;
+            std::erase_if(retained,[&](const auto& reference) {
+                const auto owner=graph.owners.find(reference.owner_id);
+                if(owner==graph.owners.end()||calculated.back().calculation_errors.contains(owner->second))return true;
+                const auto* source=document.find_container(owner->second);
+                return !source||!native_source_available(*source);
+            });
+            view.geometry=select_boundary_references(resolved_boundary,retained);
+        }
         {
             // Feature work-frame datums are native document geometry, not
             // vertices/faces of the calculated solid. An exact Body view must

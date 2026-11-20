@@ -3,6 +3,55 @@ int verify_sheet_state_ui(QApplication& application,const std::filesystem::path&
     const auto check=[](bool value,const char* message){if(!value)throw std::runtime_error(message);};
     const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
     try {
+        if(const auto file=qEnvironmentVariable("ZIMA_VERIFY_SHEET_AXIS_FILE");!file.isEmpty()) {
+            std::vector<kernel::BodyResult> calculated;
+            const auto part=document::PartDocument::load(file.toStdString(),&calculated);
+            check(!calculated.empty(),"Sheet axis fixture has no calculated packet.");
+            const auto& mesh=calculated.back().mesh;
+            std::vector<kernel::ViewerPoint> endpoints;
+            for(const auto& axis:mesh.axes)if(axis.reference.semantic_key.starts_with("sheet-state:from:"))
+                for(const auto& point:mesh.points)
+                    if(point.reference.owner_id==axis.reference.owner_id&&kernel::axis_endpoint_parent_key(point.reference.semantic_key)==axis.reference.semantic_key)
+                        endpoints.push_back(point);
+            check(endpoints.size()>=2,"Sheet state has no current axis endpoints.");
+            app::AssemblyWorkspaceWindow window(QString::fromStdString(directory.string()));window.resize(1366,850);window.show();flush();
+            for(int reopen=0;reopen<2;++reopen) {
+                check(window.open_document_path(file),"Sheet axis document cannot open.");flush();
+                check(activate_test_body(application,window,part.body_history.bodies().front().scope.id),"Sheet axis Body activation failed.");flush();
+                auto* view=dynamic_cast<viewer::MeshView*>(window.findChild<QOpenGLWidget*>("modelWorkspace"));check(view,"Sheet axis View missing.");
+                window.findChild<QAction*>("showAxesAction")->setChecked(true);
+                view->set_view_direction({1,1,.2});{QEventLoop wait;QTimer::singleShot(950,&wait,&QEventLoop::quit);wait.exec();}flush();
+                view->fit_all();flush();
+                const auto revision=window.execute_console_command("documents").data;
+                for(const auto& endpoint:endpoints) {
+                    auto* action=window.findChild<QAction*>("featureShortcut0Action");check(action&&action->isEnabled(),"Point command missing for sheet axis.");action->trigger();flush();
+                    auto* dialog=dynamic_cast<app::PrimitivePropertiesDialog*>(window.findChild<QWidget*>("featurePropertiesDialog"));check(dialog,"Sheet endpoint Point Properties missing.");
+                    const auto a=view->ray_at({0,0})->first,b=view->ray_at({100,0})->first,c=view->ray_at({0,100})->first;
+                    const auto u=kernel::dimension_scale(kernel::dimension_sub(b,a),.01),v=kernel::dimension_scale(kernel::dimension_sub(c,a),.01),d=kernel::dimension_sub(endpoint.position,a);
+                    const auto dot=[](auto p,auto q){return kernel::dimension_dot(p,q);};
+                    const double uu=dot(u,u),vv=dot(v,v),uv=dot(u,v),det=uu*vv-uv*uv;
+                    const QPointF at((dot(d,u)*vv-dot(d,v)*uv)/det,(dot(d,v)*uu-dot(d,u)*uv)/det);
+                    const auto click=[&](Qt::MouseButton button) {
+                        for(auto type:{QEvent::MouseMove,QEvent::MouseButtonPress,QEvent::MouseButtonRelease}) {
+                            QMouseEvent event(type,at,QPointF(view->mapToGlobal(at.toPoint())),type==QEvent::MouseMove?Qt::NoButton:button,
+                                type==QEvent::MouseButtonPress?button:Qt::NoButton,Qt::NoModifier);QApplication::sendEvent(view,&event);flush();
+                        }
+                    };
+                    const auto candidates=view->selection_candidates_at(at);
+                    const auto selected=std::ranges::find_if(candidates,[&](const auto& candidate){return candidate.owner_id==endpoint.reference.owner_id&&candidate.semantic_key==endpoint.reference.semantic_key;});
+                    check(selected!=candidates.end(),"Transformed sheet axis endpoint cannot be picked.");
+                    for(auto i=candidates.begin();i!=selected;++i)click(Qt::RightButton);click(Qt::LeftButton);
+                    const auto pending=dialog->pending_value();
+                    check(std::ranges::any_of(pending.placement.references,[&](const auto& ref){return ref.owner_id==endpoint.reference.owner_id&&ref.semantic_key==endpoint.reference.semantic_key;}),"Sheet endpoint click lost its current-state identity.");
+                    check(std::hypot(pending.placement.x-endpoint.position.x,pending.placement.y-endpoint.position.y,pending.placement.z-endpoint.position.z)<1e-7,"Sheet endpoint Point preview uses the old material frame.");
+                    dialog->reject();flush();check(window.execute_console_command("documents").data==revision,"Sheet endpoint inspection changed the document.");
+                }
+                window.grab().save(QString::fromStdString((directory/("sheet-axis-"+std::to_string(reopen)+".png")).string()));
+                check(window.execute_console_command("close").ok,"Sheet axis document cannot close.");flush();
+            }
+            std::cout<<"Sheet axis GUI: current-state endpoints, real mouse references, exact position/identity, Cancel and native reopen passed\n";
+            return 0;
+        }
         for(bool context:{false,true}) {
             auto part=document::PartDocument::create_default();
             auto feature=document::PartDocument::create_sketch_container();feature.feature_kind=document::FeatureKind::Bend;
@@ -35,6 +84,7 @@ int verify_sheet_state_ui(QApplication& application,const std::filesystem::path&
             {
                 auto* view=dynamic_cast<viewer::MeshView*>(window.findChild<QOpenGLWidget*>("modelWorkspace"));
                 check(view,"Missing sheet View for Twisted Sheet creation.");
+                const auto before_creation=window.execute_console_command("documents").data;
                 window.findChild<QAction*>("twistedSheetAction")->trigger();flush();
                 app::PrimitivePropertiesDialog* twist{};
                 for(auto* item:window.findChildren<QDialog*>())if(auto* candidate=dynamic_cast<app::PrimitivePropertiesDialog*>(item);candidate&&candidate->isVisible())twist=candidate;
@@ -57,11 +107,67 @@ int verify_sheet_state_ui(QApplication& application,const std::filesystem::path&
                 const auto a=start->points[0],b=start->points[2];
                 check(std::hypot(std::hypot(axis->point.x-(a.x+b.x)/2,axis->point.y-(a.y+b.y)/2),axis->point.z-(a.z+b.z)/2)<1e-7,
                     "Twist axis misses the centre of its starting section.");
+                const auto check_axis=[&](app::PrimitivePropertiesDialog* dialog) {
+                    const auto& edges=view->transient_edges();
+                    const auto first=std::ranges::find_if(edges,[](const auto& e){return e.reference.semantic_key=="preview:twist:start";});
+                    const auto last=std::ranges::find_if(edges,[](const auto& e){return e.reference.semantic_key=="preview:twist:end";});
+                    const auto shown=std::ranges::find_if(view->mesh().axes,[&](const auto& item){return item.reference.owner_id==dialog->pending_value().feature_id&&item.reference.semantic_key=="axis";});
+                    check(first!=edges.end()&&last!=edges.end()&&shown!=view->mesh().axes.end(),"Twisted Sheet axis or section preview is missing.");
+                    const auto center=[](const auto& edge) {const auto a=edge.points.at(0),b=edge.points.at(2);return kernel::Vec3{(a.x+b.x)/2,(a.y+b.y)/2,(a.z+b.z)/2};};
+                    const auto from=center(*first),to=center(*last);
+                    const double length=std::hypot(to.x-from.x,to.y-from.y,to.z-from.z);
+                    check(length>1e-7&&std::hypot(shown->point.x-from.x,shown->point.y-from.y,shown->point.z-from.z)<1e-7,
+                        "Twisted Sheet axis does not pass through its section centre.");
+                    check(std::hypot(shown->direction.x-(to.x-from.x)/length,shown->direction.y-(to.y-from.y)/length,shown->direction.z-(to.z-from.z)/length)<1e-7,
+                        "Twisted Sheet axis does not follow the placed strip direction.");
+                };
+                check_axis(twist);
+                for(double length:{75.,110.,100.}) {
+                    twist->findChild<QDoubleSpinBox*>("twistedSheetLength")->setValue(length);flush();check_axis(twist);
+                }
+                const auto dimension_candidate=[&](const std::string& owner,const std::string& key) {
+                    viewer::ViewerCandidate candidate;candidate.kind=viewer::CandidateKind::Dimension;
+                    candidate.owner_id=owner;candidate.semantic_key="parameter:"+key;candidate.instance_path=active_path;
+                    const auto& dimensions=view->mesh().dimensions;
+                    const auto found=std::ranges::find_if(dimensions,[&](const auto& d){return d.reference.owner_id==candidate.owner_id&&d.reference.semantic_key==candidate.semantic_key;});
+                    check(found!=dimensions.end(),"Twisted Sheet View parameter is missing.");
+                    candidate.geometry_index=static_cast<std::size_t>(found-dimensions.begin());return candidate;
+                };
+                const auto open_view_parameter=[&](const viewer::ViewerCandidate& candidate) {
+                    view->fit_all();flush();
+                    const auto at=view->candidate_dimension_label_position(candidate);
+                    check(at.has_value(),"Twisted Sheet parameter has no visible label position.");
+                    QMouseEvent double_click(QEvent::MouseButtonDblClick,QPointF(*at),QPointF(view->mapToGlobal(*at)),
+                        Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);
+                    QApplication::sendEvent(view,&double_click);flush();
+                };
+                for(const auto& [key,value]:std::vector<std::pair<std::string,double>>{{"length",85},{"angle",60},{"length",105},{"angle",120},{"length",100},{"angle",90}}) {
+                    open_view_parameter(dimension_candidate(twist->pending_value().id,key));
+                    auto* edit=view->findChild<QLineEdit*>("inlineDimensionValueEdit");check(edit,"Twisted Sheet inline parameter editor is missing.");
+                    edit->setText(QString::number(value));QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);QApplication::sendEvent(edit,&enter);flush();
+                    check(std::abs((key=="length"?twist->pending_value().twisted_sheet.length:twist->pending_value().twisted_sheet.angle_degrees)-value)<1e-7,
+                        "Twisted Sheet View edit did not update its pending parameter.");
+                    check_axis(twist);
+                }
+                for(int index:{1,0,1,0}) {
+                    open_view_parameter(dimension_candidate(twist->pending_value().id,"twist_direction"));
+                    auto* selector=view->findChild<QComboBox*>("inlineTwistDirectionEdit");check(selector,"Twisted Sheet L/R selector is missing.");
+                    selector->setCurrentIndex(index);QMetaObject::invokeMethod(selector,"activated",Qt::DirectConnection,Q_ARG(int,index));
+                    selector->hidePopup();flush();
+                    check(twist->pending_value().twisted_sheet.reverse==(index==1),"Twisted Sheet L/R selection did not update the draft.");
+                    const auto candidate=dimension_candidate(twist->pending_value().id,"twist_direction");
+                    const auto dimension=view->dimension_source(candidate);
+                    check(dimension&&dimension->display_text_override.ends_with(index==1?"L":"R"),"Twisted Sheet direction label is stale.");
+                    check_axis(twist);
+                }
                 window.grab().save(QString::fromStdString((directory/(context?"twist-attached-context.png":"twist-attached-profile.png")).string()));
+                check(window.execute_console_command("documents").data==before_creation,"Twisted Sheet draft View edits changed the document.");
+                std::cout<<"Twisted Sheet draft View edits passed, context="<<context<<std::endl;
                 if(context) {
                     twist->buttons()->button(QDialogButtonBox::Cancel)->click();flush();
                     check(view->transient_edges().empty(),
                         "Assembly-context Twisted Sheet Cancel retained its preview.");
+                    check(window.execute_console_command("documents").data==before_creation,"Twisted Sheet Cancel changed the document.");
                 } else {
                 const auto twist_id=twist->pending_value().id;
                 twist->buttons()->button(QDialogButtonBox::Ok)->click();flush();
@@ -150,28 +256,59 @@ int verify_sheet_state_ui(QApplication& application,const std::filesystem::path&
                 QApplication::sendEvent(view,&double_click);flush();
                 check(!view->container_inspection_wire().empty(),
                     "Twisted Sheet View double-click did not open parameter inspection.");
+                for(const auto& [key,value]:std::vector<std::pair<std::string,double>>{{"length",120},{"angle",60},{"twist_direction",1}}) {
+                    std::cout<<"Twisted Sheet inspection edit: "<<key<<std::endl;
+                    window.show_parameter_dimensions(twist_id);flush();
+                    const double before=*view->candidate_dimension_value(dimension_candidate(twist_id,key));
+                    open_view_parameter(dimension_candidate(twist_id,key));
+                    if(key=="twist_direction") {
+                        auto* selector=view->findChild<QComboBox*>("inlineTwistDirectionEdit");check(selector,"Inspection L/R selector is missing.");
+                        selector->setCurrentIndex(1);QMetaObject::invokeMethod(selector,"activated",Qt::DirectConnection,Q_ARG(int,1));selector->hidePopup();flush();
+                    } else {
+                        auto* editor=view->findChild<QLineEdit*>("inlineDimensionValueEdit");check(editor,"Inspection numeric editor is missing.");
+                        editor->setText(QString::number(value));QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);QApplication::sendEvent(editor,&enter);flush();
+                    }
+                    check(std::abs(*view->candidate_dimension_value(dimension_candidate(twist_id,key))-value)<1e-7,"Twisted Sheet inspection edit did not commit.");
+                    for(bool redo:{false,true,false}) {
+                        window.findChild<QAction*>(redo?"redoAction":"undoAction")->trigger();flush();
+                        window.show_parameter_dimensions(twist_id);flush();
+                        check(std::abs(*view->candidate_dimension_value(dimension_candidate(twist_id,key))-(redo?value:before))<1e-7,"Twisted Sheet View edit Undo/Redo changed its value.");
+                    }
+                }
                 check(window.finish_parameter_dimensions(),
                     "Twisted Sheet parameter inspection did not close.");flush();
-                QTreeWidgetItem* twist_row{};
-                for(QTreeWidgetItemIterator item(twist_tree);*item;++item)
-                    if((*item)->data(0,Qt::UserRole).toString().toStdString()==twist_id) {
-                        twist_row=*item;break;
-                    }
-                check(twist_row,"Twisted Sheet is absent from Tree after inspection.");
-                window.show_tree_item_properties(twist_row);flush();
+                const auto twist_row=[&]() -> QTreeWidgetItem* {
+                    auto* tree=window.findChild<QTreeWidget*>("documentTree");
+                    for(QTreeWidgetItemIterator item(tree);*item;++item)
+                        if((*item)->data(0,Qt::UserRole).toString().toStdString()==twist_id)return *item;
+                    throw std::runtime_error("Twisted Sheet is absent from Tree after inspection.");
+                };
+                window.show_tree_item_properties(twist_row());flush();
+                const auto before_reopen=window.execute_console_command("documents").data;
                 app::PrimitivePropertiesDialog* reopened{};
                 for(auto* item:window.findChildren<QDialog*>())
                     if(auto* candidate=dynamic_cast<app::PrimitivePropertiesDialog*>(item);
                             candidate&&candidate->isVisible())reopened=candidate;
                 check(reopened&&reopened->findChild<QDoubleSpinBox*>("twistedSheetWidth"),
                     "Twisted Sheet Properties did not reopen from its Tree row.");
+                check_axis(reopened);
                 reopened->buttons()->button(QDialogButtonBox::Cancel)->click();flush();
+                check(window.execute_console_command("documents").data==before_reopen,"Twisted Sheet reopened Cancel changed the document.");
+                std::cout<<"Twisted Sheet reopened Cancel passed"<<std::endl;
+                window.show_tree_item_properties(twist_row());flush();
+                reopened=nullptr;
+                for(auto* item:window.findChildren<QDialog*>())
+                    if(auto* candidate=dynamic_cast<app::PrimitivePropertiesDialog*>(item);candidate&&candidate->isVisible())reopened=candidate;
+                check(reopened,"Twisted Sheet no-op Properties did not reopen.");
+                reopened->buttons()->button(QDialogButtonBox::Ok)->click();flush();
+                check(window.execute_console_command("documents").data==before_reopen,"Unchanged Twisted Sheet OK changed the document.");
                 window.findChild<QAction*>("undoAction")->trigger();flush();
                 check(std::ranges::none_of(view->mesh().triangle_references,[&](const auto& face) {
                         return face.owner_id==twist_id;
                     }),"Undo retained the Twisted Sheet result.");
                 }
             }
+            if(qEnvironmentVariableIsSet("ZIMA_VERIFY_TWISTED_SHEET_ONLY"))continue;
             auto* sheet_toolbar=window.findChild<QToolBar*>("toolsToolbar");
             const auto separated=[&](const char* first,const char* last) {
                 bool seen=false,separator=false;
@@ -322,6 +459,10 @@ int verify_sheet_state_ui(QApplication& application,const std::filesystem::path&
             if(context)check(std::ranges::any_of(view->mesh().triangle_references,[&](const auto& face){return face.instance_path==passive_path;}),"Sheet state hid the passive Assembly context.");
             // Fixture teardown must not enter the unrelated unsaved-document prompt.
             window.hide();flush();
+        }
+        if(qEnvironmentVariableIsSet("ZIMA_VERIFY_TWISTED_SHEET_ONLY")) {
+            std::cout<<"Twisted Sheet GUI: attached axis, repeated View length/angle/L/R edits, Part and Assembly Cancel/OK passed\n";
+            return 0;
         }
         {
             auto part=document::PartDocument::load("cpp/tests/fixtures/sheet/tilted-cone-with-bends.prtz");

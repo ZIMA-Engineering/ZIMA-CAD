@@ -28,7 +28,7 @@ public:
     SketchTextPropertiesDialog(
         zima::sketcher::SketchText initial,
         std::optional<std::array<double, 2>> anchor,
-        PreviewCallback preview, CommitCallback commit, QWidget* parent, bool y_up = false, bool drawing_text = false, std::optional<std::map<std::string,std::string>> action_settings = std::nullopt, bool symbol_definition = false);
+        PreviewCallback preview, CommitCallback commit, QWidget* parent, bool y_up = false, bool drawing_text = false, std::optional<std::map<std::string,std::string>> action_settings = std::nullopt, bool symbol_definition = false, bool template_x_left = false);
     std::map<std::string,std::string> field_action() const;
 
     void set_anchor(double x, double y);

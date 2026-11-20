@@ -19,6 +19,7 @@
 #include <zima/workspace/flat_operations.hpp>
 #include <zima/workspace/sheet_profile_operations.hpp>
 #include <zima/workspace/sheet_form_operations.hpp>
+#include <zima/workspace/primitive_operations.hpp>
 #include <zima/document/sheet_form_dimensions.hpp>
 #include "../numeric_expression_edit.hpp"
 
@@ -80,6 +81,38 @@ void AssemblyWorkspaceWindow::edit_dimension_inline(
     const auto value = viewer_->candidate_dimension_value(candidate);
     const auto dimension = viewer_->dimension_source(candidate);
     if (!value||!dimension||dimension->reference.instance_path!=candidate.instance_path) return;
+    if(candidate.semantic_key=="parameter:twist_direction") {
+        if(candidate.instance_path!=workspace_.active_occurrence_path())return;
+        auto* dialog=dynamic_cast<PrimitivePropertiesDialog*>(properties_dialog_);
+        const auto document_id=workspace_.active_document_id();
+        const auto* part=workspace_.open_part(document_id);
+        const auto* stored=part?part->session.document().find_container(candidate.owner_id):nullptr;
+        if(dialog) {if(!dialog->owns_parameter_owner(candidate.owner_id)||dialog->pending_value().feature_kind!=document::FeatureKind::TwistedSheet)return;}
+        else if(properties_dialog_||!stored||stored->feature_kind!=document::FeatureKind::TwistedSheet||!part_element_context_menu_enabled(candidate.owner_id))return;
+        if(!sketch_drag_dimension_id_.empty())end_sketch_dimension_drag();
+        auto* selector=new InlineThreadSizeEdit(viewer_);
+        selector->setObjectName("inlineTwistDirectionEdit");
+        selector->addItem(QStringLiteral("R — ")+tr("Doprava"),false);
+        selector->addItem(QStringLiteral("L — ")+tr("Doleva"),true);
+        selector->setCurrentIndex(*value==1.?1:0);
+        const auto position=viewer_->candidate_dimension_label_position(candidate).value_or(viewer_->last_pointer_position());
+        selector->setFixedWidth(210);
+        selector->move(std::clamp(position.x(),0,std::max(0,viewer_->width()-210)),std::clamp(position.y(),0,std::max(0,viewer_->height()-30)));
+        const QPointer<PrimitivePropertiesDialog> draft(dialog);
+        connect(selector,&QComboBox::activated,this,[this,document_id,owner=candidate.owner_id,draft,pending=dialog!=nullptr](int index) {
+            if(index<0||index>1||workspace_.active_document_id()!=document_id)return;
+            try {
+                if(pending) {if(draft)static_cast<void>(draft->set_inline_parameter_value("twist_direction",index));return;}
+                auto* part=workspace_.open_part(document_id);
+                const auto* source=part?part->session.document().find_container(owner):nullptr;
+                if(!source)return;
+                auto changed=*source;changed.twisted_sheet.reverse=index==1;
+                static_cast<void>(workspace::commit_primitive(workspace_,kernel_,document_id,std::move(changed),workspace::PrimitiveEditMode::Replace));
+                preserve_view_on_refresh_=true;refresh_tabs();show_parameter_dimensions(owner);
+            } catch(const std::exception& error) {state_->setText(tr(error.what()));}
+        });
+        selector->open_after_release();return;
+    }
     if (candidate.semantic_key == "parameter:thread_designation") {
         if (!sketch_drag_dimension_id_.empty()) end_sketch_dimension_drag();
         auto* dialog = dynamic_cast<PrimitivePropertiesDialog*>(primitive_reference_dialog_);
@@ -553,6 +586,15 @@ void AssemblyWorkspaceWindow::edit_dimension_inline(
             if (part == nullptr) throw std::runtime_error(
                 "Inline dimension editing currently requires an active Part");
             auto next = part->session.document();
+            if(const auto* primitive=next.find_container(candidate.owner_id);
+                primitive&&primitive->feature_kind==document::FeatureKind::TwistedSheet&&
+                (candidate.semantic_key=="parameter:length"||candidate.semantic_key=="parameter:angle")) {
+                auto changed=*primitive;
+                workspace::assign_primitive_dimensions(changed,{{candidate.semantic_key.substr(10),next_value}});
+                static_cast<void>(workspace::commit_primitive(workspace_,kernel_,next.document_id,std::move(changed),workspace::PrimitiveEditMode::Replace));
+                guarded->hide();guarded->deleteLater();preserve_view_on_refresh_=true;
+                refresh_tabs();show_parameter_dimensions(candidate.owner_id);return;
+            }
             if(!properties_dialog_)for(const auto& parent:part->session.document().history)if(parent.feature_kind==document::FeatureKind::Loft) {
                 const bool owned=std::ranges::any_of(parent.loft.sketches,[&](const auto& item){return item.sketch_feature&&(item.sketch_feature->id==candidate.owner_id||item.sketch_feature->feature.sketch_id==candidate.owner_id);});
                 if(!owned)continue;

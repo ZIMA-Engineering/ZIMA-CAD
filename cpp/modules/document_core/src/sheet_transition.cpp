@@ -238,10 +238,6 @@ kernel::ViewerMesh sheet_transition_preview(const HistoryContainer& source,const
         auto mesh=sketches[i].viewer_mesh();
         std::erase_if(mesh.edges,[](const auto& edge){return edge.construction;});
         result.edges.insert(result.edges.end(),mesh.edges.begin(),mesh.edges.end());
-        const auto& s=sketches[i];const auto origin=s.plane_reference_owner_id;
-        for(const auto& [axis,direction]:std::array<std::pair<const char*,kernel::Vec3>,3>{{{"x",s.resolved_x_axis},{"y",s.resolved_y_axis},{"z",s.resolved_normal}}}) {
-            kernel::ViewerEdge edge;edge.points={s.resolved_origin,add(s.resolved_origin,mul(direction,20))};edge.reference={origin,std::string("origin:axis:")+axis,{}};result.edges.push_back(std::move(edge));
-        }
     }
     // Disposable ZIMA wire only; no kernel calculation during placement.
     try {

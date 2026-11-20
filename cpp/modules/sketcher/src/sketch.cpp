@@ -5,6 +5,7 @@
 #include "rectilinear_template_solver.hpp"
 #include <zima/sketcher/template_image_json.hpp>
 #include <zima/sketcher/sketch.hpp>
+#include <zima/sketcher/point_presentation.hpp>
 #include <zima/sketcher/face_curve_reference.hpp>
 #include <zima/sketcher/curve_geometry.hpp>
 #include <zima/sketcher/curve_fillet.hpp>
@@ -15552,7 +15553,7 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh(
     result.points.reserve(points.size() + segments.size() + 1);
     result.points.push_back(
         {origin, {id, "external_point:sketch_origin", {}}, {}, true});
-    std::set<std::string> hidden_derived_poles;
+    const auto hidden_derived_poles=hidden_derived_control_points(*this);
     std::set<std::string> auxiliary_points,profile_points;
     const auto point_roles=[&](const auto& values,auto ids) {
         for(const auto& value:values)for(const auto& point:ids(value))
@@ -15564,9 +15565,6 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh(
     point_roles(ellipses,[](const auto& v){return std::vector{v.center_point_id,v.major_point_id,v.minor_point_id};});
     point_roles(elliptical_arcs,[](const auto& v){return std::vector{v.center_point_id,v.major_point_id,v.minor_point_id,v.start_point_id,v.end_point_id};});
     point_roles(bsplines,[](const auto& v){return v.control_point_ids;});
-    for(const auto& spline:bsplines)if(find_offset(spline.id) || std::ranges::any_of(curve_trims,[&](const auto& c){return c.id==spline.id;})) {
-        if(spline.control_point_ids.size()>2)hidden_derived_poles.insert(spline.control_point_ids.begin()+1,spline.control_point_ids.end()-1);
-    }
     for (const auto& point : points) {
         if(hidden_derived_poles.contains(point.id))continue;
         result.points.push_back(

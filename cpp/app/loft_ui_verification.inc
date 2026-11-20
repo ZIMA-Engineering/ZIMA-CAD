@@ -1,4 +1,7 @@
 int verify_loft_ui(QApplication& application,AssemblyWorkspaceWindow& window,const std::filesystem::path& directory) {
+    if(qEnvironmentVariableIsSet("ZIMA_VERIFY_LOFT_INTERSECTION_ONLY"))return verify_loft_intersection_ui(application,window,directory);
+    if(qEnvironmentVariableIsSet("ZIMA_VERIFY_POINT_CIRCLE_ONLY"))return verify_point_circle_ui(application,window,directory);
+    if(qEnvironmentVariableIsSet("ZIMA_VERIFY_PROFILE_ORDER_ONLY"))return verify_profile_point_order_ui(application,window,directory);
     const auto check=[](bool value,const char* text){if(!value)throw std::runtime_error(text);};
     const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
     const auto click=[&](QWidget* widget,QPoint point,Qt::MouseButton button=Qt::LeftButton){
@@ -368,6 +371,15 @@ int verify_loft_ui(QApplication& application,AssemblyWorkspaceWindow& window,con
         dialog->findChild<QComboBox*>("loftResultType")->setCurrentIndex(1);
         dialog->findChild<QDoubleSpinBox*>("loftThickness")->setValue(2);
         dialog->findChild<QComboBox*>("loftThinSide")->setCurrentIndex(2);flush();
+        const auto section_outlines=[&]{return std::ranges::count_if(view->transient_edges(),[](const auto& edge){return edge.reference.semantic_key.find(":thin:")!=std::string::npos;});};
+        check(section_outlines()>=6,"Thin Loft preview did not show both contours in every profile plane");
+        const auto first_thin_preview=view->transient_edges();
+        dialog->findChild<QDoubleSpinBox*>("loftThickness")->setValue(3);flush();
+        check(!std::ranges::equal(view->transient_edges(),first_thin_preview,[](const auto& a,const auto& b){return a.points==b.points;}),"Thin Loft thickness edit reused a stale preview");
+        dialog->findChild<QDoubleSpinBox*>("loftThickness")->setValue(2);flush();
+        view->set_standard_view(viewer::StandardView::Isometric);view->fit_all();flush();
+        {QEventLoop settle;QTimer::singleShot(950,&settle,&QEventLoop::quit);settle.exec();}
+        window.grab().save(QString::fromStdString((directory/"loft-thin-section-preview.png").string()));
         check(std::ranges::any_of(view->mesh().dimensions,[&](const auto& dim){return dim.reference.owner_id==id&&dim.reference.semantic_key=="parameter:thickness";}),"Loft Thin parameter inspection is missing");
         dialog->buttons()->button(QDialogButtonBox::Cancel)->click();flush();
         check(window.execute_console_command("documents").data==state,"Loft Cancel committed pending result changes");
@@ -401,6 +413,27 @@ int verify_loft_ui(QApplication& application,AssemblyWorkspaceWindow& window,con
         QApplication::sendEvent(view,&inspect_thin);flush();
         check(!editor()&&std::ranges::any_of(view->mesh().dimensions,[&](const auto& dim){return dim.reference.owner_id==id&&dim.reference.semantic_key=="parameter:thickness";}),"Thin Loft double click did not expose thickness");
         check(row(id)->isSelected()&&window.execute_console_command("documents").data==thin_selection_state,"Thin Loft inspection lost selection or changed the document");
+        window.show_tree_item_properties(row(id));flush();dialog=editor();check(dialog,"Surface Loft Properties missing");
+        dialog->findChild<QComboBox*>("loftResultType")->setCurrentIndex(2);flush();
+        check(!dialog->findChild<QPushButton*>("primitiveSubtractOperation")->isEnabled(),"Surface Loft permits subtraction");
+        dialog->buttons()->button(QDialogButtonBox::Ok)->click();flush();
+        check(!editor(),"Surface Loft did not calculate on OK");
+        const auto surface_faces=[&]{return std::ranges::count_if(view->mesh().triangle_references,[&](const auto& face){return face.owner_id==id&&face.surface_result;});};
+        check(surface_faces()>0,"Surface Loft does not use the surface color classification");
+        auto* surface_visibility=window.findChild<QAction*>("showSurfacesAction");check(surface_visibility,"Surface visibility action missing");
+        surface_visibility->setChecked(false);flush();check(surface_faces()==0,"Hidden Loft Surface is still displayed");
+        surface_visibility->setChecked(true);flush();check(surface_faces()>0,"Showing surfaces did not restore the Loft");
+        window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
+        const auto surface_saved=document::PartDocument::load(path,&calculated);
+        check(surface_saved.find_container(id)->loft.result_type==document::ProfileResultType::Surface&&
+            std::abs(calculated.back().surface_area-200*std::numbers::pi)<1e-4,"Surface Loft native reopen changed its result or area");
+        view->set_standard_view(viewer::StandardView::Isometric);view->fit_all();flush();
+        {QEventLoop settle;QTimer::singleShot(950,&settle,&QEventLoop::quit);settle.exec();}
+        window.grab().save(QString::fromStdString((directory/"loft-surface-yellow.png").string()));
+        window.findChild<QAction*>("undoAction")->trigger();flush();check(surface_faces()==0,"Surface Loft Undo retained surface classification");
+        window.findChild<QAction*>("redoAction")->trigger();flush();check(surface_faces()>0,"Surface Loft Redo lost surface classification");
+        window.findChild<QAction*>("undoAction")->trigger();flush(); // Retain the Thin fixture for subsequent reference picks.
+        const auto face_entry_state=window.execute_console_command("documents").data;
         action->trigger();flush();dialog=editor();check(dialog,"Second Loft creation missing");
         click(view,view->rect().center(),Qt::MiddleButton);
         field(dialog->findChild<QTableWidget*>("loftProfiles"),0,3);flush();
@@ -436,7 +469,7 @@ int verify_loft_ui(QApplication& application,AssemblyWorkspaceWindow& window,con
         }
         child->buttons()->button(QDialogButtonBox::Cancel)->click();flush();
         dialog->buttons()->button(QDialogButtonBox::Cancel)->click();flush();
-        check(window.execute_console_command("documents").data==thin_selection_state,"View-face entry Cancel changed the source Part");
+        check(window.execute_console_command("documents").data==face_entry_state,"View-face entry Cancel changed the source Part");
         action->trigger();flush();dialog=editor();check(dialog,"Incomplete Loft creation did not open");
         const auto incomplete_id=dialog->pending.id;
         const auto before_incomplete=window.execute_console_command("documents").data;
@@ -484,13 +517,39 @@ int verify_loft_ui(QApplication& application,AssemblyWorkspaceWindow& window,con
             auto* order=dynamic_cast<SweepPointOrderDialog*>(window.findChild<QWidget*>("sweepPointOrderDialog"));
             check(order&&order->isVisible(),"Loft did not reuse the profile point-order editor");
             auto* first=order->findChild<QComboBox*>("sweepFirstCorrespondencePoint");
-            first->setCurrentIndex(first->findData(QString::fromStdString(numbering.point_ids[2])));flush();
+            const auto scene_publications=dialog->property("loftBaseSceneCount").toUInt();
+            view->set_standard_view(viewer::StandardView::Isometric);view->fit_all();flush();
+            QEventLoop settle_order;QTimer::singleShot(950,&settle_order,&QEventLoop::quit);settle_order.exec();
+            const auto pick_order_point=[&](const std::string& point) {
+                std::optional<QPoint> hit;
+                for(int y=10;y<view->height()-10&&!hit;y+=3)for(int x=10;x<view->width()-10&&!hit;x+=3) {
+                    const auto offered=view->selection_candidates_at(QPointF(x,y));
+                    if(!offered.empty()&&offered.front().semantic_key.ends_with(":point:"+point))hit=QPoint(x,y);
+                }
+                check(hit.has_value(),"Point-order editor cannot pick its numbered profile point");click(view,*hit);flush();
+            };
+            pick_order_point(numbering.point_ids[2]);
+            check(first->currentData().toString().toStdString()==numbering.point_ids[2],"View click did not set the first native point");
+            auto* reverse=order->findChild<QCheckBox*>("sweepCorrespondenceReversed");
+            pick_order_point(numbering.point_ids[0]);
+            check(first->currentData().toString().toStdString()==numbering.point_ids[2]&&!reverse->isChecked(),"Nonadjacent point changed contour correspondence");
+            pick_order_point(numbering.point_ids[1]);
+            check(dialog->property("loftBaseSceneCount").toUInt()==scene_publications,"Point-order clicks republished the unchanged Loft input scene");
+            check(reverse->isChecked()&&dialog->pending.loft.correspondence_reversed.contains(second),"Second View click did not reverse the numbered contour");
+            check(std::ranges::count_if(view->transient_edges(),[](const auto& edge){return edge.reference.semantic_key.starts_with("loft:correspondence:");})==4,
+                "Point ordering lost one-to-one correspondence guides");
+            window.grab().save(QString::fromStdString((directory/"loft-point-order-view.png").string()));
+            if(accept)reverse->setChecked(false); // Keep the later guide-network fixture untwisted.
             order->buttons()->button(accept?QDialogButtonBox::Ok:QDialogButtonBox::Cancel)->click();flush();
             check(accept?dialog->pending.loft.correspondence_starts.at(second)==numbering.point_ids[2]:dialog->pending.loft.correspondence_starts.empty(),
                 "Loft first-point OK/Cancel did not retain the correct draft");
+            check(dialog->pending.loft.correspondence_reversed.empty(),"Point-order Cancel did not restore direction");
         }
         const auto anchors=document::loft_profile_anchor_mesh(dialog->pending,2);
         check(anchors.points.size()==8,"Numbered Loft profile anchors missing");
+        check(view->transient_model_points().size()==8&&std::ranges::all_of(view->transient_model_points(),[](const auto& p){return !p.label.empty();}),
+            "Loft preview contains auxiliary points or lacks correspondence numbers");
+        view->fit_all();flush();window.grab().save(QString::fromStdString((directory/"loft-numbered-points.png").string()));
         field(dialog->findChild<QTableWidget*>("loftGuides"),0,3);flush();
         child=dynamic_cast<PrimitivePropertiesDialog*>(window.findChild<QWidget*>("generalSurfaceSketchProperties"));
         check(child,"Numbered Loft guide Properties missing");

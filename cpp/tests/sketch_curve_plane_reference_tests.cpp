@@ -2,6 +2,7 @@
 #include <zima/workspace/sketch_operations.hpp>
 #include <zima/kernel/occt_kernel.hpp>
 #include <zima/kernel/curve_plane_intersection.hpp>
+#include <zima/document/general_surface.hpp>
 #include <algorithm>
 #include <cmath>
 #include <chrono>
@@ -316,8 +317,78 @@ void bounded_sources(const kernel::OcctKernel& engine) {
     check(scene.open_part(rounded.part.document_id)->session.document().sketches[1].serialized()==rounded.part.sketches[1].serialized(),"Bounded source query modified its read-only Sketch");
     std::cout<<"Trimmed native spline, trimmed rounded support leg and native corner arc respect their actual bounded geometry\n";
 }
+void owned_draft_circles(const std::filesystem::path& directory) {
+    for(bool placed:{false,true})for(auto plane:{SketchPlane::XZ,SketchPlane::YZ})for(double angle:{0.,23.}) {
+        auto part=document::PartDocument::create_default();document::BodyHistoryGraph graph;
+        const auto body=graph.create_body("Owned circle references");
+        if(placed) {auto value=*graph.find(body);value.scope.placement.x=31;value.scope.placement.y=-17;
+            value.scope.placement.rotation_x=value.scope.placement.absolute_rotation_x=19;graph.update_body(value);}
+        part.set_body_history(graph);
+        auto parent=document::create_general_surface();parent.general_surface.boundaries.resize(2);
+        parent.placement.x=7;parent.placement.y=-4;parent.placement.z=12;
+        parent.placement.rotation_z=parent.placement.absolute_rotation_z=angle;
+        auto source=Sketch::from_serialized(parent.general_surface.boundaries[0].sketch_serialized);
+        const auto circle=source.add_circle(0,0,10);
+        const auto segment=source.add_segment(-3,-2,3,2);
+        parent.general_surface.boundaries[0].sketch_serialized=source.serialized();
+        auto target=Sketch::from_serialized(parent.general_surface.boundaries[1].sketch_serialized);
+        target.plane=plane;target.plane_auto=false;
+        parent.general_surface.boundaries[1].sketch_serialized=target.serialized();document::reframe_general_surface(parent);
+        const auto unchanged=part.serialized();
+        const auto display=document::general_surface_display_sketch(parent,parent.general_surface.boundaries[1]);
+        const auto roots=workspace::prepare_owned_sketch_curve_intersection_branches(part,parent,display,{source.id,"circle:"+circle,{}},body);
+        check(roots.size()==2,"New owned circle did not offer both native intersections");
+        const auto verify=[&](const auto& refs,double radius) {
+            check(refs.size()==2,"Owned circle lost a branch");
+            const auto profile=document::general_surface_display_sketch(parent,parent.general_surface.boundaries[0]);
+            for(const auto& ref:refs) {check(!ref.broken&&ref.curve_intersection.has_value(),"Owned circle branch became broken");
+                const auto& p=ref.cached_points.front();const auto world=display.world_point(p[0],p[1]);const auto local=profile.local_point(world);
+                near(std::hypot(local[0],local[1]),radius);near(p[1],0);
+                check(ref.source_owner_id==source.id&&ref.source_semantic_key=="circle:"+circle,"Owned branch changed its source identity");}
+        };
+        verify(roots,10);check(part.serialized()==unchanged,"Draft query changed its source Part");
+        for(const auto& ref:roots)target.add_external_reference(ref);
+        parent.general_surface.boundaries[1].sketch_serialized=target.serialized();document::reframe_general_surface(parent);
+        part.history={parent};graph.insert({document::PartHistoryKind::Feature,parent.id});part.set_body_history(graph);
+        auto projected=Sketch::from_serialized(part.history.front().general_surface.boundaries[1].sketch_serialized);
+        auto projection=Sketch::create_external_reference(ExternalReferenceKind::Edge);
+        projection.source_document_id=part.document_id;projection.source_owner_id=source.id;projection.source_semantic_key="segment:"+segment;
+        workspace::populate_external_reference_cache(projected,projection,document::general_surface_local_reference_geometry(parent,
+            document::general_surface_definition_mesh(parent).original_references));
+        projected.add_external_reference(projection);
+        part.history.front().general_surface.boundaries[1].sketch_serialized=projected.serialized();
+        const auto file=directory/("owned-"+parent.id+".prtz");part.save(file);part=document::PartDocument::load(file);
+        static_cast<void>(workspace::refresh_sketch_external_references(part,{}));
+        projected=Sketch::from_serialized(part.history.front().general_surface.boundaries[1].sketch_serialized);
+        const auto projected_edge=std::ranges::find(projected.external_references,projection.id,&SketchExternalReference::id);
+        check(projected_edge!=projected.external_references.end()&&!projected_edge->broken&&projected_edge->exact_spline,
+            "Owned native projection is missing or ambiguous after reopening");
+        const auto source_display=document::general_surface_display_sketch(parent,parent.general_surface.boundaries[0]);
+        for(unsigned i=0;i<2;++i) {
+            const auto expected=display.local_point(source_display.world_point(i?3:-3,i?2:-2));
+            const auto actual=projected_edge->cached_points[i];near(actual[0],expected[0]);near(actual[1],expected[1]);
+        }
+        for(double radius:{12.,9.,11.,10.}) {
+            auto& live=part.history.front();auto native=Sketch::from_serialized(live.general_surface.boundaries[0].sketch_serialized);
+            native.circles.front().radius=radius;live.general_surface.boundaries[0].sketch_serialized=native.serialized();
+            const auto stored=Sketch::from_serialized(live.general_surface.boundaries[1].sketch_serialized);
+            const auto refreshed=workspace::calculate_part_sketch_curve_intersections(document::DocumentSession(part),stored);
+            // Stored definitions are parent-local; the branch cache remains in
+            // the same local Sketch coordinates after composition with its parent.
+            verify(refreshed,radius);
+            for(std::size_t i=0;i<roots.size();++i)check(refreshed[i].id==roots[i].id&&refreshed[i].curve_intersection==roots[i].curve_intersection,
+                "Owned circle radius edit changed a persisted branch identity");
+        }
+        bool rejected=false;
+        try {static_cast<void>(workspace::prepare_owned_sketch_curve_intersection_branches(part,parent,
+            document::general_surface_display_sketch(parent,parent.general_surface.boundaries[0]),{target.id,"circle:"+circle,{}},body));}
+        catch(const workspace::SketchOperationError&){rejected=true;}
+        check(rejected,"Owned Sketch accepted a forward dependency");
+    }
+    std::cout<<"Owned draft circles: two branches, XY/XZ and XY/YZ contacts, parent/Body transforms, source edits, native reopen and forward-dependency rejection passed\n";
+}
 }
 int main(int argc,char** argv){try{const auto parent=std::filesystem::canonical(std::filesystem::temp_directory_path());const auto directory=parent/("zima-curve-plane-"+Sketch::create_default().id);check(std::filesystem::create_directory(directory),"Cannot create private native test directory");
-    const kernel::OcctKernel engine;bounded_sources(engine);part_cases(engine,directory);dimension_cases(engine);authored_3d(engine);analytic_sources(engine);assembly_cases(engine,directory);persistence_validation(engine);coincident_contact_branches(engine);if(argc>1)actual_curve(argv[1]);query_timing(engine);
+    const kernel::OcctKernel engine;owned_draft_circles(directory);bounded_sources(engine);part_cases(engine,directory);dimension_cases(engine);authored_3d(engine);analytic_sources(engine);assembly_cases(engine,directory);persistence_validation(engine);coincident_contact_branches(engine);if(argc>1)actual_curve(argv[1]);query_timing(engine);
     check(directory.parent_path()==parent,"Unsafe native fixture cleanup");std::filesystem::remove_all(directory);return 0;
 }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

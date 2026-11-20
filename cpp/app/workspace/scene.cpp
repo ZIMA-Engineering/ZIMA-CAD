@@ -1730,7 +1730,7 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
                     const bool stable_geometry = sketch_external_reference_has_stable_geometry(candidate,profile,sketch_external_intersection_active_,&viewer_->mesh());
                     const auto source=sketch_external_reference_source_candidate(candidate);
                     return stable_geometry && candidate.instance_path.empty() &&
-                        (source_owners.contains(source.owner_id)||is_loft_profile_point_reference(source)) &&
+                        (source_owners.contains(source.owner_id)||is_loft_profile_point_reference(source)||is_owned_sketch_reference(source)) &&
                         sketch_external_reference_kind(candidate).has_value();
                 });
         } else if (sketch_coincident_active_) {
@@ -2691,7 +2691,7 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
                     candidate.instance_path.empty()) return false;
                 if (candidate.instance_path == dependent_path) {
                     const auto source=sketch_external_reference_source_candidate(candidate);
-                    return allowed_local_owners.contains(source.owner_id)||is_loft_profile_point_reference(source);
+                    return allowed_local_owners.contains(source.owner_id)||is_loft_profile_point_reference(source)||is_owned_sketch_reference(source);
                 }
                 try {
                     const auto address = workspace_.resolve_occurrence(

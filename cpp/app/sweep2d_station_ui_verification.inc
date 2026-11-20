@@ -1,6 +1,6 @@
     const auto flush_station_ui=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
     {
-        const auto station_path=directory/"sweep2d-three-stations.prtz";
+        const auto station_path=directory/"sweep2d-endpoint-stations.prtz";
         zima::document::PartDocument::create_default().save(station_path);
         if(!verify(window.open_document_path(QString::fromStdString(station_path.string())),"Cannot open station fixture"))return 1;
         action->trigger();flush_station_ui();
@@ -12,10 +12,10 @@
         if(!verify(junction==guide.arcs.front().start_point_id,"Fixture lost shared line/arc incidence"))return 1;
         dialog->set_sketch(0,guide);flush_station_ui();
         auto* table=dialog->findChild<QTableWidget*>("sweep2dProfiles");
-        if(!verify(table->rowCount()==3,"Line plus arc must expose three geometric stations"))return 1;
+        if(!verify(table->rowCount()==4,"Line plus arc must expose the start/end of both segments"))return 1;
         const auto add_profile=[&](int row,double radius) {
             const auto route=zima::document::PartDocument::sweep2d_route(dialog->pending);
-            const auto station=route.stations[row==0?0:row==1?1:3];
+            const auto station=route.stations[row];
             const auto index=zima::document::PartDocument::ensure_sweep2d_profile(dialog->pending,station.point_id,station.incoming);
             auto profile=zima::sketcher::Sketch::from_serialized(dialog->pending.sweep2d.profiles[index].sketch_serialized);
             const auto circle=profile.add_circle(0,0,radius);
@@ -23,8 +23,33 @@
             add_profile_points(profile);
             dialog->set_sketch(static_cast<unsigned>(index+1),profile);flush_station_ui();
         };
-        add_profile(0,2);add_profile(1,3);add_profile(2,4);
+        add_profile(0,2);add_profile(1,3);add_profile(3,4);
         const auto definition=dialog->pending;
+        const auto mapping=zima::document::sweep3d_profile_correspondence(zima::sketcher::Sketch::from_serialized(definition.sweep2d.profiles.front().sketch_serialized));
+        for(bool reverse:{false,true}) {
+            dialog->findChild<QPushButton*>("sweep2dPointOrder0")->click();flush_station_ui();
+            auto* order=dynamic_cast<zima::app::SweepPointOrderDialog*>(window.findChild<QDialog*>("sweepPointOrderDialog"));
+            if(!verify(order&&order->isVisible(),"2D Sweep point-order editor did not open"))return 1;
+            view->set_standard_view(zima::viewer::StandardView::Isometric);view->fit_all();flush_station_ui();
+            QEventLoop settle;QTimer::singleShot(950,&settle,&QEventLoop::quit);settle.exec();
+            for(const auto point:{mapping.point_ids.front(),reverse?mapping.point_ids.back():mapping.point_ids[1]}) {
+                std::optional<QPointF> hit;
+                for(int y=8;y<view->height()-8&&!hit;y+=3)for(int x=8;x<view->width()-8&&!hit;x+=3) {
+                    const auto candidates=view->selection_candidates_at(QPointF(x,y));
+                    if(!candidates.empty()&&candidates.front().semantic_key.ends_with(":"+point))hit=QPointF(x,y);
+                }
+                if(!verify(hit.has_value(),"2D Sweep point-order View picker lost the profile point"))return 1;
+                mouse(*hit,Qt::LeftButton);flush_station_ui();
+            }
+            const auto& profile=dialog->pending.sweep2d.profiles.front();
+            if(!verify(profile.correspondence_start_point_id==mapping.point_ids.front()&&profile.correspondence_reversed==reverse,
+                "2D Sweep View clicks lost first point or direction"))return 1;
+            if(!verify(std::ranges::count_if(view->transient_edges(),[](const auto& edge){return edge.reference.semantic_key.starts_with("profile-correspondence-link:");})==4,
+                "2D Sweep point ordering lost its adjacent profile links"))return 1;
+            window.grab().save(QString::fromStdString((directory/"sweep-point-order-view.png").string()));
+            order->buttons()->button(QDialogButtonBox::Cancel)->click();flush_station_ui();
+            if(!verify(dialog->pending==definition,"2D Sweep point-order Cancel changed its native draft"))return 1;
+        }
         const auto original_language=zima::app::ApplicationSettings::load();
         dialog->hide();
         for(const auto* language:{"cs","en","de","fr","ru"}) {
@@ -36,19 +61,16 @@
             zima::app::apply_application_translations(application,settings);
             zima::app::Sweep2DDialog translated(definition,[](auto){},&window);
             translated.show();flush_station_ui();
-            auto* selector=translated.findChild<QComboBox*>("sweep2dStationSide1");
-            const auto expected=settings.qt_translations.value("Společná stanice: vyberte profil na příchozí nebo odchozí části dráhy.");
-            if(!verify(selector&&!expected.isEmpty()&&selector->toolTip()==expected,"Station selector tooltip is not localized"))return 1;
+            auto* rows=translated.findChild<QTableWidget*>("sweep2dProfiles");
+            const auto expected=settings.qt_translations.value("Vlastní");
+            if(!verify(rows&&rows->rowCount()==4&&!expected.isEmpty()&&rows->item(1,3)->text()==expected,
+                "Endpoint station presentation is not localized"))return 1;
             window.grab().save(QString::fromStdString((directory/(std::string("sweep-stations-")+language+".png")).string()));
         }
         zima::app::apply_application_translations(application,original_language);dialog->show();
-        const auto revision=view->base_mesh_revision();
-        auto* side=dialog->findChild<QComboBox*>("sweep2dStationSide1");
-        if(!verify(side&&side->count()==2&&side->currentData().toBool(),"Shared station lost its incoming/outgoing selector"))return 1;
-        side->setCurrentIndex(side->findData(false));flush_station_ui();
-        if(!verify(dialog->pending==definition&&view->base_mesh_revision()==revision,"Selecting a station side changed native data or republished geometry"))return 1;
-        if(!verify(!dialog->findChild<QPushButton*>("sweep2dPointOrder1")->isEnabled(),"Inherited outgoing profile unexpectedly became explicit"))return 1;
-        dialog->findChild<QPushButton*>("sweep2dStationSketch1")->click();flush_station_ui();
+        if(!verify(dialog->pending==definition,"Displaying endpoint stations changed native data"))return 1;
+        if(!verify(!dialog->findChild<QPushButton*>("sweep2dPointOrder2")->isEnabled(),"Inherited outgoing profile unexpectedly became explicit"))return 1;
+        dialog->findChild<QPushButton*>("sweep2dStationSketch2")->click();flush_station_ui();
         if(!verify(dialog->pending.sweep2d.profiles.size()==4,"Outgoing Sketch did not retain the separate native definition"))return 1;
         auto context=view->read_only_profile_context();
         if(!verify(context.points.size()==8&&!context.edges.empty(),"Profile Sketch is missing numbered prior/following station context"))return 1;
@@ -76,7 +98,7 @@
         const auto unchanged_profiles=dialog->pending.sweep2d.profiles;
         for(int output:{1,2,0}) {
             dialog->findChild<QComboBox*>("sweep2dResultType")->setCurrentIndex(output);flush_station_ui();
-            dialog->findChild<QPushButton*>("sweep2dStationSketch1")->click();flush_station_ui();
+            dialog->findChild<QPushButton*>("sweep2dStationSketch2")->click();flush_station_ui();
             for(const auto& edge:view->read_only_profile_context().edges) {
                 if(!edge.reference.semantic_key.starts_with("sweep2d:profile:"))continue;
                 const bool first=edge.reference.semantic_key.starts_with("sweep2d:profile:"+guide.segments.front().first_point_id+":");
@@ -92,15 +114,14 @@
         const auto outgoing_index=static_cast<unsigned>(outgoing-dialog->pending.sweep2d.profiles.begin());
         auto profile=zima::sketcher::Sketch::from_serialized(outgoing->sketch_serialized);
         static_cast<void>(profile.add_circle(0,0,3));add_profile_points(profile);dialog->set_sketch(outgoing_index+1,profile);flush_station_ui();
-        if(!verify(table->rowCount()==3&&dialog->findChild<QPushButton*>("sweep2dPointOrder1")->isEnabled(),"Explicit outgoing profile added a duplicate station or lost ordering"))return 1;
-        side=dialog->findChild<QComboBox*>("sweep2dStationSide1");side->setCurrentIndex(side->findData(true));flush_station_ui();
+        if(!verify(table->rowCount()==4&&dialog->findChild<QPushButton*>("sweep2dPointOrder2")->isEnabled(),"Explicit outgoing profile changed endpoint rows or lost ordering"))return 1;
         auto expected=dialog->pending;
         zima::document::PartDocument::reframe_sweep2d_sketches(expected);
         dialog->buttons()->button(QDialogButtonBox::Ok)->click();flush_station_ui();
-        if(!verify(!dialog->isVisible(),"Three-station Sweep could not commit both joint profiles"))return 1;
+        if(!verify(!dialog->isVisible(),"Sweep could not commit both joint profiles"))return 1;
         save->trigger();flush_station_ui();
         auto stored=zima::document::PartDocument::load(station_path);
-        if(!verify(stored.history.size()==1,"Three-station Sweep was not saved"))return 1;
+        if(!verify(stored.history.size()==1,"Endpoint-station Sweep was not saved"))return 1;
         // A path-plane reference persists its source and offset only. The
         // unused placement/orientation bookkeeping is not its native contract.
         auto expected_document=stored;expected_document.history.front()=expected;
@@ -117,15 +138,14 @@
         if(!verify(station_row,"Saved Sweep row missing"))return 1;
         window.show_tree_item_properties(station_row);flush_station_ui();
         dialog=dynamic_cast<zima::app::Sweep2DDialog*>(window.findChild<QDialog*>("sweep2dDialog"));
-        side=dialog->findChild<QComboBox*>("sweep2dStationSide1");side->setCurrentIndex(side->findData(false));flush_station_ui();
         table=dialog->findChild<QTableWidget*>("sweep2dProfiles");
-        auto* remove=qobject_cast<QAbstractButton*>(table->cellWidget(1,4)->property("_removeWidget").value<QObject*>());
+        auto* remove=qobject_cast<QAbstractButton*>(table->cellWidget(2,4)->property("_removeWidget").value<QObject*>());
         if(!verify(remove,"Explicit joint profile has no removal control"))return 1;
         remove->click();flush_station_ui();
-        if(!verify(table->rowCount()==3&&dialog->pending.sweep2d.profiles.size()==3&&
+        if(!verify(table->rowCount()==4&&dialog->pending.sweep2d.profiles.size()==3&&
             std::ranges::none_of(dialog->pending.sweep2d.profiles,[&](const auto& p){return p.point_id==junction&&!p.incoming;})&&
             std::ranges::any_of(dialog->pending.sweep2d.profiles,[&](const auto& p){return p.point_id==junction&&p.incoming;})&&
-            !dialog->findChild<QPushButton*>("sweep2dPointOrder1")->isEnabled(),"Removing an explicit side removed the station or the other profile"))return 1;
+            !dialog->findChild<QPushButton*>("sweep2dPointOrder2")->isEnabled(),"Removing an explicit side removed the station or the other profile"))return 1;
         dialog->buttons()->button(QDialogButtonBox::Cancel)->click();flush_station_ui();save->trigger();flush_station_ui();
         if(!verify(zima::document::PartDocument::load(station_path).serialized().at("history").at(0).at("sweep2d")==expected_native,"Cancel committed profile removal"))return 1;
         QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
@@ -143,8 +163,8 @@
         if(!verify(row,"Representative Sweep Tree item missing"))return 1;
         window.show_tree_item_properties(row);flush_station_ui();
         dialog=dynamic_cast<zima::app::Sweep2DDialog*>(window.findChild<QDialog*>("sweep2dDialog"));
-        if(!verify(dialog&&dialog->findChild<QTableWidget*>("sweep2dProfiles")->rowCount()==3,"Representative line/arc model does not show three stations"))return 1;
-        for(int station=0;station<3;++station) {
+        if(!verify(dialog&&dialog->findChild<QTableWidget*>("sweep2dProfiles")->rowCount()==4,"Representative line/arc model does not show four endpoint stations"))return 1;
+        for(int station=0;station<4;++station) {
             dialog->findChild<QPushButton*>(QString("sweep2dStationSketch%1").arg(station))->click();flush_station_ui();
             if(!verify(!view->read_only_profile_context().edges.empty()&&!view->read_only_profile_context().points.empty(),"Representative Sketch lacks numbered other profiles"))return 1;
             if(station==1) {

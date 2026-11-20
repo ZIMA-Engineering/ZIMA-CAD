@@ -77,6 +77,12 @@ bool AssemblyWorkspaceWindow::tree_item_reorder_enabled(QTreeWidgetItem* item) c
         const auto& document=part->session.document();
         if(document.sheet_from_body_child_bound(id))return false;
         const auto& graph = document.body_history;
+        if(kind=="body-properties"||kind=="document-measurement") {
+            std::optional<std::string> scope;
+            for(const auto& row:document.body_properties)if(row.id==id)scope=row.body_id;
+            for(const auto& row:document.measurements)if(row.id==id)scope=row.body_id;
+            return scope&&(scope->empty()?workspace_.displayed_document_id()==workspace_.active_document_id():*scope==graph.active_body_id());
+        }
         if (kind=="part-body" || kind=="part-body-boolean")
             return workspace_.displayed_document_id()==workspace_.active_document_id() &&
                 (graph.find(id) || graph.find_boolean(id));

@@ -19,7 +19,6 @@
 #include <QSignalBlocker>
 #include <QTableWidget>
 #include <QToolButton>
-#include <map>
 
 namespace zima::app {
 class Sweep2DDialog final : public SweepPlacementDialog {
@@ -143,27 +142,7 @@ public:
         const auto& start=route.stations.front().origin;const auto& end=route.stations.back().origin;
         const bool closed=std::hypot(start.x-end.x,start.y-end.y,start.z-end.z)<1e-7;
         QString inherited,first_profile;
-        std::vector<QString> statuses;
-        std::vector<std::vector<std::size_t>> groups;
-        std::map<std::string,std::size_t> group_by_point;
-        for(std::size_t i=0;i<route.stations.size();++i) {
-            const auto& station=route.stations[i];
-            const auto found=std::ranges::find_if(pending.sweep2d.profiles,[&](const auto& p){return p.point_id==station.point_id&&p.incoming==station.incoming;});
-            const bool populated=found!=pending.sweep2d.profiles.end()&&document::sweep3d_profile_has_geometry(sketcher::Sketch::from_serialized(found->sketch_serialized));
-            if(closed&&i+1==route.stations.size())inherited=first_profile;
-            statuses.push_back(populated?tr("Vlastní"):inherited.isEmpty()?tr("Vyplňte první profil"):tr("Z %1").arg(inherited));
-            if(populated)inherited=sweep_station_label(station.label);
-            if(i==0)first_profile=inherited;
-            const auto [group,inserted]=group_by_point.emplace(station.point_id,groups.size());
-            if(inserted)groups.emplace_back();
-            groups[group->second].push_back(i);
-        }
-        for(const auto& group:groups) {
-            auto station_index=group.front();
-            const auto choice=station_sides_.find(route.stations[station_index].point_id);
-            if(choice!=station_sides_.end())for(const auto i:group)
-                if(route.stations[i].incoming==choice->second)station_index=i;
-            const auto station=route.stations[station_index];
+        for(const auto& station:route.stations) {
             const int row=profiles_->rowCount();profiles_->insertRow(row);
             const auto found=std::ranges::find_if(pending.sweep2d.profiles,[&](const auto& p){return p.point_id==station.point_id&&p.incoming==station.incoming;});
             const auto index=static_cast<std::size_t>(std::distance(pending.sweep2d.profiles.begin(),found));
@@ -176,20 +155,11 @@ public:
             qobject_cast<QWidget*>(indicator->property("_removeWidget").value<QObject*>())->setToolTip(tr("Odstranit vlastní profil (stanice zůstane)"));
             qobject_cast<QWidget*>(indicator->property("_arrowWidget").value<QObject*>())->setToolTip(tr("Skica"));
             profiles_->setItem(row,0,new ui::ReferenceCellItem(sweep_station_label(station.label)));
-            if(group.size()>1) {
-                auto* side=new QComboBox(profiles_);
-                side->setObjectName(QString("sweep2dStationSide%1").arg(row));
-                side->setToolTip(tr("Společná stanice: vyberte profil na příchozí nebo odchozí části dráhy."));
-                for(const auto i:group)side->addItem(sweep_station_label(route.stations[i].label),route.stations[i].incoming);
-                side->setCurrentIndex(side->findData(station.incoming));
-                profiles_->setCellWidget(row,0,side);
-                connect(side,&QComboBox::currentIndexChanged,this,[this,side,id=station.point_id](int index){
-                    if(index<0)return;
-                    station_sides_[id]=side->itemData(index).toBool();
-                    refresh_profiles();
-                });
-            }
-            profiles_->setItem(row,3,new ui::ReferenceCellItem(statuses[station_index]));
+            if(closed && static_cast<std::size_t>(row)+1==route.stations.size())inherited=first_profile;
+            const auto status=populated?tr("Vlastní"):inherited.isEmpty()?tr("Vyplňte první profil"):tr("Z %1").arg(inherited);
+            if(populated)inherited=sweep_station_label(station.label);
+            if(row==0)first_profile=inherited;
+            profiles_->setItem(row,3,new ui::ReferenceCellItem(status));
             auto* button=new QPushButton(tr("Skica"),profiles_);style_sketch_button(button);
             button->setObjectName(QString("sweep2dStationSketch%1").arg(row));
             connect(button,&QPushButton::clicked,this,[this,station]{
@@ -202,13 +172,19 @@ public:
             connect(order,&QPushButton::clicked,this,[this,index]{
                 try {
                     const auto initial=pending.sweep2d.profiles.at(index).correspondence_start_point_id;
+                    const auto reversed=pending.sweep2d.profiles.at(index).correspondence_reversed;
                     const QPointer<Sweep2DDialog> self(this);
-                    const auto preview=[self,index](std::string id){if(self){self->pending.sweep2d.profiles.at(index).correspondence_start_point_id=std::move(id);self->notify();}};
+                    const auto preview=[self,index](std::string id,bool reverse){if(self){
+                        auto& profile=self->pending.sweep2d.profiles.at(index);
+                        profile.correspondence_start_point_id=std::move(id);profile.correspondence_reversed=reverse;self->notify();}};
                     auto* dialog=new SweepPointOrderDialog(sketcher::Sketch::from_serialized(pending.sweep2d.profiles.at(index).sketch_serialized),
-                        initial,preview,parentWidget(),pending.sweep2d.result_type!=document::ProfileResultType::Solid);
-                    connect(dialog,&QDialog::finished,this,[self,preview,initial](int result){if(!self)return;if(result!=QDialog::Accepted)preview(initial);
+                        initial,reversed,preview,parentWidget(),pending.sweep2d.result_type!=document::ProfileResultType::Solid);
+                    connect(dialog,&QDialog::finished,this,[self,preview,initial,reversed](int result){if(!self)return;if(result!=QDialog::Accepted)preview(initial,reversed);
                         self->point_order_open_=false;self->show();self->raise();self->notify();});
                     point_order_open_=true;hide();dialog->show();
+                    const auto& profile=pending.sweep2d.profiles.at(index);
+                    dialog->bind_view(dynamic_cast<viewer::MeshView*>(parentWidget()->findChild<QOpenGLWidget*>("modelWorkspace")),pending.id,
+                        "sweep2d:profile-point:"+profile.point_id+(profile.incoming?":in:":":out:"),property("pointOrderInstancePath").toString().toStdString());
                 }catch(const std::exception& e){set_status(QString::fromUtf8(e.what()));}
             });
             profiles_->setCellWidget(row,2,order);
@@ -225,8 +201,6 @@ private:
     ui::ReferenceCellItem* path_field_{};
     bool plane_initialized_{},point_order_open_{},path_entry_active_{};
     QString path_error_,path_label_;
-    // Presentation choice only: both native incoming/outgoing definitions remain intact.
-    std::map<std::string,bool> station_sides_;
     void notify(){if(changed)changed();}
     void update_thin(){const bool enabled=pending.sweep2d.result_type==document::ProfileResultType::Thin;
         thin_form_->setRowVisible(thickness_,enabled);thin_form_->setRowVisible(side_,enabled);

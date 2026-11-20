@@ -20,9 +20,10 @@ inline std::string construction_reference_issue(const document::ConstructionObje
     for (const auto& point : object.curve_points) issue+=construction_reference_issue(point,index);
     return issue;
 }
-template<class Document> std::string sketch_reference_issue(const sketcher::Sketch& sketch,const Document& document) {
+template<class Document> std::string sketch_reference_issue(const sketcher::Sketch& sketch,const Document& document,
+        const std::string& owned_origin={}) {
     std::string issue;
-    if (!sketch.plane_reference_owner_id.empty() &&
+    if (!sketch.plane_reference_owner_id.empty() && sketch.plane_reference_owner_id!=owned_origin &&
         std::ranges::none_of(document.constructions,[&](const auto& object) {
             return (object.id==sketch.plane_reference_owner_id || object.entity_id==sketch.plane_reference_owner_id)
                 && object.reference_valid;
@@ -39,7 +40,8 @@ template<class Document> std::string feature_reference_issue(const document::His
     const auto profile=[&](const std::string& id) {
         const auto found=std::ranges::find_if(document.sketches,[&](const auto& s){return s.id==id;});
         if (found==document.sketches.end()) issue+="profile:"+id;
-        else issue+=sketch_reference_issue(*found,document);
+        else issue+=sketch_reference_issue(*found,document,
+            found->owner_container_id==feature.id?feature.container_origin.id:std::string{});
     };
     const auto target=[&](document::EndCondition condition,const auto& targets) {
         if (condition!=document::EndCondition::UpTo) return;
@@ -120,7 +122,8 @@ template<class Document> std::string feature_reference_issue(const document::His
     default: break;
     }
     for (const auto& sketch : document.sketches)
-        if (sketch.owner_container_id==feature.id) issue+=sketch_reference_issue(sketch,document);
+        if (sketch.owner_container_id==feature.id)
+            issue+=sketch_reference_issue(sketch,document,feature.container_origin.id);
     return issue;
 }
 inline zima::workspace::ReferenceIndex assembly_reference_index(const assembly::AssemblyDocument& document) {

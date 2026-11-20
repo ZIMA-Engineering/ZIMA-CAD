@@ -112,7 +112,7 @@ Json component(const document::SectionDefinition& section,const std::string& key
 void Host::register_section_commands() {
     using Type=commands::ArgumentType;
     dispatcher_.add({"section.reference.set",tr("Assign an original reference to Section placement through shared Properties."),
-        {{"object",true},{"index",true,Type::Integer},{"reference",true,Type::Object},{"offset_mm",false,Type::Number},
+        {{"object",true},{"index",true,Type::Integer},{"reference",true,Type::Object},{"offset_mm",false,Type::Number},{"angle_degrees",false,Type::Number},
          {"flip",false,Type::Boolean},{"derive_orientation",false,Type::Boolean},{"document",false}},true},[this](const Json& args) {
         const auto checked=target(args);if(!checked.ok)return checked;
         if(interaction().template_document)return Result::failure("unsupported_document",tr("Section operations require an open Part or Assembly."));
@@ -123,6 +123,11 @@ void Host::register_section_commands() {
             if(!row.contains("owner")||!row.contains("key")||args.at("index")<0||args.at("index")>4)invalid();
             document::ConstructionReference reference;reference.owner_id=row.at("owner");reference.semantic_key=row.at("key");
             reference.instance_path=row.value("instance_path",std::string{});reference.offset=args.value("offset_mm",0.);reference.flip=args.value("flip",false);
+            reference.use_angle=args.contains("angle_degrees");
+            if(reference.use_angle) {
+                if(args.contains("offset_mm") || args.at("index")>=3)invalid();
+                reference.offset=args.at("angle_degrees").get<double>();
+            }
             const auto id=workspace_.active_document_id(),object=args.at("object").get<std::string>();
             const bool changed=workspace::set_section_placement_reference(workspace_,id,object,args.at("index").get<std::size_t>(),std::move(reference),args.value("derive_orientation",true));
             const auto current=source(workspace_,{{"document",id}});auto result=details(find(current,{{"object",object}}));

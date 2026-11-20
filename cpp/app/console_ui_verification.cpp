@@ -2,6 +2,7 @@
 #include "../tests/broken_reference_fixture.hpp"
 #include "../tests/thin_wire_verification.hpp"
 #include <zima/sketcher/face_curve_reference.hpp>
+#include <zima/sketcher/point_presentation.hpp>
 #include <zima/document/feature_serialization.hpp>
 #include "feature_parameter_panel.hpp"
 #include "resource_icon.hpp"
@@ -270,6 +271,10 @@ Q_NEVER_INLINE static int verify_sketch_roles(QApplication& application, Assembl
 #include "sheet_cut_skin_ui_verification.inc"
 #include "surface_wire_visibility_ui_verification.inc"
 #include "general_surface_ui_verification.inc"
+#include "profile_point_order_ui_verification.inc"
+#include "cursor_orbit_ui_verification.inc"
+#include "point_circle_ui_verification.inc"
+#include "loft_intersection_ui_verification.inc"
 #include "loft_ui_verification.inc"
 #include "surface_intersection_ui_verification.inc"
 #include "surface_trim_ui_verification.inc"
@@ -649,6 +654,10 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
     }
     if(qEnvironmentVariableIsSet("ZIMA_VERIFY_CORNER_FORM_ONLY"))return verify_corner_sheet_form_ui(application,window,directory);
     if(qEnvironmentVariableIsSet("ZIMA_VERIFY_SHEET_FORM_ONLY"))return verify_sheet_form_ui(application,window,directory);
+    if(qEnvironmentVariableIsSet("ZIMA_VERIFY_TWIST_AXES_ONLY")) {
+        try {verify_twist_centroid_endpoints(application,window,directory);return 0;}
+        catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}
+    }
     if(qEnvironmentVariableIsSet("ZIMA_VERIFY_FEATURE_AXES_ONLY")) {
         try {verify_feature_profile_axes(application,directory);std::cout<<"Feature profile/origin/centroid axes: five languages, Tree, View selection and native reopening passed\n";return 0;}
         catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}
@@ -1536,6 +1545,9 @@ static int verify_general_command_console(QApplication& application,AssemblyWork
                 json_run("component.insert",{{"source",source}});
             }
             const auto path=directory/((in_assembly?name:name+"-source")+(in_assembly?".asmz":".prtz"));
+            const auto before_orbit=run("documents").data;
+            verify_cursor_orbit_view(application,window);
+            check(run("documents").data==before_orbit,"Orbit navigation changed document data or Undo revision");
             const auto edit_views=[&] {
                 auto* action=window.findChild<QAction*>("normalViewAction");
                 check(action && action->isEnabled(),"Named-view action missing");action->trigger();flush();
@@ -1543,11 +1555,11 @@ static int verify_general_command_console(QApplication& application,AssemblyWork
                     if(candidate->isVisible())if(auto* dialog=dynamic_cast<OrientationDialog*>(candidate))return dialog;
                 throw std::runtime_error("Orientation dialog did not open");
             };
-            const auto same_camera=[&](const std::array<float,8>& expected) {
+            const auto same_camera=[&](const std::array<float,11>& expected) {
                 const auto actual=view->camera_state();double dot=0;
                 for(std::size_t i=0;i<4;++i)dot+=double(expected[i])*actual[i];
                 if(std::abs(std::abs(dot)-1)>1e-6)return false;
-                for(std::size_t i=4;i<8;++i)if(std::abs(expected[i]-actual[i])>1e-5)return false;
+                for(std::size_t i=4;i<expected.size();++i)if(std::abs(expected[i]-actual[i])>1e-5)return false;
                 return true;
             };
             const auto bytes=[&]{
@@ -1555,7 +1567,7 @@ static int verify_general_command_console(QApplication& application,AssemblyWork
                 check(file.open(QIODevice::ReadOnly),"Cannot read named-view parity fixture");return file.readAll();
             };
             auto* dialog=edit_views();
-            view->set_camera_state({0.5F,0.5F,0.5F,0.5F,2.75F,-23.5F,51.25F,6.5F});
+            view->set_camera_state({0.5F,0.5F,0.5F,0.5F,2.75F,-23.5F,51.25F,6.5F,13.25F,-4.5F,9.75F});
             const auto captured=view->camera_state();
             auto* name_edit=dialog->findChild<QLineEdit*>("orientationViewName");
             auto* save=dialog->findChild<QPushButton*>("orientationSaveViewButton");
@@ -1594,7 +1606,16 @@ static int verify_general_command_console(QApplication& application,AssemblyWork
             QElapsedTimer animation;animation.start();
             while(!same_camera(captured) && animation.elapsed()<1500){QThread::msleep(10);flush();}
             check(same_camera(captured),"Reopened named view did not restore rotation, zoom, pan and reference scale");
-            dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+            const QPointF confirm_at(view->width()*.4,view->height()*.6);
+            window.findChild<QAction*>("cursorOrbitAction")->setChecked(true);
+            const QPointer<OrientationDialog> confirming(dialog);
+            for(const auto type:{QEvent::MouseButtonDblClick,QEvent::MouseButtonRelease}) {
+                QMouseEvent event(type,confirm_at,QPointF(view->mapToGlobal(confirm_at.toPoint())),Qt::MiddleButton,
+                    type==QEvent::MouseButtonDblClick?Qt::MiddleButton:Qt::NoButton,Qt::NoModifier);
+                QApplication::sendEvent(view,&event);flush();
+            }
+            check(!confirming||!confirming->isVisible(),"Cursor orbit blocked middle-double-click confirmation");
+            window.findChild<QAction*>("cursorOrbitAction")->setChecked(false);
             check(same_camera(captured),"Confirming the named view changed its camera");
             // Failed persistence must not optimistically remove a displayed row.
             dialog=edit_views();list=dialog->findChild<QListWidget*>("orientationViewList");list->setCurrentRow(7);

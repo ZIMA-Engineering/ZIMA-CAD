@@ -43,6 +43,7 @@ Fixture fixture(bool guided) {
  d::resolve_loft_sketches(f.loft,{});
  f.part.set_body_history(graph);f.part.resolve_constructions();return f;
 }
+#include "loft_output_contract.inc"
 void verify_numbered_profiles(k::OcctKernel& kernel) {
  auto f=fixture(false);f.loft.loft.profiles.resize(2);f.loft.loft.sketches.resize(2);
  for(unsigned i=0;i<2;++i) {
@@ -71,6 +72,10 @@ void verify_numbered_profiles(k::OcctKernel& kernel) {
  const auto anchors=d::loft_profile_anchor_mesh(f.loft,2);
  check(anchors.points.size()==8&&d::loft_profile_anchor_mesh(f.loft,1).points.size()==4,"Loft profile anchor visibility ignores preceding boundary");
  for(const auto& point:anchors.points)check(!point.label.empty()&&point.reference.semantic_key.starts_with("point:"),"Loft anchor has no native point identity or number");
+ const auto preview=d::loft_definition_mesh(f.part,f.loft);
+ check(preview.points.size()==anchors.points.size(),"Loft preview contains auxiliary midpoint/centre markers");
+ for(const auto& point:preview.points)check(!point.label.empty()&&point.reference.semantic_key.starts_with("loft:input:from:"),
+     "Loft creation preview lost profile numbering");
  w::Workspace live;live.add_part(f.part,w::calculate_part_with_resolved_references(kernel,f.part));live.activate(f.part.document_id);
  check(w::commit_loft(live,kernel,f.part.document_id,f.loft),"Numbered square/circle Loft failed");
  auto* state=live.open_part(f.part.document_id);
@@ -149,6 +154,27 @@ void verify_numbered_profiles(k::OcctKernel& kernel) {
  const auto reopened=d::PartDocument::load(path,&cache);std::filesystem::remove(path);
  check(reopened.find_container(f.loft.id)->loft==changed.loft&&!cache.empty(),"Loft correspondence native reopen failed");
  verify_connections(*reopened.find_container(f.loft.id),cache.back());
+ const auto forward_volume=cache.back().volume,forward_area=cache.back().surface_area;
+ auto reversed=changed;
+ for(const auto& id:reversed.loft.profiles)reversed.loft.correspondence_reversed.insert(id);
+ check(w::commit_loft(live,kernel,f.part.document_id,reversed),"Loft reverse direction edit failed");
+ const auto reversed_request=d::loft_request(f.part,reversed);
+ const auto forward_request=d::loft_request(f.part,changed);
+ for(std::size_t profile=0;profile<2;++profile) {
+  auto expected=forward_request.profiles[profile].outer_vertex_source_ids;
+  std::reverse(expected.begin()+1,expected.end());
+  check(reversed_request.profiles[profile].outer_vertex_source_ids==expected,"Loft reversed the first point or discarded direction");
+ }
+ verify_connections(reversed,state->session.calculated_boundaries().back());
+ near(state->session.calculated_boundaries().back().volume,forward_volume);
+ near(state->session.calculated_boundaries().back().surface_area,forward_area);
+ check(w::step_part_document_history(live,f.part.document_id,false)&&state->session.document().find_container(f.loft.id)->loft==changed.loft,"Loft direction Undo failed");
+ check(w::step_part_document_history(live,f.part.document_id,true)&&state->session.document().find_container(f.loft.id)->loft==reversed.loft,"Loft direction Redo failed");
+ state->session.document().save(path,state->session.calculated_boundaries());cache.clear();
+ const auto reversed_reopened=d::PartDocument::load(path,&cache);std::filesystem::remove(path);
+ check(reversed_reopened.find_container(f.loft.id)->loft==reversed.loft,"Loft native reopen lost direction");
+ verify_connections(*reversed_reopened.find_container(f.loft.id),cache.back());
+ std::cout<<"Reversed square/circle Loft: native first/direction, actual endpoint connections, unchanged volume/area, Undo/Redo and reopen passed"<<std::endl;
  auto broken=changed;broken.loft.correspondence_starts[second]="removed-native-point";
  check(w::commit_loft(live,kernel,f.part.document_id,broken,w::LoftFailurePolicy::KeepDefinition),"Broken correspondence definition was not retained");
  check(state->session.calculated_boundaries().back().calculation_errors.contains(f.loft.id),"Broken correspondence silently remapped");
@@ -225,8 +251,10 @@ void verify_owned_profile_references() {
  }
  std::cout<<"Owned Loft guide: preceding native point identity, three source moves, projection and reopen; "<<cases<<" dimension states, "<<edits<<" edits, "<<drags<<" DOF drags passed"<<std::endl;
 }
+#include "loft_user_guide_verification.inc"
 int main(int argc,char** argv){try {
  k::OcctKernel kernel;
+ if(argc==3&&std::string_view(argv[1])=="--verify-user-guides") {verify_user_loft_guides(kernel,std::filesystem::u8path(argv[2]));return 0;}
  if(argc==5&&(std::string_view(argv[1])=="--verify-native-copy"||std::string_view(argv[1])=="--verify-loft-prefix-copy")) {
   const auto input=std::filesystem::u8path(argv[2]),output=std::filesystem::u8path(argv[3]);
   check(std::filesystem::absolute(input).lexically_normal()!=std::filesystem::absolute(output).lexically_normal(),"Copy verification must preserve its input");
@@ -262,6 +290,7 @@ int main(int argc,char** argv){try {
   return report?0:1;
  }
  verify_owned_profile_references();
+ verify_loft_outputs(kernel);
  verify_numbered_profiles(kernel);
  for(unsigned incomplete=0;incomplete<4;++incomplete) {
   auto f=fixture(incomplete>=2);const auto complete=f.loft;
@@ -376,7 +405,9 @@ int main(int argc,char** argv){try {
   d::resolve_loft_sketches(f.loft,{});
   const auto before=f.loft.loft;
   const auto preview=d::loft_definition_mesh(f.part,f.loft);
-  check(preview.edges.size()==15,"Loft preview omitted a rounded curve or included a helper/reference");
+  check(preview.original_references.edges.size()==15,"Loft preview omitted a rounded curve or included a helper/reference");
+  check(std::ranges::count_if(preview.edges,[](const auto& edge){return edge.reference.semantic_key.starts_with("loft:correspondence:");})==10,
+      "Rounded Loft preview lost its five real correspondence points per profile");
   std::size_t index{};
   for(const auto& owned:f.loft.loft.sketches) {
    const auto evaluated=d::general_surface_display_sketch(f.loft,owned).evaluated_profile_sketch().viewer_mesh();
@@ -390,7 +421,7 @@ int main(int argc,char** argv){try {
       "Loft preview differs from its evaluated curve/parent-local frame");
    }
   }
-  check(index==preview.edges.size()&&f.loft.loft==before,"Loft preview changed the authored Sketches");
+  check(index==preview.original_references.edges.size()&&f.loft.loft==before,"Loft preview changed the authored Sketches");
   std::cout<<"Loft empty creation and exact rounded native profile preview without construction curves passed"<<std::endl;
  }
  {

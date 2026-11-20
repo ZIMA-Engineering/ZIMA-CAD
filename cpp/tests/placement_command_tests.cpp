@@ -4,6 +4,7 @@
 #include <zima/workspace/placement_edit.hpp>
 #include <zima/workspace/profile_operations.hpp>
 #include <zima/document/file_path.hpp>
+#include <zima/document/placement_json.hpp>
 #include <cmath>
 #include <iostream>
 #include <limits>
@@ -208,10 +209,12 @@ void sheet_feature_references(const kernel::OcctKernel& kernel, fs::path directo
     }
 }
 }
+#include "cylindrical_angle_command_tests.inc"
 int main(){try{
     helpers();const auto root=fs::canonical(fs::temp_directory_path());
     const auto directory=root/("zima-placement-"+document::PartDocument::create_default().document_id);
     require(fs::create_directory(directory),"Cannot create fixture directory");kernel::OcctKernel kernel;verify(kernel,directory);sheet_feature_references(kernel,directory);
+    cylindrical_angle_commands(kernel,directory);
     require(directory.parent_path()==root,"Unexpected cleanup path");fs::remove_all(directory);
     std::cout<<"Placement: mixed reference angles, atomic values, locks, independent transformed bounds, native persistence, Part/Assembly and history passed\n";return 0;
 }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}}

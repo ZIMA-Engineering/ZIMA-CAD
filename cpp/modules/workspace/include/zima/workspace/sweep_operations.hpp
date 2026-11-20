@@ -15,6 +15,7 @@ struct SweepProfileSource {
     std::string point_id;
     bool incoming{};
     std::string correspondence_start_point_id;
+    bool correspondence_reversed{};
 };
 [[nodiscard]] document::Sweep3DProfile sweep_profile_from_source(const document::PartDocument&,
     const std::string& feature_id, const SweepProfileSource&);

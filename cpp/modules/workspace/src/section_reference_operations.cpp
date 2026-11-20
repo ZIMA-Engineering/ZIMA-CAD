@@ -42,12 +42,15 @@ bool set_section_placement_reference(Workspace& live,const std::string& id,
     }
     if(position.size()>3)reject("invalid_placement","The Section has too many position reference rows.");
     auto baseline=value.placement;baseline.references=combined(position,orientation,index);
-    if(!document::resolve_placement(baseline,geometry))reject("invalid_placement","Existing Section placement references cannot be resolved.");
+    if(!document::resolve_placement(baseline,geometry) && !std::ranges::any_of(baseline.references,[](const auto& ref){return ref.use_angle;}))
+        reject("invalid_placement","Existing Section placement references cannot be resolved.");
     const kernel::Vec3 origin{baseline.x,baseline.y,baseline.z};
     const auto translation=document::point_constraint_remaining_dof(baseline.references,geometry,origin);
     const auto rotation=document::orientation_constraint_remaining_dof(baseline.references,geometry,true,origin);
     const bool direction=index<3&&translation==0&&rotation>0;
-    if(index>=3||direction) {
+    if(source.use_angle && index<3) {
+        source.orientation_role="position_only";derive_orientation=false;
+    } else if(index>=3||direction) {
         source.orientation_drives_rotation=true;source.orientation_role=direction?"direction":index==3?"front":"top";
         source.orientation_only=direction;if(direction)source.supports_offset=false;
     }else if(face||axis||edge) {
@@ -62,7 +65,7 @@ bool set_section_placement_reference(Workspace& live,const std::string& id,
         }
         source.orientation_drives_rotation=source.orientation_role!="none";
     }
-    source.measured_offset=document::measure_placement_reference_offset(source,geometry,origin);
+    source.measured_offset=document::measure_placement_reference_value(source,baseline.references,geometry,origin);
     const auto assigned=document::assign_placement_reference({position,orientation,empty_locks},true,index,std::move(source),derive_orientation);
     using Error=document::PlacementReferenceError;
     if(assigned.error==Error::Duplicate)reject("duplicate_reference","The same placement reference cannot be assigned twice.");

@@ -4,6 +4,22 @@ Status: implemented and verified for the Windows cases recorded below; not a
 published release.
 Baseline: `fe231125a`. Shared C++ implementation; no native format change.
 
+## Follow-up: original endpoint table restored
+
+The user subsequently requested the original table presentation. The current
+table again contains the start and end of every route segment: four rows for a
+line followed by an arc and eight rows for the closed four-span route. Incoming
+and outgoing definitions remain separate rows, including inherited profiles.
+The geometric point identity and native profile ownership are unchanged.
+The read-only previous-profile Sketcher context described below is retained.
+
+The updated Windows GUI matrix passed in 19.38 s on 2026-11-20, including the
+representative copied model, both explicit joint definitions, removal/inheritance,
+Cancel, save/reopen, Undo/Redo, successive dimension edits and center drags.
+Evidence: `build/rip25-20261120/review-gui-2/stations/output.log`.
+The grouping/side-selector descriptions and results below record the superseded
+implementation from `f77bfa594`; they do not describe the current endpoint table.
+
 ## Behavior and preserved ownership
 
 The Properties table groups route entries by the persisted Sketch point identity.

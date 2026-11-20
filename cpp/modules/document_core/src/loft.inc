@@ -37,6 +37,9 @@ void validate_loft(const HistoryContainer& feature,bool require_complete) {
     for(const auto& [profile,point]:p.correspondence_starts)
         if(point.empty()||std::ranges::find(p.profiles,profile)==p.profiles.end())
             throw std::invalid_argument("Loft source Sketch is unavailable.");
+    for(const auto& profile:p.correspondence_reversed)
+        if(std::ranges::find(p.profiles,profile)==p.profiles.end())
+            throw std::invalid_argument("Loft source Sketch is unavailable.");
 }
 HistoryContainer loft_sketch_editor_carrier(const HistoryContainer& feature) {
     auto carrier=feature;carrier.feature_kind=FeatureKind::GeneralSurface;carrier.combine_mode=CombineMode::Add;
@@ -82,15 +85,16 @@ kernel::LoftRequest loft_request(const PartDocument& part,const HistoryContainer
         const auto sketch=sketcher::Sketch::from_serialized(owned->sketch_serialized);
         const auto start=p.correspondence_starts.find(id);
         const auto first=start==p.correspondence_starts.end()?std::string{}:start->second;
-        const auto mapping=sweep3d_profile_correspondence(sketch,first,p.result_type!=ProfileResultType::Solid);
+        const bool reversed=p.correspondence_reversed.contains(id);
+        const auto mapping=sweep3d_profile_correspondence(sketch,first,p.result_type!=ProfileResultType::Solid,reversed);
         all_numbered=all_numbered&&!mapping.point_ids.empty();
-        sections.push_back(profile_correspondence_section(sketch,first,p.result_type!=ProfileResultType::Solid,false));
+        sections.push_back(profile_correspondence_section(sketch,first,p.result_type!=ProfileResultType::Solid,false,reversed));
     }
     if(all_numbered) {
         const auto count=sections.front().profile.outer_vertex_source_ids.size();
         all_numbered=std::ranges::all_of(sections,[&](const auto& section){return section.profile.outer_vertex_source_ids.size()==count;});
     }
-    if(!all_numbered&&!p.correspondence_starts.empty())
+    if(!all_numbered&&(!p.correspondence_starts.empty()||!p.correspondence_reversed.empty()))
         throw std::runtime_error("Loft correspondence requires the same number of points on every profile.");
     if(all_numbered) {
         result.match_profile_vertices=true;
@@ -119,7 +123,8 @@ kernel::ViewerMesh loft_profile_anchor_mesh(const HistoryContainer& feature,std:
             const auto sketch=general_surface_display_sketch(feature,owned);
             const auto found=feature.loft.correspondence_starts.find(owned.sketch_feature->id);
             const auto order=sweep3d_profile_correspondence(sketch,found==feature.loft.correspondence_starts.end()?std::string{}:found->second,
-                feature.loft.result_type!=ProfileResultType::Solid);
+                feature.loft.result_type!=ProfileResultType::Solid,
+                feature.loft.correspondence_reversed.contains(owned.sketch_feature->id));
             for(std::size_t n=0;n<order.point_ids.size();++n) {
                 kernel::ViewerPoint point{order.positions[n],{sketch.id,"point:"+order.point_ids[n],{}},std::to_string(n+1)};
                 point.display_owner_id=sketch.id;result.points.push_back(std::move(point));
@@ -141,7 +146,21 @@ kernel::ViewerMesh loft_definition_mesh(const PartDocument& part,const HistoryCo
         if(!owned.sketch_feature||owned.sketch_serialized.empty())continue;
         const auto sketch=general_surface_display_sketch(carrier,owned);
         try {
-            auto edges=profile_preview_source_edges(sketch.evaluated_profile_sketch());
+            const auto evaluated=sketch.evaluated_profile_sketch();
+            auto edges=profile_preview_source_edges(evaluated);
+            const auto& id=owned.sketch_feature->id;
+            if(feature.loft.result_type==ProfileResultType::Thin&&
+               std::ranges::find(feature.loft.profiles,id)!=feature.loft.profiles.end()) {
+                std::optional<kernel::Vec3> start;
+                const auto first=feature.loft.correspondence_starts.find(id);
+                const auto order=sweep3d_profile_correspondence(evaluated,
+                    first==feature.loft.correspondence_starts.end()?std::string{}:first->second,true,
+                    feature.loft.correspondence_reversed.contains(id));
+                if(!order.closed&&!order.positions.empty())start=order.positions.front();
+                // Section-plane thickness guides, not a calculated offset skin.
+                // Reuse the modeling preview's exact same side convention.
+                edges=thin_profile_preview_edges(evaluated,feature.loft.thickness,feature.loft.thin_mode,true,start);
+            }
             result.edges.insert(result.edges.end(),std::make_move_iterator(edges.begin()),std::make_move_iterator(edges.end()));
         }catch(const std::exception&) {
             // A partial draft still displays its supported native curves.
@@ -166,12 +185,28 @@ kernel::ViewerMesh loft_definition_mesh(const PartDocument& part,const HistoryCo
     }
     parameters=general_surface_place_definition_mesh(feature.placement,std::move(parameters));
     result.dimensions.insert(result.dimensions.end(),parameters.dimensions.begin(),parameters.dimensions.end());
-    const auto anchors=loft_profile_anchor_mesh(feature,feature.loft.sketches.size());
-    for(const auto& point:anchors.points) {
-        std::erase_if(result.points,[&](const auto& old){return old.reference==point.reference;});
-        result.points.push_back(point);
-    }
+    // Correspondence markers are real ordered profile points. Sketch picking
+    // helpers (curve midpoints, circle centres and datum markers) are not Loft
+    // correspondence stations and must not appear alongside their numbers.
+    result.points=loft_profile_anchor_mesh(feature,feature.loft.sketches.size()).points;
     for(auto& edge:result.edges) {edge.reference.semantic_key="loft:input:from:"+edge.reference.owner_id+":"+edge.reference.semantic_key;edge.reference.owner_id=feature.id;edge.display_owner_id=feature.id;}
     for(auto& point:result.points){point.reference.semantic_key="loft:input:from:"+point.reference.owner_id+":"+point.reference.semantic_key;point.reference.owner_id=feature.id;point.display_owner_id=feature.id;}
-    result.original_references.edges=result.edges;result.original_references.points=result.points;return result;
+    result.original_references.edges=result.edges;result.original_references.points=result.points;
+    std::vector<std::vector<kernel::Vec3>> sections;
+    for(const auto& id:feature.loft.profiles) {
+        const auto owned=std::ranges::find_if(feature.loft.sketches,[&](const auto& item){return item.sketch_feature&&item.sketch_feature->id==id;});
+        if(owned==feature.loft.sketches.end())return result;
+        const auto prefix="loft:input:from:"+owned->sketch_feature->feature.sketch_id+":point:";
+        std::vector<kernel::Vec3> points;
+        for(const auto& point:result.points)if(point.reference.semantic_key.starts_with(prefix))points.push_back(point.position);
+        if(points.empty()||(!sections.empty()&&sections.front().size()!=points.size()))return result;
+        sections.push_back(std::move(points));
+    }
+    for(std::size_t section=1;section<sections.size();++section)for(std::size_t point=0;point<sections[section].size();++point) {
+        kernel::ViewerEdge link;
+        link.points={sections[section-1][point],sections[section][point]};
+        link.reference={feature.id,"loft:correspondence:"+feature.loft.profiles[section]+":"+std::to_string(point),{}};
+        link.overlay=true;link.preview_terminal_dashed=true;result.edges.push_back(std::move(link));
+    }
+    return result;
 }

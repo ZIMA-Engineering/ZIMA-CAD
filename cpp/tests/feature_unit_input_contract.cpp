@@ -566,7 +566,7 @@ int verify_feature_unit_input(QApplication& app,QWidget& parent) {
         const auto profile_before=profile.serialized();
         const auto mapping=document::sweep3d_profile_correspondence(profile,{},false);
         std::string previewed;
-        auto* order=new app::SweepPointOrderDialog(profile,{},[&](auto id){previewed=std::move(id);},&parent,false);
+        auto* order=new app::SweepPointOrderDialog(profile,{},false,[&](auto id,bool){previewed=std::move(id);},&parent,false);
         auto* table=order->findChild<QTableWidget*>();auto* first=order->findChild<QComboBox*>("sweepFirstCorrespondencePoint");
         check(table->rowCount()==4&&table->horizontalHeaderItem(1)->text()==QString("X [%1]").arg(unit)&&
             table->horizontalHeaderItem(2)->text()==QString("Y [%1]").arg(unit),"Profile correspondence headers omit document units");

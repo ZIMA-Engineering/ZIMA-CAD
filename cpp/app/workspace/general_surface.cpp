@@ -11,6 +11,15 @@
 #include <zima/document/sketch_placement.hpp>
 namespace zima::app {
 using namespace workspace_detail;
+bool AssemblyWorkspaceWindow::is_owned_sketch_reference(const viewer::ViewerCandidate& candidate) const {
+    if(!sweep_profile_sketch_draft_||sweep_profile_sketch_draft_->id!=active_sketch_id_||
+       (!candidate.instance_path.empty()&&candidate.instance_path!=workspace_.active_occurrence_path()))return false;
+    const auto matches=[&](const auto& value){return value.reference.owner_id==candidate.owner_id&&
+        value.reference.semantic_key==candidate.semantic_key;};
+    return std::ranges::any_of(owned_sketch_reference_geometry_.edges,matches)||
+        std::ranges::any_of(owned_sketch_reference_geometry_.points,matches)||
+        std::ranges::any_of(owned_sketch_reference_geometry_.axes,matches);
+}
 bool AssemblyWorkspaceWindow::is_loft_profile_point_reference(const viewer::ViewerCandidate& candidate) const {
     if(!sweep_profile_sketch_draft_||sweep_profile_sketch_draft_->id!=active_sketch_id_||
        (!candidate.instance_path.empty()&&candidate.instance_path!=workspace_.active_occurrence_path()))return false;
@@ -93,8 +102,33 @@ void AssemblyWorkspaceWindow::show_owned_sketch_properties(ui::PropertiesSubWind
         *draft=feature.general_surface.boundaries.at(stage);
         sweep_profile_sketch_draft_=document::general_surface_display_sketch(feature,*draft);
         helical_sketch_context_=document::general_surface_definition_mesh(feature);
+        auto preceding=feature;preceding.general_surface.boundaries.resize(stage);
+        owned_sketch_reference_geometry_=document::general_surface_definition_mesh(preceding).original_references;
+        owned_sketch_reference_parent_=feature;
+        // Inactive siblings are context, with their original identities and
+        // exact supports retained separately for explicit reference entry.
+        auto references=std::move(helical_sketch_context_->original_references);
+        std::set<std::string> curve_owners;
+        for(const auto& boundary:feature.general_surface.boundaries)if(boundary.curve) {
+            curve_owners.insert(boundary.curve->id);curve_owners.insert(boundary.curve->entity_id);
+        }
+        std::vector<kernel::ViewerEdge> curves;
+        std::vector<kernel::ViewerPoint> curve_points;
+        for(const auto& edge:helical_sketch_context_->edges)
+            if(curve_owners.contains(edge.reference.owner_id)&&edge.reference.semantic_key.starts_with("curve:"))curves.push_back(edge);
+        for(const auto& point:helical_sketch_context_->points)
+            if(curve_owners.contains(point.display_owner_id)&&point.reference.semantic_key=="point")curve_points.push_back(point);
+        keep_only_inactive_sketch_profile(*helical_sketch_context_,{});
+        helical_sketch_context_->original_references=std::move(references);
+        for(auto& edge:helical_sketch_context_->edges)edge.display_owner_id=edge.reference.owner_id;
+        helical_sketch_context_->edges.insert(helical_sketch_context_->edges.end(),curves.begin(),curves.end());
+        helical_sketch_context_->points.insert(helical_sketch_context_->points.end(),curve_points.begin(),curve_points.end());
         loft_profile_reference_geometry_={};
         if((*pending).feature_kind==document::FeatureKind::Loft) {
+            // Other owned Sketches are read-only profile context. Their
+            // construction/reference aids belong only to their own editor,
+            // just as for ordinary inactive Part Sketches. Retain the exact
+            // source packet for reference resolution, without drawing its aids.
             auto loft=(*pending);loft.loft.sketches=feature.general_surface.boundaries;
             const auto anchors=document::loft_profile_anchor_mesh(loft,stage);
             loft_profile_reference_geometry_=anchors.original_references;
@@ -108,7 +142,7 @@ void AssemblyWorkspaceWindow::show_owned_sketch_properties(ui::PropertiesSubWind
         std::erase_if(helical_sketch_context_->points,[&](const auto& point){return point.reference.owner_id==id;});
         QPointer<PrimitivePropertiesDialog> sketch_guard(dialog);
         embedded_sketch_finished_=[this,sketch_guard,draft,local_pick](auto sketch) {
-            helical_sketch_context_.reset();loft_profile_reference_geometry_={};if(!sketch_guard)return;
+            helical_sketch_context_.reset();loft_profile_reference_geometry_={};owned_sketch_reference_geometry_={};owned_sketch_reference_parent_.reset();if(!sketch_guard)return;
             draft->sketch_serialized=sketch.serialized();
             properties_dialog_=sketch_guard;sketch_guard->show();sketch_guard->raise();
             primitive_reference_dialog_=sketch_guard;
@@ -135,8 +169,11 @@ void AssemblyWorkspaceWindow::show_owned_sketch_properties(ui::PropertiesSubWind
     dialog->set_reference_highlights_changed_callback([this,dialog]{viewer_->set_constraint_reference_highlights({},highlighted_reference_edge_keys(*dialog));});
     connect(dialog,&QObject::destroyed,this,[this,guard,pending,sketch_id,source_geometry,resume] {
         feature_reference_pick_={};feature_reference_end_={};
+        owned_sketch_origin_ids_.clear();
         helical_sketch_context_.reset();
         loft_profile_reference_geometry_={};
+        owned_sketch_reference_geometry_={};
+        owned_sketch_reference_parent_.reset();
         if(active_sketch_id_==sketch_id)active_sketch_id_.clear();
         if(selected_sketch_id_==sketch_id)selected_sketch_id_.clear();
         properties_dialog_=guard;primitive_reference_dialog_=dynamic_cast<PlacementReferenceDialog*>(guard.data());
@@ -161,7 +198,7 @@ void AssemblyWorkspaceWindow::show_owned_sketch_properties(ui::PropertiesSubWind
         const auto& value=*feature.general_surface.boundaries.at(stage).sketch_feature;
         origin.id=value.id;origin.entity_id=value.feature_id;origin.container_origin=value.container_origin;origin.name=value.name;
         origin.origin=point;origin.rotation={placement.rotation_x,placement.rotation_y,placement.rotation_z};origin.reference_valid=false;
-        if((*pending).feature_kind==document::FeatureKind::Loft) {
+        {
             // Reuse the ordinary Plane presentation from the resolved owned
             // Sketch frame, including the chosen plane and its offset. The
             // same frame is handed to Sketcher; no second placement solve or
@@ -189,15 +226,24 @@ void AssemblyWorkspaceWindow::show_owned_sketch_properties(ui::PropertiesSubWind
         primitive_origin_preview_mesh_->edges.insert(primitive_origin_preview_mesh_->edges.end(),parent_origin.edges.begin(),parent_origin.edges.end());
         primitive_origin_preview_mesh_->points.insert(primitive_origin_preview_mesh_->points.end(),parent_origin.points.begin(),parent_origin.points.end());
         primitive_origin_preview_mesh_->axes.insert(primitive_origin_preview_mesh_->axes.end(),parent_origin.axes.begin(),parent_origin.axes.end());
+        // These origins belong to preceding children of the draft parent;
+        // they do not exist as top-level history containers during creation.
+        auto sibling_origins=local_origin_display_mesh(primitive_reference_geometry_,visible_local_origin_ids_);
+        append_mesh(*primitive_origin_preview_mesh_,document::general_surface_place_definition_mesh(feature.placement,std::move(sibling_origins)));
+        std::optional<kernel::ViewerMesh> loft_preview;
         if((*pending).feature_kind==document::FeatureKind::Loft) {
             auto loft=(*pending);loft.loft.sketches=feature.general_surface.boundaries;
             append_mesh(*primitive_origin_preview_mesh_,document::loft_profile_anchor_mesh(loft,stage));
-            if(const auto* live=workspace_.open_part(workspace_.active_document_id()))
-                primitive_origin_preview_mesh_->dimensions=document::loft_definition_mesh(live->session.document(),loft,source_geometry).dimensions;
+            if(const auto* live=workspace_.open_part(workspace_.active_document_id())) {
+                loft_preview=document::loft_definition_mesh(live->session.document(),loft,source_geometry);
+                primitive_origin_preview_mesh_->dimensions=loft_preview->dimensions;
+            }
         }
         viewer_->set_feature_preview_owners({value.id,value.feature_id,value.container_origin.id});
         preserve_view_on_refresh_=true;refresh_scene();
-        auto mesh=document::general_surface_definition_mesh(feature);
+        // Owned-profile Properties uses the parent's authored preview too;
+        // the raw Sketch editor packet also contains read-only reference lines.
+        auto mesh=loft_preview?std::move(*loft_preview):document::general_surface_definition_mesh(feature);
         if(const auto* part=workspace_.open_part(workspace_.active_document_id()))
             if(const auto* body=part->session.document().body_owner_for_object(feature.id))mesh=part->session.document().place_body_mesh(std::move(mesh),body->scope.id);
             else if(const auto* body=part->session.document().body_history.find(part->session.document().body_history.active_body_id()))mesh=part->session.document().place_body_mesh(std::move(mesh),body->scope.id);
@@ -211,8 +257,14 @@ void AssemblyWorkspaceWindow::show_owned_sketch_properties(ui::PropertiesSubWind
     // owned editor must already expose its pending parent's local datum;
     // the outer scene cannot resolve references to an uncommitted Loft.
     primitive_reference_geometry_=document::general_surface_boundary_reference_geometry(carrier((*pending)),stage,source_geometry);
+    owned_sketch_origin_ids_.clear();
+    for(std::size_t i=0;i<stage;++i)if(const auto& owned=boundaries(*pending)[i].sketch_feature) {
+        for(const auto& id:{owned->id,owned->feature_id,owned->feature.sketch_id})
+            owned_sketch_origin_ids_.emplace(id,owned->container_origin.id);
+    }
+    connect(dialog,&QDialog::finished,this,[this]{owned_sketch_origin_ids_.clear();});
     bind_local_origin_selection(dialog);
-    if((*pending).feature_kind==document::FeatureKind::Loft) {
+    {
         // The automatically inherited parent frame is one attachment bundle.
         // View-plane authoring replaces that bundle only after a confirmed
         // pick; merely arming or cancelling entry must retain all three rows.

@@ -16,6 +16,8 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     const auto current=[&]{return workspace::document_sketch(live,doc,sketch);};
     const auto text=command("sketch.text.create",{{"value","0"},{"position",{10,20}},{"height_mm",3},{"color","white"},{"modeling_geometry",false}}).at("text").get<std::string>();
     const auto data=command("sketch.text.get",{{"text",text}});require(data.at("value")=="0" && data.at("font")=="osifont" && data.at("contour_count").get<int>()>=2 && current().texts.front().contours.size()>=2,"Native text command lost glyph holes");
+    require(std::abs(data.at("bounds_mm").at("min")[1].get<double>()-20)<1e-8&&
+        data.at("bounds_mm").at("max")[1].get<double>()>22,"Ordinary Sketch text grows below its bottom anchor");
     const auto original=current().texts.front();command("sketch.text.set",{{"text",text},{"value","Řez Ø10"},{"horizontal","center"},{"vertical","middle"},{"color","red"},{"flipped",true},{"angle_degrees",30},{"position",{20,30}},{"height_mm",4},{"modeling_geometry",true}});
     const auto updated=current().texts.front();require(updated.value=="Řez Ø10" && updated.height==4 && updated.flipped && updated.modeling_geometry && updated.horizontal==sketcher::TextHorizontalAlignment::Center && updated.color==sketcher::SketchTextColor::Red,"Text property patch lost a parameter");
     run(host,"undo");require(current().texts.front()==original,"Text property Undo changed original outlines");run(host,"redo");require(current().texts.front()==updated,"Text Redo changed outlines");

@@ -21,6 +21,12 @@ inline std::vector<kernel::HistoryOperation> combined_solid_state_calculation_op
         changes.push_back({authored.size(),operation.owner_id,operation.body.id,
             state->restore,state->all,operation.suppressed,state->coefficient,state->owners});
         if(operation.suppressed)continue;
+        std::set<std::string> carried;
+        if(const auto* body=doc.body_history.find(operation.body.id)) {
+            operation.solid_state_face_transfers=solid_state_face_transfers(
+                doc,*body,operation.owner_id,geometry,operations,true);
+            for(const auto& transfer:operation.solid_state_face_transfers)carried.insert(transfer.owner_id);
+        }
         const auto packet=previous->back().solid_state_reference_views.find(operation.owner_id);
         if(packet==previous->back().solid_state_reference_views.end())continue;
         const auto targets=kernel::solid_states_before(authored,changes,authored.size());
@@ -33,6 +39,11 @@ inline std::vector<kernel::HistoryOperation> combined_solid_state_calculation_op
             const auto* feature=doc.find_container(original.owner_id);
             const auto* object=doc.find_construction(original.owner_id);
             const auto* refs=feature?&feature->placement.references:object?&object->references:nullptr;
+            if(carried.contains(original.owner_id)) {
+                changed.insert({original.owner_id,{}});
+                if(feature)changed.insert({feature->container_origin.id,{}});
+                continue;
+            }
             if(refs&&std::ranges::any_of(*refs,[&](const auto& ref){return changed.contains({ref.owner_id,ref.instance_path})||changed.contains(solid_state_source_owner(ref));})) {
                 auto current=solid_state_alias_geometry(geometry,*packet->second,changed);
                 views.emplace(original.owner_id,document::solid_state_reference_view(geometry,current.geometry,current.owners,*refs));

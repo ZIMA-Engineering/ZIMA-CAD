@@ -370,7 +370,9 @@ int verify_translations(QApplication& application, QWidget& parent) {
                 settings.qt_translations.value("Bod %1 [%2; %3] %4").arg(1).arg(number(10),number(0),unit),
                 "Helical choice descriptions are not localized");
             auto profile=sketcher::Sketch::create_default();static_cast<void>(profile.add_segment(0,0,25.4,50.8));
-            app::SweepPointOrderDialog order(profile,{},[](auto){},&parent,true);order.setAttribute(Qt::WA_DeleteOnClose,false);
+            app::SweepPointOrderDialog order(profile,{},false,[](auto,bool){},&parent,true);order.setAttribute(Qt::WA_DeleteOnClose,false);
+            check(order.findChild<QCheckBox*>("sweepCorrespondenceReversed")->text()==settings.qt_translations.value("Obrátit směr")&&
+                order.findChild<QPushButton*>("sweepPickPointOrder")->text()==settings.qt_translations.value("Vybrat ve View"),"Point-order View controls are untranslated");
             auto* coordinates=order.findChild<QTableWidget*>();
             check(coordinates->horizontalHeaderItem(1)->text()==settings.qt_translations.value("X [%1]").arg(unit)&&
                 coordinates->horizontalHeaderItem(2)->text()==settings.qt_translations.value("Y [%1]").arg(unit),
@@ -851,6 +853,19 @@ int verify_translations(QApplication& application, QWidget& parent) {
         check(dialog.findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->text() == cancel[language],
             "Shared Cancel button is not translated");
         dialog.reject();
+        for(bool twisted:{false,true}) {
+            auto sheet=twisted?document::PartDocument::create_twisted_sheet_container():
+                document::PartDocument::create_revolution_container("profile");
+            if(!twisted)sheet.revolution.sheet_metal=true;
+            app::PrimitivePropertiesDialog properties(sheet,true,true,[](auto){},&parent);
+            properties.setAttribute(Qt::WA_DeleteOnClose,false);properties.show();application.processEvents();
+            check(!properties.findChild<QPushButton*>("primitiveAddOperation")&&
+                !properties.findChild<QPushButton*>("primitiveSubtractOperation"),
+                "Sheet properties expose Boolean operation buttons");
+            check(properties.pending_value().combine_mode==document::CombineMode::Add,
+                "Sheet creation changed its additive operation");
+            properties.reject();
+        }
         for(bool revolve:{false,true}) {
             auto feature=revolve?document::PartDocument::create_revolution_container("profile"):document::PartDocument::create_extrusion_container("profile");
             std::optional<document::HistoryContainer> committed;

@@ -1,9 +1,17 @@
 #include <zima/document/part_document.hpp>
+#include <zima/document/feature_parameter_dimensions.hpp>
 #include <zima/document/bend.hpp>
+#include <zima/document/flat.hpp>
 #include <zima/document/viewer_packet_json.hpp>
 #include <zima/kernel/geometry_kernel.hpp>
 #include <zima/kernel/curve_evaluation.hpp>
 #include <zima/kernel/sheet_material.hpp>
+#include <zima/kernel/axis_display.hpp>
+#include <zima/kernel/calculated_body_shape.hpp>
+#include <BRepAdaptor_Surface.hxx>
+#include <BRepCheck_Analyzer.hxx>
+#include <TopExp_Explorer.hxx>
+#include <TopoDS.hxx>
 #include <zima/workspace/flat_operations.hpp>
 #include <zima/workspace/primitive_operations.hpp>
 #include <zima/workspace/bend_operations.hpp>
@@ -112,6 +120,113 @@ void verify_chain() {
         const auto path=sketcher::Sketch::from_serialized(saved->bend.auxiliary_sketches[0]);
         end_key=path.arcs.back().end_point_id;parent=bend.id;
     }
+}
+void verify_flat_axis_transport(bool reverse=false,const std::filesystem::path& output={},
+        bool last_endpoint=false,bool opposite_skin=false) {
+    kernel::OcctKernel kernel;workspace::Workspace live;
+    auto part=document::PartDocument::create_default();
+    if(part.body_history.bodies().empty())static_cast<void>(part.body_history.create_body("Sheet axis transport"));
+    const auto id=part.document_id;live.add_part(part);
+    auto twist=document::PartDocument::create_twisted_sheet_container();
+    twist.twisted_sheet.width=40;twist.twisted_sheet.thickness=2;twist.twisted_sheet.length=60;twist.twisted_sheet.angle_degrees=90;
+    twist.twisted_sheet.reverse=reverse;
+    check(workspace::commit_primitive(live,kernel,id,twist,workspace::PrimitiveEditMode::Create),"Cannot create axis transport twist");
+    auto* state=live.open_part(id);
+    const auto geometry=state->session.calculated_boundaries().back().mesh.original_references;
+    const auto edge=std::ranges::find_if(geometry.edges,[&](const auto& e) {
+        return e.reference.owner_id==twist.id&&kernel::sheet_edge_role(e)==kernel::SheetEdgeRole::Boundary&&
+            e.reference.semantic_key.find("twist:path:end")!=std::string::npos&&e.measured_length&&std::abs(*e.measured_length-40)<1e-6&&
+            std::ranges::any_of(e.edge_treatment_side_references,[&](const auto& face) {
+                return face.sheet_role==(opposite_skin?kernel::SheetFaceRole::SideB:kernel::SheetFaceRole::SideA);
+            });
+    });
+    check(edge!=geometry.edges.end(),"Axis transport twist has no end boundary");
+    auto flat=document::PartDocument::create_sketch_container();flat.feature_kind=document::FeatureKind::Flat;flat.flat.sheet_attachment=true;
+    flat.placement.references=document::flat_sheet_references(*edge,
+        edge->edge_treatment_endpoint_references[last_endpoint?1:0]);
+    auto outline=sketcher::Sketch::create_default();outline.owner_container_id=flat.id;flat.flat.sketch_id=outline.id;
+    // Seed exactly as the GUI does, from resolved attachment endpoints. A
+    // manually drawn 0..40 rectangle can lie beside a -40..0 joining edge.
+    auto draft=state->session.document();draft.insert_history_entry(document::PartHistoryKind::Feature,flat.id);
+    draft.history.push_back(flat);draft.sketches.push_back(outline);
+    draft.resolve_constructions(geometry);flat=*draft.find_container(flat.id);outline=draft.sketches.back();
+    check(workspace::initialize_attached_flat_profile(outline),"Cannot seed the attached tab from its actual endpoints");
+    const auto a=outline.local_point(edge->points.front()),b=outline.local_point(edge->points.back());
+    static_cast<void>(outline.add_circle((a[0]+b[0])*.5,a[1]+25,4));
+    check(workspace::commit_flat(live,kernel,id,flat,outline),"Cannot create attached tab with a circular hole");
+    const auto formed=state->session.calculated_boundaries().back();
+    const auto verify_connected=[](const kernel::BodyResult& result) {
+        const auto shape=kernel::read_calculated_body_shape(result);
+        std::size_t solids{};for(TopExp_Explorer it(shape,TopAbs_SOLID);it.More();it.Next())++solids;
+        check(solids==1,"Twisted Sheet and its attached tab are disconnected");
+        check(BRepCheck_Analyzer(shape).IsValid(),"Twisted Sheet/tab joint is not valid manifold material");
+    };
+    verify_connected(formed);
+    std::vector<kernel::ViewerAxis> authored;
+    for(const auto& axis:formed.mesh.axes)if(axis.reference.owner_id==flat.id)authored.push_back(axis);
+    check(!authored.empty(),"Attached tab has no profile axis");
+    int step=0;
+    for(bool restore:{false,true,false,true}) {
+        auto operation=document::PartDocument::create_sketch_container();
+        operation.feature_kind=restore?document::FeatureKind::BendBack:document::FeatureKind::Unbend;
+        check(workspace::commit_sheet_state(live,kernel,id,operation),"Axis transport sheet state did not commit");
+        int verification=0;
+        const auto verify=[&](const kernel::BodyResult& result) {
+        ++verification;
+        check(result.calculation_errors.empty(),"Axis transport state has calculation errors");
+        verify_connected(result);
+        // Independently calculated hole cylinders define the physical current
+        // axis. A rigid tab's axis must remain coaxial with its actual hole.
+        std::vector<std::pair<kernel::Vec3,kernel::Vec3>> cylinders;
+        const auto shape=kernel::read_calculated_body_shape(result);
+        for(TopExp_Explorer faces(shape,TopAbs_FACE);faces.More();faces.Next()) {
+            const BRepAdaptor_Surface surface(TopoDS::Face(faces.Current()));
+            if(surface.GetType()!=GeomAbs_Cylinder||std::abs(surface.Cylinder().Radius()-4)>1e-6)continue;
+            const auto cylinder=surface.Cylinder();const auto p=cylinder.Location();const auto n=cylinder.Axis().Direction();
+            cylinders.push_back({{p.X(),p.Y(),p.Z()},{n.X(),n.Y(),n.Z()}});
+        }
+        if(cylinders.empty())throw std::runtime_error("Developed tab has no exact hole cylinder: state="+std::to_string(step)+", check="+std::to_string(verification)+", faces="+std::to_string(result.mesh.triangle_references.size()));
+        bool matched=false;std::size_t endpoint_count{};
+        for(const auto& axis:result.mesh.axes) {
+            if(axis.reference.owner_id!=flat.id&&axis.reference.owner_id!=operation.id)continue;
+            for(const auto& [origin,direction]:cylinders) {
+                const auto delta=kernel::sheet_material::sub(axis.point,origin);
+                const bool coaxial=std::abs(dot(unit(axis.direction),unit(direction)))>1.-1e-8&&
+                    distance(kernel::sheet_material::cross(delta,unit(direction)),{})<1e-7;
+                matched|=coaxial;
+                if(coaxial) {
+                    for(const auto& point:result.mesh.points)
+                        if(point.reference.owner_id==axis.reference.owner_id&&kernel::axis_endpoint_parent_key(point.reference.semantic_key)==axis.reference.semantic_key) {
+                            check(distance(kernel::sheet_material::cross(kernel::sheet_material::sub(point.position,origin),unit(direction)),{})<1e-7,
+                                "Sheet tab axis endpoint stayed in the previous material state");++endpoint_count;
+                        }
+                    break;
+                }
+            }
+        }
+        check(matched,"Tab axis did not move with its actual hole during Unbend/Bend Back");
+        check(endpoint_count>=2,"Sheet tab current axis has no two pickable endpoint references");
+        for(const auto& original:authored) {
+            const auto found=std::ranges::find(result.mesh.original_references.axes,original.reference,&kernel::ViewerAxis::reference);
+            check(found!=result.mesh.original_references.axes.end()&&distance(found->point,original.point)<1e-7&&distance(found->direction,original.direction)<1e-7,
+                "Sheet state overwrote an authored axis");
+        }
+        };
+        verify(state->session.calculated_boundaries().back());
+        check(workspace::step_part_document_history(live,id,false)&&workspace::step_part_document_history(live,id,true),"Tab axis state Undo/Redo failed");
+        verify(state->session.calculated_boundaries().back());
+        std::vector<kernel::BodyResult> cache;
+        auto loaded=document::PartDocument::from_serialized(state->session.document().serialized(state->session.calculated_boundaries()),&cache);
+        verify(cache.back());kernel::OcctKernel cold;
+        verify(workspace::calculate_part_with_resolved_references(cold,loaded).back());
+        if(!output.empty()) {
+            std::filesystem::create_directories(output);
+            state->session.document().save(output/(std::string(reverse?"left-":"right-")+std::to_string(step)+".prtz"),state->session.calculated_boundaries());
+        }
+        ++step;
+    }
+    std::cout<<"Twisted Sheet attached tab reverse="<<reverse<<" last="<<last_endpoint<<" opposite="<<opposite_skin
+        <<": connected manifold material and coaxial axis/endpoints through four states, Undo/Redo and cold native reopen\n";
 }
 kernel::Vec3 rotated(kernel::Vec3 value,kernel::Vec3 degrees) {
     constexpr double radians=std::numbers::pi/180.0;
@@ -379,9 +494,45 @@ void verify() {
         std::abs(analyzed_volume(kernel,attached_restored)-attached_body_volume)<0.05,
         "Attached Twisted Sheet did not return to its authored formed body");
 }
+void verify_parameter_annotations() {
+    document::PartDocument part;
+    for(bool attached:{false,true})for(bool flipped:{false,true})for(int side:{-1,1})for(bool reverse:{false,true})
+    for(double angle:{30.,90.,270.,450.}) {
+        auto feature=document::PartDocument::create_twisted_sheet_container();auto& p=feature.twisted_sheet;
+        p.sheet_attachment=attached;p.attachment_material_side=side;p.width=40;p.thickness=3;p.length=75;p.angle_degrees=angle;p.reverse=reverse;
+        feature.placement.references.resize(3);feature.placement.references[2].flip=flipped;
+        feature.placement.x=19;feature.placement.y=-12;feature.placement.z=7;
+        feature.placement.rotation_x=13;feature.placement.rotation_y=71;feature.placement.rotation_z=-21;
+        const auto before=feature;const auto display=document::primitive_parameter_dimensions(feature);
+        check(feature==before&&display.dimensions.size()==3,"Twisted Sheet annotation mutated the source or omitted a parameter");
+        const auto wire=part.primitive_preview_edges(feature);
+        const auto first=std::ranges::find_if(wire,[](const auto& e){return e.reference.semantic_key=="preview:twist:start";});
+        const auto last=std::ranges::find_if(wire,[](const auto& e){return e.reference.semantic_key=="preview:twist:end";});
+        check(first!=wire.end()&&last!=wire.end(),"Twist annotation fixture has no section outlines");
+        const auto center=[](const auto& edge){return kernel::dimension_scale(kernel::dimension_add(edge.points[0],edge.points[2]),.5);};
+        const auto& length=display.dimensions[0];const auto& angular=display.dimensions[1];const auto& direction=display.dimensions[2];
+        check(distance(length.witness_first,center(*first))<1e-7&&distance(length.witness_second,center(*last))<1e-7&&std::abs(length.value-p.length)<1e-10,
+            "Twisted Sheet length does not measure the placed centre trajectory");
+        const auto a=unit(kernel::dimension_sub(angular.line_first,angular.witness_first));
+        const auto b=unit(kernel::dimension_sub(angular.line_second,angular.witness_first));
+        const double measured=std::atan2(dot(kernel::dimension_cross(a,b),angular.plane_normal),dot(a,b));
+        check(std::abs(std::sin(measured)-std::sin(angle*std::numbers::pi/180))<1e-7&&
+              std::abs(std::cos(measured)-std::cos(angle*std::numbers::pi/180))<1e-7&&angular.value==angle&&angular.sweep_degrees==angle,
+            "Twisted Sheet angular annotation has incorrect rays or handedness");
+        check(direction.label_only&&direction.value==(reverse?1.:0.)&&direction.display_text_override==(reverse?"L":"R"),"Twist direction annotation does not match its native value");
+    }
+    std::cout<<"Twisted Sheet annotations: 64 placed free/attached, side, endpoint, direction and angle combinations passed\n";
 }
-int main() {
+}
+int main(int argc,char** argv) {
     try {
+        if(argc>=2&&std::string(argv[1])=="--axis-transport") {
+            const std::filesystem::path output=argc>2?argv[2]:"";
+            for(bool reverse:{false,true})for(bool last:{false,true})for(bool opposite:{false,true})
+                verify_flat_axis_transport(reverse,(!last&&!opposite)?output:std::filesystem::path{},last,opposite);
+            return 0;
+        }
+        if(argc==2&&std::string(argv[1])=="--dimensions") {verify_parameter_annotations();return 0;}
         verify();verify_chain();
         kernel::OcctKernel kernel;
         auto part=document::PartDocument::load("cpp/tests/fixtures/sheet/profile-side-twist.prtz");
@@ -397,7 +548,7 @@ int main() {
         if(part.user_parameter_values.size()!=12||
                 !part.user_parameter_values.contains("mass")||
                 !part.user_parameter_values.at("mass").contains("")||
-                !part.user_parameter_values.at("mass").at("").empty()||
+                part.user_parameter_values.at("mass").at("")!="0.076"||
                 !part.user_parameter_values.contains("material")||
                 !part.user_parameter_values.at("material").contains("")||
                 part.user_parameter_values.at("material").at("")!="S235JR")

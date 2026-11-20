@@ -206,7 +206,7 @@ document::Sweep3DProfile sweep_profile_from_source(const document::PartDocument&
         throw SweepOperationError("sketch_not_found", "The requested Sketch does not exist.");
     auto sketch = *stored; sketch.owner_container_id = feature_id;
     return {kernel::make_stable_id(), input.point_id, sketch.id,
-        sketch.serialized(), input.incoming, input.correspondence_start_point_id};
+        sketch.serialized(), input.incoming, input.correspondence_start_point_id, input.correspondence_reversed};
 }
 document::HistoryContainer sweep3d_from_sources(const document::PartDocument& document,
     const std::string& path_id, const document::Placement& path_placement, const std::vector<SweepProfileSource>& profiles) {

@@ -39,6 +39,12 @@ inline std::vector<kernel::HistoryOperation> group_solid_state_operations(
         changes.push_back({authored.size(),operation.owner_id,operation.body.id,
             state->restore,state->all,operation.suppressed,state->coefficient,state->owners});
         if(operation.suppressed)continue;
+        std::set<std::string> carried;
+        if(const auto* body=doc.body_history.find(operation.body.id)) {
+            operation.solid_state_face_transfers=document::solid_state_face_transfers(
+                doc,*body,operation.owner_id,authored_geometry,operations,true);
+            for(const auto& transfer:operation.solid_state_face_transfers)carried.insert(transfer.owner_id);
+        }
         const auto targets=kernel::solid_states_before(authored,changes,authored.size());
         std::set<document::HistoryReferenceView::Owner> changed;
         std::vector<kernel::HistoryOperation> replay,replacements;
@@ -53,7 +59,23 @@ inline std::vector<kernel::HistoryOperation> group_solid_state_operations(
                 return changed.contains({ref.owner_id,ref.instance_path})||changed.contains(document::solid_state_source_owner(ref));
             });
             auto candidate=original;
-            if(dependent&&!calculated.empty()) {
+            if(carried.contains(original.owner_id)) {
+                // Use the same full end-frame transport as the final state,
+                // so later references see the carried input during this pass.
+                std::vector<kernel::HistoryOperation> prefix;
+                for(const auto& item:operations) {
+                    prefix.push_back(item);
+                    if(item.owner_id==original.owner_id)break;
+                }
+                auto boundary=operation;
+                std::erase_if(boundary.solid_state_face_transfers,[&](const auto& transfer) {
+                    return std::ranges::none_of(prefix,[&](const auto& item){return item.owner_id==transfer.owner_id;});
+                });
+                if(!replacements.empty())boundary.solid_state_placements=
+                    std::make_shared<const std::vector<kernel::HistoryOperation>>(replacements);
+                prefix.push_back(std::move(boundary));
+                candidate=kernel.prepare_solid_state_replay(prefix).back();
+            } else if(dependent&&!calculated.empty()) {
                 auto current=document::solid_state_alias_geometry(authored_geometry,calculated.back().mesh.original_references,changed);
                 document::HistoryReferenceViews views{{original.owner_id,
                     document::solid_state_reference_view(authored_geometry,current.geometry,current.owners,*refs)}};
@@ -64,11 +86,11 @@ inline std::vector<kernel::HistoryOperation> group_solid_state_operations(
                 candidate=*found;
             }
             if(dependent) {
-                replacements.push_back(candidate);
+                if(!carried.contains(original.owner_id))replacements.push_back(candidate);
                 changed.insert({original.owner_id,{}});
                 if(feature)changed.insert({feature->container_origin.id,{}});
             }
-            if(const auto target=targets.find(original.owner_id);target!=targets.end()&&target->second.straight) {
+            if(const auto target=targets.find(original.owner_id);target!=targets.end()&&target->second.straight&&!carried.contains(original.owner_id)) {
                 candidate.primitive=std::visit([&](const auto& input)->kernel::PrimitiveRequest {
                     using T=std::decay_t<decltype(input)>;
                     if constexpr(std::is_same_v<T,kernel::RevolutionRequest>||std::is_same_v<T,kernel::Sweep3DRequest>||

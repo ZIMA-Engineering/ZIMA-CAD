@@ -10,7 +10,7 @@ namespace zima::document {
 inline std::vector<kernel::SolidStateFaceTransfer> solid_state_face_transfers(
         const PartDocument& document,const BodyHistory& body,const std::string& boundary,
         const kernel::ViewerReferenceGeometry& authored,
-        const std::vector<kernel::HistoryOperation>& operations) {
+        const std::vector<kernel::HistoryOperation>& operations,bool grouped_twist_only=false) {
     using namespace kernel::sheet_material;
     const auto unsupported=[](){throw std::invalid_argument("Solid state replay cannot yet preserve this operation.");};
     const auto ancestor=[&](const ConstructionReference& ref) {
@@ -57,6 +57,16 @@ inline std::vector<kernel::SolidStateFaceTransfer> solid_state_face_transfers(
         // A descendant follows the same end-section contract as the first join.
         // Origin-only and mixed-parent attachments still fail the face checks.
         const bool descendant=std::ranges::any_of(*refs,[&](const auto& ref){return moved.contains(ref.owner_id);});
+        if(grouped_twist_only&&!descendant&&std::ranges::none_of(*refs,[&](const auto& ref) {
+            const auto [owner,key]=ancestor(ref);
+            const auto* source=document.find_container(owner);
+            // The fixed start and other supports retain ordinary reference
+            // evaluation. Only an end-section attachment follows this frame.
+            return (key.starts_with("sweep:cap:end:from:")||key.starts_with("end:from:"))&&
+                source&&source->feature_kind==FeatureKind::Feature&&
+                (source->feature.effective_side(0).operation==FeatureSideOperation::Twist||
+                 source->feature.effective_side(1).operation==FeatureSideOperation::Twist);
+        }))continue;
         const auto index=indices.find(entry.id);
         // A positional end face defines the material attachment. Carry the
         // whole frame, including any numerical in-plane coordinates, and let

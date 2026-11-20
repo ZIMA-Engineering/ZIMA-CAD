@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" role="img" aria-labelledby="title">
+  <title id="title">Orbit around cursor</title>
+  <g fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+    <path stroke="#27C86F" d="M12 12V3M12 3l-1.4 2.2M12 3l1.4 2.2"/>
+    <path stroke="#ED5555" d="M12 12l-7 4M5 16l2.5.1M5 16l1.1-2.2"/>
+    <path stroke="#329EEA" d="M12 12l7 4M19 16l-2.5.1M19 16l-1.1-2.2"/>
+    <circle cx="12" cy="12" r="1.7" fill="currentColor" stroke="none"/>
+  </g>
+</svg>

@@ -56,7 +56,7 @@ static int verify_sketch_view_memory_ui(QApplication& application,
         unsigned cases{};
         for(bool in_assembly:{false,true})for(bool back:{false,true})for(int turn=0;turn<4;++turn) {
             std::array<std::string,2> sketches;
-            std::array<std::array<float,8>,2> cameras;
+            std::array<std::array<float,11>,2> cameras;
             const auto file=directory/("sketch-view-memory-"+std::to_string(cases)+(in_assembly?".asmz":".prtz"));
             {
                 app::AssemblyWorkspaceWindow window(QString::fromStdString(directory.string()));window.setAttribute(Qt::WA_DontShowOnScreen);window.resize(1200,900);window.show();flush();
