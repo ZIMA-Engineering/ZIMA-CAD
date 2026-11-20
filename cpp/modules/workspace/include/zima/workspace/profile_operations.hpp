@@ -39,7 +39,8 @@ bool refresh_profile_end_targets(document::PartDocument&,const std::vector<kerne
 // a non-null kernel captures the small native face during explicit calculation.
 [[nodiscard]] document::ExtrusionParameters::EndTarget prepare_skeleton_end_target(
     const Workspace&,const document::PartDocument&,const std::string& frame_owner,
-    const document::ExtrusionParameters::EndTarget&,const kernel::OcctKernel* capture=nullptr);
+    const document::ExtrusionParameters::EndTarget&,const kernel::OcctKernel* capture=nullptr,
+    bool bounded_current_face=false);
 void refresh_external_profile_targets(const Workspace&,const kernel::OcctKernel&,document::PartDocument&);
 void refresh_cached_external_profile_target_frames(document::PartDocument&);
 

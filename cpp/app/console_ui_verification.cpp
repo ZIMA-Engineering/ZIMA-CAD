@@ -279,6 +279,7 @@ Q_NEVER_INLINE static int verify_sketch_roles(QApplication& application, Assembl
 #include "loft_ui_verification.inc"
 #include "surface_intersection_ui_verification.inc"
 #include "surface_trim_ui_verification.inc"
+#include "projection_ui_verification.inc"
 #include "drawing_file_rename_ui_verification.inc"
 
 #include "cylinder_mate_ui_verification.inc"

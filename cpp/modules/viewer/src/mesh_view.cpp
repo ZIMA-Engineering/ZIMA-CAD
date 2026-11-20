@@ -5697,6 +5697,9 @@ if (impl_->show_origins) {
         }
         if (planes_visible) {
             painter.setPen(QPen(interaction::axis, 1.5));
+            // As with axes, paint the inspected/selected datum last so a
+            // coincident passive plane cannot erase its wire feedback.
+            for (const bool highlight_pass : {false, true})
             for (const auto* plane_edge : plane_edges) {
                 const auto& edge = *plane_edge;
                 const bool transient_context=std::ranges::any_of(
@@ -5770,6 +5773,7 @@ if (impl_->show_origins) {
                 // never used for this check.
                 const bool referenced = !exact_highlight &&
                     impl_->constraint_reference_edges.contains(edge_key(edge.reference));
+                if ((exact_highlight || referenced || creation_preview) != highlight_pass) continue;
                 const QColor plane_color = exact_highlight
                     ? (impl_->confirmed_candidate ? interaction::selected
                                                   : interaction::hover)

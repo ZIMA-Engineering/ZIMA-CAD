@@ -64,6 +64,12 @@ struct HistoryDependencyCollector {
         switch(feature.feature_kind) {
         case FeatureKind::Feature:
             use(root,feature.feature.sketch_id);
+            if(feature.feature.type==document::FeatureType::Projection) {
+                for(const auto& target:feature.feature.projection.targets)reference(root,target.reference);
+                if(feature.feature.projection.direction==document::ProjectionDirection::Reference)
+                    reference(root,feature.feature.projection.direction_reference);
+                break;
+            }
             for(std::size_t side=0;side<2;++side) {
                 const auto& value=feature.feature.effective_side(side);
                 if(value.operation==document::FeatureSideOperation::Extrusion)

@@ -966,6 +966,8 @@ struct HistoryContainer {
     bool suppressed{};
     std::set<std::string> value_locks;
     [[nodiscard]] bool is_surface_result() const {
+        if(feature_kind==FeatureKind::Feature&&feature.type==FeatureType::Projection)
+            return feature.projection.output==ProjectionOutput::Surface;
         return feature_kind==FeatureKind::SurfaceTrim || feature_kind==FeatureKind::BoundarySurface || feature_kind==FeatureKind::SurfaceSewing || feature_kind==FeatureKind::GeneralSurface ||
             (feature_kind==FeatureKind::Shell && shell.thickness==0.) ||
             (feature_kind==FeatureKind::Sweep2D && sweep2d.result_type==ProfileResultType::Surface) ||

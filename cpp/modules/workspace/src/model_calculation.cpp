@@ -240,6 +240,20 @@ static kernel::HistoryOutputPolicy history_output_policy(
                     kernel::BooleanOperation::Subtract)
             result.retained_output_owners.insert(
                 operations[index-1].owner_id);
+    // Projection previews and target replacement consume the bounded input
+    // faces. Retain that already calculated Body checkpoint so reopening its
+    // Properties never has to regenerate a compact dependency-only packet.
+    for(std::size_t index=1;index<operations.size();++index) {
+        const auto* feature=document.find_container(operations[index].owner_id);
+        if(!feature||feature->suppressed||
+                feature->feature_kind!=document::FeatureKind::Feature||
+                feature->feature.type!=document::FeatureType::Projection)continue;
+        for(std::size_t previous=index;previous>0;--previous)
+            if(operations[previous-1].body.id==operations[index].body.id) {
+                result.retained_output_owners.insert(operations[previous-1].owner_id);
+                break;
+            }
+    }
     // A Solid State boundary owns the transformed reference view consumed by
     // later placement and by a subsequent Restore.  The forward OCCT shape is
     // enough to continue geometry calculation, but the compact dependency
@@ -932,6 +946,13 @@ calculate_part_reference_state(
         calculation_policy.edited_history_limit=policy.edited_history_limit;
         calculated = calculate_part(kernel, document, incremental_source, calculation_policy);
         phase("calculation");
+        for(const auto& boundary:calculated)for(const auto& region:boundary.resolved_projection_regions)
+            if(auto* feature=document.find_container(region.owner_id);feature&&
+                    feature->feature_kind==document::FeatureKind::Feature&&
+                    feature->feature.type==document::FeatureType::Projection&&
+                    !boundary.calculation_errors.contains(feature->id)&&
+                    region.intent_index<feature->feature.projection.regions.size())
+                feature->feature.projection.regions[region.intent_index].boundary_key=region.boundary_key;
         if(refresh_edge_treatment_references(document,calculated)) {
             incremental_source=&calculated;continue;
         }
@@ -1790,10 +1811,10 @@ static void regenerate_assembly_impl(Workspace& workspace, const kernel::OcctKer
             });
             bool has_external_targets=false;
             for(const auto& feature:part->session.document().history)if(feature.feature_kind==document::FeatureKind::Feature)
-                for(const auto& side:feature.feature.sides)for(const auto& target:side.targets)
+                document::visit_feature_targets(feature.feature,[&](const auto& target){
                     if(target.external_source&&target.external_source->context_assembly_id==id) {
                         has_context=has_external_targets=true;sources.insert(target.external_source->document_id);
-                    }
+                    }});
             for(const auto& source:sources)regenerate_part_dependencies(source);
             part=workspace.open_part(part_id);
             auto next=part->session.document();

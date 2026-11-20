@@ -285,7 +285,8 @@ bool candidate_recolors_wire_edge(
     if (candidate.kind == CandidateKind::Container &&
         (candidate.semantic_key.empty() || candidate.semantic_key == "solid")) {
         const bool screen_curve = edge.overlay &&
-            (is_curve3d_edge(edge.reference.semantic_key)||edge.reference.semantic_key.starts_with("intersection:curve:from:"));
+            (is_curve3d_edge(edge.reference.semantic_key)||edge.reference.semantic_key.starts_with("intersection:curve:from:")||
+                edge.reference.semantic_key.starts_with("projection:curve:"));
         const auto& key = edge.reference.semantic_key;
         const bool inactive_sketch_profile = edge.overlay &&
             (key.starts_with("segment:") || key.starts_with("circle:") ||
@@ -922,7 +923,8 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
                                   edge.reference.instance_path, geometry});
             }
             if ((is_curve3d_edge(edge.reference.semantic_key)||
-                 (geometry==CandidateGeometry::Display&&edge.reference.semantic_key.starts_with("intersection:curve:from:"))) &&
+                 (geometry==CandidateGeometry::Display&&(edge.reference.semantic_key.starts_with("intersection:curve:from:")||
+                    edge.reference.semantic_key.starts_with("projection:curve:")))) &&
                 edge.edge < source.edges.size() &&
                 !source.edges[edge.edge].display_owner_id.empty() &&
                 std::none_of(result.begin(), result.end(),

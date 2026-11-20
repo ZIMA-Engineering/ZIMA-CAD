@@ -945,7 +945,7 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                 if(origin_marker!=primitive_origin_preview_mesh_->points.end())
                     origin_marker->label=preview.name;
             }
-            if(preview.feature.uses_sketch()&&
+            if(preview.feature.uses_sketch()&&preview.feature.type!=zima::document::FeatureType::Projection&&
                     !(preview.feature.type==zima::document::FeatureType::Modeling&&
                       preview.feature.result_type==zima::document::ProfileResultType::Thin)) {
                 // Rollback hides saved output; show the pending owned geometry.
@@ -1244,7 +1244,10 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
         });
         if(part)dialog->set_sheet_default_thickness(zima::document::sheet_metal_defaults(part->session.document()).thickness_mm.value_or(1));
         dialog->set_reference_request_callback(
-            [this](std::size_t index) { start_primitive_reference_selection(index); });
+            [this,dialog](std::size_t index) {
+                if(dialog->pending_value().feature.type==zima::document::FeatureType::Projection&&feature_reference_end_){auto finish=feature_reference_end_;finish();}
+                start_primitive_reference_selection(index);
+            });
         dialog->set_reference_highlights_changed_callback([this, dialog] {
             viewer_->set_constraint_reference_highlights(
                 {}, highlighted_reference_edge_keys(*dialog));
@@ -2513,6 +2516,7 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
         }
     });
     dialog->show();
+    if(feature_kind==zima::document::FeatureKind::Feature&&part)install_projection_properties(dialog,owner_id);
     // Properties is not a picking command by itself. Keep all model hover
     // disabled until the user explicitly requests one placement/Up-to
     // reference field; that command installs its own exact selection

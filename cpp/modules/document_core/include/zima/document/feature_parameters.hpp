@@ -1,13 +1,14 @@
 #pragma once
 
 #include <zima/document/profile_parameters.hpp>
+#include <zima/document/projection_parameters.hpp>
 #include <stdexcept>
 #include <array>
 #include <optional>
 
 namespace zima::document {
 
-enum class FeatureType { Point, Axis, Plane, Sketch, Modeling };
+enum class FeatureType { Point, Axis, Plane, Sketch, Modeling, Projection };
 
 enum class FeatureSideOperation { None, Extrusion, Revolution, Twist };
 enum class FeatureRotationExtent { Angle, Full, UpTo };
@@ -67,6 +68,7 @@ struct FeatureParameters {
     // means a user-authored name. This has no geometric/reference meaning.
     std::string automatic_name;
     FeatureType type{FeatureType::Modeling};
+    ProjectionParameters projection;
     std::string sketch_id;
     std::string axis_segment_id;
     ProfileSource profile_source{ProfileSource::Internal};
@@ -110,6 +112,7 @@ struct FeatureParameters {
             effective_side(1).operation==FeatureSideOperation::None;
     }
     [[nodiscard]] bool sketch_only() const {
+        if(type==FeatureType::Projection)return false;
         return type!=FeatureType::Modeling ||
             (!planar_surface() &&
              effective_side(0).operation==FeatureSideOperation::None &&
@@ -119,9 +122,18 @@ struct FeatureParameters {
         return type==FeatureType::Sketch || (type==FeatureType::Modeling&&sketch_only());
     }
     [[nodiscard]] bool uses_sketch() const {
-        return type==FeatureType::Sketch || type==FeatureType::Modeling;
+        return type==FeatureType::Sketch || type==FeatureType::Modeling || type==FeatureType::Projection;
     }
     bool operator==(const FeatureParameters&) const = default;
 };
+
+// The same external target lifecycle owns Feature limits and Projection faces.
+// Stored inactive choices keep their existing native file/dependency handling.
+template<class Feature,class Visitor>
+void visit_feature_targets(Feature& feature,Visitor visitor) {
+    for(auto& side:feature.sides)for(auto& target:side.targets)visitor(target);
+    if(feature.type==FeatureType::Projection)
+        for(auto& target:feature.projection.targets)visitor(target);
+}
 
 } // namespace zima::document

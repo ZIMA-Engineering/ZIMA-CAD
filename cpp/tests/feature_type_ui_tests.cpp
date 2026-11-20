@@ -1,6 +1,7 @@
 #include "primitive_properties_dialog.hpp"
 #include "application_settings.hpp"
 #include "feature_naming.hpp"
+#include "projection_parameter_panel.hpp"
 #include "feature_limit_table.hpp"
 #include "feature_limit_diagnostic.hpp"
 #include <QFile>
@@ -32,6 +33,51 @@
 #include <QThread>
 #include <QToolButton>
 #include <iostream>
+static void verify_projection_panel(QApplication& application,QWidget& parent) {
+    using namespace zima;
+    const auto check=[](bool ok,const char* message){if(!ok)throw std::runtime_error(message);};
+    auto authored=document::PartDocument::create_feature_container("projection-panel-sketch");
+    authored.feature.type=document::FeatureType::Projection;
+    app::PrimitivePropertiesDialog dialog(authored,false,true,[](auto){},&parent);
+    dialog.show();application.processEvents();
+    auto* panel=dialog.projection_panel();check(panel&&panel->isVisible(),"Shared Feature omitted Projection panel");
+    int previews=0;dialog.set_preview_callback([&](const auto&){++previews;});
+    panel->begin_entry(app::ProjectionParameterPanel::Pick::Target,0);
+    document::ExtrusionParameters::EndTarget target;target.reference={"target","face",{}};
+    check(panel->set_target(target),"Projection panel rejected a valid target");
+    auto* output=dialog.findChild<QComboBox*>("projectionOutput");output->setCurrentIndex(2);
+    panel->begin_entry(app::ProjectionParameterPanel::Pick::Region,0);check(panel->set_region(target.reference,{1,2,3}),"Projection panel rejected a region");
+    panel->begin_entry(app::ProjectionParameterPanel::Pick::Target,0);
+    check(panel->set_target(target)&&panel->parameters().regions.size()==1,"Selecting the same target discarded its region");
+    output->setCurrentIndex(0);output->setCurrentIndex(2);
+    check(panel->parameters().regions.size()==1,"Output mode switch lost retained region choice");
+    panel->begin_entry(app::ProjectionParameterPanel::Pick::Target,1);
+    check(!panel->set_target(target)&&panel->parameters().targets.size()==1,"Duplicate target was accepted");
+    auto* targets=dialog.findChild<QTableWidget*>("projectionTargets");
+    targets->cellWidget(0,3)->findChild<QToolButton*>()->click();
+    const auto before=dialog.pending_value();previews=0;
+    const auto root=std::filesystem::path(__FILE__).parent_path().parent_path().parent_path()/"config/localization";
+    for(const auto* language:{"cs","en","de","fr","ru"}) {
+        QFile file(QString::fromStdString((root/(std::string(language)+".qt.json")).generic_string()));
+        check(file.open(QIODevice::ReadOnly),"Cannot read Projection language catalog");
+        app::ApplicationSettings settings;settings.language=language;
+        const auto messages=QJsonDocument::fromJson(file.readAll()).object();
+        for(auto it=messages.begin();it!=messages.end();++it)settings.qt_translations[it.key()]=it.value().toString();
+        app::apply_application_translations(application,settings);application.processEvents();
+        for(const auto* theme:{"light","dark"}) {
+            settings.theme=theme;app::apply_application_appearance(application,settings);application.processEvents();
+            check(targets->horizontalHeaderItem(2)->text()==QObject::tr("Cílové plochy"),"Projection target header did not translate");
+            check(dialog.findChild<QComboBox*>("projectionDirection")->itemText(0)==QObject::tr("Normála skici"),"Projection direction did not translate");
+            check(panel->active_pick()==app::ProjectionParameterPanel::Pick::Target&&panel->inspected_faces().size()==1,"Projection language/theme lost reference state");
+            dialog.resize(dialog.width()+20,dialog.height()+20);application.processEvents();
+            check(targets->columnWidth(1)==34&&targets->columnWidth(3)==34,"Projection reference controls stretched");
+            dialog.grab().save(QDir::tempPath()+"/zima-projection-"+language+"-"+theme+".png");
+        }
+    }
+    check(previews==0&&dialog.pending_value().feature==before.feature,"Translation/theme calculated or changed Projection");
+    dialog.reject();app::apply_application_translations(application,app::ApplicationSettings{});
+    std::cout<<"Projection panel: targets, regions, duplicate prevention, five languages and two themes passed\n";
+}
 static void verify_limit_localization(QApplication& application,QWidget& parent) {
     using namespace zima;
     const auto check=[](bool ok,const char* text){if(!ok)throw std::runtime_error(text);};
@@ -556,7 +602,7 @@ int main(int argc,char** argv) {
         if(zima::app::next_feature_name(part,zima::document::FeatureType::Axis,"")!=
             zima::app::feature_name_prefix(zima::document::FeatureType::Axis).toStdString()+" 02")
             throw std::runtime_error("Automatic name collides with an existing object");
-    dialog.hide();verify_ordered_limits(application,parent);verify_limit_localization(application,parent);verify_rendering(application,parent);
+    dialog.hide();verify_ordered_limits(application,parent);verify_limit_localization(application,parent);verify_projection_panel(application,parent);verify_rendering(application,parent);
     }catch(const std::exception& e){std::cerr<<e.what()<<std::endl;return 1;}
     return 0;
 }

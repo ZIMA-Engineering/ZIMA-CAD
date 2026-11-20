@@ -1,6 +1,7 @@
 #include <IntCurvesFace_ShapeIntersector.hxx>
 #include "ordered_up_to.hpp"
 #include "sectioned_normal_offset.hpp"
+#include "directional_projection.hpp"
 #include "kernel_history_version.hpp"
 #include "occt_edge_treatment_terminals.hpp"
 #include <zima/kernel/ordered_up_to_resolution.hpp>
@@ -352,6 +353,8 @@ std::vector<FaceReference> extrusion_references(const std::vector<HistoryOperati
                 result.push_back(*constraint.support);
         } else if(const auto* intersection=std::get_if<SurfaceIntersectionRequest>(&operation.primitive)) {
             result.insert(result.end(),intersection->faces.begin(),intersection->faces.end());
+        } else if(const auto* projection=std::get_if<ProjectionRequest>(&operation.primitive)) {
+            result.insert(result.end(),projection->targets.begin(),projection->targets.end());
         } else if(const auto* trim=std::get_if<SurfaceTrimRequest>(&operation.primitive)) {
             result.push_back(trim->target);
             for(const auto& tool:trim->tools)if(tool.face)result.push_back({tool.reference.owner_id,tool.reference.semantic_key,{}});
@@ -6248,6 +6251,7 @@ std::vector<OwnedVertex> complete_shell_vertices(const TopoDS_Shape& shape,
 #include "loft_geometry.inc"
 #include "surface_intersection_geometry.inc"
 #include "surface_trim_geometry.inc"
+#include "projection_geometry.inc"
 #include "sheet_form_geometry.inc"
 
 std::string serialize_kernel_shape(const TopoDS_Shape& shape) {
@@ -8336,7 +8340,15 @@ BodyResult OcctKernel::capture_reference_face(const BodyResult& body,const FaceR
         faces.push_back(face);builder.Add(compound,face.shape);
     }
     if(faces.empty())throw std::runtime_error("The original extrusion target is unavailable.");
-    BodyResult result;persist_surface_topology(compound,faces,{}, {},result);
+    // A bounded face includes its named boundary topology. Projection uses
+    // those identities to name intersections and retained regions; capturing
+    // the face alone would lose that ancestry on external native readback.
+    NCollection_IndexedMap<TopoDS_Shape,TopTools_ShapeMapHasher> topology;
+    TopExp::MapShapes(compound,topology);
+    std::vector<OwnedEdge> edges;std::vector<OwnedVertex> vertices;
+    for(const auto& edge:native.edges)if(topology.Contains(edge.shape))edges.push_back(edge);
+    for(const auto& vertex:native.vertices)if(topology.Contains(vertex.shape))vertices.push_back(vertex);
+    BodyResult result;persist_surface_topology(compound,faces,edges,vertices,result);
     result.source_fingerprint="external-target-face:"+dependency_fingerprint(result.kernel_shape.get())+":"+body.source_fingerprint+":"+
         std::to_string(reference.owner_id.size())+":"+reference.owner_id+":"+reference.semantic_key+":"+reference.instance_path;
     result.physical_properties_current=false;
@@ -11150,6 +11162,8 @@ std::vector<BodyResult> OcctKernel::evaluate_body_histories(
             const auto& boundary=local[local_index];
             document.resolved_up_to_limits.insert(document.resolved_up_to_limits.end(),
                 boundary.resolved_up_to_limits.begin(),boundary.resolved_up_to_limits.end());
+            document.resolved_projection_regions.insert(document.resolved_projection_regions.end(),
+                boundary.resolved_projection_regions.begin(),boundary.resolved_projection_regions.end());
             // The final slot is replaced by the complete document packet below.
             // Do not copy an unused complete import into that temporary slot.
             if(boundaries.size()+1==operations.size())boundaries.emplace_back();
@@ -11973,7 +11987,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
         }
     }
     const auto operation_needs_original_edges=[](const auto& operation) {
-        if(!operation.suppressed&&(std::holds_alternative<SurfaceIntersectionRequest>(operation.primitive)||std::holds_alternative<SurfaceTrimRequest>(operation.primitive)))return true;
+        if(!operation.suppressed&&(std::holds_alternative<SurfaceIntersectionRequest>(operation.primitive)||std::holds_alternative<SurfaceTrimRequest>(operation.primitive)||std::holds_alternative<ProjectionRequest>(operation.primitive)))return true;
         if(!operation.suppressed) {
             if(const auto* fillet=std::get_if<FilletRequest>(
                     &operation.primitive))
@@ -12226,6 +12240,14 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                     const auto& refs=previous_boundaries.back().mesh.original_references.triangle_references;
                     if(!std::ranges::any_of(refs,[&](const auto& face){return face.owner_id==operations[matching_prefix].owner_id&&face.semantic_key==trim->expected_region_key;}))break;
                 }
+            if(!operations[matching_prefix].suppressed)if(const auto* projection=std::get_if<ProjectionRequest>(&operations[matching_prefix].primitive)) {
+                const auto& refs=previous_boundaries.back().mesh.original_references.triangle_references;
+                if(projection->output==ProjectionResult::Surface&&std::ranges::any_of(projection->regions,[&](const auto& region) {
+                    return !region.expected_region_key.empty()&&!std::ranges::any_of(refs,[&](const auto& face) {
+                        return face.owner_id==operations[matching_prefix].owner_id&&face.semantic_key==region.expected_region_key;
+                    });
+                }))break;
+            }
             ++matching_prefix;
         }
         // Coverage is disposable calculation evidence and is intentionally not
@@ -14777,6 +14799,82 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                 boundary.source_fingerprint = fingerprint(operations, operation_index + 1);
                 remember_live_boundary(boundary.source_fingerprint, result_shape, owned_topology);
                 boundaries.push_back(std::move(boundary));
+                continue;
+            }
+            if(const auto* projection=std::get_if<ProjectionRequest>(&operation.primitive)) {
+                auto request=*projection;
+                if(request.direction_reference) {
+                    const auto& ref=*request.direction_reference;
+                    const auto axis=std::ranges::find_if(original_references.axes,[&](const auto& value){return
+                        value.reference.owner_id==ref.owner_id&&value.reference.semantic_key==ref.semantic_key&&value.reference.instance_path==ref.instance_path;});
+                    if(axis!=original_references.axes.end())request.direction=axis->direction;
+                    else {
+                        const auto edge=std::ranges::find_if(owned_topology->edges,[&](const auto& value){return value.reference==ref;});
+                        if(edge==owned_topology->edges.end())throw std::runtime_error("Projection direction reference is missing or is not straight.");
+                        BRepAdaptor_Curve curve(TopoDS::Edge(edge->shape));
+                        const auto a=curve.Value(curve.FirstParameter()),b=curve.Value(curve.LastParameter());
+                        gp_Vec direction(a,b);
+                        if(direction.Magnitude()<request.tolerance)throw std::runtime_error("Projection direction reference is missing or is not straight.");
+                        if(curve.GetType()!=GeomAbs_Line) {
+                            if(curve.GetType()!=GeomAbs_BSplineCurve)throw std::runtime_error("Projection direction reference is missing or is not straight.");
+                            const auto spline=curve.BSpline();
+                            for(int i=1;i<=spline->NbPoles();++i)
+                                if(gp_Vec(a,spline->Pole(i)).Crossed(direction).Magnitude()/direction.Magnitude()>request.tolerance)
+                                    throw std::runtime_error("Projection direction reference is missing or is not straight.");
+                        }
+                        if(edge->shape.Orientation()==TopAbs_REVERSED)direction.Reverse();
+                        direction.Normalize();request.direction={direction.X(),direction.Y(),direction.Z()};
+                    }
+                }
+                if(request.reverse)request.direction={-request.direction.x,-request.direction.y,-request.direction.z};
+                auto faces=owned_topology->faces;auto edges=owned_topology->edges;auto vertices=owned_topology->vertices;
+                for(const auto& external:projection->external_targets) {
+                    if(!external.source||projection->output==ProjectionResult::Split)
+                        throw std::runtime_error("Projection face partition failed.");
+                    auto source=native_face_source(external.source->body.get(),external.source->reference).geometry(*this);
+                    for(const auto& placement:external.source->placements) {
+                        BRepBuilderAPI_Transform transform(source.shape,primitive_transform(placement.translation,placement.rotation_degrees),true);
+                        source=transformed_bound_topology(source,transform,[](auto metadata){return metadata;});
+                    }
+                    for(auto& face:source.faces)face.reference.instance_path=external.target.instance_path;
+                    for(auto& edge:source.edges)edge.reference.instance_path=external.target.instance_path;
+                    for(auto& point:source.vertices)point.reference.instance_path=external.target.instance_path;
+                    faces.insert(faces.end(),source.faces.begin(),source.faces.end());
+                    edges.insert(edges.end(),source.edges.begin(),source.edges.end());
+                    vertices.insert(vertices.end(),source.vertices.begin(),source.vertices.end());
+                }
+                std::vector<ResolvedProjectionRegion> resolved_regions;
+                auto derived=make_projection_data(request,operation.owner_id,result_shape,
+                    owned_topology->faces,owned_topology->edges,owned_topology->vertices,faces,edges,vertices,operations,resolved_regions);
+                const auto authored=[&](const auto& values) {
+                    auto selected=values;std::erase_if(selected,[&](const auto& value){return value.reference.owner_id!=operation.owner_id;});return selected;
+                };
+                retain_originals(authored(derived.faces),authored(derived.edges),authored(derived.vertices));
+                if(projection->output==ProjectionResult::Curves) {
+                    auto curves=make_operation_result(derived.shape,{},derived.edges,derived.vertices,true,false,true,{},false);
+                    std::erase_if(curves.mesh.original_references.points,[](const auto& point){return !point.reference.valid();});
+                    append_reference_geometry(original_references,std::move(curves.mesh.original_references));
+                } else {
+                    retain_copy_solid(derived);result_shape=derived.shape;
+                    owned_topology=std::make_shared<LiveCache::Topology>(LiveCache::Topology{
+                        std::move(derived.faces),std::move(derived.edges),std::move(derived.vertices),{}});
+                }
+                // An external curve Projection can be the first operation in
+                // a Body. It has exact reference curves but no material shape
+                // to serialize or analyze. A serialized null BRep is not a
+                // valid deferred-analysis snapshot; its material totals are
+                // already known to be zero.
+                const bool material_present=!result_shape.IsNull();
+                auto boundary=make_published_result(result_shape,owned_topology->faces,owned_topology->edges,
+                    owned_topology->vertices,true,persist_boundary_shape&&material_present,
+                    projection->output==ProjectionResult::Surface,{},material_present);
+                if(!material_present)boundary.physical_properties_current=true;
+                if(projection->output!=ProjectionResult::Curves)append_reference_geometry(original_references,
+                    reference_geometry_for_owners(boundary.mesh.original_references,std::unordered_set<std::string>{operation.owner_id}));
+                boundary.mesh.original_references=original_references;
+                boundary.source_fingerprint=fingerprint(operations,operation_index+1);
+                boundary.resolved_projection_regions=std::move(resolved_regions);
+                boundaries.push_back(std::move(boundary));remember_live_boundary(boundaries.back().source_fingerprint,result_shape,owned_topology);
                 continue;
             }
             if(const auto* intersection=std::get_if<SurfaceIntersectionRequest>(&operation.primitive)) {

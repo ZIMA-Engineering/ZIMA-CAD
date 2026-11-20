@@ -27,10 +27,10 @@ Signatures signatures(const document::PartDocument& doc) {
         return true;
     });
     for(const auto& feature:doc.history)if(feature.feature_kind==document::FeatureKind::Feature)
-        for(const auto& side:feature.feature.sides)for(const auto& target:side.targets)if(target.external_source) {
+        document::visit_feature_targets(feature.feature,[&](const auto& target){if(target.external_source) {
             const auto& source=*target.external_source;
             result.emplace(source.context_assembly_id,source.dependent_instance_path,source.document_id,source.source_instance_path);
-        }
+        }});
     return result;
 }
 struct Scope { std::string owner;Path owner_path;Pair branches; };

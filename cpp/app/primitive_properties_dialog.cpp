@@ -2118,6 +2118,9 @@ std::vector<zima::document::ExtrusionParameters::EndTarget>& PrimitiveProperties
         ? feature_panel_->targets(reverse?1:0)
         : reverse?initial_.extrusion.end_targets_reverse:initial_.extrusion.end_targets_forward;
 }
+ProjectionParameterPanel* PrimitivePropertiesDialog::projection_panel()const {
+    return feature_panel_?feature_panel_->projection_panel():nullptr;
+}
 const std::vector<zima::document::ExtrusionParameters::EndTarget>& PrimitivePropertiesDialog::profile_end_targets(bool reverse) const {
     return initial_.feature_kind==zima::document::FeatureKind::Feature
         ? feature_panel_->targets(reverse?1:0)

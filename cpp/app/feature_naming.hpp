@@ -13,6 +13,7 @@ inline QString feature_name_prefix(document::FeatureType type) {
         case FeatureType::Plane:return QObject::tr("Rovina");
         case FeatureType::Sketch:return QObject::tr("Skica");
         case FeatureType::Modeling:return QObject::tr("Tažení");
+        case FeatureType::Projection:return QObject::tr("Promítnutí");
     }
     return {};
 }

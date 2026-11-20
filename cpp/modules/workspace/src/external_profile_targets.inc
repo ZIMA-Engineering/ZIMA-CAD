@@ -8,7 +8,7 @@ void append_inverse_target_frame(std::vector<kernel::KernelRigidPlacement>& fram
 }
 document::ExtrusionParameters::EndTarget resolve_cached_external_target(
         const document::PartDocument& part,const std::string& frame,
-        const document::ExtrusionParameters::EndTarget& requested) {
+        const document::ExtrusionParameters::EndTarget& requested,bool bounded_current_face=false) {
     if(!requested.external_source||requested.kind==document::EndTargetKind::Point)
         throw ProfileOperationError("invalid_reference","The original extrusion target is unavailable.");
     const auto& binding=*requested.external_source;
@@ -18,6 +18,17 @@ document::ExtrusionParameters::EndTarget resolve_cached_external_target(
     const auto geometry=part.construction_reference_geometry_for(frame,binding.source_face->mesh.original_references);
     auto target=document::resolve_profile_target(requested,geometry);
     if(!target)throw ProfileOperationError("missing_reference","The original extrusion target is unavailable.");
+    if(bounded_current_face&&target->kind==document::EndTargetKind::Plane) {
+        // An extrusion limit may use the plane supporting a planar face.
+        // Projection still owns that face's finite trimmed domain, including
+        // its preview packet, even when its support happens to be planar.
+        target->kind=document::EndTargetKind::Face;
+        for(std::size_t i=0;i<geometry.triangle_references.size();++i)
+            if(geometry.triangle_references[i]==requested.reference)
+                for(std::size_t j=0;j<3;++j)
+                    target->fallback_triangles.push_back(geometry.vertices.at(geometry.triangles.at(3*i+j)));
+        if(target->fallback_triangles.empty())throw ProfileOperationError("missing_reference","The original extrusion target is unavailable.");
+    }
     auto& resolved=*target->external_source;resolved.source_to_body=resolved.source_to_part;
     const auto* body=part.body_owner_for_object(frame);
     if(!body)body=part.body_history.find(frame);
@@ -31,9 +42,9 @@ document::ExtrusionParameters::EndTarget resolve_cached_external_target(
 
 document::ExtrusionParameters::EndTarget prepare_skeleton_end_target(
         const Workspace& live,const document::PartDocument& part,const std::string& frame,
-        const document::ExtrusionParameters::EndTarget& offered,const kernel::OcctKernel* capture) {
+        const document::ExtrusionParameters::EndTarget& offered,const kernel::OcctKernel* capture,bool bounded_current_face) {
     auto requested=offered;
-    for(unsigned depth=0;depth<256;++depth) {
+    for(unsigned depth=0;!bounded_current_face&&depth<256;++depth) {
         const auto parent=kernel::boolean_face_parent(requested.reference.semantic_key);if(!parent)break;
         requested.reference.owner_id=parent->first;requested.reference.semantic_key=parent->second;
     }
@@ -82,8 +93,10 @@ document::ExtrusionParameters::EndTarget prepare_skeleton_end_target(
             source.calculated.back().calculation_errors.contains(local.owner_id))
             throw ProfileOperationError("missing_reference","The original extrusion target is unavailable.");
         try {
-            cached=capture->capture_reference_face_history(source.calculated,local);
+            cached=bounded_current_face?capture->capture_reference_face(source.calculated.back(),local):
+                capture->capture_reference_face_history(source.calculated,local);
         } catch(const std::runtime_error& error) {
+            if(bounded_current_face)throw;
             if(std::string_view(error.what())!=
                     "The original extrusion target is unavailable.")throw;
             // Ordinary native documents intentionally keep only the current
@@ -113,10 +126,14 @@ document::ExtrusionParameters::EndTarget prepare_skeleton_end_target(
     for(const auto& placement:live.occurrence_placements(binding.context_assembly_id,dependent))
         append_inverse_target_frame(binding.source_to_part,placement);
     result.external_source=std::move(binding);
-    return resolve_cached_external_target(part,frame,result);
+    return resolve_cached_external_target(part,frame,result,bounded_current_face);
 }
 
 void refresh_external_profile_targets(const Workspace& live,const kernel::OcctKernel& kernel,document::PartDocument& part) {
+    for(auto& feature:part.history)if(!feature.suppressed&&feature.feature_kind==document::FeatureKind::Feature&&
+            feature.feature.type==document::FeatureType::Projection)
+        for(auto& target:feature.feature.projection.targets)if(target.external_source)
+            target=prepare_skeleton_end_target(live,part,feature.id,target,&kernel,true);
     for(auto& feature:part.history)if(!feature.suppressed&&feature.feature_kind==document::FeatureKind::Feature&&
         feature.feature.type==document::FeatureType::Modeling)
         for(std::size_t index=0;index<(feature.feature.symmetric?1u:2u);++index) {
@@ -128,6 +145,6 @@ void refresh_external_profile_targets(const Workspace& live,const kernel::OcctKe
 }
 void refresh_cached_external_profile_target_frames(document::PartDocument& part) {
     for(auto& feature:part.history)if(!feature.suppressed&&feature.feature_kind==document::FeatureKind::Feature)
-        for(auto& side:feature.feature.sides)for(auto& target:side.targets)if(target.external_source)
-            target=resolve_cached_external_target(part,feature.id,target);
+        document::visit_feature_targets(feature.feature,[&](auto& target){if(target.external_source)
+            target=resolve_cached_external_target(part,feature.id,target,feature.feature.type==document::FeatureType::Projection);});
 }

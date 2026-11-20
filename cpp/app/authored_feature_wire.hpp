@@ -78,6 +78,9 @@ inline std::vector<kernel::ViewerEdge> authored_feature_wire(
     using document::FeatureKind;
     switch(feature->feature_kind) {
     case FeatureKind::Feature:
+        if(feature->feature.type==document::FeatureType::Projection) {
+            wire.edges=doc.feature_preview_edges(*feature,input_mesh,&doc);return place(std::move(wire));
+        }
         if(feature->feature.type!=document::FeatureType::Modeling)break;
         if(feature->feature.planar_surface()) {
             const auto sketch=std::ranges::find(doc.sketches,

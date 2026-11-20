@@ -1,5 +1,6 @@
 #include <zima/kernel/geometry_kernel.hpp>
 #include <zima/kernel/sheet_branch.hpp>
+#include <tuple>
 namespace zima::kernel {
 namespace {
 // Each prefix starts with its own count. Encode each operation once and feed
@@ -902,6 +903,47 @@ std::string encode_history_fingerprint(
                 u64(std::bit_cast<std::uint64_t>(primitive.tolerance));u64(static_cast<unsigned>(primitive.side));
                 for(const auto* value:{&primitive.face.owner_id,&primitive.face.semantic_key,&primitive.face.instance_path}) {
                     u64(value->size());for(unsigned char c:*value)byte(c);
+                }
+            } else if constexpr (std::is_same_v<Request, ProjectionRequest>) {
+                u64(1);
+                const auto text=[&](const std::string& value){u64(value.size());for(unsigned char c:value)byte(c);};
+                const auto reference=[&](const auto& r){text(r.owner_id);text(r.semantic_key);text(r.instance_path);};
+                u64(primitive.profiles.size());
+                for(const auto& profile:primitive.profiles)
+                    text(history_fingerprint({HistoryOperation{operation.owner_id,profile}},1));
+                text(primitive.sketch_id);
+                byte(primitive.direction_reference.has_value());
+                if(primitive.direction_reference)reference(*primitive.direction_reference);
+                byte(primitive.reverse);
+                for(auto p:{primitive.sketch_origin,primitive.sketch_normal,primitive.direction})
+                    for(double v:{p.x,p.y,p.z})u64(number_bits(v));
+                u64(static_cast<unsigned>(primitive.output));u64(std::bit_cast<std::uint64_t>(primitive.tolerance));
+                // Target rows are a set. Row order is not a modeling input.
+                std::vector<std::tuple<std::string,std::string,std::string>> targets;
+                for(const auto& r:primitive.targets)targets.emplace_back(r.owner_id,r.semantic_key,r.instance_path);
+                std::ranges::sort(targets);u64(targets.size());
+                for(const auto& [owner,key,path]:targets){text(owner);text(key);text(path);}
+                u64(primitive.external_targets.size());
+                std::vector<const ProjectionTargetSource*> external;
+                for(const auto& value:primitive.external_targets)external.push_back(&value);
+                std::ranges::sort(external,[](const auto* a,const auto* b){return
+                    std::tie(a->target.owner_id,a->target.semantic_key,a->target.instance_path)<
+                    std::tie(b->target.owner_id,b->target.semantic_key,b->target.instance_path);});
+                for(const auto* value:external) {
+                    reference(value->target);const auto& source=value->source;
+                    byte(static_cast<bool>(source));if(!source)continue;
+                    reference(source->reference);text(source->body->source_fingerprint);
+                    u64(source->placements.size());
+                    for(const auto& placement:source->placements)
+                        for(double v:{placement.translation.x,placement.translation.y,placement.translation.z,
+                            placement.rotation_degrees.x,placement.rotation_degrees.y,placement.rotation_degrees.z})u64(number_bits(v));
+                }
+                u64(primitive.regions.size());
+                for(const auto& region:primitive.regions) {
+                    reference(region.target);
+                    // The captured boundary is validation intent, checked on
+                    // cache reuse too. Capturing it must not run Splitter twice.
+                    for(double v:{region.seed.x,region.seed.y,region.seed.z})u64(std::bit_cast<std::uint64_t>(v));
                 }
             } else if constexpr (std::is_same_v<Request, SurfaceTrimRequest>) {
                 u64(2);u64(std::bit_cast<std::uint64_t>(primitive.tolerance));

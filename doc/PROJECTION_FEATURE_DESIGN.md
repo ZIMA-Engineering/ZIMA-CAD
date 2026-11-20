@@ -1,9 +1,9 @@
-# Projection feature — implementation proposal
+# Projection feature
 
-Status: design following the accepted 2026112003 repair commit. This document
-implements the agreed design discussion, not a native-format change or a claim
-that Projection is already available. The accepted interaction requirements
-remain in [the modeling follow-up](MODELING_FOLLOWUP_20261119.md).
+Status: implemented; targeted Windows acceptance passes. Distribution acceptance
+for 2026112004 is recorded separately in the [verification report](verification/20261120-projection.md).
+The accepted interaction requirements remain in
+[the modeling follow-up](MODELING_FOLLOWUP_20261119.md).
 
 ## User-visible behavior
 
@@ -27,15 +27,16 @@ The default projection direction is the oriented input Sketch normal. Reverse
 changes its direction. An explicit direction reference uses the established
 reference resolver for an axis or directed straight edge, including its retained
 orientation. Multiple selected faces form one Up-to target: choose the first
-positive hit along each projection ray. Their table order must not change which
+nonnegative hit along each projection ray. Their table order must not change which
 surface is nearest.
 
 Show missing portions and ambiguous hits in the pending preview. Do not silently
 project them onto another unselected face. Connected target faces can share
 output at their common boundary; a periodic seam is not a physical gap. A
-coincident zero-distance start needs an explicit regression against the existing
-Up-to start/side convention before implementation is accepted; do not resolve
-it by moving the Sketch by an arbitrary epsilon.
+coincident zero-distance start retains the native contact curve and is covered
+by an exact contact regression; no arbitrary displacement of the Sketch is used.
+The direction must be transverse to the source plane. A direction within that
+plane collapses its two-dimensional projection domain and is rejected explicitly.
 
 Closed contours may bound regions. An open contour is valid for a region output
 only when it actually separates a region together with existing target
@@ -127,7 +128,7 @@ when any of those inputs changes. Ordinary hover, selection, inspection, pan,
 zoom and tab switching must not invoke OCCT. Record scene publication and kernel
 operation counts as well as elapsed time on representative targets.
 
-## Proposed persisted scope and approval gate
+## Persisted scope and approval gate
 
 A Projection definition needs its output mode, ordinary input Sketch ownership,
 target face references, direction mode/reference and reversal, plus explicit
@@ -135,12 +136,11 @@ region intent for Surface output. Calculated native output and its reference
 bindings remain inside the existing native document. There are no required
 sidecar files or private revision caches.
 
-Adding this required definition is a native-contract extension. Before code or
-serialization changes, present its exact schema and obtain the existing scoped
-format agreement. Inventory affected start templates and all factory native
-assets, preserve recoverable backups, and include isolated copies of the
-protected Toyota project in the verification plan. Do not overwrite private
-originals or add legacy migration branches. Update and verify affected factory
+Adding this required definition is a native-contract extension. The authorized
+schema is recorded below. The release gate includes an inventory of start
+templates and factory native assets, recoverable backups, and isolated copies
+of the protected Toyota project. Private originals must not be overwritten and
+legacy migration branches must not be added. Update and verify affected factory
 assets with the changed native implementation before release.
 
 ## Acceptance matrix and implementation order
@@ -167,3 +167,46 @@ applicable dimension kinds and driving/reference/lock states, repeated edits and
 drags, independent equations, selection orders, native/external supports and
 dependent trimming. A successful initial solve is insufficient. Report each
 unverified variant and platform explicitly.
+
+## Approved implementation scope — 2026-11-20
+
+The user explicitly authorized the native-file changes required by Projection
+on 2026-11-20. This approval covers the definition and derived reference data
+below, template/factory verification and investigations on isolated copies of
+the protected Toyota project. It does not authorize changing shared placement
+solving or overwriting private project originals.
+
+Projection extends the existing `FeatureParameters.type` discriminator with
+`projection`. The ordinary `sketch_id`, Sketch ownership and container placement
+remain authoritative. A required `projection` object belongs only to that type:
+
+| Field | Definition |
+| --- | --- |
+| `output` | `curves`, `split` or `surface`; independent of solid/Thin output settings |
+| `targets` | Selected face references using existing owner/key/instance-path identity and the existing explicit external-target snapshot where applicable |
+| `direction` | `sketch_normal` or `reference` |
+| `direction_reference` | Required for reference direction; original axis/straight-edge identity, with its retained directed orientation |
+| `reverse` | Boolean reversal of the resolved direction |
+| `regions` | Explicit retained region intents for Surface output, bound to target and source-curve ancestry; inactive choices survive switching to another output |
+
+An input-field display label is presentation, never identity. A region pick may
+carry its point in the target's local frame for initial classification, but the
+calculated boundary-parent key is authoritative on regeneration. A lost key is
+an unresolved dependency, not permission to select a nearby patch. Output edge,
+vertex and partition identities use the existing native reference archive;
+no external cache is required to reopen the result.
+
+The extension must not reinterpret existing Feature kinds or silently turn
+Projection into an extrusion. Existing native documents without Projection do
+not require a new field. Their established format discriminators and stored
+definitions stay unchanged unless implementation evidence demonstrates a
+separate necessary change. This conditional definition is not a legacy-format
+migration path. An older executable must reject an unknown Projection type.
+
+Before release, inventory committed native assets, verify unchanged asset
+definitions and regenerate/save/reopen every affected asset with the changed
+implementation. Regenerate the current start templates and exercise new
+documents through the GUI, including active editable context. Keep private
+inventories, recoverable backups and test copies outside published artifacts.
+The previously recorded unsupported Toyota formats remain a verification gap;
+the extension does not add a legacy reader or establish their compatibility.

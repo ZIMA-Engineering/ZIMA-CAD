@@ -34,6 +34,34 @@ FeatureParameters fixture() {
 }
 }
 int main() { try {
+    // Projection adds a required discriminated definition without changing
+    // existing Feature payloads or the planar source Sketch's ownership.
+    for(const auto output:{ProjectionOutput::Curves,ProjectionOutput::Split,ProjectionOutput::Surface})
+    for(const auto direction:{ProjectionDirection::SketchNormal,ProjectionDirection::Reference})
+    for(bool reverse:{false,true}) {
+        FeatureParameters p;p.type=FeatureType::Projection;p.sketch_id="source-sketch";
+        auto& projection=p.projection;projection.output=output;projection.direction=direction;projection.reverse=reverse;
+        projection.direction_reference={"axis-owner","axis:authored","occurrence/part"};
+        ExtrusionParameters::EndTarget target;target.reference={"target-owner","face:from:profile","occurrence/target"};
+        target.label="User-authored target";target.fallback_origin={-0.,2,8};target.fallback_normal={0,0,-1};
+        target.fallback_triangles={{0,0,8},{4,0,8},{0,4,8}};projection.targets={target};
+        projection.regions.push_back({target.reference,{1,1,-0.},"region:from:authored-boundaries"});
+        const auto encoded=serialize_feature_parameters(p);
+        const auto restored=load_feature_parameters(encoded);
+        check(restored==p,"Projection definition changed on native round-trip");
+        check(restored.uses_sketch()&&!restored.sketch_only()&&!restored.shows_sketch(),"Projection confused its planar input with derived output");
+        check(std::signbit(restored.projection.targets[0].fallback_origin.x)&&std::signbit(restored.projection.regions[0].seed.z),
+            "Projection normalized signed zero");
+        auto invalid=encoded;invalid.erase("projection");rejected([&]{static_cast<void>(load_feature_parameters(invalid));});
+        invalid=encoded;invalid["projection"]["output"]="solid";rejected([&]{static_cast<void>(load_feature_parameters(invalid));});
+        invalid=encoded;invalid["projection"]["direction"]="nearest";rejected([&]{static_cast<void>(load_feature_parameters(invalid));});
+        invalid=encoded;invalid["projection"]["targets"].push_back(invalid["projection"]["targets"][0]);
+        rejected([&]{static_cast<void>(load_feature_parameters(invalid));});
+        invalid=encoded;invalid["projection"]["regions"][0]["target"]["key"]="unselected";
+        rejected([&]{static_cast<void>(load_feature_parameters(invalid));});
+        auto previous=p;previous.type=FeatureType::Modeling;
+        check(!serialize_feature_parameters(previous).contains("projection"),"Projection changed another Feature's persisted definition");
+    }
     for(std::size_t edited:{0u,1u}) {
         FeatureParameters p;for(auto& side:p.sides){side.operation=FeatureSideOperation::Revolution;side.angle_degrees=90;}
         p.sides[edited].angle_degrees=300;normalize_feature_rotations(p,edited);
@@ -131,11 +159,11 @@ int main() { try {
         }
         check(result.points.size()==(type==FeatureType::Axis?3:1),"Feature result has unexpected point markers");
         check(result.edges.size()==(type==FeatureType::Axis||type==FeatureType::Plane?1:0),"Feature result has extra geometry");
-        check(origin.always_visible==feature.feature.show_point,"Feature point visibility differs from its setting");
+        check(origin.always_visible==(type==FeatureType::Point||feature.feature.show_point),"Feature point visibility differs from its setting");
         for(bool point:{false,true})for(bool text:{false,true}) {
             auto changed=feature;changed.feature.show_point=point;changed.feature.show_text=text;
             const auto shown=part.feature_result_mesh(changed);
-            check(shown.points.front().always_visible==point&&shown.points.front().label.empty()==!text,
+            check(shown.points.front().always_visible==(type==FeatureType::Point||point)&&shown.points.front().label.empty()==!text,
                 "Feature point and text switches are not independent");
             check(shown.original_references.points.front().reference==result.original_references.points.front().reference,
                 "Visibility changed point reference identity");

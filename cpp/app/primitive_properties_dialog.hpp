@@ -34,6 +34,7 @@ class ReferenceCellItem;
 namespace zima::app {
 
 class FeatureParameterPanel;
+class ProjectionParameterPanel;
 class SheetFormPlacementSection;
 
 enum class FeatureUpToTargetDecision {
@@ -51,6 +52,7 @@ enum class FeatureUpToTargetDecision {
 class PrimitivePropertiesDialog final : public zima::ui::PropertiesSubWindow,
                                         public PlacementReferenceDialog {
 public:
+    ProjectionParameterPanel* projection_panel()const;
     void set_sheet_default_thickness(double value) { sheet_default_thickness_=value; }
     void set_sheet_reference_geometry(zima::kernel::ViewerReferenceGeometry value) { sheet_reference_geometry_=std::move(value); }
     void set_sheet_form_body_origin(std::string value) { sheet_form_body_origin_=std::move(value); }

@@ -265,6 +265,7 @@ add_library(zima_document_core
     modules/document_core/src/sheet_transition.cpp
     modules/document_core/src/profile_serialization.cpp
     modules/document_core/src/feature_serialization.cpp
+    modules/document_core/src/projection_parameters.cpp
     modules/document_core/src/feature_up_to.cpp
     modules/document_core/src/feature_result_geometry.cpp
     modules/document_core/src/part_document.cpp
@@ -502,6 +503,7 @@ add_library(zima_kernel_occt
     modules/kernel_occt/src/occt_planar_edge_fillet.cpp
     modules/kernel_occt/src/ordered_up_to.cpp
     modules/kernel_occt/src/sectioned_normal_offset.cpp
+    modules/kernel_occt/src/directional_projection.cpp
     modules/kernel_occt/src/sheet_exchange.cpp
     modules/kernel_occt/src/step_source_document.cpp
     modules/kernel_occt/src/occt_kernel.cpp)
@@ -2877,6 +2879,31 @@ if(ZIMA_BUILD_TESTS)
     endif()
     add_test(NAME zima_cpp_loft_tests COMMAND zima_cpp_loft_tests)
     add_executable(zima_cpp_loft_offset_tests tests/loft_offset_tests.cpp)
+    add_executable(zima_cpp_directional_projection_tests
+        tests/directional_projection_tests.cpp
+        modules/kernel_occt/src/directional_projection.cpp)
+    target_link_libraries(zima_cpp_directional_projection_tests PRIVATE
+        TKernel TKMath TKG2d TKG3d TKGeomBase TKBRep TKGeomAlgo TKTopAlgo TKPrim TKBO TKBool TKShHealing)
+    target_compile_features(zima_cpp_directional_projection_tests PRIVATE cxx_std_20)
+    target_compile_options(zima_cpp_directional_projection_tests PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
+    add_test(NAME zima_cpp_directional_projection_tests COMMAND zima_cpp_directional_projection_tests)
+    add_executable(zima_cpp_projection_history_tests tests/projection_history_tests.cpp)
+    target_link_libraries(zima_cpp_projection_history_tests PRIVATE zima_kernel_occt TKTopAlgo TKBO)
+    target_compile_options(zima_cpp_projection_history_tests PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
+    add_test(NAME zima_cpp_projection_history_tests COMMAND zima_cpp_projection_history_tests)
+    add_executable(zima_cpp_projection_document_tests tests/projection_document_tests.cpp)
+    target_link_libraries(zima_cpp_projection_document_tests PRIVATE zima_workspace zima_kernel_occt)
+    if(MSVC)
+        target_compile_options(zima_cpp_projection_document_tests PRIVATE /utf-8)
+        target_link_options(zima_cpp_projection_document_tests PRIVATE /STACK:8388608)
+    endif()
+    add_test(NAME zima_cpp_projection_document_tests COMMAND zima_cpp_projection_document_tests)
+    file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/projection-ui-contract")
+    add_test(NAME zima_cpp_projection_ui_contract COMMAND zima-cad-cpp --verify-startup
+        --working-directory "${CMAKE_BINARY_DIR}/projection-ui-contract")
+    set_tests_properties(zima_cpp_projection_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_PROJECTION_ONLY=1"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 180 RUN_SERIAL TRUE)
     target_link_libraries(zima_cpp_loft_offset_tests PRIVATE zima_kernel_occt TKTopAlgo)
     if(MSVC)
         target_link_options(zima_cpp_loft_offset_tests PRIVATE /STACK:8388608)

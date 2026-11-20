@@ -1209,6 +1209,36 @@ struct SurfaceTrimRequest {
     static constexpr bool surface_result=true;
 };
 
+enum class ProjectionResult { Curves, Split, Surface };
+struct ProjectionRegionIntent {
+    FaceReference target;
+    Vec3 seed;
+    std::string expected_region_key;
+};
+struct ProjectionTargetSource {
+    FaceReference target;
+    std::shared_ptr<const OrderedUpToSource> source;
+};
+struct ProjectionRequest {
+    // Shared native planar profile curves and their authored point/curve IDs.
+    // Unlike extrusion, this operation never sweeps solid material.
+    std::vector<ExtrusionRequest> profiles;
+    std::string sketch_id;
+    Vec3 sketch_origin, sketch_normal{0,0,1}, direction{0,0,1};
+    std::optional<EdgeReference> direction_reference;
+    bool reverse{};
+    std::vector<FaceReference> targets;
+    std::vector<ProjectionTargetSource> external_targets;
+    std::vector<ProjectionRegionIntent> regions;
+    ProjectionResult output{ProjectionResult::Curves};
+    double tolerance{0.001};
+};
+struct ResolvedProjectionRegion {
+    std::string owner_id;
+    std::size_t intent_index{}; // Transient correspondence within this calculation only.
+    std::string boundary_key;
+};
+
 struct HistoryOperation;
 // Ordinary native Body histories of an independently copied FORM definition.
 // This packet is prepared by the document; only explicit calculation evaluates
@@ -1241,7 +1271,8 @@ using PrimitiveRequest = std::variant<
     ExtrusionRequest, RevolutionRequest, FeatureGroupRequest,
     Sweep3DRequest, StepRequest, FilletRequest, ChamferRequest, ShellRequest,
     ThreadSurfaceRequest, DrillPointRequest, SheetStateRequest, SheetRipRequest, LineBendRequest, BoundarySurfaceRequest,
-    SolidStateRequest, SurfaceSewingRequest, SurfaceIntersectionRequest, SurfaceTrimRequest, SurfaceThickenRequest, SheetFormRequest, LoftRequest>;
+    SolidStateRequest, SurfaceSewingRequest, SurfaceIntersectionRequest, SurfaceTrimRequest, SurfaceThickenRequest, SheetFormRequest, LoftRequest,
+    ProjectionRequest>;
 
 // Transient material-frame transfer for a source end-section attachment.
 // No container/reference definition or native document format changes.
@@ -1342,6 +1373,7 @@ using HistoryReferenceIdentity =
 struct KernelHistoryCache;
 
 struct BodyResult {
+    std::vector<ResolvedProjectionRegion> resolved_projection_regions;
     // Ephemeral result of accepted automatic patch-side seeding. The owning
     // Feature persists these choices, so this is never required native storage.
     std::vector<ResolvedOrderedUpToLimit> resolved_up_to_limits;

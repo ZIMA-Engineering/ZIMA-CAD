@@ -13,6 +13,7 @@
 #include <zima/document/feature_rotation_span.hpp>
 #include "numeric_expression_edit.hpp"
 #include "feature_limit_table.hpp"
+#include "projection_parameter_panel.hpp"
 #include <QScopedValueRollback>
 #include "sketch_button_style.hpp"
 #include "resource_icon.hpp"
@@ -130,6 +131,8 @@ public:
             refresh_operations();
         });
         content_->addWidget(result_group);
+        projection_=new ProjectionParameterPanel(initial_.projection,this);
+        content_->addWidget(projection_);
         auto* symmetric=new QCheckBox(tr("Symetricky"),this);symmetric_control_=symmetric;symmetric->setObjectName("featureSymmetric");
         options_row_=new QWidget(this);
         options_row_->setObjectName("featureExtentOptions");
@@ -258,6 +261,7 @@ public:
     }
     [[nodiscard]] document::FeatureParameters parameters() const {
         auto value=initial_;value.type=selected_type();
+        value.projection=projection_->parameters();
         value.profile_plane_offset=offset_->value()==offset_display_?initial_.profile_plane_offset:offset_->value();
         value.thin_thickness=thickness_->value()==thickness_display_?initial_.thin_thickness:thickness_->value();
         value.thin_mode=static_cast<document::ThinMode>(thin_side_->currentIndex());
@@ -270,6 +274,7 @@ public:
         return value;
     }
     QComboBox* type_control() const { return type_; }
+    ProjectionParameterPanel* projection_panel()const{return projection_;}
     QWidget* type_row() {
         auto* row=new QWidget(this);auto* layout=new QHBoxLayout(row);layout->setContentsMargins(0,0,0,0);
         type_->setSizePolicy(QSizePolicy::Fixed,QSizePolicy::Fixed);
@@ -359,6 +364,7 @@ public:
         draft_notice_->setVisible(visible);if(notice_changed_)notice_changed_();
     }
     bool active_limit_tables() const {
+        if(selected_type()==document::FeatureType::Projection)return true;
         return modeling_limits()&&std::ranges::any_of(sides_,[](const auto& side){return !side.box->isHidden()&&!side.limits->isHidden();});
     }
     QDoubleSpinBox* side_value(std::size_t side) const { return sides_.at(side).value; }
@@ -367,7 +373,7 @@ public:
     }
     QDoubleSpinBox* side_draft(std::size_t side) const { return sides_.at(side).draft; }
     QGroupBox* side_group(std::size_t side) const { return sides_.at(side).box; }
-    bool subtract() const { return result_->currentIndex()!=1 && operation_group_->checkedId()==1; }
+    bool subtract() const { return selected_type()!=document::FeatureType::Projection&&result_->currentIndex()!=1 && operation_group_->checkedId()==1; }
     void set_subtract(bool value) {
         last_operation_=value?1:0;
         refresh_operations();
@@ -377,6 +383,8 @@ public:
         operation_group_->button(0)->setEnabled(false);
         if(auto* model=qobject_cast<QStandardItemModel*>(result_->model()))model->item(1)->setEnabled(false);
         if(result_->currentIndex()==1)result_->setCurrentIndex(0);
+        if(auto* model=qobject_cast<QStandardItemModel*>(type_->model()))
+            if(auto* item=model->item(static_cast<int>(document::FeatureType::Projection)))item->setEnabled(false);
     }
     void bind_side_locks(std::set<std::string>& locks,std::function<void()> changed) {
         locks_=&locks;locks_changed_=std::move(changed);
@@ -390,9 +398,10 @@ public:
     void on_change(std::function<void()> changed) {
         const auto notify=[this,changed]{if(!changing_operation_&&!refreshing_side_&&!normalizing_rotations_)changed();};
         change_requested_=notify;
-        for(auto* box:findChildren<QComboBox*>())if(!box->property("featureLimitChoice").toBool())connect(box,&QComboBox::currentIndexChanged,this,notify);
+        for(auto* box:findChildren<QComboBox*>())if(!projection_->isAncestorOf(box)&&!box->property("featureLimitChoice").toBool())connect(box,&QComboBox::currentIndexChanged,this,notify);
         for(auto* box:findChildren<QDoubleSpinBox*>())connect(box,&QDoubleSpinBox::valueChanged,this,notify);
-        for(auto* box:findChildren<QCheckBox*>())connect(box,&QCheckBox::toggled,this,notify);
+        for(auto* box:findChildren<QCheckBox*>())if(!projection_->isAncestorOf(box))connect(box,&QCheckBox::toggled,this,notify);
+        projection_->changed=notify;
         connect(operation_group_,&QButtonGroup::idClicked,this,notify);
         if(type_->parentWidget()!=this)connect(type_,&QComboBox::currentIndexChanged,this,notify);
     }
@@ -427,6 +436,7 @@ private:
     QLabel *plane_label_{},*axis_direction_label_{};
     QFormLayout* plane_rows_{};
     QGroupBox *plane_group_{},*sketch_group_{},*result_group_{};
+    ProjectionParameterPanel* projection_{};
     QWidget *plane_selector_{}, *axis_direction_selector_{};
     QCheckBox* symmetric_control_{};
     QWidget* options_row_{};
@@ -502,7 +512,8 @@ private:
         plane_rows_->setRowVisible(plane_selector_,!axis);
         plane_rows_->setRowVisible(axis_direction_selector_,axis);
         plane_rows_->setRowVisible(offset_,true);
-        sketch_group_->setVisible(!extent_only_&&(modeling||type==document::FeatureType::Sketch));
+        sketch_group_->setVisible(!extent_only_&&(modeling||type==document::FeatureType::Sketch||type==document::FeatureType::Projection));
+        projection_->setVisible(!extent_only_&&type==document::FeatureType::Projection);
         result_group_->setVisible(!extent_only_&&modeling);
         options_row_->setVisible(lengths);
         symmetric_control_->setVisible(lengths);swap_->setVisible(lengths);

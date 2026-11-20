@@ -545,7 +545,9 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
                 if (part_rollback_ && part_rollback_->part_document_id == document.document_id &&
                     i >= part_rollback_->history_limit) break;
                 const auto& feature = document.history[i];
-                if(feature.feature_kind==zima::document::FeatureKind::SurfaceIntersection) {
+                if(feature.feature_kind==zima::document::FeatureKind::SurfaceIntersection||
+                        (feature.feature_kind==zima::document::FeatureKind::Feature&&feature.feature.type==zima::document::FeatureType::Projection&&
+                         feature.feature.projection.output==zima::document::ProjectionOutput::Curves)) {
                     if(feature.suppressed||(!document.history_order.empty()&&!visible_ids.contains(feature.id)))continue;
                     // The derived curves are native calculated reference data.
                     // Later body operations do not consume their display wires.

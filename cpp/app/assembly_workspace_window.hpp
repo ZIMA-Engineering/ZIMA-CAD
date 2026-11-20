@@ -914,6 +914,7 @@ private:
         zima::document::FeatureKind feature_kind,
         const std::string& container_id = {}, bool sheet_metal = false,
         std::optional<zima::document::FeatureType> feature_preset = {}, bool rotation_preset = false, bool twist_preset = false);
+    void install_projection_properties(PrimitivePropertiesDialog*,const std::string& document_id);
     void show_sweep_properties(zima::document::FeatureKind kind, const std::string& container_id,
         bool rectangular=false, bool helical_curve=false);
     void show_sweep2d_properties(const std::string& container_id = {});

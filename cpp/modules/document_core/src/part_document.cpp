@@ -8707,9 +8707,13 @@ std::vector<zima::kernel::ViewerEdge> PartDocument::thread_edges(
     return edges;
 }
 
+#include "projection_preview.inc"
+
 std::vector<zima::kernel::ViewerEdge> PartDocument::feature_preview_edges(
         const HistoryContainer& container,const zima::kernel::ViewerMesh& input,
         const PartDocument* reference_document) const {
+    if(container.feature_kind==FeatureKind::Feature&&container.feature.type==FeatureType::Projection)
+        return projection_preview_edges(*this,container,input,reference_document);
     if(container.feature_kind!=FeatureKind::Feature || container.feature.type!=FeatureType::Modeling)return {};
     const auto& definition=container.feature;
     validate_feature_parameters(definition);
@@ -11316,6 +11320,8 @@ zima::kernel::Sweep3DRequest twisted_sheet_request(
 }
 }
 
+#include "projection.inc"
+
 std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
     bool allow_persisted_external_target, bool recover_errors) const {
     std::vector<zima::kernel::HistoryOperation> operations;
@@ -11809,6 +11815,8 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
             point.included_angle_degrees =
                 container.drill_point.included_angle_degrees;
             primitive = point;
+        } else if (container.feature_kind == FeatureKind::Feature && container.feature.type==FeatureType::Projection) {
+            primitive=projection_request(*this,container,boolean_tolerance);
         } else if (container.feature_kind == FeatureKind::Feature) {
             const auto& p=container.feature;
             validate_feature_parameters(p);
