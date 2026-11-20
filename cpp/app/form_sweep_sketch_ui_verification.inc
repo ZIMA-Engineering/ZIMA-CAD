@@ -1,6 +1,23 @@
 int verify_form_sweep_sketch_ui(QApplication& application,const std::filesystem::path& directory) {
     using namespace zima;
     try {
+        bool unexpected_popup=false,closing_fixture=false;
+        QTimer popup_watch;
+        QObject::connect(&popup_watch,&QTimer::timeout,&application,[&] {
+            for(auto* widget:application.topLevelWidgets())if(widget->isVisible()) {
+                if(auto* message=qobject_cast<QMessageBox*>(widget)) {
+                    if(closing_fixture&&message->standardButtons().testFlag(QMessageBox::Discard)) {
+                        message->button(QMessageBox::Discard)->click();continue;
+                    }
+                    std::cerr<<"Unexpected FORM message: "<<message->text().toStdString()<<std::endl;
+                    unexpected_popup=true;message->reject();
+                } else if(auto* menu=qobject_cast<QMenu*>(widget)) {
+                    std::cerr<<"Unexpected FORM context menu"<<std::endl;
+                    unexpected_popup=true;menu->close();
+                }
+            }
+        });
+        popup_watch.start(100);
         const auto check=[](bool ok,const char* text){if(!ok)throw std::runtime_error(text);};
         const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
         auto part=document::PartDocument::load("cpp/tests/fixtures/sweep2d/form-dimension-edit.prtz");
@@ -44,6 +61,7 @@ int verify_form_sweep_sketch_ui(QApplication& application,const std::filesystem:
             check(view->candidate_dimension_value(candidate).has_value()&&std::abs(*view->candidate_dimension_value(candidate)-value)<1e-7,"FORM mouse dimension edit failed");
         };
         auto* dialog=open();
+        std::cerr<<"FORM profile dimension edits"<<std::endl;
         for(double value:{2.,4.,3.})edit(0,value);
         for(double value:{30.,50.,40.})edit(1,value);
         const auto drag=[&](const std::string& id,double x,double y){
@@ -67,6 +85,7 @@ int verify_form_sweep_sketch_ui(QApplication& application,const std::filesystem:
         dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();
         check(window.execute_console_command("save").ok&&read().serialized()==changed.serialized(),"FORM Cancel changed document");
         dialog=open();drag(original.arcs.front().center_point_id,0,-4);
+        std::cerr<<"FORM profile center drag completed"<<std::endl;
         window.findChild<QAction*>("finishSketchAction")->trigger();flush();
         pending=sketcher::Sketch::from_serialized(dialog->pending.sweep2d.profiles.front().sketch_serialized);verify(pending);
         check(std::abs(pending.arcs.front().radius-4)<.15,"FORM center did not move through mouse grip");
@@ -99,7 +118,7 @@ int verify_form_sweep_sketch_ui(QApplication& application,const std::filesystem:
             check(packet.axes.size()==(state==0||state==4?2:3)&&packet.original_references.axes.size()==3,"Surface datum filter crossed a Body, authoring, suppression, thickness or rollback boundary");
         }
         const auto skin_path=directory/"form-surface-shell.prtz";skin.save(skin_path,skin_bodies);
-        window.findChild<QAction*>("closeDocumentAction")->trigger();flush();
+        closing_fixture=true;window.findChild<QAction*>("closeDocumentAction")->trigger();flush();closing_fixture=false;
         check(window.open_document_path(QString::fromStdString(skin_path.string())),"FORM surface fixture did not open");flush();
         const auto datum=[&](const auto& value){return value.reference.owner_id==feature.id&&
             (value.reference.semantic_key.starts_with("centerline:from:")||value.reference.semantic_key.starts_with("sweep:path-point:"));};
@@ -145,7 +164,7 @@ int verify_form_sweep_sketch_ui(QApplication& application,const std::filesystem:
                 multi_bodies=kernel.evaluate_history(multi.kernel_operations());
             }
             const auto multi_path=directory/(order?"form-cut-after.prtz":"form-cut-before.prtz");multi.save(multi_path,multi_bodies);
-            window.findChild<QAction*>("closeDocumentAction")->trigger();flush();
+            closing_fixture=true;window.findChild<QAction*>("closeDocumentAction")->trigger();flush();closing_fixture=false;
             check(window.open_document_path(QString::fromStdString(multi_path.string())),"Multi-Body FORM failed to open");flush();
             for(const auto& active:{cut,form,std::string{}}) {
                 check(activate_test_body(application,window,active),"Multi-Body activation failed");flush();
@@ -177,6 +196,7 @@ int verify_form_sweep_sketch_ui(QApplication& application,const std::filesystem:
             check(view->candidate_filter()(source)==(order==0),"Reordered Body source eligibility did not preserve one-way history dependencies");
             if(!order) {
                 view->fit_all();flush();std::optional<QPointF> hit;
+                std::cerr<<"FORM external source picking "<<view->width()<<"x"<<view->height()<<std::endl;
                 const auto is_source=[&](const auto& candidate){return candidate.kind==viewer::CandidateKind::SketchSegment&&candidate.owner_id==cut_id;};
                 for(int y=20;y<view->height()-20&&!hit;y+=3)for(int x=20;x<view->width()-20&&!hit;x+=3) {
                     const auto candidates=view->selection_candidates_at(QPointF(x,y));
@@ -201,6 +221,7 @@ int verify_form_sweep_sketch_ui(QApplication& application,const std::filesystem:
             check(std::ranges::find(saved.sketches,cut_id,&sketcher::Sketch::id)->serialized()==cut_definition,"External reference entry modified its passive source Sketch");
             check(*saved.find_container(extrusion)==*multi.find_container(extrusion),"Cancel committed an owned Sketch reference");
         }
+        check(!unexpected_popup,"FORM verification encountered an unexpected popup");
         std::cout<<"FORM owned Sweep profile mouse dimensions, center grip, references, OK/Cancel, Undo/Redo and native reopen passed\n";return 0;
     }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}
 }

@@ -371,6 +371,7 @@ struct MeshView::Impl {
     QPoint middle_press_position;
     std::vector<zima::kernel::ViewerEdge> transient_edges;
     zima::kernel::ViewerMesh transient_context_mesh;
+    zima::kernel::ViewerMesh read_only_profile_context;
     std::vector<zima::kernel::ViewerDimension> transient_dimensions;
     std::vector<zima::kernel::ViewerPoint> command_snap_points;
     std::function<std::vector<kernel::ViewerPoint>(const kernel::Vec3&,const kernel::Vec3&)> command_snap_point_provider;
@@ -2586,6 +2587,17 @@ void MeshView::set_transient_context_mesh(zima::kernel::ViewerMesh mesh) {
     setProperty("transientContextAxisCount",
         static_cast<qulonglong>(impl_->transient_context_mesh.axes.size()));
     update();
+}
+
+void MeshView::set_read_only_profile_context(zima::kernel::ViewerMesh mesh) {
+    impl_->read_only_profile_context={};
+    impl_->read_only_profile_context.edges=std::move(mesh.edges);
+    impl_->read_only_profile_context.points=std::move(mesh.points);
+    update();
+}
+
+const zima::kernel::ViewerMesh& MeshView::read_only_profile_context() const {
+    return impl_->read_only_profile_context;
 }
 
 const zima::kernel::ViewerMesh& MeshView::transient_context_mesh() const {
@@ -5013,6 +5025,7 @@ if (impl_->show_origins) {
         dimensions_visible ||
         !impl_->transient_edges.empty() || !impl_->transient_points.empty() || !impl_->transient_model_points.empty() ||
         !impl_->transient_labels.empty() ||
+        !impl_->read_only_profile_context.edges.empty() || !impl_->read_only_profile_context.points.empty() ||
         !impl_->interactive_labels.empty() ||
         impl_->sketch_cursor.has_value() ||
         impl_->component_origin_handle || !impl_->extent_manipulators.empty() ||
@@ -5815,6 +5828,18 @@ if (impl_->show_origins) {
             const auto color=inspected?interaction::selected:
                 !ref.semantic_key.starts_with("point:")?interaction::axis:theme.foreground;
             draw_circular_marker(painter,project(point.position),color);
+        }
+        // Fixed profile guides survive cursor previews, constraint solving and
+        // point drags without becoming editable or introducing snap candidates.
+        painter.setPen(QPen(interaction::hover,1.0));
+        for(const auto& edge:impl_->read_only_profile_context.edges)
+            for(std::size_t i=1;i<edge.points.size();++i)
+                painter.drawLine(project(edge.points[i-1]),project(edge.points[i]));
+        for(const auto& point:impl_->read_only_profile_context.points) {
+            const auto screen=project(point.position);
+            draw_circular_marker(painter,screen,interaction::hover);
+            painter.setPen(QPen(interaction::hover,1.0));
+            painter.drawText(screen+QPointF(8.0,-6.0),QString::fromStdString(point.label));
         }
         if (impl_->sketch_cursor) {
             const QColor cursor_color = impl_->sketch_cursor_snapped

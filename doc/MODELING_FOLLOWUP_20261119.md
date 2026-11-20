@@ -108,6 +108,12 @@ correspondence, respecting actual frames and active-Sketch edit ownership. Check
 successive station editing, correct numbering/placement, visibility, Cancel,
 saved versus inherited profiles and absence of document changes from display.
 
+Implemented on 2026-11-20 without a native format change: one row per persisted
+geometric junction, an incoming/outgoing selector retaining both definitions,
+and read-only positioned profile context in Sketcher. The Windows checks,
+representative model result, and explicit verification gaps are recorded in
+`verification/20261120-sweep-stations-context.md`.
+
 ### Agreed cursor-centered orbit (2026-11-20)
 
 The user proposes a future toggle immediately to the right of Restore View,
@@ -130,6 +136,30 @@ before implementation. Verify off/on behavior, empty View space, orthographic
 and perspective cameras, repeated gestures, no initial jump, both themes and
 Part/Assembly editing contexts. Localize the action and tooltip in all five
 languages. This belongs to future work after the active repairs.
+
+### Agreed cylindrical angular placement reference (2026-11-20)
+
+After the active repairs, add an explicit Angle reference type to shared
+container placement. The user approved this scope after discussing the risk
+to other placed containers. A cylindrical face supplies the rotation axis and
+orientation; another positional reference may set axial distance. A subsequent
+planar reference in Angle mode supplies the zero direction: project its oriented
+normal onto the plane perpendicular to the cylinder axis and measure toward the
+radial direction from that axis to the container origin. Reject a reference
+whose projection has no direction. Preserve the reference orientation/side and
+show both rays and a directed angular dimension in the View. The reference row
+uses Angle instead of Face and degrees instead of linear offset.
+
+Existing Face references keep their current meaning. Trace the shared solver,
+DOF reporting and persistence before implementation; test mixed references,
+whole-Origin placement, orientation, replacement, save/reopen and Undo/Redo.
+On 2026-11-20 the user explicitly approved extending native reference persistence
+with Angle mode and a value in degrees, including regeneration and verification
+of affected Part/Assembly templates and factory assets, save/reopen and Undo/Redo,
+and isolated Toyota project copies checked against the verified backup. Preserve
+the originals and report the older unsupported project files as a verification
+gap rather than silently converting them. This records approved implementation
+scope, not a completed feature or a completed format change.
 
 ### Subsequent FEM and surface-modeling design (2026-11-20)
 

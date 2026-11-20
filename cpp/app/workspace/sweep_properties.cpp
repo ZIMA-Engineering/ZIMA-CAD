@@ -7,6 +7,7 @@
 #include <zima/document/metadata.hpp>
 #include "../sheet_transition_dialog.hpp"
 #include "../general_surface_dialog.hpp"
+#include "../sweep2d_profile_context.hpp"
 #include <zima/workspace/general_surface_operations.hpp>
 #include <zima/viewer/view_theme.hpp>
 #include "../../common/interaction_colors.hpp"
@@ -365,8 +366,16 @@ void AssemblyWorkspaceWindow::show_sweep_properties(zima::document::FeatureKind 
             } catch(const std::exception& error) {
                 frame_warning=tr("Skica používá uloženou rovinu; závislost není dořešená: %1").arg(QObject::tr(error.what()));
             }
+            zima::kernel::ViewerMesh profile_context;
+            if(planar&&stage>0)try {
+                profile_context=sweep2d_profile_context(dialog->pending,stage);
+            }catch(const std::exception&) {
+                // A broken route must still allow repair in the last valid
+                // owned Sketch frame. Context is presentation, not validation.
+            }
             sweep_profile_sketch_draft_=zima::sketcher::Sketch::from_serialized(general?dialog->pending.general_surface.boundaries.at(stage).sketch_serialized:transition?dialog->pending.sheet_transition.sketches.at(stage):planar?dialog->pending.sweep2d.sketch_data(stage):dialog->pending.helical.sketches.at(stage));
             embedded_sketch_finished_=[this,dialog,stage](auto s){
+                viewer_->set_read_only_profile_context({});
                 helical_sketch_context_.reset();
                 properties_dialog_=dialog;primitive_reference_dialog_=dialog;dialog->set_sketch(stage,s);dialog->show();dialog->raise();
                 preserve_view_on_refresh_=true;refresh_scene();dialog->changed();
@@ -396,13 +405,16 @@ void AssemblyWorkspaceWindow::show_sweep_properties(zima::document::FeatureKind 
             clear_selected_sketch_geometry();viewer_->clear_selection();tree_->clearSelection();
             preserve_view_on_refresh_=true;refresh_scene();align_active_sketch_view();
             if(planar&&stage>0) {
-                auto guide=zima::sketcher::Sketch::from_serialized(dialog->pending.sweep2d.path_sketch).viewer_mesh().edges;
+                auto guide=std::move(profile_context);
                 if(!body_id.empty())if(const auto* part=workspace_.open_part(workspace_.active_document_id())) {
-                    zima::kernel::ViewerMesh mesh;mesh.edges=std::move(guide);guide=part->session.document().place_body_mesh(std::move(mesh),body_id).edges;
+                    guide=part->session.document().place_body_mesh(std::move(guide),body_id);
                 }
-                for(auto& edge:guide)if(!properties_dialog_instance_path_.empty())for(auto& point:edge.points)
-                    point=workspace_.occurrence_point_to_scene(workspace_.displayed_document_id(),zima::assembly::InstancePath::decode(properties_dialog_instance_path_),point);
-                viewer_->set_transient_edges(std::move(guide));
+                if(!properties_dialog_instance_path_.empty()) {
+                    const auto transform=[&](auto point){return workspace_.occurrence_point_to_scene(workspace_.displayed_document_id(),zima::assembly::InstancePath::decode(properties_dialog_instance_path_),point);};
+                    for(auto& edge:guide.edges)for(auto& point:edge.points)point=transform(point);
+                    for(auto& point:guide.points)point.position=transform(point.position);
+                }
+                viewer_->set_read_only_profile_context(std::move(guide));
             }
             state_->setText(frame_warning.isEmpty() ? tr("Nakreslete geometrii a potom zvolte Dokončit skicu.") : frame_warning);
         }catch(const std::exception& e){dialog->set_status(QString::fromUtf8(e.what()));}
@@ -436,6 +448,7 @@ void AssemblyWorkspaceWindow::show_sweep_properties(zima::document::FeatureKind 
         };
     }
     connect(dialog,&QDialog::finished,this,[this]{
+        viewer_->set_read_only_profile_context({});
         helical_sketch_context_.reset();
         feature_reference_pick_={};feature_reference_end_={};pending_primitive_reference_index_.reset();primitive_reference_auto_advance_=false;
         local_origin_selection_dialog_=nullptr;local_origin_selection_active_=false;visible_local_origin_ids_.clear();visible_occurrence_origin_paths_.clear();selectable_local_origin_container_ids_.clear();suspended_primitive_reference_index_.reset();suspended_construction_reference_index_.reset();

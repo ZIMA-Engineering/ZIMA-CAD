@@ -260,6 +260,10 @@ public:
     // scene and their explicit selection contracts.
     void set_transient_context_mesh(zima::kernel::ViewerMesh mesh);
     [[nodiscard]] const zima::kernel::ViewerMesh& transient_context_mesh() const;
+    // Read-only profile guides in scene coordinates. Independent of live Sketch
+    // drawing/drag overlays; never added to the picker or model GPU packet.
+    void set_read_only_profile_context(zima::kernel::ViewerMesh mesh);
+    [[nodiscard]] const zima::kernel::ViewerMesh& read_only_profile_context() const;
     // Live feature dimensions are a lightweight overlay. Updating them must
     // not invalidate or upload the (potentially very large) base body mesh.
     void set_transient_dimensions(

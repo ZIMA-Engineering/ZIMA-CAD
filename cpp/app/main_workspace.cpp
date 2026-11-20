@@ -1973,6 +1973,16 @@ int verify_template_commands(QApplication& application,zima::app::AssemblyWorksp
 
 int verify_sweep2d_command(QApplication& application,zima::app::AssemblyWorkspaceWindow& window,
         const std::filesystem::path& directory) {
+    bool unexpected_dialog=false;
+    QTimer modal_watch;
+    QObject::connect(&modal_watch,&QTimer::timeout,&window,[&] {
+        for(auto* widget:application.topLevelWidgets())
+            if(auto* message=qobject_cast<QMessageBox*>(widget);message&&message->isVisible()) {
+                std::cerr<<"Unexpected Sweep verification dialog: "<<message->text().toStdString()<<std::endl;
+                unexpected_dialog=true;message->reject();
+            }
+    });
+    modal_watch.start(100);
     auto doc=zima::document::PartDocument::create_default();
     auto datum=zima::document::PartDocument::create_construction(
         zima::document::ConstructionKind::Plane);
@@ -2021,7 +2031,16 @@ int verify_sweep2d_command(QApplication& application,zima::app::AssemblyWorkspac
     static_cast<void>(guide.add_point_reference_constraint(guide.segments.front().first_point_id,"sketch_origin"));
     auto guide_dimension=guide.create_segment_dimension(guide_segment,zima::sketcher::DimensionKind::Distance);guide_dimension.locked=true;guide.apply_dimension(guide_dimension);dialog->set_sketch(0,guide);
     auto section=zima::sketcher::Sketch::from_serialized(dialog->pending.sweep2d.sketch_data(1));
-    const auto profile_circle=section.add_circle(0,0,2);section.apply_dimension(section.create_circle_radius_dimension(profile_circle));dialog->set_sketch(1,section);
+    const auto profile_circle=section.add_circle(0,0,2);section.apply_dimension(section.create_circle_radius_dimension(profile_circle));
+    const auto add_profile_points=[](auto& sketch){
+        const auto circle=sketch.circles.front();
+        for(unsigned q=0;q<4;++q) {
+            const double angle=q*std::numbers::pi/2;
+            const auto point=sketch.add_point(circle.radius*std::cos(angle),circle.radius*std::sin(angle));
+            static_cast<void>(sketch.add_point_reference_constraint(point,"sketch_keypoint:circle:"+circle.id+":"+std::to_string(q)));
+        }
+    };
+    add_profile_points(section);dialog->set_sketch(1,section);
     const auto has_dimension=[&](const auto& sketch){return std::ranges::any_of(placement_view->mesh().dimensions,[&](const auto& d){return d.reference.owner_id==sketch.id&&d.reference.semantic_key.starts_with("dimension:");});};
 
     if(!verify(has_dimension(guide)&&has_dimension(section),"Properties must show both path and profile dimensions"))return 1;
@@ -2032,23 +2051,29 @@ int verify_sweep2d_command(QApplication& application,zima::app::AssemblyWorkspac
     if(!verify(finish->isEnabled()&&dialog->pending.sweep2d.profiles.size()==2,"End profile button did not create its owned Sketch"))return 1;
     finish->trigger();application.processEvents();
     auto last_section=zima::sketcher::Sketch::from_serialized(dialog->pending.sweep2d.sketch_data(2));
-    static_cast<void>(last_section.add_circle(0,0,3));dialog->set_sketch(2,last_section);
+    static_cast<void>(last_section.add_circle(0,0,3));add_profile_points(last_section);dialog->set_sketch(2,last_section);
 
     for(unsigned stage=0;stage<3;++stage){
+        std::cerr<<"Sweep Sketch editing stage "<<stage<<std::endl;
         auto* sketch_button=dialog->findChild<QPushButton*>(stage==0?"sweep2dSketch0":stage==1?"sweep2dStationSketch0":"sweep2dStationSketch1");
         if(!verify(sketch_button,"Dimension edit removed a path station"))return 1;
         sketch_button->click();application.processEvents();
         if(!verify(!dialog->isVisible()&&finish&&finish->isEnabled(),"2D Sweep owned Sketch did not enter Sketcher"))return 1;
         const auto frame=zima::sketcher::Sketch::from_serialized(dialog->pending.sweep2d.sketch_data(stage));
+        const auto guide_count=placement_view->read_only_profile_context().points.size();
+        if(!verify(stage==0?guide_count==0:guide_count==4,"Station context is absent or shown while editing the path"))return 1;
         if(!frame.dimensions.empty()){
             zima::viewer::ViewerCandidate dimension;dimension.kind=zima::viewer::CandidateKind::Dimension;dimension.owner_id=frame.id;dimension.semantic_key="dimension:"+frame.dimensions.front().id;
 
+            for(const double delta:{.25,.5,.25}) {
             window.edit_dimension_inline(dimension);application.processEvents();
             auto* field=placement_view->findChild<QLineEdit*>("inlineDimensionValueEdit");
             if(!verify(field,"Embedded Sketch dimension did not open its inline editor"))return 1;
-            field->setText(QString::number(frame.dimensions.front().value+.25));QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);QApplication::sendEvent(field,&enter);application.processEvents();
-            if(!verify(placement_view->candidate_dimension_value(dimension)&&std::abs(*placement_view->candidate_dimension_value(dimension)-frame.dimensions.front().value-.25)<1e-6,"Inline edit did not change active profile/path dimension"))return 1;
+            field->setText(QString::number(frame.dimensions.front().value+delta));QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);QApplication::sendEvent(field,&enter);application.processEvents();
+            if(!verify(placement_view->candidate_dimension_value(dimension)&&std::abs(*placement_view->candidate_dimension_value(dimension)-frame.dimensions.front().value-delta)<1e-6,"Inline edit did not change active profile/path dimension"))return 1;
+            if(!verify(placement_view->read_only_profile_context().points.size()==guide_count,"Successive dimension edits erased profile context"))return 1;
             if(!verify(zima::document::PartDocument::load(path).history.empty(),"Active draft dimension prematurely committed its feature"))return 1;
+            }
         }
 
         QEventLoop animation;QTimer::singleShot(950,&animation,&QEventLoop::quit);animation.exec();
@@ -2057,7 +2082,43 @@ int verify_sweep2d_command(QApplication& application,zima::app::AssemblyWorkspac
         const auto n=frame.resolved_normal;
         const double cosine=std::abs(direction.x()*n.x+direction.y()*n.y+direction.z()*n.z)/std::sqrt(n.x*n.x+n.y*n.y+n.z*n.z);
         if(!verify(cosine>1-1e-6,"Sweep Sketch entry did not align camera to its resolved plane"))return 1;
+        if(stage==2) {
+            const auto local=[&](QPointF screen){const auto ray=placement_view->ray_at(screen);return frame.intersect_ray(ray->first,ray->second).value();};
+            const auto a=local({0,0}),b=local({100,0}),c=local({0,100});
+            const double ux=(b[0]-a[0])/100,uy=(b[1]-a[1])/100,vx=(c[0]-a[0])/100,vy=(c[1]-a[1])/100,det=ux*vy-uy*vx;
+            const auto screen=[&](double x,double y){return QPointF(((x-a[0])*vy-(y-a[1])*vx)/det,(ux*(y-a[1])-uy*(x-a[0]))/det);};
+            const auto mouse=[&](QPointF p,QEvent::Type type,Qt::MouseButton button,Qt::MouseButtons held){
+                QMouseEvent event(type,p,QPointF(placement_view->mapToGlobal(p.toPoint())),button,held,Qt::NoModifier);QApplication::sendEvent(placement_view,&event);application.processEvents();
+            };
+            auto from=screen(0,0);
+            for(const QPointF target:{QPointF(.6,.3),QPointF(-.4,.2)}) {
+                std::cerr<<"Sweep center drag to "<<target.x()<<","<<target.y()<<std::endl;
+                placement_view->clear_selection();
+                mouse(from,QEvent::MouseMove,Qt::NoButton,Qt::NoButton);
+                const auto point_key="point:"+frame.circles.front().center_point_id;
+                for(unsigned cycle=0;cycle<32&&(!placement_view->offered_candidate()||placement_view->offered_candidate()->semantic_key!=point_key);++cycle) {
+                    mouse(from,QEvent::MouseButtonPress,Qt::RightButton,Qt::RightButton);
+                    mouse(from,QEvent::MouseButtonRelease,Qt::RightButton,Qt::NoButton);
+                }
+                if(!verify(placement_view->offered_candidate()&&placement_view->offered_candidate()->semantic_key==point_key,"Active circle center cannot be selected with profile guides present"))return 1;
+                const auto to=screen(target.x(),target.y());
+                mouse(from,QEvent::MouseButtonPress,Qt::LeftButton,Qt::LeftButton);
+                mouse(to,QEvent::MouseMove,Qt::NoButton,Qt::LeftButton);
+                mouse(to,QEvent::MouseButtonRelease,Qt::LeftButton,Qt::NoButton);
+                std::cerr<<"Sweep center drag completed"<<std::endl;
+                if(!verify(placement_view->read_only_profile_context().points.size()==guide_count,"Point drag erased read-only profile context"))return 1;
+                from=to;
+            }
+        }
         finish->trigger();application.processEvents();if(!verify(dialog->isVisible(),"Sketch did not return to pending 2D Sweep"))return 1;
+        const auto edited=zima::sketcher::Sketch::from_serialized(dialog->pending.sweep2d.sketch_data(stage));
+        if(stage==1&&!verify(std::abs(edited.circles.front().radius-edited.dimensions.front().value)<1e-8,"Circle radius differs from its driving dimension"))return 1;
+        if(stage==2) {
+            const auto* center=edited.find_point(edited.circles.front().center_point_id);
+            if(!verify(std::abs(center->x+.4)<.02&&std::abs(center->y-.2)<.02&&std::abs(edited.circles.front().radius-3)<1e-8,"Successive mouse drags failed to move the free circle center while preserving its radius"))return 1;
+        }
+        if(!verify(placement_view->read_only_profile_context().edges.empty(),"Profile context survived leaving Sketcher"))return 1;
+        std::cerr<<"Sweep Sketch editing stage "<<stage<<" completed"<<std::endl;
     }
 
     dialog->buttons()->button(QDialogButtonBox::Ok)->click();application.processEvents();
@@ -2116,6 +2177,7 @@ int verify_sweep2d_command(QApplication& application,zima::app::AssemblyWorkspac
         dialog->pending.placement.references==references_before_path_pick,
         "Path-plane View entry modified the Sweep container placement"))return 1;
     std::optional<std::pair<QPointF,zima::viewer::ViewerCandidate>> path_plane_hit;
+    std::cerr<<"Sweep path plane picking "<<view->width()<<"x"<<view->height()<<std::endl;
     bool body_origin_plane_offered=false;
     for(int y=8;y<view->height()-8&&!path_plane_hit;y+=3)
         for(int x=8;x<view->width()-8&&!path_plane_hit;x+=3) {
@@ -2282,6 +2344,7 @@ int verify_sweep2d_command(QApplication& application,zima::app::AssemblyWorkspac
 
     dialog->buttons()->button(QDialogButtonBox::Cancel)->click();application.processEvents();
     QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
+    #include "sweep2d_station_ui_verification.inc"
     auto closed_document=zima::document::PartDocument::create_default();
     const auto closed_path=directory/"closed-sweep2d-ui.prtz";closed_document.save(closed_path);
     if(!verify(window.open_document_path(QString::fromStdString(closed_path.string())),"Cannot open closed Sweep fixture"))return 1;
@@ -2293,7 +2356,7 @@ int verify_sweep2d_command(QApplication& application,zima::app::AssemblyWorkspac
     static_cast<void>(closed_guide.add_segment(27,31,27,11));
     static_cast<void>(closed_guide.add_arc(17,11,27,11,7,11,false,1e-6,true));
     dialog->set_sketch(0,closed_guide);application.processEvents();
-    if(!verify(dialog->findChild<QTableWidget*>("sweep2dProfiles")->rowCount()==8 &&
+    if(!verify(dialog->findChild<QTableWidget*>("sweep2dProfiles")->rowCount()==4 &&
         dialog->pending.sweep2d.profiles.size()==1,"Closed path was rejected by Properties"))return 1;
     auto closed_section=zima::sketcher::Sketch::from_serialized(dialog->pending.sweep2d.sketch_data(1));
     static_cast<void>(closed_section.add_circle(0,0,1));dialog->set_sketch(1,closed_section);
@@ -2311,6 +2374,7 @@ int verify_sweep2d_command(QApplication& application,zima::app::AssemblyWorkspac
     save->trigger();application.processEvents();
     if(!verify(zima::document::PartDocument::load(closed_path).history==closed_stored.history,
         "Closed Sweep Undo/Redo changed its definition"))return 1;
+    if(!verify(!unexpected_dialog,"Unexpected modal error during Sweep editing"))return 1;
     std::cout<<"2D Sweep UI contracts passed\n";return 0;
 }
 
