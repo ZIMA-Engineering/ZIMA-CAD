@@ -2929,5 +2929,11 @@
   "Unsupported Body kind.": "Неподдерживаемый вид тела.",
   "Cannot change the kind of an existing Body.": "Нельзя изменить вид существующего тела.",
   "The FEM source is missing or suppressed.": "Источник FEM отсутствует или подавлен.",
-  "FEM requires a valid calculated solid. Regenerate the source first.": "Для FEM требуется корректное рассчитанное объёмное тело. Сначала перестройте источник."
+  "FEM requires a valid calculated solid. Regenerate the source first.": "Для FEM требуется корректное рассчитанное объёмное тело. Сначала перестройте источник.",
+  "FEM": "FEM",
+  "Create FEM": "Создать FEM",
+  "FEM Body": "Тело FEM",
+  "FEM Body properties": "Свойства тела FEM",
+  "Back to Part": "Назад к детали",
+  "Geometry and material are shared with the source Body. Edit the source in Modeling.": "Геометрия и материал совместно используются с исходным телом. Изменяйте источник в разделе моделирования."
 }

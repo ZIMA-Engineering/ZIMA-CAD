@@ -80,6 +80,7 @@ struct FileManagerNativeParameters;
 
 class AssemblyWorkspaceWindow final : public QMainWindow {
     friend int verify_body_link(QApplication&,AssemblyWorkspaceWindow&,const std::filesystem::path&);
+    friend int verify_fem_body(QApplication&,AssemblyWorkspaceWindow&,const std::filesystem::path&);
 public:
     explicit AssemblyWorkspaceWindow(
         const QString& working_directory = {}, const QString& settings_directory = {});
@@ -211,6 +212,7 @@ private:
         Surface,
         Piping,
         Drawing,
+        Fem,
     };
 
     void create_command_console();
@@ -280,6 +282,7 @@ private:
     QToolButton* assembly_mode_button_{};
     QToolButton* sheet_metal_mode_button_{};
     QToolButton* surface_mode_button_{};
+    QToolButton* fem_mode_button_{};
     QComboBox* standard_view_combo_{};
     QLineEdit* inline_dimension_edit_{};
     QComboBox* selection_filter_combo_{};
@@ -320,7 +323,7 @@ private:
     QActionGroup* display_mode_group_{};
     QActionGroup* camera_projection_group_{};
     QActionGroup* application_group_{};
-    std::array<QAction*, 6> application_actions_{};
+    std::array<QAction*, 7> application_actions_{};
     ApplicationMode active_application_{ApplicationMode::Modeling};
     std::map<std::string,ApplicationMode> document_application_modes_;
     QMenu* command_insert_menu_{};
@@ -424,6 +427,10 @@ private:
     QAction* mirror_action_{};
     QAction* pattern_action_{};
     QAction* body_scale_action_{};
+    QAction* create_fem_action_{};
+    void show_fem_body_properties(const std::string& id = {});
+    bool accept_fem_tree_reference(QTreeWidgetItem* item);
+    bool active_fem_body() const;
     void show_body_scale_properties(const std::string& id = {});
     bool accept_body_scale_tree_reference(QTreeWidgetItem* item);
     void show_derived_copy_properties(const std::string& id = {},bool pattern=false);

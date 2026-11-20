@@ -79,6 +79,13 @@ int verify_projection_ui(QApplication& application,AssemblyWorkspaceWindow& wind
             if(output==2){field("projectionRegions",0);pick_face(true);check(panel->parameters().regions.size()==1,"View click did not retain region intent");}
             check(window.execute_console_command("documents").data==unchanged,"Projection preview changed the document");
             check(kernel::body_calculation_count.load()==calculations,"Projection preview invoked native geometry calculation");
+            bool source_preview=false,result_preview=false;
+            for(const auto& edge:view->transient_edges()) {
+                source_preview|=edge.reference.semantic_key.starts_with("projection:preview:source:");
+                result_preview|=edge.reference.semantic_key=="projection:preview:result";
+                check(edge.color=="#FFFFFF"&&!edge.preview_terminal_dashed,"Valid Projection preview has an unexpected style or helper line");
+            }
+            check(source_preview&&result_preview,"Live Projection preview omitted source or result");
             window.grab().save(QString::fromStdString((directory/("projection-properties-"+std::to_string(output)+".png")).string()));
             editor()->buttons()->button(QDialogButtonBox::Ok)->click();flush();
             if(editor())throw std::runtime_error("Projection OK failed: "+editor()->findChild<QLabel*>("featureValidationError")->text().toStdString());
@@ -143,6 +150,9 @@ int verify_projection_ui(QApplication& application,AssemblyWorkspaceWindow& wind
                 for(const auto& candidate:view->selection_candidates_at(*projected_hit))std::cerr<<"Candidate "<<static_cast<int>(candidate.kind)<<' '<<candidate.owner_id<<' '<<candidate.semantic_key<<'\n';
             }
             check(row()->isSelected()&&std::ranges::none_of(view->mesh().dimensions,[&](const auto& d){return d.reference.owner_id==source.id;}),"Projection View selection lost Tree synchronization or exposed dimensions");
+            const auto selected_frame=view->grabFramebuffer();
+            selected_frame.save(QString::fromStdString((directory/("projection-selected-"+std::to_string(output)+".png")).string()));
+            check(view->property("gpuSourceWireVertexCount").toInt()>0,"Projection View selection omitted its authored source/result wire");
             pointer(view,*projected_hit,true);static_cast<void>(dimension());
             check(window.execute_console_command("documents").data==inspection_state&&kernel::body_calculation_count.load()==inspection_calculations,"Projection View inspection calculated or changed history");
             for(double radius:{10.,14.,12.}) {

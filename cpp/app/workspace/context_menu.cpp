@@ -14,6 +14,10 @@ using namespace workspace_detail;
 
 
 void AssemblyWorkspaceWindow::show_tree_item_properties(QTreeWidgetItem* item) {
+    if(item&&item->data(0,Qt::UserRole+3)=="fem-source") {
+        show_fem_body_properties(item->data(0,Qt::UserRole).toString().toStdString());return;
+    }
+    if(active_fem_body()&&item&&item->data(0,Qt::UserRole+3)!="part-body")return;
     if(item&&item->data(0,Qt::UserRole+3)=="loft-sketch") {
         const auto stage=item->data(0,Qt::UserRole+6).toUInt();
         show_loft_properties(item->data(0,Qt::UserRole).toString().toStdString());
@@ -127,7 +131,9 @@ void AssemblyWorkspaceWindow::show_tree_item_properties(QTreeWidgetItem* item) {
     if (kind == "part-body") {
         const auto* part=workspace_.open_part(workspace_.active_document_id());
         const auto* body=part?part->session.document().body_history.find(id):nullptr;
-        if(body&&body->scale)show_body_scale_properties(id);
+        if(body&&body->fem)show_fem_body_properties(id);
+        else if(active_fem_body())return;
+        else if(body&&body->scale)show_body_scale_properties(id);
         else if(body&&body->derived_copy)show_derived_copy_properties(id);else show_body_properties(id);return;
     }
     if (kind == "part-body-boolean") { show_body_boolean_properties(id); return; }

@@ -5828,8 +5828,9 @@ if (impl_->show_origins) {
             for (const auto& edge : impl_->transient_edges) {
                 const bool inference_reference =
                     edge.reference.semantic_key == "inference:reference";
+                const auto authored_color=QColor(QString::fromStdString(edge.color));
                 painter.setPen(QPen(inference_reference
-                        ? interaction::hover : !edge.color.empty()?QColor(QString::fromStdString(edge.color)):interaction::selected,
+                        ? interaction::hover : !edge.color.empty()?(authored_color==QColor(Qt::white)?theme.foreground:authored_color):interaction::selected,
                     2.0, edge.preview_terminal_dashed?Qt::DashLine:Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
                 if (edge.preview_terminal_dashed && !edge.points.empty()) {
                     // Continue the dash pattern across the sampled terminal.
@@ -5854,7 +5855,7 @@ if (impl_->show_origins) {
             const bool loft_anchor=ref.semantic_key.starts_with("loft:input:from:")||ref.semantic_key.starts_with("sweep2d:profile-point:");
             const bool inspected=impl_->constraint_reference_edges.contains(EdgeKey{ref.owner_id,ref.semantic_key,ref.instance_path});
             const auto color=loft_anchor?interaction::hover:inspected?interaction::selected:
-                !ref.semantic_key.starts_with("point:")?interaction::axis:theme.foreground;
+                !ref.semantic_key.starts_with("point:")&&!ref.semantic_key.starts_with("projection:preview:")?interaction::axis:theme.foreground;
             const auto screen=project(point.position);
             draw_circular_marker(painter,screen,color);
             if(loft_anchor&&!point.label.empty()) {
@@ -6138,6 +6139,8 @@ if (impl_->show_origins) {
                             ? interaction::selected
                         : marker_key == "point" && !point.display_owner_id.empty() &&
                             impl_->curve3d_point_owners.contains({point.display_owner_id,point.reference.instance_path})
+                            ? theme.foreground
+                        : marker_key.starts_with("projection:point:")
                             ? theme.foreground
                         : marker_key ==
                                 "external_point:sketch_origin"

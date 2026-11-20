@@ -80,9 +80,11 @@ void AssemblyWorkspaceWindow::update_application_actions() {
         active_application_ = ApplicationMode::Drawing;
     } else if (const auto* part = workspace_.open_part(workspace_.active_document_id())) {
         const bool active_body = !part->session.document().body_history.active_body_id().empty();
-        application_actions_[static_cast<std::size_t>(ApplicationMode::Modeling)]
-            ->setEnabled(true);
-        if (active_body) {
+        const bool fem=active_fem_body();
+        application_actions_[static_cast<std::size_t>(ApplicationMode::Modeling)]->setEnabled(!fem);
+        application_actions_[static_cast<std::size_t>(ApplicationMode::Fem)]->setEnabled(fem);
+        if(fem)active_application_=ApplicationMode::Fem;
+        else if (active_body) {
             application_actions_[static_cast<std::size_t>(ApplicationMode::SheetMetal)]
                 ->setEnabled(true);
             application_actions_[static_cast<std::size_t>(ApplicationMode::Surface)]
@@ -103,14 +105,16 @@ void AssemblyWorkspaceWindow::update_application_actions() {
         const auto* part=workspace_.open_part(workspace_.active_document_id());
         const bool part_context=part&&
             !part->session.document().body_history.active_body_id().empty();
+        const bool fem=active_fem_body();
         if(modeling_mode_button_)
-            modeling_mode_button_->setVisible(part_context);
+            modeling_mode_button_->setVisible(part_context&&!fem);
+        if(fem_mode_button_)fem_mode_button_->setVisible(fem);
         if(assembly_mode_button_)
             assembly_mode_button_->hide();
         if(sheet_metal_mode_button_)
-            sheet_metal_mode_button_->setVisible(part_context);
+            sheet_metal_mode_button_->setVisible(part_context&&!fem);
         if(surface_mode_button_)
-            surface_mode_button_->setVisible(part_context);
+            surface_mode_button_->setVisible(part_context&&!fem);
         application_mode_selector_->setVisible(
             part_context&&
             !workspace_.open_drawing(workspace_.displayed_document_id()));
@@ -154,6 +158,7 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
     const bool drawing =
         workspace_.open_drawing(workspace_.displayed_document_id()) != nullptr;
     const QString heading_text = drawing ? tr("Výkres")
+        : active_fem_body() ? tr("FEM")
         : !active_sketch_id_.empty() ? tr("Skica")
         : active_application_ == ApplicationMode::Modeling ? tr("Modelování")
         : active_application_ == ApplicationMode::Assembly ? tr("Sestava")
@@ -212,6 +217,24 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
         }
     };
     if (workspace_.size() == 0) return;
+    if(active_fem_body()) {
+        // CAD actions may have shortcuts even when absent from the toolbar.
+        // The analysis source is passive; its owner remains the material Body.
+        for(auto* action:{sketch_action_,extrusion_action_,revolution_action_,construction_point_action_,construction_axis_action_,construction_plane_action_,
+            curve_3d_action_,sweep2d_action_,sweep_3d_action_,helical_curve_action_,helical_sweep_action_,loft_action_,fillet_action_,chamfer_action_,shell_action_,
+            thread_action_,holes_action_,shaft_thread_action_,drill_point_action_,mirror_action_,pattern_action_,body_scale_action_,symbol_action_,create_body_action_,create_fem_action_,body_boolean_action_})if(action)action->setEnabled(false);
+        for(const auto* name:{"featurePrototypeAction","modelTwistAction","straightenAction","restoreShapeAction","planarSurfaceAction","generalSurfaceAction", "boundarySurfaceAction","surfaceSewingAction","surfaceIntersectionAction","sheetFromBodyAction","flatAction","bendAction","lineBendAction","sheetProfileAction"})
+            if(auto* action=findChild<QAction*>(name))action->setEnabled(false);
+        for(int i=0;i<6;++i)if(auto* action=findChild<QAction*>(QStringLiteral("featureShortcut%1Action").arg(i)))action->setEnabled(false);
+        if(!properties_dialog_)viewer_->set_candidate_filter([](const auto&){return false;});
+        add_command(selection_action_);
+        auto* edit=new QAction(resource_icon("properties"),tr("FEM Body properties"),tools_toolbar_);edit->setObjectName("femBodyPropertiesAction");
+        edit->setEnabled(!properties_dialog_);connect(edit,&QAction::triggered,this,[this]{
+            const auto* part=workspace_.open_part(workspace_.active_document_id());if(part)show_fem_body_properties(part->session.document().body_history.active_body_id());});add_command(edit);
+        auto* back=new QAction(resource_icon("part"),tr("Back to Part"),tools_toolbar_);back->setObjectName("femBackToPartAction");
+        back->setEnabled(!properties_dialog_);connect(back,&QAction::triggered,this,[this]{activate_body({});});add_command(back,false);
+        return;
+    }
     if (drawing) {
         if (auto* drawing_toolbar =
                 drawing_workspace_->findChild<QToolBar*>("drawingToolbar")) {
@@ -324,15 +347,20 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
                 body_boolean_action_ = new QAction(resource_icon("result-body"), tr("Boolean"), this);
                 body_boolean_action_->setObjectName("bodyBooleanAction");
                 connect(body_boolean_action_, &QAction::triggered, this, [this] { show_body_boolean_properties(); });
+                create_fem_action_=new QAction(resource_icon("result-body"),tr("Create FEM"),this);
+                create_fem_action_->setObjectName("createFemAction");
+                connect(create_fem_action_,&QAction::triggered,this,[this]{show_fem_body_properties();});
             }
             const auto& graph = part->session.document().body_history;
             create_body_action_->setEnabled(!properties_dialog_ && graph.active_body_id().empty());
+            create_fem_action_->setEnabled(!properties_dialog_ && graph.active_body_id().empty());
             auto* boolean = body_boolean_action_;
             boolean->setEnabled(!properties_dialog_ && graph.active_body_id().empty() &&
                 graph.available_before(graph.insertion_cursor()).size() >= 2);
             boolean->setToolTip(tr("Součet, rozdíl nebo průnik dvou dostupných výsledků těles před místem vložení."));
             if (!active_body) {
                 add_command(create_body_action_);
+                add_command(create_fem_action_);
                 add_command(mirror_action_);
                 add_command(pattern_action_);
                 add_command(body_scale_action_);

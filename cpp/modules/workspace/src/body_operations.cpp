@@ -113,7 +113,12 @@ bool set_part_body_suppressed(Workspace& workspace,const kernel::OcctKernel& ker
         throw BodyOperationError("active_body","An active Body cannot be suppressed.");
     if(const auto* body=graph.find(body_id)) {
         if(body->suppressed==suppressed)return false;
+        const bool fem=body->fem.has_value();
         auto value=*body;value.suppressed=suppressed;graph.update_body(std::move(value));
+        if(fem) {
+            auto next=state.session.document();next.set_body_history(std::move(graph));
+            state.session.commit_metadata(std::move(next));return true;
+        }
     } else if(const auto* operation=graph.find_boolean(body_id)) {
         if(operation->suppressed==suppressed)return false;
         auto value=*operation;value.suppressed=suppressed;graph.update_boolean(std::move(value));

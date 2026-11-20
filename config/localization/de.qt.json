@@ -2929,5 +2929,11 @@
   "Unsupported Body kind.": "Nicht unterstützte Körperart.",
   "Cannot change the kind of an existing Body.": "Die Art eines bestehenden Körpers kann nicht geändert werden.",
   "The FEM source is missing or suppressed.": "Die FEM-Quelle fehlt oder ist unterdrückt.",
-  "FEM requires a valid calculated solid. Regenerate the source first.": "FEM benötigt einen gültigen berechneten Volumenkörper. Regenerieren Sie zuerst die Quelle."
+  "FEM requires a valid calculated solid. Regenerate the source first.": "FEM benötigt einen gültigen berechneten Volumenkörper. Regenerieren Sie zuerst die Quelle.",
+  "FEM": "FEM",
+  "Create FEM": "FEM erstellen",
+  "FEM Body": "FEM-Körper",
+  "FEM Body properties": "FEM-Körpereigenschaften",
+  "Back to Part": "Zurück zum Bauteil",
+  "Geometry and material are shared with the source Body. Edit the source in Modeling.": "Geometrie und Material werden mit dem Quellkörper geteilt. Bearbeiten Sie die Quelle im Modellierungsbereich."
 }

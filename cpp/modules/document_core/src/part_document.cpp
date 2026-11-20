@@ -8718,7 +8718,7 @@ std::vector<zima::kernel::ViewerEdge> PartDocument::feature_preview_edges(
         const HistoryContainer& container,const zima::kernel::ViewerMesh& input,
         const PartDocument* reference_document) const {
     if(container.feature_kind==FeatureKind::Feature&&container.feature.type==FeatureType::Projection)
-        return projection_preview_edges(*this,container,input,reference_document);
+        return projection_preview_mesh(container,input,reference_document).edges;
     if(container.feature_kind!=FeatureKind::Feature || container.feature.type!=FeatureType::Modeling)return {};
     const auto& definition=container.feature;
     validate_feature_parameters(definition);

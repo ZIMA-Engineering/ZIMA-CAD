@@ -653,6 +653,7 @@ if(ZIMA_BUILD_TESTS)
 endif()
 
 add_executable(zima-cad-cpp
+    app/fem_body_command.cpp app/fem_body_ui_verification.cpp
     app/body_link_ui_verification.cpp
     ${ZIMA_WORKSPACE_SOURCES}
     app/command_console.cpp app/console_ui_verification.cpp app/holes_ui_verification.cpp app/edge_treatment_ui_verification.cpp app/rotation_handle_ui_verification.cpp
@@ -2355,6 +2356,10 @@ if(ZIMA_BUILD_TESTS)
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_FAMILY_ONLY=1;ZIMA_VERIFY_FAMILY_LABELS_ONLY=1"
         TIMEOUT 120 WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
     add_test(NAME zima_cpp_body_scale_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    add_test(NAME zima_cpp_fem_body_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    set_tests_properties(zima_cpp_fem_body_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_FEM_BODY_ONLY=1"
+        TIMEOUT 180 WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
     add_test(NAME zima_cpp_body_link_ui_contract COMMAND zima-cad-cpp --verify-startup)
     set_tests_properties(zima_cpp_body_link_ui_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_BODY_LINK_ONLY=1"

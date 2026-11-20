@@ -1,14 +1,16 @@
 # Part FEM implementation design
 
-Status: implementation starting after the completed Windows 2026112004 release.
+Status: the first FEM Body/source GUI milestone is prepared for Windows
+2026112101; conditions, meshing and solving remain subsequent milestones.
 The [agreed functional workflow](MODELING_FOLLOWUP_20261119.md#subsequent-fem-and-surface-modeling-design-2026-11-20)
 defines the user-facing scope. This design specifies the first implementation
 boundaries. The user approved the scoped native persistence extension on
 2026-11-20: FEM Bodies, conditions, mesh and results inside `.prtz`, regeneration
 and verification of affected start templates and factory assets, and Toyota
 verification on isolated copies against the backup. Toyota originals and the
-shared container placement solver must remain unchanged. No FEM command is
-present in the released application.
+shared container placement solver must remain unchanged. The new Create FEM
+command authors a shared source reference only; it does not run an analysis.
+See the [Body/source acceptance report](verification/20261121-projection-and-fem-body.md).
 The first [native mesher checkpoint](verification/20261120-fem-mesher.md) passed
 seven synthetic cases on Windows; it does not yet establish product acceptance.
 

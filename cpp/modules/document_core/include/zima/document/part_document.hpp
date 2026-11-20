@@ -1150,6 +1150,11 @@ public:
         const HistoryContainer& container,
         const zima::kernel::ViewerMesh& through_all_input = {},
         const PartDocument* reference_document = nullptr) const;
+    // Read-only Projection display from the already calculated target packet.
+    // Includes source/result point markers; never supplies native reference data.
+    [[nodiscard]] zima::kernel::ViewerMesh projection_preview_mesh(
+        const HistoryContainer& container, const zima::kernel::ViewerMesh& input,
+        const PartDocument* reference_document = nullptr) const;
     [[nodiscard]] std::vector<zima::kernel::ViewerEdge> primitive_preview_edges(
         const HistoryContainer& container) const;
     [[nodiscard]] std::vector<zima::kernel::ViewerEdge> primitive_preview_edges(

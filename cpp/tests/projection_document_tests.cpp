@@ -4,6 +4,7 @@
 #include <zima/workspace/history_policy.hpp>
 #include <zima/workspace/document_dependencies.hpp>
 #include <zima/workspace/model_calculation.hpp>
+#include <zima/workspace/operation_input.hpp>
 #include <zima/kernel/occt_kernel.hpp>
 #include <zima/kernel/calculation_diagnostics.hpp>
 #include <algorithm>
@@ -47,6 +48,29 @@ int main(){try {
         const auto before=state->session.document().serialized();
         const auto generation=state->session.data_generation();
         const auto calculations=kernel::body_calculation_count.load();
+        const auto* input=workspace::calculated_operation_input(state->session,feature.id);
+        require(input,"Projection preview lost its input packet");
+        const auto preview=state->session.document().projection_preview_mesh(feature,input->mesh,&state->session.document());
+        bool source_wire=false,result_wire=false,source_point=false,result_point=false;
+        for(const auto& edge:preview.edges) {
+            require(!edge.preview_terminal_dashed&&edge.color=="#FFFFFF","Valid Projection preview added helper lines or a different curve style");
+            if(edge.reference.semantic_key.starts_with("projection:preview:source:"))source_wire=true;
+            else {
+                require(edge.reference.semantic_key=="projection:preview:result","Unexpected Projection preview geometry");
+                for(const auto& point:edge.points)require(std::abs(point.z-11)<1e-7,"Preview misses the target plane");
+                result_wire=true;
+            }
+        }
+        for(const auto& point:preview.points) {
+            if(point.reference.semantic_key.starts_with("projection:preview:source:")) {
+                require(std::abs(point.position.z-20)<1e-7,"Preview source marker moved");source_point=true;
+            }else {
+                require(std::abs(point.position.z-11)<1e-7,"Preview result marker misses the target");result_point=true;
+            }
+        }
+        require(source_wire&&result_wire&&source_point&&result_point,"Projection preview omitted source/result geometry or markers");
+        require(kernel::body_calculation_count.load()==calculations&&state->session.document().serialized()==before,
+            "Read-only Projection preview calculated or mutated the model");
         require(!workspace::materialize_part_history_input_boundary(live,engine,id,feature.id),"Projection discarded its calculated rollback input");
         workspace::commit_profile(live,engine,id,feature,workspace::ProfileEditMode::Replace,source);
         require(state->session.data_generation()==generation&&state->session.document().serialized()==before&&kernel::body_calculation_count.load()==calculations,"Unchanged OK calculated or created a transaction");

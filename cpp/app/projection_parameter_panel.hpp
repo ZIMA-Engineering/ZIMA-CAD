@@ -23,7 +23,7 @@ class ProjectionParameterPanel final:public QWidget {
 public:
     enum class Pick { None, Target, Direction, Region };
     std::function<void(Pick)> pick_requested;
-    std::function<void()> changed,inspection_changed;
+    std::function<void()> changed,inspection_changed,layout_changed;
     std::function<QString(const kernel::FaceReference&)> face_label;
     std::function<QString(const kernel::EdgeReference&)> direction_label;
     ProjectionParameterPanel(document::ProjectionParameters initial,QWidget* parent)
@@ -90,11 +90,16 @@ public:
     }
     bool direction_inspected()const{return inspect_direction_;}
     void refresh() {
+        const auto previous=layout_state();
         direction_table_->setVisible(pending_.direction==document::ProjectionDirection::Reference);
         regions_->setVisible(pending_.output==document::ProjectionOutput::Surface);
         fill(targets_,Pick::Target,static_cast<int>(pending_.targets.size())+1);
         fill(direction_table_,Pick::Direction,1);
         fill(regions_,Pick::Region,static_cast<int>(pending_.regions.size())+1);
+        if(previous!=layout_state()) {
+            layout()->invalidate();updateGeometry();
+            if(layout_changed)layout_changed();
+        }
     }
 protected:
     void changeEvent(QEvent* event)override {
@@ -112,10 +117,24 @@ protected:
         refresh();
     }
 private:
+    // QTableWidget's default preferred height reserves a mostly empty viewport
+    // for each list. Keep a compact natural form; extra dialog height can still
+    // expand both lists without pushing the second list out of the initial view.
+    class ReferenceTable final:public QTableWidget {
+    public:
+        explicit ReferenceTable(QWidget* parent):QTableWidget(0,4,parent){}
+        QSize sizeHint()const override {
+            auto size=QTableWidget::sizeHint();size.setHeight(minimumHeight());return size;
+        }
+    };
+    std::tuple<bool,bool,int,int,int> layout_state()const {
+        return std::tuple{direction_table_->isHidden(),regions_->isHidden(),
+            direction_table_->minimumHeight(),targets_->minimumHeight(),regions_->minimumHeight()};
+    }
     using Key=std::tuple<std::string,std::string,std::string>;
     template<class R>static Key key(const R& r){return {r.owner_id,r.semantic_key,r.instance_path};}
     QTableWidget* table(const char* name,const QString& label) {
-        auto* value=new QTableWidget(0,4,this);value->setObjectName(name);
+        auto* value=new ReferenceTable(this);value->setObjectName(name);
         value->setHorizontalHeaderLabels({tr("Č."),{},label,{}});value->verticalHeader()->hide();
         value->setSelectionMode(QAbstractItemView::NoSelection);value->setEditTriggers(QAbstractItemView::NoEditTriggers);
         ui::install_reference_cell_delegate(value);

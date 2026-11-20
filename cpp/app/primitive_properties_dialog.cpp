@@ -833,6 +833,7 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
         connect(feature_panel_->findChild<QCheckBox*>("featureSymmetric"),&QCheckBox::toggled,this,
             [this,fit_feature_controls]{QTimer::singleShot(0,this,fit_feature_controls);});
         QTimer::singleShot(0,this,fit_feature_controls);
+        feature_panel_->projection_panel()->layout_changed=[this,fit_feature_controls]{QTimer::singleShot(0,this,fit_feature_controls);};
         feature_panel_->on_preview_notice_changed([this,fit_feature_controls]{QTimer::singleShot(0,this,fit_feature_controls);});
         profile_plane_=feature_panel_->plane_control();
         feature_axis_direction_=feature_panel_->axis_direction_control();

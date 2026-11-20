@@ -2929,5 +2929,11 @@
   "Unsupported Body kind.": "Catégorie de corps non prise en charge.",
   "Cannot change the kind of an existing Body.": "Impossible de modifier la catégorie d’un corps existant.",
   "The FEM source is missing or suppressed.": "La source FEM est manquante ou supprimée temporairement.",
-  "FEM requires a valid calculated solid. Regenerate the source first.": "Le FEM nécessite un solide calculé valide. Régénérez d’abord la source."
+  "FEM requires a valid calculated solid. Regenerate the source first.": "Le FEM nécessite un solide calculé valide. Régénérez d’abord la source.",
+  "FEM": "FEM",
+  "Create FEM": "Créer un FEM",
+  "FEM Body": "Corps FEM",
+  "FEM Body properties": "Propriétés du corps FEM",
+  "Back to Part": "Retour à la pièce",
+  "Geometry and material are shared with the source Body. Edit the source in Modeling.": "La géométrie et le matériau sont partagés avec le corps source. Modifiez la source dans Modélisation."
 }

@@ -31,7 +31,7 @@ void AssemblyWorkspaceWindow::activate_first_part_body() {
     const auto& graph = part->session.document().body_history;
     for (const auto& id : graph.order()) {
         const auto* body = graph.find(id);
-        if (body && !body->derived_copy && !body->scale && !body->link && !body->suppressed) {
+        if (body && !body->fem && !body->derived_copy && !body->scale && !body->link && !body->suppressed) {
             part->session.activate_body(id);
             return;
         }

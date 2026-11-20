@@ -2929,5 +2929,11 @@
   "Unsupported Body kind.": "Unsupported Body kind.",
   "Cannot change the kind of an existing Body.": "Cannot change the kind of an existing Body.",
   "The FEM source is missing or suppressed.": "The FEM source is missing or suppressed.",
-  "FEM requires a valid calculated solid. Regenerate the source first.": "FEM requires a valid calculated solid. Regenerate the source first."
+  "FEM requires a valid calculated solid. Regenerate the source first.": "FEM requires a valid calculated solid. Regenerate the source first.",
+  "FEM": "FEM",
+  "Create FEM": "Create FEM",
+  "FEM Body": "FEM Body",
+  "FEM Body properties": "FEM Body properties",
+  "Back to Part": "Back to Part",
+  "Geometry and material are shared with the source Body. Edit the source in Modeling.": "Geometry and material are shared with the source Body. Edit the source in Modeling."
 }

@@ -1863,6 +1863,7 @@ void AssemblyWorkspaceWindow::create_layout() {
         ApplicationMode::SheetMetal,"sheetMetalModeButton");
     surface_mode_button_=mode_button(
         ApplicationMode::Surface,"surfaceModeButton");
+    fem_mode_button_=mode_button(ApplicationMode::Fem,"femModeButton");
     application_mode_selector_->hide();
     view_strip_layout->addWidget(
         application_mode_selector_,0,Qt::AlignRight|Qt::AlignVCenter);
@@ -2044,7 +2045,7 @@ void AssemblyWorkspaceWindow::create_layout() {
                 if(accept_relation_dimension(candidate))return;
                 if(accept_family_reference(candidate))return;
             }
-            if(accept_body_scale_tree_reference(item)||accept_derived_copy_tree_reference(item))return;
+                if(accept_fem_tree_reference(item)||accept_body_scale_tree_reference(item)||accept_derived_copy_tree_reference(item))return;
             if(properties_dialog_&&(properties_dialog_->objectName()=="sheetStateDialog"||properties_dialog_->objectName()=="solidStateDialog"||properties_dialog_->objectName()=="boundarySurfaceDialog"||properties_dialog_->objectName()=="sheetFromBodyDialog")&&feature_reference_pick_) {
                 const auto role=item->data(0,Qt::UserRole+3).toString();
                 const bool boundary=properties_dialog_->objectName()=="boundarySurfaceDialog";
@@ -2447,7 +2448,7 @@ void AssemblyWorkspaceWindow::create_layout() {
         &AssemblyWorkspaceWindow::update_body_color_actions);
     connect(tree_, &QTreeWidget::itemClicked, this,
         [this, synchronize_tree_selection](QTreeWidgetItem* item, int) {
-            if(item&&accept_body_scale_tree_reference(item))return;
+            if(item&&(accept_fem_tree_reference(item)||accept_body_scale_tree_reference(item)))return;
             if (local_origin_selection_active_ && item) {
                 auto id = item->data(0, Qt::UserRole).toString().toStdString();
                 const auto role=item->data(0,Qt::UserRole+3).toString();
@@ -2607,6 +2608,7 @@ void AssemblyWorkspaceWindow::create_layout() {
                 return;
             }
             const auto step_kind = item->data(0, Qt::UserRole + 3).toString();
+            if(active_fem_body()&&step_kind!="part-body"&&step_kind!="part-result-body"&&step_kind!="part-body-boolean")return;
             if(step_kind=="feature-operation") {
                 if(properties_dialog_)return;
                 QMenu menu(this);
@@ -2650,6 +2652,8 @@ void AssemblyWorkspaceWindow::create_layout() {
                     activate->setIcon(resource_icon("active-check"));
                 auto* create_body = menu.addAction(resource_icon("result-body"), tr("Vytvořit těleso"));
                 create_body->setObjectName("createBodyFromPartAction");
+                auto* create_fem=menu.addAction(resource_icon("result-body"),tr("Create FEM"));
+                create_fem->setObjectName("createFemFromPartAction");
                 auto* insert_body=menu.addAction(resource_icon("insert-component"),tr("Insert Body from Part…"));
                 insert_body->setObjectName("insertLinkedBodyAction");
                 const auto* link_target=workspace_.open_part(workspace_.active_document_id());
@@ -2663,6 +2667,7 @@ void AssemblyWorkspaceWindow::create_layout() {
                 else if (selected==family) edit_family_table_for_document(workspace_.displayed_document_id());
                 else if (selected==activate) activate_body({});
                 else if (selected==create_body) { activate_body({});show_body_properties(); }
+                else if (selected==create_fem) { activate_body({});show_fem_body_properties(); }
                 else if (selected==insert_body) insert_linked_body();
                 return;
             }
@@ -2706,7 +2711,8 @@ void AssemblyWorkspaceWindow::create_layout() {
                 menu.setObjectName("partActivationMenu");
                 auto* edit = menu.addAction(resource_icon("properties"),tr("Vlastnosti"));
                 const auto* body=part->session.document().body_history.find(id);
-                auto* dimensions=body && !body->derived_copy && !body->scale ? menu.addAction(tr("Edit")) : nullptr;
+                edit->setEnabled(!active_fem_body()||(body&&body->fem));
+                auto* dimensions=body && !body->fem && !body->derived_copy && !body->scale && !active_fem_body() ? menu.addAction(tr("Edit")) : nullptr;
                 if(dimensions)dimensions->setObjectName("editBodyDimensionsAction");
                 auto* source_properties=body&&body->derived_copy ? menu.addAction(resource_icon("properties"),tr("Vlastnosti zdroje")) : nullptr;
                 auto* visibility=body ? menu.addAction(resource_icon(body->visible ? "hide" : "show"), body->visible ? tr("Skrýt") : tr("Zobrazit")) : nullptr;

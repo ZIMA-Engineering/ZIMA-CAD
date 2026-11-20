@@ -2929,5 +2929,11 @@
   "Unsupported Body kind.": "Nepodporovaný druh tělesa.",
   "Cannot change the kind of an existing Body.": "Druh existujícího tělesa nelze změnit.",
   "The FEM source is missing or suppressed.": "Zdroj FEM chybí nebo je potlačený.",
-  "FEM requires a valid calculated solid. Regenerate the source first.": "FEM vyžaduje platné vypočítané objemové těleso. Nejprve přegenerujte zdroj."
+  "FEM requires a valid calculated solid. Regenerate the source first.": "FEM vyžaduje platné vypočítané objemové těleso. Nejprve přegenerujte zdroj.",
+  "FEM": "FEM",
+  "Create FEM": "Vytvořit FEM",
+  "FEM Body": "FEM těleso",
+  "FEM Body properties": "Vlastnosti FEM tělesa",
+  "Back to Part": "Zpět do dílu",
+  "Geometry and material are shared with the source Body. Edit the source in Modeling.": "Geometrie a materiál jsou sdílené se zdrojovým tělesem. Zdroj upravujte v Modelování."
 }

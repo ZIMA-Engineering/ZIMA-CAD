@@ -1831,8 +1831,11 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                     // the command carrier holds only this Body and its pending Sketch.
                     const auto* references=owner?&owner->session.document():nullptr;
                     const zima::kernel::ViewerMesh empty_input;
-                    auto wire=document.feature_preview_edges(preview,input?*input:empty_input,references);
-                    viewer_->set_transient_edges(std::move(wire));
+                    if(preview.feature.type==zima::document::FeatureType::Projection) {
+                        auto mesh=document.projection_preview_mesh(preview,input?*input:empty_input,references);
+                        viewer_->set_transient_edges(std::move(mesh.edges));
+                        viewer_->set_transient_model_points(std::move(mesh.points));
+                    }else viewer_->set_transient_edges(document.feature_preview_edges(preview,input?*input:empty_input,references));
                     }
                     preview_phase("wire");
                 } catch(const std::exception& error) {

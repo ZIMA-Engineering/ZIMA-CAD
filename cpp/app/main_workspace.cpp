@@ -166,6 +166,7 @@
 
 namespace zima::app { int verify_sections(QApplication&,AssemblyWorkspaceWindow&,const std::filesystem::path&); }
 namespace zima::app { int verify_body_scale(QApplication&,AssemblyWorkspaceWindow&,const std::filesystem::path&); }
+namespace zima::app { int verify_fem_body(QApplication&,AssemblyWorkspaceWindow&,const std::filesystem::path&); }
 namespace zima::app { int verify_body_link(QApplication&,AssemblyWorkspaceWindow&,const std::filesystem::path&); }
 
 namespace {
@@ -12452,6 +12453,8 @@ int verify_startup_contract(
         return verify_derived_copy_commands(application,window,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_BODY_SCALE_ONLY"))
         return zima::app::verify_body_scale(application,window,test_directory);
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_FEM_BODY_ONLY"))
+        return zima::app::verify_fem_body(application,window,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_BODY_LINK_ONLY"))
         return zima::app::verify_body_link(application,window,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SWEEP2D_ONLY"))

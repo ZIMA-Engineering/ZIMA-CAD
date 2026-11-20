@@ -18,6 +18,7 @@
 #include <QSurfaceFormat>
 #include <QDir>
 #include <zima/viewer/mesh_view.hpp>
+#include <zima/viewer/view_theme.hpp>
 #include "../common/interaction_colors.hpp"
 #include <QApplication>
 #include <QComboBox>
@@ -75,8 +76,97 @@ static void verify_projection_panel(QApplication& application,QWidget& parent) {
         }
     }
     check(previews==0&&dialog.pending_value().feature==before.feature,"Translation/theme calculated or changed Projection");
+    const auto flush=[&]{for(int i=0;i<5;++i)application.processEvents();};
+    auto* regions=dialog.findChild<QTableWidget*>("projectionRegions");
+    auto* scroll=dialog.findChild<QScrollArea*>("featureParametersScroll");
+    const auto visible_row=[&](QTableWidget* table) {
+        const QRect row(table->viewport()->mapTo(scroll->viewport(),table->visualItemRect(table->item(0,2)).topLeft()),
+            table->visualItemRect(table->item(0,2)).size());
+        return scroll->viewport()->rect().contains(row);
+    };
+    for(int height:{900,1000,1200}) {
+        parent.resize(1600,height);output->setCurrentIndex(0);flush();output->setCurrentIndex(2);flush();
+        scroll->verticalScrollBar()->setValue(0);flush();
+        check(visible_row(targets)&&visible_row(regions),"Projection target/region entry is hidden at normal window height");
+        const int field_top=output->mapTo(&dialog,QPoint()).y();
+        dialog.resize(dialog.width(),dialog.height()+60);flush();
+        check(output->mapTo(&dialog,QPoint()).y()==field_top,"Growing Projection lists displaced upper controls");
+        check(targets->rowHeight(0)==34&&regions->rowHeight(0)==34,"Projection resize stretched reference rows");
+    }
+    parent.resize(1600,1000);
     dialog.reject();app::apply_application_translations(application,app::ApplicationSettings{});
     std::cout<<"Projection panel: targets, regions, duplicate prevention, five languages and two themes passed\n";
+}
+static void verify_projection_rendering(QApplication& application,QWidget& parent) {
+    using namespace zima;
+    const auto check=[](bool ok,const char* message){if(!ok)throw std::runtime_error(message);};
+    const auto flush=[&]{QElapsedTimer timer;timer.start();while(timer.elapsed()<70){application.processEvents();QThread::msleep(2);}};
+    viewer::MeshView view(&parent);view.setGeometry(0,0,800,600);view.show();
+    QCursor::setPos(parent.mapToGlobal(QPoint{parent.width()-10,parent.height()-10}));
+    kernel::ViewerMesh mesh;
+    kernel::ViewerEdge result;result.reference={"projection","projection:curve:fixture",{}};
+    result.points={{5,-10,0},{25,-10,0},{25,10,0},{5,10,0}};mesh.edges.push_back(result);
+    mesh.points.push_back({{5,-10,0},{"projection","projection:point:fixture",{}},{},true});
+    mesh.original_references.edges=mesh.edges;mesh.original_references.points=mesh.points;
+    auto source=result;source.reference.semantic_key="projection:preview:source:fixture";
+    for(auto& p:source.points)p.x-=35;
+    source.color=result.color="#FFFFFF";
+    view.set_mesh(mesh);auto camera=view.camera_state();camera[0]=1;camera[1]=camera[2]=camera[3]=0;
+    camera[7]=10;view.set_camera_state(camera);
+    view.set_transient_edges({source,result});view.fit_all();flush();
+    const auto project=[&](kernel::Vec3 p){
+        const auto a=view.ray_at({0,0}),b=view.ray_at({double(view.width()),double(view.height())});
+        check(a&&b,"Projection renderer has no camera");
+        return QPointF((p.x-a->first.x)/(b->first.x-a->first.x)*view.width(),
+            (p.y-a->first.y)/(b->first.y-a->first.y)*view.height());
+    };
+    const auto has_color=[&](const QImage& image,kernel::Vec3 point,QColor expected){
+        const auto at=(project(point)*image.devicePixelRatio()).toPoint();
+        const auto background=image.pixelColor(at+QPoint(0,6));
+        for(int y=at.y()-3;y<=at.y()+3;++y)for(int x=at.x()-3;x<=at.x()+3;++x) {
+            if(!image.rect().contains(x,y))continue;const auto pixel=image.pixelColor(x,y);
+            if(std::abs(pixel.red()-expected.red())<15&&std::abs(pixel.green()-expected.green())<15&&std::abs(pixel.blue()-expected.blue())<15)return true;
+            // A one-pixel GL line at 150% DPI may cover only 75% of a
+            // framebuffer pixel. Verify its color against the local background
+            // instead of requiring an opaque sample or thickening the product.
+            if(expected==interaction::selected) {
+                const std::array<double,3> delta{double(expected.red()-background.red()),double(expected.green()-background.green()),double(expected.blue()-background.blue())};
+                const std::array<double,3> sample{double(pixel.red()-background.red()),double(pixel.green()-background.green()),double(pixel.blue()-background.blue())};
+                double norm=0.,dot=0.;for(int i=0;i<3;++i){norm+=delta[i]*delta[i];dot+=delta[i]*sample[i];}
+                const double coverage=norm>0.?dot/norm:0.;bool matches=coverage>=.25&&coverage<=1.05;
+                for(int i=0;i<3;++i)matches&=std::abs(sample[i]-coverage*delta[i])<12.;
+                if(matches)return true;
+            }
+        }
+        return false;
+    };
+    for(const auto* theme:{"dark","light"}) {
+        app::ApplicationSettings settings;settings.theme=theme;app::apply_application_appearance(application,settings);flush();
+        const auto foreground=viewer::view_theme(application.palette()).foreground;
+        view.clear_selection();view.set_transient_edges({});flush();
+        check(has_color(view.grabFramebuffer(),mesh.points.front().position,foreground),"Projected endpoint does not match theme foreground");
+        view.set_transient_edges({source,result});
+        view.set_transient_model_points({{{-30,-10,0},{"projection","projection:preview:source:point:fixture",{}},{},true}});flush();
+        const auto preview=view.grabFramebuffer();
+        for(const auto point:{kernel::Vec3{-20,-10,0},kernel::Vec3{15,-10,0},kernel::Vec3{-30,-10,0}})
+            check(has_color(preview,point,foreground),"Projection source/result preview is not theme-aware");
+        preview.save(QDir::tempPath()+"/zima-projection-preview-"+theme+".png");
+        view.set_transient_edges({});
+        view.set_container_preview_provider([source,result](const auto&,const auto&){return std::vector{source,result};},[](const auto&,const auto&){return true;});
+        view.confirm_container("projection");flush();const auto selected=view.grabFramebuffer();
+        selected.save(QDir::currentPath()+"/build/fem-20261120/projection-selected-"+theme+".png");
+        check(view.confirmed_candidate().has_value(),"Projection fixture has no native container candidate");
+        std::cout<<"Projection selected "<<theme<<" vertices="<<view.property("gpuSourceWireVertexCount").toInt()
+            <<" source="<<has_color(selected,{-20,-10,0},interaction::selected)<<" result="<<has_color(selected,{15,-10,0},interaction::selected)<<'\n';
+        for(const auto point:{kernel::Vec3{-20,-10,0},kernel::Vec3{15,-10,0}})
+            check(has_color(selected,point,interaction::selected),"Projection selection omitted source or result wire");
+        selected.save(QDir::tempPath()+"/zima-projection-selected-"+theme+".png");
+    }
+    view.clear_selection();view.set_selection_contract({viewer::CandidateKind::Vertex});flush();
+    const auto candidates=view.selection_candidates_at(project(mesh.points.front().position));
+    check(std::ranges::any_of(candidates,[](const auto& c){return c.semantic_key=="projection:point:fixture";}),
+        "Projected endpoint lost its reference candidate");
+    std::cout<<"Projection rendering: source/result curves and points, two themes, complete selected wire and endpoint picking passed\n";
 }
 static void verify_limit_localization(QApplication& application,QWidget& parent) {
     using namespace zima;
@@ -602,7 +692,7 @@ int main(int argc,char** argv) {
         if(zima::app::next_feature_name(part,zima::document::FeatureType::Axis,"")!=
             zima::app::feature_name_prefix(zima::document::FeatureType::Axis).toStdString()+" 02")
             throw std::runtime_error("Automatic name collides with an existing object");
-    dialog.hide();verify_ordered_limits(application,parent);verify_limit_localization(application,parent);verify_projection_panel(application,parent);verify_rendering(application,parent);
+    dialog.hide();verify_ordered_limits(application,parent);verify_limit_localization(application,parent);verify_projection_panel(application,parent);verify_rendering(application,parent);verify_projection_rendering(application,parent);
     }catch(const std::exception& e){std::cerr<<e.what()<<std::endl;return 1;}
     return 0;
 }

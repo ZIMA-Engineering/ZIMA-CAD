@@ -2076,6 +2076,19 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
                 !preserve_view_on_refresh_ && active_sketch_id_.empty());
             phase("viewer publication");
             preserve_view_on_refresh_ = false;
+        } else if(properties_dialog_&&properties_dialog_->objectName()=="femBodyDialog") {
+            kernel::ViewerMesh input;
+            if(body_dialog_context_&&!part->session.calculated_boundaries().empty()) {
+                const auto& sources=part->session.calculated_boundaries().back().body_outputs;
+                for(const auto& id:*body_dialog_context_)if(const auto found=sources.find(id);found!=sources.end())append_mesh(input,found->second->mesh);
+            }
+            publish_mesh(std::move(input),!preserve_view_on_refresh_);
+            preserve_view_on_refresh_=false;
+        } else if(active_fem_body()&&!properties_dialog_) {
+            // Analysis displays only its already calculated source. Do not
+            // append unrelated Sketches, Body origins or construction helpers.
+            publish_mesh(part->session.body_context_mesh(),!preserve_view_on_refresh_);
+            preserve_view_on_refresh_=false;
         } else {
             const auto& calculated = part->session.calculated_boundaries();
             const auto feature_count =
@@ -2871,6 +2884,7 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
             }
             if(!properties_dialog_&&active_sketch_id_.empty())
                 filter_hidden_body_geometry(live_source.mesh,active_part->session.document());
+            if(active_fem_body()&&!properties_dialog_)live_source.mesh=active_part->session.body_context_mesh();
             publish_mesh(workspace_.build_scene_with_part_override(
                 document.document_id,
                 zima::assembly::InstancePath::decode(*active_part_occurrence),

@@ -349,7 +349,7 @@ void AssemblyWorkspaceWindow::populate_sketch_tree(
 bool AssemblyWorkspaceWindow::part_history_insertion_allowed() const {
     // A hidden parent dialog still owns the transaction during Point/Sketch
     // editing. Do not restore history insertion until that whole command ends.
-    return !properties_dialog_ && !tree_edit_dialog_ && !pending_profile_feature_ &&
+    return !active_fem_body() && !properties_dialog_ && !tree_edit_dialog_ && !pending_profile_feature_ &&
         active_sketch_id_.empty();
 }
 
@@ -830,6 +830,16 @@ void AssemblyWorkspaceWindow::add_part_tree_children(
                 auto font = row->font(0); font.setBold(true); row->setFont(0, font);
             }
             if (!definition) { shade_downstream(row, index); continue; }
+            if(definition->fem) {
+                const auto& source_id=definition->fem->source_id;
+                const auto* source=graph.find(source_id);const auto* operation=graph.find_boolean(source_id);
+                auto* link=new QTreeWidgetItem(row,{tr("Zdroj: %1").arg(QString::fromStdString(source?source->name:operation?operation->name:source_id))});
+                link->setData(0,Qt::UserRole,QString::fromStdString(id));link->setData(0,Qt::UserRole+3,"fem-source");
+                if(graph.fem_source_state(id)!=document::FemSourceState::Available) {
+                    link->setToolTip(0,tr("The FEM source is missing or suppressed."));link->setForeground(0,QBrush(QColor("#FF5E52")));
+                }
+                row->setExpanded(true);shade_downstream(row,index);continue;
+            }
             if(definition->scale) {
                 shade_downstream(row,index);continue;
             }

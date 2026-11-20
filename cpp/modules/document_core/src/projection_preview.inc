@@ -1,10 +1,10 @@
 // Disposable preview from the current viewer packet. It never supplies native
 // references or partition geometry and is reused by ordinary feature inspection.
-std::vector<kernel::ViewerEdge> projection_preview_edges(const PartDocument& part,
-        const HistoryContainer& feature,const kernel::ViewerMesh& input,const PartDocument* owners) {
+kernel::ViewerMesh PartDocument::projection_preview_mesh(
+        const HistoryContainer& feature,const kernel::ViewerMesh& input,const PartDocument* owners) const {
     using namespace kernel;
-    const auto sketch=std::ranges::find(part.sketches,feature.feature.sketch_id,&sketcher::Sketch::id);
-    if(sketch==part.sketches.end())return {};
+    const auto sketch=std::ranges::find(sketches,feature.feature.sketch_id,&sketcher::Sketch::id);
+    if(sketch==sketches.end())return {};
     const auto& p=feature.feature.projection;
     auto direction=sketch->normal();
     const auto* body=owners?owners->body_owner_for_object(feature.id):nullptr;
@@ -56,11 +56,11 @@ std::vector<kernel::ViewerEdge> projection_preview_edges(const PartDocument& par
         if(!std::isfinite(closest)||ambiguous)return {};
         return placement_vec_add(point,placement_vec_scale(direction,closest));
     };
-    std::vector<ViewerEdge> result;
+    ViewerMesh result;
     auto source=sketch->evaluated_profile_sketch().viewer_mesh(false);
     for(auto edge:source.edges)if(!edge.construction&&!edge.points.empty()) {
         edge.reference.owner_id=feature.id;edge.reference.semantic_key="projection:preview:source:"+edge.reference.semantic_key;
-        edge.color="#AD6E2E";edge.exact_spline.reset();result.push_back(edge);
+        edge.color="#FFFFFF";edge.exact_spline.reset();result.edges.push_back(edge);
         for(std::size_t i=1;i<edge.points.size();++i) {
             const auto a=edge.points[i-1],delta=placement_vec_sub(edge.points[i],a);
             // Existing curved display packets already contain adaptive samples;
@@ -70,10 +70,19 @@ std::vector<kernel::ViewerEdge> projection_preview_edges(const PartDocument& par
             for(int sample=1;sample<=count;++sample) {
                 const auto next=placement_vec_add(a,placement_vec_scale(delta,double(sample)/count));const auto hit=cast(next);
                 ViewerEdge span;span.reference={feature.id,projected&&hit?"projection:preview:result":"projection:preview:missing",{}};
-                if(projected&&hit)span.points={*projected,*hit};
+                if(projected&&hit){span.points={*projected,*hit};span.color="#FFFFFF";}
                 else {span.points={previous,next};span.color="#FF5E52";span.preview_terminal_dashed=true;}
-                result.push_back(std::move(span));previous=next;projected=hit;
+                result.edges.push_back(std::move(span));previous=next;projected=hit;
             }
+        }
+    }
+    for(auto point:source.points)if(!point.construction&&point.always_visible&&point.reference.semantic_key.starts_with("point:")) {
+        const auto key=point.reference.semantic_key;
+        point.reference={feature.id,"projection:preview:source:"+key,{}};point.label.clear();
+        result.points.push_back(point);
+        if(const auto hit=cast(point.position)) {
+            point.position=*hit;point.reference.semantic_key="projection:preview:result:"+key;
+            result.points.push_back(std::move(point));
         }
     }
     return result;
