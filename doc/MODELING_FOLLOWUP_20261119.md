@@ -1,8 +1,8 @@
 # Modeling follow-up agreed on 2026-11-19
 
 Current status: the additional owned RIP, Sketch Fillet, cylindrical Up To and
-placement repairs are in the 2026112001 working batch, with publication pending
-its final acceptance gates. See the [current verification record](verification/20261120-owned-rip-and-sketch-fillet.md).
+placement repairs are published as Windows 2026112001 after committed-source,
+signed-package and anonymous public-download acceptance. See the [current verification record](verification/20261120-owned-rip-and-sketch-fillet.md).
 Sheet Transition remains subsequent work; Projection and FEM remain design work.
 
 The preceding implementation completed for Windows build 2026111905. Its
@@ -24,8 +24,112 @@ and [Windows 2026111907 release record](releases/2026111907.md).
 ## Completion checklist
 
 The agreed sequence on 2026-11-20 is to verify the current repairs and publish
-their Windows binary first, then finish the outstanding Sheet Transition work
-before starting the subsequent Projection/FEM features.
+their Windows binary first, then repair the newly reported cylindrical Up To
+preview, repair the 3D Section dialog and finish the outstanding Sheet Transition
+work before starting the subsequent Projection/FEM features.
+
+### 3D Section dialog report (2026-11-20)
+
+The user confirmed this concerns model-space Sections, not Drawing sections.
+In `26.prtz`, the A-A Section Properties screenshot shows the Default Origin
+button detached above the title bar, displaced controls and no visible Section
+origin preview in the model. Review ownership/layout of the shared placement
+controls and the existing Section preview initialization. The user explicitly
+requires the same review in both Part and Assembly contexts. Verify resizing,
+reference selection, origin visibility, OK/Cancel, reopening Properties,
+persistence and both themes, retaining Assembly occurrence ownership/context.
+Do not infer permission to change the protected shared placement solver from
+this presentation defect. This is subsequent work after the current package.
+
+### Cylindrical Up To preview report (2026-11-20)
+
+While the 2026112001 package was building, the user tested the local repaired
+build and reported a missing azure creation/Properties preview in `26.prtz`,
+`Tažení 05`. The screenshot shows Side 1 `Up To`, target `Tažení 01 / Plocha`,
+direction -1, XZ Sketch plane with 64 mm offset, zero draft and additive Solid
+output. The input Sketch and placement planes appear, but the extrusion preview
+does not. Native cylindrical calculation tests do not establish this GUI path.
+The user explicitly requested completing the current package before this repair.
+Trace the established authored preview generator and verify its curved target
+termination, both directions, edits, Cancel and ordinary inspection without
+introducing a solid calculation for selection. This is not fixed by 2026112001.
+
+### Body Measurement report (2026-11-20)
+
+The user questions Body Measurement in `26.prtz`. The screenshot shows no
+reported properties and explicitly states that the measured history has a
+calculation error; `Tažení 06` is marked uncalculated in the Tree. This is an
+observed failure-state presentation, not yet evidence of an incorrect physical
+calculation. Verify independent volume/area/centroid/inertia values on valid
+geometry and inspect the behavior with an invalid history feature and retained
+last valid material. The user confirmed that deleting the red feature restores
+measurement and explicitly requested measuring the retained displayed valid
+Body even while a feature is uncalculated. Clearly label that result as the
+last valid state excluding the failed feature; do not present it as a successful
+final-history calculation. Preserve the established inspector contract: only Save
+inserts a record; OK, Cancel and middle-button confirmation only close it.
+
+### Tree history ordering request (2026-11-20)
+
+The user requests drag reordering of Fillets and both Measurement and Body
+Measurement history entries. Reuse `HistoryTreeWidget`,
+`tree_item_reorder_enabled`, `move_part_history` and the existing dependency
+checks rather than a separate ordering path. Inspect the current eligibility
+and Tree row roles first: common Part containers already participate in the
+shared path. Reordering Fillets changes their calculation order; a measurement
+should evaluate its intended history boundary after movement. Verify actual
+drag/drop, valid/invalid dependency moves with a clear explanation, recalculated
+values, identity, owning Body scope, Undo/Redo and native save/reopen. Preserve
+current rejection of broken dependency moves unless a separately agreed change
+is required. This follows completion of the current Windows package.
+
+### 2D Sweep station-count review (2026-11-20)
+
+The user reports an apparently extra station in `26.prtz` / `2D tažení 01`.
+The screenshot has two path segments and four table rows: 1-start, 1-end,
+2-start, 2-end. Row 2-start explicitly inherits from 1-end. The user clarified
+that the path consists of one connected segment and one arc and expects three
+geometric stations (start, shared junction, end), with the junction displayed
+once. Determine whether
+these are intentional separate endpoint slots at one shared geometric junction
+or whether calculation/preview duplicates an actual station. Check the exact
+path topology, placement of profiles, inherited versus explicit profiles and
+result continuity. Do not delete a structural row merely to reduce the table
+count; preserve its documented ability to override or inherit a profile when
+presenting the agreed three geometric stations. Distinguish a duplicate table
+entry from an actual extra calculated station. Any necessary persisted-contract
+change retains its separate approval requirement. This follows the current
+Windows package; an extra calculated station is not yet established.
+
+The user also requests that authoring a Sweep profile in Sketcher retain the
+previous profile Sketches as azure read-only context, labeled by station with
+their point numbers. Reuse the established positioned profile preview and point
+correspondence, respecting actual frames and active-Sketch edit ownership. Check
+successive station editing, correct numbering/placement, visibility, Cancel,
+saved versus inherited profiles and absence of document changes from display.
+
+### Agreed cursor-centered orbit (2026-11-20)
+
+The user proposes a future toggle immediately to the right of Restore View,
+using an Origin-shaped icon with the three axis colors shown in the View.
+When enabled, an orbit gesture uses the pointer position at the initial
+middle-button press as its pivot. Keep that pivot fixed throughout the drag;
+the next gesture may start at a different pointer position.
+
+The agreed depth rule intersects the initial pointer ray with the plane
+parallel to the screen through the current orbit center. This keeps the current
+orbit-center depth and camera scale; it does not snap to the closest model face.
+Changing the pivot must not cause an initial camera jump. The agreed default
+is disabled to preserve established navigation, with an explicit highlighted
+enabled state. The user explicitly approved these default/depth details. This
+records the agreed future behavior, not a completed implementation.
+
+Preserve middle-button double-click confirmation, short-click command behavior,
+navigation modifiers and panning. Review the existing navigation state machine
+before implementation. Verify off/on behavior, empty View space, orthographic
+and perspective cameras, repeated gestures, no initial jump, both themes and
+Part/Assembly editing contexts. Localize the action and tooltip in all five
+languages. This belongs to future work after the active repairs.
 
 ### Subsequent FEM and surface-modeling design (2026-11-20)
 

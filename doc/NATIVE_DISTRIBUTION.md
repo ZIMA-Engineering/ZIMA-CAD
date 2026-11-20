@@ -1,5 +1,15 @@
 # Native versioned distribution
 
+Signed Windows [2026112001](releases/2026112001.md#distribution-status) was
+published at `2026-11-20T04:42:00Z` from immutable source
+`8c15bce7358142fa1075aa9a1ddbb23e76303d38`. Owned RIP editing, Sketch Fillet, cylindrical Up To
+and pole placement pass their finite verification matrix. All twelve mandatory
+sheet-branch gates, six committed GUI suites, four public-runtime GUI suites,
+candidate/signed smoke and 1,185 factory loads pass. Public digests, anonymous
+downloads and updater trust/current status pass. Toyota and Linux limitations
+remain explicit in the [verification record](verification/20261120-owned-rip-and-sketch-fillet.md).
+See the [publication evidence](verification/20261120-windows-2001-publication.json).
+
 Signed Windows [2026111901](releases/2026111901.md#windows-publication-acceptance)
 was published at `2026-11-19T04:13:44Z` from immutable source
 `b41dc8dcc21b14390ea55273dfcfd917947253ed`. It adds persisted Loft correspondence,

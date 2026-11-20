@@ -1,7 +1,7 @@
 # Owned RIP, Sketch Fillet and placement repairs
 
-Windows verification of the follow-up agreed on 2026-11-20. Publication is a
-separate gate; this record does not itself claim that a release is available.
+Windows verification of the follow-up agreed on 2026-11-20. Windows 2026112001 is
+published; the exact artifact checks are recorded in the publication evidence below.
 Private reproduction files and raw logs remain under `build/rip25-20261120/`.
 They are not document dependencies or distributable user data.
 
@@ -111,3 +111,16 @@ acceptance.
 
 Projection and FEM/frame-node behavior in the follow-up document are agreed
 future design, not implemented features of this repair batch.
+
+## Published Windows acceptance
+
+The exact committed candidate passes all twelve mandatory sheet-branch gates
+and six selected GUI suites. Candidate and signed smoke load all 1,185 factory
+assets from the package. The public archive passes safe extraction, exact
+GUI/CLI/updater identity, signature/trust and four targeted GUI suites. All
+three anonymous downloads match the signed local assets and GitHub digests.
+The local development executables match those same published bytes. The newly
+reported missing azure Up To preview in `26.prtz` / `Tažení 05` remains an
+explicit subsequent GUI repair; the calculation matrix does not prove that
+preview path.
+See the [artifact evidence](20261120-windows-2001-publication.json).
