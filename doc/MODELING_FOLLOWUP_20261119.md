@@ -1,9 +1,13 @@
 # Modeling follow-up agreed on 2026-11-19
 
-Current status: the additional owned RIP, Sketch Fillet, cylindrical Up To and
-placement repairs are published as Windows 2026112001 after committed-source,
-signed-package and anonymous public-download acceptance. See the [current verification record](verification/20261120-owned-rip-and-sketch-fillet.md).
-Sheet Transition remains subsequent work; Projection and FEM remain design work.
+Current status: Projection is published as Windows 2026112004, including the
+preceding General Surface, Twist, sheet attachment and mixed Thin Loft/Shell
+repairs. See the [Projection verification record](verification/20261120-projection.md)
+and [release record](releases/2026112004.md) for the finite coverage and delivery
+checks. The earlier owned RIP, Sketch Fillet, cylindrical Up To and placement
+repairs retain their [2026112001 verification record](verification/20261120-owned-rip-and-sketch-fillet.md).
+The user authorized FEM implementation next; its agreed workflow and outstanding
+technical choices are recorded below. This does not claim that FEM already works.
 
 The preceding implementation completed for Windows build 2026111905. Its
 [verification matrix and explicit limits](verification/20261119-modeling-completion.md)
@@ -200,6 +204,164 @@ scope, not a completed feature or a completed format change.
 
 ### Subsequent FEM and surface-modeling design (2026-11-20)
 
+The user authorized proceeding with FEM implementation after completing the
+current Projection commit/push, Windows GitHub publication and local binary
+delivery. Finish that release first, then implement the agreed FEM workflow.
+Gmsh and volumetric meshing of solids and sheet-metal Bodies are agreed below.
+Trace shared contracts and obtain the required scoped agreement before changing
+native persistence or protected container placement; this authorization does not
+waive those repository safeguards. Technical integration and numerical acceptance
+remain work to perform, not completed capabilities.
+
+#### Part-level FEM creation and editing
+
+The user confirmed the following interaction on 2026-11-20 while the Projection
+Windows release was being prepared. This is agreed design, not an implemented
+FEM command. The mesher direction was subsequently agreed below; choosing an
+analysis solver still needs the remaining technical design discussion.
+
+- Offer **Create FEM** at the Part's Body-list level.
+- Open one shared internal Properties dialog and select a source Body or the
+  result of a Boolean operation through the existing reference-entry controls.
+  The source reference identifies the actual selected model result, not a Tree
+  row or a viewer-only approximation.
+- OK creates a new FEM Body within the same Part; Cancel leaves the Part unchanged.
+- The FEM Body's context menu exposes **Properties**, reopening the same dialog
+  with its saved definition and allowing source replacement. Creation and editing
+  use one dialog and the normal OK/Cancel transaction contract.
+- Retain a one-way associative source dependency. Source changes invalidate the
+  corresponding analysis state; meshing and solving remain explicit actions.
+  A broken source remains visible as an unresolved dependency for repair.
+- The user explicitly confirmed shared source geometry rather than a duplicated
+  CAD Body/history. The source owns its calculated geometry; the FEM Body refers
+  to and displays that same result. Its own data are the analysis definition,
+  mesh and results. Persist the source geometry once within the Part and retain
+  the FEM reference and required analysis data in the native document.
+  After source regeneration, display its current geometry and mark prior mesh
+  and results as stale until the user explicitly remeshes/recalculates.
+
+Proposed display behavior: while a FEM Body is active, display its shared source
+geometry once, without superimposing a second independently drawn source Body.
+Keep both source and FEM identities in the Tree. Offer Geometry, Mesh, Geometry
+with mesh, and later Results display modes, with condition symbols overlaid.
+Deactivation restores ordinary Part display without changing persisted source
+visibility. This display proposal was explained during the ongoing discussion;
+it is not an implemented viewer contract.
+
+The user proposed top-right workspace selectors, following the application's
+existing arrangement: **FEM | Mesh | Results**. These select the presentation and
+right-hand command set within the same active FEM Body. Distinguish the complete
+lifecycle **Definition -> Mesh generation -> Calculation -> Results/animation**:
+mesh generation does not start the solver, calculation has its own explicit
+command and progress, and animation belongs to inspecting calculated results.
+Switching workspace modes must not calculate geometry, generate a mesh or run a
+solver. Results are unavailable before calculation and clearly marked stale
+after relevant input changes. These are design requirements, not implemented
+workspace modes.
+
+Color-coded display belongs to this workflow. Mesh inspection may color element
+quality or assigned regions; result inspection colors the selected calculated
+quantity, with a legend, units and value range. These meanings must be explicit
+and distinct. Provide an optional mesh-edge overlay for readable result maps.
+Do not present a mesh-quality color as a solved physical result.
+Display the color legend at the side of the View, with numerical tick labels,
+the selected quantity's name and its unit. During animation keep the displayed
+range fixed across the selected playback sequence, so an unchanged color retains
+the same numerical meaning from frame to frame.
+
+Results inspection also offers deformation animation with Play/Pause, a scrubber,
+playback speed and an explicit displayed deformation scale. For static analysis,
+animate interpolation from the undeformed shape to the solved deformation;
+identify it as visualization, not a computed time history. Actual time-dependent
+motion belongs to a later dynamic-analysis definition and its calculated time
+states. Animation does not alter the source CAD Body or rerun the solver.
+
+#### Shared FEM condition container
+
+The user confirmed one shared condition element and Properties dialog, following
+the existing Feature command. The active FEM Body's right-hand command menu offers
+separate Force, Pressure and Constraint entries (later Temperature and other
+conditions). Each entry opens the same dialog with its type preselected in a
+dropdown; changing that dropdown selects the condition type within the same
+container. Do not implement independent placement or Sketch dialogs per type.
+
+- Reuse the ordinary container placement and reference-entry contract. Its origin
+  provides the default point location, and its plane supports an editable input
+  Sketch and projected curves or surface regions. An offset authoring plane is
+  distinct from the actual analysis region on the referenced Body.
+- A condition applies to a referenced point, Sketch path/projected curve, or
+  bounded surface region. Force and Constraint share this region-selection
+  mechanism. Validate the region against the selected condition type; pressure
+  remains an area-based condition, rather than acquiring point-force semantics.
+- Default directional input follows the oriented container normal, with reversal.
+  Preserve the distinction between a fixed direction and pressure following the
+  local normals of a curved target surface. Constraints use the same region and
+  local frame to specify which applicable movement components are restrained;
+  selecting a region alone does not imply that every component is fixed.
+- Keep placement and applicable region references when changing type; display
+  the parameters appropriate to the selected physical condition. Do not silently
+  reinterpret incompatible quantities or units from the previous type.
+- Future temperature and other condition types reuse this container and region
+  definition while exposing only their meaningful parameters. This remains
+  agreed interaction design, not an implemented analysis capability.
+
+Display condition-specific symbols at the actual assigned region: a force arrow
+and identifier/value (for example `F1 = 5000 N`), several pressure arrows with one
+shared pressure label, a fixed-support symbol with a hatched base, and a temperature
+symbol/value. A partial restraint must identify its restrained directions instead
+of masquerading as a fully fixed support. Symbols retain their owning condition
+identity. Single click selects and synchronizes the Tree; double-click parameter
+inspection and context Properties follow the ordinary shared interaction contract.
+
+The interaction requirements above are sufficient for a coherent FEM design.
+The user clarified that materials already belong to the Part: reuse the source
+Part's assigned material and the shared material system, without a second FEM
+material copy or independent catalog. Existing factory materials already expose
+Young's modulus, Poisson's ratio, shear modulus, density and thermal properties
+with units. Current native Part storage uses `physical_parameters`,
+`physical_parameter_units` and `material_parameter_descriptions`; preserve this
+self-contained material definition. Verify its required properties and unit conversions;
+missing data must be resolved through that shared system.
+Before implementation, settle the first supported analysis kind and element
+families, then choose the mesher and solver against those
+requirements. Static mechanical analysis is the proposed first delivery; thermal
+analyses and actual dynamics are subsequent proposals, not confirmed solver scope.
+
+#### Explicit mesh generation and calculation
+
+After defining conditions, the active FEM Body exposes **Generate mesh**. Its
+settings include a mesh size and applicable local refinement; the generated mesh
+is displayed for inspection. Meshing is an explicit action, separate from
+**Calculate**. Conditions remain attached to CAD geometry and are resolved onto
+the new mesh after regeneration, rather than retaining obsolete mesh node IDs.
+This sequence is agreed design; mesher, solver and their detailed settings remain
+to be selected during the subsequent FEM design work.
+
+Mesh controls belong to the native ZIMA-CAD UI: element size in document length
+units, overall refinement and local refinement of selected geometric regions.
+The proposed implementation integrates an established mesher rather than
+introducing a new unverified meshing algorithm. Verify the selected dependency
+and its integration on Windows and Linux before committing to that choice.
+The user explicitly requires volume meshes for sheet-metal Bodies as well as
+ordinary solids. Mesh the actual material thickness and provide suitable local
+refinement through that thickness; do not automatically idealize sheet metal as
+a shell/midsurface model. Beam/truss models and any later explicit surface-only
+analysis remain separate future scope. This does not yet select a numerical
+element formulation or solver backend.
+
+The user approved Gmsh as the mesher direction on 2026-11-20, using its native C++
+integration and OpenCASCADE support. Acceptance must exercise holes, small fillets and thin
+or twisted sheet-metal volumes, including refinement through the thickness,
+while preserving CAD region identities for conditions. Evaluate compatibility
+with the shared OCCT pin on both platforms; do not introduce divergent modeling
+implementations. The specific version pin and completed integration are not yet
+verified. The [official Gmsh site](https://gmsh.info/) documents GPL-2.0-or-later
+with an external-library linking exception; this repository declares
+GPL-3.0-or-later. Preserve upstream notices and distribute the corresponding
+source and license when shipping the dependency.
+
+#### Loads, projected regions and element families
+
 The user agreed that distributed loads belong to CAD curves or surface regions,
 independently of mesh node numbering. Meshing or remeshing must derive their
 element contributions again. This is follow-up design, not an implemented FEM
@@ -226,8 +388,10 @@ capability or an additional acceptance claim for the repairs below.
   missing or ambiguous portions in the preview. Thickness belongs to downstream
   shell properties or a separate surface-thickening operation; Projection has
   no Thin output. Rotational wrapping is a distinct future mapping,
-  not an additional ordinary projection branch. Implementation and any required
-  native contract extension still need their normal scoped review.
+  not an additional ordinary projection branch. This Projection implementation
+  and its scoped new-type persistence extension are now complete; see the
+  [finite acceptance report](verification/20261120-projection.md). FEM consumption
+  of those outputs remains subsequent implementation work.
 - The ordinary View shows the projected result on its targets. Double-click
   inspection additionally exposes the original input Sketch in its own plane
   and its existing dimensions. Dimension double-click uses the established

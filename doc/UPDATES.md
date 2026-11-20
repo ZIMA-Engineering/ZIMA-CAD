@@ -1,5 +1,16 @@
 # Application updates
 
+Signed Windows [2026112004](releases/2026112004.md#distribution-status) was
+published at `2026-11-20T21:41:22Z` from immutable source
+`0d571813e2f64ee917efe9d76bf5e7049c13dd92`. Projection and the preceding modeling
+repairs pass their finite Windows acceptance. Candidate/signed smoke, all 1,185
+factory assets, public digests, anonymous downloads and safe extraction pass.
+The public production updater reports a trusted current 2026112004 installation.
+The same GUI/CLI/updater are installed in the normal local build without changing
+the root development BAT or user settings. See the
+[publication evidence](verification/20261120-windows-2004-publication.json) and
+[coverage limits](verification/20261120-projection.md); Linux execution remains separate.
+
 Signed Windows [2026111901](releases/2026111901.md#windows-publication-acceptance)
 was published at `2026-11-19T04:13:44Z` from immutable source
 `b41dc8dcc21b14390ea55273dfcfd917947253ed`. It adds persisted Loft correspondence,

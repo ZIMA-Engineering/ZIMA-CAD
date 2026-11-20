@@ -1,7 +1,8 @@
 # Projection verification
 
-Status: targeted Windows acceptance passed; 2026112004 distribution acceptance
-is pending. No Projection release is claimed here before its publication gates.
+Status: targeted Windows acceptance and signed Windows 2026112004 publication
+acceptance passed. The public release was published on 2026-11-20 at 21:41:22 UTC.
+See the [publication evidence](20261120-windows-2004-publication.json).
 
 ## Scope and environment
 
@@ -62,6 +63,22 @@ over by coincident passive Plane wires. As for existing Axis rendering, selected
 inspected and preview Plane wires now render after passive Plane wires. This
 does not change placement or replace wire feedback with filled faces.
 
+## Packaged Windows GUI checks
+
+The committed 2026112004 candidate passes the Projection GUI case (18.245 s),
+General Surface context/reference case (9.799 s), ordinary Loft case (34.457 s)
+and mixed rectangle/circle/slot Thin/Shell case (49.976 s). The packaged GUI,
+CLI and updater all report version 2026112004 and commit
+`0d571813e2f64ee917efe9d76bf5e7049c13dd92` with unmodified source identity.
+The mixed Thin and Shell screenshots were also inspected.
+
+The first portable Loft harness run failed while loading its manually overridden
+translation path: it assumed `config/localization` under the process working
+directory, whereas the portable factory catalogs belong to the versioned runtime.
+Rerunning that unchanged packaged binary with the runtime working directory
+passed the five-language Loft checks and the mixed Thin/Shell case. This was a
+test-launch configuration correction; no catalog or product check was bypassed.
+
 ## Existing failing control
 
 `zima_cpp_feature_ordered_up_to_native_tests` fails with `Invalid ordered Feature
@@ -104,3 +121,24 @@ Explicit OK/Regenerate performs exact projection and, when required, partitionin
 Ordinary feature selection consumes the same authored preview generator through
 the existing presentation cache. Counters must demonstrate no native history
 evaluation for preview, inspection and unchanged confirmation.
+
+## Windows publication and local delivery
+
+Immutable tag `ZIMA-CAD-2026112004` identifies source commit
+`0d571813e2f64ee917efe9d76bf5e7049c13dd92`. Candidate and signed native smoke pass,
+including every one of the 1,185 factory native assets and portable drawing/font
+export. The twelve mandatory sheet-branch gates pass on the committed build.
+The signed ZIP contains 17,711 files and is 970,479,292 bytes; its SHA-256 is
+`bf28e74005fa05713b61dfdd0a92ae18a1288344f139596ca6072394c2a09fe1`.
+
+All three GitHub asset digests match local signed files and anonymous downloads.
+The public archive passes safe extraction and Ed25519 publisher verification.
+The production updater reports `trusted: true` and version 2026112004 as current.
+Public, signed and candidate GUI/CLI/updater binaries are identical. The normal
+local runtime was replaced with those binaries, retaining a previous-file backup;
+the three local configuration files and root `zima-cad.bat` remained unchanged.
+
+This documentation-only finalization adds no user-visible application text. The
+five-language implementation coverage remains as recorded in the matrix above.
+Linux execution and the explicit earlier control limitations remain unverified;
+publishing the Windows package does not erase those limits.

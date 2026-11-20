@@ -1,5 +1,17 @@
 # Native versioned distribution
 
+Signed Windows [2026112004](releases/2026112004.md#distribution-status) was
+published at `2026-11-20T21:41:22Z` from immutable source
+`0d571813e2f64ee917efe9d76bf5e7049c13dd92`. It adds Projection and includes the
+preceding General Surface, Twist, sheet and mixed Thin Loft/Shell repairs.
+Candidate/signed smoke, 1,185 factory loads, twelve sheet-branch gates and four
+packaged GUI cases pass. Public digests, anonymous downloads, safe extraction
+and production updater trust/current status pass. The identical binaries are
+installed behind the unchanged development BAT. Linux and the pre-existing
+ordered Up To control limitation remain explicit in the
+[finite verification record](verification/20261120-projection.md). See the
+[publication evidence](verification/20261120-windows-2004-publication.json).
+
 Signed Windows [2026112001](releases/2026112001.md#distribution-status) was
 published at `2026-11-20T04:42:00Z` from immutable source
 `8c15bce7358142fa1075aa9a1ddbb23e76303d38`. Owned RIP editing, Sketch Fillet, cylindrical Up To
