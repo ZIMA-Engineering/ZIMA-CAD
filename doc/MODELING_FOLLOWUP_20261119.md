@@ -213,6 +213,12 @@ native persistence or protected container placement; this authorization does not
 waive those repository safeguards. Technical integration and numerical acceptance
 remain work to perform, not completed capabilities.
 
+Windows 2026112004 is now published and delivered locally. FEM work has started:
+the [technical design](FEM_DESIGN.md) and
+[initial native Gmsh verification](verification/20261120-fem-mesher.md) record the
+first checkpoint. Native FEM persistence is awaiting the required scoped
+agreement; no FEM UI or solver is included in that published release.
+
 #### Part-level FEM creation and editing
 
 The user confirmed the following interaction on 2026-11-20 while the Projection

@@ -1,0 +1,214 @@
+# Part FEM implementation design
+
+Status: implementation starting after the completed Windows 2026112004 release.
+The [agreed functional workflow](MODELING_FOLLOWUP_20261119.md#subsequent-fem-and-surface-modeling-design-2026-11-20)
+defines the user-facing scope. This design specifies the first implementation
+boundaries. Native persistence changes remain subject to the scoped agreement
+required by AGENTS.md. No FEM command is present in the released application.
+The first [native mesher checkpoint](verification/20261120-fem-mesher.md) passed
+seven synthetic cases on Windows; it does not yet establish product acceptance.
+
+## First delivery
+
+Implement source selection, condition authoring, explicit volume meshing and
+inspection first. Follow with small-displacement, isotropic linear elastic
+static analysis, displacement/stress/reaction inspection and deformation
+animation. Static analysis is the proposed initial solver scope; thermal,
+contact, plasticity and actual dynamics require separate analysis definitions.
+Do not expose unfinished analysis kinds as working commands.
+
+Gmsh is the agreed mesher. Evaluate 4.15.2 built against the same patched OCCT
+8.0.1 as the product. Both operating systems use the same adapter and dependency
+patch. A Windows probe is not evidence of Linux acceptance. The solver backend
+and supported material range must be selected and verified separately.
+
+Use tetrahedral volume elements for solids and sheet metal. Evaluate quadratic
+10-node tetrahedra for the initial mechanical solver; linear 4-node tetrahedra
+remain useful mesher/patch-test fixtures, not a substitute for a demonstrated
+bending-accurate thin-solid formulation. Mesh the real thickness, with explicit
+refinement and a convergence check. Never switch a sheet Body to a shell model
+implicitly. Mesh quality alone does not establish solution accuracy.
+
+## Ownership and native representation
+
+Extend the existing Part Body hierarchy with an explicitly typed FEM Body.
+Reuse Body activation, identity, order, visibility and context Properties.
+Do not represent the FEM source as a copied Body, BodyLink or Boolean operand.
+
+The FEM definition references one preceding material Body or BodyBoolean by
+stable identity, in the same Part. It owns its analysis settings, condition
+containers, mesh controls and calculated analysis data. The source owns its
+history and calculated geometry. FEM must contribute no material operation,
+mass, volume or assembly occurrence to the CAD result. A FEM Body is not a
+valid material input to Boolean, Mirror or Scale. Cyclic and forward source
+dependencies are rejected through the history dependency rules.
+
+Runtime access shares immutable calculated `BodyResult` data from
+`body_outputs`. Source selection does not replay its history. Native save stores
+the CAD source once; the analysis stores its source identity and fingerprints.
+Mesher input may be a private transient geometry copy to prevent third-party
+meshing caches from modifying the CAD source. This is not a second persisted Body.
+
+The proposed native extension includes:
+
+- The Body kind and typed FEM definition, source reference and analysis settings.
+- Ordered conditions with stable identity, type, ordinary placement, region
+  references, authored values/units and applicable owned Sketch identity.
+- Global/local mesh controls and their geometric reference identities.
+- Mesh nodes, element connectivity/order, region bindings and quality diagnostics.
+- Results, quantity/unit metadata, solver provenance, input fingerprints and
+  analysis diagnostics; future time states have explicit physical times.
+
+Large mesh/result buffers use immutable shared ownership for Undo snapshots and
+bounded native archive members, not per-node JSON or unbounded repeated copies.
+All information required to reopen stays inside `.prtz`; no required `.msh`,
+solver files, sidecars or external caches. Validate sizes, counts, finite values,
+connectivity, region bindings and input fingerprints before publishing loaded
+data. Disposable worker files are never the authoritative analysis storage.
+
+Schema decisions must update Part templates and affected embedded native data
+in Assembly, Drawing and factory library assets in the same change. Regenerate,
+save and reopen affected assets with the changed native implementation. Do not
+ship old/new model adapters or change only a version number. Preserve authored
+histories, roles, references and geometry; verify the packaged committed assets.
+
+The protected Toyota project is included in the proposed conversion assessment:
+inventory its documents/dependencies, verify recoverable backups and evaluate
+isolated copies. Do not replace its originals. Identify unsupported old formats
+explicitly rather than silently converting them or claiming reopen coverage.
+
+## Condition containers and geometric regions
+
+One condition implementation and one internal Properties class serve Force,
+Pressure and Constraint. Right-menu shortcuts select the initial dropdown type.
+Reuse shared reference cells, internal-window helpers, OK/Cancel, middle-button
+confirmation and the complete ordinary placement capability. Do not modify the
+shared placement solver to specialize FEM. A required change to that protected
+contract needs a separate concrete proposal and approval.
+
+The container plane is the authoring frame, not necessarily the loaded surface.
+An origin point, owned Sketch path or bounded projected surface region defines
+the actual target. References use the existing owner, semantic key, occurrence
+and oriented-side contracts. Preserve the last valid frame on reference loss,
+show the broken dependency and prevent solving until repaired. Never substitute
+a nearest face or node. Projection outputs can delimit regions, but an isolated
+surface result is not itself the material source of a volume analysis.
+
+Import the exact material topology into Gmsh. Bind each native vertex, edge and
+face to its Gmsh entity explicitly. For projected partial-face regions, partition
+the transient mesher input or embed the applicable lower-dimensional entities;
+retain ancestry to the source region. Validate complete coverage, holes, seams,
+side orientation and ambiguity. Gmsh numeric tags and mesh node numbers are
+ephemeral; remeshing resolves CAD-owned conditions again.
+
+Force magnitude means total force over its assigned region. Line load, traction
+and pressure use their explicit density units. Assemble consistent equivalent
+loads by integrating element shape functions over the actual assigned region;
+do not divide equally by node count. Fixed-direction force follows the chosen
+oriented container normal by default; pressure follows oriented local normals.
+Validate resultant force, moment and equivalent work, including quadratic nodes.
+
+A constraint selects restrained translation components in its local frame.
+Solid tetrahedral nodes have three translation degrees of freedom, not six
+independent beam-style translations/rotations. Partial restraints must be drawn
+and labeled distinctly from a fixed support. Changing condition type retains
+compatible references without reinterpreting a force value as pressure.
+
+Use the Part's existing `physical_parameters`, `physical_parameter_units` and
+`material_parameter_descriptions` as the material authority. Resolve Young's
+modulus, Poisson's ratio and any required density through the shared unit system.
+Missing or invalid properties are errors, not zero/default material values.
+Use one documented coherent numerical unit system at the solver boundary;
+convert coordinates, loads, material properties and results consistently.
+
+## Calculation and invalidation lifecycle
+
+| Action or change | CAD evaluation | Mesh state | Result state |
+| --- | --- | --- | --- |
+| Open/create FEM Properties, select source, preview | Read current source only | Unchanged draft | Unchanged draft |
+| Unchanged OK or Cancel | None | Unchanged | Unchanged; no Undo step |
+| Confirm changed source | None | Stale | Stale |
+| Source explicitly regenerated | Existing CAD lifecycle | Stale if actual input changed | Stale |
+| Change region topology or mesh controls | None | Stale | Stale |
+| Change force magnitude, restraint values or material | None | Reuse if geometry/partition unchanged | Stale |
+| Generate mesh | Decode current exact input; no CAD history replay | Explicit replacement on success | Stale |
+| Calculate | None | Require valid matching mesh | Explicit replacement on success |
+| Change FEM/Mesh/Results view, colors, scale or animation | None | Read only | Read only |
+| Save with current data | Existing native Save contract | Persist | Persist; never solve |
+
+A background job owns an immutable source/input snapshot and cancellation token.
+Publish only if document identity, source calculation generation, region/control
+fingerprint and analysis input fingerprint still match. Discard stale/cancelled
+job output. Failures retain the previous accepted data with explicit validity
+state; do not label a failed or stale mesh as current. Undo/Redo restores a
+consistent definition and corresponding immutable analysis snapshots.
+
+Gmsh has global model state. Initially serialize access through one dedicated
+meshing worker and restore/finalize its session on failure. No parallel calls into
+Gmsh from View painting, inspection or other document workers. Evaluate process
+isolation if responsive cancellation cannot be guaranteed through the public API.
+
+## View and command integration
+
+Activating FEM shows the source geometry once without changing the source Body's
+persisted visibility. FEM, Mesh and Results select presentation and command sets.
+Geometry-plus-mesh is an overlay over the same source. Deactivation restores the
+normal Part display. Conditions use owned overlays: force arrows, pressure arrows
+and hatched restraint symbols, with stable identifier/value/unit labels.
+
+Single click selects and synchronizes the Tree. Double click exposes parameters;
+context Properties opens the shared editor. These actions must not remesh, solve
+or modify the document. Preserve wire-only ordinary geometry selection.
+
+Results show a side legend with quantity, units and numeric range. Distinguish
+mesh quality from computed physics. Hold the range fixed during animation.
+Static deformation playback interpolates displacement for display only, with an
+explicit magnification factor. It is not physical time, and never changes CAD.
+Use shared palette/localization paths for both themes and all five languages.
+
+## Implementation boundaries
+
+`document_core` owns typed definitions and native persistence; `workspace` owns
+transactions, source resolution and job publication. Add isolated FEM numerical
+and meshing modules rather than coupling solver code to Qt dialogs. The OCCT
+adapter decodes the existing kernel archive and exact bindings during explicit
+meshing; it does not use viewer tessellation as material geometry. The viewer
+consumes prepared mesh/result packets. UI owns presentation and draft input.
+
+Existing paths reviewed: `BodyHistoryGraph` compilation/validation/activation,
+`body_operations.cpp` metadata versus geometry commits, `BodyResult::body_outputs`
+and kernel bindings, Part native serialization, and Part material storage.
+Ordinary Body creation currently calculates CAD: the FEM transaction must use
+the metadata path and retain current CAD snapshots. Do not globally suppress
+normal Body calculation callbacks to obtain this behavior.
+
+## Acceptance gates
+
+1. Build the same Gmsh source/patch against OCCT 8.0.1. Exercise boxes, holes,
+   fillets, thin and twisted volumes. Check positive sampled Jacobians, mesh
+   volume, exact face bindings, source immutability and refinement. Expand to
+   actual ZIMA native Bodies; a synthetic fixture is not full CAD acceptance.
+2. Verify FEM creation/source replacement, Body activation and command filtering,
+   no duplicated mass/volume, source sharing, selection/inspection and unchanged
+   OK/Cancel counts. Test all five languages and Light/Dark/Light.
+3. Exercise every condition/region type, orientations, holes, partial curved
+   patches, reference loss/replacement, source edits, remeshing and Undo/Redo.
+   Apply the full required Sketcher edit/drag/dimension matrix where affected.
+4. Gate a solver on rigid-motion and constant-strain patch tests, analytical
+   axial/cantilever cases, pressure/traction force and moment balance, reactions,
+   convergence, invalid materials and underconstrained/singular rejection.
+   Validate actual thin-solid bending; never infer it from a valid mesh alone.
+5. Verify native save/reopen, stale data, cancelled/outdated jobs, missing inputs,
+   templates, affected factory data and protected project copies. Record exact
+   finite coverage and Linux gaps before a new release.
+
+## Dependency sources
+
+[Gmsh 4.15.2](https://gmsh.info/) and its
+[public API manual](https://gmsh.info/doc/texinfo/) describe the supported meshing
+interface. The pinned source archive for the initial probe is
+`https://gmsh.info/src/gmsh-4.15.2-source.tgz`, SHA-256
+`be3f66f225d27ba9fa014f07e83169285da8a051b0e8ab7103d88066b39bdd3e`.
+Preserve its GPL-2.0-or-later license, stated linking exception and all enabled
+contributed-library notices and corresponding source when distributing it.
+This design does not add Gmsh to the already published Windows 2026112004 release.
