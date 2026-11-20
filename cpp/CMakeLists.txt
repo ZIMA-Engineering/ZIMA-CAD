@@ -280,6 +280,7 @@ add_library(zima_document_core
     modules/document_core/src/profile_targets.cpp
     modules/document_core/src/appearance.cpp
     modules/document_core/src/body_history.cpp
+    modules/document_core/src/fem_definition.cpp
     modules/document_core/src/section.cpp
     modules/document_core/src/measurement_record.cpp
     modules/document_core/src/body_properties.cpp
@@ -344,6 +345,7 @@ add_library(zima_workspace modules/workspace/src/workspace.cpp
     modules/workspace/src/file_removal_operations.cpp
     modules/workspace/src/file_rename_operations.cpp
     modules/workspace/src/body_operations.cpp
+    modules/workspace/src/fem_operations.cpp
     modules/workspace/src/body_reference_operations.cpp modules/workspace/src/construction_reference_operations.cpp
     modules/workspace/src/history_operations.cpp
     modules/workspace/src/history_deletion.cpp
@@ -1652,6 +1654,12 @@ if(ZIMA_BUILD_TESTS)
     set_tests_properties(zima_cpp_material_library_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
 
     add_executable(zima_cpp_family_table_tests tests/family_table_tests.cpp)
+    add_executable(zima_cpp_fem_document_tests tests/fem_document_tests.cpp)
+    target_link_libraries(zima_cpp_fem_document_tests PRIVATE zima_document_core zima_kernel_occt)
+    add_test(NAME zima_cpp_fem_document_tests COMMAND zima_cpp_fem_document_tests)
+    add_executable(zima_cpp_fem_operations_tests tests/fem_operations_tests.cpp)
+    target_link_libraries(zima_cpp_fem_operations_tests PRIVATE zima_workspace)
+    add_test(NAME zima_cpp_fem_operations_tests COMMAND zima_cpp_fem_operations_tests)
     add_executable(zima_cpp_body_scale_tests tests/body_scale_tests.cpp)
     add_executable(zima_cpp_body_link_tests tests/body_link_tests.cpp)
     target_link_libraries(zima_cpp_body_link_tests PRIVATE zima_workspace)

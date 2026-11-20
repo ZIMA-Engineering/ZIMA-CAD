@@ -2919,5 +2919,15 @@
   "Projection cannot split a read-only external target.": "Die Projektion kann kein schreibgeschütztes externes Ziel teilen.",
   "Projection direction reference is missing or is not straight.": "Die Richtungsreferenz der Projektion fehlt oder ist nicht gerade.",
   "Projection requires an owned planar Sketch and does not add or subtract solid material.": "Die Projektion benötigt eine eigene ebene Skizze und fügt kein Volumenmaterial hinzu oder entfernt es.",
-  "Projection target must be a preceding bounded face in the active Body.": "Das Projektionsziel muss eine vorhergehende begrenzte Fläche im aktiven Körper sein."
+  "Projection target must be a preceding bounded face in the active Body.": "Das Projektionsziel muss eine vorhergehende begrenzte Fläche im aktiven Körper sein.",
+  "FEM requires a source Body or Boolean result.": "FEM benötigt einen Quellkörper oder ein boolesches Ergebnis.",
+  "Unsupported FEM analysis type.": "Nicht unterstützter FEM-Analysetyp.",
+  "Invalid FEM volume mesh controls.": "Ungültige Einstellungen des FEM-Volumennetzes.",
+  "A FEM Body cannot own material history or placement.": "Ein FEM-Körper kann keine eigene Materialhistorie oder Platzierung besitzen.",
+  "FEM requires a preceding material Body or Boolean result.": "FEM benötigt einen vorhergehenden Materialkörper oder ein boolesches Ergebnis.",
+  "The requested FEM Body does not exist.": "Der angeforderte FEM-Körper existiert nicht.",
+  "Unsupported Body kind.": "Nicht unterstützte Körperart.",
+  "Cannot change the kind of an existing Body.": "Die Art eines bestehenden Körpers kann nicht geändert werden.",
+  "The FEM source is missing or suppressed.": "Die FEM-Quelle fehlt oder ist unterdrückt.",
+  "FEM requires a valid calculated solid. Regenerate the source first.": "FEM benötigt einen gültigen berechneten Volumenkörper. Regenerieren Sie zuerst die Quelle."
 }

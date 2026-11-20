@@ -78,10 +78,12 @@ void BodyHistoryGraph::sort_bodies() {
 }
 
 void BodyHistoryGraph::validate() const {
-    std::set<std::string> identities, preceding, available, entries;
-    for (const auto& body : bodies_)
+    std::set<std::string> identities, preceding, available, entries, fem_identities;
+    for (const auto& body : bodies_) {
         if (body.scope.id.empty() || !identities.insert(body.scope.id).second)
             throw std::invalid_argument("Body identity is empty or duplicated");
+        if(body.fem)fem_identities.insert(body.scope.id);
+    }
     for (const auto& op : booleans_)
         if (op.id.empty() || !identities.insert(op.id).second)
             throw std::invalid_argument("Boolean identity is empty or duplicated");
@@ -93,6 +95,19 @@ void BodyHistoryGraph::validate() const {
         if (const auto* body = find(id)) {
             if (body->name.empty() || body->cursor > body->entries.size())
                 throw std::invalid_argument("Invalid body name or history cursor");
+            if(body->fem) {
+                validate_fem_definition(*body->fem);
+                if(body->link||body->scale||body->derived_copy||!body->entries.empty()||
+                        body->cursor||!body->dependencies.empty()||body->scope.placement!=Placement{})
+                    throw std::invalid_argument("A FEM Body cannot own material history or placement.");
+                const auto& source=body->fem->source_id;
+                const auto* source_body=find(source);
+                if(owner(source)||(identities.contains(source)&&!preceding.contains(source))||
+                        (source_body&&source_body->fem))
+                    throw std::invalid_argument("FEM requires a preceding material Body or Boolean result.");
+                // A deleted source remains an explicit broken reference. Keep
+                // the analysis definition for repair; never replace its source.
+            }
             if(body->link&&(body->derived_copy||body->scale||!body->entries.empty()||body->cursor||
                 body->link->document_id.empty()||body->link->body_id.empty()||body->link->source_path.empty()||
                 !body->link->calculated||body->link->calculated->kernel_shape.empty()||
@@ -137,7 +152,7 @@ void BodyHistoryGraph::validate() const {
             for (const auto& reference : placement.references)
                 if (!std::isfinite(reference.offset)) throw std::invalid_argument("Body reference offset must be finite");
             for (const auto& dependency : body->dependencies)
-                if (!preceding.contains(dependency)) throw std::invalid_argument("Body reference must precede its dependent body");
+                if (!preceding.contains(dependency)||fem_identities.contains(dependency)) throw std::invalid_argument("Body reference must precede its dependent body");
             for (const auto& entry : body->entries) {
                 if (entry.id.empty() || identities.contains(entry.id) || !entries.insert(entry.id).second)
                     throw std::invalid_argument("Every history entry must have exactly one body owner");
@@ -153,7 +168,7 @@ void BodyHistoryGraph::validate() const {
                 throw std::invalid_argument("Boolean requires two distinct available preceding results");
         }
         preceding.insert(id);
-        available.insert(id);
+        if(!fem_identities.contains(id))available.insert(id);
     }
     if (!active_.empty() && (!find(active_) || find(active_)->derived_copy || find(active_)->scale || find(active_)->link)) throw std::invalid_argument("Active body does not exist");
     if(!active_.empty() && find(active_)->suppressed)
@@ -210,6 +225,7 @@ void BodyHistoryGraph::update_body(BodyHistory body) {
     auto next = *this;
     const auto found = std::ranges::find_if(next.bodies_, [&](const auto& value) { return value.scope.id == body.scope.id; });
     if (found == next.bodies_.end()) throw std::invalid_argument("Body does not exist");
+    if(found->kind()!=body.kind())throw std::invalid_argument("Cannot change the kind of an existing Body.");
     *found = std::move(body);
     next.validate();
     *this = std::move(next);
@@ -231,6 +247,26 @@ std::string BodyHistoryGraph::create_link(BodyHistory body) {
     next.order_.insert(next.order_.begin()+static_cast<std::ptrdiff_t>(cursor_),id);
     next.bodies_.push_back(std::move(body));next.sort_bodies();++next.cursor_;next.active_.clear();
     next.validate();*this=std::move(next);return id;
+}
+
+std::string BodyHistoryGraph::create_fem(BodyHistory body) {
+    if(!body.fem||(!find(body.fem->source_id)&&!find_boolean(body.fem->source_id)))
+        throw std::invalid_argument("FEM requires a source Body or Boolean result.");
+    if(body.scope.id.empty())body.scope.id=zima::kernel::make_stable_id();
+    const auto id=body.scope.id;auto next=*this;
+    next.order_.insert(next.order_.begin()+static_cast<std::ptrdiff_t>(cursor_),id);
+    next.bodies_.push_back(std::move(body));next.sort_bodies();++next.cursor_;next.active_=id;
+    next.validate();*this=std::move(next);return id;
+}
+
+FemSourceState BodyHistoryGraph::fem_source_state(const std::string& body_id) const {
+    const auto* analysis=find(body_id);
+    if(!analysis||!analysis->fem)throw std::invalid_argument("The requested FEM Body does not exist.");
+    if(const auto* source=find(analysis->fem->source_id))
+        return source->suppressed?FemSourceState::Suppressed:FemSourceState::Available;
+    if(const auto* source=find_boolean(analysis->fem->source_id))
+        return source->suppressed?FemSourceState::Suppressed:FemSourceState::Available;
+    return FemSourceState::Missing;
 }
 
 void BodyHistoryGraph::activate(const std::string& id) {
@@ -312,10 +348,12 @@ std::vector<std::string> BodyHistoryGraph::available_before(std::size_t boundary
     std::set<std::string> available;
     for (std::size_t index = 0; index < boundary; ++index) {
         const auto& id = order_[index];
+        const auto* body=find(id);
+        if(body&&body->fem)continue;
         if (const auto* operation = find_boolean(id)) {
             available.erase(operation->target_id); available.erase(operation->tool_id);
         }
-        if(const auto* body=find(id);body&&body->derived_copy&&body->derived_copy->subtract_source)
+        if(body&&body->derived_copy&&body->derived_copy->subtract_source)
             available.erase(copy_target_before(
                 primary_derived_copy_source(*body->derived_copy),index));
         available.insert(id);
@@ -326,6 +364,10 @@ std::vector<std::string> BodyHistoryGraph::available_before(std::size_t boundary
 }
 
 std::vector<std::string> BodyHistoryGraph::visible_context() const {
+    if(const auto* body=find(active_);body&&body->fem) {
+        if(fem_source_state(active_)!=FemSourceState::Available)return {};
+        return {body->fem->source_id};
+    }
     const auto available = available_before(order_.size());
     const bool editing_consumed = !active_.empty() &&
         std::ranges::find(available, active_) == available.end();
@@ -393,6 +435,7 @@ std::vector<zima::kernel::HistoryOperation> BodyHistoryGraph::compile(const Comp
             continue;
         }
         const auto& body = *find(id);
+        if(body.fem)continue;
         if(body.link) {
             zima::kernel::HistoryOperation operation;operation.owner_id=id;operation.body.id=id;
             operation.body.result_suppressed=body.suppressed;operation.body.linked_body=body.link->calculated;
@@ -469,6 +512,11 @@ std::string BodyHistoryGraph::serialized() const {
     validate();
     auto bodies = nlohmann::json::array();
     for (const auto& body : bodies_) {
+        if(body.fem) {
+            bodies.push_back({{"kind","fem"},{"id",body.scope.id},{"name",body.name},
+                {"visible",body.visible},{"suppressed",body.suppressed},{"definition",*body.fem}});
+            continue;
+        }
         auto entries = nlohmann::json::array();
         for (const auto& entry : body.entries) entries.push_back({{"kind", static_cast<int>(entry.kind)}, {"id", entry.id}});
         const auto& scope = body.scope;
@@ -499,6 +547,12 @@ BodyHistoryGraph BodyHistoryGraph::from_serialized(std::string_view source) {
         body.name = row.at("name").get<std::string>();
         body.visible = row.at("visible").get<bool>();
         body.suppressed = row.at("suppressed").get<bool>();
+        if(row.contains("kind")) {
+            if(row.at("kind")!="fem")throw std::invalid_argument("Unsupported Body kind.");
+            body.fem=row.at("definition").get<FemDefinition>();
+            graph.bodies_.push_back(std::move(body));
+            continue;
+        }
         if(!row.at("link").is_null()) {
             const auto& link=row.at("link");body.link=BodyLink{link.at("document").get<std::string>(),
                 link.at("body").get<std::string>(),std::filesystem::u8path(link.at("path").get<std::string>()),

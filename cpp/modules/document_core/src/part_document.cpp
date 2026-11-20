@@ -6049,6 +6049,7 @@ PartDocument PartDocument::body_document(const std::string& body_id) const {
 zima::kernel::ViewerReferenceGeometry PartDocument::body_origin_reference_geometry() const {
     zima::kernel::ViewerReferenceGeometry result;
     for (const auto& body : body_history.bodies()) {
+        if(body.fem)continue;
         PartDocument carrier;
         carrier.document_id = body.scope.id;
         auto origin = transform_reference_geometry(carrier.origin_viewer_mesh().original_references,
@@ -6375,6 +6376,7 @@ zima::kernel::ViewerMesh PartDocument::construction_viewer_mesh(
     if (!body_history.bodies().empty()) {
         zima::kernel::ViewerMesh result;
         for (const auto& body : body_history.bodies()) {
+            if(body.fem)continue;
             auto carrier = body_document(body.scope.id);
             append_body_mesh(result, body_placed_mesh(
                 carrier.construction_viewer_mesh(editing_object_id, reference_scene_size, show_sweep_stations, excluded_features), body.scope));
@@ -6960,9 +6962,12 @@ void PartDocument::resolve_constructions(
         auto next = *this;
         append_reference_geometry(source_geometry, origin_viewer_mesh().original_references);
         append_reference_geometry(source_geometry, body_origin_reference_geometry());
+        const auto final_material_body=std::find_if(body_history.bodies().rbegin(),body_history.bodies().rend(),
+            [](const auto& candidate){return !candidate.fem;});
         for (const auto& original_body : body_history.bodies()) {
+            if(original_body.fem)continue;
             const bool final_body = original_body.scope.id ==
-                body_history.bodies().back().scope.id;
+                final_material_body->scope.id;
             auto body = *next.body_history.find(original_body.scope.id);
             boundary_references.enter(body.scope.id,source_geometry);
             auto carrier = next.body_document(body.scope.id);

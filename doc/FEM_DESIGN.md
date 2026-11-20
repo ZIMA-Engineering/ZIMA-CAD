@@ -3,8 +3,12 @@
 Status: implementation starting after the completed Windows 2026112004 release.
 The [agreed functional workflow](MODELING_FOLLOWUP_20261119.md#subsequent-fem-and-surface-modeling-design-2026-11-20)
 defines the user-facing scope. This design specifies the first implementation
-boundaries. Native persistence changes remain subject to the scoped agreement
-required by AGENTS.md. No FEM command is present in the released application.
+boundaries. The user approved the scoped native persistence extension on
+2026-11-20: FEM Bodies, conditions, mesh and results inside `.prtz`, regeneration
+and verification of affected start templates and factory assets, and Toyota
+verification on isolated copies against the backup. Toyota originals and the
+shared container placement solver must remain unchanged. No FEM command is
+present in the released application.
 The first [native mesher checkpoint](verification/20261120-fem-mesher.md) passed
 seven synthetic cases on Windows; it does not yet establish product acceptance.
 
@@ -167,6 +171,30 @@ explicit magnification factor. It is not physical time, and never changes CAD.
 Use shared palette/localization paths for both themes and all five languages.
 
 ## Implementation boundaries
+
+### First native definition checkpoint
+
+The finite Windows checks and outstanding gates are recorded in
+[the native definition verification](verification/20261120-fem-definition.md).
+
+The initial implementation adds an explicit FEM alternative to `BodyHistory`.
+Its native row has `kind: "fem"` and a required typed definition with a source
+identity, analysis type and volume mesh controls. Ordinary material Body rows
+retain their existing schema; the Part format discriminators are unchanged.
+This is a new document entity, not a legacy-format adapter. Conditions and
+mesh/result buffers are not implemented by this checkpoint.
+
+FEM rows do not enter material compilation, available Boolean/Scale/Mirror
+operands or material Origin geometry. Activation selects the calculated source
+for presentation without changing its stored visibility. A missing source is
+retained as a broken reference; a known forward source or another FEM is rejected.
+Source replacement resolves only an explicit preceding material result.
+
+The workspace draft/commit path uses `commit_metadata`, shares the immutable
+calculated source and returns without a transaction for unchanged OK. Candidate
+queries and source inspection do not invoke OCCT. A candidate must already have
+a valid native solid result. GUI commands and all calculation jobs remain to be
+integrated and verified; this checkpoint does not expose FEM as a finished tool.
 
 `document_core` owns typed definitions and native persistence; `workspace` owns
 transactions, source resolution and job publication. Add isolated FEM numerical

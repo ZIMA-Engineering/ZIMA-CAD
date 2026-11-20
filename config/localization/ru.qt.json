@@ -2919,5 +2919,15 @@
   "Projection cannot split a read-only external target.": "Проецирование не может разделить внешнюю цель, доступную только для чтения.",
   "Projection direction reference is missing or is not straight.": "Опорный объект направления проецирования отсутствует или не является прямым.",
   "Projection requires an owned planar Sketch and does not add or subtract solid material.": "Для проецирования требуется собственный плоский эскиз; материал тела не добавляется и не удаляется.",
-  "Projection target must be a preceding bounded face in the active Body.": "Целью проецирования должна быть предшествующая ограниченная грань в активном теле."
+  "Projection target must be a preceding bounded face in the active Body.": "Целью проецирования должна быть предшествующая ограниченная грань в активном теле.",
+  "FEM requires a source Body or Boolean result.": "Для FEM требуется исходное тело или результат булевой операции.",
+  "Unsupported FEM analysis type.": "Неподдерживаемый тип анализа FEM.",
+  "Invalid FEM volume mesh controls.": "Недопустимые параметры объёмной сетки FEM.",
+  "A FEM Body cannot own material history or placement.": "Тело FEM не может иметь собственную историю построения материала или размещение.",
+  "FEM requires a preceding material Body or Boolean result.": "Для FEM требуется предшествующее материальное тело или результат булевой операции.",
+  "The requested FEM Body does not exist.": "Запрошенное тело FEM не существует.",
+  "Unsupported Body kind.": "Неподдерживаемый вид тела.",
+  "Cannot change the kind of an existing Body.": "Нельзя изменить вид существующего тела.",
+  "The FEM source is missing or suppressed.": "Источник FEM отсутствует или подавлен.",
+  "FEM requires a valid calculated solid. Regenerate the source first.": "Для FEM требуется корректное рассчитанное объёмное тело. Сначала перестройте источник."
 }

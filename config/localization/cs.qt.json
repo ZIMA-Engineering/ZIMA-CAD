@@ -2919,5 +2919,15 @@
   "Projection cannot split a read-only external target.": "Promítnutí nemůže rozdělit externí cíl určený jen ke čtení.",
   "Projection direction reference is missing or is not straight.": "Reference směru promítnutí chybí nebo není přímá.",
   "Projection requires an owned planar Sketch and does not add or subtract solid material.": "Promítnutí vyžaduje vlastní rovinnou skicu a nepřičítá ani neodečítá materiál tělesa.",
-  "Projection target must be a preceding bounded face in the active Body.": "Cílem promítnutí musí být předchozí ohraničená plocha v aktivním tělese."
+  "Projection target must be a preceding bounded face in the active Body.": "Cílem promítnutí musí být předchozí ohraničená plocha v aktivním tělese.",
+  "FEM requires a source Body or Boolean result.": "FEM vyžaduje zdrojové těleso nebo výsledek booleovské operace.",
+  "Unsupported FEM analysis type.": "Nepodporovaný typ analýzy FEM.",
+  "Invalid FEM volume mesh controls.": "Neplatné nastavení objemové sítě FEM.",
+  "A FEM Body cannot own material history or placement.": "Těleso FEM nemůže mít vlastní materiálovou historii ani umístění.",
+  "FEM requires a preceding material Body or Boolean result.": "FEM vyžaduje předcházející materiálové těleso nebo výsledek booleovské operace.",
+  "The requested FEM Body does not exist.": "Požadované těleso FEM neexistuje.",
+  "Unsupported Body kind.": "Nepodporovaný druh tělesa.",
+  "Cannot change the kind of an existing Body.": "Druh existujícího tělesa nelze změnit.",
+  "The FEM source is missing or suppressed.": "Zdroj FEM chybí nebo je potlačený.",
+  "FEM requires a valid calculated solid. Regenerate the source first.": "FEM vyžaduje platné vypočítané objemové těleso. Nejprve přegenerujte zdroj."
 }

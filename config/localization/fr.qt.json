@@ -2919,5 +2919,15 @@
   "Projection cannot split a read-only external target.": "La projection ne peut pas diviser une cible externe en lecture seule.",
   "Projection direction reference is missing or is not straight.": "La référence de direction de projection est manquante ou n’est pas droite.",
   "Projection requires an owned planar Sketch and does not add or subtract solid material.": "La projection nécessite sa propre esquisse plane et n’ajoute ni ne retire de matière solide.",
-  "Projection target must be a preceding bounded face in the active Body.": "La cible de projection doit être une face délimitée antérieure dans le corps actif."
+  "Projection target must be a preceding bounded face in the active Body.": "La cible de projection doit être une face délimitée antérieure dans le corps actif.",
+  "FEM requires a source Body or Boolean result.": "Le FEM nécessite un corps source ou un résultat booléen.",
+  "Unsupported FEM analysis type.": "Type d’analyse FEM non pris en charge.",
+  "Invalid FEM volume mesh controls.": "Paramètres du maillage volumique FEM non valides.",
+  "A FEM Body cannot own material history or placement.": "Un corps FEM ne peut pas posséder son propre historique de matière ni son propre placement.",
+  "FEM requires a preceding material Body or Boolean result.": "Le FEM nécessite un corps de matière ou un résultat booléen antérieur.",
+  "The requested FEM Body does not exist.": "Le corps FEM demandé n’existe pas.",
+  "Unsupported Body kind.": "Catégorie de corps non prise en charge.",
+  "Cannot change the kind of an existing Body.": "Impossible de modifier la catégorie d’un corps existant.",
+  "The FEM source is missing or suppressed.": "La source FEM est manquante ou supprimée temporairement.",
+  "FEM requires a valid calculated solid. Regenerate the source first.": "Le FEM nécessite un solide calculé valide. Régénérez d’abord la source."
 }

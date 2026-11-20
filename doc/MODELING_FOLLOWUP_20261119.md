@@ -216,8 +216,11 @@ remain work to perform, not completed capabilities.
 Windows 2026112004 is now published and delivered locally. FEM work has started:
 the [technical design](FEM_DESIGN.md) and
 [initial native Gmsh verification](verification/20261120-fem-mesher.md) record the
-first checkpoint. Native FEM persistence is awaiting the required scoped
-agreement; no FEM UI or solver is included in that published release.
+first checkpoint. The user approved the scoped native FEM persistence extension
+on 2026-11-20, including affected template/factory verification and protected
+Toyota copies; the shared placement solver is excluded from changes. The native
+definition/transaction implementation is now in progress. No FEM UI or solver is
+included in that published release.
 
 #### Part-level FEM creation and editing
 
