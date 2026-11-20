@@ -50,7 +50,15 @@ The Thin mixed Loft repair and the additionally requested Shell verification
 now pass the finite native, document and GUI matrices in
 [the repair acceptance record](verification/20261120-repair-acceptance-followup.md).
 Version 2026112003 carries the shared fallback; the prior checkpoint remains
-an independently identifiable build. Windows packaging follows this acceptance.
+an independently identifiable build. The committed Windows candidate passed
+its packaging gates and is installed under the normal development launcher.
+See the [artifact identities and verification limits](releases/2026112003.md).
+
+The subsequent [Projection implementation proposal](PROJECTION_FEATURE_DESIGN.md)
+specifies the agreed three outputs, shared Feature lifecycle, native reference
+ancestry, preview/calculation boundary and acceptance matrix. It is design work;
+the required native-contract extension has not been implemented or approved by
+this repair commit.
 
 The agreed sequence on 2026-11-20 is to verify the current repairs and publish
 their Windows binary first, then repair the newly reported cylindrical Up To
