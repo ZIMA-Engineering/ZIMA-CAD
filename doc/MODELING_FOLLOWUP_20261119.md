@@ -23,6 +23,35 @@ and [Windows 2026111907 release record](releases/2026111907.md).
 
 ## Completion checklist
 
+### Current repair and delivery order (2026-11-20)
+
+The user reaffirmed completing all discussed repairs, starting with the failing
+Thin rectangle/circle/slot Loft, before the next commit and push. The earlier
+approved checkpoint `9099dd97586d17cfda9ce195de50664e04ffabcf` is already pushed.
+Its committed Windows candidate may be installed locally for testing while the
+remaining repairs continue; do not describe that checkpoint as completing the
+remaining Thin Loft defect. The user has closed ZIMA-CAD and explicitly permits
+replacement of the normal local binary. Preserve `zima-cad.bat` and user data.
+
+Review the completed General Surface references/context, Solid Twist centroid
+axes and attached-feature transport, Twisted Sheet dimensions/axis placement,
+Flat-axis transport during Unbend/Bend Back, sheet operation controls and Sheet
+Transition preview against the finite evidence in
+[the follow-up record](verification/20261120-sketch-reference-text-followup.md).
+Keep the unobserved disappearance symptoms distinct from reproduced defects.
+Off-contour conversion points are a verified repair; manual point placement was
+an investigative hypothesis, not a separately confirmed outstanding defect.
+
+After the remaining repairs and verification, commit and push, then continue
+the agreed Projection feature design below. Projection/FEM design is not part of
+the repair acceptance claim or authorization to silently extend native formats.
+
+The Thin mixed Loft repair and the additionally requested Shell verification
+now pass the finite native, document and GUI matrices in
+[the repair acceptance record](verification/20261120-repair-acceptance-followup.md).
+Version 2026112003 carries the shared fallback; the prior checkpoint remains
+an independently identifiable build. Windows packaging follows this acceptance.
+
 The agreed sequence on 2026-11-20 is to verify the current repairs and publish
 their Windows binary first, then repair the newly reported cylindrical Up To
 preview, repair the 3D Section dialog and finish the outstanding Sheet Transition

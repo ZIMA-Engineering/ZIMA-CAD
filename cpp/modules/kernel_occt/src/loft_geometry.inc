@@ -153,6 +153,7 @@ PrimitiveData make_loft_data(const LoftRequest& request,const std::string& owner
         const bool closed=std::ranges::all_of(request.profiles,[](const auto& p){return p.open_profile_end_id.empty();});
         skin_request.make_solid=closed;
         auto skin=make_loft_data(skin_request,owner);
+        const auto carrier=skin;
         if(closed) {
             // Orient the closed carrier once, then discard its end caps.
             // Inward/outward thickness uses actual material sides, independent
@@ -167,7 +168,12 @@ PrimitiveData make_loft_data(const LoftRequest& request,const std::string& owner
         // Offset construction needs a finer working tolerance than network
         // contact validation. Keep the requested input budget unchanged.
         SurfaceThickenRequest thickness{skin.faces.front().reference,request.thickness,request.thickness_side,std::min(tolerance,1e-7)};
-        return make_thickened_surface_data(thickness,owner,skin.shape,skin.faces,skin.edges,skin.vertices).operand;
+        try {
+            return make_thickened_surface_data(thickness,owner,skin.shape,skin.faces,skin.edges,skin.vertices).operand;
+        } catch (const std::runtime_error&) {
+            if (!closed) throw;
+            return make_closed_thin_loft(carrier,thickness,owner);
+        }
     }
     std::vector<TopoDS_Wire> wires,guides;
     std::vector<std::vector<TopoDS_Edge>> source_edges;

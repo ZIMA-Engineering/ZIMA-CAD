@@ -501,6 +501,7 @@ add_library(zima_kernel_occt
     modules/kernel_occt/src/occt_planar_edge_chamfer.cpp
     modules/kernel_occt/src/occt_planar_edge_fillet.cpp
     modules/kernel_occt/src/ordered_up_to.cpp
+    modules/kernel_occt/src/sectioned_normal_offset.cpp
     modules/kernel_occt/src/sheet_exchange.cpp
     modules/kernel_occt/src/step_source_document.cpp
     modules/kernel_occt/src/occt_kernel.cpp)
@@ -2857,6 +2858,17 @@ if(ZIMA_BUILD_TESTS)
         target_compile_options(zima_cpp_loft_document_tests PRIVATE /utf-8)
     endif()
     add_test(NAME zima_cpp_loft_document_tests COMMAND zima_cpp_loft_document_tests)
+    add_test(NAME zima_cpp_mixed_loft_offset_document_contract COMMAND zima_cpp_loft_document_tests
+        --verify-mixed-offsets "${CMAKE_CURRENT_BINARY_DIR}/mixed-loft-offset-documents")
+    set_tests_properties(zima_cpp_mixed_loft_offset_document_contract PROPERTIES
+        TIMEOUT 900 RUN_SERIAL TRUE FIXTURES_SETUP mixed_loft_offset_documents)
+    file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/mixed-loft-offset-ui")
+    add_test(NAME zima_cpp_mixed_loft_offset_ui_contract COMMAND zima-cad-cpp --verify-startup
+        --working-directory "${CMAKE_BINARY_DIR}/mixed-loft-offset-ui")
+    set_tests_properties(zima_cpp_mixed_loft_offset_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_LOFT_ONLY=1;ZIMA_VERIFY_MIXED_LOFT_FILE=${CMAKE_BINARY_DIR}/mixed-loft-offset-documents/mixed-solid.prtz"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 300 RUN_SERIAL TRUE
+        FIXTURES_REQUIRED mixed_loft_offset_documents)
     add_executable(zima_cpp_loft_tests tests/loft_tests.cpp)
     target_link_libraries(zima_cpp_loft_tests PRIVATE zima_kernel_occt TKTopAlgo)
     if(MSVC)
@@ -2864,6 +2876,16 @@ if(ZIMA_BUILD_TESTS)
         target_compile_options(zima_cpp_loft_tests PRIVATE /utf-8)
     endif()
     add_test(NAME zima_cpp_loft_tests COMMAND zima_cpp_loft_tests)
+    add_executable(zima_cpp_loft_offset_tests tests/loft_offset_tests.cpp)
+    target_link_libraries(zima_cpp_loft_offset_tests PRIVATE zima_kernel_occt TKTopAlgo)
+    if(MSVC)
+        target_link_options(zima_cpp_loft_offset_tests PRIVATE /STACK:8388608)
+        target_compile_options(zima_cpp_loft_offset_tests PRIVATE /utf-8)
+    endif()
+    add_test(NAME zima_cpp_mixed_loft_thin_contract COMMAND zima_cpp_loft_offset_tests --thin)
+    add_test(NAME zima_cpp_mixed_loft_shell_contract COMMAND zima_cpp_loft_offset_tests --shell)
+    set_tests_properties(zima_cpp_mixed_loft_thin_contract zima_cpp_mixed_loft_shell_contract
+        PROPERTIES TIMEOUT 600 RUN_SERIAL TRUE)
     add_executable(zima_cpp_boundary_surface_tests tests/boundary_surface_tests.cpp)
     if(MSVC)
         # Combined surface fixtures use ~832 KiB before nested OCCT calls.

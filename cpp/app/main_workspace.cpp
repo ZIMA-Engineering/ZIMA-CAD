@@ -1835,8 +1835,7 @@ int verify_template_commands(QApplication& application,zima::app::AssemblyWorksp
     for (qsizetype language = 0; language < languages.size(); ++language) {
         QSettings config(language_directory.filePath("config.ini"), QSettings::IniFormat);
         config.setValue("Application/Language", languages[language]);
-        config.setValue("Paths/Localization", QString::fromStdString(
-            (std::filesystem::current_path()/"config/localization").generic_string()));
+        config.setValue("Paths/Localization", QDir::current().absoluteFilePath("config/localization"));
         config.sync();
         const auto settings = app::ApplicationSettings::load(language_directory.path());
         app::apply_application_translations(application, settings);

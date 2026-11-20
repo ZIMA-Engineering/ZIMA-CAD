@@ -8,6 +8,8 @@
 #include <zima/workspace/sketch_operations.hpp>
 #include <zima/workspace/sketch_reference_operations.hpp>
 #include <zima/workspace/loft_operations.hpp>
+#include <zima/workspace/shell_operations.hpp>
+#include <zima/kernel/calculation_diagnostics.hpp>
 #include <zima/workspace/model_calculation.hpp>
 #include <zima/workspace/history_policy.hpp>
 #include <zima/workspace/part_transactions.hpp>
@@ -15,6 +17,11 @@
 #include <zima/workspace/relation_operations.hpp>
 #include <zima/kernel/calculated_body_shape.hpp>
 #include <BRepCheck_Analyzer.hxx>
+#include <BRepAlgoAPI_Check.hxx>
+#include <BRepGProp.hxx>
+#include <GProp_GProps.hxx>
+#include <set>
+#include <tuple>
 #include <BRepExtrema_DistShapeShape.hxx>
 #include <BRepBuilderAPI_MakeVertex.hxx>
 #include <BRep_Builder.hxx>
@@ -44,6 +51,7 @@ Fixture fixture(bool guided) {
  f.part.set_body_history(graph);f.part.resolve_constructions();return f;
 }
 #include "loft_output_contract.inc"
+#include "loft_offset_document_contract.inc"
 void verify_numbered_profiles(k::OcctKernel& kernel) {
  auto f=fixture(false);f.loft.loft.profiles.resize(2);f.loft.loft.sketches.resize(2);
  for(unsigned i=0;i<2;++i) {
@@ -254,6 +262,13 @@ void verify_owned_profile_references() {
 #include "loft_user_guide_verification.inc"
 int main(int argc,char** argv){try {
  k::OcctKernel kernel;
+ if(argc==3&&std::string_view(argv[1])=="--verify-mixed-offsets") {
+  const auto directory=std::filesystem::u8path(argv[2]);verify_mixed_offset_documents(kernel,directory);
+  verify_mixed_offset_references(kernel,directory);return 0;
+ }
+ if(argc==3&&std::string_view(argv[1])=="--verify-mixed-offset-references") {
+  verify_mixed_offset_references(kernel,std::filesystem::u8path(argv[2]));return 0;
+ }
  if(argc==3&&std::string_view(argv[1])=="--verify-user-guides") {verify_user_loft_guides(kernel,std::filesystem::u8path(argv[2]));return 0;}
  if(argc==5&&(std::string_view(argv[1])=="--verify-native-copy"||std::string_view(argv[1])=="--verify-loft-prefix-copy")) {
   const auto input=std::filesystem::u8path(argv[2]),output=std::filesystem::u8path(argv[3]);

@@ -15,6 +15,9 @@ int verify_loft_ui(QApplication& application,AssemblyWorkspaceWindow& window,con
     };
     try {
         window.resize(1400,1050);window.show();flush();
+        if(qEnvironmentVariableIsSet("ZIMA_VERIFY_MIXED_LOFT_FILE")) {
+#include "loft_offset_ui_verification.inc"
+        }
         {
             // The zero-offset working plane coincides with its parent datum.
             // Check real rendering, not merely the existence of a preview edge.
@@ -70,6 +73,7 @@ int verify_loft_ui(QApplication& application,AssemblyWorkspaceWindow& window,con
         };
         activate(true);
         auto* action=window.findChild<QAction*>("loftAction");check(action&&action->isEnabled(),"Loft action missing");
+        check(action->text()==window.tr("Přechod"),"Loft menu does not use the startup language");
         bool grouped=false;
         for(auto* toolbar:window.findChildren<QToolBar*>()) {
             const auto actions=toolbar->actions();const auto index=actions.indexOf(action);
@@ -104,7 +108,7 @@ int verify_loft_ui(QApplication& application,AssemblyWorkspaceWindow& window,con
         for(unsigned language=0;language<languages.size();++language) {
             QSettings settings(translations.filePath("config.ini"),QSettings::IniFormat);
             settings.setValue("Application/Language",languages[language]);
-            settings.setValue("Paths/Localization",QString::fromStdString(std::filesystem::absolute("config/localization").generic_string()));settings.sync();
+            settings.setValue("Paths/Localization",QDir::current().absoluteFilePath("config/localization"));settings.sync();
             check(settings.value("Application/Language").toString()==languages[language],"Loft language fixture was not written");
             const auto localized_settings=ApplicationSettings::load(translations.path());
             if(localized_settings.qt_translations.value("Vlastnosti přechodu")!=QString::fromUtf8(titles[language]))
@@ -116,7 +120,6 @@ int verify_loft_ui(QApplication& application,AssemblyWorkspaceWindow& window,con
                     localized_settings.config_path.toStdString()+"'");
             apply_application_translations(application,localized_settings);
             action->trigger();flush();auto* dialog=editor();check(dialog,"Localized Loft creation did not open");
-            if(language==0)check(action->text()==QString::fromUtf8("Přechod"),"Czech menu does not use Přechod");
             if(dialog->windowTitle()!=QString::fromUtf8(titles[language]))throw std::runtime_error(
                 "Loft title is not translated for "+std::string(languages[language])+": expected '"+
                 titles[language]+"', got '"+dialog->windowTitle().toStdString()+"'");

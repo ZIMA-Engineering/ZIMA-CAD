@@ -1,5 +1,6 @@
 #include <IntCurvesFace_ShapeIntersector.hxx>
 #include "ordered_up_to.hpp"
+#include "sectioned_normal_offset.hpp"
 #include "kernel_history_version.hpp"
 #include "occt_edge_treatment_terminals.hpp"
 #include <zima/kernel/ordered_up_to_resolution.hpp>
@@ -6243,6 +6244,7 @@ std::vector<OwnedVertex> complete_shell_vertices(const TopoDS_Shape& shape,
 
 #include "surface_sewing_geometry.inc"
 #include "surface_thicken_geometry.inc"
+#include "loft_offset_geometry.inc"
 #include "loft_geometry.inc"
 #include "surface_intersection_geometry.inc"
 #include "surface_trim_geometry.inc"
@@ -16363,13 +16365,40 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                     // false-success result (unchanged input body) on bodies with
                     // several consecutive Fillet/Chamfer operations.
                     NCollection_List<TopoDS_Shape> no_closing_faces;
-                    BRepOffsetAPI_MakeThickSolid inner_offset;
-                    inner_offset.MakeThickSolidByJoin(
-                        solid, no_closing_faces, -shell->thickness,
-                        shell_tolerance, BRepOffset_Skin, false, false,
-                        GeomAbs_Arc, false);
-                    if (!inner_offset.IsDone() || inner_offset.Shape().IsNull() ||
-                        !BRepCheck_Analyzer(inner_offset.Shape()).IsValid()) {
+                    BRepOffsetAPI_MakeThickSolid native_inner_offset;
+                    LoftOffsetHistory inner_offset;
+                    bool sectioned_cap_openings=false;
+                    try {
+                        native_inner_offset.MakeThickSolidByJoin(
+                            solid, no_closing_faces, -shell->thickness,
+                            shell_tolerance, BRepOffset_Skin, false, false,
+                            GeomAbs_Arc, false);
+                        if (native_inner_offset.IsDone()&&!native_inner_offset.Shape().IsNull()&&
+                            BRepCheck_Analyzer(native_inner_offset.Shape()).IsValid()) {
+                            NCollection_List<TopoDS_Shape> source; source.Append(solid);
+                            inner_offset={native_inner_offset.Shape(),new BRepTools_History(source,native_inner_offset)};
+                        }
+                    } catch (const Standard_Failure&) {}
+                    if (inner_offset.shape.IsNull()) {
+                        if (const auto caps=loft_offset_caps(solid,owned_topology->faces)) {
+                            const bool cap_only=std::ranges::all_of(selected_face_shapes,[&](const auto& face) {
+                                return face.IsSame((*caps)[0])||face.IsSame((*caps)[1]);
+                            });
+                            std::array cap_distances{-shell->thickness,-shell->thickness};
+                            // An opened planar cap stays at its authored plane.
+                            // Subtracting this cavity directly creates its exact
+                            // rim and avoids multiple temporary opening tools.
+                            if (cap_only) for (unsigned end=0;end<2;++end)
+                                for (const auto& face:selected_face_shapes)
+                                    if (face.IsSame((*caps)[end])) cap_distances[end]=0.;
+                            if (auto offset=detail::sectioned_normal_offset(solid,*caps,-shell->thickness,
+                                cap_distances,std::min(shell_tolerance,1e-7))) {
+                                inner_offset={offset->shape,offset->history};
+                                sectioned_cap_openings=cap_only;
+                            }
+                        }
+                    }
+                    if (inner_offset.shape.IsNull()) {
                         throw std::runtime_error("OCCT Shell inner offset failed");
                     }
                     NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> inner_solids;
@@ -16447,7 +16476,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                         "shell:wall-vertex");
                     TopoDS_Shape shell_shape = closed_wall.Shape();
 
-                    if (!shell->removed_faces.empty()) {
+                    if (!shell->removed_faces.empty()&&!sectioned_cap_openings) {
                         struct ShellOpeningTool {
                             std::unique_ptr<BRepOffsetAPI_MakeThickSolid>
                                 algorithm;

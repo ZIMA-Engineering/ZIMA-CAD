@@ -1,4 +1,5 @@
 #include "../tests/native_property_fixture.hpp"
+#include <zima/kernel/calculation_diagnostics.hpp>
 #include "../tests/broken_reference_fixture.hpp"
 #include "../tests/thin_wire_verification.hpp"
 #include <zima/sketcher/face_curve_reference.hpp>
@@ -714,11 +715,11 @@ static int verify_general_command_console(QApplication& application,AssemblyWork
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_FORM_LIBRARY_PATH_ONLY")) {
             window.showMaximized();flush();QTemporaryDir temporary;
             check(temporary.isValid(),"Cannot isolate FORM library settings");
-            const auto library=QString::fromStdString(std::filesystem::absolute("config/lib/01-SHEETMETAL/01-FORM").generic_string());
+            const auto library=QDir::current().absoluteFilePath("config/lib/01-SHEETMETAL/01-FORM");
             for(const auto* language:{"cs","en","de","fr","ru"}) {
                 QSettings config(temporary.filePath("config.ini"),QSettings::IniFormat);
                 config.setValue("Application/Language",language);
-                config.setValue("Paths/Localization",QString::fromStdString(std::filesystem::absolute("config/localization").generic_string()));
+                config.setValue("Paths/Localization",QDir::current().absoluteFilePath("config/localization"));
                 config.setValue("Paths/Forms",library);config.sync();
                 const auto initial=ApplicationSettings::load(temporary.path());
                 check(initial.resolved_paths.value("Forms")==library,"FORM library path did not resolve");
@@ -1335,7 +1336,7 @@ static int verify_general_command_console(QApplication& application,AssemblyWork
             for(int iteration=0;iteration<languages.size();++iteration) {
                 QSettings config(translation_directory.filePath("config.ini"),QSettings::IniFormat);
                 config.setValue("Application/Language",languages[iteration]);
-                config.setValue("Paths/Localization",QString::fromStdString(std::filesystem::absolute("config/localization").generic_string()));
+                config.setValue("Paths/Localization",QDir::current().absoluteFilePath("config/localization"));
                 config.sync();
                 const auto settings=ApplicationSettings::load(translation_directory.path());
                 apply_application_translations(application,settings);
