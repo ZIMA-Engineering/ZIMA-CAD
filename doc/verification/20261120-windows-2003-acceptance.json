@@ -1,0 +1,124 @@
+{
+  "recorded_utc": "2026-11-20T17:38:21.279924+00:00",
+  "build": {
+    "version": "2026112003",
+    "commit": "39bcecb4ba603e0aca5f69a553a10b5764a5adaa",
+    "archive_sha256": "a0147325d477d1fcf2883ae083538b3d7b1f7570e18f7730b64a04dba7a36858",
+    "signed": false,
+    "linux": "not-run",
+    "cases": [
+      {
+        "case": "mixed",
+        "exit": 0,
+        "seconds": 45.736,
+        "log_sha256": "f761f5be338e8aa3e2c4daca977608b55e003ac0fe966f2145a4c4d8dc625c53"
+      },
+      {
+        "case": "ordinary-loft-recheck",
+        "exit": 0,
+        "seconds": 27.46,
+        "log_sha256": "d55ef64f38ec96aebe978526891167b31d373d3880966a8280790f572ce01352"
+      }
+    ],
+    "mixed_fixture_sha256": "88e4ee5cafe583aac51e59236891d99d84dc553d38340e5f3475552ec358f29b",
+    "exact_committed_factory_assets": 1185,
+    "initial_gui_attempts": [
+      {
+        "case": "mixed",
+        "exit": 0,
+        "seconds": 45.736,
+        "log_sha256": "f761f5be338e8aa3e2c4daca977608b55e003ac0fe966f2145a4c4d8dc625c53"
+      },
+      {
+        "case": "ordinary-loft",
+        "exit": 1,
+        "seconds": 10.92,
+        "log_sha256": "123e5694837792c32601c9c3fecd67d0ce974704939d0b11c199a537d60aca80"
+      }
+    ],
+    "separate_settled_camera_verifier": {
+      "binary_sha256": "e5f1ee15aea330c274c03567d1320b8828900f3b7252d2d1a7d40b542df87cf1",
+      "cases": [
+        {
+          "language": "cs",
+          "theme": "dark",
+          "exit": 0,
+          "seconds": 27.414,
+          "log_sha256": "d55ef64f38ec96aebe978526891167b31d373d3880966a8280790f572ce01352"
+        },
+        {
+          "language": "en",
+          "theme": "light",
+          "exit": 0,
+          "seconds": 27.281,
+          "log_sha256": "d55ef64f38ec96aebe978526891167b31d373d3880966a8280790f572ce01352"
+        },
+        {
+          "language": "de",
+          "theme": "dark",
+          "exit": 0,
+          "seconds": 28.085,
+          "log_sha256": "d55ef64f38ec96aebe978526891167b31d373d3880966a8280790f572ce01352"
+        }
+      ]
+    },
+    "selection_verifier_note": "Initial packaged Loft selection check raced the camera animation. The unchanged package passed a fresh-directory repeat. The test-only camera-settling correction passed three independent runs; it is not included in the immutable product archive.",
+    "binaries": {
+      "zima-cad-cpp.exe": "0ef4aa16d669a9bdbbd27e22047f28ad5b9ab27dcc2e541f8006ef0a25be8d35",
+      "zima-cad-cli.exe": "14e9ba703bdaa2b3f4db1ebddd86601f5bd565a1293528ccc45975d281394383",
+      "zima-cad-update.exe": "5c0dab8731699f5ceb0f963b24fdd371edfc50667e1a8185eadf2dc9036b9a9b"
+    },
+    "installed_local_binaries": true,
+    "added_runtime_dlls": 6,
+    "preserved_launcher_and_settings": {
+      "zima-cad.bat": "2eecdbd63408afd05de6bdd800cfb56edd007ba0e86eb7a4e017bf10528263d0",
+      "config/config.ini": "2be01c549d9464065f5cb75f30f961055b4ef1ee4bc0cff8af7e44ca62e13d72",
+      "config/config.ini.1": "2be01c549d9464065f5cb75f30f961055b4ef1ee4bc0cff8af7e44ca62e13d72",
+      "config/config.ini.2": "9b2fa5fc415df0419582e04d15c97fe90d7eee1a4b75fb56a9b25f0f9a566da8"
+    }
+  },
+  "archive": {
+    "name": "ZIMA-CAD-2026112003.zip",
+    "bytes": 969417189,
+    "sha256": "a0147325d477d1fcf2883ae083538b3d7b1f7570e18f7730b64a04dba7a36858",
+    "validation_report_sha256": "637fb9d12605c9f2c070987e2a07357083815520a51ae19d0fce5fb9eb409344",
+    "path_collision_crc_dependency_checks": "passed"
+  },
+  "windows_smoke": "passed",
+  "sheet_branch_tests": {
+    "log_sha256": "ffcd980319f7e6c07c2c7bb9db5dff87c960e5d5e708f4ede6a2c2127ac7e460",
+    "result": "passed",
+    "tests": [
+      "zima_cpp_bend_end_constraints_contract",
+      "zima_cpp_sheet_branch_common-parent",
+      "zima_cpp_sheet_branch_contained",
+      "zima_cpp_sheet_branch_edge-contact",
+      "zima_cpp_sheet_branch_face-contact",
+      "zima_cpp_sheet_branch_gui",
+      "zima_cpp_sheet_branch_line-bend",
+      "zima_cpp_sheet_branch_overlap",
+      "zima_cpp_sheet_branch_point-contact",
+      "zima_cpp_sheet_branch_separated",
+      "zima_cpp_sheet_exchange_tests",
+      "zima_cpp_sheet_transition_command_tests"
+    ]
+  },
+  "native_factory_loads": 1185,
+  "factory_font_cwd_check": {
+    "drawing": "config/lib/03-ENGINEERING-TABLES/05-FASTENERS/04-SCREWS/01-HEX-HEAD/01-GRADE-AB/0000-index/HHB-ISO4014-M08x040-REFERENCE.drwz",
+    "result": "passed",
+    "sha256": "28a826b42d2992696686d78ca37d3e1328eb348404013c68dcd5a02ecb37b23b"
+  },
+  "product_test_logs": {
+    "acceptance-matrix.log": "7b8fbb973b65636d5c8e62249245c0d42efae3d7d27ed0e7b71c784657e9d1db",
+    "dependent-references.log": "fd23ce1e250857738e1c4282a200dc5f935d2c316283ceb063a576868e8f0aeb",
+    "existing-regressions.log": "0c84858c8d50d82c363b26629bf33ece45f5980b3693833c8a49e1a1cd0cd671",
+    "private-thin-accepted.log": "82e07309452a12f06e665a9f807e552bcf8378ecacd8809b5610b09884d43143",
+    "private-shell-accepted.log": "8eae55fec13c0fdf4545e09ec0df534b793be439386cacab768ce6ceacde82a9"
+  },
+  "limitations": [
+    "Finite mixed Loft matrix; not arbitrary guide networks, non-planar caps, multi-patch sides or side-wall openings.",
+    "Linux execution not run.",
+    "Unsigned local candidate; no public release or updater publication."
+  ]
+}

@@ -1,5 +1,12 @@
 # Thin Loft, Shell and repair acceptance
 
+The shared repair is committed and pushed as
+`39bcecb4b` (Windows build `2026112003`). Its product verification matrix below
+supersedes the earlier investigation checkpoints. The immutable Windows
+candidate passed its gates and its executables are installed locally; see the
+[release record](../releases/2026112003.md) and
+[machine-readable acceptance](20261120-windows-2003-acceptance.json).
+
 ## Committed Windows checkpoint
 
 The Windows candidate from commit
@@ -48,10 +55,10 @@ removed only after verifying the retained candidate archive's SHA-256.
 Evidence: `build/sheet-preview-20261120/release-acceptance.json`,
 `release-checks/`, `local-installation.json`, and the candidate validation report
 under `.dist-output/2026112002-candidate/`. This is a local test delivery, not a
-new signed/public release. The next commit and push remain after all requested
-repairs, as instructed by the user.
+new signed/public release. At that checkpoint, the next commit and push were
+pending completion of the requested repairs.
 
-## Remaining Thin Loft
+## Thin Loft investigation baseline
 
 Investigation uses the isolated copy
 `build/loft31-followup-20261120/latest31.prtz`; the original is read only.
@@ -69,8 +76,9 @@ results were rejected. Simple offsets increase joint tolerances and fail
 self-interference checks. Exact surface subdivision and offset-join variants
 remain investigation, not a product repair or an accepted geometry change.
 
-The diagnostics and logs are under `build/thin-loft-repair-20261120/`. No kernel,
-placement or native-format change has been accepted from these experiments.
+The diagnostics and logs are under `build/thin-loft-repair-20261120/`. At this
+investigation checkpoint, no kernel, placement or native-format change had been
+accepted from these experiments.
 Linux execution remains unverified. The test-helper edits introduce no
 user-visible application text; localization coverage passed as recorded above.
 
@@ -79,7 +87,7 @@ in that diagnostic directory. It constructs a 180 × 70 mm rectangle at Z=0,
 a radius-55 mm circle with four matching points at Z=65, and a 154 × 24 mm
 slot at Z=153 using native lines and three-point arcs. Its carrier is valid
 and non-self-interfering (approximately 1,380,020 mm³). All nine combinations
-of 0.1 / 1 / 3 mm and First / Second / Symmetric fail the current native
+of 0.1 / 1 / 3 mm and First / Second / Symmetric failed the baseline native
 thickening contract. `mixed-matrix.log` records the complete matrix. The failure
 therefore does not depend on damaged serialization or the user's private file.
 
@@ -112,11 +120,13 @@ end extensions breaking those junctions. No display-polyline approximation,
 relaxed document precision or unchanged full carrier is accepted.
 
 Evidence: `parametric-assembled-matrix.json`, `shell-matrix.log` and
-`shell-private-matrix.log` in the diagnostic directory. Product integration is
-under verification: preserve successful ordinary offset paths, use one shared
-C++ fallback for Thin Loft and Shell, and derive output references from native
-source ancestry. No native document-format or shared placement change is
-required. The new code introduces no user-visible application text.
+`shell-private-matrix.log` in the diagnostic directory. At this prototype
+checkpoint, product integration still needed to preserve successful ordinary
+offset paths, use one shared C++ fallback for Thin Loft and Shell, and derive
+output references from native source ancestry. The accepted implementation and
+its finite verification follow below. No native document-format or shared
+placement change is required. The new code introduces no user-visible
+application text.
 
 The shared product fallback now retains these exact offset supports and native
 face/edge/vertex ancestry. Successful ordinary OCCT offset paths remain first.
@@ -171,3 +181,39 @@ side-wall openings. Unsupported/invalid results retain the ordinary failure
 contract. No Linux executable was run; Windows and Linux consume the same C++
 implementation and unchanged OCCT 8.0.1 pin. The change reuses existing errors
 translated in all five catalogs and introduces no new user-visible text.
+
+### Committed package and final verifier follow-up
+
+The immutable 2026112003 package passes all twelve mandatory sheet-branch
+checks (178.25 s), 1,185 native factory loads, portable GUI/CLI startup,
+save/reopen volume, PDF/JPEG export and working-directory-independent font
+rendering. Its mixed Thin/Shell mouse scenario passes in 45.736 s, including
+actual end-cap picks and all three Thin material sides. Factory native assets
+are byte-identical to the committed source.
+
+The broader packaged Loft scenario initially failed at its first ordinary
+post-Sketch selection. A fresh-directory run of the identical binary passed
+the complete scenario in 27.460 s. The verifier queried a face pixel while the
+return-from-Sketch camera animation could still run between event flushes.
+It now completes that animation before locating the pixel, following the
+existing native GUI verifier convention. This changes only verification code.
+The corrected separate verifier passes Czech/dark, English/light and
+German/dark in 27.414, 27.281 and 28.085 s; each scenario includes the existing
+five-language dialog checks. Its first launch from the bare build directory
+could not find the localization catalogs and is retained as a fixture failure;
+the three accepted runs use the normal repository working directory.
+
+The original packaged failure is retained in
+`package-checks/ordinary-loft/output.log`; its successful unchanged-binary
+repeat is in `ordinary-loft-recheck/`. Corrected-verifier logs are in
+`settled-selection2-*/`. The initial failure is not rewritten as a pass or
+used to imply that the immutable package contains the later verifier fix.
+The new test code has no user-visible text; the existing five-language
+catalog checks pass in the accepted full scenarios.
+
+The accepted GUI, CLI and updater were installed after these checks. Their
+identities report 2026112003, the repair commit and an unmodified source build.
+Their hashes match the archive; the launcher and user configuration hashes are
+unchanged. This is a local candidate delivery, with no Linux or signed/public
+release claim. Exact artifact identities, initial attempts and final checks are
+in `20261120-windows-2003-acceptance.json`.

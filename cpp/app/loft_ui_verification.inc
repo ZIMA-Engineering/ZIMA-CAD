@@ -323,6 +323,11 @@ int verify_loft_ui(QApplication& application,AssemblyWorkspaceWindow& window,con
         check(!calculated.empty()&&calculated.back().calculation_errors.empty(),"Loft GUI committed a failed calculation");
         check(std::abs(calculated.back().volume-1000*std::numbers::pi)<1e-4,"Loft GUI solid volume is wrong");
         const auto selection_state=window.execute_console_command("documents").data;
+        // Returning from the owned Sketch animates the camera. Finish that
+        // transition before mapping a face to a pixel for the mouse test;
+        // processEvents() alone may move the face between lookup and press.
+        for(auto* animation:view->findChildren<QVariantAnimation*>())
+            animation->setCurrentTime(animation->duration());
         view->fit_all();flush();std::optional<QPoint> feature_pick;
         for(int y=20;y<view->height()-20&&!feature_pick;y+=6)for(int x=20;x<view->width()-20&&!feature_pick;x+=6) {
             const auto candidates=view->selection_candidates_at(QPointF(x,y));
