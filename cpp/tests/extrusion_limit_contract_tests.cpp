@@ -372,16 +372,45 @@ void split_cylinder_limits(const kernel::OcctKernel& kernel) {
             for(std::size_t j=0;j<3;++j)request.target_surface_triangles.push_back(packet.vertices[packet.triangles[i*3+j]]);
         const auto z=std::ranges::minmax(request.target_surface_triangles,{},&kernel::Vec3::z);
         check(z.min.z>=-1e-8||z.max.z<=1e-8,"Cylinder fixture does not exercise a one-sided trimmed support");
-        kernel::HistoryOperation dependent{"cross-seam",request,kernel::BooleanOperation::Add};dependent.body.id="dependent";
+        for(double correction:{0.,-2.,1.25}) {
+        auto corrected=request;
+        if(correction!=0) {
+            corrected.extent=kernel::ExtrusionRequest::Extent::Blind;
+            corrected.ordered_end_limit.emplace();corrected.ordered_end_limit->path_correction=correction;
+            kernel::OrderedUpToPatch patch;patch.source_reference=target;
+            patch.target={false,target,false,{},{},request.target_surface_triangles};
+            corrected.ordered_end_limit->patches={patch};
+        }
+        kernel::FeatureGroupRequest preview_group;preview_group.children.push_back(corrected);
+        const auto preview=kernel.calculate_feature_preview({"cross-seam",preview_group},stock);
+        check(!preview.empty(),"Cylindrical limit produced no exact preview");
+        bool contact=false,start=false;
+        for(const auto& edge:preview) {
+            check(edge.reference.owner_id=="cross-seam"&&!edge.parameter_seam,
+                "Cylindrical preview contains stock edges or a parameter seam");
+            for(const auto p:edge.points) {
+                check(p.x>=-2-1e-6&&p.x<=2+1e-6&&p.z>=-5-1e-6&&p.z<=5+1e-6,
+                    "Cylindrical preview exceeds its authored profile");
+                const bool on_start=std::abs(p.y-side*20)<1e-5;
+                const double y=p.y+side*correction;
+                const bool on_contact=std::abs(p.x*p.x+y*y-radius*radius)<1e-5&&y*side>0;
+                check(on_start||on_contact,"Preview endpoint misses the independent cylinder equation");
+                start|=on_start;contact|=on_contact;
+            }
+        }
+        check(start&&contact,"Cylindrical preview omits a start or contact boundary");
+        kernel::HistoryOperation dependent{"cross-seam",corrected,kernel::BooleanOperation::Add};dependent.body.id="dependent";
         operations.push_back(dependent);
         const auto result=kernel.evaluate_history(operations).back();
         const double integral=2*std::sqrt(radius*radius-4)+radius*radius*std::asin(2/radius);
-        near(result.volume,stock.volume+10*(80-integral));
+        near(result.volume,stock.volume+10*(80-integral)+40*correction);
         check(result.calculation_errors.empty(),"Extrusion across the cylinder split failed");
         const auto repeated=kernel.evaluate_history(operations).back();
         near(repeated.volume,result.volume);check(faces(repeated)==faces(result),"Cylinder limit changed face identities");
+        operations.pop_back();
+        }
     }
-    std::cout<<"Cylinder limits: one-sided, symmetric and unequal two-sided source; both contact sides, radius edits, analytical volume and stable identities passed\n";
+    std::cout<<"Cylinder limits: one-sided, symmetric and unequal two-sided source; both contact sides, radius edits, positive/negative corrections, exact preview equations, analytical volume and stable identities passed\n";
 }
 
 void supplied_extrusion(const kernel::OcctKernel& kernel,const char* source) {

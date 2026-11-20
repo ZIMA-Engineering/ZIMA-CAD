@@ -24,6 +24,9 @@ void AssemblyWorkspaceWindow::show_mass_properties(const std::string& object) {
     cancel_sketch_segment();const auto& part=*workspace_.open_part(id);const auto& doc=part.session.document();
     const auto preview=[this,id](const document::BodyProperties& row){
         auto shown=row;shown.visible=true;
+        // Inspection-only centroid; the saved warning continues to exclude
+        // this frame from normal reference resolution and material modeling.
+        if(shown.centroid())shown.error.clear();
         kernel::ViewerMesh mesh;
         if(const auto* source_part=workspace_.open_part(id))try {
             const auto& source_doc=source_part->session.document();

@@ -77,7 +77,11 @@ BodyProperties evaluate_body_properties(const PartDocument& doc,const std::vecto
         kernel::Vec3 surface_sum{};bool surface_complete=true;
         for(const auto& input:inputs) {
             const auto& body=*input.body;
-            if(!body.calculation_errors.empty())throw std::invalid_argument("The measured history contains a failed calculation.");
+            // Failed history entries retain their real input geometry. Inspect
+            // that calculated boundary while keeping the failure diagnostic;
+            // it must not become a valid downstream placement reference.
+            if(!body.calculation_errors.empty())row.error=
+                "The measured history contains failed features. Values describe the retained geometry.";
             if(!body.physical_properties_current)throw std::invalid_argument("Regenerate the model before measuring body properties.");
             const double v=std::abs(body.volume);row.area+=std::abs(body.surface_area);
             if(body.surface_area>0) {

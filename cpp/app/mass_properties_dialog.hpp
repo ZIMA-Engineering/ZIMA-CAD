@@ -61,9 +61,10 @@ protected:
 private:
     QString number(double x)const {return QString::fromStdString(kernel::dimension_number(x,ui::numeric_decimal_places(this)));}
     void refresh() {
-        if(!row_.error.empty()){result_->setText(tr(row_.error.c_str()));return;}
+        if(!row_.error.empty()&&!row_.centroid()){result_->setText(tr(row_.error.c_str()));return;}
         if(!row_.centroid()){result_->clear();return;}
         QStringList lines;
+        if(!row_.error.empty())lines<<tr(row_.error.c_str());
         lines<<tr("Objem: %1").arg(number(row_.volume/std::pow(length_,3))+" "+length_unit_+QStringLiteral("³"));
         lines<<tr("Povrch: %1").arg(number(row_.area/(length_*length_))+" "+length_unit_+QStringLiteral("²"));
         const auto c=*row_.centroid();

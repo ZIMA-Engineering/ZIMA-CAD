@@ -1692,7 +1692,9 @@ void calculate_body_properties(Workspace& workspace,const kernel::OcctKernel& ke
         return changed;
     };
     for(auto& result:calculated)update(update,result);
-    part->session.update_calculated_boundaries(std::move(calculated));
+    // Inspection completes physical integrals for an unchanged shape. Keep
+    // authored records, dirty state and Undo history unchanged until Save.
+    part->session.update_calculated_cache_only(std::move(calculated));
 }
 
 bool complete_part_physical_analysis(const kernel::OcctKernel& kernel,

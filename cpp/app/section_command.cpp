@@ -170,9 +170,12 @@ void AssemblyWorkspaceWindow::preview_section(){
         append(mesh,active_part_origins(part->session.document()));
         append(mesh,selected_container_origins(part->session.document()));
     }else if(const auto* assembly=workspace_.open_assembly(section_document_id_))append(mesh,assembly->session.document().origin_viewer_mesh());
-    append(mesh,*primitive_origin_preview_mesh_); }
+    }
+    // The edited Section's own frame remains visible after reference entry
+    // ends; only the selectable source Origins depend on the picking mode.
+    append(mesh,*primitive_origin_preview_mesh_);
     if(!picking)viewer_->set_operation_direction_indicator({});
-    viewer_->set_mesh(std::move(mesh),false);viewer_->set_feature_preview_owners(picking?std::set<std::string>{s.container_origin.id}:std::set<std::string>{});std::set<zima::viewer::EdgeKey> highlights;for(const auto& ref:dialog->highlighted_reference_entries()){highlights.insert({ref.owner_id,ref.semantic_key,ref.instance_path});if(ref.semantic_key=="plane")highlights.insert({ref.owner_id,"border",ref.instance_path});}viewer_->set_constraint_reference_highlights({},std::move(highlights));
+    viewer_->set_mesh(std::move(mesh),false);viewer_->set_feature_preview_owners({s.container_origin.id});std::set<zima::viewer::EdgeKey> highlights;for(const auto& ref:dialog->highlighted_reference_entries()){highlights.insert({ref.owner_id,ref.semantic_key,ref.instance_path});if(ref.semantic_key=="plane")highlights.insert({ref.owner_id,"border",ref.instance_path});}viewer_->set_constraint_reference_highlights({},std::move(highlights));
     if(!pending_primitive_reference_index_&&!local_origin_selection_active_)set_primitive_properties_dimension_selection();dialog->set_error(placement_valid?error:tr("Doplňte platné reference umístění řezu."));
 }
 bool AssemblyWorkspaceWindow::section_confirmation(const zima::viewer::ViewerCandidate& candidate){

@@ -1,4 +1,5 @@
 {
+  "The measured history contains failed features. Values describe the retained geometry.": "L’historique mesuré contient des fonctions en échec. Les valeurs correspondent à la géométrie conservée.",
   "Sheet from Body is unresolved. Edit its references or regenerate.": "La tôle à partir du corps n’est pas calculée. Modifiez ses références ou régénérez le modèle.",
   "Definition saved as unresolved.": "Définition enregistrée comme non calculée.",
   "Sketch geometry does not exist": "La géométrie d’esquisse n’existe pas.",

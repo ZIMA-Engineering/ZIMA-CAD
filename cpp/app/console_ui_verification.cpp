@@ -118,6 +118,7 @@
 
 namespace zima::app {
 #include "ordered_up_to_ui_verification.inc"
+#include "cylindrical_up_to_ui_verification.inc"
 #include "assembly_preview_wire_ui_verification.inc"
 #include "broken_reference_ui_verification.inc"
 #include "partial_generator_ui_verification.inc"
@@ -620,6 +621,7 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
     if(qEnvironmentVariableIsSet("ZIMA_VERIFY_BROKEN_REFERENCE_ONLY"))return verify_broken_reference_ui(application,window,directory);
     if(qEnvironmentVariableIsSet("ZIMA_VERIFY_PARTIAL_GENERATOR_SOURCE"))return verify_partial_generator_ui(application,directory);
     if(qEnvironmentVariableIsSet("ZIMA_VERIFY_ASSEMBLY_PREVIEW_WIRE"))return verify_assembly_preview_wire_ui(application,window);
+    if(qEnvironmentVariableIsSet("ZIMA_VERIFY_CYLINDRICAL_UP_TO_ONLY"))return verify_cylindrical_up_to_ui(application,window,directory);
     if(qEnvironmentVariableIsSet("ZIMA_VERIFY_ORDERED_UP_TO_ONLY"))return verify_ordered_up_to_ui(application,window,directory);
     if(qEnvironmentVariableIsSet("ZIMA_VERIFY_LOCKING_HOLE_ONLY"))return verify_locking_hole_ui(application,window,directory);
     if(qEnvironmentVariableIsSet("ZIMA_VERIFY_SHAFT_THREAD_DIALOG_ONLY"))return verify_shaft_thread_dialog(window,directory);

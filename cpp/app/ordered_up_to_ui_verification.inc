@@ -211,6 +211,7 @@ Q_NEVER_INLINE static int verify_ordered_up_to_ui(QApplication& application,
         };
         auto* dialog=edit();dialog->findChild<QComboBox*>("featureSideEnd0")->setCurrentIndex(1);flush();view->fit_all();flush();
         pick_target(dialog,0,opposite_source);
+        if(dialog->property("featureExactPreviewState")=="pending")exact(dialog);
         const auto opposite_pending=dialog->pending_value();
         check(opposite_pending.feature.reversed_sides&&
                 dialog->findChild<QDoubleSpinBox*>("featureDirection")->value()==-1.,
@@ -307,6 +308,10 @@ Q_NEVER_INLINE static int verify_ordered_up_to_ui(QApplication& application,
         run("undo");check(get().at("parameters")==original.at("parameters"),"Ordered GUI Undo lost its original definition");
         run("redo");check(get().at("parameters")==accepted.at("parameters"),"Ordered GUI Redo lost retained sides or correction");
         dialog=edit();dialog->findChild<QDoubleSpinBox*>("featureSideCorrection0")->setValue(-100.);
+        dialog->buttons()->button(QDialogButtonBox::Ok)->click();flush();
+        check(window.findChild<QWidget*>("featurePropertiesDialog")==dialog&&
+            get().at("revision")==accepted.at("revision"),
+            "First failed OK did not retain the draft for explicit acknowledgement");
         dialog->buttons()->button(QDialogButtonBox::Ok)->click();flush();
         check(!window.findChild<QWidget*>("featurePropertiesDialog"),"Failed calculation kept structurally valid Properties open");
         const auto failed=get();run("save");

@@ -2981,7 +2981,14 @@ PrimitiveData make_extrusion_data(
     }
     if(forward_boundary)bounded_end=extrusion_limit_span(*forward_boundary,unit,face,wires,request.wall.has_value(),exact_target);
     if(ordered) {
-        bounded_end=ordered_up_to_linear_span(*ordered,face,profile_keep_point,gp_Dir(unit.x,unit.y,unit.z));
+        if(ordered->patches.size()==1&&!request.ordered_end_limit->patches.front().target.planar) {
+            // A single curved support terminates at the first contact, also
+            // when correction routes it through the ordered-limit machinery.
+            // Extending the auxiliary prism beyond the far side of a cylinder
+            // leaves a disconnected tail in the retained outside half-space.
+            bounded_end=extrusion_limit_span(limit_view(request.ordered_end_limit->patches.front().target),
+                unit,face,wires,request.wall.has_value(),ordered->patches.front().face);
+        } else bounded_end=ordered_up_to_linear_span(*ordered,face,profile_keep_point,gp_Dir(unit.x,unit.y,unit.z));
     }
     if(reverse_boundary)bounded_start=-extrusion_limit_span(*reverse_boundary,{-unit.x,-unit.y,-unit.z},face,wires,request.wall.has_value(),reverse_exact);
     if(bounded_end<=bounded_start+1e-12)throw std::runtime_error("OCCT Extrusion interval is empty");

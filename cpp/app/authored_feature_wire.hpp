@@ -96,9 +96,10 @@ inline std::vector<kernel::ViewerEdge> authored_feature_wire(
             }
             return place(std::move(wire));
         }
-        // Ordered clipping is calculated only on OK. Reuse its own first
-        // stored operand wire below, before later body Booleans can add edges.
-        if(document::feature_uses_extended_up_to(feature->feature))break;
+        // Reuse the exact command's first stored operand wire, before later
+        // body Booleans can add edges. Selection never calculates that tool.
+        if(document::feature_uses_extended_up_to(feature->feature)||
+                document::feature_up_to_requires_exact_preview(feature->feature))break;
         wire.edges=doc.feature_preview_edges(*feature,input_mesh);return place(std::move(wire));
     case FeatureKind::Extrusion:
         wire.edges=doc.extrusion_preview_edges(*feature,input_mesh);return place(std::move(wire));

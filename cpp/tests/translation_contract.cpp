@@ -717,9 +717,12 @@ int verify_translations(QApplication& application, QWidget& parent) {
             parameter_dialog.hide();
             document::BodyProperties row;row.name="Surface";row.area=300;
             row.surface_centroid=kernel::Vec3{1,2,3};row.density_kg_mm3=.00000785;
+            row.error="The measured history contains failed features. Values describe the retained geometry.";
             app::MassPropertiesDialog dialog(row,{{"Length","mm"},{"Mass","kg"}},"Surface",[](auto){},[](auto){},&parent);
             dialog.setAttribute(Qt::WA_DeleteOnClose,false);dialog.show();application.processEvents();
             const auto text=dialog.findChild<QLabel*>("bodyPropertiesResults")->text();
+            check(text.contains(settings.qt_translations.value(QString::fromStdString(row.error))),
+                "Retained-geometry measurement warning is untranslated");
             check(text.contains(settings.qt_translations.value("Plošné těžiště — X: %1; Y: %2; Z: %3").section("%1",0,0)),
                 "Surface centroid result is untranslated");
             check(text.contains(settings.qt_translations.value("Hmotnost: nelze určit z otevřené plochy bez tloušťky."))&&!text.contains("Ixx"),

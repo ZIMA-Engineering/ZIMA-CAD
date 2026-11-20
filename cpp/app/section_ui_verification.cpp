@@ -1,5 +1,6 @@
 #include "../tests/profile_solid_fixture.hpp"
 #include "assembly_workspace_window.hpp"
+#include "application_settings.hpp"
 #include "section_properties_dialog.hpp"
 #include "section_source.hpp"
 #include "drawing_window.hpp"
@@ -17,6 +18,7 @@
 #include <QKeyEvent>
 #include <QRadioButton>
 #include <QToolBar>
+#include <QScrollArea>
 #include <iostream>
 namespace zima::app {
 int verify_sections(QApplication& application,AssemblyWorkspaceWindow& window,const std::filesystem::path& base){
@@ -51,6 +53,43 @@ int verify_sections(QApplication& application,AssemblyWorkspaceWindow& window,co
         auto* view=dynamic_cast<viewer::MeshView*>(window.findChild<QOpenGLWidget*>());auto* tree=window.findChild<QTreeWidget*>("documentTree");auto* create=window.findChild<QAction*>("createSectionAction");auto* save=window.findChild<QAction*>("saveDocumentAction");
         check(view&&tree&&create&&create->isEnabled(),"Missing Section action");view->set_standard_view(viewer::StandardView::Top);{QEventLoop animation;QTimer::singleShot(1000,&animation,&QEventLoop::quit);animation.exec();}flush();
         const auto dialog=[&]{return dynamic_cast<SectionPropertiesDialog*>(window.findChild<QDialog*>("sectionProperties"));};
+        unsigned placement_capture{};
+        const auto placement_layout=[&] {
+            auto* editor=dialog();auto* scroll=editor->findChild<QScrollArea*>("propertiesContentScrollArea");
+            auto* defaults=editor->findChild<QPushButton*>("containerDefaultOriginButton");
+            auto* origins=editor->findChild<QPushButton*>("containerOriginSelectionButton");
+            auto* title=editor->findChild<QWidget*>("propertiesTitleBar");
+            check(scroll&&defaults&&origins&&title&&editor->findChildren<QScrollArea*>().size()==1,
+                "Section must use the shared properties scroll area");
+            check(scroll->widget()->isAncestorOf(defaults)&&scroll->widget()->isAncestorOf(origins),
+                "Section Origin actions escaped the shared content layout");
+            const auto position=[&](QWidget* widget){return widget->mapTo(editor,QPoint{});};
+            check(defaults->isVisible()&&origins->isVisible()&&
+                std::abs(position(defaults).y()-position(origins).y())<=2&&
+                position(defaults).x()+defaults->width()<=position(origins).x()&&
+                position(defaults).y()>position(title).y()+title->height(),
+                "Section Origin buttons overlap the title or leave their common row");
+            auto* name=editor->findChild<QLineEdit*>("sectionName");
+            const auto size=editor->size();const auto anchor=position(name);
+            editor->resize(size.width()+60,size.height()+60);flush();
+            check(position(name).y()==anchor.y(),"Resizing Section spread its upper controls vertically");
+            editor->resize(size);flush();
+            const auto appearance=ApplicationSettings::load(QString::fromStdString(base.string()));
+            ++placement_capture;
+            for(const auto* theme:{"light","dark","light"}) {
+                auto changed=appearance;changed.theme=theme;apply_application_appearance(application,changed);flush();
+                check(position(name).y()==anchor.y()&&!defaults->icon().isNull()&&!origins->icon().isNull(),
+                    "Section theme change moved fields or lost Origin icons");
+                window.grab().save(QString::fromStdString((dir/("placement-"+std::to_string(placement_capture)+"-"+theme+".png")).string()));
+            }
+            apply_application_appearance(application,appearance);flush();
+        };
+        const auto own_origin=[&] {
+            const auto owner=dialog()->values().container_origin.id;
+            check(std::ranges::any_of(view->mesh().points,[&](const auto& point){return point.reference.owner_id==owner;})&&
+                std::ranges::any_of(view->mesh().edges,[&](const auto& edge){return edge.reference.owner_id==owner;}),
+                "Section lost its own Origin outside reference entry");
+        };
         check(!tree->topLevelItem(0)->child(1)->isExpanded(),"Opening a Part expanded Sections");
         check(tree->headerItem()->text(0).isEmpty(),"Tree still shows the document-type heading");
         int previous_button_x=-1;
@@ -115,6 +154,7 @@ int verify_sections(QApplication& application,AssemblyWorkspaceWindow& window,co
         };
         create->trigger();flush();check(dialog()&&dialog()->parentWidget()==&window&&(dialog()->windowFlags()&Qt::WindowType_Mask)==Qt::SubWindow,"Section is not shared internal dialog");
         check(dialog()->windowTitle()==QObject::tr("Vlastnosti řezu"),"Section Properties has an inconsistent title");
+        placement_layout();
         check(!window.findChild<QAction*>("cancelSectionSketchAction"),"Section Sketch retains a separate Cancel action");
         const auto* sketch_button=dialog()->findChild<QPushButton*>("editSectionSketch");
         check(sketch_button&&sketch_button->text()==QObject::tr("Skica…"),"Section Sketch button is not localized");
@@ -144,12 +184,15 @@ int verify_sections(QApplication& application,AssemblyWorkspaceWindow& window,co
         click_tree(box.id);
         check(std::ranges::any_of(view->mesh().points,[&](const auto& point){return point.reference.owner_id==box.container_origin.id;}),
             "Section Origin button did not expose the selected container origin");
-        origins->click();flush();click_tree(origin_reference.owner_id);
+        check(!origins->isChecked(),"Section Origin chooser did not restore placement entry after revealing a container");
+        click_tree(origin_reference.owner_id);
         check(dialog()->values().placement.reference_valid&&std::ranges::count_if(dialog()->values().placement.references,[](const auto& ref){return !ref.orientation_only;})==3,
             "Clicking the whole document Origin did not fill Section placement planes");
         for(const auto& reference:dialog()->values().placement.references)
             check(reference.owner_id==origin_reference.owner_id && reference.semantic_key.starts_with("origin:plane:"),
                 "Section stored an incorrect document Origin reference");
+        own_origin();
+        window.grab().save(QString::fromStdString((dir/"origin-entry.png").string()));
         dialog()->buttons()->button(QDialogButtonBox::Cancel)->click();flush();create->trigger();flush();
         dialog()->findChild<QDoubleSpinBox*>("sweepTranslation0")->setValue(7);dialog()->findChild<QComboBox*>("sectionSketchPlane")->setCurrentIndex(1);
         check(std::abs(dialog()->values().plane_origin.x-7)<1e-7&&std::abs(dialog()->values().plane_y.z+1)<1e-7,"Section placement or own XZ plane was ignored");
@@ -411,6 +454,7 @@ int verify_sections(QApplication& application,AssemblyWorkspaceWindow& window,co
         const auto first=fixture.insert_open_part(aid,part.document_id,"Tube 1"),second=fixture.insert_open_part(aid,part.document_id,"Tube 2");assembly=fixture.open_assembly(aid)->session.document();assembly.find_occurrence(second)->placement.x=65;assembly.save(assembly_path);
         check(window.open_document_path(QString::fromStdString(assembly_path.string())),"Cannot open section Assembly");flush();view->set_standard_view(viewer::StandardView::Top);create->trigger();flush();line();check(dialog()!=nullptr,"Assembly Section dialog missing");auto* rows=dialog()->findChild<QTableWidget*>("sectionComponents");check(rows&&rows->rowCount()==2&&rows->item(0,0)->data(Qt::UserRole)!=rows->item(1,0)->data(Qt::UserRole),"Repeated components were merged in Section settings");
         const auto first_key=rows->item(0,0)->data(Qt::UserRole).toString().toStdString(),second_key=rows->item(1,0)->data(Qt::UserRole).toString().toStdString();
+        placement_layout();own_origin();
         auto* component_rows=dynamic_cast<SectionComponentsWidget*>(rows);check(component_rows!=nullptr,"Unexpected component table");
         rows->selectAll();static_cast<QPushButton*>(rows->cellWidget(0,6))->click();
         auto styles=component_rows->values();check(styles.at(first_key).custom_hatch&&styles.at(second_key).custom_hatch&&std::abs(styles.at(first_key).hatch.angle-styles.at(second_key).hatch.angle)==90,"Multirow reverse lost alternating hatch directions");
@@ -486,9 +530,16 @@ int verify_sections(QApplication& application,AssemblyWorkspaceWindow& window,co
             view->set_standard_view(viewer::StandardView::Top);create->trigger();flush();dialog()->findChild<QPushButton*>("editSectionSketch")->click();flush();
             {QEventLoop animation;QTimer::singleShot(1000,&animation,&QEventLoop::quit);animation.exec();}
             window.findChild<QAction*>("sketchExternalReferenceAction")->trigger();flush();
-            const QPointF center(view->width()/2.,view->height()/2.);
-            const auto candidates=view->selection_candidates_at(center);
-            check(std::ranges::any_of(candidates,[&](const auto& c){return c.kind==viewer::CandidateKind::Axis&&c.owner_id==thread.id;}),"Section Sketcher does not offer the perpendicular thread axis");
+            // Locate the axis through the common picker. The camera retains
+            // its screen anchor across the Properties/Sketch viewport resize;
+            // the projected axis need not occupy the viewport's midpoint.
+            std::optional<QPointF> axis_pixel;
+            for(int y=2;y<view->height()&&!axis_pixel;y+=4)for(int x=2;x<view->width();x+=4)
+                if(std::ranges::any_of(view->selection_candidates_at({double(x),double(y)}),[&](const auto& c){
+                    return c.kind==viewer::CandidateKind::Axis&&c.owner_id==thread.id;
+                })){axis_pixel=QPointF(x,y);break;}
+            check(axis_pixel.has_value(),"Section Sketcher does not offer the perpendicular thread axis");
+            const auto center=*axis_pixel;
             // Restrict the existing command's common candidate stream to its
             // axis entry, then confirm through the real mouse event path.
             const auto filter=view->candidate_filter();

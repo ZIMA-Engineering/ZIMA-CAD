@@ -1,4 +1,5 @@
 {
+  "The measured history contains failed features. Values describe the retained geometry.": "Измеряемая история содержит элементы с ошибками расчёта. Значения относятся к сохранённой геометрии.",
   "Sheet from Body is unresolved. Edit its references or regenerate.": "Лист из тела не рассчитан. Измените его ссылки или выполните пересчёт.",
   "Definition saved as unresolved.": "Определение сохранено без расчёта.",
   "Sketch geometry does not exist": "Геометрия эскиза не существует.",

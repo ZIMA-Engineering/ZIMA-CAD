@@ -1,7 +1,9 @@
 #include "profile_command_fixture.hpp"
 #include "profile_solid_fixture.hpp"
+#include "failed_history_measurement_fixture.hpp"
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/body_properties_edits.hpp>
+#include <zima/workspace/body_operations.hpp>
 #include <zima/workspace/measurement_operations.hpp>
 #include <zima/workspace/model_calculation.hpp>
 #include <zima/workspace/save_properties.hpp>
@@ -174,15 +176,21 @@ void deferred_assembly(const kernel::OcctKernel& kernel,const std::filesystem::p
         const auto history=workspace::calculate_part_with_resolved_references(kernel,historical);
         const auto path=directory/"historical-analysis.prtz";historical.save(path,history);
         std::vector<kernel::BodyResult> cached;auto reopened=document::PartDocument::load(path,&cached);
-        auto body=reopened.body_history.bodies().front();body.cursor=1;reopened.body_history.update_body(body);reopened.body_history.activate(body.scope.id);
         workspace::Workspace inspection;inspection.add_part(reopened,cached,path);inspection.activate(reopened.document_id);
+        kernel::OcctKernel fresh;
+        // Enter the historical boundary through the user command's lifecycle:
+        // compact native caches materialize here, before inspection starts.
+        static_cast<void>(workspace::set_body_history_cursor(inspection,fresh,reopened.document_id,1,
+            reopened.body_history.bodies().front().scope.id));
         const auto before=inspection.open_part(reopened.document_id)->session.document().serialized();
         const auto revision=inspection.open_part(reopened.document_id)->session.revision();
+        const auto dirty=inspection.open_part(reopened.document_id)->session.is_dirty();
         auto draft=workspace::prepare_body_properties_edit(inspection,reopened.document_id);
-        kernel::OcctKernel fresh;workspace::calculate_body_properties(inspection,fresh,reopened.document_id,draft.initial);
+        workspace::calculate_body_properties(inspection,fresh,reopened.document_id,draft.initial);
         draft=workspace::prepare_body_properties_edit(inspection,reopened.document_id);
         near(draft.initial.volume,480,"Native historical analysis");
         check(draft.initial.error.empty()&&inspection.open_part(reopened.document_id)->session.revision()==revision&&
+            inspection.open_part(reopened.document_id)->session.is_dirty()==dirty&&
             inspection.open_part(reopened.document_id)->session.document().serialized()==before,
             "Native inspector regenerated geometry or changed authored history");
     }
@@ -362,6 +370,37 @@ void workflow(const kernel::OcctKernel& kernel,std::filesystem::path dir) {
         {{"kind","plane"},{"owner",object+":origin"},{"key","origin:plane:xy"}}
     })}}}}).ok,"Broken centroid anchor still resolved a plane");
 }
+void retained_history(const kernel::OcctKernel& kernel,const std::filesystem::path& directory) {
+    for(bool following_cut:{false,true}) {
+        auto doc=test::failed_history_measurement(following_cut);
+        const auto calculated=workspace::calculate_part_with_resolved_references(kernel,doc);
+        check(calculated.back().calculation_errors.size()==1,"Retained measurement fixture did not fail exactly one feature");
+        workspace::Workspace live;live.add_part(doc,calculated);
+        const auto id=doc.document_id;auto* part=live.open_part(id);
+        auto edit=workspace::prepare_body_properties_edit(live,id);
+        const auto revision=part->session.revision();
+        workspace::calculate_body_properties(live,kernel,id,edit.initial);
+        edit=workspace::prepare_body_properties_edit(live,id);
+        const auto& row=edit.initial;
+        check(!row.error.empty()&&row.integrals&&row.volume>0&&row.area>0,"Retained geometry has no measured values and warning");
+        near(row.volume,following_cut?384:480,"Retained measurement ignored the actual history boundary");
+        near(row.centroid()->x,0,"Retained centroid X");near(row.centroid()->y,0,"Retained centroid Y");near(row.centroid()->z,0,"Retained centroid Z");
+        check(part->session.revision()==revision&&part->session.document().body_properties.empty(),"Inspection changed document history");
+        check(workspace::commit_body_properties(live,edit,row),"Retained measurement could not be saved");
+        check(document::body_properties_reference_geometry(part->session.document()).points.empty(),"Failed history became a valid centroid reference");
+        const auto file=directory/(following_cut?"retained-after-cut.prtz":"retained-before-cut.prtz");
+        part->session.document().save(file,part->session.calculated_boundaries());
+        std::vector<kernel::BodyResult> restored;auto reopened=document::PartDocument::load(file,&restored);
+        check(reopened.body_properties.front()==row,"Retained values or warning changed during native round trip");
+        document::refresh_body_properties(reopened,restored);
+        check(reopened.body_properties.front()==row,"Reopened retained boundary changed its measurement");
+        check(part->session.undo()&&part->session.document().body_properties.empty(),"Retained measurement Undo failed");
+        check(part->session.redo()&&part->session.document().body_properties.front()==row,"Retained measurement Redo failed");
+        auto unavailable=row;unavailable.after_object_id="missing-anchor";
+        unavailable=document::evaluate_body_properties(doc,calculated,unavailable);
+        check(!unavailable.error.empty()&&!unavailable.centroid()&&unavailable.volume==0,"Missing anchor retained misleading measured values");
+    }
+}
 void placed_bodies(const kernel::OcctKernel& kernel) {
     auto doc=document::PartDocument::create_default();auto first=zima::test::rectangular_feature(doc,{10,8,6});
     auto second=zima::test::rectangular_feature(doc,{10,8,6});doc.history={first,second};
@@ -509,9 +548,18 @@ void surfaces(const kernel::OcctKernel& kernel) {
 }
 }
 int main(){try {
-    kernel::OcctKernel kernel;geometry(kernel);deferred_analysis(kernel);sheet_integrals(kernel);placed_bodies(kernel);surfaces(kernel);
+    kernel::OcctKernel kernel;
+    std::cerr<<"body properties: geometry\n";geometry(kernel);
+    std::cerr<<"body properties: deferred analysis\n";deferred_analysis(kernel);
+    std::cerr<<"body properties: sheet integrals\n";sheet_integrals(kernel);
+    std::cerr<<"body properties: placed bodies\n";placed_bodies(kernel);
+    std::cerr<<"body properties: surfaces\n";surfaces(kernel);
     const auto parent=std::filesystem::canonical(std::filesystem::temp_directory_path());const auto dir=parent/("zima-body-properties-"+kernel::make_stable_id());
-    std::filesystem::create_directory(dir);workflow(kernel,dir);centroid_placement(kernel,dir);deferred_assembly(kernel,dir);
+    std::filesystem::create_directory(dir);
+    std::cerr<<"body properties: workflow\n";workflow(kernel,dir);
+    std::cerr<<"body properties: centroid placement\n";centroid_placement(kernel,dir);
+    std::cerr<<"body properties: deferred assembly\n";deferred_assembly(kernel,dir);
+    std::cerr<<"body properties: retained history\n";retained_history(kernel,dir);
     check(std::filesystem::canonical(dir).parent_path()==parent,"Invalid test cleanup path");std::filesystem::remove_all(dir);
     std::cout<<"Body properties analytical, history, transaction and persistence checks passed\n";return 0;
 }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

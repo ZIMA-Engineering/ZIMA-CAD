@@ -1,4 +1,5 @@
 {
+  "The measured history contains failed features. Values describe the retained geometry.": "Der gemessene Verlauf enthält fehlgeschlagene Elemente. Die Werte beziehen sich auf die beibehaltene Geometrie.",
   "Sheet from Body is unresolved. Edit its references or regenerate.": "Blech aus Körper ist nicht berechnet. Bearbeiten Sie seine Referenzen oder berechnen Sie das Modell neu.",
   "Definition saved as unresolved.": "Definition als nicht berechnet gespeichert.",
   "Sketch geometry does not exist": "Die Skizzengeometrie existiert nicht.",

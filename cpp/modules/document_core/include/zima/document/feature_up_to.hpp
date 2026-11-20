@@ -18,7 +18,11 @@ inline bool feature_uses_extended_up_to(const FeatureParameters& parameters) {
 // These limits require the command-local native calculation. The analytical
 // preview must never substitute an untrimmed nominal operation for them.
 inline bool feature_side_requires_exact_preview(const FeatureSideParameters& value) {
-    return (value.operation==FeatureSideOperation::Extrusion&&value.extrusion_extent==EndCondition::UpTo&&value.targets.size()>1)||
+    // A curved support may extend beyond the selected face's display triangles
+    // (for example either half of a symmetric cylinder). Only the native tool
+    // wire follows the same exact supporting surface as the accepted operation.
+    return (value.operation==FeatureSideOperation::Extrusion&&value.extrusion_extent==EndCondition::UpTo&&
+            (value.targets.size()>1||std::ranges::any_of(value.targets,[](const auto& target){return target.kind==EndTargetKind::Face;})))||
         (value.operation==FeatureSideOperation::Revolution&&value.rotation_extent==FeatureRotationExtent::UpTo&&
             (value.targets.size()>1||value.up_to.angle_correction_degrees!=0));
 }

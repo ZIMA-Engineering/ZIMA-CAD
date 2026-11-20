@@ -2163,6 +2163,10 @@ if(ZIMA_BUILD_TESTS)
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 90)
     add_test(NAME zima_cpp_feature_modeling_wire_ui_contract COMMAND zima-cad-cpp --verify-startup)
     add_test(NAME zima_cpp_feature_ordered_up_to_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    add_test(NAME zima_cpp_feature_cylindrical_up_to_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    set_tests_properties(zima_cpp_feature_cylindrical_up_to_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_CONSOLE_ONLY=1;ZIMA_VERIFY_HIDDEN_WINDOWS=1;ZIMA_VERIFY_CYLINDRICAL_UP_TO_ONLY=1"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 120 RUN_SERIAL TRUE)
     set_tests_properties(zima_cpp_feature_ordered_up_to_ui_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_CONSOLE_ONLY=1;ZIMA_VERIFY_ORDERED_UP_TO_ONLY=1"
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 180 RUN_SERIAL TRUE)

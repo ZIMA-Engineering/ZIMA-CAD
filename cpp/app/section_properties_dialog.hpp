@@ -15,7 +15,6 @@
 #include <QTableWidget>
 #include <QVBoxLayout>
 #include <QSignalBlocker>
-#include <QScrollArea>
 #include <QStyle>
 #include <QResizeEvent>
 #include <functional>
@@ -128,15 +127,9 @@ public:
         auto* choose=new QPushButton(tr("Vybrat díl ve View"),this);choose->setObjectName("pickSectionComponent");content_layout()->addWidget(choose);connect(choose,&QPushButton::clicked,this,std::move(pick));
         components_=new SectionComponentsWidget(this);components_->set_components(value_.component_names,value_.components);components_->changed=[this]{if(changed)changed();};content_layout()->addWidget(components_);choose->setVisible(!value_.component_names.empty());
         error_=new QLabel(this);error_->setWordWrap(true);content_layout()->addWidget(error_);
-        // The shared placement controls keep their own contract inside one
-        // scrollable body; OK/Cancel stay visible outside it.
-        auto* body=new QWidget(this);auto* layout=new QVBoxLayout(body);layout->setContentsMargins(0,0,0,0);layout->setSpacing(6);layout->setAlignment(Qt::AlignTop);while(auto* item=content_layout()->takeAt(0)){
-            if(auto* widget=item->widget()){layout->addWidget(widget);delete item;}
-            else if(auto* child=item->layout()){child->setParent(nullptr);layout->addLayout(child);}
-            else layout->addItem(item);
-        }
-        layout->addStretch();
-        auto* scroll=new QScrollArea(this);scroll->setWidgetResizable(true);scroll->setWidget(body);content_layout()->addWidget(scroll);
+        // PropertiesSubWindow owns scrolling and top-anchored spacing. Keep
+        // placement in its content layout so the shared Origin actions can
+        // find and extend their existing row.
         setMinimumWidth(660);setAttribute(Qt::WA_DeleteOnClose);
     }
     zima::document::SectionDefinition values()const{

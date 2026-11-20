@@ -47,8 +47,9 @@ bool commit_body_properties(Workspace& live,const BodyPropertiesEdit& edit,docum
     if(std::ranges::any_of(next.body_properties,[&](const auto& r){return r.id!=row.id&&r.name==row.name;}))
         throw Error("duplicate_name","A body properties feature with this name already exists.");
     row=document::evaluate_body_properties(next,part.session.calculated_boundaries(),std::move(row));
-    // Permit editing/removing a broken existing feature; creation requires a solid.
-    if(edit.creating&&!row.error.empty())throw std::invalid_argument(row.error);
+    // A retained calculated solid/surface can be inspected and recorded with
+    // its warning. Missing history or unavailable analysis still has no centroid.
+    if(edit.creating&&!row.error.empty()&&!row.centroid())throw std::invalid_argument(row.error);
     static_cast<void>(document::parse_body_properties(document::serialize_body_properties({row})));
     if(!edit.creating&&row==edit.initial)return false;
     if(edit.creating)next.body_properties.push_back(std::move(row));

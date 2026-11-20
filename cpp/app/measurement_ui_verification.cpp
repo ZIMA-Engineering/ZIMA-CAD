@@ -1,5 +1,6 @@
 #include "../tests/gui_profile_fixture.hpp"
 #include "../tests/profile_solid_fixture.hpp"
+#include "../tests/failed_history_measurement_fixture.hpp"
 #include "measurement_ui_verification.hpp"
 #include "assembly_workspace_window.hpp"
 #include "measurement_dialog.hpp"
@@ -15,6 +16,7 @@
 #include <zima/document/part_document.hpp>
 #include <zima/document/measurement_record.hpp>
 #include <zima/document/physical_properties.hpp>
+#include <zima/workspace/model_calculation.hpp>
 #include <zima/commands/dispatcher.hpp>
 #include <QAction>
 #include <QKeyEvent>
@@ -596,7 +598,40 @@ try{
         execute("save");execute("undo");execute("redo");flush();reopen();
         check(point_dialog()->pending_value().placement.references==pending.placement.references,"Undo/Redo lost centroid references");point_dialog()->reject();flush();
     }
-    std::cout<<"Measurement inspector picking, explicit Save, centroid preview, MMB, persistence and repair passed\n";return 0;
+    for(bool following_cut:{false,true}) {
+        auto retained=test::failed_history_measurement(following_cut);
+        const auto calculated=workspace::calculate_part_with_resolved_references(kernel,retained);
+        check(calculated.back().calculation_errors.size()==1,"Retained GUI fixture did not fail exactly one feature");
+        const auto file=directory/(following_cut?"retained-after-cut.prtz":"retained-before-cut.prtz");
+        retained.save(file,calculated);
+        check(window.open_document_path(QString::fromStdString(file.string())),"Cannot open retained measurement fixture");flush();
+        const auto before=execute("documents").data;
+        for(bool accept:{false,true}) {
+            mass_action->trigger();flush();auto* opened=mass_dialog();check(opened,"Retained Body inspector did not open");
+            const auto row=opened->current();
+            check(!row.error.empty()&&row.integrals&&std::abs(row.volume-(following_cut?384:480))<1e-7,
+                "Retained inspector omitted the warning or measured the wrong boundary");
+            const auto text=opened->findChild<QLabel*>("bodyPropertiesResults")->text();
+            check(text.contains(QObject::tr(row.error.c_str()))&&text.contains("Ixx"),
+                "Retained inspector did not show its warning alongside measured values");
+            check(std::ranges::any_of(view->mesh().points,[&](const auto& point){return point.reference.owner_id==row.id+":origin";}),
+                "Retained inspector has no read-only centroid preview");
+            if(accept)opened->buttons()->button(QDialogButtonBox::Ok)->click();else opened->reject();flush();
+            const auto after=execute("documents").data;
+            if(after!=before)std::cerr<<"Retained inspection document changes: "<<commands::Json::diff(before,after).dump()<<'\n';
+            check(after==before&&execute("body_properties.list").data.at("total")==0,
+                "Retained inspection OK/Cancel changed the document");
+        }
+        mass_action->trigger();flush();const auto row=mass_dialog()->current();
+        mass_dialog()->findChild<QPushButton*>("saveBodyProperties")->click();flush();
+        check(!mass_dialog()&&execute("body_properties.list").data.at("total")==1,"Retained measurement Save failed");
+        execute("save");const auto stored=document::PartDocument::load(file);
+        check(stored.body_properties.size()==1&&stored.body_properties.front()==row,"Retained GUI measurement did not persist");
+        check(document::body_properties_reference_geometry(stored).points.empty(),"Retained GUI measurement became a valid material reference");
+        execute("undo");check(execute("body_properties.list").data.at("total")==0,"Retained measurement GUI Undo failed");
+        execute("redo");check(execute("body_properties.list").data.at("total")==1,"Retained measurement GUI Redo failed");
+    }
+    std::cout<<"Measurement inspector picking, explicit Save, centroid preview, MMB, persistence, retained failed-history geometry and repair passed\n";return 0;
 }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}
 }
 }
