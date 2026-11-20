@@ -608,7 +608,7 @@ void AssemblyWorkspaceWindow::create_actions() {
     sketch_corner_fillet_action_->setObjectName("sketchCornerFilletAction");
     sketch_corner_fillet_action_->setEnabled(false);
     sketch_corner_fillet_action_->setVisible(false);
-    sketch_curve_fillet_action_ = make_action(tr("Zaoblení křivek"), "sketch-fillet");
+    sketch_curve_fillet_action_ = make_action(tr("Zaoblení"), "sketch-curve-fillet");
     sketch_curve_fillet_action_->setObjectName("sketchCurveFilletAction");
     sketch_curve_fillet_action_->setEnabled(false);
     sketch_offset_action_ = make_action(tr("Offset"), "sketch-offset");

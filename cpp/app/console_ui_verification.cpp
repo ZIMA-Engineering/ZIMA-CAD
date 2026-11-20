@@ -638,7 +638,7 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
         catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}
     }
     if(qEnvironmentVariableIsSet("ZIMA_VERIFY_PLACEMENT_ORIGIN_PREVIEW_ONLY")) {
-        try {verify_placed_origin_visibility(application,window,directory);verify_single_planar_origin_projection(application,window,directory);verify_existing_feature_origin_replacement(application,window,directory);std::cout<<"Placement preview Origin projection/replacement, persistence and OK/Cancel restoration passed\n";return 0;}
+        try {verify_placed_origin_visibility(application,window,directory);verify_polar_datum_placement(application,window,directory);verify_single_planar_origin_projection(application,window,directory);verify_existing_feature_origin_replacement(application,window,directory);std::cout<<"Placement preview Origin projection/replacement, polar datum planes, persistence and OK/Cancel restoration passed\n";return 0;}
         catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}
     }
     if(qEnvironmentVariableIsSet("ZIMA_VERIFY_FEATURE_TYPE_TRANSITION_ONLY")) {

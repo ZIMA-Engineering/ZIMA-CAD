@@ -1,4 +1,5 @@
 #include "sketch_fillet_helpers.hpp"
+#include "../sketch_curve_fillet_dialog.hpp"
 #include "workspace_internal.hpp"
 
 namespace zima::app {
@@ -615,6 +616,49 @@ void AssemblyWorkspaceWindow::cancel_sketch_trim() {
 
 void AssemblyWorkspaceWindow::start_sketch_corner_fillet(bool materialized) {
     if (properties_dialog_ != nullptr || active_sketch_id_.empty()) return;
+    if(materialized) {
+        const auto* source=active_sketch();if(!source)return;
+        std::array<std::string,2> selected{};std::size_t count{};
+        for(const auto& id:selected_sketch_geometry_ids_)if(sketcher::fillet_curve_endpoints(*source,id)) {
+            if(count<selected.size())selected[count]=id;++count;
+        }
+        if(count>2)selected={};
+        cancel_sketch_segment();
+        auto* dialog=new SketchCurveFilletDialog(*source,std::move(selected),
+            [this,sketch_id=source->id,original=source->serialized()](const auto& curves,double radius) {
+                if(!active_sketch()||active_sketch_id_!=sketch_id||active_sketch()->serialized()!=original)
+                    throw std::runtime_error("Sketch is no longer active");
+                if(!mutate_active_sketch([&](auto& sketch){
+                    static_cast<void>(sketcher::fillet_sketch_curves(sketch,curves[0],curves[1],radius));
+                }))throw std::runtime_error("Sketch is no longer active");
+            },this);
+        properties_dialog_=dialog;
+        selection_action_->setChecked(true);viewer_->clear_selection();
+        viewer_->set_selection_contract({viewer::CandidateKind::SketchSegment,viewer::CandidateKind::SketchCurve});
+        viewer_->set_candidate_filter([dialog](const auto& candidate){
+            return dialog->accepts(sketch_fillet_candidate_id(&dialog->original,candidate));
+        });
+        feature_reference_pick_=[this,dialog](const auto& candidate) {
+            dialog->accept(sketch_fillet_candidate_id(&dialog->original,candidate));viewer_->clear_selection();
+        };
+        feature_reference_end_=[dialog]{dialog->end_entry();};
+        dialog->changed=[this,dialog] {
+            const bool inspect=dialog->inspected[0]||dialog->inspected[1];
+            show_sketch_drag_preview(dialog->active()||inspect||!dialog->preview?dialog->original:*dialog->preview);
+            std::set<viewer::EdgeKey> edges;
+            for(const auto& edge:viewer_->mesh().edges)if(edge.reference.owner_id==dialog->original.id)
+                for(int i=0;i<2;++i)if(dialog->inspected[i]&&edge.reference.semantic_key.ends_with(":"+dialog->curves[i]))
+                    edges.insert({edge.reference.owner_id,edge.reference.semantic_key,edge.reference.instance_path});
+            viewer_->set_constraint_reference_highlights({},std::move(edges));
+        };
+        connect(dialog,&QDialog::finished,this,[this,dialog] {
+            dialog->changed={};feature_reference_pick_={};feature_reference_end_={};properties_dialog_=nullptr;
+            viewer_->set_candidate_filter({});viewer_->set_selection_contract({});
+            viewer_->set_constraint_reference_highlights({},{});viewer_->clear_selection();
+            clear_selected_sketch_geometry();preserve_view_on_refresh_=true;refresh_tabs();refresh_scene();
+        });
+        dialog->show();dialog->changed();return;
+    }
     cancel_sketch_segment();
     sketch_corner_fillet_active_ = true;
     sketch_curve_fillet_materialized_ = materialized;

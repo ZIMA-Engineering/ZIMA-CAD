@@ -694,9 +694,10 @@ struct SheetFromBodyParameters {
     // explicitly selected source supports limit conversion to the root and
     // the connecting paths required to reach the included regions.
     std::vector<SheetFromBodyFaceBinding> included_faces;
-    // Optional ordinary Sketches whose complete non-construction geometry
-    // defines conversion seams. The Sketches remain independently editable
-    // history objects; this boundary owns only their stable input references.
+    // Ordinary Sketches whose non-construction geometry defines local seams.
+    // Standalone Sketch features in the conversion Body are owned RIP inputs
+    // while children remain bound. They retain their native geometry, frames
+    // and calculation order and become ordinary Sketches on complete release.
     std::vector<std::string> rip_sketches;
     double thickness{1.0};
     bool thickness_override{};

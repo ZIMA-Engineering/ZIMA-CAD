@@ -78,6 +78,25 @@ int main(){try {
         check(real.sketch.dimensions.empty()&&real.sketch.corner_radii.empty(),"Real fillet inserted an automatic dimension or virtual radius");
         equations(real.sketch,added.arc_id,real.a,real.b,1.);
         equations(Sketch::from_serialized(real.sketch.serialized()),added.arc_id,real.a,real.b,1.);
+        // Deleting a support also removes dependent virtual rounding. That
+        // dependent removal is not a second directly selected geometry ID.
+        for(bool materialized:{false,true})for(bool second:{false,true}) {
+            auto deleted=materialized?real.sketch:f.sketch;
+            const auto a=materialized?real.a:f.a,b=materialized?real.b:f.b;
+            const auto removed=second?b:a,retained=second?a:b;
+            deleted.remove_geometry(removed);deleted.validate();
+            check(!fillet_curve_endpoints(deleted,removed)&&fillet_curve_endpoints(deleted,retained),
+                "Deleting a rounded support removed another selected support");
+            check(deleted.corner_radii.empty(),"Deleting a support retained dangling virtual rounding");
+            deleted=Sketch::from_serialized(deleted.serialized());
+            deleted.remove_geometry(retained);deleted.validate();
+            if(materialized){deleted.remove_geometry(added.arc_id);deleted.validate();}
+            check(deleted.segments.empty()&&deleted.arcs.empty()&&deleted.elliptical_arcs.empty()&&deleted.bsplines.empty(),
+                "Deleting a complete rounded chain retained curves");
+            const auto unchanged=deleted.serialized();bool missing=false;
+            try{deleted.remove_geometry(removed);}catch(const std::invalid_argument&){missing=true;}
+            check(missing&&deleted.serialized()==unchanged,"Missing geometry deletion was not atomic");
+        }
         {
             auto released=real.sketch;
             std::vector<std::string> tangencies;

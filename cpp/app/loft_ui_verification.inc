@@ -439,8 +439,12 @@ int verify_loft_ui(QApplication& application,AssemblyWorkspaceWindow& window,con
         check(window.execute_console_command("documents").data==thin_selection_state,"View-face entry Cancel changed the source Part");
         action->trigger();flush();dialog=editor();check(dialog,"Incomplete Loft creation did not open");
         const auto incomplete_id=dialog->pending.id;
+        const auto before_incomplete=window.execute_console_command("documents").data;
         dialog->buttons()->button(QDialogButtonBox::Ok)->click();flush();
-        check(!editor(),"OK refused to retain an incomplete Loft");
+        check(editor()==dialog&&window.execute_console_command("documents").data==before_incomplete,
+            "First invalid Loft OK committed or closed without acknowledgement");
+        dialog->buttons()->button(QDialogButtonBox::Ok)->click();flush();
+        check(!editor(),"Second unchanged OK refused to retain an incomplete Loft");
         window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
         std::vector<kernel::BodyResult> incomplete_cache;
         const auto retained=document::PartDocument::load(path,&incomplete_cache);

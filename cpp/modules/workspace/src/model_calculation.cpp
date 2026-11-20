@@ -1085,6 +1085,20 @@ calculate_part_reference_state(
                 append_reference_geometry(geometry,document.history_origin_reference_geometry_before({}));
                 zima::document::resolve_section_placements(document.sections,geometry);
             }
+            if(!calculated.empty())for(const auto& feature:document.history)
+                if(feature.feature_kind==document::FeatureKind::SheetFromBody&&
+                        !feature.sheet_from_body.child_bindings.empty()) {
+                    // Bound children retain their last valid authored geometry
+                    // when a source/RIP cannot be rebuilt. Diagnose the owning
+                    // conversion without replacing that retained sheet by its
+                    // source solid or adding both sets of material together.
+                    auto& errors=calculated.back().calculation_errors;
+                    errors.erase(feature.id);
+                    if(!feature.suppressed&&std::ranges::any_of(
+                            feature.sheet_from_body.child_bindings,
+                            [](const auto& child){return !child.detached&&!child.references_valid;}))
+                        errors[feature.id]="Sheet from Body is unresolved. Edit its references or regenerate.";
+                }
             validate_part_calculation(document,calculated,policy);
             return calculated;
         }

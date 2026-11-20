@@ -132,6 +132,7 @@
     <file alias="icons/regenerate.svg">../../resources/icons/regenerate.svg</file>
     <file alias="icons/sketch-circle.svg">../../resources/icons/sketch-circle.svg</file>
     <file alias="icons/sketch-arc.svg">../../resources/icons/sketch-arc.svg</file>
+    <file alias="icons/sketch-curve-fillet.svg">../../resources/icons/sketch-curve-fillet.svg</file>
     <file alias="icons/sketch-ellipse.svg">../../resources/icons/sketch-ellipse.svg</file>
     <file alias="icons/sketch-elliptical-arc.svg">../../resources/icons/sketch-elliptical-arc.svg</file>
     <file alias="icons/sketch-spline.svg">../../resources/icons/sketch-spline.svg</file>

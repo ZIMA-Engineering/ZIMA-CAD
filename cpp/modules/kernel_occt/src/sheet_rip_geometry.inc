@@ -1,5 +1,5 @@
-// Explicit transient preprocessing for Sheet-from-Body. The result is a
-// material-equivalent partition of the source solid; no material is removed.
+// Explicit transient preprocessing for Sheet-from-Body. Imprint exact Sketch
+// curves on the source skin; do not sweep them through unrelated/opposite faces.
 namespace sheet_rip_geometry {
 PrimitiveData apply(const PrimitiveData& input,const SheetRipRequest& request,
         const std::string& owner) {
@@ -8,19 +8,14 @@ PrimitiveData apply(const PrimitiveData& input,const SheetRipRequest& request,
     if(!std::isfinite(request.tolerance)||request.tolerance<=0||
             request.tolerance>1)
         throw std::invalid_argument("Invalid Sheet RIP tolerance.");
-    Bnd_Box bounds;
-    BRepBndLib::AddOptimal(input.shape,bounds,false,true);
-    if(bounds.IsVoid())throw std::runtime_error(
-        "Sheet RIP source bounds are unavailable.");
-    double x0,y0,z0,x1,y1,z1;
-    bounds.Get(x0,y0,z0,x1,y1,z1);
-    const double diagonal=std::hypot(std::hypot(x1-x0,y1-y0),z1-z0);
-    const double extent=std::max(10.,diagonal*2+10.);
+    TopoDS_Compound skin;
+    BRep_Builder builder;builder.MakeCompound(skin);
+    for(TopExp_Explorer face(input.shape,TopAbs_FACE);face.More();face.Next())
+        builder.Add(skin,face.Current());
     NCollection_List<TopoDS_Shape> arguments;
     arguments.Append(input.shape);
     NCollection_List<TopoDS_Shape> tools;
-    std::vector<OwnedFace> tool_faces;
-    std::size_t tool_index{};
+    std::vector<OwnedEdge> tool_edges;
     for(const auto& curve:request.curves) {
         const double magnitude=std::hypot(std::hypot(curve.normal.x,
             curve.normal.y),curve.normal.z);
@@ -29,35 +24,21 @@ PrimitiveData apply(const PrimitiveData& input,const SheetRipRequest& request,
         const Vec3 normal{curve.normal.x/magnitude,curve.normal.y/magnitude,
             curve.normal.z/magnitude};
         auto wire=make_profile_wire(curve.profile,normal);
-        gp_Trsf shift;
-        shift.SetTranslation(gp_Vec(-normal.x*extent,-normal.y*extent,
-            -normal.z*extent));
-        BRepBuilderAPI_Transform moved(wire,shift,true);
-        moved.Build();
-        if(!moved.IsDone())throw std::runtime_error(
-            "Sheet RIP could not position a Sketch curve.");
-        BRepPrimAPI_MakePrism prism(moved.Shape(),gp_Vec(
-            normal.x*extent*2,normal.y*extent*2,normal.z*extent*2),false,true);
-        prism.Build();
-        if(!prism.IsDone()||prism.Shape().IsNull())
-            throw std::runtime_error("Sheet RIP could not sweep a Sketch curve.");
-        BRepAlgoAPI_Section section(input.shape,prism.Shape(),false);
-        section.SetFuzzyValue(request.tolerance);
-        section.Build();
-        bool intersects{};
-        if(section.IsDone())for(TopExp_Explorer edge(section.Shape(),TopAbs_EDGE);
-                edge.More();edge.Next()) {intersects=true;break;}
-        if(!intersects)throw std::invalid_argument(
-            "A selected RIP Sketch does not intersect the source Body.");
-        tools.Append(prism.Shape());
-        std::size_t face_index{};
-        for(TopExp_Explorer face(prism.Shape(),TopAbs_FACE);face.More();
-                face.Next())
-            tool_faces.push_back({TopoDS::Face(face.Current()),FaceReference{
-                owner,"rip:tool:"+curve.sketch_id+":"+curve.source_id+":"+
-                    std::to_string(tool_index)+":"+
-                    std::to_string(face_index++),{}}});
-        ++tool_index;
+        // Clip to the actual skin, not the solid interior. This also permits
+        // an authored curve to extend beyond a finite face without projecting
+        // it onto another face along the Sketch normal.
+        BRepAlgoAPI_Common contact(wire,skin);
+        contact.SetFuzzyValue(request.tolerance);contact.Build();
+        std::size_t edge_index{};
+        if(contact.IsDone())for(TopExp_Explorer edge(contact.Shape(),TopAbs_EDGE);
+                edge.More();edge.Next()) {
+            tools.Append(edge.Current());
+            tool_edges.push_back({TopoDS::Edge(edge.Current()),EdgeReference{
+                owner,"rip:curve:"+curve.sketch_id+":"+curve.source_id+":"+
+                    std::to_string(edge_index++),{}}});
+        }
+        if(!edge_index)throw std::invalid_argument(
+            "A RIP curve must lie on a source face.");
     }
     BRepAlgoAPI_Splitter splitter;
     splitter.SetArguments(arguments);
@@ -69,12 +50,7 @@ PrimitiveData apply(const PrimitiveData& input,const SheetRipRequest& request,
         throw std::runtime_error("Sheet RIP partition failed.");
     auto faces=propagate_topology(splitter,input.faces,
         std::vector<OwnedFace>{});
-    auto introduced=propagate_topology(splitter,std::vector<OwnedFace>{},
-        tool_faces);
-    faces.insert(faces.end(),std::make_move_iterator(introduced.begin()),
-        std::make_move_iterator(introduced.end()));
-    auto edges=propagate_topology(splitter,input.edges,
-        std::vector<OwnedEdge>{});
+    auto edges=propagate_topology(splitter,input.edges,tool_edges);
     auto vertices=propagate_topology(splitter,input.vertices,
         std::vector<OwnedVertex>{});
     faces=complete_boolean_faces(splitter.Shape(),faces,edges,vertices,

@@ -14,7 +14,10 @@
 #include <zima/document/metadata.hpp>
 #include <zima/document/solid_state_calculation.hpp>
 #include <zima/document/sheet_rip.hpp>
+#include <zima/document/sheet_from_body.hpp>
+#include <zima/document/general_surface.hpp>
 #include <zima/workspace/model_calculation.hpp>
+#include <zima/workspace/modeling_confirmation.hpp>
 #include <zima/workspace/history_operations.hpp>
 #include <zima/workspace/history_deletion.hpp>
 #include <zima/workspace/history_policy.hpp>
@@ -84,8 +87,8 @@ void curved_partition_contract(kernel::OcctKernel& engine) {
 }
 void rip_contract(kernel::OcctKernel& engine) {
     // RIP consumes every exact ordinary native curve while construction
-    // geometry remains inert. Open curves split the sheet into branches;
-    // closed curves retain both the inside and outside material regions.
+    // geometry remains inert. RIP imprints local source-face regions; sheet
+    // conversion owns the later branch construction, not through-solid cuts.
     auto exact=sketcher::Sketch::create_default();
     const std::vector<std::string> expected{
         exact.add_segment(0,1,10,1),
@@ -123,7 +126,7 @@ void rip_contract(kernel::OcctKernel& engine) {
     check(duplicate_rejected,
         "RIP accepted the same Sketch reference more than once");
 
-    const auto split=[&](sketcher::Sketch sketch,const char* owner) {
+    const auto split=[&](sketcher::Sketch sketch,const char* owner,unsigned expected_faces=7) {
         const auto rip=document::sheet_rip_request({&sketch},.01);
         test::ProfilePrism stock{10,8,6};
         const auto result=engine.evaluate_history({
@@ -136,8 +139,10 @@ void rip_contract(kernel::OcctKernel& engine) {
         unsigned solids{};
         for(TopExp_Explorer it(shape,TopAbs_SOLID);it.More();it.Next())
             ++solids;
-        check(solids>=2,
-            "RIP did not create independent material branches");
+        check(solids==1,"RIP cut through the source solid");
+        unsigned faces{};
+        for(TopExp_Explorer it(shape,TopAbs_FACE);it.More();it.Next())++faces;
+        check(faces==expected_faces,"RIP did not split exactly its local source face");
     };
     auto open=sketcher::Sketch::create_default();
     static_cast<void>(open.add_segment(0,4,10,4));
@@ -145,6 +150,19 @@ void rip_contract(kernel::OcctKernel& engine) {
     auto closed=sketcher::Sketch::create_default();
     static_cast<void>(closed.add_circle(5,4,2));
     split(std::move(closed),"rip-closed");
+    auto arc=sketcher::Sketch::create_default();
+    static_cast<void>(arc.add_arc(5,-3,10,4,0,4));split(std::move(arc),"rip-arc");
+    auto ellipse=sketcher::Sketch::create_default();
+    static_cast<void>(ellipse.add_ellipse(5,4,8,4,5,6));split(std::move(ellipse),"rip-ellipse");
+    auto elliptic=sketcher::Sketch::create_default();
+    static_cast<void>(elliptic.add_elliptical_arc(5,0,10,0,5,4,10,0,0,0));split(std::move(elliptic),"rip-elliptic-arc");
+    auto spline=sketcher::Sketch::create_default();
+    static_cast<void>(spline.add_bspline({{0,4},{3,6},{7,2},{10,4}},3));split(std::move(spline),"rip-spline");
+    auto junction=sketcher::Sketch::create_default();
+    static_cast<void>(junction.add_segment(0,4,10,2));
+    static_cast<void>(junction.add_segment(0,4,10,6));
+    check(junction.points.size()==3,"RIP junction does not share its native start point");
+    split(std::move(junction),"rip-junction",8);
 }
 void rip_conversion_contract(kernel::OcctKernel& engine) {
     auto part=document::PartDocument::create_default();
@@ -176,9 +194,9 @@ void rip_conversion_contract(kernel::OcctKernel& engine) {
     const auto& faces=cache.back().body_outputs.at(body)->mesh.
         original_references.triangle_references;
     const auto seed=std::ranges::find_if(faces,[&](const auto& face) {
-        return face.owner_id==flat.id&&face.sheet_role==
-                kernel::SheetFaceRole::SideA&&face.surface&&
-            face.surface->kind==kernel::SurfaceGeometry::Kind::Plane;
+        return face.owner_id==flat.id&&face.surface&&
+            face.surface->kind==kernel::SurfaceGeometry::Kind::Plane&&
+            std::abs(face.surface->axis.z)>.99&&std::abs(face.surface->origin.z)<1e-7;
     });
     check(seed!=faces.end(),"RIP conversion fixture has no source skin");
     const double source_volume=measured_volume(engine,
@@ -235,6 +253,113 @@ void rip_conversion_contract(kernel::OcctKernel& engine) {
             [](const auto& binding){return binding.detached;}),"RIP Undo did not restore source bindings");
         check(workspace::step_part_document_history(live,id,true),"RIP source deletion Redo failed");
         verify_release();
+    }
+}
+void owned_rip_contract(kernel::OcctKernel& engine) {
+    for(const bool same_body:{true,false}) {
+        auto part=document::PartDocument::create_default();
+        const auto source=part.body_history.create_body("Source");
+        auto solid=test::rectangular_feature(part,{100,80,3});
+        part.insert_history_entry(document::PartHistoryKind::Feature,solid.id);part.history.push_back(solid);
+        auto cache=workspace::calculate_part_with_resolved_references(engine,part);
+        const auto& faces=cache.back().body_outputs.at(source)->mesh.triangle_references;
+        const auto face=std::ranges::find_if(faces,[](const auto& f){return f.surface&&f.surface->kind==kernel::SurfaceGeometry::Kind::Plane&&f.surface->origin.z>1.49&&std::abs(f.surface->axis.z)>.99;});
+        check(face!=faces.end(),"Owned RIP source face missing");const auto seed=*face;
+        const auto target=same_body?source:part.body_history.create_body("Sheet");
+        auto marker=document::PartDocument::create_sheet_from_body_container();
+        auto draft=document::create_general_surface_sketch(marker);
+        auto sketch=sketcher::Sketch::from_serialized(draft.sketch_serialized);
+        draft.sketch_feature->placement.z=1.5;
+        const auto line=sketch.add_segment(-50,0,50,0);
+        auto dimension=sketch.create_segment_dimension(line);sketch.apply_dimension(dimension);
+        draft.sketch_serialized=sketch.serialized();
+        document::resolve_general_surface_sketch(draft,{});
+        const auto before=part.serialized();
+        check(workspace::stage_sheet_from_body_rips(part,{}, {sketch.id},{draft}),"RIP draft was not staged");
+        check(!workspace::stage_sheet_from_body_rips(part,{}, {sketch.id},{draft}),"Unchanged RIP staging reported changes");
+        {
+            auto invalid=part;invalid.find_container(sketch.owner_container_id)->placement.z=99;
+            invalid.resolve_constructions();
+            workspace::Workspace live;live.add_part(part,cache);
+            auto& session=live.open_part(part.document_id)->session;
+            const auto revision=session.revision();const auto unchanged=session.document().serialized();
+            workspace::ModelingConfirmation confirmation;
+            for(int press=0;press<2;++press) {
+                auto pending=invalid;
+                workspace::stage_unresolved_sheet_from_body(pending,marker,seed,1,true,{}, {sketch.id});
+                workspace::ModelingConfirmationAttempt attempt(confirmation,live,part.document_id);
+                bool rejected{};
+                try {
+                    workspace::PartCalculationPolicy policy;policy.reject_errors=false;
+                    auto failed=attempt.calculate(pending,policy,[&](auto& candidate,const auto& recovery) {
+                        return workspace::calculate_part_with_resolved_references(engine,candidate,&cache,recovery);
+                    });
+                    check(press==1&&attempt.accepted(marker.id),"Failed RIP was accepted before the second OK");
+                    workspace::commit_part_document(live,part.document_id,std::move(pending),std::move(failed));
+                }catch(const std::runtime_error&) {rejected=true;}
+                if(press==0)check(rejected&&attempt.failed()&&session.revision()==revision&&session.document().serialized()==unchanged,"First failed RIP confirmation changed the document");
+                else check(!rejected&&session.revision()==revision+1,"Second failed RIP confirmation did not commit once");
+            }
+            auto saved=document::PartDocument::from_serialized(session.document().serialized(session.calculated_boundaries()));
+            auto cold=workspace::calculate_part_with_resolved_references(engine,saved);
+            check(cold.back().calculation_errors.contains(marker.id)&&document::sheet_from_body_rip_owner(saved,sketch.id),"Unresolved RIP lost its error or owned Sketch on reopen");
+            near(measured_volume(engine,cold.back().body_outputs.at(source)),24000,.01);
+            saved.find_container(sketch.owner_container_id)->placement.z=1.5;
+            auto repaired=workspace::calculate_part_with_resolved_references(engine,saved,&cold);
+            check(repaired.back().calculation_errors.empty()&&saved.find_container(marker.id)->sheet_from_body.child_bindings.size()==2,"RIP repair did not generate its sheet branches");
+            near(measured_volume(engine,repaired.back().body_outputs.at(target)),8000,.01);
+            workspace::commit_part_document(live,part.document_id,std::move(saved),std::move(repaired));
+            check(session.undo()&&session.calculated_boundaries().back().calculation_errors.contains(marker.id),"RIP repair Undo lost the unresolved definition");
+            check(session.redo()&&session.calculated_boundaries().back().calculation_errors.empty(),"RIP repair Redo failed");
+        }
+        const auto converted=workspace::prepare_sheet_from_body(part,cache,seed,1,engine,true,{}, {sketch.id});
+        check(converted.calculated.back().calculation_errors.empty()&&converted.created.size()==2,"Owned RIP conversion failed");
+        near(measured_volume(engine,converted.calculated.back().body_outputs.at(target)),8000,.01);
+        check(document::sheet_from_body_rip_owner(converted.document,sketch.id)&&
+            document::sheet_from_body_rip_owner(converted.document,sketch.owner_container_id)->id==converted.container_id,"RIP ownership missing");
+        auto reopened=document::PartDocument::from_serialized(converted.document.serialized());
+        auto cold=workspace::calculate_part_with_resolved_references(engine,reopened);
+        check(cold.back().calculation_errors.empty(),"Owned RIP cold regeneration failed");
+        near(measured_volume(engine,cold.back().body_outputs.at(target)),8000,.01);
+        {
+            auto broken=reopened;
+            broken.find_container(sketch.owner_container_id)->placement.z=99;
+            workspace::stage_unresolved_sheet_from_body(broken,*broken.find_container(converted.container_id),seed,1,true,{}, {sketch.id});
+            auto failed=workspace::calculate_part_with_resolved_references(engine,broken,&cold);
+            check(failed.back().calculation_errors.contains(converted.container_id),"Failed conversion edit lost its parent diagnostic");
+            check(broken.find_container(converted.container_id)->sheet_from_body.child_bindings.size()==2,"Failed conversion edit discarded authored children");
+            // An edited conversion keeps its last valid sheet, whereas a
+            // failed first creation (above) keeps the unconverted solid.
+            near(measured_volume(engine,failed.back().body_outputs.at(target)),8000,.01);
+            auto restored=document::PartDocument::from_serialized(broken.serialized(failed));
+            const auto restored_cache=workspace::calculate_part_with_resolved_references(engine,restored);
+            check(restored_cache.back().calculation_errors.contains(converted.container_id),"Failed conversion edit lost its diagnostic after cold reopen");
+            restored.find_container(sketch.owner_container_id)->placement.z=1.5;
+            const auto fixed=workspace::calculate_part_with_resolved_references(engine,restored,&restored_cache);
+            check(fixed.back().calculation_errors.empty(),"Failed conversion edit could not be repaired");
+            near(measured_volume(engine,fixed.back().body_outputs.at(target)),8000,.01);
+        }
+        auto removed=reopened;
+        check(workspace::stage_sheet_from_body_rips(removed,converted.container_id,{},{}),"Removing owned RIP did not change its definition");
+        check(!removed.find_container(sketch.owner_container_id),"Removing RIP retained its owned Sketch feature");
+        const auto unsplit=workspace::prepare_edited_sheet_from_body(removed,cold,converted.container_id,seed,1,engine,true);
+        check(unsplit.calculated.back().calculation_errors.empty(),"Removing owned RIP broke conversion Properties");
+        near(measured_volume(engine,unsplit.calculated.back().body_outputs.at(target)),8000,.01);
+        auto released=reopened;
+        check(workspace::release_sheet_from_body_bindings(released,converted.container_id),"Owned RIP release failed");
+        check(!document::sheet_from_body_rip_owner(released,sketch.id),"Released RIP is still owned");
+        auto released_cache=workspace::calculate_part_with_resolved_references(engine,released);
+        check(released_cache.back().calculation_errors.empty(),"Released RIP failed regeneration");
+        const auto native=std::ranges::find(released.sketches,sketch.id,&sketcher::Sketch::id);
+        check(native!=released.sketches.end()&&!native->suppressed&&native->segments==sketch.segments&&native->dimensions==sketch.dimensions,"Released RIP lost editable geometry or dimensions");
+        near(native->resolved_origin.z,1.5);
+        near(measured_volume(engine,released_cache.back().body_outputs.at(target)),8000,.01);
+        workspace::Workspace live;live.add_part(reopened,cold);
+        workspace::delete_part_history(live,reopened.document_id,engine,converted.container_id);
+        auto& session=live.open_part(reopened.document_id)->session;
+        check(!session.document().find_container(sketch.owner_container_id),"Deleting conversion orphaned its owned RIP");
+        check(workspace::step_part_document_history(live,reopened.document_id,false)&&document::sheet_from_body_rip_owner(session.document(),sketch.id),"Owned RIP deletion Undo failed");
+        check(workspace::step_part_document_history(live,reopened.document_id,true)&&!session.document().find_container(sketch.owner_container_id),"Owned RIP deletion Redo failed");
     }
 }
 void line_bend_contract(kernel::OcctKernel& engine) {
@@ -652,11 +777,108 @@ void line_bend_contract(kernel::OcctKernel& engine) {
     // planes cutting the rest of the sheet.
     verify_variant(-1,true);
 }
+void empty_conversion_contract(kernel::OcctKernel& kernel) {
+    for(const bool with_source:{false,true}) {
+        auto part=document::PartDocument::create_default();
+        const auto body=part.body_history.create_body("Boundary source");
+        std::string source_id;
+        if(with_source) {
+            auto box=test::rectangular_feature(part,{20,30,4});source_id=box.id;
+            part.insert_history_entry(document::PartHistoryKind::Feature,box.id);
+            part.history.push_back(box);
+        }
+        auto cache=workspace::calculate_part_with_resolved_references(kernel,part);
+        const auto before=part.serialized();
+        auto boundary=workspace::prepare_sheet_from_body_boundary(part,cache,2,kernel,true);
+        check(part.serialized()==before,"Empty conversion changed its source document");
+        const auto* marker=boundary.document.find_container(boundary.container_id);
+        check(marker&&marker->sheet_from_body.replaces_body&&
+                marker->sheet_from_body.source_body_id==body&&
+                !marker->sheet_from_body.source_face.reference.valid()&&
+                marker->sheet_from_body.child_bindings.empty()&&boundary.created.empty(),
+            "Empty conversion selected a source or generated sheet children");
+        const auto verify_empty=[&](const auto& calculated) {
+            check(!calculated.empty()&&calculated.back().calculation_errors.empty()&&
+                    calculated.back().mesh.triangles.empty(),
+                "Empty conversion did not hide preceding material");
+        };
+        verify_empty(boundary.calculated);
+        if(with_source)check(!boundary.document.find_container(source_id)->suppressed,
+            "Empty conversion suppressed the editable source definition");
+        if(with_source) {
+            const auto& faces=cache.back().mesh.original_references.triangle_references;
+            const auto face=std::ranges::find_if(faces,[](const auto& value) {
+                return value.surface&&value.surface->kind==kernel::SurfaceGeometry::Kind::Plane&&
+                    std::abs(value.surface->axis.z)>0.99;
+            });
+            check(face!=faces.end(),"Boundary edit fixture has no planar face");
+            auto populated=workspace::prepare_edited_sheet_from_body(boundary.document,
+                boundary.calculated,boundary.container_id,*face,1,kernel,true);
+            check(populated.container_id==boundary.container_id&&!populated.created.empty(),
+                "Editing the empty conversion lost its identity or failed to create children");
+            const auto children=populated.document.find_container(boundary.container_id)->
+                sheet_from_body.generated_features;
+            auto resized=workspace::prepare_edited_sheet_from_body(populated.document,
+                populated.calculated,boundary.container_id,*face,1.5,kernel,true);
+            check(resized.document.find_container(boundary.container_id)->sheet_from_body.
+                    generated_features==children,"Conversion Properties replaced stable child identities");
+            check(resized.calculated.back().calculation_errors.empty(),
+                "Conversion Properties failed to recalculate the changed thickness");
+            auto cleared=workspace::prepare_edited_sheet_from_body(resized.document,
+                resized.calculated,boundary.container_id,std::nullopt,1.5,kernel,true);
+            verify_empty(cleared.calculated);
+            for(const auto& child:children)check(!cleared.document.find_container(child),
+                "Clearing conversion Properties left a bound generated child");
+            check(cleared.document.find_container(source_id)&&
+                    !cleared.document.find_container(source_id)->suppressed,
+                "Conversion Properties damaged its preceding solid");
+        }
+        QTemporaryDir folder;check(folder.isValid(),"Empty conversion temporary folder failed");
+        const auto path=std::filesystem::path(folder.path().toStdString())/"boundary.prtz";
+        boundary.document.save(path,boundary.calculated);
+        auto reopened=document::PartDocument::load(path);
+        verify_empty(workspace::calculate_part_with_resolved_references(kernel,reopened));
+        workspace::Workspace live;const auto id=part.document_id;live.add_part(part,cache);
+        workspace::commit_part_document(live,id,boundary.document,boundary.calculated);
+        auto& session=live.open_part(id)->session;
+        for(int repeat=0;repeat<2;++repeat) {
+            check(session.undo()&&!session.document().find_container(boundary.container_id),
+                "Empty conversion Undo retained its marker");
+            if(with_source)check(!session.calculated_boundaries().back().mesh.triangles.empty(),
+                "Empty conversion Undo did not restore source material");
+            check(session.redo()&&session.document().find_container(boundary.container_id),
+                "Empty conversion Redo lost its marker");
+            verify_empty(session.calculated_boundaries());
+        }
+        workspace::delete_part_history(live,id,kernel,boundary.container_id);
+        check(!session.document().find_container(boundary.container_id),
+            "Empty conversion deletion retained its marker");
+        if(with_source) {
+            near(measured_volume(kernel,session.calculated_boundaries().back()),2400,.001);
+            check(session.undo(),"Empty conversion deletion has no Undo");
+            static_cast<void>(workspace::set_part_history_cursor(live,id,kernel,1));
+            check(!session.body_context_mesh().triangles.empty(),
+                "Rolling back before the empty conversion did not display the source");
+            static_cast<void>(workspace::set_part_history_cursor(live,id,kernel,2));
+            check(session.body_context_mesh().triangles.empty(),
+                "Returning past the empty conversion displayed source material");
+        }
+        auto next=test::rectangular_feature(boundary.document,{7,8,3});
+        boundary.document.insert_history_entry(document::PartHistoryKind::Feature,next.id);
+        boundary.document.history.push_back(next);
+        const auto next_cache=workspace::calculate_part_with_resolved_references(
+            kernel,boundary.document,&boundary.calculated);
+        near(measured_volume(kernel,next_cache.back()),168,.001);
+    }
+}
+
 void contract(bool include_oblique_corners = true) {
     kernel::OcctKernel kernel;
+    empty_conversion_contract(kernel);
     curved_partition_contract(kernel);
     rip_contract(kernel);
     rip_conversion_contract(kernel);
+    owned_rip_contract(kernel);
     line_bend_contract(kernel);
     {
         auto part=document::PartDocument::create_default();

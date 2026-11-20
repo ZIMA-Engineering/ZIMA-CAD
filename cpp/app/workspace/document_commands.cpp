@@ -18,7 +18,9 @@
 #include <zima/workspace/sheet_transition_operations.hpp>
 #include "../sheet_state_selection.hpp"
 #include "../sheet_from_body_dialog.hpp"
+#include <zima/document/sketch_placement.hpp>
 #include <zima/workspace/part_transactions.hpp>
+#include <zima/workspace/modeling_confirmation.hpp>
 #include <zima/workspace/solid_state_operations.hpp>
 #include "../solid_state_dialog.hpp"
 #include "../solid_state_selection.hpp"
@@ -26,28 +28,51 @@
 namespace zima::app {
 using namespace workspace_detail;
 
-void AssemblyWorkspaceWindow::show_sheet_from_body() {
+void AssemblyWorkspaceWindow::show_sheet_from_body(const std::string& container_id) {
     if(properties_dialog_)return;
     const auto document_id=workspace_.active_document_id();
     const auto* part=workspace_.open_part(document_id);if(!part)return;
     try {
+        const auto rollback=container_id.empty()?std::optional<document::HistoryRollbackBoundary>{}:
+            part_history_rollback_boundary(container_id);
+        if(!container_id.empty()&&!rollback)
+            throw std::invalid_argument("Regenerate the Part before editing this feature.");
         const auto& source=part->session.document();
+        const auto* stored=source.find_container(container_id);
+        auto initial=stored?std::optional{stored->sheet_from_body}:std::nullopt;
+        if(initial&&!initial->child_bindings.empty()&&
+                std::ranges::all_of(initial->child_bindings,[](const auto& child){return child.detached;})) {
+            initial->source_face={};initial->included_faces.clear();initial->rip_sketches.clear();
+        }
         const auto* target=source.body_history.find(source.body_history.active_body_id());
         if(!target||target->derived_copy)throw std::invalid_argument("Sheet from Body requires an editable active Body.");
         const auto path=resolve_active_occurrence(document_id);if(!path)throw std::invalid_argument("Activate the exact Part occurrence first.");
-        const auto geometry=workspace::construction_reference_source_geometry(part->session.calculated_boundaries());
+        auto geometry=workspace::construction_reference_source_geometry(part->session.calculated_boundaries());
+        const bool replaces_body=initial?initial->replaces_body:std::ranges::any_of(target->entries,[&](const auto& entry) {
+            const auto* feature=source.find_container(entry.id);
+            return feature&&feature->feature_kind!=document::FeatureKind::Sketch&&
+                !(feature->feature_kind==document::FeatureKind::Feature&&feature->feature.type==document::FeatureType::Sketch);
+        });
         std::set<std::pair<std::string,std::string>> current_faces;
         if(!part->session.calculated_boundaries().empty())
             for(const auto& [body,output]:part->session.calculated_boundaries().back().body_outputs)
                 if(output->calculation_errors.empty())for(const auto& face:output->mesh.triangle_references)
                     current_faces.emplace(face.owner_id,face.semantic_key);
+        if(rollback&&replaces_body) {
+            current_faces.clear();geometry={};
+            if(rollback->input_body) {
+                geometry=workspace::construction_reference_source_geometry({*rollback->input_body});
+                for(const auto& face:rollback->input_body->mesh.triangle_references)
+                    current_faces.emplace(face.owner_id,face.semantic_key);
+            }
+        }
         const auto& order=source.body_history.order();const auto target_position=std::ranges::find(order,target->scope.id);
         auto offered=std::make_shared<std::map<std::pair<std::string,std::string>,kernel::FaceReference>>();
         auto offered_root=std::make_shared<std::set<std::pair<std::string,std::string>>>();
         for(const auto& face:geometry.triangle_references) {
             const auto* owner=source.body_owner_for_object(face.owner_id);
             if(!owner||!owner->visible||!current_faces.contains({face.owner_id,face.semantic_key})||
-                    !(target->entries.empty()?std::ranges::find(order,owner->scope.id)<target_position:owner->scope.id==target->scope.id)||
+                    !(!replaces_body?std::ranges::find(order,owner->scope.id)<target_position:owner->scope.id==target->scope.id)||
                     !face.instance_path.empty()||!face.surface||
                     (face.surface->kind!=kernel::SurfaceGeometry::Kind::Plane&&
                      face.surface->kind!=kernel::SurfaceGeometry::Kind::Cylinder))continue;
@@ -55,7 +80,6 @@ void AssemblyWorkspaceWindow::show_sheet_from_body() {
             if(face.surface->kind==kernel::SurfaceGeometry::Kind::Plane)
                 offered_root->emplace(face.owner_id,face.semantic_key);
         }
-        if(offered_root->empty())throw std::invalid_argument("Show a calculated planar face in the active Body, or activate an empty Body after the source Body.");
         // A RIP input is one complete, independently editable ordinary Sketch.
         // Index both its displayed Sketch identity and its owning history
         // container, because the viewer packet may expose either identity.
@@ -73,7 +97,7 @@ void AssemblyWorkspaceWindow::show_sheet_from_body() {
             const auto* owner=source.body_owner_for_object(sketch.owner_container_id);
             if(sketch.suppressed||!feature||feature->suppressed||
                     !owner||!owner->visible||!has_ordinary_geometry(sketch)||
-                    !(target->entries.empty()?std::ranges::find(order,owner->scope.id)<target_position:
+                    !(!replaces_body?std::ranges::find(order,owner->scope.id)<target_position:
                         owner->scope.id==target->scope.id&&
                         std::ranges::find(target->entries,feature->id,&document::PartHistoryEntry::id)<
                             target->entries.begin()+static_cast<std::ptrdiff_t>(target->cursor)))continue;
@@ -81,25 +105,76 @@ void AssemblyWorkspaceWindow::show_sheet_from_body() {
             offered_rips->emplace(sketch.id,candidate);
             // A standalone Sketch row identifies its single Sketch. Other
             // feature rows may own several profiles: require the exact child.
-            if(feature->feature_kind==document::FeatureKind::Sketch)
+            if(feature->feature_kind==document::FeatureKind::Sketch||
+                    (feature->feature_kind==document::FeatureKind::Feature&&
+                     feature->feature.type==document::FeatureType::Sketch))
                 offered_rips->emplace(feature->id,candidate);
         }
+        const auto pending_marker=stored?*stored:document::PartDocument::create_sheet_from_body_container();
         auto* dialog=new SheetFromBodyDialog(document::sheet_metal_defaults(source).thickness_mm.value_or(1.),
-            [this,document_id](auto face,double thickness,
-                    bool thickness_override,auto included_faces,auto rip_sketches) {
+            [this,document_id,container_id,initial,pending_marker](auto face,double thickness,
+                    bool thickness_override,auto included_faces,auto rip_sketches,auto rip_drafts) {
                 auto* state=workspace_.open_part(document_id);if(!state)throw std::invalid_argument("Sheet from Body requires a calculated source body.");
+                auto staged=state->session.document();
+                const bool changed_rips=workspace::stage_sheet_from_body_rips(staged,container_id,rip_sketches,rip_drafts);
+                const auto same_face=[](const auto& first,const auto& second) {
+                    return first.owner_id==second.owner_id&&first.semantic_key==second.semantic_key&&
+                        first.instance_path==second.instance_path;
+                };
+                if(!changed_rips&&initial&&initial->thickness==thickness&&initial->thickness_override==thickness_override&&
+                        initial->rip_sketches==rip_sketches&&
+                        (face?same_face(*face,initial->source_face.reference):!initial->source_face.reference.valid())&&
+                        included_faces.size()==initial->included_faces.size()&&
+                        std::equal(included_faces.begin(),included_faces.end(),initial->included_faces.begin(),
+                            [&](const auto& value,const auto& binding){return same_face(value,binding.reference);}))return;
                 workspace::SheetBodyConversion result;
                 begin_status_operation(tr("Vytvářím plech z tělesa…"));
                 try {
-                    run_background_task([source=state->session.document(),cache=state->session.calculated_boundaries(),face,thickness,thickness_override,included_faces=std::move(included_faces),rip_sketches=std::move(rip_sketches),&result]{
-                        kernel::OcctKernel kernel;result=workspace::prepare_sheet_from_body(
-                            source,cache,face,thickness,kernel,
+                    try {run_background_task([source=staged,cache=state->session.calculated_boundaries(),container_id,face,thickness,thickness_override,included_faces,rip_sketches,&result]{
+                        kernel::OcctKernel kernel;
+                        if(!container_id.empty()) {
+                            result=workspace::prepare_edited_sheet_from_body(source,cache,container_id,
+                                face,thickness,kernel,thickness_override,std::move(included_faces),std::move(rip_sketches));
+                            return;
+                        }
+                        if(!face) {
+                            result=workspace::prepare_sheet_from_body_boundary(
+                                source,cache,thickness,kernel,thickness_override);
+                            return;
+                        }
+                        result=workspace::prepare_sheet_from_body(
+                            source,cache,*face,thickness,kernel,
                             thickness_override,std::move(included_faces),
                             std::move(rip_sketches));
-                    });
+                    });}catch(const std::exception& error) {
+                        auto* attempt=workspace::ModelingConfirmationAttempt::current();
+                        if(!face||!attempt||!attempt->applies(staged))throw;
+                        workspace::stage_unresolved_sheet_from_body(staged,pending_marker,*face,
+                            thickness,thickness_override,included_faces,rip_sketches);
+                        result.container_id=pending_marker.id;result.created.clear();result.skipped=0;
+                        const std::string message=error.what();
+                        workspace::PartCalculationPolicy policy;policy.reject_errors=false;
+                        result.calculated=attempt->calculate(staged,policy,[&](auto& candidate,const auto& recovery) {
+                            std::vector<kernel::BodyResult> calculated;
+                            run_background_task([&] {
+                                kernel::OcctKernel kernel;
+                                calculated=workspace::calculate_part_with_resolved_references(kernel,candidate,
+                                    &state->session.calculated_boundaries(),recovery);
+                            });
+                            if(calculated.empty())throw std::runtime_error(message);
+                            const auto* conversion=candidate.find_container(result.container_id);
+                            if(conversion&&(conversion->sheet_from_body.child_bindings.empty()||
+                                    std::ranges::any_of(conversion->sheet_from_body.child_bindings,[](const auto& binding) {
+                                        return !binding.detached&&!binding.references_valid;
+                                    })))
+                                calculated.back().calculation_errors[result.container_id]=message;
+                            return calculated;
+                        });
+                        result.document=std::move(staged);
+                    }
                     if(auto* conversion=result.document.find_container(
                             result.container_id))
-                        conversion->name=result.document.next_numbered_name(
+                        if(container_id.empty())conversion->name=result.document.next_numbered_name(
                             tr("Plech z tělesa").toStdString(),
                             conversion->id);
                     for(auto& feature:result.document.history)if(std::ranges::find(result.created,feature.id)!=result.created.end()) {
@@ -108,10 +183,39 @@ void AssemblyWorkspaceWindow::show_sheet_from_body() {
                         for(auto& sketch:result.document.sketches)if(sketch.owner_container_id==feature.id)sketch.name=feature.name;
                     }
                     workspace::commit_part_document(workspace_,document_id,std::move(result.document),std::move(result.calculated));
-                    finish_status_operation(tr("Vytvořeno prvků plechu: %1. Přeskočeno ploch: %2.").arg(result.created.size()).arg(result.skipped));
+                    if(workspace::confirmed_unresolved_modeling_definition(result.container_id))
+                        finish_status_operation(tr("Definition saved as unresolved."),false);
+                    else finish_status_operation(tr("Vytvořeno prvků plechu: %1. Přeskočeno ploch: %2.").arg(result.created.size()).arg(result.skipped));
                 }catch(...){finish_status_operation(tr("Převod tělesa na plech se nezdařil."),false);throw;}
             },this);
+        if(initial) {
+            dialog->rip_editor=*stored;
+            const auto resolved=[&](const kernel::FaceReference& face) {
+                const auto found=offered->find({face.owner_id,face.semantic_key});
+                return found==offered->end()?face:found->second;
+            };
+            std::vector<kernel::FaceReference> included;
+            for(const auto& binding:initial->included_faces)included.push_back(resolved(binding.reference));
+            std::vector<std::pair<std::string,QString>> rips;
+            for(const auto& id:initial->rip_sketches) {
+                const auto sketch=std::ranges::find(source.sketches,id,&sketcher::Sketch::id);
+                rips.emplace_back(id,sketch==source.sketches.end()?tr("Skica"):QString::fromStdString(sketch->name));
+                if(sketch!=source.sketches.end())if(const auto* feature=source.find_container(sketch->owner_container_id))
+                    if(feature->feature_kind==document::FeatureKind::Feature&&feature->feature.type==document::FeatureType::Sketch)
+                        dialog->rip_editor.general_surface.boundaries.push_back({sketch->serialized(),std::nullopt,*feature,dialog->rip_editor.id});
+            }
+            dialog->initialize(initial->source_face.reference.valid()?std::optional{resolved(initial->source_face.reference)}:
+                std::nullopt,initial->thickness,initial->thickness_override,included,rips);
+        }
+        // RIPs are ordinary Body-local Sketch definitions in calculation
+        // order. Their editor's parent datum is the Body, never the later
+        // conversion marker (which would create a forward reference).
+        dialog->rip_editor.id=target->scope.id;
+        dialog->rip_editor.feature_id=target->scope.id;
+        dialog->rip_editor.container_origin=target->origin();
+        dialog->rip_editor.placement={};
         properties_dialog_=dialog;properties_dialog_instance_path_=*path;track_tree_edit(dialog);
+        if(rollback)part_rollback_=PartRollbackContext{document_id,*path,rollback->history_index,rollback->input_body};
         const auto candidate_face=[this,offered,offered_root,dialog,document_id,path=*path](const viewer::ViewerCandidate& candidate)->std::optional<kernel::FaceReference> {
             if(candidate.kind!=viewer::CandidateKind::Face||candidate.instance_path!=path)return {};
             const auto key=std::pair{candidate.owner_id,candidate.semantic_key};
@@ -136,6 +240,7 @@ void AssemblyWorkspaceWindow::show_sheet_from_body() {
             return source_body&&source_body->scope.id==std::get<2>(found->second)?std::optional{found->second}:std::nullopt;
         };
         dialog->changed=[this,dialog,candidate_face,candidate_rip,document_id,path=*path] {
+            if(!dialog->isVisible())return;
             viewer_->set_original_face_selection(dialog->face_entry());
             viewer_->set_selection_contract(dialog->face_entry()?std::vector<viewer::CandidateKind>{viewer::CandidateKind::Face}:
                 dialog->rip_entry()?std::vector<viewer::CandidateKind>{viewer::CandidateKind::SketchSegment,viewer::CandidateKind::SketchCurve,viewer::CandidateKind::Container}:
@@ -151,6 +256,20 @@ void AssemblyWorkspaceWindow::show_sheet_from_body() {
                 if(sketch!=state->session.document().sketches.end())rip_owners.insert(sketch->owner_container_id);
             }
             viewer_->set_constraint_reference_highlights(std::move(rip_owners),std::move(highlights));
+            auto draft=dialog->rip_editor;
+            const auto inspected=dialog->inspected_rips();
+            std::erase_if(draft.general_surface.boundaries,[&](const auto& value) {
+                return !value.sketch_feature||std::ranges::find(inspected,value.sketch_feature->feature.sketch_id)==inspected.end();
+            });
+            auto preview=document::general_surface_definition_mesh(draft);
+            if(const auto* part=workspace_.open_part(document_id))
+                preview=part->session.document().place_body_mesh(std::move(preview),part->session.document().body_history.active_body_id());
+            for(auto& edge:preview.edges) {
+                edge.reference.instance_path=path;
+                if(!path.empty())for(auto& point:edge.points)point=workspace_.occurrence_point_to_scene(
+                    workspace_.displayed_document_id(),assembly::InstancePath::decode(path),point);
+            }
+            viewer_->set_transient_edges(std::move(preview.edges));
             tree_->setProperty("commandSelectionActive",dialog->active());
         };
         feature_reference_pick_=[this,dialog,candidate_face,candidate_rip,document_id](const auto& candidate) {
@@ -167,10 +286,63 @@ void AssemblyWorkspaceWindow::show_sheet_from_body() {
             viewer_->clear_selection();
         };
         feature_reference_end_=[dialog]{dialog->end_entry();};
+        dialog->edit_rip=[this,dialog,document_id,geometry](int row) {
+            try {
+            if(!dialog->selected()){state_->setText(tr("Select a calculated planar source face."));return;}
+            auto& drafts=dialog->rip_editor.general_surface.boundaries;
+            const auto id=dialog->rip_id(row);
+            auto found=std::ranges::find_if(drafts,[&](const auto& draft) {
+                return draft.sketch_feature&&draft.sketch_feature->feature.sketch_id==id;
+            });
+            const bool created=found==drafts.end();
+            if(found==drafts.end()) {
+                auto draft=document::create_general_surface_sketch(dialog->rip_editor);
+                auto& feature=*draft.sketch_feature;
+                feature.name=tr("RIP Sketch %1").arg(drafts.size()+1).toStdString();
+                auto sketch=sketcher::Sketch::from_serialized(draft.sketch_serialized);
+                sketch.name=feature.name;sketch.plane_auto=true;
+                const auto& face=*dialog->selected();
+                document::ConstructionReference reference{{},face.owner_id,face.semantic_key,0.,true};
+                document::prepare_profile_plane_reference(0,reference,{});
+                feature.placement.references={reference};
+                draft.sketch_serialized=sketch.serialized();
+                const auto* part=workspace_.open_part(document_id);if(!part)return;
+                auto local=sketcher::Sketch::create_default();local.owner_container_id=part->session.document().body_history.active_body_id();
+                document::resolve_general_surface_sketch(draft,
+                    part->session.document().sketch_reference_geometry_for(local,geometry));
+                const auto label=QString::fromStdString(feature.name);
+                drafts.push_back(std::move(draft));found=std::prev(drafts.end());
+                dialog->assign_rip(row,sketch.id,label);
+            }
+            const auto stage=static_cast<unsigned>(found-drafts.begin());
+            const auto pick=feature_reference_pick_;const auto end=feature_reference_end_;
+            if(const auto* part=workspace_.open_part(document_id)) {
+                auto local=sketcher::Sketch::create_default();local.owner_container_id=part->session.document().body_history.active_body_id();
+                primitive_reference_geometry_=part->session.document().sketch_reference_geometry_for(local,geometry);
+            }
+            QPointer<SheetFromBodyDialog> guard(dialog);
+            const auto draft_id=found->sketch_feature->feature.sketch_id;
+            show_owned_sketch_properties(dialog,dialog->rip_editor,stage,
+                [guard]{if(guard)guard->refresh_rip_drafts();},
+                [this,guard,pick,end,created,draft_id,row]{if(guard){
+                    auto& drafts=guard->rip_editor.general_surface.boundaries;
+                    const auto draft=std::ranges::find_if(drafts,[&](const auto& value) {
+                        return value.sketch_feature&&value.sketch_feature->feature.sketch_id==draft_id;
+                    });
+                    if(created&&draft!=drafts.end()) {
+                        const auto sketch=sketcher::Sketch::from_serialized(draft->sketch_serialized);
+                        if(sketch.points.empty()) {drafts.erase(draft);guard->assign_rip(row,{},{});}
+                    }
+                    feature_reference_pick_=pick;feature_reference_end_=end;guard->changed();
+                }});
+            }catch(const std::exception& error){dialog->show_submission_error(tr(error.what()));}
+        };
         connect(dialog,&QDialog::finished,this,[this,dialog] {
             dialog->changed={};feature_reference_pick_={};feature_reference_end_={};properties_dialog_=nullptr;properties_dialog_instance_path_.clear();
+            part_rollback_.reset();
             viewer_->set_candidate_filter({});viewer_->set_selection_contract({});viewer_->set_original_face_selection(false);
             viewer_->set_constraint_reference_highlights({},{});viewer_->clear_selection();tree_->setProperty("commandSelectionActive",false);
+            viewer_->set_transient_edges({});
             preserve_view_on_refresh_=true;refresh_tabs();refresh_scene();
         });
         preserve_view_on_refresh_=true;refresh_scene();dialog->show();dialog->changed();

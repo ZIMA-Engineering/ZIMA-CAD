@@ -471,5 +471,39 @@ void repeated_source() {
     require(document::assign_placement_reference({position,orientation,locks},true,0,first).error==Error::None,"Replacement of own row failed");
     require(orientation[1].owner_id.empty(),"Replacing a position reference with itself duplicated its automatic FRONT into TOP");
 }
+void orientation_poles() {
+    for(bool front:{false,true})for(double sign:{-1.,1.})for(double manual:{0.,17.,-32.})
+    for(double correction:{0.,11.})for(double a:{-1e-15,1e-15})for(double b:{-1e-15,1e-15}) {
+        const auto resolve=[&](bool rounded) {
+            document::Placement placement;placement.absolute_rotation_y=front?manual:0.;
+            placement.absolute_rotation_z=front?0.:manual;placement.rotation_offset_x=correction;
+            auto ref=plane("pole");ref.orientation_drives_rotation=true;ref.orientation_role=front?"front":"top";
+            placement.references={ref};kernel::ViewerReferenceGeometry geometry;
+            auto surface=std::make_shared<kernel::SurfaceGeometry>();surface->kind=kernel::SurfaceGeometry::Kind::Plane;
+            surface->axis=front?kernel::Vec3{rounded?a:0.,rounded?b:0.,sign}:kernel::Vec3{rounded?a:0.,sign,rounded?b:0.};
+            geometry.triangle_references.push_back({ref.owner_id,ref.semantic_key,{},surface});
+            require(document::resolve_placement(placement,geometry),"Polar reference did not resolve");
+            require(document::orientation_constraint_state(placement.references,geometry,true).remaining_dof==1,"Polar reference consumed the free rotation");
+            const auto stored=nlohmann::json(placement).dump();
+            auto reopened=nlohmann::json::parse(stored).get<document::Placement>();
+            require(reopened==placement,"Polar placement round trip changed its authored values");
+            for(int repeat=0;repeat<3;++repeat) {
+                require(document::resolve_placement(reopened,geometry),"Reopened polar placement did not resolve");
+                near(reopened.rotation_x,placement.rotation_x,"Polar RX drifted after regeneration");
+                near(reopened.rotation_y,placement.rotation_y,"Polar RY drifted after regeneration");
+                near(reopened.rotation_z,placement.rotation_z,"Polar RZ drifted after regeneration");
+            }
+            return placement;
+        };
+        const auto exact=resolve(false),rounded=resolve(true);
+        const auto matrix=[](const auto& p) {
+            const double k=std::acos(-1.)/180.;
+            const double cx=std::cos(p.rotation_x*k),sx=std::sin(p.rotation_x*k),cy=std::cos(p.rotation_y*k),sy=std::sin(p.rotation_y*k),cz=std::cos(p.rotation_z*k),sz=std::sin(p.rotation_z*k);
+            return std::array{cz*cy,cz*sy*sx-sz*cx,cz*sy*cx+sz*sx,sz*cy,sz*sy*sx+cz*cx,sz*sy*cx-cz*sx,-sy,cy*sx,cy*cx};
+        };
+        const auto ideal=matrix(exact),actual=matrix(rounded);
+        for(std::size_t i=0;i<ideal.size();++i)near(actual[i],ideal[i],"Near-polar reference introduced arbitrary twist");
+    }
 }
-int main(int argc,char** argv){QApplication app(argc,argv);try{model();widget();position_orientation_column();repeated_source();removal_model();removal_widget();final_removal_preserves_frame();mesh_capture();analytic_curved_capture();planar_face_capture();std::cout<<"Placement reference rows, exact occurrences, locks, orientation and GUI adapter passed\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}
+}
+int main(int argc,char** argv){QApplication app(argc,argv);try{orientation_poles();model();widget();position_orientation_column();repeated_source();removal_model();removal_widget();final_removal_preserves_frame();mesh_capture();analytic_curved_capture();planar_face_capture();std::cout<<"Placement reference rows, exact occurrences, locks, orientation and GUI adapter passed\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

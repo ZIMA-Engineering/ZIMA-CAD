@@ -1,5 +1,7 @@
 #include "workspace_internal.hpp"
 #include <zima/document/sketch_placement.hpp>
+#include <zima/document/sheet_from_body.hpp>
+#include "../sheet_from_body_dialog.hpp"
 #include <zima/workspace/symbol_operations.hpp>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -41,6 +43,13 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
         [&](const auto& sketch) { return sketch.id == sketch_id; });
     const bool edit_mode = found != sketches.end();
     if (!sketch_id.empty() && !edit_mode) return;
+    if(part)if(const auto* parent=document::sheet_from_body_rip_owner(part->session.document(),sketch_id)) {
+        const auto row=static_cast<int>(std::ranges::find(parent->sheet_from_body.rip_sketches,sketch_id)-
+            parent->sheet_from_body.rip_sketches.begin());
+        show_sheet_from_body(parent->id);
+        if(auto* dialog=dynamic_cast<SheetFromBodyDialog*>(properties_dialog_);dialog&&dialog->edit_rip)dialog->edit_rip(row);
+        return;
+    }
     if(edit_mode && !holes_mode && !bend_mode && !flat_mode &&
        !sheet_profile_mode && !line_bend_mode && !planar_surface_mode) {
         const auto* owner=part ? part->session.document().find_container(found->owner_container_id)

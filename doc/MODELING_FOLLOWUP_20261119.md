@@ -1,11 +1,16 @@
 # Modeling follow-up agreed on 2026-11-19
 
-Status: implementation completed for Windows build 2026111905. The current
+Current status: the additional owned RIP, Sketch Fillet, cylindrical Up To and
+placement repairs are in the 2026112001 working batch, with publication pending
+its final acceptance gates. See the [current verification record](verification/20261120-owned-rip-and-sketch-fillet.md).
+Sheet Transition remains subsequent work; Projection and FEM remain design work.
+
+The preceding implementation completed for Windows build 2026111905. Its
 [verification matrix and explicit limits](verification/20261119-modeling-completion.md)
 supersede the earlier partial status below. Windows 2026111906 is published;
 committed-source packaging, signing and anonymous public download checks passed.
 The release record contains the exact artifact identities and verification.
-The final publication build is 2026111906; it additionally builds the new Bend
+That publication build is 2026111906; it additionally builds the new Bend
 end-constraint test in both platform packagers and requires its registration.
 
 The user authorized finishing the entire list, commit, push and a Windows GitHub
@@ -17,6 +22,157 @@ in the [split-boundary verification record](verification/20261119-sheet-rip-and-
 and [Windows 2026111907 release record](releases/2026111907.md).
 
 ## Completion checklist
+
+The agreed sequence on 2026-11-20 is to verify the current repairs and publish
+their Windows binary first, then finish the outstanding Sheet Transition work
+before starting the subsequent Projection/FEM features.
+
+### Subsequent FEM and surface-modeling design (2026-11-20)
+
+The user agreed that distributed loads belong to CAD curves or surface regions,
+independently of mesh node numbering. Meshing or remeshing must derive their
+element contributions again. This is follow-up design, not an implemented FEM
+capability or an additional acceptance claim for the repairs below.
+
+- Project ordinary Sketch geometry onto selected existing surfaces. The three
+  agreed output modes are Sketch (on-surface curves), Split (partition the
+  existing faces without changing material), and Surface (extract an enclosed
+  surface patch as an independent surface element).
+  On curved support surfaces the projected output is generally a spatial curve,
+  while its input remains an ordinary editable planar Sketch.
+  Closed contours can bound interior regions;
+  open contours must actually separate a region using existing boundaries.
+  Resolve multiple intersections and the chosen material side explicitly in
+  the preview, including periodic surfaces and connected face sets.
+- The agreed UI home is a Projection type in the shared Feature command,
+  consuming its existing Sketch, placement, Properties and preview lifecycle.
+  Its agreed Czech name is `Promítnutí`, English `Projection`; the Tree uses
+  the ordinary numbered feature name, for example `Promítnutí 01`.
+  FEM load authoring remains a separate analysis command referencing the result.
+  Projection uses one direction, initially the Sketch normal, with reversal
+  and an explicit direction reference. Multiple selected target faces form a
+  shared Up-to target; use the first positive hit per projection ray and show
+  missing or ambiguous portions in the preview. Thickness belongs to downstream
+  shell properties or a separate surface-thickening operation; Projection has
+  no Thin output. Rotational wrapping is a distinct future mapping,
+  not an additional ordinary projection branch. Implementation and any required
+  native contract extension still need their normal scoped review.
+- The ordinary View shows the projected result on its targets. Double-click
+  inspection additionally exposes the original input Sketch in its own plane
+  and its existing dimensions. Dimension double-click uses the established
+  value editor; confirmed changes propagate through Projection and its
+  dependents. Inspection alone neither calculates geometry nor changes the
+  document or Undo history. Reuse the shared View/Tree inspection and authored
+  preview paths, preserving the distinction between the source Sketch and its
+  projected geometry.
+- Projection Properties shows both the original Sketch and the projected
+  preview simultaneously, visually distinguishing input from derived output.
+  Changes to the source Sketch, direction or targets update the pending preview;
+  OK commits and Cancel restores the original state. These are two visible
+  geometric representations, not two independently editable source Sketches.
+- Distinguish total force, force per unit length and traction/pressure per unit
+  area. Distinguish a fixed vector direction from pressure following the local
+  surface normal. Use consistent equivalent element/nodal loads based on the
+  element interpolation and integration over the loaded portion, including
+  higher-order nodes and applicable rotational degrees of freedom. Do not
+  divide a force equally among selected nodes or attach it to nearest nodes.
+- Check the resultant force, moment and equivalent work, appropriate contact
+  benchmarks and mesh convergence. A prescribed pressure patch is a different
+  analysis input from a contact pair whose active contact area and pressure
+  emerge from the solution. Do not impose an elliptical contact patch merely
+  because a pin and bushing were selected.
+- Keep geometric and analysis references stable through edits and remeshing.
+  Report lost or ambiguous regions as broken dependencies instead of assigning
+  loads to another region. Different analysis cases may reuse the same region
+  with different load definitions.
+- A skeleton carrying a support surface can define aircraft skin panels by
+  projected boundaries and extracted patches. A wire-only skeleton first needs
+  a constructed support surface. A shell surface can have double curvature;
+  it is not automatically a developable sheet-metal part.
+- The FEM design also includes frame models whose centerlines are ordinary
+  Sketch curves or 3D curves. Assign material, cross-section and section
+  orientation independently from the centerline. Distinguish beam members
+  carrying axial, shear, bending and torsional resultants from axial-only
+  truss members. The user expects spatially coincident points to become one
+  FEM node within a small geometric tolerance. Frame joints default to rigid
+  connections, with explicit hinges or individual rotational releases available.
+  Screen-space crossings at different 3D positions do not connect. Reuse the
+  geometric load-reference model across beam, shell and solid analyses, with
+  the appropriate dimensional units and integration for each element type.
+
+Technical references: [OCCT projection](https://www.occt3d.com/dev/doc/refman/html/class_b_rep_proj___projection.html),
+[OCCT shape splitting](https://www.occt3d.com/dev/doc/overview/html/occt_user_guides__modeling_algos.html),
+[consistent equivalent loads](https://www.lusas.com/user_area/theory/equivalent_force_distribution.html),
+and [contact formulations](https://www.feacluster.com/CalculiX/ccx_2.18/doc/ccx/node139.html).
+
+### Additional requirements agreed on 2026-11-20
+
+The repairs below are implemented in the 2026112001 working batch. Their
+[finite verification matrix and remaining publication gates](verification/20261120-owned-rip-and-sketch-fillet.md)
+supersede the earlier investigation status in this section. The user explicitly
+approved the narrow shared pole-orientation correction before implementation.
+
+- Deleting an arc/curve with virtual rounding, including a complete selected
+  chain, reports `Sketch geometry does not exist`. The native removal count
+  incorrectly counts dependent rounding as another directly selected object
+  for non-segment supports. Verify individual/batch deletion, Undo/Redo and
+  preservation of remaining contacts and dimensions.
+- Sequentially referencing three datum planes for Extrusion 07 in `26.prtz`
+  leaves RX=-90 degrees, RY=45 degrees, zero corrections and one rotational
+  degree of freedom. The user confirmed separate plane picks, not whole-Origin
+  entry. Investigate preservation of the unconstrained orientation before
+  deciding whether the protected shared placement contract needs a change.
+- Inspect the last Extrusion in `26.prtz`: the user reports that an Up-to
+  cylindrical face is not supported. Reproduce selection and exact termination
+  independently on a private copy, and verify applicable forward/reverse and
+  two-sided variants before accepting a repair.
+- Replace the Sketcher Curve fillet interaction with one internal Properties
+  window: radius at the top, two shared curve-reference fields below. Accept
+  two preselected curves or start with empty fields. Show a transient exact
+  fillet preview after both references are present, update it with the radius,
+  and commit only on OK in one Undo step. Cancel preserves the original Sketch.
+  Use `Zaoblení` / `Fillet` with all five translations and a purple quarter-arc
+  icon with white endpoint dots. Verify the mandatory Sketcher edit/drag matrix.
+
+These requirements supersede the earlier through-solid RIP interpretation. They
+are not covered by the 2026111907 completion or release claims.
+
+- Sheet from Body must expose ordinary context-menu Properties, using its
+  creation dialog for editing the existing feature. Opening displays the real
+  input boundary; unchanged OK does not calculate or add Undo, and Cancel
+  restores the unchanged document and full-history presentation.
+- Confirming with no selections creates only the existing non-geometric
+  replacement boundary in the active Body. It hides preceding solid material
+  without generating Flats/Bends or choosing a source face implicitly. This
+  must survive save/reopen, regeneration, rollback, deletion and Undo/Redo.
+- RIP entry creates/edits Sketches owned by Sheet from Body. Their ordinary
+  exact curves act as local face edges for sheet-branch traversal from the
+  Bend's material side, rather than cutters projected through the entire solid.
+  Support arbitrary native curve types and multiple curves sharing a real
+  endpoint, including starts at a Fillet end; exclude construction geometry.
+  Preserve all material regions and independently defined sheet branches.
+- Releasing the complete conversion leaves its RIP inputs as ordinary editable
+  standalone Sketches, retaining geometry, dimensions and constraints without
+  continuing to drive the released Flats/Bends. Do not silently delete them or
+  introduce a standalone RIP modeling operation. Releasing an individual RIP
+  requires releasing the conversion; removing it from conversion Properties
+  instead requests recalculation without that RIP.
+- Reproduce and repair the blank Sketcher/context after conversion creation,
+  deletion and entering Sketch Properties. Include the reported transient
+  Sketch deletion failure repaired by Undo, Save and a repeated deletion.
+- The private 25.prtz diagnostic confirms a valid nonzero user line; conversion
+  encounters a generated boundary edge with two identical sampled points.
+  The user also reported lost sheet regions and a second OK that leaves the
+  failed command open. These remain verification gates, not user input errors.
+
+Investigations use isolated private copies. On 2026-11-20 the user explicitly
+approved extending the native Sheet-from-Body definition with owned RIP
+Sketches, including template/factory verification and verification on copies
+of ZE0176-TOYOTA-G92K1X. Eleven native project files were copied and SHA-256
+verified before the extension; the local backup manifest is
+`build/rip25-20261120/protected-native-backup/manifest.json`. Original project
+files must remain untouched. This approval does not establish compatibility
+with the project's previously unsupported legacy documents.
 
 - Cached complete Fillet routes, symmetric/two-sided current face picking and
   exact curved Sheet-from-Body continuation partitions are implemented.

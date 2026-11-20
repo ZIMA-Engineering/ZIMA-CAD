@@ -342,6 +342,48 @@ void collapsed_rounded_thin(const kernel::OcctKernel& kernel) {
     std::cout<<"Exact-radius Thin corner collapse: both windings and directions, Extrusion/Sweep volume, stable identities, continued valid offset and inradius rejection passed\n";
 }
 
+void split_cylinder_limits(const kernel::OcctKernel& kernel) {
+    for(int mode=0;mode<3;++mode)for(double radius:{10.,12.})for(double side:{-1.,1.}) {
+        auto part=document::PartDocument::create_default();
+        auto sketch=sketcher::Sketch::create_default();sketch.plane_auto=false;static_cast<void>(sketch.add_circle(0,0,radius));
+        auto source=document::PartDocument::create_feature_container(sketch.id);sketch.owner_container_id=source.id;
+        source.feature.symmetric=mode==1;source.feature.sides[0].length=20;
+        if(mode==2){source.feature.sides[1].operation=document::FeatureSideOperation::Extrusion;source.feature.sides[1].length=30;}
+        part.history={source};part.sketches={sketch};
+        document::BodyHistoryGraph graph;static_cast<void>(graph.create_body("Cylinder"));
+        graph.insert({document::PartHistoryKind::Feature,source.id});part.set_body_history(graph);part.resolve_constructions();
+        auto operations=part.kernel_operations();const auto stock=kernel.evaluate_history(operations).back();
+        const auto& packet=stock.mesh.original_references;
+        kernel::FaceReference target;
+        for(std::size_t i=0;i<packet.triangle_references.size();++i) {
+            const auto& face=packet.triangle_references[i];
+            if(face.surface&&face.surface->kind==kernel::SurfaceGeometry::Kind::Cylinder){target=face;break;}
+        }
+        check(target.valid(),"Split cylinder fixture has no requested half");
+        kernel::ExtrusionRequest request;request.outer_profile=kernel::ExtrusionRequest::PolygonProfile{
+            {{-2,side*20,-5},{2,side*20,-5},{2,side*20,5},{-2,side*20,5}}};
+        request.direction={0,-side*20,0};request.extent=kernel::ExtrusionRequest::Extent::UpToSurface;
+        request.target_face=target;request.target_is_datum=false;
+        request.profile_region_id="cross-seam";request.outer_boundary_id="rim";
+        request.outer_edge_source_ids={"a","b","c","d"};request.outer_vertex_source_ids={"p","q","r","s"};
+        // Keep the actual selected half's display packet: the exact supporting
+        // surface, rather than these triangles, must determine both ends.
+        for(std::size_t i=0;i<packet.triangle_references.size();++i)if(packet.triangle_references[i]==target)
+            for(std::size_t j=0;j<3;++j)request.target_surface_triangles.push_back(packet.vertices[packet.triangles[i*3+j]]);
+        const auto z=std::ranges::minmax(request.target_surface_triangles,{},&kernel::Vec3::z);
+        check(z.min.z>=-1e-8||z.max.z<=1e-8,"Cylinder fixture does not exercise a one-sided trimmed support");
+        kernel::HistoryOperation dependent{"cross-seam",request,kernel::BooleanOperation::Add};dependent.body.id="dependent";
+        operations.push_back(dependent);
+        const auto result=kernel.evaluate_history(operations).back();
+        const double integral=2*std::sqrt(radius*radius-4)+radius*radius*std::asin(2/radius);
+        near(result.volume,stock.volume+10*(80-integral));
+        check(result.calculation_errors.empty(),"Extrusion across the cylinder split failed");
+        const auto repeated=kernel.evaluate_history(operations).back();
+        near(repeated.volume,result.volume);check(faces(repeated)==faces(result),"Cylinder limit changed face identities");
+    }
+    std::cout<<"Cylinder limits: one-sided, symmetric and unequal two-sided source; both contact sides, radius edits, analytical volume and stable identities passed\n";
+}
+
 void supplied_extrusion(const kernel::OcctKernel& kernel,const char* source) {
     const auto part=document::PartDocument::load(std::filesystem::u8path(source));
     const auto unchanged=part.serialized();
@@ -361,4 +403,4 @@ void supplied_extrusion(const kernel::OcctKernel& kernel,const char* source) {
 }
 
 }
-int main(int argc,char**){try{kernel::OcctKernel kernel;if(const auto* source=std::getenv("ZIMA_VERIFY_EXTRUSION_FILE")){supplied_extrusion(kernel,source);return 0;}if(argc>1){zero_corner_limits(kernel);return 0;}mirrored_rounded_thin(kernel);collapsed_rounded_thin(kernel);limits(kernel);cuts(kernel);native_limits(kernel);coarse_target_classification();original_body_targets(kernel);curved_body_target(kernel);zero_corner_limits(kernel);std::cout<<"Independent extrusion limits, inclined planes, Thin, identity and cache passed\n";return 0;}catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}}
+int main(int argc,char**){try{kernel::OcctKernel kernel;if(const auto* source=std::getenv("ZIMA_VERIFY_EXTRUSION_FILE")){supplied_extrusion(kernel,source);return 0;}if(argc>1){zero_corner_limits(kernel);return 0;}split_cylinder_limits(kernel);mirrored_rounded_thin(kernel);collapsed_rounded_thin(kernel);limits(kernel);cuts(kernel);native_limits(kernel);coarse_target_classification();original_body_targets(kernel);curved_body_target(kernel);zero_corner_limits(kernel);std::cout<<"Independent extrusion limits, inclined planes, Thin, identity and cache passed\n";return 0;}catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}}

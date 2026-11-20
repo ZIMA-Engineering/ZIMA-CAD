@@ -5,6 +5,7 @@
 #include "../surface_trim_dialog.hpp"
 #include "workspace_internal.hpp"
 #include <zima/document/sheet_profile.hpp>
+#include <zima/document/sheet_from_body.hpp>
 #include "../sketch_external_reference_selection.hpp"
 #include "../symbol_labels.hpp"
 #include <zima/workspace/symbol_operations.hpp>
@@ -924,6 +925,13 @@ void AssemblyWorkspaceWindow::add_part_tree_children(
             continue;
         auto* conversion_row=find_history_row(conversion.id);
         if(!conversion_row)continue;
+        for(const auto& id:conversion.sheet_from_body.rip_sketches) {
+            if(document::sheet_from_body_rip_owner(document,id)!=&conversion)continue;
+            const auto sketch=std::ranges::find(document.sketches,id,&sketcher::Sketch::id);
+            auto* row=sketch==document.sketches.end()?nullptr:find_history_row(sketch->owner_container_id);
+            if(!row||!row->parent())continue;
+            row->parent()->takeChild(row->parent()->indexOfChild(row));conversion_row->addChild(row);
+        }
         for(const auto& id:conversion.sheet_from_body.generated_features) {
             const auto binding=std::ranges::find(
                 conversion.sheet_from_body.child_bindings,id,

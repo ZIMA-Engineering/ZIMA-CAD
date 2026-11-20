@@ -51,7 +51,7 @@ class QTreeWidgetItem;
 class QStackedWidget;
 class QSplitter;
 
-namespace zima::ui { class ContainerPlacementSection; class OperationActivity; }
+namespace zima::ui { class ContainerPlacementSection; class OperationActivity; class PropertiesSubWindow; }
 
 namespace zima::viewer { class MeshView; struct ViewerCandidate; }
 
@@ -91,7 +91,7 @@ public:
     void offer_system_setup();
     void show_tree_item_properties(QTreeWidgetItem* item);
     void export_sheet_dxf();
-    void show_sheet_from_body();
+    void show_sheet_from_body(const std::string& container_id={});
     [[nodiscard]] QString dimension_identifier(const std::string& owner, const std::string& key) const;
     std::optional<bool> parameter_value_locked(const std::string& owner,const std::string& key);
     void toggle_parameter_value_lock(const std::string& owner,const std::string& key);
@@ -915,6 +915,8 @@ private:
     void show_general_surface_curve_properties(GeneralSurfaceDialog*,unsigned);
     void show_general_surface_sketch_properties(GeneralSurfaceDialog*,unsigned);
     void show_owned_sketch_properties(SweepPlacementDialog*,unsigned);
+    void show_owned_sketch_properties(ui::PropertiesSubWindow*,document::HistoryContainer&,
+        unsigned,std::function<void()>,std::function<void()>);
     void show_loft_properties(const std::string& container_id = {});
     void show_helical_sweep_properties(const std::string& container_id = {});
     void show_sweep3d_properties(const std::string& container_id = {}, bool start_as_curve = false);

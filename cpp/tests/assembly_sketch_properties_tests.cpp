@@ -2,6 +2,7 @@
 #include <zima/workspace/sketch_properties.hpp>
 #include <zima/workspace/assembly_scene.hpp>
 #include <zima/workspace/placement_edit.hpp>
+#include <zima/document/viewer_packet_json.hpp>
 #include <iostream>
 #include <numbers>
 using namespace assembly_profile_test;
@@ -13,14 +14,15 @@ void standalone(const kernel::OcctKernel& kernel,const fs::path& directory) {
     const auto owner=current().owner_container_id;
     const auto feature=[&]() {return *f.doc().find_sketch_container(owner);};
     const auto original=feature();
-    const auto components=f.doc().components;
+    auto components=f.doc().components;
     const auto source_revision=f.live.open_part(f.source)->session.revision();
     const auto check_components=[&]() {
         require(f.doc().components.size()==components.size()&&f.doc().cuts.empty(),"Sketch changed Assembly structure");
         for(const auto& before:components) {
             const auto* after=f.doc().find_occurrence(before.occurrence_id);
-            require(after->placement==before.placement&&after->calculated_source.shares_with(before.calculated_source),
-                "Sketch Properties recalculated or moved a component");
+            require(after->placement==before.placement,"Sketch Properties moved a component");
+            require(after->calculated_source.shares_with(before.calculated_source),
+                "Sketch Properties replaced a component snapshot");
         }
         require(f.live.open_part(f.source)->session.revision()==source_revision,"Sketch Properties modified the source Part");
     };
@@ -48,6 +50,16 @@ void standalone(const kernel::OcctKernel& kernel,const fs::path& directory) {
     bool rejected=false;try{invalid.save(directory/"invalid-owner.asmz");}catch(const std::exception&){rejected=true;}
     require(rejected,"Native save accepted a Sketch without an owner");
     f.run("save");
+    // Save publishes current source analysis through an isolated snapshot.
+    // It may replace the wrapper, but must retain the exact calculated data.
+    for(const auto& before:components) {
+        const auto* after=f.doc().find_occurrence(before.occurrence_id);
+        require(after->placement==before.placement&&
+            document::serialize_body_result(after->calculated_source.get())==
+                document::serialize_body_result(before.calculated_source.get()),
+            "Save changed component geometry during Sketch Properties verification");
+    }
+    components=f.doc().components;
     const auto reopened=assembly::AssemblyDocument::load(directory/"assembly-sketch-properties.asmz");
     require(reopened.sketch_containers==f.doc().sketch_containers&&reopened.sketches.front().serialized()==current().serialized(),
         "Native Assembly lost Sketch frame, owner, or placement");
@@ -168,7 +180,7 @@ void conversion(const kernel::OcctKernel& kernel,const fs::path& directory,bool 
     catch(const workspace::ProfileOperationError&){rejected=true;}
     require(rejected&&f.state().session.revision()==revision&&f.doc().find_sketch_container(owner.id),"Domain accepted addition or changed rejected Sketch");
     auto parameters=proposed.feature;parameters.sides[0].length=2;
-    auto values=document::serialize_feature_parameters(parameters);values.erase("sketch_id");
+    auto values=zima::test::public_feature_parameters(parameters);values.erase("sketch_id");
     Json args={{"sketch",sketch},{"targets",{f.first}},{"parameters",values}};
     const std::string command="feature.create";
     require(f.run(command.c_str(),args).at("container")==owner.id,"Conversion replaced owning container");

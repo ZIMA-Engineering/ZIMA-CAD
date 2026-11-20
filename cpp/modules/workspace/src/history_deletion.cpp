@@ -1,4 +1,5 @@
 #include <zima/workspace/history_deletion.hpp>
+#include <zima/document/sheet_from_body.hpp>
 #include <zima/workspace/history_policy.hpp>
 #include <zima/workspace/sketch_operations.hpp>
 #include <zima/workspace/solid_state_operations.hpp>
@@ -99,10 +100,14 @@ HistoryDeletionPlan plan_history_deletion(const document::PartDocument& doc,cons
             for(const auto& feature:doc.history)
                 if(feature.sheet_profile_binding.parent_id==selected->id)
                     plan.removed.insert(feature.id);
-        if(selected->feature_kind==document::FeatureKind::SheetFromBody)
+        if(selected->feature_kind==document::FeatureKind::SheetFromBody) {
             for(const auto& binding:selected->sheet_from_body.child_bindings)
                 if(!binding.detached)
                     plan.removed.insert(binding.feature_id);
+            for(const auto& sketch:doc.sketches)
+                if(document::sheet_from_body_rip_owner(doc,sketch.id)==selected)
+                    plan.removed.insert(sketch.owner_container_id);
+        }
     }
     const auto graph=dependencies(doc,true);
     const auto root_owner=[&](const std::string& owner) -> const std::string& {

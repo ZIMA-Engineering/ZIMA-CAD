@@ -22,19 +22,29 @@ void AssemblyWorkspaceWindow::show_general_surface_sketch_properties(GeneralSurf
     show_owned_sketch_properties(parent,stage);
 }
 void AssemblyWorkspaceWindow::show_owned_sketch_properties(SweepPlacementDialog* parent,unsigned stage) {
+    QPointer<SweepPlacementDialog> guard(parent);
+    show_owned_sketch_properties(parent,parent->pending,stage,[guard] {
+        if(auto* loft=dynamic_cast<LoftDialog*>(guard.data()))loft->refresh();
+        else if(auto* surface=dynamic_cast<GeneralSurfaceDialog*>(guard.data()))surface->refresh();
+    },[guard]{if(guard&&guard->changed)guard->changed();});
+}
+void AssemblyWorkspaceWindow::show_owned_sketch_properties(ui::PropertiesSubWindow* parent,
+        document::HistoryContainer& definition,unsigned stage,
+        std::function<void()> refresh,std::function<void()> resume) {
+    auto* pending=&definition;
     const auto boundaries=[](auto& feature)->auto& {return feature.feature_kind==document::FeatureKind::Loft?feature.loft.sketches:feature.general_surface.boundaries;};
     const auto carrier=[](const auto& feature){return feature.feature_kind==document::FeatureKind::Loft?document::loft_sketch_editor_carrier(feature):feature;};
-    const auto refresh=[](SweepPlacementDialog* dialog){if(auto* loft=dynamic_cast<LoftDialog*>(dialog))loft->refresh();else if(auto* surface=dynamic_cast<GeneralSurfaceDialog*>(dialog))surface->refresh();};
-    if(properties_dialog_!=parent||stage>=boundaries(parent->pending).size())return;
-    const auto& boundary=boundaries(parent->pending)[stage];if(boundary.curve)return;
-    QPointer<SweepPlacementDialog> guard(parent);
+
+    if(properties_dialog_!=parent||stage>=boundaries((*pending)).size())return;
+    const auto& boundary=boundaries((*pending))[stage];if(boundary.curve)return;
+    QPointer<ui::PropertiesSubWindow> guard(parent);
     auto draft=std::make_shared<document::GeneralSurfaceBoundary>(boundary);
     const auto sketch_id=draft->sketch_feature->feature.sketch_id;
     const auto source_geometry=primitive_reference_geometry_;
-    const auto framed=[guard,stage,draft,source_geometry,carrier](const document::HistoryContainer& owned) {
+    const auto framed=[guard,pending,stage,draft,source_geometry,carrier](const document::HistoryContainer& owned) {
         if(!guard||!draft->sketch_feature||owned.id!=draft->sketch_feature->id||
             owned.feature.type!=document::FeatureType::Sketch)throw std::invalid_argument("Invalid owned surface boundary.");
-        auto feature=carrier(guard->pending);auto value=*draft;value.sketch_feature=owned;
+        auto feature=carrier((*pending));auto value=*draft;value.sketch_feature=owned;
         auto sketch=sketcher::Sketch::from_serialized(value.sketch_serialized);
         sketch.name=owned.name;sketch.plane_offset=owned.feature.profile_plane_offset;
         value.sketch_serialized=sketch.serialized();feature.general_surface.boundaries.at(stage)=std::move(value);
@@ -43,8 +53,8 @@ void AssemblyWorkspaceWindow::show_owned_sketch_properties(SweepPlacementDialog*
         return feature;
     };
     auto* dialog=new PrimitivePropertiesDialog(*draft->sketch_feature,true,false,
-        [guard,stage,framed,boundaries,refresh](auto owned){if(guard){auto feature=framed(owned);
-            boundaries(guard->pending).at(stage)=std::move(feature.general_surface.boundaries.at(stage));refresh(guard);}},this);
+        [guard,pending,stage,framed,boundaries,refresh](auto owned){if(guard){auto feature=framed(owned);
+            boundaries((*pending)).at(stage)=std::move(feature.general_surface.boundaries.at(stage));refresh();}},this);
     dialog->setObjectName("generalSurfaceSketchProperties");
     dialog->setProperty("retainForSketchEditing",true);
     dialog->findChild<QComboBox*>("featureType")->setEnabled(false);
@@ -54,7 +64,7 @@ void AssemblyWorkspaceWindow::show_owned_sketch_properties(SweepPlacementDialog*
     });
     // Keep the common picker and placement solver, adapting only this owned
     // editor's initial face-click position from the scene to its parent frame.
-    const auto local_pick=[this,guard,dialog](const viewer::ViewerCandidate& candidate) {
+    const auto local_pick=[this,guard,pending,dialog](const viewer::ViewerCandidate& candidate) {
         if(!guard||!pending_primitive_reference_index_||primitive_reference_dialog_!=dialog)return;
         if(*pending_primitive_reference_index_==0&&dialog->references_without(0).empty()&&
             candidate.kind==viewer::CandidateKind::Face) {
@@ -63,11 +73,11 @@ void AssemblyWorkspaceWindow::show_owned_sketch_properties(SweepPlacementDialog*
                 const auto path=assembly::InstancePath::decode(workspace_.active_occurrence_path());
                 if(!path.occurrence_ids.empty())*hit=workspace_.occurrence_point_from_scene(workspace_.displayed_document_id(),path,*hit);
                 if(const auto* part=workspace_.open_part(workspace_.active_document_id())) {
-                    const auto& doc=part->session.document();auto* body=doc.body_owner_for_object(guard->pending.id);
+                    const auto& doc=part->session.document();auto* body=doc.body_owner_for_object((*pending).id);
                     if(!body)body=doc.body_history.find(doc.body_history.active_body_id());
                     if(body)*hit=container_dimension_frame(body->scope.placement).inverse_point(*hit);
                 }
-                *hit=container_dimension_frame(guard->pending.placement).inverse_point(*hit);
+                *hit=container_dimension_frame((*pending).placement).inverse_point(*hit);
                 const auto seed=dialog->placement_seed();
                 if(!seed.value_locks.contains("x"))dialog->set_inline_parameter_value("placement:x",hit->x);
                 if(!seed.value_locks.contains("y"))dialog->set_inline_parameter_value("placement:y",hit->y);
@@ -76,7 +86,7 @@ void AssemblyWorkspaceWindow::show_owned_sketch_properties(SweepPlacementDialog*
         }
         accept_primitive_reference(candidate,false);
     };
-    dialog->set_edit_sketch_callback([this,dialog,guard,stage,framed,draft,local_pick](auto owned) {
+    dialog->set_edit_sketch_callback([this,dialog,guard,pending,stage,framed,draft,local_pick](auto owned) {
         if(!guard)return;
         if(feature_reference_end_){auto end=feature_reference_end_;end();}
         auto feature=framed(owned);
@@ -84,8 +94,8 @@ void AssemblyWorkspaceWindow::show_owned_sketch_properties(SweepPlacementDialog*
         sweep_profile_sketch_draft_=document::general_surface_display_sketch(feature,*draft);
         helical_sketch_context_=document::general_surface_definition_mesh(feature);
         loft_profile_reference_geometry_={};
-        if(guard->pending.feature_kind==document::FeatureKind::Loft) {
-            auto loft=guard->pending;loft.loft.sketches=feature.general_surface.boundaries;
+        if((*pending).feature_kind==document::FeatureKind::Loft) {
+            auto loft=(*pending);loft.loft.sketches=feature.general_surface.boundaries;
             const auto anchors=document::loft_profile_anchor_mesh(loft,stage);
             loft_profile_reference_geometry_=anchors.original_references;
             for(const auto& point:anchors.points) {
@@ -112,7 +122,9 @@ void AssemblyWorkspaceWindow::show_owned_sketch_properties(SweepPlacementDialog*
         preserve_view_on_refresh_=true;refresh_scene();align_active_sketch_view();
         state_->setText(tr("Nakreslete geometrii a potom zvolte Dokončit skicu."));
     });
-    parent->set_active_reference_index(std::nullopt);parent->clear_reference_highlights();
+    if(auto* placement=dynamic_cast<PlacementReferenceDialog*>(parent)) {
+        placement->set_active_reference_index(std::nullopt);placement->clear_reference_highlights();
+    }
     pending_primitive_reference_index_.reset();primitive_reference_auto_advance_=false;
     feature_reference_pick_=local_pick;feature_reference_end_={};set_local_origin_selection_mode(false);
     local_origin_selection_dialog_=nullptr;primitive_reference_dialog_=dialog;
@@ -121,20 +133,20 @@ void AssemblyWorkspaceWindow::show_owned_sketch_properties(SweepPlacementDialog*
     parent->hide();properties_dialog_=dialog;primitive_parameter_owner_id_=draft->sketch_feature->id;track_tree_edit(dialog);
     dialog->set_reference_request_callback([this](std::size_t i){start_primitive_reference_selection(i);});
     dialog->set_reference_highlights_changed_callback([this,dialog]{viewer_->set_constraint_reference_highlights({},highlighted_reference_edge_keys(*dialog));});
-    connect(dialog,&QObject::destroyed,this,[this,guard,sketch_id,source_geometry] {
+    connect(dialog,&QObject::destroyed,this,[this,guard,pending,sketch_id,source_geometry,resume] {
         feature_reference_pick_={};feature_reference_end_={};
         helical_sketch_context_.reset();
         loft_profile_reference_geometry_={};
         if(active_sketch_id_==sketch_id)active_sketch_id_.clear();
         if(selected_sketch_id_==sketch_id)selected_sketch_id_.clear();
-        properties_dialog_=guard;primitive_reference_dialog_=guard;
+        properties_dialog_=guard;primitive_reference_dialog_=dynamic_cast<PlacementReferenceDialog*>(guard.data());
         primitive_reference_geometry_=source_geometry;pending_primitive_reference_index_.reset();primitive_reference_auto_advance_=false;
         set_local_origin_selection_mode(false);local_origin_selection_dialog_=nullptr;
         viewer_->set_candidate_filter({});viewer_->set_selection_contract({});viewer_->clear_selection();viewer_->set_constraint_reference_highlights({},{});
-        if(guard)primitive_parameter_owner_id_=guard->pending.id;
-        if(guard){guard->show();guard->raise();guard->changed();}
+        if(guard)primitive_parameter_owner_id_=(*pending).id;
+        if(guard){guard->show();guard->raise();resume();}
     });
-    dialog->set_preview_callback([this,guard,dialog,framed,stage,source_geometry](const auto& owned) {
+    dialog->set_preview_callback([this,guard,pending,dialog,framed,stage,source_geometry](const auto& owned) {
         if(!guard||!dialog->isVisible())return;
         auto feature=framed(owned);const auto& placement=feature.general_surface.boundaries.at(stage).sketch_feature->placement;
         primitive_reference_geometry_=document::general_surface_boundary_reference_geometry(feature,stage,source_geometry);
@@ -149,7 +161,7 @@ void AssemblyWorkspaceWindow::show_owned_sketch_properties(SweepPlacementDialog*
         const auto& value=*feature.general_surface.boundaries.at(stage).sketch_feature;
         origin.id=value.id;origin.entity_id=value.feature_id;origin.container_origin=value.container_origin;origin.name=value.name;
         origin.origin=point;origin.rotation={placement.rotation_x,placement.rotation_y,placement.rotation_z};origin.reference_valid=false;
-        if(guard->pending.feature_kind==document::FeatureKind::Loft) {
+        if((*pending).feature_kind==document::FeatureKind::Loft) {
             // Reuse the ordinary Plane presentation from the resolved owned
             // Sketch frame, including the chosen plane and its offset. The
             // same frame is handed to Sketcher; no second placement solve or
@@ -177,8 +189,8 @@ void AssemblyWorkspaceWindow::show_owned_sketch_properties(SweepPlacementDialog*
         primitive_origin_preview_mesh_->edges.insert(primitive_origin_preview_mesh_->edges.end(),parent_origin.edges.begin(),parent_origin.edges.end());
         primitive_origin_preview_mesh_->points.insert(primitive_origin_preview_mesh_->points.end(),parent_origin.points.begin(),parent_origin.points.end());
         primitive_origin_preview_mesh_->axes.insert(primitive_origin_preview_mesh_->axes.end(),parent_origin.axes.begin(),parent_origin.axes.end());
-        if(guard->pending.feature_kind==document::FeatureKind::Loft) {
-            auto loft=guard->pending;loft.loft.sketches=feature.general_surface.boundaries;
+        if((*pending).feature_kind==document::FeatureKind::Loft) {
+            auto loft=(*pending);loft.loft.sketches=feature.general_surface.boundaries;
             append_mesh(*primitive_origin_preview_mesh_,document::loft_profile_anchor_mesh(loft,stage));
             if(const auto* live=workspace_.open_part(workspace_.active_document_id()))
                 primitive_origin_preview_mesh_->dimensions=document::loft_definition_mesh(live->session.document(),loft,source_geometry).dimensions;
@@ -198,9 +210,9 @@ void AssemblyWorkspaceWindow::show_owned_sketch_properties(SweepPlacementDialog*
     // Label validation runs immediately when the shared rows are bound. The
     // owned editor must already expose its pending parent's local datum;
     // the outer scene cannot resolve references to an uncommitted Loft.
-    primitive_reference_geometry_=document::general_surface_boundary_reference_geometry(carrier(parent->pending),stage,source_geometry);
+    primitive_reference_geometry_=document::general_surface_boundary_reference_geometry(carrier((*pending)),stage,source_geometry);
     bind_local_origin_selection(dialog);
-    if(parent->pending.feature_kind==document::FeatureKind::Loft) {
+    if((*pending).feature_kind==document::FeatureKind::Loft) {
         // The automatically inherited parent frame is one attachment bundle.
         // View-plane authoring replaces that bundle only after a confirmed
         // pick; merely arming or cancelling entry must retain all three rows.
@@ -228,11 +240,11 @@ void AssemblyWorkspaceWindow::show_owned_sketch_properties(SweepPlacementDialog*
             if(feature_reference_end_)end_plane_entry();
         });
         for(auto* widget:dialog->findChildren<QWidget*>())if(auto* panel=dynamic_cast<FeatureParameterPanel*>(widget))
-            panel->on_work_plane_reference([this,dialog,guard,plane_input,plane_choice,local_pick,end_plane_entry,selected_plane] {
+            panel->on_work_plane_reference([this,dialog,guard,pending,plane_input,plane_choice,local_pick,end_plane_entry,selected_plane] {
                 if(!guard)return;
                 const auto references=dialog->pending_value().placement.references;
                 const bool inherited=document::placement_references_use_whole_origin(references)&&
-                    std::ranges::all_of(references,[&](const auto& ref){return ref.owner_id==guard->pending.container_origin.id;});
+                    std::ranges::all_of(references,[&](const auto& ref){return ref.owner_id==(*pending).container_origin.id;});
                 if(!inherited){start_primitive_reference_selection(0);return;}
                 pending_primitive_reference_index_.reset();primitive_reference_auto_advance_=false;
                 dialog->set_active_reference_index({});dialog->clear_reference_highlights();
@@ -268,12 +280,12 @@ void AssemblyWorkspaceWindow::show_owned_sketch_properties(SweepPlacementDialog*
         if(button) {
             QObject::disconnect(button,&QPushButton::clicked,nullptr,nullptr);
             button->setIcon(resource_icon("origin-document"));
-            connect(button,&QPushButton::clicked,this,[this,guard,dialog,end_plane_entry] {
+            connect(button,&QPushButton::clicked,this,[this,guard,pending,dialog,end_plane_entry] {
                 if(!guard||primitive_reference_dialog_!=dialog)return;
                 end_plane_entry();
                 set_local_origin_selection_mode(false);pending_primitive_reference_index_.reset();
                 dialog->set_active_reference_index({});dialog->clear_reference_highlights();
-                const auto definition=document::create_loft_sketch(guard->pending);
+                const auto definition=document::create_loft_sketch((*pending));
                 for(auto* object:dialog->findChildren<QObject*>())
                     if(auto* section=dynamic_cast<ui::ContainerPlacementSection*>(object))
                         section->initialize_from_references(definition.sketch_feature->placement.references,

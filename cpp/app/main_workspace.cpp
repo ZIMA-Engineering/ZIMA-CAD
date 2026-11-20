@@ -11,6 +11,7 @@
 #include <QShortcut>
 #include <zima/sketcher/sketch_trim.hpp>
 #include <zima/sketcher/curve_geometry.hpp>
+#include <zima/sketcher/curve_fillet.hpp>
 #include <zima/kernel/curve_evaluation.hpp>
 #include <zima/sketcher/external_curve_center.hpp>
 #include <zima/document/viewer_packet_json.hpp>

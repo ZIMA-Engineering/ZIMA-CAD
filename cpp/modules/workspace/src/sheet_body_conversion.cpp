@@ -3,9 +3,11 @@
 #include <zima/workspace/measurement_operations.hpp>
 #include <zima/workspace/part_transactions.hpp>
 #include <zima/workspace/history_policy.hpp>
+#include <zima/workspace/history_deletion.hpp>
 #include <zima/document/bend.hpp>
 #include <zima/document/flat.hpp>
 #include <zima/document/sheet_rip.hpp>
+#include <zima/document/sheet_from_body.hpp>
 #include <zima/kernel/boolean_face_ancestry.hpp>
 #include <zima/kernel/sheet_material.hpp>
 #include <zima/kernel/sheet_exchange.hpp>
@@ -44,9 +46,14 @@ std::vector<kernel::BodyResult> calculate_ripped_source(
         const std::vector<kernel::BodyResult>& cache,
         const std::string& source_body,
         const std::vector<const sketcher::Sketch*>& rip_sources,
-        const kernel::OcctKernel& kernel) {
+        const kernel::OcctKernel& kernel,const std::string& before={}) {
     if(rip_sources.empty())return {};
     auto operations=source.kernel_operations();
+    if(!before.empty()) {
+        const auto boundary=std::ranges::find(operations,before,&kernel::HistoryOperation::owner_id);
+        if(boundary==operations.end())throw std::invalid_argument("Sheet from Body is missing from Body history");
+        operations.erase(boundary,operations.end());
+    }
     auto insertion=operations.end();
     for(auto operation=operations.begin();operation!=operations.end();
             ++operation)
@@ -59,7 +66,25 @@ std::vector<kernel::BodyResult> calculate_ripped_source(
     const auto source_operation=std::prev(insertion);
     kernel::HistoryOperation rip;
     rip.owner_id="sheet-from-body:rip-analysis:"+source_body;
-    rip.primitive=document::sheet_rip_request(rip_sources,join_tolerance);
+    // Owned RIPs live in the target Body; the transient imprint executes in
+    // the source Body. Transform only the private resolved Sketch frames.
+    const auto& source_scope=source.body_history.find(source_body)->scope;
+    const auto source_frame=kernel::annotation_frame(source_scope.translation(),source_scope.rotation_degrees());
+    std::vector<sketcher::Sketch> framed;framed.reserve(rip_sources.size());
+    for(const auto* sketch:rip_sources) {
+        framed.push_back(*sketch);
+        const auto* owner=source.body_owner_for_object(sketch->owner_container_id);
+        if(!owner||owner->scope.id==source_body)continue;
+        const auto target_frame=kernel::annotation_frame(owner->scope.translation(),owner->scope.rotation_degrees());
+        const auto point=[&](V p){return source_frame.local(target_frame.world(p));};
+        const auto origin=point({});
+        auto& value=framed.back();value.resolved_origin=point(value.resolved_origin);
+        value.resolved_x_axis=sub(point(value.resolved_x_axis),origin);
+        value.resolved_y_axis=sub(point(value.resolved_y_axis),origin);
+        value.resolved_normal=sub(point(value.resolved_normal),origin);
+    }
+    std::vector<const sketcher::Sketch*> inputs;for(const auto& sketch:framed)inputs.push_back(&sketch);
+    rip.primitive=document::sheet_rip_request(inputs,join_tolerance);
     rip.boolean_tolerance=source_operation->boolean_tolerance;
     rip.mesh_deflection=source_operation->mesh_deflection;
     rip.body=source_operation->body;
@@ -383,12 +408,23 @@ bool has_sheet_bend_exit(const kernel::ViewerMesh& mesh,
     }
     return false;
 }
-std::vector<Node> skin(const kernel::ViewerMesh& mesh,const Face& first) {
-    std::vector<Node> result{{first,std::nullopt,{}}};
-    std::vector<Face> visited{first};
+std::vector<Node> skin(const kernel::ViewerMesh& mesh,const std::vector<const Face*>& roots) {
+    std::vector<Node> result;
+    std::vector<Face> visited;
+    // Reserve all RIP roots before traversal. A connected skin can reach the
+    // other side of a local seam by going around a Bend; independent searches
+    // would author the same exact source region more than once.
+    for(const auto* root:roots) {
+        result.push_back({*root,std::nullopt,{}});
+        visited.push_back(*root);
+    }
     for(std::size_t i=0;i<result.size();++i) {
         const auto current=result[i].face;
         for(const auto& edge:mesh.edges) {
+            // An imprinted RIP is a branch boundary even when its two source
+            // regions have equal normals. Crossing it would duplicate the
+            // same material in the independent roots on either side.
+            if(edge.reference.semantic_key.starts_with("rip:curve:"))continue;
             if(edge.parameter_seam||edge.points.size()<2||edge.edge_treatment_side_references.size()!=2)continue;
             const auto& sides=edge.edge_treatment_side_references;
             const auto first=edge_face_fragment(mesh,sides[0],edge);
@@ -1275,7 +1311,14 @@ void outline(sketcher::Sketch& sketch,const kernel::ViewerMesh& mesh,const Face&
             std::vector<std::array<double,2>> poles;for(auto p:exact->poles)poles.push_back(sketch.local_point(p));
             const auto id=sketch.add_bspline(poles,exact->degree,false,false,1e-6,false);
             auto& spline=*std::ranges::find(sketch.bsplines,id,&sketcher::SketchBSpline::id);spline.knots=exact->knots;spline.weights=exact->weights;
-        }else for(std::size_t i=1;i<edge.points.size();++i){const auto a=sketch.local_point(edge.points[i-1]),b=sketch.local_point(edge.points[i]);static_cast<void>(sketch.add_segment(a[0],a[1],b[0],b[1],1e-6,false));}
+        } else for(std::size_t i=1;i<edge.points.size();++i) {
+            // Collapsed topology at a Fillet end has no contour interval.
+            // Preserve every exact nonzero interval and native curve.
+            if(edge.points[i-1]==edge.points[i])continue;
+            const auto a=sketch.local_point(edge.points[i-1]);
+            const auto b=sketch.local_point(edge.points[i]);
+            static_cast<void>(sketch.add_segment(a[0],a[1],b[0],b[1],1e-6,false));
+        }
     }
 }
 void split_outline(sketcher::Sketch& sketch,const kernel::ViewerMesh& mesh,
@@ -1920,6 +1963,32 @@ double suggest_sheet_thickness(const Workspace& live,const std::string& id,
     }
     return suggest_sheet_thickness(analysis,selected);
 }
+SheetBodyConversion prepare_sheet_from_body_boundary(
+        const document::PartDocument& source,
+        const std::vector<kernel::BodyResult>& cache,double thickness,
+        const kernel::OcctKernel& kernel,bool thickness_override) {
+    const auto* target=source.body_history.find(source.body_history.active_body_id());
+    if(!target||target->derived_copy)
+        throw std::invalid_argument("Sheet from Body requires an editable active Body.");
+    if(!thickness_override)
+        thickness=document::sheet_metal_defaults(source).thickness_mm.value_or(1.);
+    if(!std::isfinite(thickness)||thickness<.001||thickness>1000000)
+        throw std::invalid_argument("Sheet thickness must be between 0.001 and 1000000 mm.");
+    SheetBodyConversion result;result.document=source;
+    auto marker=document::PartDocument::create_sheet_from_body_container();
+    marker.sheet_from_body.source_body_id=target->scope.id;
+    marker.sheet_from_body.replaces_body=true;
+    marker.sheet_from_body.thickness=thickness;
+    marker.sheet_from_body.thickness_override=thickness_override;
+    result.container_id=marker.id;
+    result.document.insert_history_entry(document::PartHistoryKind::Feature,marker.id);
+    result.document.history.push_back(std::move(marker));
+    result.document.validate_sheet_from_body();
+    result.calculated=calculate_part_with_resolved_references(
+        kernel,result.document,&cache);
+    return result;
+}
+
 SheetBodyConversion prepare_sheet_from_body(const document::PartDocument& source,
         const std::vector<kernel::BodyResult>& cache,const Face& selected,
         double thickness,const kernel::OcctKernel& kernel,
@@ -1934,8 +2003,13 @@ SheetBodyConversion prepare_sheet_from_body(const document::PartDocument& source
     if(!(thickness>=.001)||thickness>1000000||!std::isfinite(thickness))throw std::invalid_argument("Sheet thickness must be between 0.001 and 1000000 mm.");
     if(cache.empty())throw std::invalid_argument("Sheet from Body requires a calculated source body.");
     const auto source_owner=source.body_owner_for_object(selected.owner_id);
-    const bool replaces_body=!target->entries.empty();
-    if(!source_owner||(replaces_body&&source_owner->scope.id!=target->scope.id))throw std::invalid_argument("Select a planar face of the active Body.");
+    const bool replaces_body=source_owner&&source_owner->scope.id==target->scope.id;
+    const bool target_has_features=std::ranges::any_of(target->entries,[&](const auto& entry) {
+        const auto* feature=source.find_container(entry.id);
+        return feature&&feature->feature_kind!=document::FeatureKind::Sketch&&
+            !(feature->feature_kind==document::FeatureKind::Feature&&feature->feature.type==document::FeatureType::Sketch);
+    });
+    if(!source_owner||(!replaces_body&&target_has_features))throw std::invalid_argument("Select a planar face of the active Body.");
     std::set<std::pair<std::string,std::string>> selected_face_ids;
     selected_face_ids.emplace(selected.owner_id,selected.semantic_key);
     for(const auto& face:included_faces) {
@@ -1963,7 +2037,7 @@ SheetBodyConversion prepare_sheet_from_body(const document::PartDocument& source
                 "A selected RIP Sketch is missing or suppressed.");
         const auto owner=source.body_owner_for_object(
             sketch->owner_container_id);
-        if(!owner||owner->scope.id!=source_owner->scope.id)
+        if(!owner||(owner->scope.id!=source_owner->scope.id&&owner->scope.id!=target->scope.id))
             throw std::invalid_argument(
                 "RIP Sketches must precede the conversion in the selected source Body.");
         const auto entry=std::ranges::find(owner->entries,
@@ -2158,18 +2232,10 @@ SheetBodyConversion prepare_sheet_from_body(const document::PartDocument& source
             std::isfinite(measured_source_thickness)&&
             measured_source_thickness>.001?
         measured_source_thickness:thickness;
-    std::vector<Node> nodes;
+    auto nodes=skin(mesh,roots);
     std::vector<std::size_t> root_indices;
-    for(const auto* branch_root:roots) {
-        auto branch=skin(mesh,*branch_root);
-        if(branch.empty())continue;
-        const auto offset=nodes.size();
-        root_indices.push_back(offset);
-        for(auto& node:branch) {
-            if(node.parent)*node.parent+=offset;
-            nodes.push_back(std::move(node));
-        }
-    }
+    for(std::size_t index=0;index<nodes.size();++index)
+        if(!nodes[index].parent)root_indices.push_back(index);
     if(root_indices.empty())throw std::invalid_argument(
         "Sheet conversion found no material branch on the selected face.");
     if(!included_faces.empty()) {
@@ -3185,14 +3251,14 @@ bool same_edge_endpoints(const std::array<V,2>& first,
 kernel::ViewerMesh source_mesh_in_target_coordinates(
         const document::PartDocument& source,
         const std::vector<kernel::BodyResult>& calculated,
-        const document::HistoryContainer& conversion) {
+        const document::HistoryContainer& conversion,bool imprinted=false) {
     if(calculated.empty())return {};
     const auto* target=source.body_owner_for_object(conversion.id);
     const auto* source_body=source.body_history.find(
         conversion.sheet_from_body.source_body_id);
     if(!target||!source_body)return {};
     kernel::ViewerMesh mesh;
-    if(source_body==target) {
+    if(source_body==target&&!imprinted) {
         std::size_t operation_count{};
         for(const auto& entry:target->entries) {
             if(entry.id==conversion.id)break;
@@ -3376,6 +3442,8 @@ sketcher::Sketch* owned_sketch(
 }
 }
 
+#include "sheet_body_edit.inc"
+
 bool refresh_sheet_from_body_associations(
         document::PartDocument& source,
         const std::vector<kernel::BodyResult>& calculated,
@@ -3387,11 +3455,42 @@ bool refresh_sheet_from_body_associations(
     std::vector<std::string> conversions;
     for(const auto& feature:source.history)
         if(feature.feature_kind==document::FeatureKind::SheetFromBody&&
-                !feature.sheet_from_body.child_bindings.empty())
+                (!feature.sheet_from_body.child_bindings.empty()||feature.sheet_from_body.source_face.reference.valid()))
             conversions.push_back(feature.id);
     for(const auto& conversion_id:conversions) {
         auto* conversion=source.find_container(conversion_id);
         if(!conversion)continue;
+        if(conversion->sheet_from_body.child_bindings.empty()) {
+            // A confirmed failed creation owns its inputs but no fabricated
+            // sheet children. Explicit calculation retries the ordinary
+            // creation path against its real source boundary.
+            const auto definition=conversion->sheet_from_body;
+            try {
+                const auto mesh=source_mesh_in_target_coordinates(source,calculated,*conversion);
+                const auto* selected=find_source_face(mesh,definition.source_face.reference,&definition.source_face.last_valid_surface);
+                if(!selected)continue;
+                std::vector<Face> included;
+                for(const auto& binding:definition.included_faces) {
+                    const auto* face=find_source_face(mesh,binding.reference,&binding.last_valid_surface);
+                    if(!face)throw std::runtime_error("An included Sheet from Body source face is unavailable");
+                    included.push_back(*face);
+                }
+                auto input=source;const auto active=input.body_history.active_body_id();
+                const auto insertion=input.body_history.insertion_cursor();
+                const auto* owner=input.body_owner_for_object(conversion_id);
+                input.body_history.activate(owner->scope.id);
+                auto repaired=prepare_edited_sheet_from_body(input,calculated,conversion_id,*selected,
+                    definition.thickness,kernel,definition.thickness_override,std::move(included),definition.rip_sketches);
+                if(!active.empty())repaired.document.body_history.activate(active);
+                repaired.document.body_history.set_insertion_cursor(insertion);
+                source=std::move(repaired.document);document_changed=true;
+            }catch(const std::exception&) {
+                // Preserve the unresolved definition and its source material.
+            }
+            continue;
+        }
+        if(std::ranges::none_of(conversion->sheet_from_body.child_bindings,
+                [](const auto& binding){return !binding.detached;}))continue;
         std::vector<kernel::BodyResult> ripped_source;
         if(!conversion->sheet_from_body.rip_sketches.empty()) {
             std::vector<const sketcher::Sketch*> rip_sources;
@@ -3415,7 +3514,7 @@ bool refresh_sheet_from_body_associations(
             try {
                 ripped_source=calculate_ripped_source(source,calculated,
                     conversion->sheet_from_body.source_body_id,rip_sources,
-                    kernel);
+                    kernel,conversion_id);
             } catch(const std::exception&) {
                 for(auto& binding:conversion->sheet_from_body.child_bindings)
                     if(!binding.detached&&binding.references_valid) {
@@ -3426,7 +3525,7 @@ bool refresh_sheet_from_body_associations(
             }
         }
         auto source_mesh=source_mesh_in_target_coordinates(source,
-            ripped_source.empty()?calculated:ripped_source,*conversion);
+            ripped_source.empty()?calculated:ripped_source,*conversion,!ripped_source.empty());
         bool missing{};
         bool changed_source{};
         for(auto& binding:conversion->sheet_from_body.child_bindings) {
@@ -3705,6 +3804,16 @@ bool release_sheet_from_body_bindings(document::PartDocument& document,
     if(row==body.entries.end())
         throw std::invalid_argument(
             "Sheet from Body is missing from Body history");
+    for(const auto& id:conversion->sheet_from_body.rip_sketches) {
+        if(document::sheet_from_body_rip_owner(document,id)!=conversion)continue;
+        auto sketch=std::ranges::find(document.sketches,id,&sketcher::Sketch::id);
+        auto* feature=document.find_container(sketch->owner_container_id);
+        const auto origin=sketch->resolved_origin,x=sketch->resolved_x_axis,
+            y=sketch->resolved_y_axis,normal=sketch->resolved_normal;
+        feature->placement={};
+        feature->feature.profile_plane_offset=0;sketch->plane_offset=0;
+        numeric_frame(*feature,*sketch,origin,x,y,normal);
+    }
     if(conversion->sheet_from_body.replaces_body) {
         // The conversion marker is an empty replacement operation: it
         // removes the same-Body source solid before the generated sheet
@@ -3713,7 +3822,9 @@ bool release_sheet_from_body_bindings(document::PartDocument& document,
         // Undo, but suppress its material-producing features.
         for(auto entry=body.entries.begin();entry!=row;++entry)
             if(entry->kind==document::PartHistoryKind::Feature)
-                if(auto* source=document.find_container(entry->id))
+                if(auto* source=document.find_container(entry->id);source&&
+                        source->feature_kind!=document::FeatureKind::Sketch&&
+                        !(source->feature_kind==document::FeatureKind::Feature&&source->feature.type==document::FeatureType::Sketch))
                     source->suppressed=true;
     }
     // A complete explode releases every generated child but retains this

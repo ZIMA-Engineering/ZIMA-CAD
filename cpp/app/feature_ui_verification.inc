@@ -841,6 +841,99 @@ static void verify_placed_origin_visibility(QApplication& application,AssemblyWo
         "Cancel persisted a pending placement coordinate");
 }
 
+static void verify_polar_datum_placement(QApplication& application,
+        AssemblyWorkspaceWindow& window,const std::filesystem::path& directory) {
+    const auto check=[](bool ok,const char* why){if(!ok)throw std::runtime_error(why);};
+    const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
+    auto part=document::PartDocument::create_default();
+    auto datum_sketch=sketcher::Sketch::create_default();static_cast<void>(datum_sketch.add_circle(0,0,2));
+    auto datum=document::PartDocument::create_feature_container(datum_sketch.id);
+    datum.feature.type=document::FeatureType::Sketch;datum_sketch.owner_container_id=datum.id;
+    datum.placement.x=13;datum.placement.y=-17;datum.placement.z=29;
+    // Automatic XZ entry drives TOP. Its normal is at the Y pole, with
+    // tiny X/Z residues that previously produced an arbitrary azimuth.
+    datum.placement.rotation_x=datum.placement.absolute_rotation_x=1e-13;
+    datum.placement.rotation_z=datum.placement.absolute_rotation_z=1e-13;
+    auto sketch=sketcher::Sketch::create_default();static_cast<void>(sketch.add_rectangle(0,0,10,8));
+    auto target=document::PartDocument::create_extrusion_container(sketch.id);sketch.owner_container_id=target.id;
+    part.history={datum,target};part.sketches={datum_sketch,sketch};
+    document::BodyHistoryGraph graph;const auto body=graph.create_body("Polar datum references");
+    graph.insert({document::PartHistoryKind::Feature,datum.id});graph.insert({document::PartHistoryKind::Feature,target.id});
+    part.set_body_history(graph);part.resolve_constructions();
+    const auto calculated=kernel::OcctKernel{}.evaluate_history(part.kernel_operations());
+    const auto file=directory/("polar-datum-"+target.id+".prtz");part.save(file,calculated);
+    check(window.open_document_path(QString::fromStdString(file.string())),"Polar datum fixture cannot open");flush();
+    const auto run=[&](const char* command,commands::Json args=commands::Json::object()) {
+        check(window.execute_console_command(QString::fromStdString(commands::Json{{"command",command},{"arguments",args}}.dump())).ok,"Polar datum command failed");flush();
+    };
+    run("body.activate",{{"body",body}});
+    auto* tree=window.findChild<QTreeWidget*>("documentTree");
+    const auto row=[&](const std::string& id) {
+        for(QTreeWidgetItemIterator i(tree);*i;++i)
+            if((*i)->data(0,Qt::UserRole).toString().toStdString()==id)return *i;
+        throw std::runtime_error("Polar datum Tree row missing");
+    };
+    const auto edit=[&] {
+        window.show_tree_item_properties(row(target.id));flush();
+        auto* dialog=dynamic_cast<PrimitivePropertiesDialog*>(window.findChild<QWidget*>("extrusionPropertiesDialog"));
+        if(!dialog)for(auto* candidate:window.findChildren<QDialog*>())if(candidate->isVisible())
+            if(auto* properties=dynamic_cast<PrimitivePropertiesDialog*>(candidate))dialog=properties;
+        check(dialog,"Polar datum Properties missing");return dialog;
+    };
+    auto* dialog=edit();
+    const std::array<const char*,3> keys{"origin:plane:xz","origin:plane:yz","origin:plane:xy"};
+    for(std::size_t index=0;index<keys.size();++index) {
+        check(dialog->set_reference(index,{{},datum.container_origin.id,keys[index],0,true},QString::fromUtf8(keys[index])),"Polar datum plane entry failed");flush();
+        check(std::abs(dialog->pending_value().placement.rotation_y)<1e-8,"Polar datum introduced arbitrary in-plane rotation");
+    }
+    check(dialog->set_inline_parameter_value("placement:rotation_z",17),"Polar datum free rotation is not editable");flush();
+    check(dialog->set_inline_parameter_value("placement:rotation_x",11),"Polar datum correction is not editable");flush();
+    const auto pending=dialog->pending_value().placement;
+    if(pending.absolute_rotation_z!=17||pending.rotation_offset_x!=11)
+        throw std::runtime_error("Polar datum lost manual rotation or correction: "+nlohmann::json(pending).dump());
+    dialog->buttons()->button(QDialogButtonBox::Ok)->click();flush();run("save");
+    auto saved=document::PartDocument::load(file);const auto committed=saved.find_container(target.id)->placement;
+    check(committed.references==pending.references&&committed.absolute_rotation_z==17&&committed.rotation_offset_x==11,
+        "Polar datum confirmation lost placement inputs");
+    check(std::hypot(committed.x-13,committed.y+17,committed.z-29)<1e-8,"Three datum planes do not meet at their source Origin");
+    run("undo");run("save");check(document::PartDocument::load(file).find_container(target.id)->placement.references.empty(),"Polar datum Undo lost the original placement");
+    run("redo");run("save");check(document::PartDocument::load(file).find_container(target.id)->placement==committed,"Polar datum Redo changed the committed frame");
+    dialog=edit();check(dialog->pending_value().placement.references==committed.references,"Polar datum reopen lost references");
+    check(dialog->set_inline_parameter_value("placement:rotation_z",-32),"Polar datum reopened rotation is locked");dialog->reject();flush();run("save");
+    check(document::PartDocument::load(file).find_container(target.id)->placement==committed,"Polar datum Cancel changed the frame");
+    dialog=edit();
+    auto* table=dialog->findChild<QTableWidget*>("primitiveReferenceTable");
+    check(table&&table->item(0,1),"Polar datum reference field missing");
+    const auto click=[&](QWidget* widget,const QPointF& at) {
+        for(auto type:{QEvent::MouseButtonPress,QEvent::MouseButtonRelease}) {
+            QMouseEvent event(type,at,QPointF(widget->mapToGlobal(at.toPoint())),Qt::LeftButton,
+                type==QEvent::MouseButtonPress?Qt::LeftButton:Qt::NoButton,Qt::NoModifier);
+            QApplication::sendEvent(widget,&event);
+        }flush();
+    };
+    // Whole-Origin entry fills vacant reference rows. Clear the previous
+    // three-plane scenario through its ordinary controls before entering it.
+    for(int index:{2,1,0}) {
+        auto* remove=table->cellWidget(index,0)->findChild<QPushButton*>();
+        check(remove&&remove->isVisible(),"Polar reference clear control missing");remove->click();flush();
+    }
+    check(dialog->pending_value().placement.references.empty(),"Polar reference removal retained a source");
+    for(const auto* axis:{"placement:rotation_x","placement:rotation_y","placement:rotation_z"})
+        check(dialog->set_inline_parameter_value(axis,0),"Polar free frame cannot be reset");
+    flush();click(table->viewport(),table->visualItemRect(table->item(0,1)).center());
+    auto* origin=row(datum.container_origin.id);
+    for(auto* ancestor=origin->parent();ancestor;ancestor=ancestor->parent())ancestor->setExpanded(true);
+    tree->scrollToItem(origin);flush();click(tree->viewport(),tree->visualItemRect(origin).center());
+    check(document::placement_references_use_whole_origin(dialog->pending_value().placement.references),"Polar whole-Origin entry did not use the shared contract");
+    dialog->buttons()->button(QDialogButtonBox::Ok)->click();flush();run("save");
+    saved=document::PartDocument::load(file);const auto whole=saved.find_container(target.id)->placement;
+    if(!(std::abs(whole.rotation_x)<1e-8&&std::abs(whole.rotation_y)<1e-8&&std::abs(whole.rotation_z)<1e-8))
+        throw std::runtime_error("Polar whole-Origin placement lost the source frame: "+nlohmann::json(whole).dump());
+    run("close");check(window.open_document_path(QString::fromStdString(file.string())),"Polar placement cannot reopen");flush();
+    run("body.activate",{{"body",body}});dialog=edit();
+    check(dialog->pending_value().placement.references==whole.references,"Polar whole-Origin native reopen lost identity");dialog->reject();flush();run("close");
+}
+
 static void verify_single_planar_origin_projection(QApplication& application,
     AssemblyWorkspaceWindow& window,const std::filesystem::path& directory) {
     const auto check=[](bool ok,const char* why){if(!ok)throw std::runtime_error(why);};
@@ -927,7 +1020,10 @@ static void verify_single_planar_origin_projection(QApplication& application,
     auto* view=dynamic_cast<viewer::MeshView*>(
         window.findChild<QOpenGLWidget*>());
     check(dialog&&view,"One-plane Feature placement editor missing");
-    dialog->findChild<QComboBox*>("featureType")->setCurrentIndex(4);flush();
+    // Keep the authored open segment a Sketch: this case verifies placement,
+    // not the explicit second confirmation of an invalid solid extrusion.
+    dialog->findChild<QComboBox*>("featureType")->setCurrentIndex(
+        static_cast<int>(document::FeatureType::Sketch));flush();
     const auto current_frame=[&](const char* phase) {
         const auto pending=dialog->pending_value();
         const std::set<std::string> owners{
@@ -1004,14 +1100,27 @@ static void verify_single_planar_origin_projection(QApplication& application,
     const auto second=assign_plane(*planes[1],"replacement oblique plane",false);
     check(std::hypot(second.x-first.x,second.y-first.y,second.z-first.z)>1.,
         "One-plane replacement fixture planes have the same projection");
-    const auto committed=dialog->pending_value().placement;
+    const auto preview_placement=dialog->pending_value().placement;
     dialog->buttons()->button(QDialogButtonBox::Ok)->click();flush();
     check(!window.findChild<QWidget*>("featurePropertiesDialog"),
         "One-plane Feature OK did not close Properties");
     run("save");
     auto saved=document::PartDocument::load(file);
-    check(saved.find_container(target.id)->placement==committed,
-        "One-plane placement was not persisted");
+    const auto committed=saved.find_container(target.id)->placement;
+    auto preview_definition=nlohmann::json(preview_placement);
+    const auto committed_definition=nlohmann::json(committed);
+    // The explicit calculation may refit the oblique analytic cap by a few
+    // ulps. Check the frame numerically, while every authored reference,
+    // side, correction, lock and orientation choice must remain exact.
+    for(const char* key:{"x","y","z","rotation_x","rotation_y","rotation_z",
+            "absolute_rotation_x","absolute_rotation_y","absolute_rotation_z"}) {
+        check(std::abs(preview_definition.at(key).get<double>()-
+            committed_definition.at(key).get<double>())<1e-9,
+            "One-plane confirmation moved its preview frame");
+        preview_definition[key]=committed_definition.at(key);
+    }
+    check(preview_definition==committed_definition,
+        "One-plane placement definition was not persisted");
     run("undo");run("save");
     saved=document::PartDocument::load(file);
     check(saved.find_container(target.id)->placement.references.empty(),

@@ -1092,8 +1092,8 @@ struct SheetStateRequest {
 
 // Transient Sheet-from-Body preprocessing. Every curve is the exact native
 // non-construction geometry of an explicitly selected ordinary Sketch. The
-// kernel imprints the swept curve surfaces into the source solid without
-// removing material; the conversion then treats those imprints as seams.
+// kernel imprints curves on their actual source faces without projecting them
+// through the solid; conversion uses these local face regions as seams.
 struct SheetRipCurve {
     std::string sketch_id;
     std::string source_id;

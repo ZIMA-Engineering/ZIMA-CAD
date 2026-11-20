@@ -1,5 +1,6 @@
 #pragma once
 #include <zima/kernel/geometry_kernel.hpp>
+#include <zima/document/general_surface.hpp>
 #include <zima/ui/properties_subwindow.hpp>
 #include <zima/ui/reference_cell.hpp>
 #include <zima/ui/unit_spin_box.hpp>
@@ -20,9 +21,14 @@ namespace zima::app {
 class SheetFromBodyDialog final : public ui::PropertiesSubWindow {
 public:
     enum class EntryKind { None, SourceFace, IncludedFace, RipSketch };
-    using Commit=std::function<void(kernel::FaceReference,double,bool,
-        std::vector<kernel::FaceReference>,std::vector<std::string>)>;
+    using Commit=std::function<void(std::optional<kernel::FaceReference>,double,bool,
+        std::vector<kernel::FaceReference>,std::vector<std::string>,
+        std::vector<document::GeneralSurfaceBoundary>)>;
     std::function<void()> changed;
+    std::function<void(int)> edit_rip;
+    // Transient carrier for the shared owned-Sketch editor. Only ordinary
+    // Sketch features and the conversion's membership IDs are persisted.
+    document::HistoryContainer rip_editor=document::PartDocument::create_sheet_from_body_container();
     SheetFromBodyDialog(double thickness,Commit commit,QWidget* parent)
         :PropertiesSubWindow(tr("Plech z tělesa"),parent),commit_(std::move(commit)) {
         setObjectName("sheetFromBodyDialog");setAttribute(Qt::WA_DeleteOnClose);
@@ -57,9 +63,11 @@ public:
         thickness_override_->setObjectName("sheetSourceThicknessOverride");
         thickness_->setEnabled(false);form->addRow(thickness_override_);
         form->addRow(tr("Tloušťka"),thickness_);content_layout()->addWidget(fields);
-        auto* note=new QLabel(tr("The first face defines the material side. An empty included-face list converts the complete connected sheet branch. RIP consumes all ordinary geometry of each selected Sketch without removing material."),this);
+        auto* note=new QLabel(tr("The first face defines the material side. An empty included-face list converts the complete connected sheet branch. RIP curves define local boundaries on source faces without cutting through the solid."),this);
         note->setWordWrap(true);note->setSizePolicy(QSizePolicy::Preferred,QSizePolicy::Fixed);
         content_layout()->addWidget(note);content_layout()->addStretch(1);
+        note->setText(note->text()+QStringLiteral("\n")+
+            tr("Without selections, create only a history boundary that hides the preceding solid."));
         set_initial_size({455,690});
 
         connect(source_table_,&QTableWidget::cellClicked,this,[this](int,int column){
@@ -67,7 +75,7 @@ public:
         connect(included_table_,&QTableWidget::cellClicked,this,[this](int row,int column){
             if(column==1){arm(EntryKind::IncludedFace,row);refresh();}});
         connect(rip_table_,&QTableWidget::cellClicked,this,[this](int row,int column){
-            if(column==1){arm(EntryKind::RipSketch,row);refresh();}});
+            if(column==1){arm(EntryKind::RipSketch,row);refresh();if(edit_rip)edit_rip(row);}});
         connect(thickness_override_,&QCheckBox::toggled,this,
             [this](bool enabled){thickness_->setEnabled(enabled);});
         refresh();
@@ -102,6 +110,17 @@ public:
         return result;
     }
     void end_entry(){entry_kind_=EntryKind::None;active_row_=-1;refresh();}
+    void initialize(std::optional<kernel::FaceReference> face,double thickness,bool override_value,
+            const std::vector<kernel::FaceReference>& included,
+            const std::vector<std::pair<std::string,QString>>& rips) {
+        selected_=std::move(face);thickness_->setValue(thickness);
+        thickness_override_->setChecked(override_value);
+        if(included.size()>=included_.size())append_included_rows(included.size()-included_.size()+1);
+        for(std::size_t i=0;i<included.size();++i)included_[i].reference=included[i];
+        if(rips.size()>=rips_.size())append_rip_rows(rips.size()-rips_.size()+1);
+        for(std::size_t i=0;i<rips.size();++i){rips_[i].sketch_id=rips[i].first;rips_[i].label=rips[i].second;}
+        end_entry();
+    }
     void set_reference(kernel::FaceReference face,double inferred_thickness) {
         selected_=std::move(face);update_thickness_hint(inferred_thickness);
         entry_kind_=EntryKind::None;active_row_=-1;refresh();
@@ -120,6 +139,18 @@ public:
         row.sketch_id=std::move(sketch_id);row.label=std::move(label);row.inspected=false;
         if(static_cast<std::size_t>(active_row_)+1==rips_.size())append_rip_rows(1);
         entry_kind_=EntryKind::None;active_row_=-1;refresh();
+    }
+    [[nodiscard]] std::string rip_id(int row)const {
+        return row>=0&&static_cast<std::size_t>(row)<rips_.size()?rips_[row].sketch_id:std::string{};
+    }
+    void assign_rip(int row,std::string id,QString label) {
+        arm(EntryKind::RipSketch,row);set_rip_reference(std::move(id),std::move(label));
+    }
+    void refresh_rip_drafts() {
+        for(auto& row:rips_)for(const auto& draft:rip_editor.general_surface.boundaries)
+            if(draft.sketch_feature&&draft.sketch_feature->feature.sketch_id==row.sketch_id)
+                row.label=QString::fromStdString(draft.sketch_feature->name);
+        refresh();
     }
 
 private:
@@ -171,8 +202,12 @@ private:
                 thickness_->locale().toString(inferred_thickness/unit->native_per_unit(),'f',unit->display_decimals())+unit->suffix()):QString{});
     }
     bool submit()override {
-        if(!selected_)throw std::invalid_argument(tr("Select a calculated planar source face.").toStdString());
-        commit_(*selected_,thickness_->value(),thickness_override_->isChecked(),included_faces(),rip_sketches());return true;
+        if(!selected_&&(!included_faces().empty()||!rip_sketches().empty()))
+            throw std::invalid_argument(tr("Select a calculated planar source face.").toStdString());
+        const auto ids=rip_sketches();std::vector<document::GeneralSurfaceBoundary> drafts;
+        for(const auto& id:ids)for(const auto& draft:rip_editor.general_surface.boundaries)
+            if(draft.sketch_feature&&draft.sketch_feature->feature.sketch_id==id)drafts.push_back(draft);
+        commit_(selected_,thickness_->value(),thickness_override_->isChecked(),included_faces(),ids,std::move(drafts));return true;
     }
     void refresh() {
         if(!selected_)thickness_->setToolTip({});
@@ -187,7 +222,7 @@ private:
             ui::set_reference_row_populated(row.indicator,row.reference.has_value());row.eye->setEnabled(row.reference.has_value());row.eye->setChecked(row.inspected);
         }
         for(std::size_t index=0;index<rips_.size();++index) {
-            auto& row=rips_[index];row.field->setText(row.sketch_id.empty()?tr("Vyberte RIP skicu ve View."):row.label);
+            auto& row=rips_[index];row.field->setText(row.sketch_id.empty()?tr("Create or edit a RIP Sketch."):row.label);
             if(row.sketch_id.empty())row.field->clear_reference();else row.field->set_reference(QString::fromStdString(row.sketch_id));
             row.field->set_active_input(entry_kind_==EntryKind::RipSketch&&active_row_==static_cast<int>(index));row.field->set_inspected(row.inspected);
             ui::set_reference_row_populated(row.indicator,!row.sketch_id.empty());row.eye->setEnabled(!row.sketch_id.empty());row.eye->setChecked(row.inspected);

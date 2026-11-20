@@ -7135,8 +7135,10 @@ void Sketch::remove_geometry(const std::string& geometry_id) {
     const auto external_reference_count = std::erase_if(next.external_references,
         [&](const auto& value) { return value.id == geometry_id; });
     std::set<std::string> removed_corner_ids;
-    const auto corner_radius_count = std::erase_if(next.corner_radii,
+    bool selected_corner_removed = false;
+    std::erase_if(next.corner_radii,
         [&](const auto& value) {
+        selected_corner_removed |= value.id == geometry_id;
         const bool remove = value.id == geometry_id ||
             value.first_segment_id == geometry_id ||
             value.second_segment_id == geometry_id;
@@ -7146,7 +7148,7 @@ void Sketch::remove_geometry(const std::string& geometry_id) {
     if (segment_count + circle_count + arc_count + ellipse_count +
             elliptical_arc_count + spline_count + text_count +
             external_reference_count +
-            (corner_radius_count != 0 && segment_count == 0 ? 1 : 0) != 1) {
+            (selected_corner_removed ? 1 : 0) != 1) {
         throw std::invalid_argument("Sketch geometry does not exist");
     }
     const auto point_has_geometry_owner = [&](const std::string& point_id) {

@@ -3175,7 +3175,9 @@ std::optional<zima::kernel::Vec3> placement_frame_base_rotation_degrees(
         return zima::kernel::Vec3{
             std::atan2(y_axis.z, horizontal) * degrees_per_radian,
             0.0,
-            std::atan2(-y_axis.x, y_axis.y) * degrees_per_radian};
+            // At the pole the azimuth is undefined. Trigonometric roundoff
+            // from a placed Origin must not turn it into an arbitrary twist.
+            horizontal<=1e-12?0.0:std::atan2(-y_axis.x, y_axis.y) * degrees_per_radian};
     } else {
         z_axis = placement_vec_normalized(*top_direction);
         if (placement_vec_is_zero(z_axis)) return std::nullopt;
@@ -3183,7 +3185,7 @@ std::optional<zima::kernel::Vec3> placement_frame_base_rotation_degrees(
         const double horizontal = std::hypot(z_axis.x, z_axis.z);
         return zima::kernel::Vec3{
             std::atan2(-z_axis.y, horizontal) * degrees_per_radian,
-            std::atan2(z_axis.x, z_axis.z) * degrees_per_radian,
+            horizontal<=1e-12?0.0:std::atan2(z_axis.x, z_axis.z) * degrees_per_radian,
             0.0};
     }
     return placement_euler_degrees_from_rotation_matrix(
@@ -10448,6 +10450,7 @@ void PartDocument::validate_body_ownership() const {
 }
 
 void PartDocument::validate_sheet_from_body() const {
+    std::set<std::string> owned_rip_sketches;
     for(const auto& conversion:history) {
         if(conversion.feature_kind!=FeatureKind::SheetFromBody)continue;
         const auto& definition=conversion.sheet_from_body;
@@ -10462,7 +10465,8 @@ void PartDocument::validate_sheet_from_body() const {
         if(!owner)throw std::invalid_argument(
             "Sheet from Body must remain in one Body");
         const auto* source_body=body_history.find(definition.source_body_id);
-        const bool has_bound_children=std::ranges::any_of(definition.child_bindings,
+        const bool pending=definition.child_bindings.empty()&&definition.source_face.reference.valid();
+        const bool has_bound_children=pending||std::ranges::any_of(definition.child_bindings,
             [](const auto& binding){return !binding.detached;});
         if((!source_body&&has_bound_children)||(source_body&&
                 (definition.replaces_body?source_body!=owner:
@@ -10530,7 +10534,7 @@ void PartDocument::validate_sheet_from_body() const {
                 (surface.kind==kernel::SurfaceGeometry::Kind::Plane||
                  surface.kind==kernel::SurfaceGeometry::Kind::Cylinder);
         };
-        const bool associative=!definition.child_bindings.empty();
+        const bool associative=pending||!definition.child_bindings.empty();
         if(associative) {
             if(!valid_face_definition(definition.source_face))
                 throw std::invalid_argument(
@@ -10551,9 +10555,14 @@ void PartDocument::validate_sheet_from_body() const {
                     &sketcher::Sketch::id);
                 const auto* sketch_owner=sketch==sketches.end()?nullptr:
                     body_owner_for_object(sketch->owner_container_id);
+                const auto* sketch_feature=sketch==sketches.end()?nullptr:find_container(sketch->owner_container_id);
+                const bool owned=has_bound_children&&sketch_owner==owner&&sketch_feature&&
+                    (sketch_feature->feature_kind==FeatureKind::Sketch||
+                     (sketch_feature->feature_kind==FeatureKind::Feature&&sketch_feature->feature.type==FeatureType::Sketch));
                 if(id.empty()||!rip_ids.insert(id).second||
+                        (owned&&!owned_rip_sketches.insert(id).second)||
                         (has_bound_children&&(sketch==sketches.end()||sketch->suppressed||
-                         sketch_owner!=source_body||
+                         (sketch_owner!=source_body&&sketch_owner!=owner)||
                          !before_boundary(sketch->owner_container_id))))
                     throw std::invalid_argument(
                         "Invalid Sheet from Body RIP Sketch reference");
@@ -10804,7 +10813,11 @@ void PartDocument::erase_history_object(const std::string& id) {
             // Deleting the material root deliberately leaves the conversion
             // boundary active. It continues to exclude the source solid and
             // therefore publishes the established empty-material state.
-            if(!definition.child_bindings.empty()&&
+            if(definition.child_bindings.empty()) {
+                definition.source_face={};
+                definition.included_faces.clear();
+                definition.rip_sketches.clear();
+            } else if(
                     std::ranges::none_of(definition.child_bindings,
                         &SheetFromBodyChildBinding::root))
                 definition.child_bindings.front().root=true;
@@ -11183,6 +11196,11 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
                 boolean_tolerance, mesh_deflection});
             operations.back().replaces_body =
                 container.sheet_from_body.replaces_body;
+            if(container.sheet_from_body.child_bindings.empty()&&
+                    container.sheet_from_body.source_face.reference.valid()) {
+                operations.back().input_error="Sheet from Body is unresolved. Edit its references or regenerate.";
+                operations.back().replaces_body=false;
+            }
             continue;
         }
         const bool retained_frame_geometry=

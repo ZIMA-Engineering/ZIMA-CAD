@@ -2729,7 +2729,8 @@ std::vector<PrimitiveData> stationary_profile_data(const Request& request,
 }
 
 double extrusion_limit_span(const ExtrusionLimitView& limit,const Vec3& unit,
-    const TopoDS_Shape& face,const std::vector<TopoDS_Wire>& wires,bool wall_overhang=false) {
+    const TopoDS_Shape& face,const std::vector<TopoDS_Wire>& wires,bool wall_overhang=false,
+    const std::optional<TopoDS_Face>& exact=std::nullopt) {
     if(limit.planar) {
         // Bound the complete analytic profile along the plane normal. A circle's
         // seam vertex does not prove that the rest stays before an inclined plane.
@@ -2754,8 +2755,18 @@ double extrusion_limit_span(const ExtrusionLimitView& limit,const Vec3& unit,
         return maximum+std::max(1.0,maximum*.01);
     }
 
+        IntCurvesFace_ShapeIntersector exact_intersection;
+        if(exact)exact_intersection.Load(*exact,1e-8);
         const auto ray_distance = [&](const gp_Pnt& point) {
             double nearest = std::numeric_limits<double>::infinity();
+            if(exact) {
+                exact_intersection.Perform(gp_Lin(point,gp_Dir(unit.x,unit.y,unit.z)),0,1e12);
+                if(exact_intersection.IsDone())for(int i=1;i<=exact_intersection.NbPnt();++i)
+                    if(exact_intersection.WParameter(i)>1e-8)
+                        nearest=std::min(nearest,exact_intersection.WParameter(i));
+                if(!std::isfinite(nearest))throw std::runtime_error("Extrusion profile misses target surface");
+                return nearest;
+            }
             const auto& triangles = limit.triangles;
             for (std::size_t index = 0; index < triangles.size(); index += 3) {
                 const auto& v0 = triangles[index];
@@ -2807,14 +2818,25 @@ double extrusion_limit_span(const ExtrusionLimitView& limit,const Vec3& unit,
         return maximum_distance+std::max(1.0,maximum_distance*.01);
 }
 
-std::optional<TopoDS_Face> exact_extrusion_limit(const ExtrusionLimitView& limit,const std::vector<OwnedFace>& faces) {
+std::optional<TopoDS_Face> exact_extrusion_limit(const ExtrusionLimitView& limit,const std::vector<OwnedFace>& faces,bool supporting_surface=true) {
     if(limit.datum)return std::nullopt;
     std::vector<const OwnedFace*> matches;
     for(const auto& face:faces)if(face.reference.owner_id==limit.reference.owner_id &&
         face.reference.semantic_key==limit.reference.semantic_key && face.reference.instance_path==limit.reference.instance_path)matches.push_back(&face);
     if(matches.empty())throw std::runtime_error("Extrusion target face is missing at this history boundary");
-    if(!limit.planar && matches.size()!=1)throw std::runtime_error("Exact Extrusion target surface is missing or ambiguous");
-    return TopoDS::Face(matches.front()->shape);
+    if(!limit.planar && matches.size()!=1) {
+        throw std::runtime_error("Exact Extrusion target surface is missing or ambiguous");
+    }
+    const auto selected=TopoDS::Face(matches.front()->shape);
+    if(!limit.planar && supporting_surface) {
+        // Up To uses the exact supporting surface, as its planar counterpart
+        // does. A symmetric Extrusion may split one cylinder at the Sketch
+        // plane; that trim must not prevent a profile crossing both halves.
+        BRepBuilderAPI_MakeFace support(BRep_Tool::Surface(selected),Precision::Confusion());
+        if(!support.IsDone())throw std::runtime_error("Exact Extrusion target surface is missing or ambiguous");
+        auto result=support.Face();result.Orientation(selected.Orientation());return result;
+    }
+    return selected;
 }
 
 ExtrusionLimitView resolved_extrusion_limit(ExtrusionLimitView limit,const std::optional<TopoDS_Face>& exact) {
@@ -2957,11 +2979,11 @@ PrimitiveData make_extrusion_data(
         if(forward_boundary&&forward_boundary->planar)static_cast<void>(extrusion_limit_span(*forward_boundary,unit,source,source_wires));
         if(reverse_boundary&&reverse_boundary->planar)static_cast<void>(extrusion_limit_span(*reverse_boundary,{-unit.x,-unit.y,-unit.z},source,source_wires));
     }
-    if(forward_boundary)bounded_end=extrusion_limit_span(*forward_boundary,unit,face,wires,request.wall.has_value());
+    if(forward_boundary)bounded_end=extrusion_limit_span(*forward_boundary,unit,face,wires,request.wall.has_value(),exact_target);
     if(ordered) {
         bounded_end=ordered_up_to_linear_span(*ordered,face,profile_keep_point,gp_Dir(unit.x,unit.y,unit.z));
     }
-    if(reverse_boundary)bounded_start=-extrusion_limit_span(*reverse_boundary,{-unit.x,-unit.y,-unit.z},face,wires,request.wall.has_value());
+    if(reverse_boundary)bounded_start=-extrusion_limit_span(*reverse_boundary,{-unit.x,-unit.y,-unit.z},face,wires,request.wall.has_value(),reverse_exact);
     if(bounded_end<=bounded_start+1e-12)throw std::runtime_error("OCCT Extrusion interval is empty");
     if(std::abs(bounded_start)>1e-12) {
         gp_Trsf shift;shift.SetTranslation(gp_Vec(unit.x*bounded_start,unit.y*bounded_start,unit.z*bounded_start));
@@ -12690,19 +12712,26 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                     static_cast<std::ptrdiff_t>(reusable_prefix));
             restore_persisted_reference_coverage(boundaries);
         }
-        const auto original_target=[&](const ExtrusionLimitView& limit) {
+        const auto original_target=[&](const ExtrusionLimitView& limit,bool supporting_surface=true) {
             if(limit.datum)return std::optional<TopoDS_Face>{};
             std::vector<OwnedFace> matches;
-            for(auto node=context.original_faces;node;node=node->previous)
-                for(const auto& face:node->faces)if(same_face_identity(face.reference,limit.reference))matches.push_back(face);
-            for(const auto& face:context.external_faces)if(same_face_identity(face.reference,limit.reference))matches.push_back(face);
-            return exact_extrusion_limit(limit,matches);
+            // Resolve from the newest retained packet. Earlier packets contain
+            // obsolete copies of that same reference, not alternative targets.
+            for(auto node=context.original_faces;node&&matches.empty();node=node->previous)
+                for(const auto& face:node->faces)if(same_face_identity(face.reference,limit.reference)&&
+                    std::ranges::none_of(matches,[&](const auto& previous){return previous.shape.IsSame(face.shape);}))
+                    matches.push_back(face);
+            if(matches.empty())for(const auto& face:context.external_faces)
+                if(same_face_identity(face.reference,limit.reference)&&
+                    std::ranges::none_of(matches,[&](const auto& previous){return previous.shape.IsSame(face.shape);}))
+                    matches.push_back(face);
+            return exact_extrusion_limit(limit,matches,supporting_surface);
         };
         const auto original_ordered_targets=[&](const std::optional<OrderedUpToLimit>& limit) {
             std::vector<std::optional<TopoDS_Face>> result;
             if(limit)for(std::size_t row=0;row<limit->patches.size();++row)try {
                 const auto& patch=limit->patches[row];
-                if(!patch.native_source) {result.push_back(original_target(limit_view(patch.target)));continue;}
+                if(!patch.native_source) {result.push_back(original_target(limit_view(patch.target),false));continue;}
                 const auto& source=*patch.native_source;
                 auto geometry=native_face_source(source.body.get(),source.reference).geometry(*this);
                 std::vector<OwnedFace> selected;
@@ -12712,7 +12741,9 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                             primitive_transform(placement.translation,placement.rotation_degrees),true).Shape());
                     face.reference=patch.target.reference;selected.push_back(std::move(face));
                 }
-                result.push_back(exact_extrusion_limit(limit_view(patch.target),selected));
+                // Ordered chains need their actual boundaries to determine
+                // adjacency before extending the limiting support.
+                result.push_back(exact_extrusion_limit(limit_view(patch.target),selected,false));
             }catch(const OrderedUpToError&) {throw;}
             catch(const std::runtime_error&) {
                 throw OrderedUpToError(OrderedUpToFailure::InvalidInput,row,row);

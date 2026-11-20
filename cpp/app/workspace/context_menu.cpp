@@ -6,6 +6,8 @@
 #include "../file_dialog.hpp"
 #include "../general_surface_dialog.hpp"
 #include "../loft_dialog.hpp"
+#include "../sheet_from_body_dialog.hpp"
+#include <zima/document/sheet_from_body.hpp>
 
 namespace zima::app {
 using namespace workspace_detail;
@@ -99,12 +101,20 @@ void AssemblyWorkspaceWindow::show_tree_item_properties(QTreeWidgetItem* item) {
     if(kind==QStringLiteral("part-container"))
         if(const auto* part=workspace_.open_part(workspace_.active_document_id())) {
             const auto& document=part->session.document();
-            if(const auto* container=document.find_container(id);
-                    container&&(
-                        container->feature_kind==
-                            zima::document::FeatureKind::SheetFromBody||
-                        document.sheet_from_body_child_bound(id)))
+            if(const auto* parent=zima::document::sheet_from_body_rip_owner(document,id)) {
+                const auto sketch=std::ranges::find(document.sketches,id,&sketcher::Sketch::owner_container_id);
+                const auto selected=std::ranges::find(parent->sheet_from_body.rip_sketches,sketch->id);
+                const auto row=static_cast<int>(selected-parent->sheet_from_body.rip_sketches.begin());
+                show_sheet_from_body(parent->id);
+                if(auto* dialog=dynamic_cast<SheetFromBodyDialog*>(properties_dialog_);dialog&&dialog->edit_rip)dialog->edit_rip(row);
                 return;
+            }
+            if(const auto* container=document.find_container(id);container) {
+                if(container->feature_kind==zima::document::FeatureKind::SheetFromBody) {
+                    show_sheet_from_body(id);return;
+                }
+                if(document.sheet_from_body_child_bound(id))return;
+            }
         }
     if(kind=="mirror-source"){show_derived_source(id,true);return;}
     if(kind=="part-occurrence"||kind=="assembly-occurrence") {

@@ -1,4 +1,5 @@
 #include <zima/document/trajectory_point_release.hpp>
+#include <zima/document/sheet_from_body.hpp>
 #include <zima/workspace/sweep_point_operations.hpp>
 #include <zima/workspace/assembly_cut_operations.hpp>
 #include <zima/workspace/assembly_history_operations.hpp>
@@ -2998,9 +2999,10 @@ void AssemblyWorkspaceWindow::create_layout() {
                         zima::document::FeatureKind::Bend;
                 const bool command_boundary=container->feature_kind==
                     zima::document::FeatureKind::SheetFromBody;
-                edit->setEnabled(!command_boundary&&!bound_sheet_flat);
-                properties->setEnabled(!command_boundary&&
-                    !bound_sheet_flat&&!bound_sheet_bend);
+                const auto* rip_owner=document::sheet_from_body_rip_owner(part->session.document(),id);
+                edit->setEnabled(!bound_sheet_flat);
+                properties->setEnabled(!bound_sheet_flat&&!bound_sheet_bend);
+                if(command_boundary)properties->setText(tr("Sheet from Body Properties…"));
                 if(std::ranges::any_of(
                         zima::workspace::sheet_state_regions(part->session.document()),
                         [&](const auto& region) {
@@ -3009,9 +3011,9 @@ void AssemblyWorkspaceWindow::create_layout() {
                 QAction* transform_extrusion{};
                 QAction* transform_revolution{};
                 QAction* transform_twist{};
-                if (container->feature_kind == zima::document::FeatureKind::Sketch ||
+                if (!rip_owner&&(container->feature_kind == zima::document::FeatureKind::Sketch ||
                     (container->feature_kind == zima::document::FeatureKind::Feature &&
-                     container->feature.type == zima::document::FeatureType::Sketch)) {
+                     container->feature.type == zima::document::FeatureType::Sketch))) {
                     menu.addSeparator();
                     transform_extrusion = menu.addAction(
                         resource_icon("protrusion"), tr("Tažení"));
@@ -3044,6 +3046,10 @@ void AssemblyWorkspaceWindow::create_layout() {
                             [](const auto& binding) {
                                 return !binding.detached;
                             }));
+                } else if(rip_owner) {
+                    sheet_from_body_parent=rip_owner->id;
+                    explode_sheet_from_body_all=menu.addAction(resource_icon("sheet-profile"),tr("Rozložit vše"));
+                    explode_sheet_from_body_all->setObjectName("explodeSheetFromBodyAllAction");
                 } else {
                     if(sheet_from_body_owner)
                         sheet_from_body_parent=sheet_from_body_owner->id;
@@ -3060,13 +3066,15 @@ void AssemblyWorkspaceWindow::create_layout() {
                 auto* remove = menu.addAction(resource_icon("delete"),tr("Odstranit"));
                 remove->setObjectName("deleteHistoryObject");
                 suppress->setEnabled(!sheet_from_body_binding&&
-                    !command_boundary);
-                remove->setEnabled(!sheet_from_body_binding);
+                    !command_boundary&&!rip_owner);
+                remove->setEnabled(!sheet_from_body_binding&&!rip_owner);
                 const auto* selected = exec_tree_menu(menu,item,position);
                 if (selected == edit) {
-                    show_parameter_dimensions(id);
+                    if(command_boundary||rip_owner)show_tree_item_properties(item);
+                    else show_parameter_dimensions(id);
                 } else if (selected == properties) {
-                    if (container->feature_kind ==
+                    if(command_boundary||rip_owner)show_tree_item_properties(item);
+                    else if (container->feature_kind ==
                             zima::document::FeatureKind::Sketch) {
                         const auto sketch = std::find_if(
                             part->session.document().sketches.begin(),

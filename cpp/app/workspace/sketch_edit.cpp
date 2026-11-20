@@ -139,7 +139,7 @@ bool AssemblyWorkspaceWindow::delete_selected_sketch_geometry() {
         state_->setText(tr("Geometrie skici byla odstraněna. Operaci lze vrátit přes Zpět."));
         return true;
     } catch (const std::exception& error) {
-        QMessageBox::warning(this, tr("Geometrii nelze odstranit"), error.what());
+        QMessageBox::warning(this, tr("Geometrii nelze odstranit"), tr(error.what()));
         return true;
     }
 }

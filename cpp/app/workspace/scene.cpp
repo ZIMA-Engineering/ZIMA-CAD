@@ -3026,6 +3026,8 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
     if (extrusion_target_dialog_ != nullptr) {
         apply_extrusion_target_selection_contract();
     }
+    if(sketch_universal_dimension_active_&&!active_sketch_id_.empty())
+        set_sketch_universal_dimension_contract();
     // Keep inspection visual only: confirming the container here would
     // suppress subsequent dimension hover and inline editing.
     publish_parameter_inspection(

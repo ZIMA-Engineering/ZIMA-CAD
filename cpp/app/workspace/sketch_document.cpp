@@ -621,6 +621,22 @@ void AssemblyWorkspaceWindow::show_sketch_drag_preview(const zima::sketcher::Ske
                 zima::assembly::InstancePath::decode(workspace_.active_occurrence_path()),
                 *assembly_sketch_drag_document_, &display);
         }
+    } else if(const auto* assembly=workspace_.open_assembly(workspace_.active_document_id())) {
+        // Commands such as Fillet preview a private Sketch without starting a
+        // point drag. Use the same Assembly input boundary as ordinary editing.
+        auto source=assembly->session.document();
+        if(assembly_cut_rollback_&&assembly_cut_rollback_->assembly_document_id==source.document_id) {
+            for(auto& component:source.components)
+                if(const auto found=assembly_cut_rollback_->input_component_bodies.find(component.occurrence_id);
+                        found!=assembly_cut_rollback_->input_component_bodies.end())
+                    component.calculated_source=found->second;
+            source.cuts.resize(assembly_cut_rollback_->cut_index);
+        } else if(source.effective_history_cursor()<source.complete_history_order().size())
+            source=source.history_view_document();
+        display=source.build_scene();append_mesh(display,sketch.viewer_mesh());
+        if(source.document_id!=workspace_.displayed_document_id()&&!workspace_.active_occurrence_path().empty())
+            display=workspace::build_scene_with_assembly_override(workspace_,workspace_.displayed_document_id(),
+                assembly::InstancePath::decode(workspace_.active_occurrence_path()),source,&display);
     }
     viewer_->set_mesh(std::move(display), false);
 }
