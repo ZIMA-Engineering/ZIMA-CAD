@@ -1,4 +1,13 @@
 {
+  "Otáčet kolem kurzoru": "Orbit around cursor",
+  "Otáčet kolem místa stisku prostředního tlačítka v aktuální hloubce pohledu": "Orbit around the middle-button press position at the current view depth",
+  "Named views require a name, a rotation quaternion, zoom, pan, reference scale and center offset.": "Named views require a name, a rotation quaternion, zoom, pan, reference scale and center offset.",
+  "Obrysy v rovinách profilů orientačně ukazují tloušťku a její stranu. Výsledná tloušťka se počítá kolmo k ploše Přechodu.": "Outlines in the profile planes indicate thickness and its side. The final thickness is calculated normal to the Loft surface.",
+  "Ve View vyberte první bod a potom sousední bod pro směr. Mezi profily se spojuje 1 → 1, 2 → 2, …": "In the View, select the first point, then an adjacent point to set the direction. Profiles connect 1 → 1, 2 → 2, …",
+  "Vyberte sousední bod pro směr číslování.": "Select an adjacent point to set the numbering direction.",
+  "Obrátit směr": "Reverse direction",
+  "Vybrat ve View": "Select in View",
+  "Úhel od normály vybrané roviny kolem osy válce. Kladný směr určuje pravidlo pravé ruky.": "Angle from the selected plane normal about the cylinder axis. Positive angles follow the right-hand rule.",
   "The measured history contains failed features. Values describe the retained geometry.": "The measured history contains failed features. Values describe the retained geometry.",
   "Sheet from Body is unresolved. Edit its references or regenerate.": "Sheet from Body is unresolved. Edit its references or regenerate.",
   "Definition saved as unresolved.": "Definition saved as unresolved.",

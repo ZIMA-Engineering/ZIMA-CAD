@@ -1,4 +1,13 @@
 {
+  "Otáčet kolem kurzoru": "Um den Cursor drehen",
+  "Otáčet kolem místa stisku prostředního tlačítka v aktuální hloubce pohledu": "Um die Position beim Drücken der mittleren Maustaste in der aktuellen Ansichtstiefe drehen",
+  "Named views require a name, a rotation quaternion, zoom, pan, reference scale and center offset.": "Benannte Ansichten benötigen einen Namen, ein Rotationsquaternion, Zoom, Verschiebung, Referenzmaßstab und Mittelpunktversatz.",
+  "Obrysy v rovinách profilů orientačně ukazují tloušťku a její stranu. Výsledná tloušťka se počítá kolmo k ploše Přechodu.": "Die Umrisse in den Profilebenen zeigen Dicke und Seite näherungsweise. Die endgültige Dicke wird senkrecht zur Übergangsfläche berechnet.",
+  "Ve View vyberte první bod a potom sousední bod pro směr. Mezi profily se spojuje 1 → 1, 2 → 2, …": "Wählen Sie in der Ansicht den ersten Punkt und dann einen benachbarten Punkt für die Richtung. Die Profile werden mit 1 → 1, 2 → 2, … verbunden.",
+  "Vyberte sousední bod pro směr číslování.": "Wählen Sie einen benachbarten Punkt für die Nummerierungsrichtung.",
+  "Obrátit směr": "Richtung umkehren",
+  "Vybrat ve View": "In Ansicht auswählen",
+  "Úhel od normály vybrané roviny kolem osy válce. Kladný směr určuje pravidlo pravé ruky.": "Winkel von der Normalen der gewählten Ebene um die Zylinderachse. Positive Winkel folgen der Rechte-Hand-Regel.",
   "The measured history contains failed features. Values describe the retained geometry.": "Der gemessene Verlauf enthält fehlgeschlagene Elemente. Die Werte beziehen sich auf die beibehaltene Geometrie.",
   "Sheet from Body is unresolved. Edit its references or regenerate.": "Blech aus Körper ist nicht berechnet. Bearbeiten Sie seine Referenzen oder berechnen Sie das Modell neu.",
   "Definition saved as unresolved.": "Definition als nicht berechnet gespeichert.",

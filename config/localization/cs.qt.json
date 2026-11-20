@@ -1,4 +1,13 @@
 {
+  "Otáčet kolem kurzoru": "Otáčet kolem kurzoru",
+  "Otáčet kolem místa stisku prostředního tlačítka v aktuální hloubce pohledu": "Otáčet kolem místa stisku prostředního tlačítka v aktuální hloubce pohledu",
+  "Named views require a name, a rotation quaternion, zoom, pan, reference scale and center offset.": "Pojmenované pohledy vyžadují název, kvaternion natočení, přiblížení, posun, referenční měřítko a odsazení středu.",
+  "Obrysy v rovinách profilů orientačně ukazují tloušťku a její stranu. Výsledná tloušťka se počítá kolmo k ploše Přechodu.": "Obrysy v rovinách profilů orientačně ukazují tloušťku a její stranu. Výsledná tloušťka se počítá kolmo k ploše Přechodu.",
+  "Ve View vyberte první bod a potom sousední bod pro směr. Mezi profily se spojuje 1 → 1, 2 → 2, …": "Ve View vyberte první bod a potom sousední bod pro směr. Mezi profily se spojuje 1 → 1, 2 → 2, …",
+  "Vyberte sousední bod pro směr číslování.": "Vyberte sousední bod pro směr číslování.",
+  "Obrátit směr": "Obrátit směr",
+  "Vybrat ve View": "Vybrat ve View",
+  "Úhel od normály vybrané roviny kolem osy válce. Kladný směr určuje pravidlo pravé ruky.": "Úhel od normály vybrané roviny kolem osy válce. Kladný směr určuje pravidlo pravé ruky.",
   "The measured history contains failed features. Values describe the retained geometry.": "Měřená historie obsahuje nevypočítané prvky. Hodnoty odpovídají zachované geometrii.",
   "Sheet from Body is unresolved. Edit its references or regenerate.": "Plech z tělesa není vypočítán. Upravte jeho reference nebo proveďte přepočet.",
   "Definition saved as unresolved.": "Definice byla uložena jako nevypočítaná.",

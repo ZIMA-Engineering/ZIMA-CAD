@@ -1,4 +1,13 @@
 {
+  "Otáčet kolem kurzoru": "Вращать вокруг курсора",
+  "Otáčet kolem místa stisku prostředního tlačítka v aktuální hloubce pohledu": "Вращать вокруг места нажатия средней кнопки на текущей глубине вида",
+  "Named views require a name, a rotation quaternion, zoom, pan, reference scale and center offset.": "Именованные виды требуют имя, кватернион поворота, масштаб, сдвиг, опорный масштаб и смещение центра.",
+  "Obrysy v rovinách profilů orientačně ukazují tloušťku a její stranu. Výsledná tloušťka se počítá kolmo k ploše Přechodu.": "Контуры в плоскостях профилей ориентировочно показывают толщину и её сторону. Итоговая толщина рассчитывается по нормали к поверхности перехода.",
+  "Ve View vyberte první bod a potom sousední bod pro směr. Mezi profily se spojuje 1 → 1, 2 → 2, …": "В окне вида выберите первую точку, затем соседнюю для задания направления. Профили соединяются: 1 → 1, 2 → 2, …",
+  "Vyberte sousední bod pro směr číslování.": "Выберите соседнюю точку для задания направления нумерации.",
+  "Obrátit směr": "Обратить направление",
+  "Vybrat ve View": "Выбрать в окне вида",
+  "Úhel od normály vybrané roviny kolem osy válce. Kladný směr určuje pravidlo pravé ruky.": "Угол от нормали выбранной плоскости вокруг оси цилиндра. Положительное направление определяется правилом правой руки.",
   "The measured history contains failed features. Values describe the retained geometry.": "Измеряемая история содержит элементы с ошибками расчёта. Значения относятся к сохранённой геометрии.",
   "Sheet from Body is unresolved. Edit its references or regenerate.": "Лист из тела не рассчитан. Измените его ссылки или выполните пересчёт.",
   "Definition saved as unresolved.": "Определение сохранено без расчёта.",

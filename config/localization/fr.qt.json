@@ -1,4 +1,13 @@
 {
+  "Otáčet kolem kurzoru": "Pivoter autour du curseur",
+  "Otáčet kolem místa stisku prostředního tlačítka v aktuální hloubce pohledu": "Pivoter autour du point de pression du bouton central à la profondeur actuelle de la vue",
+  "Named views require a name, a rotation quaternion, zoom, pan, reference scale and center offset.": "Les vues nommées nécessitent un nom, un quaternion de rotation, un zoom, un déplacement, une échelle de référence et un décalage du centre.",
+  "Obrysy v rovinách profilů orientačně ukazují tloušťku a její stranu. Výsledná tloušťka se počítá kolmo k ploše Přechodu.": "Les contours dans les plans des profils indiquent approximativement l’épaisseur et son côté. L’épaisseur finale est calculée perpendiculairement à la surface du lissage.",
+  "Ve View vyberte první bod a potom sousední bod pro směr. Mezi profily se spojuje 1 → 1, 2 → 2, …": "Dans la vue, sélectionnez le premier point, puis un point adjacent pour définir le sens. Les profils sont reliés de 1 → 1, 2 → 2, …",
+  "Vyberte sousední bod pro směr číslování.": "Sélectionnez un point adjacent pour définir le sens de numérotation.",
+  "Obrátit směr": "Inverser le sens",
+  "Vybrat ve View": "Sélectionner dans la vue",
+  "Úhel od normály vybrané roviny kolem osy válce. Kladný směr určuje pravidlo pravé ruky.": "Angle depuis la normale au plan sélectionné autour de l’axe du cylindre. Le sens positif suit la règle de la main droite.",
   "The measured history contains failed features. Values describe the retained geometry.": "L’historique mesuré contient des fonctions en échec. Les valeurs correspondent à la géométrie conservée.",
   "Sheet from Body is unresolved. Edit its references or regenerate.": "La tôle à partir du corps n’est pas calculée. Modifiez ses références ou régénérez le modèle.",
   "Definition saved as unresolved.": "Définition enregistrée comme non calculée.",
