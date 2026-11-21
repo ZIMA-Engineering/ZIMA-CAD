@@ -89,6 +89,11 @@ void BodyHistoryGraph::validate() const {
             throw std::invalid_argument("Boolean identity is empty or duplicated");
     if (order_.size() != identities.size() || cursor_ > order_.size())
         throw std::invalid_argument("Invalid document body history order or cursor");
+    auto condition_ids=identities;
+    for(const auto& body:bodies_)for(const auto& entry:body.entries)condition_ids.insert(entry.id);
+    for(const auto& body:bodies_)if(body.fem)for(const auto& condition:body.fem->conditions)
+        if(!condition_ids.insert(condition.id).second)
+            throw std::invalid_argument("Invalid FEM condition definition.");
     for (const auto& id : order_) {
         if (!identities.contains(id) || preceding.contains(id))
             throw std::invalid_argument("Every body or Boolean must occur once in history");

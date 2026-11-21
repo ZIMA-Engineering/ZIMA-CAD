@@ -42,11 +42,14 @@ struct DirectionalProjection {
 // Explicit native calculation. The returned curves retain their native 3D
 // representation and target pcurves. No tessellation participates in modeling.
 // Each source interval uses the first nonnegative ray hit over the whole target
-// set. Missing/ambiguous intervals remain diagnostics, never fallback geometry.
+// set. With both_directions, the direction must be normal to the Sketch and the
+// nearest hit on either side wins. Equal-distance opposite hits are ambiguous.
+// Missing/ambiguous intervals remain diagnostics, never fallback geometry.
 DirectionalProjection project_directionally(
     const std::vector<ProjectionCurve>& sources,
     const std::vector<ProjectionTarget>& targets,
-    const gp_Pln& sketch_plane, const gp_Dir& direction, double tolerance);
+    const gp_Pln& sketch_plane, const gp_Dir& direction, double tolerance,
+    bool both_directions = false);
 
 // Bind the calculated curves to authored parents. Target boundaries carry
 // existing native edge identities; numerical parameters locate those parents

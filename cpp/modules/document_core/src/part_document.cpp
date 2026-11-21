@@ -7118,6 +7118,23 @@ void PartDocument::resolve_constructions(
             append_reference_geometry(published, source_geometry);
             source_geometry = std::move(published);
         }
+        // Analysis frames consume the current resolved material references.
+        // A failed solve retains the authored frame for display and repair.
+        if(std::ranges::any_of(body_history.bodies(),[](const auto& body){return body.fem&&!body.fem->conditions.empty();})) {
+          auto fem_geometry=next.body_origin_reference_geometry();
+          append_reference_geometry(fem_geometry,source_geometry);
+          const PlacementReferenceGeometryIndex fem_index(fem_geometry);
+          for(const auto& original:body_history.bodies())if(original.fem&&!original.fem->conditions.empty()) {
+            auto body=*next.body_history.find(original.scope.id);
+            for(auto& condition:body.fem->conditions) {
+                auto resolved=condition.placement;
+                const auto references=fem_index.select(resolved.references);
+                if(resolve_placement(resolved,references))condition.placement=std::move(resolved);
+                else condition.placement.reference_valid=false;
+            }
+            next.body_history.update_body(std::move(body));
+          }
+        }
         *this = std::move(next);
         return;
     }

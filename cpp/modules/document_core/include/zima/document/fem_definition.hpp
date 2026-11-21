@@ -1,4 +1,6 @@
 #pragma once
+#include <zima/document/fem_condition.hpp>
+#include <vector>
 
 #include <nlohmann/json_fwd.hpp>
 #include <string>
@@ -24,6 +26,7 @@ struct FemDefinition {
     std::string source_id;
     FemAnalysisKind analysis{FemAnalysisKind::LinearElasticStatic};
     FemMeshControls mesh;
+    std::vector<FemCondition> conditions;
     bool operator==(const FemDefinition&) const = default;
 };
 

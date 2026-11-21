@@ -915,6 +915,7 @@ std::string encode_history_fingerprint(
                 byte(primitive.direction_reference.has_value());
                 if(primitive.direction_reference)reference(*primitive.direction_reference);
                 byte(primitive.reverse);
+                byte(primitive.both_directions);
                 for(auto p:{primitive.sketch_origin,primitive.sketch_normal,primitive.direction})
                     for(double v:{p.x,p.y,p.z})u64(number_bits(v));
                 u64(static_cast<unsigned>(primitive.output));u64(std::bit_cast<std::uint64_t>(primitive.tolerance));

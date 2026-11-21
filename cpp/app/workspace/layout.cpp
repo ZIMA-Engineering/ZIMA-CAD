@@ -1,4 +1,5 @@
 #include <zima/document/trajectory_point_release.hpp>
+#include <zima/document/fem_presentation.hpp>
 #include <zima/document/sheet_from_body.hpp>
 #include <zima/workspace/sweep_point_operations.hpp>
 #include <zima/workspace/assembly_cut_operations.hpp>
@@ -216,7 +217,8 @@ void AssemblyWorkspaceWindow::create_layout() {
         const auto* part=workspace_.open_part(workspace_.active_document_id());
         std::vector<zima::kernel::ViewerEdge> wire;
         try {
-            if(part)wire=authored_feature_wire(part->session,owner);
+            if(const auto* condition=active_fem_condition(owner))wire=document::fem_condition_presentation(*condition,part->session.body_context_mesh()).edges;
+            else if(part)wire=authored_feature_wire(part->session,owner);
             else if(const auto* assembly=workspace_.open_assembly(workspace_.active_document_id()))
                 if(const auto* cut=assembly->session.document().find_cut(owner);cut&&!cut->definition.suppressed) {
                     wire=cut->preview_wire;
@@ -235,6 +237,7 @@ void AssemblyWorkspaceWindow::create_layout() {
         }
         return wire;
     },[this](const std::string& owner,const std::string&) {
+        if(active_fem_condition(owner))return true;
         if(const auto* part=workspace_.open_part(workspace_.active_document_id())) {
             if(std::ranges::any_of(part->session.document().sketches,[&](const auto& sketch){return sketch.id==owner;}))return true;
             if(const auto* feature=part->session.document().find_container(owner)) {
@@ -302,6 +305,7 @@ void AssemblyWorkspaceWindow::create_layout() {
     viewer_->set_selection_contract({zima::viewer::CandidateKind::Dimension,
                                      zima::viewer::CandidateKind::Occurrence});
     viewer_->set_confirmation_callback([this](const auto& candidate) {
+        if(!properties_dialog_&&active_fem_condition(candidate.owner_id)){select_fem_condition(candidate.owner_id,false);return;}
         if(accept_relation_dimension(candidate))return;
         if(accept_family_reference(candidate))return;
         if(accept_measurement(candidate))return;
@@ -943,6 +947,11 @@ void AssemblyWorkspaceWindow::create_layout() {
     viewer_->set_dimension_layout_commit([this](const auto& reference,auto layout){commit_dimension_layout(reference,layout);});
     viewer_->set_context_menu_callback(
         [this](const auto& candidate, const QPoint& global_position) {
+            if(!properties_dialog_)if(const auto* condition=active_fem_condition(candidate.owner_id)) {
+                const auto id=condition->id;const auto kind=condition->kind;QMenu menu(this);
+                auto* properties=menu.addAction(resource_icon("properties"),tr("Vlastnosti…"));auto* remove=menu.addAction(resource_icon("delete"),tr("Odstranit"));
+                const auto* selected=menu.exec(global_position);if(selected==properties)show_fem_condition_properties(kind,id);else if(selected==remove)remove_fem_condition(id);return;
+            }
             if(section_dialog_&&section_dialog_->isVisible())return;
             std::string context_owner_id=candidate.owner_id;
             if(candidate.kind==zima::viewer::CandidateKind::Container)
@@ -1671,6 +1680,10 @@ void AssemblyWorkspaceWindow::create_layout() {
             return true;
         });
     viewer_->set_double_confirmation_callback([this](const auto& candidate) {
+        if(!properties_dialog_)if(const auto* condition=active_fem_condition(candidate.owner_id)) {
+            if(candidate.semantic_key.starts_with("fem:parameter:"))show_fem_condition_properties(condition->kind,condition->id);
+            else select_fem_condition(condition->id,true);return;
+        }
         if(sketch_universal_dimension_active_&&candidate.kind==zima::viewer::CandidateKind::SketchCurve&&
            candidate.owner_id==active_sketch_id_&&candidate.semantic_key.starts_with("arc:")) {
             accept_sketch_universal_dimension(candidate);return;
@@ -2017,6 +2030,7 @@ void AssemblyWorkspaceWindow::create_layout() {
             if (item == nullptr || !selected_items.contains(item)) {
                 item = selected_items.front();
             }
+            if(item->data(0,Qt::UserRole+3)=="fem-condition") {select_fem_condition(item->data(0,Qt::UserRole).toString().toStdString(),false);return;}
             if(item->data(0,Qt::UserRole+3).toString()=="model-symbol") {
                 const auto id=item->data(0,Qt::UserRole).toString().toStdString();selected_symbol_=id;
                 viewer_->confirm_reference(id,"symbol:"+id,workspace_.active_occurrence_path(),zima::viewer::CandidateKind::Symbol);return;
@@ -2511,6 +2525,7 @@ void AssemblyWorkspaceWindow::create_layout() {
             auto owner=item->data(0,Qt::UserRole).toString().toStdString();
             const auto path=item->data(0,Qt::UserRole+1).toString().toStdString();
             if(role=="model-symbol"){show_model_symbol_properties(owner);return;}
+            if(role=="fem-condition"){select_fem_condition(owner,true);return;}
             const auto component=role=="part-opening-component"?item->data(0,Qt::UserRole+5).toString().toStdString():std::string{};
             if(role=="part-container-entity")owner=item->data(0,Qt::UserRole+6).toString().toStdString();
             if(const auto* part=workspace_.open_part(
@@ -2608,6 +2623,12 @@ void AssemblyWorkspaceWindow::create_layout() {
                 return;
             }
             const auto step_kind = item->data(0, Qt::UserRole + 3).toString();
+            if(step_kind=="fem-condition"&&!properties_dialog_) {
+                const auto id=item->data(0,Qt::UserRole).toString().toStdString();if(!active_fem_condition(id))return;QMenu menu(this);
+                auto* properties=menu.addAction(resource_icon("properties"),tr("Vlastnosti…"));auto* remove=menu.addAction(resource_icon("delete"),tr("Odstranit"));
+                properties->setObjectName("femConditionPropertiesAction");remove->setObjectName("femConditionRemoveAction");
+                const auto* selected=exec_tree_menu(menu,item,position);if(selected==properties)show_tree_item_properties(item);else if(selected==remove)remove_fem_condition(id);return;
+            }
             if(active_fem_body()&&step_kind!="part-body"&&step_kind!="part-result-body"&&step_kind!="part-body-boolean")return;
             if(step_kind=="feature-operation") {
                 if(properties_dialog_)return;

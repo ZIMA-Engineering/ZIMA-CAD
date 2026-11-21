@@ -226,13 +226,18 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
         for(const auto* name:{"featurePrototypeAction","modelTwistAction","straightenAction","restoreShapeAction","planarSurfaceAction","generalSurfaceAction", "boundarySurfaceAction","surfaceSewingAction","surfaceIntersectionAction","sheetFromBodyAction","flatAction","bendAction","lineBendAction","sheetProfileAction"})
             if(auto* action=findChild<QAction*>(name))action->setEnabled(false);
         for(int i=0;i<6;++i)if(auto* action=findChild<QAction*>(QStringLiteral("featureShortcut%1Action").arg(i)))action->setEnabled(false);
-        if(!properties_dialog_)viewer_->set_candidate_filter([](const auto&){return false;});
+        if(!properties_dialog_)viewer_->set_candidate_filter([this](const auto& c){return active_fem_condition(c.owner_id)!=nullptr;});
         add_command(selection_action_);
+        for(auto kind:{document::FemConditionKind::Constraint,document::FemConditionKind::Force,document::FemConditionKind::Pressure}) {
+            const auto name=kind==document::FemConditionKind::Force?tr("Force"):kind==document::FemConditionKind::Pressure?tr("Pressure"):tr("Constraint");
+            const auto key=kind==document::FemConditionKind::Force?"Force":kind==document::FemConditionKind::Pressure?"Pressure":"Constraint";
+            const auto icon=kind==document::FemConditionKind::Force?"fem-force":kind==document::FemConditionKind::Pressure?"fem-pressure":"fem-constraint";
+            auto* action=new QAction(resource_icon(icon),name,tools_toolbar_);action->setObjectName(QString("fem%1Action").arg(key));
+            action->setEnabled(!properties_dialog_);connect(action,&QAction::triggered,this,[this,kind]{show_fem_condition_properties(kind);});add_command(action);
+        }
         auto* edit=new QAction(resource_icon("properties"),tr("FEM Body properties"),tools_toolbar_);edit->setObjectName("femBodyPropertiesAction");
         edit->setEnabled(!properties_dialog_);connect(edit,&QAction::triggered,this,[this]{
             const auto* part=workspace_.open_part(workspace_.active_document_id());if(part)show_fem_body_properties(part->session.document().body_history.active_body_id());});add_command(edit);
-        auto* back=new QAction(resource_icon("part"),tr("Back to Part"),tools_toolbar_);back->setObjectName("femBackToPartAction");
-        back->setEnabled(!properties_dialog_);connect(back,&QAction::triggered,this,[this]{activate_body({});});add_command(back,false);
         return;
     }
     if (drawing) {

@@ -60,7 +60,7 @@ PrimitiveData make_projection_data(const ProjectionRequest& request,const std::s
     const gp_Pln sketch(gp_Pnt(request.sketch_origin.x,request.sketch_origin.y,request.sketch_origin.z),
         gp_Dir(request.sketch_normal.x,request.sketch_normal.y,request.sketch_normal.z));
     const gp_Dir direction(request.direction.x,request.direction.y,request.direction.z);
-    auto projection=detail::project_directionally(sources,targets,sketch,direction,request.tolerance);
+    auto projection=detail::project_directionally(sources,targets,sketch,direction,request.tolerance,request.both_directions);
     if(projection.ambiguous)throw std::runtime_error("Projection curve ancestry is ambiguous.");
     if(!projection.gaps.empty())throw std::runtime_error("Projection does not completely define a partition.");
     detail::name_projected_curves(projection,sources,targets,sketch,direction,request.tolerance);

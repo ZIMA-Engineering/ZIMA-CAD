@@ -1,6 +1,7 @@
 #pragma once
 #include <zima/document/feature_parameters.hpp>
 #include <QComboBox>
+#include "resource_icon.hpp"
 
 namespace zima::app {
 // One type control for standalone Features and geometry owned by another command.
@@ -10,6 +11,7 @@ inline QComboBox* feature_type_control(QWidget* parent,document::FeatureType typ
     auto* control=new QComboBox(parent);control->setObjectName("featureType");
     control->addItems({QObject::tr("Bod"),QObject::tr("Osa"),QObject::tr("Rovina"),
         QObject::tr("Skica"),QObject::tr("Tažení"),QObject::tr("Promítnutí")});
+    control->setItemIcon(static_cast<int>(document::FeatureType::Projection),resource_icon("projection"));
     control->setCurrentIndex(static_cast<int>(type));control->setEnabled(editable);
     return control;
 }

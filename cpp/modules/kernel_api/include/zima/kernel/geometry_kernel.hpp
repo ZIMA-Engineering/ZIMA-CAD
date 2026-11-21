@@ -1227,6 +1227,9 @@ struct ProjectionRequest {
     Vec3 sketch_origin, sketch_normal{0,0,1}, direction{0,0,1};
     std::optional<EdgeReference> direction_reference;
     bool reverse{};
+    // GUI normal projection chooses the nearest selected face on either side.
+    // Explicit directed requests remain available to native callers.
+    bool both_directions{};
     std::vector<FaceReference> targets;
     std::vector<ProjectionTargetSource> external_targets;
     std::vector<ProjectionRegionIntent> regions;

@@ -44,7 +44,7 @@ int verify_projection_ui(QApplication& application,AssemblyWorkspaceWindow& wind
             check(editor()->windowType()==Qt::SubWindow,"Projection uses a floating Properties window");
             editor()->findChild<QComboBox*>("featureType")->setCurrentIndex(static_cast<int>(document::FeatureType::Projection));
             editor()->findChild<QComboBox*>("projectionOutput")->setCurrentIndex(output);
-            editor()->findChild<QCheckBox*>("projectionReverse")->setChecked(true);flush();
+            flush();
             auto* panel=editor()->projection_panel();check(panel&&panel->isVisible(),"Projection controls are missing");
             const auto field=[&](const char* name,int row) {
                 auto* table=editor()->findChild<QTableWidget*>(name);check(table,"Projection reference table missing");
@@ -104,7 +104,7 @@ int verify_projection_ui(QApplication& application,AssemblyWorkspaceWindow& wind
                 std::cerr<<"Projection no-op counts before/open/OK "<<count<<'/'<<after_open_count<<'/'<<kernel::body_calculation_count.load()
                     <<" documents "<<nlohmann::json::diff(committed,window.execute_console_command("documents").data).dump()<<'\n';
             check(!editor()&&window.execute_console_command("documents").data==committed&&kernel::body_calculation_count.load()==count,"Unchanged Projection OK recalculated or changed history");
-            window.show_tree_item_properties(row());flush();editor()->findChild<QCheckBox*>("projectionReverse")->toggle();
+            window.show_tree_item_properties(row());flush();editor()->findChild<QComboBox*>("projectionOutput")->setCurrentIndex((output+1)%3);
             editor()->buttons()->button(QDialogButtonBox::Cancel)->click();flush();
             check(window.execute_console_command("documents").data==committed,"Projection Cancel changed history");
             window.findChild<QAction*>("undoAction")->trigger();flush();window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
@@ -170,36 +170,26 @@ int verify_projection_ui(QApplication& application,AssemblyWorkspaceWindow& wind
             const auto placement_calculations=kernel::body_calculation_count.load();
             auto* default_origin=editor()->findChild<QPushButton*>("containerDefaultOriginButton");
             check(default_origin&&default_origin->isEnabled(),"Projection has no shared Default Origin placement");
-            default_origin->click();editor()->findChild<QCheckBox*>("projectionReverse")->setChecked(false);flush();
+            default_origin->click();flush();
             check(std::abs(editor()->pending_value().placement.z)<1e-8,"Projection did not adopt the whole Origin frame");
             check(kernel::body_calculation_count.load()==placement_calculations,"Projection placement preview calculated geometry");
             editor()->buttons()->button(QDialogButtonBox::Cancel)->click();flush();
             check(window.execute_console_command("documents").data==before_placement,"Projection placement Cancel changed history");
             window.show_tree_item_properties(row());flush();
             editor()->findChild<QPushButton*>("containerDefaultOriginButton")->click();
-            editor()->findChild<QCheckBox*>("projectionReverse")->setChecked(false);
-            editor()->findChild<QComboBox*>("projectionDirection")->setCurrentIndex(1);flush();
-            field("projectionDirectionReference",0);view->fit_all();flush();
-            std::optional<QPointF> axis_hit;
-            for(int y=20;y<view->height()-20&&!axis_hit;y+=3)for(int x=20;x<view->width()-20&&!axis_hit;x+=3) {
-                const auto choices=view->selection_candidates_at(QPointF(x,y));
-                if(!choices.empty()&&choices.front().kind==viewer::CandidateKind::Axis&&choices.front().semantic_key=="origin:axis:z")axis_hit=QPointF(x,y);
-            }
-            check(axis_hit.has_value(),"Projection direction picker omitted the native Z axis");
-            pointer(view,*axis_hit,false);
-            check(editor()->projection_panel()->parameters().direction_reference.semantic_key=="origin:axis:z","Projection direction click lost its native reference");
-            check(kernel::body_calculation_count.load()==placement_calculations,"Projection direction picking calculated geometry");
+            flush();
+            check(kernel::body_calculation_count.load()==placement_calculations,"Projection whole Origin preview calculated geometry");
             editor()->buttons()->button(QDialogButtonBox::Ok)->click();flush();
             if(editor())throw std::runtime_error("Projection placed OK failed: "+editor()->findChild<QLabel*>("featureValidationError")->text().toStdString());
             window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
             std::vector<kernel::BodyResult> placed_cache;const auto placed=document::PartDocument::load(path,&placed_cache);
             const auto* placed_feature=placed.find_container(feature.id);
             check(placed_feature&&std::abs(placed_feature->placement.z)<1e-8&&document::placement_references_use_whole_origin(placed_feature->placement.references)&&
-                placed_feature->feature.projection.direction_reference.semantic_key=="origin:axis:z"&&placed_cache.back().calculation_errors.empty(),"Projection placement/direction did not persist");
+                placed_feature->feature.projection.direction==document::ProjectionDirection::SketchNormal&&placed_cache.back().calculation_errors.empty(),"Projection placement/direction did not persist");
             window.show_tree_item_properties(row());flush();
             check(std::abs(editor()->pending_value().placement.z)<1e-8,"Reopened Projection lost its placement");
             editor()->buttons()->button(QDialogButtonBox::Cancel)->click();flush();
-            std::cout<<"Projection GUI output "<<output<<": picking, replacement, independent inspection, zero-calculation preview, OK, no-op, Cancel, save, Undo/Redo, whole Origin and native axis direction passed\n";
+            std::cout<<"Projection GUI output "<<output<<": picking, replacement, independent inspection, zero-calculation preview, OK, no-op, Cancel, save, Undo/Redo, whole Origin and automatic normal direction passed\n";
             std::cout<<"Projection GUI source dimensions: Tree single/double-click, zero-calculation inspection and three successive View radius edits passed\n";
         }
         return 0;

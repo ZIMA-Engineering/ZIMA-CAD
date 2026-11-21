@@ -139,6 +139,10 @@
     <file alias="icons/sketch-spline.svg">../../resources/icons/sketch-spline.svg</file>
     <file alias="icons/sketch-text.svg">../../resources/icons/sketch-text.svg</file>
     <file alias="icons/sketch-reference.svg">../../resources/icons/sketch-reference.svg</file>
+    <file alias="icons/projection.svg">../../resources/icons/projection.svg</file>
+    <file alias="icons/fem-force.svg">../../resources/icons/fem-force.svg</file>
+    <file alias="icons/fem-pressure.svg">../../resources/icons/fem-pressure.svg</file>
+    <file alias="icons/fem-constraint.svg">../../resources/icons/fem-constraint.svg</file>
     <file alias="icons/sketch-reference-outline.svg">../../resources/icons/sketch-reference-outline.svg</file>
     <file alias="icons/sketch-intersection.svg">../../resources/icons/sketch-intersection.svg</file>
     <file alias="icons/sketch-intersection-outline.svg">../../resources/icons/sketch-intersection-outline.svg</file>

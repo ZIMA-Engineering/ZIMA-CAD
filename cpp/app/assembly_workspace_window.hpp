@@ -431,6 +431,13 @@ private:
     void show_fem_body_properties(const std::string& id = {});
     bool accept_fem_tree_reference(QTreeWidgetItem* item);
     bool active_fem_body() const;
+    const zima::document::FemCondition* active_fem_condition(const std::string&) const;
+    zima::kernel::ViewerMesh fem_display_mesh() const;
+    void select_fem_condition(const std::string&,bool inspect);
+    void remove_fem_condition(const std::string&);
+    void show_fem_condition_properties(zima::document::FemConditionKind,const std::string& id = {});
+    std::optional<zima::document::FemCondition> fem_condition_preview_;
+    std::string fem_inspected_condition_;
     void show_body_scale_properties(const std::string& id = {});
     bool accept_body_scale_tree_reference(QTreeWidgetItem* item);
     void show_derived_copy_properties(const std::string& id = {},bool pattern=false);

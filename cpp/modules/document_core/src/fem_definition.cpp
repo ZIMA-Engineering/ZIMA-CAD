@@ -3,9 +3,16 @@
 #include <cmath>
 #include <limits>
 #include <stdexcept>
+#include <set>
 
 namespace zima::document {
 void validate_fem_definition(const FemDefinition& value) {
+    std::set<std::string> ids;
+    for(const auto& condition:value.conditions) {
+        validate_fem_condition(condition);
+        if(!ids.insert(condition.id).second)
+            throw std::invalid_argument("Invalid FEM condition definition.");
+    }
     if(value.source_id.empty())
         throw std::invalid_argument("FEM requires a source Body or Boolean result.");
     if(value.analysis!=FemAnalysisKind::LinearElasticStatic)
@@ -25,6 +32,7 @@ void to_json(nlohmann::json& json,const FemDefinition& value) {
             {"maximum_size_mm",value.mesh.maximum_size_mm},
             {"elements_through_thickness",value.mesh.elements_through_thickness},
             {"order",static_cast<int>(value.mesh.order)}}}};
+    if(!value.conditions.empty())json["conditions"]=value.conditions;
 }
 
 void from_json(const nlohmann::json& json,FemDefinition& value) {
@@ -46,6 +54,7 @@ void from_json(const nlohmann::json& json,FemDefinition& value) {
     if(!order.is_number_integer()||(order!=1&&order!=2))
         throw std::invalid_argument("Invalid FEM volume mesh controls.");
     next.mesh.order=static_cast<FemElementOrder>(order.get<int>());
+    if(json.contains("conditions"))next.conditions=json.at("conditions").get<std::vector<FemCondition>>();
     validate_fem_definition(next);
     value=std::move(next);
 }

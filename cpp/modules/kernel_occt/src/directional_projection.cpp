@@ -6,6 +6,7 @@
 #include <BRepBndLib.hxx>
 #include <BRepBuilderAPI_MakeEdge.hxx>
 #include <BRepBuilderAPI_MakeVertex.hxx>
+#include <BRepBuilderAPI_Transform.hxx>
 #include <BRepCheck_Analyzer.hxx>
 #include <BRepExtrema_DistShapeShape.hxx>
 #include <BRepLib_CheckCurveOnSurface.hxx>
@@ -245,16 +246,51 @@ std::vector<Candidate> candidates_for(const ProjectionCurve& source,
 
 DirectionalProjection project_directionally(const std::vector<ProjectionCurve>& sources,
         const std::vector<ProjectionTarget>& targets, const gp_Pln& sketch_plane,
-        const gp_Dir& direction, double tolerance) {
+        const gp_Dir& direction, double tolerance, bool both_directions) {
     if (sources.empty() || targets.empty() || !std::isfinite(tolerance) || tolerance <= 0)
         throw std::invalid_argument("Projection requires source curves, target faces and a positive tolerance.");
     if (std::abs(direction.Dot(sketch_plane.Axis().Direction())) < 1e-12)
         throw std::invalid_argument("Projection direction must cross the source Sketch plane.");
+    if(both_directions&&std::abs(direction.Dot(sketch_plane.Axis().Direction()))<1.-1e-12)
+        throw std::invalid_argument("Automatic Projection requires the Sketch normal.");
     const double extent = forward_extent(targets,sketch_plane,direction,tolerance);
+    const double back_extent=both_directions?forward_extent(targets,sketch_plane,direction.Reversed(),tolerance):tolerance;
     DirectionalProjection result;
     for (const auto& source : sources) {
         SourceParameters parameters{NativeCurve(source.edge),sketch_plane,direction,tolerance};
         auto candidates = candidates_for(source,targets,direction,extent,tolerance);
+        if(both_directions) {
+            const auto front_count=candidates.size();
+            auto back=candidates_for(source,targets,direction.Reversed(),back_extent,tolerance);
+            candidates.insert(candidates.end(),back.begin(),back.end());
+            // Opposite-side distance ties can occur even when the target
+            // surfaces never physically intersect. Reflect the native candidate
+            // curves across the Sketch plane and classify their exact crossings.
+            // A tie is ambiguous, including an isolated switch of nearest side.
+            gp_Trsf reflection;reflection.SetMirror(sketch_plane.Position().Ax2());
+            for(std::size_t i=0;i<front_count;++i)for(std::size_t j=front_count;j<candidates.size();++j) {
+                const auto mirrored=BRepBuilderAPI_Transform(candidates[j].edge,reflection,true).Shape();
+                BRepAlgoAPI_Section equal_distance(candidates[i].edge,mirrored,false);
+                equal_distance.SetNonDestructive(true);equal_distance.SetFuzzyValue(tolerance);equal_distance.Build();
+                if(!equal_distance.IsDone())throw std::runtime_error("Projection classification failed.");
+                for(TopExp_Explorer it(equal_distance.Shape(),TopAbs_VERTEX);it.More();it.Next()) {
+                    const auto tie=BRep_Tool::Pnt(TopoDS::Vertex(it.Current()));
+                    const double tie_distance=sketch_plane.Distance(tie);
+                    if(tie_distance<=tolerance)continue; // One coincident physical hit.
+                    const auto origin=parameters.source.curve->Value(parameters.parameter(tie));
+                    bool occluded=false;
+                    for(const auto& target:targets) {
+                        IntCurvesFace_ShapeIntersector ray;ray.Load(target.face,tolerance);
+                        ray.Perform(gp_Lin(origin,direction),-back_extent,extent);
+                        if(!ray.IsDone())throw std::runtime_error("Projection ray classification failed.");
+                        for(int k=1;k<=ray.NbPnt();++k)
+                            if(std::abs(ray.WParameter(k))<tie_distance-tolerance)occluded=true;
+                    }
+                    if(!occluded)result.ambiguous=true;
+                }
+            }
+            if(result.ambiguous)continue;
+        }
         std::vector<double> events{parameters.source.first,parameters.source.last};
         const double parameter_tolerance = std::max(1.,parameters.source.last-parameters.source.first)*1e-10;
         const bool closed_source=parameters.source.curve->Value(parameters.source.first).Distance(
@@ -295,26 +331,27 @@ DirectionalProjection project_directionally(const std::vector<ProjectionCurve>& 
             const double first=events[i-1], last=events[i], middle=(first+last)*.5;
             if (last-first <= parameter_tolerance) continue;
             const auto origin=parameters.source.curve->Value(middle);
-            struct Hit { std::size_t target; double distance; TopAbs_State state; };
+            struct Hit { std::size_t target; double distance; TopAbs_State state; double depth; };
             std::vector<Hit> hits;
             double nearest=std::numeric_limits<double>::infinity();
             for (std::size_t t=0;t<targets.size();++t) {
                 IntCurvesFace_ShapeIntersector ray;
                 ray.Load(targets[t].face,tolerance);
-                ray.Perform(gp_Lin(origin,direction),-tolerance,extent);
+                ray.Perform(gp_Lin(origin,direction),-back_extent,extent);
                 if (!ray.IsDone()) throw std::runtime_error("Projection ray classification failed.");
                 for (int j=1;j<=ray.NbPnt();++j) {
-                    const double depth=std::max(0.,ray.WParameter(j));
-                    nearest=std::min(nearest,depth);
-                    hits.push_back({t,depth,ray.State(j)});
+                    const double depth=both_directions?ray.WParameter(j):std::max(0.,ray.WParameter(j));
+                    const double distance=std::abs(depth);
+                    nearest=std::min(nearest,distance);
+                    hits.push_back({t,distance,ray.State(j),depth});
                 }
             }
             std::erase_if(hits,[&](const auto& hit){return hit.distance > nearest+tolerance;});
             if (hits.empty()) { result.gaps.push_back({source.source_key,first,last}); continue; }
-            if (hits.size()>1 && std::ranges::any_of(hits,[](const auto& hit){return hit.state!=TopAbs_ON;})) {
+            if (hits.size()>1 && std::ranges::any_of(hits,[&](const auto& hit){return hit.state!=TopAbs_ON||std::abs(hit.depth-hits.front().depth)>tolerance;})) {
                 result.ambiguous=true; continue;
             }
-            const auto point=origin.Translated(nearest*gp_Vec(direction));
+            const auto point=origin.Translated(hits.front().depth*gp_Vec(direction));
             std::vector<std::string> target_keys;
             for (const auto& hit:hits) target_keys.push_back(targets[hit.target].target_key);
             std::ranges::sort(target_keys);
@@ -401,9 +438,9 @@ void name_projected_curves(DirectionalProjection& projection,
             // range is always increasing. Match endpoints through the source.
             const auto a=output.curve->Value(output.first),b=output.curve->Value(output.last);
             const auto point=std::abs(parameters.parameter(a)-parameter)<std::abs(parameters.parameter(b)-parameter)?a:b;
-            const double depth=std::max(0.,gp_Vec(start,point).Dot(gp_Vec(direction)));
-            const auto ray=BRepBuilderAPI_MakeEdge(start.Translated(-tolerance*gp_Vec(direction)),
-                start.Translated((depth+tolerance)*gp_Vec(direction))).Edge();
+            const double depth=gp_Vec(start,point).Dot(gp_Vec(direction));
+            const auto ray=BRepBuilderAPI_MakeEdge(start.Translated((std::min(0.,depth)-tolerance)*gp_Vec(direction)),
+                start.Translated((std::max(0.,depth)+tolerance)*gp_Vec(direction))).Edge();
             for(const auto& target:targets)for(const auto& boundary:target.boundaries) {
                 if(boundary.source_key.empty())continue;
                 BRepExtrema_DistShapeShape intersection(ray,boundary.edge);

@@ -281,6 +281,8 @@ add_library(zima_document_core
     modules/document_core/src/appearance.cpp
     modules/document_core/src/body_history.cpp
     modules/document_core/src/fem_definition.cpp
+    modules/document_core/src/fem_condition.cpp
+    modules/document_core/src/fem_presentation.cpp
     modules/document_core/src/section.cpp
     modules/document_core/src/measurement_record.cpp
     modules/document_core/src/body_properties.cpp
@@ -346,6 +348,7 @@ add_library(zima_workspace modules/workspace/src/workspace.cpp
     modules/workspace/src/file_rename_operations.cpp
     modules/workspace/src/body_operations.cpp
     modules/workspace/src/fem_operations.cpp
+    modules/workspace/src/fem_condition_operations.cpp
     modules/workspace/src/body_reference_operations.cpp modules/workspace/src/construction_reference_operations.cpp
     modules/workspace/src/history_operations.cpp
     modules/workspace/src/history_deletion.cpp
@@ -654,6 +657,7 @@ endif()
 
 add_executable(zima-cad-cpp
     app/fem_body_command.cpp app/fem_body_ui_verification.cpp
+    app/fem_condition_command.cpp
     app/body_link_ui_verification.cpp
     ${ZIMA_WORKSPACE_SOURCES}
     app/command_console.cpp app/console_ui_verification.cpp app/holes_ui_verification.cpp app/edge_treatment_ui_verification.cpp app/rotation_handle_ui_verification.cpp
@@ -1661,6 +1665,9 @@ if(ZIMA_BUILD_TESTS)
     add_executable(zima_cpp_fem_operations_tests tests/fem_operations_tests.cpp)
     target_link_libraries(zima_cpp_fem_operations_tests PRIVATE zima_workspace)
     add_test(NAME zima_cpp_fem_operations_tests COMMAND zima_cpp_fem_operations_tests)
+    add_executable(zima_cpp_fem_condition_tests tests/fem_condition_tests.cpp)
+    target_link_libraries(zima_cpp_fem_condition_tests PRIVATE zima_workspace)
+    add_test(NAME zima_cpp_fem_condition_tests COMMAND zima_cpp_fem_condition_tests)
     add_executable(zima_cpp_body_scale_tests tests/body_scale_tests.cpp)
     add_executable(zima_cpp_body_link_tests tests/body_link_tests.cpp)
     target_link_libraries(zima_cpp_body_link_tests PRIVATE zima_workspace)

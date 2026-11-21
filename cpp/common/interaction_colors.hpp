@@ -6,7 +6,9 @@ namespace zima::interaction {
 inline const QColor hover{"#00D1FF"};
 inline const QColor selected{"#00D1FF"};
 inline constexpr double selected_wire_width = 2.5;
-inline constexpr double curve_highlight_wire_width = 1.8;
+// Authored curves retain their preview weight after OK and during hover.
+inline constexpr double curve_wire_width = 2.0;
+inline constexpr double curve_highlight_wire_width = curve_wire_width;
 inline const QColor subtract{"#FF0000"};
 inline const QColor surface{"#FFD400"};
 inline const QColor construction{"#FF8C00"};

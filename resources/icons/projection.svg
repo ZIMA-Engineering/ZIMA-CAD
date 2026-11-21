@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" role="img" aria-labelledby="title">
+  <title id="title">Projection</title>
+  <g fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M3 5l10-2 7 4-10 2Z"/>
+    <path d="M3 16l7 4c4-3 7-1 10-4l-4-2"/>
+  </g>
+  <path d="M11 11v5m-2-2 2 2 2-2" fill="none" stroke="#00D1FF" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

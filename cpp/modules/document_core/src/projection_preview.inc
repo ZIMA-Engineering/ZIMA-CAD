@@ -1,11 +1,13 @@
 // Disposable preview from the current viewer packet. It never supplies native
 // references or partition geometry and is reused by ordinary feature inspection.
 kernel::ViewerMesh PartDocument::projection_preview_mesh(
-        const HistoryContainer& feature,const kernel::ViewerMesh& input,const PartDocument* owners) const {
+        const HistoryContainer& feature,const kernel::ViewerMesh& input,const PartDocument* owners,bool* incomplete) const {
     using namespace kernel;
+    if(incomplete)*incomplete=false;
     const auto sketch=std::ranges::find(sketches,feature.feature.sketch_id,&sketcher::Sketch::id);
     if(sketch==sketches.end())return {};
     const auto& p=feature.feature.projection;
+    const bool both_directions=p.direction==ProjectionDirection::SketchNormal;
     auto direction=sketch->normal();
     const auto* body=owners?owners->body_owner_for_object(feature.id):nullptr;
     if(!body&&owners)body=owners->body_history.find(owners->body_history.active_body_id());
@@ -40,21 +42,23 @@ kernel::ViewerMesh PartDocument::projection_preview_mesh(
         for(std::size_t j=0;j+2<points.size();j+=3)triangles.push_back({points[j],points[j+1],points[j+2],i});
     }
     const auto cast=[&](Vec3 point)->std::optional<Vec3> {
-        double closest=std::numeric_limits<double>::infinity();std::size_t owner=0;bool ambiguous=false,on_boundary=false;
+        double closest=std::numeric_limits<double>::infinity(),signed_depth=0;std::size_t owner=0;bool ambiguous=false,on_boundary=false;
         for(const auto& triangle:triangles) {
             const auto e1=placement_vec_sub(triangle.b,triangle.a),e2=placement_vec_sub(triangle.c,triangle.a);
             const auto h=placement_vec_cross(direction,e2);const double determinant=placement_vec_dot(e1,h);
             if(std::abs(determinant)<1e-14)continue;
             const auto s=placement_vec_sub(point,triangle.a);const double u=placement_vec_dot(s,h)/determinant;
             const auto q=placement_vec_cross(s,e1);const double v=placement_vec_dot(direction,q)/determinant;
-            const double distance=placement_vec_dot(e2,q)/determinant;
-            if(u< -1e-9||v< -1e-9||u+v>1+1e-9||distance< -1e-7)continue;
+            const double depth=placement_vec_dot(e2,q)/determinant;
+            if(u< -1e-9||v< -1e-9||u+v>1+1e-9||(!both_directions&&depth< -1e-7))continue;
+            const double distance=std::abs(depth);
             const bool boundary=std::min({u,v,1-u-v})<1e-8;
-            if(distance<closest-1e-7) {closest=std::max(0.,distance);owner=triangle.target;ambiguous=false;on_boundary=boundary;}
-            else if(std::abs(distance-closest)<1e-7&&owner!=triangle.target&&!(boundary&&on_boundary))ambiguous=true;
+            if(distance<closest-1e-7) {closest=distance;signed_depth=depth;owner=triangle.target;ambiguous=false;on_boundary=boundary;}
+            else if(std::abs(distance-closest)<1e-7&&
+                (std::abs(depth-signed_depth)>1e-7||(owner!=triangle.target&&!(boundary&&on_boundary))))ambiguous=true;
         }
         if(!std::isfinite(closest)||ambiguous)return {};
-        return placement_vec_add(point,placement_vec_scale(direction,closest));
+        return placement_vec_add(point,placement_vec_scale(direction,signed_depth));
     };
     ViewerMesh result;
     auto source=sketch->evaluated_profile_sketch().viewer_mesh(false);
@@ -66,13 +70,14 @@ kernel::ViewerMesh PartDocument::projection_preview_mesh(
             // Existing curved display packets already contain adaptive samples;
             // straight spans need intermediate rays to show target curvature.
             const int count=edge.points.size()==2?64:2;
-            auto previous=a;auto projected=cast(a);
+            auto projected=cast(a);
             for(int sample=1;sample<=count;++sample) {
                 const auto next=placement_vec_add(a,placement_vec_scale(delta,double(sample)/count));const auto hit=cast(next);
-                ViewerEdge span;span.reference={feature.id,projected&&hit?"projection:preview:result":"projection:preview:missing",{}};
-                if(projected&&hit){span.points={*projected,*hit};span.color="#FFFFFF";}
-                else {span.points={previous,next};span.color="#FF5E52";span.preview_terminal_dashed=true;}
-                result.edges.push_back(std::move(span));previous=next;projected=hit;
+                if(projected&&hit) {
+                    ViewerEdge span;span.reference={feature.id,"projection:preview:result",{}};
+                    span.points={*projected,*hit};span.color="#FFFFFF";result.edges.push_back(std::move(span));
+                } else if(incomplete)*incomplete=true;
+                projected=hit;
             }
         }
     }

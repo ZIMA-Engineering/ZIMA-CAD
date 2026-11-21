@@ -68,7 +68,8 @@ static void verify_projection_panel(QApplication& application,QWidget& parent) {
         for(const auto* theme:{"light","dark"}) {
             settings.theme=theme;app::apply_application_appearance(application,settings);application.processEvents();
             check(targets->horizontalHeaderItem(2)->text()==QObject::tr("Cílové plochy"),"Projection target header did not translate");
-            check(dialog.findChild<QComboBox*>("projectionDirection")->itemText(0)==QObject::tr("Normála skici"),"Projection direction did not translate");
+            check(!dialog.findChild<QComboBox*>("projectionDirection")&&!dialog.findChild<QCheckBox*>("projectionReverse"),"Projection still exposes manual direction controls");
+            check(dialog.findChild<QLabel*>("projectionNotice")->text()==QObject::tr("Promítá se kolmo ke skicové rovině na nejbližší vybranou plochu. Pořadí ploch výsledek nemění."),"Automatic Projection notice did not translate");
             check(panel->active_pick()==app::ProjectionParameterPanel::Pick::Target&&panel->inspected_faces().size()==1,"Projection language/theme lost reference state");
             dialog.resize(dialog.width()+20,dialog.height()+20);application.processEvents();
             check(targets->columnWidth(1)==34&&targets->columnWidth(3)==34,"Projection reference controls stretched");
@@ -154,7 +155,6 @@ static void verify_projection_rendering(QApplication& application,QWidget& paren
         view.set_transient_edges({});
         view.set_container_preview_provider([source,result](const auto&,const auto&){return std::vector{source,result};},[](const auto&,const auto&){return true;});
         view.confirm_container("projection");flush();const auto selected=view.grabFramebuffer();
-        selected.save(QDir::currentPath()+"/build/fem-20261120/projection-selected-"+theme+".png");
         check(view.confirmed_candidate().has_value(),"Projection fixture has no native container candidate");
         std::cout<<"Projection selected "<<theme<<" vertices="<<view.property("gpuSourceWireVertexCount").toInt()
             <<" source="<<has_color(selected,{-20,-10,0},interaction::selected)<<" result="<<has_color(selected,{15,-10,0},interaction::selected)<<'\n';
@@ -167,6 +167,59 @@ static void verify_projection_rendering(QApplication& application,QWidget& paren
     check(std::ranges::any_of(candidates,[](const auto& c){return c.semantic_key=="projection:point:fixture";}),
         "Projected endpoint lost its reference candidate");
     std::cout<<"Projection rendering: source/result curves and points, two themes, complete selected wire and endpoint picking passed\n";
+}
+static void verify_curve_stroke_width(QApplication& application,QWidget& parent) {
+    using namespace zima;
+    const auto check=[](bool ok,const char* message){if(!ok)throw std::runtime_error(message);};
+    const auto flush=[&]{QElapsedTimer timer;timer.start();while(timer.elapsed()<60){application.processEvents();QThread::msleep(2);}};
+    viewer::MeshView view(&parent);view.setGeometry(0,0,800,600);view.show();
+    QCursor::setPos(parent.mapToGlobal(QPoint{parent.width()-10,parent.height()-10}));
+    auto camera=view.camera_state();camera[0]=1;camera[1]=camera[2]=camera[3]=0;camera[7]=10;view.set_camera_state(camera);
+    // Measure integrated framebuffer coverage across the middle of the same
+    // horizontal stroke. This catches physical-pixel GL fallbacks at high DPI
+    // without confusing antialiasing with a different logical pen width.
+    const auto width=[&](const QImage& image,QColor color) {
+        const auto a=view.ray_at({0,0}),b=view.ray_at({double(view.width()),double(view.height())});
+        check(a&&b,"Curve width fixture has no camera");
+        const double row=(0-a->first.y)/(b->first.y-a->first.y)*view.height()*image.devicePixelRatio();
+        double total=0;int columns=0;
+        for(int x=image.width()/2-30;x<image.width()/2+30;++x) {
+            const auto bg=image.pixelColor(x,int(std::round(row))+8);
+            const std::array<double,3> delta{double(color.red()-bg.red()),double(color.green()-bg.green()),double(color.blue()-bg.blue())};
+            double norm=0;for(auto d:delta)norm+=d*d;
+            for(int y=int(std::round(row))-6;y<=int(std::round(row))+6;++y) {
+                const auto pixel=image.pixelColor(x,y);
+                const double dot=(pixel.red()-bg.red())*delta[0]+(pixel.green()-bg.green())*delta[1]+(pixel.blue()-bg.blue())*delta[2];
+                total+=std::clamp(dot/norm,0.,1.);
+            }
+            ++columns;
+        }
+        return total/columns/image.devicePixelRatio();
+    };
+    for(const auto* theme:{"dark","light"}) {
+        app::ApplicationSettings settings;settings.theme=theme;app::apply_application_appearance(application,settings);flush();
+        const auto foreground=viewer::view_theme(application.palette()).foreground;
+        for(const auto* key:{"segment:fixture","curve:segment:fixture","projection:curve:fixture"}) {
+            kernel::ViewerEdge edge;edge.reference={"curve",key,{}};edge.display_owner_id="curve";
+            edge.overlay=!std::string_view(key).starts_with("projection:");edge.points={{-20,0,0},{20,0,0}};
+            kernel::ViewerMesh mesh;mesh.edges={edge};mesh.original_references.edges=mesh.edges;
+            view.clear_selection();view.set_transient_edges({});view.set_mesh(mesh);view.fit_all();flush();
+            const double normal=width(view.grabFramebuffer(),foreground);
+            view.set_transient_edges({edge});flush();const double preview=width(view.grabFramebuffer(),interaction::selected);
+            view.set_transient_edges({});
+            view.set_container_preview_provider([edge](const auto&,const auto&){return std::vector{edge};},[](const auto&,const auto&){return true;});
+            view.confirm_container("curve");flush();const double selected=width(view.grabFramebuffer(),interaction::selected);
+            view.clear_selection();view.set_selection_contract({viewer::CandidateKind::Container});
+            const QPointF at(view.width()/2.,view.height()/2.);
+            QMouseEvent move(QEvent::MouseMove,at,QPointF(view.mapToGlobal(at.toPoint())),Qt::NoButton,Qt::NoButton,Qt::NoModifier);
+            QApplication::sendEvent(&view,&move);flush();
+            check(view.hovered_candidate()&&view.hovered_candidate()->owner_id=="curve","Curve width fixture was not actually hovered");
+            const double hover=width(view.grabFramebuffer(),interaction::hover);
+            std::cout<<"Curve width "<<theme<<' '<<key<<" DPR="<<view.devicePixelRatioF()<<" normal="<<normal<<" preview="<<preview<<" selected="<<selected<<" hover="<<hover<<'\n';
+            check(std::abs(normal-2.)<.3&&std::abs(preview-normal)<.3&&std::abs(selected-normal)<.3&&std::abs(hover-normal)<.3,
+                "Authored curve changes width between normal, preview and selection");
+        }
+    }
 }
 static void verify_limit_localization(QApplication& application,QWidget& parent) {
     using namespace zima;
@@ -399,6 +452,7 @@ static void verify_rendering(QApplication& application,QWidget& parent) {
     const auto flush=[&] {QElapsedTimer timer;timer.start();while(timer.elapsed()<60){application.processEvents();QThread::msleep(2);}};
     const auto check=[](bool ok,const char* message){if(!ok)throw std::runtime_error(message);};
     QCursor::setPos(parent.mapToGlobal(QPoint(parent.width()-10,parent.height()-10)));
+    view.set_mesh({});flush();const auto background=view.grabFramebuffer();
     for(const auto type:{document::FeatureType::Axis,document::FeatureType::Plane,document::FeatureType::Modeling,document::FeatureType::Point}) {
         auto part=document::PartDocument::create_default();auto sketch=sketcher::Sketch::create_default();
         auto feature=document::PartDocument::create_feature_container(sketch.id);
@@ -428,7 +482,16 @@ static void verify_rendering(QApplication& application,QWidget& parent) {
             int count=0;const double ratio=image.devicePixelRatio();
             for(int y=0;y<image.height();++y)for(int x=0;x<image.width();++x) {
                 const auto c=image.pixelColor(x,y);
-                if(std::abs(c.red()-color.red())>10 || std::abs(c.green()-color.green())>10 || std::abs(c.blue()-color.blue())>10)continue;
+                // At DPR 1 a 1.5 px datum can cover only fractions of pixels.
+                // Compare its blended colour against the empty framebuffer,
+                // rather than requiring an almost fully covered pixel.
+                const auto bg=background.pixelColor(x,y);
+                const std::array<double,3> delta{double(color.red()-bg.red()),double(color.green()-bg.green()),double(color.blue()-bg.blue())};
+                const std::array<double,3> actual{double(c.red()-bg.red()),double(c.green()-bg.green()),double(c.blue()-bg.blue())};
+                double dot=0,norm=0;for(int i=0;i<3;++i){dot+=actual[i]*delta[i];norm+=delta[i]*delta[i];}
+                const double coverage=norm>1?dot/norm:0;
+                if(coverage<.25||coverage>1.1)continue;
+                if(std::abs(actual[0]-coverage*delta[0])>10||std::abs(actual[1]-coverage*delta[1])>10||std::abs(actual[2]-coverage*delta[2])>10)continue;
                 if(exclude_points&&std::ranges::any_of(view.mesh().points,[&](const auto& p) {
                     const auto at=project(p.position)*ratio;return std::abs(x-at.x())<12*ratio&&std::abs(y-at.y())<12*ratio;
                 }))continue;
@@ -692,7 +755,7 @@ int main(int argc,char** argv) {
         if(zima::app::next_feature_name(part,zima::document::FeatureType::Axis,"")!=
             zima::app::feature_name_prefix(zima::document::FeatureType::Axis).toStdString()+" 02")
             throw std::runtime_error("Automatic name collides with an existing object");
-    dialog.hide();verify_ordered_limits(application,parent);verify_limit_localization(application,parent);verify_projection_panel(application,parent);verify_rendering(application,parent);verify_projection_rendering(application,parent);
+    dialog.hide();verify_ordered_limits(application,parent);verify_limit_localization(application,parent);verify_projection_panel(application,parent);verify_rendering(application,parent);verify_projection_rendering(application,parent);verify_curve_stroke_width(application,parent);
     }catch(const std::exception& e){std::cerr<<e.what()<<std::endl;return 1;}
     return 0;
 }

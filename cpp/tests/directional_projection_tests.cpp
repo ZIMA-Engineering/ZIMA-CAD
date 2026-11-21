@@ -15,6 +15,7 @@
 #include <BRepPrimAPI_MakeSphere.hxx>
 #include <BRep_Tool.hxx>
 #include <Geom_BezierSurface.hxx>
+#include <Geom_BSplineSurface.hxx>
 #include <Geom_BezierCurve.hxx>
 #include <GeomAPI_ProjectPointOnCurve.hxx>
 #include <gp_Circ.hxx>
@@ -45,8 +46,8 @@ TopoDS_Face analytical_face(const TopoDS_Shape& shape,GeomAbs_SurfaceType type) 
     throw std::runtime_error("Missing analytic test surface");
 }
 p::DirectionalProjection project(const TopoDS_Edge& source,std::vector<p::ProjectionTarget> targets,
-        gp_Pln sketch=gp_Pln(gp_Pnt(0,0,0),gp_Dir(0,0,1)),gp_Dir direction=gp_Dir(0,0,1)) {
-    auto result=p::project_directionally({{source,"authored-curve"}},targets,sketch,direction,tolerance);
+        gp_Pln sketch=gp_Pln(gp_Pnt(0,0,0),gp_Dir(0,0,1)),gp_Dir direction=gp_Dir(0,0,1),bool both=false) {
+    auto result=p::project_directionally({{source,"authored-curve"}},targets,sketch,direction,tolerance,both);
     const BRepAdaptor_Curve input(source);
     for(const auto& piece:result.curves) {
         // A complete closed edge may choose its own native seam; every partial
@@ -106,6 +107,31 @@ int main() {
         int passed=0;
         const auto run=[&](const char* name,const auto& test){test();++passed;std::cout<<"PASS "<<name<<'\n';};
         const auto source=line({-6,2,0},{6,2,0});
+        const gp_Pln source_plane(gp_Pnt(0,0,0),gp_Dir(0,0,1));
+        run("automatic normal chooses either side and ignores target order",[&] {
+            for(double nearest:{-3.,3.,0.})for(double orientation:{-1.,1.}) {
+                std::vector<p::ProjectionTarget> targets{{plane(8),"far-front"},{plane(-9),"far-back"},{plane(nearest),"nearest"}};
+                for(int order=0;order<2;++order) {
+                    const auto result=project(source,targets,source_plane,gp_Dir(0,0,orientation),true);
+                    check(result,[&](const auto& point){return std::abs(point.Z()-nearest)<tolerance;});
+                    for(const auto& curve:result.curves)require(curve.target_keys==std::vector<std::string>{"nearest"},"Automatic normal selected a farther face");
+                    std::ranges::reverse(targets);
+                }
+            }
+        });
+        run("automatic normal rejects an equal-distance opposite pair",[&] {
+            require(project(source,{{plane(3),"front"},{plane(-3),"back"}},source_plane,gp_Dir(0,0,1),true).ambiguous,
+                "Opposite equidistant targets were silently chosen");
+        });
+        run("automatic normal ignores an occluded equal-distance pair",[&] {
+            const auto result=project(source,{{plane(3),"front"},{plane(-3),"back"},{plane(1),"near"}},source_plane,gp_Dir(0,0,1),true);
+            check(result,[](const auto& point){return std::abs(point.Z()-1)<tolerance;});
+        });
+        run("automatic normal rejects an isolated nearest-side switch",[&] {
+            const auto sloped=BRepBuilderAPI_MakeFace(gp_Pln(gp_Pnt(0,0,-8),gp_Dir(-.5,0,1)),-20,20,-20,20).Face();
+            require(project(source,{{plane(8),"front"},{sloped,"sloped-back"}},source_plane,gp_Dir(0,0,1),true).ambiguous,
+                "Nearest-side switch was missed between classification samples");
+        });
         run("nearest face independent of target row order",[&] {
             std::vector<p::ProjectionTarget> targets{{plane(8),"far"},{plane(3),"near"}};
             for(int i=0;i<2;++i) {
@@ -169,6 +195,60 @@ int main() {
             auto target=BRepBuilderAPI_MakeFace(surface,tolerance).Face();
             auto result=project(line({-4,1,0},{4,1,0}),{{target,"paraboloid"}});
             check(result,[](const auto& p){return std::abs(p.Y()-1)<tolerance&&std::abs(p.Z()-(5+.1*p.X()*p.X()+.05))<tolerance*8;});
+        });
+        run("inclined Sketch projects onto one or several curved B-spline faces",[&] {
+            // Exact biquadratic B-spline: z = 5 + .05*x*x + .025*y*y.
+            // The Sketch is tilted independently of the target, and is above it.
+            NCollection_Array2<gp_Pnt> poles(1,3,1,3);
+            const double x[3]{-10,0,10},square[3]{100,-100,100};
+            for(int i=0;i<3;++i)for(int j=0;j<3;++j)
+                poles(i+1,j+1)={x[i],x[j],5+.05*square[i]+.025*square[j]};
+            NCollection_Array1<double> knots(1,2);knots(1)=0;knots(2)=1;
+            NCollection_Array1<int> multiplicities(1,2);multiplicities(1)=multiplicities(2)=3;
+            Handle(Geom_BSplineSurface) surface=new Geom_BSplineSurface(poles,knots,knots,multiplicities,multiplicities,2,2);
+            const auto whole=BRepBuilderAPI_MakeFace(surface,tolerance).Face();
+            const auto left=BRepBuilderAPI_MakeFace(surface,0,.5,0,1,tolerance).Face();
+            const auto right=BRepBuilderAPI_MakeFace(surface,.5,1,0,1,tolerance).Face();
+            const auto edge=line({-2,1,20.6},{8,1,17.6});
+            const gp_Pln sketch(gp_Pnt(0,0,20),gp_Dir(.3,0,1));
+            for(bool split:{false,true})for(double orientation:{-1.,1.}) {
+                std::vector<p::ProjectionTarget> targets=split?
+                    std::vector<p::ProjectionTarget>{{left,"left-spline"},{right,"right-spline"}}:
+                    std::vector<p::ProjectionTarget>{{whole,"whole-spline"}};
+                // A farther selected face must not change the chosen result.
+                targets.push_back({plane(-8),"farther-plane"});
+                for(int order=0;order<2;++order) {
+                    const auto result=project(edge,targets,sketch,gp_Dir(.3*orientation,0,orientation),true);
+                    check(result,[](const auto& point){return std::abs(point.Y()-1)<tolerance*8&&
+                        std::abs(point.Z()-5-.05*point.X()*point.X()-.025)<tolerance*8;});
+                    double coverage=0;bool hit_left=false,hit_right=false;
+                    for(const auto& piece:result.curves) {
+                        coverage+=piece.source_last-piece.source_first;
+                        for(const auto& key:piece.target_keys) {
+                            require(key!="farther-plane","Farther face replaced the curved surface");
+                            hit_left|=key=="left-spline";hit_right|=key=="right-spline";
+                        }
+                    }
+                    const BRepAdaptor_Curve input(edge);
+                    require(std::abs(coverage-input.LastParameter()+input.FirstParameter())<tolerance,
+                        "B-spline face boundary lost or duplicated source coverage");
+                    if(split)require(hit_left&&hit_right,"Projection failed to cross the two B-spline faces");
+                    // Independent analytic ray/surface intersection, including the seam.
+                    for(int i=0;i<=80;++i) {
+                        const double s=-2+10.*i/80,b=.03*s-1,c=.05*s*s+.3*s-14.975;
+                        const double t=(-b-std::sqrt(b*b-.018*c))/.009;
+                        const gp_Pnt expected(s+.3*t,1,20-.3*s+t);
+                        double distance=1e10;
+                        for(const auto& piece:result.curves) {
+                            const BRepAdaptor_Curve actual(piece.edge);
+                            GeomAPI_ProjectPointOnCurve on(expected,actual.Curve().Curve(),actual.FirstParameter(),actual.LastParameter());
+                            if(on.NbPoints())distance=std::min(distance,on.LowerDistance());
+                        }
+                        require(distance<tolerance*8,"Inclined B-spline projection disagrees with the independent ray equation");
+                    }
+                    std::ranges::reverse(targets);
+                }
+            }
         });
         run("coincident independent target interiors are ambiguous",[&] {
             auto result=project(source,{{plane(3),"first"},{plane(3),"second"}});

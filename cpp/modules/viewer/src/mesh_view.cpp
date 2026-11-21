@@ -125,6 +125,11 @@ bool is_sketch_wire_edge(const zima::kernel::ViewerEdge& edge) {
         key.starts_with("repeat_region:") || key.starts_with("symbol:");
 }
 
+bool is_projection_wire_edge(const zima::kernel::ViewerEdge& edge) {
+    const auto& key=edge.reference.semantic_key;
+    return key.starts_with("projection:curve:")||key.starts_with("projection:preview:");
+}
+
 template<class Project> void paint_normal_text(QPainter& painter,
     const std::vector<zima::kernel::ViewerEdge>& edges,
     const std::vector<zima::kernel::ViewerEdge>& preview,Project project,bool visible,bool symbols_visible) {
@@ -4239,15 +4244,17 @@ if (impl_->show_origins) {
                 }
             }
         }
-        if (!impl_->mesh.constraint_markers.empty()) {
+        for(const auto* markers:{&impl_->mesh.constraint_markers,&impl_->transient_context_mesh.constraint_markers})
+        if (!markers->empty()) {
             auto marker_font = painter.font();
             marker_font.setBold(true);
             painter.setFont(marker_font);
             painter.setPen(QPen(QColor("#7CFF6B"), 2.0));
             std::map<std::pair<int, int>, int> occupied_slots;
             for (std::size_t marker_index = 0;
-                 marker_index < impl_->mesh.constraint_markers.size(); ++marker_index) {
-                const auto& marker = impl_->mesh.constraint_markers[marker_index];
+                 marker_index < markers->size(); ++marker_index) {
+                const auto& marker = (*markers)[marker_index];
+                painter.setPen(QPen(marker.reference.semantic_key=="fem:label"?theme.foreground:QColor("#7CFF6B"),2.0));
                 const QPointF anchor = project(marker.position);
                 const auto key = std::pair{
                     static_cast<int>(std::lround(anchor.x())),
@@ -4914,7 +4921,7 @@ if (impl_->show_origins) {
         bool native_strokes=false,model_strokes=false;
         const auto append=[&](const kernel::ViewerEdge& edge) {
             if(edge.construction||edge.parameter_seam)return;
-            if(is_sketch_wire_edge(edge))native_strokes=true;else model_strokes=true;
+            if(is_sketch_wire_edge(edge)||is_projection_wire_edge(edge)||edge.reference.semantic_key.starts_with("fem:mark:"))native_strokes=true;else model_strokes=true;
             for(std::size_t i=1;i<edge.points.size();++i)for(const auto& p:{edge.points[i-1],edge.points[i]})
                 data.insert(data.end(),{float(p.x),float(p.y),float(p.z),0.F,0.F,1.F});
         };
@@ -5521,8 +5528,7 @@ if (impl_->show_origins) {
                         ? QPen(external_color, 1.5, Qt::DashLine)
                     : edge.construction
                         ? QPen(edge.dash_dot ? interaction::axis : interaction::auxiliary, 1.5, Qt::DashLine)
-                        : QPen(theme.foreground,
-                            impl_->geometry_editing_presentation||!impl_->active_sketch_owner_id.empty()?1.8:1.0);
+                        : QPen(theme.foreground,interaction::curve_wire_width);
                 if (!edge.color.empty()) {const QColor color(QString::fromStdString(edge.color));edge_pen.setColor(color==QColor(Qt::white)?theme.foreground:color);}
                 if (edge.construction && !external && !external_face &&
                     edge.reference.owner_id==impl_->active_sketch_owner_id &&
@@ -5556,7 +5562,7 @@ if (impl_->show_origins) {
                     if (!edge.construction && !external && !external_face) edge_pen.setWidthF(interaction::selected_wire_width);
                 } else if (hovered) {
                     edge_pen.setColor(interaction::hover);
-                    if (!edge.construction && !external && !external_face) edge_pen.setWidthF(1.8);
+                    if (!edge.construction && !external && !external_face) edge_pen.setWidthF(interaction::curve_wire_width);
                 } else if (preview && !(edge.construction && !external && !external_face &&
                     edge.color == interaction::sketch_construction.name().toStdString())) {
                     // Editing-profile annotations retain their explicit green;
@@ -5604,20 +5610,35 @@ if (impl_->show_origins) {
             if (property("paintedTransientSketchEdgeCount").toULongLong() != 0)
                 setProperty("paintedTransientSketchEdgeCount", qulonglong{});
         }
+        // Projection curves are authored wires, not thin solid edges. Paint
+        // their existing samples in logical pixels, just like native Sketches.
+        // Selection uses the same cached source/result preview as Properties.
+        const auto paint_result_wire=[&](const auto& edge,const QColor& color) {
+            if((!is_projection_wire_edge(edge)&&!edge.reference.semantic_key.starts_with("fem:mark:"))||edge.points.empty())return;
+            painter.setPen(QPen(color,interaction::curve_wire_width,Qt::SolidLine,Qt::RoundCap,Qt::RoundJoin));
+            QPainterPath path(project(edge.points.front()));
+            for(std::size_t i=1;i<edge.points.size();++i)path.lineTo(project(edge.points[i]));
+            painter.drawPath(path);
+        };
+        for(const auto& edge:impl_->mesh.edges) {
+            const bool selected=highlighted&&candidate_recolors_wire_edge(*highlighted,edge);
+            paint_result_wire(edge,selected?interaction::selected:theme.foreground);
+        }
+        for(const auto& edge:impl_->transient_context_mesh.edges)
+            if(edge.reference.semantic_key.starts_with("fem:mark:"))paint_result_wire(edge,theme.foreground);
+        if(source_wire_visible)for(const auto& edge:impl_->selected_source_wire)
+            paint_result_wire(edge,interaction::selected);
         if (curve3d_geometry_visible || axes_visible) {
             // 3D Curves share Sketch's screen-space stroke contract. Their
             // persisted segment paths remain the single picking geometry;
-            // QPainter only presents those same samples at a stable 1.8 px
+            // QPainter only presents those same samples at a stable logical
             // width on every OpenGL driver.
             for (const auto& edge : impl_->mesh.edges) {
                 std::string source_key;
                 const auto datum_key=kernel::construction_source_key(edge.reference.semantic_key,source_key);
                 const bool centerline=datum_key.starts_with("centerline:from:");
-                const bool editing_curve = !impl_->editing_curve_owner.empty() &&
-                    edge.display_owner_id == impl_->editing_curve_owner &&
-                    edge.reference.instance_path == impl_->editing_curve_path;
-                const bool candidate_match = highlighted &&
-                    candidate_recolors_wire_edge(*highlighted, edge);
+                const bool candidate_match = (highlighted && candidate_recolors_wire_edge(*highlighted, edge)) ||
+                    (ordinary_preview_candidate && candidate_recolors_wire_edge(*ordinary_preview_candidate,edge));
                 if(centerline ? !(impl_->show_axes || axes_selectable || candidate_match) :
                     (!curve3d_geometry_visible || !is_curve3d_edge(edge.reference.semantic_key)))continue;
                 const auto key = edge_key(edge.reference);
@@ -5636,7 +5657,7 @@ if (impl_->show_origins) {
                     : (referenced || preview)
                         ? interaction::selected
                         : centerline ? interaction::axis : theme.foreground;
-                QPen curve_pen(color, centerline ? 1.5 : candidate_match||referenced||preview||editing_curve?interaction::curve_highlight_wire_width:1.0,
+                QPen curve_pen(color, centerline ? 1.5 : interaction::curve_wire_width,
                     Qt::SolidLine,Qt::RoundCap,Qt::RoundJoin);
                 if (centerline) {
                     // Match the ordinary axes: 20 px dash, 10 px gaps, 3 px dot.
@@ -5670,22 +5691,23 @@ if (impl_->show_origins) {
                 }
             }
         }
-        if (!impl_->mesh.constraint_markers.empty()) {
+        for(const auto* markers:{&impl_->mesh.constraint_markers,&impl_->transient_context_mesh.constraint_markers})
+        if (!markers->empty()) {
             auto marker_font = painter.font();
             marker_font.setBold(true);
             painter.setFont(marker_font);
             painter.setPen(QPen(QColor("#7CFF6B"), 2.0));
             std::map<std::pair<int, int>, int> occupied_slots;
             for (std::size_t marker_index = 0;
-                 marker_index < impl_->mesh.constraint_markers.size(); ++marker_index) {
-                const auto& marker = impl_->mesh.constraint_markers[marker_index];
-                const bool selected = highlighted &&
+                 marker_index < markers->size(); ++marker_index) {
+                const auto& marker = (*markers)[marker_index];
+                const bool selected = markers==&impl_->mesh.constraint_markers && highlighted &&
                     highlighted->kind == CandidateKind::SketchConstraint &&
                     highlighted->geometry_index == marker_index;
                 painter.setPen(QPen(selected
                     ? (impl_->confirmed_candidate ? interaction::selected
                                                   : interaction::hover)
-                    : QColor("#7CFF6B"), 2.0));
+                    : marker.reference.semantic_key=="fem:label"?theme.foreground:QColor("#7CFF6B"), 2.0));
                 const QPointF anchor = project(marker.position);
                 const auto key = std::pair{
                     static_cast<int>(std::lround(anchor.x())),

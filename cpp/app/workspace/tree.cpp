@@ -4,6 +4,7 @@
 #include "../surface_intersection_dialog.hpp"
 #include "../surface_trim_dialog.hpp"
 #include "workspace_internal.hpp"
+#include <zima/workspace/fem_condition_operations.hpp>
 #include <zima/sketcher/point_presentation.hpp>
 #include <zima/document/sheet_profile.hpp>
 #include <zima/document/sheet_from_body.hpp>
@@ -835,6 +836,18 @@ void AssemblyWorkspaceWindow::add_part_tree_children(
                 const auto* source=graph.find(source_id);const auto* operation=graph.find_boolean(source_id);
                 auto* link=new QTreeWidgetItem(row,{tr("Zdroj: %1").arg(QString::fromStdString(source?source->name:operation?operation->name:source_id))});
                 link->setData(0,Qt::UserRole,QString::fromStdString(id));link->setData(0,Qt::UserRole+3,"fem-source");
+                if(const auto frame=workspace::fem_source_frame_owner(graph,id);!frame.empty()) {
+                    auto* source_origin=add_origin_tree_item(row,frame,false,construction_path);
+                    source_origin->setIcon(0,resource_icon("origin"));source_origin->setText(0,tr("Počátek tělesa"));
+                }
+                const auto add_condition=[&](const auto& condition) {
+                    auto* item=new QTreeWidgetItem(row,{QString::fromStdString(condition.name)});
+                    item->setData(0,Qt::UserRole,QString::fromStdString(condition.id));item->setData(0,Qt::UserRole+3,"fem-condition");
+                    item->setIcon(0,resource_icon(condition.kind==document::FemConditionKind::Force?"fem-force":condition.kind==document::FemConditionKind::Pressure?"fem-pressure":"fem-constraint"));
+                    if(fem_condition_preview_&&condition.id==fem_condition_preview_->id)item->setBackground(0,QBrush(QColor("#00BDE8")));
+                };
+                for(const auto& condition:definition->fem->conditions)add_condition(condition);
+                if(id==graph.active_body_id()&&fem_condition_preview_&&std::ranges::none_of(definition->fem->conditions,[&](const auto& c){return c.id==fem_condition_preview_->id;}))add_condition(*fem_condition_preview_);
                 if(graph.fem_source_state(id)!=document::FemSourceState::Available) {
                     link->setToolTip(0,tr("The FEM source is missing or suppressed."));link->setForeground(0,QBrush(QColor("#FF5E52")));
                 }

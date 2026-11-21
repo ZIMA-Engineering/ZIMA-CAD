@@ -33,7 +33,12 @@ void AssemblyWorkspaceWindow::show_fem_body_properties(const std::string& id) {
     document::BodyHistory initial;
     if(!id.empty())initial=*graph.find(id);
     else {
-        initial.scope.id=edit->object_id;initial.name=tr("FEM Body").toStdString();initial.fem=document::FemDefinition{};
+        initial.scope.id=edit->object_id;initial.fem=document::FemDefinition{};
+        const auto prefix=tr("FEM Body").toStdString();
+        for(unsigned number=1;;++number) {
+            initial.name=prefix+" "+std::to_string(number);
+            if(std::ranges::none_of(graph.bodies(),[&](const auto& body){return body.name==initial.name;}))break;
+        }
         if(tree_->currentItem()) {
             const auto selected=tree_->currentItem()->data(0,Qt::UserRole).toString().toStdString();
             if(sources.contains(selected))initial.fem->source_id=selected;

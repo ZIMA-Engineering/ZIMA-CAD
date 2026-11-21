@@ -14,6 +14,10 @@ using namespace workspace_detail;
 
 
 void AssemblyWorkspaceWindow::show_tree_item_properties(QTreeWidgetItem* item) {
+    if(item&&item->data(0,Qt::UserRole+3)=="fem-condition") {
+        const auto id=item->data(0,Qt::UserRole).toString().toStdString();
+        if(const auto* condition=active_fem_condition(id))show_fem_condition_properties(condition->kind,id);return;
+    }
     if(item&&item->data(0,Qt::UserRole+3)=="fem-source") {
         show_fem_body_properties(item->data(0,Qt::UserRole).toString().toStdString());return;
     }

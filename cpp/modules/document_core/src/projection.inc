@@ -16,6 +16,7 @@ kernel::ProjectionRequest projection_request(const PartDocument& part,
     kernel::ProjectionRequest result;result.sketch_id=source->id;
     result.sketch_origin=source->world_point(0,0);result.sketch_normal=source->normal();
     result.tolerance=tolerance;result.reverse=p.reverse;
+    result.both_directions=p.direction==ProjectionDirection::SketchNormal;
     result.output=p.output==ProjectionOutput::Curves?kernel::ProjectionResult::Curves:
         p.output==ProjectionOutput::Split?kernel::ProjectionResult::Split:kernel::ProjectionResult::Surface;
     // Project every authored curve independently. A projection source need not

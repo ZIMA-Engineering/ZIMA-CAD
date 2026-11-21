@@ -466,6 +466,14 @@ void PropertiesSubWindow::resizeEvent(QResizeEvent* event) {
 }
 
 bool PropertiesSubWindow::eventFilter(QObject* watched, QEvent* event) {
+    if(watched==buttons_&&event->type()==QEvent::LanguageChange) {
+        // QDialogButtonBox restores platform labels after the parent's change
+        // event. Reapply the same catalog labels used on first presentation.
+        QTimer::singleShot(0,this,[this]{
+            buttons_->button(QDialogButtonBox::Ok)->setText(tr("OK"));
+            buttons_->button(QDialogButtonBox::Cancel)->setText(tr("Zrušit"));
+        });
+    }
     if(watched==parentWidget()&&event->type()==QEvent::Resize&&isVisible()) {
         resize(size().boundedTo(parentWidget()->size()));
         keep_inside_parent();

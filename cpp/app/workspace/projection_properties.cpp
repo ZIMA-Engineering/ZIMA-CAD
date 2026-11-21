@@ -15,10 +15,6 @@ void AssemblyWorkspaceWindow::install_projection_properties(PrimitivePropertiesD
         return QString::fromStdString(feature?feature->name:reference.owner_id)+" / "+
             reference_display_label(reference,viewer_->mesh().original_references).value_or(tr("Plocha"));
     };
-    panel->direction_label=[this,path](auto reference) {
-        reference.instance_path=path;
-        return reference_display_label(reference,viewer_->mesh().original_references).value_or(tr("Osa nebo přímá hrana"));
-    };
     const auto finish=[this,panel] {
         panel->finish_entry();feature_reference_pick_={};feature_reference_end_={};
         viewer_->set_original_container_selection(false);viewer_->set_original_face_selection(false);
@@ -28,12 +24,6 @@ void AssemblyWorkspaceWindow::install_projection_properties(PrimitivePropertiesD
         using Pick=ProjectionParameterPanel::Pick;
         const auto& doc=workspace_.open_part(document_id)->session.document();const auto pending=dialog->pending_value();
         if(pending.feature.type!=document::FeatureType::Projection||candidate.owner_id==pending.id)return false;
-        if(panel->active_pick()==Pick::Direction) {
-            if(candidate.instance_path!=path||(candidate.kind!=viewer::CandidateKind::Axis&&candidate.kind!=viewer::CandidateKind::Edge))return false;
-            const bool origin=candidate.owner_id==doc.document_id+":origin"||
-                std::ranges::any_of(doc.body_history.bodies(),[&](const auto& body){return body.origin().id==candidate.owner_id;});
-            return origin||document::boundary_surface_owner_allowed(doc,pending.id,candidate.owner_id);
-        }
         if(panel->active_pick()!=Pick::Target&&panel->active_pick()!=Pick::Region)return false;
         if(candidate.kind!=viewer::CandidateKind::Face||candidate.geometry!=viewer::CandidateGeometry::Display)return false;
         kernel::FaceReference reference{candidate.owner_id,candidate.semantic_key,candidate.instance_path==path?std::string{}:candidate.instance_path};
@@ -51,9 +41,7 @@ void AssemblyWorkspaceWindow::install_projection_properties(PrimitivePropertiesD
             candidate.instance_path=reference.instance_path.empty()?path:reference.instance_path;faces.push_back(std::move(candidate));
         }
         viewer_->set_inspected_faces(std::move(faces));
-        std::set<viewer::EdgeKey> edges;
-        if(panel->direction_inspected()) {const auto& ref=panel->parameters().direction_reference;edges.insert({ref.owner_id,ref.semantic_key,path});}
-        viewer_->set_constraint_reference_highlights({},std::move(edges));
+        viewer_->set_constraint_reference_highlights({},{});
     };
     panel->inspection_changed=inspect;
     panel->pick_requested=[this,dialog,panel,document_id,path,allowed,finish](auto kind) {
@@ -62,18 +50,13 @@ void AssemblyWorkspaceWindow::install_projection_properties(PrimitivePropertiesD
         pending_primitive_reference_index_.reset();primitive_reference_auto_advance_=false;
         dialog->set_active_reference_index(std::nullopt);viewer_->clear_selection();tree_->setProperty("commandSelectionActive",true);
         viewer_->set_original_container_selection(false);viewer_->set_original_face_selection(false);
-        viewer_->set_selection_contract(kind==ProjectionParameterPanel::Pick::Direction?
-            std::vector<viewer::CandidateKind>{viewer::CandidateKind::Axis,viewer::CandidateKind::Edge}:
-            std::vector<viewer::CandidateKind>{viewer::CandidateKind::Face});
+        viewer_->set_selection_contract({viewer::CandidateKind::Face});
         viewer_->set_candidate_filter(allowed,false);
         feature_reference_end_=finish;
         feature_reference_pick_=[this,dialog,panel,document_id,path,allowed,finish](const auto& candidate) {
             if(!allowed(candidate))return;
             try {
                 const auto& doc=workspace_.open_part(document_id)->session.document();const auto pending=dialog->pending_value();
-                if(panel->active_pick()==ProjectionParameterPanel::Pick::Direction) {
-                    panel->set_direction({candidate.owner_id,candidate.semantic_key,{}});finish();return;
-                }
                 const bool external=candidate.instance_path!=path;
                 kernel::FaceReference reference{candidate.owner_id,candidate.semantic_key,external?candidate.instance_path:std::string{}};
                 const auto* body=doc.body_owner_for_object(pending.id);if(!body)body=doc.body_history.find(doc.body_history.active_body_id());

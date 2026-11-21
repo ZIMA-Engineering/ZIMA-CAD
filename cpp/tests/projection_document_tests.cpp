@@ -35,7 +35,7 @@ int main(){try {
         const auto circle=source.add_circle(0,0,4);
         auto feature=document::PartDocument::create_feature_container(source.id);
         feature.feature.type=document::FeatureType::Projection;feature.placement.z=20;
-        feature.feature.projection.output=mode;feature.feature.projection.reverse=true;
+        feature.feature.projection.output=mode;
         document::ExtrusionParameters::EndTarget selected;selected.reference=target;
         feature.feature.projection.targets={selected};
         if(mode==document::ProjectionOutput::Surface)feature.feature.projection.regions={{target,{0,0,11},{}}};
@@ -69,13 +69,20 @@ int main(){try {
             }
         }
         require(source_wire&&result_wire&&source_point&&result_point,"Projection preview omitted source/result geometry or markers");
+        auto missing_preview=feature;missing_preview.feature.projection.targets.front().reference.semantic_key="missing-face";
+        bool incomplete=false;
+        const auto incomplete_preview=state->session.document().projection_preview_mesh(missing_preview,input->mesh,&state->session.document(),&incomplete);
+        require(incomplete&&!incomplete_preview.edges.empty(),"Missing target preview did not retain its source or diagnostic");
+        for(const auto& edge:incomplete_preview.edges)
+            require(edge.color=="#FFFFFF"&&!edge.preview_terminal_dashed&&edge.reference.semantic_key.starts_with("projection:preview:source:"),
+                "Incomplete Projection painted a failure over the source Sketch");
         require(kernel::body_calculation_count.load()==calculations&&state->session.document().serialized()==before,
             "Read-only Projection preview calculated or mutated the model");
         require(!workspace::materialize_part_history_input_boundary(live,engine,id,feature.id),"Projection discarded its calculated rollback input");
         workspace::commit_profile(live,engine,id,feature,workspace::ProfileEditMode::Replace,source);
         require(state->session.data_generation()==generation&&state->session.document().serialized()==before&&kernel::body_calculation_count.load()==calculations,"Unchanged OK calculated or created a transaction");
         require(workspace::part_history_dependencies(state->session.document()).contains({base.id,feature.id}),"Target is missing from history dependencies");
-        auto invalid=feature;invalid.feature.projection.reverse=false;
+        auto invalid=feature;invalid.feature.projection.targets.clear();invalid.feature.projection.regions.clear();
         bool rejected=false;
         try{workspace::commit_profile(live,engine,id,invalid,workspace::ProfileEditMode::Replace,source);}catch(const std::exception&){rejected=true;}
         require(rejected&&state->session.data_generation()==generation&&state->session.document().serialized()==before,"Failed projection changed the document");

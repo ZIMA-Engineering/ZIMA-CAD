@@ -1154,7 +1154,7 @@ public:
     // Includes source/result point markers; never supplies native reference data.
     [[nodiscard]] zima::kernel::ViewerMesh projection_preview_mesh(
         const HistoryContainer& container, const zima::kernel::ViewerMesh& input,
-        const PartDocument* reference_document = nullptr) const;
+          const PartDocument* reference_document = nullptr, bool* incomplete = nullptr) const;
     [[nodiscard]] std::vector<zima::kernel::ViewerEdge> primitive_preview_edges(
         const HistoryContainer& container) const;
     [[nodiscard]] std::vector<zima::kernel::ViewerEdge> primitive_preview_edges(

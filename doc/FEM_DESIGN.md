@@ -1,7 +1,10 @@
 # Part FEM implementation design
 
-Status: the first FEM Body/source GUI milestone is published in Windows
-2026112101; conditions, meshing and solving remain subsequent milestones.
+Status: the first FEM Body/source GUI milestone was published in Windows
+2026112101. The first Constraint/Force/Pressure authoring commands are implemented
+for 2026112102; [their finite verification](verification/20261121-fem-conditions.md)
+records coverage and remaining work. Product meshing and solving remain subsequent
+milestones.
 The [agreed functional workflow](MODELING_FOLLOWUP_20261119.md#subsequent-fem-and-surface-modeling-design-2026-11-20)
 defines the user-facing scope. This design specifies the first implementation
 boundaries. The user approved the scoped native persistence extension on
@@ -87,6 +90,18 @@ explicitly rather than silently converting them or claiming reopen coverage.
 
 One condition implementation and one internal Properties class serve Force,
 Pressure and Constraint. Right-menu shortcuts select the initial dropdown type.
+The region selector has exactly three geometric kinds: Point, Curve and Surface.
+A region enclosed by a Sketch is a Surface, not a fourth kind. Bounded Projection
+results are the intended partial-face input; a complete source face is an optional
+shortcut. An empty Point region denotes the container origin. The first condition
+authoring commands assign existing native geometry; direct owned-Sketch creation
+inside their Properties remains a separate integration gate. No condition editor
+may claim that an unbound region is already meshed or solved.
+
+The user confirmed these choices on 2026-11-21. Temperature belongs to a future
+analysis extension. Flow is an analysis kind with its own solver and inlet,
+outlet and wall conditions, rather than another mechanical load. Do not expose
+these future choices as functional in the initial mechanical condition menu.
 Reuse shared reference cells, internal-window helpers, OK/Cancel, middle-button
 confirmation and the complete ordinary placement capability. Do not modify the
 shared placement solver to specialize FEM. A required change to that protected

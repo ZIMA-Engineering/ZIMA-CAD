@@ -1,5 +1,8 @@
 #include "assembly_workspace_window.hpp"
 #include "fem_body_dialog.hpp"
+#include "fem_condition_dialog.hpp"
+#include <zima/workspace/fem_condition_operations.hpp>
+#include <zima/document/placement_orientation.hpp>
 #include "../tests/profile_solid_fixture.hpp"
 #include <zima/workspace/fem_operations.hpp>
 #include <zima/workspace/body_operations.hpp>
@@ -41,6 +44,7 @@ int verify_fem_body(QApplication& application,AssemblyWorkspaceWindow& window,co
         const auto count=kernel::body_calculation_count.load(),revision=session.revision();
         const auto snapshot=session.calculated_boundaries().back().body_outputs.at(a);
         tree->setCurrentItem(row(joined));action->trigger();flush();auto* dialog=current();
+        check(dialog&&dialog->pending.name==QObject::tr("FEM Body").toStdString()+" 1","New FEM Body has no numbered default name");
         check(dialog&&dialog->pending.fem->source_id==joined,"FEM did not prefill Boolean source");
         check(dialog->parentWidget()==&window&&(dialog->windowFlags()&Qt::WindowType_Mask)==Qt::SubWindow,"FEM properties are not internal");
         check(!dialog->buttons()->button(QDialogButtonBox::Apply),"FEM exposes Apply");
@@ -81,7 +85,7 @@ int verify_fem_body(QApplication& application,AssemblyWorkspaceWindow& window,co
         check(session.revision()==revision&&kernel::body_calculation_count.load()==count,"FEM opening/entry/Cancel changed CAD or document");
         tree->setCurrentItem(row(a));action->trigger();flush();dialog=current();const auto fem=dialog->pending.scope.id;
         mouse(QEvent::MouseButtonDblClick,Qt::MiddleButton);
-        check(!current()&&row(fem)&&row(fem)->childCount()==1&&window.active_fem_body(),"FEM creation did not activate its history-free Body");
+        check(!current()&&row(fem)&&row(fem)->childCount()==2&&window.active_fem_body(),"FEM creation did not activate its history-free Body");
         check(workspace::read_fem_source(session,fem).shares_with(snapshot),"FEM source packet was duplicated");
         check(view->mesh().triangles==snapshot->mesh.triangles&&view->mesh().vertices==snapshot->mesh.vertices,"Active FEM contains another or duplicate Body");
         for(auto* command:{window.sketch_action_,window.extrusion_action_,window.shell_action_,window.construction_axis_action_})check(!command->isEnabled(),"FEM enables material editing");
@@ -101,11 +105,16 @@ int verify_fem_body(QApplication& application,AssemblyWorkspaceWindow& window,co
         check(saved.body_history.find(fem)->fem->source_id==joined&&std::abs(cached.back().volume-1000.)<1e-7,"FEM save/reopen lost source or duplicated volume");
         check(kernel::body_calculation_count.load()==count,"FEM creation/edit/save/Undo calculated CAD");
         window.activate_body({});flush();check(action->isEnabled(),"Returning from FEM did not restore Body commands");
+        action->trigger();flush();dialog=current();
+        check(dialog&&dialog->pending.name==QObject::tr("FEM Body").toStdString()+" 2","Second FEM Body repeats its default name");
+        dialog->reject();flush();
         const auto suppressed_count=kernel::body_calculation_count.load();
         static_cast<void>(workspace::set_part_body_suppressed(window.workspace_,kernel,part.document_id,fem,true));
         static_cast<void>(workspace::set_part_body_suppressed(window.workspace_,kernel,part.document_id,fem,false));
         check(kernel::body_calculation_count.load()==suppressed_count,"Suppressing analysis recalculated CAD");
         window.activate_body(a);flush();check(window.sketch_action_->isEnabled()&&!window.fem_mode_button_->isVisible(),"Material Body commands did not recover");
+        // Exercise the real first condition commands before localization.
+#include "fem_condition_ui_verification.inc"
         // All localized strings use the same catalog and internal dialog.
         const auto root=std::filesystem::path(__FILE__).parent_path().parent_path().parent_path()/"config/localization";
         for(const auto* language:{"cs","en","de","fr","ru"}) {
@@ -119,6 +128,14 @@ int verify_fem_body(QApplication& application,AssemblyWorkspaceWindow& window,co
                 check(dialog->windowTitle()==QObject::tr("FEM Body properties"),"FEM title did not translate");
                 window.grab().save(QString::fromStdString((directory/(std::string("fem-body-")+language+"-"+theme+".png")).string()));
                 dialog->buttons()->button(QDialogButtonBox::Cancel)->click();flush();
+                window.show_fem_condition_properties(document::FemConditionKind::Force,force_id);flush();
+                auto* load=condition_dialog();check(load,"Localized condition dialog missing");
+                check(load->windowTitle()==QObject::tr("FEM condition properties")&&load->findChild<QComboBox*>("femConditionKind")->currentText()==QObject::tr("Force"),"Condition title/type did not translate");
+                const auto retained=load->pending_value();
+                QEvent translation(QEvent::LanguageChange);QApplication::sendEvent(load,&translation);flush();check(load->pending_value()==retained,"Condition retranslation changed authored values");
+                check(load->buttons()->button(QDialogButtonBox::Cancel)->text()==QObject::tr("Zrušit"),"Condition Cancel lost its catalog translation");
+                window.grab().save(QString::fromStdString((directory/(std::string("fem-condition-")+language+"-"+theme+".png")).string()));
+                load->reject();flush();
             }
         }
         apply_application_translations(application,ApplicationSettings{});
