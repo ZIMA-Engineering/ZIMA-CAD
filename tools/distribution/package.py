@@ -271,6 +271,8 @@ def deploy_dependencies(runtime, installed, redist, dumpbin, qt_sdk=None):
                 candidates[key] = path
     for path in redist.glob('*.dll'):
         shutil.copy2(path, runtime / path.name)
+    for path in runtime.glob('*.dll'):
+        candidates.setdefault(path.name.casefold(), path)
     system = Path(os.environ['SystemRoot']) / 'System32'
     pending = list(runtime.rglob('*.exe')) + list(runtime.rglob('*.dll'))
     visited = set()
