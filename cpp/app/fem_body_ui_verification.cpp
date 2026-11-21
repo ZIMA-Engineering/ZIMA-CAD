@@ -17,6 +17,8 @@
 #include <QTreeWidget>
 #include <QTreeWidgetItemIterator>
 #include <QFile>
+#include <QFileInfo>
+#include <QDir>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <iostream>
@@ -36,7 +38,7 @@ int verify_fem_body(QApplication& application,AssemblyWorkspaceWindow& window,co
         const auto joined=graph.create_boolean("Union",kernel::BodyCombination::Add,a,b);graph.activate({});part.set_body_history(graph);
         kernel::OcctKernel kernel;const auto path=directory/"fem-body-ui.prtz";
         part.save(path,workspace::calculate_part_with_resolved_references(kernel,part));
-        window.resize(1400,950);window.show();check(window.open_document_path(QString::fromStdString(path.string())),"FEM fixture did not open");flush();
+        window.resize(1400,950);window.show();check(window.open_document_path(QString::fromStdString(document::path_to_utf8(path))),"FEM fixture did not open");flush();
         window.activate_body({});flush();
         auto* tree=window.tree_;auto* view=window.viewer_;auto* action=window.findChild<QAction*>("createFemAction");
         check(action&&action->isEnabled(),"Create FEM is unavailable at Body level");
@@ -324,9 +326,9 @@ int verify_fem_body(QApplication& application,AssemblyWorkspaceWindow& window,co
         // Exercise the real first condition commands before localization.
 #include "fem_condition_ui_verification.inc"
         // All localized strings use the same catalog and internal dialog.
-        const auto root=std::filesystem::path(__FILE__).parent_path().parent_path().parent_path()/"config/localization";
+        const QDir config(QFileInfo(window.application_settings_.base_config_path).absolutePath());
         for(const auto* language:{"cs","en","de","fr","ru"}) {
-            QFile file(QString::fromStdString((root/(std::string(language)+".qt.json")).generic_string()));check(file.open(QIODevice::ReadOnly),"FEM catalog unavailable");
+            QFile file(config.filePath(QStringLiteral("localization/%1.qt.json").arg(QString::fromLatin1(language))));check(file.open(QIODevice::ReadOnly),"FEM catalog unavailable");
             ApplicationSettings settings;settings.language=language;const auto messages=QJsonDocument::fromJson(file.readAll()).object();
             for(auto it=messages.begin();it!=messages.end();++it)settings.qt_translations[it.key()]=it.value().toString();
             apply_application_translations(application,settings);
@@ -334,7 +336,7 @@ int verify_fem_body(QApplication& application,AssemblyWorkspaceWindow& window,co
                 settings.theme=theme;apply_application_appearance(application,settings);flush();
                 window.show_fem_body_properties(fem);flush();dialog=current();check(dialog,"Localized FEM dialog missing");
                 check(dialog->windowTitle()==QObject::tr("FEM Body properties"),"FEM title did not translate");
-                window.grab().save(QString::fromStdString((directory/(std::string("fem-body-")+language+"-"+theme+".png")).string()));
+                window.grab().save(QString::fromStdString(document::path_to_utf8(directory/(std::string("fem-body-")+language+"-"+theme+".png"))));
                 dialog->buttons()->button(QDialogButtonBox::Cancel)->click();flush();
                 window.show_fem_condition_properties(document::FemConditionKind::Force,force_id);flush();
                 auto* load=condition_dialog();check(load,"Localized condition dialog missing");
@@ -342,7 +344,7 @@ int verify_fem_body(QApplication& application,AssemblyWorkspaceWindow& window,co
                 const auto retained=load->pending_value();
                 QEvent translation(QEvent::LanguageChange);QApplication::sendEvent(load,&translation);flush();check(load->pending_value()==retained,"Condition retranslation changed authored values");
                 check(load->buttons()->button(QDialogButtonBox::Cancel)->text()==QObject::tr("Zrušit"),"Condition Cancel lost its catalog translation");
-                window.grab().save(QString::fromStdString((directory/(std::string("fem-condition-")+language+"-"+theme+".png")).string()));
+                window.grab().save(QString::fromStdString(document::path_to_utf8(directory/(std::string("fem-condition-")+language+"-"+theme+".png"))));
                 load->reject();flush();
             }
         }
