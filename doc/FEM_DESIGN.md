@@ -1,6 +1,6 @@
 # Part FEM implementation design
 
-Status: the first FEM Body/source GUI milestone is prepared for Windows
+Status: the first FEM Body/source GUI milestone is published in Windows
 2026112101; conditions, meshing and solving remain subsequent milestones.
 The [agreed functional workflow](MODELING_FOLLOWUP_20261119.md#subsequent-fem-and-surface-modeling-design-2026-11-20)
 defines the user-facing scope. This design specifies the first implementation

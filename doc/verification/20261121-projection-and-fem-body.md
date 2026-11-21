@@ -89,3 +89,11 @@ and FEM source selection inside an activated nested Assembly occurrence are not
 claimed as verified by this finite GUI matrix. No condition Sketch editing or
 shared placement solver change is included. Linux execution is not verified on
 this Windows host. No mesh quality or numerical solution accuracy is claimed.
+
+## Published Windows delivery
+
+Windows 2026112101 passed committed-source packaging, twelve sheet-branch gates,
+all 1,185 factory native loads and the four targeted packaged GUI checks. Signed
+archive validation, anonymous public download, safe extraction, production updater
+trust and local binary equality also pass. Exact identities, hashes and timestamps
+are in the [publication record](20261121-windows-2101-publication.json).

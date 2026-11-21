@@ -245,6 +245,20 @@ enumeration or coordinate-based identity fallback. The tests cover representativ
 planar, curved and B-spline cases, not every possible kernel input. Grid/Mesh
 editing and G3 are explicitly deferred.
 
+## Deferred curve-network surface
+
+On 2026-11-21 the user identified surface creation from intersecting interior
+curves as a future command. General Surface currently accepts a closed boundary
+perimeter; it does not interpret crossing curves as a surface network.
+
+The initial proposal is a separate command using two ordered families of
+intersecting longitudinal and transverse curves to control both the boundary
+and interior. Arbitrary branching and multiple connected surface patches remain
+later design questions. Intersection validity, fitting precision, continuity,
+source identity and editing behavior require a dedicated design and acceptance
+matrix before implementation. This backlog item is not part of Windows 2026112101
+or the current FEM Body/source milestone.
+
 Verification details and measured timings are in
 [the development record](SURFACE_OPERATIONS_DEVELOPMENT.md).
 Exact profile limits and skin-extraction contracts are described in
