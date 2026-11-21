@@ -1,5 +1,17 @@
 # Native versioned distribution
 
+Signed Windows [2026112102](releases/2026112102.md#distribution-status) was
+published at `2026-11-21T03:47:58Z` from immutable source
+`c9aee3e7f11eade5b3036fa8f3b38c9b1468244b`. It adds the first FEM Constraint, Force and
+Pressure authoring commands and corrects Projection direction, presentation and
+curve line weight. Candidate/signed smoke, 1,185 factory loads, twelve sheet-branch
+gates and four packaged GUI cases pass. Public digests, anonymous downloads,
+publisher signature, safe extraction and production updater trust/current pass.
+The identical binaries are installed behind the unchanged development BAT.
+Owned FEM Sketch editing, meshing, solving and Linux execution remain explicit
+limits in the [finite acceptance report](verification/20261121-fem-conditions.md).
+See the [publication evidence](verification/20261121-windows-2102-publication.json).
+
 Signed Windows [2026112004](releases/2026112004.md#distribution-status) was
 published at `2026-11-20T21:41:22Z` from immutable source
 `0d571813e2f64ee917efe9d76bf5e7049c13dd92`. It adds Projection and includes the
