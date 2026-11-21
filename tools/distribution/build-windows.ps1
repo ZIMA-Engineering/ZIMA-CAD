@@ -6,6 +6,8 @@ param(
     [string]$Commit = 'HEAD',
     [int]$Jobs = 4,
     [string]$QtSdk = '',
+    [string]$GmshSdk = '',
+    [string]$GmshSource = '',
     [switch]$Release,
     [switch]$ReuseBuild
 )
@@ -31,5 +33,7 @@ $arguments = @((Join-Path $PSScriptRoot 'package.py'), 'windows', '--commit', $C
 if ($Release) { $arguments += '--release' }
 if ($ReuseBuild) { $arguments += '--reuse-build' }
 if ($QtSdk) { $arguments += @('--qt-sdk', $QtSdk) }
+if ($GmshSdk) { $arguments += @('--gmsh-sdk', $GmshSdk) }
+if ($GmshSource) { $arguments += @('--gmsh-source', $GmshSource) }
 & $Python @arguments
 if ($LASTEXITCODE -ne 0) { throw "Candidate build or validation failed: $LASTEXITCODE" }

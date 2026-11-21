@@ -327,6 +327,7 @@ private:
     ApplicationMode active_application_{ApplicationMode::Modeling};
     std::map<std::string,ApplicationMode> document_application_modes_;
     QMenu* command_insert_menu_{};
+    QMenu* fem_mesh_menu_{};
     QAction* thread_action_{};
     QAction* holes_action_{};
     QAction* drill_point_action_{};
@@ -429,6 +430,9 @@ private:
     QAction* body_scale_action_{};
     QAction* create_fem_action_{};
     void show_fem_body_properties(const std::string& id = {});
+    void show_fem_mesh_settings();
+    void generate_fem_mesh();
+    [[nodiscard]] const zima::kernel::ViewerMesh* active_generated_fem_mesh() const;
     bool accept_fem_tree_reference(QTreeWidgetItem* item);
     bool active_fem_body() const;
     const zima::document::FemCondition* active_fem_condition(const std::string&) const;
@@ -437,6 +441,9 @@ private:
     void remove_fem_condition(const std::string&);
     void show_fem_condition_properties(zima::document::FemConditionKind,const std::string& id = {});
     std::optional<zima::document::FemCondition> fem_condition_preview_;
+    struct GeneratedFemMesh;
+    std::shared_ptr<GeneratedFemMesh> generated_fem_mesh_;
+    bool show_generated_fem_mesh_{};
     std::string fem_inspected_condition_;
     void show_body_scale_properties(const std::string& id = {});
     bool accept_body_scale_tree_reference(QTreeWidgetItem* item);

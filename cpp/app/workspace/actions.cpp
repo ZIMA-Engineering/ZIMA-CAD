@@ -417,6 +417,23 @@ void AssemblyWorkspaceWindow::create_actions() {
     setup_action->setObjectName("systemSetupAction");
     tools->addAction(setup_action);
     connect(setup_action,&QAction::triggered,this,[this]{show_global_settings(true);});
+    fem_mesh_menu_=menuBar()->addMenu(tr("Mesh"));
+    fem_mesh_menu_->setObjectName("femMeshMenu");
+    fem_mesh_menu_->menuAction()->setVisible(false);
+    auto* mesh_settings=fem_mesh_menu_->addAction(tr("Mesh settings"),this,[this]{show_fem_mesh_settings();});
+    mesh_settings->setObjectName("femMeshSettingsAction");
+#ifdef ZIMA_ENABLE_FEM_MESHER
+    auto* generate_mesh=fem_mesh_menu_->addAction(tr("Generate mesh"),this,[this]{generate_fem_mesh();});
+    generate_mesh->setObjectName("femGenerateMeshAction");
+    auto* show_mesh=fem_mesh_menu_->addAction(tr("Show mesh"));
+    show_mesh->setObjectName("femShowMeshAction");
+    show_mesh->setCheckable(true);
+    connect(show_mesh,&QAction::triggered,this,[this](bool show) {
+        show_generated_fem_mesh_=show;
+        preserve_view_on_refresh_=true;
+        refresh_scene();
+    });
+#endif
     auto* window_menu = menuBar()->addMenu(t("menu.window", "Okno"));
     window_menu->setObjectName("windowMenu");
     connect(window_menu, &QMenu::aboutToShow, this, [this, window_menu] {

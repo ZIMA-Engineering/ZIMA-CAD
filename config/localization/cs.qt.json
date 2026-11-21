@@ -2958,5 +2958,20 @@
   "Select the condition geometry.": "Vyberte geometrii podmínky.",
   "Specify a nonempty object name.": "Zadejte neprázdný název objektu.",
   "The condition geometry is unavailable on the FEM source.": "Geometrie podmínky není ve zdroji FEM dostupná.",
-  "The condition placement is unresolved.": "Umístění podmínky není vyřešené."
+  "The condition placement is unresolved.": "Umístění podmínky není vyřešené.",
+  "Mesh": "Síť",
+  "Mesh settings": "Nastavení sítě",
+  "Minimum element size": "Minimální velikost prvku",
+  "Maximum element size": "Maximální velikost prvku",
+  "Elements through thickness": "Počet prvků přes tloušťku",
+  "Linear": "Lineární",
+  "Quadratic": "Kvadratický",
+  "Element order": "Řád prvku",
+  "Generate mesh": "Generovat síť",
+  "Show mesh": "Zobrazit síť",
+  "The FEM generator returned an invalid mesh.": "Generátor FEM vrátil neplatnou síť.",
+  "FEM mesh generation failed.": "Generování FEM sítě selhalo.",
+  "Project a Sketch": "Promítnout skicu",
+  "Select each target face inside the region to retain.": "Vyberte každou cílovou plochu uvnitř oblasti, která se má zachovat.",
+  "Select the target faces for the Sketch.": "Vyberte cílové plochy pro skicu."
 }

@@ -26,6 +26,7 @@
 #include <IntCurvesFace_ShapeIntersector.hxx>
 #include <ShapeFix_Edge.hxx>
 #include <ShapeUpgrade_UnifySameDomain.hxx>
+#include <TopExp.hxx>
 #include <TopExp_Explorer.hxx>
 #include <TopoDS.hxx>
 #include <gp_Lin.hxx>
@@ -115,11 +116,9 @@ void retain_target_curve(const TopoDS_Edge& edge, const TopoDS_Face& target, dou
     if(!precise())throw std::runtime_error("Projection could not retain the target parameter curve.");
 }
 
-TopoDS_Edge trim_candidate(const Candidate& candidate, const SourceParameters& source,
-        double first, double last, const TopoDS_Face& target, double tolerance) {
+TopoDS_Edge trim_candidate_edge(const Candidate& candidate,double a,double b,
+        const TopoDS_Face& target,double tolerance) {
     const NativeCurve native(candidate.edge);
-    const double a = candidate_parameter(candidate, source, first);
-    const double b = candidate_parameter(candidate, source, last);
     auto edge = BRepBuilderAPI_MakeEdge(native.curve, std::min(a,b), std::max(a,b)).Edge();
     double pf{}, pl{};
     const auto pcurve = BRep_Tool::CurveOnSurface(candidate.edge, target, pf, pl);
@@ -136,6 +135,53 @@ TopoDS_Edge trim_candidate(const Candidate& candidate, const SourceParameters& s
     retain_target_curve(edge,target,tolerance);
     if (a > b) edge.Reverse();
     return edge;
+}
+
+TopoDS_Edge trim_candidate(const Candidate& candidate, const SourceParameters& source,
+        double first, double last, const TopoDS_Face& target, double tolerance) {
+    return trim_candidate_edge(candidate,candidate_parameter(candidate,source,first),
+        candidate_parameter(candidate,source,last),target,tolerance);
+}
+
+std::vector<Candidate> split_source_seam(const std::vector<Candidate>& candidates,
+        const SourceParameters& source,const std::vector<ProjectionTarget>& targets,
+        double back_extent,double extent) {
+    std::vector<Candidate> pieces;
+    for(const auto& candidate:candidates) {
+        const NativeCurve curve(candidate.edge);
+        const auto first=curve.curve->Value(curve.first),last=curve.curve->Value(curve.last);
+        const double a=source.parameter(first),b=source.parameter(last);
+        const double middle=source.parameter(curve.curve->Value((curve.first+curve.last)*.5));
+        // Preserve complete closed branches. Only an open branch spanning the
+        // source seam needs two monotone source intervals.
+        if(first.Distance(last)<=source.tolerance || (middle>=std::min(a,b)&&middle<=std::max(a,b))) {
+            pieces.push_back(candidate);
+            continue;
+        }
+        const auto& target=targets[candidate.target].face;
+        IntCurvesFace_ShapeIntersector ray;
+        ray.Load(target,source.tolerance);
+        ray.Perform(gp_Lin(source.source.curve->Value(source.source.first),source.direction),-back_extent,extent);
+        if(!ray.IsDone())throw std::runtime_error("Projection ray classification failed.");
+        std::optional<double> seam;
+        double nearest=source.tolerance*8;
+        for(int hit=1;hit<=ray.NbPnt();++hit) {
+            GeomAPI_ProjectPointOnCurve locate(ray.Pnt(hit),curve.curve,curve.first,curve.last);
+            if(!locate.NbPoints()||locate.LowerDistance()>=nearest)continue;
+            const double parameter=locate.LowerDistanceParameter();
+            const auto point=curve.curve->Value(parameter);
+            if(point.Distance(first)<=source.tolerance||point.Distance(last)<=source.tolerance)continue;
+            seam=parameter;
+            nearest=locate.LowerDistance();
+        }
+        if(!seam) {
+            pieces.push_back(candidate);
+            continue;
+        }
+        pieces.push_back({trim_candidate_edge(candidate,curve.first,*seam,target,source.tolerance),candidate.target});
+        pieces.push_back({trim_candidate_edge(candidate,*seam,curve.last,target,source.tolerance),candidate.target});
+    }
+    return pieces;
 }
 
 double forward_extent(const std::vector<ProjectionTarget>& targets,
@@ -295,6 +341,7 @@ DirectionalProjection project_directionally(const std::vector<ProjectionCurve>& 
         const double parameter_tolerance = std::max(1.,parameters.source.last-parameters.source.first)*1e-10;
         const bool closed_source=parameters.source.curve->Value(parameters.source.first).Distance(
             parameters.source.curve->Value(parameters.source.last))<=tolerance;
+        if(closed_source)candidates=split_source_seam(candidates,parameters,targets,back_extent,extent);
         for (auto& candidate : candidates) {
             const NativeCurve curve(candidate.edge);
             candidate.first = parameters.parameter(curve.curve->Value(curve.first));
@@ -384,6 +431,30 @@ ProjectionPartition partition_projection(const TopoDS_Shape& input,
         const DirectionalProjection& projection,double tolerance) {
     if(projection.ambiguous || !projection.gaps.empty() || projection.curves.empty())
         throw std::invalid_argument("Projection does not completely define a partition.");
+    // A second contour may split the model even when an unrelated open tool
+    // ends inside a face. Require every open end to join another tool or a
+    // physical target boundary before asking the splitter to create regions.
+    for(const auto& curve:projection.curves) {
+        const auto first=TopExp::FirstVertex(curve.edge),last=TopExp::LastVertex(curve.edge);
+        if(first.IsNull()||last.IsNull())
+            throw std::invalid_argument("Projection does not completely define a partition.");
+        const auto a=BRep_Tool::Pnt(first),b=BRep_Tool::Pnt(last);
+        if(a.Distance(b)<=tolerance)continue;
+        for(const auto& point:{a,b}) {
+            const bool joins_curve=std::ranges::any_of(projection.curves,[&](const auto& other) {
+                return &curve!=&other&&distance_to(point,other.edge)<=tolerance;
+            });
+            const bool joins_boundary=joins_curve||std::ranges::any_of(targets,[&](const auto& target) {
+                if(std::ranges::find(curve.target_keys,target.target_key)==curve.target_keys.end())return false;
+                for(TopExp_Explorer edge(target.face,TopAbs_EDGE);edge.More();edge.Next())
+                    if(!BRep_Tool::Degenerated(TopoDS::Edge(edge.Current()))&&
+                            !BRep_Tool::IsClosed(TopoDS::Edge(edge.Current()),target.face)&&
+                            distance_to(point,edge.Current())<=tolerance)return true;
+                return false;
+            });
+            if(!joins_boundary)throw std::invalid_argument("Projection does not completely define a partition.");
+        }
+    }
     NCollection_List<TopoDS_Shape> arguments,tools;
     if(!input.IsNull())arguments.Append(input);
     else for(const auto& target:targets)arguments.Append(target.face);

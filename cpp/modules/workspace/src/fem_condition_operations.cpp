@@ -1,6 +1,7 @@
 #include <zima/workspace/fem_condition_operations.hpp>
 #include <zima/document/fem_presentation.hpp>
 #include <zima/document/placement_reference_geometry.hpp>
+#include <zima/kernel/fem_region_validation.hpp>
 #include <algorithm>
 
 namespace zima::workspace {
@@ -46,14 +47,26 @@ bool commit_fem_condition(Workspace& live,const BodyGraphEdit& edit,document::Fe
     if(old&&*old==value){return commit_fem(live,edit,*body);}
     document::validate_fem_condition(value);
     const auto source=read_fem_source(state->session,edit.object_id);
-    for(const auto& r:value.references)if(!document::fem_region_reference_available(r,value.region,source->mesh)) {
-        const bool retained=old&&old->region==value.region&&std::ranges::find(old->references,r)!=old->references.end();
+    const auto target_kind=value.projected_sketch?document::FemRegionKind::Surface:value.region;
+    for(const auto& r:value.references)if(!document::fem_region_reference_available(r,target_kind,source->mesh)) {
+        const bool retained=old&&old->region==value.region&&
+            old->projected_sketch.has_value()==value.projected_sketch.has_value()&&std::ranges::find(old->references,r)!=old->references.end();
         if(!retained)throw std::invalid_argument("The condition geometry is unavailable on the FEM source.");
     }
     const auto geometry=fem_placement_geometry(state->session,edit.object_id);
     auto resolved=value.placement;
     if(document::resolve_placement(resolved,geometry))value.placement=std::move(resolved);
     else {if(!old)throw std::invalid_argument("The condition placement is unresolved.");value.placement=old->placement;value.placement.references=resolved.references;value.placement.reference_valid=false;}
+    if(value.projected_sketch&&value.placement.reference_valid&&
+            (!old||old->projected_sketch!=value.projected_sketch||old->region!=value.region||
+             old->references!=value.references||old->placement!=value.placement)) {
+        std::vector<kernel::FaceReference> references;
+        for(const auto& ref:value.references)
+            references.push_back({ref.owner_id,ref.semantic_key,ref.instance_path});
+        value.projected_sketch->surface_region_keys=kernel::validate_projected_mesh_region(
+            source.get(),document::fem_condition_projection_request(value),references,
+            value.projected_sketch->surface_seeds,value.projected_sketch->surface_region_keys);
+    }
     auto updated=*body;auto& conditions=updated.fem->conditions;
     const auto item=std::ranges::find(conditions,value.id,&document::FemCondition::id);
     if(item==conditions.end())conditions.push_back(std::move(value));else *item=std::move(value);

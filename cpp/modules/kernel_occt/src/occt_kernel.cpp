@@ -24,6 +24,7 @@
 #include <zima/kernel/drill_point_identity.hpp>
 #include <zima/kernel/inertia.hpp>
 #include <zima/kernel/calculated_body_shape.hpp>
+#include <zima/kernel/fem_region_validation.hpp>
 #include <zima/kernel/curve_plane_intersection.hpp>
 #include <zima/kernel/occt_curve_data.hpp>
 #include <zima/kernel/occt_boundary_union.hpp>
@@ -14853,6 +14854,8 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                 if(projection->output==ProjectionResult::Curves) {
                     auto curves=make_operation_result(derived.shape,{},derived.edges,derived.vertices,true,false,true,{},false);
                     std::erase_if(curves.mesh.original_references.points,[](const auto& point){return !point.reference.valid();});
+                    for(auto& point:curves.mesh.original_references.points)point.always_visible=true;
+                    append_reference_geometry(curves.mesh.original_references,std::move(derived.profile_references));
                     append_reference_geometry(original_references,std::move(curves.mesh.original_references));
                 } else {
                     retain_copy_solid(derived);result_shape=derived.shape;
@@ -17451,6 +17454,13 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                     throw std::logic_error("Body treatment reached primitive builder");
                 }
             }, operation.primitive);
+            const bool bounded_profile_cut=feature_group&&group_inputs.size()>1&&
+                std::ranges::any_of(feature_group->children,[](const auto& child) {
+                    const auto* extrusion=std::get_if<ExtrusionRequest>(&child);
+                    return extrusion&&(extrusion->extent==ExtrusionRequest::Extent::UpToSurface||
+                        (extrusion->extent==ExtrusionRequest::Extent::UpToPlane&&!extrusion->target_is_datum)||
+                        extrusion->ordered_end_limit.has_value());
+                });
             const auto apply_subtract_operand=[&](const PrimitiveData& tool) {
                 if(result_shape.IsNull())return;
                 // OCCT Boolean operands must have homogeneous dimensions.
@@ -17468,15 +17478,49 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                 }
                 LiveCache::Topology cut_topology;
                 std::vector<OwnedFace> sheet_intersection_supports;
-                const auto trim=[&](const TopoDS_Shape& input) {
-                    BRepAlgoAPI_Cut algorithm;
-                    set_boolean_inputs(algorithm,input,tool.shape);
-                    algorithm.SetToFillHistory(true);
-                    algorithm.SetFuzzyValue(std::max(1.0e-7,
-                        operation.boolean_tolerance));
-                    algorithm.Build();
-                    if(!algorithm.IsDone()||algorithm.Shape().IsNull())
+                const auto trim=[&](const TopoDS_Shape& input,bool material_cut) {
+                    const auto cut=[&](double fuzzy) {
+                        auto algorithm=std::make_unique<BRepAlgoAPI_Cut>();
+                        set_boolean_inputs(*algorithm,input,tool.shape);
+                        algorithm->SetToFillHistory(true);
+                        algorithm->SetFuzzyValue(fuzzy);
+                        algorithm->Build();
+                        return algorithm;
+                    };
+                    auto selected=cut(std::max(1.0e-7,operation.boolean_tolerance));
+                    if(!selected->IsDone()||selected->Shape().IsNull())
                         throw std::runtime_error("OCCT cut failed");
+                    if(material_cut&&bounded_profile_cut) {
+                        // Extra fuzzy coincidence can erase a real overlap at
+                        // the joins of an ordered Up-To tool's native cells.
+                        // Preserve the ordinary cut unless it removes no
+                        // material beyond integration and boundary tolerance.
+                        const auto volume=[](const TopoDS_Shape& shape) {
+                            GProp_GProps properties;
+                            BRepGProp::VolumeProperties(shape,properties);
+                            return properties.Mass();
+                        };
+                        const auto original=volume(input);
+                        const auto scale=std::cbrt(std::max(0.,original));
+                        const auto budget=8*operation.boolean_tolerance*scale*scale;
+                        if(original>0&&std::abs(original-volume(selected->Shape()))<=budget) {
+                            BRepAlgoAPI_Common overlap;
+                            set_boolean_inputs(overlap,input,tool.shape);
+                            overlap.SetFuzzyValue(0);
+                            overlap.Build();
+                            const auto expected=overlap.IsDone()&&!overlap.Shape().IsNull()
+                                ?volume(overlap.Shape()):0.;
+                            if(expected>budget) {
+                                auto exact=cut(0);
+                                if(!exact->IsDone()||exact->Shape().IsNull()||
+                                        !BRepCheck_Analyzer(exact->Shape()).IsValid()||
+                                        std::abs(original-volume(exact->Shape())-expected)>budget)
+                                    throw std::runtime_error("OCCT cut failed");
+                                selected=std::move(exact);
+                            }
+                        }
+                    }
+                    auto& algorithm=*selected;
                     builder.Add(combined,algorithm.Shape());
                     NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> members;
                     TopExp::MapShapes(algorithm.Shape(),members);
@@ -17508,12 +17552,12 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                     // A cut acts on every current branch independently. A
                     // compound Boolean can otherwise repartition contacting
                     // input solids before applying its tool.
-                    for(TopExp_Explorer it(result_shape,TopAbs_SOLID);it.More();it.Next())trim(it.Current());
-                    if(surfaces)trim(surface_input);
+                    for(TopExp_Explorer it(result_shape,TopAbs_SOLID);it.More();it.Next())trim(it.Current(),true);
+                    if(surfaces)trim(surface_input,false);
                     result_shape=combined;
                 } else if(solids&&surfaces) {
-                    trim(solid_input);trim(surface_input);result_shape=combined;
-                } else result_shape=trim(result_shape);
+                    trim(solid_input,true);trim(surface_input,false);result_shape=combined;
+                } else result_shape=trim(result_shape,solids);
                 cut_topology.faces=complete_boolean_faces(result_shape,
                     cut_topology.faces,cut_topology.edges,
                     cut_topology.vertices,operation.owner_id,"subtract",operations);
@@ -18523,6 +18567,168 @@ TopoDS_Shape read_calculated_body_shape(const BodyResult& body) {
         shape = transform.Shape();
     }
     return shape;
+}
+
+CalculatedBodyTopology read_calculated_body_topology(
+        const BodyResult& body,const std::vector<CalculatedTopologyReference>& references) {
+    if(references.empty())return {read_calculated_body_shape(body),{}};
+    if(body.kernel_shape.empty())
+        throw std::invalid_argument("The condition geometry is unavailable on the FEM source.");
+    const auto read=[&](auto&& recurse,const BodyResult& snapshot)->CalculatedBodyTopology {
+        CalculatedBodyTopology result{{},std::vector<std::vector<TopoDS_Shape>>(references.size())};
+        if(snapshot.kernel_shape==kernel_body_compound) {
+            BRep_Builder builder;
+            TopoDS_Compound compound;
+            builder.MakeCompound(compound);
+            for(const auto& id:snapshot.kernel_compound_bodies) {
+                const auto found=snapshot.body_outputs.find(id);
+                if(found==snapshot.body_outputs.end())
+                    throw std::runtime_error("Calculated solid snapshot is invalid");
+                auto child=recurse(recurse,found->second.get());
+                builder.Add(compound,child.shape);
+                for(std::size_t i=0;i<references.size();++i) {
+                    auto& row=result.referenced_shapes[i];
+                    for(auto& shape:child.referenced_shapes[i])
+                        if(std::ranges::none_of(row,[&](const auto& previous){return previous.IsSame(shape);}))
+                            row.push_back(std::move(shape));
+                }
+            }
+            result.shape=compound;
+            for(const auto& placement:snapshot.kernel_placements) {
+                BRepBuilderAPI_Transform transform(result.shape,
+                    primitive_transform(placement.translation,placement.rotation_degrees),true);
+                transform.Build();
+                if(!transform.IsDone())throw std::runtime_error("Body placement failed");
+                for(auto& row:result.referenced_shapes)
+                    for(auto& shape:row)shape=transform.ModifiedShape(shape);
+                result.shape=transform.Shape();
+            }
+            return result;
+        }
+        if(snapshot.kernel_faces.empty()&&snapshot.kernel_edges.empty()&&snapshot.kernel_vertices.empty())
+            return {read_calculated_body_shape(snapshot),std::move(result.referenced_shapes)};
+        const auto native=place_bound_geometry(bound_face_geometry(snapshot,true),snapshot);
+        result.shape=native.shape;
+        for(std::size_t i=0;i<references.size();++i) {
+            auto& values=result.referenced_shapes[i];
+            const auto& reference=references[i];
+            const auto collect=[&](const auto& bindings,const auto& requested) {
+                for(const auto& binding:bindings)
+                    if(binding.reference==requested&&std::ranges::none_of(values,[&](const auto& previous){
+                        return previous.IsSame(binding.shape);
+                    }))values.push_back(binding.shape);
+            };
+            if(const auto* face=std::get_if<FaceReference>(&reference))collect(native.faces,*face);
+            else if(const auto* edge=std::get_if<EdgeReference>(&reference))collect(native.edges,*edge);
+            else collect(native.vertices,std::get<VertexReference>(reference));
+        }
+        return result;
+    };
+    auto result=read(read,body);
+    if(std::ranges::any_of(result.referenced_shapes,[](const auto& row){return row.empty();}))
+        throw std::invalid_argument("The condition geometry is unavailable on the FEM source.");
+    return result;
+}
+
+ProjectedMeshRegion project_calculated_mesh_region(
+        const TopoDS_Shape& body,const ProjectionRequest& request,
+        const std::vector<TopoDS_Shape>& targets,const std::vector<Vec3>& surface_seeds,
+        const std::vector<std::string>& expected_region_keys) {
+    using namespace detail;
+    const auto point=[](Vec3 p){return gp_Pnt(p.x,p.y,p.z);};
+    const gp_Dir normal(request.sketch_normal.x,request.sketch_normal.y,request.sketch_normal.z);
+    const gp_Pln plane(point(request.sketch_origin),normal);
+    std::vector<ProjectionCurve> curves;
+    for(const auto& profile:request.profiles)
+        for(const auto& wire:make_body_profiles(profile,request.sketch_normal)) {
+            if(wire.edges.size()!=wire.curve_ids.size())
+                throw std::runtime_error("Projection source ancestry is missing.");
+            for(std::size_t index=0;index<wire.edges.size();++index)
+                curves.push_back({wire.edges[index],wire.curve_ids[index]});
+        }
+    std::vector<ProjectionTarget> faces;
+    for(const auto& target:targets)faces.push_back({TopoDS::Face(target),std::to_string(faces.size())});
+    if(curves.empty()||faces.empty())
+        throw std::invalid_argument("Projection requires source curves, target faces and a positive tolerance.");
+    const auto projection=project_directionally(curves,faces,plane,normal,request.tolerance,true);
+    if(projection.ambiguous||!projection.gaps.empty()||projection.curves.empty())
+        throw std::invalid_argument("Projection does not completely define a partition.");
+    ProjectedMeshRegion result;
+    result.body=body;
+    if(surface_seeds.empty()) {
+        for(const auto& curve:projection.curves) {
+            if(curve.target_keys.size()!=1)throw std::invalid_argument("Projection curve ancestry is ambiguous.");
+            const auto target=std::ranges::find(faces,curve.target_keys.front(),&ProjectionTarget::target_key);
+            result.curves.push_back({curve.edge,target->face});
+        }
+        return result;
+    }
+    if(surface_seeds.size()!=faces.size()||
+            (!expected_region_keys.empty()&&expected_region_keys.size()!=faces.size()))
+        throw std::invalid_argument("Invalid FEM condition geometry reference.");
+    auto partition=partition_projection(body,faces,projection,request.tolerance);
+    result.body=std::move(partition.shape);
+    result.history=std::move(partition.history);
+    for(std::size_t index=0;index<faces.size();++index) {
+        const auto& target=faces[index];
+        IntCurvesFace_ShapeIntersector ray;
+        ray.Load(target.face,request.tolerance);
+        ray.Perform(gp_Lin(point(surface_seeds[index]),normal),-Precision::Infinite(),Precision::Infinite());
+        if(!ray.IsDone()||ray.NbPnt()==0)throw std::runtime_error("The retained trim region changed. Select the region again.");
+        int best=1;
+        for(int hit=2;hit<=ray.NbPnt();++hit)
+            if(std::abs(ray.WParameter(hit))<std::abs(ray.WParameter(best)))best=hit;
+        const auto hit=ray.Pnt(best);
+        bool selected=false;
+        std::string selected_key;
+        std::set<std::string> region_keys;
+        for(const auto& region:partition.regions)if(region.target_key==target.target_key) {
+            NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> members;
+            TopExp::MapShapes(region.face,TopAbs_EDGE,members);
+            const auto has_boundary=[&](const TopoDS_Shape& edge) {
+                if(members.Contains(edge))return true;
+                for(NCollection_List<TopoDS_Shape>::Iterator item(result.history->Modified(edge));item.More();item.Next())
+                    if(members.Contains(item.Value()))return true;
+                return false;
+            };
+            std::set<std::string> authored;
+            for(const auto& curve:projection.curves)
+                if(has_boundary(curve.edge))authored.insert(curve.source_key);
+            bool touches_native_boundary=false;
+            for(TopExp_Explorer edge(target.face,TopAbs_EDGE);edge.More();edge.Next()) {
+                if(BRep_Tool::IsClosed(TopoDS::Edge(edge.Current()),target.face))continue;
+                if(has_boundary(edge.Current())){touches_native_boundary=true;break;}
+            }
+            std::string key=touches_native_boundary?"native:":"bounded:";
+            for(const auto& parent:authored)key+=std::to_string(parent.size())+":"+parent;
+            if(!region_keys.insert(key).second)
+                throw std::runtime_error("Surface trim retained region is ambiguous.");
+            BRepClass_FaceClassifier classifier(region.face,hit,request.tolerance);
+            if(classifier.State()==TopAbs_ON)throw std::runtime_error("Select a retained region away from its boundary.");
+            if(classifier.State()==TopAbs_IN) {
+                if(selected||authored.empty()||region.face.IsSame(target.face))
+                    throw std::runtime_error("The retained trim region changed. Select the region again.");
+                result.faces.push_back(region.face);
+                selected_key=key;
+                selected=true;
+            }
+        }
+        if(!selected||(!expected_region_keys.empty()&&!expected_region_keys[index].empty()&&
+                expected_region_keys[index]!=selected_key))
+            throw std::runtime_error("The retained trim region changed. Select the region again.");
+        result.region_keys.push_back(std::move(selected_key));
+    }
+    return result;
+}
+
+std::vector<std::string> validate_projected_mesh_region(
+        const BodyResult& source,const ProjectionRequest& request,const std::vector<FaceReference>& references,
+        const std::vector<Vec3>& surface_seeds,const std::vector<std::string>& expected_region_keys) {
+    const std::vector<CalculatedTopologyReference> typed(references.begin(),references.end());
+    const auto native=read_calculated_body_topology(source,typed);
+    std::vector<TopoDS_Shape> faces;
+    for(const auto& row:native.referenced_shapes)faces.insert(faces.end(),row.begin(),row.end());
+    return project_calculated_mesh_region(native.shape,request,faces,surface_seeds,expected_region_keys).region_keys;
 }
 
 }  // namespace zima::kernel

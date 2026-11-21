@@ -424,6 +424,14 @@ def smoke(root, version, gui=True):
         env['ZIMA_VERIFY_PACKAGE_ONLY'] = '1'
         run([binary / ('zima-cad-cpp' + suffix), '--working-directory', project, '--verify-startup'],
             cwd=project, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=600)
+        if not linux and (runtime / 'gmsh.dll').is_file():
+            fem_environment = dict(env)
+            fem_environment.pop('ZIMA_VERIFY_PACKAGE_ONLY')
+            fem_environment['ZIMA_VERIFY_FEM_BODY_ONLY'] = '1'
+            fem_project = project / 'fem'
+            fem_project.mkdir()
+            run([binary / 'zima-cad-cpp.exe', '--working-directory', fem_project, '--verify-startup'],
+                cwd=fem_project, env=fem_environment, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=300)
     if user_config.read_bytes() != config_before:
         raise ValueError('Startup/smoke replaced shared user configuration')
     for name, record in json.loads((root / 'checksums.json').read_text(encoding='utf-8')).items():
@@ -510,12 +518,29 @@ def package(args):
     build = stage / 'b'
     compiler_prefix = probe_msvc_include_prefix(stage)
     qt_options = ['-DZIMA_QT_SDK_ROOT=' + str(args.qt_sdk.resolve())] if args.qt_sdk else []
+    if bool(args.gmsh_sdk) != bool(args.gmsh_source):
+        raise ValueError('Supply the verified Gmsh SDK and its corresponding source together')
+    gmsh_options = ['-DZIMA_ENABLE_FEM_MESHER=OFF']
+    if args.gmsh_sdk:
+        gmsh_record = json.loads((source / 'doc/verification/20261120-fem-mesher.json').read_text(encoding='utf-8'))
+        gmsh_source = args.gmsh_source.resolve()
+        if sha(gmsh_source) != gmsh_record['source_sha256']:
+            raise ValueError('Gmsh source does not match the verified source archive')
+        gmsh_sdk = args.gmsh_sdk.resolve()
+        gmsh_dll = gmsh_sdk / 'build/gmsh.dll'
+        if sha(gmsh_dll) != gmsh_record['gmsh_dll_sha256']:
+            raise ValueError('Gmsh runtime does not match the verified OCCT 8.0.1 build')
+        gmsh_options = ['-DZIMA_ENABLE_FEM_MESHER=ON',
+            '-DZIMA_GMSH_RUNTIME=' + str(gmsh_dll),
+            '-DZIMA_GMSH_LIBRARY=' + str(gmsh_sdk / 'build/gmsh.dll.lib'),
+            '-DZIMA_GMSH_INCLUDE_DIR=' + str(gmsh_sdk / 'gmsh-4.15.2-source/api')]
     run([args.cmake, '-S', source / 'cpp', '-B', build, '-G', 'Ninja',
          '-DCMAKE_BUILD_TYPE=Release', '-DZIMA_BUILD_TESTS=ON', '-DZIMA_SOURCE_COMMIT=' + commit,
          '-DZIMA_MSVC_SHOWINCLUDES_PREFIX=' + compiler_prefix,
          '-DCMAKE_TOOLCHAIN_FILE=' + str(args.toolchain.resolve()),
          '-DVCPKG_MANIFEST_INSTALL=OFF',
-         '-DVCPKG_INSTALLED_DIR=' + str(args.installed.resolve().parent), '-DVCPKG_TARGET_TRIPLET=x64-windows', *qt_options])
+         '-DVCPKG_INSTALLED_DIR=' + str(args.installed.resolve().parent), '-DVCPKG_TARGET_TRIPLET=x64-windows',
+         *qt_options, *gmsh_options])
     run([args.cmake, '--build', build, '--target', 'zima-cad-cpp', 'zima-cad-cli', 'zima-cad-launcher', 'zima-cad-update',
          'zima_cpp_sheet_branch_tests', 'zima_cpp_sheet_exchange_tests',
          'zima_cpp_sheet_transition_command_tests', 'zima_cpp_bend_command_tests',
@@ -524,11 +549,16 @@ def package(args):
     # Execute the committed tests against the same freshly built native code.
     # A failure stops packaging before a candidate archive is created.
     branch_acceptance = sheet_branch_gate(ctest, build, stage, clean_environment(build))
+    if args.gmsh_sdk:
+        run([ctest, '--test-dir', build, '-R', '^zima_cpp_fem_body_ui_contract$', '--output-on-failure'],
+            env=clean_environment(build))
     assembly = Path(tempfile.mkdtemp(prefix='p-', dir=stage))
     root = assembly / 'ZIMA-CAD'; runtime = root / 'windows' / version
     runtime.mkdir(parents=True)
     for exe in ('zima-cad-cpp.exe', 'zima-cad-cli.exe', 'zima-cad-update.exe'):
         shutil.copy2(build / exe, runtime / exe)
+    if args.gmsh_sdk:
+        shutil.copy2(gmsh_dll, runtime / gmsh_dll.name)
     shutil.copy2(build / 'ZIMA-CAD.exe', root / 'ZIMA-CAD.exe')
     shutil.copy2(source / 'tools/distribution/launcher-linux.sh', root / 'ZIMA-CAD.sh')
     deploy_dependencies(runtime, args.installed, args.redist, args.dumpbin, args.qt_sdk)
@@ -542,6 +572,12 @@ def package(args):
     shutil.copy2(source / 'LICENSE', licenses / 'ZIMA-CAD.txt')
     shutil.copy2(source / 'cpp/third_party/qtkeychain/COPYING', licenses / 'qtkeychain.txt')
     shutil.copy2(source / 'cpp/third_party/qdxf/LICENSE', licenses / 'ZIMA-libqdxf-libdxfrw.txt')
+    if args.gmsh_sdk:
+        shutil.copy2(gmsh_sdk / 'gmsh-4.15.2-source/LICENSE.txt', licenses / 'Gmsh.txt')
+        write_json(licenses / 'gmsh-provenance.json', gmsh_record)
+        corresponding_source = licenses / 'gmsh-source'
+        corresponding_source.mkdir()
+        shutil.copy2(gmsh_source, corresponding_source / 'gmsh-4.15.2-source.tgz')
     for notice in (args.installed / 'share').glob('*/copyright'):
         shutil.copy2(notice, licenses / (notice.parent.name + '.txt'))
     if args.qt_sdk:
@@ -601,6 +637,8 @@ def main():
     build.add_argument('--output', type=Path, required=True)
     build.add_argument('--installed', type=Path, required=True, help='vcpkg x64-windows installed directory')
     build.add_argument('--qt-sdk', type=Path, help='Complete verified official Qt 6.11.0 MSVC SDK; all Qt modules must use this kit')
+    build.add_argument('--gmsh-sdk', type=Path, help='Verified Gmsh 4.15.2 SDK against the packaged OCCT build')
+    build.add_argument('--gmsh-source', type=Path, help='Pinned original archive corresponding to that Gmsh build')
     build.add_argument('--toolchain', type=Path, required=True)
     build.add_argument('--redist', type=Path, required=True, help='Microsoft.VC*.CRT redistributable directory')
     build.add_argument('--cmake', default='cmake')

@@ -2958,5 +2958,20 @@
   "Select the condition geometry.": "Sélectionnez la géométrie de la condition.",
   "Specify a nonempty object name.": "Indiquez un nom d’objet non vide.",
   "The condition geometry is unavailable on the FEM source.": "La géométrie de la condition est indisponible dans la source FEM.",
-  "The condition placement is unresolved.": "Le placement de la condition n’est pas résolu."
+  "The condition placement is unresolved.": "Le placement de la condition n’est pas résolu.",
+  "Mesh": "Maillage",
+  "Mesh settings": "Paramètres du maillage",
+  "Minimum element size": "Taille minimale des éléments",
+  "Maximum element size": "Taille maximale des éléments",
+  "Elements through thickness": "Nombre d’éléments dans l’épaisseur",
+  "Linear": "Linéaire",
+  "Quadratic": "Quadratique",
+  "Element order": "Ordre des éléments",
+  "Generate mesh": "Générer le maillage",
+  "Show mesh": "Afficher le maillage",
+  "The FEM generator returned an invalid mesh.": "Le générateur FEM a produit un maillage non valide.",
+  "FEM mesh generation failed.": "La génération du maillage FEM a échoué.",
+  "Project a Sketch": "Projeter une esquisse",
+  "Select each target face inside the region to retain.": "Sélectionnez chaque face cible à l’intérieur de la région à conserver.",
+  "Select the target faces for the Sketch.": "Sélectionnez les faces cibles pour l’esquisse."
 }

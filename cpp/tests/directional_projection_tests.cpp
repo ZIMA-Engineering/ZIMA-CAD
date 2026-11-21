@@ -25,6 +25,7 @@
 #include <TopExp_Explorer.hxx>
 #include <TopoDS.hxx>
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <functional>
 #include <iostream>
@@ -377,6 +378,42 @@ int main() {
             try{const auto partial=project(line({-4,0,0},{4,0,0}),targets);p::partition_projection({},targets,partial,tolerance);}
             catch(const std::invalid_argument&){rejected=true;}
             require(rejected,"A dangling open curve does not define a region");
+        });
+        run("independent closed or open curves partition the same face together",[&] {
+            const std::vector<p::ProjectionTarget> targets{{plane(5,-10,10,-10,10),"target"}};
+            const auto circle=[](double x) {
+                return BRepBuilderAPI_MakeEdge(gp_Circ(gp_Ax2(gp_Pnt(x,0,0),gp_Dir(0,0,1)),2)).Edge();
+            };
+            for(bool closed:{true,false}) {
+                const std::vector<p::ProjectionCurve> curves{
+                    {closed?circle(-4):line({-10,-3,0},{10,-3,0}),"first"},
+                    {closed?circle(4):line({-10,3,0},{10,3,0}),"second"}};
+                const auto result=p::project_directionally(curves,targets,source_plane,gp_Dir(0,0,1),tolerance);
+                require(!result.ambiguous&&result.gaps.empty()&&result.curves.size()==2,
+                    "Projection omitted one of two independent source curves");
+                auto regions=p::partition_projection({},targets,result,tolerance).regions;
+                require(regions.size()==3,"Two independent source curves did not produce three regions");
+                std::vector<double> areas;
+                for(const auto& region:regions) {
+                    GProp_GProps properties;
+                    BRepGProp::SurfaceProperties(region.face,properties);
+                    areas.push_back(properties.Mass());
+                }
+                std::ranges::sort(areas);
+                const double disk=4*std::acos(-1.);
+                const std::array expected=closed?std::array{disk,disk,400-2*disk}:std::array{120.,140.,140.};
+                for(std::size_t i=0;i<areas.size();++i)
+                    require(std::abs(areas[i]-expected[i])<tolerance*100,"Projection partition area disagrees with its analytic value");
+                auto with_dangling=curves;
+                with_dangling.push_back({line({-1,8,0},{1,8,0}),"dangling"});
+                const auto outline=p::project_directionally(with_dangling,targets,source_plane,gp_Dir(0,0,1),tolerance);
+                require(!outline.ambiguous&&outline.gaps.empty()&&outline.curves.size()==3,
+                    "Curve output rejected an independent open line");
+                bool rejected=false;
+                try{static_cast<void>(p::partition_projection({},targets,outline,tolerance));}
+                catch(const std::invalid_argument&){rejected=true;}
+                require(rejected,"Partition silently ignored a dangling open line");
+            }
         });
         run("split output preserves material volume and occupied space",[&] {
             const auto box=BRepPrimAPI_MakeBox(gp_Pnt(-10,-10,5),20,20,6).Shape();

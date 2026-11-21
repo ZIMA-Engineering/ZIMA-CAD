@@ -69,6 +69,16 @@ int main(){try {
             }
         }
         require(source_wire&&result_wire&&source_point&&result_point,"Projection preview omitted source/result geometry or markers");
+        if(mode==document::ProjectionOutput::Curves) {
+            const auto& calculated=state->session.calculated_boundaries().back().mesh.original_references.points;
+            for(const auto& marker:preview.points)if(marker.reference.semantic_key.starts_with("projection:preview:result:"))
+                require(std::ranges::any_of(calculated,[&](const auto& point){
+                    return point.reference.owner_id==feature.id&&point.always_visible&&
+                        std::abs(point.position.x-marker.position.x)<1e-7&&
+                        std::abs(point.position.y-marker.position.y)<1e-7&&
+                        std::abs(point.position.z-marker.position.z)<1e-7;
+                }),"Confirmed Projection lost an authored Sketch marker shown by preview");
+        }
         auto missing_preview=feature;missing_preview.feature.projection.targets.front().reference.semantic_key="missing-face";
         bool incomplete=false;
         const auto incomplete_preview=state->session.document().projection_preview_mesh(missing_preview,input->mesh,&state->session.document(),&incomplete);

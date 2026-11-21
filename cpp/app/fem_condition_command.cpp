@@ -1,5 +1,6 @@
 #include "assembly_workspace_window.hpp"
 #include "fem_condition_dialog.hpp"
+#include "confirmed_face_hit.hpp"
 #include "reference_display.hpp"
 #include "workspace/workspace_internal.hpp"
 #include <zima/workspace/fem_condition_operations.hpp>
@@ -9,6 +10,7 @@
 #include <QTreeWidget>
 #include <QTreeWidgetItemIterator>
 #include <QSignalBlocker>
+#include <QPointer>
 
 namespace zima::app {
 using namespace workspace_detail;
@@ -20,12 +22,20 @@ const document::FemCondition* AssemblyWorkspaceWindow::active_fem_condition(cons
 kernel::ViewerMesh AssemblyWorkspaceWindow::fem_display_mesh()const {
     const auto* part=workspace_.open_part(workspace_.active_document_id());if(!part)return {};
     auto result=part->session.body_context_mesh();const auto& doc=part->session.document();
+    const auto* mesh=show_generated_fem_mesh_&&!properties_dialog_?active_generated_fem_mesh():nullptr;
     const auto* body=doc.body_history.find(doc.body_history.active_body_id());if(!body||!body->fem)return result;
-    const auto& source=result;
+    kernel::ViewerMesh source_mesh;
+    if(mesh) {
+        source_mesh=std::move(result);
+        result=*mesh;
+    }
+    const auto& source=mesh?source_mesh:result;
     for(const auto& condition:body->fem->conditions) {
         if(fem_condition_preview_&&fem_condition_preview_->id==condition.id)continue;
         append_mesh(result,document::fem_condition_presentation(condition,source));
     }
+    if(!active_sketch_id_.empty()&&sweep_profile_sketch_draft_)
+        append_mesh(result,sketch_viewer_mesh(*sweep_profile_sketch_draft_));
     if(fem_condition_preview_) {
         append_mesh(result,doc.origin_viewer_mesh());
         auto origins=doc.body_origin_reference_geometry();
@@ -103,6 +113,23 @@ void AssemblyWorkspaceWindow::show_fem_condition_properties(document::FemConditi
         dialog->set_rotation_constraint_state(document::orientation_constraint_state(p.references,geometry,true,{p.x,p.y,p.z}));
         dialog->set_orientation_base_rotation(base,oriented);dialog->set_resolved_rotation({p.rotation_x,p.rotation_y,p.rotation_z},valid);
         fem_condition_preview_=value;auto preview=document::fem_condition_presentation(value,source->mesh);
+        if(value.projected_sketch) {
+            auto sketch=document::fem_condition_sketch(value);
+            document::PartDocument projection;
+            auto feature=document::PartDocument::create_feature_container(sketch.id);
+            feature.id=value.id;
+            feature.feature.type=document::FeatureType::Projection;
+            for(const auto& ref:value.references) {
+                document::ExtrusionParameters::EndTarget target;
+                target.reference={ref.owner_id,ref.semantic_key,ref.instance_path};
+                feature.feature.projection.targets.push_back(std::move(target));
+            }
+            if(feature.feature.projection.targets.empty())append_mesh(preview,sketch_viewer_mesh(sketch));
+            else {
+                projection.sketches.push_back(std::move(sketch));
+                append_mesh(preview,projection.projection_preview_mesh(feature,source->mesh));
+            }
+        }
         // Reuse the native Origin presentation, with the analysis container's
         // frame; no material feature or extra CAD calculation is created.
         auto frame=*carrier->body_history.find(frame_id);frame.scope.placement=p;carrier->body_history.update_body(frame);
@@ -111,9 +138,32 @@ void AssemblyWorkspaceWindow::show_fem_condition_properties(document::FemConditi
     };
     const auto end_geometry=[this,dialog]{dialog->end_input();feature_reference_pick_={};feature_reference_end_={};tree_->setProperty("commandSelectionActive",false);viewer_->set_original_container_selection(false);viewer_->set_selection_contract({});viewer_->set_candidate_filter({});viewer_->clear_selection();};
     dialog->stop_geometry=end_geometry;
+    dialog->edit_sketch=[this,dialog,end_geometry](sketcher::Sketch) {
+        end_geometry();
+        const auto value=fem_condition_preview_.value_or(dialog->pending_value());
+        sweep_profile_sketch_draft_=document::fem_condition_sketch(value);
+        active_sketch_id_=sweep_profile_sketch_draft_->id;
+        selected_sketch_id_=active_sketch_id_;
+        const QPointer<FemConditionDialog> guard(dialog);
+        embedded_sketch_finished_=[this,guard](auto sketch) {
+            if(!guard)return;
+            properties_dialog_=guard;
+            primitive_reference_dialog_=guard;
+            guard->set_owned_sketch(std::move(sketch));
+            guard->show();guard->raise();
+            preserve_view_on_refresh_=true;refresh_scene();
+        };
+        primitive_reference_dialog_=nullptr;
+        properties_dialog_=nullptr;
+        dialog->hide();
+        viewer_->set_transient_context_mesh({});
+        viewer_->clear_selection();clear_selected_sketch_geometry();
+        preserve_view_on_refresh_=true;refresh_scene();align_active_sketch_view();
+    };
     dialog->request_geometry=[this,dialog,source,end_geometry](std::size_t row) {
         if(pending_primitive_reference_index_){pending_primitive_reference_index_.reset();primitive_reference_auto_advance_=false;dialog->set_active_reference_index(std::nullopt);}
-        const auto region=dialog->pending_value().region;
+        const auto value=dialog->pending_value();
+        const auto region=value.projected_sketch?document::FemRegionKind::Surface:value.region;
         std::set<std::pair<std::string,std::string>> available;
         const auto collect=[&](const auto& mesh) {
             if(region==document::FemRegionKind::Point)for(const auto& point:mesh.points)available.emplace(point.reference.owner_id,point.reference.semantic_key);
@@ -130,7 +180,20 @@ void AssemblyWorkspaceWindow::show_fem_condition_properties(document::FemConditi
         viewer_->set_selection_contract({region==document::FemRegionKind::Point?viewer::CandidateKind::Vertex:region==document::FemRegionKind::Curve?viewer::CandidateKind::Edge:viewer::CandidateKind::Face});
         viewer_->set_candidate_filter(allowed);tree_->setProperty("commandSelectionActive",true);
         feature_reference_end_=end_geometry;
-        feature_reference_pick_=[this,dialog,row,allowed,end_geometry](const auto& candidate){if(!allowed(candidate))return;auto r=document::FemRegionReference{candidate.owner_id,candidate.semantic_key,{}};end_geometry();dialog->set_geometry(row,std::move(r));};
+        feature_reference_pick_=[this,dialog,row,allowed,end_geometry](const auto& candidate){
+            if(!allowed(candidate))return;
+            document::FemRegionReference r{candidate.owner_id,candidate.semantic_key,{}};
+            const auto pending=dialog->pending_value();std::optional<kernel::Vec3> seed;
+            if(pending.projected_sketch&&pending.region==document::FemRegionKind::Surface) {
+                const auto ray=viewer_->ray_at(viewer_->last_pointer_position());if(!ray)return;
+                seed=confirmed_face_hit(viewer_->candidate_face_triangles(candidate),ray->first,ray->second);
+                if(!seed)return;
+                const auto path=workspace_.active_occurrence_path();
+                if(!path.empty())seed=workspace_.occurrence_point_from_scene(workspace_.displayed_document_id(),
+                    assembly::InstancePath::decode(path),*seed);
+            }
+            end_geometry();dialog->set_geometry(row,std::move(r),seed);
+        };
     };
     dialog->set_reference_request_callback([this,end_geometry](std::size_t row){end_geometry();start_primitive_reference_selection(row);});
     connect(dialog,&QDialog::finished,this,[this,dialog] {

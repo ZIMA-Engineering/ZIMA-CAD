@@ -71,6 +71,41 @@ PrimitiveData make_projection_data(const ProjectionRequest& request,const std::s
         if(!projected.first_point_key.empty())curves.vertices.push_back({TopExp::FirstVertex(projected.edge,true),{owner,projected.first_point_key,{}}});
         if(!projected.last_point_key.empty())curves.vertices.push_back({TopExp::LastVertex(projected.edge,true),{owner,projected.last_point_key,{}}});
     }
+    if(request.output==ProjectionResult::Curves&&!request.display_points.empty()) {
+        std::vector<std::unique_ptr<IntCurvesFace_ShapeIntersector>> rays;
+        for(const auto& target:targets) {
+            auto ray=std::make_unique<IntCurvesFace_ShapeIntersector>();
+            ray->Load(target.face,request.tolerance);
+            rays.push_back(std::move(ray));
+        }
+        for(std::size_t index=0;index<request.display_points.size();++index) {
+            const auto& source=request.display_points[index];
+            const gp_Pnt origin(source.x,source.y,source.z);
+            double distance=std::numeric_limits<double>::infinity(),depth{};
+            bool ambiguous=false;
+            for(const auto& ray:rays) {
+                ray->Perform(gp_Lin(origin,direction),request.both_directions?-Precision::Infinite():-request.tolerance,Precision::Infinite());
+                if(!ray->IsDone())continue;
+                for(int i=1;i<=ray->NbPnt();++i) {
+                    const double candidate=ray->WParameter(i);
+                    const double absolute=std::abs(candidate);
+                    if(absolute<distance-request.tolerance){distance=absolute;depth=candidate;ambiguous=false;}
+                    else if(std::abs(absolute-distance)<=request.tolerance&&std::abs(depth-candidate)>request.tolerance)ambiguous=true;
+                }
+            }
+            if(ambiguous||!std::isfinite(distance))continue;
+            const auto point=origin.Translated(depth*gp_Vec(direction));
+            if(std::ranges::any_of(curves.vertices,[&](const auto& vertex){
+                return BRep_Tool::Pnt(TopoDS::Vertex(vertex.shape)).Distance(point)<=request.tolerance;
+            }))continue;
+            // The key identifies a viewport marker only. It has no BRep
+            // vertex, and the picker excludes this presentation role.
+            ViewerPoint marker{{point.X(),point.Y(),point.Z()},
+                {owner,"projection:display-point:"+std::to_string(index),{}}};
+            marker.display_owner_id=owner;
+            curves.profile_references.points.push_back(std::move(marker));
+        }
+    }
     curves.shape=compound;
     if(request.output==ProjectionResult::Curves)return curves;
     const auto partition=detail::partition_projection(request.output==ProjectionResult::Split?input:TopoDS_Shape{},targets,projection,request.tolerance);

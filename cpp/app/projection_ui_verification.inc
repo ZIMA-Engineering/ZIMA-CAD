@@ -12,6 +12,9 @@ int verify_projection_ui(QApplication& application,AssemblyWorkspaceWindow& wind
         for(int output=0;output<3;++output) {
             workspace::Workspace live;kernel::OcctKernel engine;
             auto part=document::PartDocument::create_default();const auto document_id=part.document_id;
+            document::BodyHistoryGraph graph;
+            const auto body=graph.create_body("Projection source");
+            part.set_body_history(std::move(graph));
             live.add_part(part);live.activate(document_id);
             auto base_sketch=sketcher::Sketch::create_default();base_sketch.plane_auto=false;
             static_cast<void>(base_sketch.add_rectangle(-30,-30,30,30));
@@ -25,8 +28,12 @@ int verify_projection_ui(QApplication& application,AssemblyWorkspaceWindow& wind
             auto* state=live.open_part(document_id);const auto path=directory/("projection-ui-"+std::to_string(output)+".prtz");
             state->session.document().save(path,state->session.calculated_boundaries());
             window.resize(1440,1000);window.show();check(window.open_document_path(QString::fromStdString(path.string())),"Cannot open Projection fixture");flush();
-            const auto body=state->session.document().body_history.active_body_id();
             check(window.execute_console_command(QString::fromStdString(commands::Json{{"command","body.activate"},{"arguments",{{"body",body}}}}.dump())).ok,"Projection Body activation failed");flush();
+            if(output==0) {
+                auto* modeling=window.findChild<QAction*>("applicationModeAction0");
+                check(modeling&&modeling->isEnabled(),"Modeling mode is unavailable");
+                modeling->trigger();flush();
+            }
             auto* view=dynamic_cast<viewer::MeshView*>(window.findChild<QWidget*>("modelWorkspace"));check(view,"Projection View is missing");
             const auto row=[&]()->QTreeWidgetItem* {
                 auto* tree=window.findChild<QTreeWidget*>("documentTree");
@@ -40,6 +47,27 @@ int verify_projection_ui(QApplication& application,AssemblyWorkspaceWindow& wind
             check(row(),"Projection Sketch Tree row is missing");
             const auto unchanged=window.execute_console_command("documents").data;
             const auto calculations=kernel::body_calculation_count.load();
+            if(output==0) {
+                auto* toolbar=window.findChild<QToolBar*>("toolsToolbar");
+                auto* sketch_action=window.findChild<QAction*>("featureShortcut3Action");
+                auto* projection=window.findChild<QAction*>("projectionAction");
+                check(toolbar&&sketch_action,"Modeling toolbar or Sketch action is missing");
+                check(projection&&projection->isEnabled(),"Projection toolbar action is unavailable");
+                check(!projection->icon().isNull(),"Projection toolbar icon is missing");
+                const auto actions=toolbar->actions();
+                check(actions.contains(sketch_action)&&actions.indexOf(projection)==actions.indexOf(sketch_action)+1,
+                    "Projection toolbar action must follow Sketch");
+                auto* button=toolbar->widgetForAction(projection);
+                check(button,"Projection toolbar button is missing");
+                click(button,button->rect().center());check(editor(),"Projection button did not open shared Feature Properties");
+                auto* type=editor()->findChild<QComboBox*>("featureType");
+                check(type&&type->currentIndex()==static_cast<int>(document::FeatureType::Projection),
+                    "Projection button did not preset Projection");
+                for(int i=0;i<type->count();++i)check(!type->itemIcon(i).isNull(),"Feature type is missing its icon");
+                editor()->reject();flush();
+                check(window.execute_console_command("documents").data==unchanged,"Cancelling the Projection shortcut changed the document");
+                check(kernel::body_calculation_count.load()==calculations,"Opening or cancelling the Projection shortcut calculated geometry");
+            }
             window.show_tree_item_properties(row());flush();check(editor(),"Shared Feature Properties did not open");
             check(editor()->windowType()==Qt::SubWindow,"Projection uses a floating Properties window");
             editor()->findChild<QComboBox*>("featureType")->setCurrentIndex(static_cast<int>(document::FeatureType::Projection));

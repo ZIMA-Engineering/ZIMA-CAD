@@ -32,6 +32,18 @@ void serialization(){
     c.force_N=100;c.kind=document::FemConditionKind::Pressure;rejects([&]{document::validate_fem_condition(c);});
     c.region=document::FemRegionKind::Surface;rejects([&]{document::validate_fem_condition(c);});
     c.references={{"owner","face",{}}};c.pressure_MPa=-1;rejects([&]{document::validate_fem_condition(c);});
+    c.kind=document::FemConditionKind::Force;c.pressure_MPa=1;c.restrained={true,true,true};
+    auto sketch=sketcher::Sketch::create_default();sketch.plane_auto=false;
+    sketch.owner_container_id=c.id;sketch.plane_offset=17.25;
+    static_cast<void>(sketch.add_rectangle(-2,-1,2,1));
+    c.projected_sketch=document::FemProjectedSketch{sketch.serialized(),{{1.25,0,11}}};
+    const nlohmann::json owned=c;
+    require(owned.get<document::FemCondition>()==c,"Owned FEM Sketch or seed did not round-trip");
+    const auto request=document::fem_condition_projection_request(c);
+    require(request.profiles.size()==4&&std::abs(request.sketch_origin.z-17.25)<1e-10,
+        "Owned FEM Sketch lost its exact curves or plane offset");
+    c.projected_sketch->surface_seeds.clear();
+    rejects([&]{document::validate_fem_condition(c);});
 }
 void marks(){
     document::FemCondition c;c.id="condition";c.name="F1";c.kind=document::FemConditionKind::Force;c.force_N=5000;c.placement.rotation_y=90;

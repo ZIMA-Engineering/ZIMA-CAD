@@ -2958,5 +2958,20 @@
   "Select the condition geometry.": "Select the condition geometry.",
   "Specify a nonempty object name.": "Specify a nonempty object name.",
   "The condition geometry is unavailable on the FEM source.": "The condition geometry is unavailable on the FEM source.",
-  "The condition placement is unresolved.": "The condition placement is unresolved."
+  "The condition placement is unresolved.": "The condition placement is unresolved.",
+  "Mesh": "Mesh",
+  "Mesh settings": "Mesh settings",
+  "Minimum element size": "Minimum element size",
+  "Maximum element size": "Maximum element size",
+  "Elements through thickness": "Elements through thickness",
+  "Linear": "Linear",
+  "Quadratic": "Quadratic",
+  "Element order": "Element order",
+  "Generate mesh": "Generate mesh",
+  "Show mesh": "Show mesh",
+  "The FEM generator returned an invalid mesh.": "The FEM generator returned an invalid mesh.",
+  "FEM mesh generation failed.": "FEM mesh generation failed.",
+  "Project a Sketch": "Project a Sketch",
+  "Select each target face inside the region to retain.": "Select each target face inside the region to retain.",
+  "Select the target faces for the Sketch.": "Select the target faces for the Sketch."
 }

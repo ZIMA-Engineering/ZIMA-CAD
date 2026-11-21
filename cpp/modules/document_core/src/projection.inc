@@ -1,3 +1,41 @@
+static std::vector<kernel::ExtrusionRequest> projection_sketch_profiles(const sketcher::Sketch& evaluated) {
+    std::vector<kernel::ExtrusionRequest> profiles;
+    const auto append=[&](const auto& curves) {
+        for(const auto& curve:curves)if(!curve.construction) {
+            auto isolated=evaluated;
+            const auto keep=[&](auto& values){std::erase_if(values,[&](const auto& value){return value.id!=curve.id;});};
+            keep(isolated.segments);keep(isolated.circles);keep(isolated.arcs);
+            keep(isolated.ellipses);keep(isolated.elliptical_arcs);keep(isolated.bsplines);
+            profiles.push_back(body_profile_request(isolated,1.,ExtrusionDirection::Forward,
+                ProfileResultType::Surface,1.,ThinMode::OneSide));
+        }
+    };
+    append(evaluated.segments);append(evaluated.circles);append(evaluated.arcs);
+    append(evaluated.ellipses);append(evaluated.elliptical_arcs);append(evaluated.bsplines);
+    return profiles;
+}
+
+sketcher::Sketch fem_condition_sketch(const FemCondition& condition) {
+    auto sketch=sketcher::Sketch::from_serialized(condition.projected_sketch->serialized);
+    sketch.refresh_default_frame();
+    const auto& p=condition.placement;
+    const auto rotation=placement_rotation_matrix_from_euler_degrees({p.rotation_x,p.rotation_y,p.rotation_z});
+    sketch.resolved_origin=placement_transform_point(rotation,{p.x,p.y,p.z},sketch.resolved_origin);
+    sketch.resolved_x_axis=placement_transform_direction(rotation,sketch.resolved_x_axis);
+    sketch.resolved_y_axis=placement_transform_direction(rotation,sketch.resolved_y_axis);
+    sketch.resolved_normal=placement_transform_direction(rotation,sketch.resolved_normal);
+    return sketch;
+}
+
+kernel::ProjectionRequest fem_condition_projection_request(const FemCondition& condition) {
+    const auto sketch=fem_condition_sketch(condition);
+    kernel::ProjectionRequest request;
+    request.profiles=projection_sketch_profiles(sketch.evaluated_profile_sketch());
+    request.sketch_origin=sketch.world_point(0,0);
+    request.sketch_normal=sketch.normal();
+    return request;
+}
+
 // Feature-owned planar input, ordinary native curve adapters and the same
 // history-boundary ownership checks as other surface operations. No OCCT here.
 kernel::ProjectionRequest projection_request(const PartDocument& part,
@@ -19,20 +57,13 @@ kernel::ProjectionRequest projection_request(const PartDocument& part,
     result.both_directions=p.direction==ProjectionDirection::SketchNormal;
     result.output=p.output==ProjectionOutput::Curves?kernel::ProjectionResult::Curves:
         p.output==ProjectionOutput::Split?kernel::ProjectionResult::Split:kernel::ProjectionResult::Surface;
+    if(result.output==kernel::ProjectionResult::Curves)
+        for(const auto& point:evaluated.viewer_mesh(false).points)
+            if(!point.construction&&point.always_visible&&point.reference.semantic_key.starts_with("point:"))
+                result.display_points.push_back(point.position);
     // Project every authored curve independently. A projection source need not
     // form the single wire required by a sweep; incidence stays in point IDs.
-    const auto append=[&](const auto& curves) {
-        for(const auto& curve:curves)if(!curve.construction) {
-            auto isolated=evaluated;
-            const auto keep=[&](auto& values){std::erase_if(values,[&](const auto& value){return value.id!=curve.id;});};
-            keep(isolated.segments);keep(isolated.circles);keep(isolated.arcs);
-            keep(isolated.ellipses);keep(isolated.elliptical_arcs);keep(isolated.bsplines);
-            auto profile=body_profile_request(isolated,1.,ExtrusionDirection::Forward,ProfileResultType::Surface,1.,ThinMode::OneSide);
-            result.profiles.push_back(std::move(profile));
-        }
-    };
-    append(evaluated.segments);append(evaluated.circles);append(evaluated.arcs);
-    append(evaluated.ellipses);append(evaluated.elliptical_arcs);append(evaluated.bsplines);
+    result.profiles=projection_sketch_profiles(evaluated);
     result.direction=result.sketch_normal;
     if(p.direction==ProjectionDirection::Reference) {
         const auto& ref=p.direction_reference;

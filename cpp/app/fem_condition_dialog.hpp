@@ -4,6 +4,9 @@
 #include <zima/ui/container_placement_section.hpp>
 #include <zima/ui/properties_subwindow.hpp>
 #include <zima/ui/reference_cell.hpp>
+#include <zima/ui/unit_spin_box.hpp>
+#include <zima/sketcher/sketch.hpp>
+#include "sketch_button_style.hpp"
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDoubleSpinBox>
@@ -35,6 +38,7 @@ public:
     std::function<QString(const document::FemRegionReference&)> reference_label;
     std::function<void(std::size_t)> request_geometry;
     std::function<void()> stop_geometry;
+    std::function<void(sketcher::Sketch)> edit_sketch;
     FemConditionDialog(document::FemCondition value,std::function<void(document::FemCondition)> commit,QWidget* parent)
         : PropertiesSubWindow(tr("FEM condition properties"),parent),initial_(std::move(value)),commit_(std::move(commit)) {
         setObjectName("femConditionDialog");setAttribute(Qt::WA_DeleteOnClose);setProperty("expandBottomTable",true);
@@ -61,6 +65,20 @@ public:
         region_->addItem(tr("Plocha"),int(document::FemRegionKind::Surface));
         region_->setCurrentIndex(region_->findData(int(initial_.region)));
         parameters->addRow(tr("Region of action"),region_);
+        project_=new QCheckBox(tr("Project a Sketch"),this);
+        project_->setObjectName("femProjectSketch");
+        project_->setChecked(initial_.projected_sketch.has_value());
+        parameters->addRow(project_);
+        sketch_offset_=new ui::UnitDoubleSpinBox(ui::InputQuantity::Length,this);
+        sketch_offset_->setObjectName("femSketchOffset");
+        sketch_offset_->setRange(-1e9,1e9);
+        if(initial_.projected_sketch)sketch_offset_->setValue(
+            sketcher::Sketch::from_serialized(initial_.projected_sketch->serialized).plane_offset);
+        parameters->addRow(tr("Odsazení roviny"),sketch_offset_);
+        sketch_button_=new QPushButton(tr("Skica"),this);
+        sketch_button_->setObjectName("femEditSketch");
+        style_sketch_button(sketch_button_);
+        parameters->addRow(sketch_button_);
         force_=new QDoubleSpinBox(this);force_->setObjectName("femForceValue");force_->setDecimals(6);force_->setRange(-1e12,1e12);force_->setSuffix(" N");force_->setValue(initial_.force_N);
         pressure_=new QDoubleSpinBox(this);pressure_->setObjectName("femPressureValue");pressure_->setDecimals(6);pressure_->setRange(0,1e12);pressure_->setSuffix(" MPa");pressure_->setValue(initial_.pressure_MPa);
         initial_force_display_=force_->value();initial_pressure_display_=pressure_->value();
@@ -85,7 +103,29 @@ public:
                 region_->setCurrentIndex(region_->findData(int(document::FemRegionKind::Surface)));
             refresh_kind();notify();
         });
-        connect(region_,&QComboBox::currentIndexChanged,this,[this]{if(stop_geometry)stop_geometry();initial_.references.clear();active_.reset();inspected_.clear();refresh_references();notify();});
+        connect(region_,&QComboBox::currentIndexChanged,this,[this]{
+            reset_targets();
+            if(current_region()==document::FemRegionKind::Point)project_->setChecked(false);
+            refresh_kind();notify();
+        });
+        connect(project_,&QCheckBox::toggled,this,[this](bool enabled){
+            reset_targets();
+            if(enabled) {
+                auto sketch=sketcher::Sketch::create_default();
+                sketch.owner_container_id=initial_.id;
+                sketch.plane_auto=false;
+                set_owned_sketch(std::move(sketch));
+            }else initial_.projected_sketch.reset();
+            refresh_kind();notify();
+        });
+        connect(sketch_offset_,&QDoubleSpinBox::valueChanged,this,[this]{
+            if(initial_.projected_sketch)
+                set_owned_sketch(sketcher::Sketch::from_serialized(initial_.projected_sketch->serialized));
+        });
+        connect(sketch_button_,&QPushButton::clicked,this,[this]{
+            if(edit_sketch&&initial_.projected_sketch)
+                edit_sketch(sketcher::Sketch::from_serialized(initial_.projected_sketch->serialized));
+        });
         for(auto* field:{force_,pressure_})connect(field,&QDoubleSpinBox::valueChanged,this,[this]{notify();});
         for(auto* field:fixed_)connect(field,&QCheckBox::toggled,this,[this]{notify();});
         connect(reverse_,&QCheckBox::toggled,this,[this]{notify();});
@@ -104,9 +144,27 @@ public:
     void arm(std::size_t row){active_=row;refresh_references();if(request_geometry)request_geometry(row);}
     void end_input(){active_.reset();refresh_references();}
     bool active_input()const{return active_.has_value();}
-    void set_geometry(std::size_t row,document::FemRegionReference value) {
+    void set_owned_sketch(sketcher::Sketch sketch) {
+        if(!initial_.projected_sketch)initial_.projected_sketch.emplace();
+        sketch.plane_offset=sketch_offset_->value();
+        sketch.refresh_default_frame();
+        initial_.projected_sketch->serialized=sketch.serialized();
+        notify();
+    }
+    void set_geometry(std::size_t row,document::FemRegionReference value,std::optional<kernel::Vec3> seed={}) {
         if(row>initial_.references.size())return;
-        if(std::ranges::find(initial_.references,value)!=initial_.references.end())return;
+        const auto existing=std::ranges::find(initial_.references,value);
+        if(existing!=initial_.references.end()&&std::size_t(existing-initial_.references.begin())!=row)return;
+        if(initial_.projected_sketch&&current_region()==document::FemRegionKind::Surface) {
+            if(!seed)return;
+            auto& seeds=initial_.projected_sketch->surface_seeds;
+            if(row==seeds.size())seeds.push_back(*seed);else seeds[row]=*seed;
+            auto& keys=initial_.projected_sketch->surface_region_keys;
+            if(!keys.empty()) {
+                keys.resize(seeds.size());
+                keys[row].clear();
+            }
+        }
         if(row==initial_.references.size())initial_.references.push_back(std::move(value));else initial_.references[row]=std::move(value);
         active_.reset();inspected_.clear();refresh_references();notify();
     }
@@ -116,7 +174,14 @@ public:
         for(int row=0;row<table_->rowCount();++row) {
             const bool filled=row<int(initial_.references.size());table_->setItem(row,0,new QTableWidgetItem(QString::number(row+1)));
             auto* indicator=ui::build_reference_row_indicator([this,row]{
-                if(row<int(initial_.references.size())){initial_.references.erase(initial_.references.begin()+row);inspected_.clear();active_.reset();refresh_references();notify();arm(std::min<std::size_t>(row,initial_.references.size()));}
+                if(row<int(initial_.references.size())){
+                    initial_.references.erase(initial_.references.begin()+row);
+                    if(initial_.projected_sketch&&row<int(initial_.projected_sketch->surface_seeds.size()))
+                        initial_.projected_sketch->surface_seeds.erase(initial_.projected_sketch->surface_seeds.begin()+row);
+                    if(initial_.projected_sketch&&row<int(initial_.projected_sketch->surface_region_keys.size()))
+                        initial_.projected_sketch->surface_region_keys.erase(initial_.projected_sketch->surface_region_keys.begin()+row);
+                    inspected_.clear();active_.reset();refresh_references();notify();arm(std::min<std::size_t>(row,initial_.references.size()));
+                }
                 else arm(row);
             });indicator->findChild<QPushButton*>()->setToolTip(tr("Odstranit cílovou referenci a její řádek"));
             ui::set_reference_row_populated(indicator,filled);table_->setCellWidget(row,1,indicator);
@@ -169,8 +234,8 @@ protected:
         for(int i=0;i<kind_->count();++i)kind_->setItemText(i,fem_condition_name(static_cast<document::FemConditionKind>(kind_->itemData(i).toInt())));
         region_->setItemText(0,tr("Bod"));region_->setItemText(1,tr("Křivka"));region_->setItemText(2,tr("Plocha"));
         force_label_->setText(tr("Force"));pressure_label_->setText(tr("Pressure"));restraint_label_->setText(tr("Restrained translations"));reverse_->setText(tr("Reverse pressure normal"));
-        hint_->setText(tr("Use a point, curve or bounded surface from Projection. An empty point region uses the container origin."));
-        table_->setHorizontalHeaderLabels({tr("Č."),{},tr("Geometry"),{}});refresh_references();
+        project_->setText(tr("Project a Sketch"));sketch_button_->setText(tr("Skica"));label(parameters_,sketch_offset_,tr("Odsazení roviny"));
+        refresh_kind();refresh_references();
     }
     bool submit()override{try{auto v=pending_value();document::validate_fem_condition(v);commit_(std::move(v));return true;}catch(const std::exception& e){set_status(tr(e.what()));return false;}}
 private:
@@ -181,6 +246,7 @@ private:
     };
     document::FemCondition initial_;std::function<void(document::FemCondition)> commit_;
     QLineEdit* name_{};QComboBox *kind_{},*region_{};QDoubleSpinBox *force_{},*pressure_{};
+    QCheckBox* project_{};ui::UnitDoubleSpinBox* sketch_offset_{};QPushButton* sketch_button_{};
     QCheckBox* fixed_[3]{};QCheckBox* reverse_{};QWidget* restraints_{};QLabel *force_label_{},*pressure_label_{},*restraint_label_{},*hint_{},*status_{};
     QTableWidget* table_{};ui::ContainerPlacementSection* placement_{};std::optional<std::size_t> active_;std::set<std::size_t> inspected_;
     QFormLayout *form_{},*parameters_{};
@@ -188,6 +254,32 @@ private:
     document::FemConditionKind current_kind()const{return static_cast<document::FemConditionKind>(kind_->currentData().toInt());}
     document::FemRegionKind current_region()const{return static_cast<document::FemRegionKind>(region_->currentData().toInt());}
     void notify(){if(changed)changed();}
-    void refresh_kind(){const auto k=current_kind();force_->setVisible(k==document::FemConditionKind::Force);force_label_->setVisible(force_->isVisibleTo(this));pressure_->setVisible(k==document::FemConditionKind::Pressure);pressure_label_->setVisible(pressure_->isVisibleTo(this));restraints_->setVisible(k==document::FemConditionKind::Constraint);restraint_label_->setVisible(restraints_->isVisibleTo(this));reverse_->setVisible(k==document::FemConditionKind::Pressure);region_->setEnabled(k!=document::FemConditionKind::Pressure);}
+    void reset_targets() {
+        if(stop_geometry)stop_geometry();
+        initial_.references.clear();
+        if(initial_.projected_sketch) {
+            initial_.projected_sketch->surface_seeds.clear();
+            initial_.projected_sketch->surface_region_keys.clear();
+        }
+        active_.reset();inspected_.clear();refresh_references();
+    }
+    void refresh_kind(){
+        const auto k=current_kind();
+        force_->setVisible(k==document::FemConditionKind::Force);force_label_->setVisible(force_->isVisibleTo(this));
+        pressure_->setVisible(k==document::FemConditionKind::Pressure);pressure_label_->setVisible(pressure_->isVisibleTo(this));
+        restraints_->setVisible(k==document::FemConditionKind::Constraint);restraint_label_->setVisible(restraints_->isVisibleTo(this));
+        reverse_->setVisible(k==document::FemConditionKind::Pressure);region_->setEnabled(k!=document::FemConditionKind::Pressure);
+        const bool can_project=k!=document::FemConditionKind::Pressure&&current_region()!=document::FemRegionKind::Point;
+        if(!can_project&&project_->isChecked())project_->setChecked(false);
+        project_->setVisible(can_project);
+        const bool projecting=can_project&&project_->isChecked();
+        parameters_->setRowVisible(sketch_offset_,projecting);
+        parameters_->setRowVisible(sketch_button_,projecting);
+        table_->setHorizontalHeaderLabels({tr("Č."),{},projecting?tr("Cílové plochy"):tr("Geometry"),{}});
+        hint_->setText(projecting?(current_region()==document::FemRegionKind::Surface?
+            tr("Select each target face inside the region to retain."):
+            tr("Select the target faces for the Sketch."))
+            :tr("Use a point, curve or bounded surface from Projection. An empty point region uses the container origin."));
+    }
 };
 } // namespace zima::app

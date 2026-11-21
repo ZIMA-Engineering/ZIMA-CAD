@@ -2958,5 +2958,20 @@
   "Select the condition geometry.": "Выберите геометрию условия.",
   "Specify a nonempty object name.": "Укажите непустое имя объекта.",
   "The condition geometry is unavailable on the FEM source.": "Геометрия условия недоступна в источнике МКЭ.",
-  "The condition placement is unresolved.": "Положение условия не определено."
+  "The condition placement is unresolved.": "Положение условия не определено.",
+  "Mesh": "Сетка",
+  "Mesh settings": "Настройки сетки",
+  "Minimum element size": "Минимальный размер элемента",
+  "Maximum element size": "Максимальный размер элемента",
+  "Elements through thickness": "Число элементов по толщине",
+  "Linear": "Линейный",
+  "Quadratic": "Квадратичный",
+  "Element order": "Порядок элементов",
+  "Generate mesh": "Построить сетку",
+  "Show mesh": "Показать сетку",
+  "The FEM generator returned an invalid mesh.": "Генератор МКЭ создал недопустимую сетку.",
+  "FEM mesh generation failed.": "Не удалось построить сетку МКЭ.",
+  "Project a Sketch": "Спроецировать эскиз",
+  "Select each target face inside the region to retain.": "Выберите каждую целевую грань внутри сохраняемой области.",
+  "Select the target faces for the Sketch.": "Выберите целевые грани для эскиза."
 }

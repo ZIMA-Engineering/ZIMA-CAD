@@ -6162,7 +6162,7 @@ if (impl_->show_origins) {
                         : marker_key == "point" && !point.display_owner_id.empty() &&
                             impl_->curve3d_point_owners.contains({point.display_owner_id,point.reference.instance_path})
                             ? theme.foreground
-                        : marker_key.starts_with("projection:point:")
+                        : (marker_key.starts_with("projection:point:")||marker_key.starts_with("projection:display-point:"))
                             ? theme.foreground
                         : marker_key ==
                                 "external_point:sketch_origin"

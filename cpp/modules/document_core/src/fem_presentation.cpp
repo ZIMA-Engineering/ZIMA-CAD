@@ -48,7 +48,9 @@ kernel::ViewerMesh fem_condition_presentation(const FemCondition& value,const ke
     const Vec3 origin{value.placement.x,value.placement.y,value.placement.z};
     const auto normal=rotate(value.placement,{0,0,1});
     std::vector<Sample> locations;bool broken=!value.placement.reference_valid;
-    for(const auto& r:value.references){auto points=samples(r,value.region,source);broken|=points.empty();locations.insert(locations.end(),points.begin(),points.end());}
+    if(value.projected_sketch) {
+        for(const auto& r:value.references)broken|=!fem_region_reference_available(r,FemRegionKind::Surface,source);
+    } else for(const auto& r:value.references){auto points=samples(r,value.region,source);broken|=points.empty();locations.insert(locations.end(),points.begin(),points.end());}
     if(locations.empty())locations.push_back({origin,normal});
     const auto stroke=[&](std::initializer_list<Vec3> points){kernel::ViewerEdge e;e.reference={value.id,"fem:mark:"+std::to_string(mesh.edges.size()),{}};e.display_owner_id=value.id;e.overlay=true;e.points=points;mesh.edges.push_back(std::move(e));};
     const auto arrow=[&](Vec3 tip,Vec3 d){d=unit(d);const auto side=unit(cross(d,std::abs(d.z)<.9?Vec3{0,0,1}:Vec3{0,1,0}));

@@ -3,13 +3,167 @@
 #include "workspace/workspace_internal.hpp"
 #include <zima/workspace/fem_operations.hpp>
 #include <zima/viewer/mesh_view.hpp>
+#include <zima/ui/unit_spin_box.hpp>
+#include <QComboBox>
+#include <QDoubleSpinBox>
 #include <QTreeWidget>
+#include <limits>
+#ifdef ZIMA_ENABLE_FEM_MESHER
+#include "fem_volume_mesh.hpp"
+#endif
 
 namespace zima::app {
+namespace {
+class FemMeshSettingsDialog final : public ui::PropertiesSubWindow {
+public:
+    FemMeshSettingsDialog(document::FemMeshControls initial,
+            std::function<void(document::FemMeshControls)> commit,QWidget* parent)
+        : PropertiesSubWindow(tr("Mesh settings"),parent),initial_(initial),commit_(std::move(commit)) {
+        setObjectName("femMeshSettingsDialog");
+        setAttribute(Qt::WA_DeleteOnClose);
+        auto* form=new QFormLayout;
+        const auto length=[this,form](const QString& label,const char* name,double value) {
+            auto* field=new ui::UnitDoubleSpinBox(ui::InputQuantity::Length,this);
+            field->setObjectName(name);
+            field->setRange(0,std::numeric_limits<double>::max());
+            field->setValue(value);
+            form->addRow(label,field);
+            return field;
+        };
+        minimum_=length(tr("Minimum element size"),"femMeshMinimum",initial_.minimum_size_mm);
+        maximum_=length(tr("Maximum element size"),"femMeshMaximum",initial_.maximum_size_mm);
+        layers_=new QDoubleSpinBox(this);
+        layers_->setObjectName("femMeshLayers");
+        layers_->setDecimals(0);
+        layers_->setRange(1,std::numeric_limits<unsigned>::max());
+        layers_->setValue(initial_.elements_through_thickness);
+        form->addRow(tr("Elements through thickness"),layers_);
+        order_=new QComboBox(this);
+        order_->setObjectName("femMeshOrder");
+        order_->addItem(tr("Linear"),static_cast<int>(document::FemElementOrder::Linear));
+        order_->addItem(tr("Quadratic"),static_cast<int>(document::FemElementOrder::Quadratic));
+        order_->setCurrentIndex(order_->findData(static_cast<int>(initial_.order)));
+        form->addRow(tr("Element order"),order_);
+        content_layout()->addLayout(form);
+        status_=new QLabel(this);
+        status_->setWordWrap(true);
+        content_layout()->addWidget(status_);
+        set_initial_size({470,245});
+    }
+protected:
+    bool submit() override {
+        auto value=initial_;
+        value.minimum_size_mm=minimum_->value();
+        value.maximum_size_mm=maximum_->value();
+        value.elements_through_thickness=static_cast<unsigned>(layers_->value());
+        value.order=static_cast<document::FemElementOrder>(order_->currentData().toInt());
+        try {
+            commit_(value);
+            return true;
+        }catch(const std::exception& error) {
+            status_->setText(tr(error.what()));
+            return false;
+        }
+    }
+private:
+    document::FemMeshControls initial_;
+    std::function<void(document::FemMeshControls)> commit_;
+    QDoubleSpinBox *minimum_{},*maximum_{},*layers_{};
+    QComboBox* order_{};
+    QLabel* status_{};
+};
+}
+
 bool AssemblyWorkspaceWindow::active_fem_body()const {
     const auto* part=workspace_.open_part(workspace_.active_document_id());
     const auto* body=part?part->session.document().body_history.find(part->session.document().body_history.active_body_id()):nullptr;
     return body&&body->fem.has_value();
+}
+
+#ifdef ZIMA_ENABLE_FEM_MESHER
+struct AssemblyWorkspaceWindow::GeneratedFemMesh {
+    std::string document_id,body_id;
+    kernel::BodySnapshot source;
+    document::FemDefinition definition;
+    FemVolumeMesh mesh;
+};
+#endif
+
+const kernel::ViewerMesh* AssemblyWorkspaceWindow::active_generated_fem_mesh() const {
+#ifdef ZIMA_ENABLE_FEM_MESHER
+    if(!generated_fem_mesh_||generated_fem_mesh_->document_id!=workspace_.active_document_id())return nullptr;
+    const auto* part=workspace_.open_part(workspace_.active_document_id());
+    if(!part)return nullptr;
+    const auto& graph=part->session.document().body_history;
+    if(graph.active_body_id()!=generated_fem_mesh_->body_id)return nullptr;
+    const auto* body=graph.find(graph.active_body_id());
+    if(!body||!body->fem||body->fem->mesh!=generated_fem_mesh_->definition.mesh||
+            body->fem->source_id!=generated_fem_mesh_->definition.source_id)return nullptr;
+    const auto same_region=[](const auto& a,const auto& b) {
+        return a.id==b.id&&a.region==b.region&&a.references==b.references&&a.projected_sketch==b.projected_sketch&&
+            a.placement.reference_valid==b.placement.reference_valid&&
+            (!a.projected_sketch||
+                std::tie(a.placement.x,a.placement.y,a.placement.z,a.placement.rotation_x,a.placement.rotation_y,a.placement.rotation_z)==
+                std::tie(b.placement.x,b.placement.y,b.placement.z,b.placement.rotation_x,b.placement.rotation_y,b.placement.rotation_z))&&
+            (!a.references.empty()||a.region!=document::FemRegionKind::Point||
+                std::tie(a.placement.x,a.placement.y,a.placement.z)==
+                std::tie(b.placement.x,b.placement.y,b.placement.z));
+    };
+    if(!std::ranges::equal(body->fem->conditions,generated_fem_mesh_->definition.conditions,same_region))return nullptr;
+    try {
+        if(workspace::read_fem_source(part->session,body->scope.id).shares_with(generated_fem_mesh_->source))
+            return &generated_fem_mesh_->mesh.surface;
+    }catch(const std::invalid_argument&) {}
+#endif
+    return nullptr;
+}
+
+void AssemblyWorkspaceWindow::generate_fem_mesh() {
+#ifdef ZIMA_ENABLE_FEM_MESHER
+    if(properties_dialog_||!active_fem_body())return;
+    const auto document_id=workspace_.active_document_id();
+    const auto& session=workspace_.open_part(document_id)->session;
+    const auto& graph=session.document().body_history;
+    const auto body_id=graph.active_body_id();
+    try {
+        if(!active_generated_fem_mesh()) {
+            const auto source=workspace::read_fem_source(session,body_id);
+            const auto definition=*graph.find(body_id)->fem;
+            auto mesh=ui::run_background_task([source,definition]{return generate_fem_volume_mesh(source.get(),definition);});
+            generated_fem_mesh_=std::make_shared<GeneratedFemMesh>(GeneratedFemMesh{
+                document_id,body_id,source,definition,std::move(mesh)});
+            if(!active_generated_fem_mesh())return;
+        }
+        show_generated_fem_mesh_=true;
+        preserve_view_on_refresh_=true;
+        refresh_scene();
+        rebuild_application_toolbar();
+    }catch(const std::exception& error){state_->setText(tr(error.what()));}
+#endif
+}
+
+void AssemblyWorkspaceWindow::show_fem_mesh_settings() {
+    if(properties_dialog_||!active_fem_body())return;
+    const auto* part=workspace_.open_part(workspace_.active_document_id());
+    const auto& document=part->session.document();
+    auto initial=*document.body_history.find(document.body_history.active_body_id());
+    const auto edit=workspace::prepare_fem_edit(document,initial.scope.id);
+    const auto controls=initial.fem->mesh;
+    auto* dialog=new FemMeshSettingsDialog(controls,[this,edit,initial=std::move(initial)](auto value) {
+        auto pending=initial;
+        pending.fem->mesh=value;
+        static_cast<void>(workspace::commit_fem(workspace_,edit,std::move(pending)));
+    },this);
+    properties_dialog_=dialog;
+    properties_dialog_instance_path_=workspace_.active_occurrence_path();
+    connect(dialog,&QDialog::finished,this,[this] {
+        properties_dialog_=nullptr;
+        properties_dialog_instance_path_.clear();
+        refresh_tabs();
+        rebuild_application_toolbar();
+    });
+    rebuild_application_toolbar();
+    dialog->show();
 }
 
 void AssemblyWorkspaceWindow::show_fem_body_properties(const std::string& id) {

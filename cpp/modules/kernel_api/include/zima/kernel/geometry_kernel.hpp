@@ -1223,6 +1223,7 @@ struct ProjectionRequest {
     // Shared native planar profile curves and their authored point/curve IDs.
     // Unlike extrusion, this operation never sweeps solid material.
     std::vector<ExtrusionRequest> profiles;
+    std::vector<Vec3> display_points;
     std::string sketch_id;
     Vec3 sketch_origin, sketch_normal{0,0,1}, direction{0,0,1};
     std::optional<EdgeReference> direction_reference;

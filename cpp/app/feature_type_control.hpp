@@ -9,9 +9,12 @@ namespace zima::app {
 inline QComboBox* feature_type_control(QWidget* parent,document::FeatureType type,
         bool editable=true) {
     auto* control=new QComboBox(parent);control->setObjectName("featureType");
-    control->addItems({QObject::tr("Bod"),QObject::tr("Osa"),QObject::tr("Rovina"),
-        QObject::tr("Skica"),QObject::tr("Tažení"),QObject::tr("Promítnutí")});
-    control->setItemIcon(static_cast<int>(document::FeatureType::Projection),resource_icon("projection"));
+    control->addItem(resource_icon("point"),QObject::tr("Bod"));
+    control->addItem(resource_icon("axis"),QObject::tr("Osa"));
+    control->addItem(resource_icon("plane"),QObject::tr("Rovina"));
+    control->addItem(resource_icon("sketch"),QObject::tr("Skica"));
+    control->addItem(resource_icon("protrusion"),QObject::tr("Tažení"));
+    control->addItem(resource_icon("projection"),QObject::tr("Promítnutí"));
     control->setCurrentIndex(static_cast<int>(type));control->setEnabled(editable);
     return control;
 }

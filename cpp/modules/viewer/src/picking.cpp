@@ -441,7 +441,7 @@ std::vector<VertexPickCandidate> ordered_vertex_candidates(
     if (ray_length_squared <= 1.0e-18 || world_tolerance < 0.0) return candidates;
     for (std::size_t index = 0; index < mesh.points.size(); ++index) {
         const auto& point = mesh.points[index];
-        if (!point.reference.valid()) continue;
+        if (!point.reference.valid()||point.reference.semantic_key.starts_with("projection:display-point:")) continue;
         const double ray_parameter =
             dot(subtract(point.position, ray_origin), ray_direction) / ray_length_squared;
         if (ray_parameter < 0.0) continue;

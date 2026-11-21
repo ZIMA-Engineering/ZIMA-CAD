@@ -905,12 +905,15 @@ std::string encode_history_fingerprint(
                     u64(value->size());for(unsigned char c:*value)byte(c);
                 }
             } else if constexpr (std::is_same_v<Request, ProjectionRequest>) {
-                u64(1);
+                u64(2);
                 const auto text=[&](const std::string& value){u64(value.size());for(unsigned char c:value)byte(c);};
                 const auto reference=[&](const auto& r){text(r.owner_id);text(r.semantic_key);text(r.instance_path);};
                 u64(primitive.profiles.size());
                 for(const auto& profile:primitive.profiles)
                     text(history_fingerprint({HistoryOperation{operation.owner_id,profile}},1));
+                u64(primitive.display_points.size());
+                for(const auto& point:primitive.display_points)
+                    for(double v:{point.x,point.y,point.z})u64(number_bits(v));
                 text(primitive.sketch_id);
                 byte(primitive.direction_reference.has_value());
                 if(primitive.direction_reference)reference(*primitive.direction_reference);

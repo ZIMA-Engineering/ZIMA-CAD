@@ -12,6 +12,7 @@
 #include <QAction>
 #include <QDialogButtonBox>
 #include <QMouseEvent>
+#include <QMenu>
 #include <QPushButton>
 #include <QTreeWidget>
 #include <QTreeWidgetItemIterator>
@@ -19,6 +20,9 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <iostream>
+#ifdef ZIMA_ENABLE_FEM_MESHER
+#include "fem_volume_mesh.hpp"
+#endif
 
 namespace zima::app {
 int verify_fem_body(QApplication& application,AssemblyWorkspaceWindow& window,const std::filesystem::path& directory) {
@@ -90,6 +94,208 @@ int verify_fem_body(QApplication& application,AssemblyWorkspaceWindow& window,co
         check(view->mesh().triangles==snapshot->mesh.triangles&&view->mesh().vertices==snapshot->mesh.vertices,"Active FEM contains another or duplicate Body");
         for(auto* command:{window.sketch_action_,window.extrusion_action_,window.shell_action_,window.construction_axis_action_})check(!command->isEnabled(),"FEM enables material editing");
         check(window.fem_mode_button_->isVisible()&&!window.sheet_metal_mode_button_->isVisible(),"FEM mode buttons are incorrect");
+        const auto mesh_controls=[&]{return session.document().body_history.find(fem)->fem->mesh;};
+        auto* mesh_menu=window.findChild<QMenu*>("femMeshMenu");
+        auto* mesh_settings=window.findChild<QAction*>("femMeshSettingsAction");
+        check(mesh_menu&&mesh_menu->menuAction()->isVisible()&&mesh_settings&&mesh_settings->isEnabled(),"FEM mesh settings menu is missing");
+        const auto open_settings=[&] {
+            mesh_settings->trigger();flush();
+            auto* settings=dynamic_cast<ui::PropertiesSubWindow*>(window.findChild<QDialog*>("femMeshSettingsDialog"));
+            check(settings&&settings->windowType()==Qt::SubWindow,"FEM mesh settings dialog is missing or floating");
+            return settings;
+        };
+        const auto original_controls=mesh_controls();
+        auto settings_revision=session.revision();
+        auto* generate=window.findChild<QAction*>("femGenerateMeshAction");
+        auto* show_mesh=window.findChild<QAction*>("femShowMeshAction");
+        const auto check_mesh=[&] {
+            generate->trigger();flush();
+            const auto* packet=window.active_generated_fem_mesh();
+            check(packet&&!packet->triangles.empty()&&!packet->edges.empty(),"FEM did not generate a drawable volume-mesh boundary");
+            check(show_mesh->isChecked()&&view->mesh().triangles==packet->triangles,"FEM did not display the generated mesh");
+            show_mesh->trigger();flush();
+            check(!show_mesh->isChecked()&&view->mesh().triangles==snapshot->mesh.triangles,"FEM mesh toggle did not restore the source");
+        };
+        if(generate) {
+            check(show_mesh&&!show_mesh->isEnabled(),"FEM offered a mesh before generation");
+            check_mesh();
+            check(session.revision()==settings_revision&&kernel::body_calculation_count.load()==count,"FEM meshing recalculated or changed CAD");
+        }
+#ifdef ZIMA_ENABLE_FEM_MESHER
+        {
+            auto definition=*session.document().body_history.find(fem)->fem;
+            check(!snapshot->kernel_faces.empty()&&!snapshot->kernel_edges.empty(),
+                "FEM mesh fixture has no native face or edge binding");
+            const auto& face=snapshot->kernel_faces.front().reference;
+            document::FemCondition pressure;
+            pressure.id="verification-pressure";
+            pressure.kind=document::FemConditionKind::Pressure;
+            pressure.region=document::FemRegionKind::Surface;
+            pressure.placement.reference_valid=true;
+            pressure.references={{face.owner_id,face.semantic_key,face.instance_path}};
+            document::FemCondition force;
+            force.id="verification-origin";
+            force.kind=document::FemConditionKind::Force;
+            force.placement.z=2.5;
+            force.placement.reference_valid=true;
+            auto line_force=force;
+            line_force.id="verification-edge";
+            line_force.region=document::FemRegionKind::Curve;
+            const auto& edge=snapshot->kernel_edges.front().reference;
+            line_force.references={{edge.owner_id,edge.semantic_key,edge.instance_path}};
+            auto fixed=force;
+            fixed.id="verification-shared-origin";
+            fixed.kind=document::FemConditionKind::Constraint;
+            definition.conditions={pressure,force,line_force,fixed};
+            const auto meshed=generate_fem_volume_mesh(snapshot.get(),definition);
+            const auto& pressure_mesh=meshed.condition_regions.at(pressure.id);
+            check(!meshed.tetrahedra.empty()&&!pressure_mesh.nodes.empty()&&!pressure_mesh.elements.empty(),
+                "FEM mesh did not retain the exact face condition group");
+            const auto& force_mesh=meshed.condition_regions.at(force.id);
+            check(force_mesh.nodes.size()==1&&force_mesh.elements.size()==1&&
+                force_mesh.elements.front().front()==force_mesh.nodes.front()&&
+                meshed.surface.vertices.at(force_mesh.nodes.front())==kernel::Vec3{0,0,2.5},
+                "FEM mesh did not embed the exact placed Force origin");
+            check(meshed.condition_regions.at(fixed.id).nodes==force_mesh.nodes,
+                "FEM conditions at the same Origin did not share the exact mesh node");
+            double area=0;
+            const auto& vertices=meshed.surface.vertices;
+            for(const auto& triangle:pressure_mesh.elements) {
+                const auto& a=vertices.at(triangle[0]);
+                const auto& b=vertices.at(triangle[1]);
+                const auto& c=vertices.at(triangle[2]);
+                const auto normal=kernel::Vec3{
+                    (b.y-a.y)*(c.z-a.z)-(b.z-a.z)*(c.y-a.y),
+                    (b.z-a.z)*(c.x-a.x)-(b.x-a.x)*(c.z-a.z),
+                    (b.x-a.x)*(c.y-a.y)-(b.y-a.y)*(c.x-a.x)};
+                area+=std::sqrt(normal.x*normal.x+normal.y*normal.y+normal.z*normal.z)/2;
+            }
+            check(std::abs(area-50)<1e-7||std::abs(area-100)<1e-7||std::abs(area-200)<1e-7,
+                "FEM pressure element group does not cover one complete box face");
+            double length=0;
+            for(const auto& segment:meshed.condition_regions.at(line_force.id).elements) {
+                const auto& a=vertices.at(segment[0]);
+                const auto& b=vertices.at(segment[1]);
+                length+=std::hypot(b.x-a.x,b.y-a.y,b.z-a.z);
+            }
+            check(std::abs(length-5)<1e-7||std::abs(length-10)<1e-7||std::abs(length-20)<1e-7,
+                "FEM line-force element group does not cover one complete box edge");
+            const auto& packet=snapshot->mesh;
+            kernel::FaceReference cap;
+            for(std::size_t i=0;i<packet.triangle_references.size();++i) {
+                const auto top=[&](std::size_t corner){return std::abs(packet.vertices[packet.triangles[3*i+corner]].z-2.5)<1e-7;};
+                if(top(0)&&top(1)&&top(2)){cap=packet.triangle_references[i];break;}
+            }
+            check(cap.valid(),"FEM projected Sketch fixture lacks its top face");
+            auto sketch=sketcher::Sketch::create_default();
+            sketch.owner_container_id=force.id;
+            sketch.plane_auto=false;sketch.plane_offset=5;
+            static_cast<void>(sketch.add_rectangle(-2,-1,2,1));
+            auto projected=force;
+            projected.region=document::FemRegionKind::Surface;
+            projected.references={{cap.owner_id,cap.semantic_key,cap.instance_path}};
+            projected.projected_sketch=document::FemProjectedSketch{sketch.serialized(),{{0,0,2.5}}};
+            auto sketch_definition=definition;
+            sketch_definition.conditions={projected};
+            const auto projected_mesh=generate_fem_volume_mesh(snapshot.get(),sketch_definition);
+            double projected_area=0;
+            for(const auto& triangle:projected_mesh.condition_regions.at(projected.id).elements) {
+                const auto& a=projected_mesh.surface.vertices[triangle[0]];
+                const auto& b=projected_mesh.surface.vertices[triangle[1]];
+                const auto& c=projected_mesh.surface.vertices[triangle[2]];
+                check(std::abs(a.z-2.5)<1e-7&&std::abs(b.z-2.5)<1e-7&&std::abs(c.z-2.5)<1e-7,
+                    "Projected FEM patch is off the exact material face");
+                projected_area+=std::abs((b.x-a.x)*(c.y-a.y)-(b.y-a.y)*(c.x-a.x))/2;
+            }
+            check(std::abs(projected_area-8)<1e-7,"FEM sketch did not split out the requested 8 mm² patch");
+            auto line_sketch=sketcher::Sketch::create_default();
+            line_sketch.owner_container_id=line_force.id;
+            line_sketch.plane_auto=false;line_sketch.plane_offset=5;
+            static_cast<void>(line_sketch.add_segment(-2,3,2,3));
+            auto projected_line=line_force;
+            projected_line.kind=document::FemConditionKind::Constraint;
+            projected_line.references=projected.references;
+            projected_line.projected_sketch=document::FemProjectedSketch{line_sketch.serialized(),{}};
+            sketch_definition.conditions.push_back(projected_line);
+            const auto mixed_mesh=generate_fem_volume_mesh(snapshot.get(),sketch_definition);
+            double projected_length=0;
+            for(const auto& segment:mixed_mesh.condition_regions.at(projected_line.id).elements) {
+                const auto& a=mixed_mesh.surface.vertices[segment[0]];
+                const auto& b=mixed_mesh.surface.vertices[segment[1]];
+                projected_length+=std::abs(b.x-a.x);
+            }
+            check(std::abs(projected_length-4)<1e-7,"FEM projected line did not bind a 4 mm material mesh edge");
+            window.show_fem_condition_properties(document::FemConditionKind::Force);flush();
+            auto* authored=dynamic_cast<FemConditionDialog*>(window.findChild<QDialog*>("femConditionDialog"));
+            check(authored,"Projected Force Properties did not open");
+            authored->findChild<QComboBox*>("femConditionRegion")->setCurrentIndex(1);
+            authored->findChild<QCheckBox*>("femProjectSketch")->setChecked(true);
+            authored->findChild<QDoubleSpinBox*>("femSketchOffset")->setValue(5);
+            authored->findChild<QPushButton*>("femEditSketch")->click();flush();
+            check(window.sweep_profile_sketch_draft_&&!window.active_sketch_id_.empty()&&window.finish_sketch_action_->isEnabled(),
+                "FEM did not enter the shared Sketch editor");
+            static_cast<void>(window.sweep_profile_sketch_draft_->add_segment(-2,3,2,3));
+            window.finish_sketch_action_->trigger();flush();
+            check(authored->isVisible()&&window.active_sketch_id_.empty(),"FEM Sketch did not return to owning Properties");
+            authored->set_geometry(0,{cap.owner_id,cap.semantic_key,cap.instance_path});
+            const auto authored_id=authored->pending_value().id;
+            authored->buttons()->button(QDialogButtonBox::Ok)->click();flush();
+            const auto* accepted=workspace::find_fem_condition(session.document(),fem,authored_id);
+            check(accepted&&accepted->projected_sketch,"FEM owned Sketch did not commit");
+            session.document().save(path,session.calculated_boundaries());
+            const auto reopened=document::PartDocument::load(path);
+            const auto* from_disk=workspace::find_fem_condition(reopened,fem,authored_id);
+            check(from_disk&&from_disk->projected_sketch==accepted->projected_sketch,
+                "FEM owned Sketch did not reopen with its condition");
+            window.findChild<QAction*>("undoAction")->trigger();flush();
+            check(!workspace::find_fem_condition(session.document(),fem,authored_id),"FEM owned Sketch Undo failed");
+            window.findChild<QAction*>("redoAction")->trigger();flush();
+            check(workspace::find_fem_condition(session.document(),fem,authored_id),"FEM owned Sketch Redo failed");
+            window.findChild<QAction*>("undoAction")->trigger();flush();
+            settings_revision=session.revision();
+            auto copy=snapshot.get();
+            copy.kernel_placements.push_back({{30,0,0},{}});
+            kernel::BodyResult compound;
+            compound.kernel_shape=kernel::kernel_body_compound;
+            compound.kernel_compound_bodies={"first","second"};
+            compound.body_outputs.emplace("first",snapshot);
+            compound.body_outputs.emplace("second",kernel::BodySnapshot(std::move(copy)));
+            auto two_members=definition;
+            two_members.conditions={pressure};
+            const auto compound_mesh=generate_fem_volume_mesh(compound,two_members);
+            const auto& regions=compound_mesh.condition_regions.at(pressure.id).nodes;
+            check(std::ranges::any_of(regions,[&](auto node){return compound_mesh.surface.vertices[node].x<15;})&&
+                std::ranges::any_of(regions,[&](auto node){return compound_mesh.surface.vertices[node].x>15;}),
+                "FEM compound condition did not bind both exact material members");
+            definition.conditions.front().references.front().semantic_key="missing";
+            bool rejected=false;
+            try{static_cast<void>(generate_fem_volume_mesh(snapshot.get(),definition));}
+            catch(const std::invalid_argument&){rejected=true;}
+            check(rejected,"FEM mesher accepted an unresolved face");
+        }
+#endif
+        auto* settings=open_settings();
+        settings->buttons()->button(QDialogButtonBox::Ok)->click();flush();
+        check(session.revision()==settings_revision,"Unchanged FEM mesh settings added Undo history");
+        settings=open_settings();
+        settings->findChild<QDoubleSpinBox*>("femMeshMaximum")->setValue(0);
+        settings->buttons()->button(QDialogButtonBox::Ok)->click();flush();
+        check(settings->isVisible()&&mesh_controls()==original_controls,"Invalid FEM mesh settings were accepted");
+        settings->reject();flush();
+        check(session.revision()==settings_revision,"Cancelling FEM mesh settings changed the document");
+        settings=open_settings();
+        settings->findChild<QDoubleSpinBox*>("femMeshMaximum")->setValue(2.5);
+        settings->findChild<QComboBox*>("femMeshOrder")->setCurrentIndex(0);
+        settings->buttons()->button(QDialogButtonBox::Ok)->click();flush();
+        check(mesh_controls().maximum_size_mm==2.5,"FEM mesh settings did not commit");
+        window.findChild<QAction*>("undoAction")->trigger();flush();
+        check(mesh_controls()==original_controls,"FEM mesh settings Undo failed");
+        window.findChild<QAction*>("redoAction")->trigger();flush();
+        check(mesh_controls().maximum_size_mm==2.5,"FEM mesh settings Redo failed");
+        if(generate) {
+            check(!window.active_generated_fem_mesh()&&!show_mesh->isEnabled(),"FEM retained a mesh after its controls changed");
+            check_mesh();
+        }
         window.show_tree_item_properties(row(fem));flush();dialog=current();check(dialog,"FEM properties did not reopen");
         check(view->mesh().axes.empty()&&std::ranges::none_of(view->mesh().edges,[&](const auto& edge){return edge.reference.owner_id==fem+":origin";}),
             "FEM properties added a modeling Origin to the analysis input");
@@ -103,8 +309,10 @@ int verify_fem_body(QApplication& application,AssemblyWorkspaceWindow& window,co
         session.document().save(path,session.calculated_boundaries());std::vector<kernel::BodyResult> cached;
         const auto saved=document::PartDocument::load(path,&cached);
         check(saved.body_history.find(fem)->fem->source_id==joined&&std::abs(cached.back().volume-1000.)<1e-7,"FEM save/reopen lost source or duplicated volume");
+        check(saved.body_history.find(fem)->fem->mesh==mesh_controls(),"FEM save/reopen lost mesh settings");
         check(kernel::body_calculation_count.load()==count,"FEM creation/edit/save/Undo calculated CAD");
         window.activate_body({});flush();check(action->isEnabled(),"Returning from FEM did not restore Body commands");
+        check(!mesh_menu->menuAction()->isVisible(),"FEM mesh menu appears outside FEM");
         action->trigger();flush();dialog=current();
         check(dialog&&dialog->pending.name==QObject::tr("FEM Body").toStdString()+" 2","Second FEM Body repeats its default name");
         dialog->reject();flush();

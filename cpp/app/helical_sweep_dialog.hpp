@@ -1,5 +1,6 @@
 #pragma once
 #include "sketch_button_style.hpp"
+#include "resource_icon.hpp"
 #include "work_plane_selection.hpp"
 #include <zima/document/part_document.hpp>
 #include "sweep_placement_dialog.hpp"
@@ -27,7 +28,8 @@ public:
         auto* form=new QFormLayout;
         auto* mode=new QComboBox(this);
         mode->setObjectName("helicalFeatureMode");
-        mode->addItems({tr("H křivka"),tr("H-tažení")});
+        mode->addItem(resource_icon("helical-curve"),tr("H křivka"));
+        mode->addItem(resource_icon("helical-sweep"),tr("H-tažení"));
         mode->setCurrentIndex(pending.helical.curve_only ? 0 : 1);
         form->addRow(tr("Typ prvku"),mode);
         auto* name=new QLineEdit(QString::fromStdString(pending.name),this);form->addRow(tr("Název"),name);

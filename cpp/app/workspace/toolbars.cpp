@@ -142,6 +142,17 @@ void AssemblyWorkspaceWindow::set_active_application(ApplicationMode mode) {
 
 void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
     if (tools_toolbar_ == nullptr) return;
+    if(fem_mesh_menu_) {
+        const bool fem_active=active_fem_body()&&!active_browser_&&!active_file_manager_&&!active_preview_&&
+            !workspace_.open_drawing(workspace_.displayed_document_id());
+        fem_mesh_menu_->menuAction()->setVisible(fem_active);
+        fem_mesh_menu_->setEnabled(fem_active&&!properties_dialog_);
+        if(auto* show=fem_mesh_menu_->findChild<QAction*>("femShowMeshAction")) {
+            const bool available=fem_active&&active_generated_fem_mesh();
+            show->setEnabled(available);
+            show->setChecked(available&&show_generated_fem_mesh_);
+        }
+    }
     if(command_insert_menu_){command_insert_menu_->clear();command_insert_menu_->setEnabled(workspace_.size()!=0);}
     tools_toolbar_->clear();
     // QToolBar recalculates its minimum width after clear() and centers
@@ -217,7 +228,7 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
         }
     };
     if (workspace_.size() == 0) return;
-    if(active_fem_body()) {
+    if(active_fem_body()&&active_sketch_id_.empty()) {
         // CAD actions may have shortcuts even when absent from the toolbar.
         // The analysis source is passive; its owner remains the material Body.
         for(auto* action:{sketch_action_,extrusion_action_,revolution_action_,construction_point_action_,construction_axis_action_,construction_plane_action_,
@@ -386,8 +397,24 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
                 zima::document::FeatureKind::Feature,{},false,zima::document::FeatureType::Modeling,false,true);});
         }
         twist->setEnabled(boundary_body&&!boundary_body->derived_copy&&!properties_dialog_);
-        for(int i=0;i<6;++i)
+        QAction* projection=nullptr;
+        if(active_body) {
+            projection=findChild<QAction*>("projectionAction");
+            if(!projection) {
+                projection=new QAction(resource_icon("projection"),QString{},this);
+                projection->setObjectName("projectionAction");
+                connect(projection,&QAction::triggered,this,[this] {
+                    if(properties_dialog_||!active_sketch_id_.empty()||active_application_!=ApplicationMode::Modeling)return;
+                    show_primitive_properties(document::FeatureKind::Feature,{},false,document::FeatureType::Projection);
+                });
+            }
+            projection->setText(tr("Promítnutí"));
+            projection->setEnabled(boundary_body&&!boundary_body->derived_copy&&!properties_dialog_);
+        }
+        for(int i=0;i<6;++i) {
             if(auto* shortcut=findChild<QAction*>(QStringLiteral("featureShortcut%1Action").arg(i)))add_command(shortcut);
+            if(i==static_cast<int>(document::FeatureType::Sketch)&&projection)add_command(projection);
+        }
         add_command(twist);
         add_group_separator();
         add_command(sweep2d_action_);

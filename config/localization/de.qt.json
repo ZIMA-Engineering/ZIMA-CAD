@@ -2958,5 +2958,20 @@
   "Select the condition geometry.": "Wählen Sie die Geometrie der Bedingung.",
   "Specify a nonempty object name.": "Geben Sie einen nicht leeren Objektnamen ein.",
   "The condition geometry is unavailable on the FEM source.": "Die Geometrie der Bedingung ist in der FEM-Quelle nicht verfügbar.",
-  "The condition placement is unresolved.": "Die Platzierung der Bedingung ist nicht aufgelöst."
+  "The condition placement is unresolved.": "Die Platzierung der Bedingung ist nicht aufgelöst.",
+  "Mesh": "Netz",
+  "Mesh settings": "Netzeinstellungen",
+  "Minimum element size": "Minimale Elementgröße",
+  "Maximum element size": "Maximale Elementgröße",
+  "Elements through thickness": "Elemente über die Dicke",
+  "Linear": "Linear",
+  "Quadratic": "Quadratisch",
+  "Element order": "Elementordnung",
+  "Generate mesh": "Netz erzeugen",
+  "Show mesh": "Netz anzeigen",
+  "The FEM generator returned an invalid mesh.": "Der FEM-Netzgenerator hat ein ungültiges Netz erzeugt.",
+  "FEM mesh generation failed.": "Die FEM-Netzerzeugung ist fehlgeschlagen.",
+  "Project a Sketch": "Skizze projizieren",
+  "Select each target face inside the region to retain.": "Wählen Sie jede Zielfläche innerhalb des beizubehaltenden Bereichs.",
+  "Select the target faces for the Sketch.": "Wählen Sie die Zielflächen für die Skizze."
 }

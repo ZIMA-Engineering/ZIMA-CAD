@@ -98,6 +98,35 @@ authoring commands assign existing native geometry; direct owned-Sketch creation
 inside their Properties remains a separate integration gate. No condition editor
 may claim that an unbound region is already meshed or solved.
 
+The user approved the native Part extension for owned Force and Constraint
+Sketches on 2026-11-21. Their conditions share one region-entry workflow.
+Point applies at the placed condition Origin. Curve applies along the projected
+Sketch curves. Surface applies over the bounded projected region. Both Sketch
+modes support an offset work plane and preserve the selected native targets
+and projection ancestry. Force direction follows the placed condition normal.
+The initial fixed-restraint workflow locks all three translations over the
+assigned region. Existing partial restraints retain their authored directions.
+
+The next meshing stage uses separate Mesh Settings and Generate Mesh actions.
+Controls are stored in the FEM Body. Generation is explicit. Show the mesh in
+the FEM viewport and allow switching between it and the source Body. This
+checkpoint can regenerate the mesh after reopening instead of requiring a
+sidecar or a persisted mesh. A results workspace belongs to the solver stage.
+
+Development builds enable the native mesher with `ZIMA_ENABLE_FEM_MESHER=ON`
+and the Gmsh 4.15.2 SDK built against the same patched OCCT 8.0.1 as CAD. Set
+`ZIMA_GMSH_INCLUDE_DIR` and `ZIMA_GMSH_LIBRARY` to that SDK. On Windows set
+`ZIMA_GMSH_RUNTIME` to its matching DLL. The pinned native probe documents
+[preparing and building that SDK](../tools/verification/fem_gmsh/README.md).
+Generation uses a private exact BRep copy. Existing material vertices, edges
+and faces bind by archive identity. A point inside a single face or solid is
+embedded at the placed Origin. Independent projected patches still require
+partitioning the mesher input. A missing region prevents generation.
+Each generated condition region retains its point, line or triangle elements
+and their nodes. They must belong to the material tetrahedra. This prevents
+a detached CAD surface with its own display mesh from accepting a volume
+load. Conditions placed at the same Origin share the embedded mesh node.
+
 The user confirmed these choices on 2026-11-21. Temperature belongs to a future
 analysis extension. Flow is an analysis kind with its own solver and inlet,
 outlet and wall conditions, rather than another mechanical load. Do not expose

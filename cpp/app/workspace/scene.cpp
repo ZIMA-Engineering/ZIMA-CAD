@@ -557,7 +557,9 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
                     }
                     for(const auto& point:reference_geometry().points)if(point.reference.owner_id==feature.id&&
                         std::ranges::none_of(mesh.points,[&](const auto& shown){return shown.reference==point.reference;})) {
-                        auto shown=point;shown.display_owner_id=feature.id;mesh.points.push_back(std::move(shown));
+                        auto shown=point;shown.display_owner_id=feature.id;
+                        if(feature.feature.type==zima::document::FeatureType::Projection)shown.always_visible=true;
+                        mesh.points.push_back(std::move(shown));
                     }
                     continue;
                 }

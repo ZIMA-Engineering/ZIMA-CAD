@@ -689,6 +689,22 @@ target_link_libraries(zima-cad-cpp PRIVATE
     zima_command_host zima_commands zima_workspace zima_assembly zima_document_core zima_drawing zima_kernel_occt zima_viewer zima_ui
     zima_interchange nlohmann_json::nlohmann_json
     Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Svg)
+option(ZIMA_ENABLE_FEM_MESHER "Enable the native Gmsh 4.15.2 FEM mesher" OFF)
+if(ZIMA_ENABLE_FEM_MESHER)
+    find_path(ZIMA_GMSH_INCLUDE_DIR gmsh.h REQUIRED)
+    find_library(ZIMA_GMSH_LIBRARY NAMES gmsh gmsh.dll gmsh-4.15 REQUIRED)
+    target_sources(zima-cad-cpp PRIVATE app/fem_volume_mesh.cpp)
+    target_compile_definitions(zima-cad-cpp PRIVATE ZIMA_ENABLE_FEM_MESHER=1)
+    target_include_directories(zima-cad-cpp PRIVATE "${ZIMA_GMSH_INCLUDE_DIR}")
+    target_link_libraries(zima-cad-cpp PRIVATE "${ZIMA_GMSH_LIBRARY}" TKTopAlgo)
+    if(WIN32)
+        find_file(ZIMA_GMSH_RUNTIME gmsh.dll REQUIRED)
+        add_custom_command(TARGET zima-cad-cpp POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${ZIMA_GMSH_RUNTIME}" "$<TARGET_FILE_DIR:zima-cad-cpp>"
+            VERBATIM)
+    endif()
+endif()
 set_target_properties(zima-cad-cpp PROPERTIES AUTORCC ON)
 target_sources(zima-cad-cpp PRIVATE app/workspace/browser.cpp browser/browser.cpp browser/browser.hpp
     browser/credentials.cpp browser/credentials.hpp)

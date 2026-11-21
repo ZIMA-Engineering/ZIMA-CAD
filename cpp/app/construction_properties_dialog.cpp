@@ -8,6 +8,7 @@
 #include "construction_properties_dialog.hpp"
 #include "profile_operation_button.hpp"
 #include "feature_type_control.hpp"
+#include "resource_icon.hpp"
 #include "sweep_point_order_dialog.hpp"
 
 #include "zima/ui/reference_cell.hpp"
@@ -717,7 +718,8 @@ void ConstructionPropertiesDialog::enable_curve_and_sweep_modes(
     auto* form = new QFormLayout;
     trajectory_mode_ = new QComboBox(this);
     trajectory_mode_->setObjectName("trajectoryFeatureType");
-    trajectory_mode_->addItems({tr("3D křivka"), tr("3D tažení")});
+    trajectory_mode_->addItem(resource_icon("sketch-3d"), tr("3D křivka"));
+    trajectory_mode_->addItem(resource_icon("sweep"), tr("3D tažení"));
     trajectory_mode_->setCurrentIndex(start_as_curve ? 0 : 1);
     form->addRow(tr("Typ prvku"), trajectory_mode_);
     content_layout()->insertLayout(0, form);
