@@ -11,4 +11,14 @@ inline kernel::DimensionTextStyle sheet_dimension_style(kernel::DimensionTextSty
         style.suffix.clear();
     return style;
 }
+
+inline std::string sheet_dimension_text(const kernel::ViewerDimension& dimension,
+        const kernel::DimensionTextStyle& style) {
+    // A sheet callout shows magnitude. The signed source value and the
+    // witness geometry still drive editing and preserve the authored side.
+    kernel::ViewerDimension nominal;
+    nominal.kind=dimension.kind;
+    nominal.value=std::abs(dimension.value);
+    return kernel::dimension_text(nominal,style,true);
+}
 }

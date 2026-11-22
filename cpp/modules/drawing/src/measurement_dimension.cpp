@@ -1672,7 +1672,7 @@ std::string drawing_dimension_text(const DrawingDimension &d, const kernel::View
     static_cast<void>(unresolved);
     auto style=sheet_dimension_style(d.style);
     if(style.text_override.empty()&&!value.display_text_override.empty())style.text_override=value.display_text_override;
-    return kernel::dimension_text(value, style,true);
+    return sheet_dimension_text(value,style);
 }
 void drag_drawing_dimension(const DrawingView &view, DrawingDimension &d, std::size_t index, int handle,
                             Point2 delta) {

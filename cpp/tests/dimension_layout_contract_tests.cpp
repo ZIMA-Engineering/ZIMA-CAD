@@ -864,6 +864,16 @@ int main(int argc, char **argv) {
                 require(drawing::project_model_annotation(drawing_view,styled).text=="20","Model dimension layout leaked millimetres into the drawing");
                 style.text_override="20 mm REF";styled.model_layout.text_style=style;
                 require(drawing::project_model_annotation(drawing_view,styled).text=="20 mm REF","Drawing changed authored dimension text");
+                styled.model_dimension->value=-20;
+                style.text_override.clear();style.tolerance_mode="deviations";
+                style.upper_tolerance="0.1";style.lower_tolerance="0.2";
+                styled.model_layout.text_style=style;
+                const auto signed_source=drawing::project_model_annotation(drawing_view,styled);
+                require(signed_source.text=="20 +0,1 /-0,2"&&signed_source.value==-20&&
+                    signed_source.model_dimension->value==-20,"The sheet did not preserve the signed source and deviations behind a positive callout");
+                style.text_override="-20 REF";styled.model_layout.text_style=style;
+                require(drawing::project_model_annotation(drawing_view,styled).text=="-20 REF",
+                    "Drawing changed a literal callout override");
             }
             const auto paper = app::model_annotation_layout(drawing_view, annotation, {}, 12.5);
             const auto expected = viewer::dimension_presentation(
