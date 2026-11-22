@@ -13,6 +13,58 @@ is delivered with paired temperature/displacement measurements. Combined heating
 force and pressure and persistent distance measurements are also delivered. Native Linux verification
 remains separate. This update supersedes the older FEM planning entries below.
 
+## Future work proposals
+
+### Render Body and camera (proposal, 2026-11-22)
+
+- Add a dedicated **Render Body**, following the FEM Body organization pattern.
+- Allow a special placed camera point inside it: its position and viewing
+  direction define the rendered view, following the user's Blender analogy.
+- Allow a placed light/sun object to define scene illumination.
+- Keep the existing View background for the first version. The goal is a
+  high-quality rendered image of a Body; rendering technology remains to be
+  evaluated during implementation planning.
+- These are recorded future-work proposals. Detailed rendering behavior and
+  controls remain to be designed; implementation has not started. The current
+  Sketcher contact repairs retain priority. No runtime text or persisted format
+  is changed by recording this proposal.
+
+### CAM Body (proposal, 2026-11-22)
+
+Add a dedicated **CAM Body**, following the FEM Body organization pattern.
+Include a separate **Vise / workholding** command to define where and how the
+workpiece is clamped, with interaction analogous to FEM condition entry.
+The vise is collision geometry for the tool and holder during cutting and
+traverse moves. Detect and flag collisions before NC output.
+Support creating or selecting a **stock Body** representing the starting
+material, distinct from the target part and workholding geometry. The user
+explicitly clarified that the source Body means this initial stock.
+Selecting an existing modeled Body is the preferred initial workflow.
+Keep the target result Body and define clamping locations with Sketches on
+the initial stock. These regions complement the vise collision geometry.
+Provide a CAM tool list with type, dimensions, stick-out and holder geometry;
+operations select a tool, and collision checks consume its actual envelope.
+The initial version defines tools and their properties internally in CAM.
+Users can create, name and save new tools with their shape, dimensions and
+cutting conditions, including spindle speed and feed.
+Custom tools use an authored axial profile revolved about their axis, with an
+explicit cutting region. The user confirmed the tool Origin at the boundary
+between cutting region and shank, marking the maximum working engagement.
+The shank and holder are non-cutting collision geometry. This is the authored
+tool convention; machine/postprocessor coordinate mapping remains to be designed.
+Place the revolved cutting profile on one side of the Origin and the revolved
+non-cutting shank on the opposite side, sharing the same axis.
+Tool-library integration is a possible later extension.
+Select the machine and machining operation: mill or lathe, axis configuration
+and kinematics, including proposed 3/4/5-axis milling. The supported first
+delivery must be scoped separately, with matching NC postprocessors.
+Generate toolpaths from the selected operation, target Body, stock, machine
+and specific tool shape, dimensions, cutting length and cutting conditions.
+Include cutting passes and traverses, with preview, material-removal checking
+and collision verification before NC output.
+Machining operations, toolpaths and output scope remain to be agreed. This is
+a future-work proposal, with no implementation or persisted-format change yet.
+
 ## Earlier release and planning context
 
 The 2026-11-12 release candidate completes Tree protection and branch-aware
