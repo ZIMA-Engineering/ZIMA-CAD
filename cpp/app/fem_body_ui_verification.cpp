@@ -28,11 +28,10 @@
 #include <QPushButton>
 #include <QTreeWidget>
 #include <QTreeWidgetItemIterator>
-#include <QFile>
 #include <QFileInfo>
 #include <QDir>
-#include <QJsonDocument>
-#include <QJsonObject>
+#include <QSettings>
+#include <QTemporaryDir>
 #include <QVariantAnimation>
 #include <QElapsedTimer>
 #include <iostream>
@@ -540,10 +539,21 @@ int verify_fem_body(QApplication& application,AssemblyWorkspaceWindow& window,co
 #include "fem_condition_ui_verification.inc"
         // All localized strings use the same catalog and internal dialog.
         const QDir config(QFileInfo(window.application_settings_.base_config_path).absolutePath());
+        const auto localized_settings=[&](const char* language) {
+            QTemporaryDir temporary(QString::fromStdString(document::path_to_utf8(directory/"localization-XXXXXX")));
+            check(temporary.isValid(),"FEM localization settings directory unavailable");
+            QSettings ini(temporary.filePath("config.ini"),QSettings::IniFormat);
+            ini.setValue("Application/Language",QString::fromLatin1(language));
+            ini.setValue("Paths/Localization",config.filePath("localization"));ini.sync();
+            check(ini.status()==QSettings::NoError,"FEM localization settings could not be written");
+            // Exercise the production loader: common controls live in the INI
+            // catalog, while newer FEM messages live in the supplemental JSON.
+            auto settings=ApplicationSettings::load(temporary.path());
+            check(!settings.qt_translations.value("Zrušit").isEmpty(),"FEM common catalog unavailable");
+            return settings;
+        };
         for(const auto* language:{"cs","en","de","fr","ru"}) {
-            QFile file(config.filePath(QStringLiteral("localization/%1.qt.json").arg(QString::fromLatin1(language))));check(file.open(QIODevice::ReadOnly),"FEM catalog unavailable");
-            ApplicationSettings settings;settings.language=language;const auto messages=QJsonDocument::fromJson(file.readAll()).object();
-            for(auto it=messages.begin();it!=messages.end();++it)settings.qt_translations[it.key()]=it.value().toString();
+            auto settings=localized_settings(language);
             apply_application_translations(application,settings);
 #ifdef ZIMA_ENABLE_FEM_MESHER
             window.rebuild_application_toolbar();
@@ -761,17 +771,16 @@ int verify_fem_body(QApplication& application,AssemblyWorkspaceWindow& window,co
             auto* probe=window.findChild<QAction*>("femProbeAction");
             auto* settings_action=window.findChild<QAction*>("femDeformationSettingsAction");
             for(const auto* language:{"cs","en","de","fr","ru"}) {
-                QFile file(config.filePath(QStringLiteral("localization/%1.qt.json").arg(language)));
-                check(file.open(QIODevice::ReadOnly),"Result catalog unavailable");
-                ApplicationSettings localized;localized.language=language;
-                const auto messages=QJsonDocument::fromJson(file.readAll()).object();
-                for(auto it=messages.begin();it!=messages.end();++it)localized.qt_translations[it.key()]=it.value().toString();
+                auto localized=localized_settings(language);
                 apply_application_translations(application,localized);window.update_fem_result_presentation();
                 for(const auto* theme:{"dark","light"}) {
                     localized.theme=theme;apply_application_appearance(application,localized);
                     settings_action->trigger();flush();
                     auto* form=window.findChild<QDialog*>("femDeformationSettingsDialog");
                     check(form,"Localized deformation settings are missing");
+                    const auto* buttons=form->findChild<QDialogButtonBox*>();
+                    check(buttons&&buttons->button(QDialogButtonBox::Cancel)->text()==localized.qt_translations.value("Zrušit"),
+                        "Deformation settings Cancel did not use the common catalog");
                     for(const auto* key:{"Deformation magnification","Animation speed",
                             "Animation interpolates the static result. Values and colors always show the calculated load case."})
                         check(std::ranges::any_of(form->findChildren<QLabel*>(),[&](const auto* label){return label->text()==localized.qt_translations.value(key);}),

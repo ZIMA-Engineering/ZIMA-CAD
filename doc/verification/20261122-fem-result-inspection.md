@@ -45,7 +45,9 @@ Windows verification passed:
   Animation retained the calculated arrays, document revision, CAD calculation
   count and geometry/vector/color upload counts.
 - Settings and actions in all five languages and both themes, including actual
-  dialog labels and screenshots. Translation catalog/UI validation passed.
+  dialog labels, the common Cancel action and screenshots. The GUI checks use
+  the production loader for both INI and supplemental JSON catalogs.
+  Translation catalog/UI validation passed.
 - Existing FEM pressure, region, material-failure cleanup, cache invalidation,
   Undo/Redo and native save/reopen checks passed. The native pressure/stress
   regression matrix passed for linear and quadratic elements.
