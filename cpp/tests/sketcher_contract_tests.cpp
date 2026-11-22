@@ -29,6 +29,7 @@
 #include "sketch_external_midpoint_study.hpp"
 #include "sketch_coupled_dimension_study.hpp"
 #include "double_circle_tangent_study.hpp"
+#include "sketch_copied_circle_contact_study.hpp"
 
 namespace {
 void require(bool condition, const char* message) {
@@ -38,6 +39,7 @@ void require(bool condition, const char* message) {
 
 int main() {
     try {
+        if(std::getenv("ZIMA_CPP_VERIFY_COPIED_CIRCLE_ONLY"))return zima::test::run_copied_circle_contact_study();
         if(std::getenv("ZIMA_CPP_VERIFY_DOUBLE_CIRCLE_ONLY"))return zima::test::run_double_circle_tangent_study();
         if(std::getenv("ZIMA_CPP_VERIFY_COUPLED_DIMENSION_ONLY"))return zima::test::run_sketch_coupled_dimension_study();
         if(std::getenv("ZIMA_CPP_VERIFY_EXTERNAL_MIDPOINT_ONLY"))return run_sketch_external_midpoint_study();
@@ -50,6 +52,7 @@ int main() {
         if(const auto* path=std::getenv("ZIMA_CPP_VERIFY_TRIMMED_RECTANGLE_ARC"))return run_trimmed_rectangle_arc_study(path);
         if(std::getenv("ZIMA_CPP_VERIFY_ARC_AXIS_ONLY"))return run_native_arc_axis_study();
         if(std::getenv("ZIMA_CPP_VERIFY_NATIVE_CURVE_CONTACT"))return run_native_tangent_contact_study();
+        if(zima::test::run_copied_circle_contact_study()!=0)return 1;
         const auto rectangle_fixture=(std::filesystem::path(__FILE__).parent_path()/"fixtures/sketch/trimmed-rectangle-circle.json").string();
         run_trimmed_rectangle_arc_study(rectangle_fixture.c_str());
         run_form_sweep_profile_study();

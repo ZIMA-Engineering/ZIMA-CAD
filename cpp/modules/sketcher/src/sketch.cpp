@@ -6634,6 +6634,43 @@ std::string Sketch::add_tangent_constraint(
             if(!resolved_contact_point_id.empty())break;
         }
     }
+    if (curve_pair) {
+        // A copied native circle and its external source retain distinct
+        // identities. Reuse an arc endpoint attached to that source, but add
+        // the independent C to the selected native support before solving T.
+        // Equal radius alone is insufficient: the current centres must match.
+        // Keep both relations atomic and reuse ordinary contact/tangent solving.
+        for (const auto& arc : arcs) {
+            if (arc.id != reference_geometry_id && arc.id != driven_geometry_id) continue;
+            const auto circle_id = arc.id == reference_geometry_id
+                ? driven_geometry_id : reference_geometry_id;
+            const auto circle = std::ranges::find(circles, circle_id, &SketchCircle::id);
+            if (circle == circles.end()) continue;
+            const auto* center = find_point(circle->center_point_id);
+            for (const auto& point : {arc.start_point_id, arc.end_point_id}) {
+                if ((!resolved_contact_point_id.empty() && point != resolved_contact_point_id) ||
+                    persisted_curve_contact(circle_id, point)) continue;
+                for (const auto& equal : constraints) {
+                    if (equal.suppressed || equal.kind != ConstraintKind::EqualRadius) continue;
+                    const auto source_id = equal.geometry_id == circle_id ? equal.second_geometry_id
+                        : equal.second_geometry_id == circle_id ? equal.geometry_id : std::string{};
+                    if (!is_external(source_id) || !persisted_curve_contact(source_id, point)) continue;
+                    const auto source = tangent_curve_data(*this, source_id);
+                    if (!source || !source->external_center || !source->circular_radius) continue;
+                    const double tolerance = 1e-9 * std::max(1., circle->radius);
+                    if (std::abs(circle->radius - *source->circular_radius) > tolerance ||
+                        std::hypot(center->x - (*source->external_center)[0],
+                                   center->y - (*source->external_center)[1]) > tolerance) continue;
+                    auto candidate = *this;
+                    static_cast<void>(candidate.add_point_on_circle_constraint(point, circle_id, true));
+                    const auto id = candidate.add_tangent_constraint(
+                        reference_geometry_id, driven_geometry_id, point);
+                    *this = std::move(candidate);
+                    return id;
+                }
+            }
+        }
+    }
     if (resolved_contact_point_id.empty() && line_curve &&
         !reference_is_axis && !driven_is_axis) {
         const std::string& segment_id = reference_is_line

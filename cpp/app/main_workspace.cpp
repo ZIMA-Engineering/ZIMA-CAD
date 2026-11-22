@@ -1,5 +1,6 @@
 ﻿#include "sketch_tangent_test_equations.hpp"
 #include "../tests/double_circle_tangent_study.hpp"
+#include "../tests/sketch_copied_circle_contact_study.hpp"
 #include "../tests/preview_refresh_probe.hpp"
 #include "../tests/sketch_coupled_dimension_study.hpp"
 #include "../tests/sketch_mechanism_study.hpp"
@@ -7745,12 +7746,14 @@ int verify_rectangle_external_contact_ui(QApplication& application,const std::fi
 #include "sketch_combined_endpoint_ui_verification.inc"
 #include "sketch_circle_alignment_ui_verification.inc"
 #include "sketch_polyline_tangent_ui_verification.inc"
+#include "sketch_polyline_arc_contact_ui_verification.inc"
 int verify_sketch_endpoint_priority_ui(QApplication& application,const std::filesystem::path& directory) {
     using namespace zima;
     try {
         const auto check=[](bool ok,const char* message){if(!ok)throw std::runtime_error(message);};
         const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
         // Both C cases put the proposed new segment midpoint near the X axis.
+        if(qEnvironmentVariableIsSet("ZIMA_VERIFY_POLYLINE_ARC_CONTACT_ONLY"))return verify_polyline_arc_contact_ui(application,directory);
         if(verify_polyline_snapped_tangent_ui(application,directory)!=0)return 1;
         // The final case removes endpoint contact while retaining that M offer.
         for(int kind:{0,1,2,3,4,5,6,7}) {
@@ -7894,6 +7897,7 @@ int verify_sketch_endpoint_priority_ui(QApplication& application,const std::file
             properties->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();
         }
         std::cout<<"Endpoint C precedes new-segment midpoint M in preview and confirmation; M remains available without C\n";
+        if(qEnvironmentVariableIsSet("ZIMA_VERIFY_ENDPOINT_CONTACT_ONLY"))return 0;
         return verify_sketch_intersections_ui(application,directory);
     }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}
 }

@@ -1456,6 +1456,24 @@ if(ZIMA_BUILD_TESTS)
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." RUN_SERIAL TRUE TIMEOUT 180)
     add_test(NAME zima_cpp_native_tangent_contact_tests COMMAND zima_cpp_sketcher_contract_tests)
     add_test(NAME zima_cpp_double_circle_tangent_tests COMMAND zima_cpp_sketcher_contract_tests)
+    add_test(NAME zima_cpp_copied_circle_contact_tests COMMAND zima_cpp_sketcher_contract_tests)
+    set_tests_properties(zima_cpp_copied_circle_contact_tests PROPERTIES
+        ENVIRONMENT "ZIMA_CPP_VERIFY_COPIED_CIRCLE_ONLY=1" TIMEOUT 300)
+    add_test(NAME zima_cpp_copied_circle_contact_ui_contract COMMAND zima-cad-cpp --verify-startup
+        "--working-directory=${CMAKE_BINARY_DIR}/copied-circle-contact-gui")
+    set_tests_properties(zima_cpp_copied_circle_contact_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_SKETCH_KEYPOINT_CONTACT_ONLY=1;ZIMA_VERIFY_NATIVE_CURVE_CONTACT_ONLY=1;ZIMA_VERIFY_DOUBLE_CIRCLE_UI_ONLY=1;ZIMA_VERIFY_COPIED_CIRCLE_UI_ONLY=1"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." RUN_SERIAL TRUE TIMEOUT 300)
+    add_test(NAME zima_cpp_polyline_arc_contact_ui_contract COMMAND zima-cad-cpp --verify-startup
+        "--working-directory=${CMAKE_BINARY_DIR}/polyline-arc-contact-gui")
+    set_tests_properties(zima_cpp_polyline_arc_contact_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_SKETCH_ENDPOINT_PRIORITY_ONLY=1;ZIMA_VERIFY_POLYLINE_ARC_CONTACT_ONLY=1"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." RUN_SERIAL TRUE TIMEOUT 300)
+    add_test(NAME zima_cpp_endpoint_contact_ui_contract COMMAND zima-cad-cpp --verify-startup
+        "--working-directory=${CMAKE_BINARY_DIR}/endpoint-contact-gui")
+    set_tests_properties(zima_cpp_endpoint_contact_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_SKETCH_ENDPOINT_PRIORITY_ONLY=1;ZIMA_VERIFY_ENDPOINT_CONTACT_ONLY=1"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." RUN_SERIAL TRUE TIMEOUT 300)
     set_tests_properties(zima_cpp_double_circle_tangent_tests PROPERTIES
         ENVIRONMENT "ZIMA_CPP_VERIFY_DOUBLE_CIRCLE_ONLY=1" TIMEOUT 900)
     add_test(NAME zima_cpp_double_circle_tangent_ui_contract COMMAND zima-cad-cpp --verify-startup

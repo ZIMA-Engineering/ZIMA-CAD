@@ -2,6 +2,7 @@ int verify_sketch_double_circle_ui(QApplication& application,const std::filesyst
     using namespace zima;
     try {
         const auto check=[](bool ok,const char* text){if(!ok)throw std::runtime_error(text);};
+        const bool copied=qEnvironmentVariableIsSet("ZIMA_VERIFY_COPIED_CIRCLE_UI_ONLY");
         QString modal_error;
         const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();if(!modal_error.isEmpty())throw std::runtime_error(modal_error.toStdString());};
         for(bool native:{false,true})for(bool reverse:{false,true}) {
@@ -13,13 +14,16 @@ int verify_sketch_double_circle_ui(QApplication& application,const std::filesyst
                 part=document::PartDocument::load(std::filesystem::path(input.toStdWString()));sketch=part.sketches.back();
                 const auto* owner=part.body_history.owner(sketch.owner_container_id);check(owner,"Double circular Body missing");body=owner->scope.id;
             } else {
-                std::ifstream file(std::filesystem::path(__FILE__).parent_path()/"../tests/fixtures/sketch/double-tangent-projected-circles.json");
-                check(bool(file),"Double circular Sketch fixture missing");sketch=sketcher::Sketch::from_serialized(std::string(std::istreambuf_iterator<char>(file),{}));
+                if(copied)sketch=test::make_copied_circle_contact_fixture(reverse?-1.:1.,.61);
+                else {
+                    std::ifstream file(std::filesystem::path(__FILE__).parent_path()/"../tests/fixtures/sketch/double-tangent-projected-circles.json");
+                    check(bool(file),"Double circular Sketch fixture missing");sketch=sketcher::Sketch::from_serialized(std::string(std::istreambuf_iterator<char>(file),{}));
+                }
                 // Give the projected supports real earlier native ownership;
                 // the GUI must exercise live read-only references, not orphans.
                 auto source=sketcher::Sketch::create_default();
                 auto source_feature=document::PartDocument::create_sketch_container();source.owner_container_id=source_feature.id;
-                for(unsigned i=0;i<3;++i) {
+                for(unsigned i=0;i<sketch.external_references.size();++i) {
                     const auto& circle=sketch.circles[i];const auto* centre=sketch.find_point(circle.center_point_id);
                     const auto id=source.add_circle(centre->x,centre->y,circle.radius);
                     auto& ref=sketch.external_references[i];ref.kind=sketcher::ExternalReferenceKind::Edge;
@@ -32,7 +36,9 @@ int verify_sketch_double_circle_ui(QApplication& application,const std::filesyst
                 part.history={source_feature,feature};part.sketches={source,sketch};document::BodyHistoryGraph graph;body=graph.create_body("Double circular contact");
                 graph.insert({document::PartHistoryKind::Feature,source_feature.id});graph.insert({document::PartHistoryKind::Feature,feature.id});part.set_body_history(graph);part.resolve_constructions();
             }
-            auto dimension=reverse?sketch.create_circle_diameter_dimension(sketch.circles.back().id):sketch.create_circle_radius_dimension(sketch.circles.back().id);
+            auto dimension=copied
+                ? (reverse?sketch.create_arc_diameter_dimension(sketch.arcs.front().id):sketch.create_arc_radius_dimension(sketch.arcs.front().id))
+                : (reverse?sketch.create_circle_diameter_dimension(sketch.circles.back().id):sketch.create_circle_radius_dimension(sketch.circles.back().id));
             sketch.apply_dimension(dimension);
             *std::ranges::find(part.sketches,sketch.id,&sketcher::Sketch::id)=sketch;
             const auto path=directory/("double-circle-"+std::to_string(native)+std::to_string(reverse)+".prtz");part.save(path);
@@ -93,8 +99,9 @@ int verify_sketch_double_circle_ui(QApplication& application,const std::filesyst
 
             const auto tangent_count=[&]{return std::ranges::count_if(view->mesh().constraint_markers,[](const auto& m){return m.label=="T";});};
             const auto before=tangent_count();
-            const auto first=(native?"circle:"+sketch.circles[1].id:"external_edge:"+sketch.external_references[1].id);
-            const auto second="circle:"+sketch.circles.back().id;
+            const auto support=copied?sketch.external_references.size()-1:1;
+            const auto first=(native?"circle:"+sketch.circles[support].id:"external_edge:"+sketch.external_references[support].id);
+            const auto second=copied?"arc:"+sketch.arcs.front().id:"circle:"+sketch.circles.back().id;
             window.findChild<QAction*>("sketchTangentAction")->trigger();flush();capture("T started");pick(reverse?second:first);capture("T first selected");pick(reverse?first:second);capture("T second selected");
             check(tangent_count()==before+1,"GUI did not add second circular T");
             QKeyEvent escape(QEvent::KeyPress,Qt::Key_Escape,Qt::NoModifier);QApplication::sendEvent(view,&escape);flush();
@@ -141,8 +148,12 @@ int verify_sketch_double_circle_ui(QApplication& application,const std::filesyst
                     test::verify_circle_contacts(*window.active_sketch_for_test());
                 }
             };edit_dimension();capture("dimensions edited");
-            std::vector<std::string> handles{connected.circles.back().center_point_id};
-            for(const auto& c:connected.constraints)if(c.kind==sketcher::ConstraintKind::Tangent)handles.push_back(c.first_point_id);
+            std::vector<std::string> handles;
+            if(copied)handles={connected.arcs.front().center_point_id,connected.arcs.front().start_point_id,connected.arcs.front().end_point_id};
+            else {
+                handles={connected.circles.back().center_point_id};
+                for(const auto& c:connected.constraints)if(c.kind==sketcher::ConstraintKind::Tangent)handles.push_back(c.first_point_id);
+            }
             const auto drag_handles=[&] {
                 for(const auto& id:handles)for(unsigned repeat=0;repeat<3;++repeat) {
                     std::cout<<"Double circular GUI drag "<<id<<" repeat="<<repeat<<std::endl;
@@ -167,6 +178,10 @@ int verify_sketch_double_circle_ui(QApplication& application,const std::filesyst
                     test::verify_circle_contacts(*window.active_sketch_for_test());
                 }
             };drag_handles();capture("circles dragged");finish();saved=document::PartDocument::load(path);connected=saved.sketches.back();test::verify_circle_contacts(connected);
+            if(copied) {
+                std::cout<<"Copied circular endpoint GUI case passed"<<std::endl;
+                continue;
+            }
             open();
             const auto driven=connected.circles.back();const auto* center=connected.find_point(driven.center_point_id);
             const auto pieces=sketcher::sketch_trim_topology(connected,true);

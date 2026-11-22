@@ -25,9 +25,10 @@ remains separate. This update supersedes the older FEM planning entries below.
   high-quality rendered image of a Body; rendering technology remains to be
   evaluated during implementation planning.
 - These are recorded future-work proposals. Detailed rendering behavior and
-  controls remain to be designed; implementation has not started. The current
-  Sketcher contact repairs retain priority. No runtime text or persisted format
-  is changed by recording this proposal.
+  controls remain to be designed; implementation has not started. The user
+  authorized autonomous delivery after the current Sketcher repair release,
+  including verification, documentation, commit/push and another Windows release.
+  No runtime text or persisted format is changed by recording this proposal.
 
 ### CAM Body (proposal, 2026-11-22)
 
@@ -69,6 +70,13 @@ as ordered blocks, each with its tool, path and parameters, linked to the
 corresponding NC lines. The confirmed example is a first cutting loop, safe
 retract and rapid traverse, then a second cutting loop. Manual paths require
 the same collision and machine-capability checks as generated paths.
+One native document can contain multiple machining setups and independent NC
+programs, for example opposite sides after reclamping. Each setup needs its own
+workpiece orientation, workholding, work origin and machining blocks.
+The actual machined result of one CAM Body can become the initial stock of a
+subsequent CAM Body, preserving residual material between setups.
+Provide simulation of tool motion and progressive material removal, with pause,
+NC-linked stepping and collision checks against workholding, shank and holder.
 Machining operations, toolpaths and output scope remain to be agreed. This is
 a future-work proposal, with no implementation or persisted-format change yet.
 

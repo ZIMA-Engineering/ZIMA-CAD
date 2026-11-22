@@ -876,8 +876,9 @@ bool AssemblyWorkspaceWindow::accept_sketch_segment_ray(
                     throw std::runtime_error(
                         "Tangent polyline arc has no connected start geometry");
                 }
+                const auto connected_start_id = start->id;
                 created_geometry_id = target.add_tangent_arc(
-                    start->id, confirmed_position[0], confirmed_position[1],
+                    connected_start_id, confirmed_position[0], confirmed_position[1],
                     pending_polyline_tangent_geometry_id_);
                 const auto created_arc = std::ranges::find_if(
                     target.arcs, [&](const auto& value) {
@@ -887,29 +888,35 @@ bool AssemblyWorkspaceWindow::accept_sketch_segment_ray(
                     throw std::runtime_error(
                         "Created tangent arc cannot be resolved");
                 }
+                // Arcs are stored counterclockwise. In a clockwise gesture
+                // the clicked finish is the canonical start, not end. Copy
+                // the identities before a constraint replaces target storage.
+                const auto center_id = created_arc->center_point_id;
+                const auto finish_id = created_arc->start_point_id == connected_start_id
+                    ? created_arc->end_point_id : created_arc->start_point_id;
                 if (polyline_arc_center_snap) {
                     static_cast<void>(target.add_point_on_line_constraint(
-                        created_arc->center_point_id,
+                        center_id,
                         polyline_arc_center_snap->axis_id));
                 }
                 if (polyline_arc_point_alignment && direction_inference) {
                     static_cast<void>(target.add_point_pair_constraint(
                         inferred_end.reference_point_id,
-                        created_arc->end_point_id, *direction_inference));
+                        finish_id, *direction_inference));
                 }
                 if (end_snap_kind && !end_snap_geometry_id.empty()) {
                     if (*end_snap_kind ==
                             zima::sketcher::ConstraintKind::PointOnLine) {
                         static_cast<void>(target.add_point_on_line_constraint(
-                            created_arc->end_point_id, end_snap_geometry_id));
+                            finish_id, end_snap_geometry_id));
                     } else if (*end_snap_kind ==
                             zima::sketcher::ConstraintKind::PointOnCircle) {
                         static_cast<void>(target.add_point_on_circle_constraint(
-                            created_arc->end_point_id, end_snap_geometry_id));
+                            finish_id, end_snap_geometry_id));
                     } else if (*end_snap_kind ==
                             zima::sketcher::ConstraintKind::Midpoint) {
                         static_cast<void>(target.add_midpoint_constraint(
-                            created_arc->end_point_id, end_snap_geometry_id));
+                            finish_id, end_snap_geometry_id));
                     }
                     // Coincident K reuses the exact persisted point in
                     // add_arc(), so no duplicate C relation is required.
