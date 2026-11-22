@@ -53,7 +53,12 @@ catalog entries. GUI checks exercise all five languages and both themes; the
 production catalog validator also passes. The final local FEM GUI run passed
 all of these cases in 52.303 seconds. Visual inspection confirmed readable
 temperature/measurement labels and settings in the dark and light themes.
-Packaged acceptance is recorded with the release.
+The committed Windows package repeats the full FEM GUI contract successfully
+(52.952 seconds in the targeted packaged run). Its saved-model calculation also
+passes with 0.167992 mm maximum displacement and 10.081 MPa maximum element-averaged
+von Mises stress, without a CAD calculation or document-revision change.
+Signed-package, public-download and updater acceptance is recorded in the
+[publication evidence](20261122-windows-2203-publication.json).
 
 ## Native assets and protected copies
 
