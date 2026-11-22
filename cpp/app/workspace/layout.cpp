@@ -81,7 +81,7 @@ protected:
         initStyleOption(&option);
         // Native styles commonly suppress text for an indeterminate 0..0
         // progress bar. The status contract always shows the current phase.
-        option.text = format();
+        if(minimum()==0&&maximum()==0)option.text = format();
         option.textVisible = true;
         QPainter painter(this);
         style()->drawControl(

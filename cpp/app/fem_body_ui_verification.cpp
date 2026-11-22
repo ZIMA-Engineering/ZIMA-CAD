@@ -6,8 +6,10 @@
 #include "../tests/profile_solid_fixture.hpp"
 #include <zima/workspace/fem_operations.hpp>
 #include <zima/workspace/body_operations.hpp>
+#include <zima/workspace/engineering_metadata_operations.hpp>
 #include <zima/kernel/calculation_diagnostics.hpp>
 #include <zima/viewer/mesh_view.hpp>
+#include <zima/ui/operation_activity.hpp>
 #include <QApplication>
 #include <QAction>
 #include <QDialogButtonBox>
@@ -18,6 +20,10 @@
 #include <QQuaternion>
 #include <QMenu>
 #include <QMenuBar>
+#include <QProgressBar>
+#include <QProxyStyle>
+#include <QStyleFactory>
+#include <QStyleOption>
 #include <QToolBar>
 #include <QPushButton>
 #include <QTreeWidget>
@@ -34,6 +40,20 @@
 #endif
 
 namespace zima::app {
+namespace {
+class FemProgressPaintSpy final : public QProxyStyle {
+public:
+    FemProgressPaintSpy():QProxyStyle(QStyleFactory::create("Fusion")){}
+    mutable QString painted_text;
+    void drawControl(ControlElement element,const QStyleOption* option,QPainter* painter,
+            const QWidget* widget=nullptr) const override {
+        if(element==CE_ProgressBar)
+            if(const auto* progress=qstyleoption_cast<const QStyleOptionProgressBar*>(option))
+                painted_text=progress->text;
+        QProxyStyle::drawControl(element,option,painter,widget);
+    }
+};
+}
 int verify_fem_body(QApplication& application,AssemblyWorkspaceWindow& window,const std::filesystem::path& directory) {
     try {
         const auto check=[](bool ok,const char* message){if(!ok)throw std::runtime_error(message);};
@@ -49,10 +69,28 @@ int verify_fem_body(QApplication& application,AssemblyWorkspaceWindow& window,co
             check(!fem.empty(),"FEM reproduction contains no FEM Body");
             window.activate_body(fem);flush();
             const auto revision=session.revision(),calculations=kernel::body_calculation_count.load();
+            auto* progress=window.operation_progress_;
+            unsigned mesh_ticks=0,solve_ticks=0;
+            bool solving=false,capture_attempted=false,progress_captured=false;
+            QTimer observer;
+            QObject::connect(&observer,&QTimer::timeout,&observer,[&] {
+                if(!window.operation_activity_->active()||!progress->isVisible()||!progress->format().startsWith("FEM"))return;
+                ++(solving?solve_ticks:mesh_ticks);
+                const auto prefix=QObject::tr("FEM: solving the system (iteration %1)…").section("%1",0,0);
+                if(solving&&!capture_attempted&&progress->format().startsWith(prefix)) {
+                    capture_attempted=true;
+                    progress_captured=window.grab().save(QString::fromStdString(document::path_to_utf8(directory/"fem-calculation-progress.png")));
+                }
+            });
+            observer.start(20);
             window.generate_fem_mesh();flush();
             check(window.active_generated_fem_mesh(),"FEM reproduction mesh generation failed");
+            solving=true;
             window.solve_fem_statics();flush();
+            observer.stop();
             check(window.active_fem_deformation(),"FEM reproduction solution failed");
+            check(mesh_ticks&&solve_ticks&&progress_captured,"FEM did not present live meshing and solver progress");
+            check(!window.operation_activity_->active()&&progress->value()==100,"FEM progress remained active after calculation");
             check(session.revision()==revision&&kernel::body_calculation_count.load()==calculations,
                 "FEM reproduction changed its document or recalculated CAD");
             window.viewer_->set_standard_view(viewer::StandardView::Isometric);
@@ -172,6 +210,11 @@ int verify_fem_body(QApplication& application,AssemblyWorkspaceWindow& window,co
             const auto* packet=window.active_generated_fem_mesh();
             check(packet&&!packet->triangles.empty()&&!packet->edges.empty(),"FEM did not generate a drawable volume-mesh boundary");
             check(show_mesh->isChecked()&&view->mesh().triangles==packet->triangles,"FEM did not display the generated mesh");
+            check(!window.operation_activity_->active()&&window.operation_progress_->value()==100,
+                "FEM mesh progress was not completed");
+            const auto progress_generation=window.operation_progress_generation_;
+            generate->trigger();flush();
+            check(window.operation_progress_generation_==progress_generation,"Cached FEM mesh restarted progress");
             show_mesh->trigger();flush();
             check(!show_mesh->isChecked()&&view->mesh().triangles==snapshot->mesh.triangles,"FEM mesh toggle did not restore the source");
         };
@@ -446,9 +489,34 @@ int verify_fem_body(QApplication& application,AssemblyWorkspaceWindow& window,co
                 window.findChild<QAction*>("femDisplacementResultAction")->text()==settings.qt_translations.value("Displacement [mm]")&&
                 window.findChild<QAction*>("femStressResultAction")->text()==settings.qt_translations.value("Von Mises stress [MPa]"),
                 "FEM result choices did not translate");
+            for(const auto* key:{"FEM: preparing geometry…","FEM: generating the volume mesh…",
+                    "FEM: checking mesh quality…","FEM: optimizing the quadratic mesh…","FEM: preparing mesh data…",
+                    "FEM: assembling the system…","FEM: applying loads and restraints…",
+                    "FEM: solving the system (iteration %1)…","FEM: calculating displacement and stress…",
+                    "FEM: preparing result display…","FEM inputs changed. Repeat the operation.","FEM mesh generated."})
+                check(!settings.qt_translations.value(key).isEmpty()&&QObject::tr(key)==settings.qt_translations.value(key),
+                    "FEM progress phase did not translate");
 #endif
             for(const auto* theme:{"dark","light"}) {
                 settings.theme=theme;apply_application_appearance(application,settings);flush();
+#ifdef ZIMA_ENABLE_FEM_MESHER
+                auto* progress=window.operation_progress_;
+                auto* spy=new FemProgressPaintSpy;spy->setParent(progress);progress->setStyle(spy);
+                const auto progress_label=QObject::tr("FEM: assembling the system…");
+                window.begin_status_operation(progress_label);
+                window.update_status_operation(progress_label,1,4);
+                static_cast<void>(progress->grab());
+                check(spy->painted_text.contains(progress_label)&&spy->painted_text.contains("25%")&&
+                    !spy->painted_text.contains("%p%"),"Progress painting lost the phase or displayed a literal percentage placeholder");
+                window.grab().save(QString::fromStdString(document::path_to_utf8(directory/(std::string("fem-progress-")+language+"-"+theme+".png"))));
+                window.update_status_operation(QObject::tr("FEM: solving the system (iteration %1)…").arg(12),-1,0);
+                static_cast<void>(progress->grab());
+                check(spy->painted_text==QObject::tr("FEM: solving the system (iteration %1)…").arg(12),
+                    "Indeterminate solver progress lost its translated iteration text");
+                window.finish_status_operation(QObject::tr("FEM mesh generated."));
+                check(!window.operation_activity_->active(),"Progress presentation remained active after completion");
+                progress->setStyle(nullptr);delete spy;progress->hide();
+#endif
                 window.show_fem_body_properties(fem);flush();dialog=current();check(dialog,"Localized FEM dialog missing");
                 check(dialog->windowTitle()==QObject::tr("FEM Body properties"),"FEM title did not translate");
                 window.grab().save(QString::fromStdString(document::path_to_utf8(directory/(std::string("fem-body-")+language+"-"+theme+".png"))));
@@ -569,6 +637,11 @@ int verify_fem_body(QApplication& application,AssemblyWorkspaceWindow& window,co
             check(deformed&&deformation->isChecked()&&deformed->vertices==window.viewer_->mesh().vertices,
                 "The static command did not display the deformed cantilever");
             check(beam_session->revision()==beam_revision,"Generating a static result modified the document");
+            check(!window.operation_activity_->active()&&window.operation_progress_->value()==100,
+                "FEM solver progress was not completed");
+            const auto progress_generation=window.operation_progress_generation_;
+            solve->trigger();flush();
+            check(window.operation_progress_generation_==progress_generation,"Cached FEM solution restarted calculation progress");
             auto* stress_action=window.findChild<QAction*>("femStressResultAction");
             auto* displacement_action=window.findChild<QAction*>("femDisplacementResultAction");
             sidebar_menu(window.findChild<QMenu*>("femResultsMenu"));
@@ -672,7 +745,27 @@ int verify_fem_body(QApplication& application,AssemblyWorkspaceWindow& window,co
                     "Saved pressure did not reproduce the GUI result");
             }
             check(kernel::body_calculation_count.load()==pressure_calculations,"Pressure edits or solves recalculated CAD");
+            const auto valid_result=window.active_fem_deformation()->vertices;
+            auto incomplete_material=workspace::material_data(window.workspace_,beam.document_id);
+            incomplete_material.properties.erase("POISSON_RATIO");
+            incomplete_material.units.erase("POISSON_RATIO");
+            incomplete_material.descriptions.erase("POISSON_RATIO");
+            check(workspace::set_material_data(window.workspace_,beam.document_id,incomplete_material),"Incomplete material fixture did not change");
+            window.refresh_scene();window.rebuild_application_toolbar();flush();
+            const auto failed_revision=pressure_session.revision();
+            window.solve_fem_statics();flush();
+            check(!window.active_fem_deformation()&&!window.operation_activity_->active()&&
+                window.operation_progress_->maximum()==100&&window.operation_progress_->value()==0,
+                "Failed FEM worker left running or successful progress");
+            check(window.state_->text()==QObject::tr("Set a valid Young's modulus and Poisson ratio in the Part material.")&&
+                pressure_session.revision()==failed_revision,"FEM worker failure lost its diagnostic or modified the document");
+            check(pressure_session.undo(),"Material Undo after FEM failure failed");
+            window.refresh_scene();window.rebuild_application_toolbar();flush();
+            window.solve_fem_statics();flush();
+            check(window.active_fem_deformation()&&window.active_fem_deformation()->vertices==valid_result&&
+                !window.operation_activity_->active(),"FEM result did not recover after failed-worker input repair");
             std::cout<<"FEM pressure GUI: body face, planar/projected Sketch, solve/display, Cancel, magnitude/reversal, Undo/Redo and native reopen passed\n";
+            std::cout<<"FEM progress GUI: translated phases, actual percentage painting, busy iteration text, cached commands and failed-worker cleanup passed\n";
         }
 #endif
         std::cout<<"FEM GUI: shared Body/Boolean source, entry, inspection, middle confirmation, Cancel, unchanged OK, activation, readonly CAD, Undo/Redo, save/reopen, five languages and two themes passed\n";

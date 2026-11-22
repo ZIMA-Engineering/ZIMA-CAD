@@ -1,5 +1,7 @@
 #pragma once
 
+#include "fem_progress.hpp"
+
 #include <zima/document/fem_definition.hpp>
 #include <zima/kernel/geometry_kernel.hpp>
 #include <array>
@@ -24,5 +26,6 @@ struct FemVolumeMesh {
 };
 
 [[nodiscard]] FemVolumeMesh generate_fem_volume_mesh(
-    const kernel::BodyResult& source,const document::FemDefinition& definition);
+    const kernel::BodyResult& source,const document::FemDefinition& definition,
+    const FemProgressCallback& progress = {});
 }

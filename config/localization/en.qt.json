@@ -2997,5 +2997,17 @@
   "Von Mises stress [MPa]": "Von Mises stress [MPa]",
   "Maximum von Mises stress (element average): %1 MPa": "Maximum von Mises stress (element average): %1 MPa",
   "Volume-averaged stress in each element, without nodal smoothing.": "Volume-averaged stress in each element, without nodal smoothing.",
-  "The result field does not match the displayed mesh.": "The result field does not match the displayed mesh."
+  "The result field does not match the displayed mesh.": "The result field does not match the displayed mesh.",
+  "FEM: preparing geometry…": "FEM: preparing geometry…",
+  "FEM: generating the volume mesh…": "FEM: generating the volume mesh…",
+  "FEM: checking mesh quality…": "FEM: checking mesh quality…",
+  "FEM: optimizing the quadratic mesh…": "FEM: optimizing the quadratic mesh…",
+  "FEM: preparing mesh data…": "FEM: preparing mesh data…",
+  "FEM: assembling the system…": "FEM: assembling the system…",
+  "FEM: applying loads and restraints…": "FEM: applying loads and restraints…",
+  "FEM: solving the system (iteration %1)…": "FEM: solving the system (iteration %1)…",
+  "FEM: calculating displacement and stress…": "FEM: calculating displacement and stress…",
+  "FEM: preparing result display…": "FEM: preparing result display…",
+  "FEM inputs changed. Repeat the operation.": "FEM inputs changed. Repeat the operation.",
+  "FEM mesh generated.": "FEM mesh generated."
 }

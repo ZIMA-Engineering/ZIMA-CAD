@@ -2997,5 +2997,17 @@
   "Von Mises stress [MPa]": "Von-Mises-Spannung [MPa]",
   "Maximum von Mises stress (element average): %1 MPa": "Maximale Von-Mises-Spannung (Elementmittelwert): %1 MPa",
   "Volume-averaged stress in each element, without nodal smoothing.": "Volumengemittelte Spannung in jedem Element, ohne Knotenglättung.",
-  "The result field does not match the displayed mesh.": "Das Ergebnisfeld stimmt nicht mit dem angezeigten Netz überein."
+  "The result field does not match the displayed mesh.": "Das Ergebnisfeld stimmt nicht mit dem angezeigten Netz überein.",
+  "FEM: preparing geometry…": "FEM: Geometrie wird vorbereitet…",
+  "FEM: generating the volume mesh…": "FEM: Volumennetz wird erzeugt…",
+  "FEM: checking mesh quality…": "FEM: Netzqualität wird geprüft…",
+  "FEM: optimizing the quadratic mesh…": "FEM: Quadratisches Netz wird optimiert…",
+  "FEM: preparing mesh data…": "FEM: Netzdaten werden vorbereitet…",
+  "FEM: assembling the system…": "FEM: Gleichungssystem wird aufgebaut…",
+  "FEM: applying loads and restraints…": "FEM: Lasten und Lagerbedingungen werden angewendet…",
+  "FEM: solving the system (iteration %1)…": "FEM: Gleichungssystem wird gelöst (Iteration %1)…",
+  "FEM: calculating displacement and stress…": "FEM: Verschiebungen und Spannungen werden berechnet…",
+  "FEM: preparing result display…": "FEM: Ergebnisanzeige wird vorbereitet…",
+  "FEM inputs changed. Repeat the operation.": "Die FEM-Eingaben wurden geändert. Wiederholen Sie den Vorgang.",
+  "FEM mesh generated.": "FEM-Netz wurde erzeugt."
 }

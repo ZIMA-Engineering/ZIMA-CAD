@@ -2997,5 +2997,17 @@
   "Von Mises stress [MPa]": "Contrainte de von Mises [MPa]",
   "Maximum von Mises stress (element average): %1 MPa": "Contrainte de von Mises maximale (moyenne par élément) : %1 MPa",
   "Volume-averaged stress in each element, without nodal smoothing.": "Contrainte moyennée sur le volume de chaque élément, sans lissage aux nœuds.",
-  "The result field does not match the displayed mesh.": "Le champ de résultats ne correspond pas au maillage affiché."
+  "The result field does not match the displayed mesh.": "Le champ de résultats ne correspond pas au maillage affiché.",
+  "FEM: preparing geometry…": "FEM : préparation de la géométrie…",
+  "FEM: generating the volume mesh…": "FEM : génération du maillage volumique…",
+  "FEM: checking mesh quality…": "FEM : vérification de la qualité du maillage…",
+  "FEM: optimizing the quadratic mesh…": "FEM : optimisation du maillage quadratique…",
+  "FEM: preparing mesh data…": "FEM : préparation des données du maillage…",
+  "FEM: assembling the system…": "FEM : assemblage du système…",
+  "FEM: applying loads and restraints…": "FEM : application des charges et des conditions d’appui…",
+  "FEM: solving the system (iteration %1)…": "FEM : résolution du système (itération %1)…",
+  "FEM: calculating displacement and stress…": "FEM : calcul des déplacements et des contraintes…",
+  "FEM: preparing result display…": "FEM : préparation de l’affichage des résultats…",
+  "FEM inputs changed. Repeat the operation.": "Les données d’entrée FEM ont changé. Répétez l’opération.",
+  "FEM mesh generated.": "Le maillage FEM a été généré."
 }

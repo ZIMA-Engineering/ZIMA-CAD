@@ -8,6 +8,7 @@
 #include <zima/workspace/engineering_metadata_operations.hpp>
 #include <nlohmann/json.hpp>
 #include <fstream>
+#include <chrono>
 #include <iostream>
 #include <numbers>
 #include <numeric>
@@ -223,10 +224,32 @@ void generated_regions(){
         auto c=pressure();set_face(c,face_at(solid.mesh,2,2.5));
         auto clamp=c;clamp.id="clamp";clamp.kind=document::FemConditionKind::Constraint;
         set_face(clamp,face_at(solid.mesh,2,-2.5));
-        auto def=base;def.conditions={c,clamp};const auto mesh=app::generate_fem_volume_mesh(solid,def);
+        auto def=base;def.conditions={c,clamp};
+        std::vector<app::FemProgress> mesh_progress;
+        const auto mesh=app::generate_fem_volume_mesh(solid,def,[&](const auto& progress){mesh_progress.push_back(progress);});
+        check(mesh_progress.size()>=4&&mesh_progress.front().phase==app::FemProgressPhase::PreparingGeometry&&
+            mesh_progress.back().phase==app::FemProgressPhase::ReadingMesh,"Mesh progress is incomplete");
+        check(std::ranges::any_of(mesh_progress,[](const auto& p){return p.phase==app::FemProgressPhase::GeneratingMesh&&p.total==0;}),
+            "Meshing must report its unbounded phase without an invented percentage");
         for(double value:{2.5,0.,5.,1.25})for(bool reversed:{false,true}){
             def.conditions[0].pressure_MPa=value;def.conditions[0].pressure_reversed=reversed;
-            const auto result=app::solve_fem_linear_statics(mesh,def,{210000,0});
+            std::vector<app::FemProgress> progress;
+            const auto result=app::solve_fem_linear_statics(mesh,def,{210000,0},[&](const auto& p){progress.push_back(p);});
+            const auto without_progress=app::solve_fem_linear_statics(mesh,def,{210000,0});
+            check(result.displacement==without_progress.displacement&&result.reaction==without_progress.reaction&&
+                result.element_von_mises_MPa==without_progress.element_von_mises_MPa&&
+                result.maximum_displacement_mm==without_progress.maximum_displacement_mm&&
+                result.maximum_von_mises_MPa==without_progress.maximum_von_mises_MPa,
+                "Progress reporting changed numerical results");
+            for(const auto& p:progress)check(!p.total||p.completed<=p.total,"Progress count exceeds actual work");
+            for(auto phase:{app::FemProgressPhase::AssemblingSystem,app::FemProgressPhase::ComputingResults})
+                check(std::ranges::any_of(progress,[&](const auto& p){return p.phase==phase&&
+                    p.total==mesh.tetrahedra.size()&&p.completed==p.total;}),"Element progress did not finish its real work count");
+            std::size_t iteration=0;
+            for(const auto& p:progress)if(p.phase==app::FemProgressPhase::SolvingSystem) {
+                check(!p.total&&p.completed==iteration++,"Solver progress invents a percentage or skips an iteration");
+            }
+            check(iteration>0&&(value==0||iteration>1),"Solver iteration progress is missing");
             check(result.element_von_mises_MPa.size()==mesh.tetrahedra.size(),"Missing element stresses");
             for(const double stress:result.element_von_mises_MPa)check(std::abs(stress-value)<1e-5,"Solved axial stress is incorrect");
             check(mesh.surface_elements.size()==mesh.surface.triangles.size()/3,"Surface stress ownership is incomplete");
@@ -298,7 +321,20 @@ int main(int argc,char** argv){try{
         const double poisson=std::stod(material.properties.at("POISSON_RATIO"));
         for(const auto& body:doc.body_history.bodies())if(body.fem){
             const auto source=workspace::read_fem_source(session,body.scope.id);
-            const auto mesh=app::generate_fem_volume_mesh(source.get(),*body.fem);
+            using Clock=std::chrono::steady_clock;
+            auto start=Clock::now(),phase_start=start;
+            std::optional<app::FemProgressPhase> phase;
+            std::size_t iterations=0;
+            const auto profile=[&](const app::FemProgress& p) {
+                if(phase!=p.phase) {
+                    if(phase)std::cout<<"Phase "<<int(*phase)<<": "
+                        <<std::chrono::duration<double>(Clock::now()-phase_start).count()<<" s"<<std::endl;
+                    phase=p.phase;phase_start=Clock::now();
+                }
+                if(p.phase==app::FemProgressPhase::SolvingSystem)iterations=p.completed;
+            };
+            const auto mesh=app::generate_fem_volume_mesh(source.get(),*body.fem,profile);
+            std::cout<<"Mesh time: "<<std::chrono::duration<double>(Clock::now()-start).count()<<" s"<<std::endl;
             std::cout<<"Native FEM: order="<<int(mesh.order)<<" nodes="<<mesh.surface.vertices.size()
                 <<" tetrahedra="<<mesh.tetrahedra.size()<<" E="<<young<<" nu="<<poisson<<std::endl;
             if(argc>2){
@@ -307,7 +343,17 @@ int main(int argc,char** argv){try{
                 for(const auto& p:mesh.surface.vertices)data["vertices"].push_back({p.x,p.y,p.z});
                 std::ofstream output(argv[2]);output<<data.dump();check(bool(output),"Mesh diagnostic write failed");
             }
-            const auto solution=app::solve_fem_linear_statics(mesh,*body.fem,{young,poisson});
+            start=Clock::now();
+            const auto solution=app::solve_fem_linear_statics(mesh,*body.fem,{young,poisson},profile);
+            std::cout<<"Solve time: "<<std::chrono::duration<double>(Clock::now()-start).count()
+                <<" s; iterations="<<iterations<<std::endl;
+            if(argc>3) {
+                start=Clock::now();
+                const auto plain=app::solve_fem_linear_statics(mesh,*body.fem,{young,poisson});
+                std::cout<<"Unobserved solve time: "<<std::chrono::duration<double>(Clock::now()-start).count()<<" s"<<std::endl;
+                check(solution.displacement==plain.displacement&&solution.reaction==plain.reaction&&
+                    solution.element_von_mises_MPa==plain.element_von_mises_MPa,"Observed solve differs from unobserved solve");
+            }
             Vec3 reaction{};for(const auto r:solution.reaction)reaction=add(reaction,r);
             std::cout<<"Native FEM maximum displacement="<<solution.maximum_displacement_mm<<" mm; reaction="
                 <<reaction.x<<','<<reaction.y<<','<<reaction.z<<" N\n";

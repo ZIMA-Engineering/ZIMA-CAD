@@ -39,7 +39,9 @@ public:
 }
 
 FemVolumeMesh generate_fem_volume_mesh(
-        const kernel::BodyResult& source,const document::FemDefinition& definition) {
+        const kernel::BodyResult& source,const document::FemDefinition& definition,
+        const FemProgressCallback& progress) {
+    report_fem_progress(progress,FemProgressPhase::PreparingGeometry);
     static std::mutex mutex;
     const std::lock_guard lock(mutex);
     const auto& controls=definition.mesh;
@@ -233,11 +235,13 @@ FemVolumeMesh generate_fem_volume_mesh(
         std::vector<int> physical_groups;
         for(const auto& region:regions)
             physical_groups.push_back(gmsh::model::addPhysicalGroup(region.dimension,region.tags));
+        report_fem_progress(progress,FemProgressPhase::GeneratingMesh);
         gmsh::model::mesh::generate(3);
 
         // Curving the midside nodes onto CAD can invert an otherwise valid
         // linear tetrahedron. Check the complete high-order Jacobian before
         // publishing the mesh, and untangle only when that check requires it.
+        report_fem_progress(progress,FemProgressPhase::CheckingMesh);
         if(controls.order==document::FemElementOrder::Quadratic) {
             std::vector<std::size_t> cells,connectivity;
             gmsh::model::mesh::getElementsByType(11,cells,connectivity);
@@ -248,11 +252,14 @@ FemVolumeMesh generate_fem_volume_mesh(
                     std::ranges::all_of(minimum,[](double value){return std::isfinite(value)&&value>0;});
             };
             if(!valid()) {
+                report_fem_progress(progress,FemProgressPhase::OptimizingMesh);
                 gmsh::model::mesh::optimize("HighOrder");
+                report_fem_progress(progress,FemProgressPhase::CheckingMesh);
                 if(!valid())throw std::runtime_error("The FEM mesh contains an invalid tetrahedron.");
             }
         }
 
+        report_fem_progress(progress,FemProgressPhase::ReadingMesh);
         FemVolumeMesh result;
         result.order=controls.order;
         auto& viewer=result.surface;

@@ -2997,5 +2997,17 @@
   "Von Mises stress [MPa]": "Напряжение по Мизесу [MPa]",
   "Maximum von Mises stress (element average): %1 MPa": "Максимальное напряжение по Мизесу (среднее по элементу): %1 MPa",
   "Volume-averaged stress in each element, without nodal smoothing.": "Напряжение, усреднённое по объёму каждого элемента, без сглаживания в узлах.",
-  "The result field does not match the displayed mesh.": "Поле результатов не соответствует отображаемой сетке."
+  "The result field does not match the displayed mesh.": "Поле результатов не соответствует отображаемой сетке.",
+  "FEM: preparing geometry…": "FEM: подготовка геометрии…",
+  "FEM: generating the volume mesh…": "FEM: построение объёмной сетки…",
+  "FEM: checking mesh quality…": "FEM: проверка качества сетки…",
+  "FEM: optimizing the quadratic mesh…": "FEM: оптимизация квадратичной сетки…",
+  "FEM: preparing mesh data…": "FEM: подготовка данных сетки…",
+  "FEM: assembling the system…": "FEM: сборка системы уравнений…",
+  "FEM: applying loads and restraints…": "FEM: приложение нагрузок и закреплений…",
+  "FEM: solving the system (iteration %1)…": "FEM: решение системы (итерация %1)…",
+  "FEM: calculating displacement and stress…": "FEM: расчёт перемещений и напряжений…",
+  "FEM: preparing result display…": "FEM: подготовка отображения результатов…",
+  "FEM inputs changed. Repeat the operation.": "Исходные данные FEM изменились. Повторите операцию.",
+  "FEM mesh generated.": "Сетка FEM построена."
 }

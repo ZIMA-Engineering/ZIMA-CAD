@@ -8,7 +8,9 @@
 #include <QComboBox>
 #include <QDoubleSpinBox>
 #include <QTreeWidget>
+#include <QTimer>
 #include <limits>
+#include <mutex>
 #ifdef ZIMA_ENABLE_FEM_MESHER
 #include "fem_linear_statics.hpp"
 #include "fem_volume_mesh.hpp"
@@ -17,6 +19,52 @@
 namespace zima::app {
 namespace {
 #ifdef ZIMA_ENABLE_FEM_MESHER
+// The calculation thread publishes only plain values. A UI-thread timer
+// consumes the latest snapshot without queueing one event per element.
+class FemTaskProgress final {
+public:
+    explicit FemTaskProgress(std::function<void(const FemProgress&)> update)
+        : update_(std::move(update)) {
+        QObject::connect(&timer_,&QTimer::timeout,&timer_,[this]{flush();});
+        timer_.start(80);
+    }
+    FemProgressCallback callback() {
+        return [this](const FemProgress& value) {
+            const std::lock_guard lock(mutex_);
+            pending_=value;
+        };
+    }
+    void flush() {
+        std::optional<FemProgress> value;
+        {const std::lock_guard lock(mutex_);value.swap(pending_);}
+        if(value)update_(*value);
+    }
+    static QString message(const FemProgress& value) {
+        switch(value.phase) {
+        case FemProgressPhase::PreparingGeometry:return QObject::tr("FEM: preparing geometry…");
+        case FemProgressPhase::GeneratingMesh:return QObject::tr("FEM: generating the volume mesh…");
+        case FemProgressPhase::CheckingMesh:return QObject::tr("FEM: checking mesh quality…");
+        case FemProgressPhase::OptimizingMesh:return QObject::tr("FEM: optimizing the quadratic mesh…");
+        case FemProgressPhase::ReadingMesh:return QObject::tr("FEM: preparing mesh data…");
+        case FemProgressPhase::AssemblingSystem:return QObject::tr("FEM: assembling the system…");
+        case FemProgressPhase::ApplyingConditions:return QObject::tr("FEM: applying loads and restraints…");
+        case FemProgressPhase::SolvingSystem:return QObject::tr("FEM: solving the system (iteration %1)…")
+            .arg(static_cast<qulonglong>(value.completed));
+        case FemProgressPhase::ComputingResults:return QObject::tr("FEM: calculating displacement and stress…");
+        case FemProgressPhase::PreparingDisplay:return QObject::tr("FEM: preparing result display…");
+        }
+        return {};
+    }
+    static int percent(const FemProgress& value) {
+        return value.total?static_cast<int>(std::min(100.,100.*value.completed/value.total)):-1;
+    }
+private:
+    std::function<void(const FemProgress&)> update_;
+    std::mutex mutex_;
+    std::optional<FemProgress> pending_;
+    QTimer timer_;
+};
+
 FemElasticMaterial elastic_material(const document::MaterialData& data) {
     const auto number=[&](const char* key) {
         const auto value=data.properties.find(key);
@@ -136,6 +184,7 @@ const kernel::ViewerMesh* AssemblyWorkspaceWindow::active_fem_deformation() cons
 void AssemblyWorkspaceWindow::solve_fem_statics() {
 #ifdef ZIMA_ENABLE_FEM_MESHER
     if(properties_dialog_||!active_fem_body())return;
+    bool progress_started=false;
     try {
         if(!active_generated_fem_mesh())throw std::runtime_error("Generate the FEM mesh before solving.");
         const auto mesh=generated_fem_mesh_;
@@ -144,8 +193,14 @@ void AssemblyWorkspaceWindow::solve_fem_statics() {
         const auto definition=*graph.find(graph.active_body_id())->fem;
         const auto material=elastic_material(workspace::material_data(workspace_,id));
         if(!active_fem_deformation()){
-            auto solution=ui::run_background_task([mesh,definition,material]{
-                const auto result=solve_fem_linear_statics(mesh->mesh,definition,material);
+            begin_status_operation(tr("FEM: assembling the system…"));
+            progress_started=true;
+            FemTaskProgress progress([this](const FemProgress& value) {
+                update_status_operation(FemTaskProgress::message(value),FemTaskProgress::percent(value),value.total?100:0);
+            });
+            auto solution=ui::run_background_task([mesh,definition,material,report=progress.callback()]{
+                const auto result=solve_fem_linear_statics(mesh->mesh,definition,material,report);
+                report_fem_progress(report,FemProgressPhase::PreparingDisplay);
                 GeneratedFemMesh::Solution calculated{definition,material,fem_deformed_mesh(mesh->mesh,result),
                     result.maximum_displacement_mm};
                 const auto& triangles=mesh->mesh.surface.triangles;
@@ -161,15 +216,23 @@ void AssemblyWorkspaceWindow::solve_fem_statics() {
                 calculated.maximum_MPa=result.maximum_von_mises_MPa;
                 return calculated;
             });
+            progress.flush();
             mesh->solution=std::move(solution);
         }
-        if(!active_fem_deformation())return;
+        if(!active_fem_deformation()) {
+            if(progress_started)finish_status_operation(tr("FEM inputs changed. Repeat the operation."),false);
+            return;
+        }
         show_fem_deformation_=true;
         preserve_view_on_refresh_=true;
         refresh_scene();
         rebuild_application_toolbar();
         update_fem_result_presentation();
-    }catch(const std::exception& error){state_->setText(tr(error.what()));}
+        if(progress_started)finish_status_operation(state_->text());
+    }catch(const std::exception& error){
+        if(progress_started)finish_status_operation(tr(error.what()),false);
+        else state_->setText(tr(error.what()));
+    }
 #endif
 }
 
@@ -231,21 +294,37 @@ void AssemblyWorkspaceWindow::generate_fem_mesh() {
     const auto& session=workspace_.open_part(document_id)->session;
     const auto& graph=session.document().body_history;
     const auto body_id=graph.active_body_id();
+    bool progress_started=false;
     try {
         if(!active_generated_fem_mesh()) {
             const auto source=workspace::read_fem_source(session,body_id);
             const auto definition=*graph.find(body_id)->fem;
-            auto mesh=ui::run_background_task([source,definition]{return generate_fem_volume_mesh(source.get(),definition);});
+            begin_status_operation(tr("FEM: preparing geometry…"));
+            progress_started=true;
+            FemTaskProgress progress([this](const FemProgress& value) {
+                update_status_operation(FemTaskProgress::message(value),FemTaskProgress::percent(value),value.total?100:0);
+            });
+            auto mesh=ui::run_background_task([source,definition,report=progress.callback()]{
+                return generate_fem_volume_mesh(source.get(),definition,report);
+            });
+            progress.flush();
             generated_fem_mesh_=std::make_shared<GeneratedFemMesh>(GeneratedFemMesh{
                 document_id,body_id,source,definition,std::move(mesh)});
-            if(!active_generated_fem_mesh())return;
+            if(!active_generated_fem_mesh()) {
+                finish_status_operation(tr("FEM inputs changed. Repeat the operation."),false);
+                return;
+            }
         }
         show_generated_fem_mesh_=true;
         show_fem_deformation_=false;
         preserve_view_on_refresh_=true;
         refresh_scene();
         rebuild_application_toolbar();
-    }catch(const std::exception& error){state_->setText(tr(error.what()));}
+        if(progress_started)finish_status_operation(tr("FEM mesh generated."));
+    }catch(const std::exception& error){
+        if(progress_started)finish_status_operation(tr(error.what()),false);
+        else state_->setText(tr(error.what()));
+    }
 #endif
 }
 

@@ -25,6 +25,6 @@ struct FemElementStress {
     const std::vector<kernel::Vec3>& displacement,FemElasticMaterial);
 
 [[nodiscard]] FemStaticResult solve_fem_linear_statics(const FemVolumeMesh&,
-    const document::FemDefinition&, FemElasticMaterial);
+    const document::FemDefinition&, FemElasticMaterial, const FemProgressCallback& progress = {});
 [[nodiscard]] kernel::ViewerMesh fem_deformed_mesh(const FemVolumeMesh&,const FemStaticResult&);
 }

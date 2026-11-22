@@ -298,7 +298,8 @@ std::vector<FemElementStress> fem_element_stresses(const FemVolumeMesh& mesh,
 }
 
 FemStaticResult solve_fem_linear_statics(const FemVolumeMesh& mesh,
-        const document::FemDefinition& definition,FemElasticMaterial material){
+        const document::FemDefinition& definition,FemElasticMaterial material,
+        const FemProgressCallback& progress){
     if(!std::isfinite(material.young_MPa)||material.young_MPa<=0||
         !std::isfinite(material.poisson)||material.poisson<=-1||material.poisson>=.5)
         throw std::runtime_error("Set a valid Young's modulus and Poisson ratio in the Part material.");
@@ -312,6 +313,7 @@ FemStaticResult solve_fem_linear_statics(const FemVolumeMesh& mesh,
     std::vector<bool> fixed(size);
     std::vector<Element> elements;
     elements.reserve(mesh.tetrahedra.size());
+    report_fem_progress(progress,FemProgressPhase::AssemblingSystem,0,mesh.tetrahedra.size());
     for(const auto& cell:mesh.tetrahedra){
         elements.push_back(integrate(mesh,cell,quadratic));
         for(unsigned q=0;q<samples;++q){
@@ -322,7 +324,9 @@ FemStaticResult solve_fem_linear_statics(const FemVolumeMesh& mesh,
                     shear*inner(grad,grad)+(lambda+shear)*grad[d]*grad[d]);
             }
         }
+        report_fem_progress(progress,FemProgressPhase::AssemblingSystem,elements.size(),mesh.tetrahedra.size());
     }
+    report_fem_progress(progress,FemProgressPhase::ApplyingConditions);
     const auto supports=pressure_supports(mesh,definition);
     for(const auto& condition:definition.conditions){
         const auto found=mesh.condition_regions.find(condition.id);
@@ -356,8 +360,10 @@ FemStaticResult solve_fem_linear_statics(const FemVolumeMesh& mesh,
     }
     const double target=std::max(1e-24,inner(residual,residual)*1e-16);
     const auto singular=[] {throw std::runtime_error("The FEM constraints leave rigid-body motion or the calculation did not converge.");};
+    report_fem_progress(progress,FemProgressPhase::SolvingSystem);
     for(std::size_t iteration=0;inner(residual,residual)>target;++iteration){
         if(iteration>=std::min<std::size_t>(size,20000))singular();
+        report_fem_progress(progress,FemProgressPhase::SolvingSystem,iteration+1);
         stiffness(direction,product);
         for(std::size_t i=0;i<size;++i)if(fixed[i])product[i]=0;
         const double curvature=inner(direction,product);
@@ -373,6 +379,7 @@ FemStaticResult solve_fem_linear_statics(const FemVolumeMesh& mesh,
             direction[i]=residual[i]/diagonal[i]+(next/rho)*direction[i];
         rho=next;
     }
+    report_fem_progress(progress,FemProgressPhase::ComputingResults);
     stiffness(displacement,product);
     FemStaticResult result;
     for(std::size_t i=0;i<size;i+=3){
@@ -383,10 +390,12 @@ FemStaticResult solve_fem_linear_statics(const FemVolumeMesh& mesh,
             length({displacement[i],displacement[i+1],displacement[i+2]}));
     }
     result.element_von_mises_MPa.reserve(elements.size());
+    report_fem_progress(progress,FemProgressPhase::ComputingResults,0,elements.size());
     for(const auto& element:elements) {
         const auto stress=element_stress(element,result.displacement,quadratic,material);
         result.element_von_mises_MPa.push_back(stress.von_mises_MPa);
         result.maximum_von_mises_MPa=std::max(result.maximum_von_mises_MPa,stress.von_mises_MPa);
+        report_fem_progress(progress,FemProgressPhase::ComputingResults,result.element_von_mises_MPa.size(),elements.size());
     }
     return result;
 }

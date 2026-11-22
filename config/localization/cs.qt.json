@@ -2997,5 +2997,17 @@
   "Von Mises stress [MPa]": "Napětí von Mises [MPa]",
   "Maximum von Mises stress (element average): %1 MPa": "Maximální napětí von Mises (průměr prvku): %1 MPa",
   "Volume-averaged stress in each element, without nodal smoothing.": "Objemově průměrované napětí v každém prvku, bez vyhlazení v uzlech.",
-  "The result field does not match the displayed mesh.": "Pole výsledků neodpovídá zobrazené síti."
+  "The result field does not match the displayed mesh.": "Pole výsledků neodpovídá zobrazené síti.",
+  "FEM: preparing geometry…": "FEM: připravuji geometrii…",
+  "FEM: generating the volume mesh…": "FEM: vytvářím objemovou síť…",
+  "FEM: checking mesh quality…": "FEM: kontroluji kvalitu sítě…",
+  "FEM: optimizing the quadratic mesh…": "FEM: optimalizuji kvadratickou síť…",
+  "FEM: preparing mesh data…": "FEM: připravuji data sítě…",
+  "FEM: assembling the system…": "FEM: sestavuji soustavu…",
+  "FEM: applying loads and restraints…": "FEM: zpracovávám zatížení a vazby…",
+  "FEM: solving the system (iteration %1)…": "FEM: řeším soustavu (iterace %1)…",
+  "FEM: calculating displacement and stress…": "FEM: počítám posunutí a napětí…",
+  "FEM: preparing result display…": "FEM: připravuji zobrazení výsledků…",
+  "FEM inputs changed. Repeat the operation.": "Vstupy FEM se změnily. Opakuj operaci.",
+  "FEM mesh generated.": "Síť FEM byla vytvořena."
 }
