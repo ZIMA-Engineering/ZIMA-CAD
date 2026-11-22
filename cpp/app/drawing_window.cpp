@@ -435,16 +435,11 @@ public:
         auto* placement=group(tr("Měřítko a poloha na listu"));
         field(placement,0,0,tr("Měřítko"),scale_mode_);field(placement,0,1,tr("Hodnota"),scale_);
         field(placement,1,0,tr("X [mm]"),x_);field(placement,1,1,tr("Y [mm]"),y_);
-        guides_=new QCheckBox(tr("Zobrazovat vodítka i mimo přesouvání"),content);guides_->setObjectName("drawingDimensionGuides");guides_->setChecked(value_.show_dimension_guides);
-        guide_offset_=new QDoubleSpinBox(content);guide_spacing_=new QDoubleSpinBox(content);guide_offset_->setObjectName("drawingGuideOffset");guide_spacing_->setObjectName("drawingGuideSpacing");
-        guide_offset_->setDecimals(3);guide_offset_->setRange(.001,1000);guide_spacing_->setDecimals(3);guide_spacing_->setRange(.1,1000);guide_offset_->setValue(value_.dimension_guide_offset);guide_spacing_->setValue(value_.dimension_guide_spacing);
-        guide_count_=new QSpinBox(content);guide_count_->setObjectName("drawingGuideCount");guide_count_->setRange(0,100);guide_count_->setValue(value_.dimension_guide_count);
-        auto* guides=group(tr("Vodítka kót"));field(guides,0,0,tr("Počet"),guide_count_);connect(guide_count_,&QSpinBox::valueChanged,this,[this]{preview_values();});
-        field(guides,0,1,tr("Odsazení [mm]"),guide_offset_);field(guides,0,2,tr("Rozteč [mm]"),guide_spacing_);guides->addWidget(guides_,2,0,1,3);
-        connect(guides_,&QCheckBox::toggled,this,[this]{preview_values();});for(auto* control:{guide_offset_,guide_spacing_})connect(control,&QDoubleSpinBox::valueChanged,this,[this]{preview_values();});
+        guide_fields_=new DrawingDimensionGuideFields(value_,content);
+        guide_fields_->changed=[this]{preview_values();};
         auto* metrics=new QHBoxLayout;metrics->setSpacing(10);
-        form->removeWidget(placement->parentWidget());form->removeWidget(guides->parentWidget());
-        metrics->addWidget(placement->parentWidget(),1);metrics->addWidget(guides->parentWidget(),1);form->addLayout(metrics);
+        form->removeWidget(placement->parentWidget());
+        metrics->addWidget(placement->parentWidget(),1);metrics->addWidget(guide_fields_,1);form->addLayout(metrics);
         section_=new QComboBox(content);section_->setObjectName("drawingSection");
         section_label_=new QCheckBox(tr("Zobrazit označení řezu"),content);section_label_->setObjectName("drawingSectionLabel");section_label_->setChecked(value_.show_section_label);
         components_=new SectionComponentsWidget(content);
@@ -514,7 +509,7 @@ public:
         if(crop)value_.section_hatch_crops[section]=std::move(*crop);else value_.section_hatch_crops.erase(section);
         preview_values();
     }
-    void set_breaks(std::vector<drawing::ViewBreak> breaks) {value_.breaks=std::move(breaks);preview_values();}
+    void set_breaks(std::vector<drawing::ViewBreak> breaks,bool inherited) {value_.breaks=std::move(breaks);value_.inherit_parent_breaks=inherited;preview_values();}
     void resume_preview() {preview_values();}
     void set_error(const QString& error) { error_->setText(error);error_->setVisible(!error.isEmpty()); }
     zima::drawing::DrawingView values() const {
@@ -522,7 +517,7 @@ public:
         result.name = name_->text().trimmed().toStdString();
         result.show_caption = caption_->isChecked();result.show_thread_leadins=thread_leadins_->isChecked();
         result.description_rows=descriptions_->values();
-        result.dimension_guide_count=guide_count_->value();result.show_dimension_guides=guides_->isChecked();result.dimension_guide_offset=guide_offset_->value();result.dimension_guide_spacing=guide_spacing_->value();
+        guide_fields_->apply(result);
         result.show_section_label=section_label_->isChecked();
         result.tangent_edge_style=static_cast<zima::drawing::TangentEdgeStyle>(tangent_style_->currentIndex());
         if (const int i = source_->currentIndex(); i>=0 && i<static_cast<int>(sources_.size())) {
@@ -568,7 +563,7 @@ private:
             v.show_dimension_guides,v.dimension_guide_count,v.dimension_guide_offset,v.dimension_guide_spacing,
             descriptions,v.value_locks,v.section_id,document::serialize_sections(v.section_markers),
             document::serialize_sections(v.section_snapshot?std::vector{*v.section_snapshot}:std::vector<document::SectionDefinition>{}),
-            v.hidden_hatch_components,breaks,crop(v.crop),hatch}).dump();
+            v.hidden_hatch_components,breaks,v.inherit_parent_breaks,crop(v.crop),hatch}).dump();
     }
     static drawing::ProjectionCamera named_camera(const document::NamedView& view) {
         const auto& q=view.camera;
@@ -595,7 +590,7 @@ private:
     std::vector<DrawingSourceChoice> sources_;
     std::function<std::vector<zima::document::SectionDefinition>(const std::string&,const std::filesystem::path&)> sections_;
     std::vector<zima::document::SectionDefinition> available_sections_;
-    QSpinBox* guide_count_{};QCheckBox* guides_{};QDoubleSpinBox *guide_offset_{},*guide_spacing_{};
+    DrawingDimensionGuideFields* guide_fields_{};
     QComboBox *section_{};QCheckBox *section_label_{};
     std::vector<QPushButton*> rotation_buttons_;
     std::array<QDoubleSpinBox*,3> rotation_values_{};
@@ -1958,7 +1953,7 @@ protected:
                     if(const auto movement=viewer::dimension_plane_drag(move,a,b)){const double along=movement->x(),outward=movement->y();
                         std::optional<kernel::Vec3> text_grip;
                         const bool polar=angular||shown.kind==kernel::ViewerDimensionKind::Radius||shown.kind==kernel::ViewerDimensionKind::Diameter;
-                        if(!polar)item.view_layout=kernel::dragged_dimension_layout(shown,item.model_envelope,model_drag_layout_initial_,dragged_model_->key.end,along,outward);
+                        if(!polar)item.view_layout=kernel::dragged_dimension_layout(shown,drawing::drawing_dimension_envelope(view,item),model_drag_layout_initial_,dragged_model_->key.end,along,outward);
                         if(shown.kind==kernel::ViewerDimensionKind::Linear) {
                             // Drawing placement is signed: crossing the object must not
                             // clamp the actual grip to the old envelope's positive side.
@@ -1975,7 +1970,7 @@ protected:
                                 else {item.view_layout->text_along+=offset->x();item.view_layout->text_outward+=offset->y();}
                             }
                         }
-                        if(polar)item.view_layout=kernel::dragged_dimension_layout(shown,item.model_envelope,model_drag_layout_initial_,dragged_model_->key.end,along,outward,angular,text_grip);
+                        if(polar)item.view_layout=kernel::dragged_dimension_layout(shown,drawing::drawing_dimension_envelope(view,item),model_drag_layout_initial_,dragged_model_->key.end,along,outward,angular,text_grip);
                         item.paper_handles.clear();model_moved_=true;
                         if(snap_point_&&dragged_model_->key.end!=0) {
                             const auto placed=drawing::drawing_model_dimension(view,item);
@@ -2415,6 +2410,7 @@ void DrawingWindow::create_layout() {
     sheets_->setExpanding(false);
     canvas_ = new DrawingCanvas(central); canvas_->setObjectName("drawingCanvas");
     state_ = new QLabel(central); state_->setObjectName("drawingState");
+    canvas_->instruction_changed=[this](const QString& message){set_status_message(message);};
     canvas_->set_balloon_properties([this](const auto& id){show_balloon_properties(id);});
     canvas_->set_manual_properties_callback([this](const auto& id,int end){show_dimension_properties(id,end);});
     canvas_->dimension_value_=[this](const auto& view,const auto& key,QPointF point){edit_model_dimension_value(view,key,point);};
@@ -2921,13 +2917,14 @@ void DrawingWindow::show_detail_properties(drawing::DrawingView view,bool creati
         workspace::edit_drawing_view(document_,sheet_id,value,creating,projection);
         canvas_->set_preview({});refresh();canvas_->select_view_for_test(value.id);
     };
-    const auto resume=[this,guarded] {canvas_->set_preview({});if(guarded){guarded->show();guarded->raise();guarded->resume();}};
+    const auto resume=[this,guarded] {canvas_->set_preview({});set_status_message({});if(guarded){guarded->show();guarded->raise();guarded->resume();}};
     dialog->place=[this,guarded,resume] {
         if(!guarded)return;auto detail=guarded->values();const auto* parent=document_.find_view(detail.parent_view_id);
         if(!parent||!detail.crop)return;
         drawing::refresh_detail_view(detail,*parent);guarded->hide();
         canvas_->begin_placement(std::move(detail),[guarded,resume](auto placed){if(guarded)guarded->set_placed(std::move(placed));resume();},resume,
             [](auto& pending,auto point){pending.x=point.x+pending.crop->anchor.x*pending.scale;pending.y=point.y-pending.crop->anchor.y*pending.scale;});
+        set_status_message(tr("Vložit pohled: klikněte na místo na listu. Esc zruší vložení."));
         canvas_->unsetCursor();
     };
     const auto boundary=[this,guarded,resume](std::optional<drawing::Point2> anchor) {
@@ -2945,6 +2942,7 @@ void DrawingWindow::show_detail_properties(drawing::DrawingView view,bool creati
     dialog->edit_boundary=[boundary]{boundary({});};
     dialog->choose_source=[this,guarded,boundary,resume] {
         if(!guarded)return;guarded->hide();canvas_->set_preview({});
+        set_status_message(tr("Vybrat bod v pohledu"));
         canvas_->choose_view([this,guarded,boundary](const auto& id){
             const auto* parent=document_.find_view(id);if(!guarded||!parent)return;
             guarded->set_source(*parent);boundary(canvas_->chosen_view_point(*parent));
@@ -3132,6 +3130,7 @@ void DrawingWindow::show_view_properties(zima::drawing::DrawingView view, bool c
     };
     auto last_geometry=std::make_shared<std::optional<drawing::DrawingView>>(view);
     const auto project=[this,cache,last_geometry,geometry_key](zima::drawing::DrawingView& value,bool pending_settings=false){
+        if(const auto* parent=document_.find_view(value.parent_view_id))drawing::refresh_inherited_view_breaks(value,*parent);
         if(*last_geometry&&geometry_key(**last_geometry)==geometry_key(value)) {
             value.projected_edges=(**last_geometry).projected_edges;value.projected_triangles=(**last_geometry).projected_triangles;
             value.output_source=(**last_geometry).output_source;value.measurement_geometry=(**last_geometry).measurement_geometry;
@@ -3184,7 +3183,7 @@ void DrawingWindow::show_view_properties(zima::drawing::DrawingView view, bool c
         [this,project](ViewPropertiesDialog* properties,drawing::DrawingView pending){
             try{project(pending,true);}catch(const std::exception& e){properties->set_error(tr(e.what()));return;}
             auto sheet=*active_sheet();auto owner=window();QPointer<ViewPropertiesDialog> guarded(properties);
-            auto* editor=new DrawingBreakEditor(owner,std::move(sheet),pending,[guarded](auto breaks){if(guarded)guarded->set_breaks(std::move(breaks));});
+            auto* editor=new DrawingBreakEditor(owner,std::move(sheet),pending,[guarded](auto breaks,bool inherited){if(guarded)guarded->set_breaks(std::move(breaks),inherited);},document_.find_view(pending.parent_view_id));
             properties->hide();canvas_->set_preview({});canvas_->setEnabled(false);
             connect(editor,&QDialog::finished,this,[this,guarded,editor]{canvas_->setEnabled(true);if(guarded){guarded->show();guarded->raise();guarded->resume_preview();}editor->deleteLater();});editor->show();
         },[this,project](ViewPropertiesDialog* properties,drawing::DrawingView pending,int mode,std::string hatch_section){
@@ -3222,6 +3221,7 @@ void DrawingWindow::create_projected_view() {
         auto view=zima::drawing::DrawingDocument::create_view(parent_copy.source_document_id,parent_copy.source_path,{});
         view.output_source=parent_copy.output_source;view.measurement_geometry=parent_copy.measurement_geometry;
         view.name=workspace::next_drawing_view_name(document_,tr("Pohled").toStdString()); view.parent_view_id=parent_copy.id;
+        view.inherit_parent_breaks=true;
         view.scale=parent_copy.scale; view.use_sheet_scale=parent_copy.use_sheet_scale;
         view.display_style=parent_copy.display_style;
         view.hidden_edge_style=parent_copy.hidden_edge_style;view.tangent_edge_style=parent_copy.tangent_edge_style;
@@ -3262,6 +3262,7 @@ void DrawingWindow::create_projected_view() {
             if (direction!=pending.projection_direction) {
                 pending.projection_direction=direction;
                 pending.camera=zima::drawing::projected_camera(parent_copy.camera,direction,method);
+                drawing::refresh_inherited_view_breaks(pending,parent_copy);
                 projection->project(pending,{.interactive=true,.placement_only=true});
                 canvas_->set_placement_frame(placement_frame(pending));
             }
@@ -3325,7 +3326,15 @@ void DrawingWindow::edit_model_dimension(const std::string& view_id,const std::s
     const auto item=std::ranges::find_if(view->model_annotations,[&](const auto& a){return model_annotation_key(a.source)==key;});
     if(item==view->model_annotations.end()||!item->model_dimension)return;
     auto* owner=qobject_cast<QMainWindow*>(window());
-    auto* dialog=new DimensionPropertiesDialog(*item->model_dimension,item->view_layout.value_or(item->model_layout),[this,view_id,reference=item->source](auto layout){
+    auto properties_dimension=*item->model_dimension;
+    if(properties_dimension.kind==kernel::ViewerDimensionKind::Diameter&&
+            drawing::drawing_model_dimension(*view,*item).kind==kernel::ViewerDimensionKind::Linear) {
+        // Expose the sheet's linear offset controls while retaining the
+        // authored text style (the diameter sign is derived at rendering).
+        properties_dimension.source_text_style=kernel::dimension_text_style(properties_dimension);
+        properties_dimension.kind=kernel::ViewerDimensionKind::Linear;
+    }
+    auto* dialog=new DimensionPropertiesDialog(properties_dimension,item->view_layout.value_or(item->model_layout),[this,view_id,reference=item->source](auto layout){
         if(workspace::set_drawing_annotation_layout(document_,view_id,reference,layout))sync_workspace_document();
         canvas_->update();
     },owner?owner:this);

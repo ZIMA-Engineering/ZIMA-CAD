@@ -2,11 +2,16 @@
 #include <zima/document/fem_presentation.hpp>
 #include <zima/workspace/fem_condition_operations.hpp>
 #include <zima/workspace/profile_operations.hpp>
+#include <zima/workspace/sketch_reference_operations.hpp>
 #include <zima/kernel/calculation_diagnostics.hpp>
+#include <zima/kernel/calculated_body_shape.hpp>
+#include <BRepGProp.hxx>
+#include <GProp_GProps.hxx>
 #include <nlohmann/json.hpp>
 #include <iostream>
 #include <limits>
 #include <filesystem>
+#include <numbers>
 
 using namespace zima;
 namespace {
@@ -39,11 +44,40 @@ void serialization(){
     c.projected_sketch=document::FemProjectedSketch{sketch.serialized(),{{1.25,0,11}}};
     const nlohmann::json owned=c;
     require(owned.get<document::FemCondition>()==c,"Owned FEM Sketch or seed did not round-trip");
+    auto missing_mode=owned;missing_mode["projected_sketch"].erase("project_to_body");
+    rejects([&]{static_cast<void>(missing_mode.get<document::FemCondition>());});
     const auto request=document::fem_condition_projection_request(c);
     require(request.profiles.size()==4&&std::abs(request.sketch_origin.z-17.25)<1e-10,
         "Owned FEM Sketch lost its exact curves or plane offset");
     c.projected_sketch->surface_seeds.clear();
     rejects([&]{document::validate_fem_condition(c);});
+    c.projected_sketch->project_to_body=false;c.references.clear();
+    require(nlohmann::json(c).get<document::FemCondition>()==c,"Planar FEM mode did not round-trip");
+    for(auto plane:{sketcher::SketchPlane::XY,sketcher::SketchPlane::XZ,sketcher::SketchPlane::YZ})for(bool automatic:{false,true}) {
+        auto pressure=c;pressure.kind=document::FemConditionKind::Pressure;pressure.placement={};
+        pressure.placement.reference_valid=true;pressure.placement.value_locks.insert("profile_offset");
+        auto profile=sketcher::Sketch::from_serialized(pressure.projected_sketch->serialized);
+        profile.plane=plane;profile.plane_auto=automatic;profile.refresh_default_frame();
+        pressure.projected_sketch->serialized=profile.serialized();
+        document::resolve_fem_condition_sketch_plane(pressure,{});
+        require(nlohmann::json(pressure).get<document::FemCondition>()==pressure,"FEM pressure plane/automatic mode/lock did not persist");
+        auto expected=profile;if(automatic)expected.plane=sketcher::SketchPlane::XY;expected.refresh_default_frame();
+        const auto placed=document::fem_condition_sketch(pressure);
+        require(placed.normal()==expected.normal()&&placed.world_point(0,0)==expected.world_point(0,0),"FEM work plane or offset equation failed");
+        for(bool reverse:{false,true}) {
+            pressure.pressure_reversed=reverse;
+            const auto marks=document::fem_condition_presentation(pressure,{});
+            const auto arrow=std::ranges::find_if(marks.edges,[](const auto& edge){return edge.reference.semantic_key.starts_with("fem:mark:");});
+            require(arrow!=marks.edges.end(),"Sketch pressure has no normal arrow");
+            const auto tail=arrow->points[0],tip=arrow->points[1],n=placed.normal(),origin=placed.world_point(0,0);
+            const double direction=(tip.x-tail.x)*n.x+(tip.y-tail.y)*n.y+(tip.z-tail.z)*n.z;
+            require((reverse?direction:-direction)>9.99&&std::abs((tip.x-origin.x)*n.x+(tip.y-origin.y)*n.y+(tip.z-origin.z)*n.z)<1e-7,
+                "Sketch pressure arrow lost its plane, offset or normal side");
+        }
+        pressure.projected_sketch->project_to_body=true;
+        pressure.references={{"source","face",{}}};pressure.projected_sketch->surface_seeds={{0,0,0}};
+        require(nlohmann::json(pressure).get<document::FemCondition>()==pressure,"Projected Sketch pressure did not persist");
+    }
 }
 void marks(){
     document::FemCondition c;c.id="condition";c.name="F1";c.kind=document::FemConditionKind::Force;c.force_N=5000;c.placement.rotation_y=90;
@@ -91,6 +125,100 @@ void transactions(){
     require(!workspace::commit_fem_condition(live,edit,force)&&session.revision()==after,"Unchanged condition added Undo");
     auto bad=force;bad.references.front().semantic_key="missing";rejects([&]{static_cast<void>(workspace::commit_fem_condition(live,edit,bad));});
     require(session.revision()==after,"Invalid region modified the document");
+    for(bool projecting:{false,true})for(auto region:{document::FemRegionKind::Curve,document::FemRegionKind::Surface})
+    for(bool diameter:{false,true})for(bool reference:{false,true})for(bool locked:{false,true})for(bool fixed:{false,true}) {
+        auto value=force;value.id="editable-fem-sketch-"+std::to_string(projecting)+"-"+std::to_string(int(region));
+        value.name="Editable FEM Sketch";value.region=region;
+        value.references=projecting?std::vector<document::FemRegionReference>{patch}:
+            std::vector<document::FemRegionReference>{};
+        auto editable=sketcher::Sketch::create_default();editable.plane_auto=false;editable.owner_container_id=value.id;
+        editable.plane_offset=projecting?20.:5.;
+        const auto circle=editable.add_circle(0,0,1.5);
+        auto dimension=diameter?editable.create_circle_diameter_dimension(circle):editable.create_circle_radius_dimension(circle);
+        dimension.driving=!reference;dimension.locked=locked&&!reference;editable.apply_dimension(dimension);
+        const auto center_id=editable.circles.front().center_point_id;editable.set_point_fixed(center_id,fixed);
+        for(double radius:{1.,2.,1.5}) {
+            const double old_radius=editable.circles.front().radius;
+            require(editable.set_dimension_value(dimension.id,diameter?2*radius:radius),"FEM Sketch dimension edit failed");
+            const double actual=editable.circles.front().radius;
+            require(std::abs(actual-(reference?old_radius:radius))<1e-7,"FEM Sketch radius equation failed");
+            const auto before=*editable.find_point(center_id);
+            static_cast<void>(editable.move_point(center_id,before.x+.15,before.y-.1));
+            const auto center=*editable.find_point(center_id);
+            const double movement=std::hypot(center.x-before.x,center.y-before.y);
+            require(fixed?movement<1e-8:movement>1e-6,"FEM Sketch drag escaped constraints or failed to move");
+            require(std::abs(editable.circles.front().radius-actual)<1e-7,"FEM Sketch drag changed its radius");
+            const auto keys=value.projected_sketch?value.projected_sketch->surface_region_keys:std::vector<std::string>{};
+            value.projected_sketch=document::FemProjectedSketch{editable.serialized(),{},keys,projecting};
+            if(projecting&&region==document::FemRegionKind::Surface)
+                value.projected_sketch->surface_seeds={{center.x,center.y,11}};
+            static_cast<void>(workspace::commit_fem_condition(live,workspace::prepare_fem_edit(session.document(),fem.scope.id),value));
+            value=*workspace::find_fem_condition(session.document(),fem.scope.id,value.id);
+            std::vector<TopoDS_Shape> shapes;
+            const auto body=kernel::read_calculated_body_shape(source.get());
+            if(projecting) {
+                const auto topology=kernel::read_calculated_body_topology(source.get(),{kernel::FaceReference{patch.owner_id,patch.semantic_key,patch.instance_path}});
+                const auto result=kernel::project_calculated_mesh_region(topology.shape,document::fem_condition_projection_request(value),
+                    topology.referenced_shapes.front(),value.projected_sketch->surface_seeds,value.projected_sketch->surface_region_keys);
+                shapes=result.faces;for(const auto& curve:result.curves)shapes.push_back(curve.edge);
+            }else shapes=kernel::planar_calculated_mesh_region(body,document::fem_condition_planar_request(value));
+            double measured=0;
+            for(const auto& shape:shapes) {
+                GProp_GProps properties;
+                if(region==document::FemRegionKind::Surface)BRepGProp::SurfaceProperties(shape,properties);
+                else BRepGProp::LinearProperties(shape,properties);
+                measured+=properties.Mass();
+                require(std::abs(properties.CentreOfMass().Z()-(projecting?11.:5.))<1e-7,"FEM region left its expected plane");
+            }
+            const double expected=region==document::FemRegionKind::Surface?std::numbers::pi*actual*actual:2*std::numbers::pi*actual;
+            require(std::abs(measured-expected)<1e-7,"FEM edited region has incorrect exact area/length");
+            const auto unchanged=session.revision();
+            require(!workspace::commit_fem_condition(live,workspace::prepare_fem_edit(session.document(),fem.scope.id),value)&&
+                session.revision()==unchanged,"Unchanged owned Sketch created an Undo step");
+            require(session.undo()&&session.redo()&&workspace::find_fem_condition(session.document(),fem.scope.id,value.id)->projected_sketch==value.projected_sketch,
+                "FEM Sketch Undo/Redo lost its mode or geometry");
+        }
+    }
+    auto outside=*workspace::find_fem_condition(session.document(),fem.scope.id,"editable-fem-sketch-1-2");
+    outside.references.clear();outside.projected_sketch->project_to_body=false;
+    outside.projected_sketch->surface_seeds.clear();outside.projected_sketch->surface_region_keys.clear();
+    const auto before_rejection=session.revision();
+    rejects([&]{static_cast<void>(workspace::commit_fem_condition(live,workspace::prepare_fem_edit(session.document(),fem.scope.id),outside));});
+    require(session.revision()==before_rejection,"Off-body planar region rejection changed the document");
+    for(auto rotation:{kernel::Vec3{0,0,0},kernel::Vec3{90,0,0},kernel::Vec3{-90,0,0},kernel::Vec3{0,90,0},kernel::Vec3{0,-90,0}}) {
+        auto value=force;value.id="planar-holes";value.region=document::FemRegionKind::Surface;value.references.clear();
+        value.placement={};value.placement.z=5.;
+        value.placement.rotation_x=rotation.x;value.placement.rotation_y=rotation.y;
+        auto owned=sketcher::Sketch::create_default();owned.plane_auto=false;owned.owner_container_id=value.id;
+        static_cast<void>(owned.add_circle(0,0,2.));static_cast<void>(owned.add_circle(0,0,1.));
+        value.projected_sketch=document::FemProjectedSketch{owned.serialized(),{},{},false};
+        const auto shapes=kernel::planar_calculated_mesh_region(kernel::read_calculated_body_shape(source.get()),
+            document::fem_condition_planar_request(value));
+        double area=0;
+        for(const auto& shape:shapes) {GProp_GProps properties;BRepGProp::SurfaceProperties(shape,properties);area+=properties.Mass();
+            require(properties.CentreOfMass().Distance(gp_Pnt(0,0,5))<1e-7,"Rotated planar region lost its placed center");}
+        require(std::abs(area-3*std::numbers::pi)<1e-7,"Planar FEM surface lost its inner hole or changed under rotation");
+    }
+    {
+        auto value=force;value.id="external-fem-sketch";value.name="External FEM Sketch";
+        value.region=document::FemRegionKind::Curve;value.references.clear();
+        auto owned=sketcher::Sketch::create_default();owned.plane_auto=false;owned.owner_container_id=value.id;owned.plane_offset=5.;
+        owned.refresh_default_frame();
+        const auto edge=std::ranges::find_if(source->mesh.edges,[&](const auto& e){return e.reference.owner_id==base.id&&e.points.size()>=2&&
+            std::hypot(e.points.back().x-e.points.front().x,e.points.back().y-e.points.front().y)>19.;});
+        require(edge!=source->mesh.edges.end(),"External FEM source edge is missing");
+        auto ref=workspace::prepare_sketch_external_reference(live,id,owned,sketcher::ExternalReferenceKind::Edge,
+            edge->reference.owner_id,edge->reference.semantic_key,{},fem.scope.id,false,true);
+        const auto ref_id=ref.id;
+        owned.add_external_reference(ref);static_cast<void>(owned.add_external_profile_geometry(ref_id));
+        value.projected_sketch=document::FemProjectedSketch{owned.serialized(),{},{},false};
+        static_cast<void>(workspace::commit_fem_condition(live,workspace::prepare_fem_edit(session.document(),fem.scope.id),value));
+        const auto* stored=workspace::find_fem_condition(session.document(),fem.scope.id,value.id);
+        require(stored&&sketcher::Sketch::from_serialized(stored->projected_sketch->serialized).external_references.front().id==ref_id,
+            "FEM lost its read-only external Sketch reference");
+        require(workspace::read_fem_source(session,fem.scope.id).shares_with(source),"FEM external projection modified its source");
+    }
+    std::cout<<"FEM owned Sketch matrix: 64 modes/region/radius-diameter/reference/lock/fix combinations with three edits and drags each passed\n";
     for(auto region:{document::FemRegionKind::Point,document::FemRegionKind::Curve}) {
         auto value=force;value.id=region==document::FemRegionKind::Point?"point-force":"curve-force";value.region=region;value.references.clear();
         if(region==document::FemRegionKind::Point) {

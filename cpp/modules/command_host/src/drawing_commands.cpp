@@ -30,7 +30,7 @@ Json view_json(const drawing::DrawingView& v,const std::string& sheet){
         {"x_mm",v.x},{"y_mm",v.y},{"scale",v.scale},{"use_sheet_scale",v.use_sheet_scale},{"display_style",styles.at(static_cast<std::size_t>(v.display_style))},
         {"hidden_edge_style",v.hidden_edge_style==drawing::HiddenEdgeStyle::Dashed?"dashed":"gray"},{"tangent_edge_style",v.tangent_edge_style==drawing::TangentEdgeStyle::Visible?"visible":v.tangent_edge_style==drawing::TangentEdgeStyle::Thin?"thin":"hidden"},
         {"section",v.section_id},{"section_markers",std::move(markers)},{"hidden_hatch_components",v.hidden_hatch_components},{"section_parent_view",v.section_parent_id},{"show_caption",v.show_caption},{"show_section_label",v.show_section_label},
-        {"show_dimension_guides",v.show_dimension_guides},{"guide_offset_mm",v.dimension_guide_offset},{"guide_spacing_mm",v.dimension_guide_spacing},{"guide_count",v.dimension_guide_count},{"breaks",breaks},
+        {"show_dimension_guides",v.show_dimension_guides},{"guide_offset_mm",v.dimension_guide_offset},{"guide_spacing_mm",v.dimension_guide_spacing},{"guide_count",v.dimension_guide_count},{"breaks",breaks},{"inherit_parent_breaks",v.inherit_parent_breaks},
         {"description_rows",descriptions},{"projected_edges",v.projected_edges.size()},{"projected_triangles",v.projected_triangles.size()},{"model_annotations",v.model_annotations.size()},
         {"measurement_curves",v.measurement_geometry->curves.size()},{"measurement_points",v.measurement_geometry->points.size()},{"value_locks",v.value_locks}};
 }
@@ -107,6 +107,8 @@ void view_settings(drawing::DrawingView& value,const Json& args) {
     if(args.contains("scale")&&value.use_sheet_scale)invalid_view_arguments();
     value.show_caption=args.value("show_caption",value.show_caption);value.show_section_label=args.value("show_section_label",value.show_section_label);
     if(args.contains("breaks")){value.breaks.clear();for(const auto& b:args.at("breaks"))value.breaks.push_back({b.at("id"),b.at("vertical"),b.at("start"),b.at("length"),b.at("gap"),static_cast<drawing::BreakMark>(b.at("mark").get<int>())});}
+    if(args.contains("breaks")&&args.value("inherit_parent_breaks",false))invalid_view_arguments();
+    value.inherit_parent_breaks=args.value("inherit_parent_breaks",args.contains("breaks")?false:value.inherit_parent_breaks);
     value.show_dimension_guides=args.value("show_dimension_guides",value.show_dimension_guides);
     value.dimension_guide_count=args.value("guide_count",value.dimension_guide_count);value.dimension_guide_offset=args.value("guide_offset_mm",value.dimension_guide_offset);value.dimension_guide_spacing=args.value("guide_spacing_mm",value.dimension_guide_spacing);
     enum_argument(args,"orientation",value.orientation,std::array{"front","back","left","right","top","bottom","isometric"});
@@ -274,7 +276,7 @@ void Host::register_drawing_commands(){
         std::vector<commands::Argument> parameters={{creating?"sheet":"view",true},{"source",false},{"name",false},{"orientation",false},{"camera",false,Type::Object},
             {"x_mm",false,Type::Number},{"y_mm",false,Type::Number},{"scale",false,Type::Number},{"use_sheet_scale",false,Type::Boolean},
             {"display_style",false},{"hidden_edge_style",false},{"tangent_edge_style",false},{"show_caption",false,Type::Boolean},{"show_section_label",false,Type::Boolean},
-            {"description_rows",false,Type::Array},{"show_dimension_guides",false,Type::Boolean},{"guide_offset_mm",false,Type::Number},{"guide_spacing_mm",false,Type::Number},{"guide_count",false,Type::Integer},{"breaks",false,Type::Array},
+            {"description_rows",false,Type::Array},{"show_dimension_guides",false,Type::Boolean},{"guide_offset_mm",false,Type::Number},{"guide_spacing_mm",false,Type::Number},{"guide_count",false,Type::Integer},{"breaks",false,Type::Array},{"inherit_parent_breaks",false,Type::Boolean},
             {"section",false},{"section_markers",false,Type::Array},{"hidden_hatch_components",false,Type::Array},{"value_locks",false,Type::Array},{"distance_mm",false,Type::Number},{"document",false}};
         if(creating){parameters.push_back({"parent_view",false});parameters.push_back({"projection_direction",false});}
         add({creating?"drawing.view.create":"drawing.view.set",creating?tr("Create a drawing view from a calculated source or a parent view."):tr("Edit a drawing view and update its projected descendants."),std::move(parameters),true},[this,creating](auto& doc,const Json& args,const auto& document_path){
@@ -292,7 +294,7 @@ void Host::register_drawing_commands(){
                 if(source.empty())throw workspace::DrawingOperationError("invalid_arguments","A source document or parent view is required.");
                 value=drawing::DrawingDocument::create_view(source,source_path,{});
                 value.name=workspace::next_drawing_view_name(doc);
-                if(parent){value.parent_view_id=parent_id;value.scale=parent->scale;value.use_sheet_scale=parent->use_sheet_scale;value.display_style=parent->display_style;}
+                if(parent){value.parent_view_id=parent_id;value.inherit_parent_breaks=true;value.scale=parent->scale;value.use_sheet_scale=parent->use_sheet_scale;value.display_style=parent->display_style;}
             }else{
                 const auto* current=doc.find_view(args["view"].get<std::string>());if(!current)throw workspace::DrawingOperationError("view_not_found","The drawing view does not exist.");value=*current;
                 for(const auto& sheet:doc.sheets)if(std::ranges::any_of(sheet.views,[&](const auto& v){return v.id==value.id;}))sheet_id=sheet.id;

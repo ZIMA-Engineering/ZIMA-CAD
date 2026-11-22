@@ -79,7 +79,8 @@ FemVolumeMesh generate_fem_volume_mesh(
         };
         for(std::size_t index=0;index<definition.conditions.size();++index) {
             const auto& condition=definition.conditions[index];
-            if(!condition.projected_sketch||condition.region!=document::FemRegionKind::Surface)continue;
+            if(!condition.projected_sketch||!condition.projected_sketch->project_to_body||
+                    condition.region!=document::FemRegionKind::Surface)continue;
             auto result=project(index);
             const auto propagate=[&](auto& shapes) {
                 std::vector<TopoDS_Shape> current;
@@ -97,7 +98,8 @@ FemVolumeMesh generate_fem_volume_mesh(
             projections[index]=std::move(result);
         }
         for(std::size_t index=0;index<definition.conditions.size();++index)
-            if(definition.conditions[index].projected_sketch&&definition.conditions[index].region==document::FemRegionKind::Curve)
+            if(definition.conditions[index].projected_sketch&&definition.conditions[index].projected_sketch->project_to_body&&
+                    definition.conditions[index].region==document::FemRegionKind::Curve)
                 projections[index]=project(index);
         BRepBuilderAPI_Copy copy(native.shape,true,false);
         auto input=copy.Shape();
@@ -114,6 +116,7 @@ FemVolumeMesh generate_fem_volume_mesh(
         if(imported.empty())invalid_mesh();
         struct Region {std::string id;int dimension;std::vector<int> tags;};
         std::vector<Region> regions;
+        bool planar_regions=false;
         struct Embedding {int dimension,tag,support_dimension,support;};
         std::vector<Embedding> embeddings;
         std::map<std::tuple<double,double,double>,int> embedded_origins;
@@ -130,7 +133,12 @@ FemVolumeMesh generate_fem_volume_mesh(
             if(!condition.placement.reference_valid)
                 throw std::runtime_error("The condition placement is unresolved.");
             Region region{condition.id,static_cast<int>(condition.region),{}};
-            if(condition.projected_sketch) {
+            if(condition.projected_sketch&&!condition.projected_sketch->project_to_body) {
+                planar_regions=true;
+                for(const auto& shape:kernel::planar_calculated_mesh_region(native.shape,
+                        document::fem_condition_planar_request(condition)))
+                    region.tags.push_back(import(shape,region.dimension));
+            }else if(condition.projected_sketch) {
                 for(const auto& face:projections[index].faces)region.tags.push_back(bind(face,2));
                 for(const auto& curve:projections[index].curves) {
                     const int edge=import(curve.edge,1);
@@ -183,6 +191,41 @@ FemVolumeMesh generate_fem_volume_mesh(
             std::ranges::sort(region.tags);
             region.tags.erase(std::unique(region.tags.begin(),region.tags.end()),region.tags.end());
             regions.push_back(std::move(region));
+        }
+        if(planar_regions) {
+            // Fragment private mesh inputs together so that planar regions,
+            // including internal ones, share the material's actual mesh nodes.
+            // The output map preserves every condition's exact entity group.
+            gmsh::vectorpair region_entities;
+            for(const auto& region:regions)for(int tag:region.tags) {
+                const std::pair entity{region.dimension,tag};
+                if(std::ranges::find(region_entities,entity)==region_entities.end())
+                    region_entities.push_back(entity);
+            }
+            gmsh::vectorpair fragments;
+            std::vector<gmsh::vectorpair> mapping;
+            // Gmsh preserves boundary correspondence only when the lower
+            // dimensional inputs precede their owning volumes.
+            std::ranges::sort(region_entities);
+            gmsh::model::occ::fragment(region_entities,imported,fragments,mapping);
+            if(mapping.size()!=imported.size()+region_entities.size())invalid_mesh();
+            for(auto& region:regions) {
+                std::vector<int> tags;
+                for(int tag:region.tags) {
+                    const auto found=std::ranges::find(region_entities,std::pair{region.dimension,tag});
+                    const auto index=std::size_t(found-region_entities.begin());
+                    for(const auto& [dimension,replacement]:mapping[index])
+                        if(dimension==region.dimension)tags.push_back(replacement);
+                }
+                std::ranges::sort(tags);
+                tags.erase(std::unique(tags.begin(),tags.end()),tags.end());
+                if(tags.empty())invalid_mesh();
+                region.tags=std::move(tags);
+            }
+            imported=std::move(fragments);
+            std::erase_if(imported,[](const auto& entity){return entity.first!=3;});
+            if(imported.empty())invalid_mesh();
+            embeddings.clear();
         }
         gmsh::model::occ::synchronize();
         for(const auto& embedding:embeddings)

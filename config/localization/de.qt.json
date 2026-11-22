@@ -2984,5 +2984,12 @@
   "FEM mesh generation failed.": "Die FEM-Netzerzeugung ist fehlgeschlagen.",
   "Project a Sketch": "Skizze projizieren",
   "Select each target face inside the region to retain.": "Wählen Sie jede Zielfläche innerhalb des beizubehaltenden Bereichs.",
-  "Select the target faces for the Sketch.": "Wählen Sie die Zielflächen für die Skizze."
+  "Select the target faces for the Sketch.": "Wählen Sie die Zielflächen für die Skizze.",
+  "Body surface": "Körperfläche",
+  "Project Sketch onto body": "Skizze auf Körper projizieren",
+  "Select the body faces where the condition acts.": "Wählen Sie die Körperflächen, auf denen die Bedingung wirkt.",
+  "The FEM Sketch must contain region geometry.": "Die FEM-Skizze muss Geometrie für den Wirkbereich enthalten.",
+  "The FEM Sketch must lie entirely on or inside its source body.": "Die FEM-Skizze muss vollständig auf oder innerhalb ihres Quellkörpers liegen.",
+  "Převzít přerušení z rodiče": "Unterbrechungen von der übergeordneten Ansicht übernehmen",
+  "Přebírá přerušení ve společném směru pohledů a sleduje změny rodiče. Vypnutím ponecháte aktuální přerušení k samostatné úpravě.": "Übernimmt Unterbrechungen entlang der gemeinsamen Ansichtsrichtung und folgt Änderungen der übergeordneten Ansicht. Deaktivieren, um die aktuellen Unterbrechungen unabhängig zu bearbeiten."
 }

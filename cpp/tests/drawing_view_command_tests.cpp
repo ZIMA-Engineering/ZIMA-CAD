@@ -22,6 +22,66 @@ commands::Result run(command_host::Host& host,const char* name,Json args=Json::o
 }
 double width(const drawing::DrawingView& view){double low=1e100,high=-1e100;for(const auto& t:view.projected_triangles)for(auto p:t.points){low=std::min(low,p.x);high=std::max(high,p.x);}return high-low;}
 void near(double a,double b){require(std::abs(a-b)<1e-6,"Projected size or dimension differs from the analytical box size");}
+void verify_detail_dimensions(const fs::path& directory) {
+    auto document=drawing::DrawingDocument::create_default();
+    drawing::DrawingView parent;parent.id="dimension-parent";parent.source_document_id="part";
+    drawing::ModelAnnotation dimension;dimension.source={"part","feature","dimension:length",{}};
+    dimension.value=10;dimension.text="10";dimension.visible=true;dimension.paper_handles["text"]={30,40};
+    dimension.curves={{{-5,0},{5,0}}};dimension.plane_normal={0,-1,0};
+    parent.model_annotations={dimension};
+    drawing::DrawingView detail;detail.id="dimension-detail";detail.detail_view=true;detail.parent_view_id=parent.id;
+    detail.crop=drawing::ViewCrop{drawing::ViewCropShape::Circle,{0,0},{{8,8}}};detail.scale=2;
+    drawing::refresh_detail_view(detail,parent);
+    require(detail.model_annotations.size()==1&&!detail.model_annotations.front().visible&&detail.model_annotations.front().paper_handles.empty(),
+        "New detail inherited parent dimension visibility or paper placement");
+    detail.model_annotations.front().visible=true;detail.model_annotations.front().paper_handles["text"]={3,7};
+    detail.model_annotations.front().view_layout=kernel::DimensionLayout{};
+    auto nested=detail;nested.id="nested-dimension-detail";nested.parent_view_id=detail.id;nested.model_annotations.clear();
+    drawing::refresh_detail_view(nested,detail);
+    require(!nested.model_annotations.front().visible&&nested.model_annotations.front().paper_handles.empty(),"Nested detail inherited dimensions");
+    for(double length:{12.,8.,14.}) {
+        parent.model_annotations.front().visible=false;parent.model_annotations.front().value=length;
+        parent.model_annotations.front().text=std::to_string(length);
+        auto added=dimension;added.source.semantic_id="dimension:new";parent.model_annotations.resize(1);parent.model_annotations.push_back(added);
+        const auto unchanged=parent.model_annotations;
+        drawing::refresh_detail_view(detail,parent);
+        const auto& own=detail.model_annotations.front();
+        require(own.visible&&own.value==length&&own.paper_handles.at("text")==drawing::Point2{3,7}&&own.view_layout.has_value(),
+            "Detail refresh lost its own dimensions or failed to update model values");
+        require(!detail.model_annotations.back().visible&&detail.model_annotations.back().paper_handles.empty(),"New model dimension appeared automatically in detail");
+        require(parent.model_annotations==unchanged,"Detail refresh changed parent dimensions");
+    }
+    document.sheets.front().views={parent,detail,nested};const auto path=directory/"detail-dimensions.drwz";document.save(path);
+    const auto reopened=drawing::DrawingDocument::load(path);
+    for(const auto& view:document.sheets.front().views)
+        require(reopened.find_view(view.id)->model_annotations==view.model_annotations,"Detail dimension ownership did not survive reopen");
+}
+void verify_inherited_break_axes() {
+    for(auto orientation:{drawing::ViewOrientation::Front,drawing::ViewOrientation::Back,drawing::ViewOrientation::Left,drawing::ViewOrientation::Right,drawing::ViewOrientation::Top,drawing::ViewOrientation::Bottom})
+    for(auto method:{drawing::ProjectionMethod::FirstAngle,drawing::ProjectionMethod::ThirdAngle})
+    for(auto direction:{drawing::ProjectionDirection::Left,drawing::ProjectionDirection::Right,drawing::ProjectionDirection::Top,drawing::ProjectionDirection::Bottom})
+    for(bool vertical:{false,true}) {
+        drawing::DrawingView parent;parent.id="parent";parent.camera=drawing::standard_camera(orientation);
+        parent.breaks={{"first",vertical,-24,8,2,drawing::BreakMark::Zigzag},{"second",vertical,12,10,2,drawing::BreakMark::Straight}};
+        drawing::DrawingView child;child.id="child";child.parent_view_id=parent.id;child.projection_direction=direction;child.inherit_parent_breaks=true;
+        child.camera=drawing::projected_camera(parent.camera,direction,method);
+        const auto axis=vertical?parent.camera.vertical:parent.camera.horizontal;
+        const bool shared=std::abs(kernel::dimension_dot(axis,child.camera.depth))<1e-8;
+        for(int edit=0;edit<3;++edit) {
+            parent.breaks.front().start-=1;drawing::refresh_inherited_view_breaks(child,parent);
+            require(child.breaks.size()==(shared?2:0),"Projected view inherited a cut along its depth or omitted a shared cut");
+            if(shared)for(double coordinate:{-40.,-25.,-20.,0.,15.,24.}) {
+                const drawing::Point2 parent_point=vertical?drawing::Point2{0,coordinate}:drawing::Point2{coordinate,0};
+                const drawing::Point2 child_point{coordinate*kernel::dimension_dot(axis,child.camera.horizontal),coordinate*kernel::dimension_dot(axis,child.camera.vertical)};
+                require(drawing::break_hidden(parent,parent_point)==drawing::break_hidden(child,child_point),"Inherited break moved to another model location");
+            }
+        }
+        child.inherit_parent_breaks=false;const auto own=child.breaks;parent.breaks.clear();drawing::refresh_inherited_view_breaks(child,parent);
+        require(child.breaks==own,"Detached projected breaks kept following the parent");
+        child.inherit_parent_breaks=true;drawing::refresh_inherited_view_breaks(child,parent);require(child.breaks.empty(),"Parent break removal did not reach the projection");
+    }
+    std::cout<<"Projected breaks: 96 camera/method/direction/axis combinations, three edits and independent model-point checks passed\n";
+}
 void verify_current_state_snapshots(const kernel::OcctKernel& kernel) {
     auto part=document::PartDocument::create_default();auto box=test::rectangular_feature(part,{20,10,6});part.history={box};
     auto geometry=kernel.evaluate_history(part.kernel_operations());
@@ -269,6 +329,22 @@ void verify_editing(const kernel::OcctKernel& kernel,fs::path dir) {
     run(host,"save");const auto saved=drawing::DrawingDocument::load(dir/"editing.drwz");require(saved.find_view(grand)&&saved.find_view(parent)->name=="Hlavní pohled","Native Drawing lost edited views");
     require(saved.find_view(parent)->breaks.size()==1&&saved.find_view(child)->breaks.empty(),"View break leaked to child or failed to persist");
     require(saved.find_view(parent)->dimension_guide_count==7&&saved.find_view(parent)->dimension_guide_spacing==1.234,"Guide count or spacing did not persist");
+    for(double start:{-2.,-1.,0.}) {
+        const auto vertical=Json::array({{{"id","shared"},{"vertical",true},{"start",start},{"length",1},{"gap",1},{"mark",2}}});
+        run(host,"drawing.view.set",{{"view",parent},{"breaks",vertical}});
+        const auto& inherited=*live.open_drawing(id)->document().find_view(child);
+        require(inherited.inherit_parent_breaks&&inherited.breaks==live.open_drawing(id)->document().find_view(parent)->breaks,"Parent edits did not update projected breaks");
+    }
+    run(host,"drawing.view.set",{{"view",child},{"inherit_parent_breaks",false}});
+    const auto own=live.open_drawing(id)->document().find_view(child)->breaks;
+    run(host,"drawing.view.set",{{"view",parent},{"breaks",Json::array()}});
+    require(live.open_drawing(id)->document().find_view(child)->breaks==own,"Detached projected breaks changed with the parent");
+    run(host,"undo");run(host,"undo");require(live.open_drawing(id)->document().find_view(child)->inherit_parent_breaks,"Undo lost break inheritance");
+    run(host,"redo");run(host,"redo");run(host,"save");
+    const auto detached=drawing::DrawingDocument::load(dir/"editing.drwz");
+    require(!detached.find_view(child)->inherit_parent_breaks&&detached.find_view(child)->breaks==own,"Detached breaks did not reopen");
+    run(host,"drawing.view.set",{{"view",child},{"inherit_parent_breaks",true}});run(host,"save");
+    require(drawing::DrawingDocument::load(dir/"editing.drwz").find_view(child)->inherit_parent_breaks,"Inherited breaks did not reopen");
     run(host,"drawing.view.delete",{{"view",parent}});run(host,"undo");require(live.open_drawing(id)->document().find_view(grand),"Undo lost view identities");
     auto empty=document::PartDocument::create_default();live.add_part(empty,{},{});
     require(!host.execute({{"command","drawing.view.create"},{"arguments",{{"sheet",sheet},{"source",empty.document_id}}}}).ok,"Uncalculated empty source accepted");
@@ -411,6 +487,24 @@ void verify_breaks(const fs::path& dir) {
 }
 void verify_annotation_guides() {
     using namespace zima;
+    for(auto shape:{drawing::ViewCropShape::Circle,drawing::ViewCropShape::Ellipse,drawing::ViewCropShape::Spline})
+      for(double scale:{.5,1.,3.})for(bool broken:{false,true}) {
+        drawing::DrawingView detail;detail.detail_view=true;detail.scale=scale;detail.dimension_guide_offset=5;detail.dimension_guide_count=1;
+        detail.camera=drawing::standard_camera(drawing::ViewOrientation::Front);
+        detail.crop=drawing::ViewCrop{shape,{0,0},shape==drawing::ViewCropShape::Spline?
+            std::vector<drawing::Point2>{{-8,-4},{8,-4},{8,4},{-8,4}}:std::vector<drawing::Point2>{{10,shape==drawing::ViewCropShape::Circle?10.:5.}}};
+        if(broken)detail.breaks={{"detail-break",false,-2,4,2,drawing::BreakMark::None}};
+        drawing::ProjectedEdge edge;edge.points={{-1000,-1000},{1000,1000}};detail.projected_edges={edge};
+        const double height=shape==drawing::ViewCropShape::Circle?10:5;
+        const auto guides=drawing::annotation_guides(detail);require(guides.size()==4,"Detail has no own dimension frame");
+        const auto a=drawing::break_paper(detail,guides[0].first),c=drawing::break_paper(detail,guides[1].second);
+        near(a.x,-10*scale-5);near(c.x,10*scale+5);near(a.y,-height*scale-5);near(c.y,height*scale+5);
+        require(drawing::snap_annotation(detail,drawing::break_paper(detail,{0,c.y+.1},true),.5).guide.has_value(),"Detail frame snapping uses parent bounds");
+        drawing::ModelAnnotation item;item.model_envelope.include({-1000,-1000,-1000});item.model_envelope.include({1000,1000,1000});
+        const auto own=drawing::drawing_dimension_envelope(detail,item);
+        require(own.valid,"Detail dimension envelope missing");near(own.minimum.y,-height);near(own.maximum.y,height);
+        detail.detail_view=false;require(drawing::drawing_dimension_envelope(detail,item)==item.model_envelope,"Ordinary model dimension frame changed");
+    }
     drawing::DrawingView view;view.scale=2;view.dimension_guide_offset=5;view.dimension_guide_spacing=3;
     drawing::ProjectedEdge edge;edge.points={{0,0},{10,10}};view.projected_edges={edge};
     const auto snapped=drawing::snap_annotation(view,{10,25.2},.5);
@@ -468,4 +562,4 @@ void verify_projected_lengths() {
         }
 }
 int main(){try{
-    verify_projected_lengths();verify_annotation_guides();kernel::OcctKernel kernel;const auto root=fs::canonical(fs::temp_directory_path());const auto dir=root/("zima-drawing-view-"+document::PartDocument::create_default().document_id);fs::create_directory(dir);verify_current_state_snapshots(kernel);verify_projection_reuse(kernel,dir);verify_breaks(dir);verify(kernel,dir);verify_editing(kernel,dir);require(dir.parent_path()==root,"Unsafe cleanup");fs::remove_all(dir);std::cout<<"Drawing view snapshots, original references, parent-first regeneration, dimensions, native sources and deletion passed\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}
+    verify_projected_lengths();verify_annotation_guides();verify_inherited_break_axes();kernel::OcctKernel kernel;const auto root=fs::canonical(fs::temp_directory_path());const auto dir=root/("zima-drawing-view-"+document::PartDocument::create_default().document_id);fs::create_directory(dir);verify_detail_dimensions(dir);verify_current_state_snapshots(kernel);verify_projection_reuse(kernel,dir);verify_breaks(dir);verify(kernel,dir);verify_editing(kernel,dir);require(dir.parent_path()==root,"Unsafe cleanup");fs::remove_all(dir);std::cout<<"Drawing view snapshots, original references, parent-first regeneration, dimensions, native sources and deletion passed\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

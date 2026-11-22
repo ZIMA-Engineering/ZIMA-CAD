@@ -16,6 +16,10 @@ void write(const QString& path, const QByteArray& bytes) {
     require(f.open(QIODevice::WriteOnly) && f.write(bytes) == bytes.size(), "fixture write failed");
 }
 QByteArray read(const QString& path) { QFile f(path); require(f.open(QIODevice::ReadOnly), "fixture read failed"); return f.readAll(); }
+QString native_test_path(const QString& path) {
+    const auto value=std::filesystem::weakly_canonical(std::filesystem::u8path(path.toUtf8().toStdString())).generic_u8string();
+    return QString::fromUtf8(reinterpret_cast<const char*>(value.data()),qsizetype(value.size()));
+}
 #include "portable_factory_sources_contract.hpp"
 int main(int argc, char** argv) {
     QApplication app(argc, argv);
@@ -30,7 +34,7 @@ int main(int argc, char** argv) {
         require(zima::DocumentNaming{true,false,false}.normalize(QString::fromUtf8("Čelní díl"))==QString::fromUtf8("ČELNÍ DÍL"),"Independent uppercase option failed");
         require(zima::DocumentNaming{false,false,true}.normalize("  front   part  ")=="front_part","Independent whitespace option failed");
         QTemporaryDir temporary; require(temporary.isValid(), "temporary directory unavailable");
-        const auto root = temporary.path() + "/portable space";
+        const auto root = native_test_path(temporary.path()) + "/portable space";
 #ifdef _WIN32
         const auto platform = QStringLiteral("windows"); const auto executable_name = QStringLiteral("/zima-cad-cpp.exe");
 #else
@@ -40,6 +44,11 @@ int main(int argc, char** argv) {
         const auto exe = runtime + executable_name;
         const auto factory = runtime + "/config/config.ini";
         write(root + "/launcher.ini", "[launcher]\n"); write(runtime + "/version.json", "{}\n"); write(exe, "fixture");
+        write(factory, "[Application]\nTheme=light\n");
+        QDir().mkpath(root + "/Projects");
+        require(zima::app::ApplicationSettings{}.language=="en"&&
+            zima::app::ApplicationSettings::load(root+"/Projects",exe).language=="en",
+            "First launch without a language must default to English");
         const QByteArray factory_bytes("[Application]\nLanguage=en\n[Paths]\nTemplates=templates\n[Units]\nLength=mm\n[SheetMetal]\nCutTolerance=0.05\n");
         write(factory, factory_bytes);
         write(root + "/config/config.ini", "[Application]\nLanguage=de\n[Units]\nLength=cm\n[SheetMetal]\nCutTolerance=0.025\n");

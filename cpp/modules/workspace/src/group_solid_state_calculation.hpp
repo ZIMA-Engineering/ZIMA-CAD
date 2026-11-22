@@ -58,6 +58,11 @@ inline std::vector<kernel::HistoryOperation> group_solid_state_operations(
             const bool dependent=refs&&std::ranges::any_of(*refs,[&](const auto& ref) {
                 return changed.contains({ref.owner_id,ref.instance_path})||changed.contains(document::solid_state_source_owner(ref));
             });
+            // A referenced cut on the unchanged end still has a complete
+            // placement definition. Resolve it in this replay rather than
+            // asking the material cutter-transfer heuristic to move it with
+            // an unrelated straightened source.
+            const bool referenced_cut=!original.suppressed&&original.operation==kernel::BooleanOperation::Subtract&&refs&&!refs->empty();
             auto candidate=original;
             if(carried.contains(original.owner_id)) {
                 // Use the same full end-frame transport as the final state,
@@ -75,7 +80,7 @@ inline std::vector<kernel::HistoryOperation> group_solid_state_operations(
                     std::make_shared<const std::vector<kernel::HistoryOperation>>(replacements);
                 prefix.push_back(std::move(boundary));
                 candidate=kernel.prepare_solid_state_replay(prefix).back();
-            } else if(dependent&&!calculated.empty()) {
+            } else if((dependent||referenced_cut)&&!calculated.empty()) {
                 auto current=document::solid_state_alias_geometry(authored_geometry,calculated.back().mesh.original_references,changed);
                 document::HistoryReferenceViews views{{original.owner_id,
                     document::solid_state_reference_view(authored_geometry,current.geometry,current.owners,*refs)}};
@@ -85,7 +90,7 @@ inline std::vector<kernel::HistoryOperation> group_solid_state_operations(
                 if(found==resolved.end())throw std::invalid_argument("History reference view is invalid.");
                 candidate=*found;
             }
-            if(dependent) {
+            if(dependent||referenced_cut) {
                 if(!carried.contains(original.owner_id))replacements.push_back(candidate);
                 changed.insert({original.owner_id,{}});
                 if(feature)changed.insert({feature->container_origin.id,{}});

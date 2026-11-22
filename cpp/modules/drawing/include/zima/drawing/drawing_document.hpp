@@ -158,6 +158,7 @@ struct ViewDescriptionRow {
 };
 struct DrawingView {
     std::vector<ViewBreak> breaks;
+    bool inherit_parent_breaks{};
     std::string id;
     std::string name{"Pohled"};
     std::string source_document_id;

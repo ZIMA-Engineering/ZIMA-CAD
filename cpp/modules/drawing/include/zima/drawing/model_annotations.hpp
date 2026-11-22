@@ -28,6 +28,7 @@ struct ModelAnnotationSource {
 };
 ModelAnnotation project_model_annotation(const DrawingView&,ModelAnnotation);
 kernel::ViewerDimension drawing_model_dimension(const DrawingView&,const ModelAnnotation&);
+kernel::ModelEnvelope drawing_dimension_envelope(const DrawingView&,const ModelAnnotation&);
 struct AxisAnnotationGeometry {
   Point2 center;
   std::vector<std::vector<Point2>> curves;

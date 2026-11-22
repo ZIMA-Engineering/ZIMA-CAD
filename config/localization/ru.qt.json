@@ -2984,5 +2984,12 @@
   "FEM mesh generation failed.": "Не удалось построить сетку МКЭ.",
   "Project a Sketch": "Спроецировать эскиз",
   "Select each target face inside the region to retain.": "Выберите каждую целевую грань внутри сохраняемой области.",
-  "Select the target faces for the Sketch.": "Выберите целевые грани для эскиза."
+  "Select the target faces for the Sketch.": "Выберите целевые грани для эскиза.",
+  "Body surface": "Грань тела",
+  "Project Sketch onto body": "Спроецировать эскиз на тело",
+  "Select the body faces where the condition acts.": "Выберите грани тела, на которых действует условие.",
+  "The FEM Sketch must contain region geometry.": "Эскиз МКЭ должен содержать геометрию области действия.",
+  "The FEM Sketch must lie entirely on or inside its source body.": "Эскиз МКЭ должен целиком лежать на исходном теле или внутри него.",
+  "Převzít přerušení z rodiče": "Наследовать разрывы родительского вида",
+  "Přebírá přerušení ve společném směru pohledů a sleduje změny rodiče. Vypnutím ponecháte aktuální přerušení k samostatné úpravě.": "Наследует разрывы вдоль общего направления видов и отслеживает изменения родительского вида. Отключите, чтобы независимо редактировать текущие разрывы."
 }

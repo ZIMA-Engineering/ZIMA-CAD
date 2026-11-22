@@ -20,6 +20,25 @@ inline void validate_view_breaks(const DrawingView& v) {
     }
 }
 inline double break_axis(Point2 p,bool vertical){return vertical?p.y:p.x;}
+// Transfer cuts in source-model coordinates along the axis shared by the
+// two projection cameras. A cut along the child's depth has no visible span.
+inline void refresh_inherited_view_breaks(DrawingView& child,const DrawingView& parent) {
+    if(!child.inherit_parent_breaks||child.detail_view)return;
+    std::vector<ViewBreak> inherited;
+    for(auto cut:parent.breaks) {
+        const auto axis=cut.vertical?parent.camera.vertical:parent.camera.horizontal;
+        const double horizontal=kernel::dimension_dot(axis,child.camera.horizontal);
+        const double vertical=kernel::dimension_dot(axis,child.camera.vertical);
+        double sign{};
+        if(std::abs(std::abs(horizontal)-1)<1e-8){cut.vertical=false;sign=horizontal;}
+        else if(std::abs(std::abs(vertical)-1)<1e-8){cut.vertical=true;sign=vertical;}
+        else continue;
+        if(sign<0)cut.start=-cut.start-cut.length;
+        inherited.push_back(std::move(cut));
+    }
+    child.breaks=std::move(inherited);
+    validate_view_breaks(child);
+}
 inline bool break_hidden(const DrawingView& v,Point2 p) {
     for(const auto& b:v.breaks){auto t=break_axis(p,b.vertical);if(t>b.start+1e-9&&t<b.start+b.length-1e-9)return true;}return false;
 }

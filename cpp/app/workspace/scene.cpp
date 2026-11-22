@@ -1035,40 +1035,12 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
                         }
                         const auto start = local(
                             local_offset.x, local_offset.y, local_offset.z);
-                        const auto normal_endpoint = local(
-                            local_offset.x + local_normal.x,
-                            local_offset.y + local_normal.y,
-                            local_offset.z + local_normal.z);
-                        zima::kernel::Vec3 direction{
-                            normal_endpoint.x - start.x,
-                            normal_endpoint.y - start.y,
-                            normal_endpoint.z - start.z};
-                        if (container->extrusion.direction ==
-                                zima::document::ExtrusionDirection::Reverse) {
-                            direction = {-direction.x, -direction.y, -direction.z};
-                        }
-                        const auto along = [&](double distance) {
-                            return zima::kernel::Vec3{
-                                start.x + direction.x * distance,
-                                start.y + direction.y * distance,
-                                start.z + direction.z * distance};
-                        };
-                        if (const auto length =
-                                extrusion_length_dimension_value(
-                                    container->extrusion, false);
-                            !primitive_origin_preview_mesh_ && length) {
-                            linear("length_forward", "Délka = ", start,
-                                along(*length), {8,8,0}, *length);
-                        }
-                        if (const auto length =
-                                extrusion_length_dimension_value(
-                                    container->extrusion, true);
-                            !primitive_origin_preview_mesh_ && length) {
-                            linear(container->extrusion.extent_mode ==
-                                    zima::document::ProfileExtentMode::Symmetric
-                                    ? "length_forward" : "length_reverse",
-                                "Délka 2 = ", start,
-                                along(-*length), {-8,-8,0}, *length);
+                        if(!primitive_origin_preview_mesh_) {
+                            auto display=zima::document::feature_length_dimensions(*container,*sketch);
+                            if(!parameter_dimension_preview_)
+                                if(const auto* body=document.body_owner_for_object(container->id))
+                                    display=document.place_body_mesh(std::move(display),body->scope.id);
+                            mesh.dimensions.insert(mesh.dimensions.end(),display.dimensions.begin(),display.dimensions.end());
                         }
                         if (extrusion_profile_offset_dimension_value(
                                 container->extrusion) && !primitive_origin_preview_mesh_) {

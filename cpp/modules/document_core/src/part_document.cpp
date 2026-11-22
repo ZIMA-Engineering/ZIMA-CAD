@@ -7129,7 +7129,10 @@ void PartDocument::resolve_constructions(
             for(auto& condition:body.fem->conditions) {
                 auto resolved=condition.placement;
                 const auto references=fem_index.select(resolved.references);
-                if(resolve_placement(resolved,references))condition.placement=std::move(resolved);
+                if(resolve_placement(resolved,references)) {
+                    condition.placement=std::move(resolved);
+                    resolve_fem_condition_sketch_plane(condition,references);
+                }
                 else condition.placement.reference_valid=false;
             }
             next.body_history.update_body(std::move(body));

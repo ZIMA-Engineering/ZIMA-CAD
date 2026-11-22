@@ -2984,5 +2984,12 @@
   "FEM mesh generation failed.": "FEM mesh generation failed.",
   "Project a Sketch": "Project a Sketch",
   "Select each target face inside the region to retain.": "Select each target face inside the region to retain.",
-  "Select the target faces for the Sketch.": "Select the target faces for the Sketch."
+  "Select the target faces for the Sketch.": "Select the target faces for the Sketch.",
+  "Body surface": "Body surface",
+  "Project Sketch onto body": "Project Sketch onto body",
+  "Select the body faces where the condition acts.": "Select the body faces where the condition acts.",
+  "The FEM Sketch must contain region geometry.": "The FEM Sketch must contain region geometry.",
+  "The FEM Sketch must lie entirely on or inside its source body.": "The FEM Sketch must lie entirely on or inside its source body.",
+  "Převzít přerušení z rodiče": "Inherit breaks from parent",
+  "Přebírá přerušení ve společném směru pohledů a sleduje změny rodiče. Vypnutím ponecháte aktuální přerušení k samostatné úpravě.": "Inherits breaks along the shared view direction and follows parent changes. Turn off to edit the current breaks independently."
 }

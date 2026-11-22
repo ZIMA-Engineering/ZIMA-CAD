@@ -15,6 +15,13 @@ static std::vector<kernel::ExtrusionRequest> projection_sketch_profiles(const sk
     return profiles;
 }
 
+void resolve_fem_condition_sketch_plane(FemCondition& condition,const kernel::ViewerReferenceGeometry& geometry) {
+    if(!condition.projected_sketch||!condition.placement.reference_valid)return;
+    auto sketch=sketcher::Sketch::from_serialized(condition.projected_sketch->serialized);
+    if(!sketch.plane_auto)return;
+    sketch.plane=automatic_sketch_work_plane(condition.placement.references,geometry).value_or(sketcher::SketchPlane::XY);
+    sketch.refresh_default_frame();condition.projected_sketch->serialized=sketch.serialized();
+}
 sketcher::Sketch fem_condition_sketch(const FemCondition& condition) {
     auto sketch=sketcher::Sketch::from_serialized(condition.projected_sketch->serialized);
     sketch.refresh_default_frame();
@@ -29,11 +36,48 @@ sketcher::Sketch fem_condition_sketch(const FemCondition& condition) {
 
 kernel::ProjectionRequest fem_condition_projection_request(const FemCondition& condition) {
     const auto sketch=fem_condition_sketch(condition);
+    if(std::ranges::any_of(sketch.external_references,[](const auto& r){return r.broken;}))
+        throw std::invalid_argument("The condition geometry is unavailable on the FEM source.");
     kernel::ProjectionRequest request;
     request.profiles=projection_sketch_profiles(sketch.evaluated_profile_sketch());
     request.sketch_origin=sketch.world_point(0,0);
     request.sketch_normal=sketch.normal();
     return request;
+}
+
+kernel::ProjectionRequest fem_condition_planar_request(const FemCondition& condition) {
+    const auto placed=fem_condition_sketch(condition);
+    if(std::ranges::any_of(placed.external_references,[](const auto& r){return r.broken;}))
+        throw std::invalid_argument("The condition geometry is unavailable on the FEM source.");
+    const auto sketch=placed.evaluated_profile_sketch();
+    kernel::ProjectionRequest request;
+    request.sketch_origin=sketch.world_point(0,0);
+    request.sketch_normal=sketch.normal();
+    if(condition.region==FemRegionKind::Surface) {
+        auto profile=extrusion_request(sketch,1.,ExtrusionDirection::Forward,true);
+        profile.surface_result=true;
+        profile.planar_profile=true;
+        request.profiles.push_back(std::move(profile));
+        request.output=kernel::ProjectionResult::Surface;
+    }else request.profiles=projection_sketch_profiles(sketch);
+    return request;
+}
+
+void refresh_fem_condition_sketch(FemCondition& condition,const std::string& document_id,
+        const kernel::ViewerMesh& source) {
+    if(!condition.projected_sketch)return;
+    auto sketch=fem_condition_sketch(condition);
+    if(sketch.external_references.empty())return;
+    for(const auto& reference:sketch.external_references)
+        if(reference.source_document_id!=document_id||!reference.source_instance_path.empty()||
+                !reference.context_assembly_document_id.empty())
+            throw std::invalid_argument("The condition geometry is unavailable on the FEM source.");
+    kernel::ViewerReferenceGeometry body_geometry;
+    if(std::ranges::any_of(sketch.external_references,[](const auto& r){return r.body_edge;}))
+        body_geometry.edges=source.edges;
+    static_cast<void>(sketch.refresh_external_references(document_id,source.original_references,false,&body_geometry));
+    sketch.refresh_default_frame();
+    condition.projected_sketch->serialized=sketch.serialized();
 }
 
 // Feature-owned planar input, ordinary native curve adapters and the same

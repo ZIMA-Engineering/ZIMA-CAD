@@ -469,9 +469,53 @@ void verify_annotation_units() {
     require(fields.value().value_unit=="deg"&&fields.findChild<QLabel*>("dimensionAnnotationUnits")->text()==QString::fromUtf8("°"),"Changing dimension kind retained length units");
     fields.close();
 }
+void verify_axial_diameter() {
+    for(double sign:{-1.,1.})for(bool vertical:{false,true})for(double scale:{.25,1.,3.}) {
+        drawing::DrawingView view;view.id="axial-view";view.name="Axial";view.source_document_id="source";
+        view.camera.horizontal={1,0,0};view.camera.vertical={0,1,0};view.scale=scale;
+        kernel::ViewerDimension source;source.kind=kernel::ViewerDimensionKind::Diameter;
+        source.reference={"hole","diameter",{}};source.value=30;
+        source.plane_normal=vertical?kernel::Vec3{sign,0,0}:kernel::Vec3{0,sign,0};
+        source.witness_first={5,7,9};source.witness_second=kernel::dimension_add(source.witness_first,{0,0,15});
+        source.line_first=source.witness_first;source.line_second=source.witness_second;
+        drawing::ModelAnnotation item;item.source={"source","hole","diameter",{}};
+        item.kind=drawing::ModelAnnotationKind::Dimension;item.model_dimension=source;
+        const auto original=document::dimension_geometry_json(source);
+        auto shown=drawing::drawing_model_dimension(view,item);
+        require(shown.kind==kernel::ViewerDimensionKind::Linear,"Axial diameter did not enter sheet-plane layout");
+        near(shown.plane_normal.z,1);
+        near(std::sqrt(kernel::dimension_dot(kernel::dimension_sub(shown.witness_second,shown.witness_first),kernel::dimension_sub(shown.witness_second,shown.witness_first))),30);
+        for(int handle:{0,1,2})for(double offset:{12.,-18.,25.}) {
+            const auto before=shown;const auto layout=item.view_layout.value_or(kernel::DimensionLayout{});
+            item.view_layout=kernel::dragged_dimension_layout(shown,{},layout,handle,0,offset);
+            shown=drawing::drawing_model_dimension(view,item);
+            near(shown.value,30);near(shown.line_first.z,9);near(shown.line_second.z,9);
+            require(shown.witness_first==before.witness_first&&shown.witness_second==before.witness_second,
+                "Axial diameter drag moved its silhouette witnesses");
+            require(shown.line_first!=before.line_first,"Axial diameter grip cannot extend its witness lines");
+            const auto projected=drawing::project_model_annotation(view,item);
+            require(projected.text=="⌀30"&&projected.curves.size()==3,"Axial diameter lost its symbol or two extensions");
+            require(document::dimension_geometry_json(*item.model_dimension)==original,"Sheet layout changed the source parameter");
+            const auto saved=drawing::serialize_model_annotations({item});
+            const auto reopened=drawing::deserialize_model_annotations(saved).front();
+            require(reopened.source==item.source&&reopened.view_layout==item.view_layout,"Axial layout or identity did not reopen");
+        }
+        item.model_dimension->value=40;item.model_dimension->witness_second.z=29;
+        shown=drawing::drawing_model_dimension(view,item);
+        near(shown.value,40);
+        near(std::sqrt(kernel::dimension_dot(kernel::dimension_sub(shown.witness_second,shown.witness_first),kernel::dimension_sub(shown.witness_second,shown.witness_first))),40);
+        require(drawing::project_model_annotation(view,item).text=="⌀40","Axial dimension stopped following the model value");
+        item.model_dimension->plane_normal={0,0,1};
+        require(drawing::drawing_model_dimension(view,item).kind==kernel::ViewerDimensionKind::Diameter,"Face-on diameter was converted");
+        item.model_dimension->plane_normal={0,.7071067811865475,.7071067811865475};
+        require(drawing::drawing_model_dimension(view,item).kind==kernel::ViewerDimensionKind::Diameter,"Oblique diameter was treated as an axial view");
+    }
+    std::cout<<"Axial diameters: orientation, scale, three grips, repeated offsets, parameter updates and reopen passed\n";
+}
 int main(int argc, char **argv) {
     QApplication app(argc, argv);
     try {
+        verify_axial_diameter();
         {
             viewer::MeshView view;view.resize(640,480);view.show();app.processEvents();
             for(const auto projection:{viewer::ProjectionMode::Orthographic,viewer::ProjectionMode::Perspective}) {

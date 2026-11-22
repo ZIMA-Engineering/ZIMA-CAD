@@ -10,6 +10,7 @@
 #include <stdexcept>
 #include <zima/drawing/model_annotations.hpp>
 #include <zima/drawing/view_breaks.hpp>
+#include <zima/drawing/annotation_guides.hpp>
 namespace zima::drawing {
 namespace {
 using nlohmann::json;
@@ -107,8 +108,37 @@ AxisAnnotationGeometry axis_annotation_geometry(const DrawingView &view, const M
     }
     return out;
 }
+kernel::ModelEnvelope drawing_dimension_envelope(const DrawingView& view,const ModelAnnotation& item) {
+    if(!view.detail_view)return item.model_envelope;
+    const auto bounds=annotation_bounds(view);if(!bounds)return {};
+    const auto low=break_map(view,(*bounds)[0],true),high=break_map(view,(*bounds)[1],true);
+    kernel::ModelEnvelope frame;
+    frame.axes={view.camera.horizontal,view.camera.vertical,kernel::dimension_cross(view.camera.horizontal,view.camera.vertical)};
+    const double depth=item.model_dimension?kernel::dimension_dot(item.model_dimension->witness_first,frame.axes[2]):0;
+    frame.minimum={low.x,low.y,depth};frame.maximum={high.x,high.y,depth};frame.valid=true;
+    return frame;
+}
 kernel::ViewerDimension drawing_model_dimension(const DrawingView& view,const ModelAnnotation& item) {
     auto source=*item.model_dimension;
+    const auto view_normal=kernel::dimension_unit(kernel::dimension_cross(view.camera.horizontal,view.camera.vertical));
+    const bool edge_on_diameter=source.kind==kernel::ViewerDimensionKind::Diameter&&
+        std::abs(kernel::dimension_dot(kernel::dimension_unit(source.plane_normal),view_normal))<1e-8;
+    if(edge_on_diameter) {
+        // In an axial view the circle projects to its full diameter. Keep the
+        // source parameter intact and lay out its two silhouette witnesses in
+        // the sheet plane, so ordinary linear grips produce extension lines.
+        const auto center=source.witness_first;
+        const auto radius=std::sqrt(kernel::dimension_dot(kernel::dimension_sub(source.witness_second,center),kernel::dimension_sub(source.witness_second,center)));
+        auto u=kernel::dimension_unit(kernel::dimension_cross(source.plane_normal,view_normal));
+        const double x=kernel::dimension_dot(u,view.camera.horizontal),y=kernel::dimension_dot(u,view.camera.vertical);
+        if((std::abs(x)>=std::abs(y)?x:y)<0)u=kernel::dimension_scale(u,-1);
+        const auto outward=kernel::dimension_cross(view_normal,u);
+        source.kind=kernel::ViewerDimensionKind::Linear;
+        source.measurement_direction=u;source.plane_normal=view_normal;
+        source.witness_first=source.line_first=kernel::dimension_sub(center,kernel::dimension_scale(u,radius));
+        source.witness_second=source.line_second=kernel::dimension_add(center,kernel::dimension_scale(u,radius));
+        source.label_position=kernel::dimension_add(center,kernel::dimension_scale(outward,2));
+    }
     if(source.kind==kernel::ViewerDimensionKind::Linear) {
         const auto u=kernel::dimension_measurement_direction(source);
         const auto old_v=kernel::dimension_unit(kernel::dimension_cross(source.plane_normal,u));
@@ -131,10 +161,15 @@ kernel::ViewerDimension drawing_model_dimension(const DrawingView& view,const Mo
         }
     }
     auto layout=item.view_layout.value_or(item.model_layout);
+    if(edge_on_diameter) {
+        auto style=layout.text_style.value_or(kernel::dimension_text_style(*item.model_dimension));
+        style.prefix+="⌀";
+        layout.text_style=std::move(style);
+    }
     // Model quarter-turns describe its 3D presentation. A drawing derives its
     // own readable plane; an explicit drawing override still remains editable.
     if(!item.view_layout)layout.plane_quarter_turns=0;
-    return kernel::layout_dimension(source,item.model_envelope,layout);
+    return kernel::layout_dimension(source,drawing_dimension_envelope(view,item),layout);
 }
 ModelAnnotation project_model_annotation(const DrawingView& view,ModelAnnotation item) {
   if(origin_annotation(item.source)){item.visible=false;item.curves.clear();return item;}

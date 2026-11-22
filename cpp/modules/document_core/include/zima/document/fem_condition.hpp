@@ -19,12 +19,13 @@ struct FemRegionReference {
 
 struct FemProjectedSketch {
     // Ordinary Sketch data owned by this condition. Its local XY geometry
-    // remains editable; projection is calculated from the resolved placement.
+    // remains editable in both modes. Keep the storage block's established name.
     std::string serialized;
     // Seed points use the material source frame and follow target row order.
     // They select the bounded loaded patch on each target face.
     std::vector<kernel::Vec3> surface_seeds;
     std::vector<std::string> surface_region_keys;
+    bool project_to_body{true};
     bool operator==(const FemProjectedSketch&) const = default;
 };
 
@@ -53,5 +54,9 @@ void validate_fem_condition(const FemCondition&);
 void to_json(nlohmann::json&, const FemCondition&);
 void from_json(const nlohmann::json&, FemCondition&);
 [[nodiscard]] sketcher::Sketch fem_condition_sketch(const FemCondition&);
+void resolve_fem_condition_sketch_plane(FemCondition&,const kernel::ViewerReferenceGeometry&);
 [[nodiscard]] kernel::ProjectionRequest fem_condition_projection_request(const FemCondition&);
+[[nodiscard]] kernel::ProjectionRequest fem_condition_planar_request(const FemCondition&);
+void refresh_fem_condition_sketch(FemCondition&,const std::string& document_id,
+    const kernel::ViewerMesh& source);
 } // namespace zima::document

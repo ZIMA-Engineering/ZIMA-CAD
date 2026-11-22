@@ -2,6 +2,7 @@
 #include "profile_solid_fixture.hpp"
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/opening_operations.hpp>
+#include <zima/workspace/profile_operations.hpp>
 #include <cmath>
 #include <numbers>
 #include <iostream>
@@ -19,6 +20,54 @@ double exact_volume(const kernel::OcctKernel& kernel,const kernel::BodyResult& s
 commands::Result run(command_host::Host& host,const std::string& command,Json args=Json::object()) {
     auto result=host.execute({{"command",command},{"arguments",std::move(args)}});
     if(!result.ok)throw std::runtime_error(command+": "+result.code+": "+result.message);return result;
+}
+void verify_spline_plane(const kernel::OcctKernel& kernel,fs::path directory,bool reverse,double bow=0) {
+    workspace::Workspace live;auto doc=document::PartDocument::create_default();
+    const auto document_id=doc.document_id;live.add_part(doc,{});live.activate(document_id);
+    auto sketch=sketcher::Sketch::create_default();
+    const auto lower=sketch.add_bspline({{-20,-10},{0,-10-bow},{20,-10}},2);
+    static_cast<void>(sketch.add_segment(20,-10,20,10));
+    const auto upper=sketch.add_bspline({{20,10},{0,10+bow},{-20,10}},2);
+    static_cast<void>(sketch.add_segment(-20,10,-20,-10));
+    auto stock=document::PartDocument::create_feature_container(sketch.id);stock.feature.sides[0].length=20;
+    workspace::commit_profile(live,kernel,document_id,stock,workspace::ProfileEditMode::Create,sketch);
+    auto* state=live.open_part(document_id);
+    const auto& geometry=state->session.calculated_boundaries().back().mesh.original_references;
+    const auto face=std::ranges::find_if(geometry.triangle_references,[&](const auto& f) {
+        return f.owner_id==stock.id&&f.semantic_key.starts_with("generated:")&&f.semantic_key.find(reverse?lower:upper)!=std::string::npos;
+    });
+    require(face!=geometry.triangle_references.end(),"Spline extrusion face missing");
+    require(bool(face->surface)==(bow==0),"Exact and almost-planar spline supports were confused");
+    command_host::Host host(live,kernel,directory,{});
+    const auto target=Json::array({Json{{"owner",stock.id},{"key",face->semantic_key}}});
+    Json args{{"type","metric"},{"designation","M10"},{"chamfer_enabled",false},{"drill_point_enabled",false},
+        {"bore_end","through_all"},{"thread_end","up_to"},{"thread_targets",target},
+        {"placement",{{"y",reverse?10:-10},{"z",10},{"rotation_x",reverse?90:-90}}}};
+    if(bow!=0) {
+        const auto revision=state->session.revision();
+        require(!host.execute({{"command","opening.create"},{"arguments",args}}).ok&&state->session.revision()==revision,
+            "Almost-planar thread limit was accepted or partly committed");return;
+    }
+    const auto opening=run(host,"opening.create",args).data.at("container").get<std::string>();
+    const auto verify=[&](const auto& result) {
+        require(result.calculation_errors.empty(),"Spline plane opening failed");
+        near(exact_volume(kernel,result),16000-std::numbers::pi*std::pow(8.376/2,2)*20);
+        double end=reverse?1e20:-1e20;
+        for(std::size_t i=0;i<result.mesh.triangle_references.size();++i)
+            if(const auto& ref=result.mesh.triangle_references[i];ref.owner_id==opening&&ref.is_thread_surface())
+                for(int j=0;j<3;++j) {const auto y=result.mesh.vertices.at(result.mesh.triangles.at(i*3+j)).y;end=reverse?std::min(end,y):std::max(end,y);}
+        near(end,reverse?-10:10);
+    };
+    verify(state->session.calculated_boundaries().back());
+    run(host,"opening.set",{{"container",opening},{"bore_end","up_to"},{"bore_targets",target}});
+    verify(state->session.calculated_boundaries().back());
+    const auto revision=state->session.revision();
+    require(!run(host,"opening.set",{{"container",opening},{"bore_end","up_to"},{"bore_targets",target}}).data.at("changed").get<bool>()&&state->session.revision()==revision,
+        "Unchanged spline-plane Up To added a transaction");
+    run(host,"undo");verify(state->session.calculated_boundaries().back());run(host,"redo");verify(state->session.calculated_boundaries().back());
+    std::vector<kernel::BodyResult> saved;
+    auto loaded=document::PartDocument::from_serialized(state->session.document().serialized(state->session.calculated_boundaries()),&saved);
+    verify(saved.back());kernel::OcctKernel cold;verify(workspace::calculate_part_with_resolved_references(cold,loaded).back());
 }
 void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     workspace::Workspace live;command_host::Options options;
@@ -162,6 +211,7 @@ int main(){try {
     kernel::OcctKernel kernel;const auto root=fs::canonical(fs::temp_directory_path());
     const auto directory=root/("zima-opening-targets-"+document::PartDocument::create_default().document_id);
     require(fs::create_directory(directory),"Cannot create test directory");verify(kernel,directory);
+    for(bool reverse:{false,true}) {verify_spline_plane(kernel,directory,reverse);verify_spline_plane(kernel,directory,reverse,1e-8);}
     require(directory.parent_path()==root,"Unexpected cleanup path");fs::remove_all(directory);
     std::cout<<"Opening targets: independent limits, live original planes, atomic errors, persistence and missing-reference recovery passed\n";return 0;
 }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}}

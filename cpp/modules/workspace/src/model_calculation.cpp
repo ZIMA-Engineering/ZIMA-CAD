@@ -1129,6 +1129,18 @@ calculate_part_reference_state(
                             [](const auto& child){return !child.detached&&!child.references_valid;}))
                         errors[feature.id]="Sheet from Body is unresolved. Edit its references or regenerate.";
                 }
+            // FEM consumes the settled material snapshot. Refresh owned Sketch
+            // references here, with actual trimmed body edges, without another
+            // material calculation or a second placement solve.
+            if(!calculated.empty())for(const auto& original:document.body_history.bodies())if(original.fem) {
+                auto body=original;
+                const auto source=calculated.back().body_outputs.find(body.fem->source_id);
+                const kernel::ViewerMesh empty;
+                const auto& mesh=source==calculated.back().body_outputs.end()?empty:source->second->mesh;
+                for(auto& condition:body.fem->conditions)if(condition.placement.reference_valid)
+                    document::refresh_fem_condition_sketch(condition,document.document_id,mesh);
+                if(body!=original)document.body_history.update_body(std::move(body));
+            }
             validate_part_calculation(document,calculated,policy);
             return calculated;
         }

@@ -22,8 +22,9 @@ const document::FemCondition* AssemblyWorkspaceWindow::active_fem_condition(cons
 kernel::ViewerMesh AssemblyWorkspaceWindow::fem_display_mesh()const {
     const auto* part=workspace_.open_part(workspace_.active_document_id());if(!part)return {};
     auto result=part->session.body_context_mesh();const auto& doc=part->session.document();
-    const auto* mesh=show_fem_deformation_&&!properties_dialog_?active_fem_deformation():nullptr;
-    if(!mesh&&show_generated_fem_mesh_&&!properties_dialog_)mesh=active_generated_fem_mesh();
+    const bool inspect_results=!properties_dialog_&&active_sketch_id_.empty();
+    const auto* mesh=show_fem_deformation_&&inspect_results?active_fem_deformation():nullptr;
+    if(!mesh&&show_generated_fem_mesh_&&inspect_results)mesh=active_generated_fem_mesh();
     const auto* body=doc.body_history.find(doc.body_history.active_body_id());if(!body||!body->fem)return result;
     kernel::ViewerMesh source_mesh;
     if(mesh) {
@@ -90,6 +91,7 @@ void AssemblyWorkspaceWindow::show_fem_condition_properties(document::FemConditi
     auto* dialog=new FemConditionDialog(initial,[this,edit](auto value){static_cast<void>(workspace::commit_fem_condition(workspace_,edit,std::move(value)));},this);
     properties_dialog_=dialog;primitive_reference_dialog_=dialog;primitive_parameter_owner_id_=initial.id;
     construction_dimension_object_id_=initial.id;fem_condition_preview_=initial;fem_inspected_condition_.clear();
+    dialog->work_plane_geometry=[this]() -> const kernel::ViewerReferenceGeometry& {return primitive_reference_geometry_;};
     dialog->reference_label=[this](const auto& r){
         const auto* part=workspace_.open_part(workspace_.active_document_id());const auto* owner=part?part->session.document().find_container(r.owner_id):nullptr;
         return QString::fromStdString(owner?owner->name:r.owner_id)+" / "+reference_display_label(r,primitive_reference_geometry_).value_or(QString::fromStdString(r.semantic_key));
@@ -114,7 +116,7 @@ void AssemblyWorkspaceWindow::show_fem_condition_properties(document::FemConditi
         dialog->set_rotation_constraint_state(document::orientation_constraint_state(p.references,geometry,true,{p.x,p.y,p.z}));
         dialog->set_orientation_base_rotation(base,oriented);dialog->set_resolved_rotation({p.rotation_x,p.rotation_y,p.rotation_z},valid);
         fem_condition_preview_=value;auto preview=document::fem_condition_presentation(value,source->mesh);
-        if(value.projected_sketch) {
+        if(value.projected_sketch&&value.projected_sketch->project_to_body) {
             auto sketch=document::fem_condition_sketch(value);
             document::PartDocument projection;
             auto feature=document::PartDocument::create_feature_container(sketch.id);
@@ -137,12 +139,18 @@ void AssemblyWorkspaceWindow::show_fem_condition_properties(document::FemConditi
         append_mesh(preview,carrier->place_body_mesh(origin_template,frame_id));
         viewer_->set_transient_context_mesh(std::move(preview));update_highlights();
     };
-    const auto end_geometry=[this,dialog]{dialog->end_input();feature_reference_pick_={};feature_reference_end_={};tree_->setProperty("commandSelectionActive",false);viewer_->set_original_container_selection(false);viewer_->set_selection_contract({});viewer_->set_candidate_filter({});viewer_->clear_selection();};
+    const auto end_geometry=[this,dialog]{
+        const bool picking=dialog->active_input()||bool(feature_reference_end_);
+        dialog->end_input();feature_reference_pick_={};feature_reference_end_={};
+        if(picking){tree_->setProperty("commandSelectionActive",false);viewer_->set_original_container_selection(false);viewer_->set_selection_contract({});viewer_->set_candidate_filter({});viewer_->clear_selection();}
+    };
     dialog->stop_geometry=end_geometry;
     dialog->edit_sketch=[this,dialog,end_geometry](sketcher::Sketch) {
         end_geometry();
+        static_cast<void>(finish_active_reference_selection());
         const auto value=fem_condition_preview_.value_or(dialog->pending_value());
         sweep_profile_sketch_draft_=document::fem_condition_sketch(value);
+        section_sketch_undo_.clear();section_sketch_redo_.clear();
         active_sketch_id_=sweep_profile_sketch_draft_->id;
         selected_sketch_id_=active_sketch_id_;
         const QPointer<FemConditionDialog> guard(dialog);
@@ -205,6 +213,11 @@ void AssemblyWorkspaceWindow::show_fem_condition_properties(document::FemConditi
         tree_->setProperty("commandSelectionActive",false);preserve_view_on_refresh_=true;refresh_tabs();refresh_scene();
     });
     bind_local_origin_selection(dialog);preserve_view_on_refresh_=true;refresh_scene();dialog->show();dialog->changed();
-    if(initial.region!=document::FemRegionKind::Point&&initial.references.empty())dialog->arm(0);
+    if(dialog->accepts_target_faces()&&initial.references.empty())dialog->arm(0);
+    else {
+        const auto first=dialog->first_empty_position_index();
+        if(first<3)start_primitive_reference_selection(first,true);
+        else set_primitive_properties_dimension_selection();
+    }
 }
 } // namespace zima::app

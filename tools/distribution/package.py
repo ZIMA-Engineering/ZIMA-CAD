@@ -95,6 +95,8 @@ def prepare_factory_config(runtime):
         elif section == 'Paths' and re.match(r'^WorkingDirectory\s*=', text):
             lines[index] = 'WorkingDirectory=~\n'
             working_directory_replaced += 1
+        elif section == 'Application' and re.match(r'^Language\s*=', text):
+            lines[index] = 'Language=en\n'
         elif section == 'AI' and re.match(
                 r'^CodexExecutable(?:Windows|Linux)\s*=', text):
             # A development checkout may remember its local Codex executable.

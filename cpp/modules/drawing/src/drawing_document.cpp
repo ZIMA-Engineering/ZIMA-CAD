@@ -741,6 +741,7 @@ void DrawingDocument::save(const std::filesystem::path& path,
             else item["section_snapshot"]=nlohmann::json::array();
 
             validate_view_breaks(view);item["breaks"]=nlohmann::json::array();
+            if(view.inherit_parent_breaks)item["inherit_parent_breaks"]=true;
             for(const auto& b:view.breaks)item["breaks"].push_back({{"id",b.id},{"vertical",b.vertical},{"start",b.start},{"length",b.length},{"gap",b.gap},{"mark",int(b.mark)}});
             item["dimension_guides"]={{"visible",view.show_dimension_guides},{"offset",view.dimension_guide_offset},{"spacing",view.dimension_guide_spacing},{"count",view.dimension_guide_count}};
             item["model_annotations"] = nlohmann::json::parse(serialize_model_annotations(view.model_annotations));
@@ -960,6 +961,9 @@ DrawingDocument DrawingDocument::load(const std::filesystem::path& path) {
                 for(const auto& p:saved.at("points"))crop.points.push_back({p.at(0),p.at(1)});view.crop=std::move(crop);validate_view_crop(view);
             }
             view.detail_view=item.value("detail_view",false);
+            view.inherit_parent_breaks=item.value("inherit_parent_breaks",false);
+            if(view.inherit_parent_breaks&&(view.parent_view_id.empty()||view.detail_view||view.projection_direction==ProjectionDirection::None))
+                throw std::runtime_error("Invalid drawing view parameters.");
             view.show_detail_boundary=item.value("show_detail_boundary",true);view.show_detail_label=item.value("show_detail_label",true);
             if(view.detail_view&&(!view.crop||view.parent_view_id.empty()))throw std::runtime_error("Invalid detail view parent or boundary.");
             for(const auto& saved:item.value("inherited_crops",nlohmann::json::array())) {

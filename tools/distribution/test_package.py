@@ -102,6 +102,7 @@ class PackageTests(unittest.TestCase):
             (runtime / 'config').mkdir()
             config = runtime / 'config/config.ini'
             config.write_text(
+                '[Application]\nLanguage=cs\n'
                 '[AI]\n'
                 'CodexExecutableWindows=C:/Users/builder/AppData/Local/OpenAI/Codex/codex.exe\n'
                 'CodexExecutableLinux=/home/builder/.local/bin/codex\n'
@@ -110,6 +111,7 @@ class PackageTests(unittest.TestCase):
                 '[Other]\nWorkingDirectory=keep\n', encoding='utf-8')
             package.prepare_factory_config(runtime)
             self.assertEqual(config.read_text(encoding='utf-8'),
+                '[Application]\nLanguage=en\n'
                 '[AI]\nCodexExecutableWindows=\nCodexExecutableLinux=\nModel=\n'
                 '[Paths]\nTemplates=templates\nWorkingDirectory=~\n'
                 '[Other]\nWorkingDirectory=keep\n')

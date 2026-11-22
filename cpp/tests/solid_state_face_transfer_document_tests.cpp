@@ -757,7 +757,11 @@ int main(int argc,char** argv)try {
         for(const auto& feature:part.history)if(document::is_solid_state(feature.feature_kind))existing_states.push_back(feature.id);
         for(auto it=existing_states.rbegin();it!=existing_states.rend();++it)part.erase_history_object(*it);
         auto baseline=part;
-        const auto original_calculated=workspace::calculate_part_with_resolved_references(kernel::OcctKernel{},baseline,nullptr,{true});
+        auto original_calculated=workspace::calculate_part_with_resolved_references(kernel::OcctKernel{},baseline,nullptr,{true});
+        kernel::OcctKernel{}.ensure_body_properties(original_calculated.back());
+        kernel::OcctKernel{}.ensure_body_properties(bodies.back());
+        check(std::abs(original_calculated.back().volume-bodies.back().volume)<=std::max(1e-5,bodies.back().volume*1e-9),
+            "Cold original calculation changed the saved solid volume");
         if(!existing_states.empty()){part=baseline;bodies=original_calculated;}
         for(const auto& operation:baseline.kernel_operations())if(const auto* group=std::get_if<kernel::FeatureGroupRequest>(&operation.primitive)) {
             const bool curved=std::ranges::any_of(group->children,[](const auto& child){return std::holds_alternative<kernel::RevolutionRequest>(child);});
@@ -777,26 +781,27 @@ int main(int argc,char** argv)try {
         check(!workspace::solid_state_sources(part,false).empty(),"Combined Feature is not offered");
         auto straight=document::PartDocument::create_solid_state_container();
         check(workspace::commit_solid_state(live,kernel,id,straight),"Cannot straighten user model");
-        const auto straight_volume=live.open_part(id)->session.calculated_boundaries().back().volume;
+        const auto straight_volume=analyzed_volume(kernel,live.open_part(id)->session.calculated_boundaries().back());
         std::vector<kernel::BodyResult> reopened_boundaries;
         static_cast<void>(document::PartDocument::from_serialized(live.open_part(id)->session.document().serialized(
             live.open_part(id)->session.calculated_boundaries()),&reopened_boundaries));
-        near(reopened_boundaries.back().volume,straight_volume);
+        near(analyzed_volume(kernel,reopened_boundaries.back()),straight_volume);
         if(!existing_states.empty()&&saved.history.back().feature_kind==document::FeatureKind::Straighten&&
             saved.history.back().solid_state.all&&saved.history.back().solid_state.coefficient==1) {
             auto recalculated=saved;
             const auto refreshed=workspace::calculate_part_with_resolved_references(kernel,recalculated,&saved_boundaries,{true});
-            near(refreshed.back().volume,straight_volume);
+            near(analyzed_volume(kernel,refreshed.back()),straight_volume);
         }
         auto cold=live.open_part(id)->session.document();
         const auto regenerated=workspace::calculate_part_with_resolved_references(kernel,cold,nullptr,{true});
-        near(regenerated.back().volume,straight_volume);
+        near(analyzed_volume(kernel,regenerated.back()),straight_volume);
         auto restore=document::PartDocument::create_solid_state_container(true);
         check(workspace::commit_solid_state(live,kernel,id,restore),"Cannot restore user model");
-        near(live.open_part(id)->session.calculated_boundaries().back().volume,bodies.back().volume);
+        near(analyzed_volume(kernel,live.open_part(id)->session.calculated_boundaries().back()),original_calculated.back().volume);
         cold=live.open_part(id)->session.document();
-        const auto restored=workspace::calculate_part_with_resolved_references(kernel,cold,nullptr,{true});
-        near(restored.back().volume,bodies.back().volume);
+        auto restored=workspace::calculate_part_with_resolved_references(kernel,cold,nullptr,{true});
+        kernel.ensure_body_properties(restored.back());
+        near(restored.back().volume,original_calculated.back().volume);
         near(restored.back().surface_area,original_calculated.back().surface_area);
         check(restored.back().surface_centroid&&original_calculated.back().surface_centroid,"Restore has no exact surface centroid");
         const auto a=*restored.back().surface_centroid,b=*original_calculated.back().surface_centroid;

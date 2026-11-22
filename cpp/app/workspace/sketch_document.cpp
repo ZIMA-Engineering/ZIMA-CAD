@@ -853,10 +853,19 @@ bool AssemblyWorkspaceWindow::accept_sketch_text_ray(
     return true;
 }
 
+void AssemblyWorkspaceWindow::cancel_active_sketch() {
+    if(properties_dialog_||!sketch_edit_initial_||!sweep_profile_sketch_draft_||
+            active_sketch_id_!=sketch_edit_initial_->id)return;
+    cancel_sketch_segment();
+    sweep_profile_sketch_draft_=*sketch_edit_initial_;
+    section_sketch_undo_.clear();section_sketch_redo_.clear();
+    finish_active_sketch();
+}
 void AssemblyWorkspaceWindow::finish_active_sketch() {
     if (active_sketch_id_.empty() || properties_dialog_ != nullptr) return;
     // Flush a pending trim before validating or copying an embedded Sketch.
     if (sketch_trim_active_ && !finish_sketch_trim()) return;
+    sketch_edit_initial_.reset();
     if (sweep_profile_sketch_draft_ && embedded_sketch_finished_) {
         // Returning to Properties must also allow an incomplete Section draft,
         // so its owning dialog can be cancelled. OK validates the final cut.

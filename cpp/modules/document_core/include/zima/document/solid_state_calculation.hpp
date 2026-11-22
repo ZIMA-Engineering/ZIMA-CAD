@@ -44,7 +44,8 @@ inline std::vector<kernel::HistoryOperation> combined_solid_state_calculation_op
                 if(feature)changed.insert({feature->container_origin.id,{}});
                 continue;
             }
-            if(refs&&std::ranges::any_of(*refs,[&](const auto& ref){return changed.contains({ref.owner_id,ref.instance_path})||changed.contains(solid_state_source_owner(ref));})) {
+            const bool referenced_cut=!original.suppressed&&original.operation==kernel::BooleanOperation::Subtract&&refs&&!refs->empty();
+            if(referenced_cut||(refs&&std::ranges::any_of(*refs,[&](const auto& ref){return changed.contains({ref.owner_id,ref.instance_path})||changed.contains(solid_state_source_owner(ref));}))) {
                 auto current=solid_state_alias_geometry(geometry,*packet->second,changed);
                 views.emplace(original.owner_id,document::solid_state_reference_view(geometry,current.geometry,current.owners,*refs));
                 dependent.insert(original.owner_id);changed.insert({original.owner_id,{}});

@@ -57,15 +57,21 @@ bool commit_fem_condition(Workspace& live,const BodyGraphEdit& edit,document::Fe
     auto resolved=value.placement;
     if(document::resolve_placement(resolved,geometry))value.placement=std::move(resolved);
     else {if(!old)throw std::invalid_argument("The condition placement is unresolved.");value.placement=old->placement;value.placement.references=resolved.references;value.placement.reference_valid=false;}
+    if(value.placement.reference_valid) {
+        document::resolve_fem_condition_sketch_plane(value,geometry);
+        document::refresh_fem_condition_sketch(value,state->session.document().document_id,source->mesh);
+    }
     if(value.projected_sketch&&value.placement.reference_valid&&
             (!old||old->projected_sketch!=value.projected_sketch||old->region!=value.region||
              old->references!=value.references||old->placement!=value.placement)) {
         std::vector<kernel::FaceReference> references;
         for(const auto& ref:value.references)
             references.push_back({ref.owner_id,ref.semantic_key,ref.instance_path});
-        value.projected_sketch->surface_region_keys=kernel::validate_projected_mesh_region(
-            source.get(),document::fem_condition_projection_request(value),references,
-            value.projected_sketch->surface_seeds,value.projected_sketch->surface_region_keys);
+        if(value.projected_sketch->project_to_body)
+            value.projected_sketch->surface_region_keys=kernel::validate_projected_mesh_region(
+                source.get(),document::fem_condition_projection_request(value),references,
+                value.projected_sketch->surface_seeds,value.projected_sketch->surface_region_keys);
+        else kernel::validate_planar_mesh_region(source.get(),document::fem_condition_planar_request(value));
     }
     auto updated=*body;auto& conditions=updated.fem->conditions;
     const auto item=std::ranges::find(conditions,value.id,&document::FemCondition::id);

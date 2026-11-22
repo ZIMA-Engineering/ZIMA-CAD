@@ -9,6 +9,8 @@
 #include <zima/kernel/axis_display.hpp>
 #include <zima/workspace/drawing_sources.hpp>
 #include "profile_solid_fixture.hpp"
+#include <zima/document/feature_length_dimensions.hpp>
+#include <zima/kernel/calculation_diagnostics.hpp>
 using namespace zima;using commands::Json;namespace fs=std::filesystem;
 namespace {
 void require(bool value,const char* message){if(!value)throw std::runtime_error(message);}
@@ -17,6 +19,59 @@ commands::Result run(command_host::Host& host,const char* name,Json args=Json::o
     if(!result.ok)throw std::runtime_error(std::string(name)+": "+result.code+": "+result.message);return result;
 }
 Json ref(const drawing::ModelAnnotationReference& r){return {{"source_document",r.document_id},{"owner",r.owner_id},{"key",r.semantic_id},{"instance_path",r.instance_path}};}
+void verify_extrusion_lengths(const kernel::OcctKernel& kernel,fs::path directory) {
+    for(bool unified:{false,true})for(bool reversed:{false,true})for(int mode:{0,1,2}) {
+        auto part=document::PartDocument::create_default();
+        auto sketch=sketcher::Sketch::create_default();static_cast<void>(sketch.add_rectangle(-10,-5,10,5));
+        auto feature=unified?document::PartDocument::create_feature_container(sketch.id):document::PartDocument::create_extrusion_container(sketch.id);
+        sketch.owner_container_id=feature.id;
+        feature.feature.reversed_sides=reversed;feature.feature.symmetric=mode==2;
+        feature.feature.sides[1].operation=mode==1?document::FeatureSideOperation::Extrusion:document::FeatureSideOperation::None;
+        feature.feature.sides[1].length=3;
+        feature.extrusion.direction=reversed?document::ExtrusionDirection::Reverse:document::ExtrusionDirection::Forward;
+        feature.extrusion.extent_mode=mode==0?document::ProfileExtentMode::OneSide:mode==1?document::ProfileExtentMode::TwoSides:document::ProfileExtentMode::Symmetric;
+        feature.extrusion.length_reverse=3;part.sketches={sketch};part.history={feature};
+        document::BodyHistoryGraph graph;static_cast<void>(graph.create_body("Body"));graph.insert({document::PartHistoryKind::Feature,feature.id});part.set_body_history(graph);
+        part.resolve_constructions();workspace::Workspace live;
+        const auto path=directory/"extrusion-length.prtz";
+        live.add_part(part,kernel.evaluate_history(part.kernel_operations()),path);
+        auto& session=live.open_part(part.document_id)->session;
+        const auto key=unified?"parameter:side0_length":"parameter:length_forward";
+        const drawing::ModelAnnotationReference reference{part.document_id,feature.id,key,{}};
+        auto drawing=drawing::DrawingDocument::create_default();
+        auto view=drawing::DrawingDocument::create_view(part.document_id,path,session.calculated_boundaries().back().mesh,drawing::ViewOrientation::Front);
+        for(double length:{6.,9.,7.25}) {
+            auto next=session.document();next.history.front().feature.sides[0].length=length;next.history.front().extrusion.length_forward=length;
+            next.resolve_constructions();auto calculated=kernel.evaluate_history(next.kernel_operations());session.commit(std::move(next),std::move(calculated));
+            const auto count=kernel::body_calculation_count.load(),revision=session.revision();
+            const auto sources=workspace::drawing_annotation_sources(&live,part.document_id,path);
+            drawing::refresh_model_annotations(view,sources);
+            const auto found=std::ranges::find(view.model_annotations,reference,&drawing::ModelAnnotation::source);
+            require(found!=view.model_annotations.end()&&!found->unresolved&&found->model_dimension,"Extrusion length missing from Drawing Show/Erase");
+            require(std::abs(found->value-length)<1e-9&&!found->curves.empty(),"Drawing extrusion length value or geometry is stale");
+            const auto& d=*found->model_dimension;
+            const auto measured=kernel::dimension_sub(d.witness_second,d.witness_first);
+            require(std::abs(std::sqrt(kernel::dimension_dot(measured,measured))-length)<1e-9,"Extrusion witnesses do not measure the authored length");
+            require((d.witness_second.z-d.witness_first.z)*(reversed?-1:1)>0,"Drawing extrusion length lost its authored direction");
+            const auto count_lengths=std::ranges::count_if(view.model_annotations,[&](const auto& item){return item.source.owner_id==feature.id&&item.source.semantic_id.ends_with(unified?"_length":"length_forward");});
+            require(count_lengths==(unified&&mode==1?2:1),"Symmetric length is duplicated or second side is missing");
+            found->visible=true;drawing.sheets.front().views={view};const auto drawing_path=directory/"extrusion-length.drwz";drawing.save(drawing_path);
+            require(drawing::DrawingDocument::load(drawing_path).sheets.front().views.front().model_annotations==view.model_annotations,"Drawing extrusion dimension did not survive native reopen");
+            require(kernel::body_calculation_count.load()==count&&session.revision()==revision,"Drawing length inspection calculated material or changed history");
+        }
+        session.document().save(path,session.calculated_boundaries());
+        const auto reopened=workspace::drawing_annotation_sources(nullptr,part.document_id,path);
+        drawing::refresh_model_annotations(view,reopened);
+        const auto retained=std::ranges::find(view.model_annotations,reference,&drawing::ModelAnnotation::source);
+        require(retained!=view.model_annotations.end()&&retained->visible&&std::abs(retained->value-7.25)<1e-9,"Reopened Part lost its displayed extrusion length");
+        auto inactive=session.document().history.front();
+        inactive.feature.sides[0].extrusion_extent=document::EndCondition::UpTo;
+        inactive.extrusion.end_condition_forward=document::EndCondition::UpTo;
+        const auto dimensions=document::feature_length_dimensions(inactive,session.document().sketches.front());
+        require(std::ranges::none_of(dimensions.dimensions,[&](const auto& d){return d.reference.semantic_key==key;}),"Up To exposed an inactive fallback length");
+    }
+    std::cout<<"Drawing extrusion length: native and unified features, directions, one/two/symmetric sides, repeated edits, source/Sheet reopen and no display recalculation passed\n";
+}
 void verify_opening_axis_bounds(const kernel::OcctKernel& kernel,fs::path directory) {
     auto part=document::PartDocument::create_default();
     auto block=test::rectangular_feature(part,{100,100,40});
@@ -249,4 +304,4 @@ int main(int argc,char** argv){try{
         }
         return 0;
     }
-    kernel::OcctKernel kernel;const auto root=fs::canonical(fs::temp_directory_path());const auto dir=root/("zima-annotations-"+document::PartDocument::create_default().document_id);fs::create_directory(dir);verify(kernel,dir);verify_layouts(kernel,dir);verify_opening_axis_bounds(kernel,dir);require(dir.parent_path()==root,"Unsafe cleanup");fs::remove_all(dir);std::cout<<"Drawing annotation queries, opening bounds, exact occurrences, atomic Show/Erase, Undo and persistence passed\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}
+    kernel::OcctKernel kernel;const auto root=fs::canonical(fs::temp_directory_path());const auto dir=root/("zima-annotations-"+document::PartDocument::create_default().document_id);fs::create_directory(dir);verify(kernel,dir);verify_layouts(kernel,dir);verify_opening_axis_bounds(kernel,dir);verify_extrusion_lengths(kernel,dir);require(dir.parent_path()==root,"Unsafe cleanup");fs::remove_all(dir);std::cout<<"Drawing annotation queries, opening bounds, exact occurrences, atomic Show/Erase, Undo and persistence passed\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

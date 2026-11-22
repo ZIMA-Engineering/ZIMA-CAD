@@ -129,7 +129,7 @@ Settings load_settings(const fs::path& executable,const fs::path& working,const 
             &result.documents.templates.skeleton_template})
         *selected=distribution::updated_factory_template(result.documents.templates.directory,*selected,
             result.documents.units.at("Length")=="in");
-    const auto language=value("Application/Language","cs");
+    const auto language=value("Application/Language","en");
     const auto catalogue=configured_path("Paths/Localization","localization")/fs::u8path(language+".ini");
     if(fs::is_regular_file(catalogue))for(const auto& [key,text]:read_ini(catalogue,true))result.translations[key.substr(15)]=text;
     std::ifstream supplemental(catalogue.parent_path()/fs::u8path(language+".qt.json"));

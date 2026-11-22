@@ -7,9 +7,61 @@
         const auto condition_revision=session.revision();
         const auto force_action=[&]{return window.findChild<QAction*>("femForceAction");};
         check(force_action()&&force_action()->isEnabled(),"FEM Force shortcut is missing");
+        const auto placement_origin=workspace::fem_source_frame_owner(session.document().body_history,fem)+":origin";
+        for(const auto& order:std::array{std::array{"xz","xy","yz"},std::array{"xy","yz","xz"},std::array{"yz","xz","xy"}}) {
+            force_action()->trigger();flush();auto* entry=condition_dialog();
+            check(entry&&window.pending_primitive_reference_index_==0&&window.primitive_reference_auto_advance_,"FEM did not automatically start placement entry");
+            for(std::size_t index=0;index<3;++index) {
+                QTreeWidgetItem* plane{};
+                for(QTreeWidgetItemIterator it(tree);*it;++it)
+                    if(((*it)->data(0,Qt::UserRole+5).toString()==QString("origin:plane:")+order[index]||
+                        (*it)->data(0,Qt::UserRole+5).toString()==QString("plane:")+order[index])&&
+                       (*it)->parent()&&(*it)->parent()->data(0,Qt::UserRole).toString().toStdString()==placement_origin)plane=*it;
+                check(plane,"FEM placement test has no source Body Origin plane");
+                for(auto* parent=plane->parent();parent;parent=parent->parent())parent->setExpanded(true);
+                tree->scrollToItem(plane);flush();const auto at=QPointF(tree->visualItemRect(plane).center());
+                for(const auto type:{QEvent::MouseButtonPress,QEvent::MouseButtonRelease}) {
+                    QMouseEvent event(type,at,QPointF(tree->viewport()->mapToGlobal(at.toPoint())),Qt::LeftButton,
+                        type==QEvent::MouseButtonPress?Qt::LeftButton:Qt::NoButton,Qt::NoModifier);
+                    QApplication::sendEvent(tree->viewport(),&event);flush();
+                }
+                if(entry->first_empty_position_index()!=index+1)throw std::runtime_error("FEM automatic reference sequence lost a pick: first="+std::string(order[0])+" index="+std::to_string(index)+" next="+std::to_string(entry->first_empty_position_index())+" refs="+std::to_string(entry->pending_value().placement.references.size())+" state="+window.state_->text().toStdString());
+                const auto p=entry->pending_value().placement;
+                check(p.references.front().orientation_role=="top","FEM first support did not define local XY");
+                if(index==0) {
+                    const auto normal=document::construction_direction_from_local_axis("z",{p.rotation_x,p.rotation_y,p.rotation_z});
+                    const double aligned=std::string_view(order[0])=="xy"?normal.z:std::string_view(order[0])=="xz"?normal.y:normal.x;
+                    check(std::abs(std::abs(aligned)-1)<1e-7,"FEM XY plane does not follow its first support");
+                }
+                if(index<2)check(window.pending_primitive_reference_index_==index+1,"FEM reference input did not advance automatically");
+            }
+            check(!window.pending_primitive_reference_index_,"Fully placed FEM kept reference entry active");
+            entry->findChild<QComboBox*>("femConditionRegion")->setCurrentIndex(1);flush();
+            auto* plane_entry=entry->findChild<QTableWidget*>("femProfilePlaneView");
+            check(plane_entry,"FEM has no shared View plane entry");
+            QMetaObject::invokeMethod(plane_entry,"cellClicked",Qt::DirectConnection,Q_ARG(int,0),Q_ARG(int,1));flush();
+            check(window.pending_primitive_reference_index_==0,"FEM View plane entry did not arm replacement");
+            entry->findChild<QPushButton*>("femEditSketch")->click();flush();
+            check(window.active_sketch()&&window.active_sketch()->plane_auto&&
+                window.active_sketch()->plane==sketcher::SketchPlane::XY&&!window.pending_primitive_reference_index_,
+                "Automatic FEM Sketch did not use local XY or retained placement entry");
+            const auto normal=window.active_sketch()->normal();
+            const double aligned=std::string_view(order[0])=="xy"?normal.z:std::string_view(order[0])=="xz"?normal.y:normal.x;
+            check(std::abs(std::abs(aligned)-1)<1e-7,"Automatic FEM Sketch frame does not follow its first support");
+            window.cancel_sketch_action_->trigger();flush();
+            check(condition_dialog()==entry,"FEM Sketch Cancel did not restore its properties");
+            entry->reject();flush();check(session.revision()==condition_revision,"Automatic FEM placement Cancel changed history");
+        }
+        // Finish the last Sketch camera animation before testing fixed-pixel picks.
+        {QEventLoop animation;QTimer::singleShot(950,&animation,&QEventLoop::quit);animation.exec();flush();}
         force_action()->trigger();flush();auto* condition=condition_dialog();
         check(condition&&condition->pending_value().kind==document::FemConditionKind::Force,"Force shortcut opened another condition type");
+        check(!condition->findChild<QTableWidget*>("femConditionGeometry")->isVisible()&&
+            !condition->findChild<QPushButton*>("femEditSketch")->isVisible()&&
+            !condition->findChild<QCheckBox*>("femProjectSketch")->isVisible(),"Point exposes region geometry controls");
         check(condition->parentWidget()==&window&&(condition->windowFlags()&Qt::WindowType_Mask)==Qt::SubWindow&&!condition->buttons()->button(QDialogButtonBox::Apply),"Condition properties bypass shared presentation");
+        mouse(QEvent::MouseButtonPress,Qt::MiddleButton);mouse(QEvent::MouseButtonRelease,Qt::NoButton);
+        check(condition_dialog()==condition&&!window.pending_primitive_reference_index_&&!window.primitive_reference_auto_advance_,"Short middle click did not stop automatic FEM placement");
         check(condition->set_inline_parameter_value("placement:z",7),"Condition numeric placement is unavailable");flush();
         condition->findChild<QDoubleSpinBox*>("femForceValue")->setValue(5000);flush();
         const auto preview_id=condition->pending_value().id;
@@ -42,7 +94,7 @@
         symbol_mouse(QEvent::MouseMove,Qt::NoButton,Qt::NoButton);
         check(view->offered_candidate()&&view->offered_candidate()->owner_id==force_id,"FEM symbol hover lost its owner");
         symbol_mouse(QEvent::MouseButtonPress,Qt::LeftButton,Qt::LeftButton);symbol_mouse(QEvent::MouseButtonRelease,Qt::LeftButton,Qt::NoButton);
-        check(tree->currentItem()==condition_row(force_id)&&session.revision()==saved_revision&&!condition_dialog(),"FEM View selection failed Tree synchronization or changed the document");
+        if(tree->currentItem()!=condition_row(force_id)||session.revision()!=saved_revision||condition_dialog())throw std::runtime_error("FEM View selection failed: tree="+(tree->currentItem()?tree->currentItem()->data(0,Qt::UserRole).toString().toStdString():"none")+" expected="+force_id+" revision="+std::to_string(session.revision())+" expected_revision="+std::to_string(saved_revision)+" dialog="+std::to_string(condition_dialog()!=nullptr)+" state="+window.state_->text().toStdString());
         symbol_mouse(QEvent::MouseButtonDblClick,Qt::LeftButton,Qt::LeftButton);
         check(std::ranges::any_of(view->mesh().dimensions,[&](const auto& d){return d.reference.owner_id==force_id;})&&!condition_dialog(),"FEM View double-click did not inspect parameters");
         mouse(QEvent::MouseButtonPress,Qt::MiddleButton);mouse(QEvent::MouseButtonRelease,Qt::NoButton);
@@ -60,24 +112,147 @@
         kind->setCurrentIndex(kind->findData(int(document::FemConditionKind::Force)));flush();
         check(condition->pending_value().force_N==5000&&condition->pending_value().pressure_MPa==2.5,"Changing condition type lost independent values");
         condition->reject();flush();
-        for(auto region:{document::FemRegionKind::Point,document::FemRegionKind::Curve}) {
+        for(auto region:{document::FemRegionKind::Curve,document::FemRegionKind::Surface}) {
             force_action()->trigger();flush();condition=condition_dialog();
-            auto* region_field=condition->findChild<QComboBox*>("femConditionRegion");region_field->setCurrentIndex(region_field->findData(int(region)));condition->arm(0);flush();view->fit_all();flush();
-            std::optional<QPointF> hit;
-            for(int y=3;y<view->height()&&!hit;y+=6)for(int x=3;x<view->width()&&!hit;x+=6)
-                if(!view->selection_candidates_at(QPointF(x,y)).empty())hit=QPointF(x,y);
-            check(hit.has_value(),region==document::FemRegionKind::Point?"FEM point entry offers no source points":"FEM curve entry offers no source curves");
-            for(auto type:{QEvent::MouseMove,QEvent::MouseButtonPress,QEvent::MouseButtonRelease}) {
-                QMouseEvent event(type,*hit,QPointF(view->mapToGlobal(hit->toPoint())),type==QEvent::MouseMove?Qt::NoButton:Qt::LeftButton,type==QEvent::MouseButtonPress?Qt::LeftButton:Qt::NoButton,Qt::NoModifier);QApplication::sendEvent(view,&event);flush();
+            auto* region_field=condition->findChild<QComboBox*>("femConditionRegion");region_field->setCurrentIndex(region_field->findData(int(region)));flush();
+            auto* targets=condition->findChild<QTableWidget*>("femConditionGeometry");
+            auto* project=condition->findChild<QCheckBox*>("femProjectSketch");
+            auto* sketch_button=condition->findChild<QPushButton*>("femEditSketch");
+            auto* offset=condition->findChild<QDoubleSpinBox*>("femSketchOffset");
+            check(!targets->isVisible()&&project->isVisible()&&!project->isChecked()&&
+                sketch_button->isVisible()&&offset->isVisible(),"Planar region visibility is incorrect");
+            const auto unchanged_revision_for_sketch=session.revision();
+            offset->setValue(2.5);sketch_button->click();flush();
+            check(window.sweep_profile_sketch_draft_&&!condition->isVisible(),"Planar FEM Sketch editor did not open");
+            check(!window.pending_primitive_reference_index_,"FEM Sketch retained the parent placement picker");
+            check(window.mutate_active_sketch([&](auto& sketch){
+                if(region==document::FemRegionKind::Curve)static_cast<void>(sketch.add_segment(-2,0,2,0));
+                else static_cast<void>(sketch.add_rectangle(-2,-1,2,1));
+            }),"Planar FEM Sketch could not be authored");
+            window.preserve_view_on_refresh_=true;window.refresh_scene();window.align_active_sketch_view();flush();
+            const auto drag_point=window.active_sketch()->points.back().id;
+            const auto sketch_mouse=[&](QPointF at,QEvent::Type type,Qt::MouseButton button,Qt::MouseButtons held) {
+                QMouseEvent event(type,at,QPointF(view->mapToGlobal(at.toPoint())),button,held,Qt::NoModifier);
+                QApplication::sendEvent(view,&event);flush();
+            };
+            for(int repeat=0;repeat<3;++repeat) {
+                const auto local=[&](QPointF pixel) {
+                    const auto ray=view->ray_at(pixel);check(ray.has_value(),"FEM Sketch cursor ray is missing");
+                    const auto point=window.active_sketch()->intersect_ray(ray->first,ray->second);
+                    check(point.has_value(),"FEM Sketch plane is missing");return *point;
+                };
+                const auto a=local({0,0}),b=local({100,0}),c=local({0,100});
+                const double ux=(b[0]-a[0])/100,uy=(b[1]-a[1])/100,vx=(c[0]-a[0])/100,vy=(c[1]-a[1])/100,det=ux*vy-uy*vx;
+                const auto screen=[&](double x,double y){return QPointF(((x-a[0])*vy-(y-a[1])*vx)/det,(ux*(y-a[1])-uy*(x-a[0]))/det);};
+                const auto before=*window.active_sketch()->find_point(drag_point);
+                const auto from=screen(before.x,before.y),to=screen(before.x+.3,before.y+.2);
+                view->clear_selection();flush();
+                sketch_mouse(from,QEvent::MouseMove,Qt::NoButton,Qt::NoButton);
+                check(view->offered_candidate()&&view->offered_candidate()->semantic_key=="point:"+drag_point,"FEM Sketch point is not offered for dragging");
+                sketch_mouse(from,QEvent::MouseButtonPress,Qt::LeftButton,Qt::LeftButton);
+                sketch_mouse(to,QEvent::MouseMove,Qt::NoButton,Qt::LeftButton);
+                sketch_mouse(to,QEvent::MouseButtonRelease,Qt::LeftButton,Qt::NoButton);
+                const auto after=*window.active_sketch()->find_point(drag_point);
+                check(std::hypot(after.x-before.x,after.y-before.y)>1e-6,"FEM Sketch mouse drag did not move a free point");
             }
-            const auto value=condition->pending_value();check(value.references.size()==1&&!condition->active_input(),"FEM Point/Curve View click did not retain an exact reference");
+            std::string dimension_id;
+            check(window.mutate_active_sketch([&](auto& sketch){
+                auto dimension=sketch.create_segment_dimension(sketch.segments.front().id);
+                dimension_id=dimension.id;sketch.apply_dimension(dimension);
+            }),"FEM Sketch dimension could not be created");
+            window.refresh_scene();flush();
+            for(double length:{3.,4.,3.5}) {
+                const auto& dimensions=view->mesh().dimensions;
+                const auto found=std::ranges::find_if(dimensions,[&](const auto& d){return d.reference.owner_id==window.active_sketch_id_&&d.reference.semantic_key=="dimension:"+dimension_id;});
+                check(found!=dimensions.end(),"FEM Sketch dimension is absent from the View");
+                viewer::ViewerCandidate candidate;candidate.kind=viewer::CandidateKind::Dimension;
+                candidate.owner_id=window.active_sketch_id_;candidate.semantic_key=found->reference.semantic_key;candidate.geometry_index=found-dimensions.begin();
+                const auto label=view->candidate_dimension_label_position(candidate);check(label.has_value(),"FEM Sketch dimension label is not clickable");
+                sketch_mouse(*label,QEvent::MouseMove,Qt::NoButton,Qt::NoButton);
+                sketch_mouse(*label,QEvent::MouseButtonDblClick,Qt::LeftButton,Qt::LeftButton);
+                sketch_mouse(*label,QEvent::MouseButtonRelease,Qt::LeftButton,Qt::NoButton);
+                auto* edit=view->findChild<QLineEdit*>("inlineDimensionValueEdit");check(edit,"FEM Sketch dimension value editor did not open");
+                edit->setText(QString::number(length));QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);QApplication::sendEvent(edit,&enter);flush();
+                const auto& sketch=*window.active_sketch();const auto& segment=sketch.segments.front();
+                const auto first=sketch.find_point(segment.first_point_id),second=sketch.find_point(segment.second_point_id);
+                check(std::abs(std::hypot(first->x-second->x,first->y-second->y)-length)<1e-6,"FEM Sketch GUI dimension edit violated its length equation");
+                check(session.revision()==unchanged_revision_for_sketch,"Embedded FEM Sketch editing changed the document before OK");
+            }
+            window.finish_sketch_action_->trigger();flush();
+            const auto authored=condition->pending_value().projected_sketch->serialized;
+            for(int repeat=0;repeat<3;++repeat) {
+                project->click();flush();check(targets->isVisible()&&condition->pending_value().projected_sketch->project_to_body,"Projection did not expose target faces");
+                condition->arm(0);flush();
+                project->click();flush();check(!targets->isVisible()&&!condition->active_input()&&
+                    !condition->pending_value().projected_sketch->project_to_body&&
+                    condition->pending_value().projected_sketch->serialized==authored,"Projection toggle lost Sketch or retained hidden entry");
+            }
+            const auto value=condition->pending_value();
             condition->buttons()->button(QDialogButtonBox::Ok)->click();flush();
             const auto* stored=workspace::find_fem_condition(session.document(),fem,value.id);
-            check(!condition_dialog()&&stored&&stored->region==region&&stored->references==value.references,"FEM Point/Curve region did not persist");
+            check(!condition_dialog()&&stored&&stored->region==region&&stored->projected_sketch==value.projected_sketch,"Planar FEM region did not persist");
+            const auto unchanged_revision=session.revision();
             window.show_tree_item_properties(condition_row(value.id));flush();condition=condition_dialog();
-            condition->findChild<QTableWidget*>("femConditionGeometry")->cellWidget(0,1)->findChild<QPushButton*>()->click();flush();condition->reject();flush();
-            check(workspace::find_fem_condition(session.document(),fem,value.id)->references==value.references,"FEM region removal Cancel changed authored geometry");
+            condition->buttons()->button(QDialogButtonBox::Ok)->click();flush();
+            check(!condition_dialog()&&session.revision()==unchanged_revision,"Unchanged planar FEM OK changed the document");
+            window.show_tree_item_properties(condition_row(value.id));flush();condition=condition_dialog();
+            condition->findChild<QComboBox*>("femConditionRegion")->setCurrentIndex(3);flush();
+            check(condition->findChild<QTableWidget*>("femConditionGeometry")->isVisible()&&
+                !condition->findChild<QPushButton*>("femEditSketch")->isVisible()&&
+                !condition->pending_value().projected_sketch,"Body surface retained Sketch controls");
+            condition->reject();flush();
+            check(workspace::find_fem_condition(session.document(),fem,value.id)->projected_sketch==value.projected_sketch,"FEM mode change Cancel changed authored geometry");
         }
+        // Current-edge projection uses an ordinary calculated Body source.
+        // Boolean source selection and face/planar regions are covered above.
+        auto edge_source=*session.document().body_history.find(fem);edge_source.fem->source_id=a;
+        static_cast<void>(workspace::commit_fem(window.workspace_,workspace::prepare_fem_edit(session.document(),fem),edge_source));
+        window.refresh_scene();flush();
+        force_action()->trigger();flush();condition=condition_dialog();
+        condition->findChild<QComboBox*>("femConditionRegion")->setCurrentIndex(1);
+        condition->findChild<QDoubleSpinBox*>("femSketchOffset")->setValue(2.5);
+        condition->findChild<QPushButton*>("femEditSketch")->click();flush();
+        const auto external_revision=session.revision();
+        check(window.sketch_external_profile_action_&&window.sketch_external_profile_action_->isEnabled(),"FEM Sketch cannot project source geometry");
+        window.sketch_external_profile_action_->trigger();view->fit_all();flush();
+        std::optional<QPointF> external_hit;
+        std::optional<viewer::ViewerCandidate> external_candidate;
+        for(int y=10;y<view->height()&&!external_hit;y+=5)for(int x=10;x<view->width()&&!external_hit;x+=5)
+            for(const auto& candidate:view->selection_candidates_at(QPointF(x,y)))if(candidate.kind==viewer::CandidateKind::Edge&&candidate.owner_id==first.id) {
+                const auto edge=std::ranges::find_if(view->mesh().edges,[&](const auto& e){return e.reference.owner_id==candidate.owner_id&&e.reference.semantic_key==candidate.semantic_key;});
+                if(edge!=view->mesh().edges.end()&&edge->points.size()>1&&std::hypot(edge->points.back().x-edge->points.front().x,edge->points.back().y-edge->points.front().y)>2) {
+                    external_hit=QPointF(x,y);external_candidate=candidate;break;
+                }
+            }
+        check(external_hit.has_value(),"FEM Sketch projection offers no source edge");
+        const auto external_mouse=[&](QEvent::Type type,Qt::MouseButton button,Qt::MouseButtons held) {
+            QMouseEvent e(type,*external_hit,QPointF(view->mapToGlobal(external_hit->toPoint())),button,held,Qt::NoModifier);QApplication::sendEvent(view,&e);flush();
+        };
+        external_mouse(QEvent::MouseMove,Qt::NoButton,Qt::NoButton);
+        for(std::size_t i=0;i<view->selection_candidates_at(*external_hit).size();++i) {
+            const auto offered=view->offered_candidate();
+            if(offered&&offered->owner_id==external_candidate->owner_id&&offered->semantic_key==external_candidate->semantic_key)break;
+            external_mouse(QEvent::MouseButtonPress,Qt::RightButton,Qt::RightButton);external_mouse(QEvent::MouseButtonRelease,Qt::RightButton,Qt::NoButton);
+        }
+        external_mouse(QEvent::MouseButtonPress,Qt::LeftButton,Qt::LeftButton);external_mouse(QEvent::MouseButtonRelease,Qt::LeftButton,Qt::NoButton);
+        if(window.active_sketch()->external_references.size()!=4||session.revision()!=external_revision)
+            throw std::runtime_error("FEM Sketch projection failed or changed the source: references="+std::to_string(window.active_sketch()->external_references.size())+
+                " revision="+std::to_string(session.revision())+" expected="+std::to_string(external_revision)+" "+window.state_->text().toStdString());
+        check(std::ranges::all_of(window.active_sketch()->external_references,[](const auto& reference){return !reference.broken&&reference.body_edge;}),
+            "FEM projected edge/endpoints lost their current source identity");
+        const auto external_reference=window.active_sketch()->external_references.front().id;
+        window.finish_sketch_action_->trigger();flush();const auto external_condition=condition->pending_value().id;
+        condition->buttons()->button(QDialogButtonBox::Ok)->click();flush();
+        const auto* saved_external=workspace::find_fem_condition(session.document(),fem,external_condition);
+        check(!condition_dialog()&&saved_external&&sketcher::Sketch::from_serialized(saved_external->projected_sketch->serialized).external_references.front().id==external_reference,
+            "FEM projected source edge did not preserve its reference on OK");
+        session.document().save(path,session.calculated_boundaries());
+        check(workspace::find_fem_condition(document::PartDocument::load(path),fem,external_condition)->projected_sketch==saved_external->projected_sketch,
+            "FEM projected source edge did not survive native reopen");
+        window.remove_fem_condition(external_condition);flush();
+        auto boolean_source=*session.document().body_history.find(fem);boolean_source.fem->source_id=joined;
+        static_cast<void>(workspace::commit_fem(window.workspace_,workspace::prepare_fem_edit(session.document(),fem),boolean_source));
+        window.refresh_scene();flush();
         window.findChild<QAction*>("femPressureAction")->trigger();flush();condition=condition_dialog();check(condition&&condition->active_input(),"Pressure creation did not arm geometry selection");
         view->fit_all();flush();
         std::optional<QPointF> face_hit;
@@ -100,6 +275,32 @@
         check(geometry_table->mapTo(condition,QPoint{}).y()==geometry_top&&geometry_table->rowHeight(0)==32,"Condition resize displaced or stretched rows");
         condition->findChild<QDoubleSpinBox*>("femPressureValue")->setValue(2.5);flush();const auto pressure_id=condition->pending_value().id;
         condition->buttons()->button(QDialogButtonBox::Ok)->click();flush();check(!condition_dialog()&&workspace::find_fem_condition(session.document(),fem,pressure_id),"Pressure commit failed");
+        for(auto plane:{sketcher::SketchPlane::XY,sketcher::SketchPlane::XZ,sketcher::SketchPlane::YZ}) {
+            window.findChild<QAction*>("femPressureAction")->trigger();flush();condition=condition_dialog();
+            auto* region=condition->findChild<QComboBox*>("femConditionRegion");
+            check(region->isEnabled(),"Pressure cannot choose its region definition");region->setCurrentIndex(2);flush();
+            auto* plane_combo=condition->findChild<QComboBox*>("femProfilePlane");
+            check(plane_combo&&dynamic_cast<ProfilePlaneControls*>(condition->findChild<QGroupBox*>("femPlaneGroup")->parentWidget()),"FEM does not share Feature Plane controls");
+            condition->findChild<QToolButton*>(QString("femProfilePlaneChoice")+(plane==sketcher::SketchPlane::XY?"XY":plane==sketcher::SketchPlane::XZ?"XZ":"YZ"))->click();flush();
+            auto* offset=condition->findChild<QDoubleSpinBox*>("femSketchOffset");offset->setValue(.5);
+            offset->findChild<QAction*>("valueLock:profile_offset")->trigger();flush();
+            check(offset->isReadOnly()&&condition->pending_value().placement.value_locks.contains("profile_offset"),"FEM plane offset lock is ineffective");
+            condition->findChild<QPushButton*>("femEditSketch")->click();flush();
+            check(window.active_sketch()->plane==plane&&!window.active_sketch()->plane_auto,"FEM Sketch did not use its explicit work plane");
+            check(window.mutate_active_sketch([](auto& sketch){static_cast<void>(sketch.add_rectangle(-1,-1,1,1));}),"Pressure Sketch could not be drawn");
+            window.finish_sketch_action_->trigger();flush();const auto pending=condition->pending_value();
+            condition->buttons()->button(QDialogButtonBox::Ok)->click();flush();
+            check(!condition_dialog(),"Pressure on a planar Sketch failed to commit");
+            const auto* saved=workspace::find_fem_condition(session.document(),fem,pending.id);
+            check(saved&&saved->kind==document::FemConditionKind::Pressure&&saved->projected_sketch&&saved->placement.value_locks.contains("profile_offset"),"Pressure Sketch or offset lock was lost");
+            window.show_tree_item_properties(condition_row(pending.id));flush();condition=condition_dialog();
+            check(condition->findChild<QDoubleSpinBox*>("femSketchOffset")->isReadOnly()&&
+                selected_work_plane(condition->findChild<QComboBox*>("femProfilePlane")).toInt()==int(plane),"Pressure plane or lock did not reopen");
+            const auto revision=session.revision();condition->buttons()->button(QDialogButtonBox::Ok)->click();flush();
+            check(!condition_dialog()&&session.revision()==revision,"Unchanged Pressure Sketch OK created a transaction");
+            window.findChild<QAction*>("undoAction")->trigger();flush();window.findChild<QAction*>("redoAction")->trigger();flush();
+            check(workspace::find_fem_condition(session.document(),fem,pending.id),"Pressure Sketch Undo/Redo lost its condition");
+        }
         window.findChild<QAction*>("femConstraintAction")->trigger();flush();condition=condition_dialog();
         condition->findChild<QCheckBox*>("femRestraint1")->setChecked(false);condition->findChild<QCheckBox*>("femRestraint2")->setChecked(false);
         const auto fixed_id=condition->pending_value().id;condition->buttons()->button(QDialogButtonBox::Ok)->click();flush();

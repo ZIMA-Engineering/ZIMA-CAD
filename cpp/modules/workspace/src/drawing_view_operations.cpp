@@ -41,6 +41,7 @@ void validate_drawing_view(const drawing::DrawingView& view) {
         bounded(row.height,.5,100);
     }
     drawing::validate_view_crop(view);drawing::validate_view_breaks(view);
+    if(view.inherit_parent_breaks&&(view.parent_view_id.empty()||view.detail_view||view.projection_direction==drawing::ProjectionDirection::None))invalid_view();
     if(view.id.empty()||view.name.empty()||view.name.size()>256||std::ranges::all_of(view.name,[](unsigned char c){return c==' ';})||
        std::ranges::any_of(view.name,[](unsigned char c){return c<32||c==127;}))invalid_view();
     bounded(view.x,-10000,10000);bounded(view.y,-10000,10000);bounded(view.scale,.001,1000);
@@ -89,7 +90,7 @@ void edit_drawing_view(drawing::DrawingDocument& document,const std::string& she
     if(!creating&&(accepted.description_rows!=found->description_rows||accepted.name!=found->name||accepted.show_caption!=found->show_caption)) {
         const auto geometry=[](const drawing::DrawingView& v) {
             return std::tie(v.source_document_id,v.source_path,v.parent_view_id,v.orientation,v.camera,v.projection_direction,
-                v.display_style,v.hidden_edge_style,v.tangent_edge_style,v.show_thread_leadins,v.x,v.y,v.scale,v.use_sheet_scale,
+                v.display_style,v.hidden_edge_style,v.tangent_edge_style,v.show_thread_leadins,v.x,v.y,v.scale,v.use_sheet_scale,v.inherit_parent_breaks,
                 v.section_id,v.section_parent_id,v.hidden_hatch_components,v.breaks,v.crop,v.section_hatch_crops,
                 v.show_dimension_guides,v.dimension_guide_count,v.dimension_guide_offset,v.dimension_guide_spacing,
                 v.show_section_label,v.value_locks,v.detail_view,v.show_detail_boundary,v.show_detail_label,v.detail_label_position,
@@ -109,6 +110,7 @@ void edit_drawing_view(drawing::DrawingDocument& document,const std::string& she
         if(!accepted.detail_view&&accepted.projection_direction==drawing::ProjectionDirection::None)invalid_view();
         accepted.source_document_id=parent->source_document_id;accepted.source_path=parent->source_path;
         if(accepted.detail_view)drawing::refresh_detail_view(accepted,*parent);else accepted.camera=drawing::projected_camera(parent->camera,accepted.projection_direction,sheet->projection_method);
+        drawing::refresh_inherited_view_breaks(accepted,*parent);
     }
     if(accepted.section_id.empty()) {accepted.section_snapshot.reset();accepted.section_parent_id.clear();}
     if(!accepted.detail_view)projection.project(accepted,{.pending_hatch=pending_hatch,.refresh_markers=true,.interactive=true});
@@ -128,6 +130,7 @@ void edit_drawing_view(drawing::DrawingDocument& document,const std::string& she
             if(!refreshed.insert(child.id).second)throw DrawingOperationError("dependency_cycle","Drawing views contain a cyclic dependency.");
             child.source_document_id=parent.source_document_id;child.source_path=parent.source_path;
             if(child.detail_view)drawing::refresh_detail_view(child,parent);else child.camera=drawing::projected_camera(parent.camera,child.projection_direction,sheet->projection_method);
+            drawing::refresh_inherited_view_breaks(child,parent);
             child.x+=dx;child.y+=dy;validate_drawing_view(child);
             if(!child.detail_view)projection.project(child,{.refresh_markers=true,.interactive=true});self(self,child,depth+1);
         }
@@ -192,6 +195,7 @@ std::size_t regenerate_drawing_views(drawing::DrawingDocument& document,const Wo
                 if(parent->source_document_id!=view.source_document_id)throw DrawingOperationError("source_identity","A projected view must use its parent source document.");
                 self(self,*parent,depth+1);
                 if(view.detail_view)drawing::refresh_detail_view(view,*parent);else view.camera=drawing::projected_camera(parent->camera,view.projection_direction,sheet.projection_method);
+                drawing::refresh_inherited_view_breaks(view,*parent);
             }
             if(!view.detail_view)projection.project(view,{.refresh_markers=true,.require_geometry=false,.interactive=true});
             for(auto& dimension:sheet.dimensions)if(dimension.view_id==view.id) {

@@ -144,7 +144,7 @@ ApplicationSettings ApplicationSettings::load(const QString& working_directory, 
         if (origin) *origin = result.base_config_path;
         return fallback;
     };
-    result.language = value("Application/Language", "cs");
+    result.language = value("Application/Language", "en");
     result.browser.home=value("Browser/HomePage",browser::official_url()).trimmed();
     result.browser.open_on_start=value("Browser/OpenOnStartup","false").toLower()=="true";
     result.browser.ask_download_path=value("Browser/AskDownloadPath","false").toLower()=="true";

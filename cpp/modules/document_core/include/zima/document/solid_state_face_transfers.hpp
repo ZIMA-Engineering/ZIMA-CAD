@@ -54,6 +54,10 @@ inline std::vector<kernel::SolidStateFaceTransfer> solid_state_face_transfers(
         const auto* refs=feature&&!feature->suppressed?&feature->placement.references:
             construction&&!construction->suppressed?&construction->references:nullptr;
         if(!refs||(feature&&is_solid_state(feature->feature_kind)))continue;
+        // Openings are positioned by their complete face-reference system,
+        // not by the single end-section transport of an additive continuation.
+        // The grouped replay resolves that system against the carried input.
+        if(grouped_twist_only&&feature&&feature->feature_kind==FeatureKind::Thread)continue;
         // A descendant follows the same end-section contract as the first join.
         // Origin-only and mixed-parent attachments still fail the face checks.
         const bool descendant=std::ranges::any_of(*refs,[&](const auto& ref){return moved.contains(ref.owner_id);});

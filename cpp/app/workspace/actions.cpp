@@ -796,9 +796,13 @@ void AssemblyWorkspaceWindow::create_actions() {
     sketch_dimensions_action_->setIcon(resource_icon("sketch-dimensions"));
     sketch_dimensions_action_->setObjectName("sketchDimensionsAction");
     sketch_dimensions_action_->setEnabled(false);
-    finish_sketch_action_ = make_action(tr("Dokončit skicu"), "active-check");
+    finish_sketch_action_ = make_action(tr("OK"), "active-check");
+    finish_sketch_action_->setToolTip(tr("Dokončit skicu"));
     finish_sketch_action_->setObjectName("finishSketchAction");
     finish_sketch_action_->setEnabled(false);
+    cancel_sketch_action_=make_action(tr("Zrušit"),"dialog-cancel");
+    cancel_sketch_action_->setObjectName("cancelSketchAction");
+    cancel_sketch_action_->setEnabled(false);
     regenerate_part_action_ = make_action(tr("Regenerovat"));
     regenerate_part_action_->setIcon(resource_icon("regenerate"));
     regenerate_part_action_->setObjectName("regeneratePartAction");
@@ -994,6 +998,7 @@ void AssemblyWorkspaceWindow::create_actions() {
             zima::sketcher::DimensionKind::EllipseRotation); });
     connect(finish_sketch_action_, &QAction::triggered, this,
         [this] { finish_active_sketch(); });
+    connect(cancel_sketch_action_,&QAction::triggered,this,[this]{cancel_active_sketch();});
     connect(regenerate_part_action_, &QAction::triggered, this,
         [this] { regenerate_active_part(); });
 

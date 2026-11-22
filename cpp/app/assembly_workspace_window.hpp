@@ -409,6 +409,8 @@ private:
     QAction* sketch_ellipse_rotation_dimension_action_{};
     QAction* sketch_fix_point_action_{};
     QAction* finish_sketch_action_{};
+    QAction* cancel_sketch_action_{};
+    std::optional<zima::sketcher::Sketch> sketch_edit_initial_;
     QAction* regenerate_part_action_{};
     QAction* parameters_action_{};
     QAction* material_action_{};
@@ -1029,6 +1031,7 @@ private:
     void remember_active_sketch_view();
     void persist_sketch_views();
     void finish_active_sketch();
+    void cancel_active_sketch();
     void set_sketch_placement_selection_contract();
     void configure_sketch_box_selection(bool sketch_available);
     void start_sketch_point();

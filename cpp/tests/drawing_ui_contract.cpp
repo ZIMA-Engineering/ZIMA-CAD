@@ -2,6 +2,7 @@
 #include "profile_solid_fixture.hpp"
 #include <zima/symbols/definition.hpp>
 #include <zima/drawing_render/sheet_renderer.hpp>
+#include <zima/drawing_render/crop_path.hpp>
 #include <QDate>
 #include <zima/drawing_render/pdf_export.hpp>
 #include <zima/drawing_render/dxf_export.hpp>
@@ -1701,9 +1702,16 @@ int verify_drawing_breaks_ui() {
         drawing::ModelAnnotation annotation;annotation.source={"rod","rod","length",""};annotation.visible=true;
         kernel::ViewerDimension dimension;dimension.kind=kernel::ViewerDimensionKind::Linear;dimension.witness_first={0,0,0};dimension.witness_second={1000,0,0};dimension.line_first={0,-40,0};dimension.line_second={1000,-40,0};dimension.plane_normal={0,0,1};dimension.value=1000;dimension.label_position=kernel::Vec3{500,-40,0};annotation.model_dimension=dimension;view.model_annotations={annotation};
         sheet.views={view};std::vector<drawing::ViewBreak> accepted;int commits=0;
-        app::DrawingBreakEditor editor(&owner,sheet,view,[&](auto b){accepted=std::move(b);++commits;});editor.show();flush();
+        app::DrawingBreakEditor editor(&owner,sheet,view,[&](auto b,bool){accepted=std::move(b);++commits;});editor.show();flush();
         auto* canvas=dynamic_cast<app::BreakEditorCanvas*>(editor.findChild<QWidget*>("drawingBreakCanvas"));require(canvas,"Break canvas missing");canvas->grab();flush();
         auto* table=editor.findChild<QTableWidget*>("drawingBreakTable");
+        require(std::abs(double(canvas->width())/canvas->height()-297./210.)<.03,"Break preview does not start with an A4 landscape aspect");
+        const auto canvas_height=canvas->height(),table_height=table->height();
+        editor.resize(editor.width(),editor.height()-60);flush();
+        require(canvas->height()==canvas_height-60&&table->height()==table_height&&table->rowHeight(0)==34,"Break editor resize did not allocate height to its preview");
+        const int bottom_gap=editor.buttons()->mapTo(&editor,QPoint{}).y()-table->mapTo(&editor,QPoint(0,table->height())).y();
+        require(bottom_gap>=0&&bottom_gap<60,"Break editor leaves unused space above OK");
+        editor.resize(editor.width(),editor.height()+60);flush();canvas->grab();
         require(table->rowCount()==1&&!editor.findChild<QPushButton*>("drawingBreakAdd")&&!editor.findChild<QPushButton*>("drawingBreakRemove")&&!editor.findChild<QComboBox*>("drawingBreakPreviewMode"),"Break editor retained obsolete controls");
         const auto arm=[&](int row,int column){click(table->viewport(),table->visualItemRect(table->item(row,column)).center());};
         arm(0,2);require(static_cast<ui::ReferenceCellItem*>(table->item(0,2))->is_active_input()&&!static_cast<ui::ReferenceCellItem*>(table->item(0,3))->is_active_input(),"Break input ownership must belong only to first position");
@@ -1754,7 +1762,7 @@ int verify_drawing_breaks_ui() {
         workspace::Workspace source_models;auto source=document::PartDocument::create_default();source.document_id="rod";source_models.add_part(source,{},{});document.source_document_id="rod";
         require(drawing_render::export_pdf(document,folder/"break.pdf",{},&source_models)>0,"Broken view PDF failed");
         require(drawing_render::export_dxf(document,document.sheets.front().id,folder/"break.dxf",{},&source_models)>0,"Broken view DXF failed");
-        view.breaks=accepted;app::DrawingBreakEditor cancelled(&owner,sheet,view,[&](auto){++commits;});cancelled.show();flush();
+        view.breaks=accepted;app::DrawingBreakEditor cancelled(&owner,sheet,view,[&](auto,bool){++commits;});cancelled.show();flush();
         auto* second=cancelled.findChild<QTableWidget*>("drawingBreakTable");qobject_cast<QDoubleSpinBox*>(second->cellWidget(0,5))->setValue(300);
         second->cellWidget(0,0)->findChild<QPushButton*>()->click();flush();require(second->rowCount()==1,"Removing break must retain the empty input row");
         auto* vertical_canvas=dynamic_cast<app::BreakEditorCanvas*>(cancelled.findChild<QWidget*>("drawingBreakCanvas"));vertical_canvas->grab();
@@ -1763,6 +1771,27 @@ int verify_drawing_breaks_ui() {
         click(second->viewport(),second->visualItemRect(second->item(0,2)).center());click(vertical_canvas,vertical_canvas->screen({400,10}));
         require(vertical_canvas->view().breaks.size()==1&&vertical_canvas->view().breaks[0].vertical&&std::abs(vertical_canvas->view().breaks[0].start-10)<1e-6&&std::abs(vertical_canvas->view().breaks[0].length-50)<1e-6,"Vertical boundaries must support entering second position first");
         cancelled.buttons()->button(QDialogButtonBox::Cancel)->click();flush();require(commits==1&&view.breaks.front().length==650,"Cancel changed existing break");
+        auto projected=view;projected.id="projected-rod";projected.parent_view_id=view.id;
+        projected.projection_direction=drawing::ProjectionDirection::Top;projected.inherit_parent_breaks=true;
+        projected.camera=drawing::projected_camera(view.camera,projected.projection_direction,drawing::ProjectionMethod::FirstAngle);
+        projected.breaks.clear();int inherited_commits=0;bool committed_inheritance=true;
+        for(bool accept:{false,true}) {
+            app::DrawingBreakEditor inherited(&owner,sheet,projected,[&](auto breaks,bool follow){++inherited_commits;accepted=std::move(breaks);committed_inheritance=follow;},&view);
+            inherited.show();flush();
+            auto* checkbox=inherited.findChild<QCheckBox*>("drawingBreakInherit");
+            auto* inherited_table=inherited.findChild<QTableWidget*>("drawingBreakTable");
+            auto* inherited_canvas=dynamic_cast<app::BreakEditorCanvas*>(inherited.findChild<QWidget*>("drawingBreakCanvas"));
+            require(checkbox&&checkbox->isChecked()&&!inherited_table->isEnabled()&&!inherited_canvas->editable&&inherited_canvas->view().breaks==view.breaks,
+                "Projected break inheritance is missing or editable while linked");
+            checkbox->click();flush();
+            require(inherited_table->isEnabled()&&inherited_canvas->editable&&inherited_canvas->view().breaks==view.breaks,"Disabling inheritance lost the current cuts");
+            qobject_cast<QDoubleSpinBox*>(inherited_table->cellWidget(0,5))->setValue(500);flush();
+            checkbox->click();flush();require(inherited_canvas->view().breaks==view.breaks,"Re-enabling inheritance retained independent cuts");
+            checkbox->click();flush();qobject_cast<QDoubleSpinBox*>(inherited_table->cellWidget(0,5))->setValue(600);flush();
+            inherited.buttons()->button(accept?QDialogButtonBox::Ok:QDialogButtonBox::Cancel)->click();flush();
+            require(inherited_commits==int(accept)&&view.breaks.front().length==650,"Inheritance Cancel or editing changed its parent");
+        }
+        require(!committed_inheritance&&accepted.front().length==600,"Break editor did not commit independent cuts and inheritance state together");
         const auto saved_settings=app::ApplicationSettings::load();
         QTemporaryDir language_directory;
         const auto catalogs=std::filesystem::path(__FILE__).parent_path().parent_path().parent_path()/"config/localization";
@@ -1770,10 +1799,15 @@ int verify_drawing_breaks_ui() {
             QSettings config(language_directory.filePath("config.ini"),QSettings::IniFormat);
             config.setValue("Application/Language",language);config.setValue("Paths/Localization",QString::fromStdString(catalogs.generic_string()));config.sync();
             const auto settings=app::ApplicationSettings::load(language_directory.path());app::apply_application_translations(*qApp,settings);
-            app::DrawingBreakEditor translated(&owner,sheet,view,[](auto){});translated.show();flush();
+            app::DrawingBreakEditor translated(&owner,sheet,projected,[](auto,bool){},&view);translated.show();flush();
             auto* localized=translated.findChild<QTableWidget*>("drawingBreakTable");
             require(localized->horizontalHeaderItem(2)->text()==settings.qt_translations.value("První poloha")&&localized->horizontalHeaderItem(3)->text()==settings.qt_translations.value("Druhá poloha"),"Break position headers did not follow language change");
-            translated.grab().save(QString("build/drawing-break-editor-%1.png").arg(language));translated.reject();flush();
+            require(translated.findChild<QCheckBox*>("drawingBreakInherit")->text()==settings.qt_translations.value("Převzít přerušení z rodiče"),"Break inheritance did not translate");
+            for(const auto* theme:{"light","dark","light"}) {
+                auto appearance=settings;appearance.theme=theme;app::apply_application_appearance(*qApp,appearance);flush();
+                translated.grab().save(QString("build/drawing-break-editor-%1-%2.png").arg(language,theme));
+            }
+            translated.reject();flush();
         }
         app::apply_application_translations(*qApp,saved_settings);
         std::cout<<"Break editor placement, numeric dimensions, isolated preview, Show/Erase true length, OK and Cancel passed\n";return 0;
@@ -1783,6 +1817,30 @@ int verify_drawing_breaks_ui() {
 int verify_drawing_details_ui() {
     using namespace zima;
     try {
+        for(auto shape:{drawing::ViewCropShape::Circle,drawing::ViewCropShape::Ellipse,drawing::ViewCropShape::Spline}) {
+            const drawing::ViewCrop crop{shape,{0,0},shape==drawing::ViewCropShape::Spline?
+                std::vector<drawing::Point2>{{-8,-4},{8,-4},{8,4},{-8,4}}:std::vector<drawing::Point2>{{10,shape==drawing::ViewCropShape::Circle?10.:5.}}};
+            const auto bounds=drawing::crop_bounds(crop);const auto rendered=drawing_render::crop_path(crop).boundingRect();
+            require(std::abs(bounds[0].x-rendered.left())<1e-9&&std::abs(bounds[0].y-rendered.top())<1e-9&&
+                std::abs(bounds[1].x-rendered.right())<1e-9&&std::abs(bounds[1].y-rendered.bottom())<1e-9,"Detail dimension frame differs from its rendered crop");
+        }
+        {
+            drawing::DrawingSheet sheet;drawing::DrawingView view;view.id="outside-detail-dimension";view.detail_view=true;view.scale=2;
+            view.x=sheet.width_mm()-25;view.y=sheet.height_mm()-25;view.camera.horizontal={1,0,0};view.camera.vertical={0,1,0};view.camera.depth={0,0,1};
+            view.crop=drawing::ViewCrop{drawing::ViewCropShape::Circle,{0,0},{{5,5}}};
+            drawing::ModelAnnotation item;item.source={"part","feature","length",{}};item.visible=true;
+            kernel::ViewerDimension dimension;dimension.reference={"feature","length",{}};dimension.value=4;dimension.plane_normal={0,0,1};
+            dimension.witness_first=dimension.line_first={-2,0,0};dimension.witness_second=dimension.line_second={2,0,0};
+            item.model_dimension=dimension;item.model_layout.envelope_offset=3;view.model_annotations={item};sheet.views={view};
+            drawing_render::SheetRenderer renderer;renderer.set_render_sheet(&sheet);
+            for(bool printing:{false,true}) {
+                QImage image(200,200,QImage::Format_ARGB32);const QColor background=printing?Qt::white:Qt::black;image.fill(background);
+                {QPainter painter(&image);renderer.paint_sheet(painter,4,{},printing);}
+                bool ink=false;for(int y=35;y<=37;++y)for(int x=96;x<=104;++x)ink|=image.pixelColor(x,y)!=background;
+                require(ink,"Detail dimension line outside crop is clipped from display or printing");
+                image.save(printing?"build/detail-dimension-print.png":"build/detail-dimension-canvas.png");
+            }
+        }
         {
             auto sheet=drawing::DrawingDocument::create_default().sheets.front();
             sheet.frame_lines.clear();sheet.frame_texts.clear();sheet.frame_circles.clear();sheet.title_block_fields.clear();
@@ -1842,24 +1900,38 @@ int verify_drawing_details_ui() {
         live.add_part(part,{cache});
         auto document=drawing::DrawingDocument::create_default();
         auto source=drawing::DrawingDocument::create_view(part.document_id,{},cache.mesh);source.x=105;source.y=180;
+        drawing::ModelAnnotation source_dimension;source_dimension.source={part.document_id,"box","dimension:detail-fixture",{}};
+        source_dimension.value=8;source_dimension.text="8";source_dimension.visible=true;source_dimension.plane_normal={0,-1,0};
+        source_dimension.curves={{{-4,0},{4,0}}};source_dimension.paper_handles["text"]={0,12};
+        kernel::ViewerDimension measured;measured.reference={"box","dimension:detail-fixture",{}};
+        measured.value=8;measured.witness_first=measured.line_first={-4,0,0};measured.witness_second=measured.line_second={4,0,0};measured.plane_normal={0,-1,0};
+        source_dimension.model_dimension=measured;source_dimension.model_layout.envelope_offset=8;
+        source_dimension.model_envelope.include({-30,-10,-20});source_dimension.model_envelope.include({30,10,20});
+        source.model_annotations.push_back(source_dimension);
         document.sheets.front().views.push_back(source);live.add_drawing(document);
         app::DrawingWindow window(&live,false);window.edit_workspace_document(document.document_id);window.resize(1200,850);window.show();flush();
         auto* canvas=window.findChild<QWidget*>("drawingCanvas");
         const auto action=[&](const char* name){auto* a=window.findChild<QAction*>(name);require(a,"Detail action missing");return a;};
         const auto dialog=[&]{return window.findChild<QDialog*>("drawingDetailProperties");};
+        QString detail_instruction;window.set_status_handler([&](const QString& message){detail_instruction=message;});
         const auto count=[&]{return window.document_for_test().sheets.front().views.size();};
         const auto source_center=*window.view_rectangle_center_for_test(source.id);
         for(int shape=0;shape<3;++shape) {
             action("insertDrawingDetailAction")->trigger();flush();auto* d=dialog();require(d,"Insert Detail did not open properties");
             require((d->windowFlags()&Qt::WindowType_Mask)==Qt::SubWindow,"Detail uses a native floating dialog");
             d->findChild<QComboBox*>("detailShape")->setCurrentIndex(shape);
-            d->findChild<QPushButton*>("detailSource")->click();flush();click(canvas,source_center);
+            d->findChild<QPushButton*>("detailSource")->click();flush();
+            require(detail_instruction==QObject::tr("Vybrat bod v pohledu"),"Detail source prompt did not reach the helper");
+            click(canvas,source_center);
             require(!d->isVisible(),"Region input did not own the canvas");
+            require(detail_instruction==QObject::tr(shape==2?"Zadejte body spline. Kliknutím na první bod nebo Enter hranici uzavřete.":"Kliknutím určete velikost hranice. Esc zruší."),"Detail boundary prompt did not reach the helper");
             if(shape==2) {
                 for(auto delta:{QPointF(-35,-25),QPointF(35,-25),QPointF(35,25),QPointF(-35,25)})click(canvas,source_center+delta);
                 QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);QApplication::sendEvent(canvas,&enter);flush();
             } else click(canvas,source_center+QPointF(35,25));
+            require(detail_instruction==QObject::tr("Vložit pohled: klikněte na místo na listu. Esc zruší vložení."),"Detail placement prompt did not reach the helper");
             click(canvas,source_center+QPointF(180,140));flush();
+            require(detail_instruction.isEmpty(),"Completed detail input retained its helper prompt");
             require(d->isVisible()&&d->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->isEnabled(),"Detail cannot commit after region and placement");
             require(count()==1,"Detail preview committed before OK");
             d->findChild<QCheckBox*>("detailShowBoundary")->setChecked(false);
@@ -1870,6 +1942,23 @@ int verify_drawing_details_ui() {
         require(detail.detail_view&&detail.name=="X"&&detail.parent_view_id==source.id&&!detail.show_detail_boundary&&detail.show_detail_label,"Detail metadata is incorrect");
         require(detail.projected_edges.size()==source.projected_edges.size(),"Detail lost parent geometry");
         require(detail.description_rows[1].visible,"New detail lost its visible scale description");
+        require(detail.model_annotations.size()==1&&!detail.model_annotations.front().visible&&detail.model_annotations.front().paper_handles.empty(),
+            "Detail creation copied visible parent dimensions");
+        for(bool accept:{false,true}) {
+            window.select_view_for_test(detail.id);action("editDrawingViewAction")->trigger();flush();auto* properties=dialog();
+            auto* offset=properties->findChild<QDoubleSpinBox*>("drawingGuideOffset");auto* spacing=properties->findChild<QDoubleSpinBox*>("drawingGuideSpacing");
+            auto* number=properties->findChild<QSpinBox*>("drawingGuideCount");auto* shown=properties->findChild<QCheckBox*>("drawingDimensionGuides");
+            require(offset&&spacing&&number&&shown,"Detail lacks shared dimension guide controls");
+            offset->setValue(5);spacing->setValue(3);number->setValue(2);shown->setChecked(true);
+            properties->findChild<QDialogButtonBox*>()->button(accept?QDialogButtonBox::Ok:QDialogButtonBox::Cancel)->click();flush();
+            const auto* own=window.document_for_test().find_view(detail.id);
+            require(own->dimension_guide_offset==(accept?5:8)&&own->dimension_guide_count==(accept?2:4)&&own->show_dimension_guides==accept,"Detail guide OK/Cancel failed");
+            require(window.document_for_test().find_view(source.id)->dimension_guide_offset==8,"Detail guides changed parent settings");
+        }
+        live.open_drawing(document.document_id)->undo();window.edit_workspace_document(document.document_id);flush();
+        require(window.document_for_test().find_view(detail.id)->dimension_guide_offset==8,"Detail guide Undo failed");
+        live.open_drawing(document.document_id)->redo();window.edit_workspace_document(document.document_id);flush();
+        require(window.document_for_test().find_view(detail.id)->dimension_guide_offset==5,"Detail guide Redo failed");
         const auto detail_revision=live.open_drawing(document.document_id)->revision();
         window.select_view_for_test(detail.id);action("editDrawingViewAction")->trigger();flush();require(dialog(),"Detail description properties missing");
         require(dialog()->findChild<QTableWidget*>("drawingViewDescriptions"),"Detail does not share ordinary description controls");
@@ -1893,8 +1982,38 @@ int verify_drawing_details_ui() {
         dialog()->findChild<QLineEdit*>("detailName")->setText("Y");
         dialog()->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();
         require(window.document_for_test().sheets.front().views.back().name=="X","Cancel changed detail name");
+        live.open_drawing(document.document_id)->undo();
         live.open_drawing(document.document_id)->undo();window.edit_workspace_document(document.document_id);flush();require(count()==1,"Detail creation Undo failed");
         live.open_drawing(document.document_id)->redo();window.edit_workspace_document(document.document_id);flush();require(count()==2,"Detail creation Redo failed");
+        live.open_drawing(document.document_id)->redo();window.edit_workspace_document(document.document_id);flush();
+        for(bool accept:{false,true}) {
+            window.select_view_for_test(detail.id);action("drawingShowEraseAction")->trigger();flush();
+            auto* all=window.findChild<QPushButton*>("showEraseAll");require(all,"Detail cannot open Show/Erase");
+            QDialog* show_erase=nullptr;for(auto* owner=all->parentWidget();owner&&!show_erase;owner=owner->parentWidget())show_erase=qobject_cast<QDialog*>(owner);
+            require(show_erase,"Detail Show/Erase is outside properties");all->click();flush();
+            show_erase->findChild<QDialogButtonBox*>()->button(accept?QDialogButtonBox::Ok:QDialogButtonBox::Cancel)->click();flush();
+            require(window.document_for_test().find_view(detail.id)->model_annotations.front().visible==accept,"Detail dimension Show/Erase or Cancel failed");
+            require(window.document_for_test().find_view(source.id)->model_annotations==source.model_annotations,"Detail dimension editing changed the parent");
+        }
+        live.open_drawing(document.document_id)->undo();window.edit_workspace_document(document.document_id);flush();
+        require(!window.document_for_test().find_view(detail.id)->model_annotations.front().visible,"Detail dimension Undo failed");
+        live.open_drawing(document.document_id)->redo();window.edit_workspace_document(document.document_id);flush();
+        require(window.document_for_test().find_view(detail.id)->model_annotations.front().visible,"Detail dimension Redo failed");
+        window.document_for_test().save(path);
+        require(drawing::DrawingDocument::load(path).find_view(detail.id)->model_annotations.front().visible,"Detail-owned dimension did not reopen");
+        for(int edit=0;edit<3;++edit) {
+            canvas->grab();flush();const auto grip=window.model_annotation_handle_for_test(source_dimension.source,1,detail.id);
+            require(grip.has_value(),"Detail dimension outside crop has no grip");
+            const auto target=*grip+QPointF(0,-35);
+            mouse(canvas,QEvent::MouseButtonPress,*grip,Qt::LeftButton,Qt::LeftButton);
+            mouse(canvas,QEvent::MouseMove,target,Qt::NoButton,Qt::LeftButton);
+            mouse(canvas,QEvent::MouseButtonRelease,target,Qt::LeftButton,Qt::NoButton);canvas->grab();flush();
+            const auto moved=window.model_annotation_handle_for_test(source_dimension.source,1,detail.id);
+            require(moved&&QLineF(*moved,*grip).length()>10,"Detail dimension cannot move outside its crop");
+            require(window.document_for_test().find_view(source.id)->model_annotations==source.model_annotations,"Detail dimension drag changed parent");
+        }
+        window.document_for_test().save(path);const auto framed=drawing::DrawingDocument::load(path);
+        require(framed.find_view(detail.id)->dimension_guide_offset==5&&framed.find_view(detail.id)->model_annotations==window.document_for_test().find_view(detail.id)->model_annotations,"Detail frame/placement did not reopen");
         canvas->grab();flush();
         auto handle=window.detail_label_handle_for_test(detail.id);require(handle.has_value(),"Detail reference label has no movable grip");
         const auto drag=[&](QPointF from,QPointF to,bool cancel){

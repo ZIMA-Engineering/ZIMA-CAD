@@ -1,8 +1,10 @@
 #include <zima/document/fem_presentation.hpp>
+#include <zima/sketcher/sketch.hpp>
 #include <algorithm>
 #include <cmath>
 #include <numbers>
 #include <sstream>
+#include <limits>
 
 namespace zima::document {
 namespace {
@@ -53,6 +55,32 @@ kernel::ViewerMesh fem_condition_presentation(const FemCondition& value,const ke
     std::vector<Sample> locations;bool broken=!value.placement.reference_valid;
     if(value.projected_sketch) {
         for(const auto& r:value.references)broken|=!fem_region_reference_available(r,FemRegionKind::Surface,source);
+        if(!value.projected_sketch->project_to_body) {
+            const auto placed=fem_condition_sketch(value);
+            auto sketch=placed.viewer_mesh(false);
+            for(auto& edge:sketch.edges) {
+                if(value.kind==FemConditionKind::Pressure&&!edge.construction&&!edge.points.empty()&&locations.size()<4)
+                    locations.push_back({edge.points[edge.points.size()/2],placed.normal()});
+                edge.reference.owner_id=value.id;
+                edge.reference.semantic_key="fem:region:"+edge.reference.semantic_key;
+                edge.display_owner_id=value.id;
+                edge.overlay=true;
+                mesh.edges.push_back(std::move(edge));
+            }
+        }else if(value.kind==FemConditionKind::Pressure) {
+            for(std::size_t i=0;i<value.references.size()&&i<value.projected_sketch->surface_seeds.size();++i) {
+                const auto seed=value.projected_sketch->surface_seeds[i];
+                std::optional<Sample> nearest;double distance=std::numeric_limits<double>::infinity();
+                for(std::size_t t=0;t<source.triangle_references.size()&&3*t+2<source.triangles.size();++t) {
+                    if(!matches(value.references[i],source.triangle_references[t]))continue;
+                    const auto a=source.vertices.at(source.triangles[3*t]),b=source.vertices.at(source.triangles[3*t+1]),c=source.vertices.at(source.triangles[3*t+2]);
+                    const auto delta=sub(mul(add(add(a,b),c),1./3),seed);
+                    const double d=std::hypot(delta.x,delta.y,delta.z);
+                    if(d<distance){distance=d;nearest=Sample{seed,unit(cross(sub(b,a),sub(c,a)))};}
+                }
+                if(nearest)locations.push_back(*nearest);
+            }
+        }
     } else for(const auto& r:value.references){auto points=samples(r,value.region,source);broken|=points.empty();locations.insert(locations.end(),points.begin(),points.end());}
     if(locations.empty())locations.push_back({origin,normal});
     const auto stroke=[&](std::initializer_list<Vec3> points){kernel::ViewerEdge e;e.reference={value.id,"fem:mark:"+std::to_string(mesh.edges.size()),{}};e.display_owner_id=value.id;e.overlay=true;e.points=points;mesh.edges.push_back(std::move(e));};

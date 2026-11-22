@@ -6,6 +6,11 @@
     int crop_grip_{-1};QPointF crop_pointer_;drawing::Point2 crop_drag_start_;
     drawing::ViewCrop crop_drag_initial_;
     std::optional<drawing::Point2> crop_offer_;QString crop_error_;
+    void report_crop_instruction() {
+        if(!instruction_changed)return;
+        if(!crop_edit_){instruction_changed({});return;}
+        instruction_changed(!crop_error_.isEmpty()?crop_error_:!crop_anchor_ready_?tr("Vyberte kotevní bod na geometrii pohledu."):crop_modifying_?tr("Přesuňte body hranice. Enter potvrdí, Esc zruší."):crop_value_.shape==drawing::ViewCropShape::Spline?tr("Zadejte body spline. Kliknutím na první bod nebo Enter hranici uzavřete."):tr("Kliknutím určete velikost hranice. Esc zruší."));
+    }
     drawing::Point2 crop_point(QPointF p) const {
         const auto o=raw_view_origin(*crop_edit_);const auto scale=canvas_zoom()*crop_edit_->scale;
         return {(p.x()-o.x())/scale,(o.y()-p.y())/scale};
@@ -20,11 +25,12 @@
     }
     void finish_crop(bool accepted) {
         if(!crop_edit_)return;
-        if(accepted){if(!crop_anchor_ready_)return;auto check=*crop_edit_;check.crop=crop_value_;try{drawing::validate_view_crop(check);}catch(...){crop_error_=tr("Invalid drawing crop boundary.");update();return;}}
+        if(accepted){if(!crop_anchor_ready_)return;auto check=*crop_edit_;check.crop=crop_value_;try{drawing::validate_view_crop(check);}catch(...){crop_error_=tr("Invalid drawing crop boundary.");report_crop_instruction();update();return;}}
         const auto crop=accepted?std::optional(crop_value_):std::nullopt;crop_edit_.reset();crop_offer_.reset();crop_grip_=-1;unsetCursor();
-        auto callback=std::move(crop_finished_);if(callback)callback(crop,accepted);update();
+        report_crop_instruction();auto callback=std::move(crop_finished_);if(callback)callback(crop,accepted);update();
     }
 public:
+    std::function<void(const QString&)> instruction_changed;
     void begin_crop(drawing::DrawingView view,int mode,std::function<void(std::optional<drawing::ViewCrop>,bool)> finished,std::optional<drawing::Point2> anchor={}) {
         select_entity({},false);selected_.clear();selected_annotation_.reset();
         crop_error_.clear();crop_modifying_=mode==3;crop_anchor_ready_=crop_modifying_;
@@ -32,7 +38,7 @@ public:
         if(!crop_modifying_)crop_value_.shape=static_cast<drawing::ViewCropShape>(mode);
         if(anchor&&!crop_modifying_){crop_value_.anchor=*anchor;crop_anchor_ready_=true;}
         view.crop.reset();crop_edit_=view;preview_=view;crop_finished_=std::move(finished);crop_grip_=-1;crop_offer_.reset();
-        setFocus();setCursor(Qt::CrossCursor);update();
+        setFocus();setCursor(Qt::CrossCursor);report_crop_instruction();update();
     }
 private:
     std::vector<drawing::Point2> crop_grips() const {
@@ -43,7 +49,7 @@ private:
     bool crop_press(QMouseEvent* event) {
         if(!crop_edit_)return false;event->accept();if(event->button()!=Qt::LeftButton)return true;
         crop_pointer_=event->position();
-        if(!crop_anchor_ready_){offer_crop_anchor(event->position());if(crop_offer_){crop_value_.anchor=*crop_offer_;crop_anchor_ready_=true;crop_offer_.reset();}update();return true;}
+        if(!crop_anchor_ready_){offer_crop_anchor(event->position());if(crop_offer_){crop_value_.anchor=*crop_offer_;crop_anchor_ready_=true;crop_offer_.reset();report_crop_instruction();}update();return true;}
         const auto p=crop_point(event->position());
         if(crop_modifying_){const auto grips=crop_grips();for(int i=0;i<int(grips.size());++i)if(QLineF(crop_screen(grips[i]),event->position()).length()<=8){crop_grip_=i;crop_drag_initial_=crop_value_;crop_drag_start_=p;break;}return true;}
         if(crop_value_.shape==drawing::ViewCropShape::Spline){
@@ -57,7 +63,7 @@ private:
         crop_value_.points={{x,y}};
     }
     bool crop_move(QMouseEvent* event) {
-        if(!crop_edit_)return false;crop_error_.clear();crop_pointer_=event->position();
+        if(!crop_edit_)return false;const bool had_error=!crop_error_.isEmpty();crop_error_.clear();if(had_error)report_crop_instruction();crop_pointer_=event->position();
         if(!crop_anchor_ready_)offer_crop_anchor(event->position());
         else if(crop_modifying_&&crop_grip_>=0&&(event->buttons()&Qt::LeftButton)){
             const auto p=crop_point(event->position());crop_value_=crop_drag_initial_;
@@ -73,6 +79,5 @@ private:
         if(crop_anchor_ready_){auto shown=*crop_edit_;shown.crop=crop_value_;painter.drawPath(drawing_render::crop_screen_path(shown,raw_view_origin(shown),canvas_zoom()*shown.scale));
             for(auto p:crop_grips()){painter.setBrush(QColor("#E040FB"));painter.drawEllipse(crop_screen(p),4,4);}
         }else if(crop_offer_){painter.setBrush(QColor("#00D1FF"));painter.drawEllipse(crop_screen(*crop_offer_),4,4);}
-        const auto instruction=!crop_error_.isEmpty()?crop_error_:!crop_anchor_ready_?tr("Vyberte kotevní bod na geometrii pohledu."):crop_modifying_?tr("Přesuňte body hranice. Enter potvrdí, Esc zruší."):crop_value_.shape==drawing::ViewCropShape::Spline?tr("Zadejte body spline. Kliknutím na první bod nebo Enter hranici uzavřete."):tr("Kliknutím určete velikost hranice. Esc zruší.");
-        const auto area=QFontMetricsF(font()).boundingRect(instruction).adjusted(-8,-6,8,6);painter.fillRect(QRectF(QPointF(10,10),area.size()),QColor("#171A1D"));painter.drawText(QPointF(18,28),instruction);painter.restore();
+        painter.restore();
     }

@@ -1,4 +1,5 @@
 #include <zima/document/feature_parameter_dimensions.hpp>
+#include <zima/document/feature_length_dimensions.hpp>
 #include <zima/document/holes.hpp>
 #include <zima/document/sheet_form_definition.hpp>
 #include <zima/workspace/family_operations.hpp>
@@ -320,6 +321,12 @@ drawing_annotation_sources(const Workspace *workspace,
         if(feature.feature_kind==document::FeatureKind::ShaftThread)
           threads[feature.id]={feature.shaft_thread.designation,feature.shaft_thread.nominal_diameter};
         auto packet=document::primitive_parameter_dimensions(feature);
+        if(feature.feature_kind==document::FeatureKind::Feature||feature.feature_kind==document::FeatureKind::Extrusion) {
+          const auto sketch=std::ranges::find(part.sketches,
+              feature.feature_kind==document::FeatureKind::Feature?feature.feature.sketch_id:feature.extrusion.sketch_id,&sketcher::Sketch::id);
+          if(sketch!=part.sketches.end()&&!sketch->suppressed)
+            packet=document::feature_length_dimensions(feature,*sketch);
+        }
         if(feature.feature_kind==document::FeatureKind::Holes) {
           const auto sketch=std::ranges::find(part.sketches,feature.holes.sketch_id,&sketcher::Sketch::id);
           if(sketch!=part.sketches.end())packet=document::holes_preview(feature,*sketch);

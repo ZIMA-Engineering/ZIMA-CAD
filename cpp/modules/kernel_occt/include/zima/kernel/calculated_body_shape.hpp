@@ -22,6 +22,11 @@ struct CalculatedBodyTopology {
 struct ProjectedMeshCurve {
     TopoDS_Shape edge,face;
 };
+
+// Exact authored geometry at its placed plane, wholly contained in the material.
+// Only explicit FEM validation/meshing materializes these private shapes.
+[[nodiscard]] std::vector<TopoDS_Shape> planar_calculated_mesh_region(
+    const TopoDS_Shape& body,const ProjectionRequest& request);
 struct ProjectedMeshRegion {
     TopoDS_Shape body;
     std::vector<TopoDS_Shape> faces;

@@ -299,6 +299,32 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
             selected_sketch_id_ = selected_id;
         }, this);
     dialog->set_reference_document_id(owner_id);
+    if(!sketch_feature)dialog->set_pending_sketch_editor([this,dialog,prepared_sketch,edit_mode] {
+        // Ordinary Sketches use the same transient editor as owned profiles.
+        // Returning with OK updates only Properties; Cancel can retain the
+        // exact entry Sketch without replaying or rewriting document history.
+        sweep_profile_sketch_draft_=*prepared_sketch;
+        section_sketch_undo_.clear();section_sketch_redo_.clear();
+        embedded_sketch_finished_=[this,guard=QPointer<SketchPropertiesDialog>(dialog)](auto sketch) {
+            if(!guard)return;
+            properties_dialog_=guard;primitive_reference_dialog_=guard;
+            guard->set_pending_sketch(std::move(sketch));guard->show();guard->raise();
+            preserve_view_on_refresh_=true;refresh_scene();
+        };
+        pending_primitive_reference_index_.reset();primitive_reference_auto_advance_=false;
+        dialog->set_active_reference_index(std::nullopt);dialog->clear_reference_highlights();
+        set_local_origin_selection_mode(false);local_origin_selection_dialog_=nullptr;
+        primitive_reference_dialog_=nullptr;viewer_->set_constraint_reference_highlights({},{});
+        viewer_->set_feature_preview_owners({});viewer_->set_extent_manipulator(std::nullopt);
+        viewer_->set_operation_direction_indicators({});viewer_->set_transient_edges({});
+        primitive_origin_preview_mesh_.reset();parameter_dimension_preview_.reset();
+        dialog->hide();properties_dialog_=nullptr;
+        active_sketch_id_=sweep_profile_sketch_draft_->id;selected_sketch_id_=active_sketch_id_;
+        if(!edit_mode&&completely_empty_sketch(*sweep_profile_sketch_draft_))first_empty_sketch_entry_id_=active_sketch_id_;
+        clear_selected_sketch_geometry();viewer_->clear_selection();tree_->clearSelection();
+        preserve_view_on_refresh_=true;refresh_scene();
+        align_active_sketch_view(workspace_.open_assembly(workspace_.displayed_document_id())==nullptr);
+    });
     if (sketch_feature) {
         const auto edit_owned_sketch=[this, dialog, prepared_sketch,sketch_feature,owner_id](std::optional<std::size_t> stage) {
                 const auto* source=workspace_.open_part(owner_id);

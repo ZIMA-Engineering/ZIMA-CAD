@@ -167,6 +167,10 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
     }
     if(command_insert_menu_){command_insert_menu_->clear();command_insert_menu_->setEnabled(workspace_.size()!=0);}
     tools_toolbar_->clear();
+    if(active_sketch_id_.empty())sketch_edit_initial_.reset();
+    else if(!sketch_edit_initial_||sketch_edit_initial_->id!=active_sketch_id_)
+        if(const auto* sketch=active_sketch())sketch_edit_initial_=*sketch;
+    if(cancel_sketch_action_)cancel_sketch_action_->setEnabled(!properties_dialog_&&sketch_edit_initial_&&sweep_profile_sketch_draft_);
     // QToolBar recalculates its minimum width after clear() and centers
     // narrower items. Give every command the width of the longest label.
     QTimer::singleShot(0,tools_toolbar_,[this] {
@@ -287,7 +291,7 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
     const bool editing_nested_document =
         workspace_.open_assembly(workspace_.displayed_document_id()) != nullptr &&
         workspace_.active_document_id() != workspace_.displayed_document_id();
-    if (editing_nested_document) {
+    if (editing_nested_document && active_sketch_id_.empty()) {
         auto* return_action = new QAction(
             resource_icon("assembly"), tr("Zpět do sestavy"), tools_toolbar_);
         return_action->setEnabled(!properties_dialog_&&active_sketch_id_.empty());
@@ -299,6 +303,17 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
     }
 
     if (!active_sketch_id_.empty()) {
+        const auto* template_part=workspace_.open_part(workspace_.active_document_id());
+        if(!template_sketch()||(template_part&&template_part->native_drawing_template)) {
+            tools_toolbar_->addSeparator();
+            for(auto* action:{finish_sketch_action_,cancel_sketch_action_}) {
+                add_command(action,false);
+                if(auto* button=qobject_cast<QToolButton*>(tools_toolbar_->widgetForAction(action))) {
+                    button->setMinimumHeight(40);button->setIconSize(QSize(26,26));
+                }
+            }
+            add_group_separator();
+        }
         if(symbol_document_sketch()) {
             family_table_action_->setEnabled(!properties_dialog_);
             add_command(family_table_action_,false);
@@ -316,7 +331,7 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
             template_image_action_->setObjectName("templateImageAction");
             connect(template_image_action_,&QAction::triggered,this,[this]{start_template_image();});
         }
-        add_group_separator();
+        if(!tools_toolbar_->actions().back()->isSeparator())add_group_separator();
         add_command(sketch_normal_view_action_,false);
         add_command(sketch_flip_view_action_,false);
         add_command(sketch_rotate_view_action_,false);
@@ -350,8 +365,6 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
         add_command(symbol_action_);
         add_command(template_image_action_);
         add_group_separator();
-        const auto* template_part=workspace_.open_part(workspace_.active_document_id());
-        if(!template_sketch()||(template_part&&template_part->native_drawing_template))add_command(finish_sketch_action_,false);
         return;
     }
 

@@ -2984,5 +2984,12 @@
   "FEM mesh generation failed.": "Generování FEM sítě selhalo.",
   "Project a Sketch": "Promítnout skicu",
   "Select each target face inside the region to retain.": "Vyberte každou cílovou plochu uvnitř oblasti, která se má zachovat.",
-  "Select the target faces for the Sketch.": "Vyberte cílové plochy pro skicu."
+  "Select the target faces for the Sketch.": "Vyberte cílové plochy pro skicu.",
+  "Body surface": "Plocha tělesa",
+  "Project Sketch onto body": "Promítnout skicu na těleso",
+  "Select the body faces where the condition acts.": "Vyberte plochy tělesa, na kterých podmínka působí.",
+  "The FEM Sketch must contain region geometry.": "Skica FEM musí obsahovat geometrii oblasti působení.",
+  "The FEM Sketch must lie entirely on or inside its source body.": "Skica FEM musí ležet celá na zdrojovém tělese nebo uvnitř něj.",
+  "Převzít přerušení z rodiče": "Převzít přerušení z rodiče",
+  "Přebírá přerušení ve společném směru pohledů a sleduje změny rodiče. Vypnutím ponecháte aktuální přerušení k samostatné úpravě.": "Přebírá přerušení ve společném směru pohledů a sleduje změny rodiče. Vypnutím ponecháte aktuální přerušení k samostatné úpravě."
 }

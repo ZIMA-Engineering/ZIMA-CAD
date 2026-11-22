@@ -41,7 +41,7 @@ struct StartupContext {
 
 struct ApplicationSettings {
     DocumentNaming document_naming;
-    QString language{QStringLiteral("cs")};
+    QString language{QStringLiteral("en")};
     QString config_path;
     QString base_config_path;
     QString local_config_path;

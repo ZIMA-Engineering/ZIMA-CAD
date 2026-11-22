@@ -6,7 +6,7 @@
 
 inline void verify_portable_factory_sources() {
     QTemporaryDir temporary;require(temporary.isValid(),"Factory source fixture unavailable");
-    const auto root=temporary.path()+QString::fromUtf8("/Portable knihovna Š");
+    const auto root=native_test_path(temporary.path())+QString::fromUtf8("/Portable knihovna Š");
 #ifdef _WIN32
     const QString platform="windows", executable="/zima-cad-cpp.exe";
 #else
@@ -39,7 +39,8 @@ inline void verify_portable_factory_sources() {
     const auto fresh=zima::app::ApplicationSettings::load(root+"/Projects",newer+executable);
     for(const auto& item:defaults) {
         const auto row=item.toObject();const auto actual=source(fresh,row["id"].toString());
-        require(QDir::cleanPath(actual.resolved_path)==newer+"/config/"+row["path"].toString(),"Fresh factory source resolved outside the active version");
+        if(QDir::cleanPath(actual.resolved_path)!=newer+"/config/"+row["path"].toString())
+            throw std::runtime_error("Fresh factory source resolved outside the active version: "+actual.resolved_path.toStdString()+" expected "+(newer+"/config/"+row["path"].toString()).toStdString());
         require(QFileInfo::exists(actual.resolved_path+"/factory-marker.txt"),"Fresh factory library is not reachable");
     }
     QJsonArray old_sources{QJsonObject{{"id","formats"},{"name","formats"},{"path","formats"},

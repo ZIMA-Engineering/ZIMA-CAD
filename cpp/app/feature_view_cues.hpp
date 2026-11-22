@@ -1,5 +1,6 @@
 #pragma once
 #include <zima/document/feature_direction.hpp>
+#include <zima/document/feature_length_dimensions.hpp>
 #include "feature_view_cue_policy.hpp"
 #include "point_station_annotation.hpp"
 #include "workspace/workspace_internal.hpp"
@@ -110,7 +111,8 @@ inline FeatureViewCues feature_view_cues(const document::HistoryContainer& featu
         if(settings.operation==document::FeatureSideOperation::Extrusion) {
             const auto direction=scale(normal,sign);
             if(settings.extrusion_extent==document::EndCondition::Length) {
-                linear(prefix+"_length",start,add(start,scale(direction,settings.length)),settings.length);
+                if(auto dimension=document::feature_side_length_dimension(feature,sketch,side))
+                    out.dimensions.dimensions.push_back(std::move(*dimension));
                 out.handles.push_back({"feature_profile_start"+std::to_string(side),prefix+"_length",start,direction,settings.length,false});
             } else out.directions.push_back({start,direction,{},0.,false});
             if(draft_edge && std::abs(settings.draft_angle_degrees)>=1e-12) {

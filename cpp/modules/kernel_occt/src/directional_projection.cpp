@@ -200,7 +200,8 @@ double forward_extent(const std::vector<ProjectionTarget>& targets,
     return extent + std::max(1., extent) * .01 + tolerance;
 }
 
-std::optional<gp_Pln> exact_plane(const TopoDS_Face& face,double tolerance) {
+} // namespace
+std::optional<gp_Pln> exact_planar_support(const TopoDS_Face& face,double tolerance) {
     const auto surface=BRep_Tool::Surface(face);
     const auto spline=Handle(Geom_BSplineSurface)::DownCast(surface);
     const auto bezier=Handle(Geom_BezierSurface)::DownCast(surface);
@@ -220,6 +221,7 @@ std::optional<gp_Pln> exact_plane(const TopoDS_Face& face,double tolerance) {
     return check.Plan();
 }
 
+namespace {
 std::vector<Candidate> candidates_for(const ProjectionCurve& source,
         const std::vector<ProjectionTarget>& targets, const gp_Dir& direction,
         double extent, double tolerance) {
@@ -235,7 +237,7 @@ std::vector<Candidate> candidates_for(const ProjectionCurve& source,
         // Preserve the exact source basis for planar targets, including planes
         // stored as spline surfaces. A generic curtain section needlessly fits
         // such circles/splines and can move them off their supporting plane.
-        const auto planar=exact_plane(targets[target].face,tolerance);
+        const auto planar=exact_planar_support(targets[target].face,tolerance);
         if(planar&&std::abs(planar->Axis().Direction().Dot(direction))>1e-12) {
             const NativeCurve input(source.edge);
             const Handle(Geom_Curve) bounded_input=new Geom_TrimmedCurve(input.curve,input.first,input.last);

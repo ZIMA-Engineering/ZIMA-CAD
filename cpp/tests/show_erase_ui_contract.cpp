@@ -55,6 +55,97 @@ void click(QWidget *w, QPointF p) {
   mouse(w, QEvent::MouseButtonRelease, p, Qt::LeftButton, Qt::NoButton);
 }
 } // namespace
+void verify_extrusion_length_ui() {
+    using namespace zima;
+    for(bool unified:{false,true}) {
+        workspace::Workspace live;kernel::OcctKernel kernel;QTemporaryDir folder;
+        const auto path=std::filesystem::path(folder.path().toStdString())/"extrusion.prtz";
+        auto part=document::PartDocument::create_default();auto sketch=sketcher::Sketch::create_default();
+        static_cast<void>(sketch.add_rectangle(-10,-5,10,5));
+        auto feature=unified?document::PartDocument::create_feature_container(sketch.id):document::PartDocument::create_extrusion_container(sketch.id);
+        feature.feature.sides[0].length=12;feature.feature.reversed_sides=true;
+        feature.extrusion.length_forward=12;feature.extrusion.direction=document::ExtrusionDirection::Reverse;
+        sketch.owner_container_id=feature.id;part.sketches={sketch};part.history={feature};
+        document::BodyHistoryGraph graph;static_cast<void>(graph.create_body("Body"));graph.insert({document::PartHistoryKind::Feature,feature.id});part.set_body_history(graph);part.resolve_constructions();
+        auto calculated=kernel.evaluate_history(part.kernel_operations());part.save(path,calculated);live.add_part(part,calculated,path);
+        auto doc=drawing::DrawingDocument::create_default();
+        auto view=drawing::DrawingDocument::create_view(part.document_id,path,calculated.back().mesh,drawing::ViewOrientation::Front);view.x=120;view.y=150;
+        workspace::DrawingProjection projection(&live,{});projection.project(view,{});doc.sheets[0].views={view};
+        const auto drawing_path=path.parent_path()/"extrusion.drwz";
+        live.add_drawing(doc,drawing_path);live.activate(doc.document_id);live.display_top_level(doc.document_id);
+        const drawing::ModelAnnotationReference ref{part.document_id,feature.id,unified?"parameter:side0_length":"parameter:length_forward",{}};
+        app::DrawingWindow window(&live,false);window.edit_workspace_document(doc.document_id);window.resize(1400,950);window.show();window.fit_sheet();window.select_view_for_test(view.id);flush();
+        auto* canvas=window.findChild<QWidget*>("drawingCanvas");
+        auto* action=window.findChild<QAction*>("drawingShowEraseAction");require(action&&action->isEnabled(),"Extrusion view cannot open Show/Erase");action->trigger();flush();
+        QDialog* dialog{};for(auto* d:window.findChildren<QDialog*>("drawingShowEraseDialog"))if(d->isVisible())dialog=d;
+        require(dialog,"Extrusion Show/Erase did not open");
+        const auto hit=window.model_annotation_handle_for_test(ref,0,view.id);require(hit.has_value(),"Extrusion length is not offered in the Drawing View");
+        click(canvas,*hit);dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+        require(workspace::drawing_annotation(window.document_for_test(),view.id,ref).visible,"Clicking extrusion length did not display it");
+        for(double length:{15.,9.,12.}) {
+            canvas->grab();flush();const auto label=window.model_annotation_handle_for_test(ref,0,view.id);require(label.has_value(),"Displayed extrusion dimension has no text hit");
+            click(canvas,*label);mouse(canvas,QEvent::MouseButtonDblClick,*label,Qt::LeftButton,Qt::LeftButton);mouse(canvas,QEvent::MouseButtonRelease,*label,Qt::LeftButton,Qt::NoButton);
+            auto* edit=window.findChild<QLineEdit*>("inlineDimensionValueEdit");require(edit,"Extrusion dimension does not open the shared value editor");
+            edit->setText(QString::number(length));QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);QApplication::sendEvent(edit,&enter);flush();
+            const auto& current=live.open_part(part.document_id)->session.document().history.front();
+            require(std::abs((unified?current.feature.sides[0].length:current.extrusion.length_forward)-length)<1e-8,"Drawing length edit did not update its source solid");
+            require(std::abs(workspace::drawing_annotation(window.document_for_test(),view.id,ref).value-length)<1e-8,"Drawing length did not refresh after source edit");
+        }
+        window.document_for_test().save(drawing_path);
+        require(workspace::drawing_annotation(drawing::DrawingDocument::load(drawing_path),view.id,ref).visible,"Extrusion length visibility was lost on reopen");
+        window.grab().save(unified?"build/drawing-feature-length.png":"build/drawing-extrusion-length.png");
+    }
+    std::cout<<"Drawing extrusion length GUI: Show/Erase View picking, display, three driving edits and native reopen passed\n";
+}
+void verify_axial_diameter_ui() {
+    using namespace zima;
+    workspace::Workspace live;kernel::OcctKernel kernel;QTemporaryDir folder;
+    const auto path=std::filesystem::path(folder.path().toStdString())/"axial-hole.prtz";
+    auto part=document::PartDocument::create_default();auto sketch=sketcher::Sketch::create_default();
+    static_cast<void>(sketch.add_rectangle(-35,-25,35,25));const auto circle=sketch.add_circle(0,0,15);
+    const auto dimension=sketch.create_circle_diameter_dimension(circle);sketch.apply_dimension(dimension);
+    auto feature=document::PartDocument::create_extrusion_container(sketch.id);feature.extrusion.length_forward=45;
+    sketch.owner_container_id=feature.id;part.sketches={sketch};part.history={feature};
+    document::BodyHistoryGraph graph;static_cast<void>(graph.create_body("Body"));graph.insert({document::PartHistoryKind::Feature,feature.id});part.set_body_history(graph);part.resolve_constructions();
+    auto calculated=kernel.evaluate_history(part.kernel_operations());part.save(path,calculated);live.add_part(part,calculated,path);
+    auto doc=drawing::DrawingDocument::create_default();
+    auto view=drawing::DrawingDocument::create_view(part.document_id,path,calculated.back().mesh,drawing::ViewOrientation::Front);view.x=180;view.y=130;
+    workspace::DrawingProjection projection(&live,{});projection.project(view,{});
+    const drawing::ModelAnnotationReference ref{part.document_id,sketch.id,"dimension:"+dimension.id,{}};
+    for(auto& item:view.model_annotations)item.visible=item.source==ref;
+    doc.sheets[0].views={view};const auto drawing_path=path.parent_path()/"axial-hole.drwz";
+    live.add_drawing(doc,drawing_path);live.activate(doc.document_id);live.display_top_level(doc.document_id);
+    app::DrawingWindow window(&live,false);window.edit_workspace_document(doc.document_id);window.resize(1400,950);window.show();window.fit_sheet();flush();
+    auto* canvas=window.findChild<QWidget*>("drawingCanvas");
+    for(int grip:{0,1,2}) {
+        canvas->grab();flush();const auto before=window.model_annotation_handle_for_test(ref,grip,view.id);require(before.has_value(),"Axial diameter grip missing");
+        mouse(canvas,QEvent::MouseButtonPress,*before,Qt::LeftButton,Qt::LeftButton);
+        mouse(canvas,QEvent::MouseMove,*before+QPointF(0,-45),Qt::NoButton,Qt::LeftButton);
+        mouse(canvas,QEvent::MouseButtonRelease,*before+QPointF(0,-45),Qt::LeftButton,Qt::NoButton);
+        const auto& item=workspace::drawing_annotation(window.document_for_test(),view.id,ref);
+        require(item.view_layout.has_value(),"Axial diameter grip did not commit its layout");
+        const auto shown=drawing::drawing_model_dimension(view,item);
+        require(shown.kind==kernel::ViewerDimensionKind::Linear&&shown.value==30,"Axial drag lost its source diameter");
+        const auto displacement=kernel::dimension_sub(shown.line_first,shown.witness_first);
+        require(kernel::dimension_dot(displacement,displacement)>1,"Axial diameter has no extension lines");
+        const auto after=window.model_annotation_handle_for_test(ref,grip,view.id);
+        require(after&&QLineF(*before,*after).length()>10,"Axial diameter could not be dragged upward");
+    }
+    const auto persisted_layout=workspace::drawing_annotation(window.document_for_test(),view.id,ref).view_layout;
+    for(double diameter:{34.,26.,30.}) {
+        canvas->grab();flush();const auto label=window.model_annotation_handle_for_test(ref,0,view.id);require(label.has_value(),"Axial diameter label is missing");
+        click(canvas,*label);mouse(canvas,QEvent::MouseButtonDblClick,*label,Qt::LeftButton,Qt::LeftButton);mouse(canvas,QEvent::MouseButtonRelease,*label,Qt::LeftButton,Qt::NoButton);
+        auto* edit=window.findChild<QLineEdit*>("inlineDimensionValueEdit");require(edit,"Axial diameter did not open its model value editor");
+        edit->setText(QString::number(diameter));QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);QApplication::sendEvent(edit,&enter);flush();
+        require(std::abs(live.open_part(part.document_id)->session.document().sketches.front().circles.front().radius-diameter/2)<1e-7,"Axial diameter no longer drives its source hole");
+        require(workspace::drawing_annotation(window.document_for_test(),view.id,ref).view_layout==persisted_layout,"Source update moved the diameter layout");
+    }
+    window.document_for_test().save(drawing_path);
+    const auto reopened=drawing::DrawingDocument::load(drawing_path);
+    require(workspace::drawing_annotation(reopened,view.id,ref).view_layout==persisted_layout,"Axial diameter layout did not reopen");
+    window.grab().save("build/drawing-axial-diameter.png");
+    std::cout<<"Axial diameter GUI: three grips upward, extension lines, three model edits and native reopen passed\n";
+}
 void verify_driving_value_ui() {
     using namespace zima;
     workspace::Workspace live;kernel::OcctKernel kernel;
@@ -780,6 +871,8 @@ int verify_show_erase_ui() {
       }
     }
     verify_driving_value_ui();
+    verify_extrusion_length_ui();
+    verify_axial_diameter_ui();
     std::cout << "Show/Erase source, occurrence transforms, View selection, "
                  "Cancel, MMB, handles and PDF contracts passed\n";
     return 0;

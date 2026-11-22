@@ -6,6 +6,7 @@
 #include "inline_dimension_edit.hpp"
 #include "numeric_expression_edit.hpp"
 #include <QComboBox>
+#include <QCheckBox>
 #include <QCursor>
 #include <QKeyEvent>
 #include <QDialogButtonBox>
@@ -23,7 +24,7 @@ namespace zima::app {
 class BreakEditorCanvas final:public QWidget,public drawing_render::SheetRenderer {
 public:
     drawing::DrawingSheet sheet;
-    int selected{-1};bool result{},picking{},vertical{},draft_vertical{};
+    int selected{-1};bool result{},picking{},vertical{},draft_vertical{},editable{true};
     std::optional<double> draft_first,draft_second;
     std::function<void(drawing::Point2)> boundary_picked;
     std::function<void()> entry_ended;
@@ -91,7 +92,7 @@ protected:
     }
     void mousePressEvent(QMouseEvent* e)override {
         if(e->button()==Qt::MiddleButton){if(picking){end_pick();if(entry_ended)entry_ended();}panning_=true;last_=e->position();return;}
-        if(e->button()!=Qt::LeftButton||result)return;
+        if(e->button()!=Qt::LeftButton||result||!editable)return;
         if(picking){if(boundary_picked)boundary_picked(model(e->position()));e->accept();return;}
         for(const auto& hit:dimension_hits_)if(hit.contains(e->position()))return;
         const auto q=model(e->position());
@@ -112,7 +113,7 @@ protected:
     void mouseReleaseEvent(QMouseEvent*)override{panning_=false;drag_=0;}
     void leaveEvent(QEvent*)override{pointer_inside_=false;update();}
     void keyPressEvent(QKeyEvent* e)override{if(e->key()==Qt::Key_Escape&&picking){end_pick();if(entry_ended)entry_ended();e->accept();return;}QWidget::keyPressEvent(e);}
-    void mouseDoubleClickEvent(QMouseEvent* e)override{if(!result&&e->button()==Qt::LeftButton)for(std::size_t i=0;i<dimension_hits_.size();++i)if(dimension_hits_[i].contains(e->position())){if(edit_value)edit_value(int(i));return;}}
+    void mouseDoubleClickEvent(QMouseEvent* e)override{if(editable&&!result&&e->button()==Qt::LeftButton)for(std::size_t i=0;i<dimension_hits_.size();++i)if(dimension_hits_[i].contains(e->position())){if(edit_value)edit_value(int(i));return;}}
     void wheelEvent(QWheelEvent* e)override{zoom_=std::clamp(factor_*std::pow(1.0015,e->angleDelta().y()),.00001,10000.);pan_+=(e->position()-QPointF(width()/2.,height()/2.)-pan_)*(1-zoom_/factor_);update();e->accept();}
 private:
     double zoom_{},factor_{1};QPointF origin_,pan_,last_,pointer_;bool panning_{},pointer_inside_{};int drag_{};drawing::ViewBreak initial_;drawing::Point2 start_;
@@ -120,9 +121,17 @@ private:
 };
 class DrawingBreakEditor final:public ui::PropertiesSubWindow {
 public:
-    DrawingBreakEditor(QWidget* owner,drawing::DrawingSheet sheet,const drawing::DrawingView& value,std::function<void(std::vector<drawing::ViewBreak>)> accepted)
+    DrawingBreakEditor(QWidget* owner,drawing::DrawingSheet sheet,const drawing::DrawingView& value,std::function<void(std::vector<drawing::ViewBreak>,bool)> accepted,
+            const drawing::DrawingView* parent_view=nullptr)
         :PropertiesSubWindow(tr("Přerušení pohledu"),owner),accepted_(std::move(accepted)) {
         setObjectName("drawingBreakEditor");set_initial_size({1160,780});set_centered_on_show();
+        setProperty("expandBottomTable",true);
+        if(parent_view&&!value.detail_view&&value.parent_view_id==parent_view->id) {
+            parent_view_=*parent_view;
+            inherit_=new QCheckBox(tr("Převzít přerušení z rodiče"),this);inherit_->setObjectName("drawingBreakInherit");
+            inherit_->setToolTip(tr("Přebírá přerušení ve společném směru pohledů a sleduje změny rodiče. Vypnutím ponecháte aktuální přerušení k samostatné úpravě."));
+            inherit_->setChecked(value.inherit_parent_breaks);content_layout()->addWidget(inherit_);
+        }
         sheet.views={value};std::erase_if(sheet.dimensions,[&](const auto& d){return d.view_id!=value.id;});std::erase_if(sheet.balloons,[&](const auto& b){return b.view_id!=value.id;});
         canvas_=new BreakEditorCanvas(std::move(sheet),this);content_layout()->addWidget(canvas_,1);
         table_=new QTableWidget(this);table_->setObjectName("drawingBreakTable");table_->setColumnCount(8);
@@ -139,12 +148,41 @@ public:
         connect(table_,&QTableWidget::cellClicked,this,[this](int row,int column){if(column==2||column==3)arm(row,column-2);});
         canvas_->changed=[this]{refresh();};canvas_->selected_changed=[this](int){end_entry();};canvas_->edit_value=[this](int column){edit_dimension(column);};
         canvas_->boundary_picked=[this](auto point){pick(point);};canvas_->entry_ended=[this]{end_entry();};
-        if(!value.breaks.empty())draft_.vertical=value.breaks.front().vertical;refresh();
+        if(!value.breaks.empty())draft_.vertical=value.breaks.front().vertical;
+        if(inherit_)connect(inherit_,&QCheckBox::toggled,this,[this]{update_inheritance();});
+        update_inheritance();
+    }
+protected:
+    void showEvent(QShowEvent* event)override {
+        PropertiesSubWindow::showEvent(event);
+        layout()->activate();content_layout()->activate();
+        // Give the preview an A4 landscape starting aspect, bounded by the
+        // application window. Subsequent resizing gives spare height to it.
+        const QSize chrome(width()-canvas_->width(),height()-canvas_->height());
+        const auto available=parentWidget()?parentWidget()->size():QSize(1160,1100);
+        int target_width=std::min(1160,available.width());
+        int target_height=chrome.height()+qRound((target_width-chrome.width())*210./297.);
+        if(target_height>available.height()) {
+            target_height=available.height();
+            target_width=chrome.width()+qRound((target_height-chrome.height())*297./210.);
+        }
+        resize(target_width,target_height);
+        if(parentWidget())move(std::max(0,(available.width()-width())/2),std::max(0,(available.height()-height())/2));
     }
 private:
-    BreakEditorCanvas* canvas_;QTableWidget* table_;QLabel* error_;bool refreshing_{};
+    BreakEditorCanvas* canvas_;QTableWidget* table_;QLabel* error_;bool refreshing_{};QCheckBox* inherit_{};
+    std::optional<drawing::DrawingView> parent_view_;
     drawing::ViewBreak draft_;std::optional<double> first_,second_;int active_row_{-1},active_end_{};
-    std::function<void(std::vector<drawing::ViewBreak>)> accepted_;
+    std::function<void(std::vector<drawing::ViewBreak>,bool)> accepted_;
+    void update_inheritance() {
+        const bool inherited=inherit_&&inherit_->isChecked();
+        canvas_->view().inherit_parent_breaks=inherited;
+        if(inherited) {
+            drawing::refresh_inherited_view_breaks(canvas_->view(),*parent_view_);
+            active_row_=-1;canvas_->selected=-1;canvas_->end_pick();first_.reset();second_.reset();
+        }
+        canvas_->editable=!inherited;table_->setEnabled(!inherited);refresh();
+    }
     bool validate(){try{drawing::validate_view_breaks(canvas_->view());
         if(first_||second_)throw std::invalid_argument(QT_TR_NOOP("Zadejte obě polohy přerušení."));
         error_->clear();buttons()->button(QDialogButtonBox::Ok)->setEnabled(true);return true;
@@ -195,11 +233,12 @@ private:
             static_cast<QComboBox*>(table_->cellWidget(row,7))->setCurrentIndex(int(b.mark));
         }
         canvas_->draft_first=first_;canvas_->draft_second=second_;canvas_->draft_vertical=draft_.vertical;
+        table_->setFixedHeight(std::clamp(table_->horizontalHeader()->sizeHint().height()+2*table_->frameWidth()+34*count,118,190));
         refreshing_=false;validate();table_->viewport()->update();canvas_->update();
     }
     void edit_dimension(int col){const int row=canvas_->selected;if(row<0)return;auto* field=new InlineDimensionEdit(canvas_);const auto& b=canvas_->view().breaks[row];field->setText(QString::number(col?b.length:b.start,'f',3));field->move(canvas_->width()/2-52,canvas_->height()/2-14);field->show();field->setFocus();field->selectAll();
         connect(field,&QLineEdit::returnPressed,this,[this,field,row,col]{try{double value=numeric_expression_value(field->text());auto candidate=canvas_->view();(col?candidate.breaks[row].length:candidate.breaks[row].start)=value;drawing::validate_view_breaks(candidate);canvas_->view().breaks=std::move(candidate.breaks);field->deleteLater();refresh();}catch(const std::exception& e){error_->setText(tr(e.what()));}});
     }
-    bool submit()override{if(!validate())return false;accepted_(canvas_->view().breaks);return true;}
+    bool submit()override{if(!validate())return false;accepted_(canvas_->view().breaks,canvas_->view().inherit_parent_breaks);return true;}
 };
 }

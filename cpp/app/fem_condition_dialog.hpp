@@ -7,6 +7,10 @@
 #include <zima/ui/unit_spin_box.hpp>
 #include <zima/sketcher/sketch.hpp>
 #include "sketch_button_style.hpp"
+#include "profile_plane_controls.hpp"
+#include <zima/document/sketch_placement.hpp>
+#include <zima/ui/numeric_value_lock.hpp>
+#include <QStandardItemModel>
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDoubleSpinBox>
@@ -39,6 +43,7 @@ public:
     std::function<void(std::size_t)> request_geometry;
     std::function<void()> stop_geometry;
     std::function<void(sketcher::Sketch)> edit_sketch;
+    std::function<const kernel::ViewerReferenceGeometry&()> work_plane_geometry;
     FemConditionDialog(document::FemCondition value,std::function<void(document::FemCondition)> commit,QWidget* parent)
         : PropertiesSubWindow(tr("FEM condition properties"),parent),initial_(std::move(value)),commit_(std::move(commit)) {
         setObjectName("femConditionDialog");setAttribute(Qt::WA_DeleteOnClose);setProperty("expandBottomTable",true);
@@ -63,22 +68,34 @@ public:
         region_->addItem(tr("Bod"),int(document::FemRegionKind::Point));
         region_->addItem(tr("Křivka"),int(document::FemRegionKind::Curve));
         region_->addItem(tr("Plocha"),int(document::FemRegionKind::Surface));
-        region_->setCurrentIndex(region_->findData(int(initial_.region)));
+        region_->addItem(tr("Body surface"),body_surface_choice);
+        region_->setCurrentIndex(region_->findData(initial_.region==document::FemRegionKind::Surface&&
+            !initial_.projected_sketch?body_surface_choice:int(initial_.region)));
         parameters->addRow(tr("Region of action"),region_);
-        project_=new QCheckBox(tr("Project a Sketch"),this);
+        project_=new QCheckBox(tr("Project Sketch onto body"),this);
         project_->setObjectName("femProjectSketch");
-        project_->setChecked(initial_.projected_sketch.has_value());
-        parameters->addRow(project_);
-        sketch_offset_=new ui::UnitDoubleSpinBox(ui::InputQuantity::Length,this);
+        project_->setChecked(initial_.projected_sketch&&initial_.projected_sketch->project_to_body);
+        plane_controls_=new ProfilePlaneControls(this,"fem",[this] {
+            if(reference_request_)reference_request_(0);
+        });
+        plane_=plane_controls_->plane;
+        if(initial_.projected_sketch) {
+            const auto sketch=sketcher::Sketch::from_serialized(initial_.projected_sketch->serialized);
+            update_automatic_work_plane(plane_,int(sketch.plane));
+            plane_->setCurrentIndex(plane_->findData(sketch.plane_auto?QVariant("auto"):QVariant(int(sketch.plane))));
+        }
+        sketch_offset_=plane_controls_->offset;
         sketch_offset_->setObjectName("femSketchOffset");
         sketch_offset_->setRange(-1e9,1e9);
         if(initial_.projected_sketch)sketch_offset_->setValue(
             sketcher::Sketch::from_serialized(initial_.projected_sketch->serialized).plane_offset);
-        parameters->addRow(tr("Odsazení roviny"),sketch_offset_);
-        sketch_button_=new QPushButton(tr("Skica"),this);
+        offset_locked_=initial_.placement.value_locks.contains("profile_offset");
+        setProperty("zimaValueLockOwner",QString::fromStdString(initial_.id));
+        ui::bind_numeric_value_lock(sketch_offset_,"profile_offset",offset_locked_,[this](bool locked){offset_locked_=locked;notify();});
+        parameters->addRow(plane_controls_);
+        sketch_button_=plane_controls_->sketch;
         sketch_button_->setObjectName("femEditSketch");
-        style_sketch_button(sketch_button_);
-        parameters->addRow(sketch_button_);
+        parameters->addRow(project_);
         force_=new QDoubleSpinBox(this);force_->setObjectName("femForceValue");force_->setDecimals(6);force_->setRange(-1e12,1e12);force_->setSuffix(" N");force_->setValue(initial_.force_N);
         pressure_=new QDoubleSpinBox(this);pressure_->setObjectName("femPressureValue");pressure_->setDecimals(6);pressure_->setRange(0,1e12);pressure_->setSuffix(" MPa");pressure_->setValue(initial_.pressure_MPa);
         initial_force_display_=force_->value();initial_pressure_display_=pressure_->value();
@@ -100,29 +117,35 @@ public:
         connect(table_,&QTableWidget::cellClicked,this,[this](int row,int column){if(column==2)arm(row);});
         connect(kind_,&QComboBox::currentIndexChanged,this,[this]{
             if(current_kind()==document::FemConditionKind::Pressure&&current_region()!=document::FemRegionKind::Surface)
-                region_->setCurrentIndex(region_->findData(int(document::FemRegionKind::Surface)));
+                region_->setCurrentIndex(region_->findData(body_surface_choice));
             refresh_kind();notify();
         });
         connect(region_,&QComboBox::currentIndexChanged,this,[this]{
             reset_targets();
-            if(current_region()==document::FemRegionKind::Point)project_->setChecked(false);
+            if(uses_sketch())ensure_sketch();
+            else {
+                if(initial_.projected_sketch)sketch_cache_=initial_.projected_sketch;
+                initial_.projected_sketch.reset();
+            }
             refresh_kind();notify();
         });
         connect(project_,&QCheckBox::toggled,this,[this](bool enabled){
             reset_targets();
-            if(enabled) {
-                auto sketch=sketcher::Sketch::create_default();
-                sketch.owner_container_id=initial_.id;
-                sketch.plane_auto=false;
-                set_owned_sketch(std::move(sketch));
-            }else initial_.projected_sketch.reset();
+            if(uses_sketch()) {
+                ensure_sketch();
+                initial_.projected_sketch->project_to_body=enabled;
+            }
             refresh_kind();notify();
         });
         connect(sketch_offset_,&QDoubleSpinBox::valueChanged,this,[this]{
             if(initial_.projected_sketch)
                 set_owned_sketch(sketcher::Sketch::from_serialized(initial_.projected_sketch->serialized));
         });
+        connect(plane_,&QComboBox::currentIndexChanged,this,[this]{
+            if(initial_.projected_sketch)set_owned_sketch(sketcher::Sketch::from_serialized(initial_.projected_sketch->serialized));
+        });
         connect(sketch_button_,&QPushButton::clicked,this,[this]{
+            ensure_sketch();
             if(edit_sketch&&initial_.projected_sketch)
                 edit_sketch(sketcher::Sketch::from_serialized(initial_.projected_sketch->serialized));
         });
@@ -135,24 +158,30 @@ public:
     document::FemCondition pending_value()const {
         auto v=initial_;v.name=name_->text().trimmed().toStdString();v.kind=current_kind();v.region=current_region();
         v.placement=placement_->numeric_placement();v.placement.references=placement_->combined_references(3);
+        if(offset_locked_)v.placement.value_locks.insert("profile_offset");else v.placement.value_locks.erase("profile_offset");
         // Preserve exact loaded values until the field was actually changed.
         if(force_->value()!=initial_force_display_)v.force_N=force_->value();
         if(pressure_->value()!=initial_pressure_display_)v.pressure_MPa=pressure_->value();
         for(int i=0;i<3;++i)v.restrained[i]=fixed_[i]->isChecked();v.pressure_reversed=reverse_->isChecked();return v;
     }
     void set_status(const QString& text){status_->setText(text);}
-    void arm(std::size_t row){active_=row;refresh_references();if(request_geometry)request_geometry(row);}
+    bool accepts_target_faces()const{return region_->currentData().toInt()==body_surface_choice||
+        (uses_sketch()&&project_->isChecked());}
+    void arm(std::size_t row){if(!accepts_target_faces())return;active_=row;refresh_references();if(request_geometry)request_geometry(row);}
     void end_input(){active_.reset();refresh_references();}
     bool active_input()const{return active_.has_value();}
     void set_owned_sketch(sketcher::Sketch sketch) {
         if(!initial_.projected_sketch)initial_.projected_sketch.emplace();
+        initial_.projected_sketch->project_to_body=project_->isChecked();
         sketch.plane_offset=sketch_offset_->value();
+        sketch.plane=static_cast<sketcher::SketchPlane>(selected_work_plane(plane_).toInt());
+        sketch.plane_auto=automatic_work_plane(plane_);
         sketch.refresh_default_frame();
         initial_.projected_sketch->serialized=sketch.serialized();
         notify();
     }
     void set_geometry(std::size_t row,document::FemRegionReference value,std::optional<kernel::Vec3> seed={}) {
-        if(row>initial_.references.size())return;
+        if(!accepts_target_faces()||row>initial_.references.size())return;
         const auto existing=std::ranges::find(initial_.references,value);
         if(existing!=initial_.references.end()&&std::size_t(existing-initial_.references.begin())!=row)return;
         if(initial_.projected_sketch&&current_region()==document::FemRegionKind::Surface) {
@@ -198,11 +227,18 @@ public:
     document::Placement placement_seed()const override{return placement_->numeric_placement();}
     bool owns_reference_owner(const std::string& id)const override{return id==initial_.id||id==initial_.id+":origin";}
     auto references_without(std::size_t i)const->std::vector<document::ConstructionReference> override{return placement_->references_without(i);}
-    document::ConstructionReference prepare_reference_candidate(std::size_t i,document::ConstructionReference r)const override{return placement_->prepare_reference(i,std::move(r));}
-    bool set_reference(std::size_t i,document::ConstructionReference r,const QString& label)override{
-        if(owns_reference_owner(r.owner_id))return false;QString error;bool ok=placement_->set_reference(i,std::move(r),label,&error);set_status(error);return ok;
+    document::ConstructionReference prepare_reference_candidate(std::size_t i,document::ConstructionReference r)const override{
+        r=placement_->prepare_reference(i,std::move(r));
+        if(!entering_whole_origin()&&automatic_work_plane(plane_))
+            document::prepare_profile_plane_reference(i,r,placement_->combined_references(3));
+        return r;
     }
-    void set_reference_request_callback(std::function<void(std::size_t)> f){placement_->set_reference_request_callback(std::move(f));}
+    bool set_reference(std::size_t i,document::ConstructionReference r,const QString& label)override{
+        if(owns_reference_owner(r.owner_id))return false;
+        QString error;bool ok=placement_->set_reference(i,prepare_reference_candidate(i,std::move(r)),label,&error);
+        set_status(error);return ok;
+    }
+    void set_reference_request_callback(std::function<void(std::size_t)> f){reference_request_=f;placement_->set_reference_request_callback(std::move(f));}
     void set_reference_highlights_changed_callback(std::function<void()> f){placement_->set_highlights_changed_callback(std::move(f));}
     auto highlighted_reference_entries()const{return placement_->highlighted_reference_entries();}
     std::size_t first_empty_position_index()const override{return placement_->first_empty_position_index();}
@@ -233,12 +269,14 @@ protected:
         label(form_,kind_,tr("Condition type"));label(form_,name_,tr("Název"));label(parameters_,region_,tr("Region of action"));
         for(int i=0;i<kind_->count();++i)kind_->setItemText(i,fem_condition_name(static_cast<document::FemConditionKind>(kind_->itemData(i).toInt())));
         region_->setItemText(0,tr("Bod"));region_->setItemText(1,tr("Křivka"));region_->setItemText(2,tr("Plocha"));
+        region_->setItemText(3,tr("Body surface"));
         force_label_->setText(tr("Force"));pressure_label_->setText(tr("Pressure"));restraint_label_->setText(tr("Restrained translations"));reverse_->setText(tr("Reverse pressure normal"));
-        project_->setText(tr("Project a Sketch"));sketch_button_->setText(tr("Skica"));label(parameters_,sketch_offset_,tr("Odsazení roviny"));
+        project_->setText(tr("Project Sketch onto body"));plane_controls_->retranslate();
         refresh_kind();refresh_references();
     }
     bool submit()override{try{auto v=pending_value();document::validate_fem_condition(v);commit_(std::move(v));return true;}catch(const std::exception& e){set_status(tr(e.what()));return false;}}
 private:
+    static constexpr int body_surface_choice=3;
     class ReferenceTable final:public QTableWidget {
     public:
         explicit ReferenceTable(QWidget* parent):QTableWidget(parent){}
@@ -251,9 +289,45 @@ private:
     QTableWidget* table_{};ui::ContainerPlacementSection* placement_{};std::optional<std::size_t> active_;std::set<std::size_t> inspected_;
     QFormLayout *form_{},*parameters_{};
     double initial_force_display_{},initial_pressure_display_{};
+    std::optional<document::FemProjectedSketch> sketch_cache_;
+    ProfilePlaneControls* plane_controls_{};QComboBox* plane_{};
+    std::function<void(std::size_t)> reference_request_;
+    bool offset_locked_{};
     document::FemConditionKind current_kind()const{return static_cast<document::FemConditionKind>(kind_->currentData().toInt());}
-    document::FemRegionKind current_region()const{return static_cast<document::FemRegionKind>(region_->currentData().toInt());}
-    void notify(){if(changed)changed();}
+    document::FemRegionKind current_region()const{return region_->currentData().toInt()==body_surface_choice?
+        document::FemRegionKind::Surface:static_cast<document::FemRegionKind>(region_->currentData().toInt());}
+    bool uses_sketch()const{return region_->currentData().toInt()==int(document::FemRegionKind::Curve)||
+        region_->currentData().toInt()==int(document::FemRegionKind::Surface);}
+    void ensure_sketch() {
+        if(initial_.projected_sketch)return;
+        if(!initial_.references.empty())reset_targets();
+        if(sketch_cache_)initial_.projected_sketch=sketch_cache_;
+        else {
+            auto sketch=sketcher::Sketch::create_default();
+            sketch.owner_container_id=initial_.id;
+            sketch.plane=static_cast<sketcher::SketchPlane>(selected_work_plane(plane_).toInt());
+            sketch.plane_auto=automatic_work_plane(plane_);
+            sketch.plane_offset=sketch_offset_->value();
+            initial_.projected_sketch=document::FemProjectedSketch{sketch.serialized(),{}};
+        }
+        initial_.projected_sketch->project_to_body=project_->isChecked();
+        initial_.projected_sketch->surface_seeds.clear();
+        initial_.projected_sketch->surface_region_keys.clear();
+    }
+    void notify(){
+        if(plane_) {
+            const auto refs=placement_->combined_references(3);
+            const auto automatic=work_plane_geometry?document::automatic_sketch_work_plane(refs,work_plane_geometry()):document::automatic_sketch_work_plane(refs);
+            update_automatic_work_plane(plane_,int(automatic.value_or(sketcher::SketchPlane::XY)));
+            if(initial_.projected_sketch) {
+                auto sketch=sketcher::Sketch::from_serialized(initial_.projected_sketch->serialized);
+                sketch.plane=static_cast<sketcher::SketchPlane>(selected_work_plane(plane_).toInt());
+                sketch.plane_auto=automatic_work_plane(plane_);
+                sketch.refresh_default_frame();initial_.projected_sketch->serialized=sketch.serialized();
+            }
+        }
+        if(changed)changed();
+    }
     void reset_targets() {
         if(stop_geometry)stop_geometry();
         initial_.references.clear();
@@ -268,18 +342,20 @@ private:
         force_->setVisible(k==document::FemConditionKind::Force);force_label_->setVisible(force_->isVisibleTo(this));
         pressure_->setVisible(k==document::FemConditionKind::Pressure);pressure_label_->setVisible(pressure_->isVisibleTo(this));
         restraints_->setVisible(k==document::FemConditionKind::Constraint);restraint_label_->setVisible(restraints_->isVisibleTo(this));
-        reverse_->setVisible(k==document::FemConditionKind::Pressure);region_->setEnabled(k!=document::FemConditionKind::Pressure);
-        const bool can_project=k!=document::FemConditionKind::Pressure&&current_region()!=document::FemRegionKind::Point;
-        if(!can_project&&project_->isChecked())project_->setChecked(false);
-        project_->setVisible(can_project);
-        const bool projecting=can_project&&project_->isChecked();
-        parameters_->setRowVisible(sketch_offset_,projecting);
-        parameters_->setRowVisible(sketch_button_,projecting);
+        reverse_->setVisible(k==document::FemConditionKind::Pressure);
+        if(auto* model=qobject_cast<QStandardItemModel*>(region_->model()))
+            for(int i=0;i<2;++i)model->item(i)->setEnabled(k!=document::FemConditionKind::Pressure);
+        const bool sketch=uses_sketch();
+        parameters_->setRowVisible(project_,sketch);
+        const bool projecting=sketch&&project_->isChecked();
+        parameters_->setRowVisible(plane_controls_,sketch);
+        table_->setVisible(accepts_target_faces());
+        hint_->setVisible(accepts_target_faces());
         table_->setHorizontalHeaderLabels({tr("Č."),{},projecting?tr("Cílové plochy"):tr("Geometry"),{}});
         hint_->setText(projecting?(current_region()==document::FemRegionKind::Surface?
             tr("Select each target face inside the region to retain."):
             tr("Select the target faces for the Sketch."))
-            :tr("Use a point, curve or bounded surface from Projection. An empty point region uses the container origin."));
+            :tr("Select the body faces where the condition acts."));
     }
 };
 } // namespace zima::app

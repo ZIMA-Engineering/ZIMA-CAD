@@ -1840,7 +1840,7 @@ static void verify_feature_sketch_visibility(QApplication& application, Assembly
                 open_properties();
                 const auto inactive=dialog()->pending_value().feature;
                 auto* selector=dialog()->findChild<QComboBox*>("featureType");
-                check(selector&&selector->count()==5,"Feature type selector missing");
+                check(selector&&selector->count()==6,"Feature type selector missing");
                 selector->setCurrentIndex(type);flush();
                 const auto pending=dialog()->pending_value();
                 check(std::ranges::count_if(view->mesh().axes,[&](const auto& axis){return axis.reference.owner_id==pending.container_origin.id;})>=3,

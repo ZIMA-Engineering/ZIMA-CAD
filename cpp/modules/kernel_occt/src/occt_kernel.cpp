@@ -2856,8 +2856,9 @@ std::optional<TopoDS_Face> exact_extrusion_limit(const ExtrusionLimitView& limit
 ExtrusionLimitView resolved_extrusion_limit(ExtrusionLimitView limit,const std::optional<TopoDS_Face>& exact) {
     if(limit.planar && exact) {
         BRepAdaptor_Surface surface(*exact,true);
-        if(surface.GetType()!=GeomAbs_Plane)throw std::runtime_error("Extrusion target face is no longer planar");
-        const auto plane=surface.Plane();const auto p=plane.Location();const auto n=plane.Axis().Direction();
+        const auto plane=surface.GetType()==GeomAbs_Plane?std::optional<gp_Pln>(surface.Plane()):detail::exact_planar_support(*exact,1e-7);
+        if(!plane)throw std::runtime_error("Extrusion target face is no longer planar");
+        const auto p=plane->Location();const auto n=plane->Axis().Direction();
         limit.origin={p.X(),p.Y(),p.Z()};limit.normal={n.X(),n.Y(),n.Z()};
     }
     return limit;
@@ -6595,6 +6596,17 @@ std::optional<SurfaceGeometry> analytic_surface(const TopoDS_Face& face) {
             ++rims;
         }
         result.complete_profile=wires==1&&rectangular&&rims==2&&std::abs(result.u_max-result.u_min-2*std::numbers::pi)<1e-9;
+    } else if(const auto plane=detail::exact_planar_support(face,1e-7)) {
+        // A planar extrusion of a native spline may have a spline support.
+        // Publish its certified plane during calculation so reference entry
+        // can offer it without inspecting or approximating the body later.
+        double u0,u1,v0,v1;BRepTools::UVBounds(face,u0,u1,v0,v1);
+        gp_Pnt point;gp_Vec du,dv;
+        surface.D1((u0+u1)*.5,(v0+v1)*.5,point,du,dv);
+        const auto normal=du.Crossed(dv);
+        if(normal.SquareMagnitude()<1e-18)return std::nullopt;
+        result.kind=SurfaceGeometry::Kind::Plane;
+        frame=gp_Ax3(plane->Location(),gp_Dir(normal),plane->XAxis().Direction());
     } else {
         // IGES can encode an exact cylinder as a surface of revolution rather
         // than as entity 192. Recover its analytical support for reference
@@ -18729,6 +18741,44 @@ std::vector<std::string> validate_projected_mesh_region(
     std::vector<TopoDS_Shape> faces;
     for(const auto& row:native.referenced_shapes)faces.insert(faces.end(),row.begin(),row.end());
     return project_calculated_mesh_region(native.shape,request,faces,surface_seeds,expected_region_keys).region_keys;
+}
+
+std::vector<TopoDS_Shape> planar_calculated_mesh_region(
+        const TopoDS_Shape& body,const ProjectionRequest& request) {
+    std::vector<TopoDS_Shape> result;
+    const bool surface=request.output==ProjectionResult::Surface;
+    for(const auto& profile:request.profiles) {
+        if(surface) {
+            const auto planar=make_planar_surface_data(profile,"fem-planar-region");
+            for(const auto& face:planar.faces)result.push_back(face.shape);
+        }else for(const auto& wire:make_body_profiles(profile,request.sketch_normal))
+            result.insert(result.end(),wire.edges.begin(),wire.edges.end());
+    }
+    if(result.empty())throw std::invalid_argument("The FEM Sketch must contain region geometry.");
+    for(const auto& shape:result) {
+        BRepAlgoAPI_Common common;
+        NCollection_List<TopoDS_Shape> arguments,tools;
+        arguments.Append(shape);tools.Append(body);
+        common.SetArguments(arguments);common.SetTools(tools);
+        common.SetNonDestructive(true);
+        common.Build();
+        if(!common.IsDone())throw std::invalid_argument("The FEM Sketch must lie entirely on or inside its source body.");
+        const auto measure=[surface](const TopoDS_Shape& value) {
+            GProp_GProps properties;
+            if(surface)BRepGProp::SurfaceProperties(value,properties);
+            else BRepGProp::LinearProperties(value,properties);
+            return properties.Mass();
+        };
+        const double original=measure(shape),retained=measure(common.Shape());
+        const double absolute=surface?Precision::Confusion()*Precision::Confusion():Precision::Confusion();
+        if(original<=0||std::abs(original-retained)>std::max(absolute,original*1e-9))
+            throw std::invalid_argument("The FEM Sketch must lie entirely on or inside its source body.");
+    }
+    return result;
+}
+
+void validate_planar_mesh_region(const BodyResult& source,const ProjectionRequest& request) {
+    static_cast<void>(planar_calculated_mesh_region(read_calculated_body_shape(source),request));
 }
 
 }  // namespace zima::kernel

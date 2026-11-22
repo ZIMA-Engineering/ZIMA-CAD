@@ -1,6 +1,7 @@
 #pragma once
 #include <zima/drawing/drawing_document.hpp>
 #include <zima/drawing/view_crop.hpp>
+#include <zima/drawing/model_annotations.hpp>
 namespace zima::drawing {
 // An enlarged presentation of the parent's calculated content. No new body
 // calculation, independent visibility inference or topology naming is involved.
@@ -16,7 +17,22 @@ inline void refresh_detail_view(DrawingView& detail,const DrawingView& parent) {
     detail.projected_edges=parent.projected_edges;detail.projected_triangles=parent.projected_triangles;
     detail.output_source=parent.output_source;
     detail.measurement_geometry=parent.measurement_geometry;
-    detail.model_annotations=parent.model_annotations;
+    // Geometry follows the parent; dimension visibility and paper placement
+    // belong to the detail. Newly available dimensions start hidden.
+    auto annotations=parent.model_annotations;
+    std::map<ModelAnnotationReference,const ModelAnnotation*> previous_dimensions;
+    for(const auto& item:detail.model_annotations)if(item.kind==ModelAnnotationKind::Dimension)
+        previous_dimensions.emplace(item.source,&item);
+    for(auto& item:annotations)if(item.kind==ModelAnnotationKind::Dimension) {
+        const auto old=previous_dimensions.find(item.source);
+        item.visible=old!=previous_dimensions.end()&&old->second->visible;
+        item.paper_handles=old!=previous_dimensions.end()?old->second->paper_handles:decltype(item.paper_handles){};
+        item.view_layout=old!=previous_dimensions.end()?old->second->view_layout:std::nullopt;
+        if(old!=previous_dimensions.end()) {
+            item.handle_camera_horizontal=old->second->handle_camera_horizontal;
+            item.handle_camera_vertical=old->second->handle_camera_vertical;
+        }
+    }
     detail.section_id=parent.section_id;detail.section_snapshot=parent.section_snapshot;
     detail.section_display_reversed=parent.section_display_reversed;
     detail.section_hatch_crops=parent.section_hatch_crops;
@@ -26,6 +42,9 @@ inline void refresh_detail_view(DrawingView& detail,const DrawingView& parent) {
     for(auto& item:detail.breaks)item.gap*=detail.scale/parent.scale;
     detail.inherited_crops=parent.inherited_crops;
     if(parent.crop)detail.inherited_crops.push_back(*parent.crop);
+    for(auto& item:annotations)if(item.kind==ModelAnnotationKind::Dimension)
+        item=project_model_annotation(detail,std::move(item));
+    detail.model_annotations=std::move(annotations);
 }
 inline std::string next_detail_name(const DrawingDocument& document) {
     std::set<std::string> used;for(const auto& sheet:document.sheets)for(const auto& view:sheet.views)used.insert(view.name);

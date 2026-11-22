@@ -2984,5 +2984,12 @@
   "FEM mesh generation failed.": "La génération du maillage FEM a échoué.",
   "Project a Sketch": "Projeter une esquisse",
   "Select each target face inside the region to retain.": "Sélectionnez chaque face cible à l’intérieur de la région à conserver.",
-  "Select the target faces for the Sketch.": "Sélectionnez les faces cibles pour l’esquisse."
+  "Select the target faces for the Sketch.": "Sélectionnez les faces cibles pour l’esquisse.",
+  "Body surface": "Face du corps",
+  "Project Sketch onto body": "Projeter l’esquisse sur le corps",
+  "Select the body faces where the condition acts.": "Sélectionnez les faces du corps sur lesquelles agit la condition.",
+  "The FEM Sketch must contain region geometry.": "L’esquisse FEM doit contenir la géométrie de la zone d’application.",
+  "The FEM Sketch must lie entirely on or inside its source body.": "L’esquisse FEM doit se trouver entièrement sur ou dans son corps source.",
+  "Převzít přerušení z rodiče": "Hériter des interruptions de la vue parente",
+  "Přebírá přerušení ve společném směru pohledů a sleduje změny rodiče. Vypnutím ponecháte aktuální přerušení k samostatné úpravě.": "Hérite des interruptions dans la direction commune aux vues et suit les modifications de la vue parente. Désactivez pour modifier indépendamment les interruptions actuelles."
 }

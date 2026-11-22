@@ -12,6 +12,9 @@
 #include <QAction>
 #include <QDialogButtonBox>
 #include <QMouseEvent>
+#include <QKeyEvent>
+#include <QEventLoop>
+#include <QTimer>
 #include <QMenu>
 #include <QPushButton>
 #include <QTreeWidget>
@@ -195,9 +198,12 @@ int verify_fem_body(QApplication& application,AssemblyWorkspaceWindow& window,co
             sketch.plane_auto=false;sketch.plane_offset=5;
             static_cast<void>(sketch.add_rectangle(-2,-1,2,1));
             auto projected=force;
+            projected.name="Projected pressure";
+            projected.kind=document::FemConditionKind::Pressure;projected.pressure_MPa=2.5;
             projected.region=document::FemRegionKind::Surface;
             projected.references={{cap.owner_id,cap.semantic_key,cap.instance_path}};
             projected.projected_sketch=document::FemProjectedSketch{sketch.serialized(),{{0,0,2.5}}};
+            document::validate_fem_condition(projected);
             auto sketch_definition=definition;
             sketch_definition.conditions={projected};
             const auto projected_mesh=generate_fem_volume_mesh(snapshot.get(),sketch_definition);
@@ -228,6 +234,46 @@ int verify_fem_body(QApplication& application,AssemblyWorkspaceWindow& window,co
                 projected_length+=std::abs(b.x-a.x);
             }
             check(std::abs(projected_length-4)<1e-7,"FEM projected line did not bind a 4 mm material mesh edge");
+            for(auto order:{document::FemElementOrder::Linear,document::FemElementOrder::Quadratic})
+            for(double plane:{-2.5,0.,2.5}) {
+                auto direct=projected;
+                direct.id="direct-surface";direct.placement={};direct.placement.reference_valid=true;
+                direct.references.clear();direct.projected_sketch->surface_seeds.clear();
+                direct.projected_sketch->surface_region_keys.clear();direct.projected_sketch->project_to_body=false;
+                auto planar_sketch=sketcher::Sketch::from_serialized(direct.projected_sketch->serialized);
+                planar_sketch.owner_container_id=direct.id;planar_sketch.plane_offset=plane;
+                direct.projected_sketch->serialized=planar_sketch.serialized();
+                auto direct_line=projected_line;
+                direct_line.id="direct-curve";direct_line.placement=direct.placement;
+                direct_line.references.clear();direct_line.projected_sketch->project_to_body=false;
+                auto planar_line=sketcher::Sketch::from_serialized(direct_line.projected_sketch->serialized);
+                planar_line.owner_container_id=direct_line.id;planar_line.plane_offset=plane;
+                direct_line.projected_sketch->serialized=planar_line.serialized();
+                auto direct_definition=definition;direct_definition.mesh.order=order;
+                direct_definition.conditions={direct,direct_line};
+                const auto direct_mesh=generate_fem_volume_mesh(snapshot.get(),direct_definition);
+                double area=0,length=0;
+                for(const auto& triangle:direct_mesh.condition_regions.at(direct.id).elements) {
+                    const auto a=direct_mesh.surface.vertices[triangle[0]],b=direct_mesh.surface.vertices[triangle[1]],c=direct_mesh.surface.vertices[triangle[2]];
+                    check(std::abs(a.z-plane)<1e-7&&std::abs(b.z-plane)<1e-7&&std::abs(c.z-plane)<1e-7,
+                        "Direct FEM surface moved off its authored plane");
+                    area+=std::abs((b.x-a.x)*(c.y-a.y)-(b.y-a.y)*(c.x-a.x))/2;
+                }
+                for(const auto& edge:direct_mesh.condition_regions.at(direct_line.id).elements) {
+                    const auto a=direct_mesh.surface.vertices[edge[0]],b=direct_mesh.surface.vertices[edge[1]];
+                    check(std::abs(a.z-plane)<1e-7&&std::abs(b.z-plane)<1e-7,"Direct FEM curve moved off its authored plane");
+                    length+=std::hypot(b.x-a.x,b.y-a.y,b.z-a.z);
+                }
+                check(std::abs(area-8)<1e-7&&std::abs(length-4)<1e-7,"Direct FEM mesh lost authored area or length");
+                if(plane==0.&&order==document::FemElementOrder::Linear) {
+                    direct_definition.conditions.push_back(projected);
+                    direct_definition.conditions.push_back(projected_line);
+                    direct_definition.conditions.push_back(pressure);
+                    check(generate_fem_volume_mesh(snapshot.get(),direct_definition).condition_regions.size()==5,
+                        "Mixed planar/projected/body-face FEM mesh lost a region");
+                }
+            }
+            std::cout<<"FEM planar curve/surface mesh: both boundary sides and internal plane, linear/quadratic, mixed projected/body-face groups passed\n";
             window.show_fem_condition_properties(document::FemConditionKind::Force);flush();
             auto* authored=dynamic_cast<FemConditionDialog*>(window.findChild<QDialog*>("femConditionDialog"));
             check(authored,"Projected Force Properties did not open");
@@ -355,6 +401,30 @@ int verify_fem_body(QApplication& application,AssemblyWorkspaceWindow& window,co
                 QEvent translation(QEvent::LanguageChange);QApplication::sendEvent(load,&translation);flush();check(load->pending_value()==retained,"Condition retranslation changed authored values");
                 check(load->buttons()->button(QDialogButtonBox::Cancel)->text()==QObject::tr("Zrušit"),"Condition Cancel lost its catalog translation");
                 window.grab().save(QString::fromStdString(document::path_to_utf8(directory/(std::string("fem-condition-")+language+"-"+theme+".png"))));
+                auto* region=load->findChild<QComboBox*>("femConditionRegion");
+                auto* project=load->findChild<QCheckBox*>("femProjectSketch");
+                check(region->count()==4&&region->itemText(3)==settings.qt_translations.value("Body surface")&&
+                    project->text()==settings.qt_translations.value("Project Sketch onto body"),"FEM region choices did not translate");
+                for(int choice=0;choice<4;++choice)for(bool projection:{false,true}) {
+                    if((choice==0||choice==3)&&projection)continue;
+                    region->setCurrentIndex(choice);project->setChecked(projection);flush();
+                    const bool sketch=choice==1||choice==2;
+                    auto* plane_controls=dynamic_cast<ProfilePlaneControls*>(load->findChild<QGroupBox*>("femPlaneGroup")->parentWidget());
+                    check(plane_controls&&plane_controls->plane_group->title()==settings.qt_translations.value("Rovina")&&
+                        plane_controls->sketch_group->title()==settings.qt_translations.value("Skica")&&
+                        plane_controls->plane_label->text()==settings.qt_translations.value("Výchozí rovina")&&
+                        qobject_cast<QLabel*>(plane_controls->rows->labelForField(plane_controls->offset))->text()==settings.qt_translations.value("Odsazení roviny"),
+                        "Shared FEM Plane controls did not translate");
+                    check(load->findChild<QPushButton*>("femEditSketch")->isVisible()==sketch&&
+                        project->isVisible()==sketch&&load->findChild<QDoubleSpinBox*>("femSketchOffset")->isVisible()==sketch&&
+                        load->findChild<QTableWidget*>("femConditionGeometry")->isVisible()==(choice==3||(sketch&&projection)),
+                        "Localized FEM mode exposes incorrect controls");
+                    const auto draft=load->pending_value();
+                    QEvent retranslate(QEvent::LanguageChange);QApplication::sendEvent(load,&retranslate);flush();
+                    check(load->pending_value()==draft,"Mode retranslation changed the FEM draft");
+                    window.grab().save(QString::fromStdString(document::path_to_utf8(directory/(std::string("fem-region-")+
+                        std::to_string(choice)+(projection?"-projected-":"-direct-")+language+"-"+theme+".png"))));
+                }
                 load->reject();flush();
             }
         }

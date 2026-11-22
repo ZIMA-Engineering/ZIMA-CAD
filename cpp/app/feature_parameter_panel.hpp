@@ -3,6 +3,7 @@
 #include <zima/ui/properties_subwindow.hpp>
 #include <functional>
 #include "work_plane_selection.hpp"
+#include "profile_plane_controls.hpp"
 #include "feature_type_control.hpp"
 #include <zima/ui/container_placement_section.hpp>
 #include <zima/ui/numeric_value_lock.hpp>
@@ -45,20 +46,12 @@ public:
         : QWidget(parent), initial_(std::move(initial)) {
         content_=new QVBoxLayout(this);content_->setContentsMargins(0,0,0,0);
         type_=feature_type_control(this,initial_.type);
-        plane_group_=new QGroupBox(tr("Rovina"),this);
-        plane_group_->setObjectName("featurePlaneGroup");
-        auto* sketch_form=new QFormLayout(plane_group_);
-        auto* sketch_group=new QGroupBox(tr("Skica"),this);sketch_group_=sketch_group;
-        sketch_group->setObjectName("featureSketchGroup");
-        auto* sketch_row=new QHBoxLayout(sketch_group);
-        auto* plane=new QComboBox(this);plane_=plane;plane->setObjectName("featureProfilePlane");
-        plane->addItem("XY",0);plane->addItem("XZ",1);plane->addItem("YZ",2);
-        install_automatic_work_plane(plane,true);
-        plane_label_=new QLabel(tr("Výchozí rovina"),plane_group_);
-        plane_selector_=compact_work_plane_selector(plane,
-            [this] {if(work_plane_reference_requested_)
-                work_plane_reference_requested_();});
-        sketch_form->addRow(plane_label_,plane_selector_);
+        auto* plane_controls=new ProfilePlaneControls(this,"feature",[this] {
+            if(work_plane_reference_requested_)work_plane_reference_requested_();
+        });
+        plane_group_=plane_controls->plane_group;sketch_group_=plane_controls->sketch_group;
+        auto* sketch_form=plane_controls->rows;
+        plane_=plane_controls->plane;plane_label_=plane_controls->plane_label;plane_selector_=plane_controls->selector;
         axis_direction_=new QComboBox(this);axis_direction_->setObjectName("featureAxisDirection");
         axis_direction_->addItem("X",static_cast<int>(sketcher::SketchPlane::YZ));
         axis_direction_->addItem("Y",static_cast<int>(sketcher::SketchPlane::XZ));
@@ -70,21 +63,13 @@ public:
             axis_direction_->setCurrentIndex(axis_direction_->findData(QStringLiteral("auto")));
             work_plane_reference_requested_();
         });
-        sketch_form->addRow(axis_direction_label_,axis_direction_selector_);
-        auto* offset=number("featureProfileOffset",false);sketch_form->addRow(tr("Odsazení roviny"),offset);
+        sketch_form->insertRow(1,axis_direction_label_,axis_direction_selector_);
+        auto* offset=plane_controls->offset;
         plane_rows_=sketch_form;
         offset_=offset;offset->setValue(initial_.profile_plane_offset);
         offset_display_=offset->value();
-        auto* sketch=new QPushButton(tr("Skica"),sketch_group);style_sketch_button(sketch);sketch->setMinimumHeight(40);
-        sketch_=sketch;sketch->setObjectName("featureSketchButton");
-        sketch->setMinimumWidth(100);
-        sketch->setSizePolicy(QSizePolicy::Fixed,QSizePolicy::Expanding);
-        sketch->setIcon(resource_icon("sketch"));sketch->setIconSize({20,20});
-        sketch_row->addWidget(sketch);
-        auto* plane_row=new QHBoxLayout;
-        plane_row->addWidget(plane_group_,1);
-        plane_row->addWidget(sketch_group);
-        content_->addLayout(plane_row);
+        auto* sketch=plane_controls->sketch;sketch_=sketch;
+        content_->addWidget(plane_controls);
         auto* result_group=new QGroupBox(tr("Výsledek"),this);result_group_=result_group;
         result_group->setObjectName("featureResultGroup");
         auto* profile=new QFormLayout(result_group);

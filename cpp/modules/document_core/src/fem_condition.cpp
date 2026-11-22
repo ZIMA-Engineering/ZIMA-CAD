@@ -16,18 +16,22 @@ void validate_fem_condition(const FemCondition& value) {
         throw std::invalid_argument("Invalid FEM condition definition.");
     if(value.kind==FemConditionKind::Pressure&&value.region!=FemRegionKind::Surface)
         throw std::invalid_argument("Pressure requires a surface region.");
-    if(value.region!=FemRegionKind::Point&&value.references.empty())
+    if(value.region!=FemRegionKind::Point&&value.references.empty()&&
+            (!value.projected_sketch||value.projected_sketch->project_to_body))
         throw std::invalid_argument("Select the condition geometry.");
     if(value.projected_sketch) {
-        if(value.kind==FemConditionKind::Pressure||value.region==FemRegionKind::Point)
+        if(value.region==FemRegionKind::Point)
             throw std::invalid_argument("Invalid FEM condition definition.");
         const auto sketch=sketcher::Sketch::from_serialized(value.projected_sketch->serialized);
-        if(sketch.id.empty()||sketch.owner_container_id!=value.id||sketch.plane_auto||
+        if(sketch.id.empty()||sketch.owner_container_id!=value.id||
                 !sketch.plane_reference_owner_id.empty()||
-                !sketch.external_references.empty()||!std::isfinite(sketch.plane_offset))
+                !std::isfinite(sketch.plane_offset))
             throw std::invalid_argument("Invalid FEM condition definition.");
         const auto& seeds=value.projected_sketch->surface_seeds;
         const auto& keys=value.projected_sketch->surface_region_keys;
+        if(!value.projected_sketch->project_to_body&&
+                (!value.references.empty()||!seeds.empty()||!keys.empty()))
+            throw std::invalid_argument("Invalid FEM condition geometry reference.");
         if((value.region==FemRegionKind::Surface&&seeds.size()!=value.references.size())||
                 (value.region==FemRegionKind::Curve&&!seeds.empty())||
                 (!keys.empty()&&keys.size()!=seeds.size())||
@@ -65,7 +69,8 @@ void to_json(nlohmann::json& j,const FemCondition& v) {
         auto seeds=nlohmann::json::array();
         for(const auto& seed:v.projected_sketch->surface_seeds)seeds.push_back({seed.x,seed.y,seed.z});
         j["projected_sketch"]={{"sketch",nlohmann::json::parse(v.projected_sketch->serialized)},
-            {"surface_seeds",std::move(seeds)},{"surface_region_keys",v.projected_sketch->surface_region_keys}};
+            {"surface_seeds",std::move(seeds)},{"surface_region_keys",v.projected_sketch->surface_region_keys},
+            {"project_to_body",v.projected_sketch->project_to_body}};
     }
 }
 void from_json(const nlohmann::json& j,FemCondition& v) {
@@ -85,6 +90,7 @@ void from_json(const nlohmann::json& j,FemCondition& v) {
             owned.surface_seeds.push_back({point.at(0).get<double>(),point.at(1).get<double>(),point.at(2).get<double>()});
         }
         owned.surface_region_keys=projection.at("surface_region_keys").get<std::vector<std::string>>();
+        owned.project_to_body=projection.at("project_to_body").get<bool>();
         n.projected_sketch=std::move(owned);
     }
     n.force_N=j.at("force_N");n.pressure_MPa=j.at("pressure_MPa");

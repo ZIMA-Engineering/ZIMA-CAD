@@ -7,8 +7,13 @@
 #include <gp_Pln.hxx>
 #include <string>
 #include <vector>
+#include <optional>
 
 namespace zima::kernel::detail {
+
+// Certify the exact native support, including every positive-weight spline
+// pole at roundoff precision. Rendering triangles never establish planarity.
+std::optional<gp_Pln> exact_planar_support(const TopoDS_Face&,double tolerance);
 
 struct ProjectionCurve {
     TopoDS_Edge edge;
