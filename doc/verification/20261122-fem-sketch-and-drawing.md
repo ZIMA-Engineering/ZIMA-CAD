@@ -94,8 +94,8 @@ planes and offset locks, pressure Sketch persistence/no-op/Undo/Redo, shared
 Feature controls and Sketcher return, meshing, and all five languages in both
 themes. The placement test uses the source Body Origin, consistent with the
 ordinary Feature contract. Fixed-pixel picking waits for the existing Sketch
-camera animation to finish. Native FEM tests and all 16 distribution unit tests
-passed (two platform-specific unit cases skipped).
+camera animation to finish. Native FEM tests and the distribution unit suite
+passed (14 unit cases passed; two platform-specific cases skipped).
 
 ## Detail dimensions, independent frames and inherited breaks
 

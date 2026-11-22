@@ -6,6 +6,7 @@
         const auto condition_count=kernel::body_calculation_count.load();
         const auto condition_revision=session.revision();
         const auto force_action=[&]{return window.findChild<QAction*>("femForceAction");};
+        const auto settle_sketch_view=[&]{QEventLoop animation;QTimer::singleShot(950,&animation,&QEventLoop::quit);animation.exec();flush();};
         check(force_action()&&force_action()->isEnabled(),"FEM Force shortcut is missing");
         const auto placement_origin=workspace::fem_source_frame_owner(session.document().body_history,fem)+":origin";
         for(const auto& order:std::array{std::array{"xz","xy","yz"},std::array{"xy","yz","xz"},std::array{"yz","xz","xy"}}) {
@@ -53,7 +54,7 @@
             entry->reject();flush();check(session.revision()==condition_revision,"Automatic FEM placement Cancel changed history");
         }
         // Finish the last Sketch camera animation before testing fixed-pixel picks.
-        {QEventLoop animation;QTimer::singleShot(950,&animation,&QEventLoop::quit);animation.exec();flush();}
+        settle_sketch_view();
         force_action()->trigger();flush();auto* condition=condition_dialog();
         check(condition&&condition->pending_value().kind==document::FemConditionKind::Force,"Force shortcut opened another condition type");
         check(!condition->findChild<QTableWidget*>("femConditionGeometry")->isVisible()&&
@@ -130,6 +131,7 @@
                 else static_cast<void>(sketch.add_rectangle(-2,-1,2,1));
             }),"Planar FEM Sketch could not be authored");
             window.preserve_view_on_refresh_=true;window.refresh_scene();window.align_active_sketch_view();flush();
+            settle_sketch_view();
             const auto drag_point=window.active_sketch()->points.back().id;
             const auto sketch_mouse=[&](QPointF at,QEvent::Type type,Qt::MouseButton button,Qt::MouseButtons held) {
                 QMouseEvent event(type,at,QPointF(view->mapToGlobal(at.toPoint())),button,held,Qt::NoModifier);
@@ -213,6 +215,7 @@
         condition->findChild<QDoubleSpinBox*>("femSketchOffset")->setValue(2.5);
         condition->findChild<QPushButton*>("femEditSketch")->click();flush();
         const auto external_revision=session.revision();
+        settle_sketch_view();
         check(window.sketch_external_profile_action_&&window.sketch_external_profile_action_->isEnabled(),"FEM Sketch cannot project source geometry");
         window.sketch_external_profile_action_->trigger();view->fit_all();flush();
         std::optional<QPointF> external_hit;
