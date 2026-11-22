@@ -8,13 +8,13 @@ not the current feature backlog.
 
 ## Current release boundary
 
-Signed Windows [2026112204](https://github.com/ZIMA-Engineering/ZIMA-CAD/releases/tag/ZIMA-CAD-2026112204)
+Signed Windows [2026112205](https://github.com/ZIMA-Engineering/ZIMA-CAD/releases/tag/ZIMA-CAD-2026112205)
 is the latest published stable build. It was published at
-`2026-11-22T17:47:53Z` from immutable source
-`9a5a449b06ac50a3e457d14362e784a466c9cfc8` with Qt 6.11.0 and OCCT 8.0.1.
+`2026-11-22T21:01:11Z` from immutable source
+`171c4895414f42fdd4e6f2e6087a6b386d8a73ab` with Qt 6.11.0 and OCCT 8.0.1.
 Candidate and signed native smoke, 1,185 factory assets, public download/signature
 checks and the production updater pass. See the
-[publication evidence](https://github.com/ZIMA-Engineering/ZIMA-CAD/blob/1307f1b1e60a1b0efdd883daa8eb2cb34331cd33/doc/verification/20261122-windows-2204-publication.json).
+[publication evidence](https://github.com/ZIMA-Engineering/ZIMA-CAD/blob/0add2820f4c0eb65e492363ce8cd25a84e6c6051/doc/verification/20261122-windows-2205-publication.json).
 The release tag and portable package contain the complete matching source;
 the default branch may lag product development. Native Linux execution remains
 a separate host requirement.
@@ -25,7 +25,10 @@ restraints, forces, pressure, surface heat power, ambient convection, colored
 results, deformation animation and placed measurement points. See
 [FEM status and verified limits](FEM_STATUS.md). Optional thermal expansion
 calculates heating-induced displacement and stress; measurement points show
-temperature and displacement together.
+temperature and displacement together. Combined thermal-mechanical analysis
+also includes force and pressure; distance measurements report the original and
+deformed separation of two measurement points. Sketcher now preserves editable
+double circular tangency through Trim and repeated point dragging.
 
 ### Earlier release context (reviewed 2026-11-12)
 
@@ -111,7 +114,7 @@ Linux verification. The linked guides give supported cases and finite checks.
 | Assemblies | Part/subassembly insertion, exact nested activation, mates and placement, source editing, Assembly cuts, occurrence identities and explicit dependency regeneration | [Assembly references](ASSEMBLY_REFERENCES.md), [activation](COMPONENT_ACTIVATION_COMMANDS.md) |
 | Drawings | Sheets and views, projected/section/detail workflows in their documented scope, associative dimensions/chains, Show/Erase, frames/title blocks, BOM regions/balloons, symbols, PDF/DXF/image output | [Drawings](DRAWINGS.md), [manual](USER_MANUAL.md) |
 | Engineering data | Parameters, Relations, materials, units, physical properties and measurements, native engineering tables and fastener libraries | [Relations](RELATIONS.md), [properties](PHYSICAL_PROPERTIES.md), [library status](FASTENER_REMAINING_WORK.md) |
-| FEM | Part FEM Bodies, volume meshing, restraints/forces/pressure, linear-elastic statics, steady-state thermal conduction with surface heat power and ambient convection, displacement/von Mises/temperature color maps, static deformation animation and placed measurement points | [Released scope, verification and limits](FEM_STATUS.md) |
+| FEM | Part FEM Bodies, volume meshing, restraints/forces/pressure, linear-elastic statics, steady-state thermal conduction with surface heat power and ambient convection, displacement/von Mises/temperature color maps, static deformation animation, placed measurement points, combined thermal-mechanical loads and distance measurements | [Released scope, verification and limits](FEM_STATUS.md) |
 | Exchange and automation | STEP/IGES/STL/DXF import/export, STEP/IGES body and face colors, binary STL color extensions, shared GUI/CLI commands and context-aware AI console | [Import](IMPORT_COMMANDS.md), [export](EXPORT_COMMANDS.md), [AI console](AI_CONSOLE.md) |
 | User interface | Czech, English, German, French and Russian; light/dark themes, internal Properties and native file management | [Manual](USER_MANUAL.md), [localization](LOCALIZATION.md), [File Manager](FILE_MANAGER.md) |
 | Distribution | Native Windows portable releases, version-owned runtime/resources/source and authenticated updater; Linux has separate native-host acceptance | [Distribution](NATIVE_DISTRIBUTION.md), [updates](UPDATES.md), [Linux](LINUX_RELEASE_HANDOFF.md) |
@@ -165,7 +168,7 @@ evidence. Published 2501 and every older signed release remain immutable.
 
 | Work | Current boundary / next step |
 | --- | --- |
-| Delivered FEM extension | Optional thermal expansion uses the thermal result, Part material and mechanical restraints to calculate displacement and stress. Measurement points report temperature and displacement together in Windows 2026112204. |
+| Delivered FEM extension | Windows 2026112205 adds combined heating/force/pressure and distance measurements between two points. Optional pure thermal expansion remains available. Measurement points report temperature and displacement together. |
 | Skeleton interaction | New Feature opening measures 0.280--0.353 s, Default Origin 0.272--0.280 s and the representative Sketch move about 6 ms. The 32-operation Skeleton opens in about 7.4 s; cold explicit regeneration measures about 68.9 s after physical analysis leaves the critical path, while exact Save adds about 30 s. A late Solid Fillet edit/Undo/Redo succeeds, but its dependent suffix remains about 26 s. Production parallel batching and immediate Escape cancellation remain gated on exact identity and cooperative OCCT cancellation. |
 | Remaining fasteners | Cast wing-nut studies and toothed/fan washers remain unfinished. Preserve source-dimension discrepancies and private user edits. Two-part locking nuts are excluded. See [library queue](FASTENER_REMAINING_WORK.md). |
 | Sketch intersection references | Native source/branch association and editor commands are implemented in the documented finite scope. Arbitrary curved arrangements and the native Linux matrix remain unverified. See [editor verification](verification/20261022-sketch-intersection-editor.md). |

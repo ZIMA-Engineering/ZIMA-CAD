@@ -2,14 +2,15 @@
 
 ## FEM delivery update (2026-11-22)
 
-**Basic FEM is implemented and published in signed Windows 2026112204.**
+**Basic FEM is implemented and published in signed Windows 2026112205.**
 Part FEM Bodies support volume meshing, restraints, force/pressure loading and
 small-displacement linear-elastic statics, plus steady-state thermal conduction
 with surface heat power and ambient convection. Displacement, von Mises stress
 and temperature color maps, static deformation animation, progress feedback and
 placed measurement points are available. See [FEM status](doc/FEM_STATUS.md) for
 the release, workflow, finite verification and limits. Optional thermal expansion
-is delivered with paired temperature/displacement measurements. Native Linux verification
+is delivered with paired temperature/displacement measurements. Combined heating,
+force and pressure and persistent distance measurements are also delivered. Native Linux verification
 remains separate. This update supersedes the older FEM planning entries below.
 
 ## Earlier release and planning context
@@ -179,7 +180,7 @@ verification of this change belongs on the Linux host.
 - Add direct modeling of imported STEP solid geometry within a Part. Define the
   supported editing operations and preserve ordinary Body ownership, history,
   reference identity, native persistence and Undo/Redo.
-- Basic FEM for Parts is now implemented and published in Windows 2026112204,
+- Basic FEM for Parts is now implemented and published in Windows 2026112205,
   including materials, loads, restraints, meshing, results and independently
   checked reference cases. See [delivered scope and remaining work](doc/FEM_STATUS.md).
 
