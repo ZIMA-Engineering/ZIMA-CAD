@@ -62,6 +62,13 @@ Generate toolpaths from the selected operation, target Body, stock, machine
 and specific tool shape, dimensions, cutting length and cutting conditions.
 Include cutting passes and traverses, with preview, material-removal checking
 and collision verification before NC output.
+Provide an NC-code panel beside the View. Stepping or playback highlights the
+active line and synchronizes the tool position with the corresponding code.
+Support manually authored paths as well as generated paths. Organize machining
+as ordered blocks, each with its tool, path and parameters, linked to the
+corresponding NC lines. The confirmed example is a first cutting loop, safe
+retract and rapid traverse, then a second cutting loop. Manual paths require
+the same collision and machine-capability checks as generated paths.
 Machining operations, toolpaths and output scope remain to be agreed. This is
 a future-work proposal, with no implementation or persisted-format change yet.
 
