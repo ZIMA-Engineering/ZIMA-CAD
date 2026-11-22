@@ -24,11 +24,14 @@ remains separate. This update supersedes the older FEM planning entries below.
 - Keep the existing View background for the first version. The goal is a
   high-quality rendered image of a Body; rendering technology remains to be
   evaluated during implementation planning.
-- These are recorded future-work proposals. Detailed rendering behavior and
-  controls remain to be designed; implementation has not started. The user
+- The [proposed first delivery](doc/RENDER_BODY_DESIGN.md) defines the workflow,
+  native-storage scope, implementation boundaries and acceptance matrix.
+  Product implementation has not started. The user
   authorized autonomous delivery after the current Sketcher repair release,
   including verification, documentation, commit/push and another Windows release.
-  No runtime text or persisted format is changed by recording this proposal.
+  The user also approved the native-format scope and verification plan on
+  2026-11-22. No runtime text or persisted format is changed by recording this
+  proposal.
 
 ### CAM Body (proposal, 2026-11-22)
 
