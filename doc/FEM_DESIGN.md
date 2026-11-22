@@ -1,13 +1,14 @@
 # Part FEM implementation design
 
-**Basic FEM is implemented and published in Windows 2026112203.** See the
+**Basic FEM is implemented and published in Windows 2026112204.** See the
 [current FEM status](FEM_STATUS.md) for delivered scope, verification and limits.
 The release includes [steady-state thermal analysis and measurement
 points](FEM_THERMAL_AND_MEASUREMENT.md). Heat power uses the existing Body-face
 and owned-Sketch region workflow. Measurement points report displacement or
 temperature without participating in meshing. The sections below retain the
 original staged design; the linked current workflow defines delivered scope.
-Thermal expansion is the current follow-up, not part of that release.
+Optional [thermal expansion](FEM_THERMAL_EXPANSION.md) is included from
+2026112204 and reports temperature and heating-induced displacement together.
 
 ## Historical implementation milestones
 

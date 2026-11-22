@@ -8,13 +8,13 @@ not the current feature backlog.
 
 ## Current release boundary
 
-Signed Windows [2026112203](https://github.com/ZIMA-Engineering/ZIMA-CAD/releases/tag/ZIMA-CAD-2026112203)
+Signed Windows [2026112204](https://github.com/ZIMA-Engineering/ZIMA-CAD/releases/tag/ZIMA-CAD-2026112204)
 is the latest published stable build. It was published at
-`2026-11-22T15:58:41Z` from immutable source
-`df7f26179ca05fe126c4f5470207173de346cacf` with Qt 6.11.0 and OCCT 8.0.1.
+`2026-11-22T17:47:53Z` from immutable source
+`9a5a449b06ac50a3e457d14362e784a466c9cfc8` with Qt 6.11.0 and OCCT 8.0.1.
 Candidate and signed native smoke, 1,185 factory assets, public download/signature
 checks and the production updater pass. See the
-[publication evidence](https://github.com/ZIMA-Engineering/ZIMA-CAD/blob/8f7ea2f49d1875b8ca22137d54bdcbcad5be9532/doc/verification/20261122-windows-2203-publication.json).
+[publication evidence](https://github.com/ZIMA-Engineering/ZIMA-CAD/blob/1307f1b1e60a1b0efdd883daa8eb2cb34331cd33/doc/verification/20261122-windows-2204-publication.json).
 The release tag and portable package contain the complete matching source;
 the default branch may lag product development. Native Linux execution remains
 a separate host requirement.
@@ -23,8 +23,9 @@ a separate host requirement.
 linear-elastic static and steady-state thermal analyses, volume meshing,
 restraints, forces, pressure, surface heat power, ambient convection, colored
 results, deformation animation and placed measurement points. See
-[FEM status and verified limits](FEM_STATUS.md). Thermal expansion is the current
-follow-up and is not included in 2026112203.
+[FEM status and verified limits](FEM_STATUS.md). Optional thermal expansion
+calculates heating-induced displacement and stress; measurement points show
+temperature and displacement together.
 
 ### Earlier release context (reviewed 2026-11-12)
 
@@ -164,7 +165,7 @@ evidence. Published 2501 and every older signed release remain immutable.
 
 | Work | Current boundary / next step |
 | --- | --- |
-| Current FEM follow-up | Thermal expansion: use the thermal result to calculate heating-induced displacement and report it at measurement points. This is requested development, not part of published Windows 2026112203. |
+| Delivered FEM extension | Optional thermal expansion uses the thermal result, Part material and mechanical restraints to calculate displacement and stress. Measurement points report temperature and displacement together in Windows 2026112204. |
 | Skeleton interaction | New Feature opening measures 0.280--0.353 s, Default Origin 0.272--0.280 s and the representative Sketch move about 6 ms. The 32-operation Skeleton opens in about 7.4 s; cold explicit regeneration measures about 68.9 s after physical analysis leaves the critical path, while exact Save adds about 30 s. A late Solid Fillet edit/Undo/Redo succeeds, but its dependent suffix remains about 26 s. Production parallel batching and immediate Escape cancellation remain gated on exact identity and cooperative OCCT cancellation. |
 | Remaining fasteners | Cast wing-nut studies and toothed/fan washers remain unfinished. Preserve source-dimension discrepancies and private user edits. Two-part locking nuts are excluded. See [library queue](FASTENER_REMAINING_WORK.md). |
 | Sketch intersection references | Native source/branch association and editor commands are implemented in the documented finite scope. Arbitrary curved arrangements and the native Linux matrix remain unverified. See [editor verification](verification/20261022-sketch-intersection-editor.md). |
