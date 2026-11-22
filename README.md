@@ -90,13 +90,15 @@ solid-model calculations. The active implementation lives in [`cpp/`](cpp/).
 ## Implemented capabilities and remaining work
 
 **Basic FEM is implemented and available in signed Windows
-[2026112204](https://github.com/ZIMA-Engineering/ZIMA-CAD/releases/tag/ZIMA-CAD-2026112204).**
+[2026112205](https://github.com/ZIMA-Engineering/ZIMA-CAD/releases/tag/ZIMA-CAD-2026112205).**
 It includes Part FEM Bodies, volume meshing, linear-elastic static analysis with
 restraints, forces and pressure, and steady-state thermal analysis with surface
 heat power and ambient convection. Results include displacement, von Mises
 stress and temperature color maps, deformation animation and placed measurement
 points. Optional thermal expansion adds heating-induced displacement and stress;
-measurement points report temperature and displacement together.
+measurement points report temperature and displacement together. Combined
+thermal-mechanical analysis adds force and pressure to thermal expansion, and
+distance measurements report the physical change between two measurement points.
 See [FEM status, supported scope and verification](doc/FEM_STATUS.md).
 
 **Family Table is implemented**, including native Part/Assembly variants, shared
@@ -151,10 +153,11 @@ See [native distribution](doc/NATIVE_DISTRIBUTION.md),
 [updates](doc/UPDATES.md) and the [user manual](doc/USER_MANUAL.md).
 
 The latest published signed Windows release is
-[2026112204](https://github.com/ZIMA-Engineering/ZIMA-CAD/releases/tag/ZIMA-CAD-2026112204).
+[2026112205](https://github.com/ZIMA-Engineering/ZIMA-CAD/releases/tag/ZIMA-CAD-2026112205).
 Its committed-source package, trusted signature, candidate and signed native
 smoke, 1,185 factory assets, public downloads and production updater are verified.
-It adds thermal expansion and paired temperature/displacement measurements,
+It adds combined thermal-mechanical analysis, distance measurements, overlapping
+projected load regions and editable double circular tangencies after Sketch Trim,
 and includes steady-state thermal FEM, placed measurement points,
 mesh/solver progress, static deformation animation and an optional transparent
 original. See [FEM scope and publication evidence](doc/FEM_STATUS.md).
