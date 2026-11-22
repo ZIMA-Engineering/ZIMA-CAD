@@ -13,7 +13,7 @@ The native thermal target passes 108 expansion cases spanning T4/T10, both
 windings, affine/curved T10 geometry, two scales and a translated origin,
 heating/cooling/zero temperature change, and free, axially restrained and fully
 restrained expansion. Independent displacement and stress formulas verify each
-case. The free cases use minimal rigid-motion restraints. Tests also check
+case. The free cases use symmetry-compatible rigid-motion restraints. Tests also check
 reaction balance and exclusion of an authored mechanical force.
 
 A linear temperature field on T10 reproduces its compatible quadratic
