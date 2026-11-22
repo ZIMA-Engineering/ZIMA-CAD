@@ -1,10 +1,15 @@
 # Part FEM implementation design
 
-The current follow-up adds [steady-state thermal analysis and measurement
+**Basic FEM is implemented and published in Windows 2026112203.** See the
+[current FEM status](FEM_STATUS.md) for delivered scope, verification and limits.
+The release includes [steady-state thermal analysis and measurement
 points](FEM_THERMAL_AND_MEASUREMENT.md). Heat power uses the existing Body-face
 and owned-Sketch region workflow. Measurement points report displacement or
 temperature without participating in meshing. The sections below retain the
 original staged design; the linked current workflow defines delivered scope.
+Thermal expansion is the current follow-up, not part of that release.
+
+## Historical implementation milestones
 
 Status: the first FEM Body/source GUI milestone was published in Windows
 2026112101. The first Constraint/Force/Pressure authoring commands are implemented
@@ -27,7 +32,7 @@ See the [Body/source acceptance report](verification/20261121-projection-and-fem
 The first [native mesher checkpoint](verification/20261120-fem-mesher.md) passed
 seven synthetic cases on Windows; it does not yet establish product acceptance.
 
-## First delivery
+## Original first-delivery plan (2026-11-20)
 
 Implement source selection, condition authoring, explicit volume meshing and
 inspection first. Follow with small-displacement, isotropic linear elastic

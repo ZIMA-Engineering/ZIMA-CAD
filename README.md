@@ -89,6 +89,15 @@ solid-model calculations. The active implementation lives in [`cpp/`](cpp/).
 
 ## Implemented capabilities and remaining work
 
+**Basic FEM is implemented and available in signed Windows
+[2026112203](https://github.com/ZIMA-Engineering/ZIMA-CAD/releases/tag/ZIMA-CAD-2026112203).**
+It includes Part FEM Bodies, volume meshing, linear-elastic static analysis with
+restraints, forces and pressure, and steady-state thermal analysis with surface
+heat power and ambient convection. Results include displacement, von Mises
+stress and temperature color maps, deformation animation and placed measurement
+points. Thermal expansion is the current follow-up, not part of that release.
+See [FEM status, supported scope and verification](doc/FEM_STATUS.md).
+
 **Family Table is implemented**, including native Part/Assembly variants, shared
 parent-file storage, dimension and presence overrides, Assembly insertion and
 replacement, and Drawing variant selection. See the [Family Table guide](doc/FAMILY_TABLE.md).
@@ -141,17 +150,15 @@ See [native distribution](doc/NATIVE_DISTRIBUTION.md),
 [updates](doc/UPDATES.md) and the [user manual](doc/USER_MANUAL.md).
 
 The latest published signed Windows release is
-[2026111104](https://github.com/ZIMA-Engineering/ZIMA-CAD/releases/tag/ZIMA-CAD-2026111104).
-Its clean committed-source package, trusted signature, candidate and signed
-native smoke, all 1,185 factory native assets, production-updater status and
-fresh anonymous public downloads are verified. Sheet Profile Properties keeps
-its Sketch and thickness controls in the shared order while a bounded dynamic
-area contains expanded Up To tables. New Document keeps its complete duplicate
-file message visible. Shared middle-button confirmation now defers OK until the
-current event dispatch is complete. The approved Part format remains 52; the
-shared Windows/Linux source remains pinned to OCCT 8.0.1. See the
-[release record](doc/releases/2026111104.md) and
-[publication evidence](doc/verification/20261111-windows-1104-publication.json).
+[2026112203](https://github.com/ZIMA-Engineering/ZIMA-CAD/releases/tag/ZIMA-CAD-2026112203).
+Its committed-source package, trusted signature, candidate and signed native
+smoke, 1,185 factory assets, public downloads and production updater are verified.
+It adds steady-state thermal FEM and placed measurement points, and includes
+mesh/solver progress, static deformation animation and an optional transparent
+original. See [FEM scope and publication evidence](doc/FEM_STATUS.md).
+The release tag and portable package contain the matching complete source;
+the default branch may lag product development. Shared Windows/Linux code
+remains pinned to OCCT 8.0.1.
 The [current status](doc/PROJECT_STATUS.md) separates released scope and remaining
 work. Linux verification follows the separate handoff.
 

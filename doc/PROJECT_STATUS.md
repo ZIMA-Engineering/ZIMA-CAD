@@ -1,20 +1,35 @@
 # Current project status
 
-Reviewed on 2026-11-12 against the current shared C++ implementation, focused
-native/GUI contracts and the live GitHub release list. Dated proposals and
+FEM scope and release status reviewed on 2026-11-22 against the shared C++
+implementation, focused native/GUI checks and the live GitHub release list.
+Other capability entries retain their earlier finite verification. Dated proposals and
 historical release records remain evidence for their original scope; they are
 not the current feature backlog.
 
 ## Current release boundary
 
-Signed Windows [2026111104](releases/2026111104.md#windows-publication-acceptance)
+Signed Windows [2026112203](https://github.com/ZIMA-Engineering/ZIMA-CAD/releases/tag/ZIMA-CAD-2026112203)
 is the latest published stable build. It was published at
-`2026-11-11T22:38:13Z` from immutable source
-`56581a3fa3540e1e21b548d0e021344c30a16aca` with Qt 6.11.0 and OCCT 8.0.1.
-Candidate and signed native smoke each pass with all 1,185 factory assets;
-signature/trust, 17,537 archive entries and fresh anonymous public downloads
-pass. Native Linux execution remains a separate host requirement. See the
-[publication evidence](verification/20261111-windows-1104-publication.json).
+`2026-11-22T15:58:41Z` from immutable source
+`df7f26179ca05fe126c4f5470207173de346cacf` with Qt 6.11.0 and OCCT 8.0.1.
+Candidate and signed native smoke, 1,185 factory assets, public download/signature
+checks and the production updater pass. See the
+[publication evidence](https://github.com/ZIMA-Engineering/ZIMA-CAD/blob/8f7ea2f49d1875b8ca22137d54bdcbcad5be9532/doc/verification/20261122-windows-2203-publication.json).
+The release tag and portable package contain the complete matching source;
+the default branch may lag product development. Native Linux execution remains
+a separate host requirement.
+
+**Basic FEM is implemented and released, not merely planned.** It includes
+linear-elastic static and steady-state thermal analyses, volume meshing,
+restraints, forces, pressure, surface heat power, ambient convection, colored
+results, deformation animation and placed measurement points. See
+[FEM status and verified limits](FEM_STATUS.md). Thermal expansion is the current
+follow-up and is not included in 2026112203.
+
+### Earlier release context (reviewed 2026-11-12)
+
+The following dated context describes the earlier 2026111104 release and its
+then-current follow-ups; it is not the latest release boundary or FEM backlog.
 
 The release reorganizes Sheet Profile Properties without
 changing its parameters: Sketch is beside the work-plane selector, thickness is
@@ -95,6 +110,7 @@ Linux verification. The linked guides give supported cases and finite checks.
 | Assemblies | Part/subassembly insertion, exact nested activation, mates and placement, source editing, Assembly cuts, occurrence identities and explicit dependency regeneration | [Assembly references](ASSEMBLY_REFERENCES.md), [activation](COMPONENT_ACTIVATION_COMMANDS.md) |
 | Drawings | Sheets and views, projected/section/detail workflows in their documented scope, associative dimensions/chains, Show/Erase, frames/title blocks, BOM regions/balloons, symbols, PDF/DXF/image output | [Drawings](DRAWINGS.md), [manual](USER_MANUAL.md) |
 | Engineering data | Parameters, Relations, materials, units, physical properties and measurements, native engineering tables and fastener libraries | [Relations](RELATIONS.md), [properties](PHYSICAL_PROPERTIES.md), [library status](FASTENER_REMAINING_WORK.md) |
+| FEM | Part FEM Bodies, volume meshing, restraints/forces/pressure, linear-elastic statics, steady-state thermal conduction with surface heat power and ambient convection, displacement/von Mises/temperature color maps, static deformation animation and placed measurement points | [Released scope, verification and limits](FEM_STATUS.md) |
 | Exchange and automation | STEP/IGES/STL/DXF import/export, STEP/IGES body and face colors, binary STL color extensions, shared GUI/CLI commands and context-aware AI console | [Import](IMPORT_COMMANDS.md), [export](EXPORT_COMMANDS.md), [AI console](AI_CONSOLE.md) |
 | User interface | Czech, English, German, French and Russian; light/dark themes, internal Properties and native file management | [Manual](USER_MANUAL.md), [localization](LOCALIZATION.md), [File Manager](FILE_MANAGER.md) |
 | Distribution | Native Windows portable releases, version-owned runtime/resources/source and authenticated updater; Linux has separate native-host acceptance | [Distribution](NATIVE_DISTRIBUTION.md), [updates](UPDATES.md), [Linux](LINUX_RELEASE_HANDOFF.md) |
@@ -148,14 +164,14 @@ evidence. Published 2501 and every older signed release remain immutable.
 
 | Work | Current boundary / next step |
 | --- | --- |
-| Current correction/release batch | Windows 2026111001 is published and supersedes the unpublished 2026110901/2026110902 tags. It completes Profile extents, Origin/reference persistence, copied topology, Fillet logical rails and native Part format 50. Clean committed-source and signed smoke, factory assets, GitHub digests, anonymous downloads and production-updater discovery pass. Native Linux verification is separate. |
+| Current FEM follow-up | Thermal expansion: use the thermal result to calculate heating-induced displacement and report it at measurement points. This is requested development, not part of published Windows 2026112203. |
 | Skeleton interaction | New Feature opening measures 0.280--0.353 s, Default Origin 0.272--0.280 s and the representative Sketch move about 6 ms. The 32-operation Skeleton opens in about 7.4 s; cold explicit regeneration measures about 68.9 s after physical analysis leaves the critical path, while exact Save adds about 30 s. A late Solid Fillet edit/Undo/Redo succeeds, but its dependent suffix remains about 26 s. Production parallel batching and immediate Escape cancellation remain gated on exact identity and cooperative OCCT cancellation. |
 | Remaining fasteners | Cast wing-nut studies and toothed/fan washers remain unfinished. Preserve source-dimension discrepancies and private user edits. Two-part locking nuts are excluded. See [library queue](FASTENER_REMAINING_WORK.md). |
 | Sketch intersection references | Native source/branch association and editor commands are implemented in the documented finite scope. Arbitrary curved arrangements and the native Linux matrix remain unverified. See [editor verification](verification/20261022-sketch-intersection-editor.md). |
 | Sketch Projection Feature | Requested as another Feature type consuming a Sketch; associative 3D result, direction, clipping and ambiguous intersections still need design. |
 | File Manager directory prototypes | Discuss ordinary/linked metadata types and configurable prototype `0000-index` folders before implementation. |
 | Direct mesh/Surface editing | Design ideas: independent meshes, point groups, primitives, subdivision, deformation, optional explicit point-to-model bindings and conversion to suitable shells/solids. No implemented Blender-style mesh editor is claimed. |
-| FEM | Requested analysis as an additional Body type within a Part; supported materials, boundary conditions, meshing, persistence and independently checked results remain to be designed/implemented. |
+| Further FEM scope | Basic static and steady-state thermal workflows are implemented. Contact, plasticity, actual dynamics, transient heating, remote radiation and additional boundary/material models remain separate work. Finite Windows checks do not establish universal solver convergence or native Linux acceptance. See [FEM limits](FEM_STATUS.md). |
 | Voice and pointer context | Requested speech input and lightweight semantic mouse context for AI; design and integration pending. |
 | Further modeling extensions | Dedicated spring/pipe workflows, additional pattern variants and individual unsupported surface/solid cases remain scoped follow-ups, not missing foundations. |
 | Continuing verification | Real-project geometry/reference recovery, larger Assemblies, solver edge cases, production Drawing workflows and a later comprehensive Undo/Redo audit. Undo/Redo itself is implemented. |

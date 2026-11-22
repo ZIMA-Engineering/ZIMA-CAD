@@ -6,8 +6,10 @@ repairs. See the [Projection verification record](verification/20261120-projecti
 and [release record](releases/2026112004.md) for the finite coverage and delivery
 checks. The earlier owned RIP, Sketch Fillet, cylindrical Up To and placement
 repairs retain their [2026112001 verification record](verification/20261120-owned-rip-and-sketch-fillet.md).
-The user authorized FEM implementation next; its agreed workflow and outstanding
-technical choices are recorded below. This does not claim that FEM already works.
+Basic FEM has since been implemented and published in Windows 2026112203,
+including linear-elastic statics, steady-state thermal analysis and measurement
+points. See [current FEM scope and verification](FEM_STATUS.md). The dated design
+and initial checkpoints below preserve the earlier development sequence.
 
 The preceding implementation completed for Windows build 2026111905. Its
 [verification matrix and explicit limits](verification/20261119-modeling-completion.md)
@@ -213,14 +215,16 @@ native persistence or protected container placement; this authorization does not
 waive those repository safeguards. Technical integration and numerical acceptance
 remain work to perform, not completed capabilities.
 
-Windows 2026112004 is now published and delivered locally. FEM work has started:
+Historical checkpoint (2026-11-20): Windows 2026112004 was published and delivered
+locally, and FEM work had started:
 the [technical design](FEM_DESIGN.md) and
 [initial native Gmsh verification](verification/20261120-fem-mesher.md) record the
 first checkpoint. The user approved the scoped native FEM persistence extension
 on 2026-11-20, including affected template/factory verification and protected
-Toyota copies; the shared placement solver is excluded from changes. The native
-definition/transaction implementation is now in progress. No FEM UI or solver is
-included in that published release.
+project copies; the shared placement solver was excluded from changes. The native
+definition/transaction implementation was then in progress. No FEM UI or solver
+was included in 2026112004; this limitation is superseded by the
+[published FEM workflow](FEM_STATUS.md) in 2026112203.
 
 #### Part-level FEM creation and editing
 
