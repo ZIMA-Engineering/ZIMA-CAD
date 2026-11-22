@@ -452,7 +452,8 @@ private:
     std::shared_ptr<GeneratedFemMesh> generated_fem_mesh_;
     bool show_generated_fem_mesh_{};
     bool show_fem_deformation_{};
-    enum class FemResultQuantity { Displacement, VonMises };
+    enum class FemResultQuantity { Displacement, VonMises, Temperature };
+    bool fem_thermal_analysis() const;
     FemResultQuantity fem_result_quantity_{FemResultQuantity::Displacement};
     void update_fem_result_presentation();
     void select_fem_result(FemResultQuantity);

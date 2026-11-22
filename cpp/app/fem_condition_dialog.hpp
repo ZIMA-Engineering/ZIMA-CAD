@@ -1,5 +1,6 @@
 #pragma once
 #include "placement_reference_dialog.hpp"
+#include "fem_condition_labels.hpp"
 #include <zima/document/fem_condition.hpp>
 #include <zima/ui/container_placement_section.hpp>
 #include <zima/ui/properties_subwindow.hpp>
@@ -28,14 +29,6 @@
 #include <charconv>
 
 namespace zima::app {
-inline QString fem_condition_name(document::FemConditionKind kind) {
-    return kind==document::FemConditionKind::Force?QObject::tr("Force"):
-        kind==document::FemConditionKind::Pressure?QObject::tr("Pressure"):QObject::tr("Constraint");
-}
-inline const char* fem_condition_icon(document::FemConditionKind kind) {
-    return kind==document::FemConditionKind::Force?"fem-force":kind==document::FemConditionKind::Pressure?"fem-pressure":"fem-constraint";
-}
-
 class FemConditionDialog final : public ui::PropertiesSubWindow, public PlacementReferenceDialog {
 public:
     std::function<void()> changed;
@@ -51,10 +44,13 @@ public:
         form_=form;
         name_=new QLineEdit(QString::fromStdString(initial_.name),this);name_->setObjectName("femConditionName");
         kind_=new QComboBox(this);kind_->setObjectName("femConditionKind");
-        for(auto k:{document::FemConditionKind::Constraint,document::FemConditionKind::Force,document::FemConditionKind::Pressure})
+        const bool independent_kind=initial_.kind==document::FemConditionKind::MeasurementPoint||initial_.kind==document::FemConditionKind::HeatSource;
+        if(independent_kind)
+            kind_->addItem(fem_condition_name(initial_.kind),int(initial_.kind));
+        else for(auto k:{document::FemConditionKind::Constraint,document::FemConditionKind::Force,document::FemConditionKind::Pressure})
             kind_->addItem(fem_condition_name(k),static_cast<int>(k));
         kind_->setCurrentIndex(kind_->findData(static_cast<int>(initial_.kind)));
-        form->addRow(tr("Condition type"),kind_);form->addRow(tr("Název"),name_);content_layout()->addLayout(form);
+        form->addRow(tr("Condition type"),kind_);form->setRowVisible(kind_,!independent_kind);form->addRow(tr("Název"),name_);content_layout()->addLayout(form);
         placement_=new ui::ContainerPlacementSection(this,content_layout(),true,true);
         placement_->reference_table()->setObjectName("femPlacementReferences");
         placement_->orientation_table()->setObjectName("femOrientationReferences");
@@ -71,7 +67,7 @@ public:
         region_->addItem(tr("Body surface"),body_surface_choice);
         region_->setCurrentIndex(region_->findData(initial_.region==document::FemRegionKind::Surface&&
             !initial_.projected_sketch?body_surface_choice:int(initial_.region)));
-        parameters->addRow(tr("Region of action"),region_);
+        parameters->addRow(tr("Region of action"),region_);parameters->setRowVisible(region_,initial_.kind!=document::FemConditionKind::MeasurementPoint);
         project_=new QCheckBox(tr("Project Sketch onto body"),this);
         project_->setObjectName("femProjectSketch");
         project_->setChecked(initial_.projected_sketch&&initial_.projected_sketch->project_to_body);
@@ -98,6 +94,10 @@ public:
         parameters->addRow(project_);
         force_=new QDoubleSpinBox(this);force_->setObjectName("femForceValue");force_->setDecimals(6);force_->setRange(-1e12,1e12);force_->setSuffix(" N");force_->setValue(initial_.force_N);
         pressure_=new QDoubleSpinBox(this);pressure_->setObjectName("femPressureValue");pressure_->setDecimals(6);pressure_->setRange(0,1e12);pressure_->setSuffix(" MPa");pressure_->setValue(initial_.pressure_MPa);
+        heat_=new QDoubleSpinBox(this);heat_->setObjectName("femHeatPower");heat_->setDecimals(6);heat_->setRange(-1e12,1e12);heat_->setSuffix(" W");heat_->setValue(initial_.heat_W);
+        heat_->setToolTip(tr("Total power over the selected area. Positive adds heat; negative removes heat."));
+        heat_label_=new QLabel(tr("Thermal power"),this);parameters->addRow(heat_label_,heat_);
+        initial_heat_display_=heat_->value();
         initial_force_display_=force_->value();initial_pressure_display_=pressure_->value();
         force_label_=new QLabel(tr("Force"),this);pressure_label_=new QLabel(tr("Pressure"),this);
         parameters->addRow(force_label_,force_);parameters->addRow(pressure_label_,pressure_);
@@ -116,7 +116,7 @@ public:
         status_=new QLabel(this);status_->setObjectName("femConditionStatus");status_->setWordWrap(true);content_layout()->addWidget(status_);
         connect(table_,&QTableWidget::cellClicked,this,[this](int row,int column){if(column==2)arm(row);});
         connect(kind_,&QComboBox::currentIndexChanged,this,[this]{
-            if(current_kind()==document::FemConditionKind::Pressure&&current_region()!=document::FemRegionKind::Surface)
+            if((current_kind()==document::FemConditionKind::Pressure||current_kind()==document::FemConditionKind::HeatSource)&&current_region()!=document::FemRegionKind::Surface)
                 region_->setCurrentIndex(region_->findData(body_surface_choice));
             refresh_kind();notify();
         });
@@ -149,7 +149,7 @@ public:
             if(edit_sketch&&initial_.projected_sketch)
                 edit_sketch(sketcher::Sketch::from_serialized(initial_.projected_sketch->serialized));
         });
-        for(auto* field:{force_,pressure_})connect(field,&QDoubleSpinBox::valueChanged,this,[this]{notify();});
+        for(auto* field:{force_,pressure_,heat_})connect(field,&QDoubleSpinBox::valueChanged,this,[this]{notify();});
         for(auto* field:fixed_)connect(field,&QCheckBox::toggled,this,[this]{notify();});
         connect(reverse_,&QCheckBox::toggled,this,[this]{notify();});
         connect(name_,&QLineEdit::textChanged,this,[this]{notify();});
@@ -162,6 +162,7 @@ public:
         // Preserve exact loaded values until the field was actually changed.
         if(force_->value()!=initial_force_display_)v.force_N=force_->value();
         if(pressure_->value()!=initial_pressure_display_)v.pressure_MPa=pressure_->value();
+        if(heat_->value()!=initial_heat_display_)v.heat_W=heat_->value();
         for(int i=0;i<3;++i)v.restrained[i]=fixed_[i]->isChecked();v.pressure_reversed=reverse_->isChecked();return v;
     }
     void set_status(const QString& text){status_->setText(text);}
@@ -270,6 +271,7 @@ protected:
         for(int i=0;i<kind_->count();++i)kind_->setItemText(i,fem_condition_name(static_cast<document::FemConditionKind>(kind_->itemData(i).toInt())));
         region_->setItemText(0,tr("Bod"));region_->setItemText(1,tr("Křivka"));region_->setItemText(2,tr("Plocha"));
         region_->setItemText(3,tr("Body surface"));
+        heat_label_->setText(tr("Thermal power"));heat_->setToolTip(tr("Total power over the selected area. Positive adds heat; negative removes heat."));
         force_label_->setText(tr("Force"));pressure_label_->setText(tr("Pressure"));restraint_label_->setText(tr("Restrained translations"));reverse_->setText(tr("Reverse pressure normal"));
         project_->setText(tr("Project Sketch onto body"));plane_controls_->retranslate();
         refresh_kind();refresh_references();
@@ -283,12 +285,12 @@ private:
         QSize sizeHint()const override {auto size=QTableWidget::sizeHint();size.setHeight(minimumHeight());return size;}
     };
     document::FemCondition initial_;std::function<void(document::FemCondition)> commit_;
-    QLineEdit* name_{};QComboBox *kind_{},*region_{};QDoubleSpinBox *force_{},*pressure_{};
+    QLineEdit* name_{};QComboBox *kind_{},*region_{};QDoubleSpinBox *force_{},*pressure_{},*heat_{};
     QCheckBox* project_{};ui::UnitDoubleSpinBox* sketch_offset_{};QPushButton* sketch_button_{};
-    QCheckBox* fixed_[3]{};QCheckBox* reverse_{};QWidget* restraints_{};QLabel *force_label_{},*pressure_label_{},*restraint_label_{},*hint_{},*status_{};
+    QCheckBox* fixed_[3]{};QCheckBox* reverse_{};QWidget* restraints_{};QLabel *heat_label_{},*force_label_{},*pressure_label_{},*restraint_label_{},*hint_{},*status_{};
     QTableWidget* table_{};ui::ContainerPlacementSection* placement_{};std::optional<std::size_t> active_;std::set<std::size_t> inspected_;
     QFormLayout *form_{},*parameters_{};
-    double initial_force_display_{},initial_pressure_display_{};
+    double initial_heat_display_{},initial_force_display_{},initial_pressure_display_{};
     std::optional<document::FemProjectedSketch> sketch_cache_;
     ProfilePlaneControls* plane_controls_{};QComboBox* plane_{};
     std::function<void(std::size_t)> reference_request_;
@@ -339,12 +341,13 @@ private:
     }
     void refresh_kind(){
         const auto k=current_kind();
+        heat_->setVisible(k==document::FemConditionKind::HeatSource);heat_label_->setVisible(heat_->isVisibleTo(this));
         force_->setVisible(k==document::FemConditionKind::Force);force_label_->setVisible(force_->isVisibleTo(this));
         pressure_->setVisible(k==document::FemConditionKind::Pressure);pressure_label_->setVisible(pressure_->isVisibleTo(this));
         restraints_->setVisible(k==document::FemConditionKind::Constraint);restraint_label_->setVisible(restraints_->isVisibleTo(this));
         reverse_->setVisible(k==document::FemConditionKind::Pressure);
         if(auto* model=qobject_cast<QStandardItemModel*>(region_->model()))
-            for(int i=0;i<2;++i)model->item(i)->setEnabled(k!=document::FemConditionKind::Pressure);
+            for(int i=0;i<2;++i)model->item(i)->setEnabled(k!=document::FemConditionKind::Pressure&&k!=document::FemConditionKind::HeatSource);
         const bool sketch=uses_sketch();
         parameters_->setRowVisible(project_,sketch);
         const bool projecting=sketch&&project_->isChecked();

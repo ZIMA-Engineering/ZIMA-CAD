@@ -1,5 +1,11 @@
 # Part FEM implementation design
 
+The current follow-up adds [steady-state thermal analysis and measurement
+points](FEM_THERMAL_AND_MEASUREMENT.md). Heat power uses the existing Body-face
+and owned-Sketch region workflow. Measurement points report displacement or
+temperature without participating in meshing. The sections below retain the
+original staged design; the linked current workflow defines delivered scope.
+
 Status: the first FEM Body/source GUI milestone was published in Windows
 2026112101. The first Constraint/Force/Pressure authoring commands are implemented
 for 2026112102; [their finite verification](verification/20261121-fem-conditions.md)
@@ -13,8 +19,8 @@ The [agreed functional workflow](MODELING_FOLLOWUP_20261119.md#subsequent-fem-an
 defines the user-facing scope. This design specifies the first implementation
 boundaries. The user approved the scoped native persistence extension on
 2026-11-20: FEM Bodies, conditions, mesh and results inside `.prtz`, regeneration
-and verification of affected start templates and factory assets, and Toyota
-verification on isolated copies against the backup. Toyota originals and the
+and verification of affected start templates and factory assets, and protected-project
+verification on isolated copies against the backup. Protected originals and the
 shared container placement solver must remain unchanged. The new Create FEM
 command authors a shared source reference only; it does not run an analysis.
 See the [Body/source acceptance report](verification/20261121-projection-and-fem-body.md).
@@ -85,7 +91,7 @@ save and reopen affected assets with the changed native implementation. Do not
 ship old/new model adapters or change only a version number. Preserve authored
 histories, roles, references and geometry; verify the packaged committed assets.
 
-The protected Toyota project is included in the proposed conversion assessment:
+The protected project is included in the proposed conversion assessment:
 inventory its documents/dependencies, verify recoverable backups and evaluate
 isolated copies. Do not replace its originals. Identify unsupported old formats
 explicitly rather than silently converting them or claiming reopen coverage.

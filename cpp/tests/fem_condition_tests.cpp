@@ -125,9 +125,11 @@ void transactions(){
     require(!workspace::commit_fem_condition(live,edit,force)&&session.revision()==after,"Unchanged condition added Undo");
     auto bad=force;bad.references.front().semantic_key="missing";rejects([&]{static_cast<void>(workspace::commit_fem_condition(live,edit,bad));});
     require(session.revision()==after,"Invalid region modified the document");
+    for(auto condition_kind:{document::FemConditionKind::Force,document::FemConditionKind::HeatSource})
     for(bool projecting:{false,true})for(auto region:{document::FemRegionKind::Curve,document::FemRegionKind::Surface})
     for(bool diameter:{false,true})for(bool reference:{false,true})for(bool locked:{false,true})for(bool fixed:{false,true}) {
-        auto value=force;value.id="editable-fem-sketch-"+std::to_string(projecting)+"-"+std::to_string(int(region));
+        if(condition_kind==document::FemConditionKind::HeatSource&&region!=document::FemRegionKind::Surface)continue;
+        auto value=force;value.kind=condition_kind;value.id="editable-fem-sketch-"+std::to_string(int(condition_kind))+"-"+std::to_string(projecting)+"-"+std::to_string(int(region));
         value.name="Editable FEM Sketch";value.region=region;
         value.references=projecting?std::vector<document::FemRegionReference>{patch}:
             std::vector<document::FemRegionReference>{};
@@ -179,7 +181,10 @@ void transactions(){
                 "FEM Sketch Undo/Redo lost its mode or geometry");
         }
     }
-    auto outside=*workspace::find_fem_condition(session.document(),fem.scope.id,"editable-fem-sketch-1-2");
+    const auto* projected_surface=workspace::find_fem_condition(session.document(),fem.scope.id,
+        "editable-fem-sketch-"+std::to_string(int(document::FemConditionKind::Force))+"-1-2");
+    require(projected_surface,"Projected Force surface fixture is missing");
+    auto outside=*projected_surface;
     outside.references.clear();outside.projected_sketch->project_to_body=false;
     outside.projected_sketch->surface_seeds.clear();outside.projected_sketch->surface_region_keys.clear();
     const auto before_rejection=session.revision();
@@ -218,7 +223,7 @@ void transactions(){
             "FEM lost its read-only external Sketch reference");
         require(workspace::read_fem_source(session,fem.scope.id).shares_with(source),"FEM external projection modified its source");
     }
-    std::cout<<"FEM owned Sketch matrix: 64 modes/region/radius-diameter/reference/lock/fix combinations with three edits and drags each passed\n";
+    std::cout<<"FEM owned Sketch matrix: 96 Force/Heat modes/region/radius-diameter/reference/lock/fix combinations with three edits and drags each passed\n";
     for(auto region:{document::FemRegionKind::Point,document::FemRegionKind::Curve}) {
         auto value=force;value.id=region==document::FemRegionKind::Point?"point-force":"curve-force";value.region=region;value.references.clear();
         if(region==document::FemRegionKind::Point) {
@@ -246,8 +251,10 @@ void transactions(){
     edit=workspace::prepare_fem_edit(session.document(),fem.scope.id);require(workspace::erase_fem_condition(live,edit,force.id),"Condition deletion failed");
     require(!workspace::find_fem_condition(session.document(),fem.scope.id,force.id)&&session.undo()&&workspace::find_fem_condition(session.document(),fem.scope.id,force.id),"Condition deletion Undo failed");
     require(kernel::body_calculation_count.load()==count&&boundaries==&session.calculated_boundaries()&&workspace::read_fem_source(session,fem.scope.id).shares_with(source),"Condition edits recalculated or duplicated the source");
+    for(bool measurement:{false,true}) {
     auto damaged=session.document();auto changed=*damaged.body_history.find(fem.scope.id);
     auto& placed=changed.fem->conditions.front();placed.placement.x=3;placed.placement.y=4;placed.placement.z=5;
+    if(measurement){placed.kind=document::FemConditionKind::MeasurementPoint;placed.region=document::FemRegionKind::Point;placed.references.clear();placed.projected_sketch.reset();}
     placed.placement.rotation_x=placed.placement.absolute_rotation_x=27;
     placed.placement.references={{"","removed-source","origin:point",0,false}};
     const auto last=placed.placement;const auto placed_id=placed.id;damaged.body_history.update_body(changed);
@@ -260,6 +267,7 @@ void transactions(){
     changed=*repaired.body_history.find(fem.scope.id);changed.fem->conditions.front().placement.references={{"",source_id+":origin","origin:point",0,false}};repaired.body_history.update_body(changed);repaired.resolve_constructions({});
     const auto* fixed=workspace::find_fem_condition(repaired,fem.scope.id,placed_id);
     require(fixed->placement.reference_valid&&std::hypot(fixed->placement.x,fixed->placement.y,fixed->placement.z)<1e-8,"Replacing a lost FEM reference did not restore its frame");
+    }
 }
 }
 int main(){try{serialization();marks();transactions();std::cout<<"FEM condition serialization, validation, partial Projection region, marks, transactions, Undo/Redo, native reopen and no CAD recalculation passed\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

@@ -9,7 +9,7 @@
 
 namespace zima::sketcher { class Sketch; }
 namespace zima::document {
-enum class FemConditionKind { Constraint, Force, Pressure };
+enum class FemConditionKind { Constraint, Force, Pressure, HeatSource, MeasurementPoint };
 enum class FemRegionKind { Point, Curve, Surface };
 
 struct FemRegionReference {
@@ -47,6 +47,7 @@ struct FemCondition {
     std::array<bool,3> restrained{true,true,true};
     bool pressure_reversed{};
     bool visible{true};
+    double heat_W{100};
     bool operator==(const FemCondition&) const = default;
 };
 

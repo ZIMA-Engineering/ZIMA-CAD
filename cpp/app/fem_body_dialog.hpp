@@ -3,6 +3,8 @@
 #include <zima/ui/properties_subwindow.hpp>
 #include <zima/ui/reference_cell.hpp>
 #include <QFormLayout>
+#include <QComboBox>
+#include <QDoubleSpinBox>
 #include <QHeaderView>
 #include <QLabel>
 #include <QLineEdit>
@@ -40,8 +42,37 @@ public:
         connect(table_,&QTableWidget::cellClicked,this,[this](int,int column){if(column==2)arm();});
         auto* explanation=new QLabel(tr("Geometry and material are shared with the source Body. Edit the source in Modeling."),this);
         explanation->setWordWrap(true);content_layout()->addWidget(explanation);
+        auto* thermal_form=new QFormLayout;
+        auto* analysis=new QComboBox(this);analysis->setObjectName("femAnalysisKind");
+        analysis->addItem(tr("Linear statics"),int(document::FemAnalysisKind::LinearElasticStatic));
+        analysis->addItem(tr("Steady-state thermal analysis"),int(document::FemAnalysisKind::SteadyStateThermal));
+        analysis->setCurrentIndex(analysis->findData(int(pending.fem->analysis)));
+        thermal_form->addRow(tr("Analysis type"),analysis);
+        auto* ambient=new QDoubleSpinBox(this);ambient->setObjectName("femAmbientTemperature");
+        ambient->setRange(-273.15,1e6);ambient->setDecimals(3);ambient->setSuffix(" °C");
+        auto* transfer=new QDoubleSpinBox(this);transfer->setObjectName("femHeatTransfer");
+        transfer->setRange(0,1e9);transfer->setDecimals(6);transfer->setSuffix(" W/(m²·K)");
+        const auto thermal=pending.fem->thermal.value_or(document::FemThermalSettings{});
+        ambient->setValue(thermal.ambient_C);transfer->setValue(thermal.convection_W_m2K);
+        thermal_form->addRow(tr("Ambient temperature"),ambient);
+        thermal_form->addRow(tr("Heat transfer coefficient"),transfer);
+        auto* cooling=new QLabel(tr("Heat transfer applies to the complete exterior, including heated faces. Set the coefficient for your cooling conditions."),this);
+        cooling->setWordWrap(true);thermal_form->addRow(cooling);content_layout()->addLayout(thermal_form);
+        const auto visibility=[=,this] {
+            const bool active=pending.fem->analysis==document::FemAnalysisKind::SteadyStateThermal;
+            thermal_form->setRowVisible(ambient,active);thermal_form->setRowVisible(transfer,active);thermal_form->setRowVisible(cooling,active);
+        };
+        connect(analysis,&QComboBox::currentIndexChanged,this,[=,this] {
+            pending.fem->analysis=static_cast<document::FemAnalysisKind>(analysis->currentData().toInt());
+            if(pending.fem->analysis==document::FemAnalysisKind::SteadyStateThermal&&!pending.fem->thermal)
+                pending.fem->thermal=thermal;
+            visibility();notify();
+        });
+        connect(ambient,&QDoubleSpinBox::valueChanged,this,[this](double value){if(!pending.fem->thermal)pending.fem->thermal.emplace();pending.fem->thermal->ambient_C=value;});
+        connect(transfer,&QDoubleSpinBox::valueChanged,this,[this](double value){if(!pending.fem->thermal)pending.fem->thermal.emplace();pending.fem->thermal->convection_W_m2K=value;});
+        visibility();
         status_=new QLabel(this);status_->setObjectName("femBodyStatus");status_->setWordWrap(true);content_layout()->addWidget(status_);
-        set_initial_size({520,240});refresh();
+        set_initial_size({520,410});refresh();
     }
     void arm(){active_=true;refresh();notify();}
     void end_input(){active_=false;inspected_=false;refresh();notify();}

@@ -35,7 +35,13 @@ kernel::ViewerMesh AssemblyWorkspaceWindow::fem_display_mesh()const {
     const auto& source=mesh?source_mesh:result;
     for(const auto& condition:body->fem->conditions) {
         if(fem_condition_preview_&&fem_condition_preview_->id==condition.id)continue;
-        append_mesh(result,document::fem_condition_presentation(condition,source));
+        const bool measurement=condition.kind==document::FemConditionKind::MeasurementPoint;
+        if(!measurement&&!document::fem_condition_applies_to_analysis(condition.kind,body->fem->analysis)&&
+                fem_inspected_condition_!=condition.id)continue;
+        auto presentation=document::fem_condition_presentation(condition,source);
+        if(measurement&&mesh&&show_fem_deformation_&&active_fem_deformation())
+            presentation.constraint_markers.clear(); // The result marker owns the name and measured values.
+        append_mesh(result,std::move(presentation));
     }
     if(!active_sketch_id_.empty()&&sweep_profile_sketch_draft_)
         append_mesh(result,sketch_viewer_mesh(*sweep_profile_sketch_draft_));
@@ -85,7 +91,7 @@ void AssemblyWorkspaceWindow::show_fem_condition_properties(document::FemConditi
     document::FemCondition initial;
     if(!id.empty()){const auto* found=active_fem_condition(id);if(!found)return;initial=*found;}
     else {
-        initial.id=kernel::make_stable_id();initial.kind=kind;initial.region=kind==document::FemConditionKind::Pressure?document::FemRegionKind::Surface:document::FemRegionKind::Point;
+        initial.id=kernel::make_stable_id();initial.kind=kind;initial.region=(kind==document::FemConditionKind::Pressure||kind==document::FemConditionKind::HeatSource)?document::FemRegionKind::Surface:document::FemRegionKind::Point;
         for(unsigned n=1;;++n){initial.name=fem_condition_name(kind).toStdString()+" "+std::to_string(n);
             if(std::ranges::none_of(body->fem->conditions,[&](const auto& c){return c.name==initial.name;}))break;}
     }

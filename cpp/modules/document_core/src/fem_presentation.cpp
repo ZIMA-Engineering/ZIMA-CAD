@@ -59,7 +59,7 @@ kernel::ViewerMesh fem_condition_presentation(const FemCondition& value,const ke
             const auto placed=fem_condition_sketch(value);
             auto sketch=placed.viewer_mesh(false);
             for(auto& edge:sketch.edges) {
-                if(value.kind==FemConditionKind::Pressure&&!edge.construction&&!edge.points.empty()&&locations.size()<4)
+                if((value.kind==FemConditionKind::Pressure||value.kind==FemConditionKind::HeatSource)&&!edge.construction&&!edge.points.empty()&&locations.size()<4)
                     locations.push_back({edge.points[edge.points.size()/2],placed.normal()});
                 edge.reference.owner_id=value.id;
                 edge.reference.semantic_key="fem:region:"+edge.reference.semantic_key;
@@ -67,7 +67,7 @@ kernel::ViewerMesh fem_condition_presentation(const FemCondition& value,const ke
                 edge.overlay=true;
                 mesh.edges.push_back(std::move(edge));
             }
-        }else if(value.kind==FemConditionKind::Pressure) {
+        }else if(value.kind==FemConditionKind::Pressure||value.kind==FemConditionKind::HeatSource) {
             for(std::size_t i=0;i<value.references.size()&&i<value.projected_sketch->surface_seeds.size();++i) {
                 const auto seed=value.projected_sketch->surface_seeds[i];
                 std::optional<Sample> nearest;double distance=std::numeric_limits<double>::infinity();
@@ -91,6 +91,17 @@ kernel::ViewerMesh fem_condition_presentation(const FemCondition& value,const ke
     Vec3 label=locations.front().point;
     if(value.kind==FemConditionKind::Force){Vec3 center{};for(auto s:locations)center=add(center,s.point);center=mul(center,1./locations.size());label=arrow(center,mul(normal,value.force_N<0?-1:1));}
     else if(value.kind==FemConditionKind::Pressure){for(auto s:locations)label=arrow(s.point,mul(s.normal,value.pressure_reversed?1:-1));}
+    else if(value.kind==FemConditionKind::HeatSource){for(auto s:locations) {
+        const auto direction=mul(unit(s.normal),value.heat_W<0?1:-1);
+        const auto side=unit(cross(direction,std::abs(direction.z)<.9?Vec3{0,0,1}:Vec3{0,1,0}));
+        label=arrow(s.point,direction);
+        for(int i=0;i<6;++i)stroke({add(add(s.point,mul(direction,-size*(.35+.1*i))),mul(side,size*.07*(i%2?1:-1))),
+            add(add(s.point,mul(direction,-size*(.45+.1*i))),mul(side,size*.07*(i%2?-1:1)))});
+    }}
+    else if(value.kind==FemConditionKind::MeasurementPoint) {
+        for(const auto axis:{Vec3{1,0,0},Vec3{0,1,0},Vec3{0,0,1}})
+            stroke({add(origin,mul(axis,-size*.18)),add(origin,mul(axis,size*.18))});
+    }
     else {
         for(auto s:locations)for(int i=0;i<3;++i)if(value.restrained[i]) {
             const auto d=rotate(value.placement,i==0?Vec3{1,0,0}:i==1?Vec3{0,1,0}:Vec3{0,0,1});
@@ -104,7 +115,8 @@ kernel::ViewerMesh fem_condition_presentation(const FemCondition& value,const ke
     std::ostringstream text;text<<value.name;
     if(value.kind==FemConditionKind::Force)text<<" = "<<value.force_N<<" N";
     else if(value.kind==FemConditionKind::Pressure)text<<" = "<<value.pressure_MPa<<" MPa";
-    else {text<<" (";for(int i=0;i<3;++i)if(value.restrained[i])text<<"U"<<char('X'+i)<<"=0 ";text<<")";}
+    else if(value.kind==FemConditionKind::HeatSource)text<<" = "<<value.heat_W<<" W";
+    else if(value.kind==FemConditionKind::Constraint){text<<" (";for(int i=0;i<3;++i)if(value.restrained[i])text<<"U"<<char('X'+i)<<"=0 ";text<<")";}
     if(broken)text<<" !";
     mesh.constraint_markers.push_back({label,text.str(),{value.id,"fem:label",{}},{}});
     mesh.original_references.edges=mesh.edges;return mesh;

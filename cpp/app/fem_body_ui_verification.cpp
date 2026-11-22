@@ -38,6 +38,8 @@
 #ifdef ZIMA_ENABLE_FEM_MESHER
 #include "fem_linear_statics.hpp"
 #include "fem_volume_mesh.hpp"
+#include "fem_thermal.hpp"
+#include "fem_probe.hpp"
 #endif
 
 namespace zima::app {
@@ -936,6 +938,7 @@ int verify_fem_body(QApplication& application,AssemblyWorkspaceWindow& window,co
             window.solve_fem_statics();flush();
             check(window.active_fem_deformation()&&window.active_fem_deformation()->vertices==valid_result&&
                 !window.operation_activity_->active(),"FEM result did not recover after failed-worker input repair");
+#include "fem_thermal_ui_verification.inc"
             std::cout<<"FEM pressure GUI: body face, planar/projected Sketch, solve/display, Cancel, magnitude/reversal, Undo/Redo and native reopen passed\n";
             std::cout<<"FEM progress GUI: translated phases, actual percentage painting, busy iteration text, cached commands and failed-worker cleanup passed\n";
         }

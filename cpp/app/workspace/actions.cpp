@@ -459,7 +459,9 @@ void AssemblyWorkspaceWindow::create_actions() {
     displacement->setObjectName("femDisplacementResultAction");
     auto* stress=fem_results_menu_->addAction(tr("Von Mises stress [MPa]"),this,[this]{select_fem_result(FemResultQuantity::VonMises);});
     stress->setObjectName("femStressResultAction");
-    for(auto* action:{displacement,stress}){action->setCheckable(true);results_group->addAction(action);}
+    auto* temperature=fem_results_menu_->addAction(tr("Temperature [°C]"),this,[this]{select_fem_result(FemResultQuantity::Temperature);});
+    temperature->setObjectName("femTemperatureResultAction");
+    for(auto* action:{displacement,stress,temperature}){action->setCheckable(true);results_group->addAction(action);}
     fem_results_menu_->addSeparator();
     auto* animation=fem_results_menu_->addAction(tr("Play / pause deformation"));
     animation->setObjectName("femAnimateAction");animation->setCheckable(true);

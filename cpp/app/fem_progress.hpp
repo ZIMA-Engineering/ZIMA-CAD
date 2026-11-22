@@ -6,7 +6,7 @@
 namespace zima::app {
 enum class FemProgressPhase {
     PreparingGeometry, GeneratingMesh, CheckingMesh, OptimizingMesh, ReadingMesh,
-    AssemblingSystem, ApplyingConditions, SolvingSystem, ComputingResults, PreparingDisplay
+    AssemblingSystem, ApplyingConditions, SolvingSystem, ComputingResults, PreparingDisplay, ComputingTemperature
 };
 
 struct FemProgress {

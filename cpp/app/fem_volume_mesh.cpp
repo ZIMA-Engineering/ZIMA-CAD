@@ -39,8 +39,14 @@ public:
 }
 
 FemVolumeMesh generate_fem_volume_mesh(
-        const kernel::BodyResult& source,const document::FemDefinition& definition,
+        const kernel::BodyResult& source,const document::FemDefinition& authored_definition,
         const FemProgressCallback& progress) {
+    // Only the selected analysis binds regions. Inspection points sample the
+    // solution, while loads for another analysis must not partition its mesh.
+    auto definition=authored_definition;
+    std::erase_if(definition.conditions,[&](const auto& condition){
+        return !document::fem_condition_applies_to_analysis(condition.kind,definition.analysis);
+    });
     report_fem_progress(progress,FemProgressPhase::PreparingGeometry);
     static std::mutex mutex;
     const std::lock_guard lock(mutex);

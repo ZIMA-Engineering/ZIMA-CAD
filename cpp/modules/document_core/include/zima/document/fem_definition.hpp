@@ -7,7 +7,13 @@
 
 namespace zima::document {
 
-enum class FemAnalysisKind { LinearElasticStatic };
+enum class FemAnalysisKind { LinearElasticStatic, SteadyStateThermal };
+
+inline bool fem_condition_applies_to_analysis(FemConditionKind kind,FemAnalysisKind analysis) {
+    if(kind==FemConditionKind::MeasurementPoint)return false;
+    return analysis==FemAnalysisKind::SteadyStateThermal?
+        kind==FemConditionKind::HeatSource:kind!=FemConditionKind::HeatSource;
+}
 enum class FemElementOrder { Linear = 1, Quadratic = 2 };
 
 // All lengths use the native model's millimetres. These are explicit mesher
@@ -20,6 +26,13 @@ struct FemMeshControls {
     bool operator==(const FemMeshControls&) const = default;
 };
 
+struct FemThermalSettings {
+    double ambient_C{20};
+    // Explicit convection on the complete exterior, including loaded faces.
+    double convection_W_m2K{10};
+    bool operator==(const FemThermalSettings&) const = default;
+};
+
 // The source is an earlier material Body/Boolean in the same Part. Geometry,
 // material and CAD history belong to that source, never to this definition.
 struct FemDefinition {
@@ -27,6 +40,7 @@ struct FemDefinition {
     FemAnalysisKind analysis{FemAnalysisKind::LinearElasticStatic};
     FemMeshControls mesh;
     std::vector<FemCondition> conditions;
+    std::optional<FemThermalSettings> thermal;
     bool operator==(const FemDefinition&) const = default;
 };
 

@@ -1,3 +1,4 @@
+#include "../fem_condition_labels.hpp"
 #include "../boundary_surface_dialog.hpp"
 #include "../surface_sewing_dialog.hpp"
 #include "../surface_thicken_dialog.hpp"
@@ -843,7 +844,7 @@ void AssemblyWorkspaceWindow::add_part_tree_children(
                 const auto add_condition=[&](const auto& condition) {
                     auto* item=new QTreeWidgetItem(row,{QString::fromStdString(condition.name)});
                     item->setData(0,Qt::UserRole,QString::fromStdString(condition.id));item->setData(0,Qt::UserRole+3,"fem-condition");
-                    item->setIcon(0,resource_icon(condition.kind==document::FemConditionKind::Force?"fem-force":condition.kind==document::FemConditionKind::Pressure?"fem-pressure":"fem-constraint"));
+                    item->setIcon(0,resource_icon(fem_condition_icon(condition.kind)));
                     if(fem_condition_preview_&&condition.id==fem_condition_preview_->id)item->setBackground(0,QBrush(QColor("#00BDE8")));
                 };
                 for(const auto& condition:definition->fem->conditions)add_condition(condition);
