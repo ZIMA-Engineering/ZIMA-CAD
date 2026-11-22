@@ -47,5 +47,10 @@ progress during calculation and host activity was not isolated. No performance
 improvement or unchanged wall-clock cost is claimed here. Separate phase and
 solver profiling is the next verification step.
 
+That follow-up is recorded in
+[FEM result inspection and solver cost](20261122-fem-result-inspection.md).
+It isolates the solver on an identical recorded mesh and verifies exact result
+equality after reducing repeated element-product work.
+
 No factory assets or templates require conversion. Linux execution remains
 unverified on this Windows host.

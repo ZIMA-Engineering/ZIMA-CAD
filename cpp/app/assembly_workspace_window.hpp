@@ -50,6 +50,7 @@ class QTreeWidget;
 class QTreeWidgetItem;
 class QStackedWidget;
 class QSplitter;
+class QVariantAnimation;
 
 namespace zima::ui { class ContainerPlacementSection; class OperationActivity; class PropertiesSubWindow; }
 
@@ -455,6 +456,15 @@ private:
     FemResultQuantity fem_result_quantity_{FemResultQuantity::Displacement};
     void update_fem_result_presentation();
     void select_fem_result(FemResultQuantity);
+    void show_fem_deformation_settings();
+    void set_fem_animation(bool);
+    bool fem_animation_running() const;
+    void update_fem_deformation();
+    void update_fem_result_markers();
+    double fem_magnification_{1},fem_animation_speed_{1},fem_animation_fraction_{1};
+    bool fem_show_original_{},fem_show_extrema_{},fem_probe_enabled_{};
+    QVariantAnimation* fem_animation_{};
+    std::optional<std::pair<std::size_t,std::size_t>> fem_probe_selection_;
     std::string fem_inspected_condition_;
     void show_body_scale_properties(const std::string& id = {});
     bool accept_body_scale_tree_reference(QTreeWidgetItem* item);

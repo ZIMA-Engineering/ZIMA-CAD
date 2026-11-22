@@ -3009,5 +3009,21 @@
   "FEM: calculating displacement and stress…": "FEM: calculating displacement and stress…",
   "FEM: preparing result display…": "FEM: preparing result display…",
   "FEM inputs changed. Repeat the operation.": "FEM inputs changed. Repeat the operation.",
-  "FEM mesh generated.": "FEM mesh generated."
+  "FEM mesh generated.": "FEM mesh generated.",
+  "Deformation settings": "Deformation settings",
+  "Deformation magnification": "Deformation magnification",
+  "Fit magnification to model": "Fit magnification to model",
+  "Animation speed": "Animation speed",
+  "Animation interpolates the static result. Values and colors always show the calculated load case.": "Animation interpolates the static result. Values and colors always show the calculated load case.",
+  "Deformation ×%1 · static result": "Deformation ×%1 · static result",
+  "Play / pause deformation": "Play / pause deformation",
+  "Transparent original": "Transparent original",
+  "Show minimum / maximum": "Show minimum / maximum",
+  "Probe results": "Probe results",
+  "Click the displayed mesh to read the nearest surface node displacement or the owning element's average stress.": "Click the displayed mesh to read the nearest surface node displacement or the owning element's average stress.",
+  "Minimum:": "Minimum:",
+  "Maximum:": "Maximum:",
+  "Element average:": "Element average:",
+  "Mesh node:": "Mesh node:",
+  "Result displacements do not match the displayed mesh": "Result displacements do not match the displayed mesh"
 }

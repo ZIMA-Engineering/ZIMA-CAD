@@ -152,6 +152,16 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
         stress->setToolTip(tr("Volume-averaged stress in each element, without nodal smoothing."));
         displacement->setChecked(available&&show_fem_deformation_&&fem_result_quantity_==FemResultQuantity::Displacement);
         stress->setChecked(available&&show_fem_deformation_&&fem_result_quantity_==FemResultQuantity::VonMises);
+        if(!available||!show_fem_deformation_)set_fem_animation(false);
+        const auto result_action=[&](const char* name,const QString& label,bool checked) {
+            auto* action=fem_results_menu_->findChild<QAction*>(name);action->setText(label);action->setChecked(checked);return action;
+        };
+        result_action("femAnimateAction",tr("Play / pause deformation"),fem_animation_running());
+        result_action("femOriginalAction",tr("Transparent original"),fem_show_original_);
+        result_action("femExtremaAction",tr("Show minimum / maximum"),fem_show_extrema_);
+        result_action("femProbeAction",tr("Probe results"),fem_probe_enabled_)->setToolTip(
+            tr("Click the displayed mesh to read the nearest surface node displacement or the owning element's average stress."));
+        fem_results_menu_->findChild<QAction*>("femDeformationSettingsAction")->setText(tr("Deformation settings"));
     }
     if(fem_mesh_menu_) {
         fem_mesh_menu_->setTitle(tr("Mesh"));

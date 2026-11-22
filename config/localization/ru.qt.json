@@ -3009,5 +3009,21 @@
   "FEM: calculating displacement and stress…": "FEM: расчёт перемещений и напряжений…",
   "FEM: preparing result display…": "FEM: подготовка отображения результатов…",
   "FEM inputs changed. Repeat the operation.": "Исходные данные FEM изменились. Повторите операцию.",
-  "FEM mesh generated.": "Сетка FEM построена."
+  "FEM mesh generated.": "Сетка FEM построена.",
+  "Deformation settings": "Настройки деформации",
+  "Deformation magnification": "Увеличение деформации",
+  "Fit magnification to model": "Подобрать увеличение по модели",
+  "Animation speed": "Скорость анимации",
+  "Animation interpolates the static result. Values and colors always show the calculated load case.": "Анимация интерполирует статический результат. Значения и цвета всегда соответствуют рассчитанному случаю нагружения.",
+  "Deformation ×%1 · static result": "Деформация ×%1 · статический результат",
+  "Play / pause deformation": "Воспроизвести / приостановить деформацию",
+  "Transparent original": "Прозрачная исходная форма",
+  "Show minimum / maximum": "Показать минимум / максимум",
+  "Probe results": "Считывать результаты",
+  "Click the displayed mesh to read the nearest surface node displacement or the owning element's average stress.": "Щёлкните по отображаемой сетке, чтобы узнать перемещение ближайшего поверхностного узла или среднее напряжение соответствующего элемента.",
+  "Minimum:": "Минимум:",
+  "Maximum:": "Максимум:",
+  "Element average:": "Среднее по элементу:",
+  "Mesh node:": "Узел сетки:",
+  "Result displacements do not match the displayed mesh": "Перемещения результата не соответствуют отображаемой сетке"
 }

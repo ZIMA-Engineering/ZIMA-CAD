@@ -3009,5 +3009,21 @@
   "FEM: calculating displacement and stress…": "FEM: počítám posunutí a napětí…",
   "FEM: preparing result display…": "FEM: připravuji zobrazení výsledků…",
   "FEM inputs changed. Repeat the operation.": "Vstupy FEM se změnily. Opakuj operaci.",
-  "FEM mesh generated.": "Síť FEM byla vytvořena."
+  "FEM mesh generated.": "Síť FEM byla vytvořena.",
+  "Deformation settings": "Nastavení deformace",
+  "Deformation magnification": "Zvětšení deformace",
+  "Fit magnification to model": "Přizpůsobit zvětšení modelu",
+  "Animation speed": "Rychlost animace",
+  "Animation interpolates the static result. Values and colors always show the calculated load case.": "Animace interpoluje statický výsledek. Hodnoty a barvy vždy odpovídají vypočtenému zatížení.",
+  "Deformation ×%1 · static result": "Deformace ×%1 · statický výsledek",
+  "Play / pause deformation": "Přehrát / pozastavit deformaci",
+  "Transparent original": "Průhledný původní tvar",
+  "Show minimum / maximum": "Zobrazit minimum / maximum",
+  "Probe results": "Odečítat výsledky",
+  "Click the displayed mesh to read the nearest surface node displacement or the owning element's average stress.": "Kliknutím na zobrazenou síť odečtete posunutí nejbližšího povrchového uzlu nebo průměrné napětí příslušného prvku.",
+  "Minimum:": "Minimum:",
+  "Maximum:": "Maximum:",
+  "Element average:": "Průměr prvku:",
+  "Mesh node:": "Uzel sítě:",
+  "Result displacements do not match the displayed mesh": "Posunutí výsledku neodpovídají zobrazené síti"
 }

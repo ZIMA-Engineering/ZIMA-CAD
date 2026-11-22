@@ -333,8 +333,20 @@ int main(int argc,char** argv){try{
                 }
                 if(p.phase==app::FemProgressPhase::SolvingSystem)iterations=p.completed;
             };
-            const auto mesh=app::generate_fem_volume_mesh(source.get(),*body.fem,profile);
+            auto mesh=app::generate_fem_volume_mesh(source.get(),*body.fem,profile);
             std::cout<<"Mesh time: "<<std::chrono::duration<double>(Clock::now()-start).count()<<" s"<<std::endl;
+            if(argc>4) {
+                // Isolate solver timings from the high-order mesher's small
+                // run-to-run coordinate changes. Replay a previously verified
+                // diagnostic mesh only when connectivity is exactly equal.
+                std::ifstream input(argv[4]);nlohmann::json recorded;input>>recorded;
+                check(recorded.at("tetrahedra")==nlohmann::json(mesh.tetrahedra)&&
+                    recorded.at("order")==int(mesh.order)&&recorded.at("vertices").size()==mesh.surface.vertices.size(),
+                    "Diagnostic replay connectivity differs from the generated mesh");
+                for(std::size_t i=0;i<mesh.surface.vertices.size();++i) {
+                    const auto& p=recorded.at("vertices").at(i);mesh.surface.vertices[i]={p.at(0),p.at(1),p.at(2)};
+                }
+            }
             std::cout<<"Native FEM: order="<<int(mesh.order)<<" nodes="<<mesh.surface.vertices.size()
                 <<" tetrahedra="<<mesh.tetrahedra.size()<<" E="<<young<<" nu="<<poisson<<std::endl;
             if(argc>2){
@@ -357,6 +369,16 @@ int main(int argc,char** argv){try{
             Vec3 reaction{};for(const auto r:solution.reaction)reaction=add(reaction,r);
             std::cout<<"Native FEM maximum displacement="<<solution.maximum_displacement_mm<<" mm; reaction="
                 <<reaction.x<<','<<reaction.y<<','<<reaction.z<<" N\n";
+            if(argc>2) {
+                nlohmann::json result{{"stress",solution.element_von_mises_MPa}};
+                for(const auto& [name,values]:std::initializer_list<std::pair<const char*,const std::vector<Vec3>*>>{
+                        {"displacement",&solution.displacement},{"reaction",&solution.reaction}}) {
+                    result[name]=nlohmann::json::array();
+                    for(const auto p:*values)result[name].push_back({p.x,p.y,p.z});
+                }
+                std::ofstream output(std::string(argv[2])+".result.json");output<<result.dump();
+                check(bool(output),"Result diagnostic write failed");
+            }
         }
     }else{single_element();stress_fields();generated_regions();curved_regions();}
     return 0;

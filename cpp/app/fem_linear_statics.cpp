@@ -337,20 +337,35 @@ FemStaticResult solve_fem_linear_statics(const FemVolumeMesh& mesh,
             if(condition.restrained[d])fixed.at(3*node+d)=true;
     }
     check_restraints(mesh,fixed,count);
-    const auto stiffness=[&](const std::vector<double>& input,std::vector<double>& output){
-        std::ranges::fill(output,0);
-        for(const auto& element:elements)for(unsigned q=0;q<samples;++q){
-            const auto& point=element.points[q];
-            std::array<Vector,3> gradient{};
-            for(unsigned i=0;i<count;++i)for(unsigned d=0;d<3;++d)for(unsigned k=0;k<3;++k)
-                gradient[d][k]+=input[3*element.nodes[i]+d]*point.gradients[i][k];
-            const double volumetric=lambda*(gradient[0][0]+gradient[1][1]+gradient[2][2]);
-            for(unsigned i=0;i<count;++i)for(unsigned d=0;d<3;++d){
-                double traction=volumetric*point.gradients[i][d];
-                for(unsigned k=0;k<3;++k)traction+=shear*(gradient[d][k]+gradient[k][d])*point.gradients[i][k];
-                output[3*element.nodes[i]+d]+=point.weight*traction;
+    const auto element_products=[&]<unsigned Count,unsigned Samples>(const std::vector<double>& input,std::vector<double>& output){
+        for(const auto& element:elements) {
+            std::array<Vector,Count> values;
+            for(unsigned i=0;i<Count;++i)for(unsigned d=0;d<3;++d)
+                values[i][d]=input[3*element.nodes[i]+d];
+            for(unsigned q=0;q<Samples;++q){
+                const auto& point=element.points[q];
+                std::array<Vector,3> gradient{};
+                for(unsigned i=0;i<Count;++i)for(unsigned d=0;d<3;++d)for(unsigned k=0;k<3;++k)
+                    gradient[d][k]+=values[i][d]*point.gradients[i][k];
+                const double volumetric=lambda*(gradient[0][0]+gradient[1][1]+gradient[2][2]);
+                std::array<Vector,3> shear_stress;
+                for(unsigned d=0;d<3;++d)for(unsigned k=0;k<3;++k)
+                    shear_stress[d][k]=shear*(gradient[d][k]+gradient[k][d]);
+                for(unsigned i=0;i<Count;++i)for(unsigned d=0;d<3;++d){
+                    double traction=volumetric*point.gradients[i][d];
+                    for(unsigned k=0;k<3;++k)traction+=shear_stress[d][k]*point.gradients[i][k];
+                    output[3*element.nodes[i]+d]+=point.weight*traction;
+                }
             }
         }
+    };
+    const auto stiffness=[&](const std::vector<double>& input,std::vector<double>& output){
+        std::ranges::fill(output,0);
+        // Specialize only the fixed element cardinalities. Gather each input
+        // node once and reuse the same strain tensor for every test function;
+        // integration and floating-point accumulation order stay unchanged.
+        if(quadratic)element_products.template operator()<10,4>(input,output);
+        else element_products.template operator()<4,1>(input,output);
     };
     std::vector<double> displacement(size),residual=load,direction(size),product(size);
     double rho=0;

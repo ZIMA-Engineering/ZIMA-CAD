@@ -354,6 +354,18 @@ public:
     // Empty values clear it. Publishing a different scene also clears it.
     void set_triangle_scalar_field(std::vector<double> values,QString label={},double minimum=0,double maximum=0);
     [[nodiscard]] const std::vector<double>& triangle_scalar_field() const;
+    // Analysis-only deformation of the already solved mesh (base positions
+    // include one displacement). Animation updates a uniform, never the mesh.
+    struct ResultMarker { kernel::Vec3 position,displacement; QString label; };
+    struct ResultHit { std::size_t triangle{},node{}; kernel::Vec3 position; };
+    void set_result_displacements(std::vector<kernel::Vec3>);
+    void set_result_deformation(double factor,bool original);
+    [[nodiscard]] double result_deformation_factor() const;
+    [[nodiscard]] std::optional<ResultHit> result_hit_at(const QPointF&) const;
+    void set_result_probe(std::function<void(const ResultHit&)>);
+    void set_result_markers(std::vector<ResultMarker>);
+    [[nodiscard]] const std::vector<ResultMarker>& result_markers() const;
+    void set_result_caption(QString);
     [[nodiscard]] std::optional<ViewerCandidate> confirmed_candidate() const;
     [[nodiscard]] std::optional<ViewerCandidate> hovered_candidate() const;
     // Candidate selected from the current ordered offer list, even while an

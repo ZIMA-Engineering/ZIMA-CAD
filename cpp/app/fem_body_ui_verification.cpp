@@ -33,6 +33,8 @@
 #include <QDir>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QVariantAnimation>
+#include <QElapsedTimer>
 #include <iostream>
 #ifdef ZIMA_ENABLE_FEM_MESHER
 #include "fem_linear_statics.hpp"
@@ -108,9 +110,77 @@ int verify_fem_body(QApplication& application,AssemblyWorkspaceWindow& window,co
                 std::cout<<"FEM native document GUI solve: "<<window.state_->text().toStdString()
                          <<"; unchanged revision and CAD calculation count; captured "<<screenshot.string()<<std::endl;
             }
+            window.show_fem_deformation_settings();flush();
+            auto* presentation=window.findChild<QDialog*>("femDeformationSettingsDialog");
+            presentation->findChild<QPushButton*>("femAutomaticMagnification")->click();
+            presentation->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+            window.findChild<QAction*>("femOriginalAction")->trigger();
+            window.findChild<QAction*>("femExtremaAction")->trigger();flush();
+            window.viewer_->grabFramebuffer();
+            const auto uploads=window.viewer_->property("gpuMeshUploadCount"),vectors=window.viewer_->property("resultVectorUploadCount");
+            std::vector<double> frame_ms;
+            for(unsigned frame=0;frame<40;++frame) {
+                window.fem_animation_fraction_=frame/39.;window.update_fem_deformation();
+                QElapsedTimer elapsed;elapsed.start();window.viewer_->grabFramebuffer();frame_ms.push_back(elapsed.nsecsElapsed()/1e6);
+            }
+            std::ranges::sort(frame_ms);
+            std::cout<<"FEM magnified result frames (including framebuffer readback): median="<<frame_ms[20]
+                <<" ms; maximum="<<frame_ms.back()<<" ms; magnification="<<window.fem_magnification_<<std::endl;
+            check(window.viewer_->property("gpuMeshUploadCount")==uploads&&window.viewer_->property("resultVectorUploadCount")==vectors&&
+                session.revision()==revision&&kernel::body_calculation_count.load()==calculations,"Real FEM animation repeated geometry work");
+            check(window.grab().save(QString::fromStdString(document::path_to_utf8(directory/"fem-magnified-original.png"))),
+                "FEM comparison screenshot failed");
             return 0;
         }
 #endif
+        // Independent geometry oracle for the animated picker: a triangle
+        // translates along X by exactly 10 mm per magnification unit.
+        {
+            viewer::MeshView probe_view;probe_view.resize(600,400);probe_view.show();
+            probe_view.set_standard_view(viewer::StandardView::Top);
+            QEventLoop settled;QTimer::singleShot(350,&settled,&QEventLoop::quit);settled.exec();
+            for(bool reversed:{false,true})for(auto projection:{viewer::ProjectionMode::Orthographic,viewer::ProjectionMode::Perspective}) {
+                kernel::ViewerMesh triangle;triangle.vertices={{10,0,0},{13,0,0},{10,3,0}};
+                triangle.triangles=reversed?std::vector<std::uint32_t>{0,2,1}:std::vector<std::uint32_t>{0,1,2};
+                probe_view.set_mesh(triangle);probe_view.set_projection_mode(projection);
+                probe_view.fit_points({{0,-3,0},{24,6,0}});
+                probe_view.set_triangle_scalar_field({1},"Test",0,1);
+                probe_view.set_result_displacements({{10,0,0},{10,0,0},{10,0,0}});
+                std::optional<viewer::MeshView::ResultHit> clicked;
+                probe_view.set_result_probe([&](const auto& hit){clicked=hit;});
+                probe_view.grabFramebuffer();const auto uploads=probe_view.property("gpuMeshUploadCount");
+                const auto vectors=probe_view.property("resultVectorUploadCount");
+                for(double factor:{0.,1.,2.,.5}) {
+                    probe_view.set_result_deformation(factor,true);flush();probe_view.grabFramebuffer();
+                    QPointF pixel;std::optional<viewer::MeshView::ResultHit> hit;
+                    for(int y=30;y<probe_view.height()-25&&!hit;y+=4)for(int x=20;x<probe_view.width()-20&&!hit;x+=4) {
+                        pixel={double(x),double(y)};hit=probe_view.result_hit_at(pixel);
+                    }
+                    if(!hit) {
+                        probe_view.grabFramebuffer().save(QString::fromStdString(document::path_to_utf8(directory/"probe-failure.png")));
+                        const auto ray=probe_view.ray_at({300,200});
+                        std::cerr<<"Probe failure: reversed="<<reversed<<" projection="<<int(projection)<<" factor="<<factor;
+                        if(ray)std::cerr<<" ray="<<ray->first.x<<','<<ray->first.y<<','<<ray->first.z<<" direction="<<ray->second.x<<','<<ray->second.y<<','<<ray->second.z;
+                        std::cerr<<std::endl;
+                    }
+                    check(hit.has_value(),"Animated triangle is not pickable");
+                    const auto p=hit->position;
+                    check(std::abs(p.z)<1e-5&&p.x>=10*factor-1e-5&&p.y>=-1e-5&&p.x-10*factor+p.y<=3+1e-5,
+                        "Animated picker does not intersect the displayed triangle");
+                    check(probe_view.selection_candidates_at(pixel).empty(),"Animation offered stale CAD candidates");
+                    QMouseEvent click(QEvent::MouseButtonPress,pixel,probe_view.mapToGlobal(pixel.toPoint()),Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);
+                    QApplication::sendEvent(&probe_view,&click);
+                    check(clicked&&clicked->node==hit->node,"Animated mouse click lost the picked node");
+                    probe_view.set_result_deformation(factor<1?2:0,true);
+                    check(!probe_view.result_hit_at(pixel),"Transparent original or old position is pickable");
+                    check(probe_view.property("gpuMeshUploadCount")==uploads&&probe_view.property("resultVectorUploadCount")==vectors&&
+                        probe_view.mesh().vertices==triangle.vertices,"Deformation rebuilt the mesh");
+                }
+                probe_view.set_mesh(triangle);
+                check(!probe_view.result_hit_at({300,200})&&probe_view.result_markers().empty(),"Scene change retained result picking");
+            }
+            probe_view.hide();
+        }
         auto part=document::PartDocument::create_default();
         const auto first=test::rectangular_feature(part,{20,10,5}),second=test::rectangular_feature(part,{10,6,3});part.history={first,second};
         document::BodyHistoryGraph graph;const auto a=graph.create_body("Stock A");graph.insert({document::PartHistoryKind::Feature,first.id});
@@ -489,6 +559,12 @@ int verify_fem_body(QApplication& application,AssemblyWorkspaceWindow& window,co
                 window.findChild<QAction*>("femDisplacementResultAction")->text()==settings.qt_translations.value("Displacement [mm]")&&
                 window.findChild<QAction*>("femStressResultAction")->text()==settings.qt_translations.value("Von Mises stress [MPa]"),
                 "FEM result choices did not translate");
+            for(const auto& entry:std::vector<std::pair<const char*,const char*>>{
+                    {"femAnimateAction","Play / pause deformation"},{"femOriginalAction","Transparent original"},
+                    {"femExtremaAction","Show minimum / maximum"},{"femProbeAction","Probe results"},
+                    {"femDeformationSettingsAction","Deformation settings"}})
+                check(window.findChild<QAction*>(entry.first)->text()==settings.qt_translations.value(entry.second),
+                    "FEM presentation action did not translate");
             for(const auto* key:{"FEM: preparing geometry…","FEM: generating the volume mesh…",
                     "FEM: checking mesh quality…","FEM: optimizing the quadratic mesh…","FEM: preparing mesh data…",
                     "FEM: assembling the system…","FEM: applying loads and restraints…",
@@ -678,7 +754,94 @@ int verify_fem_body(QApplication& application,AssemblyWorkspaceWindow& window,co
                     "Result switching rebuilt geometry or moved the camera");
                 check(beam_session->revision()==beam_revision,"Result switching changed the document");
             }
-            deformation->trigger();flush();
+            // Result presentation owns no model transaction or per-frame upload.
+            auto* animate=window.findChild<QAction*>("femAnimateAction");
+            auto* original=window.findChild<QAction*>("femOriginalAction");
+            auto* extrema=window.findChild<QAction*>("femExtremaAction");
+            auto* probe=window.findChild<QAction*>("femProbeAction");
+            auto* settings_action=window.findChild<QAction*>("femDeformationSettingsAction");
+            for(const auto* language:{"cs","en","de","fr","ru"}) {
+                QFile file(config.filePath(QStringLiteral("localization/%1.qt.json").arg(language)));
+                check(file.open(QIODevice::ReadOnly),"Result catalog unavailable");
+                ApplicationSettings localized;localized.language=language;
+                const auto messages=QJsonDocument::fromJson(file.readAll()).object();
+                for(auto it=messages.begin();it!=messages.end();++it)localized.qt_translations[it.key()]=it.value().toString();
+                apply_application_translations(application,localized);window.update_fem_result_presentation();
+                for(const auto* theme:{"dark","light"}) {
+                    localized.theme=theme;apply_application_appearance(application,localized);
+                    settings_action->trigger();flush();
+                    auto* form=window.findChild<QDialog*>("femDeformationSettingsDialog");
+                    check(form,"Localized deformation settings are missing");
+                    for(const auto* key:{"Deformation magnification","Animation speed",
+                            "Animation interpolates the static result. Values and colors always show the calculated load case."})
+                        check(std::ranges::any_of(form->findChildren<QLabel*>(),[&](const auto* label){return label->text()==localized.qt_translations.value(key);}),
+                            "Deformation settings contain untranslated text");
+                    window.grab().save(QString::fromStdString(document::path_to_utf8(directory/(std::string("fem-deformation-")+language+"-"+theme+".png"))));
+                    form->reject();flush();
+                }
+            }
+            apply_application_translations(application,ApplicationSettings{});
+            window.update_fem_result_presentation();window.rebuild_application_toolbar();
+            settings_action->trigger();flush();
+            auto* settings=window.findChild<QDialog*>("femDeformationSettingsDialog");
+            check(settings&&settings->parentWidget()==&window&&(settings->windowFlags()&Qt::WindowType_Mask)==Qt::SubWindow,
+                "Deformation settings do not use the shared properties window");
+            settings->findChild<QDoubleSpinBox*>("femMagnification")->setValue(20);
+            settings->reject();flush();
+            check(window.fem_magnification_==1&&view->camera_state()==camera,"Cancel changed deformation settings");
+            settings_action->trigger();flush();settings=window.findChild<QDialog*>("femDeformationSettingsDialog");
+            settings->findChild<QPushButton*>("femAutomaticMagnification")->click();
+            const double magnification=settings->findChild<QDoubleSpinBox*>("femMagnification")->value();
+            check(magnification>1,"Automatic magnification did not reveal bending");
+            settings->findChild<QDoubleSpinBox*>("femAnimationSpeed")->setValue(2);
+            mouse(QEvent::MouseButtonPress,Qt::MiddleButton);mouse(QEvent::MouseButtonRelease,Qt::NoButton);
+            check(window.properties_dialog_==settings,"Short middle click committed deformation settings");
+            mouse(QEvent::MouseButtonDblClick,Qt::MiddleButton);flush();
+            check(window.fem_magnification_==magnification&&window.fem_animation_speed_==2&&
+                view->result_deformation_factor()==magnification,"Deformation settings did not commit presentation");
+            const auto enlarged=view->grabFramebuffer();
+            original->trigger();flush();const auto ghost=view->grabFramebuffer();
+            check(ghost!=enlarged,"Transparent original did not affect rendering");
+            extrema->trigger();flush();
+            check(view->result_markers().size()==2,"Minimum and maximum markers are missing");
+            probe->trigger();flush();
+            QPointF probe_pixel;std::optional<viewer::MeshView::ResultHit> hit;
+            for(int y=50;y<view->height()-60&&!hit;y+=12)for(int x=40;x<view->width()-220&&!hit;x+=12) {
+                probe_pixel={double(x),double(y)};hit=view->result_hit_at(probe_pixel);
+            }
+            check(hit.has_value(),"Magnified mesh cannot be probed");
+            QMouseEvent probe_click(QEvent::MouseButtonPress,probe_pixel,view->mapToGlobal(probe_pixel.toPoint()),Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);
+            QApplication::sendEvent(view,&probe_click);flush();
+            check(view->result_markers().size()==3&&window.state_->text().startsWith(QObject::tr("Mesh node:")),
+                "Actual result click did not report the nearest mesh node");
+            const auto sampled=view->result_markers().back();
+            check(sampled.position==deformed->vertices.at(hit->node),"Probe marker has the wrong node identity");
+            stress_action->trigger();flush();
+            check(view->result_markers().size()==3&&view->result_markers().back().label.startsWith(QObject::tr("Element average:")),
+                "Stress probe did not retain owning-element semantics");
+            displacement_action->trigger();flush();
+            view->grabFramebuffer();const auto vector_upload=view->property("resultVectorUploadCount");
+            const auto field_upload=view->property("scalarFieldUploadCount");
+            const auto animation_calculations=kernel::body_calculation_count.load();
+            animate->trigger();flush();
+            check(window.fem_animation_running(),"Animation did not start");
+            window.fem_animation_->setCurrentTime(375);flush();const auto animated=view->grabFramebuffer();
+            check(std::abs(view->result_deformation_factor()-magnification*.5)<magnification*.1,
+                "Animation factor does not interpolate the static result");
+            animate->trigger();flush();const auto paused=view->result_deformation_factor();
+            QEventLoop pause_wait;QTimer::singleShot(120,&pause_wait,&QEventLoop::quit);pause_wait.exec();
+            check(!window.fem_animation_running()&&view->result_deformation_factor()==paused,"Animation pause did not hold the frame");
+            check(animated!=ghost&&view->property("gpuMeshUploadCount")==upload&&
+                view->property("resultVectorUploadCount")==vector_upload&&view->property("scalarFieldUploadCount")==field_upload&&
+                view->mesh().vertices==mesh_vertices&&view->triangle_scalar_field()==colors&&
+                beam_session->revision()==beam_revision&&kernel::body_calculation_count.load()==animation_calculations,
+                "Animation changed results, uploaded geometry, solved CAD or edited the document");
+            window.grab().save(QString::fromStdString(document::path_to_utf8(directory/"fem-animation-comparison.png")));
+            animate->trigger();flush();deformation->trigger();flush();
+            check(!window.fem_animation_running()&&view->result_markers().empty(),"Hiding results retained animation or markers");
+            window.fem_magnification_=1;window.fem_animation_fraction_=1;
+            window.fem_show_original_=window.fem_show_extrema_=window.fem_probe_enabled_=false;
+            window.fem_probe_selection_.reset();window.fem_animation_->stop();
             check(!deformation->isChecked()&&window.viewer_->mesh().vertices==window.active_generated_fem_mesh()->vertices,
                 "Turning off deformation did not restore the undeformed mesh");
             check(view->triangle_scalar_field().empty(),"Turning off results left a stale color field");

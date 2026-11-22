@@ -460,6 +460,21 @@ void AssemblyWorkspaceWindow::create_actions() {
     auto* stress=fem_results_menu_->addAction(tr("Von Mises stress [MPa]"),this,[this]{select_fem_result(FemResultQuantity::VonMises);});
     stress->setObjectName("femStressResultAction");
     for(auto* action:{displacement,stress}){action->setCheckable(true);results_group->addAction(action);}
+    fem_results_menu_->addSeparator();
+    auto* animation=fem_results_menu_->addAction(tr("Play / pause deformation"));
+    animation->setObjectName("femAnimateAction");animation->setCheckable(true);
+    connect(animation,&QAction::triggered,this,[this](bool run){set_fem_animation(run);rebuild_application_toolbar();});
+    fem_results_menu_->addAction(tr("Deformation settings"),this,[this]{show_fem_deformation_settings();})
+        ->setObjectName("femDeformationSettingsAction");
+    auto* original=fem_results_menu_->addAction(tr("Transparent original"));
+    original->setObjectName("femOriginalAction");original->setCheckable(true);
+    connect(original,&QAction::triggered,this,[this](bool show){fem_show_original_=show;select_fem_result(fem_result_quantity_);});
+    auto* extrema=fem_results_menu_->addAction(tr("Show minimum / maximum"));
+    extrema->setObjectName("femExtremaAction");extrema->setCheckable(true);
+    connect(extrema,&QAction::triggered,this,[this](bool show){fem_show_extrema_=show;select_fem_result(fem_result_quantity_);});
+    auto* probe=fem_results_menu_->addAction(tr("Probe results"));
+    probe->setObjectName("femProbeAction");probe->setCheckable(true);
+    connect(probe,&QAction::triggered,this,[this](bool show){fem_probe_enabled_=show;select_fem_result(fem_result_quantity_);});
 #endif
     auto* window_menu = menuBar()->addMenu(t("menu.window", "Okno"));
     window_menu->setObjectName("windowMenu");

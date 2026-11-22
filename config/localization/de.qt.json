@@ -3009,5 +3009,21 @@
   "FEM: calculating displacement and stress…": "FEM: Verschiebungen und Spannungen werden berechnet…",
   "FEM: preparing result display…": "FEM: Ergebnisanzeige wird vorbereitet…",
   "FEM inputs changed. Repeat the operation.": "Die FEM-Eingaben wurden geändert. Wiederholen Sie den Vorgang.",
-  "FEM mesh generated.": "FEM-Netz wurde erzeugt."
+  "FEM mesh generated.": "FEM-Netz wurde erzeugt.",
+  "Deformation settings": "Verformungseinstellungen",
+  "Deformation magnification": "Verformungsvergrößerung",
+  "Fit magnification to model": "Vergrößerung an Modell anpassen",
+  "Animation speed": "Animationsgeschwindigkeit",
+  "Animation interpolates the static result. Values and colors always show the calculated load case.": "Die Animation interpoliert das statische Ergebnis. Werte und Farben zeigen immer den berechneten Lastfall.",
+  "Deformation ×%1 · static result": "Verformung ×%1 · statisches Ergebnis",
+  "Play / pause deformation": "Verformung abspielen / pausieren",
+  "Transparent original": "Transparentes Original",
+  "Show minimum / maximum": "Minimum / Maximum anzeigen",
+  "Probe results": "Ergebnisse abfragen",
+  "Click the displayed mesh to read the nearest surface node displacement or the owning element's average stress.": "Klicken Sie auf das angezeigte Netz, um die Verschiebung des nächsten Oberflächenknotens oder die mittlere Spannung des zugehörigen Elements abzulesen.",
+  "Minimum:": "Minimum:",
+  "Maximum:": "Maximum:",
+  "Element average:": "Elementmittelwert:",
+  "Mesh node:": "Netzknoten:",
+  "Result displacements do not match the displayed mesh": "Die Ergebnisverschiebungen stimmen nicht mit dem angezeigten Netz überein"
 }

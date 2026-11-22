@@ -3009,5 +3009,21 @@
   "FEM: calculating displacement and stress…": "FEM : calcul des déplacements et des contraintes…",
   "FEM: preparing result display…": "FEM : préparation de l’affichage des résultats…",
   "FEM inputs changed. Repeat the operation.": "Les données d’entrée FEM ont changé. Répétez l’opération.",
-  "FEM mesh generated.": "Le maillage FEM a été généré."
+  "FEM mesh generated.": "Le maillage FEM a été généré.",
+  "Deformation settings": "Paramètres de déformation",
+  "Deformation magnification": "Amplification de la déformation",
+  "Fit magnification to model": "Adapter l’amplification au modèle",
+  "Animation speed": "Vitesse de l’animation",
+  "Animation interpolates the static result. Values and colors always show the calculated load case.": "L’animation interpole le résultat statique. Les valeurs et les couleurs représentent toujours le cas de charge calculé.",
+  "Deformation ×%1 · static result": "Déformation ×%1 · résultat statique",
+  "Play / pause deformation": "Lire / mettre en pause la déformation",
+  "Transparent original": "Forme initiale transparente",
+  "Show minimum / maximum": "Afficher le minimum / maximum",
+  "Probe results": "Sonder les résultats",
+  "Click the displayed mesh to read the nearest surface node displacement or the owning element's average stress.": "Cliquez sur le maillage affiché pour lire le déplacement du nœud de surface le plus proche ou la contrainte moyenne de l’élément correspondant.",
+  "Minimum:": "Minimum :",
+  "Maximum:": "Maximum :",
+  "Element average:": "Moyenne de l’élément :",
+  "Mesh node:": "Nœud du maillage :",
+  "Result displacements do not match the displayed mesh": "Les déplacements du résultat ne correspondent pas au maillage affiché"
 }

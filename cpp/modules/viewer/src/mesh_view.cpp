@@ -246,6 +246,15 @@ struct MeshView::Impl {
     QString scalar_label;
     double scalar_minimum{},scalar_maximum{};
     bool scalar_colors_dirty{};
+    std::vector<kernel::Vec3> result_displacements;
+    kernel::ModelEnvelope result_base_bounds,result_vector_bounds,result_display_bounds;
+    std::vector<MeshView::ResultMarker> result_markers;
+    QString result_caption;
+    std::function<void(const MeshView::ResultHit&)> result_probe;
+    double result_factor{1};
+    bool result_original{},result_dirty{};
+    QOpenGLBuffer result_vectors{QOpenGLBuffer::VertexBuffer};
+    QOpenGLBuffer result_wire{QOpenGLBuffer::IndexBuffer};
     QOpenGLBuffer lines{QOpenGLBuffer::VertexBuffer};
     QOpenGLBuffer selected_source_lines{QOpenGLBuffer::VertexBuffer};
     using SourceWireKey=std::tuple<std::string,std::string,std::size_t>;
@@ -984,9 +993,9 @@ struct MeshView::Impl {
         // Use the current persisted viewer envelope, with no kernel work.
         float closest_depth = std::numeric_limits<float>::max();
         float furthest_depth = std::numeric_limits<float>::lowest();
-        if (dimension_bounds.valid) {
+        for(const auto* bounds:{&dimension_bounds,&result_display_bounds})if (bounds->valid) {
             const auto camera = view();
-            for (const auto& point : dimension_bounds.corners()) {
+            for (const auto& point : bounds->corners()) {
                 const float depth = -camera.map(QVector3D(
                     static_cast<float>(point.x), static_cast<float>(point.y),
                     static_cast<float>(point.z))).z();
@@ -1050,6 +1059,7 @@ MeshView::~MeshView() {
         impl_->vertices.destroy();
         impl_->transparent_triangles.destroy();
         impl_->scalar_colors.destroy();
+        impl_->result_vectors.destroy();impl_->result_wire.destroy();
         impl_->lines.destroy();
         impl_->selected_source_lines.destroy();
         impl_->silhouette.destroy();
@@ -1073,6 +1083,7 @@ void MeshView::update_annotation_presentation() const {
 
 void MeshView::set_mesh(zima::kernel::ViewerMesh mesh, bool fit_view) {
     set_triangle_scalar_field({});
+    set_result_displacements({});
     QElapsedTimer timer;timer.start();
     const auto phase=[&](const char* name) {
         if(qEnvironmentVariableIsSet("ZIMA_CPP_PROFILE_COMMAND"))std::fprintf(stderr,"Viewer mesh %s: %.3f ms\n",name,timer.nsecsElapsed()/1e6);
@@ -1561,6 +1572,9 @@ std::optional<ViewerCandidate> MeshView::offered_candidate() const {
 
 std::vector<ViewerCandidate> MeshView::selection_candidates_at(
     const QPointF& position) const {
+    // Explicit probing owns the displayed result geometry. Outside probing,
+    // stationary load/restraint annotations retain their ordinary selection.
+    if(!impl_->result_displacements.empty()&&impl_->result_probe)return {};
     update_annotation_presentation();
     // Interactive endpoint numbers own their visible text bounds.  Keep the
     // public candidate query consistent with mouse handling so callers never
@@ -3037,6 +3051,73 @@ void MeshView::set_triangle_scalar_field(std::vector<double> values,QString labe
     impl_->scalar_minimum=minimum;impl_->scalar_maximum=maximum;impl_->scalar_colors_dirty=true;update();
 }
 
+void MeshView::set_result_displacements(std::vector<kernel::Vec3> values) {
+    if(!values.empty()&&values.size()!=impl_->mesh.vertices.size())
+        throw std::invalid_argument("Result displacements do not match the displayed mesh");
+    if(impl_->result_displacements==values)return;
+    impl_->result_displacements=std::move(values);impl_->result_dirty=true;
+    impl_->result_base_bounds={};impl_->result_vector_bounds={};impl_->result_display_bounds={};
+    if(!impl_->result_displacements.empty())for(std::size_t i=0;i<impl_->result_displacements.size();++i) {
+        impl_->result_base_bounds.include(impl_->mesh.vertices[i]);
+        impl_->result_vector_bounds.include(impl_->result_displacements[i]);
+    }
+    impl_->result_markers.clear();impl_->result_caption.clear();impl_->result_probe={};
+    impl_->result_factor=1;impl_->result_original=false;
+    impl_->candidates.clear();impl_->confirmed_candidate.reset();update();
+}
+void MeshView::set_result_deformation(double factor,bool original) {
+    if(!std::isfinite(factor)||factor<0)return;
+    impl_->result_factor=factor;impl_->result_original=original;
+    impl_->result_display_bounds={};
+    if(impl_->result_base_bounds.valid) {
+        const auto extend=[&](double offset) {
+            const auto low=offset>=0?impl_->result_vector_bounds.minimum:impl_->result_vector_bounds.maximum;
+            const auto high=offset>=0?impl_->result_vector_bounds.maximum:impl_->result_vector_bounds.minimum;
+            impl_->result_display_bounds.include(kernel::dimension_add(impl_->result_base_bounds.minimum,kernel::dimension_scale(low,offset)));
+            impl_->result_display_bounds.include(kernel::dimension_add(impl_->result_base_bounds.maximum,kernel::dimension_scale(high,offset)));
+        };
+        extend(factor-1);if(original)extend(-1);
+    }
+    update();
+}
+double MeshView::result_deformation_factor()const {return impl_->result_factor;}
+void MeshView::set_result_probe(std::function<void(const ResultHit&)> callback){
+    if(callback&&!impl_->result_probe){impl_->candidates.clear();impl_->confirmed_candidate.reset();}
+    impl_->result_probe=std::move(callback);
+}
+void MeshView::set_result_markers(std::vector<ResultMarker> markers){impl_->result_markers=std::move(markers);update();}
+const std::vector<MeshView::ResultMarker>& MeshView::result_markers()const{return impl_->result_markers;}
+void MeshView::set_result_caption(QString text){impl_->result_caption=std::move(text);update();}
+std::optional<MeshView::ResultHit> MeshView::result_hit_at(const QPointF& pixel)const {
+    const auto ray=ray_at(pixel);
+    if(!ray||impl_->result_displacements.empty())return {};
+    double closest=std::numeric_limits<double>::infinity();std::optional<ResultHit> hit;
+    const auto length=[](kernel::Vec3 p){return std::hypot(p.x,p.y,p.z);};
+    const auto point=[&](std::size_t node){return kernel::dimension_add(impl_->mesh.vertices[node],
+        kernel::dimension_scale(impl_->result_displacements[node],impl_->result_factor-1));};
+    for(std::size_t t=0;t<impl_->mesh.triangles.size()/3;++t) {
+        const auto a=point(impl_->mesh.triangles[t*3]),b=point(impl_->mesh.triangles[t*3+1]),c=point(impl_->mesh.triangles[t*3+2]);
+        const auto e1=kernel::dimension_sub(b,a),e2=kernel::dimension_sub(c,a);
+        const auto p=kernel::dimension_cross(ray->second,e2);
+        const double det=kernel::dimension_dot(e1,p);
+        if(std::abs(det)<=1e-14*length(e1)*length(e2))continue;
+        const auto offset=kernel::dimension_sub(ray->first,a);const auto q=kernel::dimension_cross(offset,e1);
+        const double u=kernel::dimension_dot(offset,p)/det,v=kernel::dimension_dot(ray->second,q)/det;
+        const double distance=kernel::dimension_dot(e2,q)/det;
+        if(u<0||v<0||u+v>1||distance<0||distance>=closest)continue;
+        closest=distance;
+        const auto location=kernel::dimension_add(ray->first,kernel::dimension_scale(ray->second,distance));
+        std::size_t node=impl_->mesh.triangles[t*3];double nearest=std::numeric_limits<double>::infinity();
+        for(unsigned i=0;i<3;++i) {
+            const auto candidate=impl_->mesh.triangles[t*3+i];
+            const auto d=length(kernel::dimension_sub(point(candidate),location));
+            if(d<nearest){nearest=d;node=candidate;}
+        }
+        hit=ResultHit{t,node,location};
+    }
+    return hit;
+}
+
 void MeshView::set_body_surface_colors(
     QColor default_color, std::map<std::string, QColor> instance_colors,
     std::map<std::string, QColor> face_colors) {
@@ -3122,6 +3203,7 @@ void MeshView::fit_all() {
     const float empty_half_extent = static_cast<float>(
         std::max(height(), 1) * 25.4 / (2.0 * dpi));
     std::vector<zima::kernel::Vec3> bounds = impl_->mesh.vertices;
+    if(impl_->result_display_bounds.valid)for(const auto point:impl_->result_display_bounds.corners())bounds.push_back(point);
     std::vector<zima::kernel::Vec3> reference_centers;
     double reference_extent = 0.5;
     bool has_reference_extent = false;
@@ -3647,12 +3729,14 @@ void MeshView::initializeGL() {
         "layout(location=0) in vec3 position;\n"
         "layout(location=1) in vec3 normal;\n"
         "layout(location=2) in vec3 fieldColor;\n"
+        "layout(location=3) in vec3 resultDisplacement;\n"
+        "uniform float deformationOffset;\n"
         "out vec3 resultColor;\n"
         "uniform mat4 mvp;\n"
         "uniform mat3 normalMatrix;\n"
         "out vec3 viewNormal;\n"
         "void main(){ resultColor=fieldColor; viewNormal = normalize(normalMatrix * normal);"
-        " gl_Position = mvp * vec4(position, 1.0); }\n");
+        " gl_Position = mvp * vec4(position + deformationOffset * resultDisplacement, 1.0); }\n");
     impl_->program.addShaderFromSourceCode(QOpenGLShader::Fragment, R"GLSL(
 #version 330 core
 uniform vec4 color;
@@ -3698,6 +3782,7 @@ void main(){
     impl_->vertices.create();
     impl_->transparent_triangles.create();
     impl_->scalar_colors.create();impl_->scalar_colors_dirty=true;
+    impl_->result_vectors.create();impl_->result_wire.create();impl_->result_dirty=true;
     impl_->lines.create();
     impl_->selected_source_lines.create();
     impl_->selected_source_key.reset();impl_->selected_source_data.clear();
@@ -4307,6 +4392,9 @@ if (impl_->show_origins) {
         impl_->projection(width(), height()) * view);
     impl_->program.setUniformValue("normalMatrix", view.normalMatrix());
     const auto bind_attributes = [&](QOpenGLBuffer& buffer) {
+        impl_->program.setUniformValue("deformationOffset",0.F);
+        impl_->program.disableAttributeArray(3);
+        impl_->program.setAttributeValue(3,QVector3D{});
         buffer.bind();
         impl_->program.enableAttributeArray(0);
         impl_->program.setAttributeBuffer(0, GL_FLOAT, 0, 3, 6 * sizeof(float));
@@ -4315,9 +4403,30 @@ if (impl_->show_origins) {
             1, GL_FLOAT, 3 * sizeof(float), 3, 6 * sizeof(float));
     };
 
+    const auto bind_result_vectors = [&] {
+        if(!impl_->result_displacements.empty()) {
+            impl_->result_vectors.bind();
+            if(impl_->result_dirty) {
+                std::vector<float> vectors;vectors.reserve(impl_->mesh.triangles.size()*3);
+                std::vector<std::uint32_t> wire;wire.reserve(impl_->mesh.triangles.size()*2);
+                for(const auto node:impl_->mesh.triangles) {
+                    const auto u=impl_->result_displacements.at(node);
+                    vectors.insert(vectors.end(),{float(u.x),float(u.y),float(u.z)});
+                }
+                for(std::uint32_t t=0;t<impl_->mesh.triangles.size();t+=3)
+                    wire.insert(wire.end(),{t,t+1,t+1,t+2,t+2,t});
+                impl_->result_vectors.allocate(vectors.data(),static_cast<int>(vectors.size()*sizeof(float)));
+                impl_->result_wire.bind();impl_->result_wire.allocate(wire.data(),static_cast<int>(wire.size()*sizeof(std::uint32_t)));
+                impl_->result_wire.release();impl_->result_dirty=false;
+                setProperty("resultVectorUploadCount",property("resultVectorUploadCount").toULongLong()+1);
+            }
+            impl_->program.enableAttributeArray(3);impl_->program.setAttributeBuffer(3,GL_FLOAT,0,3,3*sizeof(float));
+            impl_->program.setUniformValue("deformationOffset",float(impl_->result_factor-1));
+        }
+    };
     const auto draw_triangles = [&](bool depth_only=false) {
         impl_->program.setUniformValue("unlit", 0);
-        bind_attributes(impl_->vertices);
+        bind_attributes(impl_->vertices);bind_result_vectors();
         if(!depth_only&&!impl_->scalar_values.empty()) {
             impl_->scalar_colors.bind();
             if(impl_->scalar_colors_dirty) {
@@ -4337,6 +4446,24 @@ if (impl_->show_origins) {
             glDrawArrays(GL_TRIANGLES,0,static_cast<GLsizei>(impl_->mesh.triangles.size()));
             glDisable(GL_POLYGON_OFFSET_FILL);
             impl_->program.setUniformValue("scalarField",0);impl_->program.disableAttributeArray(2);
+            if(!impl_->result_displacements.empty()&&impl_->display_mode==DisplayMode::ShadedWithEdges) {
+                impl_->program.setUniformValue("unlit",1);
+                impl_->program.setUniformValue("color",QVector4D(.2F,.23F,.28F,1.F));
+                impl_->result_wire.bind();
+                glDrawElements(GL_LINES,static_cast<GLsizei>(impl_->mesh.triangles.size()*2),GL_UNSIGNED_INT,nullptr);
+                impl_->result_wire.release();
+            }
+            if(!impl_->result_displacements.empty()&&impl_->result_original) {
+                // Neutral, non-pickable comparison skin. Depth testing retains
+                // foreground result surfaces; alpha never writes result depth.
+                impl_->program.setUniformValue("unlit",1);
+                impl_->program.setUniformValue("deformationOffset",-1.F);
+                impl_->program.setUniformValue("color",QVector4D(.7F,.76F,.82F,.18F));
+                glEnable(GL_BLEND);glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA);glDepthMask(GL_FALSE);
+                glDrawArrays(GL_TRIANGLES,0,static_cast<GLsizei>(impl_->mesh.triangles.size()));
+                glDepthMask(GL_TRUE);glDisable(GL_BLEND);
+            }
+            impl_->program.setUniformValue("deformationOffset",0.F);impl_->program.disableAttributeArray(3);
             impl_->scalar_colors.release();
             return;
         }
@@ -4579,6 +4706,14 @@ if (impl_->show_origins) {
     const auto draw_lines = [&](bool force_black_if_not_highlighted = false,
                                 bool highlighted_only = false) {
         impl_->program.setUniformValue("unlit", 1);
+        if(!highlighted_only&&!impl_->result_displacements.empty()&&impl_->display_mode!=DisplayMode::ShadedWithEdges) {
+            bind_attributes(impl_->vertices);bind_result_vectors();
+            const auto color=force_black_if_not_highlighted?QColor(110,110,110):theme.foreground;
+            impl_->program.setUniformValue("color",QVector4D(color.redF(),color.greenF(),color.blueF(),1));
+            impl_->result_wire.bind();
+            glDrawElements(GL_LINES,static_cast<GLsizei>(impl_->mesh.triangles.size()*2),GL_UNSIGNED_INT,nullptr);
+            impl_->result_wire.release();
+        }
         bind_attributes(impl_->lines);
         const auto& highlighted=line_candidate;
         const bool confirmed=impl_->confirmed_candidate.has_value()||impl_->inspected_container.has_value();
@@ -6848,6 +6983,31 @@ if (impl_->show_origins) {
                     impl_->scalar_minimum+t*(impl_->scalar_maximum-impl_->scalar_minimum),'g',5));
             }
             painter.restore();
+            if(!impl_->result_caption.isEmpty()) {
+                painter.save();painter.setPen(theme.foreground);
+                painter.drawText(QRectF(18,height()-52,width()-36,40),Qt::AlignLeft|Qt::AlignBottom,impl_->result_caption);
+                painter.restore();
+            }
+            std::vector<QRectF> result_labels{panel.adjusted(-4,-4,4,4)};
+            for(const auto& marker:impl_->result_markers) {
+                const auto p=kernel::dimension_add(marker.position,kernel::dimension_scale(marker.displacement,impl_->result_factor-1));
+                const auto anchor=project(p);
+                painter.save();painter.setPen(QPen(theme.foreground,1));
+                painter.setBrush(theme.bottom);painter.drawEllipse(anchor,4,4);
+                auto label=anchor+QPointF(16,-16);
+                const auto text_bounds=painter.fontMetrics().boundingRect(marker.label);
+                label.setX(std::clamp(label.x(),8.,std::max(8.,width()-text_bounds.width()-8.)));
+                auto box=QRectF(text_bounds).translated(label).adjusted(-3,-3,3,3);
+                if(box.intersects(panel))label.setX(std::max(8.,panel.left()-text_bounds.width()-12));
+                label.setY(std::clamp(label.y(),double(text_bounds.height()+8),double(std::max(text_bounds.height()+8,height()-60))));
+                box=QRectF(text_bounds).translated(label).adjusted(-3,-3,3,3);
+                for(unsigned attempt=0;attempt<8&&std::ranges::any_of(result_labels,[&](const auto& used){return box.intersects(used);});++attempt) {
+                    label.ry()+=text_bounds.height()+8;box=QRectF(text_bounds).translated(label).adjusted(-3,-3,3,3);
+                }
+                result_labels.push_back(box);
+                painter.drawLine(anchor,label);auto background=theme.bottom;background.setAlpha(220);
+                painter.fillRect(box,background);painter.drawText(label,marker.label);painter.restore();
+            }
         }
         // Editing handles remain above coincident geometry and point markers.
         if(impl_->dimension_layout_commit&&impl_->confirmed_candidate&&dimension_layout_editable(*impl_->confirmed_candidate)&&impl_->show_dimensions) {
@@ -6895,6 +7055,10 @@ MeshView::ray_at(const QPointF& position) const {
 }
 
 void MeshView::mousePressEvent(QMouseEvent* event) {
+    if(event->button()==Qt::LeftButton&&!impl_->result_displacements.empty()&&impl_->result_probe) {
+        if(const auto hit=result_hit_at(event->position()))impl_->result_probe(*hit);
+        event->accept();return;
+    }
     if(event->button()==Qt::LeftButton&&impl_->symbol_handle_move&&impl_->symbol_handles) {
         int closest=-1;double distance=6.;for(int i=0;i<3;++i)if(auto p=symbol_handle_position(i)){const double d=QLineF(*p,event->position()).length();if(d<=distance){distance=d;closest=i;}}
         for(int i=closest;i>=0;) {

@@ -9,6 +9,11 @@
 #include <QDoubleSpinBox>
 #include <QTreeWidget>
 #include <QTimer>
+#include <QVariantAnimation>
+#include <QPushButton>
+#include <QAction>
+#include <cmath>
+#include <numbers>
 #include <limits>
 #include <mutex>
 #ifdef ZIMA_ENABLE_FEM_MESHER
@@ -142,6 +147,30 @@ private:
     QComboBox* order_{};
     QLabel* status_{};
 };
+class FemDeformationSettingsDialog final : public ui::PropertiesSubWindow {
+public:
+    FemDeformationSettingsDialog(double scale,double speed,double suggested,
+            std::function<void(double,double)> commit,QWidget* parent)
+        : PropertiesSubWindow(tr("Deformation settings"),parent),commit_(std::move(commit)) {
+        setObjectName("femDeformationSettingsDialog");setAttribute(Qt::WA_DeleteOnClose);
+        auto* form=new QFormLayout;
+        scale_=new QDoubleSpinBox(this);scale_->setObjectName("femMagnification");
+        scale_->setRange(0,1000000);scale_->setDecimals(3);scale_->setValue(scale);scale_->setSuffix(" ×");
+        form->addRow(tr("Deformation magnification"),scale_);
+        auto* automatic=new QPushButton(tr("Fit magnification to model"),this);
+        automatic->setObjectName("femAutomaticMagnification");
+        connect(automatic,&QPushButton::clicked,this,[this,suggested]{scale_->setValue(suggested);});form->addRow({},automatic);
+        speed_=new QDoubleSpinBox(this);speed_->setObjectName("femAnimationSpeed");
+        speed_->setRange(.1,10);speed_->setDecimals(2);speed_->setValue(speed);speed_->setSuffix(" ×");
+        form->addRow(tr("Animation speed"),speed_);content_layout()->addLayout(form);
+        auto* explanation=new QLabel(tr("Animation interpolates the static result. Values and colors always show the calculated load case."),this);
+        explanation->setWordWrap(true);content_layout()->addWidget(explanation);set_initial_size({490,240});
+    }
+protected:
+    bool submit()override{commit_(scale_->value(),speed_->value());return true;}
+private:
+    QDoubleSpinBox *scale_{},*speed_{};std::function<void(double,double)> commit_;
+};
 }
 
 bool AssemblyWorkspaceWindow::active_fem_body()const {
@@ -163,6 +192,8 @@ struct AssemblyWorkspaceWindow::GeneratedFemMesh {
         double maximum_mm{};
         std::vector<double> displacement_field,stress_field;
         double maximum_MPa{};
+        std::vector<kernel::Vec3> displacement;
+        std::vector<double> nodal_magnitude,element_stress;
     };
     std::optional<Solution> solution;
 };
@@ -214,10 +245,16 @@ void AssemblyWorkspaceWindow::solve_fem_statics() {
                     calculated.stress_field.push_back(result.element_von_mises_MPa.at(mesh->mesh.surface_elements.at(t)));
                 }
                 calculated.maximum_MPa=result.maximum_von_mises_MPa;
+                calculated.displacement=result.displacement;
+                calculated.element_stress=result.element_von_mises_MPa;
+                for(const auto u:result.displacement)calculated.nodal_magnitude.push_back(std::hypot(u.x,u.y,u.z));
                 return calculated;
             });
             progress.flush();
             mesh->solution=std::move(solution);
+            fem_probe_selection_.reset();
+            if(fem_animation_)fem_animation_->stop();
+            fem_animation_fraction_=1;
         }
         if(!active_fem_deformation()) {
             if(progress_started)finish_status_operation(tr("FEM inputs changed. Repeat the operation."),false);
@@ -239,14 +276,121 @@ void AssemblyWorkspaceWindow::solve_fem_statics() {
 void AssemblyWorkspaceWindow::update_fem_result_presentation() {
 #ifdef ZIMA_ENABLE_FEM_MESHER
     if(!show_fem_deformation_||properties_dialog_||!active_sketch_id_.empty()||!active_fem_deformation()) {
-        viewer_->set_triangle_scalar_field({});return;
+        viewer_->set_triangle_scalar_field({});viewer_->set_result_displacements({});
+        set_fem_animation(false);return;
     }
     const auto& result=*generated_fem_mesh_->solution;
     const bool stress=fem_result_quantity_==FemResultQuantity::VonMises;
     viewer_->set_triangle_scalar_field(stress?result.stress_field:result.displacement_field,
         stress?tr("Von Mises stress [MPa]"):tr("Displacement [mm]"),0,stress?result.maximum_MPa:result.maximum_mm);
+    viewer_->set_result_displacements(result.displacement);
+    viewer_->set_result_probe(fem_probe_enabled_?std::function<void(const viewer::MeshView::ResultHit&)>{[this](const auto& hit) {
+        fem_probe_selection_=std::pair{hit.triangle,hit.node};update_fem_result_markers();
+    }}:std::function<void(const viewer::MeshView::ResultHit&)>{});
+    update_fem_deformation();update_fem_result_markers();
     state_->setText(stress?tr("Maximum von Mises stress (element average): %1 MPa").arg(result.maximum_MPa,0,'g',6):
         tr("Maximum displacement: %1 mm").arg(result.maximum_mm,0,'g',6));
+#endif
+}
+
+bool AssemblyWorkspaceWindow::fem_animation_running()const {
+    return fem_animation_&&fem_animation_->state()==QAbstractAnimation::Running;
+}
+void AssemblyWorkspaceWindow::set_fem_animation(bool run) {
+    if(!run) {
+        if(fem_animation_running())fem_animation_->pause();
+        return;
+    }
+    if(!active_fem_deformation()||properties_dialog_)return;
+    if(!show_fem_deformation_) {show_fem_deformation_=true;preserve_view_on_refresh_=true;refresh_scene();}
+    if(!fem_animation_) {
+        fem_animation_=new QVariantAnimation(this);
+        fem_animation_->setStartValue(0.);fem_animation_->setKeyValueAt(.5,1.);fem_animation_->setEndValue(0.);
+        fem_animation_->setLoopCount(-1);
+        connect(fem_animation_,&QVariantAnimation::valueChanged,this,[this](const QVariant& value) {
+            if(viewer_->triangle_scalar_field().empty()||!viewer_->isVisible()) {set_fem_animation(false);return;}
+            fem_animation_fraction_=.5-.5*std::cos(value.toDouble()*std::numbers::pi);
+            update_fem_deformation();
+        });
+    }
+    fem_animation_->setDuration(static_cast<int>(3000/fem_animation_speed_));
+    if(fem_animation_->state()==QAbstractAnimation::Paused)fem_animation_->resume();
+    else {fem_animation_fraction_=0;update_fem_deformation();fem_animation_->start();}
+}
+void AssemblyWorkspaceWindow::update_fem_deformation() {
+    viewer_->set_result_deformation(fem_magnification_*fem_animation_fraction_,fem_show_original_);
+    viewer_->set_result_caption(tr("Deformation ×%1 · static result").arg(fem_magnification_*fem_animation_fraction_,0,'g',4));
+}
+void AssemblyWorkspaceWindow::update_fem_result_markers() {
+#ifdef ZIMA_ENABLE_FEM_MESHER
+    if(!active_fem_deformation())return;
+    const auto& solved=*generated_fem_mesh_->solution;const auto& mesh=generated_fem_mesh_->mesh;
+    const bool stress=fem_result_quantity_==FemResultQuantity::VonMises;
+    std::vector<viewer::MeshView::ResultMarker> markers;
+    const auto marker=[&](std::size_t index,const QString& prefix) {
+        viewer::MeshView::ResultMarker result;
+        if(stress) {
+            for(unsigned i=0;i<4;++i) {
+                const auto node=mesh.tetrahedra.at(index)[i];
+                result.position=kernel::dimension_add(result.position,kernel::dimension_scale(solved.deformation.vertices[node],.25));
+                result.displacement=kernel::dimension_add(result.displacement,kernel::dimension_scale(solved.displacement[node],.25));
+            }
+        }else {result.position=solved.deformation.vertices.at(index);result.displacement=solved.displacement.at(index);}
+        result.label=prefix+" "+locale().toString(stress?solved.element_stress.at(index):solved.nodal_magnitude.at(index),'g',6)+
+            (stress?" MPa":" mm");
+        markers.push_back(std::move(result));
+    };
+    if(fem_show_extrema_) {
+        const auto& values=stress?solved.element_stress:solved.nodal_magnitude;
+        if(!values.empty()) {
+            const auto [low,high]=std::minmax_element(values.begin(),values.end());
+            marker(low-values.begin(),tr("Minimum:"));marker(high-values.begin(),tr("Maximum:"));
+        }
+    }
+    if(fem_probe_enabled_&&fem_probe_selection_) {
+        const auto [triangle,node]=*fem_probe_selection_;
+        if(triangle<mesh.surface_elements.size()&&node<solved.displacement.size()) {
+            marker(stress?mesh.surface_elements[triangle]:node,stress?tr("Element average:"):tr("Mesh node:"));
+            state_->setText(markers.back().label);
+        }
+    }
+    viewer_->set_result_markers(std::move(markers));
+#endif
+}
+void AssemblyWorkspaceWindow::show_fem_deformation_settings() {
+#ifdef ZIMA_ENABLE_FEM_MESHER
+    if(properties_dialog_||!active_fem_deformation())return;
+    const bool was_running=fem_animation_running();
+    set_fem_animation(false);
+    const auto& solved=*generated_fem_mesh_->solution;
+    kernel::Vec3 low=solved.deformation.vertices.front(),high=low;
+    for(const auto p:generated_fem_mesh_->mesh.surface.vertices) {
+        low={std::min(low.x,p.x),std::min(low.y,p.y),std::min(low.z,p.z)};
+        high={std::max(high.x,p.x),std::max(high.y,p.y),std::max(high.z,p.z)};
+    }
+    const double span=std::hypot(high.x-low.x,high.y-low.y,high.z-low.z);
+    const double suggested=solved.maximum_mm>0?std::clamp(.1*span/solved.maximum_mm,1.,1000000.):1.;
+    auto* dialog=new FemDeformationSettingsDialog(fem_magnification_,fem_animation_speed_,suggested,[this](double scale,double speed) {
+        if(fem_magnification_==scale&&fem_animation_speed_==speed)return;
+        const bool scale_changed=fem_magnification_!=scale;
+        fem_magnification_=scale;fem_animation_speed_=speed;fem_animation_fraction_=1;
+        if(fem_animation_)fem_animation_->stop();
+        update_fem_deformation();
+        if(scale_changed) {
+            const auto& result=*generated_fem_mesh_->solution;
+            std::vector<kernel::Vec3> bounds=generated_fem_mesh_->mesh.surface.vertices;
+            for(std::size_t i=0;i<result.displacement.size();++i)
+                bounds.push_back(kernel::dimension_add(result.deformation.vertices[i],kernel::dimension_scale(result.displacement[i],scale-1)));
+            viewer_->fit_points(bounds);
+        }
+    },this);
+    properties_dialog_=dialog;
+    connect(dialog,&QDialog::finished,this,[this,was_running](int result) {
+        properties_dialog_=nullptr;
+        if(result==QDialog::Rejected&&was_running)set_fem_animation(true);
+        rebuild_application_toolbar();
+    });
+    rebuild_application_toolbar();dialog->show();
 #endif
 }
 
