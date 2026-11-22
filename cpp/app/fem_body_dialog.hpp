@@ -47,6 +47,7 @@ public:
         auto* analysis=new QComboBox(this);analysis->setObjectName("femAnalysisKind");
         analysis->addItem(tr("Linear statics"),int(document::FemAnalysisKind::LinearElasticStatic));
         analysis->addItem(tr("Steady-state thermal analysis"),int(document::FemAnalysisKind::SteadyStateThermal));
+        analysis->addItem(tr("Thermal-mechanical analysis"),int(document::FemAnalysisKind::ThermalMechanical));
         analysis->setCurrentIndex(analysis->findData(int(pending.fem->analysis)));
         thermal_form->addRow(tr("Analysis type"),analysis);
         auto* ambient=new QDoubleSpinBox(this);ambient->setObjectName("femAmbientTemperature");
@@ -62,15 +63,19 @@ public:
         auto* expansion=new QCheckBox(tr("Calculate thermal expansion"),this);expansion->setObjectName("femThermalExpansion");
         expansion->setChecked(thermal.expansion);thermal_form->addRow(expansion);
         auto* expansion_help=new QLabel(tr("Uses the Part material's expansion coefficient and reference temperature, and mechanical restraints. Forces and pressure are excluded. Measurement points report temperature and displacement caused by heating."),this);
-        expansion_help->setWordWrap(true);thermal_form->addRow(expansion_help);content_layout()->addLayout(thermal_form);
+        expansion_help->setWordWrap(true);thermal_form->addRow(expansion_help);
+        auto* combined_help=new QLabel(tr("Combines thermal expansion with forces, pressure and mechanical restraints. Material properties remain constant; deformation does not change the heat calculation."),this);
+        combined_help->setWordWrap(true);thermal_form->addRow(combined_help);content_layout()->addLayout(thermal_form);
         const auto visibility=[=,this] {
-            const bool active=pending.fem->analysis==document::FemAnalysisKind::SteadyStateThermal;
+            const bool active=document::fem_thermal_analysis(pending.fem->analysis);
+            const bool combined=pending.fem->analysis==document::FemAnalysisKind::ThermalMechanical;
             thermal_form->setRowVisible(ambient,active);thermal_form->setRowVisible(transfer,active);thermal_form->setRowVisible(cooling,active);
-            thermal_form->setRowVisible(expansion,active);thermal_form->setRowVisible(expansion_help,active&&expansion->isChecked());
+            thermal_form->setRowVisible(expansion,active&&!combined);thermal_form->setRowVisible(expansion_help,active&&!combined&&expansion->isChecked());
+            thermal_form->setRowVisible(combined_help,combined);
         };
         connect(analysis,&QComboBox::currentIndexChanged,this,[=,this] {
             pending.fem->analysis=static_cast<document::FemAnalysisKind>(analysis->currentData().toInt());
-            if(pending.fem->analysis==document::FemAnalysisKind::SteadyStateThermal&&!pending.fem->thermal)
+            if(document::fem_thermal_analysis(pending.fem->analysis)&&!pending.fem->thermal)
                 pending.fem->thermal=thermal;
             visibility();notify();
         });

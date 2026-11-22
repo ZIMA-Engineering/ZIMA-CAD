@@ -17,7 +17,8 @@ struct FemExpansionMaterial {
 [[nodiscard]] FemExpansionMaterial fem_expansion_material(const document::MaterialData&);
 
 // A borrowed nodal temperature field on the same mesh. The caller owns it
-// throughout the solve. Thermal expansion uses restraints, not force/pressure.
+// throughout the solve. ThermalMechanical combines its strain with forces and
+// pressure; pure thermal expansion uses mechanical restraints only.
 struct FemThermalStrain {
     FemExpansionMaterial material;
     std::span<const double> temperature_C;

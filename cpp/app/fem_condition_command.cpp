@@ -1,5 +1,6 @@
 #include "assembly_workspace_window.hpp"
 #include "fem_condition_dialog.hpp"
+#include "fem_distance_dialog.hpp"
 #include "confirmed_face_hit.hpp"
 #include "reference_display.hpp"
 #include "workspace/workspace_internal.hpp"
@@ -35,7 +36,7 @@ kernel::ViewerMesh AssemblyWorkspaceWindow::fem_display_mesh()const {
     const auto& source=mesh?source_mesh:result;
     for(const auto& condition:body->fem->conditions) {
         if(fem_condition_preview_&&fem_condition_preview_->id==condition.id)continue;
-        const bool measurement=condition.kind==document::FemConditionKind::MeasurementPoint;
+        const bool measurement=document::fem_measurement(condition.kind);
         if(!measurement&&!document::fem_condition_applies_to_analysis(condition.kind,body->fem->analysis,document::fem_thermal_expansion(*body->fem))&&
                 fem_inspected_condition_!=condition.id)continue;
         auto presentation=document::fem_condition_presentation(condition,source);
@@ -52,7 +53,7 @@ kernel::ViewerMesh AssemblyWorkspaceWindow::fem_display_mesh()const {
         // The shared Origin picker reveals only the frames explicitly requested.
         append_mesh(frame,local_origin_display_mesh(frame.original_references,visible_local_origin_ids_));append_mesh(result,std::move(frame));
     }
-    if(const auto* condition=active_fem_condition(fem_inspected_condition_);condition&&construction_dimension_object_id_==condition->id&&!properties_dialog_) {
+    if(const auto* condition=active_fem_condition(fem_inspected_condition_);condition&&!condition->distance&&construction_dimension_object_id_==condition->id&&!properties_dialog_) {
         const auto& p=condition->placement;
         for(int i=0;i<3;++i) {
             kernel::ViewerDimension dimension;dimension.label_only=true;
@@ -82,6 +83,7 @@ void AssemblyWorkspaceWindow::remove_fem_condition(const std::string& id) {
 }
 
 void AssemblyWorkspaceWindow::show_fem_condition_properties(document::FemConditionKind kind,const std::string& id) {
+    if(kind==document::FemConditionKind::MeasurementDistance){show_fem_distance_properties(id);return;}
     if(properties_dialog_||!active_fem_body())return;
     const auto document_id=workspace_.active_document_id();const auto* part=workspace_.open_part(document_id);const auto& doc=part->session.document();
     const auto body_id=doc.body_history.active_body_id();const auto* body=doc.body_history.find(body_id);
@@ -95,7 +97,7 @@ void AssemblyWorkspaceWindow::show_fem_condition_properties(document::FemConditi
         for(unsigned n=1;;++n){initial.name=fem_condition_name(kind).toStdString()+" "+std::to_string(n);
             if(std::ranges::none_of(body->fem->conditions,[&](const auto& c){return c.name==initial.name;}))break;}
     }
-    auto* dialog=new FemConditionDialog(initial,[this,edit](auto value){static_cast<void>(workspace::commit_fem_condition(workspace_,edit,std::move(value)));},this,fem_thermal_analysis());
+    auto* dialog=new FemConditionDialog(initial,[this,edit](auto value){static_cast<void>(workspace::commit_fem_condition(workspace_,edit,std::move(value)));},this,fem_analysis_kind()==document::FemAnalysisKind::SteadyStateThermal);
     properties_dialog_=dialog;primitive_reference_dialog_=dialog;primitive_parameter_owner_id_=initial.id;
     construction_dimension_object_id_=initial.id;fem_condition_preview_=initial;fem_inspected_condition_.clear();
     dialog->work_plane_geometry=[this]() -> const kernel::ViewerReferenceGeometry& {return primitive_reference_geometry_;};
@@ -246,5 +248,50 @@ void AssemblyWorkspaceWindow::show_fem_condition_properties(document::FemConditi
         if(first<3)start_primitive_reference_selection(first,true);
         else set_primitive_properties_dimension_selection();
     }
+}
+bool AssemblyWorkspaceWindow::accept_fem_distance_tree_reference(QTreeWidgetItem* item) {
+    auto* dialog=dynamic_cast<FemDistanceDialog*>(properties_dialog_);
+    if(!dialog||!item||item->data(0,Qt::UserRole+3)!="fem-condition")return false;
+    dialog->accept_point(item->data(0,Qt::UserRole).toString().toStdString());return true;
+}
+
+void AssemblyWorkspaceWindow::show_fem_distance_properties(const std::string& id) {
+    if(properties_dialog_||!active_fem_body())return;
+    const auto* part=workspace_.open_part(workspace_.active_document_id());const auto& doc=part->session.document();
+    const auto* body=doc.body_history.find(doc.body_history.active_body_id());
+    const auto edit=workspace::prepare_fem_edit(doc,body->scope.id);
+    document::FemCondition initial;
+    if(!id.empty()){const auto* found=active_fem_condition(id);if(!found||!found->distance)return;initial=*found;}
+    else {
+        initial.id=kernel::make_stable_id();initial.kind=document::FemConditionKind::MeasurementDistance;initial.distance.emplace();
+        for(unsigned n=1;;++n){initial.name=fem_condition_name(initial.kind).toStdString()+" "+std::to_string(n);
+            if(std::ranges::none_of(body->fem->conditions,[&](const auto& c){return c.name==initial.name;}))break;}
+    }
+    auto* dialog=new FemDistanceDialog(initial,*body->fem,[this,edit](auto value){
+        static_cast<void>(workspace::commit_fem_condition(workspace_,edit,std::move(value)));},this);
+    properties_dialog_=dialog;fem_condition_preview_=initial;fem_inspected_condition_.clear();construction_dimension_object_id_.clear();
+    dialog->changed=[this,dialog] {
+        fem_condition_preview_=dialog->pending;
+        auto preview=document::fem_condition_presentation(dialog->pending,{});
+        for(unsigned i=0;i<2;++i)if(dialog->inspected(i))if(const auto* source=dialog->point(dialog->pending.distance->point_ids[i])) {
+            auto visible=*source;visible.visible=true;auto wire=document::fem_condition_presentation(visible,{});
+            for(auto& edge:wire.edges)edge.color="#00D1FF";
+            append_mesh(preview,std::move(wire));
+        }
+        viewer_->set_transient_context_mesh(std::move(preview));
+        const bool active=dialog->active_input();tree_->setProperty("commandSelectionActive",active);
+        viewer_->set_selection_contract({viewer::CandidateKind::Container});
+        viewer_->set_candidate_filter([this,dialog,active](const auto& c){return active&&c.instance_path==workspace_.active_occurrence_path()&&dialog->point(c.owner_id);});
+        feature_reference_pick_=[dialog](const auto& c){dialog->accept_point(c.owner_id);};
+        feature_reference_end_=[this,dialog]{feature_reference_pick_={};feature_reference_end_={};dialog->end_input();};
+    };
+    connect(dialog,&QDialog::finished,this,[this,dialog] {
+        if(properties_dialog_!=dialog)return;
+        properties_dialog_=nullptr;fem_condition_preview_.reset();feature_reference_pick_={};feature_reference_end_={};
+        viewer_->set_transient_context_mesh({});viewer_->set_candidate_filter({});viewer_->set_selection_contract({});viewer_->clear_selection();
+        tree_->setProperty("commandSelectionActive",false);preserve_view_on_refresh_=true;refresh_tabs();refresh_scene();
+    });
+    preserve_view_on_refresh_=true;refresh_scene();dialog->show();dialog->changed();
+    if(initial.distance->point_ids[0].empty())dialog->arm(0);
 }
 } // namespace zima::app

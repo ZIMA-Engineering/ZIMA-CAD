@@ -447,6 +447,8 @@ private:
     void select_fem_condition(const std::string&,bool inspect);
     void remove_fem_condition(const std::string&);
     void show_fem_condition_properties(zima::document::FemConditionKind,const std::string& id = {});
+    void show_fem_distance_properties(const std::string& id = {});
+    bool accept_fem_distance_tree_reference(QTreeWidgetItem*);
     std::optional<zima::document::FemCondition> fem_condition_preview_;
     struct GeneratedFemMesh;
     std::shared_ptr<GeneratedFemMesh> generated_fem_mesh_;
@@ -454,6 +456,7 @@ private:
     bool show_fem_deformation_{};
     enum class FemResultQuantity { Displacement, VonMises, Temperature };
     bool fem_thermal_analysis() const;
+    document::FemAnalysisKind fem_analysis_kind() const;
     bool fem_expansion_analysis() const;
     FemResultQuantity fem_result_quantity_{FemResultQuantity::Displacement};
     void update_fem_result_presentation();

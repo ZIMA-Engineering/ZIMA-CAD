@@ -3055,5 +3055,17 @@
   "Uses the Part material's expansion coefficient and reference temperature, and mechanical restraints. Forces and pressure are excluded. Measurement points report temperature and displacement caused by heating.": "Используются коэффициент расширения и опорная температура материала детали, а также механические закрепления. Силы и давление не учитываются. Точки измерения показывают температуру и перемещение от нагрева.",
   "Thermal deformation ×%1 · static result": "Тепловая деформация ×%1 · статический результат",
   "Set a valid thermal expansion coefficient and reference temperature in the Part material.": "Задайте допустимые коэффициент теплового расширения и опорную температуру в материале детали.",
-  "The FEM temperature field is invalid for thermal expansion.": "Температурное поле МКЭ недопустимо для расчёта теплового расширения."
+  "The FEM temperature field is invalid for thermal expansion.": "Температурное поле МКЭ недопустимо для расчёта теплового расширения.",
+  "Thermal-mechanical analysis": "Термомеханический анализ",
+  "Combined deformation ×%1 · static result": "Совместная деформация ×%1 · статический результат",
+  "Combines thermal expansion with forces, pressure and mechanical restraints. Material properties remain constant; deformation does not change the heat calculation.": "Объединяет тепловое расширение с силами, давлением и механическими закреплениями. Свойства материала постоянны; деформация не изменяет тепловой расчёт.",
+  "Distance measurement": "Измерение расстояния",
+  "First point": "Первая точка",
+  "Second point": "Вторая точка",
+  "Select two different measurement points.": "Выберите две разные точки измерения.",
+  "Select measurement points from the same FEM Body.": "Выберите точки измерения одного тела МКЭ.",
+  "A measurement point reference is unavailable.": "Ссылка на точку измерения недоступна.",
+  "Mechanical displacement is unavailable.": "Механическое перемещение недоступно.",
+  "Original %1 · deformed %2 · Δ %3 mm": "Исходное %1 · после деформации %2 · Δ %3 mm",
+  "Select two measurement points from this FEM Body. Results show the original distance, deformed distance and their difference, independent of display magnification.": "Выберите две точки измерения этого тела МКЭ. Результаты показывают исходное расстояние, расстояние после деформации и их разность независимо от масштаба отображения."
 }

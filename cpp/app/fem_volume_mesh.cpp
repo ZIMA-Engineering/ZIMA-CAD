@@ -87,28 +87,9 @@ FemVolumeMesh generate_fem_volume_mesh(
         };
         for(std::size_t index=0;index<definition.conditions.size();++index) {
             const auto& condition=definition.conditions[index];
-            if(!condition.projected_sketch||!condition.projected_sketch->project_to_body||
-                    condition.region!=document::FemRegionKind::Surface)continue;
-            auto result=project(index);
-            const auto propagate=[&](auto& shapes) {
-                std::vector<TopoDS_Shape> current;
-                for(const auto& previous:shapes) {
-                    const auto& modified=result.history->Modified(previous);
-                    if(modified.IsEmpty()&&!result.history->IsRemoved(previous))current.push_back(previous);
-                    for(NCollection_List<TopoDS_Shape>::Iterator it(modified);it.More();it.Next())
-                        if(it.Value().ShapeType()==previous.ShapeType())current.push_back(it.Value());
-                }
-                shapes=std::move(current);
-            };
-            for(auto& row:native.referenced_shapes)propagate(row);
-            for(auto& previous:projections)propagate(previous.faces);
-            native.shape=result.body;
-            projections[index]=std::move(result);
-        }
-        for(std::size_t index=0;index<definition.conditions.size();++index)
-            if(definition.conditions[index].projected_sketch&&definition.conditions[index].projected_sketch->project_to_body&&
-                    definition.conditions[index].region==document::FemRegionKind::Curve)
+            if(condition.projected_sketch&&condition.projected_sketch->project_to_body)
                 projections[index]=project(index);
+        }
         BRepBuilderAPI_Copy copy(native.shape,true,false);
         auto input=copy.Shape();
         const GmshSession session;
@@ -124,7 +105,7 @@ FemVolumeMesh generate_fem_volume_mesh(
         if(imported.empty())invalid_mesh();
         struct Region {std::string id;int dimension;std::vector<int> tags;};
         std::vector<Region> regions;
-        bool planar_regions=false;
+        bool partition_regions=false;
         struct Embedding {int dimension,tag,support_dimension,support;};
         std::vector<Embedding> embeddings;
         std::map<std::tuple<double,double,double>,int> embedded_origins;
@@ -142,12 +123,17 @@ FemVolumeMesh generate_fem_volume_mesh(
                 throw std::runtime_error("The condition placement is unresolved.");
             Region region{condition.id,static_cast<int>(condition.region),{}};
             if(condition.projected_sketch&&!condition.projected_sketch->project_to_body) {
-                planar_regions=true;
+                partition_regions=true;
                 for(const auto& shape:kernel::planar_calculated_mesh_region(native.shape,
                         document::fem_condition_planar_request(condition)))
                     region.tags.push_back(import(shape,region.dimension));
             }else if(condition.projected_sketch) {
-                for(const auto& face:projections[index].faces)region.tags.push_back(bind(face,2));
+                // Resolve each authored patch against the unchanged source.
+                // Fragment all patches together below: a preceding partition
+                // must not split the next condition's single face reference
+                // into multiple targets with only one retained-region seed.
+                if(!projections[index].faces.empty())partition_regions=true;
+                for(const auto& face:projections[index].faces)region.tags.push_back(import(face,2));
                 for(const auto& curve:projections[index].curves) {
                     const int edge=import(curve.edge,1);
                     const int face=bind(curve.face,2);
@@ -200,9 +186,9 @@ FemVolumeMesh generate_fem_volume_mesh(
             region.tags.erase(std::unique(region.tags.begin(),region.tags.end()),region.tags.end());
             regions.push_back(std::move(region));
         }
-        if(planar_regions) {
-            // Fragment private mesh inputs together so that planar regions,
-            // including internal ones, share the material's actual mesh nodes.
+        if(partition_regions) {
+            // Fragment private mesh inputs together so that planar/projected
+            // regions, including internal ones, share the actual mesh nodes.
             // The output map preserves every condition's exact entity group.
             gmsh::vectorpair region_entities;
             for(const auto& region:regions)for(int tag:region.tags) {

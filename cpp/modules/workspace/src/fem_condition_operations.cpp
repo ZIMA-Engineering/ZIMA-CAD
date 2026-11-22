@@ -46,6 +46,19 @@ bool commit_fem_condition(Workspace& live,const BodyGraphEdit& edit,document::Fe
     const auto* old=find_fem_condition(state->session.document(),edit.object_id,value.id);
     if(old&&*old==value){return commit_fem(live,edit,*body);}
     document::validate_fem_condition(value);
+    if(value.distance) {
+        for(const auto& id:value.distance->point_ids) {
+            const auto* point=find_fem_condition(state->session.document(),edit.object_id,id);
+            const bool retained=old&&old->distance&&std::ranges::find(old->distance->point_ids,id)!=old->distance->point_ids.end();
+            if((point&&point->kind!=document::FemConditionKind::MeasurementPoint)||(!point&&!retained))
+                throw std::invalid_argument("Select measurement points from the same FEM Body.");
+        }
+        // A derived measurement edits metadata only; no placement or solid work.
+        auto updated=*body;auto& conditions=updated.fem->conditions;
+        const auto item=std::ranges::find(conditions,value.id,&document::FemCondition::id);
+        if(item==conditions.end())conditions.push_back(std::move(value));else *item=std::move(value);
+        return commit_fem(live,edit,std::move(updated));
+    }
     const auto source=read_fem_source(state->session,edit.object_id);
     const auto target_kind=value.projected_sketch?document::FemRegionKind::Surface:value.region;
     for(const auto& r:value.references)if(!document::fem_region_reference_available(r,target_kind,source->mesh)) {

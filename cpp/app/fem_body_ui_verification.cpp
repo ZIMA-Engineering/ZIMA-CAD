@@ -1,6 +1,7 @@
 #include "assembly_workspace_window.hpp"
 #include "fem_body_dialog.hpp"
 #include "fem_condition_dialog.hpp"
+#include "fem_distance_dialog.hpp"
 #include <zima/workspace/fem_condition_operations.hpp>
 #include <zima/document/placement_orientation.hpp>
 #include "../tests/profile_solid_fixture.hpp"

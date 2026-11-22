@@ -11,10 +11,22 @@ namespace zima::document {
 void validate_fem_condition(const FemCondition& value) {
     if(value.id.empty()||value.name.empty())throw std::invalid_argument("Specify a nonempty object name.");
     if(value.kind!=FemConditionKind::Constraint&&value.kind!=FemConditionKind::Force&&value.kind!=FemConditionKind::Pressure&&
-            value.kind!=FemConditionKind::HeatSource&&value.kind!=FemConditionKind::MeasurementPoint)
+            value.kind!=FemConditionKind::HeatSource&&!fem_measurement(value.kind))
         throw std::invalid_argument("Invalid FEM condition definition.");
     if(value.region!=FemRegionKind::Point&&value.region!=FemRegionKind::Curve&&value.region!=FemRegionKind::Surface)
         throw std::invalid_argument("Invalid FEM condition definition.");
+    if((value.kind==FemConditionKind::MeasurementDistance)!=value.distance.has_value())
+        throw std::invalid_argument("Invalid FEM condition definition.");
+    if(value.distance) {
+        const auto& d=*value.distance;
+        if(value.region!=FemRegionKind::Point||!value.references.empty()||value.projected_sketch||!value.placement.references.empty())
+            throw std::invalid_argument("Invalid FEM condition definition.");
+        if(d.point_ids[0].empty()||d.point_ids[1].empty()||d.point_ids[0]==d.point_ids[1]||
+                d.point_ids[0]==value.id||d.point_ids[1]==value.id)
+            throw std::invalid_argument("Select two different measurement points.");
+        for(auto p:d.positions)if(!std::isfinite(p.x)||!std::isfinite(p.y)||!std::isfinite(p.z))
+            throw std::invalid_argument("Invalid FEM condition definition.");
+    }
     if(value.kind==FemConditionKind::Pressure&&value.region!=FemRegionKind::Surface)
         throw std::invalid_argument("Pressure requires a surface region.");
     if(value.kind==FemConditionKind::HeatSource&&value.region!=FemRegionKind::Surface)
@@ -66,13 +78,18 @@ void validate_fem_condition(const FemCondition& value) {
 void to_json(nlohmann::json& j,const FemCondition& v) {
     validate_fem_condition(v);
     const auto kind=v.kind==FemConditionKind::Constraint?"constraint":v.kind==FemConditionKind::Force?"force":
-        v.kind==FemConditionKind::Pressure?"pressure":v.kind==FemConditionKind::HeatSource?"heat-source":"measurement-point";
+        v.kind==FemConditionKind::Pressure?"pressure":v.kind==FemConditionKind::HeatSource?"heat-source":
+        v.kind==FemConditionKind::MeasurementDistance?"measurement-distance":"measurement-point";
     j={{"id",v.id},{"name",v.name},{"kind",kind},
         {"region",v.region==FemRegionKind::Point?"point":v.region==FemRegionKind::Curve?"curve":"surface"},
         {"placement",v.placement},{"references",nlohmann::json::array()},
         {"force_N",v.force_N},{"pressure_MPa",v.pressure_MPa},{"restrained",v.restrained},
         {"pressure_reversed",v.pressure_reversed},{"visible",v.visible}};
     if(v.kind==FemConditionKind::HeatSource)j["heat_W"]=v.heat_W;
+    if(v.distance) {
+        auto positions=nlohmann::json::array();for(auto p:v.distance->positions)positions.push_back({p.x,p.y,p.z});
+        j["distance"]={{"points",v.distance->point_ids},{"positions",std::move(positions)},{"valid",v.distance->reference_valid}};
+    }
     for(const auto& r:v.references)j["references"].push_back({{"owner",r.owner_id},{"key",r.semantic_key},{"path",r.instance_path}});
     if(v.projected_sketch) {
         auto seeds=nlohmann::json::array();
@@ -85,13 +102,23 @@ void to_json(nlohmann::json& j,const FemCondition& v) {
 void from_json(const nlohmann::json& j,FemCondition& v) {
     FemCondition n;n.id=j.at("id");n.name=j.at("name");
     const std::string kind=j.at("kind"),region=j.at("region");
-    if(kind!="constraint"&&kind!="force"&&kind!="pressure"&&kind!="heat-source"&&kind!="measurement-point")throw std::invalid_argument("Invalid FEM condition definition.");
+    if(kind!="constraint"&&kind!="force"&&kind!="pressure"&&kind!="heat-source"&&kind!="measurement-point"&&kind!="measurement-distance")throw std::invalid_argument("Invalid FEM condition definition.");
     if(region!="point"&&region!="curve"&&region!="surface")throw std::invalid_argument("Invalid FEM condition definition.");
     n.kind=kind=="constraint"?FemConditionKind::Constraint:kind=="force"?FemConditionKind::Force:
-        kind=="pressure"?FemConditionKind::Pressure:kind=="heat-source"?FemConditionKind::HeatSource:FemConditionKind::MeasurementPoint;
+        kind=="pressure"?FemConditionKind::Pressure:kind=="heat-source"?FemConditionKind::HeatSource:
+        kind=="measurement-distance"?FemConditionKind::MeasurementDistance:FemConditionKind::MeasurementPoint;
     if(n.kind==FemConditionKind::HeatSource)n.heat_W=j.at("heat_W");
     n.region=region=="point"?FemRegionKind::Point:region=="curve"?FemRegionKind::Curve:FemRegionKind::Surface;
     n.placement=j.at("placement").get<Placement>();
+    if(j.contains("distance")) {
+        const auto& d=j.at("distance");n.distance.emplace();
+        if(d.at("points").size()!=2||d.at("positions").size()!=2)throw std::invalid_argument("Invalid FEM condition definition.");
+        n.distance->point_ids=d.at("points").get<std::array<std::string,2>>();n.distance->reference_valid=d.at("valid");
+        for(unsigned i=0;i<2;++i) {
+            const auto& p=d.at("positions").at(i);if(!p.is_array()||p.size()!=3)throw std::invalid_argument("Invalid FEM condition definition.");
+            n.distance->positions[i]={p.at(0),p.at(1),p.at(2)};
+        }
+    }
     for(const auto& r:j.at("references"))n.references.push_back({r.at("owner"),r.at("key"),r.at("path")});
     if(j.contains("projected_sketch")) {
         const auto& projection=j.at("projected_sketch");

@@ -263,6 +263,8 @@ FemStaticResult solve_fem_linear_statics(const FemVolumeMesh& mesh,
     if(!std::isfinite(material.young_MPa)||material.young_MPa<=0||
         !std::isfinite(material.poisson)||material.poisson<=-1||material.poisson>=.5)
         throw std::runtime_error("Set a valid Young's modulus and Poisson ratio in the Part material.");
+    if(definition.analysis==document::FemAnalysisKind::ThermalMechanical&&!thermal)
+        throw std::runtime_error("The FEM temperature field is invalid for thermal expansion.");
     validate_thermal_strain(mesh,thermal);
     const bool quadratic=mesh.order==document::FemElementOrder::Quadratic;
     const unsigned count=quadratic?10:4,samples=quadratic?4:1;
@@ -292,11 +294,12 @@ FemStaticResult solve_fem_linear_statics(const FemVolumeMesh& mesh,
         report_fem_progress(progress,FemProgressPhase::AssemblingSystem,elements.size(),mesh.tetrahedra.size());
     }
     report_fem_progress(progress,FemProgressPhase::ApplyingConditions);
-    const auto supports=thermal?PressureSupports{}:pressure_supports(mesh,definition);
+    const bool heat_only=thermal&&definition.analysis!=document::FemAnalysisKind::ThermalMechanical;
+    const auto supports=heat_only?PressureSupports{}:pressure_supports(mesh,definition);
     for(const auto& condition:definition.conditions){
-        if(thermal&&condition.kind!=document::FemConditionKind::Constraint)continue;
+        if(heat_only&&condition.kind!=document::FemConditionKind::Constraint)continue;
         if(condition.kind==document::FemConditionKind::HeatSource||
-                condition.kind==document::FemConditionKind::MeasurementPoint)continue;
+                document::fem_measurement(condition.kind))continue;
         const auto found=mesh.condition_regions.find(condition.id);
         if(found==mesh.condition_regions.end())throw std::runtime_error("The FEM load has no mesh region.");
         if(condition.kind==document::FemConditionKind::Force)add_force(mesh,found->second,condition,load);

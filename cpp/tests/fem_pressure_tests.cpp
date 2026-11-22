@@ -204,6 +204,30 @@ void generated_regions(){
             const Vec3 force{0,0,-sign*20};
             balance(mesh,app::solve_fem_linear_statics(mesh,def,{210000,.3}),force,cross({1,0,sign*2.5},force));
         }
+        for(double sign:{-1.,1.})for(double shift:{0.,1.,5.})for(bool reverse:{false,true}) {
+            // Independent authored patches on the same face may coincide,
+            // overlap or be disjoint. Each retains its own physical group.
+            auto p=pressure();set_face(p,face_at(solid.mesh,2,sign*2.5));
+            auto h=p;h.id="heat";h.name="Heat";h.kind=document::FemConditionKind::HeatSource;
+            const auto patch=[&](document::FemCondition& c,double x) {
+                auto sketch=sketcher::Sketch::create_default();sketch.owner_container_id=c.id;
+                sketch.plane_auto=false;sketch.plane_offset=sign*4;
+                static_cast<void>(sketch.add_rectangle(x-1,-1,x+3,1));
+                c.projected_sketch=document::FemProjectedSketch{sketch.serialized(),{{x+1,0,sign*2.5}}};
+            };
+            patch(p,0);patch(h,shift);
+            auto combined=base;combined.analysis=document::FemAnalysisKind::ThermalMechanical;
+            combined.thermal=document::FemThermalSettings{};combined.conditions={p,h};
+            if(reverse)std::ranges::reverse(combined.conditions);
+            auto mesh=app::generate_fem_volume_mesh(solid,combined);
+            for(auto c:{p,h}) {
+                c.kind=document::FemConditionKind::Pressure;
+                auto single=base;single.conditions={c};all_fixed(mesh,single);
+                const Vec3 force{0,0,-sign*c.pressure_MPa*8};
+                const double center=c.id==p.id?1:shift+1;
+                balance(mesh,app::solve_fem_linear_statics(mesh,single,{210000,.3}),force,cross({center,0,sign*2.5},force));
+            }
+        }
         {
             // A bounded region with a hole must not load the excluded center.
             auto c=pressure();auto sketch=sketcher::Sketch::create_default();sketch.owner_container_id=c.id;

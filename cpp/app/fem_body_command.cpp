@@ -193,9 +193,13 @@ bool AssemblyWorkspaceWindow::active_fem_body()const {
 }
 
 bool AssemblyWorkspaceWindow::fem_thermal_analysis()const {
+    return document::fem_thermal_analysis(fem_analysis_kind());
+}
+
+document::FemAnalysisKind AssemblyWorkspaceWindow::fem_analysis_kind()const {
     const auto* part=workspace_.open_part(workspace_.active_document_id());
     const auto* body=part?part->session.document().body_history.find(part->session.document().body_history.active_body_id()):nullptr;
-    return body&&body->fem&&body->fem->analysis==document::FemAnalysisKind::SteadyStateThermal;
+    return body&&body->fem?body->fem->analysis:document::FemAnalysisKind::LinearElasticStatic;
 }
 
 bool AssemblyWorkspaceWindow::fem_expansion_analysis()const {
@@ -268,7 +272,7 @@ void AssemblyWorkspaceWindow::solve_fem_statics() {
             });
             auto solution=ui::run_background_task([mesh,definition,material,thermal_material,expansion_material,report=progress.callback()]{
                 GeneratedFemMesh::Solution calculated;calculated.definition=definition;calculated.material=material;
-                if(definition.analysis==document::FemAnalysisKind::SteadyStateThermal) {
+                if(document::fem_thermal_analysis(definition.analysis)) {
                     calculated.thermal=solve_fem_steady_thermal(mesh->mesh,definition,thermal_material,report);
                     calculated.thermal_material=thermal_material;calculated.deformation=mesh->mesh.surface;
                     calculated.deformation.edges.clear();calculated.displacement.resize(mesh->mesh.surface.vertices.size());
@@ -380,7 +384,8 @@ void AssemblyWorkspaceWindow::update_fem_deformation() {
         viewer_->set_result_deformation(1,false);viewer_->set_result_caption(tr("Steady-state temperature"));return;
     }
     viewer_->set_result_deformation(fem_magnification_*fem_animation_fraction_,fem_show_original_);
-    viewer_->set_result_caption((fem_expansion_analysis()?tr("Thermal deformation ×%1 · static result"):
+    viewer_->set_result_caption((fem_analysis_kind()==document::FemAnalysisKind::ThermalMechanical?tr("Combined deformation ×%1 · static result"):
+        fem_expansion_analysis()?tr("Thermal deformation ×%1 · static result"):
         tr("Deformation ×%1 · static result")).arg(fem_magnification_*fem_animation_fraction_,0,'g',4));
 }
 void AssemblyWorkspaceWindow::update_fem_result_markers() {
@@ -418,26 +423,57 @@ void AssemblyWorkspaceWindow::update_fem_result_markers() {
         }
     }
     const auto& graph=workspace_.open_part(workspace_.active_document_id())->session.document().body_history;
-    for(const auto& condition:graph.find(graph.active_body_id())->fem->conditions)
+    const auto& conditions=graph.find(graph.active_body_id())->fem->conditions;
+    const auto location=[&](const document::FemCondition& point) -> std::optional<FemProbeLocation> {
+        auto found=solved.measurements.find(point.id);
+        if(found==solved.measurements.end()||found->second.condition!=point) {
+            found=solved.measurements.insert_or_assign(point.id,GeneratedFemMesh::Solution::Measurement{point,
+                point.placement.reference_valid?locate_fem_point(mesh,{point.placement.x,point.placement.y,point.placement.z}):std::nullopt}).first;
+        }
+        return found->second.location;
+    };
+    for(const auto& condition:conditions)
         if(condition.kind==document::FemConditionKind::MeasurementPoint&&condition.visible) {
             const kernel::Vec3 point{condition.placement.x,condition.placement.y,condition.placement.z};
-            auto found=solved.measurements.find(condition.id);
-            if(found==solved.measurements.end()||found->second.condition!=condition) {
-                found=solved.measurements.insert_or_assign(condition.id,GeneratedFemMesh::Solution::Measurement{
-                    condition,condition.placement.reference_valid?locate_fem_point(mesh,point):std::nullopt}).first;
-            }
+            const auto hit=location(condition);
             viewer::MeshView::ResultMarker measurement;measurement.position=point;
             measurement.label=QString::fromStdString(condition.name)+": ";
             if(!condition.placement.reference_valid)measurement.label+=tr("The condition placement is unresolved.");
-            else if(!found->second.location)measurement.label+=tr("Measurement point is outside the FEM volume.");
+            else if(!hit)measurement.label+=tr("Measurement point is outside the FEM volume.");
             else {
-                if(solved.thermal)measurement.label+=locale().toString(fem_probe_scalar(mesh,*found->second.location,solved.thermal->temperature_C),'g',6)+" °C";
+                if(solved.thermal)measurement.label+=locale().toString(fem_probe_scalar(mesh,*hit,solved.thermal->temperature_C),'g',6)+" °C";
                 if(!solved.thermal||solved.expansion_material) {
                     if(solved.thermal)measurement.label+=" · ";
-                    const auto u=fem_probe_displacement(mesh,*found->second.location,solved.displacement);
+                    const auto u=fem_probe_displacement(mesh,*hit,solved.displacement);
                     measurement.displacement=u;measurement.position=kernel::dimension_add(point,u);
                     measurement.label+=tr("ΔX %1 · ΔY %2 · ΔZ %3 · total %4 mm")
                         .arg(locale().toString(u.x,'g',6),locale().toString(u.y,'g',6),locale().toString(u.z,'g',6),locale().toString(std::hypot(u.x,u.y,u.z),'g',6));
+                }
+            }
+            markers.push_back(std::move(measurement));
+        }
+        else if(condition.distance&&condition.visible) {
+            const auto& distance=*condition.distance;viewer::MeshView::ResultMarker measurement;
+            measurement.position=kernel::dimension_add(distance.positions[0],kernel::dimension_scale(
+                kernel::dimension_sub(distance.positions[1],distance.positions[0]),.5));
+            measurement.label=QString::fromStdString(condition.name)+": ";
+            std::array<kernel::Vec3,2> u{};bool available=distance.reference_valid;
+            if(!available)measurement.label+=tr("A measurement point reference is unavailable.");
+            else {
+                for(unsigned i=0;i<2;++i) {
+                    const auto point=std::ranges::find(conditions,distance.point_ids[i],&document::FemCondition::id);
+                    const auto hit=point==conditions.end()?std::nullopt:location(*point);
+                    if(!hit){available=false;break;}
+                    u[i]=fem_probe_displacement(mesh,*hit,solved.displacement);
+                }
+                if(!available)measurement.label+=tr("Measurement point is outside the FEM volume.");
+                else if(solved.thermal&&!solved.expansion_material)measurement.label+=tr("Mechanical displacement is unavailable.");
+                else {
+                    const auto result=fem_distance_result(distance.positions[0],distance.positions[1],u[0],u[1]);
+                    measurement.displacement=kernel::dimension_scale(kernel::dimension_add(u[0],u[1]),.5);
+                    measurement.position=kernel::dimension_add(measurement.position,measurement.displacement);
+                    measurement.label+=tr("Original %1 · deformed %2 · Δ %3 mm").arg(locale().toString(result.original_mm,'g',9),
+                        locale().toString(result.deformed_mm,'g',9),locale().toString(result.change_mm,'g',9));
                 }
             }
             markers.push_back(std::move(measurement));

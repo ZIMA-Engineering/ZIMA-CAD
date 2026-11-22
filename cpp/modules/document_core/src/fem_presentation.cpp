@@ -50,6 +50,14 @@ bool fem_region_reference_available(const FemRegionReference& r,FemRegionKind k,
 
 kernel::ViewerMesh fem_condition_presentation(const FemCondition& value,const kernel::ViewerMesh& source,double size){
     kernel::ViewerMesh mesh;if(!value.visible)return mesh;
+    if(value.distance) {
+        const auto& d=*value.distance;
+        kernel::ViewerEdge edge;edge.reference={value.id,"fem:distance",{}};edge.display_owner_id=value.id;edge.overlay=true;
+        edge.points={d.positions[0],d.positions[1]};mesh.edges.push_back(std::move(edge));
+        const auto middle=add(d.positions[0],mul(sub(d.positions[1],d.positions[0]),.5));
+        mesh.constraint_markers.push_back({middle,value.name+(d.reference_valid?"":" !"),{value.id,"fem:label",{}},{}});
+        mesh.original_references.edges=mesh.edges;return mesh;
+    }
     const Vec3 origin{value.placement.x,value.placement.y,value.placement.z};
     const auto normal=fem_force_direction(value);
     std::vector<Sample> locations;bool broken=!value.placement.reference_valid;

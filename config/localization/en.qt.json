@@ -3055,5 +3055,17 @@
   "Uses the Part material's expansion coefficient and reference temperature, and mechanical restraints. Forces and pressure are excluded. Measurement points report temperature and displacement caused by heating.": "Uses the Part material's expansion coefficient and reference temperature, and mechanical restraints. Forces and pressure are excluded. Measurement points report temperature and displacement caused by heating.",
   "Thermal deformation ×%1 · static result": "Thermal deformation ×%1 · static result",
   "Set a valid thermal expansion coefficient and reference temperature in the Part material.": "Set a valid thermal expansion coefficient and reference temperature in the Part material.",
-  "The FEM temperature field is invalid for thermal expansion.": "The FEM temperature field is invalid for thermal expansion."
+  "The FEM temperature field is invalid for thermal expansion.": "The FEM temperature field is invalid for thermal expansion.",
+  "Thermal-mechanical analysis": "Thermal-mechanical analysis",
+  "Combined deformation ×%1 · static result": "Combined deformation ×%1 · static result",
+  "Combines thermal expansion with forces, pressure and mechanical restraints. Material properties remain constant; deformation does not change the heat calculation.": "Combines thermal expansion with forces, pressure and mechanical restraints. Material properties remain constant; deformation does not change the heat calculation.",
+  "Distance measurement": "Distance measurement",
+  "First point": "First point",
+  "Second point": "Second point",
+  "Select two different measurement points.": "Select two different measurement points.",
+  "Select measurement points from the same FEM Body.": "Select measurement points from the same FEM Body.",
+  "A measurement point reference is unavailable.": "A measurement point reference is unavailable.",
+  "Mechanical displacement is unavailable.": "Mechanical displacement is unavailable.",
+  "Original %1 · deformed %2 · Δ %3 mm": "Original %1 · deformed %2 · Δ %3 mm",
+  "Select two measurement points from this FEM Body. Results show the original distance, deformed distance and their difference, independent of display magnification.": "Select two measurement points from this FEM Body. Results show the original distance, deformed distance and their difference, independent of display magnification."
 }

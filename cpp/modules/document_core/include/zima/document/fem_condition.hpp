@@ -9,7 +9,10 @@
 
 namespace zima::sketcher { class Sketch; }
 namespace zima::document {
-enum class FemConditionKind { Constraint, Force, Pressure, HeatSource, MeasurementPoint };
+enum class FemConditionKind { Constraint, Force, Pressure, HeatSource, MeasurementPoint, MeasurementDistance };
+inline bool fem_measurement(FemConditionKind kind) {
+    return kind==FemConditionKind::MeasurementPoint||kind==FemConditionKind::MeasurementDistance;
+}
 enum class FemRegionKind { Point, Curve, Surface };
 
 struct FemRegionReference {
@@ -33,6 +36,14 @@ struct FemProjectedSketch {
 // native points, curves or faces, including bounded Projection results. Empty
 // Point regions denote the placed container origin; meshing must bind that
 // actual position, never an arbitrary nearest mesh node.
+struct FemDistanceMeasurement {
+    std::array<std::string,2> point_ids;
+    // Retain both endpoints together when either reference is unavailable.
+    std::array<kernel::Vec3,2> positions;
+    bool reference_valid{};
+    bool operator==(const FemDistanceMeasurement&) const = default;
+};
+
 struct FemCondition {
     std::string id, name;
     FemConditionKind kind{FemConditionKind::Constraint};
@@ -48,6 +59,7 @@ struct FemCondition {
     bool pressure_reversed{};
     bool visible{true};
     double heat_W{100};
+    std::optional<FemDistanceMeasurement> distance;
     bool operator==(const FemCondition&) const = default;
 };
 

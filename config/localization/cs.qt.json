@@ -3055,5 +3055,17 @@
   "Uses the Part material's expansion coefficient and reference temperature, and mechanical restraints. Forces and pressure are excluded. Measurement points report temperature and displacement caused by heating.": "Použije součinitel roztažnosti a referenční teplotu z materiálu dílu a mechanické vazby. Síly a tlak se nezahrnují. Body měření ukazují teplotu a posunutí způsobené ohřevem.",
   "Thermal deformation ×%1 · static result": "Tepelná deformace ×%1 · statický výsledek",
   "Set a valid thermal expansion coefficient and reference temperature in the Part material.": "V materiálu dílu nastavte platný součinitel teplotní roztažnosti a referenční teplotu.",
-  "The FEM temperature field is invalid for thermal expansion.": "Teplotní pole FEM není platné pro výpočet tepelné roztažnosti."
+  "The FEM temperature field is invalid for thermal expansion.": "Teplotní pole FEM není platné pro výpočet tepelné roztažnosti.",
+  "Thermal-mechanical analysis": "Tepelně-pevnostní analýza",
+  "Combined deformation ×%1 · static result": "Kombinovaná deformace ×%1 · statický výsledek",
+  "Combines thermal expansion with forces, pressure and mechanical restraints. Material properties remain constant; deformation does not change the heat calculation.": "Spojuje tepelnou roztažnost se silami, tlakem a mechanickými vazbami. Vlastnosti materiálu zůstávají konstantní; deformace nemění tepelný výpočet.",
+  "Distance measurement": "Měření vzdálenosti",
+  "First point": "První bod",
+  "Second point": "Druhý bod",
+  "Select two different measurement points.": "Vyberte dva různé body měření.",
+  "Select measurement points from the same FEM Body.": "Vyberte body měření ze stejného FEM tělesa.",
+  "A measurement point reference is unavailable.": "Odkaz na bod měření není dostupný.",
+  "Mechanical displacement is unavailable.": "Mechanické posunutí není dostupné.",
+  "Original %1 · deformed %2 · Δ %3 mm": "Původní %1 · po deformaci %2 · Δ %3 mm",
+  "Select two measurement points from this FEM Body. Results show the original distance, deformed distance and their difference, independent of display magnification.": "Vyberte dva body měření z tohoto FEM tělesa. Výsledky ukazují původní vzdálenost, vzdálenost po deformaci a jejich rozdíl nezávisle na zvětšení zobrazení."
 }

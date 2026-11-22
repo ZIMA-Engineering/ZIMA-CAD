@@ -68,6 +68,18 @@ std::optional<FemProbeLocation> locate_fem_point(const FemVolumeMesh& mesh,kerne
     }
     return {};
 }
+FemDistanceResult fem_distance_result(kernel::Vec3 first,kernel::Vec3 second,
+        kernel::Vec3 first_displacement,kernel::Vec3 second_displacement) {
+    const kernel::Vec3 d{second.x-first.x,second.y-first.y,second.z-first.z};
+    const kernel::Vec3 u{second_displacement.x-first_displacement.x,second_displacement.y-first_displacement.y,second_displacement.z-first_displacement.z};
+    const double original=std::hypot(d.x,d.y,d.z),deformed=std::hypot(d.x+u.x,d.y+u.y,d.z+u.z);
+    // Rationalized difference retains small changes in a long span. Divide
+    // before multiplication to avoid unnecessarily squaring model lengths.
+    const double denominator=original+deformed;
+    const double change=denominator?u.x*(2*(d.x/denominator)+u.x/denominator)+
+        u.y*(2*(d.y/denominator)+u.y/denominator)+u.z*(2*(d.z/denominator)+u.z/denominator):0;
+    return {original,deformed,change};
+}
 kernel::Vec3 fem_probe_displacement(const FemVolumeMesh& mesh,const FemProbeLocation& location,
         const std::vector<kernel::Vec3>& values) {
     kernel::Vec3 result{};const auto& nodes=mesh.tetrahedra.at(location.element);

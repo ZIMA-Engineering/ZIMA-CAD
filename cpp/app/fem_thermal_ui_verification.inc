@@ -184,6 +184,7 @@
                 check(restored.body_history==pressure_session.document().body_history,"Thermal save/reopen lost settings, sources or measurement points");
                 window.grab().save(QString::fromStdString(document::path_to_utf8(directory/("fem-temperature-"+std::to_string(mode)+".png"))));
 #include "fem_expansion_ui_verification.inc"
+#include "fem_combined_ui_verification.inc"
                 window.remove_fem_condition(heat_id);flush();
             }
             check(kernel::body_calculation_count.load()==inspection_calculations,"Thermal analysis recalculated CAD");

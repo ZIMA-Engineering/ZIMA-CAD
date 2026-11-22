@@ -2030,7 +2030,13 @@ void AssemblyWorkspaceWindow::create_layout() {
             if (item == nullptr || !selected_items.contains(item)) {
                 item = selected_items.front();
             }
-            if(item->data(0,Qt::UserRole+3)=="fem-condition") {select_fem_condition(item->data(0,Qt::UserRole).toString().toStdString(),false);return;}
+            if(item->data(0,Qt::UserRole+3)=="fem-condition") {
+                // This two-row command advances on itemClicked only. A single
+                // mouse gesture also emits selectionChanged and must not fill
+                // both references with the same point.
+                if(properties_dialog_&&properties_dialog_->objectName()=="femDistanceDialog")return;
+                select_fem_condition(item->data(0,Qt::UserRole).toString().toStdString(),false);return;
+            }
             if(item->data(0,Qt::UserRole+3).toString()=="model-symbol") {
                 const auto id=item->data(0,Qt::UserRole).toString().toStdString();selected_symbol_=id;
                 viewer_->confirm_reference(id,"symbol:"+id,workspace_.active_occurrence_path(),zima::viewer::CandidateKind::Symbol);return;
@@ -2462,7 +2468,7 @@ void AssemblyWorkspaceWindow::create_layout() {
         &AssemblyWorkspaceWindow::update_body_color_actions);
     connect(tree_, &QTreeWidget::itemClicked, this,
         [this, synchronize_tree_selection](QTreeWidgetItem* item, int) {
-            if(item&&(accept_fem_tree_reference(item)||accept_body_scale_tree_reference(item)))return;
+            if(item&&(accept_fem_distance_tree_reference(item)||accept_fem_tree_reference(item)||accept_body_scale_tree_reference(item)))return;
             if (local_origin_selection_active_ && item) {
                 auto id = item->data(0, Qt::UserRole).toString().toStdString();
                 const auto role=item->data(0,Qt::UserRole+3).toString();

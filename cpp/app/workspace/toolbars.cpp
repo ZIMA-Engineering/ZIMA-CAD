@@ -189,7 +189,9 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
             fem_solution_menu_->setTitle(tr("Calculation"));
             fem_solution_menu_->menuAction()->setVisible(fem_active);
             fem_solution_menu_->setEnabled(fem_active&&!properties_dialog_);
-            fem_solution_menu_->findChild<QAction*>("femLinearStaticsAction")->setText(fem_thermal_analysis()?tr("Steady-state thermal analysis"):tr("Linear statics"));
+            fem_solution_menu_->findChild<QAction*>("femLinearStaticsAction")->setText(
+                fem_analysis_kind()==document::FemAnalysisKind::ThermalMechanical?tr("Thermal-mechanical analysis"):
+                fem_thermal_analysis()?tr("Steady-state thermal analysis"):tr("Linear statics"));
             auto* show=fem_solution_menu_->findChild<QAction*>("femShowDeformationAction");
             show->setText(fem_thermal_analysis()?tr("Show temperatures"):tr("Show deformation"));
             const bool available=fem_active&&active_fem_deformation();
@@ -287,11 +289,11 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
         for(int i=0;i<6;++i)if(auto* action=findChild<QAction*>(QStringLiteral("featureShortcut%1Action").arg(i)))action->setEnabled(false);
         if(!properties_dialog_)viewer_->set_candidate_filter([this](const auto& c){return active_fem_condition(c.owner_id)!=nullptr;});
         add_command(selection_action_);
-        for(auto kind:{document::FemConditionKind::Constraint,document::FemConditionKind::Force,document::FemConditionKind::Pressure,document::FemConditionKind::HeatSource,document::FemConditionKind::MeasurementPoint}) {
-            if(kind!=document::FemConditionKind::MeasurementPoint&&!document::fem_condition_applies_to_analysis(kind,
-                    fem_thermal_analysis()?document::FemAnalysisKind::SteadyStateThermal:document::FemAnalysisKind::LinearElasticStatic,fem_expansion_analysis()))continue;
+        for(auto kind:{document::FemConditionKind::Constraint,document::FemConditionKind::Force,document::FemConditionKind::Pressure,document::FemConditionKind::HeatSource,document::FemConditionKind::MeasurementPoint,document::FemConditionKind::MeasurementDistance}) {
+            if(!document::fem_measurement(kind)&&!document::fem_condition_applies_to_analysis(kind,
+                    fem_analysis_kind(),fem_expansion_analysis()))continue;
             const auto name=fem_condition_name(kind);
-            const auto key=kind==document::FemConditionKind::MeasurementPoint?"MeasurementPoint":kind==document::FemConditionKind::HeatSource?"HeatSource":kind==document::FemConditionKind::Force?"Force":kind==document::FemConditionKind::Pressure?"Pressure":"Constraint";
+            const auto key=kind==document::FemConditionKind::MeasurementDistance?"MeasurementDistance":kind==document::FemConditionKind::MeasurementPoint?"MeasurementPoint":kind==document::FemConditionKind::HeatSource?"HeatSource":kind==document::FemConditionKind::Force?"Force":kind==document::FemConditionKind::Pressure?"Pressure":"Constraint";
             const auto icon=fem_condition_icon(kind);
             auto* action=new QAction(resource_icon(icon),name,tools_toolbar_);action->setObjectName(QString("fem%1Action").arg(key));
             action->setEnabled(!properties_dialog_);connect(action,&QAction::triggered,this,[this,kind]{show_fem_condition_properties(kind);});add_command(action);

@@ -7127,6 +7127,7 @@ void PartDocument::resolve_constructions(
           for(const auto& original:body_history.bodies())if(original.fem&&!original.fem->conditions.empty()) {
             auto body=*next.body_history.find(original.scope.id);
             for(auto& condition:body.fem->conditions) {
+                if(condition.kind==FemConditionKind::MeasurementDistance)continue;
                 auto resolved=condition.placement;
                 const auto references=fem_index.select(resolved.references);
                 if(resolve_placement(resolved,references)) {

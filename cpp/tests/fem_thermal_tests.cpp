@@ -125,5 +125,6 @@ void units() {
     material.properties["THERMAL_CONDUCTIVITY"]="50junk";check(!std::isfinite(app::fem_thermal_material(material).conductivity_W_mmK),"Invalid conductivity accepted");
 }
 #include "fem_expansion_tests.inc"
+#include "fem_combined_tests.inc"
 }
-int main(){try{uniform();independent_linear();interior_face();probes();units();expansion();expansion_gradient();expansion_units();std::cout<<"FEM thermal: heat balance, interpolation, thermoelastic expansion/stress, quadrature, units and persistence passed\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}
+int main(){try{uniform();independent_linear();interior_face();probes();units();expansion();expansion_gradient();expansion_units();combined();distance_results();std::cout<<"FEM thermal: heat balance, interpolation, thermoelastic expansion/stress, combined loads, distances, quadrature, units and persistence passed\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

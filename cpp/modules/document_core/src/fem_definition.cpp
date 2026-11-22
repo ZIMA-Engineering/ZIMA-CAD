@@ -4,20 +4,38 @@
 #include <limits>
 #include <stdexcept>
 #include <set>
+#include <algorithm>
 
 namespace zima::document {
+void refresh_fem_distances(FemDefinition& value) {
+    for(auto& condition:value.conditions)if(condition.distance) {
+        auto& distance=*condition.distance;std::array<kernel::Vec3,2> positions;bool valid=true;
+        for(unsigned i=0;i<2;++i) {
+            const auto point=std::ranges::find(value.conditions,distance.point_ids[i],&FemCondition::id);
+            if(point==value.conditions.end()||point->kind!=FemConditionKind::MeasurementPoint||!point->placement.reference_valid) {valid=false;break;}
+            const auto& p=point->placement;positions[i]={p.x,p.y,p.z};
+        }
+        if(valid)distance.positions=positions;
+        distance.reference_valid=valid;
+    }
+}
 void validate_fem_definition(const FemDefinition& value) {
     std::set<std::string> ids;
     for(const auto& condition:value.conditions) {
         validate_fem_condition(condition);
         if(!ids.insert(condition.id).second)
             throw std::invalid_argument("Invalid FEM condition definition.");
+        if(condition.distance)for(const auto& id:condition.distance->point_ids) {
+            const auto point=std::ranges::find(value.conditions,id,&FemCondition::id);
+            if(point!=value.conditions.end()&&point->kind!=FemConditionKind::MeasurementPoint)
+                throw std::invalid_argument("Select measurement points from the same FEM Body.");
+        }
     }
     if(value.source_id.empty())
         throw std::invalid_argument("FEM requires a source Body or Boolean result.");
-    if(value.analysis!=FemAnalysisKind::LinearElasticStatic&&value.analysis!=FemAnalysisKind::SteadyStateThermal)
+    if(value.analysis!=FemAnalysisKind::LinearElasticStatic&&!fem_thermal_analysis(value.analysis))
         throw std::invalid_argument("Unsupported FEM analysis type.");
-    if((value.analysis==FemAnalysisKind::SteadyStateThermal&&!value.thermal)||
+    if((fem_thermal_analysis(value.analysis)&&!value.thermal)||
         (value.thermal&&(!std::isfinite(value.thermal->ambient_C)||value.thermal->ambient_C< -273.15||
             !std::isfinite(value.thermal->convection_W_m2K)||value.thermal->convection_W_m2K<=0)))
         throw std::invalid_argument("Set a valid ambient temperature and a positive heat transfer coefficient.");
@@ -31,7 +49,8 @@ void validate_fem_definition(const FemDefinition& value) {
 
 void to_json(nlohmann::json& json,const FemDefinition& value) {
     validate_fem_definition(value);
-    json={{"source",value.source_id},{"analysis",value.analysis==FemAnalysisKind::SteadyStateThermal?"steady-state-thermal":"linear-elastic-static"},
+    json={{"source",value.source_id},{"analysis",value.analysis==FemAnalysisKind::ThermalMechanical?"thermal-mechanical-static":
+        value.analysis==FemAnalysisKind::SteadyStateThermal?"steady-state-thermal":"linear-elastic-static"},
         {"mesh",{{"minimum_size_mm",value.mesh.minimum_size_mm},
             {"maximum_size_mm",value.mesh.maximum_size_mm},
             {"elements_through_thickness",value.mesh.elements_through_thickness},
@@ -46,9 +65,10 @@ void from_json(const nlohmann::json& json,FemDefinition& value) {
     FemDefinition next;
     next.source_id=json.at("source").get<std::string>();
     const auto analysis=json.at("analysis").get<std::string>();
-    if(analysis!="linear-elastic-static"&&analysis!="steady-state-thermal")
+    if(analysis!="linear-elastic-static"&&analysis!="steady-state-thermal"&&analysis!="thermal-mechanical-static")
         throw std::invalid_argument("Unsupported FEM analysis type.");
-    next.analysis=analysis=="steady-state-thermal"?FemAnalysisKind::SteadyStateThermal:FemAnalysisKind::LinearElasticStatic;
+    next.analysis=analysis=="thermal-mechanical-static"?FemAnalysisKind::ThermalMechanical:
+        analysis=="steady-state-thermal"?FemAnalysisKind::SteadyStateThermal:FemAnalysisKind::LinearElasticStatic;
     if(json.contains("thermal")) {
         const auto& thermal=json.at("thermal");
         next.thermal=FemThermalSettings{thermal.at("ambient_C"),thermal.at("convection_W_m2K")};
@@ -70,6 +90,7 @@ void from_json(const nlohmann::json& json,FemDefinition& value) {
     next.mesh.order=static_cast<FemElementOrder>(order.get<int>());
     if(json.contains("conditions"))next.conditions=json.at("conditions").get<std::vector<FemCondition>>();
     validate_fem_definition(next);
+    refresh_fem_distances(next);
     value=std::move(next);
 }
 } // namespace zima::document

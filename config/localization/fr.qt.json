@@ -3055,5 +3055,17 @@
   "Uses the Part material's expansion coefficient and reference temperature, and mechanical restraints. Forces and pressure are excluded. Measurement points report temperature and displacement caused by heating.": "Utilise le coefficient de dilatation et la température de référence du matériau de la pièce, ainsi que les appuis mécaniques. Les forces et la pression sont exclues. Les points de mesure indiquent la température et le déplacement dû au chauffage.",
   "Thermal deformation ×%1 · static result": "Déformation thermique ×%1 · résultat statique",
   "Set a valid thermal expansion coefficient and reference temperature in the Part material.": "Définissez un coefficient de dilatation thermique et une température de référence valides dans le matériau de la pièce.",
-  "The FEM temperature field is invalid for thermal expansion.": "Le champ de température FEM est invalide pour calculer la dilatation thermique."
+  "The FEM temperature field is invalid for thermal expansion.": "Le champ de température FEM est invalide pour calculer la dilatation thermique.",
+  "Thermal-mechanical analysis": "Analyse thermomécanique",
+  "Combined deformation ×%1 · static result": "Déformation combinée ×%1 · résultat statique",
+  "Combines thermal expansion with forces, pressure and mechanical restraints. Material properties remain constant; deformation does not change the heat calculation.": "Combine la dilatation thermique avec les forces, la pression et les appuis mécaniques. Les propriétés du matériau restent constantes ; la déformation ne modifie pas le calcul thermique.",
+  "Distance measurement": "Mesure de distance",
+  "First point": "Premier point",
+  "Second point": "Deuxième point",
+  "Select two different measurement points.": "Sélectionnez deux points de mesure distincts.",
+  "Select measurement points from the same FEM Body.": "Sélectionnez des points de mesure du même corps FEM.",
+  "A measurement point reference is unavailable.": "Une référence à un point de mesure est indisponible.",
+  "Mechanical displacement is unavailable.": "Le déplacement mécanique est indisponible.",
+  "Original %1 · deformed %2 · Δ %3 mm": "Initiale %1 · déformée %2 · Δ %3 mm",
+  "Select two measurement points from this FEM Body. Results show the original distance, deformed distance and their difference, independent of display magnification.": "Sélectionnez deux points de mesure de ce corps FEM. Les résultats indiquent la distance initiale, la distance déformée et leur différence, indépendamment de l’amplification de l’affichage."
 }

@@ -227,6 +227,7 @@ std::string BodyHistoryGraph::create_derived_copy(BodyHistory body) {
 }
 
 void BodyHistoryGraph::update_body(BodyHistory body) {
+    if(body.fem)refresh_fem_distances(*body.fem);
     auto next = *this;
     const auto found = std::ranges::find_if(next.bodies_, [&](const auto& value) { return value.scope.id == body.scope.id; });
     if (found == next.bodies_.end()) throw std::invalid_argument("Body does not exist");
@@ -255,6 +256,7 @@ std::string BodyHistoryGraph::create_link(BodyHistory body) {
 }
 
 std::string BodyHistoryGraph::create_fem(BodyHistory body) {
+    if(body.fem)refresh_fem_distances(*body.fem);
     if(!body.fem||(!find(body.fem->source_id)&&!find_boolean(body.fem->source_id)))
         throw std::invalid_argument("FEM requires a source Body or Boolean result.");
     if(body.scope.id.empty())body.scope.id=zima::kernel::make_stable_id();

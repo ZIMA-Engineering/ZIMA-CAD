@@ -7,10 +7,15 @@
 
 namespace zima::document {
 
-enum class FemAnalysisKind { LinearElasticStatic, SteadyStateThermal };
+enum class FemAnalysisKind { LinearElasticStatic, SteadyStateThermal, ThermalMechanical };
+
+inline bool fem_thermal_analysis(FemAnalysisKind kind) {
+    return kind==FemAnalysisKind::SteadyStateThermal||kind==FemAnalysisKind::ThermalMechanical;
+}
 
 inline bool fem_condition_applies_to_analysis(FemConditionKind kind,FemAnalysisKind analysis,bool expansion=false) {
-    if(kind==FemConditionKind::MeasurementPoint)return false;
+    if(fem_measurement(kind))return false;
+    if(analysis==FemAnalysisKind::ThermalMechanical)return true;
     return analysis==FemAnalysisKind::SteadyStateThermal?
         (kind==FemConditionKind::HeatSource||(expansion&&kind==FemConditionKind::Constraint)):kind!=FemConditionKind::HeatSource;
 }
@@ -46,10 +51,12 @@ struct FemDefinition {
 };
 
 inline bool fem_thermal_expansion(const FemDefinition& value) {
-    return value.analysis==FemAnalysisKind::SteadyStateThermal&&value.thermal&&value.thermal->expansion;
+    return value.thermal&&(value.analysis==FemAnalysisKind::ThermalMechanical||
+        (value.analysis==FemAnalysisKind::SteadyStateThermal&&value.thermal->expansion));
 }
 
 void validate_fem_definition(const FemDefinition&);
+void refresh_fem_distances(FemDefinition&);
 void to_json(nlohmann::json&, const FemDefinition&);
 void from_json(const nlohmann::json&, FemDefinition&);
 

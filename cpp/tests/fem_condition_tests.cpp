@@ -270,4 +270,5 @@ void transactions(){
     }
 }
 }
-int main(){try{serialization();marks();transactions();std::cout<<"FEM condition serialization, validation, partial Projection region, marks, transactions, Undo/Redo, native reopen and no CAD recalculation passed\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}
+#include "fem_distance_transactions.inc"
+int main(){try{serialization();marks();transactions();distance_transactions();std::cout<<"FEM condition serialization, validation, partial Projection region, marks, transactions, Undo/Redo, native reopen and no CAD recalculation passed\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}
