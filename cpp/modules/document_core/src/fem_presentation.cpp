@@ -41,12 +41,15 @@ std::vector<Sample> samples(const FemRegionReference& r,FemRegionKind kind,const
     from(source);if(result.empty())from(source.original_references);return result;
 }
 }
+kernel::Vec3 fem_force_direction(const FemCondition& condition){
+    return rotate(condition.placement,{0,0,1});
+}
 bool fem_region_reference_available(const FemRegionReference& r,FemRegionKind k,const kernel::ViewerMesh& source){return !samples(r,k,source).empty();}
 
 kernel::ViewerMesh fem_condition_presentation(const FemCondition& value,const kernel::ViewerMesh& source,double size){
     kernel::ViewerMesh mesh;if(!value.visible)return mesh;
     const Vec3 origin{value.placement.x,value.placement.y,value.placement.z};
-    const auto normal=rotate(value.placement,{0,0,1});
+    const auto normal=fem_force_direction(value);
     std::vector<Sample> locations;bool broken=!value.placement.reference_valid;
     if(value.projected_sketch) {
         for(const auto& r:value.references)broken|=!fem_region_reference_available(r,FemRegionKind::Surface,source);

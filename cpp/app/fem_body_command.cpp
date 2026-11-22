@@ -2,6 +2,7 @@
 #include "fem_body_dialog.hpp"
 #include "workspace/workspace_internal.hpp"
 #include <zima/workspace/fem_operations.hpp>
+#include <zima/workspace/engineering_metadata_operations.hpp>
 #include <zima/viewer/mesh_view.hpp>
 #include <zima/ui/unit_spin_box.hpp>
 #include <QComboBox>
@@ -9,11 +10,32 @@
 #include <QTreeWidget>
 #include <limits>
 #ifdef ZIMA_ENABLE_FEM_MESHER
+#include "fem_linear_statics.hpp"
 #include "fem_volume_mesh.hpp"
 #endif
 
 namespace zima::app {
 namespace {
+#ifdef ZIMA_ENABLE_FEM_MESHER
+FemElasticMaterial elastic_material(const document::MaterialData& data) {
+    const auto number=[&](const char* key) {
+        const auto value=data.properties.find(key);
+        if(value==data.properties.end())return std::numeric_limits<double>::quiet_NaN();
+        bool valid=false;
+        const double result=QString::fromStdString(value->second).toDouble(&valid);
+        return valid?result:std::numeric_limits<double>::quiet_NaN();
+    };
+    double modulus=number("YOUNG_MODULUS");
+    const auto unit=data.units.find("YOUNG_MODULUS");
+    if(unit!=data.units.end()){
+        static const std::map<std::string,double> factors{{"Pa",1e-6},{"kPa",1e-3},{"MPa",1},
+            {"GPa",1000},{"psi",.006894757293168}};
+        const auto factor=factors.find(unit->second);
+        modulus=factor==factors.end()?std::numeric_limits<double>::quiet_NaN():modulus*factor->second;
+    }
+    return {modulus,number("POISSON_RATIO")};
+}
+#endif
 class FemMeshSettingsDialog final : public ui::PropertiesSubWindow {
 public:
     FemMeshSettingsDialog(document::FemMeshControls initial,
@@ -86,8 +108,56 @@ struct AssemblyWorkspaceWindow::GeneratedFemMesh {
     kernel::BodySnapshot source;
     document::FemDefinition definition;
     FemVolumeMesh mesh;
+    struct Solution {
+        document::FemDefinition definition;
+        FemElasticMaterial material;
+        kernel::ViewerMesh deformation;
+        double maximum_mm{};
+    };
+    std::optional<Solution> solution;
 };
 #endif
+
+const kernel::ViewerMesh* AssemblyWorkspaceWindow::active_fem_deformation() const {
+#ifdef ZIMA_ENABLE_FEM_MESHER
+    if(!active_generated_fem_mesh()||!generated_fem_mesh_->solution)return nullptr;
+    const auto& calculated=*generated_fem_mesh_->solution;
+    const auto& id=workspace_.active_document_id();
+    const auto& graph=workspace_.open_part(id)->session.document().body_history;
+    const auto& definition=*graph.find(graph.active_body_id())->fem;
+    if(calculated.definition==definition&&calculated.material==elastic_material(workspace::material_data(workspace_,id)))
+        return &calculated.deformation;
+#endif
+    return nullptr;
+}
+
+void AssemblyWorkspaceWindow::solve_fem_statics() {
+#ifdef ZIMA_ENABLE_FEM_MESHER
+    if(properties_dialog_||!active_fem_body())return;
+    try {
+        if(!active_generated_fem_mesh())throw std::runtime_error("Generate the FEM mesh before solving.");
+        const auto mesh=generated_fem_mesh_;
+        const auto& id=workspace_.active_document_id();
+        const auto& graph=workspace_.open_part(id)->session.document().body_history;
+        const auto definition=*graph.find(graph.active_body_id())->fem;
+        const auto material=elastic_material(workspace::material_data(workspace_,id));
+        if(!active_fem_deformation()){
+            auto solution=ui::run_background_task([mesh,definition,material]{
+                const auto result=solve_fem_linear_statics(mesh->mesh,definition,material);
+                return GeneratedFemMesh::Solution{definition,material,fem_deformed_mesh(mesh->mesh,result),
+                    result.maximum_displacement_mm};
+            });
+            mesh->solution=std::move(solution);
+        }
+        if(!active_fem_deformation())return;
+        show_fem_deformation_=true;
+        preserve_view_on_refresh_=true;
+        refresh_scene();
+        rebuild_application_toolbar();
+        state_->setText(tr("Maximum displacement: %1 mm").arg(mesh->solution->maximum_mm,0,'g',6));
+    }catch(const std::exception& error){state_->setText(tr(error.what()));}
+#endif
+}
 
 const kernel::ViewerMesh* AssemblyWorkspaceWindow::active_generated_fem_mesh() const {
 #ifdef ZIMA_ENABLE_FEM_MESHER
@@ -135,6 +205,7 @@ void AssemblyWorkspaceWindow::generate_fem_mesh() {
             if(!active_generated_fem_mesh())return;
         }
         show_generated_fem_mesh_=true;
+        show_fem_deformation_=false;
         preserve_view_on_refresh_=true;
         refresh_scene();
         rebuild_application_toolbar();

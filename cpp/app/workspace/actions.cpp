@@ -430,8 +430,24 @@ void AssemblyWorkspaceWindow::create_actions() {
     show_mesh->setCheckable(true);
     connect(show_mesh,&QAction::triggered,this,[this](bool show) {
         show_generated_fem_mesh_=show;
+        show_fem_deformation_=false;
         preserve_view_on_refresh_=true;
         refresh_scene();
+        rebuild_application_toolbar();
+    });
+    fem_solution_menu_=menuBar()->addMenu(tr("Calculation"));
+    fem_solution_menu_->setObjectName("femCalculationMenu");
+    fem_solution_menu_->menuAction()->setVisible(false);
+    fem_solution_menu_->addAction(tr("Linear statics"),this,[this]{solve_fem_statics();})
+        ->setObjectName("femLinearStaticsAction");
+    auto* show_deformation=fem_solution_menu_->addAction(tr("Show deformation"));
+    show_deformation->setObjectName("femShowDeformationAction");
+    show_deformation->setCheckable(true);
+    connect(show_deformation,&QAction::triggered,this,[this](bool show) {
+        show_fem_deformation_=show;
+        preserve_view_on_refresh_=true;
+        refresh_scene();
+        rebuild_application_toolbar();
     });
 #endif
     auto* window_menu = menuBar()->addMenu(t("menu.window", "Okno"));

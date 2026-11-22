@@ -3,6 +3,7 @@
 #include <zima/kernel/geometry_kernel.hpp>
 
 namespace zima::document {
+[[nodiscard]] kernel::Vec3 fem_force_direction(const FemCondition&);
 // Presentation and reference availability only. These sampled locations are
 // never mesher bindings, integration weights or replacements for native curves.
 [[nodiscard]] bool fem_region_reference_available(const FemRegionReference&,FemRegionKind,const kernel::ViewerMesh&);

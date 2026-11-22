@@ -23,6 +23,7 @@
 #include <QJsonObject>
 #include <iostream>
 #ifdef ZIMA_ENABLE_FEM_MESHER
+#include "fem_linear_statics.hpp"
 #include "fem_volume_mesh.hpp"
 #endif
 
@@ -332,6 +333,15 @@ int verify_fem_body(QApplication& application,AssemblyWorkspaceWindow& window,co
             ApplicationSettings settings;settings.language=language;const auto messages=QJsonDocument::fromJson(file.readAll()).object();
             for(auto it=messages.begin();it!=messages.end();++it)settings.qt_translations[it.key()]=it.value().toString();
             apply_application_translations(application,settings);
+#ifdef ZIMA_ENABLE_FEM_MESHER
+            window.rebuild_application_toolbar();
+            const auto* calculation=window.findChild<QMenu*>("femCalculationMenu");
+            const auto* solve=window.findChild<QAction*>("femLinearStaticsAction");
+            const auto* deformation=window.findChild<QAction*>("femShowDeformationAction");
+            check(calculation&&solve&&deformation&&calculation->title()==settings.qt_translations.value("Calculation")&&
+                solve->text()==settings.qt_translations.value("Linear statics")&&
+                deformation->text()==settings.qt_translations.value("Show deformation"),"FEM calculation menu did not translate");
+#endif
             for(const auto* theme:{"dark","light"}) {
                 settings.theme=theme;apply_application_appearance(application,settings);flush();
                 window.show_fem_body_properties(fem);flush();dialog=current();check(dialog,"Localized FEM dialog missing");
@@ -349,6 +359,92 @@ int verify_fem_body(QApplication& application,AssemblyWorkspaceWindow& window,co
             }
         }
         apply_application_translations(application,ApplicationSettings{});
+#ifdef ZIMA_ENABLE_FEM_MESHER
+        {
+            constexpr double span=120,width=12,depth=10,load=100,young=210000,poisson=.3;
+            auto beam=document::PartDocument::create_default();
+            auto feature=test::rectangular_feature(beam,{width,depth,span});
+            beam.history={feature};
+            beam.physical_parameters={{"YOUNG_MODULUS","210"},{"POISSON_RATIO","0.3"}};
+            beam.physical_parameter_units={{"YOUNG_MODULUS","GPa"},{"POISSON_RATIO","1"}};
+            document::BodyHistoryGraph beam_graph;
+            const auto stock=beam_graph.create_body("Cantilever");
+            beam_graph.insert({document::PartHistoryKind::Feature,feature.id});
+            beam.set_body_history(beam_graph);
+            const auto calculated=workspace::calculate_part_with_resolved_references(kernel,beam);
+            const auto solid=calculated.back().body_outputs.at(stock);
+            const auto cap_at=[&](double z) {
+                const auto& surface=solid->mesh;
+                for(std::size_t triangle=0;triangle<surface.triangle_references.size();++triangle){
+                    const auto on_cap=[&](unsigned corner){
+                        return std::abs(surface.vertices[surface.triangles[3*triangle+corner]].z-z)<1e-7;
+                    };
+                    if(on_cap(0)&&on_cap(1)&&on_cap(2))return surface.triangle_references[triangle];
+                }
+                throw std::runtime_error("Cantilever cap is missing.");
+            };
+            document::FemCondition support;
+            support.id="cantilever-support";support.name="Clamp";
+            support.region=document::FemRegionKind::Surface;support.placement.reference_valid=true;
+            auto face=cap_at(-span/2);
+            support.references={{face.owner_id,face.semantic_key,face.instance_path}};
+            auto support_sketch=sketcher::Sketch::create_default();
+            support_sketch.owner_container_id=support.id;support_sketch.plane_auto=false;
+            support_sketch.plane_offset=-span/2-5;
+            static_cast<void>(support_sketch.add_rectangle(-5.8,-4.8,5.8,4.8));
+            support.projected_sketch=document::FemProjectedSketch{support_sketch.serialized(),{{0,0,-span/2}}};
+            document::FemCondition tip;
+            tip.id="cantilever-force";tip.name="Tip force";
+            tip.kind=document::FemConditionKind::Force;tip.region=document::FemRegionKind::Surface;
+            tip.force_N=load;tip.placement.reference_valid=true;tip.placement.rotation_y=90;
+            face=cap_at(span/2);
+            tip.references={{face.owner_id,face.semantic_key,face.instance_path}};
+            document::FemDefinition analysis;
+            analysis.source_id=stock;analysis.conditions={support,tip};
+            analysis.mesh.maximum_size_mm=4;analysis.mesh.minimum_size_mm=.15;
+            const auto volume=generate_fem_volume_mesh(solid.get(),analysis);
+            auto unrestrained=analysis;unrestrained.conditions.erase(unrestrained.conditions.begin());
+            bool rejected=false;
+            try {static_cast<void>(solve_fem_linear_statics(volume,unrestrained,{young,poisson}));}
+            catch(const std::runtime_error& error){rejected=std::string_view(error.what()).find("rigid-body")!=std::string_view::npos;}
+            check(rejected,"The static solver accepted a floating cantilever");
+            const auto solution=solve_fem_linear_statics(volume,analysis,{young,poisson});
+            kernel::Vec3 reaction{};
+            for(const auto r:solution.reaction){reaction.x+=r.x;reaction.y+=r.y;reaction.z+=r.z;}
+            check(std::abs(reaction.x+load)<1e-4&&std::abs(reaction.y)<1e-4&&std::abs(reaction.z)<1e-4,
+                "The clamp reaction does not balance the applied force");
+            const auto& end_nodes=volume.condition_regions.at(tip.id).nodes;
+            double tip_dx{};
+            for(const auto node:end_nodes)tip_dx+=solution.displacement[node].x/end_nodes.size();
+            const double inertia=depth*width*width*width/12;
+            const double theory=load*span*span*span/(3*young*inertia);
+            std::cout<<"Cantilever tip "<<tip_dx<<" mm, beam theory "<<theory
+                <<" mm, clamp reaction "<<reaction.x<<" N\n";
+            check(std::abs(tip_dx-theory)/theory<.06,"The cantilever FEM displacement disagrees with beam theory");
+            document::BodyHistory fem_body;
+            fem_body.scope.id="cantilever-fem";fem_body.name="Cantilever FEM";fem_body.fem=analysis;
+            const auto beam_fem=beam_graph.create_fem(fem_body);
+            beam_graph.activate(beam_fem);
+            beam.set_body_history(beam_graph);
+            const auto beam_path=directory/"fem-cantilever.prtz";
+            beam.save(beam_path,workspace::calculate_part_with_resolved_references(kernel,beam));
+            check(window.open_document_path(QString::fromStdString(document::path_to_utf8(beam_path))),"Cantilever did not reopen");
+            window.activate_body(beam_fem);flush();
+            auto* solve=window.findChild<QAction*>("femLinearStaticsAction");
+            auto* deformation=window.findChild<QAction*>("femShowDeformationAction");
+            check(solve&&deformation&&!deformation->isEnabled(),"The FEM result was available before solving");
+            const auto* beam_session=&window.workspace_.open_part(beam.document_id)->session;
+            const auto beam_revision=beam_session->revision();
+            generate->trigger();flush();solve->trigger();flush();
+            const auto* deformed=window.active_fem_deformation();
+            check(deformed&&deformation->isChecked()&&deformed->vertices==window.viewer_->mesh().vertices,
+                "The static command did not display the deformed cantilever");
+            check(beam_session->revision()==beam_revision,"Generating a static result modified the document");
+            deformation->trigger();flush();
+            check(!deformation->isChecked()&&window.viewer_->mesh().vertices==window.active_generated_fem_mesh()->vertices,
+                "Turning off deformation did not restore the undeformed mesh");
+        }
+#endif
         std::cout<<"FEM GUI: shared Body/Boolean source, entry, inspection, middle confirmation, Cancel, unchanged OK, activation, readonly CAD, Undo/Redo, save/reopen, five languages and two themes passed\n";
         return 0;
     }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}

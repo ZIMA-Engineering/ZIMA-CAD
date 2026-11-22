@@ -150,7 +150,19 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
         if(auto* show=fem_mesh_menu_->findChild<QAction*>("femShowMeshAction")) {
             const bool available=fem_active&&active_generated_fem_mesh();
             show->setEnabled(available);
-            show->setChecked(available&&show_generated_fem_mesh_);
+            show->setChecked(available&&show_generated_fem_mesh_&&
+                !(show_fem_deformation_&&active_fem_deformation()));
+        }
+        if(fem_solution_menu_) {
+            fem_solution_menu_->setTitle(tr("Calculation"));
+            fem_solution_menu_->menuAction()->setVisible(fem_active);
+            fem_solution_menu_->setEnabled(fem_active&&!properties_dialog_);
+            fem_solution_menu_->findChild<QAction*>("femLinearStaticsAction")->setText(tr("Linear statics"));
+            auto* show=fem_solution_menu_->findChild<QAction*>("femShowDeformationAction");
+            show->setText(tr("Show deformation"));
+            const bool available=fem_active&&active_fem_deformation();
+            show->setEnabled(available);
+            show->setChecked(available&&show_fem_deformation_);
         }
     }
     if(command_insert_menu_){command_insert_menu_->clear();command_insert_menu_->setEnabled(workspace_.size()!=0);}

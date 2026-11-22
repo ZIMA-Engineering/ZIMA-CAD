@@ -22,7 +22,8 @@ const document::FemCondition* AssemblyWorkspaceWindow::active_fem_condition(cons
 kernel::ViewerMesh AssemblyWorkspaceWindow::fem_display_mesh()const {
     const auto* part=workspace_.open_part(workspace_.active_document_id());if(!part)return {};
     auto result=part->session.body_context_mesh();const auto& doc=part->session.document();
-    const auto* mesh=show_generated_fem_mesh_&&!properties_dialog_?active_generated_fem_mesh():nullptr;
+    const auto* mesh=show_fem_deformation_&&!properties_dialog_?active_fem_deformation():nullptr;
+    if(!mesh&&show_generated_fem_mesh_&&!properties_dialog_)mesh=active_generated_fem_mesh();
     const auto* body=doc.body_history.find(doc.body_history.active_body_id());if(!body||!body->fem)return result;
     kernel::ViewerMesh source_mesh;
     if(mesh) {
