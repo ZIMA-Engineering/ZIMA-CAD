@@ -9,10 +9,10 @@ namespace zima::document {
 
 enum class FemAnalysisKind { LinearElasticStatic, SteadyStateThermal };
 
-inline bool fem_condition_applies_to_analysis(FemConditionKind kind,FemAnalysisKind analysis) {
+inline bool fem_condition_applies_to_analysis(FemConditionKind kind,FemAnalysisKind analysis,bool expansion=false) {
     if(kind==FemConditionKind::MeasurementPoint)return false;
     return analysis==FemAnalysisKind::SteadyStateThermal?
-        kind==FemConditionKind::HeatSource:kind!=FemConditionKind::HeatSource;
+        (kind==FemConditionKind::HeatSource||(expansion&&kind==FemConditionKind::Constraint)):kind!=FemConditionKind::HeatSource;
 }
 enum class FemElementOrder { Linear = 1, Quadratic = 2 };
 
@@ -30,6 +30,7 @@ struct FemThermalSettings {
     double ambient_C{20};
     // Explicit convection on the complete exterior, including loaded faces.
     double convection_W_m2K{10};
+    bool expansion{false};
     bool operator==(const FemThermalSettings&) const = default;
 };
 
@@ -43,6 +44,10 @@ struct FemDefinition {
     std::optional<FemThermalSettings> thermal;
     bool operator==(const FemDefinition&) const = default;
 };
+
+inline bool fem_thermal_expansion(const FemDefinition& value) {
+    return value.analysis==FemAnalysisKind::SteadyStateThermal&&value.thermal&&value.thermal->expansion;
+}
 
 void validate_fem_definition(const FemDefinition&);
 void to_json(nlohmann::json&, const FemDefinition&);

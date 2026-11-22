@@ -3050,5 +3050,10 @@
   "Measurement point is outside the FEM volume.": "Точка измерения находится вне объёма FEM.",
   "ΔX %1 · ΔY %2 · ΔZ %3 · total %4 mm": "ΔX %1 · ΔY %2 · ΔZ %3 · всего %4 mm",
   "Click the displayed mesh to read the nearest surface node temperature.": "Щёлкните по отображаемой сетке, чтобы прочитать температуру ближайшего поверхностного узла.",
-  "Show temperatures": "Показать температуры"
+  "Show temperatures": "Показать температуры",
+  "Calculate thermal expansion": "Рассчитать тепловое расширение",
+  "Uses the Part material's expansion coefficient and reference temperature, and mechanical restraints. Forces and pressure are excluded. Measurement points report temperature and displacement caused by heating.": "Используются коэффициент расширения и опорная температура материала детали, а также механические закрепления. Силы и давление не учитываются. Точки измерения показывают температуру и перемещение от нагрева.",
+  "Thermal deformation ×%1 · static result": "Тепловая деформация ×%1 · статический результат",
+  "Set a valid thermal expansion coefficient and reference temperature in the Part material.": "Задайте допустимые коэффициент теплового расширения и опорную температуру в материале детали.",
+  "The FEM temperature field is invalid for thermal expansion.": "Температурное поле МКЭ недопустимо для расчёта теплового расширения."
 }

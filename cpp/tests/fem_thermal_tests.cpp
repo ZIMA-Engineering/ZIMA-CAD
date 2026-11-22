@@ -1,5 +1,6 @@
 #include "../app/fem_thermal.hpp"
 #include "../app/fem_probe.hpp"
+#include "../app/fem_linear_statics.hpp"
 #include <nlohmann/json.hpp>
 #include <algorithm>
 #include <cmath>
@@ -9,7 +10,7 @@
 using namespace zima;
 namespace {
 void check(bool value,const char* message){if(!value)throw std::runtime_error(message);}
-void near(double a,double b,double tolerance,const char* message){if(std::abs(a-b)>tolerance){std::cerr<<a<<" != "<<b<<'\n';throw std::runtime_error(message);}}
+void near(double a,double b,double tolerance,const char* message){if(!std::isfinite(a)||!std::isfinite(b)||std::abs(a-b)>tolerance){std::cerr<<a<<" != "<<b<<'\n';throw std::runtime_error(message);}}
 template<class F>void rejects(F f){bool rejected=false;try{f();}catch(const std::exception&){rejected=true;}check(rejected,"Invalid thermal input accepted");}
 app::FemVolumeMesh tetra(bool quadratic) {
     app::FemVolumeMesh mesh;mesh.order=quadratic?document::FemElementOrder::Quadratic:document::FemElementOrder::Linear;
@@ -123,5 +124,6 @@ void units() {
     near(app::fem_thermal_material(material).conductivity_W_mmK,.05,1e-15,"SI conductivity unit failed");
     material.properties["THERMAL_CONDUCTIVITY"]="50junk";check(!std::isfinite(app::fem_thermal_material(material).conductivity_W_mmK),"Invalid conductivity accepted");
 }
+#include "fem_expansion_tests.inc"
 }
-int main(){try{uniform();independent_linear();interior_face();probes();units();std::cout<<"FEM thermal: analytic T4, uniform T4/T10, internal face exclusion, winding, power balance, superposition, units, persistence and point interpolation passed\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}
+int main(){try{uniform();independent_linear();interior_face();probes();units();expansion();expansion_gradient();expansion_units();std::cout<<"FEM thermal: heat balance, interpolation, thermoelastic expansion/stress, quadrature, units and persistence passed\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

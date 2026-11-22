@@ -39,6 +39,7 @@ void to_json(nlohmann::json& json,const FemDefinition& value) {
     if(!value.conditions.empty())json["conditions"]=value.conditions;
     if(value.thermal)json["thermal"]={{"ambient_C",value.thermal->ambient_C},
         {"convection_W_m2K",value.thermal->convection_W_m2K}};
+    if(value.thermal&&value.thermal->expansion)json["thermal"]["expansion"]=true;
 }
 
 void from_json(const nlohmann::json& json,FemDefinition& value) {
@@ -51,6 +52,7 @@ void from_json(const nlohmann::json& json,FemDefinition& value) {
     if(json.contains("thermal")) {
         const auto& thermal=json.at("thermal");
         next.thermal=FemThermalSettings{thermal.at("ambient_C"),thermal.at("convection_W_m2K")};
+        next.thermal->expansion=thermal.value("expansion",false);
     }
     const auto& mesh=json.at("mesh");
     next.mesh.minimum_size_mm=mesh.at("minimum_size_mm").get<double>();

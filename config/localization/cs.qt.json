@@ -3050,5 +3050,10 @@
   "Measurement point is outside the FEM volume.": "Bod měření je mimo objem FEM.",
   "ΔX %1 · ΔY %2 · ΔZ %3 · total %4 mm": "ΔX %1 · ΔY %2 · ΔZ %3 · celkem %4 mm",
   "Click the displayed mesh to read the nearest surface node temperature.": "Kliknutím na zobrazenou síť odečtete teplotu nejbližšího povrchového uzlu.",
-  "Show temperatures": "Zobrazit teploty"
+  "Show temperatures": "Zobrazit teploty",
+  "Calculate thermal expansion": "Počítat tepelnou roztažnost",
+  "Uses the Part material's expansion coefficient and reference temperature, and mechanical restraints. Forces and pressure are excluded. Measurement points report temperature and displacement caused by heating.": "Použije součinitel roztažnosti a referenční teplotu z materiálu dílu a mechanické vazby. Síly a tlak se nezahrnují. Body měření ukazují teplotu a posunutí způsobené ohřevem.",
+  "Thermal deformation ×%1 · static result": "Tepelná deformace ×%1 · statický výsledek",
+  "Set a valid thermal expansion coefficient and reference temperature in the Part material.": "V materiálu dílu nastavte platný součinitel teplotní roztažnosti a referenční teplotu.",
+  "The FEM temperature field is invalid for thermal expansion.": "Teplotní pole FEM není platné pro výpočet tepelné roztažnosti."
 }

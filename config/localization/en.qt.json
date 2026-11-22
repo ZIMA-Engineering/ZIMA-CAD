@@ -3050,5 +3050,10 @@
   "Measurement point is outside the FEM volume.": "Measurement point is outside the FEM volume.",
   "ΔX %1 · ΔY %2 · ΔZ %3 · total %4 mm": "ΔX %1 · ΔY %2 · ΔZ %3 · total %4 mm",
   "Click the displayed mesh to read the nearest surface node temperature.": "Click the displayed mesh to read the nearest surface node temperature.",
-  "Show temperatures": "Show temperatures"
+  "Show temperatures": "Show temperatures",
+  "Calculate thermal expansion": "Calculate thermal expansion",
+  "Uses the Part material's expansion coefficient and reference temperature, and mechanical restraints. Forces and pressure are excluded. Measurement points report temperature and displacement caused by heating.": "Uses the Part material's expansion coefficient and reference temperature, and mechanical restraints. Forces and pressure are excluded. Measurement points report temperature and displacement caused by heating.",
+  "Thermal deformation ×%1 · static result": "Thermal deformation ×%1 · static result",
+  "Set a valid thermal expansion coefficient and reference temperature in the Part material.": "Set a valid thermal expansion coefficient and reference temperature in the Part material.",
+  "The FEM temperature field is invalid for thermal expansion.": "The FEM temperature field is invalid for thermal expansion."
 }

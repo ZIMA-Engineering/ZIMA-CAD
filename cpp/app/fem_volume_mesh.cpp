@@ -45,7 +45,7 @@ FemVolumeMesh generate_fem_volume_mesh(
     // solution, while loads for another analysis must not partition its mesh.
     auto definition=authored_definition;
     std::erase_if(definition.conditions,[&](const auto& condition){
-        return !document::fem_condition_applies_to_analysis(condition.kind,definition.analysis);
+        return !document::fem_condition_applies_to_analysis(condition.kind,definition.analysis,document::fem_thermal_expansion(definition));
     });
     report_fem_progress(progress,FemProgressPhase::PreparingGeometry);
     static std::mutex mutex;

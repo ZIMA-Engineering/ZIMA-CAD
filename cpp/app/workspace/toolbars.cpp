@@ -147,20 +147,21 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
         fem_results_menu_->setTitle(tr("Results"));
         const bool available=active_fem_body()&&!properties_dialog_&&active_sketch_id_.empty()&&active_fem_deformation();
         const bool thermal=fem_thermal_analysis();
+        const bool mechanical=!thermal||fem_expansion_analysis();
         fem_results_menu_->setEnabled(available);
         auto* displacement=fem_results_menu_->findChild<QAction*>("femDisplacementResultAction");
         auto* stress=fem_results_menu_->findChild<QAction*>("femStressResultAction");
         auto* temperature=fem_results_menu_->findChild<QAction*>("femTemperatureResultAction");
         temperature->setText(tr("Temperature [°C]"));temperature->setVisible(thermal);
-        temperature->setChecked(available&&show_fem_deformation_&&thermal);
-        displacement->setVisible(!thermal);stress->setVisible(!thermal);
+        temperature->setChecked(available&&show_fem_deformation_&&fem_result_quantity_==FemResultQuantity::Temperature);
+        displacement->setVisible(mechanical);stress->setVisible(mechanical);
         for(const auto* name:{"femAnimateAction","femOriginalAction","femDeformationSettingsAction"})
-            fem_results_menu_->findChild<QAction*>(name)->setVisible(!thermal);
+            fem_results_menu_->findChild<QAction*>(name)->setVisible(mechanical);
         displacement->setText(tr("Displacement [mm]"));stress->setText(tr("Von Mises stress [MPa]"));
         stress->setToolTip(tr("Volume-averaged stress in each element, without nodal smoothing."));
         displacement->setChecked(available&&show_fem_deformation_&&fem_result_quantity_==FemResultQuantity::Displacement);
         stress->setChecked(available&&show_fem_deformation_&&fem_result_quantity_==FemResultQuantity::VonMises);
-        if(!available||!show_fem_deformation_||thermal)set_fem_animation(false);
+        if(!available||!show_fem_deformation_||!mechanical)set_fem_animation(false);
         const auto result_action=[&](const char* name,const QString& label,bool checked) {
             auto* action=fem_results_menu_->findChild<QAction*>(name);action->setText(label);action->setChecked(checked);return action;
         };
@@ -168,7 +169,7 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
         result_action("femOriginalAction",tr("Transparent original"),fem_show_original_);
         result_action("femExtremaAction",tr("Show minimum / maximum"),fem_show_extrema_);
         result_action("femProbeAction",tr("Probe results"),fem_probe_enabled_)->setToolTip(
-            thermal?tr("Click the displayed mesh to read the nearest surface node temperature."):
+            fem_result_quantity_==FemResultQuantity::Temperature?tr("Click the displayed mesh to read the nearest surface node temperature."):
             tr("Click the displayed mesh to read the nearest surface node displacement or the owning element's average stress."));
         fem_results_menu_->findChild<QAction*>("femDeformationSettingsAction")->setText(tr("Deformation settings"));
     }
@@ -288,7 +289,7 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
         add_command(selection_action_);
         for(auto kind:{document::FemConditionKind::Constraint,document::FemConditionKind::Force,document::FemConditionKind::Pressure,document::FemConditionKind::HeatSource,document::FemConditionKind::MeasurementPoint}) {
             if(kind!=document::FemConditionKind::MeasurementPoint&&!document::fem_condition_applies_to_analysis(kind,
-                    fem_thermal_analysis()?document::FemAnalysisKind::SteadyStateThermal:document::FemAnalysisKind::LinearElasticStatic))continue;
+                    fem_thermal_analysis()?document::FemAnalysisKind::SteadyStateThermal:document::FemAnalysisKind::LinearElasticStatic,fem_expansion_analysis()))continue;
             const auto name=fem_condition_name(kind);
             const auto key=kind==document::FemConditionKind::MeasurementPoint?"MeasurementPoint":kind==document::FemConditionKind::HeatSource?"HeatSource":kind==document::FemConditionKind::Force?"Force":kind==document::FemConditionKind::Pressure?"Pressure":"Constraint";
             const auto icon=fem_condition_icon(kind);

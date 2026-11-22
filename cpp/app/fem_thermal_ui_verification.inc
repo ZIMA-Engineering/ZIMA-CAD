@@ -81,6 +81,8 @@
             // Use the material already owned by the Part, with explicit units.
             auto thermal_material=workspace::material_data(window.workspace_,beam.document_id);
             thermal_material.properties["THERMAL_CONDUCTIVITY"]="50";thermal_material.units["THERMAL_CONDUCTIVITY"]="W/(m*K)";
+            thermal_material.properties["THERMAL_EXPANSION_COEFFICIENT"]="1.2e-5";thermal_material.units["THERMAL_EXPANSION_COEFFICIENT"]="1/C";
+            thermal_material.properties["THERM_EXPANSION_REF_TEMPERATURE"]="25";thermal_material.units["THERM_EXPANSION_REF_TEMPERATURE"]="C";
             static_cast<void>(workspace::set_material_data(window.workspace_,beam.document_id,thermal_material));
             const auto body_settings=[&] {window.show_fem_body_properties(beam_fem);flush();return dynamic_cast<FemBodyDialog*>(window.properties_dialog_);};
             auto* analysis_settings=body_settings();check(analysis_settings,"FEM analysis settings missing");
@@ -113,6 +115,11 @@
                     analysis_settings=body_settings();
                     for(const auto* key:{"Ambient temperature","Heat transfer coefficient"})
                         check(std::ranges::any_of(analysis_settings->findChildren<QLabel*>(),[&](const auto* label){return label->text()==localized.qt_translations.value(key);}),"Thermal dialog label is untranslated");
+                    auto* expansion_box=analysis_settings->findChild<QCheckBox*>("femThermalExpansion");
+                    check(expansion_box&&expansion_box->text()==localized.qt_translations.value("Calculate thermal expansion"),"Expansion control is untranslated");
+                    expansion_box->setChecked(true);flush();
+                    check(std::ranges::any_of(analysis_settings->findChildren<QLabel*>(),[&](const auto* label){return label->isVisible()&&label->text()==localized.qt_translations.value(
+                        "Uses the Part material's expansion coefficient and reference temperature, and mechanical restraints. Forces and pressure are excluded. Measurement points report temperature and displacement caused by heating.");}),"Expansion explanation is untranslated");
                     window.grab().save(QString::fromStdString(document::path_to_utf8(directory/(std::string("fem-thermal-settings-")+language+"-"+theme+".png"))));
                     analysis_settings->reject();flush();
                     current_fem_action("femHeatSourceAction")->trigger();flush();
@@ -176,6 +183,7 @@
                 const auto restored=document::PartDocument::load(thermal_path);
                 check(restored.body_history==pressure_session.document().body_history,"Thermal save/reopen lost settings, sources or measurement points");
                 window.grab().save(QString::fromStdString(document::path_to_utf8(directory/("fem-temperature-"+std::to_string(mode)+".png"))));
+#include "fem_expansion_ui_verification.inc"
                 window.remove_fem_condition(heat_id);flush();
             }
             check(kernel::body_calculation_count.load()==inspection_calculations,"Thermal analysis recalculated CAD");

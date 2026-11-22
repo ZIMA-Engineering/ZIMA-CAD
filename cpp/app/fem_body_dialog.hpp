@@ -4,6 +4,7 @@
 #include <zima/ui/reference_cell.hpp>
 #include <QFormLayout>
 #include <QComboBox>
+#include <QCheckBox>
 #include <QDoubleSpinBox>
 #include <QHeaderView>
 #include <QLabel>
@@ -57,10 +58,15 @@ public:
         thermal_form->addRow(tr("Ambient temperature"),ambient);
         thermal_form->addRow(tr("Heat transfer coefficient"),transfer);
         auto* cooling=new QLabel(tr("Heat transfer applies to the complete exterior, including heated faces. Set the coefficient for your cooling conditions."),this);
-        cooling->setWordWrap(true);thermal_form->addRow(cooling);content_layout()->addLayout(thermal_form);
+        cooling->setWordWrap(true);thermal_form->addRow(cooling);
+        auto* expansion=new QCheckBox(tr("Calculate thermal expansion"),this);expansion->setObjectName("femThermalExpansion");
+        expansion->setChecked(thermal.expansion);thermal_form->addRow(expansion);
+        auto* expansion_help=new QLabel(tr("Uses the Part material's expansion coefficient and reference temperature, and mechanical restraints. Forces and pressure are excluded. Measurement points report temperature and displacement caused by heating."),this);
+        expansion_help->setWordWrap(true);thermal_form->addRow(expansion_help);content_layout()->addLayout(thermal_form);
         const auto visibility=[=,this] {
             const bool active=pending.fem->analysis==document::FemAnalysisKind::SteadyStateThermal;
             thermal_form->setRowVisible(ambient,active);thermal_form->setRowVisible(transfer,active);thermal_form->setRowVisible(cooling,active);
+            thermal_form->setRowVisible(expansion,active);thermal_form->setRowVisible(expansion_help,active&&expansion->isChecked());
         };
         connect(analysis,&QComboBox::currentIndexChanged,this,[=,this] {
             pending.fem->analysis=static_cast<document::FemAnalysisKind>(analysis->currentData().toInt());
@@ -70,9 +76,12 @@ public:
         });
         connect(ambient,&QDoubleSpinBox::valueChanged,this,[this](double value){if(!pending.fem->thermal)pending.fem->thermal.emplace();pending.fem->thermal->ambient_C=value;});
         connect(transfer,&QDoubleSpinBox::valueChanged,this,[this](double value){if(!pending.fem->thermal)pending.fem->thermal.emplace();pending.fem->thermal->convection_W_m2K=value;});
+        connect(expansion,&QCheckBox::toggled,this,[=,this](bool value){
+            if(!pending.fem->thermal)pending.fem->thermal.emplace();pending.fem->thermal->expansion=value;visibility();notify();
+        });
         visibility();
         status_=new QLabel(this);status_->setObjectName("femBodyStatus");status_->setWordWrap(true);content_layout()->addWidget(status_);
-        set_initial_size({520,410});refresh();
+        set_initial_size({520,490});refresh();
     }
     void arm(){active_=true;refresh();notify();}
     void end_input(){active_=false;inspected_=false;refresh();notify();}

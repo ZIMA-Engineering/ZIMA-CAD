@@ -37,14 +37,14 @@ public:
     std::function<void()> stop_geometry;
     std::function<void(sketcher::Sketch)> edit_sketch;
     std::function<const kernel::ViewerReferenceGeometry&()> work_plane_geometry;
-    FemConditionDialog(document::FemCondition value,std::function<void(document::FemCondition)> commit,QWidget* parent)
+    FemConditionDialog(document::FemCondition value,std::function<void(document::FemCondition)> commit,QWidget* parent,bool fixed_kind=false)
         : PropertiesSubWindow(tr("FEM condition properties"),parent),initial_(std::move(value)),commit_(std::move(commit)) {
         setObjectName("femConditionDialog");setAttribute(Qt::WA_DeleteOnClose);setProperty("expandBottomTable",true);
         auto* form=new QFormLayout;
         form_=form;
         name_=new QLineEdit(QString::fromStdString(initial_.name),this);name_->setObjectName("femConditionName");
         kind_=new QComboBox(this);kind_->setObjectName("femConditionKind");
-        const bool independent_kind=initial_.kind==document::FemConditionKind::MeasurementPoint||initial_.kind==document::FemConditionKind::HeatSource;
+        const bool independent_kind=fixed_kind||initial_.kind==document::FemConditionKind::MeasurementPoint||initial_.kind==document::FemConditionKind::HeatSource;
         if(independent_kind)
             kind_->addItem(fem_condition_name(initial_.kind),int(initial_.kind));
         else for(auto k:{document::FemConditionKind::Constraint,document::FemConditionKind::Force,document::FemConditionKind::Pressure})

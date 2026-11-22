@@ -3050,5 +3050,10 @@
   "Measurement point is outside the FEM volume.": "Le point de mesure est hors du volume FEM.",
   "ΔX %1 · ΔY %2 · ΔZ %3 · total %4 mm": "ΔX %1 · ΔY %2 · ΔZ %3 · total %4 mm",
   "Click the displayed mesh to read the nearest surface node temperature.": "Cliquez sur le maillage affiché pour lire la température du nœud de surface le plus proche.",
-  "Show temperatures": "Afficher les températures"
+  "Show temperatures": "Afficher les températures",
+  "Calculate thermal expansion": "Calculer la dilatation thermique",
+  "Uses the Part material's expansion coefficient and reference temperature, and mechanical restraints. Forces and pressure are excluded. Measurement points report temperature and displacement caused by heating.": "Utilise le coefficient de dilatation et la température de référence du matériau de la pièce, ainsi que les appuis mécaniques. Les forces et la pression sont exclues. Les points de mesure indiquent la température et le déplacement dû au chauffage.",
+  "Thermal deformation ×%1 · static result": "Déformation thermique ×%1 · résultat statique",
+  "Set a valid thermal expansion coefficient and reference temperature in the Part material.": "Définissez un coefficient de dilatation thermique et une température de référence valides dans le matériau de la pièce.",
+  "The FEM temperature field is invalid for thermal expansion.": "Le champ de température FEM est invalide pour calculer la dilatation thermique."
 }

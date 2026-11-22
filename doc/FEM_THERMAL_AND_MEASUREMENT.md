@@ -17,7 +17,11 @@ point inspection. Mechanical loads remain authored but are not thermal loads.
 **Measurement point** is a separate FEM command and Tree object. Its ordinary
 placement controls accept numeric coordinates and references, including a whole
 Origin. A mechanical solution reports signed ΔX, ΔY, ΔZ in the Part axes and
-their Euclidean magnitude in millimetres. A thermal solution reports temperature.
+their Euclidean magnitude in millimetres. A pure thermal solution reports temperature.
+With **Calculate thermal expansion** enabled in FEM Body properties, it reports
+both temperature and displacement caused by heating. This optional coupling
+uses the Part material's expansion coefficient and reference temperature and
+mechanical restraints; see [Thermal expansion](FEM_THERMAL_EXPANSION.md).
 Values are interpolated within the containing T4 or T10 element; an exterior
 point is reported as outside the volume, never silently snapped to a node.
 
@@ -80,9 +84,9 @@ inactive conditions remain authored without partitioning the current mesh.
 
 This is steady-state conduction with uniform ambient convection and direct
 surface power. Remote radiation, prescribed temperature boundaries, transient
-heating, temperature-dependent material properties and thermal expansion/stress
-coupling are separate work. The measurement point reports temperature here;
-it does not imply that temperature-induced deformation has been calculated.
+heating and temperature-dependent material properties remain separate work.
+Temperature-induced deformation and stress require the explicit thermal
+expansion option; a pure thermal solve does not calculate displacement.
 Mechanical analysis retains its existing small-displacement linear-elastic
 scope. Both solvers share C++ code across platforms; this delivery is verified
 on Windows, with Linux execution still outstanding.

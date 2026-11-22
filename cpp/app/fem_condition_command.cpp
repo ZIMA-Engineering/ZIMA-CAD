@@ -36,7 +36,7 @@ kernel::ViewerMesh AssemblyWorkspaceWindow::fem_display_mesh()const {
     for(const auto& condition:body->fem->conditions) {
         if(fem_condition_preview_&&fem_condition_preview_->id==condition.id)continue;
         const bool measurement=condition.kind==document::FemConditionKind::MeasurementPoint;
-        if(!measurement&&!document::fem_condition_applies_to_analysis(condition.kind,body->fem->analysis)&&
+        if(!measurement&&!document::fem_condition_applies_to_analysis(condition.kind,body->fem->analysis,document::fem_thermal_expansion(*body->fem))&&
                 fem_inspected_condition_!=condition.id)continue;
         auto presentation=document::fem_condition_presentation(condition,source);
         if(measurement&&mesh&&show_fem_deformation_&&active_fem_deformation())
@@ -95,7 +95,7 @@ void AssemblyWorkspaceWindow::show_fem_condition_properties(document::FemConditi
         for(unsigned n=1;;++n){initial.name=fem_condition_name(kind).toStdString()+" "+std::to_string(n);
             if(std::ranges::none_of(body->fem->conditions,[&](const auto& c){return c.name==initial.name;}))break;}
     }
-    auto* dialog=new FemConditionDialog(initial,[this,edit](auto value){static_cast<void>(workspace::commit_fem_condition(workspace_,edit,std::move(value)));},this);
+    auto* dialog=new FemConditionDialog(initial,[this,edit](auto value){static_cast<void>(workspace::commit_fem_condition(workspace_,edit,std::move(value)));},this,fem_thermal_analysis());
     properties_dialog_=dialog;primitive_reference_dialog_=dialog;primitive_parameter_owner_id_=initial.id;
     construction_dimension_object_id_=initial.id;fem_condition_preview_=initial;fem_inspected_condition_.clear();
     dialog->work_plane_geometry=[this]() -> const kernel::ViewerReferenceGeometry& {return primitive_reference_geometry_;};

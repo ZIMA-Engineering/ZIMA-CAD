@@ -454,6 +454,7 @@ private:
     bool show_fem_deformation_{};
     enum class FemResultQuantity { Displacement, VonMises, Temperature };
     bool fem_thermal_analysis() const;
+    bool fem_expansion_analysis() const;
     FemResultQuantity fem_result_quantity_{FemResultQuantity::Displacement};
     void update_fem_result_presentation();
     void select_fem_result(FemResultQuantity);

@@ -3,6 +3,7 @@
 #include <zima/document/fem_presentation.hpp>
 #include <zima/sketcher/sketch.hpp>
 #include <algorithm>
+#include <charconv>
 #include <cmath>
 #include <limits>
 #include <numeric>
@@ -11,6 +12,45 @@
 namespace zima::app {
 namespace {
 using namespace fem_integration;
+
+void validate_thermal_strain(const FemVolumeMesh& mesh,const FemThermalStrain* thermal) {
+    if(!thermal)return;
+    if(!std::isfinite(thermal->material.coefficient_per_K)||!std::isfinite(thermal->material.reference_C)||
+            thermal->material.reference_C< -273.15)
+        throw std::runtime_error("Set a valid thermal expansion coefficient and reference temperature in the Part material.");
+    if(thermal->temperature_C.size()!=mesh.surface.vertices.size()||
+            !std::ranges::all_of(thermal->temperature_C,[](double t){return std::isfinite(t)&&t>=-273.15;}))
+        throw std::runtime_error("The FEM temperature field is invalid for thermal expansion.");
+}
+
+template<class F> void thermal_samples(const FemVolumeMesh& mesh,const std::array<std::uint32_t,10>& nodes,
+        const FemThermalStrain& thermal,FemElasticMaterial material,F sample) {
+    const bool quadratic=mesh.order==document::FemElementOrder::Quadratic;
+    constexpr std::array<std::array<unsigned,2>,6> edges{{{0,1},{1,2},{2,0},{0,3},{2,3},{1,3}}};
+    double orientation{};
+    const auto at=[&](const std::array<double,4>& barycentric,double weight) {
+        std::array<double,10> shape{};
+        for(unsigned i=0;i<4;++i)shape[i]=quadratic?barycentric[i]*(2*barycentric[i]-1):barycentric[i];
+        if(quadratic)for(unsigned i=0;i<6;++i)shape[i+4]=4*barycentric[edges[i][0]]*barycentric[edges[i][1]];
+        double delta{};
+        for(unsigned i=0;i<(quadratic?10u:4u);++i)
+            delta+=shape[i]*(thermal.temperature_C[nodes[i]]-thermal.material.reference_C);
+        const double pressure=material.young_MPa/(1-2*material.poisson)*thermal.material.coefficient_per_K*delta;
+        if(!std::isfinite(pressure))throw std::runtime_error("The FEM temperature field is invalid for thermal expansion.");
+        sample(integration_point(mesh,nodes,quadratic,barycentric,weight,orientation),pressure);
+    };
+    if(!quadratic){at({.25,.25,.25,.25},1./6);return;}
+    // Positive 4x4x4 Gauss-Legendre quadrature under a Duffy transform.
+    // The ordinary four-point stiffness rule cannot exactly integrate the
+    // cubic temperature*gradient load even on an affine T10. This rule also
+    // integrates the polynomial cofactor*temperature load of curved T10s.
+    constexpr std::array<double,4> x{.06943184420297371,.33000947820757187,.6699905217924281,.9305681557970262};
+    constexpr std::array<double,4> w{.17392742256872693,.32607257743127307,.32607257743127307,.17392742256872693};
+    for(unsigned i=0;i<4;++i)for(unsigned j=0;j<4;++j)for(unsigned k=0;k<4;++k) {
+        const double r=x[i],s=(1-r)*x[j],t=(1-r)*(1-x[j])*x[k];
+        at({1-r-s-t,r,s,t},w[i]*w[j]*w[k]*(1-r)*(1-r)*(1-x[j]));
+    }
+}
 
 void check_restraints(const FemVolumeMesh& mesh,const std::vector<bool>& fixed,unsigned count){
     const auto size=mesh.surface.vertices.size();
@@ -162,24 +202,26 @@ void add_force(const FemVolumeMesh& mesh,const FemMeshConditionRegion& region,
         force[3*i+d]+=condition.force_N*(weights[i]/measure)*direction[d];
 }
 FemElementStress element_stress(const Element& element,const std::vector<kernel::Vec3>& displacement,
-        bool quadratic,FemElasticMaterial material) {
+        bool quadratic,FemElasticMaterial material,const FemVolumeMesh* mesh=nullptr,const FemThermalStrain* thermal=nullptr) {
     const double shear=material.young_MPa/(2*(1+material.poisson));
     const double lambda=2*shear*material.poisson/(1-2*material.poisson);
     FemElementStress result;double volume=0;
-    for(unsigned q=0;q<(quadratic?4u:1u);++q) {
-        const auto& point=element.points[q];std::array<Vector,3> gradient{};
+    const auto accumulate=[&](const IntegrationPoint& point,double thermal_pressure) {
+        std::array<Vector,3> gradient{};
         for(unsigned i=0;i<(quadratic?10u:4u);++i) {
             const auto u=array(displacement.at(element.nodes[i]));
             for(unsigned d=0;d<3;++d)for(unsigned k=0;k<3;++k)gradient[d][k]+=u[d]*point.gradients[i][k];
         }
         const double trace=gradient[0][0]+gradient[1][1]+gradient[2][2];
-        const std::array<double,6> stress{lambda*trace+2*shear*gradient[0][0],
-            lambda*trace+2*shear*gradient[1][1],lambda*trace+2*shear*gradient[2][2],
+        const std::array<double,6> stress{lambda*trace+2*shear*gradient[0][0]-thermal_pressure,
+            lambda*trace+2*shear*gradient[1][1]-thermal_pressure,lambda*trace+2*shear*gradient[2][2]-thermal_pressure,
             shear*(gradient[0][1]+gradient[1][0]),shear*(gradient[1][2]+gradient[2][1]),
             shear*(gradient[2][0]+gradient[0][2])};
         for(unsigned i=0;i<6;++i)result.components_MPa[i]+=point.weight*stress[i];
         volume+=point.weight;
-    }
+    };
+    if(thermal)thermal_samples(*mesh,element.nodes,*thermal,material,accumulate);
+    else for(unsigned q=0;q<(quadratic?4u:1u);++q)accumulate(element.points[q],0);
     for(auto& value:result.components_MPa)value/=volume;
     const auto& s=result.components_MPa;
     result.von_mises_MPa=std::sqrt(.5*((s[0]-s[1])*(s[0]-s[1])+(s[1]-s[2])*(s[1]-s[2])+
@@ -188,20 +230,40 @@ FemElementStress element_stress(const Element& element,const std::vector<kernel:
 }
 }
 
+FemExpansionMaterial fem_expansion_material(const document::MaterialData& data) {
+    const auto number=[&](const char* key) {
+        const auto found=data.properties.find(key);double value=std::numeric_limits<double>::quiet_NaN();
+        if(found==data.properties.end())return value;
+        const auto& text=found->second;const auto parsed=std::from_chars(text.data(),text.data()+text.size(),value);
+        return parsed.ec==std::errc{}&&parsed.ptr==text.data()+text.size()?value:std::numeric_limits<double>::quiet_NaN();
+    };
+    const auto unit=[&](const char* key){const auto it=data.units.find(key);return it==data.units.end()?std::string{}:it->second;};
+    double alpha=number("THERMAL_EXPANSION_COEFFICIENT"),reference=number("THERM_EXPANSION_REF_TEMPERATURE");
+    const auto alpha_unit=unit("THERMAL_EXPANSION_COEFFICIENT"),reference_unit=unit("THERM_EXPANSION_REF_TEMPERATURE");
+    if(alpha_unit=="1/F"||alpha_unit=="1/°F")alpha*=1.8;
+    else if(alpha_unit!="1/C"&&alpha_unit!="1/°C"&&alpha_unit!="1/K")alpha=std::numeric_limits<double>::quiet_NaN();
+    if(reference_unit=="K")reference-=273.15;
+    else if(reference_unit=="F"||reference_unit=="°F")reference=(reference-32)/1.8;
+    else if(reference_unit!="C"&&reference_unit!="°C")reference=std::numeric_limits<double>::quiet_NaN();
+    return {alpha,reference};
+}
+
 std::vector<FemElementStress> fem_element_stresses(const FemVolumeMesh& mesh,
-        const std::vector<kernel::Vec3>& displacement,FemElasticMaterial material) {
+        const std::vector<kernel::Vec3>& displacement,FemElasticMaterial material,const FemThermalStrain* thermal) {
+    validate_thermal_strain(mesh,thermal);
     const bool quadratic=mesh.order==document::FemElementOrder::Quadratic;
     std::vector<FemElementStress> result;result.reserve(mesh.tetrahedra.size());
-    for(const auto& cell:mesh.tetrahedra)result.push_back(element_stress(integrate(mesh,cell,quadratic),displacement,quadratic,material));
+    for(const auto& cell:mesh.tetrahedra)result.push_back(element_stress(integrate(mesh,cell,quadratic),displacement,quadratic,material,&mesh,thermal));
     return result;
 }
 
 FemStaticResult solve_fem_linear_statics(const FemVolumeMesh& mesh,
         const document::FemDefinition& definition,FemElasticMaterial material,
-        const FemProgressCallback& progress){
+        const FemProgressCallback& progress,const FemThermalStrain* thermal){
     if(!std::isfinite(material.young_MPa)||material.young_MPa<=0||
         !std::isfinite(material.poisson)||material.poisson<=-1||material.poisson>=.5)
         throw std::runtime_error("Set a valid Young's modulus and Poisson ratio in the Part material.");
+    validate_thermal_strain(mesh,thermal);
     const bool quadratic=mesh.order==document::FemElementOrder::Quadratic;
     const unsigned count=quadratic?10:4,samples=quadratic?4:1;
     const auto size=3*mesh.surface.vertices.size();
@@ -215,6 +277,10 @@ FemStaticResult solve_fem_linear_statics(const FemVolumeMesh& mesh,
     report_fem_progress(progress,FemProgressPhase::AssemblingSystem,0,mesh.tetrahedra.size());
     for(const auto& cell:mesh.tetrahedra){
         elements.push_back(integrate(mesh,cell,quadratic));
+        if(thermal)thermal_samples(mesh,cell,*thermal,material,[&](const IntegrationPoint& point,double pressure){
+            for(unsigned i=0;i<count;++i)for(unsigned d=0;d<3;++d)
+                load[3*cell[i]+d]+=point.weight*pressure*point.gradients[i][d];
+        });
         for(unsigned q=0;q<samples;++q){
             const auto& point=elements.back().points[q];
             for(unsigned i=0;i<count;++i){
@@ -226,8 +292,9 @@ FemStaticResult solve_fem_linear_statics(const FemVolumeMesh& mesh,
         report_fem_progress(progress,FemProgressPhase::AssemblingSystem,elements.size(),mesh.tetrahedra.size());
     }
     report_fem_progress(progress,FemProgressPhase::ApplyingConditions);
-    const auto supports=pressure_supports(mesh,definition);
+    const auto supports=thermal?PressureSupports{}:pressure_supports(mesh,definition);
     for(const auto& condition:definition.conditions){
+        if(thermal&&condition.kind!=document::FemConditionKind::Constraint)continue;
         if(condition.kind==document::FemConditionKind::HeatSource||
                 condition.kind==document::FemConditionKind::MeasurementPoint)continue;
         const auto found=mesh.condition_regions.find(condition.id);
@@ -308,7 +375,7 @@ FemStaticResult solve_fem_linear_statics(const FemVolumeMesh& mesh,
     result.element_von_mises_MPa.reserve(elements.size());
     report_fem_progress(progress,FemProgressPhase::ComputingResults,0,elements.size());
     for(const auto& element:elements) {
-        const auto stress=element_stress(element,result.displacement,quadratic,material);
+        const auto stress=element_stress(element,result.displacement,quadratic,material,&mesh,thermal);
         result.element_von_mises_MPa.push_back(stress.von_mises_MPa);
         result.maximum_von_mises_MPa=std::max(result.maximum_von_mises_MPa,stress.von_mises_MPa);
         report_fem_progress(progress,FemProgressPhase::ComputingResults,result.element_von_mises_MPa.size(),elements.size());

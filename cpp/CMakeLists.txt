@@ -1691,7 +1691,7 @@ if(ZIMA_BUILD_TESTS)
         target_link_libraries(zima_cpp_fem_pressure_tests PRIVATE zima_workspace "${ZIMA_GMSH_LIBRARY}" TKTopAlgo)
         add_test(NAME zima_cpp_fem_pressure_tests COMMAND zima_cpp_fem_pressure_tests)
         add_executable(zima_cpp_fem_thermal_tests tests/fem_thermal_tests.cpp
-            app/fem_volume_mesh.cpp app/fem_thermal.cpp app/fem_probe.cpp)
+            app/fem_volume_mesh.cpp app/fem_thermal.cpp app/fem_probe.cpp app/fem_linear_statics.cpp)
         target_include_directories(zima_cpp_fem_thermal_tests PRIVATE "${ZIMA_GMSH_INCLUDE_DIR}")
         target_link_libraries(zima_cpp_fem_thermal_tests PRIVATE zima_workspace "${ZIMA_GMSH_LIBRARY}" TKTopAlgo)
         add_test(NAME zima_cpp_fem_thermal_tests COMMAND zima_cpp_fem_thermal_tests)

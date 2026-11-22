@@ -3050,5 +3050,10 @@
   "Measurement point is outside the FEM volume.": "Der Messpunkt liegt außerhalb des FEM-Volumens.",
   "ΔX %1 · ΔY %2 · ΔZ %3 · total %4 mm": "ΔX %1 · ΔY %2 · ΔZ %3 · gesamt %4 mm",
   "Click the displayed mesh to read the nearest surface node temperature.": "Klicken Sie auf das angezeigte Netz, um die Temperatur des nächstgelegenen Oberflächenknotens abzulesen.",
-  "Show temperatures": "Temperaturen anzeigen"
+  "Show temperatures": "Temperaturen anzeigen",
+  "Calculate thermal expansion": "Wärmeausdehnung berechnen",
+  "Uses the Part material's expansion coefficient and reference temperature, and mechanical restraints. Forces and pressure are excluded. Measurement points report temperature and displacement caused by heating.": "Verwendet den Ausdehnungskoeffizienten und die Referenztemperatur des Bauteilmaterials sowie mechanische Lagerungen. Kräfte und Druck werden nicht berücksichtigt. Messpunkte zeigen Temperatur und wärmebedingte Verschiebung.",
+  "Thermal deformation ×%1 · static result": "Thermische Verformung ×%1 · statisches Ergebnis",
+  "Set a valid thermal expansion coefficient and reference temperature in the Part material.": "Legen Sie einen gültigen Wärmeausdehnungskoeffizienten und eine gültige Referenztemperatur im Bauteilmaterial fest.",
+  "The FEM temperature field is invalid for thermal expansion.": "Das FEM-Temperaturfeld ist für die Berechnung der Wärmeausdehnung ungültig."
 }

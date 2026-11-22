@@ -93,8 +93,8 @@ FemElasticMaterial elastic_material(const document::MaterialData& data) {
     return {modulus,number("POISSON_RATIO")};
 }
 auto calculation_conditions(const document::FemDefinition& definition) {
-    return definition.conditions|std::views::filter([analysis=definition.analysis](const auto& condition){
-        return document::fem_condition_applies_to_analysis(condition.kind,analysis);
+    return definition.conditions|std::views::filter([analysis=definition.analysis,expansion=document::fem_thermal_expansion(definition)](const auto& condition){
+        return document::fem_condition_applies_to_analysis(condition.kind,analysis,expansion);
     });
 }
 bool same_calculation_definition(const document::FemDefinition& a,const document::FemDefinition& b) {
@@ -198,6 +198,12 @@ bool AssemblyWorkspaceWindow::fem_thermal_analysis()const {
     return body&&body->fem&&body->fem->analysis==document::FemAnalysisKind::SteadyStateThermal;
 }
 
+bool AssemblyWorkspaceWindow::fem_expansion_analysis()const {
+    const auto* part=workspace_.open_part(workspace_.active_document_id());
+    const auto* body=part?part->session.document().body_history.find(part->session.document().body_history.active_body_id()):nullptr;
+    return body&&body->fem&&document::fem_thermal_expansion(*body->fem);
+}
+
 #ifdef ZIMA_ENABLE_FEM_MESHER
 struct AssemblyWorkspaceWindow::GeneratedFemMesh {
     std::string document_id,body_id;
@@ -215,6 +221,7 @@ struct AssemblyWorkspaceWindow::GeneratedFemMesh {
         std::vector<double> nodal_magnitude,element_stress;
         std::optional<FemThermalResult> thermal;
         FemThermalMaterial thermal_material;
+        std::optional<FemExpansionMaterial> expansion_material;
         std::vector<double> temperature_field;
         struct Measurement {document::FemCondition condition;std::optional<FemProbeLocation> location;};
         std::map<std::string,Measurement> measurements;
@@ -232,7 +239,9 @@ const kernel::ViewerMesh* AssemblyWorkspaceWindow::active_fem_deformation() cons
     const auto& definition=*graph.find(graph.active_body_id())->fem;
     const auto material=workspace::material_data(workspace_,id);
     if(same_calculation_definition(calculated.definition,definition)&&
-            (calculated.thermal?calculated.thermal_material==fem_thermal_material(material):calculated.material==elastic_material(material)))
+            (calculated.thermal?calculated.thermal_material==fem_thermal_material(material):calculated.material==elastic_material(material))&&
+            (!calculated.expansion_material||(calculated.material==elastic_material(material)&&
+                *calculated.expansion_material==fem_expansion_material(material))))
         return &calculated.deformation;
 #endif
     return nullptr;
@@ -250,15 +259,16 @@ void AssemblyWorkspaceWindow::solve_fem_statics() {
         const auto definition=*graph.find(graph.active_body_id())->fem;
         const auto material=elastic_material(workspace::material_data(workspace_,id));
         const auto thermal_material=fem_thermal_material(workspace::material_data(workspace_,id));
+        const auto expansion_material=fem_expansion_material(workspace::material_data(workspace_,id));
         if(!active_fem_deformation()){
             begin_status_operation(tr("FEM: assembling the system…"));
             progress_started=true;
             FemTaskProgress progress([this](const FemProgress& value) {
                 update_status_operation(FemTaskProgress::message(value),FemTaskProgress::percent(value),value.total?100:0);
             });
-            auto solution=ui::run_background_task([mesh,definition,material,thermal_material,report=progress.callback()]{
+            auto solution=ui::run_background_task([mesh,definition,material,thermal_material,expansion_material,report=progress.callback()]{
+                GeneratedFemMesh::Solution calculated;calculated.definition=definition;calculated.material=material;
                 if(definition.analysis==document::FemAnalysisKind::SteadyStateThermal) {
-                    GeneratedFemMesh::Solution calculated;calculated.definition=definition;
                     calculated.thermal=solve_fem_steady_thermal(mesh->mesh,definition,thermal_material,report);
                     calculated.thermal_material=thermal_material;calculated.deformation=mesh->mesh.surface;
                     calculated.deformation.edges.clear();calculated.displacement.resize(mesh->mesh.surface.vertices.size());
@@ -268,12 +278,14 @@ void AssemblyWorkspaceWindow::solve_fem_statics() {
                         double temperature{};for(unsigned j=0;j<3;++j)temperature+=calculated.thermal->temperature_C.at(triangles[i+j])/3;
                         calculated.temperature_field.push_back(temperature);
                     }
-                    return calculated;
+                    if(!document::fem_thermal_expansion(definition))return calculated;
+                    calculated.expansion_material=expansion_material;
                 }
-                const auto result=solve_fem_linear_statics(mesh->mesh,definition,material,report);
+                const FemThermalStrain strain{expansion_material,calculated.thermal?
+                    std::span<const double>(calculated.thermal->temperature_C):std::span<const double>{}};
+                const auto result=solve_fem_linear_statics(mesh->mesh,definition,material,report,calculated.expansion_material?&strain:nullptr);
                 report_fem_progress(report,FemProgressPhase::PreparingDisplay);
-                GeneratedFemMesh::Solution calculated{definition,material,fem_deformed_mesh(mesh->mesh,result),
-                    result.maximum_displacement_mm};
+                calculated.deformation=fem_deformed_mesh(mesh->mesh,result);calculated.maximum_mm=result.maximum_displacement_mm;
                 const auto& triangles=mesh->mesh.surface.triangles;
                 for(std::size_t t=0;t<triangles.size()/3;++t) {
                     double displacement=0;
@@ -322,7 +334,8 @@ void AssemblyWorkspaceWindow::update_fem_result_presentation() {
     }
     const auto& result=*generated_fem_mesh_->solution;
     const bool stress=fem_result_quantity_==FemResultQuantity::VonMises;
-    if(result.thermal)viewer_->set_triangle_scalar_field(result.temperature_field,tr("Temperature [°C]"),result.thermal->minimum_C,result.thermal->maximum_C);
+    const bool temperature=fem_result_quantity_==FemResultQuantity::Temperature&&result.thermal;
+    if(temperature)viewer_->set_triangle_scalar_field(result.temperature_field,tr("Temperature [°C]"),result.thermal->minimum_C,result.thermal->maximum_C);
     else viewer_->set_triangle_scalar_field(stress?result.stress_field:result.displacement_field,
         stress?tr("Von Mises stress [MPa]"):tr("Displacement [mm]"),0,stress?result.maximum_MPa:result.maximum_mm);
     viewer_->set_result_displacements(result.displacement);
@@ -330,7 +343,7 @@ void AssemblyWorkspaceWindow::update_fem_result_presentation() {
         fem_probe_selection_=std::pair{hit.triangle,hit.node};update_fem_result_markers();
     }}:std::function<void(const viewer::MeshView::ResultHit&)>{});
     update_fem_deformation();update_fem_result_markers();
-    if(result.thermal)state_->setText(tr("Temperature: %1 to %2 °C · input %3 W · output %4 W")
+    if(temperature)state_->setText(tr("Temperature: %1 to %2 °C · input %3 W · output %4 W")
         .arg(result.thermal->minimum_C,0,'g',6).arg(result.thermal->maximum_C,0,'g',6)
         .arg(result.thermal->input_W,0,'g',6).arg(result.thermal->output_W,0,'g',6));
     else state_->setText(stress?tr("Maximum von Mises stress (element average): %1 MPa").arg(result.maximum_MPa,0,'g',6):
@@ -346,7 +359,7 @@ void AssemblyWorkspaceWindow::set_fem_animation(bool run) {
         if(fem_animation_running())fem_animation_->pause();
         return;
     }
-    if(!active_fem_deformation()||properties_dialog_||fem_thermal_analysis())return;
+    if(!active_fem_deformation()||properties_dialog_||(fem_thermal_analysis()&&!fem_expansion_analysis()))return;
     if(!show_fem_deformation_) {show_fem_deformation_=true;preserve_view_on_refresh_=true;refresh_scene();}
     if(!fem_animation_) {
         fem_animation_=new QVariantAnimation(this);
@@ -363,17 +376,19 @@ void AssemblyWorkspaceWindow::set_fem_animation(bool run) {
     else {fem_animation_fraction_=0;update_fem_deformation();fem_animation_->start();}
 }
 void AssemblyWorkspaceWindow::update_fem_deformation() {
-    if(fem_thermal_analysis()) {
+    if(fem_thermal_analysis()&&!fem_expansion_analysis()) {
         viewer_->set_result_deformation(1,false);viewer_->set_result_caption(tr("Steady-state temperature"));return;
     }
     viewer_->set_result_deformation(fem_magnification_*fem_animation_fraction_,fem_show_original_);
-    viewer_->set_result_caption(tr("Deformation ×%1 · static result").arg(fem_magnification_*fem_animation_fraction_,0,'g',4));
+    viewer_->set_result_caption((fem_expansion_analysis()?tr("Thermal deformation ×%1 · static result"):
+        tr("Deformation ×%1 · static result")).arg(fem_magnification_*fem_animation_fraction_,0,'g',4));
 }
 void AssemblyWorkspaceWindow::update_fem_result_markers() {
 #ifdef ZIMA_ENABLE_FEM_MESHER
     if(!active_fem_deformation())return;
     auto& solved=*generated_fem_mesh_->solution;const auto& mesh=generated_fem_mesh_->mesh;
     const bool stress=fem_result_quantity_==FemResultQuantity::VonMises;
+    const bool temperature=fem_result_quantity_==FemResultQuantity::Temperature&&solved.thermal;
     std::vector<viewer::MeshView::ResultMarker> markers;
     const auto marker=[&](std::size_t index,const QString& prefix) {
         viewer::MeshView::ResultMarker result;
@@ -384,12 +399,12 @@ void AssemblyWorkspaceWindow::update_fem_result_markers() {
                 result.displacement=kernel::dimension_add(result.displacement,kernel::dimension_scale(solved.displacement[node],.25));
             }
         }else {result.position=solved.deformation.vertices.at(index);result.displacement=solved.displacement.at(index);}
-        result.label=prefix+" "+locale().toString(solved.thermal?solved.thermal->temperature_C.at(index):
-            stress?solved.element_stress.at(index):solved.nodal_magnitude.at(index),'g',6)+(solved.thermal?" °C":stress?" MPa":" mm");
+        result.label=prefix+" "+locale().toString(temperature?solved.thermal->temperature_C.at(index):
+            stress?solved.element_stress.at(index):solved.nodal_magnitude.at(index),'g',6)+(temperature?" °C":stress?" MPa":" mm");
         markers.push_back(std::move(result));
     };
     if(fem_show_extrema_) {
-        const auto& values=solved.thermal?solved.thermal->temperature_C:stress?solved.element_stress:solved.nodal_magnitude;
+        const auto& values=temperature?solved.thermal->temperature_C:stress?solved.element_stress:solved.nodal_magnitude;
         if(!values.empty()) {
             const auto [low,high]=std::minmax_element(values.begin(),values.end());
             marker(low-values.begin(),tr("Minimum:"));marker(high-values.begin(),tr("Maximum:"));
@@ -415,12 +430,15 @@ void AssemblyWorkspaceWindow::update_fem_result_markers() {
             measurement.label=QString::fromStdString(condition.name)+": ";
             if(!condition.placement.reference_valid)measurement.label+=tr("The condition placement is unresolved.");
             else if(!found->second.location)measurement.label+=tr("Measurement point is outside the FEM volume.");
-            else if(solved.thermal)measurement.label+=locale().toString(fem_probe_scalar(mesh,*found->second.location,solved.thermal->temperature_C),'g',6)+" °C";
             else {
-                const auto u=fem_probe_displacement(mesh,*found->second.location,solved.displacement);
-                measurement.displacement=u;measurement.position=kernel::dimension_add(point,u);
-                measurement.label+=tr("ΔX %1 · ΔY %2 · ΔZ %3 · total %4 mm")
-                    .arg(locale().toString(u.x,'g',6),locale().toString(u.y,'g',6),locale().toString(u.z,'g',6),locale().toString(std::hypot(u.x,u.y,u.z),'g',6));
+                if(solved.thermal)measurement.label+=locale().toString(fem_probe_scalar(mesh,*found->second.location,solved.thermal->temperature_C),'g',6)+" °C";
+                if(!solved.thermal||solved.expansion_material) {
+                    if(solved.thermal)measurement.label+=" · ";
+                    const auto u=fem_probe_displacement(mesh,*found->second.location,solved.displacement);
+                    measurement.displacement=u;measurement.position=kernel::dimension_add(point,u);
+                    measurement.label+=tr("ΔX %1 · ΔY %2 · ΔZ %3 · total %4 mm")
+                        .arg(locale().toString(u.x,'g',6),locale().toString(u.y,'g',6),locale().toString(u.z,'g',6),locale().toString(std::hypot(u.x,u.y,u.z),'g',6));
+                }
             }
             markers.push_back(std::move(measurement));
         }
@@ -429,7 +447,7 @@ void AssemblyWorkspaceWindow::update_fem_result_markers() {
 }
 void AssemblyWorkspaceWindow::show_fem_deformation_settings() {
 #ifdef ZIMA_ENABLE_FEM_MESHER
-    if(properties_dialog_||!active_fem_deformation()||fem_thermal_analysis())return;
+    if(properties_dialog_||!active_fem_deformation()||(fem_thermal_analysis()&&!fem_expansion_analysis()))return;
     const bool was_running=fem_animation_running();
     set_fem_animation(false);
     const auto& solved=*generated_fem_mesh_->solution;
@@ -466,7 +484,7 @@ void AssemblyWorkspaceWindow::show_fem_deformation_settings() {
 
 void AssemblyWorkspaceWindow::select_fem_result(FemResultQuantity quantity) {
     if(!active_fem_deformation()||properties_dialog_)return;
-    if(fem_thermal_analysis()!=(quantity==FemResultQuantity::Temperature))return;
+    if(quantity==FemResultQuantity::Temperature?!fem_thermal_analysis():(fem_thermal_analysis()&&!fem_expansion_analysis()))return;
     fem_result_quantity_=quantity;
     if(!show_fem_deformation_) {show_fem_deformation_=true;preserve_view_on_refresh_=true;refresh_scene();}
     else update_fem_result_presentation();
