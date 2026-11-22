@@ -7,7 +7,7 @@
   "The FEM load has no mesh region.": "Нагрузке МКЭ не назначена область сетки.",
   "Set a valid Young's modulus and Poisson ratio in the Part material.": "Задайте допустимые модуль Юнга и коэффициент Пуассона в материале детали.",
   "Generate the FEM mesh before solving.": "Создайте сетку МКЭ перед расчётом.",
-  "Linear statics currently supports Force and Constraint conditions.": "Линейная статика пока поддерживает силы и закрепления.",
+  "The FEM pressure region has no unambiguous surface normal.": "Для области давления МКЭ невозможно однозначно определить нормаль поверхности.",
   "The FEM constraints leave rigid-body motion.": "Закрепления МКЭ допускают перемещение как твёрдого тела.",
   "The FEM constraints leave rigid-body motion or the calculation did not converge.": "Закрепления МКЭ допускают перемещение как твёрдого тела или расчёт не сошёлся.",
   "Otáčet kolem kurzoru": "Вращать вокруг курсора",
@@ -2991,5 +2991,11 @@
   "The FEM Sketch must contain region geometry.": "Эскиз МКЭ должен содержать геометрию области действия.",
   "The FEM Sketch must lie entirely on or inside its source body.": "Эскиз МКЭ должен целиком лежать на исходном теле или внутри него.",
   "Převzít přerušení z rodiče": "Наследовать разрывы родительского вида",
-  "Přebírá přerušení ve společném směru pohledů a sleduje změny rodiče. Vypnutím ponecháte aktuální přerušení k samostatné úpravě.": "Наследует разрывы вдоль общего направления видов и отслеживает изменения родительского вида. Отключите, чтобы независимо редактировать текущие разрывы."
+  "Přebírá přerušení ve společném směru pohledů a sleduje změny rodiče. Vypnutím ponecháte aktuální přerušení k samostatné úpravě.": "Наследует разрывы вдоль общего направления видов и отслеживает изменения родительского вида. Отключите, чтобы независимо редактировать текущие разрывы.",
+  "Results": "Результаты",
+  "Displacement [mm]": "Перемещение [mm]",
+  "Von Mises stress [MPa]": "Напряжение по Мизесу [MPa]",
+  "Maximum von Mises stress (element average): %1 MPa": "Максимальное напряжение по Мизесу (среднее по элементу): %1 MPa",
+  "Volume-averaged stress in each element, without nodal smoothing.": "Напряжение, усреднённое по объёму каждого элемента, без сглаживания в узлах.",
+  "The result field does not match the displayed mesh.": "Поле результатов не соответствует отображаемой сетке."
 }

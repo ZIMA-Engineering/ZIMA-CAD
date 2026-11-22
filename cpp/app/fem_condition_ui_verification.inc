@@ -6,6 +6,36 @@
         const auto condition_count=kernel::body_calculation_count.load();
         const auto condition_revision=session.revision();
         const auto force_action=[&]{return window.findChild<QAction*>("femForceAction");};
+        const auto check_plane_preview=[&](FemConditionDialog* dialog,bool pixels=false) {
+            const auto value=window.fem_condition_preview_.value();
+            const auto sketch=document::fem_condition_sketch(value);
+            const auto owner=value.id+":work-plane:entity";
+            const auto& preview=view->transient_context_mesh();
+            const auto wire=std::ranges::find_if(preview.edges,[&](const auto& e){return e.reference.owner_id==owner;});
+            check(wire!=preview.edges.end()&&wire->reference.semantic_key=="border"&&wire->points.size()==5,
+                "FEM work-plane preview is missing its shared native Plane wire");
+            kernel::Vec3 center{};
+            for(unsigned i=0;i<4;++i){const auto p=wire->points[i];center.x+=p.x/4;center.y+=p.y/4;center.z+=p.z/4;
+                const auto o=sketch.resolved_origin,n=sketch.normal();
+                check(std::abs((p.x-o.x)*n.x+(p.y-o.y)*n.y+(p.z-o.z)*n.z)<1e-7,
+                    "FEM work-plane wire left the resolved Sketch plane");}
+            check(std::hypot(center.x-sketch.resolved_origin.x,center.y-sketch.resolved_origin.y,center.z-sketch.resolved_origin.z)<1e-7,
+                "FEM work-plane wire lost its offset or placement");
+            check(preview.triangles.empty()&&std::ranges::none_of(preview.original_references.triangle_references,
+                [&](const auto& ref){return ref.owner_id==owner;}),"FEM preview created a filled or selectable datum");
+            if(pixels){
+                const auto cyan=[&] {
+                    const auto image=view->grabFramebuffer();check(!image.isNull(),"FEM plane framebuffer missing");
+                    unsigned count=0;
+                    for(int y=0;y<image.height();++y)for(int x=0;x<image.width();++x){const auto c=image.pixelColor(x,y);
+                        if(c.red()<35&&c.green()>170&&c.blue()>225)++count;}
+                    return count;
+                };
+                const auto highlighted=cyan();view->set_feature_preview_owners({});flush();const auto passive=cyan();
+                dialog->changed();flush();
+                check(highlighted>passive+20,"Selected FEM plane is not azure in the real View");
+            }
+        };
         const auto settle_sketch_view=[&]{QEventLoop animation;QTimer::singleShot(950,&animation,&QEventLoop::quit);animation.exec();flush();};
         check(force_action()&&force_action()->isEnabled(),"FEM Force shortcut is missing");
         const auto placement_origin=workspace::fem_source_frame_owner(session.document().body_history,fem)+":origin";
@@ -38,6 +68,7 @@
             }
             check(!window.pending_primitive_reference_index_,"Fully placed FEM kept reference entry active");
             entry->findChild<QComboBox*>("femConditionRegion")->setCurrentIndex(1);flush();
+            check_plane_preview(entry);
             auto* plane_entry=entry->findChild<QTableWidget*>("femProfilePlaneView");
             check(plane_entry,"FEM has no shared View plane entry");
             QMetaObject::invokeMethod(plane_entry,"cellClicked",Qt::DirectConnection,Q_ARG(int,0),Q_ARG(int,1));flush();
@@ -285,7 +316,9 @@
             auto* plane_combo=condition->findChild<QComboBox*>("femProfilePlane");
             check(plane_combo&&dynamic_cast<ProfilePlaneControls*>(condition->findChild<QGroupBox*>("femPlaneGroup")->parentWidget()),"FEM does not share Feature Plane controls");
             condition->findChild<QToolButton*>(QString("femProfilePlaneChoice")+(plane==sketcher::SketchPlane::XY?"XY":plane==sketcher::SketchPlane::XZ?"XZ":"YZ"))->click();flush();
+            check_plane_preview(condition,true);
             auto* offset=condition->findChild<QDoubleSpinBox*>("femSketchOffset");offset->setValue(.5);
+            check_plane_preview(condition);
             offset->findChild<QAction*>("valueLock:profile_offset")->trigger();flush();
             check(offset->isReadOnly()&&condition->pending_value().placement.value_locks.contains("profile_offset"),"FEM plane offset lock is ineffective");
             condition->findChild<QPushButton*>("femEditSketch")->click();flush();
@@ -299,6 +332,7 @@
             window.show_tree_item_properties(condition_row(pending.id));flush();condition=condition_dialog();
             check(condition->findChild<QDoubleSpinBox*>("femSketchOffset")->isReadOnly()&&
                 selected_work_plane(condition->findChild<QComboBox*>("femProfilePlane")).toInt()==int(plane),"Pressure plane or lock did not reopen");
+            check_plane_preview(condition);
             const auto revision=session.revision();condition->buttons()->button(QDialogButtonBox::Ok)->click();flush();
             check(!condition_dialog()&&session.revision()==revision,"Unchanged Pressure Sketch OK created a transaction");
             window.findChild<QAction*>("undoAction")->trigger();flush();window.findChild<QAction*>("redoAction")->trigger();flush();

@@ -7,7 +7,7 @@
   "The FEM load has no mesh region.": "The FEM load has no mesh region.",
   "Set a valid Young's modulus and Poisson ratio in the Part material.": "Set a valid Young's modulus and Poisson ratio in the Part material.",
   "Generate the FEM mesh before solving.": "Generate the FEM mesh before solving.",
-  "Linear statics currently supports Force and Constraint conditions.": "Linear statics currently supports Force and Constraint conditions.",
+  "The FEM pressure region has no unambiguous surface normal.": "The FEM pressure region has no unambiguous surface normal.",
   "The FEM constraints leave rigid-body motion.": "The FEM constraints leave rigid-body motion.",
   "The FEM constraints leave rigid-body motion or the calculation did not converge.": "The FEM constraints leave rigid-body motion or the calculation did not converge.",
   "Otáčet kolem kurzoru": "Orbit around cursor",
@@ -2991,5 +2991,11 @@
   "The FEM Sketch must contain region geometry.": "The FEM Sketch must contain region geometry.",
   "The FEM Sketch must lie entirely on or inside its source body.": "The FEM Sketch must lie entirely on or inside its source body.",
   "Převzít přerušení z rodiče": "Inherit breaks from parent",
-  "Přebírá přerušení ve společném směru pohledů a sleduje změny rodiče. Vypnutím ponecháte aktuální přerušení k samostatné úpravě.": "Inherits breaks along the shared view direction and follows parent changes. Turn off to edit the current breaks independently."
+  "Přebírá přerušení ve společném směru pohledů a sleduje změny rodiče. Vypnutím ponecháte aktuální přerušení k samostatné úpravě.": "Inherits breaks along the shared view direction and follows parent changes. Turn off to edit the current breaks independently.",
+  "Results": "Results",
+  "Displacement [mm]": "Displacement [mm]",
+  "Von Mises stress [MPa]": "Von Mises stress [MPa]",
+  "Maximum von Mises stress (element average): %1 MPa": "Maximum von Mises stress (element average): %1 MPa",
+  "Volume-averaged stress in each element, without nodal smoothing.": "Volume-averaged stress in each element, without nodal smoothing.",
+  "The result field does not match the displayed mesh.": "The result field does not match the displayed mesh."
 }

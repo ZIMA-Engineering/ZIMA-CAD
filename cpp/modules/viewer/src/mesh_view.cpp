@@ -73,6 +73,15 @@ namespace zima::viewer {
 
 namespace {
 
+QColor scalar_field_color(double value) {
+    static const std::array<QColor,5> stops{QColor("#2460E0"),QColor("#00C8E0"),
+        QColor("#30D050"),QColor("#FFE030"),QColor("#E83028")};
+    const double x=std::clamp(value,0.,1.)*4;
+    const unsigned i=std::min(3u,static_cast<unsigned>(x));const double t=x-i;
+    return QColor::fromRgbF((1-t)*stops[i].redF()+t*stops[i+1].redF(),
+        (1-t)*stops[i].greenF()+t*stops[i+1].greenF(),(1-t)*stops[i].blueF()+t*stops[i+1].blueF());
+}
+
 struct RetiredViewerGeometry {
     zima::kernel::ViewerMesh display;
     std::optional<zima::kernel::ViewerMesh> surface_source;
@@ -232,6 +241,11 @@ struct MeshView::Impl {
     QOpenGLShaderProgram program;
     QOpenGLBuffer vertices{QOpenGLBuffer::VertexBuffer};
     QOpenGLBuffer transparent_triangles{QOpenGLBuffer::IndexBuffer};
+    QOpenGLBuffer scalar_colors{QOpenGLBuffer::VertexBuffer};
+    std::vector<double> scalar_values;
+    QString scalar_label;
+    double scalar_minimum{},scalar_maximum{};
+    bool scalar_colors_dirty{};
     QOpenGLBuffer lines{QOpenGLBuffer::VertexBuffer};
     QOpenGLBuffer selected_source_lines{QOpenGLBuffer::VertexBuffer};
     using SourceWireKey=std::tuple<std::string,std::string,std::size_t>;
@@ -1035,6 +1049,7 @@ MeshView::~MeshView() {
         impl_->vertex_array.destroy();
         impl_->vertices.destroy();
         impl_->transparent_triangles.destroy();
+        impl_->scalar_colors.destroy();
         impl_->lines.destroy();
         impl_->selected_source_lines.destroy();
         impl_->silhouette.destroy();
@@ -1057,6 +1072,7 @@ void MeshView::update_annotation_presentation() const {
 }
 
 void MeshView::set_mesh(zima::kernel::ViewerMesh mesh, bool fit_view) {
+    set_triangle_scalar_field({});
     QElapsedTimer timer;timer.start();
     const auto phase=[&](const char* name) {
         if(qEnvironmentVariableIsSet("ZIMA_CPP_PROFILE_COMMAND"))std::fprintf(stderr,"Viewer mesh %s: %.3f ms\n",name,timer.nsecsElapsed()/1e6);
@@ -3008,6 +3024,19 @@ void MeshView::set_original_container_selection(bool enabled) {
 
 void MeshView::set_inspected_faces(std::vector<ViewerCandidate> faces){impl_->inspected_faces=std::move(faces);update();}
 
+const std::vector<double>& MeshView::triangle_scalar_field() const {return impl_->scalar_values;}
+
+void MeshView::set_triangle_scalar_field(std::vector<double> values,QString label,double minimum,double maximum) {
+    if(!values.empty()&&(values.size()!=impl_->mesh.triangles.size()/3||!std::isfinite(minimum)||
+            !std::isfinite(maximum)||maximum<minimum||
+            !std::ranges::all_of(values,[](double x){return std::isfinite(x);})))
+        throw std::invalid_argument("The result field does not match the displayed mesh.");
+    if(impl_->scalar_values==values&&impl_->scalar_label==label&&
+            impl_->scalar_minimum==minimum&&impl_->scalar_maximum==maximum)return;
+    impl_->scalar_values=std::move(values);impl_->scalar_label=std::move(label);
+    impl_->scalar_minimum=minimum;impl_->scalar_maximum=maximum;impl_->scalar_colors_dirty=true;update();
+}
+
 void MeshView::set_body_surface_colors(
     QColor default_color, std::map<std::string, QColor> instance_colors,
     std::map<std::string, QColor> face_colors) {
@@ -3617,15 +3646,19 @@ void MeshView::initializeGL() {
         "#version 330 core\n"
         "layout(location=0) in vec3 position;\n"
         "layout(location=1) in vec3 normal;\n"
+        "layout(location=2) in vec3 fieldColor;\n"
+        "out vec3 resultColor;\n"
         "uniform mat4 mvp;\n"
         "uniform mat3 normalMatrix;\n"
         "out vec3 viewNormal;\n"
-        "void main(){ viewNormal = normalize(normalMatrix * normal);"
+        "void main(){ resultColor=fieldColor; viewNormal = normalize(normalMatrix * normal);"
         " gl_Position = mvp * vec4(position, 1.0); }\n");
     impl_->program.addShaderFromSourceCode(QOpenGLShader::Fragment, R"GLSL(
 #version 330 core
 uniform vec4 color;
 uniform int unlit;
+uniform int scalarField;
+in vec3 resultColor;
 uniform float roughness;
 uniform float metallic;
 in vec3 viewNormal;
@@ -3640,6 +3673,7 @@ vec3 studio(vec3 r,float rough){
     return mix(vec3(.055,.065,.085),vec3(.4,.44,.5),horizon)+vec3(1.8)*a+vec3(.8,.9,1.1)*b;
 }
 void main(){
+    if(scalarField!=0){fragmentColor=vec4(resultColor,1.0);return;}
     if(unlit!=0){fragmentColor=color;return;}
     vec3 n=normalize(viewNormal);if(n.z<0.0)n=-n;
     vec3 v=vec3(0,0,1);vec3 l=normalize(vec3(.25,.35,.902));
@@ -3663,6 +3697,7 @@ void main(){
     impl_->vertex_array.bind();
     impl_->vertices.create();
     impl_->transparent_triangles.create();
+    impl_->scalar_colors.create();impl_->scalar_colors_dirty=true;
     impl_->lines.create();
     impl_->selected_source_lines.create();
     impl_->selected_source_key.reset();impl_->selected_source_data.clear();
@@ -4283,6 +4318,28 @@ if (impl_->show_origins) {
     const auto draw_triangles = [&](bool depth_only=false) {
         impl_->program.setUniformValue("unlit", 0);
         bind_attributes(impl_->vertices);
+        if(!depth_only&&!impl_->scalar_values.empty()) {
+            impl_->scalar_colors.bind();
+            if(impl_->scalar_colors_dirty) {
+                std::vector<float> colors;colors.reserve(impl_->scalar_values.size()*9);
+                const double span=impl_->scalar_maximum-impl_->scalar_minimum;
+                for(const auto value:impl_->scalar_values) {
+                    const auto color=scalar_field_color(span>0?(value-impl_->scalar_minimum)/span:0);
+                    for(unsigned i=0;i<3;++i)colors.insert(colors.end(),{float(color.redF()),float(color.greenF()),float(color.blueF())});
+                }
+                impl_->scalar_colors.allocate(colors.data(),static_cast<int>(colors.size()*sizeof(float)));
+                impl_->scalar_colors_dirty=false;
+                setProperty("scalarFieldUploadCount",property("scalarFieldUploadCount").toULongLong()+1);
+            }
+            impl_->program.enableAttributeArray(2);impl_->program.setAttributeBuffer(2,GL_FLOAT,0,3,3*sizeof(float));
+            impl_->program.setUniformValue("scalarField",1);
+            glEnable(GL_POLYGON_OFFSET_FILL);glPolygonOffset(1.0F,1.0F);
+            glDrawArrays(GL_TRIANGLES,0,static_cast<GLsizei>(impl_->mesh.triangles.size()));
+            glDisable(GL_POLYGON_OFFSET_FILL);
+            impl_->program.setUniformValue("scalarField",0);impl_->program.disableAttributeArray(2);
+            impl_->scalar_colors.release();
+            return;
+        }
         // Keep body edges in front of their supporting surface.  Without the
         // same polygon offset used by the Python viewer, coplanar fragments
         // z-fight and the three edge display modes look nearly identical or
@@ -6774,6 +6831,24 @@ if (impl_->show_origins) {
                 text_painter.setClipping(false);
             });
         for(int i=0;i<3;++i)if(auto point=symbol_handle_position(i))draw_circular_marker(painter,*point,QColor("#D05CFF"));
+        if(!impl_->scalar_values.empty()) {
+            painter.save();painter.setFont(font());
+            const int panel_width=std::max(200,painter.fontMetrics().horizontalAdvance(impl_->scalar_label)+24);
+            const QRectF panel(width()-panel_width-18,52,panel_width,238);
+            painter.fillRect(panel,QColor(25,29,34,235));painter.setPen(Qt::white);
+            painter.drawText(panel.adjusted(12,8,-12,-8),Qt::AlignTop|Qt::AlignLeft,impl_->scalar_label);
+            const QRectF bar(panel.left()+14,panel.top()+40,20,180);
+            QLinearGradient gradient(bar.bottomLeft(),bar.topLeft());
+            for(unsigned i=0;i<=4;++i)gradient.setColorAt(i/4.,scalar_field_color(i/4.));
+            painter.fillRect(bar,gradient);painter.setBrush(Qt::NoBrush);painter.drawRect(bar);
+            for(unsigned i=0;i<=4;++i) {
+                const double t=i/4.;const double y=bar.bottom()-t*bar.height();
+                painter.drawLine(QPointF(bar.right(),y),QPointF(bar.right()+5,y));
+                painter.drawText(QPointF(bar.right()+10,y+4),locale().toString(
+                    impl_->scalar_minimum+t*(impl_->scalar_maximum-impl_->scalar_minimum),'g',5));
+            }
+            painter.restore();
+        }
         // Editing handles remain above coincident geometry and point markers.
         if(impl_->dimension_layout_commit&&impl_->confirmed_candidate&&dimension_layout_editable(*impl_->confirmed_candidate)&&impl_->show_dimensions) {
             for(int i=0;i<3;++i)if(auto point=dimension_handle_position(*impl_->confirmed_candidate,i))draw_circular_marker(painter,*point,QColor("#D05CFF"));

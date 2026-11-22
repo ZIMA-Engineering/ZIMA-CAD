@@ -350,6 +350,10 @@ public:
     void set_body_surface_colors(QColor default_color,
         std::map<std::string, QColor> instance_colors = {},
         std::map<std::string, QColor> face_colors = {});
+    // Transient analysis presentation; never changes mesh/reference identity.
+    // Empty values clear it. Publishing a different scene also clears it.
+    void set_triangle_scalar_field(std::vector<double> values,QString label={},double minimum=0,double maximum=0);
+    [[nodiscard]] const std::vector<double>& triangle_scalar_field() const;
     [[nodiscard]] std::optional<ViewerCandidate> confirmed_candidate() const;
     [[nodiscard]] std::optional<ViewerCandidate> hovered_candidate() const;
     // Candidate selected from the current ordered offer list, even while an

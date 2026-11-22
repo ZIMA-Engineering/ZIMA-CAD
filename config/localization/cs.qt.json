@@ -7,7 +7,7 @@
   "The FEM load has no mesh region.": "Zatížení FEM nemá přiřazenou oblast sítě.",
   "Set a valid Young's modulus and Poisson ratio in the Part material.": "V materiálu dílu nastavte platný Youngův modul a Poissonovo číslo.",
   "Generate the FEM mesh before solving.": "Před výpočtem vygenerujte síť FEM.",
-  "Linear statics currently supports Force and Constraint conditions.": "Lineární statika zatím podporuje podmínky Síla a Vazba.",
+  "The FEM pressure region has no unambiguous surface normal.": "Oblast tlaku FEM nemá jednoznačnou normálu plochy.",
   "The FEM constraints leave rigid-body motion.": "Vazby FEM umožňují pohyb tuhého tělesa.",
   "The FEM constraints leave rigid-body motion or the calculation did not converge.": "Vazby FEM umožňují pohyb tuhého tělesa nebo výpočet nekonvergoval.",
   "Otáčet kolem kurzoru": "Otáčet kolem kurzoru",
@@ -2991,5 +2991,11 @@
   "The FEM Sketch must contain region geometry.": "Skica FEM musí obsahovat geometrii oblasti působení.",
   "The FEM Sketch must lie entirely on or inside its source body.": "Skica FEM musí ležet celá na zdrojovém tělese nebo uvnitř něj.",
   "Převzít přerušení z rodiče": "Převzít přerušení z rodiče",
-  "Přebírá přerušení ve společném směru pohledů a sleduje změny rodiče. Vypnutím ponecháte aktuální přerušení k samostatné úpravě.": "Přebírá přerušení ve společném směru pohledů a sleduje změny rodiče. Vypnutím ponecháte aktuální přerušení k samostatné úpravě."
+  "Přebírá přerušení ve společném směru pohledů a sleduje změny rodiče. Vypnutím ponecháte aktuální přerušení k samostatné úpravě.": "Přebírá přerušení ve společném směru pohledů a sleduje změny rodiče. Vypnutím ponecháte aktuální přerušení k samostatné úpravě.",
+  "Results": "Výsledky",
+  "Displacement [mm]": "Posunutí [mm]",
+  "Von Mises stress [MPa]": "Napětí von Mises [MPa]",
+  "Maximum von Mises stress (element average): %1 MPa": "Maximální napětí von Mises (průměr prvku): %1 MPa",
+  "Volume-averaged stress in each element, without nodal smoothing.": "Objemově průměrované napětí v každém prvku, bez vyhlazení v uzlech.",
+  "The result field does not match the displayed mesh.": "Pole výsledků neodpovídá zobrazené síti."
 }

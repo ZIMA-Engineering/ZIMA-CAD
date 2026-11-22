@@ -113,6 +113,8 @@ struct AssemblyWorkspaceWindow::GeneratedFemMesh {
         FemElasticMaterial material;
         kernel::ViewerMesh deformation;
         double maximum_mm{};
+        std::vector<double> displacement_field,stress_field;
+        double maximum_MPa{};
     };
     std::optional<Solution> solution;
 };
@@ -144,8 +146,20 @@ void AssemblyWorkspaceWindow::solve_fem_statics() {
         if(!active_fem_deformation()){
             auto solution=ui::run_background_task([mesh,definition,material]{
                 const auto result=solve_fem_linear_statics(mesh->mesh,definition,material);
-                return GeneratedFemMesh::Solution{definition,material,fem_deformed_mesh(mesh->mesh,result),
+                GeneratedFemMesh::Solution calculated{definition,material,fem_deformed_mesh(mesh->mesh,result),
                     result.maximum_displacement_mm};
+                const auto& triangles=mesh->mesh.surface.triangles;
+                for(std::size_t t=0;t<triangles.size()/3;++t) {
+                    double displacement=0;
+                    for(unsigned c=0;c<3;++c) {
+                        const auto u=result.displacement.at(triangles[t*3+c]);
+                        displacement+=std::hypot(u.x,u.y,u.z)/3;
+                    }
+                    calculated.displacement_field.push_back(displacement);
+                    calculated.stress_field.push_back(result.element_von_mises_MPa.at(mesh->mesh.surface_elements.at(t)));
+                }
+                calculated.maximum_MPa=result.maximum_von_mises_MPa;
+                return calculated;
             });
             mesh->solution=std::move(solution);
         }
@@ -154,9 +168,31 @@ void AssemblyWorkspaceWindow::solve_fem_statics() {
         preserve_view_on_refresh_=true;
         refresh_scene();
         rebuild_application_toolbar();
-        state_->setText(tr("Maximum displacement: %1 mm").arg(mesh->solution->maximum_mm,0,'g',6));
+        update_fem_result_presentation();
     }catch(const std::exception& error){state_->setText(tr(error.what()));}
 #endif
+}
+
+void AssemblyWorkspaceWindow::update_fem_result_presentation() {
+#ifdef ZIMA_ENABLE_FEM_MESHER
+    if(!show_fem_deformation_||properties_dialog_||!active_sketch_id_.empty()||!active_fem_deformation()) {
+        viewer_->set_triangle_scalar_field({});return;
+    }
+    const auto& result=*generated_fem_mesh_->solution;
+    const bool stress=fem_result_quantity_==FemResultQuantity::VonMises;
+    viewer_->set_triangle_scalar_field(stress?result.stress_field:result.displacement_field,
+        stress?tr("Von Mises stress [MPa]"):tr("Displacement [mm]"),0,stress?result.maximum_MPa:result.maximum_mm);
+    state_->setText(stress?tr("Maximum von Mises stress (element average): %1 MPa").arg(result.maximum_MPa,0,'g',6):
+        tr("Maximum displacement: %1 mm").arg(result.maximum_mm,0,'g',6));
+#endif
+}
+
+void AssemblyWorkspaceWindow::select_fem_result(FemResultQuantity quantity) {
+    if(!active_fem_deformation()||properties_dialog_)return;
+    fem_result_quantity_=quantity;
+    if(!show_fem_deformation_) {show_fem_deformation_=true;preserve_view_on_refresh_=true;refresh_scene();}
+    else update_fem_result_presentation();
+    rebuild_application_toolbar();
 }
 
 const kernel::ViewerMesh* AssemblyWorkspaceWindow::active_generated_fem_mesh() const {

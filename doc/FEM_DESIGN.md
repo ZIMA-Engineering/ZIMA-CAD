@@ -3,8 +3,12 @@
 Status: the first FEM Body/source GUI milestone was published in Windows
 2026112101. The first Constraint/Force/Pressure authoring commands are implemented
 for 2026112102; [their finite verification](verification/20261121-fem-conditions.md)
-records coverage and remaining work. Product meshing and solving remain subsequent
-milestones.
+records coverage and remaining work. Windows 2026112201 includes native volume
+meshing and the first Force/Constraint linear statics solver. The subsequent
+[pressure calculation verification](verification/20261122-fem-pressure.md)
+covers Body faces and owned planar or projected Sketch Surface regions.
+The [result presentation follow-up](verification/20261122-fem-results.md) adds
+quadratic-mesh validity checks and displacement/von Mises color maps.
 The [agreed functional workflow](MODELING_FOLLOWUP_20261119.md#subsequent-fem-and-surface-modeling-design-2026-11-20)
 defines the user-facing scope. This design specifies the first implementation
 boundaries. The user approved the scoped native persistence extension on

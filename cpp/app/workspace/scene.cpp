@@ -2062,6 +2062,7 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
             // Analysis displays only its already calculated source. Do not
             // append unrelated Sketches, Body origins or construction helpers.
             publish_mesh(fem_display_mesh(),!preserve_view_on_refresh_);
+            update_fem_result_presentation();
             preserve_view_on_refresh_=false;
         } else {
             const auto& calculated = part->session.calculated_boundaries();

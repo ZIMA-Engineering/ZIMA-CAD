@@ -329,6 +329,7 @@ private:
     QMenu* command_insert_menu_{};
     QMenu* fem_mesh_menu_{};
     QMenu* fem_solution_menu_{};
+    QMenu* fem_results_menu_{};
     QAction* thread_action_{};
     QAction* holes_action_{};
     QAction* drill_point_action_{};
@@ -450,6 +451,10 @@ private:
     std::shared_ptr<GeneratedFemMesh> generated_fem_mesh_;
     bool show_generated_fem_mesh_{};
     bool show_fem_deformation_{};
+    enum class FemResultQuantity { Displacement, VonMises };
+    FemResultQuantity fem_result_quantity_{FemResultQuantity::Displacement};
+    void update_fem_result_presentation();
+    void select_fem_result(FemResultQuantity);
     std::string fem_inspected_condition_;
     void show_body_scale_properties(const std::string& id = {});
     bool accept_body_scale_tree_reference(QTreeWidgetItem* item);

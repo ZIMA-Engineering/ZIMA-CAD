@@ -235,6 +235,24 @@ FemVolumeMesh generate_fem_volume_mesh(
             physical_groups.push_back(gmsh::model::addPhysicalGroup(region.dimension,region.tags));
         gmsh::model::mesh::generate(3);
 
+        // Curving the midside nodes onto CAD can invert an otherwise valid
+        // linear tetrahedron. Check the complete high-order Jacobian before
+        // publishing the mesh, and untangle only when that check requires it.
+        if(controls.order==document::FemElementOrder::Quadratic) {
+            std::vector<std::size_t> cells,connectivity;
+            gmsh::model::mesh::getElementsByType(11,cells,connectivity);
+            const auto valid=[&] {
+                std::vector<double> minimum;
+                gmsh::model::mesh::getElementQualities(cells,minimum,"minDetJac");
+                return !cells.empty()&&minimum.size()==cells.size()&&
+                    std::ranges::all_of(minimum,[](double value){return std::isfinite(value)&&value>0;});
+            };
+            if(!valid()) {
+                gmsh::model::mesh::optimize("HighOrder");
+                if(!valid())throw std::runtime_error("The FEM mesh contains an invalid tetrahedron.");
+            }
+        }
+
         FemVolumeMesh result;
         result.order=controls.order;
         auto& viewer=result.surface;
@@ -340,6 +358,14 @@ FemVolumeMesh generate_fem_volume_mesh(
         };
         gmsh::vectorpair exterior;
         gmsh::model::getBoundary(imported,exterior,true,false,false);
+        std::map<std::array<std::uint32_t,3>,std::pair<std::size_t,unsigned>> face_cells;
+        for(std::size_t i=0;i<result.tetrahedra.size();++i) {
+            const auto& cell=result.tetrahedra[i];
+            for(unsigned a=0;a<4;++a)for(unsigned b=a+1;b<4;++b)for(unsigned c=b+1;c<4;++c) {
+                auto& owner=face_cells[ordered(std::array{cell[a],cell[b],cell[c]})];
+                owner.first=i;++owner.second;
+            }
+        }
         const std::size_t triangle_size=quadratic?6:3;
         for(const auto& [dimension,entity]:exterior) {
             if(dimension!=2)invalid_mesh();
@@ -350,6 +376,9 @@ FemVolumeMesh generate_fem_volume_mesh(
                     const auto a=node_index(nodes[block][offset]);
                     const auto b=node_index(nodes[block][offset+1]);
                     const auto c=node_index(nodes[block][offset+2]);
+                    const auto owner=face_cells.find(ordered(std::array{a,b,c}));
+                    if(owner==face_cells.end()||owner->second.second!=1)invalid_mesh();
+                    result.surface_elements.insert(result.surface_elements.end(),quadratic?4:1,owner->second.first);
                     if(quadratic) {
                         const auto ab=node_index(nodes[block][offset+3]);
                         const auto bc=node_index(nodes[block][offset+4]);

@@ -142,7 +142,19 @@ void AssemblyWorkspaceWindow::set_active_application(ApplicationMode mode) {
 
 void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
     if (tools_toolbar_ == nullptr) return;
+    if(fem_results_menu_) {
+        fem_results_menu_->setTitle(tr("Results"));
+        const bool available=active_fem_body()&&!properties_dialog_&&active_sketch_id_.empty()&&active_fem_deformation();
+        fem_results_menu_->setEnabled(available);
+        auto* displacement=fem_results_menu_->findChild<QAction*>("femDisplacementResultAction");
+        auto* stress=fem_results_menu_->findChild<QAction*>("femStressResultAction");
+        displacement->setText(tr("Displacement [mm]"));stress->setText(tr("Von Mises stress [MPa]"));
+        stress->setToolTip(tr("Volume-averaged stress in each element, without nodal smoothing."));
+        displacement->setChecked(available&&show_fem_deformation_&&fem_result_quantity_==FemResultQuantity::Displacement);
+        stress->setChecked(available&&show_fem_deformation_&&fem_result_quantity_==FemResultQuantity::VonMises);
+    }
     if(fem_mesh_menu_) {
+        fem_mesh_menu_->setTitle(tr("Mesh"));
         const bool fem_active=active_fem_body()&&!active_browser_&&!active_file_manager_&&!active_preview_&&
             !workspace_.open_drawing(workspace_.displayed_document_id());
         fem_mesh_menu_->menuAction()->setVisible(fem_active);
@@ -265,6 +277,10 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
         auto* edit=new QAction(resource_icon("properties"),tr("FEM Body properties"),tools_toolbar_);edit->setObjectName("femBodyPropertiesAction");
         edit->setEnabled(!properties_dialog_);connect(edit,&QAction::triggered,this,[this]{
             const auto* part=workspace_.open_part(workspace_.active_document_id());if(part)show_fem_body_properties(part->session.document().body_history.active_body_id());});add_command(edit);
+        add_group_separator();
+        add_command(fem_mesh_menu_->menuAction(),false);
+        if(fem_solution_menu_)add_command(fem_solution_menu_->menuAction(),false);
+        if(fem_results_menu_)add_command(fem_results_menu_->menuAction(),false);
         return;
     }
     if (drawing) {

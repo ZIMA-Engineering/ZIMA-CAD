@@ -1,5 +1,6 @@
 #include "fem_linear_statics.hpp"
 #include <zima/document/fem_presentation.hpp>
+#include <zima/sketcher/sketch.hpp>
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -121,6 +122,110 @@ Element integrate(const FemVolumeMesh& mesh,const std::array<std::uint32_t,10>& 
     return element;
 }
 
+// Integrate N_i dA with its oriented area vector. Pressure needs the vector,
+// while an authored total Force uses its length and normalizes by total area.
+template<class F> void integrate_surface(const FemVolumeMesh& mesh,
+        const std::array<std::uint32_t,6>& e,F sample){
+    const auto origin=array(mesh.surface.vertices.at(e[0]));
+    const auto relative=[&](unsigned i){return subtract(array(mesh.surface.vertices.at(e[i])),origin);};
+    if(mesh.order==document::FemElementOrder::Linear){
+        sample(std::array<double,6>{1./3,1./3,1./3,0,0,0},cross(relative(1),relative(2)),.5);
+        return;
+    }
+    static constexpr std::array<std::array<unsigned,2>,3> edges{{{0,1},{1,2},{2,0}}};
+    static constexpr std::array<std::array<double,2>,3> gradients{{{-1,-1},{1,0},{0,1}}};
+    const auto integrate_triangle=[&](Vector barycentric,double quadrature_weight){
+        std::array<double,6> shape{};
+        std::array<std::array<double,2>,6> derivative{};
+        for(unsigned i=0;i<3;++i){
+            shape[i]=barycentric[i]*(2*barycentric[i]-1);
+            for(unsigned d=0;d<2;++d)derivative[i][d]=(4*barycentric[i]-1)*gradients[i][d];
+            const auto [j,k]=edges[i];
+            shape[3+i]=4*barycentric[j]*barycentric[k];
+            for(unsigned d=0;d<2;++d)derivative[3+i][d]=4*(
+                barycentric[j]*gradients[k][d]+barycentric[k]*gradients[j][d]);
+        }
+        std::array<Vector,2> tangents{};
+        for(unsigned i=1;i<6;++i){
+            const auto position=relative(i);
+            for(unsigned d=0;d<2;++d)for(unsigned k=0;k<3;++k)tangents[d][k]+=derivative[i][d]*position[k];
+        }
+        sample(shape,cross(tangents[0],tangents[1]),quadrature_weight);
+    };
+    integrate_triangle({1./3,1./3,1./3},.1125);
+    for(unsigned i=0;i<3;++i){
+        Vector first{.470142064105115,.470142064105115,.470142064105115};
+        Vector second{.101286507323456,.101286507323456,.101286507323456};
+        first[i]=.059715871789770;second[i]=.797426985353087;
+        integrate_triangle(first,.066197076394253);
+        integrate_triangle(second,.062969590272414);
+    }
+}
+
+using FaceKey=std::array<std::uint32_t,3>;
+FaceKey face_key(const std::array<std::uint32_t,6>& e){
+    FaceKey key{e[0],e[1],e[2]};std::ranges::sort(key);return key;
+}
+struct FaceSupport {unsigned count{};std::uint32_t opposite{};};
+using PressureSupports=std::map<FaceKey,FaceSupport>;
+PressureSupports pressure_supports(const FemVolumeMesh& mesh,const document::FemDefinition& definition){
+    PressureSupports result;
+    for(const auto& c:definition.conditions){
+        if(c.kind!=document::FemConditionKind::Pressure||
+                (c.projected_sketch&&!c.projected_sketch->project_to_body))continue;
+        if(const auto region=mesh.condition_regions.find(c.id);region!=mesh.condition_regions.end())
+            for(const auto& e:region->second.elements)result.try_emplace(face_key(e));
+    }
+    // Index only requested faces, once per solve. Gmsh surface winding alone
+    // does not identify the material side (notably on opposite caps and holes).
+    if(!result.empty())for(const auto& cell:mesh.tetrahedra)for(unsigned opposite=0;opposite<4;++opposite){
+        FaceKey key{};unsigned j=0;
+        for(unsigned i=0;i<4;++i)if(i!=opposite)key[j++]=cell[i];
+        std::ranges::sort(key);
+        if(auto found=result.find(key);found!=result.end()){
+            ++found->second.count;found->second.opposite=cell[opposite];
+        }
+    }
+    return result;
+}
+
+void add_pressure(const FemVolumeMesh& mesh,const FemMeshConditionRegion& region,
+        const document::FemCondition& condition,const PressureSupports& supports,std::vector<double>& force){
+    if(region.kind!=document::FemRegionKind::Surface||condition.region!=document::FemRegionKind::Surface)
+        throw std::runtime_error("Pressure requires a surface region.");
+    if(!std::isfinite(condition.pressure_MPa)||condition.pressure_MPa<0)
+        throw std::runtime_error("Invalid FEM condition value.");
+    if(!condition.placement.reference_valid)throw std::runtime_error("The condition placement is unresolved.");
+    if(region.elements.empty())throw std::runtime_error("The FEM load has no mesh region.");
+    const bool planar=condition.projected_sketch&&!condition.projected_sketch->project_to_body;
+    const auto sketch_normal=planar?array(document::fem_condition_sketch(condition).normal()):Vector{};
+    const unsigned count=mesh.order==document::FemElementOrder::Quadratic?6:3;
+    for(const auto& e:region.elements){
+        const auto origin=array(mesh.surface.vertices.at(e[0]));
+        const auto normal=cross(subtract(array(mesh.surface.vertices.at(e[1])),origin),
+            subtract(array(mesh.surface.vertices.at(e[2])),origin));
+        Vector outward=sketch_normal;
+        if(!planar){
+            const auto found=supports.find(face_key(e));
+            if(found==supports.end()||found->second.count!=1)
+                throw std::runtime_error("The FEM pressure region has no unambiguous surface normal.");
+            outward=subtract(origin,array(mesh.surface.vertices.at(found->second.opposite)));
+        }
+        const double side=inner(normal,outward);
+        if(!std::isfinite(side)||std::abs(side)<=1e-12*length(normal)*length(outward))
+            throw std::runtime_error("The FEM pressure region has no unambiguous surface normal.");
+        // MPa = N/mm². No total-area normalization: twice the area receives
+        // twice the force. A planar internal patch is integrated exactly once.
+        const double pressure=condition.pressure_MPa*(condition.pressure_reversed?1:-1)*(side>0?1:-1);
+        integrate_surface(mesh,e,[&](const auto& shape,Vector area,double weight){
+            if(!std::isfinite(length(area))||length(area)<=0)
+                throw std::runtime_error("The FEM pressure region has no unambiguous surface normal.");
+            for(unsigned i=0;i<count;++i)for(unsigned d=0;d<3;++d)
+                force.at(3*e[i]+d)+=pressure*shape[i]*area[d]*weight;
+        });
+    }
+}
+
 void add_force(const FemVolumeMesh& mesh,const FemMeshConditionRegion& region,
         const document::FemCondition& condition,std::vector<double>& force){
     std::vector<double> weights(mesh.surface.vertices.size());
@@ -146,48 +251,50 @@ void add_force(const FemVolumeMesh& mesh,const FemMeshConditionRegion& region,
             }
             continue;
         }
-        if(!quadratic){
-            const double area=length(cross(edge,subtract(pos(e[2]),pos(e[0]))))/2;
-            measure+=area;
-            for(unsigned i=0;i<3;++i)weights.at(e[i])+=area/3;
-            continue;
-        }
-        static constexpr std::array<std::array<unsigned,2>,3> edges{{{0,1},{1,2},{2,0}}};
-        static constexpr std::array<std::array<double,2>,3> gradients{{{-1,-1},{1,0},{0,1}}};
-        const auto integrate_triangle=[&](Vector barycentric,double quadrature_weight){
-            std::array<double,6> shape{};
-            std::array<std::array<double,2>,6> derivative{};
-            for(unsigned i=0;i<3;++i){
-                shape[i]=barycentric[i]*(2*barycentric[i]-1);
-                for(unsigned d=0;d<2;++d)derivative[i][d]=(4*barycentric[i]-1)*gradients[i][d];
-                const auto [j,k]=edges[i];
-                shape[3+i]=4*barycentric[j]*barycentric[k];
-                for(unsigned d=0;d<2;++d)derivative[3+i][d]=4*(
-                    barycentric[j]*gradients[k][d]+barycentric[k]*gradients[j][d]);
-            }
-            std::array<Vector,2> tangents{};
-            for(unsigned i=1;i<6;++i){
-                const auto relative=subtract(pos(e[i]),pos(e[0]));
-                for(unsigned d=0;d<2;++d)for(unsigned k=0;k<3;++k)tangents[d][k]+=derivative[i][d]*relative[k];
-            }
-            const double w=length(cross(tangents[0],tangents[1]))*quadrature_weight;
+        integrate_surface(mesh,e,[&](const auto& shape,Vector area,double weight){
+            const double w=length(area)*weight;
             measure+=w;
-            for(unsigned i=0;i<6;++i)weights.at(e[i])+=w*shape[i];
-        };
-        integrate_triangle({1./3,1./3,1./3},.1125);
-        for(unsigned i=0;i<3;++i){
-            Vector first{.470142064105115,.470142064105115,.470142064105115};
-            Vector second{.101286507323456,.101286507323456,.101286507323456};
-            first[i]=.059715871789770;second[i]=.797426985353087;
-            integrate_triangle(first,.066197076394253);
-            integrate_triangle(second,.062969590272414);
-        }
+            for(unsigned i=0;i<(quadratic?6u:3u);++i)weights.at(e[i])+=w*shape[i];
+        });
     }
     if(!std::isfinite(measure)||measure<=0)throw std::runtime_error("The FEM load has no mesh region.");
     const auto direction=array(document::fem_force_direction(condition));
     for(std::size_t i=0;i<weights.size();++i)for(unsigned d=0;d<3;++d)
         force[3*i+d]+=condition.force_N*(weights[i]/measure)*direction[d];
 }
+FemElementStress element_stress(const Element& element,const std::vector<kernel::Vec3>& displacement,
+        bool quadratic,FemElasticMaterial material) {
+    const double shear=material.young_MPa/(2*(1+material.poisson));
+    const double lambda=2*shear*material.poisson/(1-2*material.poisson);
+    FemElementStress result;double volume=0;
+    for(unsigned q=0;q<(quadratic?4u:1u);++q) {
+        const auto& point=element.points[q];std::array<Vector,3> gradient{};
+        for(unsigned i=0;i<(quadratic?10u:4u);++i) {
+            const auto u=array(displacement.at(element.nodes[i]));
+            for(unsigned d=0;d<3;++d)for(unsigned k=0;k<3;++k)gradient[d][k]+=u[d]*point.gradients[i][k];
+        }
+        const double trace=gradient[0][0]+gradient[1][1]+gradient[2][2];
+        const std::array<double,6> stress{lambda*trace+2*shear*gradient[0][0],
+            lambda*trace+2*shear*gradient[1][1],lambda*trace+2*shear*gradient[2][2],
+            shear*(gradient[0][1]+gradient[1][0]),shear*(gradient[1][2]+gradient[2][1]),
+            shear*(gradient[2][0]+gradient[0][2])};
+        for(unsigned i=0;i<6;++i)result.components_MPa[i]+=point.weight*stress[i];
+        volume+=point.weight;
+    }
+    for(auto& value:result.components_MPa)value/=volume;
+    const auto& s=result.components_MPa;
+    result.von_mises_MPa=std::sqrt(.5*((s[0]-s[1])*(s[0]-s[1])+(s[1]-s[2])*(s[1]-s[2])+
+        (s[2]-s[0])*(s[2]-s[0]))+3*(s[3]*s[3]+s[4]*s[4]+s[5]*s[5]));
+    return result;
+}
+}
+
+std::vector<FemElementStress> fem_element_stresses(const FemVolumeMesh& mesh,
+        const std::vector<kernel::Vec3>& displacement,FemElasticMaterial material) {
+    const bool quadratic=mesh.order==document::FemElementOrder::Quadratic;
+    std::vector<FemElementStress> result;result.reserve(mesh.tetrahedra.size());
+    for(const auto& cell:mesh.tetrahedra)result.push_back(element_stress(integrate(mesh,cell,quadratic),displacement,quadratic,material));
+    return result;
 }
 
 FemStaticResult solve_fem_linear_statics(const FemVolumeMesh& mesh,
@@ -216,12 +323,12 @@ FemStaticResult solve_fem_linear_statics(const FemVolumeMesh& mesh,
             }
         }
     }
+    const auto supports=pressure_supports(mesh,definition);
     for(const auto& condition:definition.conditions){
-        if(condition.kind==document::FemConditionKind::Pressure)
-            throw std::runtime_error("Linear statics currently supports Force and Constraint conditions.");
         const auto found=mesh.condition_regions.find(condition.id);
         if(found==mesh.condition_regions.end())throw std::runtime_error("The FEM load has no mesh region.");
         if(condition.kind==document::FemConditionKind::Force)add_force(mesh,found->second,condition,load);
+        else if(condition.kind==document::FemConditionKind::Pressure)add_pressure(mesh,found->second,condition,supports,load);
         else for(const auto node:found->second.nodes)for(unsigned d=0;d<3;++d)
             if(condition.restrained[d])fixed.at(3*node+d)=true;
     }
@@ -274,6 +381,12 @@ FemStaticResult solve_fem_linear_statics(const FemVolumeMesh& mesh,
         result.reaction.push_back({reaction(i),reaction(i+1),reaction(i+2)});
         result.maximum_displacement_mm=std::max(result.maximum_displacement_mm,
             length({displacement[i],displacement[i+1],displacement[i+2]}));
+    }
+    result.element_von_mises_MPa.reserve(elements.size());
+    for(const auto& element:elements) {
+        const auto stress=element_stress(element,result.displacement,quadratic,material);
+        result.element_von_mises_MPa.push_back(stress.von_mises_MPa);
+        result.maximum_von_mises_MPa=std::max(result.maximum_von_mises_MPa,stress.von_mises_MPa);
     }
     return result;
 }

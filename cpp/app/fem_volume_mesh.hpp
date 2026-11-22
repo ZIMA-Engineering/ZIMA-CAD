@@ -18,6 +18,9 @@ struct FemVolumeMesh {
     std::vector<std::array<std::uint32_t,10>> tetrahedra;
     document::FemElementOrder order;
     std::map<std::string,FemMeshConditionRegion> condition_regions;
+    // One owning tetrahedron per displayed exterior triangle, including
+    // each subdivision of a quadratic face. Disposable calculation data.
+    std::vector<std::size_t> surface_elements;
 };
 
 [[nodiscard]] FemVolumeMesh generate_fem_volume_mesh(

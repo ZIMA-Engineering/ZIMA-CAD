@@ -6,6 +6,7 @@
 #include <zima/workspace/fem_condition_operations.hpp>
 #include <zima/document/fem_presentation.hpp>
 #include <zima/document/placement_reference_geometry.hpp>
+#include <zima/document/sketch_placement.hpp>
 #include <zima/kernel/stable_id.hpp>
 #include <QTreeWidget>
 #include <QTreeWidgetItemIterator>
@@ -99,6 +100,8 @@ void AssemblyWorkspaceWindow::show_fem_condition_properties(document::FemConditi
     const auto update_highlights=[this,dialog] {
         auto keys=highlighted_reference_edge_keys(*dialog);const auto value=dialog->pending_value();
         for(auto row:dialog->inspected_geometry())if(row<value.references.size()){const auto& r=value.references[row];keys.insert({r.owner_id,r.semantic_key,r.instance_path});}
+        viewer_->set_feature_preview_owners(value.projected_sketch?
+            std::set<std::string>{value.id+":work-plane:entity"}:std::set<std::string>{});
         viewer_->set_constraint_reference_highlights({},std::move(keys));
     };
     dialog->set_reference_highlights_changed_callback(update_highlights);
@@ -116,6 +119,23 @@ void AssemblyWorkspaceWindow::show_fem_condition_properties(document::FemConditi
         dialog->set_rotation_constraint_state(document::orientation_constraint_state(p.references,geometry,true,{p.x,p.y,p.z}));
         dialog->set_orientation_base_rotation(base,oriented);dialog->set_resolved_rotation({p.rotation_x,p.rotation_y,p.rotation_z},valid);
         fem_condition_preview_=value;auto preview=document::fem_condition_presentation(value,source->mesh);
+        if(value.projected_sketch) {
+            // Use the same native Plane wire as Feature Properties, at the
+            // resolved Sketch frame (including its offset and placement).
+            const auto sketch=document::fem_condition_sketch(value);
+            auto plane=document::PartDocument::create_construction(document::ConstructionKind::Plane);
+            plane.id=value.id+":work-plane";plane.entity_id=plane.id+":entity";
+            plane.base_plane=sketch.plane==sketcher::SketchPlane::XY?document::LocalDatumPlane::XY:
+                sketch.plane==sketcher::SketchPlane::XZ?document::LocalDatumPlane::XZ:document::LocalDatumPlane::YZ;
+            const auto axes=document::sketch_container_frame_axes(sketch);
+            plane.rotation=euler_degrees_from_frame_columns(axes[0],axes[1],axes[2]);
+            plane.entity_origin=sketch.resolved_origin;plane.reference_valid=true;
+            document::PartDocument plane_carrier;plane_carrier.constructions.push_back(std::move(plane));
+            auto wire=plane_carrier.construction_viewer_mesh();
+            // This is only a work-plane preview, not a new selectable datum.
+            wire.points.clear();wire.dimensions.clear();wire.original_references={};
+            append_mesh(preview,std::move(wire));
+        }
         if(value.projected_sketch&&value.projected_sketch->project_to_body) {
             auto sketch=document::fem_condition_sketch(value);
             document::PartDocument projection;
@@ -166,6 +186,7 @@ void AssemblyWorkspaceWindow::show_fem_condition_properties(document::FemConditi
         properties_dialog_=nullptr;
         dialog->hide();
         viewer_->set_transient_context_mesh({});
+        viewer_->set_feature_preview_owners({});
         viewer_->clear_selection();clear_selected_sketch_geometry();
         preserve_view_on_refresh_=true;refresh_scene();align_active_sketch_view();
     };
@@ -209,7 +230,7 @@ void AssemblyWorkspaceWindow::show_fem_condition_properties(document::FemConditi
         if(properties_dialog_!=dialog)return;
         properties_dialog_=nullptr;primitive_reference_dialog_=nullptr;primitive_reference_geometry_={};primitive_parameter_owner_id_.clear();construction_dimension_object_id_.clear();
         pending_primitive_reference_index_.reset();primitive_reference_auto_advance_=false;feature_reference_pick_={};feature_reference_end_={};fem_condition_preview_.reset();
-        viewer_->set_transient_context_mesh({});viewer_->set_constraint_reference_highlights({},{});viewer_->set_candidate_filter({});viewer_->set_selection_contract({});viewer_->clear_selection();
+        viewer_->set_transient_context_mesh({});viewer_->set_feature_preview_owners({});viewer_->set_constraint_reference_highlights({},{});viewer_->set_candidate_filter({});viewer_->set_selection_contract({});viewer_->clear_selection();
         tree_->setProperty("commandSelectionActive",false);preserve_view_on_refresh_=true;refresh_tabs();refresh_scene();
     });
     bind_local_origin_selection(dialog);preserve_view_on_refresh_=true;refresh_scene();dialog->show();dialog->changed();

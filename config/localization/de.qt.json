@@ -7,7 +7,7 @@
   "The FEM load has no mesh region.": "Der FEM-Last ist kein Netzbereich zugeordnet.",
   "Set a valid Young's modulus and Poisson ratio in the Part material.": "Legen Sie im Bauteilmaterial einen gültigen Elastizitätsmodul und eine gültige Querkontraktionszahl fest.",
   "Generate the FEM mesh before solving.": "Erzeugen Sie vor der Berechnung das FEM-Netz.",
-  "Linear statics currently supports Force and Constraint conditions.": "Die lineare Statik unterstützt derzeit Kräfte und Lagerungen.",
+  "The FEM pressure region has no unambiguous surface normal.": "Der FEM-Druckbereich hat keine eindeutige Flächennormale.",
   "The FEM constraints leave rigid-body motion.": "Die FEM-Lagerungen lassen Starrkörperbewegungen zu.",
   "The FEM constraints leave rigid-body motion or the calculation did not converge.": "Die FEM-Lagerungen lassen Starrkörperbewegungen zu oder die Berechnung ist nicht konvergiert.",
   "Otáčet kolem kurzoru": "Um den Cursor drehen",
@@ -2991,5 +2991,11 @@
   "The FEM Sketch must contain region geometry.": "Die FEM-Skizze muss Geometrie für den Wirkbereich enthalten.",
   "The FEM Sketch must lie entirely on or inside its source body.": "Die FEM-Skizze muss vollständig auf oder innerhalb ihres Quellkörpers liegen.",
   "Převzít přerušení z rodiče": "Unterbrechungen von der übergeordneten Ansicht übernehmen",
-  "Přebírá přerušení ve společném směru pohledů a sleduje změny rodiče. Vypnutím ponecháte aktuální přerušení k samostatné úpravě.": "Übernimmt Unterbrechungen entlang der gemeinsamen Ansichtsrichtung und folgt Änderungen der übergeordneten Ansicht. Deaktivieren, um die aktuellen Unterbrechungen unabhängig zu bearbeiten."
+  "Přebírá přerušení ve společném směru pohledů a sleduje změny rodiče. Vypnutím ponecháte aktuální přerušení k samostatné úpravě.": "Übernimmt Unterbrechungen entlang der gemeinsamen Ansichtsrichtung und folgt Änderungen der übergeordneten Ansicht. Deaktivieren, um die aktuellen Unterbrechungen unabhängig zu bearbeiten.",
+  "Results": "Ergebnisse",
+  "Displacement [mm]": "Verschiebung [mm]",
+  "Von Mises stress [MPa]": "Von-Mises-Spannung [MPa]",
+  "Maximum von Mises stress (element average): %1 MPa": "Maximale Von-Mises-Spannung (Elementmittelwert): %1 MPa",
+  "Volume-averaged stress in each element, without nodal smoothing.": "Volumengemittelte Spannung in jedem Element, ohne Knotenglättung.",
+  "The result field does not match the displayed mesh.": "Das Ergebnisfeld stimmt nicht mit dem angezeigten Netz überein."
 }

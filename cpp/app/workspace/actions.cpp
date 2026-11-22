@@ -417,7 +417,8 @@ void AssemblyWorkspaceWindow::create_actions() {
     setup_action->setObjectName("systemSetupAction");
     tools->addAction(setup_action);
     connect(setup_action,&QAction::triggered,this,[this]{show_global_settings(true);});
-    fem_mesh_menu_=menuBar()->addMenu(tr("Mesh"));
+    fem_mesh_menu_=new QMenu(tr("Mesh"),this);
+    fem_mesh_menu_->setIcon(resource_icon("display-wire"));
     fem_mesh_menu_->setObjectName("femMeshMenu");
     fem_mesh_menu_->menuAction()->setVisible(false);
     auto* mesh_settings=fem_mesh_menu_->addAction(tr("Mesh settings"),this,[this]{show_fem_mesh_settings();});
@@ -435,7 +436,8 @@ void AssemblyWorkspaceWindow::create_actions() {
         refresh_scene();
         rebuild_application_toolbar();
     });
-    fem_solution_menu_=menuBar()->addMenu(tr("Calculation"));
+    fem_solution_menu_=new QMenu(tr("Calculation"),this);
+    fem_solution_menu_->setIcon(resource_icon("parameters"));
     fem_solution_menu_->setObjectName("femCalculationMenu");
     fem_solution_menu_->menuAction()->setVisible(false);
     fem_solution_menu_->addAction(tr("Linear statics"),this,[this]{solve_fem_statics();})
@@ -449,6 +451,15 @@ void AssemblyWorkspaceWindow::create_actions() {
         refresh_scene();
         rebuild_application_toolbar();
     });
+    fem_results_menu_=new QMenu(tr("Results"),this);
+    fem_results_menu_->setIcon(resource_icon("display-shaded"));
+    fem_results_menu_->setObjectName("femResultsMenu");
+    auto* results_group=new QActionGroup(this);results_group->setExclusive(true);
+    auto* displacement=fem_results_menu_->addAction(tr("Displacement [mm]"),this,[this]{select_fem_result(FemResultQuantity::Displacement);});
+    displacement->setObjectName("femDisplacementResultAction");
+    auto* stress=fem_results_menu_->addAction(tr("Von Mises stress [MPa]"),this,[this]{select_fem_result(FemResultQuantity::VonMises);});
+    stress->setObjectName("femStressResultAction");
+    for(auto* action:{displacement,stress}){action->setCheckable(true);results_group->addAction(action);}
 #endif
     auto* window_menu = menuBar()->addMenu(t("menu.window", "Okno"));
     window_menu->setObjectName("windowMenu");

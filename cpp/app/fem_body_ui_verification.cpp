@@ -15,7 +15,10 @@
 #include <QKeyEvent>
 #include <QEventLoop>
 #include <QTimer>
+#include <QQuaternion>
 #include <QMenu>
+#include <QMenuBar>
+#include <QToolBar>
 #include <QPushButton>
 #include <QTreeWidget>
 #include <QTreeWidgetItemIterator>
@@ -35,6 +38,41 @@ int verify_fem_body(QApplication& application,AssemblyWorkspaceWindow& window,co
     try {
         const auto check=[](bool ok,const char* message){if(!ok)throw std::runtime_error(message);};
         const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
+#ifdef ZIMA_ENABLE_FEM_MESHER
+        const auto reproduction=qEnvironmentVariable("ZIMA_VERIFY_FEM_DOCUMENT");
+        if(!reproduction.isEmpty()) {
+            window.resize(1600,1000);window.show();
+            check(window.open_document_path(reproduction),"FEM reproduction document did not open");flush();
+            auto& session=window.workspace_.open_part(window.workspace_.active_document_id())->session;
+            std::string fem;
+            for(const auto& body:session.document().body_history.bodies())if(body.fem){fem=body.scope.id;break;}
+            check(!fem.empty(),"FEM reproduction contains no FEM Body");
+            window.activate_body(fem);flush();
+            const auto revision=session.revision(),calculations=kernel::body_calculation_count.load();
+            window.generate_fem_mesh();flush();
+            check(window.active_generated_fem_mesh(),"FEM reproduction mesh generation failed");
+            window.solve_fem_statics();flush();
+            check(window.active_fem_deformation(),"FEM reproduction solution failed");
+            check(session.revision()==revision&&kernel::body_calculation_count.load()==calculations,
+                "FEM reproduction changed its document or recalculated CAD");
+            window.viewer_->set_standard_view(viewer::StandardView::Isometric);
+            QEventLoop camera_settled;QTimer::singleShot(350,&camera_settled,&QEventLoop::quit);camera_settled.exec();
+            auto camera=window.viewer_->camera_state();
+            const auto rotation=QQuaternion::fromAxisAndAngle(0,0,1,55)*QQuaternion(camera[0],camera[1],camera[2],camera[3]);
+            camera[0]=rotation.scalar();camera[1]=rotation.x();camera[2]=rotation.y();camera[3]=rotation.z();
+            window.viewer_->set_camera_state(camera);window.viewer_->fit_all();flush();
+            for(bool stress:{false,true}) {
+                window.select_fem_result(stress?AssemblyWorkspaceWindow::FemResultQuantity::VonMises:AssemblyWorkspaceWindow::FemResultQuantity::Displacement);
+                flush();window.viewer_->repaint();flush();
+                check(!window.viewer_->triangle_scalar_field().empty(),"FEM result colors are missing");
+                const auto screenshot=directory/(stress?"fem-stress-result.png":"fem-displacement-result.png");
+                check(window.grab().save(QString::fromStdString(document::path_to_utf8(screenshot))),"FEM result capture failed");
+                std::cout<<"FEM native document GUI solve: "<<window.state_->text().toStdString()
+                         <<"; unchanged revision and CAD calculation count; captured "<<screenshot.string()<<std::endl;
+            }
+            return 0;
+        }
+#endif
         auto part=document::PartDocument::create_default();
         const auto first=test::rectangular_feature(part,{20,10,5}),second=test::rectangular_feature(part,{10,6,3});part.history={first,second};
         document::BodyHistoryGraph graph;const auto a=graph.create_body("Stock A");graph.insert({document::PartHistoryKind::Feature,first.id});
@@ -104,6 +142,21 @@ int verify_fem_body(QApplication& application,AssemblyWorkspaceWindow& window,co
         auto* mesh_menu=window.findChild<QMenu*>("femMeshMenu");
         auto* mesh_settings=window.findChild<QAction*>("femMeshSettingsAction");
         check(mesh_menu&&mesh_menu->menuAction()->isVisible()&&mesh_settings&&mesh_settings->isEnabled(),"FEM mesh settings menu is missing");
+        const auto sidebar_menu=[&](QMenu* menu) {
+            window.tools_toolbar_->layout()->activate();flush();
+            check(menu&&!window.menuBar()->actions().contains(menu->menuAction()),"FEM command still appears in the top menu bar");
+            auto* button=qobject_cast<QToolButton*>(window.tools_toolbar_->widgetForAction(menu->menuAction()));
+            check(button&&button->isVisible()&&button->popupMode()==QToolButton::InstantPopup&&button->defaultAction()->menu()==menu,
+                "FEM sidebar command is missing its shared popup menu");
+            bool opened=false;
+            QTimer::singleShot(80,menu,[menu,&opened]{opened=menu->isVisible();menu->close();});
+            button->click();flush();
+            check(opened,"FEM sidebar click did not open its menu");
+        };
+        sidebar_menu(mesh_menu);
+#ifdef ZIMA_ENABLE_FEM_MESHER
+        sidebar_menu(window.findChild<QMenu*>("femCalculationMenu"));
+#endif
         const auto open_settings=[&] {
             mesh_settings->trigger();flush();
             auto* settings=dynamic_cast<ui::PropertiesSubWindow*>(window.findChild<QDialog*>("femMeshSettingsDialog"));
@@ -381,12 +434,18 @@ int verify_fem_body(QApplication& application,AssemblyWorkspaceWindow& window,co
             apply_application_translations(application,settings);
 #ifdef ZIMA_ENABLE_FEM_MESHER
             window.rebuild_application_toolbar();
+            sidebar_menu(mesh_menu);
             const auto* calculation=window.findChild<QMenu*>("femCalculationMenu");
             const auto* solve=window.findChild<QAction*>("femLinearStaticsAction");
             const auto* deformation=window.findChild<QAction*>("femShowDeformationAction");
             check(calculation&&solve&&deformation&&calculation->title()==settings.qt_translations.value("Calculation")&&
+                mesh_menu->title()==settings.qt_translations.value("Mesh")&&
                 solve->text()==settings.qt_translations.value("Linear statics")&&
                 deformation->text()==settings.qt_translations.value("Show deformation"),"FEM calculation menu did not translate");
+            check(window.findChild<QMenu*>("femResultsMenu")->title()==settings.qt_translations.value("Results")&&
+                window.findChild<QAction*>("femDisplacementResultAction")->text()==settings.qt_translations.value("Displacement [mm]")&&
+                window.findChild<QAction*>("femStressResultAction")->text()==settings.qt_translations.value("Von Mises stress [MPa]"),
+                "FEM result choices did not translate");
 #endif
             for(const auto* theme:{"dark","light"}) {
                 settings.theme=theme;apply_application_appearance(application,settings);flush();
@@ -510,9 +569,110 @@ int verify_fem_body(QApplication& application,AssemblyWorkspaceWindow& window,co
             check(deformed&&deformation->isChecked()&&deformed->vertices==window.viewer_->mesh().vertices,
                 "The static command did not display the deformed cantilever");
             check(beam_session->revision()==beam_revision,"Generating a static result modified the document");
+            auto* stress_action=window.findChild<QAction*>("femStressResultAction");
+            auto* displacement_action=window.findChild<QAction*>("femDisplacementResultAction");
+            sidebar_menu(window.findChild<QMenu*>("femResultsMenu"));
+            const auto colors=view->triangle_scalar_field();
+            check(colors.size()==volume.surface.triangles.size()/3,"Displacement colors are missing");
+            const auto displacement_image=view->grabFramebuffer();
+            const auto verify_legend=[&](const QImage& image,const QString& label) {
+                const int panel_width=std::max(200,QFontMetrics(view->font()).horizontalAdvance(label)+24);
+                const double scale=double(image.width())/view->width();
+                const int x=int((view->width()-panel_width-18+24)*scale);
+                const auto high=image.pixelColor(x,int(97*scale)),low=image.pixelColor(x,int(267*scale));
+                check(high.red()>180&&high.green()<110&&low.blue()>150&&low.red()<70,
+                    "Result legend does not match the blue-to-red mesh palette");
+            };
+            verify_legend(displacement_image,QObject::tr("Displacement [mm]"));
+            unsigned colored_pixels=0;
+            for(int y=90;y<displacement_image.height();++y)for(int x=0;x<displacement_image.width()-400;++x) {
+                const auto c=displacement_image.pixelColor(x,y);
+                if(std::max({c.red(),c.green(),c.blue()})-std::min({c.red(),c.green(),c.blue()})>100)++colored_pixels;
+            }
+            check(colored_pixels>100,"Result colors did not reach the rendered mesh");
+            const auto upload=view->property("gpuMeshUploadCount");const auto camera=view->camera_state();
+            const auto mesh_vertices=view->mesh().vertices;
+            for(unsigned repeat=0;repeat<3;++repeat) {
+                stress_action->trigger();flush();
+                check(stress_action->isChecked()&&!displacement_action->isChecked(),"Result choice is not exclusive");
+                check(view->triangle_scalar_field()!=colors,"Stress did not replace displacement colors");
+                const auto stress_image=view->grabFramebuffer();
+                verify_legend(stress_image,QObject::tr("Von Mises stress [MPa]"));
+                check(stress_image!=displacement_image,"Result switching did not change the rendered field");
+                displacement_action->trigger();flush();
+                check(view->triangle_scalar_field()==colors,"Displacement field was not restored exactly");
+                check(view->mesh().vertices==mesh_vertices&&view->camera_state()==camera&&view->property("gpuMeshUploadCount")==upload,
+                    "Result switching rebuilt geometry or moved the camera");
+                check(beam_session->revision()==beam_revision,"Result switching changed the document");
+            }
             deformation->trigger();flush();
             check(!deformation->isChecked()&&window.viewer_->mesh().vertices==window.active_generated_fem_mesh()->vertices,
                 "Turning off deformation did not restore the undeformed mesh");
+            check(view->triangle_scalar_field().empty(),"Turning off results left a stale color field");
+            auto& pressure_session=window.workspace_.open_part(beam.document_id)->session;
+            const auto pressure_calculations=kernel::body_calculation_count.load();
+            for(int mode=0;mode<3;++mode){
+                auto pressure=tip;pressure.kind=document::FemConditionKind::Pressure;
+                pressure.name="Pressure";pressure.pressure_MPa=2.5;pressure.placement.rotation_y=0;
+                if(mode){
+                    auto sketch=sketcher::Sketch::create_default();sketch.owner_container_id=pressure.id;
+                    sketch.plane_auto=false;sketch.plane_offset=span/2+(mode==2?5:0);
+                    static_cast<void>(sketch.add_rectangle(-3,-2,3,2));
+                    sketch.refresh_default_frame();
+                    pressure.projected_sketch=document::FemProjectedSketch{sketch.serialized(),{},{},mode==2};
+                    if(mode==1)pressure.references.clear();
+                    else pressure.projected_sketch->surface_seeds={{0,0,span/2}};
+                }
+                auto edit=workspace::prepare_fem_edit(pressure_session.document(),beam_fem);
+                check(workspace::commit_fem_condition(window.workspace_,edit,pressure),"Pressure update failed");
+                window.refresh_scene();window.rebuild_application_toolbar();flush();
+                generate->trigger();flush();
+                const auto pressure_revision=pressure_session.revision();
+                solve->trigger();flush();
+                check(window.active_fem_deformation()&&deformation->isChecked(),"Pressure command did not produce deformation");
+                const auto first=window.active_fem_deformation()->vertices;
+                check(pressure_session.revision()==pressure_revision,"Pressure solve changed the document");
+                window.show_fem_condition_properties(document::FemConditionKind::Pressure,pressure.id);flush();
+                auto* dialog=dynamic_cast<FemConditionDialog*>(window.findChild<QDialog*>("femConditionDialog"));
+                check(dialog,"Pressure properties did not open");
+                dialog->findChild<QDoubleSpinBox*>("femPressureValue")->setValue(5);
+                dialog->buttons()->button(QDialogButtonBox::Cancel)->click();flush();
+                check(pressure_session.revision()==pressure_revision&&window.active_fem_deformation(),
+                    "Pressure Cancel lost the unchanged result");
+                window.show_fem_condition_properties(document::FemConditionKind::Pressure,pressure.id);flush();
+                dialog=dynamic_cast<FemConditionDialog*>(window.findChild<QDialog*>("femConditionDialog"));
+                dialog->findChild<QDoubleSpinBox*>("femPressureValue")->setValue(5);
+                dialog->findChild<QCheckBox*>("femPressureReverse")->setChecked(true);
+                dialog->buttons()->button(QDialogButtonBox::Ok)->click();flush();
+                check(!window.active_fem_deformation()&&window.active_generated_fem_mesh(),
+                    "Pressure value/direction edit did not invalidate only the result");
+                solve->trigger();flush();
+                const auto* second=window.active_fem_deformation();check(second,"Edited pressure did not solve");
+                const auto* original=window.active_generated_fem_mesh();
+                for(std::size_t i=0;i<first.size();++i){
+                    const auto a=first[i],b=second->vertices[i],p=original->vertices[i];
+                    check(std::hypot(b.x-p.x+2*(a.x-p.x),b.y-p.y+2*(a.y-p.y),b.z-p.z+2*(a.z-p.z))<1e-8,
+                        "GUI pressure edit did not reverse and double displacement");
+                }
+                check(pressure_session.undo(),"Pressure Undo failed");window.refresh_scene();window.rebuild_application_toolbar();flush();
+                check(!window.active_fem_deformation(),"Pressure Undo retained an obsolete result");
+                solve->trigger();flush();
+                check(window.active_fem_deformation()&&window.active_fem_deformation()->vertices==first,
+                    "Pressure Undo did not reproduce the original result");
+                check(pressure_session.redo(),"Pressure Redo failed");window.refresh_scene();window.rebuild_application_toolbar();flush();
+                solve->trigger();flush();check(window.active_fem_deformation(),"Pressure Redo did not solve");
+                const auto saved=directory/("fem-pressure-"+std::to_string(mode)+".prtz");
+                pressure_session.document().save(saved,pressure_session.calculated_boundaries());
+                const auto reopened=document::PartDocument::load(saved);
+                check(reopened.body_history==pressure_session.document().body_history,"Pressure reopen changed its region or direction");
+                const auto& restored=*reopened.body_history.find(beam_fem)->fem;
+                const auto restored_mesh=generate_fem_volume_mesh(solid.get(),restored);
+                const auto restored_result=solve_fem_linear_statics(restored_mesh,restored,{young,poisson});
+                check(fem_deformed_mesh(restored_mesh,restored_result).vertices==window.active_fem_deformation()->vertices,
+                    "Saved pressure did not reproduce the GUI result");
+            }
+            check(kernel::body_calculation_count.load()==pressure_calculations,"Pressure edits or solves recalculated CAD");
+            std::cout<<"FEM pressure GUI: body face, planar/projected Sketch, solve/display, Cancel, magnitude/reversal, Undo/Redo and native reopen passed\n";
         }
 #endif
         std::cout<<"FEM GUI: shared Body/Boolean source, entry, inspection, middle confirmation, Cancel, unchanged OK, activation, readonly CAD, Undo/Redo, save/reopen, five languages and two themes passed\n";

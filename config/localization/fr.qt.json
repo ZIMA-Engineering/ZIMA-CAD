@@ -7,7 +7,7 @@
   "The FEM load has no mesh region.": "La charge FEM ne possède aucune région de maillage.",
   "Set a valid Young's modulus and Poisson ratio in the Part material.": "Définissez un module de Young et un coefficient de Poisson valides dans le matériau de la pièce.",
   "Generate the FEM mesh before solving.": "Générez le maillage FEM avant le calcul.",
-  "Linear statics currently supports Force and Constraint conditions.": "La statique linéaire prend actuellement en charge les forces et les liaisons.",
+  "The FEM pressure region has no unambiguous surface normal.": "La région de pression MEF ne possède pas de normale de surface non ambiguë.",
   "The FEM constraints leave rigid-body motion.": "Les liaisons FEM autorisent un mouvement de corps rigide.",
   "The FEM constraints leave rigid-body motion or the calculation did not converge.": "Les liaisons FEM autorisent un mouvement de corps rigide ou le calcul n’a pas convergé.",
   "Otáčet kolem kurzoru": "Pivoter autour du curseur",
@@ -2991,5 +2991,11 @@
   "The FEM Sketch must contain region geometry.": "L’esquisse FEM doit contenir la géométrie de la zone d’application.",
   "The FEM Sketch must lie entirely on or inside its source body.": "L’esquisse FEM doit se trouver entièrement sur ou dans son corps source.",
   "Převzít přerušení z rodiče": "Hériter des interruptions de la vue parente",
-  "Přebírá přerušení ve společném směru pohledů a sleduje změny rodiče. Vypnutím ponecháte aktuální přerušení k samostatné úpravě.": "Hérite des interruptions dans la direction commune aux vues et suit les modifications de la vue parente. Désactivez pour modifier indépendamment les interruptions actuelles."
+  "Přebírá přerušení ve společném směru pohledů a sleduje změny rodiče. Vypnutím ponecháte aktuální přerušení k samostatné úpravě.": "Hérite des interruptions dans la direction commune aux vues et suit les modifications de la vue parente. Désactivez pour modifier indépendamment les interruptions actuelles.",
+  "Results": "Résultats",
+  "Displacement [mm]": "Déplacement [mm]",
+  "Von Mises stress [MPa]": "Contrainte de von Mises [MPa]",
+  "Maximum von Mises stress (element average): %1 MPa": "Contrainte de von Mises maximale (moyenne par élément) : %1 MPa",
+  "Volume-averaged stress in each element, without nodal smoothing.": "Contrainte moyennée sur le volume de chaque élément, sans lissage aux nœuds.",
+  "The result field does not match the displayed mesh.": "Le champ de résultats ne correspond pas au maillage affiché."
 }
