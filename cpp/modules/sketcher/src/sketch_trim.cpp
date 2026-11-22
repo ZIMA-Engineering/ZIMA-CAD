@@ -735,8 +735,20 @@ std::vector<SketchTrimPiece> sketch_trim_topology(
             const auto& first = curves[first_index];
             const auto& second = curves[second_index];
             if (!first.creates_trim_points || !second.creates_trim_points) continue;
-            const auto segment_circular_contact = [&]()
+            const auto persisted_tangent_contact = [&]()
                 -> const SketchConstraint* {
+                if(sketch.circular_radius(first.geometry_id)&&sketch.circular_radius(second.geometry_id)) {
+                    const auto tangent=std::ranges::find_if(sketch.constraints,[&](const auto& t) {
+                        if(t.suppressed||t.kind!=ConstraintKind::Tangent||!sketch.find_point(t.first_point_id))return false;
+                        if(!((t.geometry_id==first.geometry_id&&t.second_geometry_id==second.geometry_id)||
+                             (t.geometry_id==second.geometry_id&&t.second_geometry_id==first.geometry_id)))return false;
+                        for(const auto& id:{first.geometry_id,second.geometry_id})
+                            if(!geometry_owns_point(sketch,id,t.first_point_id)&&
+                               !std::ranges::any_of(sketch.constraints,[&](const auto& c){return !c.suppressed&&c.kind==ConstraintKind::PointOnCircle&&c.geometry_id==id&&c.first_point_id==t.first_point_id;}))return false;
+                        return true;
+                    });
+                    if(tangent!=sketch.constraints.end())return &*tangent;
+                }
                 const SampledCurve* segment = nullptr;
                 const SampledCurve* circular = nullptr;
                 if (first.kind == SampledKind::Segment &&
@@ -780,14 +792,14 @@ std::vector<SketchTrimPiece> sketch_trim_topology(
                 return tangent == sketch.constraints.end()
                     ? nullptr : &*tangent;
             }();
-            if (segment_circular_contact != nullptr) {
+            if (persisted_tangent_contact != nullptr) {
                 // C+T (or an Arc endpoint plus T) is persisted topology: one
                 // shared native point.  A nearly singular quadratic can report
                 // two roots around that point after valid solver edits.  Use
                 // the stored contact on both supports instead of manufacturing
                 // a microscopic Trim interval and two coincident endpoints.
                 const auto* point = sketch.find_point(
-                    segment_circular_contact->first_point_id);
+                    persisted_tangent_contact->first_point_id);
                 cuts[first.geometry_id].push_back(
                     persisted_contact_parameter(sketch, first, *point));
                 cuts[second.geometry_id].push_back(

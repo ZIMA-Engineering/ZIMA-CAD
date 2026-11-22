@@ -1,6 +1,8 @@
 #include "sketch_arc_axis_ui_verification.inc"
+#include "sketch_double_circle_ui_verification.inc"
 
 int verify_sketch_native_tangent_contact_ui(QApplication& application,const std::filesystem::path& directory) {
+    if(qEnvironmentVariableIsSet("ZIMA_VERIFY_DOUBLE_CIRCLE_UI_ONLY"))return verify_sketch_double_circle_ui(application,directory);
     if(qEnvironmentVariableIsSet("ZIMA_VERIFY_ARC_AXIS_UI_ONLY"))return verify_sketch_arc_axis_ui(application,directory);
     using namespace zima;
     try {

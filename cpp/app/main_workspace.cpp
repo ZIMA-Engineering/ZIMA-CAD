@@ -1,4 +1,5 @@
 ﻿#include "sketch_tangent_test_equations.hpp"
+#include "../tests/double_circle_tangent_study.hpp"
 #include "../tests/preview_refresh_probe.hpp"
 #include "../tests/sketch_coupled_dimension_study.hpp"
 #include "../tests/sketch_mechanism_study.hpp"

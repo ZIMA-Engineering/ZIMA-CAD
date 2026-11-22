@@ -28,6 +28,7 @@
 #include "sketch_mirror_drag_study.hpp"
 #include "sketch_external_midpoint_study.hpp"
 #include "sketch_coupled_dimension_study.hpp"
+#include "double_circle_tangent_study.hpp"
 
 namespace {
 void require(bool condition, const char* message) {
@@ -37,6 +38,7 @@ void require(bool condition, const char* message) {
 
 int main() {
     try {
+        if(std::getenv("ZIMA_CPP_VERIFY_DOUBLE_CIRCLE_ONLY"))return zima::test::run_double_circle_tangent_study();
         if(std::getenv("ZIMA_CPP_VERIFY_COUPLED_DIMENSION_ONLY"))return zima::test::run_sketch_coupled_dimension_study();
         if(std::getenv("ZIMA_CPP_VERIFY_EXTERNAL_MIDPOINT_ONLY"))return run_sketch_external_midpoint_study();
         if(std::getenv("ZIMA_CPP_VERIFY_MIRROR_DRAG_ONLY"))return run_sketch_mirror_drag_study();
@@ -5625,6 +5627,25 @@ int main() {
             fixed_curve_pair.add_circle(8.0, 0.0, 3.0);
         fixed_curve_pair.find_point(
             fixed_curve_pair.circles[1].center_point_id)->fixed = true;
+        // The first selection is a seed preference, not a fixed support.
+        // A fixed second circle must allow the free first centre to move.
+        auto free_first_curve_pair = fixed_curve_pair;
+        static_cast<void>(free_first_curve_pair.add_tangent_constraint(
+            fixed_reference_circle, fixed_driven_circle));
+        zima::test::verify_circle_contacts(free_first_curve_pair);
+        require(free_first_curve_pair.find_point(free_first_curve_pair.circles[1].center_point_id)->x == 8.0 &&
+                    free_first_curve_pair.find_point(free_first_curve_pair.circles[1].center_point_id)->y == 0.0 &&
+                    std::abs(free_first_curve_pair.circles[0].radius - 2.0) < 1e-8 &&
+                    std::abs(free_first_curve_pair.circles[1].radius - 3.0) < 1e-8,
+                "Tangent changed a fixed second centre or feasible entered radii");
+        // Make the rejected case geometrically impossible, rather than
+        // relying on the old first-selection-only movement restriction.
+        fixed_curve_pair.find_point(fixed_curve_pair.circles[0].center_point_id)->fixed = true;
+        for(const auto& circle_id : {fixed_reference_circle, fixed_driven_circle}) {
+            auto size = fixed_curve_pair.create_circle_radius_dimension(circle_id);
+            size.locked = true;
+            fixed_curve_pair.apply_dimension(size);
+        }
         const auto fixed_curve_pair_before = fixed_curve_pair;
         bool fixed_curve_pair_rejected = false;
         try {

@@ -1455,6 +1455,14 @@ if(ZIMA_BUILD_TESTS)
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_RECTANGLE_ARC_DIMENSIONS_ONLY=1;ZIMA_FORM_EDGE_SKETCH_FIXTURE=${CMAKE_SOURCE_DIR}/tests/fixtures/sketch/trimmed-rectangle-circle.json"
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." RUN_SERIAL TRUE TIMEOUT 180)
     add_test(NAME zima_cpp_native_tangent_contact_tests COMMAND zima_cpp_sketcher_contract_tests)
+    add_test(NAME zima_cpp_double_circle_tangent_tests COMMAND zima_cpp_sketcher_contract_tests)
+    set_tests_properties(zima_cpp_double_circle_tangent_tests PROPERTIES
+        ENVIRONMENT "ZIMA_CPP_VERIFY_DOUBLE_CIRCLE_ONLY=1" TIMEOUT 900)
+    add_test(NAME zima_cpp_double_circle_tangent_ui_contract COMMAND zima-cad-cpp --verify-startup
+        "--working-directory=${CMAKE_BINARY_DIR}/double-circle-tangent-gui")
+    set_tests_properties(zima_cpp_double_circle_tangent_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_SKETCH_KEYPOINT_CONTACT_ONLY=1;ZIMA_VERIFY_NATIVE_CURVE_CONTACT_ONLY=1;ZIMA_VERIFY_DOUBLE_CIRCLE_UI_ONLY=1"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." RUN_SERIAL TRUE TIMEOUT 900)
     add_test(NAME zima_cpp_native_arc_axis_tests COMMAND zima_cpp_sketcher_contract_tests)
     set_tests_properties(zima_cpp_native_arc_axis_tests PROPERTIES
         ENVIRONMENT "ZIMA_CPP_VERIFY_ARC_AXIS_ONLY=1" TIMEOUT 180)
