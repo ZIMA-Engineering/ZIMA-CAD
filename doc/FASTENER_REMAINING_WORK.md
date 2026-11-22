@@ -178,9 +178,10 @@ library/release order retain priority.
   but explicitly requested discussing and refining the details before coding.
   This proposal is not implemented yet.
 
-- FEM: the user proposes another Body type inside Part. Scope the analysis,
-  mesh ownership, boundary conditions, materials and result storage separately
-  before choosing a solver or native representation.
+- FEM: basic Part FEM Bodies, meshing, linear-elastic statics and steady-state
+  thermal analysis are implemented and published in Windows 2026112203.
+  See [current FEM scope and verification](FEM_STATUS.md). Thermal expansion is
+  the current follow-up; advanced analysis kinds remain separate work.
 - Voice input for the CAD AI: investigate speech decoding and synchronization
   with the actual hovered/selected object while the user speaks. Keep ordinary
   pointer interaction responsive; do not add continuous geometry calculation

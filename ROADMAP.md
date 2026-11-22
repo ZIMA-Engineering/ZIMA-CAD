@@ -1,5 +1,19 @@
 # ZIMA-CAD Roadmap
 
+## FEM delivery update (2026-11-22)
+
+**Basic FEM is implemented and published in signed Windows 2026112203.**
+Part FEM Bodies support volume meshing, restraints, force/pressure loading and
+small-displacement linear-elastic statics, plus steady-state thermal conduction
+with surface heat power and ambient convection. Displacement, von Mises stress
+and temperature color maps, static deformation animation, progress feedback and
+placed measurement points are available. See [FEM status](doc/FEM_STATUS.md) for
+the release, workflow, finite verification and limits. Thermal expansion is the
+current follow-up; it is not delivered in 2026112203. Native Linux verification
+remains separate. This update supersedes the older FEM planning entries below.
+
+## Earlier release and planning context
+
 The 2026-11-12 release candidate completes Tree protection and branch-aware
 release for associative Sheet-from-Body output, source-feature hover and driving
 dimension editing, and colored STEP/IGES/binary-STL interchange. A partial
@@ -39,7 +53,7 @@ for module boundaries and [distribution rules](doc/DISTRIBUTION_CLEANUP_PLAN.md)
 for the agreed packaging direction. Dated entries below preserve planning context;
 newer completion notes and focused contracts supersede their earlier status.
 
-## Current status and work order (2026-10-24)
+## Historical status and work order (2026-10-24)
 
 The shared OCCT 8.0.1 transition and Windows 2026102401 package, signing,
 public download and trusted updater acceptance are complete. The
@@ -71,8 +85,10 @@ factory and portable release acceptance are separate gates, recorded in the
 unfinished cast-wing/toothed-washer studies and the exclusion of two-part locking
 nuts. Ordered multiple Up To faces with signed correction are in final
 verification, followed by scoped Sketch projection. File Manager directory
-prototypes still require discussion. FEM, voice/pointer context and direct mesh
-editing are queued design work. See [the detailed queue](doc/FASTENER_REMAINING_WORK.md).
+prototypes still require discussion. Voice/pointer context and direct mesh
+editing are queued design work. FEM has since been implemented in the scope
+recorded in [the current FEM status](doc/FEM_STATUS.md).
+See [the detailed queue](doc/FASTENER_REMAINING_WORK.md).
 New native persisted or protected placement contracts require the agreed review.
 
 ### Progressive ZIMA-owned surface and sweep construction (agreed 2026-11-03)
@@ -163,12 +179,12 @@ verification of this change belongs on the Linux host.
 - Add direct modeling of imported STEP solid geometry within a Part. Define the
   supported editing operations and preserve ordinary Body ownership, history,
   reference identity, native persistence and Undo/Redo.
-- Complete a basic FEM analysis workflow for Parts. Define the initial scope of
-  materials, loads, boundary conditions, meshing and results before implementation;
-  verify it against independently checked reference cases.
+- Basic FEM for Parts is now implemented and published in Windows 2026112203,
+  including materials, loads, restraints, meshing, results and independently
+  checked reference cases. See [delivered scope and remaining work](doc/FEM_STATUS.md).
 
-These are queued requests, not implemented capabilities. Detailed command and
-analysis scope remains to be agreed.
+The direct-modeling request above remains queued. FEM is no longer a planned-only
+capability; further analysis kinds and verification cases remain scoped follow-ups.
 
 Solid Straightening / Restore shape was completed and published in Windows build
 2026100301; see [the implementation and verification](doc/SOLID_STRAIGHTENING.md).
