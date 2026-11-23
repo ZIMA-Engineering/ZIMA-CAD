@@ -1509,9 +1509,12 @@ zima::kernel::BodyResult load_body_result(const nlohmann::json& source,
     if(result.kernel_placements.empty()) {
         using Key=std::tuple<std::string,std::string,std::string>;
         std::map<Key,std::vector<std::shared_ptr<const zima::kernel::SurfaceGeometry>>> supports;
-        for(const auto& binding:result.kernel_faces)if(binding.reference.surface) {
+        for(const auto& binding:result.kernel_faces) {
             const auto& reference=binding.reference;
-            supports[{reference.owner_id,reference.semantic_key,reference.instance_path}].push_back(reference.surface);
+            auto& candidates=supports[{reference.owner_id,reference.semantic_key,reference.instance_path}];
+            if(reference.surface)candidates.push_back(reference.surface);
+            if(reference.contour_surface&&reference.contour_surface->kind==zima::kernel::SurfaceGeometry::Kind::Torus)
+                candidates.push_back(reference.contour_surface);
         }
         const auto attach=[&](auto& edges) {
             using Kind=zima::kernel::SurfaceGeometry::Kind;
@@ -1519,15 +1522,20 @@ zima::kernel::BodyResult load_body_result(const nlohmann::json& source,
                 const auto found=supports.find({reference.owner_id,reference.semantic_key,reference.instance_path});
                 if(found==supports.end()||edge.points.empty())continue;
                 for(const auto& surface:found->second) {
-                    if(surface->kind!=Kind::Plane&&surface->kind!=Kind::Cylinder)continue;
+                    if(surface->kind!=Kind::Plane&&surface->kind!=Kind::Cylinder&&surface->kind!=Kind::Torus)continue;
                     const bool contains=std::ranges::all_of(edge.points,[&](const auto& point) {
                         const double x=point.x-surface->origin.x,y=point.y-surface->origin.y,z=point.z-surface->origin.z;
                         const double axial=x*surface->axis.x+y*surface->axis.y+z*surface->axis.z;
+                        const double radial=std::hypot(x-axial*surface->axis.x,y-axial*surface->axis.y,z-axial*surface->axis.z);
                         const double distance=surface->kind==Kind::Plane?axial:
-                            std::hypot(x-axial*surface->axis.x,y-axial*surface->axis.y,z-axial*surface->axis.z)-surface->radius;
+                            surface->kind==Kind::Torus?std::hypot(radial-surface->radius,axial)-surface->minor_radius:
+                            radial-surface->radius;
                         return std::abs(distance)<=1.e-6;
                     });
-                    if(contains){reference.surface=surface;break;}
+                    if(contains){
+                        (surface->kind==Kind::Torus?reference.contour_surface:reference.surface)=surface;
+                        break;
+                    }
                 }
             }
         };

@@ -77,6 +77,7 @@
 #include <utility>
 
 #include "occt_support_driven_fillet.hpp"
+#include "occt_rolling_contact_replacement.hpp"
 
 namespace zima::kernel {
 namespace {
@@ -103,6 +104,8 @@ struct Cutter {
     TopoDS_Wire midpoint_profile;
     TopoDS_Edge midpoint_circular_edge;
     std::vector<std::size_t> source_jobs;
+    bool replace_support_contacts{};
+    gp_Pnt source_point;
 };
 
 struct CutterEndExtensions {
@@ -2200,7 +2203,8 @@ bool route_stays_in_retained_halfspace(
 Cutter make_route_cutter(const std::vector<CutterJob>& jobs,
         std::span<const std::size_t> route,double radius,double tolerance,
         std::span<const OcctPlanarEdgeEndFaces> end_faces,
-        OcctPlanarEdgeFilletEndMode end_mode) {
+        OcctPlanarEdgeFilletEndMode end_mode,
+        std::optional<bool> toroidal_material_sense={}) {
     if(route.size()<2)
         throw std::invalid_argument(
             "Planar edge Fillet route requires at least two segments");
@@ -2251,6 +2255,42 @@ Cutter make_route_cutter(const std::vector<CutterJob>& jobs,
                 "Planar edge Fillet route order is not connected");
         ordered.push_back(edge);
         current=endpoints(ordered.back())[1];
+    }
+
+    if(toroidal_material_sense) {
+        std::vector<std::array<TopoDS_Face,2>> supports;
+        for(const auto index:route)
+            supports.push_back({jobs[index].first_face,jobs[index].second_face});
+        // This rolling transition terminates where its two support contacts
+        // meet. Perpendicular and automatic ends coincide there. An explicit
+        // remote end remains authoritative and needs its own construction.
+        for(const auto position:{std::size_t{},route.size()-1}) {
+            const auto point=BRep_Tool::Pnt(endpoints(ordered[position])[position?1:0]);
+            if(support_driven_fillet::normal(supports[position][0],point).Dot(
+                    support_driven_fillet::normal(supports[position][1],point))<1.-1.e-8)
+                throw std::invalid_argument(support_driven_fillet::tangent_transition_error);
+            if(!end_faces.empty()) {
+                const auto& choice=end_faces[route[position]];
+                if(!choice.first.IsNull()||!choice.last.IsNull())
+                    throw std::invalid_argument(support_driven_fillet::tangent_transition_error);
+            }
+        }
+        auto rolling=support_driven_fillet::tangent_transition([&] {
+            return support_driven_fillet::build(ordered,supports,radius,
+                *toroidal_material_sense,tolerance,true);
+        });
+        Cutter result;
+        result.solid=std::move(rolling.solid);
+        result.circular_faces=std::move(rolling.faces);
+        result.adds_material=*toroidal_material_sense;
+        result.source_jobs.assign(route.begin(),route.end());
+        result.replace_support_contacts=true;
+        auto witness=route.front();
+        for(const auto index:route)
+            if(BRepAdaptor_Curve(jobs[index].edge).GetType()==GeomAbs_Circle){witness=index;break;}
+        const BRepAdaptor_Curve curve(jobs[witness].edge);
+        result.source_point=curve.Value(.5*(curve.FirstParameter()+curve.LastParameter()));
+        return result;
     }
 
     // A closed route has no authored terminal. Start its section on an
@@ -3561,8 +3601,17 @@ OcctPlanarEdgeFilletResult occt_planar_edge_fillet(
     cutters.reserve(routes.size());
     for(const auto& route:routes) {
         if(route.size()>1) {
+            std::optional<bool> toroidal_sense;
+            if(std::ranges::any_of(route,[&](const auto index) {
+                    return BRepAdaptor_Surface(jobs[index].first_face).GetType()==GeomAbs_Torus||
+                        BRepAdaptor_Surface(jobs[index].second_face).GetType()==GeomAbs_Torus;
+                })) {
+                toroidal_sense=treatment_adds_material(route.front());
+                for(const auto index:route)if(treatment_adds_material(index)!=*toroidal_sense)
+                    throw std::invalid_argument(support_driven_fillet::tangent_transition_error);
+            }
             cutters.push_back(make_route_cutter(jobs,route,radius,
-                tolerance,end_faces,end_mode));
+                tolerance,end_faces,end_mode,toroidal_sense));
             continue;
         }
         const auto index=route.front();
@@ -3738,8 +3787,8 @@ OcctPlanarEdgeFilletResult occt_planar_edge_fillet(
         for(const auto source_job:cutter.source_jobs) {
             static_cast<void>(source_job);
             result.removal_domains.push_back(cutter.solid);
-            result.analytic_removal_domains.push_back(
-                cutter.analytic_domain);
+            if(!cutter.replace_support_contacts)
+                result.analytic_removal_domains.push_back(cutter.analytic_domain);
         }
     }
     result.metrics.preparation_ms=std::chrono::duration<double,std::milli>(
@@ -3797,8 +3846,19 @@ OcctPlanarEdgeFilletResult occt_planar_edge_fillet(
     // sense share one Boolean for the normal fast path; a mixed route changes
     // operation only where its authored CUT/FUSE sense changes.
     for(std::size_t first=0;first<cutters.size();) {
+        const auto& cutter=cutters[application_order[first]];
+        if(cutter.replace_support_contacts) {
+            auto replacement=support_driven_fillet::tangent_transition([&] {
+                return support_driven_fillet::replace_contacts(current,
+                    cutter.solid,cutter.circular_faces,cutter.source_point);
+            });
+            if(result.history)result.history->Merge(replacement.history);
+            else result.history=replacement.history;
+            current=std::move(replacement.shape);
+            ++first;continue;
+        }
         std::size_t last=first+1;
-        while(last<cutters.size()&&
+        while(last<cutters.size()&&!cutters[application_order[last]].replace_support_contacts&&
               cutters[application_order[last]].adds_material==
                   cutters[application_order[first]].adds_material)
             ++last;
@@ -4054,6 +4114,10 @@ OcctPlanarEdgeFilletResult occt_planar_edge_fillet(
         throw std::runtime_error(
             "Planar edge Fillet same-domain cleanup produced an invalid Body");
     }
+    if(std::ranges::any_of(cutters,[](const auto& cutter){return cutter.replace_support_contacts;}))
+        support_driven_fillet::tangent_transition([&] {
+            support_driven_fillet::validate_contact_curves(current);
+        });
     result.shape=current;
     NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> result_faces;
     TopExp::MapShapes(result.shape,TopAbs_FACE,result_faces);

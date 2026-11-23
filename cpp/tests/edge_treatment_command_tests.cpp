@@ -265,6 +265,35 @@ void verify_support_packet_roundtrip(const kernel::OcctKernel& engine) {
         for(std::size_t side=0;side<a.edge_treatment_side_references.size();++side)
             require(a.edge_treatment_side_references[side].surface->reversed==b.edge_treatment_side_references[side].surface->reversed,"Reopen changed a current support's material orientation");
     }
+    std::vector<kernel::HistoryOperation> rounded_history{{"support-cylinder",test::CircularExtrusion{30,20}}};
+    const auto cylinder=engine.evaluate_history(rounded_history).back();
+    const auto rim=std::ranges::find_if(cylinder.mesh.edges,[](const auto& edge) {
+        return edge.reference.valid()&&edge.points.size()>2&&
+            std::ranges::all_of(edge.points,[](const auto& p){return std::abs(p.z-20)<1.e-7;});
+    });
+    require(rim!=cylinder.mesh.edges.end(),"Torus support fixture has no rim");
+    kernel::FilletRequest round{{rim->reference},5.};
+    round.calculation_method=kernel::EdgeTreatmentCalculationMethod::Zima;
+    rounded_history.push_back({"support-torus",round});
+    const auto toroidal=engine.evaluate_history(rounded_history).back();
+    require(toroidal.calculation_errors.empty(),"Torus support fixture failed");
+    const auto count=kernel::body_calculation_count.load();
+    const auto restored=document::load_body_result(document::serialize_body_result(toroidal));
+    require(kernel::body_calculation_count.load()==count,"Support packet reopening calculated geometry");
+    std::size_t torus_contacts{};
+    for(const auto& edge:toroidal.mesh.edges)for(std::size_t side=0;side<edge.edge_treatment_side_references.size();++side) {
+        const auto& support=edge.edge_treatment_side_references[side];
+        if(!support.contour_surface||support.contour_surface->kind!=kernel::SurfaceGeometry::Kind::Torus)continue;
+        const auto found=std::ranges::find(restored.mesh.edges,edge.reference,&kernel::ViewerEdge::reference);
+        require(found!=restored.mesh.edges.end()&&found->edge_treatment_side_references.size()==2,
+            "Native reopen lost a toroidal contact edge");
+        const auto& after=found->edge_treatment_side_references[side];
+        require(after==support&&!after.surface&&after.contour_surface&&
+                *after.contour_surface==*support.contour_surface,
+            "Native reopen changed a toroidal support or exposed it as a placement surface");
+        ++torus_contacts;
+    }
+    require(torus_contacts>=2,"Support packet regression did not cover both toroidal contacts");
 }
 // Explicit calculation oracle for regression checks. Product interaction has
 // no disposable body-preview API: it uses only the persisted input wire data.

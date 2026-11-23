@@ -3150,5 +3150,6 @@
   "A render is already running.": "Ein Rendering läuft bereits.",
   "Spotlight": "Strahler",
   "Cone angle": "Kegelwinkel",
-  "Edge softness": "Randweichheit"
+  "Edge softness": "Randweichheit",
+  "ZIMA Fillet rejected the selected geometry: The tangent transition could not be constructed. Adjust the radius or selected edges.": "ZIMA-Verrundung hat die ausgewählte Geometrie abgelehnt: Der tangentiale Übergang konnte nicht erstellt werden. Ändern Sie den Radius oder die ausgewählten Kanten."
 }

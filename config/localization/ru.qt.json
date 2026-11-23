@@ -3150,5 +3150,6 @@
   "A render is already running.": "Визуализация уже выполняется.",
   "Spotlight": "Прожектор",
   "Cone angle": "Угол конуса",
-  "Edge softness": "Мягкость края"
+  "Edge softness": "Мягкость края",
+  "ZIMA Fillet rejected the selected geometry: The tangent transition could not be constructed. Adjust the radius or selected edges.": "Скругление ZIMA отклонило выбранную геометрию: не удалось построить касательный переход. Измените радиус или выбранные рёбра."
 }

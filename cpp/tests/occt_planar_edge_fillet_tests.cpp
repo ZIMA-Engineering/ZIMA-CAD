@@ -7,6 +7,8 @@
 #include <BRepAlgoAPI_Cut.hxx>
 #include <BRepAlgoAPI_Fuse.hxx>
 #include <BRepCheck_Analyzer.hxx>
+#include <BOPAlgo_ArgumentAnalyzer.hxx>
+#include <sstream>
 #include <BRepClass_FaceClassifier.hxx>
 #include <BRepClass3d_SolidClassifier.hxx>
 #include <BRepExtrema_DistShapeShape.hxx>
@@ -1400,9 +1402,92 @@ void verify_oblique_round_route() {
     }
 }
 
+void verify_toroidal_runouts() {
+    using namespace zima::kernel;
+    TopoDS_Shape plate=BRepPrimAPI_MakeBox(gp_Pnt(-50,-50,-10),100,100,20).Shape();
+    for(const auto center:{gp_Pnt(90,0,-20),gp_Pnt(0,90,-20)})
+        plate=BRepAlgoAPI_Cut(plate,BRepPrimAPI_MakeCylinder(gp_Ax2(center,gp_Dir(0,0,1)),60,40).Shape()).Shape();
+    std::vector<TopoDS_Edge> rims;
+    NCollection_IndexedMap<TopoDS_Shape,TopTools_ShapeMapHasher> plate_edges;
+    TopExp::MapShapes(plate,TopAbs_EDGE,plate_edges);
+    for(const auto& shape:plate_edges) {
+        const auto edge=TopoDS::Edge(shape);BRepAdaptor_Curve c(edge);
+        if(c.GetType()==GeomAbs_Circle&&std::abs(c.Circle().Radius()-60.)<1.e-7&&
+                std::abs(c.Value(c.FirstParameter()).Z()-10.)<1.e-7)rims.push_back(edge);
+    }
+    require(rims.size()==2,"Toroidal fixture lost its two circular rims");
+    const auto rounded=occt_planar_edge_fillet(plate,rims,5.,1.e-7).shape;
+    BRepAlgoAPI_Fuse joined(rounded,BRepPrimAPI_MakeCylinder(gp_Ax2(gp_Pnt(0,0,-30),gp_Dir(0,0,1)),30,60).Shape());
+    joined.SimplifyResult();const auto input=joined.Shape();
+    require(BRepCheck_Analyzer(input).IsValid(),"Toroidal runout input is invalid");
+    std::vector<TopoDS_Edge> route;
+    NCollection_IndexedDataMap<TopoDS_Shape,NCollection_List<TopoDS_Shape>,TopTools_ShapeMapHasher> adjacent;
+    TopExp::MapShapesAndAncestors(input,TopAbs_EDGE,TopAbs_FACE,adjacent);
+    for(int i=1;i<=adjacent.Extent();++i) {
+        const auto edge=TopoDS::Edge(adjacent.FindKey(i));BRepAdaptor_Curve c(edge);
+        const auto point=c.Value(.5*(c.FirstParameter()+c.LastParameter()));
+        if(point.Z()<4.9||point.Z()>10.1||point.X()<-1.e-6||point.Y()<-1.e-6)continue;
+        bool boss=false,other=false;
+        for(const auto& f:adjacent.FindFromIndex(i)) {
+            BRepAdaptor_Surface surface(TopoDS::Face(f));
+            boss=boss||(surface.GetType()==GeomAbs_Cylinder&&std::abs(surface.Cylinder().Radius()-30.)<1.e-7);
+            other=other||surface.GetType()==GeomAbs_Plane||surface.GetType()==GeomAbs_Torus;
+        }
+        if(boss&&other)route.push_back(edge);
+    }
+    require(route.size()>=3,"Toroidal runout fixture lost its route");
+    std::ostringstream original;BRepTools::Write(input,original);
+    for(double radius:{1.,3.,5.,8.}) {
+        std::optional<double> expected;
+        for(bool reverse:{false,true}) {
+            auto selected=route;
+            if(reverse){std::ranges::reverse(selected);for(auto& edge:selected)edge.Reverse();}
+            const std::array counts{selected.size()};
+            const auto result=occt_planar_edge_fillet(input,selected,radius,1.e-7,{},
+                OcctPlanarEdgeFilletEndMode::AutomaticBodyEnvelope,counts);
+            require(result.history&&BRepCheck_Analyzer(result.shape,true,false,true).IsValid(),
+                "Toroidal runout did not produce an exact valid Body");
+            BOPAlgo_ArgumentAnalyzer check;check.SetShape1(result.shape);check.SelfInterMode()=true;
+            check.CurveOnSurfaceMode()=true;check.Perform();
+            require(!check.HasFaulty(),"Toroidal runout has a self-intersection or inaccurate contact");
+            NCollection_IndexedMap<TopoDS_Shape,TopTools_ShapeMapHasher> solids,treatments;
+            TopExp::MapShapes(result.shape,TopAbs_SOLID,solids);
+            require(solids.Extent()==1,"Toroidal runout lost its single solid");
+            for(const auto& faces:result.fillet_faces){require(!faces.empty(),"Toroidal runout lost source ancestry");for(const auto& face:faces)treatments.Add(face);}
+            unsigned contacts=0;
+            NCollection_IndexedDataMap<TopoDS_Shape,NCollection_List<TopoDS_Shape>,TopTools_ShapeMapHasher> boundaries;
+            TopExp::MapShapesAndAncestors(result.shape,TopAbs_EDGE,TopAbs_FACE,boundaries);
+            for(int i=1;i<=boundaries.Extent();++i) {
+                const auto edge=TopoDS::Edge(boundaries.FindKey(i));if(BRep_Tool::Degenerated(edge))continue;
+                const auto& faces=boundaries.FindFromIndex(i);
+                require(faces.Size()==2,"Toroidal runout has an open or non-manifold edge");
+                auto it=faces.cbegin();const auto a=TopoDS::Face(*it++),b=TopoDS::Face(*it);
+                if(treatments.Contains(a)==treatments.Contains(b))continue;
+                require(face_normal_on_edge(a,edge).Dot(face_normal_on_edge(b,edge))>1.-1.e-7,
+                    "Toroidal runout is not tangent to its support");++contacts;
+            }
+            require(contacts>=6,"Toroidal runout lost tangent boundaries");
+            const auto actual=volume(result.shape);
+            require(actual>volume(input),"Concave toroidal runout did not add material");
+            if(expected)near(actual,*expected,"Toroidal runout depends on selection order");else expected=actual;
+            std::ostringstream after;BRepTools::Write(input,after);
+            require(original.str()==after.str(),"Toroidal runout mutated its input geometry");
+            std::stringstream archive;BRepTools::Write(result.shape,archive);
+            TopoDS_Shape reopened;BRep_Builder builder;BRepTools::Read(reopened,archive,builder);
+            require(BRepCheck_Analyzer(reopened,true,false,true).IsValid(),"Toroidal runout did not reopen");
+            near(volume(reopened),actual,"Toroidal runout changed volume after reopening");
+            BRepAlgoAPI_Cut hole(reopened,BRepPrimAPI_MakeCylinder(gp_Ax2(gp_Pnt(0,0,-40),gp_Dir(0,0,1)),5,80).Shape());
+            require(hole.IsDone()&&BRepCheck_Analyzer(hole.Shape(),true,false,true).IsValid(),
+                "Toroidal runout broke a downstream hole");
+        }
+    }
+}
+
 } // namespace
 
 int main() try {
+    if(std::getenv("ZIMA_VERIFY_TOROIDAL_RUNOUT")){verify_toroidal_runouts();std::cout<<"Toroidal runout route passed\n";return 0;}
+    verify_toroidal_runouts();
     verify_tangent_boss_terminals();
     if(std::getenv("ZIMA_VERIFY_CYLINDRICAL_RIB_ROUTE")){verify_cylindrical_rib_route();std::cout<<"Cylindrical rib route passed\n";return 0;}
     verify_cylindrical_rib_route();

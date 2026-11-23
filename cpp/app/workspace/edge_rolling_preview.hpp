@@ -7,7 +7,27 @@ struct RollingPreviewMember {
     zima::kernel::Vec3 first_center,last_center;
     double signed_radius{};
     zima::kernel::Vec3 middle_center;
+    bool trimmed_by_torus{};
 };
+
+std::shared_ptr<const zima::kernel::SurfaceGeometry> rolling_preview_support(
+        const zima::kernel::ViewerMesh& mesh,const zima::kernel::FaceReference& face) {
+    if(const auto surface=edge_preview_surface(mesh,face))return surface;
+    // Torus descriptors belong to the contour packet, including in compact
+    // rollback snapshots. Resolve that same face identity without a B-Rep read.
+    const auto torus=[](const auto& reference) {
+        return reference.contour_surface&&reference.contour_surface->kind==
+            zima::kernel::SurfaceGeometry::Kind::Torus;
+    };
+    if(torus(face))return face.contour_surface;
+    for(const auto* references:{&mesh.triangle_references,
+            &mesh.original_references.triangle_references}) {
+        const auto found=std::ranges::find_if(*references,
+            [&](const auto& candidate){return candidate==face&&torus(candidate);});
+        if(found!=references->end())return found->contour_surface;
+    }
+    return {};
+}
 
 std::pair<zima::kernel::Vec3,double> rolling_preview_normal_distance(
         const zima::kernel::SurfaceGeometry& surface,
@@ -22,6 +42,14 @@ std::pair<zima::kernel::Vec3,double> rolling_preview_normal_distance(
         const double radial=edge_preview_length(delta);
         normal=radial>1.e-12?edge_preview_offset({},delta,1./radial):surface.radial;
         distance=radial-surface.radius;
+    }
+    if(surface.kind==Kind::Torus) {
+        const auto radial=edge_preview_normalized(edge_preview_offset(delta,surface.axis,-axial));
+        const auto major=edge_preview_offset(surface.origin,radial?*radial:surface.radial,surface.radius);
+        const auto minor=edge_preview_difference(point,major);
+        const double length=edge_preview_length(minor);
+        normal=length>1.e-12?edge_preview_offset({},minor,1./length):surface.axis;
+        distance=length-surface.minor_radius;
     }
     if(surface.reversed){normal=edge_preview_offset({},normal,-1.);distance=-distance;}
     return {normal,distance};
@@ -48,6 +76,42 @@ std::optional<zima::kernel::Vec3> rolling_preview_center(
         const double offset=(plane.reversed?-1.:1.)*member.signed_radius;
         const double shift=(offset-edge_preview_dot(edge_preview_difference(center,plane.origin),plane.axis))/divisor;
         return edge_preview_offset(center,cylinder.axis,shift);
+    }
+    // Parallel torus/cylinder supports admit an exact circle intersection
+    // at each minor-angle station. This remains regular at a tangent runout,
+    // where the general Newton system loses rank.
+    for(std::size_t i=0;i<2;++i) {
+        const auto& torus=*member.supports[i];
+        const auto& cylinder=*member.supports[1-i];
+        if(torus.kind!=Kind::Torus||cylinder.kind!=Kind::Cylinder||
+           std::abs(std::abs(edge_preview_dot(torus.axis,cylinder.axis))-1.)>1.e-9)continue;
+        auto baseline=edge_preview_difference(cylinder.origin,torus.origin);
+        baseline=edge_preview_offset(baseline,torus.axis,-edge_preview_dot(baseline,torus.axis));
+        const double d=edge_preview_length(baseline);if(d<1.e-10)return {};
+        const auto x=edge_preview_offset({},baseline,1./d);
+        const auto y=zima::kernel::dimension_cross(torus.axis,x);
+        const double minor=torus.minor_radius+(torus.reversed?-1.:1.)*member.signed_radius;
+        const double radius=cylinder.radius+(cylinder.reversed?-1.:1.)*member.signed_radius;
+        if(minor<=0.||radius<=0.)return {};
+        const auto delta=edge_preview_difference(point,torus.origin);
+        const double height=edge_preview_dot(delta,torus.axis);
+        const double rho=edge_preview_length(edge_preview_offset(delta,torus.axis,-height));
+        double angle=std::atan2(height,rho-torus.radius);
+        double gap=torus.radius-minor+radius-d;
+        if(std::abs(gap)<64.*std::numeric_limits<double>::epsilon()*(d+torus.radius+minor+radius)) {
+            gap=0.;
+            if(std::abs(std::abs(angle)-std::numbers::pi)<1.e-5)
+                angle=std::copysign(std::numbers::pi,angle);
+        }
+        const double r=torus.radius+minor*std::cos(angle);
+        const double along=(r*r-radius*radius+d*d)/(2.*d);
+        const double half=std::cos(angle*.5);
+        const double h2=(gap+2.*minor*half*half)*(r+radius+d)*(d-r+radius)*(d+r-radius)/(4.*d*d);
+        if(h2<-1.e-8)return {};
+        const double branch=edge_preview_dot(delta,y)<0.?-1.:1.;
+        auto center=edge_preview_offset(torus.origin,x,along);
+        center=edge_preview_offset(center,y,branch*std::sqrt(std::max(0.,h2)));
+        return edge_preview_offset(center,torus.axis,minor*std::sin(angle));
     }
     const auto station=guess;
     for(int iteration=0;iteration<32;++iteration) {
@@ -78,6 +142,9 @@ std::optional<zima::kernel::Vec3> rolling_preview_joint(
         if(a.kind!=b.kind||a.reversed!=b.reversed)return false;
         if(std::abs(std::abs(edge_preview_dot(a.axis,b.axis))-1.)>1.e-9)return false;
         const auto delta=edge_preview_difference(a.origin,b.origin);
+        if(a.kind==Kind::Torus)
+            return std::abs(a.radius-b.radius)<1.e-7&&std::abs(a.minor_radius-b.minor_radius)<1.e-7&&
+                edge_preview_length(delta)<1.e-7;
         return a.kind==Kind::Plane?std::abs(edge_preview_dot(delta,a.axis))<1.e-7:
             std::abs(a.radius-b.radius)<1.e-7&&edge_preview_length(
                 edge_preview_offset(delta,a.axis,-edge_preview_dot(delta,a.axis)))<1.e-7;
@@ -130,8 +197,8 @@ std::vector<RollingPreviewMember> rolling_preview_path(
         if(edge.points.size()<2||edge.edge_treatment_side_references.size()!=2)return {};
         RollingPreviewMember member;
         for(std::size_t i=0;i<2;++i) {
-            member.supports[i]=edge_preview_surface(mesh,edge.edge_treatment_side_references[i]);
-            if(!member.supports[i]||(member.supports[i]->kind!=Kind::Plane&&member.supports[i]->kind!=Kind::Cylinder)) {
+            member.supports[i]=rolling_preview_support(mesh,edge.edge_treatment_side_references[i]);
+            if(!member.supports[i]||(member.supports[i]->kind!=Kind::Plane&&member.supports[i]->kind!=Kind::Cylinder&&member.supports[i]->kind!=Kind::Torus)) {
                 return {};
             }
             curved=curved||member.supports[i]->kind==Kind::Cylinder;
@@ -168,6 +235,9 @@ std::vector<RollingPreviewMember> rolling_preview_path(
         const auto joint=rolling_preview_joint(result[i-1],result[i],path.edges[i].points.front(),result[i-1].last_center);
         if(!joint)return {};
         result[i-1].last_center=result[i].first_center=*joint;
+        for(const auto* member:{&result[i-1],&result[i]})
+            if(std::ranges::any_of(member->supports,[](const auto& support){return support->kind==Kind::Torus;}))
+                result[i-1].trimmed_by_torus=result[i].trimmed_by_torus=true;
     }
     if(edge_preview_same_point(path.edges.front().points.front(),path.edges.back().points.back())) {
         const auto joint=rolling_preview_joint(result.back(),result.front(),path.edges.front().points.front(),result.back().last_center);
@@ -193,13 +263,15 @@ std::optional<EdgeTreatmentSection> rolling_preview_section(
     if(!center)return {};
     if(index==0)center=member.first_center;
     else if(index+1==edge.points.size())center=member.last_center;
-    else if(member.supports[0]->kind==zima::kernel::SurfaceGeometry::Kind::Cylinder&&
-            member.supports[1]->kind==zima::kernel::SurfaceGeometry::Kind::Cylinder) {
+    else if(member.trimmed_by_torus||
+            (member.supports[0]->kind==zima::kernel::SurfaceGeometry::Kind::Cylinder&&
+             member.supports[1]->kind==zima::kernel::SurfaceGeometry::Kind::Cylinder)) {
         // The original support intersection and the rolling center curve have
         // different station ranges at a seam. A nearest station can overshoot
         // the contact endpoint; trim it to the same support transition as the
         // native construction, rather than drawing a short reversed rail.
         for(const auto& support:member.supports) {
+            if(support->kind!=zima::kernel::SurfaceGeometry::Kind::Cylinder)continue;
             const auto radial=[&](const auto& p) {
                 auto d=edge_preview_difference(p,support->origin);
                 return edge_preview_normalized(edge_preview_offset(d,support->axis,-edge_preview_dot(d,support->axis)));

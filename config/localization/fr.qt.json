@@ -3150,5 +3150,6 @@
   "A render is already running.": "Un rendu est déjà en cours.",
   "Spotlight": "Projecteur",
   "Cone angle": "Angle du cône",
-  "Edge softness": "Douceur du bord"
+  "Edge softness": "Douceur du bord",
+  "ZIMA Fillet rejected the selected geometry: The tangent transition could not be constructed. Adjust the radius or selected edges.": "Le congé ZIMA a rejeté la géométrie sélectionnée : impossible de créer la transition tangente. Modifiez le rayon ou les arêtes sélectionnées."
 }

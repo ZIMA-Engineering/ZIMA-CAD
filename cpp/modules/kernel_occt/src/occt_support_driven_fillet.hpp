@@ -10,6 +10,14 @@
 #include <BRepBuilderAPI_MakeSolid.hxx>
 #include <BRepLib.hxx>
 #include <BRepExtrema_DistShapeShape.hxx>
+#include <Geom_ToroidalSurface.hxx>
+#include <Geom_Circle.hxx>
+#include <GeomConvert_CompCurveToBSplineCurve.hxx>
+#include <BRepPrimAPI_MakeTorus.hxx>
+#include <BRepOffsetAPI_NormalProjection.hxx>
+#include <Geom2d_BSplineCurve.hxx>
+#include <GeomAPI_PointsToBSpline.hxx>
+#include <NCollection_HArray1.hxx>
 
 // Private construction for routes whose support angle changes along the spine.
 // Offset intersections define the centers; exact support contacts trim the
@@ -31,6 +39,104 @@ struct Segment {
     bool collapsed{};
 };
 struct Result { TopoDS_Shape solid;std::vector<TopoDS_Face> faces; };
+// Keep the accurate 3D contact curve fixed. Refine its UV representation using
+// the surface metric, and measure interpolation error back in 3D millimetres.
+inline void precise_pcurve(const TopoDS_Edge& edge,const TopoDS_Face& face,double tolerance) {
+    double a,b,pa,pb;const auto curve=BRep_Tool::Curve(edge,a,b);
+    const auto previous=BRep_Tool::CurveOnSurface(edge,face,pa,pb);
+    const auto surface=BRep_Tool::Surface(face);
+    if(curve.IsNull()||previous.IsNull()||BRep_Tool::Degenerated(edge))return;
+    struct Sample{double t;gp_Pnt2d uv;gp_Vec2d derivative;};
+    const auto sample=[&](double t) {
+        gp_Pnt point;gp_Vec tangent;curve->D1(t,point,tangent);
+        auto uv=previous->Value(t);
+        const auto project=[&] {
+            GeomAPI_ProjectPointOnSurf projection(point,surface,1.e-10);
+            if(!projection.NbPoints())throw std::runtime_error("Contact projection missing");
+            double u,v;projection.LowerDistanceParameters(u,v);return gp_Pnt2d(u,v);
+        };
+        for(int iteration=0;iteration<24;++iteration) {
+            gp_Pnt p;gp_Vec du,dv;surface->D1(uv.X(),uv.Y(),p,du,dv);
+            const gp_Vec error(p,point);const double aa=du.SquareMagnitude(),bb=dv.SquareMagnitude(),ab=du.Dot(dv),det=aa*bb-ab*ab;
+            if(det<1.e-24){uv=project();break;}
+            const double x=(error.Dot(du)*bb-error.Dot(dv)*ab)/det,y=(error.Dot(dv)*aa-error.Dot(du)*ab)/det;
+            uv.SetCoord(uv.X()+x,uv.Y()+y);
+            if((du*x+dv*y).Magnitude()<1.e-12)break;
+        }
+        gp_Pnt p;gp_Vec du,dv;surface->D1(uv.X(),uv.Y(),p,du,dv);
+        if(p.Distance(point)>20.*tolerance){uv=project();surface->D1(uv.X(),uv.Y(),p,du,dv);}
+        if(p.Distance(point)>20.*tolerance){throw std::runtime_error("Contact pcurve leaves geometric support");}
+        const double aa=du.SquareMagnitude(),bb=dv.SquareMagnitude(),ab=du.Dot(dv),det=aa*bb-ab*ab;
+        if(det<1.e-24)throw std::runtime_error("Contact surface parameterization is singular");
+        return Sample{t,uv,gp_Vec2d((tangent.Dot(du)*bb-tangent.Dot(dv)*ab)/det,(tangent.Dot(dv)*aa-tangent.Dot(du)*ab)/det)};
+    };
+    std::vector<Sample> nodes{sample(a)};
+    const auto refine=[&](auto&& self,Sample p,Sample q,int depth)->void {
+        const double dt=q.t-p.t;const auto c=p.uv.Translated(p.derivative*(dt/3.)),d=q.uv.Translated(q.derivative*(-dt/3.));
+        double error=0.;
+        for(double fraction:{.2,.4,.5,.6,.8}) {
+            const double one=1.-fraction;
+            const auto uv=p.uv.XY()*(one*one*one)+c.XY()*(3.*one*one*fraction)+d.XY()*(3.*one*fraction*fraction)+q.uv.XY()*(fraction*fraction*fraction);
+            const auto actual=sample(p.t+dt*fraction);
+            error=std::max(error,surface->Value(uv.X(),uv.Y()).Distance(surface->Value(actual.uv.X(),actual.uv.Y())));
+        }
+        if(error>tolerance*.1) {
+            if(depth==30||nodes.size()>4096){throw std::runtime_error("Contact pcurve did not converge");}
+            const auto middle=sample((p.t+q.t)*.5);self(self,p,middle,depth+1);self(self,middle,q,depth+1);return;
+        }
+        nodes.push_back(q);
+    };
+    refine(refine,nodes.front(),sample(b),0);
+    NCollection_Array1<gp_Pnt2d> poles(1,3*int(nodes.size())-2);
+    NCollection_Array1<double> knots(1,int(nodes.size()));NCollection_Array1<int> multiplicities(1,int(nodes.size()));
+    poles(1)=nodes.front().uv;
+    for(std::size_t i=0;i<nodes.size();++i){knots(int(i)+1)=nodes[i].t;multiplicities(int(i)+1)=i==0||i+1==nodes.size()?4:3;}
+    for(std::size_t i=1;i<nodes.size();++i){const auto& p=nodes[i-1];const auto& q=nodes[i];const double dt=(q.t-p.t)/3.;poles(3*int(i)-1)=p.uv.Translated(p.derivative*dt);poles(3*int(i))=q.uv.Translated(q.derivative*(-dt));poles(3*int(i)+1)=q.uv;}
+    occ::handle<Geom2d_Curve> refined=new Geom2d_BSplineCurve(poles,knots,multiplicities,3);
+    BRep_Builder builder;builder.UpdateEdge(edge,refined,face,tolerance);builder.Range(edge,face,a,b);
+
+}
+inline std::pair<double,gp_Pnt> nearest_on_curve(const gp_Pnt& point,const occ::handle<Geom_Curve>& curve) {
+    GeomAPI_ProjectPointOnCurve projection(point,curve);
+    double u=0.,distance=1.e100;gp_Pnt p;
+    if(projection.NbPoints()){u=projection.LowerDistanceParameter();p=projection.NearestPoint();distance=p.Distance(point);}
+    for(const double parameter:{curve->FirstParameter(),curve->LastParameter()})if(std::isfinite(parameter)&&std::abs(parameter)<1.e50) {
+        const auto candidate=curve->Value(parameter);
+        if(candidate.Distance(point)<distance){u=parameter;p=candidate;distance=p.Distance(point);}
+    }
+    if(distance==1.e100)throw std::runtime_error("No nearest curve point");
+    return {u,p};
+}
+inline occ::handle<Geom_BSplineCurve> joined(occ::handle<Geom_Curve> a,occ::handle<Geom_Curve> b,double tolerance) {
+    GeomConvert_CompCurveToBSplineCurve join(new Geom_TrimmedCurve(a,a->FirstParameter(),a->LastParameter()));
+    if(!join.Add(new Geom_TrimmedCurve(b,b->FirstParameter(),b->LastParameter()),tolerance,true,true,1))throw std::runtime_error("Join curves failed");
+    return join.BSplineCurve();
+}
+inline occ::handle<Geom_Curve> connected_intersection(const GeomAPI_IntSS& intersection,int seed,double tolerance,const std::array<gp_Pnt,2>* required=nullptr) {
+    occ::handle<Geom_Curve> result=intersection.Line(seed);
+    std::set<int> used{seed};
+    for(int step=0;step<intersection.NbLines();++step) {
+        if(required&&nearest_on_curve((*required)[0],result).second.Distance((*required)[0])<10.*tolerance&&nearest_on_curve((*required)[1],result).second.Distance((*required)[1])<10.*tolerance)return result;
+        bool changed=false;
+        for(bool first:{false,true}) {
+            auto endpoint=result->Value(first?result->FirstParameter():result->LastParameter());
+            std::vector<int> candidates;
+            for(int k=1;k<=intersection.NbLines();++k)if(!used.contains(k)) {
+                const auto c=intersection.Line(k);
+                if(endpoint.Distance(c->Value(c->FirstParameter()))<tolerance||endpoint.Distance(c->Value(c->LastParameter()))<tolerance)candidates.push_back(k);
+            }
+            if(candidates.size()!=1)continue;
+            const int next=candidates.front();auto c=occ::down_cast<Geom_Curve>(intersection.Line(next)->Copy());
+            if(first)result->Reverse();
+            endpoint=result->Value(result->LastParameter());
+            if(endpoint.Distance(c->Value(c->LastParameter()))<endpoint.Distance(c->Value(c->FirstParameter())))c->Reverse();
+            result=joined(result,c,tolerance);used.insert(next);changed=true;
+            if(first)result->Reverse();
+        }
+        if(!changed)break;
+    }
+    return result;
+}
 
 inline gp_Dir normal(const TopoDS_Face& face,const gp_Pnt& point) {
     BRepAdaptor_Surface surface(face);
@@ -39,7 +145,13 @@ inline gp_Dir normal(const TopoDS_Face& face,const gp_Pnt& point) {
         result=surface.Plane().Axis().Direction();
         if(!surface.Plane().Position().Direct())result.Reverse();
     }
-    else {
+    else if(surface.GetType()==GeomAbs_Torus) {
+        const auto torus=surface.Torus();const gp_Vec axis(torus.Axis().Direction());
+        auto radial=gp_Vec(torus.Location(),point);radial-=axis*radial.Dot(axis);
+        const auto spine=torus.Location().Translated(radial.Normalized()*torus.MajorRadius());
+        result=gp_Dir(gp_Vec(spine,point));
+        if(!torus.Position().Direct())result.Reverse();
+    } else {
         const auto cylinder=surface.Cylinder();
         const gp_Vec axis(cylinder.Axis().Direction());
         const auto on_axis=cylinder.Location().Translated(axis*
@@ -77,6 +189,12 @@ inline Support support(const TopoDS_Face& face,double distance) {
             throw std::runtime_error("Rolling route offset cylinder collapsed");
         cylinder.SetRadius(cylinder.Radius()+signed_distance);
         result.offset=new Geom_CylindricalSurface(cylinder);
+    } else if(surface.GetType()==GeomAbs_Torus) {
+        auto torus=surface.Torus();result.surface=new Geom_ToroidalSurface(torus);
+        if(!torus.Position().Direct())signed_distance=-signed_distance;
+        if(torus.MinorRadius()+signed_distance<=1.e-9)throw std::runtime_error("Torus offset collapsed");
+        torus.SetMinorRadius(torus.MinorRadius()+signed_distance);
+        result.offset=new Geom_ToroidalSurface(torus);
     } else throw std::runtime_error("Rolling route requires analytic supports");
     return result;
 }
@@ -87,6 +205,14 @@ inline bool same(const Support& a,const Support& b,double tolerance) {
     if(x.GetType()==GeomAbs_Plane)
         return x.Plane().Axis().Direction().IsParallel(y.Plane().Axis().Direction(),1.e-9)&&
             x.Plane().Distance(y.Plane().Location())<tolerance;
+    if(x.GetType()==GeomAbs_Torus) {
+        const auto c=x.Torus(),d=y.Torus();
+        return c.Location().Distance(d.Location())<tolerance&&
+            std::abs(c.MajorRadius()-d.MajorRadius())<tolerance&&
+            std::abs(c.MinorRadius()-d.MinorRadius())<tolerance&&
+            c.Axis().Direction().IsParallel(d.Axis().Direction(),1.e-9);
+    }
+    if(x.GetType()!=GeomAbs_Cylinder)return false;
     const auto c=x.Cylinder(),d=y.Cylinder();
     return std::abs(c.Radius()-d.Radius())<tolerance&&
         c.Axis().Direction().IsParallel(d.Axis().Direction(),1.e-9)&&
@@ -104,11 +230,24 @@ inline gp_Pnt joint(const Segment& a,const Segment& b,const gp_Pnt& point,
     for(std::size_t i=0;i<2;++i)for(std::size_t j=0;j<2;++j) {
         if(!same(a.supports[i],b.supports[j],tolerance))continue;
         if(same(a.supports[1-i],b.supports[1-j],tolerance)) {
-            GeomAPI_ProjectPointOnCurve projection(guess,a.centers);
-            if(projection.NbPoints())return projection.NearestPoint();
+            return nearest_on_curve(guess,a.centers).second;
         }
         const auto& previous=a.supports[1-i];
         const auto& next=b.supports[1-j];
+        const auto& toroidal=BRepAdaptor_Surface(previous.face).GetType()==GeomAbs_Torus?previous:next;
+        const auto& planar=BRepAdaptor_Surface(previous.face).GetType()==GeomAbs_Plane?previous:next;
+        if(BRepAdaptor_Surface(toroidal.face).GetType()==GeomAbs_Torus&&
+           BRepAdaptor_Surface(planar.face).GetType()==GeomAbs_Plane) {
+            const auto torus=occ::down_cast<Geom_ToroidalSurface>(toroidal.offset)->Torus();
+            const auto n=normal(planar.face,point);
+            const auto seam=torus.Location().Translated(gp_Vec(n)*torus.MinorRadius());
+            occ::handle<Geom_Circle> circle=new Geom_Circle(gp_Ax2(seam,torus.Axis().Direction()),torus.MajorRadius());
+            GeomAPI_IntCS intersection(circle,a.supports[i].offset);
+            double distance=1.e100;gp_Pnt best;
+            for(int k=1;intersection.IsDone()&&k<=intersection.NbPoints();++k)
+                if(intersection.Point(k).Distance(guess)<distance){best=intersection.Point(k);distance=best.Distance(guess);}
+            if(distance<1.e100)return best;
+        }
         const auto& round=BRepAdaptor_Surface(previous.face).GetType()==GeomAbs_Cylinder
             ?previous:next;
         if(BRepAdaptor_Surface(round.face).GetType()!=GeomAbs_Cylinder)continue;
@@ -140,6 +279,12 @@ inline TopoDS_Shape boolean(const TopoDS_Shape& shape,const TopoDS_Shape& tool,
 }
 inline TopoDS_Shape clip(const TopoDS_Shape& shape,
         const occ::handle<Geom_Surface>& surface,const gp_Pnt& inside,double tolerance) {
+    if(const auto torus=occ::down_cast<Geom_ToroidalSurface>(surface)) {
+        const auto t=torus->Torus();
+        auto solid=BRepPrimAPI_MakeTorus(gp_Ax2(t.Location(),t.Axis().Direction(),t.Position().XDirection()),t.MajorRadius(),t.MinorRadius()).Solid();
+        BRepClass3d_SolidClassifier classifier(solid,inside,tolerance);
+        return boolean(shape,solid,classifier.State()!=TopAbs_IN,tolerance);
+    }
     if(const auto cylinder=occ::down_cast<Geom_CylindricalSurface>(surface)) {
         Bnd_Box bounds;BRepBndLib::Add(shape,bounds);
         double x0,y0,z0,x1,y1,z1;bounds.Get(x0,y0,z0,x1,y1,z1);
@@ -160,6 +305,10 @@ inline TopoDS_Shape clip(const TopoDS_Shape& shape,
 }
 inline gp_Pnt section_corner(const Segment& item,const gp_Pnt& center,
         const gp_Dir& axis,gp_Pnt point,double tolerance) {
+    if(normal(item.supports[0].face,center).Dot(normal(item.supports[1].face,center))>1.-1.e-12) {
+        GeomAPI_ProjectPointOnSurf projection(center,item.supports[0].surface);
+        if(projection.NbPoints())return projection.NearestPoint();
+    }
     for(int iteration=0;iteration<32;++iteration) {
         std::array<gp_Vec,3> normals;std::array<double,3> errors;
         for(std::size_t i=0;i<2;++i) {
@@ -167,6 +316,12 @@ inline gp_Pnt section_corner(const Segment& item,const gp_Pnt& center,
             if(surface.GetType()==GeomAbs_Plane) {
                 normals[i]=gp_Vec(surface.Plane().Axis().Direction());
                 errors[i]=gp_Vec(surface.Plane().Location(),point).Dot(normals[i]);
+            } else if(surface.GetType()==GeomAbs_Torus) {
+                auto torus=surface.Torus();const gp_Vec a(torus.Axis().Direction());
+                auto radial=gp_Vec(torus.Location(),point);radial-=a*radial.Dot(a);
+                const auto spine=torus.Location().Translated(radial.Normalized()*torus.MajorRadius());
+                const auto minor=gp_Vec(spine,point);
+                errors[i]=minor.Magnitude()-torus.MinorRadius();normals[i]=minor.Normalized();
             } else {
                 auto cylinder=surface.Cylinder();const gp_Vec a(cylinder.Axis().Direction());
                 auto radial=gp_Vec(cylinder.Location(),point);radial-=a*radial.Dot(a);
@@ -182,12 +337,90 @@ inline gp_Pnt section_corner(const Segment& item,const gp_Pnt& center,
     }
     throw std::runtime_error("Source section corner did not converge");
 }
+inline void refine_parallel_torus_centers(Segment& item,double tolerance) {
+    // In a plane normal to the parallel axes, the center is the intersection
+    // of two circles. Parameterize by the torus minor angle, preserving the
+    // one-sided tangent where those circles touch at the end of the route.
+    int torus_index=-1,cylinder_index=-1;
+    for(int i=0;i<2;++i){if(BRepAdaptor_Surface(item.supports[i].face).GetType()==GeomAbs_Torus)torus_index=i;if(BRepAdaptor_Surface(item.supports[i].face).GetType()==GeomAbs_Cylinder)cylinder_index=i;}
+    if(torus_index<0||cylinder_index<0)return;
+    const auto torus=occ::down_cast<Geom_ToroidalSurface>(item.supports[torus_index].offset)->Torus();
+    const auto cylinder=occ::down_cast<Geom_CylindricalSurface>(item.supports[cylinder_index].offset)->Cylinder();
+    if(!torus.Axis().Direction().IsParallel(cylinder.Axis().Direction(),1.e-10))return;
+    const gp_Vec axis(torus.Axis().Direction());auto baseline=gp_Vec(torus.Location(),cylinder.Location());baseline-=axis*baseline.Dot(axis);
+    const double distance=baseline.Magnitude();if(distance<tolerance)return;
+    const auto x=baseline.Normalized(),y=axis.Crossed(x);
+    const auto parameter=[&](const gp_Pnt& p){const auto d=gp_Vec(torus.Location(),p);const double z=d.Dot(axis),rho=(d-axis*z).Magnitude();return std::atan2(z,rho-torus.MajorRadius());};
+    double a=parameter(item.start),b=parameter(item.end);b+=2.*std::numbers::pi*std::round((a-b)/(2.*std::numbers::pi));
+    double gap=torus.MajorRadius()-torus.MinorRadius()+cylinder.Radius()-distance;
+    // Only remove floating-point cancellation, never an authored finite gap.
+    if(std::abs(gap)<64.*std::numeric_limits<double>::epsilon()*(distance+torus.MajorRadius()+torus.MinorRadius()+cylinder.Radius())) {
+        gap=0.;
+        for(auto* t:{&a,&b})if(std::abs(std::abs(*t)-std::numbers::pi)<1.e-5)*t=std::copysign(std::numbers::pi,*t);
+    }
+    const bool backwards=b<a;if(backwards)std::swap(a,b);
+    const double branch=gp_Vec(torus.Location(),item.start).Dot(y)+gp_Vec(torus.Location(),item.end).Dot(y)<0.?-1.:1.;
+
+    const auto sample=[&](double t){
+        const double r=torus.MajorRadius()+torus.MinorRadius()*std::cos(t),dr=-torus.MinorRadius()*std::sin(t),d2r=-torus.MinorRadius()*std::cos(t);
+        const double along=(r*r-cylinder.Radius()*cylinder.Radius()+distance*distance)/(2.*distance),da=r*dr/distance,d2a=(dr*dr+r*d2r)/distance;
+        const double cosine=std::cos(t*.5),sum_delta=gap+2.*torus.MinorRadius()*cosine*cosine;
+        // Factored circle-intersection height avoids subtracting nearly equal
+        // squared lengths at the collapsed end.
+        const double h2=sum_delta*(r+cylinder.Radius()+distance)*(distance-r+cylinder.Radius())*(distance+r-cylinder.Radius())/(4.*distance*distance);
+        if(h2<-1.e-8)throw std::runtime_error("Analytic center branch does not exist");
+        const double h=std::sqrt(std::max(0.,h2));
+        double dh=0.;
+        if(h>1.e-5)dh=(r*dr-along*da)/h;
+        else {const double second=2.*(dr*dr+r*d2r-da*da-along*d2a);dh=(t<.5*(a+b)?1.:-1.)*std::sqrt(std::max(0.,second*.5));}
+        const auto p=torus.Location().Translated(x*along+y*(branch*h)+axis*(torus.MinorRadius()*std::sin(t)));
+        const auto derivative=x*da+y*(branch*dh)+axis*(torus.MinorRadius()*std::cos(t));
+        return std::pair{p,derivative};
+    };
+    for(int count=17;count<=2049;count=2*count-1) {
+        occ::handle<NCollection_HArray1<gp_Pnt>> points=new NCollection_HArray1<gp_Pnt>(1,count);
+        occ::handle<NCollection_HArray1<double>> parameters=new NCollection_HArray1<double>(1,count);
+        for(int i=0;i<count;++i){const double t=a+(b-a)*i/(count-1);points->SetValue(i+1,sample(t).first);parameters->SetValue(i+1,t);}
+        GeomAPI_PointsToBSpline fit(points->Array1(),parameters->Array1(),5,10,GeomAbs_C3,1.e-11);
+        if(!fit.IsDone())throw std::runtime_error("Analytic center interpolation failed");
+        const auto curve=fit.Curve();
+        for(bool end:{false,true}) {
+            const int last=curve->NbPoles(),pole=end?last:1,control=end?last-1:2;
+            const double parameter=end?b:a;
+            const double span=end?curve->Knot(curve->NbKnots())-curve->Knot(curve->NbKnots()-1):curve->Knot(2)-curve->Knot(1);
+            curve->SetPole(pole,sample(parameter).first);
+            curve->SetPole(control,sample(parameter).first.Translated(sample(parameter).second*(span/curve->Degree()*(end?-1.:1.))));
+        }
+        double error=0.;
+        for(int i=0;i<count-1;++i)for(double f:{.2,.4,.6,.8}){const double t=a+(b-a)*(i+f)/(count-1);error=std::max(error,curve->Value(t).Distance(sample(t).first));}
+        if(error<1.e-9){item.centers=curve;item.start=sample(backwards?b:a).first;item.end=sample(backwards?a:b).first;return;}
+    }
+    if(std::getenv("ZIMA_CPP_FILLET_END_TRACE"))
+        std::fprintf(stderr,"Rolling center fit failed: major=%.15g minor=%.15g cylinder=%.15g d=%.15g gap=%.15g range=%.15g %.15g\n",torus.MajorRadius(),torus.MinorRadius(),cylinder.Radius(),distance,gap,a,b);
+    throw std::runtime_error("Analytic center interpolation did not converge");
+}
 inline Result build(std::span<const TopoDS_Edge> ordered,
         std::span<const std::array<TopoDS_Face,2>> faces,
-        double radius,bool adds,double tolerance) {
+        double radius,bool adds,double tolerance,bool component_tools=false) {
     // Contact construction needs a tighter tolerance than the document's
     // Boolean merge allowance; the latter may be one micron or larger.
     tolerance=std::min(tolerance,1.e-7);
+    const bool torus_route=std::ranges::any_of(faces,[](const auto& pair) {
+        return std::ranges::any_of(pair,[](const auto& face) {
+            return BRepAdaptor_Surface(face).GetType()==GeomAbs_Torus;
+        });
+    });
+    std::vector<TopoDS_Edge> merged;std::vector<std::array<TopoDS_Face,2>> merged_faces;std::vector<bool> merged_source;
+    for(std::size_t i=0;i<ordered.size();++i) {
+        bool torus=false;for(const auto& f:faces[i])torus=torus||BRepAdaptor_Surface(f).GetType()==GeomAbs_Torus;
+        const auto equal=[&](const TopoDS_Face& a,const TopoDS_Face& b){Support x,y;x.face=a;y.face=b;return same(x,y,tolerance);};
+        if(torus&&!merged.empty()&&((equal(faces[i][0],merged_faces.back()[0])&&equal(faces[i][1],merged_faces.back()[1]))||(equal(faces[i][1],merged_faces.back()[0])&&equal(faces[i][0],merged_faces.back()[1])))) {
+            const auto curve=[](const TopoDS_Edge& e)->occ::handle<Geom_Curve>{double a,b;auto c=BRep_Tool::Curve(e,a,b);occ::handle<Geom_Curve> trimmed=new Geom_TrimmedCurve(c,a,b);if(e.Orientation()==TopAbs_REVERSED)trimmed->Reverse();return trimmed;};
+            merged.back()=BRepBuilderAPI_MakeEdge(joined(curve(merged.back()),curve(ordered[i]),tolerance)).Edge();
+            merged_source.back()=true;
+        } else {merged.push_back(ordered[i]);merged_faces.push_back(faces[i]);merged_source.push_back(false);}
+    }
+    ordered=merged;faces=merged_faces;
     const double signed_radius=adds?radius:-radius;
     std::vector<Segment> segments;
     for(std::size_t i=0;i<ordered.size();++i) {
@@ -207,23 +440,46 @@ inline Result build(std::span<const TopoDS_Edge> ordered,
         }
         GeomAPI_IntSS intersection(item.supports[0].offset,item.supports[1].offset,std::min(tolerance,1.e-10));
         if(!intersection.IsDone())throw std::runtime_error("Rolling route offset intersection failed");
-        double nearest=1.e100;
+        double nearest=1.e100;int chosen=0;
         for(int k=1;k<=intersection.NbLines();++k) {
             GeomAPI_ProjectPointOnCurve projection(guess,intersection.Line(k));
+
             if(projection.NbPoints()&&projection.LowerDistance()<nearest) {
-                nearest=projection.LowerDistance();item.centers=intersection.Line(k);
+                nearest=projection.LowerDistance();item.centers=intersection.Line(k);chosen=k;
             }
         }
         if(item.centers.IsNull())throw std::runtime_error("Rolling route has no center line");
+        if(merged_source[i]) {
+            TopoDS_Vertex a,b;TopExp::Vertices(item.source,a,b,true);
+            std::array<gp_Pnt,2> required;
+            for(int end=0;end<2;++end) {
+                const auto guess=center_guess(item,BRep_Tool::Pnt(end?b:a),signed_radius);
+                double best=1.e100;
+                for(int k=1;k<=intersection.NbLines();++k) {
+                    const auto candidate=nearest_on_curve(guess,intersection.Line(k)).second;
+                    if(candidate.Distance(guess)<best){best=candidate.Distance(guess);required[end]=candidate;}
+                }
+            }
+            item.centers=connected_intersection(intersection,chosen,tolerance,&required);
+        }
         // IntSS may return a closed, non-periodic spline. A route crossing its
         // seam must keep the short authored branch instead of the other turn.
         if(item.centers->IsClosed()&&!item.centers->IsPeriodic())
             if(const auto spline=occ::down_cast<Geom_BSplineCurve>(item.centers))spline->SetPeriodic();
         TopoDS_Vertex a,b;TopExp::Vertices(item.source,a,b,true);
-        GeomAPI_ProjectPointOnCurve start(center_guess(item,BRep_Tool::Pnt(a),signed_radius),item.centers);
-        GeomAPI_ProjectPointOnCurve end(center_guess(item,BRep_Tool::Pnt(b),signed_radius),item.centers);
-        if(!start.NbPoints()||!end.NbPoints())throw std::runtime_error("Rolling route endpoint projection failed");
-        item.start=start.NearestPoint();item.end=end.NearestPoint();
+        if(!torus_route) {
+            GeomAPI_ProjectPointOnCurve start(center_guess(item,BRep_Tool::Pnt(a),signed_radius),item.centers);
+            GeomAPI_ProjectPointOnCurve end(center_guess(item,BRep_Tool::Pnt(b),signed_radius),item.centers);
+            if(!start.NbPoints()||!end.NbPoints())throw std::runtime_error("Rolling route endpoint projection failed");
+            item.start=start.NearestPoint();item.end=end.NearestPoint();
+        } else {
+        item.start=nearest_on_curve(center_guess(item,BRep_Tool::Pnt(a),signed_radius),item.centers).second;
+        item.end=nearest_on_curve(center_guess(item,BRep_Tool::Pnt(b),signed_radius),item.centers).second;
+        for(auto* endpoint:{&item.start,&item.end})
+            if(normal(item.supports[0].face,*endpoint).Dot(normal(item.supports[1].face,*endpoint))>1.-1.e-12)
+                for(double t:{item.centers->FirstParameter(),item.centers->LastParameter()})
+                    if(endpoint->Distance(item.centers->Value(t))<20.*tolerance)*endpoint=item.centers->Value(t);
+        }
         segments.push_back(std::move(item));
     }
     for(std::size_t i=1;i<segments.size();++i) {
@@ -242,6 +498,7 @@ inline Result build(std::span<const TopoDS_Edge> ordered,
     }
     Result result;
     for(auto& item:segments) {
+        if(!item.collapsed)refine_parallel_torus_centers(item,tolerance);
         if(item.collapsed) {
             const std::size_t index=&item-segments.data();
             if(index==0||index+1==segments.size())throw std::runtime_error("Collapsed rolling support needs adjacent sections");
@@ -281,10 +538,10 @@ inline Result build(std::span<const TopoDS_Edge> ordered,
             }
             result.solid=fuse.Shape();result.faces=std::move(mapped);continue;
         }
-        GeomAPI_ProjectPointOnCurve start(item.start,item.centers),end(item.end,item.centers);
-        if(!start.NbPoints()||!end.NbPoints()||start.LowerDistance()>20.*tolerance||end.LowerDistance()>20.*tolerance)
+        const auto start=nearest_on_curve(item.start,item.centers),end=nearest_on_curve(item.end,item.centers);
+        if(start.second.Distance(item.start)>20.*tolerance||end.second.Distance(item.end)>20.*tolerance)
             throw std::runtime_error("Rolling route joint misses its offset supports");
-        item.first=start.LowerDistanceParameter();item.last=end.LowerDistanceParameter();
+        item.first=start.first;item.last=end.first;
         BRepAdaptor_Curve original(item.source);
         gp_Pnt ignored;gp_Vec direction,guide_direction;
         item.centers->D1(item.first,ignored,direction);
@@ -297,12 +554,17 @@ inline Result build(std::span<const TopoDS_Edge> ordered,
         }
         const int pieces=item.centers->IsPeriodic()?std::max(1,int(std::ceil(std::abs(item.last-item.first)/(std::numbers::pi/3.)))):1;
         for(int part=0;part<pieces;++part) {
-            const double u=item.first+(item.last-item.first)*part/pieces;
-            const double v=item.first+(item.last-item.first)*(part+1)/pieces;
+            double u=item.first+(item.last-item.first)*part/pieces;
+            double v=item.first+(item.last-item.first)*(part+1)/pieces;
+            const auto first_center=item.centers->Value(u),last_center=item.centers->Value(v);
+            if(torus_route&&normal(item.supports[0].face,first_center).Dot(normal(item.supports[1].face,first_center))>
+               normal(item.supports[0].face,last_center).Dot(normal(item.supports[1].face,last_center))+1.e-8)std::swap(u,v);
+
             auto rail=BRepBuilderAPI_MakeEdge(item.centers,std::min(u,v),std::max(u,v)).Edge();
             if(v<u)rail.Reverse();
             gp_Pnt first,last;gp_Vec tangent_first,tangent_last;
             item.centers->D1(u,first,tangent_first);item.centers->D1(v,last,tangent_last);
+
             if(v<u){tangent_first.Reverse();tangent_last.Reverse();}
             std::optional<gp_Dir> binormal;
             for(const auto& surface:item.supports)
@@ -338,6 +600,7 @@ inline Result build(std::span<const TopoDS_Edge> ordered,
             } else {
                 GeomFill_Frenet law;law.SetCurve(new GeomAdaptor_Curve(item.centers,std::min(u,v),std::max(u,v)));
                 gp_Vec tangent,n,b;law.D0(u,tangent,n,b);
+
                 circle_frame.SetXDirection(gp_Dir(n));
                 std::optional<double> anchor_angle;double lo=1.e100,hi=-1.e100;
                 for(int sample=0;sample<=20;++sample) {
@@ -369,6 +632,7 @@ inline Result build(std::span<const TopoDS_Edge> ordered,
             TopoDS_Vertex rail_start,rail_end;TopExp::Vertices(rail,rail_start,rail_end,true);
             pipe.Add(section,rail_start,false,false);pipe.Build();
             if(!pipe.IsDone()||!pipe.MakeSolid())throw std::runtime_error("Rolling route tube failed");
+
             TopoDS_Shape pipe_shape=pipe.Shape();
             std::vector<std::pair<TopoDS_Edge,std::size_t>> contact_edges;
             std::vector<TopoDS_Face> lateral_faces;
@@ -391,6 +655,34 @@ inline Result build(std::span<const TopoDS_Edge> ordered,
                         contact->SetPole(pole,point);
                     }
                     auto edge=BRepBuilderAPI_MakeEdge(contact).Edge();
+                    if(occ::down_cast<Geom_ToroidalSurface>(support.surface)) {
+                        auto basis=BRepBuilderAPI_MakeFace(support.surface,tolerance).Face();
+                        BRepOffsetAPI_NormalProjection projection(basis);
+                        projection.SetParams(1.e-9,1.e-12,GeomAbs_C2,14,100);
+                        projection.SetMaxDistance(radius+20.*tolerance);
+                        projection.SetLimit(false);projection.Add(rail);projection.Build();
+                        if(!projection.IsDone())throw std::runtime_error("Torus contact projection failed");
+                        NCollection_IndexedMap<TopoDS_Shape,TopTools_ShapeMapHasher> projected;
+                        TopExp::MapShapes(projection.Shape(),TopAbs_EDGE,projected);
+                        if(projected.IsEmpty())throw std::runtime_error("Torus contact missing");
+                        GeomAPI_ProjectPointOnSurf initial(first,support.surface);
+                        gp_Pnt current=initial.NearestPoint();occ::handle<Geom_Curve> combined;
+                        std::set<int> used;
+                        for(int piece=0;piece<projected.Extent();++piece) {
+                            int selected=0;double best=1.e100;occ::handle<Geom_Curve> selected_curve;
+                            for(int k=1;k<=projected.Extent();++k)if(!used.contains(k)) {
+                                double a,b;auto curve=BRep_Tool::Curve(TopoDS::Edge(projected.FindKey(k)),a,b);
+                                occ::handle<Geom_Curve> trimmed=new Geom_TrimmedCurve(curve,a,b);
+                                if(current.Distance(trimmed->Value(b))<current.Distance(trimmed->Value(a)))trimmed->Reverse();
+                                const double gap=current.Distance(trimmed->Value(trimmed->FirstParameter()));
+                                if(gap<best){best=gap;selected=k;selected_curve=trimmed;}
+                            }
+                            if(best>10.*tolerance)throw std::runtime_error("Torus contact pieces disconnected");
+                            combined=combined.IsNull()?selected_curve:occ::handle<Geom_Curve>(joined(combined,selected_curve,tolerance));
+                            current=combined->Value(combined->LastParameter());used.insert(selected);
+                        }
+                        edge=BRepBuilderAPI_MakeEdge(combined).Edge();
+                    }
                     {
                         BRep_Builder builder;double maximum=tolerance;
                         for(TopExp_Explorer vertices(edge,TopAbs_VERTEX);vertices.More();vertices.Next()) {
@@ -403,7 +695,8 @@ inline Result build(std::span<const TopoDS_Edge> ordered,
                         builder.UpdateEdge(edge,maximum);
                     }
                     ShapeFix_Edge fix;fix.FixAddPCurve(edge,lateral_faces.front(),false,tolerance);
-                    fix.FixSameParameter(edge,tolerance);
+                    if(torus_route)precise_pcurve(edge,lateral_faces.front(),tolerance);
+                    else fix.FixSameParameter(edge,tolerance);
                     split.Add(edge,lateral_faces.front());
                     contact_edges.push_back({edge,support_index});
                 }
@@ -416,7 +709,9 @@ inline Result build(std::span<const TopoDS_Edge> ordered,
                 pipe_shape=split.Shape();
             }
             double contact_error=0.;
-            for(double fraction:{.1,.3,.5,.7,.9}) {
+            const int samples=torus_route?200:4;
+            for(int sample=0;sample<=samples;++sample) {
+                const double fraction=torus_route?double(sample)/samples:.1+.2*sample;
                 const auto center=item.centers->Value(u+fraction*(v-u));
                 for(const auto& support:item.supports) {
                     GeomAPI_ProjectPointOnSurf contact(center,support.surface);
@@ -429,6 +724,7 @@ inline Result build(std::span<const TopoDS_Edge> ordered,
                     contact_error=std::max(contact_error,distance);
                 }
             }
+
             if(contact_error>20.*tolerance)throw std::runtime_error("Rolling route envelope misses its support contacts");
             const auto middle=item.centers->Value(.5*(u+v));
             double source_first,source_last;
@@ -445,7 +741,11 @@ inline Result build(std::span<const TopoDS_Edge> ordered,
                 if(cross_section.Point(k).Distance(middle)<best_distance) {
                     edge_point=cross_section.Point(k);best_distance=edge_point.Distance(middle);
                 }
+            if(torus_route)edge_point=section_corner(item,middle,gp_Dir(section_tangent),edge_point,tolerance);
             const auto inside=edge_point.Translated(gp_Vec(edge_point,middle)*.05);
+            const bool toroidal=BRepAdaptor_Surface(item.supports[0].face).GetType()==GeomAbs_Torus||BRepAdaptor_Surface(item.supports[1].face).GetType()==GeomAbs_Torus;
+            BRepAlgoAPI_Cut cut;
+            if(!toroidal) {
             Bnd_Box bounds;BRepBndLib::Add(rail,bounds);bounds.Enlarge(4.*(radius+middle.Distance(edge_point)));
             double x0,y0,z0,x1,y1,z1;bounds.Get(x0,y0,z0,x1,y1,z1);
             TopoDS_Shape cell=BRepPrimAPI_MakeBox(gp_Pnt(x0,y0,z0),gp_Pnt(x1,y1,z1)).Shape();
@@ -474,11 +774,12 @@ inline Result build(std::span<const TopoDS_Edge> ordered,
                     cell=split.Shape();
                 }
             }
-            BRepAlgoAPI_Cut cut;cut.SetArguments({cell});cut.SetTools({pipe_shape});
+            cut.SetArguments({cell});cut.SetTools({pipe_shape});
             cut.SetNonDestructive(true);cut.SetFuzzyValue(tolerance);cut.Build();
             if(!cut.IsDone()||!BRepCheck_Analyzer(cut.Shape()).IsValid())
                 throw std::runtime_error("Rolling route cutter failed");
-            Result component;component.solid=cut.Shape();
+            }
+            Result component;if(!toroidal)component.solid=cut.Shape();
             {
                 NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> selected;
                 // Trim regular sections from the exact contact boundaries.
@@ -486,6 +787,8 @@ inline Result build(std::span<const TopoDS_Edge> ordered,
                 // nearby seams and a flap even when each face is valid. Keep
                 // the established limiting construction at a collapsed end.
                 const bool exact_boundaries=binormal ||
+                    BRepAdaptor_Surface(item.supports[0].face).GetType()==GeomAbs_Torus||
+                    BRepAdaptor_Surface(item.supports[1].face).GetType()==GeomAbs_Torus||
                     (normal(item.supports[0].face,first).Dot(normal(item.supports[1].face,first))<1.-1.e-12&&
                      normal(item.supports[0].face,last).Dot(normal(item.supports[1].face,last))<1.-1.e-12);
                 std::array<std::array<TopoDS_Edge,2>,2> cap_edges;
@@ -496,10 +799,13 @@ inline Result build(std::span<const TopoDS_Edge> ordered,
                             if(const auto spline=occ::down_cast<Geom_BSplineCurve>(curve->Copy())) {
                                 spline->SetPeriodic();curve=spline;
                             }
-                        GeomAPI_ProjectPointOnCurve pa(a,curve),pb(b,curve);
-                        if(!pa.NbPoints()||!pb.NbPoints()||pa.LowerDistance()>10.*tolerance||pb.LowerDistance()>10.*tolerance)
+                        const auto pa=nearest_on_curve(a,curve),pb=nearest_on_curve(b,curve);
+                        if(pa.second.Distance(a)>10.*tolerance||pb.second.Distance(b)>10.*tolerance) {
+
                             throw std::runtime_error("Contact boundary misses section");
-                        double u=pa.LowerDistanceParameter(),v=pb.LowerDistanceParameter();
+                        }
+                        double u=pa.first,v=pb.first;
+
                         if(curve->IsPeriodic())v+=curve->Period()*std::round((u-v)/curve->Period());
                         auto edge=BRepBuilderAPI_MakeEdge(curve,std::min(u,v),std::max(u,v)).Edge();
                         if(v<u)edge.Reverse();
@@ -520,9 +826,15 @@ inline Result build(std::span<const TopoDS_Edge> ordered,
                         // A source Boolean edge can be less accurate than the
                         // analytic supports. Reconstruct their intersection
                         // without enlarging the construction tolerance.
+                        Segment source_segment=item;
+                        source_segment.start=corner_first;source_segment.end=corner_last;
+                        for(auto& support:source_segment.supports)support.offset=support.surface;
+                        refine_parallel_torus_centers(source_segment,tolerance);
+                        if(source_segment.centers!=item.centers)source_edge=between(source_segment.centers,corner_first,corner_last);
                         GeomAPI_IntSS intersection(item.supports[0].surface,item.supports[1].surface,1.e-10);
-                        for(int k=1;intersection.IsDone()&&k<=intersection.NbLines();++k) {
-                            try {source_edge=between(intersection.Line(k),corner_first,corner_last);break;}catch(const std::runtime_error&){}
+                        const std::array required{corner_first,corner_last};
+                        for(int k=1;source_edge.IsNull()&&intersection.IsDone()&&k<=intersection.NbLines();++k) {
+                            try {source_edge=between(connected_intersection(intersection,k,tolerance,&required),corner_first,corner_last);break;}catch(const std::runtime_error&){}
                         }
                         if(source_edge.IsNull())throw;
                     }
@@ -533,6 +845,7 @@ inline Result build(std::span<const TopoDS_Edge> ordered,
                         if(a.Distance(first)>b.Distance(first))std::swap(a,b);
                         const auto boundary=[&](const gp_Pnt& center,const gp_Vec& tangent,const gp_Pnt& from,const gp_Pnt& to) {
                             if(from.Distance(to)<=tolerance)return TopoDS_Edge{};
+                            if(from.Distance(to)<10.*tolerance&&normal(item.supports[0].face,center).Dot(normal(item.supports[1].face,center))>1.-1.e-12)return TopoDS_Edge{};
                             GeomAPI_IntSS intersection(support.surface,new Geom_Plane(center,gp_Dir(tangent)),tolerance);
                             for(int k=1;intersection.IsDone()&&k<=intersection.NbLines();++k) {
                                 try{return between(intersection.Line(k),from,to);}catch(const std::runtime_error&){}
@@ -544,16 +857,19 @@ inline Result build(std::span<const TopoDS_Edge> ordered,
                         if(!last_edge.IsNull())wire.Add(last_edge);
                         wire.Add(contact);
                         const auto first_edge=boundary(first,tangent_first,a,corner_first);
+
                         if(!first_edge.IsNull())wire.Add(first_edge);
                         cap_edges[0][index]=first_edge;cap_edges[1][index]=last_edge;
                         cap_contacts[0][index]=a;cap_contacts[1][index]=b;
                         if(!wire.IsDone())throw std::runtime_error("Contact boundary is not connected");
                         BRepBuilderAPI_MakeFace patch(support.surface,wire.Wire(),true);
+
                         if(!patch.IsDone())throw std::runtime_error("Contact support patch failed");
                         for(TopExp_Explorer e(patch.Face(),TopAbs_EDGE);e.More();e.Next()) {
                             ShapeFix_Edge fix;fix.FixAddPCurve(TopoDS::Edge(e.Current()),patch.Face(),false,tolerance);
                         }
                         ShapeFix_Face fix(patch.Face());fix.SetPrecision(tolerance);fix.SetMaxTolerance(10.*tolerance);fix.Perform();
+
                         const auto fixed=fix.Face();
                         // Re-evaluate the inside after periodic pcurves have
                         // been aligned; doing it before that can invert a patch.
@@ -581,16 +897,37 @@ inline Result build(std::span<const TopoDS_Edge> ordered,
                 }
                 const int support_count=selected.Extent();
                 const auto rim=middle.Translated(gp_Vec(edge_point,middle).Normalized()*(-radius));
-                select_at(exact_boundaries?pipe_shape:cut.Shape(),rim,[&](const TopoDS_Face& face) {
+                if(toroidal) {
+                    BRepBuilderAPI_MakeWire wire;
+                    wire.Add(contact_edges[0].first);
+                    for(int end=1;end>=0;--end) {
+                        const auto& a=cap_contacts[end][0];const auto& b=cap_contacts[end][1];
+                        const auto center=end?last:first;
+                        if(a.Distance(b)>10.*tolerance) {
+                            const auto midpoint=center.Translated((gp_Vec(center,a)+gp_Vec(center,b)).Normalized()*radius);
+                            wire.Add(BRepBuilderAPI_MakeEdge(GC_MakeArcOfCircle(a,midpoint,b).Value()).Edge());
+                        }
+                        if(end==1)wire.Add(contact_edges[1].first);
+                    }
+                    if(!wire.IsDone())throw std::runtime_error("Envelope wire is not connected");
+                    const auto surface=BRep_Tool::Surface(lateral_faces.front());
+                    BRepBuilderAPI_MakeFace make(surface,wire.Wire(),true);
+                    if(!make.IsDone())throw std::runtime_error("Envelope face construction failed");
+                    ShapeFix_Face fix(make.Face());fix.SetPrecision(tolerance);fix.SetMaxTolerance(10.*tolerance);fix.Perform();
+                    BRepBuilderAPI_MakeFace oriented(surface,BRepTools::OuterWire(fix.Face()),true);
+                    selected.Add(oriented.Face());
+                } else select_at(exact_boundaries?pipe_shape:cut.Shape(),rim,[&](const TopoDS_Face& face) {
                     GeomAPI_ProjectPointOnSurf projection(rim,BRep_Tool::Surface(face));
                     return projection.NbPoints()&&projection.LowerDistance()<10.*tolerance;
                 });
                 std::vector<TopoDS_Shape> envelope;
                 for(int k=support_count+1;k<=selected.Extent();++k)envelope.push_back(selected.FindKey(k));
+
                 if(exact_boundaries)for(std::size_t end=0;end<2;++end) {
                     const auto& a=cap_contacts[end][0];const auto& b=cap_contacts[end][1];
                     if(a.Distance(b)<=tolerance)continue;
                     const auto center=end?last:first;
+                    if(a.Distance(b)<10.*tolerance&&normal(item.supports[0].face,center).Dot(normal(item.supports[1].face,center))>1.-1.e-12)continue;
                     const auto mid=center.Translated((gp_Vec(center,a)+gp_Vec(center,b)).Normalized()*radius);
                     BRepBuilderAPI_MakeWire wire;
                     if(!cap_edges[end][0].IsNull())wire.Add(cap_edges[end][0]);
@@ -614,7 +951,8 @@ inline Result build(std::span<const TopoDS_Edge> ordered,
                 BRepBuilderAPI_Sewing sewing(10.*tolerance);
                 for(int k=1;k<=selected.Extent();++k)sewing.Add(selected.FindKey(k));
                 sewing.Perform();
-                if(sewing.SewedShape().IsNull()||sewing.NbFreeEdges()||sewing.NbMultipleEdges()||sewing.SewedShape().ShapeType()!=TopAbs_SHELL)throw std::runtime_error("Corner shell is not closed");
+                if(sewing.SewedShape().IsNull()||sewing.NbFreeEdges()||sewing.NbMultipleEdges()||sewing.SewedShape().ShapeType()!=TopAbs_SHELL)
+                    throw std::runtime_error("Corner shell is not closed");
                 auto solid=BRepBuilderAPI_MakeSolid(TopoDS::Shell(sewing.SewedShape())).Solid();
                 if(!BRepLib::OrientClosedSolid(solid)||!BRepCheck_Analyzer(solid).IsValid()) {
                     throw std::runtime_error("Corner shell is not a solid");
@@ -627,11 +965,17 @@ inline Result build(std::span<const TopoDS_Edge> ordered,
                 }
             }
             if(component.faces.empty())throw std::runtime_error("Rolling route lost its contact surface");
+
             if(result.solid.IsNull()){result=std::move(component);continue;}
+            if(component_tools) {
+                TopoDS_Compound compound;BRep_Builder builder;builder.MakeCompound(compound);
+                for(const auto& shape:{result.solid,component.solid})for(TopExp_Explorer it(shape,TopAbs_SOLID);it.More();it.Next())builder.Add(compound,it.Current());
+                result.solid=compound;result.faces.insert(result.faces.end(),component.faces.begin(),component.faces.end());continue;
+            }
             BRepAlgoAPI_Fuse fuse;fuse.SetArguments({result.solid});fuse.SetTools({component.solid});
             fuse.SetNonDestructive(true);fuse.SetFuzzyValue(tolerance);fuse.Build();
             if(!fuse.IsDone()||!BRepCheck_Analyzer(fuse.Shape()).IsValid())
-                throw std::runtime_error("Rolling route join failed");
+                {throw std::runtime_error("Rolling route join failed");}
             result.faces.insert(result.faces.end(),component.faces.begin(),component.faces.end());
             NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> final_faces;TopExp::MapShapes(fuse.Shape(),TopAbs_FACE,final_faces);
             std::vector<TopoDS_Face> mapped;

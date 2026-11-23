@@ -3150,5 +3150,6 @@
   "A render is already running.": "Render už se počítá.",
   "Spotlight": "Reflektor",
   "Cone angle": "Úhel kuželu",
-  "Edge softness": "Měkkost okraje"
+  "Edge softness": "Měkkost okraje",
+  "ZIMA Fillet rejected the selected geometry: The tangent transition could not be constructed. Adjust the radius or selected edges.": "Zaoblení ZIMA odmítlo vybranou geometrii: Tečný přechod se nepodařilo vytvořit. Upravte poloměr nebo vybrané hrany."
 }

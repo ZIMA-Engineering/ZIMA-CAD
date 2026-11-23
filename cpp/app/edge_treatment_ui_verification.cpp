@@ -240,7 +240,8 @@ int verify_edge_treatment_ui(QApplication& application, AssemblyWorkspaceWindow&
             check(kernel::body_calculation_count.load()==calculations,
                 "Opening unchanged treatment recalculated its Body");
             double previous=feature.edge_treatment.primary_size;
-            for(const double radius:{3.,5.,feature.edge_treatment.primary_size}) {
+            for(const double radius:{.75*feature.edge_treatment.primary_size,
+                    1.25*feature.edge_treatment.primary_size,feature.edge_treatment.primary_size}) {
                 auto* pending=edit(feature.id);
                 pending->findChild<QDoubleSpinBox*>("edgeTreatmentPrimary")->setValue(radius);
                 flush();finish(true);

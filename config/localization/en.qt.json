@@ -3150,5 +3150,6 @@
   "A render is already running.": "A render is already running.",
   "Spotlight": "Spotlight",
   "Cone angle": "Cone angle",
-  "Edge softness": "Edge softness"
+  "Edge softness": "Edge softness",
+  "ZIMA Fillet rejected the selected geometry: The tangent transition could not be constructed. Adjust the radius or selected edges.": "ZIMA Fillet rejected the selected geometry: The tangent transition could not be constructed. Adjust the radius or selected edges."
 }
