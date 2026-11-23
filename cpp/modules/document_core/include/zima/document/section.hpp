@@ -37,6 +37,9 @@ struct SectionPatch {
     SectionFrame frame;
     std::vector<std::array<zima::kernel::Vec3,2>> boundary;
     std::vector<std::array<zima::kernel::Vec3,3>> triangles;
+    // Transient provenance of each boundary segment for Drawing measurements.
+    // Caps and rims in the 3D mesh remain invalid placement references.
+    std::vector<zima::kernel::FaceReference> boundary_sources;
 };
 struct SectionResult {
     zima::kernel::ViewerMesh mesh;

@@ -335,7 +335,8 @@ target_link_libraries(zima_assembly
 
 add_library(zima_drawing modules/drawing/src/file_relocation.cpp modules/drawing/src/drawing_document.cpp modules/drawing/src/model_annotations.cpp
     modules/drawing/src/measurement_dimension.cpp modules/drawing/src/balloon.cpp modules/drawing/src/symbol_contacts.cpp
-    modules/drawing/src/drawing_template.cpp modules/drawing/src/drawing_section_trace.cpp)
+    modules/drawing/src/drawing_template.cpp modules/drawing/src/drawing_section_trace.cpp
+    modules/drawing/src/section_measurements.cpp)
 target_include_directories(zima_drawing PUBLIC modules/drawing/include)
 target_link_libraries(zima_drawing
     PUBLIC zima_kernel_api zima_document_core
@@ -948,6 +949,9 @@ if(ZIMA_BUILD_TESTS)
     add_executable(zima_cpp_section_contract_tests tests/section_contract_tests.cpp)
     target_link_libraries(zima_cpp_section_contract_tests PRIVATE zima_document_core zima_assembly zima_drawing zima_kernel_occt)
     add_test(NAME zima_cpp_section_contract_tests COMMAND zima_cpp_section_contract_tests)
+    add_executable(zima_cpp_section_measurement_tests tests/section_measurement_tests.cpp)
+    target_link_libraries(zima_cpp_section_measurement_tests PRIVATE zima_drawing zima_document_core zima_kernel_occt)
+    add_test(NAME zima_cpp_section_measurement_tests COMMAND zima_cpp_section_measurement_tests)
     add_executable(zima_cpp_occt_boundary_intersection_graph_tests
         tests/occt_boundary_intersection_graph_tests.cpp)
     target_link_libraries(zima_cpp_occt_boundary_intersection_graph_tests
@@ -2591,6 +2595,10 @@ if(ZIMA_BUILD_TESTS)
     add_test(NAME zima_cpp_show_erase_ui_contract COMMAND zima-cad-drawing-harness --verify-show-erase)
     set_tests_properties(zima_cpp_show_erase_ui_contract PROPERTIES ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT}" WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
     add_test(NAME zima_cpp_measurement_dimension_ui_contract COMMAND zima-cad-drawing-harness --verify-measurements)
+    add_test(NAME zima_cpp_drawing_parallel_ui_contract COMMAND zima-cad-drawing-harness --verify-measurements)
+    set_tests_properties(zima_cpp_drawing_parallel_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_DRAWING_PARALLEL_ONLY=1"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 90)
     add_test(NAME zima_cpp_drawing_clearance_ui_contract COMMAND zima-cad-drawing-harness --verify-measurements)
     set_tests_properties(zima_cpp_drawing_clearance_ui_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_DRAWING_CLEARANCE=1"

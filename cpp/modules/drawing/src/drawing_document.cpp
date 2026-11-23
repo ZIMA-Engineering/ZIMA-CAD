@@ -3,6 +3,7 @@
 #include <zima/drawing/measurement_dimension.hpp>
 #include "drawing_projection.hpp"
 #include "drawing_output_source.hpp"
+#include "section_measurements.hpp"
 #include <zima/drawing/model_annotations.hpp>
 #include <zima/sketcher/template_image_json.hpp>
 #include <zima/document/document_copy_json.hpp>
@@ -471,6 +472,7 @@ void refresh_view_geometry(DrawingView& view,const zima::kernel::ViewerMesh& sou
     // Keep full original curves for associative measurement. The displayed
     // cut fragments decide visibility/picking, never redefine a source curve.
     capture_measurement_geometry(view,source);
+    detail::capture_section_measurements(view,source,cut,section);
     view.projected_edges=detail::project_drawing_edges(cut.mesh,view.camera,true,true);view.projected_triangles=project_triangles(cut.mesh,view.camera);
     for(const auto& patch:cut.patches){
         const auto& frame=patch.frame;

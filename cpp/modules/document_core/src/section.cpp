@@ -164,7 +164,8 @@ static SectionResult planar_section(const zima::kernel::ViewerMesh& source,const
     for(std::size_t i=0;i+2<source.triangles.size();i+=3){const auto ref=i/3<source.triangle_references.size()?source.triangle_references[i/3]:zima::kernel::FaceReference{};if(thread_display_sheet(ref))continue;
         auto& inside=interior[group(ref.owner_id,ref.instance_path,s)];for(int k=0;k<3;++k)inside|=distance(source.vertices.at(source.triangles[i+k]))<0;
     }
-    std::map<std::string,std::vector<std::array<V,2>>> contours;
+    struct Boundary {std::array<V,2> points;zima::kernel::FaceReference source;};
+    std::map<std::string,std::vector<Boundary>> contours;
     for(std::size_t i=0;i+2<source.triangles.size();i+=3){
         std::array<V,3> t{source.vertices.at(source.triangles[i]),source.vertices.at(source.triangles[i+1]),source.vertices.at(source.triangles[i+2])};
         const auto ref=i/3<source.triangle_references.size()?source.triangle_references[i/3]:zima::kernel::FaceReference{};
@@ -181,7 +182,7 @@ static SectionResult planar_section(const zima::kernel::ViewerMesh& source,const
         }
         for(std::size_t k=2;k<clipped.size();++k)triangle(result.mesh,{clipped[0],clipped[k-1],clipped[k]},ref);
         if(!thread_display_sheet(ref) && removed && (kept || intersections.size()==2) && intersections.size()==2 && dot(sub(intersections[0],intersections[1]),sub(intersections[0],intersections[1]))>eps*eps)
-            contours[g].push_back({intersections[0],intersections[1]});
+            contours[g].push_back({{intersections[0],intersections[1]},ref});
     }
     for(const auto& edge:source.edges){
         if(mode(s,group(edge.reference.owner_id,edge.reference.instance_path,s))==2){result.mesh.edges.push_back(edge);continue;}
@@ -195,10 +196,11 @@ static SectionResult planar_section(const zima::kernel::ViewerMesh& source,const
     }
     for(auto& [g,segments]:contours){
         SectionPatch patch;patch.component=g;patch.frame=f;
-        using Key=std::array<long long,6>;std::map<Key,std::array<V,2>> unique;
-        for(const auto& e:segments){auto a=project(e[0],f),b=project(e[1],f);if(std::tie(b.x,b.y)<std::tie(a.x,a.y))std::swap(a,b);
-            Key key{std::llround(a.x/eps),std::llround(a.y/eps),0,std::llround(b.x/eps),std::llround(b.y/eps),0};unique.try_emplace(key,e);}
-        std::vector<Segment> planar;for(const auto& [key,e]:unique){patch.boundary.push_back(e);planar.push_back({project(e[0],f),project(e[1],f)});
+        using Key=std::array<long long,6>;std::map<Key,Boundary> unique;
+        for(const auto& boundary:segments){const auto& e=boundary.points;auto a=project(e[0],f),b=project(e[1],f);if(std::tie(b.x,b.y)<std::tie(a.x,a.y))std::swap(a,b);
+            Key key{std::llround(a.x/eps),std::llround(a.y/eps),0,std::llround(b.x/eps),std::llround(b.y/eps),0};
+            auto [entry,inserted]=unique.try_emplace(key,boundary);if(!inserted&&entry->second.source!=boundary.source)entry->second.source={};}
+        std::vector<Segment> planar;for(const auto& [key,boundary]:unique){const auto& e=boundary.points;patch.boundary.push_back(e);patch.boundary_sources.push_back(boundary.source);planar.push_back({project(e[0],f),project(e[1],f)});
             zima::kernel::ViewerEdge rim;rim.points={e[0],e[1]};result.mesh.edges.push_back(std::move(rim));}
         for(const auto& t:fill(planar,eps)){std::array<V,3> cap{world(t[0],f),world(t[1],f),world(t[2],f)};patch.triangles.push_back(cap);triangle(result.mesh,cap);}
         result.patches.push_back(std::move(patch));
@@ -310,10 +312,10 @@ SectionResult calculate_section(const zima::kernel::ViewerMesh& source,const Sec
         // Each planar contour is intersected with this leg's interval. Closing
         // bars at bends come from even/odd material intervals, preserving holes.
         for(const auto& full:planar_section(source,s,f).patches){SectionPatch patch;patch.component=full.component;patch.frame=f;std::vector<Segment> edges;
-            for(auto e:full.boundary)if(auto clipped=clip_edge(e[0],e[1],limits,eps))edges.push_back({project((*clipped)[0],f),project((*clipped)[1],f)});
+            for(std::size_t i=0;i<full.boundary.size();++i){const auto& e=full.boundary[i];if(auto clipped=clip_edge(e[0],e[1],limits,eps)){edges.push_back({project((*clipped)[0],f),project((*clipped)[1],f)});patch.boundary_sources.push_back(full.boundary_sources.at(i));}}
             for(const auto& limit:limits){const double x=dot(sub(limit.origin,f.origin),f.horizontal);std::vector<double> ys;
                 for(auto e:full.boundary){auto a=project(e[0],f),b=project(e[1],f);if(x>=std::min(a.x,b.x)&&x<std::max(a.x,b.x))ys.push_back(a.y+(b.y-a.y)*(x-a.x)/(b.x-a.x));}
-                std::ranges::sort(ys);for(std::size_t i=1;i<ys.size();i+=2)if(ys[i]-ys[i-1]>eps)edges.push_back({P{x,ys[i-1]},P{x,ys[i]}});
+                std::ranges::sort(ys);for(std::size_t i=1;i<ys.size();i+=2)if(ys[i]-ys[i-1]>eps){edges.push_back({P{x,ys[i-1]},P{x,ys[i]}});patch.boundary_sources.push_back({});}
             }
             for(auto t:fill(edges,eps)){std::array<V,3> cap{world(t[0],f),world(t[1],f),world(t[2],f)};if(dot(cross(sub(cap[1],cap[0]),sub(cap[2],cap[0])),cross(sub(cap[1],cap[0]),sub(cap[2],cap[0])))>eps*eps*eps*eps){patch.triangles.push_back(cap);triangle(result.mesh,cap);}}
             if(patch.triangles.empty())continue;

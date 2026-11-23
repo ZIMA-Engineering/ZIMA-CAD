@@ -115,6 +115,37 @@ void verify_ancestry_and_axis_crosses() {
     }
     std::cout<<"Prepared picker: repeated occurrences, nested Boolean ancestry, axis crosses and breaks match the common full traversal\n";
 }
+void verify_visible_straight_supports() {
+    DrawingView view;view.camera={{1,0,0},{0,1,0},{0,0,1}};
+    view.output_source=std::make_shared<zima::kernel::ViewerMesh>();
+    MeasurementGeometry geometry;
+    MeasurementCurve curve;curve.source={"source","partially-covered-line",{}};curve.line=true;curve.points={{0,0,0},{20,0,0}};
+    geometry.curves={curve};view.measurement_geometry=share_measurement_geometry(geometry);
+    ProjectedEdge edge;edge.source=curve.source;edge.points={{0,0},{20,0}};edge.vertex_depths={0,0};view.projected_edges={edge};
+    ProjectedTriangle triangle;triangle.points={Point2{6,-2},Point2{14,-2},Point2{10,2}};triangle.vertex_depths={1,1,1};view.projected_triangles={triangle};
+    MeasurementPicker picker;MeasurementPickRequest request;request.mode=int(DimensionAttachmentKind::Line);
+    compare(picker,view,{2,0},.1,request);
+    const auto visible=picker.candidates(view,{2,0},.1,request);
+    require(!visible.empty(),"Visible end of a line cannot be dimensioned when its midpoint is covered");
+    require(visible.front().attachment.parameter==.5&&visible.front().position==Point2{10,0},"Visibility changed the persisted line contact");
+    require(picker.candidates(view,{10,0},.1,request).empty(),"Covered line portion was offered as visible");
+
+    curve.source={"source","edge-on-rim",{}};curve.line=false;curve.circle=MeasurementCircle{{0,0,0},{0,1,0},{1,0,0},5};curve.points.clear();
+    edge.source=curve.source;edge.points.clear();edge.vertex_depths.clear();
+    for(int i=0;i<=64;++i) {
+        const double angle=2*std::acos(-1.)*i/64;
+        curve.points.push_back({5*std::cos(angle),0,-5*std::sin(angle)});
+        edge.points.push_back({curve.points.back().x,0});edge.vertex_depths.push_back(curve.points.back().z);
+    }
+    geometry.curves={curve};view.measurement_geometry=share_measurement_geometry(geometry);view.projected_edges={edge};
+    triangle.points={Point2{-10,-4},Point2{10,-4},Point2{0,4}};triangle.vertex_depths={0,0,0};view.projected_triangles={triangle};
+    compare(picker,view,{2,0},.1,request);
+    require(!picker.candidates(view,{2,0},.1,request).empty(),"Rear half of an edge-on circle hid its visible front half");
+    view.projected_triangles.front().vertex_depths={6,6,6};
+    require(picker.candidates(view,{2,0},.1,request).empty(),"Fully covered edge-on circle was offered as visible");
+    view.display_style=DisplayStyle::HiddenEdges;
+    require(!picker.candidates(view,{2,0},.1,request).empty(),"Hidden-edge mode lost a covered circle");
+}
 void benchmark(const char* path) {
     const auto document=DrawingDocument::load(path);
     double total_before=0,total_after=0,total_preparation=0;std::size_t count=0;
@@ -146,6 +177,6 @@ void benchmark(const char* path) {
 }
 }
 int main(int argc,char** argv) {
-    try {verify();verify_ancestry_and_axis_crosses();if(argc==2)benchmark(argv[1]);std::cout<<"Measurement picker equivalence and invalidation passed\n";return 0;}
+    try {verify();verify_ancestry_and_axis_crosses();verify_visible_straight_supports();if(argc==2)benchmark(argv[1]);std::cout<<"Measurement picker equivalence and invalidation passed\n";return 0;}
     catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}
 }

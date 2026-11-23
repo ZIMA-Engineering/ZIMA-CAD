@@ -1127,16 +1127,23 @@ std::vector<MeasurementCandidate> measurement_candidates_impl(const DrawingView 
         if (distance > tolerance || break_hidden(view,point))
             return;
         // Interactive strokes carry depth instead of pre-split visibility.
-        // Test only the offered point; never prepare a whole vector view on
-        // hover. Hidden-edge mode deliberately allows either depth layer.
+        // A whole line is picked at the cursor, even when its persisted witness
+        // anchor is covered. Point targets still test their exact contact.
+        // Never prepare a vector view on hover. Hidden-edge mode allows either layer.
         if(view.output_source&&view.display_style!=DisplayStyle::HiddenEdges) {
-            std::optional<double> depth;Point2 tested=point;double closest=std::numeric_limits<double>::infinity();
+            const bool whole_line=a.kind==DimensionAttachmentKind::Line;
+            const Point2 hit=whole_line?cursor:point;
+            std::optional<double> depth;Point2 tested=hit;double closest=std::numeric_limits<double>::infinity();
             for(const auto& stored:view.measurement_geometry->points)if(stored.source==a.reference){depth=kernel::dimension_dot(stored.position,view.camera.depth);break;}
             if(!depth)for(const auto& edge:view.projected_edges)if(edge.source==a.reference&&edge.vertex_depths.size()==edge.points.size())
                 for(std::size_t i=1;i<edge.points.size();++i) {
                     const auto start=edge.points[i-1],delta=sub(edge.points[i],start);const double den=dot(delta,delta);
-                    const double t=den>0?std::clamp(dot(sub(point,start),delta)/den,0.,1.):0.;const auto p=add(start,mul(delta,t));const double d=length(sub(point,p));
-                    if(d<closest){closest=d;tested=p;depth=edge.vertex_depths[i-1]+(edge.vertex_depths[i]-edge.vertex_depths[i-1])*t;}
+                    const double t=den>0?std::clamp(dot(sub(hit,start),delta)/den,0.,1.):0.;const auto p=add(start,mul(delta,t));const double d=length(sub(hit,p));
+                    const double z=edge.vertex_depths[i-1]+(edge.vertex_depths[i]-edge.vertex_depths[i-1])*t;
+                    // An edge-on circular rim projects both halves onto the
+                    // same support. Its visible front half owns that screen hit.
+                    const bool same_hit=whole_line&&depth&&length(sub(p,tested))<1e-9;
+                    if(same_hit?z>*depth:d<closest){closest=d;tested=p;depth=z;}
                 }
             if(depth)for(const auto& triangle:view.projected_triangles) {
                 if(triangle.source.semantic_key.starts_with("thread:surface:"))continue;
@@ -1280,7 +1287,9 @@ std::vector<MeasurementCandidate> measurement_candidates_impl(const DrawingView 
             if (mode == int(DimensionAttachmentKind::Point) || !curve.line)
                 continue;
         }
-        if (!curve.axis && (mode < 0 || mode == int(DimensionAttachmentKind::Point) ||
+        // Section supports can span disconnected intervals of one planar face.
+        // Their tessellation nodes and overall midpoint are not source vertices.
+        if (!curve.axis && !curve.source.semantic_key.starts_with("drawing-section-line:") && (mode < 0 || mode == int(DimensionAttachmentKind::Point) ||
             mode == int(DimensionAttachmentKind::CurvePoint))) {
             std::vector<double> parameters{0.,.5,1.};
             if(!curve.line)if(const auto support=straight_support(&curve))

@@ -48,10 +48,12 @@ void pick(QWidget *w, QPointF p) {
 #include "drawing_clearance_ui.inc"
 #include "drawing_axis_cross_ui.inc"
 #include "drawing_repeat_ui.inc"
+#include "drawing_parallel_ui.inc"
 int verify_measurement_dimension_ui() {
     using namespace zima;
     using namespace drawing;
     try {
+        if(qEnvironmentVariableIsSet("ZIMA_VERIFY_DRAWING_PARALLEL_FILE")||qEnvironmentVariableIsSet("ZIMA_VERIFY_DRAWING_PARALLEL_ONLY"))return verify_drawing_parallel_ui();
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_DRAWING_REPEAT_ONLY"))return verify_repeated_drawing_dimensions();
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_DRAWING_AXIS_CROSS"))return verify_drawing_axis_cross_ui();
         verify_drawing_axis_cross_ui();
