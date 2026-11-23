@@ -88,10 +88,14 @@ int main()try {
     check(workspace::commit_cam(live,edit,body),"Clamping Sketch selection failed");
     input=workspace::prepare_cam_calculation(live,part.document_id,first);
     check(input.clamping_sketches.size()==1&&input.source_keys.size()==2,"Clamping input was omitted");
-    check(workspace::publish_cam_calculation(live,input,result(input,"clamped")),"Clamping result publication failed");
+    bool unsupported=false;const auto clamping_revision=session.revision();
+    try{static_cast<void>(workspace::publish_cam_calculation(live,input,result(input,"clamped")));}
+    catch(const std::invalid_argument& error){unsupported=std::string(error.what())=="CAM clamping Sketch checks are not available yet. Use fixture Bodies for collision checking.";}
+    check(unsupported&&session.revision()==clamping_revision,"Unchecked clamping result was published");
     auto changed=session.document();changed.sketches.front().suppressed=true;session.commit_metadata(changed);
     check(workspace::cam_result_state(session,first)==workspace::CamResultState::SuppressedSource,"Suppressed clamping Sketch accepted");
     check(session.undo(),"Undo suppressed Sketch failed");
+    check(session.undo(),"Undo unsupported clamping selection failed");
     // A metadata change alone invalidates an in-flight publication, including Undo/Redo generations.
     input=workspace::prepare_cam_calculation(live,part.document_id,first);r=result(input,"late");
     changed=session.document();auto altered=changed.body_history;auto renamed=*altered.find(first);renamed.name="Renamed";

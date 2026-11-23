@@ -35,6 +35,7 @@ public:
         auto status=inputs.state;const auto& d=*body->cam;
         if(status==CamResultState::Current) {
             if(!d.calculated)status=CamResultState::NotCalculated;
+            else if(!d.clamping_sketch_ids.empty())status=CamResultState::InvalidSource;
             else if(!document::cam_result_matches_definition(d)||d.calculated->sources!=inputs.keys)status=CamResultState::Stale;
             else if(document::cam_result_has_collisions(*d.calculated))status=CamResultState::Collision;
         }
@@ -190,6 +191,8 @@ bool publish_cam_calculation(Workspace& live,const CamCalculationInput& input,do
             state->session.data_generation()!=input.generation)return false;
     auto current=prepare_cam_calculation(live,input.document_id,input.body_id);
     if(current.intent_key!=input.intent_key||current.source_keys!=input.source_keys)return false;
+    if(!current.definition.clamping_sketch_ids.empty())
+        throw std::invalid_argument("CAM clamping Sketch checks are not available yet. Use fixture Bodies for collision checking.");
     if(result.intent_key!=input.intent_key||result.sources!=input.source_keys||result.machine!=input.definition.machine||
        result.tools!=input.definition.tools||result.machine_work_origin!=input.definition.machine_work_origin||
        result.work_frame!=input.definition.work_frame||result.tolerance_mm!=input.definition.tolerance_mm)invalid();

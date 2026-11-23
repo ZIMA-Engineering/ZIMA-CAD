@@ -50,6 +50,11 @@ cam::Program combined_program(const document::CamDefinition& definition,const ca
 document::CamCalculated calculate_cam(const CamCalculationInput& input,
         const std::function<void(std::size_t,std::size_t)>& progress) {
     const auto& d=input.definition;document::validate_cam_definition(d);
+    // Referenced Sketches already participate in persistence and invalidation,
+    // but their oriented exclusion/grip regions are not implemented yet. Never
+    // publish a seemingly checked setup by silently ignoring authored clamping.
+    if(!d.clamping_sketch_ids.empty())
+        throw std::invalid_argument("CAM clamping Sketch checks are not available yet. Use fixture Bodies for collision checking.");
     if(!d.work_frame.reference_valid||document::cam_intent_key(d)!=input.intent_key)
         throw cam::ProgramError(cam::Error::InvalidOperation);
     const kernel::KernelRigidPlacement frame{{d.work_frame.x,d.work_frame.y,d.work_frame.z},

@@ -71,7 +71,24 @@ int main()try {
     try{static_cast<void>(workspace::calculate_cam(input,[](std::size_t done,std::size_t){if(done==1)throw std::runtime_error("cancel");}));}
     catch(const std::runtime_error&){cancelled=true;}
     check(cancelled&&session.revision()==revision,"Cancelled simulation committed partial material");
+    edit=workspace::prepare_cam_edit(session.document(),first);body=*session.document().body_history.find(first);
+    body.cam->clamping_sketch_ids={test::rectangular_sketch_id(stock_feature)};
+    check(workspace::commit_cam(live,edit,body),"Clamping metadata setup failed");
+    input=workspace::prepare_cam_calculation(live,part.document_id,first);
+    const auto clamping_revision=session.revision();bool unsupported=false,progress_started=false;
+    const std::string clamping_error="CAM clamping Sketch checks are not available yet. Use fixture Bodies for collision checking.";
+    try{static_cast<void>(workspace::calculate_cam(input,[&](auto,auto){progress_started=true;}));}
+    catch(const std::invalid_argument& error){unsupported=error.what()==clamping_error;}
+    check(unsupported&&!progress_started&&session.revision()==clamping_revision,"Unsupported Sketch clamping was silently ignored or committed");
+    auto unchecked=*session.document().body_history.find(first)->cam->calculated;
+    unchecked.intent_key=input.intent_key;unchecked.sources=input.source_keys;unsupported=false;
+    try{static_cast<void>(workspace::publish_cam_calculation(live,input,unchecked));}
+    catch(const std::invalid_argument& error){unsupported=error.what()==clamping_error;}
+    check(unsupported&&session.revision()==clamping_revision,"Unchecked Sketch clamping result was published");
+    check(workspace::cam_result_state(session,first)==workspace::CamResultState::InvalidSource&&
+        workspace::cam_result_state(session,second)==workspace::CamResultState::InvalidSource,"Unchecked clamping entered chained stock");
     edit=workspace::prepare_cam_edit(session.document(),first);body=*session.document().body_history.find(first);body.cam->fixture_ids={stock};
+    body.cam->clamping_sketch_ids.clear();
     check(workspace::commit_cam(live,edit,body),"Fixture setup failed");
     input=workspace::prepare_cam_calculation(live,part.document_id,first);result=workspace::calculate_cam(input);
     check(!result.collisions.empty(),"Exact fixture collision was missed");

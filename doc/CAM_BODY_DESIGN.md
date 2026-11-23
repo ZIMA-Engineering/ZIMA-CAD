@@ -24,6 +24,63 @@ including a vise, are explicit obstacle geometry. Collision checking must accoun
 for those fixtures and the complete tool assembly, including its non-cutting
 shank. A generated rapid transfer must not pass through the vise.
 
+### Clamping boundaries and retained grip
+
+On 2026-11-23 the user clarified two different constraints: the space extending
+normally outward from a clamping Sketch is forbidden, while cutting into stock
+below the upper Sketch (the top of the vise jaws) should produce a warning about
+the clamping. Retain this distinction rather than forbidding the entire stock
+below the jaw height.
+
+Define the contact Sketch and its outward side explicitly; do not infer the
+forbidden side from a global axis, camera direction or curve traversal order.
+The bounded contact region extruded outward represents an exclusion volume.
+Actual fixture Bodies remain authoritative additional obstacles, including the
+vise base and other geometry that a contact Sketch does not describe. Changing
+stock during simulation must never shrink those obstacles or turn their space
+into machinable material. The upper Sketch defines a separate oriented height
+boundary for that clamping, transformed into the current setup coordinates.
+
+Separate the following results and retain their operation, block, tool and
+clamping identities:
+
+- Intersection of the cutter or any non-cutting tool region with a fixture or
+  outward exclusion volume is a collision, including rapid moves. It prevents
+  accepting the result as stock for a later setup.
+- Actual cutting of remaining stock below the jaw-top boundary is a warning.
+  Test the removed material, not only the tool-tip height: a move through an
+  already empty cavity must not be reported as another loss of grip material.
+- Removal at the authored contact region requires a distinct grip-loss warning.
+  Geometric contact remaining after an operation is useful evidence, but is not
+  proof of sufficient holding force, stiffness or resistance to cutting loads.
+
+Do not choose a universal minimum grip depth. A protected material allowance or
+minimum contact requirement, if provided, must be an explicit setup parameter.
+Warnings must remain visible when a calculation otherwise succeeds; accepting a
+warning must never suppress a collision. Neither a clear simulation nor positive
+contact area certifies workholding without force, material and load information.
+
+Verify both outward sides, translated/rotated work frames, holes in contact
+regions, cutter/shank intersections, cutting above/on/below the upper boundary,
+air cuts, repeated passes and multiple clampings. Save/reopen, Undo/Redo and
+source edits must retain orientation and invalidate dependent calculated reports.
+Use bounding rejection and the existing exact swept solids/material differences;
+do not run a second independent sampled simulation for these checks.
+
+This is an agreed design requirement, not an implemented clamping certification.
+The current calculation checks explicit fixture solids; clamping Sketches are
+persisted and tracked as dependencies but do not yet generate exclusion volumes
+or grip warnings. Calculation/publication therefore rejects an authored clamping
+Sketch with an explicit diagnostic; an unchecked retained result cannot supply
+downstream stock. Fixture-only setups remain available. Replace this temporary
+unsupported-capability gate with the verified geometric checks, rather than
+merely removing it when the editor is connected.
+
+Reference: Autodesk's [project geometry documentation](https://help.autodesk.com/cloudhelp/2025/ENU/CAMTP-Help/files/CAMTP_Help_5_ManagingtheProjectGeometry_html.html)
+distinguishes stock removal from fixture collision testing against the complete
+tool assembly. The Sketch-derived regions and grip warnings above are ZIMA-CAD
+requirements, not a claim that Autodesk implements this exact scheme.
+
 ## Tools and machines
 
 Initially provide internal, editable tool definitions with cutting conditions
