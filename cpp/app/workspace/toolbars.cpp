@@ -314,7 +314,7 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
             connect(render,&QAction::triggered,this,[this]{start_render();});add_command(render);
             auto* result=new QAction(resource_icon("template-image"),tr("Render gallery"),tools_toolbar_);result->setObjectName("renderShowResultAction");
             result->setEnabled(!properties_dialog_&&render_gallery_available());connect(result,&QAction::triggered,this,[this]{show_render_result();});add_command(result);
-            add_command(export_action_);return;
+            return;
         }
         if(!properties_dialog_)viewer_->set_candidate_filter([this](const auto& c){return active_fem_condition(c.owner_id)!=nullptr;});
         add_command(selection_action_);

@@ -33,6 +33,17 @@ ExtrusionRequest moved(ExtrusionRequest request,const gp_Trsf& transform) {
     request.centerlines.origin=solid_straightening::vector(solid_straightening::point(request.centerlines.origin).Transformed(transform).XYZ());
     const auto n=request.centerlines.normal;
     request.centerlines.normal=solid_straightening::vector(gp_Vec(n.x,n.y,n.z).Transformed(transform).XYZ());
+    const auto position=[&](Vec3& p){p=solid_straightening::vector(solid_straightening::point(p).Transformed(transform).XYZ());};
+    const auto direction=[&](Vec3& p){p=solid_straightening::vector(gp_Vec(p.x,p.y,p.z).Transformed(transform).XYZ());};
+    if(request.extent==ExtrusionRequest::Extent::UpToPlane||request.extent==ExtrusionRequest::Extent::UpToSurface) {
+        position(request.target_plane_origin);direction(request.target_plane_normal);
+        for(auto& p:request.target_surface_triangles)position(p);
+    }
+    const auto limit=[&](ExtrusionLimit& value) {
+        position(value.origin);direction(value.normal);for(auto& p:value.triangles)position(p);
+    };
+    if(request.reverse_limit)limit(*request.reverse_limit);
+    if(request.ordered_end_limit)for(auto& patch:request.ordered_end_limit->patches)limit(patch.target);
     return request;
 }
 RevolutionRequest moved(RevolutionRequest request,const gp_Trsf& transform) {
@@ -307,9 +318,23 @@ std::vector<HistoryOperation> prepare(const std::vector<HistoryOperation>& histo
         std::optional<CarriedEnd> next_end;
         bool ambiguous_end=false;
         const auto move_extrusion=[&](ExtrusionRequest& request) {
-            if(request.extent!=ExtrusionRequest::Extent::Blind||request.reverse_limit||request.through_all_reverse||
+            const bool carried_cut=rigid_attachment&&found->operation==BooleanOperation::Subtract;
+            if((!carried_cut&&(request.extent!=ExtrusionRequest::Extent::Blind||request.reverse_limit))||
+                request.extent==ExtrusionRequest::Extent::ThroughAll||request.through_all_reverse||
                 request.sheet_cut||request.surface_result)
                 throw std::invalid_argument("Solid state replay cannot yet preserve this operation.");
+            if(carried_cut) {
+                const auto same_parent=[&](const FaceReference& reference) {
+                    return reference.owner_id==transfer.source_owner_id&&reference.instance_path.empty();
+                };
+                if(request.extent!=ExtrusionRequest::Extent::Blind&&!same_parent(request.target_face))
+                    throw std::invalid_argument("Solid state replay cannot yet preserve this operation.");
+                if(request.reverse_limit&&!same_parent(request.reverse_limit->reference))
+                    throw std::invalid_argument("Solid state replay cannot yet preserve this operation.");
+                if(request.ordered_end_limit)for(const auto& patch:request.ordered_end_limit->patches)
+                    if(patch.native_source||!same_parent(patch.source_reference))
+                        throw std::invalid_argument("Solid state replay cannot yet preserve this operation.");
+            }
             const auto d=request.direction;const gp_Vec direction(d.x,d.y,d.z);
             if(direction.Magnitude()<Precision::Confusion()||(!rigid_attachment&&
                 (direction.Normalized().Dot(old_tangent)<1.-1e-9||request.start_offset!=0)))
@@ -338,7 +363,7 @@ std::vector<HistoryOperation> prepare(const std::vector<HistoryOperation>& histo
             // Draft may move the end-section centroid relative to this start.
             // Carrying the feature is rigid, but extending a chain needs that
             // separate end-section calculation and must not guess its center.
-            if(request.draft_angle_degrees!=0)ambiguous_end=true;
+            if(request.draft_angle_degrees!=0||carried_cut)ambiguous_end=true;
             if(next_end&&(next_end->center.Distance(end.center)>1e-7||next_end->tangent.Dot(end.tangent)<1.-1e-9))ambiguous_end=true;
             else next_end=end;
             request=moved(std::move(request),movement);

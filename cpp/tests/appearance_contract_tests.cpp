@@ -40,10 +40,13 @@ void copied_axis_presentation() {
   kernel::ViewerEdge curve;curve.reference={"source","centerline:from:centroid:curve",{}};
   curve.construction=curve.overlay=curve.dash_dot=true;
   curve.points={{-5,-4,0},{0,-2,0},{5,-4,0}};source.edges.push_back(curve);
-  for(const bool mirror:{false,true}) {
+  for(const int operation:{0,1,2,3,4}) {
     kernel::PatternRequest pattern;pattern.linear[0].count=2;pattern.linear[0].spacing=20;
-    auto copied=mirror?kernel::mirrored_viewer_mesh(source,{{10,0,0},{1,0,0}},"copy"):
-      kernel::pattern_copy_mesh(source,pattern,1,"copy");
+    auto copied=operation==0?kernel::mirrored_viewer_mesh(source,{{10,0,0},{1,0,0}},"copy"):
+      operation==1?kernel::pattern_copy_mesh(source,pattern,1,"copy"):
+      kernel::scaled_body_mesh(source,2,{-20,0,0},"copy");
+    if(operation==3)copied=kernel::mirrored_viewer_mesh(copied,{{20,0,0},{1,0,0}},"nested");
+    if(operation==4)copied=kernel::scaled_body_mesh(kernel::pattern_copy_mesh(copied,pattern,1,"nested"),.5,{20,0,0},"final");
     auto control=copied;
     for(auto& axis:control.axes) {std::string storage;axis.reference.semantic_key=kernel::construction_source_key(axis.reference.semantic_key,storage);}
     for(auto& edge:control.edges) {std::string storage;edge.reference.semantic_key=kernel::construction_source_key(edge.reference.semantic_key,storage);}
@@ -55,7 +58,7 @@ void copied_axis_presentation() {
     view.set_mesh(copied,false);render();
     if(view.grabFramebuffer()!=expected) {
       expected.save("pattern-axis-expected.png");view.grabFramebuffer().save("pattern-axis-actual.png");
-      std::cerr<<"Copied presentation mirror="<<mirror<<'\n';
+      std::cerr<<"Copied presentation operation="<<operation<<'\n';
       throw std::runtime_error("Copied construction presentation differs from its source types");
     }
     view.set_reference_visibility(viewer::ReferenceVisibility::Axes,false);render();
@@ -63,7 +66,7 @@ void copied_axis_presentation() {
     view.set_reference_visibility(viewer::ReferenceVisibility::Axes,true);render();
     require(view.grabFramebuffer()==expected,"Copied axes do not restore after visibility toggle");
   }
-  std::cout<<"Pattern/Mirror axes and curved centerlines: identical presentation and visibility toggles passed\n";
+  std::cout<<"Scale/Pattern/Mirror axes and curved centerlines: identical presentation and visibility toggles passed\n";
 }
 int main(int argc, char **argv) {
   QApplication app(argc, argv);
@@ -298,6 +301,9 @@ int main(int argc, char **argv) {
                     QPointF(view.mapToGlobal(QPoint(20, 20))), Qt::MiddleButton,
                     Qt::MiddleButton, Qt::NoModifier);
     QApplication::sendEvent(&view, &dbl);
+    // Shared confirmation is queued until mouse dispatch has finished so a
+    // commit may safely replace the owning View.
+    QApplication::processEvents();
     require(commits == 1 && saved.size() == palette.size() + 1,
             "MMB double click outside dialog did not commit palette");
     require(QColor(QString::fromStdString(saved.back().style.color)).alpha()==77,"Custom palette lost transparency");

@@ -446,6 +446,7 @@ private:
     kernel::ViewerMesh render_display_mesh() const;
     kernel::ViewerMesh render_object_wire(const document::RenderObject&) const;
     document::RenderObject render_camera_from_view() const;
+    void view_from_render_camera(const document::RenderObject&);
     void select_render_object(std::string,bool inspect);
     void remove_render_object(const std::string&);
     void start_render();
@@ -558,6 +559,7 @@ private:
     bool normal_view_selection_active_{};
     zima::app::OrientationDialog* orientation_dialog_{};
     std::array<float, 11> orientation_dialog_original_camera_{};
+    double orientation_dialog_original_field_of_view_{45};
     std::map<std::string, zima::viewer::ViewerCandidate>
         orientation_reference_candidates_;
     std::size_t pending_orientation_reference_index_{};
@@ -806,7 +808,15 @@ private:
     std::optional<std::array<double, 2>> universal_dimension_cursor_;
     zima::kernel::DimensionLayout universal_dimension_layout_;
     bool preserve_view_on_refresh_{};
-    std::map<std::string, std::array<float, 11>> document_camera_states_;
+    struct DocumentCameraState {
+        std::array<float,11> pose;
+        double field_of_view{45};
+        bool orthographic{true};
+        std::array<float,4> viewport_anchor{};
+    };
+    std::map<std::string, DocumentCameraState> document_camera_states_;
+    void remember_document_camera();
+    void restore_document_camera(const std::string& id);
     std::optional<zima::document::PartDocument> sketch_drag_document_;
     std::optional<zima::assembly::AssemblyDocument> assembly_sketch_drag_document_;
     // Point/dimension dragging owns only a lightweight Sketch overlay.  The

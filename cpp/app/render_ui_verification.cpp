@@ -18,6 +18,8 @@
 #include <QFileDialog>
 #include <QImage>
 #include <QMouseEvent>
+#include <QWheelEvent>
+#include <QMenu>
 #include <QProgressBar>
 #include <QListWidget>
 #include <QTabBar>
@@ -48,7 +50,6 @@ int verify_render_body(QApplication& application,AssemblyWorkspaceWindow& window
         kernel::OcctKernel kernel;const auto path=directory/"render-scene.prtz";part.save(path,workspace::calculate_part(kernel,part));
         window.resize(1400,950);window.show();flush();check(window.open_document_path(QString::fromStdWString(path.wstring())),"Render fixture did not open");flush();
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_RENDER_COMPACT")){const auto ratio=window.devicePixelRatioF();window.resize(int(1920/ratio),int(1040/ratio));flush();}
-        auto& session=window.workspace_.open_part(part.document_id)->session;
         auto* view=window.viewer_;auto* tree=window.tree_;
         const auto row=[&](const std::string& id)->QTreeWidgetItem*{for(QTreeWidgetItemIterator it(tree);*it;++it)if((*it)->data(0,Qt::UserRole).toString().toStdString()==id)return *it;return nullptr;};
         const auto click=[&](QWidget* target,QPointF at,Qt::MouseButton button=Qt::LeftButton,bool twice=false) {
@@ -68,6 +69,14 @@ int verify_render_body(QApplication& application,AssemblyWorkspaceWindow& window
         };
         const auto settings=[&]{return dynamic_cast<RenderBodyDialog*>(window.properties_dialog_);};
         const auto object=[&]{return dynamic_cast<RenderObjectDialog*>(window.properties_dialog_);};
+        auto other=document::PartDocument::create_default();const auto other_path=directory/"camera-tab.prtz";other.save(other_path);
+        check(window.open_document_path(QString::fromStdString(other_path.string())),"Cannot open camera tab fixture");flush();
+        const auto switch_model=[&](const std::string& id){
+            for(int i=0;i<window.tabs_->count();++i)if(window.tabs_->tabData(i).toString().toStdString()==id){window.tabs_->setCurrentIndex(i);flush();return;}
+            throw std::runtime_error("Camera model tab missing");
+        };
+        switch_model(part.document_id);
+        auto& session=window.workspace_.open_part(part.document_id)->session;
         const auto count=kernel::body_calculation_count.load();
         window.activate_body({});flush();view->set_standard_view(viewer::StandardView::Isometric);view->fit_all();
         QEventLoop settle;QTimer::singleShot(400,&settle,&QEventLoop::quit);settle.exec();flush();
@@ -89,9 +98,14 @@ int verify_render_body(QApplication& application,AssemblyWorkspaceWindow& window
         click(view,{view->width()/2.,view->height()/2.},Qt::MiddleButton,true);
         check(!settings()&&window.active_render_body()&&row(render_id),"Render creation did not commit/activate via middle double-click");
         check(!window.sketch_action_->isEnabled()&&window.render_mode_button_->isVisible()&&!window.fem_mode_button_->isVisible(),"Render editing context exposes material commands");
-        check(window.tools_toolbar_->actions().contains(window.export_action_),"Render does not reuse the File Export action");
+        check(!window.tools_toolbar_->actions().contains(window.export_action_),"Render Body exposes image Export outside the gallery");
         const auto definition=[&]()->const document::RenderDefinition&{return *session.document().body_history.find(render_id)->render;};
         check(definition().objects.size()==2&&workspace::read_render_sources(session,render_id).size()==3,"Render did not initialize camera/light/all visible sources");
+        for(const auto& marker:definition().objects) {
+            check(std::ranges::any_of(view->mesh().edges,[&](const auto& edge){return edge.display_owner_id==marker.id&&!edge.overlay;}),"Render marker is absent from ordinary display");
+            for(const auto& edge:view->mesh().edges)if(edge.display_owner_id==marker.id)
+                check(edge.color=="#F5CD50","Camera/light marker does not use dimension yellow");
+        }
         for(const auto pixel:{QPointF{160,100},QPointF{160,0},QPointF{0,100}}) {
             const auto a=render::Scene::camera_ray(initial_camera,320,200,pixel.x(),pixel.y());
             const auto b=render::Scene::camera_ray(definition().objects.front(),320,200,pixel.x(),pixel.y());
@@ -145,10 +159,73 @@ int verify_render_body(QApplication& application,AssemblyWorkspaceWindow& window
         check(!view->mesh().dimensions.empty(),"Render View double-click did not expose dimensions");
         check(tree->currentItem()==row(camera_id),"Render View double-click lost Tree selection");
         check(session.revision()==selection_revision&&!window.properties_dialog_,"Render View double-click mutated or opened Properties");
+        const auto previous_camera=view->camera_state();const auto previous_projection=view->projection_mode();
+        const auto check_camera=[&](const document::RenderObject& camera) {
+            for(const auto pixel:{QPointF(view->width()*.5,view->height()*.5),QPointF(view->width()*.2,view->height()*.25)}) {
+                const auto expected=render::Scene::camera_ray(camera,view->width(),view->height(),pixel.x(),pixel.y());
+                const auto actual=view->ray_at(pixel);check(actual.has_value(),"Camera view has no pick ray");
+                const auto d=actual->second,e=expected.direction;
+                if(std::hypot(d.x-e.x,d.y-e.y,d.z-e.z)>=1e-4)
+                    std::cerr<<"Camera ray: orthographic="<<camera.orthographic<<" fov="<<camera.field_of_view_degrees
+                        <<" viewer fov="<<view->camera_field_of_view()<<" actual="<<d.x<<','<<d.y<<','<<d.z
+                        <<" expected="<<e.x<<','<<e.y<<','<<e.z<<'\n';
+                // The viewer unprojects through Qt's single-precision 4x4
+                // inverse (including near/far clipping); the independent
+                // render ray uses doubles. Allow less than 0.006 degree.
+                check(std::hypot(d.x-e.x,d.y-e.y,d.z-e.z)<1e-4,"View from camera has a different projection or orientation");
+                const auto a=actual->first,b=expected.origin;const auto x=a.x-b.x,y=a.y-b.y,z=a.z-b.z;
+                check(std::hypot(y*e.z-z*e.y,z*e.x-x*e.z,x*e.y-y*e.x)<.01,"View from camera has a different eye/framing");
+            }
+        };
+        for(bool orthographic:{false,true}) {
+            auto camera=*window.active_render_object(camera_id);camera.orthographic=orthographic;camera.field_of_view_degrees=62;camera.orthographic_height_mm=80;
+            std::cout<<"Camera direct view, orthographic="<<orthographic<<std::endl;
+            window.view_from_render_camera(camera);flush();check_camera(camera);
+            const auto camera_before=view->camera_state();
+            view->set_camera_state(camera_before);flush();check_camera(camera);
+            check(view->camera_field_of_view()==camera.field_of_view_degrees,
+                "Ordinary camera pose restoration reset the field of view");
+            const auto before_switch=kernel::body_calculation_count.load();
+            for(int repeat=0;repeat<2;++repeat) {
+            switch_model(other.document_id);view->set_projection_mode(viewer::ProjectionMode::Orthographic);view->set_camera_state(previous_camera);
+            switch_model(part.document_id);std::cout<<"Camera restored tab, orthographic="<<orthographic<<std::endl;
+            for(std::size_t i=0;i<camera_before.size();++i)if(camera_before[i]!=view->camera_state()[i])std::cerr<<"Pose "<<i<<": "<<camera_before[i]<<" -> "<<view->camera_state()[i]<<'\n';
+            check_camera(camera);
+            }
+            check(kernel::body_calculation_count.load()==before_switch&&session.revision()==selection_revision,
+                "Camera tab switching calculated or modified the model");
+        }
+        window.show_render_object_properties(document::RenderObjectKind::Camera,camera_id);flush();
+        object()->findChild<QCheckBox*>("renderOrthographic")->setChecked(false);
+        object()->findChild<QDoubleSpinBox*>("renderFieldOfView")->setValue(67);
+        object()->findChild<QPushButton*>("renderViewFromCamera")->click();flush();check_camera(*window.render_object_preview_);
+        object()->reject();flush();check(session.revision()==selection_revision,"Camera view committed pending camera parameters");
+        bool camera_menu_used=false;QTimer camera_menu;camera_menu.setInterval(10);
+        QObject::connect(&camera_menu,&QTimer::timeout,[&]{if(auto* menu=qobject_cast<QMenu*>(QApplication::activePopupWidget())) {
+            camera_menu.stop();auto* action=menu->findChild<QAction*>("renderViewFromCameraAction");check(action,"Camera Tree context action is missing");
+            camera_menu_used=true;click(menu,menu->actionGeometry(action).center());
+        }});camera_menu.start();
+        QMetaObject::invokeMethod(tree,"customContextMenuRequested",Qt::DirectConnection,Q_ARG(QPoint,tree->visualItemRect(row(camera_id)).center()));flush();camera_menu.stop();
+        check(camera_menu_used,"Camera context menu did not open");check_camera(*window.active_render_object(camera_id));
+        view->set_projection_mode(previous_projection);view->set_camera_state(previous_camera);flush();
         auto render_revision=session.revision();window.start_render();flush();wait([&]{return window.render_result_current();});
         check(session.revision()==render_revision&&kernel::body_calculation_count.load()==count,"Rendering changed document or calculated CAD");
         check(window.active_render_page_&&window.render_stack_->isVisible()&&!window.document_splitter_->isVisible(),"Render did not open a separate tab");
         auto* page=window.active_render_page_.data();auto* canvas=page->findChild<QWidget*>("renderImageCanvas");check(canvas,"Render image canvas missing");
+        auto* image_tools=page->findChild<QToolBar*>("renderImageTools");
+        check(image_tools&&image_tools->orientation()==Qt::Vertical&&image_tools->mapTo(page,QPoint{}).x()>=canvas->mapTo(page,QPoint(canvas->width(),0)).x(),"Image commands are not in the right column");
+        check(!page->findChild<QWidget*>("renderFit")&&!page->findChild<QWidget*>("renderActualSize")&&
+            !image_tools->actions().contains(page->findChild<QAction*>("renderRenameImage"))&&!image_tools->actions().contains(page->findChild<QAction*>("renderDeleteImage")),"Gallery still exposes removed toolbar commands");
+        const auto before_navigation=canvas->grab().toImage();const QPointF pointer(canvas->width()*.45,canvas->height()*.45);
+        const auto wheel=[&](int delta){QWheelEvent event(pointer,canvas->mapToGlobal(pointer.toPoint()),QPoint{},QPoint(0,delta),Qt::NoButton,Qt::NoModifier,Qt::NoScrollPhase,false);QApplication::sendEvent(canvas,&event);flush();};
+        wheel(-240);check(canvas->grab().toImage()!=before_navigation,"Image wheel zoom did not change framing");
+        wheel(240);check(canvas->grab().toImage()==before_navigation,"Reverse image zoom did not restore pointer-anchored framing");
+        const auto pan=[&](QPointF from,QPointF to){
+            QMouseEvent press(QEvent::MouseButtonPress,from,canvas->mapToGlobal(from.toPoint()),Qt::RightButton,Qt::MiddleButton|Qt::RightButton,Qt::NoModifier);QApplication::sendEvent(canvas,&press);
+            QMouseEvent move(QEvent::MouseMove,to,canvas->mapToGlobal(to.toPoint()),Qt::NoButton,Qt::MiddleButton|Qt::RightButton,Qt::NoModifier);QApplication::sendEvent(canvas,&move);
+            QMouseEvent release(QEvent::MouseButtonRelease,to,canvas->mapToGlobal(to.toPoint()),Qt::RightButton,Qt::MiddleButton,Qt::NoModifier);QApplication::sendEvent(canvas,&release);flush();};
+        pan(pointer,pointer+QPointF(32,19));check(canvas->grab().toImage()!=before_navigation,"Drawing-style image pan did not move pixels");
+        pan(pointer+QPointF(32,19),pointer);check(canvas->grab().toImage()==before_navigation&&session.revision()==render_revision,"Image navigation changed pixels or document");
         const auto initial_height=canvas->height();window.resize(window.width(),window.height()+100);flush();
         check(canvas->height()>initial_height+60,"Render image did not consume available height");
         auto* render_status=page->findChild<QLabel*>("renderProgressStatus");
@@ -181,12 +258,19 @@ int verify_render_body(QApplication& application,AssemblyWorkspaceWindow& window
         }
         bool export_cancelled=false;QTimer responder;responder.setInterval(20);QObject::connect(&responder,&QTimer::timeout,[&]{if(auto* file=qobject_cast<QFileDialog*>(QApplication::activeModalWidget())){export_cancelled=true;responder.stop();file->reject();}});
         responder.start();window.export_action_->trigger();flush();check(export_cancelled&&session.revision()==render_revision,"Render export Cancel changed the document");
-        page->findChild<QPushButton*>("renderKeepImage")->click();flush();
-        check(definition().images.size()==1&&!page->findChild<QPushButton*>("renderKeepImage")->isEnabled(),"Keep image did not persist exactly once");
+        page->findChild<QAction*>("renderKeepImage")->trigger();flush();
+        check(definition().images.size()==1&&!page->findChild<QAction*>("renderKeepImage")->isEnabled(),"Keep image did not persist exactly once");
         auto* gallery=page->findChild<QListWidget*>("renderGalleryImages");check(gallery->count()==2,"Gallery has no retained thumbnail");
         gallery->setCurrentRow(1);flush();gallery->item(1)->setText("Saved view");flush();
         check(definition().images.front().name=="Saved view","Gallery rename did not commit");
-        page->findChild<QPushButton*>("renderDeleteImage")->click();flush();check(definition().images.empty(),"Gallery delete did not commit");
+        QTimer gallery_menu;gallery_menu.setInterval(10);bool gallery_menu_used=false;
+        QObject::connect(&gallery_menu,&QTimer::timeout,[&]{if(auto* menu=qobject_cast<QMenu*>(QApplication::activePopupWidget())) {
+            gallery_menu.stop();auto* action=page->findChild<QAction*>("renderDeleteImage");
+            check(menu->actions().contains(action)&&menu->actions().contains(page->findChild<QAction*>("renderRenameImage")),"Gallery context menu is incomplete");
+            gallery_menu_used=true;click(menu,menu->actionGeometry(action).center());
+        }});gallery_menu.start();
+        QMetaObject::invokeMethod(gallery,"customContextMenuRequested",Qt::DirectConnection,Q_ARG(QPoint,gallery->visualItemRect(gallery->currentItem()).center()));flush();gallery_menu.stop();
+        check(gallery_menu_used&&definition().images.empty(),"Gallery context delete did not commit");
         window.undo_action_->trigger();flush();check(definition().images.size()==1,"Gallery delete Undo failed");
         window.redo_action_->trigger();flush();check(definition().images.empty(),"Gallery delete Redo failed");window.undo_action_->trigger();flush();
         const auto model_tab=[&]{for(int i=0;i<window.tabs_->count();++i)if(window.tabs_->tabData(i).toString().toStdString()==part.document_id)return i;return -1;};
@@ -221,16 +305,16 @@ int verify_render_body(QApplication& application,AssemblyWorkspaceWindow& window
         wait([&]{return !window.render_running();},30000);flush();
         check(kernel::body_calculation_count.load()==after_modeling,"Background render calculated CAD after the explicit edit");
         window.activate_body(render_id);window.show_render_result();flush();page=window.active_render_page_;
-        wait([&]{return page->findChild<QPushButton*>("renderKeepImage")->isEnabled();});
-        check(!window.render_result_current()&&page->findChild<QPushButton*>("renderExport")->isEnabled(),"Earlier snapshot was cancelled or misidentified as current");
-        page->findChild<QPushButton*>("renderKeepImage")->click();flush();check(definition().images.size()==2,"Second snapshot did not join the gallery");
+        wait([&]{return page->findChild<QAction*>("renderKeepImage")->isEnabled();});
+        check(!window.render_result_current()&&page->findChild<QAction*>("renderExport")->isEnabled(),"Earlier snapshot was cancelled or misidentified as current");
+        page->findChild<QAction*>("renderKeepImage")->trigger();flush();check(definition().images.size()==2,"Second snapshot did not join the gallery");
         const auto frozen_pixels=render::Scene(std::move(frozen)).render({}, {},2);
         const QImage frozen_expected(frozen_pixels.rgba.data(),int(frozen_pixels.width),int(frozen_pixels.height),QImage::Format_RGBA8888);
         const auto retained=QImage::fromData(QByteArray::fromBase64(QByteArray::fromStdString(definition().images.back().data->png_base64)),"PNG");
         check(retained.convertToFormat(QImage::Format_RGBA8888)==frozen_expected,"Concurrent source editing contaminated frozen render pixels");
         window.close_render_tab(window.tabs_->currentIndex());flush();window.render_job_.reset();window.show_render_result();flush();
         page=window.active_render_page_;gallery=page->findChild<QListWidget*>("renderGalleryImages");
-        check(gallery->count()==2&&!window.render_running()&&page->findChild<QPushButton*>("renderExport")->isEnabled(),"Gallery reopening requires a new render");
+        check(gallery->count()==2&&!window.render_running()&&page->findChild<QAction*>("renderExport")->isEnabled(),"Gallery reopening requires a new render");
         render_revision=session.revision();
         session.document().save(path,session.calculated_boundaries());const auto reopened=document::PartDocument::load(path);check(*reopened.body_history.find(render_id)->render==definition(),"Render native save/reopen changed its definition");
         window.tabs_->setCurrentIndex(model_tab());flush();
@@ -238,12 +322,16 @@ int verify_render_body(QApplication& application,AssemblyWorkspaceWindow& window
             QTemporaryDir temporary;QSettings ini(temporary.filePath("config.ini"),QSettings::IniFormat);ini.setValue("Application/Language",language);ini.setValue("Paths/Localization",QDir::current().absoluteFilePath("config/localization"));ini.sync();
             const auto localized=ApplicationSettings::load(temporary.path());apply_application_translations(application,localized);
             window.show_render_result();flush();page=window.active_render_page_;
-            for(const auto& control:std::vector<std::pair<const char*,const char*>>{{"renderKeepImage","Keep image"},{"renderFit","Fit image"},{"renderRenameImage","Rename"},{"renderDeleteImage","Delete image"}})
-                check(page->findChild<QPushButton*>(control.first)->text()==localized.qt_translations.value(control.second),"Gallery control did not translate");
+            for(const auto& control:std::vector<std::pair<const char*,const char*>>{{"renderKeepImage","Save to Part"},{"renderRenameImage","Rename"},{"renderDeleteImage","Delete image"}})
+                check(page->findChild<QAction*>(control.first)->text()==localized.qt_translations.value(control.second),"Gallery control did not translate");
+            for(auto* button:page->findChild<QToolBar*>("renderImageTools")->findChildren<QToolButton*>())
+                if(!button->text().isEmpty())check(button->width()>=button->fontMetrics().horizontalAdvance(button->text())+button->iconSize().width()+26,
+                    "Translated gallery command label is clipped");
             window.tabs_->setCurrentIndex(model_tab());flush();
             window.show_render_body_properties(render_id);flush();check(settings()->windowTitle()==localized.qt_translations.value("Render Body properties"),"Render title did not translate");
             check(settings()->findChild<QComboBox*>("renderSourceMode")->itemText(0)==localized.qt_translations.value("Visible Bodies"),"Render source mode did not translate");settings()->reject();flush();
             window.show_render_object_properties(document::RenderObjectKind::Camera,camera_id);flush();check(object()->windowTitle()==localized.qt_translations.value("Render object properties"),"Render object title did not translate");
+            check(object()->findChild<QPushButton*>("renderViewFromCamera")->text()==localized.qt_translations.value("View from camera"),"Camera view action did not translate");
             check(std::ranges::any_of(object()->findChildren<QLabel*>(),[&](const auto* label){return label->text()==localized.qt_translations.value("Camera frame height");}),"Render camera parameter did not translate");object()->reject();flush();
         }
         apply_application_translations(application,window.application_settings_);window.activate_body(sources[0]);flush();check(window.sketch_action_->isEnabled()&&!window.render_mode_button_->isVisible(),"Leaving Render did not restore material commands");

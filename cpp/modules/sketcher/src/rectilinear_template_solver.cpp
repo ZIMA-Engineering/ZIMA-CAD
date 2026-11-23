@@ -1,5 +1,6 @@
 #include "rectilinear_template_solver.hpp"
 #include "exact_external_circle.hpp"
+#include "derived_curve_contact.hpp"
 #include <zima/sketcher/external_curve_center.hpp>
 #include <zima/sketcher/sketch.hpp>
 #include <algorithm>
@@ -360,6 +361,7 @@ bool seed_equal_length_components(Sketch& sketch,const std::vector<std::string>&
 // This bounded seed covers native line/circle/arc graphs; unsupported equations
 // leave the transaction untouched and the ordinary solver verifies the result.
 bool seed_circular_equations(Sketch& sketch,const std::vector<std::string>& anchors,bool line_component,bool refine_drag_direction) {
+    detail::DerivedCurveEvaluationScope evaluation_scope;
     // A line-only native profile can still have circular equations through
     // immutable projected supports (e.g. a washer split following both rims).
     const bool external_circle=!line_component&&sketch.arcs.empty()&&sketch.circles.empty()&&
@@ -379,9 +381,13 @@ bool seed_circular_equations(Sketch& sketch,const std::vector<std::string>& anch
     // rejects every unsupported contact instead of omitting it.
     const bool derived_only=(!sketch.offsets.empty()||!sketch.curve_trims.empty()) &&
         std::ranges::all_of(sketch.bsplines,[&](const auto& curve){return sketch.bspline_properties_read_only(curve.id);});
+    const bool derived_contact=std::ranges::any_of(sketch.constraints,[&](const auto& c) {
+        return !c.suppressed&&c.kind==ConstraintKind::Tangent&&
+            detail::radial_derived_contact(sketch,c);
+    });
     if((!line_component&&sketch.arcs.empty()&&sketch.circles.empty()&&!external_circle)||
-       !sketch.ellipses.empty()||(!curved_contact&&(!sketch.elliptical_arcs.empty()||(!sketch.bsplines.empty()&&!derived_only)))||
-       ((!sketch.offsets.empty()||!sketch.curve_trims.empty())&&!derived_only))return false;
+       (!derived_contact&&(!sketch.ellipses.empty()||(!curved_contact&&(!sketch.elliptical_arcs.empty()||(!sketch.bsplines.empty()&&!derived_only)))||
+       ((!sketch.offsets.empty()||!sketch.curve_trims.empty())&&!derived_only))))return false;
     auto next=sketch;
     const auto point=[&](const std::string& id)->std::optional<std::array<double,2>> {
         if(id=="sketch_origin")return std::array{0.,0.};
@@ -426,7 +432,7 @@ bool seed_circular_equations(Sketch& sketch,const std::vector<std::string>& anch
         if(const auto circle=detail::exact_derived_circle(next,id))return std::array{circle->center[0],circle->center[1],circle->radius};
         return {};
     };
-    const auto ellipse_frame=[&](const SketchEllipticalArc& arc) {
+    const auto ellipse_frame=[&](const auto& arc) {
         const auto c=point(arc.center_point_id),a=point(arc.major_point_id),b=point(arc.minor_point_id);
         return std::array{(*c)[0],(*c)[1],(*a)[0]-(*c)[0],(*a)[1]-(*c)[1],(*b)[0]-(*c)[0],(*b)[1]-(*c)[1]};
     };
@@ -469,6 +475,16 @@ bool seed_circular_equations(Sketch& sketch,const std::vector<std::string>& anch
     }
     const auto equations=[&]()->std::optional<std::vector<double>> {
         std::vector<double> r;
+        // Derived supports read the current conic parameters. Keep these in
+        // step with the point variables before evaluating Offset contacts.
+        for(auto& ellipse:next.ellipses) {
+            const auto f=ellipse_frame(ellipse);
+            ellipse.major_radius=std::hypot(f[2],f[3]);ellipse.minor_radius=std::hypot(f[4],f[5]);
+            ellipse.rotation=std::atan2(f[3],f[2]);
+            if(ellipse.major_radius<1e-9||ellipse.minor_radius<1e-9)return {};
+            if((f[2]*f[5]-f[3]*f[4]<0)!=ellipse.reversed)return {};
+            r.push_back((f[2]*f[4]+f[3]*f[5])/std::max(ellipse.major_radius,ellipse.minor_radius));
+        }
         // A free arc end carries no independent equation. Preserve its angle
         // during radial fitting instead of rotating it outside a valid contact
         // domain merely to minimize displacement of its old coordinates.
@@ -514,6 +530,12 @@ bool seed_circular_equations(Sketch& sketch,const std::vector<std::string>& anch
                         (*p)[1]-(*support)[1])-(*support)[2]);
                 } else return {};
             } else if(c.kind==ConstraintKind::PointOnCircle) {
+                if(detail::noncircular_derived_curve(next,c.geometry_id)) {
+                    const auto p=point(c.first_point_id);if(!p)return {};
+                    const auto curve=detail::derived_curve_geometry(next,c.geometry_id);
+                    const auto projected=detail::project_derived_curve(*curve,{(*p)[0],(*p)[1],0});
+                    r.push_back((*p)[0]-projected.point.x);r.push_back((*p)[1]-projected.point.y);continue;
+                }
                 const auto p=point(c.first_point_id);const auto circle=circular(c.geometry_id);if(!p||!circle)return {};
                 r.push_back(std::hypot((*p)[0]-(*circle)[0],(*p)[1]-(*circle)[1])-(*circle)[2]);
             } else if(c.kind==ConstraintKind::Horizontal||c.kind==ConstraintKind::Vertical) {
@@ -529,6 +551,12 @@ bool seed_circular_equations(Sketch& sketch,const std::vector<std::string>& anch
                     r.push_back(length(*sa)-length(*sb));
                 } else r.push_back(c.kind==ConstraintKind::Parallel?(*a)[2]*(*b)[3]-(*a)[3]*(*b)[2]:(*a)[2]*(*b)[2]+(*a)[3]*(*b)[3]);
             } else if(c.kind==ConstraintKind::Tangent) {
+                if(const auto contact=detail::derived_circle_contact(next,c)) {
+                    const auto p=point(c.first_point_id),center=point(contact->pair.center_id);
+                    const double side=c.tangent_internal?-1.:1.;
+                    r.push_back((*center)[0]-(*p)[0]-side*contact->pair.radius*contact->normal[0]);
+                    r.push_back((*center)[1]-(*p)[1]-side*contact->pair.radius*contact->normal[1]);continue;
+                }
                 const auto first=circular(c.geometry_id),second=circular(c.second_geometry_id);
                 if(first && second) {
                     // Keep the persisted internal/external side; this is only
@@ -675,6 +703,13 @@ bool seed_circular_equations(Sketch& sketch,const std::vector<std::string>& anch
             if(d.kind==DimensionKind::Radius||d.kind==DimensionKind::Diameter) {
                 const auto value=radius(d.geometry_id);if(!value)return {};
                 r.push_back(*value-d.value*(d.kind==DimensionKind::Diameter?.5:1.));
+            } else if(d.kind==DimensionKind::EllipseMajorRadius||d.kind==DimensionKind::EllipseMinorRadius||d.kind==DimensionKind::EllipseRotation) {
+                const auto ellipse=std::ranges::find(next.ellipses,d.geometry_id,&SketchEllipse::id);
+                if(ellipse==next.ellipses.end())return {};
+                if(d.kind==DimensionKind::EllipseRotation) {
+                    double residual=ellipse->rotation*180./std::acos(-1.)-d.value;
+                    while(residual>180.)residual-=360.;while(residual<-180.)residual+=360.;r.push_back(residual);
+                } else r.push_back((d.kind==DimensionKind::EllipseMajorRadius?ellipse->major_radius:ellipse->minor_radius)-d.value);
             } else if(d.kind==DimensionKind::AngleBetween) {
                 const auto a=line(d.geometry_id),b=line(d.second_geometry_id);if(!a||!b)return {};
                 const double dot=(*a)[2]*(*b)[2]+(*a)[3]*(*b)[3],cross=(*a)[2]*(*b)[3]-(*a)[3]*(*b)[2];

@@ -1,4 +1,5 @@
 #include <zima/document/fem_presentation.hpp>
+#include <zima/document/part_document.hpp>
 #include <zima/sketcher/sketch.hpp>
 #include <algorithm>
 #include <cmath>
@@ -53,7 +54,7 @@ kernel::ViewerMesh fem_condition_presentation(const FemCondition& value,const ke
     if(value.distance) {
         const auto& d=*value.distance;
         kernel::ViewerEdge edge;edge.reference={value.id,"fem:distance",{}};edge.display_owner_id=value.id;edge.overlay=true;
-        edge.points={d.positions[0],d.positions[1]};mesh.edges.push_back(std::move(edge));
+        edge.color="#F5CD50";edge.points={d.positions[0],d.positions[1]};mesh.edges.push_back(std::move(edge));
         const auto middle=add(d.positions[0],mul(sub(d.positions[1],d.positions[0]),.5));
         mesh.constraint_markers.push_back({middle,value.name+(d.reference_valid?"":" !"),{value.id,"fem:label",{}},{}});
         mesh.original_references.edges=mesh.edges;return mesh;
@@ -87,6 +88,37 @@ kernel::ViewerMesh fem_condition_presentation(const FemCondition& value,const ke
                     if(d<distance){distance=d;nearest=Sample{seed,unit(cross(sub(b,a),sub(c,a)))};}
                 }
                 if(nearest)locations.push_back(*nearest);
+            }
+        }
+        if(value.projected_sketch->project_to_body) {
+            auto sketch=fem_condition_sketch(value);
+            PartDocument projection;
+            auto feature=PartDocument::create_feature_container(sketch.id);feature.id=value.id;
+            feature.feature.type=FeatureType::Projection;
+            for(const auto& ref:value.references) {
+                ExtrusionParameters::EndTarget target;
+                target.reference={ref.owner_id,ref.semantic_key,ref.instance_path};
+                feature.feature.projection.targets.push_back(std::move(target));
+            }
+            kernel::ViewerMesh wire;
+            if(feature.feature.projection.targets.empty())wire=sketch.viewer_mesh(false);
+            else {
+                projection.sketches.push_back(std::move(sketch));
+                wire=projection.projection_preview_mesh(feature,source);
+            }
+            for(auto& edge:wire.edges) {
+                edge.reference.owner_id=value.id;
+                edge.reference.semantic_key="fem:region:"+edge.reference.semantic_key;
+                edge.display_owner_id=value.id;edge.overlay=true;
+                mesh.edges.push_back(std::move(edge));
+            }
+            // Retain the source/projected point grips supplied by the shared
+            // preview; their presentation belongs to this FEM condition too.
+            for(auto& point:wire.points) {
+                point.reference.owner_id=value.id;
+                point.reference.semantic_key="fem:region:"+point.reference.semantic_key;
+                point.display_owner_id=value.id;
+                mesh.points.push_back(std::move(point));
             }
         }
     } else for(const auto& r:value.references){auto points=samples(r,value.region,source);broken|=points.empty();locations.insert(locations.end(),points.begin(),points.end());}
@@ -127,6 +159,7 @@ kernel::ViewerMesh fem_condition_presentation(const FemCondition& value,const ke
     else if(value.kind==FemConditionKind::Constraint){text<<" (";for(int i=0;i<3;++i)if(value.restrained[i])text<<"U"<<char('X'+i)<<"=0 ";text<<")";}
     if(broken)text<<" !";
     mesh.constraint_markers.push_back({label,text.str(),{value.id,"fem:label",{}},{}});
+    for(auto& edge:mesh.edges)edge.color="#F5CD50";
     mesh.original_references.edges=mesh.edges;return mesh;
 }
 } // namespace zima::document

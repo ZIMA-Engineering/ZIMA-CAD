@@ -1,3 +1,92 @@
+int verify_solid_state_failed_ui(QApplication& application,const std::filesystem::path& directory) {
+    using namespace zima;
+    const auto check=[](bool ok,const char* message){if(!ok)throw std::runtime_error(message);};
+    const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
+    try {
+        kernel::OcctKernel kernel;workspace::Workspace setup;auto part=document::PartDocument::create_default();
+        if(part.body_history.bodies().empty())static_cast<void>(part.body_history.create_body("Body"));
+        const auto id=part.document_id;setup.add_part(part,{});setup.activate(id);
+        auto profile=sketcher::Sketch::create_default();static_cast<void>(profile.add_rectangle(100,0,120,20));
+        const auto axis=profile.add_segment(0,-100,0,100,true);profile.set_segment_centerline(axis,true);
+        auto source=document::PartDocument::create_revolution_container(profile.id);
+        source.revolution.axis_segment_id=axis;source.revolution.angle_degrees=90;
+        workspace::commit_profile(setup,kernel,id,source,workspace::ProfileEditMode::Create,profile);
+        const auto* prepared=setup.open_part(id);
+        const auto request=prepared->session.document().kernel_operations().front().primitive;
+        const auto plan=kernel.prepare_straightening(std::get<kernel::RevolutionRequest>(request),1.);
+        const auto& mesh=prepared->session.calculated_boundaries().back().mesh.original_references;
+        const auto face=std::ranges::find_if(mesh.triangle_references,[&](const auto& f){return f.owner_id==source.id&&f.semantic_key.starts_with("end:from:");});
+        check(face!=mesh.triangle_references.end(),"Failed-state fixture has no end face");
+        auto section=sketcher::Sketch::create_default();static_cast<void>(section.add_rectangle(-1,-1.5,1,1.5));
+        auto child=document::PartDocument::create_extrusion_container(section.id);
+        child.extrusion.length_forward=child.extrusion.length_reverse=4;
+        // A valid formed attachment with a deliberately tilted section is
+        // currently unsupported by the rigid state continuation algorithm.
+        // Its preparation error must reach the ordinary two-OK lifecycle.
+        child.placement.x=plan.source_end_centroid.x;child.placement.y=plan.source_end_centroid.y;child.placement.z=plan.source_end_centroid.z;
+        document::ConstructionReference reference;reference.owner_id=source.id;reference.semantic_key=face->semantic_key;
+        reference.supports_offset=true;reference.offset=-0.;reference.orientation_drives_rotation=true;reference.orientation_role="front";
+        auto top=reference;top.orientation_only=true;top.orientation_role="top";top.supports_offset=false;
+        child.placement.references={reference,top};child.placement.rotation_offset_z=11;
+        const auto& f=plan.end_transform;const auto t=plan.start_tangent;
+        const kernel::Vec3 tangent{f[1].x*t.x+f[2].x*t.y+f[3].x*t.z,f[1].y*t.x+f[2].y*t.y+f[3].y*t.z,f[1].z*t.x+f[2].z*t.y+f[3].z*t.z};
+        const auto i=static_cast<std::size_t>(face-mesh.triangle_references.begin())*3;
+        const auto a=mesh.vertices.at(mesh.triangles.at(i)),b=mesh.vertices.at(mesh.triangles.at(i+1)),c=mesh.vertices.at(mesh.triangles.at(i+2));
+        const kernel::Vec3 normal{(b.y-a.y)*(c.z-a.z)-(b.z-a.z)*(c.y-a.y),(b.z-a.z)*(c.x-a.x)-(b.x-a.x)*(c.z-a.z),(b.x-a.x)*(c.y-a.y)-(b.y-a.y)*(c.x-a.x)};
+        if(normal.x*tangent.x+normal.y*tangent.y+normal.z*tangent.z<0)child.extrusion.direction=document::ExtrusionDirection::Reverse;
+        workspace::commit_profile(setup,kernel,id,child,workspace::ProfileEditMode::Create,section);
+        const auto path=directory/"failed-state.prtz";
+        prepared->session.document().save(path,prepared->session.calculated_boundaries());
+        app::AssemblyWorkspaceWindow window(QString::fromStdString(directory.string()));window.resize(1366,850);window.show();
+        check(window.open_document_path(QString::fromStdString(path.string())),"Cannot open failed-state fixture");flush();
+        check(activate_test_body(application,window,part.body_history.active_body_id()),"Cannot activate failed-state Body");flush();
+        window.findChild<QAction*>("applicationModeAction0")->trigger();flush();
+        auto* view=dynamic_cast<viewer::MeshView*>(window.findChild<QOpenGLWidget*>("modelWorkspace"));
+        auto* tree=window.findChild<QTreeWidget*>("documentTree");auto* action=window.findChild<QAction*>("straightenAction");
+        check(view&&tree&&action&&action->isEnabled(),"Failed-state command unavailable");
+        const auto input_vertices=view->mesh().vertices;
+        const auto input_triangles=view->mesh().triangles;
+        const auto unchanged=[&]{check(view->mesh().vertices==input_vertices&&view->mesh().triangles==input_triangles,"Failed state replaced the valid input model");};
+        const auto dialog=[&]() -> app::SolidStateDialog* {
+            for(auto* d:window.findChildren<QDialog*>())if(auto* s=dynamic_cast<app::SolidStateDialog*>(d);s&&s->isVisible())return s;
+            return nullptr;
+        };
+        const auto count=prepared->session.document().history.size();
+        for(bool cancel:{true,false}) {
+            action->trigger();flush();check(dialog(),"Failed-state dialog did not open");
+            const auto pending=dialog()->pending_container();check(pending.has_value(),"Failed state has no draft identity");
+            dialog()->buttons()->button(QDialogButtonBox::Ok)->click();flush();
+            check(dialog(),"First failed OK closed the dialog");unchanged();
+            std::cout<<"First OK: "<<dialog()->findChild<QLabel*>("propertiesSubmitError")->text().toStdString()<<std::endl;
+            if(cancel) {
+                dialog()->reject();flush();check(!dialog(),"Failed-state Cancel did not close");unchanged();
+                check(window.execute_console_command("save").ok,"Cannot save cancelled state");
+                check(document::PartDocument::load(path).history.size()==count,"First OK or Cancel retained its draft");
+                continue;
+            }
+            const auto calculations=kernel::body_calculation_count.load();
+            // Exercise the shared confirmation while the cursor is over View.
+            const QPointF at(30,30);QMouseEvent middle(QEvent::MouseButtonDblClick,at,QPointF(view->mapToGlobal(at.toPoint())),Qt::MiddleButton,Qt::MiddleButton,Qt::NoModifier);
+            QApplication::sendEvent(view,&middle);flush();
+            if(dialog())std::cerr<<"Second OK: "<<dialog()->findChild<QLabel*>("propertiesSubmitError")->text().toStdString()<<'\n';
+            check(!dialog(),"Unchanged second OK did not retain the failed state");unchanged();
+            check(kernel::body_calculation_count.load()==calculations,"Second OK recalculated the failed state");
+            QTreeWidgetItem* row=nullptr;
+            for(QTreeWidgetItemIterator it(tree);*it;++it)if((*it)->data(0,Qt::UserRole).toString().toStdString()==pending->id){row=*it;break;}
+            check(row&&row->text(0).contains('['),"Retained state has no failed Tree status");
+            window.findChild<QAction*>("undoAction")->trigger();flush();unchanged();
+            window.findChild<QAction*>("redoAction")->trigger();flush();unchanged();
+            check(window.execute_console_command("save").ok,"Cannot save failed state");
+            std::vector<kernel::BodyResult> boundaries;const auto reopened=document::PartDocument::load(path,&boundaries);
+            check(reopened.history.size()==count+1&&reopened.find_container(pending->id)&&
+                boundaries.back().calculation_errors.contains(pending->id),"Reopen lost failed-state history/error");
+            window.grab().save(QString::fromStdString((directory/"failed-state-retained.png").string()));
+        }
+        std::cout<<"Failed Straighten GUI: first OK, Cancel, unchanged second MMB OK, retained input, Undo/Redo and native reopen passed\n";
+        return 0;
+    }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}
+}
+
 int verify_solid_state_ui(QApplication& application,const std::filesystem::path& directory,bool sweep_only=false) {
     using namespace zima;
     const auto check=[](bool value,const char* message){if(!value)throw std::runtime_error(message);};

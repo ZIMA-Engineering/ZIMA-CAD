@@ -4,6 +4,8 @@
 #include <zima/workspace/engineering_metadata_operations.hpp>
 #include <zima/document/viewer_packet_json.hpp>
 #include <zima/kernel/scale_geometry.hpp>
+#include <zima/kernel/axis_display.hpp>
+#include <zima/kernel/pattern_geometry.hpp>
 #include <zima/interchange/step_model.hpp>
 #include <zima/document/body_properties.hpp>
 #include <zima/workspace/component_operations.hpp>
@@ -83,6 +85,49 @@ static void verify_derived_reference_database(const kernel::OcctKernel& kernel,b
     std::filesystem::remove_all(directory);
 }
 int main(){try{
+    for(const std::string key:{"axis:point:start","axis:point:end","axis:start","axis:end",
+            "profile:path-point:start:from:axis:profile:1","profile:path-point:end:from:axis:profile:1",
+            "sweep:path-point:start:from:path","sweep:path-point:end:from:path",
+            "helical:axis-point:start:from:axis","helical:axis-point:end:from:axis"}) {
+        kernel::ViewerMesh initial;
+        initial.points.push_back({{2,3,4},{"source",key,{}}});initial.points.back().display_owner_id="source";
+        initial.axes.push_back({{2,3,4},{0,0,1},12,{"source",kernel::axis_endpoint_parent_key(key),{}}});
+        initial.original_references.points=initial.points;initial.original_references.axes=initial.axes;
+        for(int operation=0;operation<6;++operation) {
+            kernel::PatternRequest pattern;pattern.linear[0].count=2;pattern.linear[0].spacing=20;
+            const kernel::MirrorPlane plane{{10,0,0},{1,0,0}};
+            auto copied=operation==0?kernel::scaled_body_mesh(initial,2,{3,-7,11},"copy"):
+                operation==1?kernel::mirrored_viewer_mesh(initial,plane,"copy"):
+                kernel::pattern_copy_mesh(initial,pattern,1,"copy");
+            auto expected=operation==0?kernel::scaled_body_point(initial.points.front().position,2,{3,-7,11}):
+                operation==1?kernel::mirrored_point(initial.points.front().position,plane):
+                kernel::pattern_point(initial.points.front().position,pattern,1);
+            if(operation==3||operation==4) {copied=kernel::scaled_body_mesh(copied,.5,{},"scaled");expected=kernel::scaled_body_point(expected,.5,{});}
+            if(operation==4) {copied=kernel::mirrored_viewer_mesh(copied,plane,"nested");expected=kernel::mirrored_point(expected,plane);}
+            if(operation==5) {copied=kernel::pattern_copy_mesh(copied,pattern,1,"nested");expected=kernel::pattern_point(expected,pattern,1);}
+            for(const auto original:{false,true}) {
+                const auto& points=original?copied.original_references.points:copied.points;
+                const auto& axes=original?copied.original_references.axes:copied.axes;
+                require(points.front().position==expected,"Copied axis endpoint has a different transformed position");
+                require(points.front().display_owner_id==axes.front().reference.owner_id,"Copied endpoint kept source display ownership");
+                require(kernel::axis_endpoint_parent_key(points.front().reference.semantic_key)==axes.front().reference.semantic_key,
+                    "Copied endpoint no longer identifies its transformed Axis");
+                std::string storage;require(kernel::construction_source_key(points.front().reference.semantic_key,storage)==key,
+                    "Nested copied endpoint lost its presentation type");
+                near(axes.front().display_length,12*(operation==0?2.:operation==3||operation==4?.5:1.));
+            }
+            kernel::BodyResult packet;packet.mesh=copied;
+            const auto reopened=document::load_body_result(document::serialize_body_result(packet));
+            require(reopened.mesh.points.front().position==copied.points.front().position&&
+                reopened.mesh.points.front().reference==copied.points.front().reference&&
+                reopened.mesh.points.front().display_owner_id==copied.points.front().display_owner_id&&
+                reopened.mesh.axes.front().point==copied.axes.front().point&&
+                reopened.mesh.axes.front().direction==copied.axes.front().direction&&
+                reopened.mesh.axes.front().display_length==copied.axes.front().display_length&&
+                reopened.mesh.axes.front().reference==copied.axes.front().reference,
+                "Copied axis/endpoint persistence changed identity or position");
+        }
+    }
     kernel::OcctKernel kernel;
     verify_derived_reference_database(kernel,true);verify_derived_reference_database(kernel,false);
     const auto source=kernel.evaluate_history({{"box",test::ProfilePrism{10,10,10}}}).back();

@@ -3,6 +3,7 @@
 #include <zima/kernel/dimension_layout.hpp>
 #include <zima/kernel/solid_state_ancestry.hpp>
 #include <zima/kernel/mirror_geometry.hpp>
+#include <zima/kernel/scale_geometry.hpp>
 #include <limits>
 
 namespace zima::kernel {
@@ -16,9 +17,10 @@ inline std::string_view construction_source_key(std::string_view key,std::string
             const auto separator=key.find(':',8);
             if(separator==std::string_view::npos)return key;
             key.remove_prefix(separator+1);
+            continue;
         }
-        if(!key.starts_with("mirror:from:"))return key;
-        const auto parent=mirror_parent_reference(std::string(key));
+        const auto parent=key.starts_with("scale:from:")?scale_parent_reference(std::string(key)):
+            mirror_parent_reference(std::string(key));
         if(!parent)return key;
         storage=parent->semantic_key;key=storage;
     }
@@ -28,15 +30,19 @@ inline std::string axis_endpoint_parent_key(std::string_view key) {
         const auto source=axis_endpoint_parent_key(parent->second);
         return source.empty()?std::string{}:solid_state_child_key(parent->first,source);
     }
-    std::string prefix;
     if(key.starts_with("pattern:")) {
         const auto separator=key.find(':',8);
         if(separator==std::string_view::npos)return {};
-        prefix=key.substr(0,separator+1);key.remove_prefix(separator+1);
+        const auto source=axis_endpoint_parent_key(key.substr(separator+1));
+        return source.empty()?std::string{}:std::string(key.substr(0,separator+1))+source;
+    }
+    if(key.starts_with("scale:from:"))if(const auto parent=scale_parent_reference(std::string(key))) {
+        const auto source=axis_endpoint_parent_key(parent->semantic_key);
+        return source.empty()?std::string{}:"scale:from:"+std::to_string(parent->owner_id.size())+":"+parent->owner_id+source;
     }
     if(key.starts_with("mirror:from:"))if(const auto parent=mirror_parent_reference(std::string(key))) {
         const auto source=axis_endpoint_parent_key(parent->semantic_key);
-        return source.empty()?std::string{}:prefix+mirror_source_key(parent->owner_id,source);
+        return source.empty()?std::string{}:mirror_source_key(parent->owner_id,source);
     }
     for(const std::string_view prefix:{"profile:path-point:start:from:","profile:path-point:end:from:",
             "helical:axis-point:start:from:","helical:axis-point:end:from:"})

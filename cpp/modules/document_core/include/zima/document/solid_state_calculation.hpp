@@ -13,18 +13,24 @@ inline std::vector<kernel::HistoryOperation> combined_solid_state_calculation_op
     }))return operations;
     if(!previous||previous->empty())return operations;
     const auto& geometry=previous->back().mesh.original_references;
+    const auto& errors=previous->back().calculation_errors;
     std::vector<kernel::HistoryOperation> authored;
     std::vector<kernel::SolidStateChange> changes;
     for(auto& operation:operations) {
         const auto* state=std::get_if<kernel::SolidStateRequest>(&operation.primitive);
         if(!state){authored.push_back(operation);continue;}
+        for(auto& change:changes) {
+            const auto& prior=*std::ranges::find(operations,change.owner_id,&kernel::HistoryOperation::owner_id);
+            change.suppressed=solid_state_preparation_suppressed(prior,operation.owner_id,errors);
+        }
         changes.push_back({authored.size(),operation.owner_id,operation.body.id,
             state->restore,state->all,operation.suppressed,state->coefficient,state->owners});
         if(operation.suppressed)continue;
+        try {
         std::set<std::string> carried;
         if(const auto* body=doc.body_history.find(operation.body.id)) {
             operation.solid_state_face_transfers=solid_state_face_transfers(
-                doc,*body,operation.owner_id,geometry,operations,true);
+                doc,*body,operation.owner_id,geometry,operations,true,errors);
             for(const auto& transfer:operation.solid_state_face_transfers)carried.insert(transfer.owner_id);
         }
         const auto packet=previous->back().solid_state_reference_views.find(operation.owner_id);
@@ -60,6 +66,11 @@ inline std::vector<kernel::HistoryOperation> combined_solid_state_calculation_op
             replacements.push_back(std::move(candidate));
         if(!replacements.empty())operation.solid_state_placements=
             std::make_shared<const std::vector<kernel::HistoryOperation>>(std::move(replacements));
+        } catch(const std::exception& error) {
+            if(!recover_errors)throw;
+            operation.input_error=error.what();
+            operation.solid_state_face_transfers.clear();operation.solid_state_placements.reset();
+        }
     }
     return operations;
 }
@@ -86,13 +97,18 @@ inline std::vector<kernel::HistoryOperation> solid_state_calculation_operations(
         return combined_solid_state_calculation_operations(
             document,calculated,std::move(operations),recover_errors);
     }
-    if(!calculated||calculated->empty()||calculated->back().solid_state_reference_views.empty())return operations;
+    // Preparation also validates material attachments when a state has no
+    // output packet (new or failed). Skipping it after failure alternated
+    // between an unprepared replay and an input error on successive passes.
+    if(!calculated||calculated->empty())return operations;
     const auto authored=calculated->back().mesh.original_references;
     for(auto& state:operations) {
         if(state.suppressed||!std::holds_alternative<kernel::SolidStateRequest>(state.primitive))continue;
         const auto* body=document.body_history.find(state.body.id);
         if(!body)continue;
-        state.solid_state_face_transfers=solid_state_face_transfers(document,*body,state.owner_id,authored,operations);
+        try {
+        state.solid_state_face_transfers=solid_state_face_transfers(document,*body,state.owner_id,authored,operations,
+            false,calculated->back().calculation_errors);
         std::set<std::string> carried;
         for(const auto& transfer:state.solid_state_face_transfers)carried.insert(transfer.owner_id);
         const auto packet=calculated->back().solid_state_reference_views.find(state.owner_id);
@@ -137,6 +153,11 @@ inline std::vector<kernel::HistoryOperation> solid_state_calculation_operations(
         }
         if(!replacements.empty())state.solid_state_placements=
             std::make_shared<const std::vector<kernel::HistoryOperation>>(std::move(replacements));
+        } catch(const std::exception& error) {
+            if(!recover_errors)throw;
+            state.input_error=error.what();
+            state.solid_state_face_transfers.clear();state.solid_state_placements.reset();
+        }
     }
     return operations;
 }

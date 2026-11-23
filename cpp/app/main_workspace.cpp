@@ -49,6 +49,7 @@
 #include "solid_state_dialog.hpp"
 #include <zima/workspace/solid_state_operations.hpp>
 #include <zima/kernel/solid_state_ancestry.hpp>
+#include <zima/kernel/calculation_diagnostics.hpp>
 #include <zima/kernel/solid_straightening.hpp>
 #include "confirmed_face_hit.hpp"
 #include <zima/workspace/sweep_operations.hpp>
@@ -12103,6 +12104,7 @@ int verify_startup_contract(
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_EQUAL_ENDPOINT_ONLY")) return verify_sketch_equal_endpoint_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_CURVE_FILLET_ONLY")) return verify_sketch_curve_fillet_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_OFFSET_TANGENT_ONLY")) return verify_sketch_offset_tangent_ui(application,test_directory);
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_NONCIRCULAR_OFFSET_TANGENT_ONLY")) return verify_sketch_offset_tangent_ui(application,test_directory,true);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SYMMETRIC_EQUAL_ONLY")) return verify_sketch_symmetric_equal_ui(application,test_directory);
     if(qEnvironmentVariableIsSet("ZIMA_VERIFY_SHELL_VALUE_ONLY"))return verify_shell_value_label_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_MULTISOLID_SHELL_UI_FILE")) return verify_multisolid_shell_ui(application,test_directory);
@@ -12122,6 +12124,7 @@ int verify_startup_contract(
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SURFACE_INTERSECTION_ONLY")) return zima::app::verify_surface_intersection_ui(application,window,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SPLINE_TANGENT_ONLY")) return verify_spline_tangent_selection(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SHEET_STATE_ONLY")) return verify_sheet_state_ui(application,test_directory);
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SOLID_STATE_FAILED_ONLY")) return verify_solid_state_failed_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SOLID_STATE_ONLY")) return verify_solid_state_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SOLID_STATE_SWEEPS_ONLY")) return verify_solid_state_ui(application,test_directory,true);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_CONSOLE_ONLY")) return zima::app::verify_command_console(application,window,test_directory);

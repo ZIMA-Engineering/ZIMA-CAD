@@ -287,6 +287,7 @@ bool candidate_recolors_wire_edge(
         const bool screen_curve = edge.overlay &&
             (is_curve3d_edge(edge.reference.semantic_key)||edge.reference.semantic_key.starts_with("intersection:curve:from:")||
                 edge.reference.semantic_key.starts_with("projection:curve:")||edge.reference.semantic_key.starts_with("fem:mark:")||
+                edge.reference.semantic_key.starts_with("fem:region:")||
                 edge.reference.semantic_key.starts_with("render:marker:"));
         const auto& key = edge.reference.semantic_key;
         const bool inactive_sketch_profile = edge.overlay &&
@@ -840,6 +841,7 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
                  source.edges[edge.edge].reference.semantic_key.starts_with(
                      "hole:cosmetic-thread:") ||
                  source.edges[edge.edge].reference.semantic_key.starts_with("fem:mark:") ||
+                 source.edges[edge.edge].reference.semantic_key.starts_with("fem:region:") ||
                  source.edges[edge.edge].reference.semantic_key.starts_with("render:marker:"))) {
                 const auto& display_edge = source.edges[edge.edge];
                 if (std::none_of(result.begin(), result.end(),

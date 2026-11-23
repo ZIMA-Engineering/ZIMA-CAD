@@ -588,6 +588,22 @@ normal, active, selected and disabled icon states. Existing whole-Origin entry,
 Cancel, persistence, Undo/Redo and nested-origin checks remain applicable.
 All project artwork must follow the mandatory Light/Dark rule in `AGENTS.md`.
 
+## Analysis and Render annotations
+
+FEM condition markers and Render camera/light markers use dimension yellow
+(`#F5CD50`) in their ordinary View presentation, including their adjacent text
+labels. This applies in both Light and Dark themes. Hover, confirmed selection
+and inspection retain the shared interaction colors; unresolved Render placement
+retains its diagnostic stroke color. Names in the Tree keep the ordinary Tree
+palette. This visual distinction was requested on 2026-11-23.
+
+The boundary of an owned planar or projected FEM Sketch region uses the same
+yellow presentation in ordinary display and pending Properties. Selecting its
+boundary selects the owning condition and uses the shared selection color.
+The original Sketch retains its normal editing colors and authored geometry;
+the FEM color belongs only to the analysis presentation. Projected boundaries
+reuse the existing lightweight viewer-packet projection preview.
+
 ## Tree visibility
 
 Use a gray name for hidden geometry and inherited hidden descendants. Do not add

@@ -70,6 +70,7 @@ void AssemblyWorkspaceWindow::show_orientation_dialog() {
     auto* dialog = new zima::app::OrientationDialog(std::move(custom_views), this);
     orientation_dialog_ = dialog;
     orientation_dialog_original_camera_ = viewer_->camera_state();
+    orientation_dialog_original_field_of_view_ = viewer_->camera_field_of_view();
     orientation_reference_candidates_.clear();
     viewer_->set_selection_contract({zima::viewer::CandidateKind::Face,zima::viewer::CandidateKind::Plane});
     viewer_->set_candidate_filter([this](const auto&) { return orientation_dialog_ != nullptr && orientation_dialog_->active_row() < 2; });
@@ -211,7 +212,7 @@ void AssemblyWorkspaceWindow::show_orientation_dialog() {
     });
     connect(dialog, &QDialog::finished, this, [this](int result) {
         if (result != QDialog::Accepted && viewer_ != nullptr) {
-            viewer_->set_camera_state(orientation_dialog_original_camera_);
+            viewer_->set_camera_state(orientation_dialog_original_camera_,orientation_dialog_original_field_of_view_);
         }
     });
     dialog->show();

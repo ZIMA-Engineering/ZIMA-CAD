@@ -26,6 +26,20 @@ bool AssemblyWorkspaceWindow::active_render_body()const {
     const auto* body=part?part->session.document().body_history.find(part->session.document().body_history.active_body_id()):nullptr;
     return body&&body->render.has_value();
 }
+void AssemblyWorkspaceWindow::remember_document_camera() {
+    const auto& id=workspace_.active_document_id();
+    if(!id.empty()&&viewer_)document_camera_states_[id]={viewer_->camera_state(),viewer_->camera_field_of_view(),viewer_->projection_mode()==viewer::ProjectionMode::Orthographic,viewer_->camera_viewport_anchor()};
+}
+void AssemblyWorkspaceWindow::restore_document_camera(const std::string& id) {
+    const auto found=document_camera_states_.find(id);
+    if(found==document_camera_states_.end()||!viewer_)return;
+    const auto& camera=found->second;
+    viewer_->set_projection_mode(camera.orthographic?viewer::ProjectionMode::Orthographic:viewer::ProjectionMode::Perspective);
+    viewer_->set_camera_state(camera.pose,camera.field_of_view);
+    viewer_->set_camera_viewport_anchor(camera.viewport_anchor);
+    orthographic_camera_action_->setChecked(camera.orthographic);
+    perspective_camera_action_->setChecked(!camera.orthographic);
+}
 const document::RenderObject* AssemblyWorkspaceWindow::active_render_object(const std::string& id)const {
     const auto* part=workspace_.open_part(workspace_.active_document_id());
     return part?workspace::find_render_object(part->session.document(),part->session.document().body_history.active_body_id(),id):nullptr;
@@ -68,6 +82,20 @@ document::RenderObject AssemblyWorkspaceWindow::render_camera_from_view()const {
     camera.placement.absolute_rotation_x=rotation.x;camera.placement.absolute_rotation_y=rotation.y;camera.placement.absolute_rotation_z=rotation.z;
     return camera;
 }
+void AssemblyWorkspaceWindow::view_from_render_camera(const document::RenderObject& object) {
+    if(object.kind!=document::RenderObjectKind::Camera)return;
+    const auto& p=object.placement;QMatrix4x4 rotation;
+    rotation.rotate(float(p.rotation_z),0,0,1);rotation.rotate(float(p.rotation_y),0,1,0);rotation.rotate(float(p.rotation_x),1,0,0);
+    auto eye=Vec3{p.x,p.y,p.z},forward=vector(rotation.mapVector({1,0,0})),up=vector(rotation.mapVector({0,0,1}));
+    const auto prefix=workspace_.active_occurrence_path();if(!prefix.empty()) {
+        const auto transform=[&](Vec3 v){return workspace_.occurrence_point_to_scene(workspace_.displayed_document_id(),assembly::InstancePath::decode(prefix),v);};
+        const auto f=transform({eye.x+forward.x,eye.y+forward.y,eye.z+forward.z}),u=transform({eye.x+up.x,eye.y+up.y,eye.z+up.z});eye=transform(eye);
+        forward={f.x-eye.x,f.y-eye.y,f.z-eye.z};up={u.x-eye.x,u.y-eye.y,u.z-eye.z};
+    }
+    viewer_->set_camera_frame(eye,forward,up,object.orthographic?viewer::ProjectionMode::Orthographic:viewer::ProjectionMode::Perspective,
+        object.orthographic_height_mm,object.field_of_view_degrees);
+    orthographic_camera_action_->setChecked(object.orthographic);perspective_camera_action_->setChecked(!object.orthographic);fly_camera_action_->setChecked(false);
+}
 kernel::ViewerMesh AssemblyWorkspaceWindow::render_object_wire(const document::RenderObject& object)const {
     kernel::ViewerMesh mesh;if(!object.visible)return mesh;
     const auto& p=object.placement;
@@ -75,8 +103,8 @@ kernel::ViewerMesh AssemblyWorkspaceWindow::render_object_wire(const document::R
     matrix.rotate(float(p.rotation_z),0,0,1);matrix.rotate(float(p.rotation_y),0,1,0);matrix.rotate(float(p.rotation_x),1,0,0);
     const auto stroke=[&](std::vector<Vec3> points) {
         kernel::ViewerEdge edge;edge.reference={object.id,"render:marker:"+std::to_string(mesh.edges.size()),{}};
-        edge.display_owner_id=object.id;edge.overlay=true;
-        edge.color=!p.reference_valid?"#FF5E52":object.kind==document::RenderObjectKind::Camera?"#00D1FF":"#FFD45A";
+        edge.display_owner_id=object.id;
+        edge.color=!p.reference_valid?"#FF5E52":"#F5CD50";
         for(const auto point:points)edge.points.push_back(vector(matrix.map(vector(point))));mesh.edges.push_back(std::move(edge));
     };
     constexpr double size=12;
@@ -233,6 +261,7 @@ void AssemblyWorkspaceWindow::show_render_object_properties(document::RenderObje
             if(std::ranges::none_of(doc.body_history.find(body_id)->render->objects,[&](const auto& o){return o.name==initial.name;}))break;}
     }
     auto* dialog=new RenderObjectDialog(initial,[this,edit](auto value){static_cast<void>(workspace::commit_render_object(workspace_,edit,std::move(value)));},this);
+    dialog->view_from_camera=[this,dialog]{if(dialog->changed)dialog->changed();if(render_object_preview_)view_from_render_camera(*render_object_preview_);};
     properties_dialog_=dialog;primitive_reference_dialog_=dialog;primitive_parameter_owner_id_=initial.id;construction_dimension_object_id_=initial.id;render_object_preview_=initial;
     const auto highlights=[this,dialog]{viewer_->set_constraint_reference_highlights({},highlighted_reference_edge_keys(*dialog));};
     dialog->set_reference_highlights_changed_callback(highlights);

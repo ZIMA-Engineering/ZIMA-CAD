@@ -139,6 +139,11 @@ bool is_projection_wire_edge(const zima::kernel::ViewerEdge& edge) {
     return key.starts_with("projection:curve:")||key.starts_with("projection:preview:");
 }
 
+bool is_fem_wire_edge(const zima::kernel::ViewerEdge& edge) {
+    return edge.reference.semantic_key.starts_with("fem:mark:")||
+        edge.reference.semantic_key.starts_with("fem:region:");
+}
+
 template<class Project> void paint_normal_text(QPainter& painter,
     const std::vector<zima::kernel::ViewerEdge>& edges,
     const std::vector<zima::kernel::ViewerEdge>& preview,Project project,bool visible,bool symbols_visible) {
@@ -944,7 +949,7 @@ struct MeshView::Impl {
     }
 
     [[nodiscard]] float orbit_distance() const {
-        const float half_angle = kPerspectiveFieldOfViewDegrees *
+        const float half_angle = perspective_field_of_view *
             static_cast<float>(std::numbers::pi) / 360.0F;
         return std::max(view_scale, 0.001F) / std::tan(half_angle);
     }
@@ -979,6 +984,7 @@ struct MeshView::Impl {
     }
 
     int viewport_height{1};
+    float perspective_field_of_view{kPerspectiveFieldOfViewDegrees};
 
     [[nodiscard]] QMatrix4x4 projection(int width, int height) const {
         const float aspect = height > 0 ? static_cast<float>(width) / height : 1.0F;
@@ -1025,7 +1031,7 @@ struct MeshView::Impl {
                 near_plane = std::max(minimum_near, closest_depth - margin);
                 far_plane = std::max(near_plane + margin, furthest_depth + margin);
             }
-            result.perspective(kPerspectiveFieldOfViewDegrees,
+            result.perspective(perspective_field_of_view,
                 std::max(aspect, 0.001F), near_plane, far_plane);
             return anchored(result);
         }
@@ -1405,10 +1411,34 @@ std::array<float, 11> MeshView::camera_state() const {
             impl_->orbit_center_offset.y(),impl_->orbit_center_offset.z()};
 }
 
+double MeshView::camera_field_of_view() const { return impl_->perspective_field_of_view; }
+
+std::array<float,4> MeshView::camera_viewport_anchor() const {
+    return {float(impl_->resize_shift_pixels.x()),float(impl_->resize_shift_pixels.y()),
+        float(width()),float(height())};
+}
+
+void MeshView::set_camera_viewport_anchor(const std::array<float,4>& state) {
+    if(!std::ranges::all_of(state,[](float value){return std::isfinite(value);}))return;
+    impl_->resize_shift_pixels={state[0],state[1]};
+    if(impl_->preserve_screen_position_on_resize&&state[2]>0&&state[3]==height())
+        impl_->resize_shift_pixels.rx()+=(state[2]-width())*.5;
+    // A pending resizeGL must continue from this restored viewport, rather
+    // than adding the previous document's resize a second time.
+    impl_->viewport_width=width();impl_->viewport_height=std::max(1,height());
+    impl_->candidates.clear();update();
+}
+
 void MeshView::set_camera_state(const std::array<float, 11>& state) {
+    set_camera_state(state,impl_->perspective_field_of_view);
+}
+
+void MeshView::set_camera_state(const std::array<float, 11>& state,double field_of_view_degrees) {
     if (!std::all_of(state.begin(), state.end(), [](float value) {
             return std::isfinite(value);
-        }) || state[4] <= 0.0F) return;
+        }) || state[4] <= 0.0F || !std::isfinite(field_of_view_degrees) ||
+        field_of_view_degrees<1 || field_of_view_degrees>175) return;
+    impl_->perspective_field_of_view=float(field_of_view_degrees);
     impl_->orientation = QQuaternion(state[0], state[1], state[2], state[3]).normalized();
     impl_->view_scale = state[4];
     impl_->pan_pixels = QPointF(state[5], state[6]);
@@ -1426,6 +1456,27 @@ void MeshView::set_camera_state(const std::array<float, 11>& state) {
     impl_->candidates.clear();
     impl_->rebuild_persisted_reference_mesh();
     update();
+}
+
+void MeshView::set_camera_frame(const zima::kernel::Vec3& eye,
+    const zima::kernel::Vec3& forward,const zima::kernel::Vec3& up,
+    ProjectionMode mode,double frame_height,double field_of_view_degrees) {
+    const auto vec=[](const auto& p){return QVector3D(float(p.x),float(p.y),float(p.z));};
+    for(double value:{eye.x,eye.y,eye.z,forward.x,forward.y,forward.z,up.x,up.y,up.z,frame_height,field_of_view_degrees})
+        if(!std::isfinite(value))throw std::invalid_argument("The current View camera is unavailable.");
+    const auto f=vec(forward).normalized(),right=QVector3D::crossProduct(f,vec(up)).normalized();
+    if(f.lengthSquared()<.5F||right.lengthSquared()<.5F||frame_height<=0||field_of_view_degrees<1||field_of_view_degrees>175)
+        throw std::invalid_argument("The current View camera is unavailable.");
+    const auto vertical=QVector3D::crossProduct(right,f).normalized();QMatrix3x3 basis;
+    for(int i=0;i<3;++i){basis(i,0)=right[i];basis(i,1)=vertical[i];basis(i,2)=-f[i];}
+    const auto q=QQuaternion::fromRotationMatrix(basis).conjugated();
+    if(impl_->camera_animation){impl_->camera_animation->stop();impl_->camera_animation=nullptr;}
+    impl_->fly_navigation_enabled=false;impl_->projection_mode=mode;impl_->resize_shift_pixels={};
+    const float distance=std::max(impl_->radius*2.F,1.F);
+    const auto offset=vec(eye)+f*distance-impl_->center;
+    const auto scale=mode==ProjectionMode::Orthographic?float(frame_height*.5):
+        distance*float(std::tan(field_of_view_degrees*std::numbers::pi/360.));
+    set_camera_state({q.scalar(),q.x(),q.y(),q.z(),scale,0,0,scale,offset.x(),offset.y(),offset.z()},field_of_view_degrees);
 }
 
 std::vector<CandidateKind> MeshView::selection_contract() const {
@@ -3153,7 +3204,7 @@ double MeshView::world_tolerance_for_pixels(double pixels) const {
         impl_->projection_mode == ProjectionMode::Perspective) {
         const double distance = (impl_->center + impl_->orbit_center_offset - impl_->fly_position).length();
         visible_half_height = std::max(0.001, distance * std::tan(
-            kPerspectiveFieldOfViewDegrees * std::numbers::pi / 360.0));
+            impl_->perspective_field_of_view * std::numbers::pi / 360.0));
     }
     return 2.0 * visible_half_height * pixels /
         static_cast<double>(height());
@@ -4374,7 +4425,7 @@ if (impl_->show_origins) {
             for (std::size_t marker_index = 0;
                  marker_index < markers->size(); ++marker_index) {
                 const auto& marker = (*markers)[marker_index];
-                painter.setPen(QPen(marker.reference.semantic_key=="fem:label"?theme.foreground:QColor("#7CFF6B"),2.0));
+                painter.setPen(QPen((marker.reference.semantic_key=="fem:label"||marker.reference.semantic_key=="render:label")?QColor(245,205,80):QColor("#7CFF6B"),2.0));
                 const QPointF anchor = project(marker.position);
                 const auto key = std::pair{
                     static_cast<int>(std::lround(anchor.x())),
@@ -5113,7 +5164,7 @@ if (impl_->show_origins) {
         bool native_strokes=false,model_strokes=false;
         const auto append=[&](const kernel::ViewerEdge& edge) {
             if(edge.construction||edge.parameter_seam)return;
-            if(is_sketch_wire_edge(edge)||is_projection_wire_edge(edge)||edge.reference.semantic_key.starts_with("fem:mark:"))native_strokes=true;else model_strokes=true;
+            if(is_sketch_wire_edge(edge)||is_projection_wire_edge(edge)||is_fem_wire_edge(edge))native_strokes=true;else model_strokes=true;
             for(std::size_t i=1;i<edge.points.size();++i)for(const auto& p:{edge.points[i-1],edge.points[i]})
                 data.insert(data.end(),{float(p.x),float(p.y),float(p.z),0.F,0.F,1.F});
         };
@@ -5806,7 +5857,7 @@ if (impl_->show_origins) {
         // their existing samples in logical pixels, just like native Sketches.
         // Selection uses the same cached source/result preview as Properties.
         const auto paint_result_wire=[&](const auto& edge,const QColor& color) {
-            if((!is_projection_wire_edge(edge)&&!edge.reference.semantic_key.starts_with("fem:mark:"))||edge.points.empty())return;
+            if((!is_projection_wire_edge(edge)&&!is_fem_wire_edge(edge))||edge.points.empty())return;
             painter.setPen(QPen(color,interaction::curve_wire_width,Qt::SolidLine,Qt::RoundCap,Qt::RoundJoin));
             QPainterPath path(project(edge.points.front()));
             for(std::size_t i=1;i<edge.points.size();++i)path.lineTo(project(edge.points[i]));
@@ -5814,10 +5865,11 @@ if (impl_->show_origins) {
         };
         for(const auto& edge:impl_->mesh.edges) {
             const bool selected=highlighted&&candidate_recolors_wire_edge(*highlighted,edge);
-            paint_result_wire(edge,selected?interaction::selected:theme.foreground);
+            paint_result_wire(edge,selected?interaction::selected:
+                is_fem_wire_edge(edge)?QColor(245,205,80):theme.foreground);
         }
         for(const auto& edge:impl_->transient_context_mesh.edges)
-            if(edge.reference.semantic_key.starts_with("fem:mark:"))paint_result_wire(edge,theme.foreground);
+            if(is_fem_wire_edge(edge))paint_result_wire(edge,QColor(245,205,80));
         if(source_wire_visible)for(const auto& edge:impl_->selected_source_wire)
             paint_result_wire(edge,interaction::selected);
         if (curve3d_geometry_visible || axes_visible) {
@@ -5893,13 +5945,15 @@ if (impl_->show_origins) {
             for (std::size_t marker_index = 0;
                  marker_index < markers->size(); ++marker_index) {
                 const auto& marker = (*markers)[marker_index];
+                const bool object_label=marker.reference.semantic_key=="fem:label"||marker.reference.semantic_key=="render:label";
                 const bool selected = markers==&impl_->mesh.constraint_markers && highlighted &&
-                    highlighted->kind == CandidateKind::SketchConstraint &&
-                    highlighted->geometry_index == marker_index;
+                    ((highlighted->kind == CandidateKind::SketchConstraint && highlighted->geometry_index == marker_index)||
+                     (object_label&&highlighted->kind==CandidateKind::Container&&highlighted->owner_id==marker.reference.owner_id&&
+                      highlighted->instance_path==marker.reference.instance_path));
                 painter.setPen(QPen(selected
                     ? (impl_->confirmed_candidate ? interaction::selected
                                                   : interaction::hover)
-                    : marker.reference.semantic_key=="fem:label"?theme.foreground:QColor("#7CFF6B"), 2.0));
+                    : object_label?QColor(245,205,80):QColor("#7CFF6B"), 2.0));
                 const QPointF anchor = project(marker.position);
                 const auto key = std::pair{
                     static_cast<int>(std::lround(anchor.x())),
@@ -6351,6 +6405,8 @@ if (impl_->show_origins) {
                         : hovered ? interaction::hover
                         : (referenced || creation_preview)
                             ? interaction::selected
+                        : marker_key.starts_with("fem:region:")
+                            ? QColor(245,205,80)
                         : marker_key == "point" && !point.display_owner_id.empty() &&
                             impl_->curve3d_point_owners.contains({point.display_owner_id,point.reference.instance_path})
                             ? theme.foreground

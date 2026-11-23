@@ -144,23 +144,6 @@ void AssemblyWorkspaceWindow::show_fem_condition_properties(document::FemConditi
             wire.points.clear();wire.dimensions.clear();wire.original_references={};
             append_mesh(preview,std::move(wire));
         }
-        if(value.projected_sketch&&value.projected_sketch->project_to_body) {
-            auto sketch=document::fem_condition_sketch(value);
-            document::PartDocument projection;
-            auto feature=document::PartDocument::create_feature_container(sketch.id);
-            feature.id=value.id;
-            feature.feature.type=document::FeatureType::Projection;
-            for(const auto& ref:value.references) {
-                document::ExtrusionParameters::EndTarget target;
-                target.reference={ref.owner_id,ref.semantic_key,ref.instance_path};
-                feature.feature.projection.targets.push_back(std::move(target));
-            }
-            if(feature.feature.projection.targets.empty())append_mesh(preview,sketch_viewer_mesh(sketch));
-            else {
-                projection.sketches.push_back(std::move(sketch));
-                append_mesh(preview,projection.projection_preview_mesh(feature,source->mesh));
-            }
-        }
         // Reuse the native Origin presentation, with the analysis container's
         // frame; no material feature or extra CAD calculation is created.
         auto frame=*carrier->body_history.find(frame_id);frame.scope.placement=p;carrier->body_history.update_body(frame);

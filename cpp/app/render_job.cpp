@@ -1,6 +1,9 @@
 #include "assembly_workspace_window.hpp"
 #include "workspace/workspace_internal.hpp"
 #include "file_dialog.hpp"
+#include "command_button_paint.hpp"
+#include "tool_button_style.hpp"
+#include "toolbar_style.hpp"
 #include <zima/render/renderer.hpp>
 #include <zima/workspace/render_operations.hpp>
 #include <zima/drawing_render/image_export.hpp>
@@ -11,15 +14,19 @@
 #include <QFileInfo>
 #include <QImageReader>
 #include <QListWidget>
+#include <QMouseEvent>
+#include <QWheelEvent>
+#include <QMenu>
+#include <QToolBar>
 #include <QPainter>
 #include <QProgressBar>
 #include <QPushButton>
-#include <QScrollArea>
 #include <QSplitter>
 #include <QTimer>
 #include <atomic>
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <mutex>
 #include <thread>
 
@@ -47,46 +54,82 @@ public:
     explicit RenderCanvas(QWidget* parent):QWidget(parent) {
         setMinimumSize(240,135);setSizePolicy(QSizePolicy::Expanding,QSizePolicy::Expanding);setObjectName("renderImageCanvas");
     }
+    void reset_view(){zoom_=1.;pan_={};update();}
 protected:
     void paintEvent(QPaintEvent*)override {
         QPainter painter(this);painter.fillRect(rect(),palette().brush(QPalette::Base));if(image.isNull())return;
-        auto size=image.size();size.scale(this->size(),Qt::KeepAspectRatio);
-        const QRect target(QPoint((width()-size.width())/2,(height()-size.height())/2),size);
+        const auto size=QSizeF(image.size())*scale();
+        const QRectF target(origin(),size);
         painter.setRenderHint(QPainter::SmoothPixmapTransform);painter.drawImage(target,image);
     }
+    void wheelEvent(QWheelEvent* event)override {
+        if(image.isNull()||event->angleDelta().y()==0){QWidget::wheelEvent(event);return;}
+        const auto local=(event->position()-origin())/scale();
+        // Same direction, step, pointer anchoring and bounds as DrawingCanvas.
+        zoom_=std::clamp(zoom_*std::pow(1./1.15,event->angleDelta().y()/120.),.05,100.);
+        pan_=event->position()-local*scale()-centered_origin();update();event->accept();
+    }
+    void mousePressEvent(QMouseEvent* event)override {
+        if((event->buttons()&Qt::MiddleButton)&&(event->buttons()&Qt::RightButton)) {
+            panning_=true;pointer_=event->position();start_pan_=pan_;setCursor(Qt::ClosedHandCursor);event->accept();return;
+        }
+        QWidget::mousePressEvent(event);
+    }
+    void mouseMoveEvent(QMouseEvent* event)override {
+        if(panning_&&(event->buttons()&Qt::MiddleButton)&&(event->buttons()&Qt::RightButton)) {
+            pan_=start_pan_+event->position()-pointer_;update();event->accept();return;
+        }
+        QWidget::mouseMoveEvent(event);
+    }
+    void mouseReleaseEvent(QMouseEvent* event)override {
+        if(panning_&&(!(event->buttons()&Qt::MiddleButton)||!(event->buttons()&Qt::RightButton))) {
+            panning_=false;unsetCursor();event->accept();return;
+        }
+        QWidget::mouseReleaseEvent(event);
+    }
+private:
+    double zoom_{1.};QPointF pan_,pointer_,start_pan_;bool panning_{};
+    double scale()const{return image.isNull()?1.:zoom_*std::min(double(width())/image.width(),double(height())/image.height());}
+    QPointF centered_origin()const{return {(width()-image.width()*scale())*.5,(height()-image.height()*scale())*.5};}
+    QPointF origin()const{return centered_origin()+pan_;}
 };
 class RenderPage final : public QWidget {
 public:
     std::string document_id,body_id;
-    RenderCanvas* canvas;QScrollArea* scroll;QListWidget* gallery;QProgressBar* progress;QLabel* status;
-    QPushButton *keep,*remove,*rename,*stop,*export_button,*fit,*actual;
+    RenderCanvas* canvas;QListWidget* gallery;QProgressBar* progress;QLabel* status;
+    QToolBar* toolbar;QAction *keep,*remove,*rename,*stop,*export_button;
     QImage live_image;QString live_status;bool live_running{},live_complete{},live_exists{};
     std::string retained_id;
     std::vector<document::RenderImage> saved;
     std::function<void(std::vector<document::RenderImage>)> commit;
     RenderPage(std::string document,std::string body,QWidget* parent):QWidget(parent),document_id(std::move(document)),body_id(std::move(body)) {
         setObjectName("renderGalleryPage");auto* layout=new QVBoxLayout(this);layout->setContentsMargins(8,8,8,8);layout->setSpacing(6);
-        auto* tools=new QHBoxLayout;tools->setSpacing(6);layout->addLayout(tools);
-        const auto button=[&](const char* name){auto* b=new QPushButton(this);b->setObjectName(name);tools->addWidget(b);return b;};
-        fit=button("renderFit");actual=button("renderActualSize");tools->addSpacing(8);
-        keep=button("renderKeepImage");rename=button("renderRenameImage");remove=button("renderDeleteImage");
-        tools->addStretch();stop=button("renderStop");export_button=button("renderExport");
-        auto* split=new QSplitter(this);layout->addWidget(split,1);
+        auto* content=new QHBoxLayout;content->setSpacing(8);layout->addLayout(content,1);
+        auto* split=new QSplitter(this);content->addWidget(split,1);
         gallery=new QListWidget(split);gallery->setObjectName("renderGalleryImages");gallery->setIconSize({128,80});gallery->setMinimumWidth(150);
         gallery->setMaximumWidth(300);gallery->setViewMode(QListView::IconMode);gallery->setFlow(QListView::TopToBottom);
         gallery->setMovement(QListView::Static);gallery->setWrapping(false);gallery->setResizeMode(QListView::Adjust);
         gallery->setGridSize({140,110});gallery->setTextElideMode(Qt::ElideRight);
         gallery->setSpacing(4);gallery->setEditTriggers(QAbstractItemView::NoEditTriggers);
-        scroll=new QScrollArea(split);scroll->setWidgetResizable(true);scroll->setFrameShape(QFrame::NoFrame);
-        canvas=new RenderCanvas(scroll);scroll->setWidget(canvas);split->setStretchFactor(0,0);split->setStretchFactor(1,1);split->setSizes({190,900});
+        canvas=new RenderCanvas(split);split->setStretchFactor(0,0);split->setStretchFactor(1,1);split->setSizes({190,900});
+        toolbar=new QToolBar(this);toolbar->setObjectName("renderImageTools");toolbar->setMovable(false);toolbar->setOrientation(Qt::Vertical);
+        toolbar->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);toolbar->setIconSize({16,16});toolbar->setMinimumWidth(158);
+        toolbar->setStyleSheet(toolbar_separator_style()+command_button_style());content->addWidget(toolbar);
+        const auto action=[&](const char* name,const char* icon,bool command=true){auto* a=new QAction(resource_icon(icon),{},this);a->setObjectName(name);
+            if(command){toolbar->addAction(a);auto* button=qobject_cast<QToolButton*>(toolbar->widgetForAction(a));new LeftAlignedCommandLabel(button);button->setObjectName("applicationCommandButton");}return a;};
+        keep=action("renderKeepImage","save");stop=action("renderStop","cancel");export_button=action("renderExport","export");
+        rename=action("renderRenameImage","properties",false);remove=action("renderDeleteImage","delete",false);
         auto* footer=new QHBoxLayout;layout->addLayout(footer);status=new QLabel(this);status->setObjectName("renderProgressStatus");
         status->setWordWrap(true);footer->addWidget(status,1);
         progress=new QProgressBar(this);progress->setObjectName("renderProgress");progress->setFixedWidth(160);footer->addWidget(progress);
-        connect(fit,&QPushButton::clicked,this,[this]{scroll->setWidgetResizable(true);canvas->setMaximumSize(QWIDGETSIZE_MAX,QWIDGETSIZE_MAX);canvas->setMinimumSize(240,135);});
-        connect(actual,&QPushButton::clicked,this,[this]{if(canvas->image.isNull())return;scroll->setWidgetResizable(false);canvas->setFixedSize(canvas->image.size());});
-        connect(gallery,&QListWidget::currentRowChanged,this,[this]{show_selection();});
-        connect(rename,&QPushButton::clicked,this,[this]{if(auto* item=gallery->currentItem();item&&!item->data(Qt::UserRole).toString().isEmpty())gallery->editItem(item);});
-        connect(remove,&QPushButton::clicked,this,[this]{const auto id=selected_id();if(id.empty())return;auto next=saved;
+        connect(gallery,&QListWidget::currentRowChanged,this,[this]{canvas->reset_view();show_selection();});
+        gallery->setContextMenuPolicy(Qt::CustomContextMenu);
+        connect(gallery,&QListWidget::customContextMenuRequested,this,[this](const QPoint& position){
+            auto* item=gallery->itemAt(position);if(!item||item->data(Qt::UserRole).toString().isEmpty())return;
+            gallery->setCurrentItem(item);QMenu menu(this);menu.addAction(rename);menu.addAction(remove);menu.exec(gallery->viewport()->mapToGlobal(position));
+        });
+        connect(rename,&QAction::triggered,this,[this]{if(auto* item=gallery->currentItem();item&&!item->data(Qt::UserRole).toString().isEmpty())gallery->editItem(item);});
+        connect(remove,&QAction::triggered,this,[this]{const auto id=selected_id();if(id.empty())return;auto next=saved;
             std::erase_if(next,[&](const auto& i){return i.id==id;});if(commit)commit(std::move(next));});
         connect(gallery,&QListWidget::itemChanged,this,[this](QListWidgetItem* item){
             const auto id=item->data(Qt::UserRole).toString().toStdString();if(id.empty())return;
@@ -98,9 +141,14 @@ public:
     }
     std::string selected_id()const {const auto* item=gallery->currentItem();return item?item->data(Qt::UserRole).toString().toStdString():std::string{};}
     void retranslate() {
-        fit->setText(tr("Fit image"));actual->setText("100%");keep->setText(tr("Keep image"));rename->setText(tr("Rename"));
+        keep->setText(tr("Save to Part"));rename->setText(tr("Rename"));
         remove->setText(tr("Delete image"));stop->setText(tr("Stop rendering"));export_button->setText(tr("Exportovat"));
         keep->setToolTip(tr("Keep this snapshot inside the Part file."));rebuild_list();
+        int width=146;
+        for(auto* a:toolbar->actions())if(auto* button=qobject_cast<QToolButton*>(toolbar->widgetForAction(a)))
+            width=std::max({width,button->sizeHint().width(),button->fontMetrics().horizontalAdvance(button->text())+button->iconSize().width()+26});
+        for(auto* a:toolbar->actions())toolbar->widgetForAction(a)->setFixedWidth(width);
+        toolbar->setMinimumWidth(width+8);
     }
     void rebuild_list() {
         const auto previous=selected_id();QSignalBlocker block(gallery);gallery->clear();
@@ -121,7 +169,7 @@ public:
             status->setText(canvas->image.isNull()?tr("Cannot read the retained Render image."):
                 tr("Retained snapshot · %1 × %2 · %3").arg(found->width).arg(found->height).arg(QString::fromStdString(found->created_utc)));
         }else {canvas->image=live_image;status->setText(live_exists?live_status:tr("No retained images."));}
-        if(!scroll->widgetResizable()&&!canvas->image.isNull())canvas->setFixedSize(canvas->image.size());canvas->update();
+        canvas->update();
         update_controls();
     }
     void update_controls() {
@@ -129,7 +177,7 @@ public:
         rename->setEnabled(found!=saved.end());remove->setEnabled(found!=saved.end());
         keep->setEnabled(found==saved.end()&&live_complete&&std::ranges::none_of(saved,[&](const auto& i){return i.id==retained_id;}));
         export_button->setEnabled(!canvas->image.isNull()&&(found!=saved.end()||live_complete));
-        stop->setVisible(live_running);progress->setVisible(live_running);actual->setEnabled(!canvas->image.isNull());
+        stop->setVisible(live_running);progress->setVisible(live_running);
     }
 protected:
     void changeEvent(QEvent* e)override {QWidget::changeEvent(e);if(e->type()==QEvent::LanguageChange)retranslate();}
@@ -250,8 +298,9 @@ void AssemblyWorkspaceWindow::select_render_tab(const QString& id) {
     if(properties_dialog_||!active_sketch_id_.empty()||section_dialog_){refresh_tabs();return;}
     auto* page=static_cast<RenderPage*>(found->second);
     if(workspace_.displayed_document_id()!=page->document_id) {
-        document_camera_states_[workspace_.active_document_id()]=viewer_->camera_state();
+        remember_document_camera();
         workspace_.activate(page->document_id);workspace_.display_top_level(page->document_id);refresh_scene();
+        restore_document_camera(page->document_id);
     }
     active_browser_=nullptr;active_file_manager_=nullptr;active_preview_=nullptr;active_render_page_=page;
     render_stack_->setCurrentWidget(page);refresh_render_tabs();update_document_area_visibility();rebuild_application_toolbar();
@@ -274,9 +323,9 @@ void AssemblyWorkspaceWindow::show_render_result() {
         page->commit=[this,page](std::vector<document::RenderImage> images){try {
             static_cast<void>(workspace::commit_render_images(workspace_,page->document_id,page->body_id,std::move(images)));refresh_tabs();
         }catch(const std::exception& e){state_->setText(tr(e.what()));refresh_render_tabs();}};
-        connect(page->keep,&QPushButton::clicked,this,[this]{retain_render_image();});
-        connect(page->stop,&QPushButton::clicked,this,[this]{stop_render();});
-        connect(page->export_button,&QPushButton::clicked,this,[this]{export_render_image();});
+        connect(page->keep,&QAction::triggered,this,[this]{retain_render_image();});
+        connect(page->stop,&QAction::triggered,this,[this]{stop_render();});
+        connect(page->export_button,&QAction::triggered,this,[this]{export_render_image();});
     }
     select_render_tab(id);refresh_tabs();
 }

@@ -31,18 +31,24 @@ inline std::vector<kernel::HistoryOperation> group_solid_state_operations(
         if(previous->empty())return operations;
     }
     const auto& authored_geometry=previous->back().mesh.original_references;
+    const auto& errors=previous->back().calculation_errors;
     std::vector<kernel::HistoryOperation> authored;
     std::vector<kernel::SolidStateChange> changes;
     for(auto& operation:operations) {
         const auto* state=std::get_if<kernel::SolidStateRequest>(&operation.primitive);
         if(!state){authored.push_back(operation);continue;}
+        for(auto& change:changes) {
+            const auto& prior=*std::ranges::find(operations,change.owner_id,&kernel::HistoryOperation::owner_id);
+            change.suppressed=document::solid_state_preparation_suppressed(prior,operation.owner_id,errors);
+        }
         changes.push_back({authored.size(),operation.owner_id,operation.body.id,
             state->restore,state->all,operation.suppressed,state->coefficient,state->owners});
         if(operation.suppressed)continue;
+        try {
         std::set<std::string> carried;
         if(const auto* body=doc.body_history.find(operation.body.id)) {
             operation.solid_state_face_transfers=document::solid_state_face_transfers(
-                doc,*body,operation.owner_id,authored_geometry,operations,true);
+                doc,*body,operation.owner_id,authored_geometry,operations,true,errors);
             for(const auto& transfer:operation.solid_state_face_transfers)carried.insert(transfer.owner_id);
         }
         const auto targets=kernel::solid_states_before(authored,changes,authored.size());
@@ -70,6 +76,8 @@ inline std::vector<kernel::HistoryOperation> group_solid_state_operations(
                 std::vector<kernel::HistoryOperation> prefix;
                 for(const auto& item:operations) {
                     prefix.push_back(item);
+                    if(std::holds_alternative<kernel::SolidStateRequest>(item.primitive))
+                        prefix.back().suppressed=document::solid_state_preparation_suppressed(item,operation.owner_id,errors);
                     if(item.owner_id==original.owner_id)break;
                 }
                 auto boundary=operation;
@@ -111,6 +119,13 @@ inline std::vector<kernel::HistoryOperation> group_solid_state_operations(
         }
         if(!replacements.empty())operation.solid_state_placements=
             std::make_shared<const std::vector<kernel::HistoryOperation>>(std::move(replacements));
+        } catch(const std::exception& error) {
+            // Preparation failures belong to this history container just like
+            // kernel failures. The ordinary recovering calculation preserves
+            // its input and lets unchanged second OK retain the definition.
+            operation.input_error=error.what();
+            operation.solid_state_face_transfers.clear();operation.solid_state_placements.reset();
+        }
     }
     return operations;
 }

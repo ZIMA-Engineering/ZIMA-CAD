@@ -5,6 +5,9 @@ the scene settings, cameras and lights. It does not create or change material.
 Available in [Windows 2026112301](releases/2026112301.md). See the
 [design and acceptance scope](RENDER_BODY_DESIGN.md) and
 [finite verification](verification/20261123-render-and-hole-properties.md).
+The interaction refinements below are in the current development follow-up;
+their [acceptance record](verification/20261123-offset-render-straighten.md)
+tracks verification separately from release publication.
 
 ## Create a scene
 
@@ -48,6 +51,12 @@ Single-click selects an object. Double-click exposes its position annotations;
 Properties are available from the context menu. Creation and editing use the
 same window. Cancel discards pending edits; unchanged OK adds no Undo step.
 
+Camera and light markers, including their adjacent labels, use dimension yellow
+in ordinary display. Hover and selection retain the shared interaction colors.
+Choose **View from camera** in Camera Properties or its Tree/View context menu
+to see through that camera. Pending camera parameters can be inspected this way
+without committing them. This changes the View, not the camera definition.
+
 ## Calculate and export
 
 Choose **Render image**. The command captures the calculated Bodies, appearance,
@@ -68,19 +77,24 @@ on representative hardware and models.
 
 More samples reduce noise; additional bounces permit more indirect illumination
 and reflections. Exposure changes lit objects while preserving the background.
-Use **Fit image** or **100%** in the Render tab to inspect the pixels.
+Use the mouse wheel to zoom around the pointer, with the same direction and
+steps as Drawing. Hold the middle and right mouse buttons together to pan.
+Commands are in the usual right-hand column; image selection is on the left.
 
 Export the selected completed image with **File > Export (F7)** or **Export** in
 the gallery. Choose JPEG (`.jpg`/`.jpeg`) or PNG (`.png`). The output has the
 configured dimensions, without View axes, markers or selection feedback. Export
 cancellation leaves the document unchanged. The shared atomic image writer
 preserves an existing output if encoding or replacement fails.
+Image Export is available in the Render image tab, not among the scene's
+modeling commands.
 
 ## Retained gallery inside a Part
 
-**Keep image** explicitly adds the completed snapshot to the Render Body's
+**Save to Part** explicitly adds the completed snapshot to the Render Body's
 embedded gallery. It does not automatically save every render. Several images
-can be retained, renamed inline, deleted, or exported separately. Retaining,
+can be retained or exported separately. Right-click a saved image in the left
+gallery to rename or delete it; Rename opens its inline name editor. Retaining,
 renaming and deleting are ordinary Undo/Redo transactions. The normal Part Save
 stores them inside `.prtz`, including small thumbnails; no external image file
 is required to reopen the gallery. Retained images are historical records and

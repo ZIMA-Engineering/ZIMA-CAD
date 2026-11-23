@@ -1,8 +1,10 @@
 # CAM Body design backlog
 
-Status: agreed product direction, not implemented. Recorded from the user's
-requirements during the November 2026 Render work. CAM is a later work package;
-the Render release does not claim NC generation or machine-safe simulation.
+Status: agreed product direction; implementation requested after noncircular
+Offset tangency on 2026-11-23. On that date the user explicitly approved the first
+stage and native persistence scope below, including templates, affected factory
+assets and verification on backed-up protected-document copies. The published
+Render release does not implement CAM.
 
 ## Document and setup
 
@@ -40,6 +42,22 @@ Each setup selects its operation and machine: milling or turning, with a stated
 contracts before implementation. A tool shape alone does not establish a safe
 machine envelope or valid controller dialect.
 
+On 2026-11-23 the user confirmed that machine selection belongs in each CAM
+setup and that machine-specific postprocessors can follow later. The initial
+implementation should provide setup, a generic NC program, paths and simulation
+with explicit machine capabilities. The user further clarified that generic NC
+generation and postprocessing are separate responsibilities. The generic program
+describes ordered operations, tool changes, cutting conditions and rapid/cutting
+motions in defined work coordinates and units. Its blocks retain their mapping
+to tool motion for editing and simulation in the NC pane.
+
+A postprocessor translates that program into the selected controller's syntax
+and conventions. Machine selection constrains axis capabilities and machining
+operations before postprocessing; it is not merely an export option. Generic NC
+generation must remain usable without an installed controller postprocessor.
+Identify the generic program explicitly in the UI and export; do not label it
+as executable code for a particular controller until its postprocessor exists.
+
 ## Paths, NC code and simulation
 
 Generate toolpaths from the selected tool, operation, stock and target geometry.
@@ -69,3 +87,57 @@ remaining stock that a subsequent setup can reference.
 No external sidecar may become required document storage. Reuse the shared
 placement, reference-entry, selection, localization and command lifecycle
 contracts rather than adding CAM-specific alternatives.
+
+## Proposed first implementation and native storage scope
+
+The first working stage is 3-axis milling. Each CAM Body represents one setup,
+selects its machine and work frame, references stock and target Bodies, and owns
+ordered machining operations. Machine definitions state machining type, axes
+and travel limits; turning and 4/5-axis generation remain explicitly unavailable
+until their own motion models exist. Controller/postprocessor selection is a
+separate optional setting.
+
+Implement a generic NC program with defined units and absolute work coordinates,
+tool/spindle/feed commands, linear rapid/cutting moves and planar circular moves.
+The NC pane distinguishes this generic dialect from a postprocessed controller
+program. Blocks and motions retain stable identities for selection and stepping.
+Manual cutting loops and explicit transfers use the same program representation
+as generated paths; preview and simulation consume that representation.
+
+The native Part extension stores CAM setup definitions, machine and tool
+definitions, stock/target/fixture references, clamping Sketch references,
+operation parameters, authored path blocks, generic program data and calculated
+remaining-stock results. Tool profiles distinguish cutting and non-cutting
+regions across the agreed origin. Generated results retain their input identity
+and become stale when an input changes. A later setup may reference a preceding
+setup's remaining stock; dependency cycles are rejected. Missing sources preserve
+the last valid work frame and are repairable, without permitting calculation from
+incomplete inputs. No required sidecars or external caches are introduced.
+
+Use the existing Body hierarchy and session transactions. Properties opening,
+selection, inspection, tab switching and unchanged OK do not generate paths,
+simulate material or calculate solids. Explicit generation/simulation owns its
+calculation and publishes only a matching current result. View stepping moves
+the tool overlay without regenerating source Bodies. Cancel discards drafts;
+accepted definition changes form one Undo transaction.
+
+Before releasing a format change, regenerate the Part and Assembly start
+templates with the changed native runtime and verify actual GUI creation and
+active editing context. Inventory and regenerate every affected factory native
+asset, including FORM definitions and Part-based drawing assets; verify history,
+role Bodies, references, insertion and dependent operations after reopening.
+Update no format version by text replacement and add no legacy migration path.
+Verify protected user documents only on backed-up copies, preserving originals
+and excluding their content and identifiers from Git. Report unsupported inputs
+and platform-specific gaps explicitly. The same committed library and shared
+C++ implementation serve Windows and Linux.
+
+Acceptance covers repeated setup/tool/operation editing, machine capability
+validation, source loss/replacement, dependency invalidation, exact unchanged-OK
+operation counts, Undo/Redo and native save/reopen; generic NC block/motion
+mapping; independently checked path and remaining-stock examples; fixture,
+shank and rapid-transfer collision cases; and chaining two setups. UI controls
+reuse shared reference entry and in-application properties windows, with all
+text in the five supported languages. A machine postprocessor is not a gate for
+the generic program, but executable export for that controller remains absent
+until its translation and acceptance checks are implemented.

@@ -952,7 +952,9 @@ void AssemblyWorkspaceWindow::create_layout() {
             if(!properties_dialog_)if(const auto* object=active_render_object(candidate.owner_id)) {
                 const auto id=object->id;const auto kind=object->kind;QMenu menu(this);
                 auto* properties=menu.addAction(resource_icon("properties"),tr("Vlastnosti…"));auto* remove=menu.addAction(resource_icon("delete"),tr("Odstranit"));
-                const auto* selected=menu.exec(global_position);if(selected==properties)show_render_object_properties(kind,id);else if(selected==remove)remove_render_object(id);return;
+                QAction* view=nullptr;if(kind==document::RenderObjectKind::Camera){view=menu.addAction(resource_icon("view-perspective"),tr("View from camera"));view->setObjectName("renderViewFromCameraAction");}
+                const auto* selected=menu.exec(global_position);if(selected==properties)show_render_object_properties(kind,id);else if(selected==remove)remove_render_object(id);
+                else if(view&&selected==view)if(const auto* camera=active_render_object(id))view_from_render_camera(*camera);return;
             }
             if(!properties_dialog_)if(const auto* condition=active_fem_condition(candidate.owner_id)) {
                 const auto id=condition->id;const auto kind=condition->kind;QMenu menu(this);
@@ -1966,10 +1968,7 @@ void AssemblyWorkspaceWindow::create_layout() {
         if(file_manager_stack_)file_manager_stack_->hide();
         if(measurement_dialog_)measurement_dialog_->reject();
         if(section_dialog_){QSignalBlocker block(tabs_);for(int i=0;i<tabs_->count();++i)if(tabs_->tabData(i).toString().toStdString()==section_document_id_)tabs_->setCurrentIndex(i);return;}
-        const std::string previous_id = workspace_.active_document_id();
-        if (!previous_id.empty() && viewer_ != nullptr) {
-            document_camera_states_[previous_id] = viewer_->camera_state();
-        }
+        remember_document_camera();
         const std::string id = tabs_->tabData(index).toString().toStdString();
         workspace_.activate(id);
         workspace_.display_top_level(id);
@@ -1985,10 +1984,7 @@ void AssemblyWorkspaceWindow::create_layout() {
         selected_sketch_point_id_.clear();
         cancel_sketch_segment();
         refresh_scene();
-        if (const auto camera = document_camera_states_.find(id);
-            camera != document_camera_states_.end()) {
-            viewer_->set_camera_state(camera->second);
-        }
+        restore_document_camera(id);
     });
     const auto section_expansion=[this](QTreeWidgetItem* item,bool expanded) {
         if(item->data(0,Qt::UserRole+3)=="document-sections")
@@ -2659,7 +2655,9 @@ void AssemblyWorkspaceWindow::create_layout() {
             if(step_kind=="render-object") {
                 const auto id=item->data(0,Qt::UserRole).toString().toStdString();if(!active_render_object(id)||properties_dialog_)return;QMenu menu(this);
                 auto* properties=menu.addAction(resource_icon("properties"),tr("Vlastnosti…"));auto* remove=menu.addAction(resource_icon("delete"),tr("Odstranit"));
-                const auto* selected=exec_tree_menu(menu,item,position);if(selected==properties)show_tree_item_properties(item);else if(selected==remove)remove_render_object(id);return;
+                QAction* view=nullptr;if(active_render_object(id)->kind==document::RenderObjectKind::Camera){view=menu.addAction(resource_icon("view-perspective"),tr("View from camera"));view->setObjectName("renderViewFromCameraAction");}
+                const auto* selected=exec_tree_menu(menu,item,position);if(selected==properties)show_tree_item_properties(item);else if(selected==remove)remove_render_object(id);
+                else if(view&&selected==view)if(const auto* camera=active_render_object(id))view_from_render_camera(*camera);return;
             }
             if((active_fem_body()||active_render_body())&&step_kind!="part-body"&&step_kind!="part-result-body"&&step_kind!="part-body-boolean")return;
             if(step_kind=="feature-operation") {

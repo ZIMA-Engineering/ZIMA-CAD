@@ -125,7 +125,17 @@ public:
     [[nodiscard]] std::optional<std::pair<zima::kernel::Vec3, zima::kernel::Vec3>>
         ray_at(const QPointF& position) const;
     [[nodiscard]] std::array<float, 11> camera_state() const;
+    // Runtime resize anchoring belongs to the displayed document, not to a
+    // persisted named camera or its authored physical frame.
+    [[nodiscard]] std::array<float, 4> camera_viewport_anchor() const;
+    void set_camera_viewport_anchor(const std::array<float, 4>& state);
     void set_camera_state(const std::array<float, 11>& state);
+    void set_camera_state(const std::array<float, 11>& state, double field_of_view_degrees);
+    [[nodiscard]] double camera_field_of_view() const;
+    // Transient view through an authored camera; no document or placement edit.
+    void set_camera_frame(const zima::kernel::Vec3& eye,
+        const zima::kernel::Vec3& forward,const zima::kernel::Vec3& up,
+        ProjectionMode mode,double frame_height,double field_of_view_degrees);
     // Animates a full camera-state restore (orientation, pan, zoom),
     // matching Python's animate_camera_state used to restore custom saved
     // "Pohled kolmo" views.

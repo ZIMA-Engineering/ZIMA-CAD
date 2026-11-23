@@ -10,6 +10,7 @@
 #include <QFormLayout>
 #include <QLabel>
 #include <QLineEdit>
+#include <QPushButton>
 #include <QTableWidget>
 #include <QVBoxLayout>
 #include <charconv>
@@ -23,6 +24,7 @@ inline QString render_object_name(document::RenderObjectKind kind) {
 class RenderObjectDialog final : public ui::PropertiesSubWindow,public PlacementReferenceDialog {
 public:
     std::function<void()> changed;
+    std::function<void()> view_from_camera;
     RenderObjectDialog(document::RenderObject value,std::function<void(document::RenderObject)> commit,QWidget* parent)
         : PropertiesSubWindow(tr("Render object properties"),parent),initial_(std::move(value)),pending_(initial_),commit_(std::move(commit)) {
         setObjectName("renderObjectDialog");setAttribute(Qt::WA_DeleteOnClose);
@@ -46,6 +48,9 @@ public:
             auto* height=number(parameters,QT_TR_NOOP("Camera frame height"),"renderCameraHeight",pending_.orthographic_height_mm,.001,1e9," mm");
             const auto visibility=[=,this]{parameters->setRowVisible(fov,!pending_.orthographic);parameters->setRowVisible(height,pending_.orthographic);};
             connect(ortho,&QCheckBox::toggled,this,[=,this](bool on){pending_.orthographic=on;visibility();notify();});visibility();
+            auto* view=new QPushButton(this);view->setObjectName("renderViewFromCamera");parameters->addRow(view);
+            translate_.push_back([view]{view->setText(tr("View from camera"));});
+            connect(view,&QPushButton::clicked,this,[this]{if(view_from_camera)view_from_camera();});
         } else {
             auto* enabled=new QCheckBox(this);enabled->setObjectName("renderLightEnabled");enabled->setChecked(initial_.enabled);
             translate_.push_back([enabled]{enabled->setText(tr("Light enabled"));});parameters->addRow(enabled);

@@ -1,6 +1,7 @@
 #include <limits>
 #include <zima/document/bend.hpp>
 #include <zima/document/flat.hpp>
+#include <zima/document/fem_presentation.hpp>
 #include <zima/document/sheet_profile.hpp>
 #include "table_entry.hpp"
 #include "shaft_thread_dialog.hpp"
@@ -1059,11 +1060,96 @@ void verify_point_marker_colours(QApplication& application,QWidget& parent) {
     }
     view.set_reference_visibility(viewer::ReferenceVisibility::AxisPoints,false);
     view.set_selection_contract({viewer::CandidateKind::Vertex,viewer::CandidateKind::Axis});
+    std::vector<std::string> endpoint_keys;
     for(const std::string key:{"axis:point:start",
             "profile:path-point:start:from:axis:profile:1",
             "sweep:path-point:start:from:path",
             "helical:axis-point:start:from:helical:rotation-axis:from:path",
             "axis:start"}) {
+        endpoint_keys.push_back(key);
+        const auto mirror=kernel::mirror_source_key("original",key);
+        const auto scale="scale:from:8:original"+key;
+        endpoint_keys.push_back(mirror);
+        endpoint_keys.push_back(scale);
+        endpoint_keys.push_back("pattern:copy-1:"+mirror);
+        endpoint_keys.push_back("scale:from:6:copiedpattern:copy-1:"+mirror);
+        endpoint_keys.push_back(kernel::mirror_source_key("scaled",scale));
+        endpoint_keys.push_back("pattern:copy-2:"+kernel::mirror_source_key("scaled",scale));
+        endpoint_keys.push_back("pattern:copy-2:pattern:copy-1:"+key);
+    }
+    const auto original_palette=application.palette();
+    const auto original_style=application.styleSheet();
+    for(const auto& theme:{QStringLiteral("light"),QStringLiteral("dark"),QStringLiteral("light")}) {
+    app::ApplicationSettings appearance;appearance.theme=theme;
+    app::apply_application_appearance(application,appearance);
+    for(bool projected:{false,true})for(auto kind:{document::FemConditionKind::Force,document::FemConditionKind::Constraint})
+    for(auto region:{document::FemRegionKind::Curve,document::FemRegionKind::Surface}) {
+        auto sketch=sketcher::Sketch::create_default();sketch.plane_auto=false;sketch.plane_offset=3;
+        sketch.owner_container_id="region";
+        static_cast<void>(sketch.add_rectangle(-5,-4,5,4));const auto authored=sketch.serialized();
+        document::FemCondition condition;condition.id="region";condition.name="Region";condition.kind=kind;
+        condition.region=region;
+        condition.projected_sketch=document::FemProjectedSketch{authored,{}, {},projected};
+        kernel::ViewerMesh source;source.vertices={{-10,-10,0},{10,-10,0},{10,10,0},{-10,10,0}};
+        source.triangles={0,1,2,0,2,3};source.triangle_references={{"stock","face",{}},{"stock","face",{}}};
+        if(projected)condition.references={{"stock","face",{}}};
+        if(projected&&region==document::FemRegionKind::Surface)condition.projected_sketch->surface_seeds={{0,0,0}};
+        document::validate_fem_condition(condition);
+        const auto before=condition;auto mesh=document::fem_condition_presentation(condition,source);
+        std::size_t region_edges{},projected_edges{};
+        for(const auto& edge:mesh.edges)if(edge.reference.semantic_key.starts_with("fem:region:")) {
+            ++region_edges;require(edge.color=="#F5CD50"&&edge.reference.owner_id==condition.id&&edge.display_owner_id==condition.id,
+                "FEM Sketch region lost its yellow color or condition owner");
+            if(edge.reference.semantic_key.find("projection:preview:result")!=std::string::npos) {
+                ++projected_edges;for(const auto& point:edge.points)require(std::abs(point.z)<1e-9,"FEM region missed its target surface");
+            }
+        }
+        require(region_edges>=4&&(!projected||projected_edges>=4)&&condition==before&&sketch.serialized()==authored,
+            "FEM region display omitted its Sketch or modified authored data");
+        if(projected)require(mesh.points.size()==8,"FEM projection lost source or projected point grips");
+        require(std::ranges::none_of(sketch.viewer_mesh(false).edges,[](const auto& edge){return edge.color=="#F5CD50";}),
+            "Ordinary Sketch geometry inherited FEM region color");
+        view.clear_selection();view.set_mesh(mesh);view.set_selection_contract({viewer::CandidateKind::Container});
+        view.fit_points({{-20,-20,0},{20,20,0}});view.set_camera_state({1,0,0,0,20,0,0,20});
+        QMouseEvent away(QEvent::MouseMove,QPointF(20,20),QPointF(view.mapToGlobal(QPoint(20,20))),Qt::NoButton,Qt::NoButton,Qt::NoModifier);
+        QApplication::sendEvent(&view,&away);application.processEvents();
+        const QPointF wire_pixel(250,216);
+        require(framebuffer_contains_color_near(view.grabFramebuffer(),view.size(),wire_pixel,QColor("#F5CD50"),3),
+            "FEM Sketch region is not painted yellow");
+        const auto candidates=view.selection_candidates_at(wire_pixel);
+        require(std::ranges::any_of(candidates,[](const auto& c){return c.kind==viewer::CandidateKind::Container&&c.owner_id=="region";}),
+            "FEM Sketch region cannot select its owning condition");
+        view.confirm_container("region");application.processEvents();
+        require(framebuffer_contains_color_near(view.grabFramebuffer(),view.size(),wire_pixel,interaction::selected,3),
+            "FEM Sketch region did not retain ordinary selection feedback");
+        view.clear_selection();view.set_mesh({},false);view.set_transient_context_mesh(mesh);
+        application.processEvents();
+        require(framebuffer_contains_color_near(view.grabFramebuffer(),view.size(),wire_pixel,QColor("#F5CD50"),3),
+            "Pending FEM Sketch region does not match ordinary region color");
+        view.set_transient_context_mesh({});
+    }
+    for(int kind=0;kind<7;++kind) {
+        document::FemCondition condition;condition.id="marker";condition.name="Marker";
+        condition.kind=static_cast<document::FemConditionKind>(std::min(kind,5));condition.placement.rotation_x=90;
+        if(kind==5)condition.distance=document::FemDistanceMeasurement{{"a","b"},{{{-5,0,0},{5,0,0}}},true};
+        auto mesh=document::fem_condition_presentation(condition,{});
+        require(!mesh.edges.empty()&&std::ranges::all_of(mesh.edges,[](const auto& edge){return edge.color=="#F5CD50";}),
+            "FEM marker strokes do not use dimension yellow");
+        if(kind==6)for(auto& edge:mesh.edges){edge.reference.semantic_key="render:marker:0";edge.overlay=false;}
+        mesh.constraint_markers.front().reference.semantic_key=kind==6?"render:label":"fem:label";
+        mesh.constraint_markers.front().position={0,0,0};
+        view.clear_selection();view.set_mesh(mesh);view.set_selection_contract({viewer::CandidateKind::Container});
+        view.fit_points({{-20,-20,0},{20,20,0}});view.set_camera_state({1,0,0,0,20,0,0,20});
+        QMouseEvent away(QEvent::MouseMove,QPointF(20,20),QPointF(view.mapToGlobal(QPoint(20,20))),Qt::NoButton,Qt::NoButton,Qt::NoModifier);
+        QApplication::sendEvent(&view,&away);application.processEvents();
+        require(framebuffer_contains_color_near(view.grabFramebuffer(),view.size(),{283,164},QColor("#F5CD50"),6),
+            "FEM/Render label does not use dimension yellow");
+        view.confirm_container("marker");application.processEvents();
+        require(framebuffer_contains_color_near(view.grabFramebuffer(),view.size(),{283,164},interaction::selected,6),
+            "Selected FEM/Render label did not follow its object highlight");
+    }
+    view.set_selection_contract({viewer::CandidateKind::Vertex,viewer::CandidateKind::Axis});
+    for(const auto& key:endpoint_keys) {
         kernel::ViewerMesh mesh;
         kernel::ViewerPoint endpoint{{0,0,0},{"axis-feature",key,{}}};
         endpoint.display_owner_id="axis-feature";endpoint.always_visible=true;
@@ -1076,6 +1162,8 @@ void verify_point_marker_colours(QApplication& application,QWidget& parent) {
         application.processEvents();
         require(!framebuffer_contains_color_near(view.grabFramebuffer(),view.size(),{250,180},QColor(173,110,46),5),
             "Reference entry displayed every Axis endpoint while the pointer was distant");
+        require(!framebuffer_contains_color_near(view.grabFramebuffer(),view.size(),{250,180},QColor(0,0,0),5),
+            "A copied Axis endpoint was drawn as an ordinary black point");
         const auto candidates=view.selection_candidates_at({250,180});
         require(std::ranges::any_of(candidates,[&](const auto& candidate) {
             return candidate.kind==viewer::CandidateKind::Vertex&&candidate.owner_id=="axis-feature"&&
@@ -1090,6 +1178,8 @@ void verify_point_marker_colours(QApplication& application,QWidget& parent) {
         require(framebuffer_contains_color_near(view.grabFramebuffer(),view.size(),{250,180},interaction::selected,6),
             "A confirmed Axis endpoint did not remain visible");
     }
+    }
+    application.setPalette(original_palette);application.setStyleSheet(original_style);
     view.set_reference_visibility(viewer::ReferenceVisibility::AxisPoints,true);
     kernel::ViewerMesh solid;
     {

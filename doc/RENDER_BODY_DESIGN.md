@@ -160,3 +160,29 @@ unchanged snapshot pixels after source edits, Stop versus tab close, two retaine
 images, rename/delete Undo/Redo, export, native save/reopen without a new job,
 five-language controls and Light -> Dark -> Light. Record measured interaction
 costs and finite coverage before publication.
+
+## Gallery interaction follow-up (2026-11-23)
+
+The image tab uses the application's vertical command column on the right.
+Image Export belongs in that tab; the Render Body command column does not expose
+it. Saving a completed snapshot into the Part remains an explicit action named
+**Save to Part**. Rename and Delete belong to the saved image's context
+menu in the left gallery. Remove the Fit image and 100% toolbar commands.
+
+Mouse navigation follows Drawing: wheel zoom anchored at the pointer, with the
+same direction and step, and middle + right drag to pan. Navigation never edits
+the pixels, starts a calculation or creates an Undo transaction. Selecting
+another image initially fits it; progressive updates retain the current view.
+
+Visible cameras and lights must appear before hover, remain selectable through
+the common picker and synchronize Tree selection. **View from camera** is a
+view-only action in Camera Properties and its View/Tree context menus. Properties
+uses the resolved pending camera, including projection and field of view.
+Ordinary camera/light marks and their adjacent labels use dimension yellow
+(`#F5CD50`), as do FEM condition marks and labels. Hover and selection retain the
+shared interaction colors. An unresolved Render object retains its error color.
+
+Planned image editing: start with rectangular cropping of a selected result,
+with explicit confirmation and a new retained image so the original is kept.
+Further image-management tools are unspecified; this is not an implemented
+editing suite or an automatic change to existing image data.

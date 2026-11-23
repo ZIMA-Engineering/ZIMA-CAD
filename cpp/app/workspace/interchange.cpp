@@ -149,7 +149,7 @@ void AssemblyWorkspaceWindow::import_selected_file(const QString& path, std::opt
 }
 
 void AssemblyWorkspaceWindow::export_file() {
-    if(active_render_page_||active_render_body()){export_render_image();return;}
+    if(active_render_page_){export_render_image();return;}
     if (const auto* drawing = workspace_.open_drawing(workspace_.displayed_document_id())) {
         auto suggested = drawing->path.empty()
             ? working_directory_ / "drawing.pdf" : drawing->path;

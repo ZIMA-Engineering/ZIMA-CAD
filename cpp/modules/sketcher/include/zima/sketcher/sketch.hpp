@@ -587,6 +587,9 @@ public:
         const std::string& geometry_id, double x, double y) const;
     [[nodiscard]] std::optional<double> circular_radius(
         const std::string& geometry_id) const;
+    // Cheap selection eligibility only; creation validates the live geometry.
+    [[nodiscard]] bool derived_circle_tangent_pair(
+        const std::string& first_id, const std::string& second_id) const;
     [[nodiscard]] std::optional<std::array<double, 2>> curve_tangent_at_point(
         const std::string& geometry_id, double x, double y) const;
     [[nodiscard]] std::string add_common_tangent_segment(

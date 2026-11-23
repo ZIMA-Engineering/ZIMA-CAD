@@ -865,6 +865,7 @@ if(ZIMA_BUILD_TESTS)
     target_link_libraries(zima_cpp_solid_state_face_transfer_document_tests PRIVATE zima_workspace zima_kernel_occt TKTopAlgo)
     add_test(NAME zima_cpp_solid_state_face_transfer_document_tests COMMAND zima_cpp_solid_state_face_transfer_document_tests)
     add_test(NAME zima_cpp_solid_state_twist_attachment_tests COMMAND zima_cpp_solid_state_face_transfer_document_tests --twist-attachment)
+    add_test(NAME zima_cpp_solid_state_twist_cut_tests COMMAND zima_cpp_solid_state_face_transfer_document_tests --twist-cut)
     add_test(NAME zima_cpp_solid_state_formed_chain_tests COMMAND zima_cpp_solid_state_face_transfer_document_tests --formed-chains)
     add_test(NAME zima_cpp_solid_state_formed_point_tests COMMAND zima_cpp_solid_state_face_transfer_document_tests --formed-points)
     add_test(NAME zima_cpp_solid_state_formed_point_chain_tests COMMAND zima_cpp_solid_state_face_transfer_document_tests --formed-point-chains)
@@ -2725,6 +2726,11 @@ if(ZIMA_BUILD_TESTS)
     add_test(NAME zima_cpp_sketch_arc_size_ui_contract COMMAND zima-cad-cpp --verify-startup)
     add_test(NAME zima_cpp_sketch_curve_fillet_ui_contract COMMAND zima-cad-cpp --verify-startup)
     add_test(NAME zima_cpp_sketch_offset_tangent_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    add_test(NAME zima_cpp_sketch_noncircular_offset_tangent_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    set_tests_properties(zima_cpp_sketch_noncircular_offset_tangent_ui_contract PROPERTIES
+        LABELS "mandatory;sketcher;gui" RUN_SERIAL TRUE TIMEOUT 300
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_HIDDEN_WINDOWS=1;ZIMA_VERIFY_NONCIRCULAR_OFFSET_TANGENT_ONLY=1"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
     set_tests_properties(zima_cpp_sketch_offset_tangent_ui_contract PROPERTIES
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.."
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_HIDDEN_WINDOWS=1;ZIMA_VERIFY_OFFSET_TANGENT_ONLY=1"
@@ -2826,6 +2832,10 @@ if(ZIMA_BUILD_TESTS)
     target_link_libraries(zima_cpp_sketch_offset_tangent_tests PRIVATE zima_sketcher)
     add_test(NAME zima_cpp_sketch_offset_tangent_contract COMMAND zima_cpp_sketch_offset_tangent_tests)
     set_tests_properties(zima_cpp_sketch_offset_tangent_contract PROPERTIES LABELS "mandatory;sketcher")
+    add_executable(zima_cpp_sketch_noncircular_offset_tangent_tests tests/sketch_noncircular_offset_tangent_tests.cpp)
+    target_link_libraries(zima_cpp_sketch_noncircular_offset_tangent_tests PRIVATE zima_sketcher)
+    add_test(NAME zima_cpp_sketch_noncircular_offset_tangent_contract COMMAND zima_cpp_sketch_noncircular_offset_tangent_tests)
+    set_tests_properties(zima_cpp_sketch_noncircular_offset_tangent_contract PROPERTIES LABELS "mandatory;sketcher")
     add_executable(zima_cpp_work_plane_contract_tests tests/work_plane_contract_tests.cpp)
     target_link_libraries(zima_cpp_work_plane_contract_tests PRIVATE zima_command_host)
     target_compile_options(zima_cpp_work_plane_contract_tests PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
@@ -3139,6 +3149,12 @@ if(ZIMA_BUILD_TESTS)
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_SOLID_STATE_ONLY=1"
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 120 RUN_SERIAL TRUE)
     file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/solid-state-sweep-ui-contract")
+    file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/solid-state-failed-ui-contract")
+    add_test(NAME zima_cpp_solid_state_failed_ui_contract COMMAND zima-cad-cpp --verify-startup
+        --working-directory "${CMAKE_BINARY_DIR}/solid-state-failed-ui-contract")
+    set_tests_properties(zima_cpp_solid_state_failed_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_HIDDEN_WINDOWS=1;ZIMA_VERIFY_SOLID_STATE_FAILED_ONLY=1"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 120 RUN_SERIAL TRUE)
     add_test(NAME zima_cpp_solid_state_sweep_ui_contract COMMAND zima-cad-cpp --verify-startup
         --working-directory "${CMAKE_BINARY_DIR}/solid-state-sweep-ui-contract")
     set_tests_properties(zima_cpp_solid_state_sweep_ui_contract PROPERTIES

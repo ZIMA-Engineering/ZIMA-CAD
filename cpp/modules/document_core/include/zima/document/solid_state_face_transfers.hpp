@@ -5,12 +5,21 @@
 #include <zima/kernel/sheet_material.hpp>
 
 namespace zima::document {
+// A failed prior state is a no-op in the recovering material history. Retry
+// the current state normally; the next reference-settling pass reconsiders
+// downstream states if that retry repairs its geometry.
+inline bool solid_state_preparation_suppressed(const kernel::HistoryOperation& operation,
+        const std::string& boundary,const std::map<std::string,std::string>& errors) {
+    return operation.suppressed||(operation.owner_id!=boundary&&
+        (!operation.input_error.empty()||errors.contains(operation.owner_id)));
+}
 // Explicit calculation only. Validate against persisted viewer data; transport
 // comes from the source trajectory. Authored placement and references stay intact.
 inline std::vector<kernel::SolidStateFaceTransfer> solid_state_face_transfers(
         const PartDocument& document,const BodyHistory& body,const std::string& boundary,
         const kernel::ViewerReferenceGeometry& authored,
-        const std::vector<kernel::HistoryOperation>& operations,bool grouped_twist_only=false) {
+        const std::vector<kernel::HistoryOperation>& operations,bool grouped_twist_only=false,
+        const std::map<std::string,std::string>& errors={}) {
     using namespace kernel::sheet_material;
     const auto unsupported=[](){throw std::invalid_argument("Solid state replay cannot yet preserve this operation.");};
     const auto ancestor=[&](const ConstructionReference& ref) {
@@ -40,7 +49,7 @@ inline std::vector<kernel::SolidStateFaceTransfer> solid_state_face_transfers(
         if(operation.body.id!=body.scope.id)continue;
         if(const auto* state=std::get_if<kernel::SolidStateRequest>(&operation.primitive))
             changes.push_back({sources.size(),operation.owner_id,operation.body.id,
-                state->restore,state->all,operation.suppressed,state->coefficient,state->owners});
+                state->restore,state->all,solid_state_preparation_suppressed(operation,boundary,errors),state->coefficient,state->owners});
         else {indices.emplace(operation.owner_id,sources.size());sources.push_back(operation);}
         if(operation.owner_id==boundary)break;
     }
@@ -54,10 +63,36 @@ inline std::vector<kernel::SolidStateFaceTransfer> solid_state_face_transfers(
         const auto* refs=feature&&!feature->suppressed?&feature->placement.references:
             construction&&!construction->suppressed?&construction->references:nullptr;
         if(!refs||(feature&&is_solid_state(feature->feature_kind)))continue;
-        // Openings are positioned by their complete face-reference system,
-        // not by the single end-section transport of an additive continuation.
-        // The grouped replay resolves that system against the carried input.
+        // Mixed supports use the complete reference system. A cut whose
+        // placement AND limits belong to one carried parent follows that
+        // parent's whole material frame, including unconstrained in-plane DOF.
+        const auto index=indices.find(entry.id);
         if(grouped_twist_only&&feature&&feature->feature_kind==FeatureKind::Thread)continue;
+        if(grouped_twist_only&&feature&&index!=indices.end()&&
+                sources[index->second].operation==kernel::BooleanOperation::Subtract) {
+            if(refs->empty()||feature->feature_kind!=FeatureKind::Feature)continue;
+            const auto& parent=refs->front();
+            if(std::ranges::any_of(*refs,[&](const auto& ref){return ref.owner_id!=parent.owner_id||ref.instance_path!=parent.instance_path;}))continue;
+            bool coherent=true;
+            for(const auto& side:feature->feature.sides) {
+                if(side.operation==FeatureSideOperation::None)continue;
+                if(side.operation!=FeatureSideOperation::Extrusion||side.extrusion_extent==EndCondition::ThroughAll)coherent=false;
+                for(const auto& target:side.targets)if(target.external_source||
+                    target.reference.owner_id!=parent.owner_id||target.reference.instance_path!=parent.instance_path)coherent=false;
+            }
+            // Multi-face cuts retain their complete ordinary reference solve.
+            // This transfer supplements only a single end-section attachment
+            // whose free in-plane frame must follow the material.
+            std::string cap;
+            for(const auto& ref:*refs)if(face(authored,ref)) {
+                const auto key=ancestor(ref).second;
+                if((!key.starts_with("end:from:")&&!key.starts_with("start:from:")&&
+                    !key.starts_with("sweep:cap:end:from:")&&!key.starts_with("sweep:cap:start:from:"))||
+                    (!cap.empty()&&cap!=key))coherent=false;
+                cap=key;
+            }
+            if(!coherent||cap.empty())continue;
+        }
         // A descendant follows the same end-section contract as the first join.
         // Origin-only and mixed-parent attachments still fail the face checks.
         const bool descendant=std::ranges::any_of(*refs,[&](const auto& ref){return moved.contains(ref.owner_id);});
@@ -71,7 +106,6 @@ inline std::vector<kernel::SolidStateFaceTransfer> solid_state_face_transfers(
                 (source->feature.effective_side(0).operation==FeatureSideOperation::Twist||
                  source->feature.effective_side(1).operation==FeatureSideOperation::Twist);
         }))continue;
-        const auto index=indices.find(entry.id);
         // A positional end face defines the material attachment. Carry the
         // whole frame, including any numerical in-plane coordinates, and let
         // descendants inherit its movement even when extra points/edges fully

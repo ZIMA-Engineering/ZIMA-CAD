@@ -5,6 +5,7 @@
 #include <zima/workspace/placement_edit.hpp>
 #include <zima/workspace/family_operations.hpp>
 #include <zima/workspace/engineering_metadata_operations.hpp>
+#include <zima/workspace/modeling_confirmation.hpp>
 #include <zima/kernel/solid_state_ancestry.hpp>
 #include <zima/kernel/solid_straightening.hpp>
 #include <zima/kernel/feature_side_identity.hpp>
@@ -99,7 +100,7 @@ void helical_frame() {
     check(rejected,"Drafted end-section centroid was guessed for a descendant");
     std::cout<<"Spring section frame and tangential continuation agree with independently calculated source vertices\n";
 }
-void native_twist_attachment(bool reverse=false,double angle=90) {
+void native_twist_attachment(bool reverse=false,double angle=90,bool with_cut=false) {
     kernel::OcctKernel kernel;workspace::Workspace live;auto doc=document::PartDocument::create_default();
     if(doc.body_history.bodies().empty())static_cast<void>(doc.body_history.create_body("Twist attachment"));
     const auto id=doc.document_id;live.add_part(doc,{});live.activate(id);
@@ -141,11 +142,37 @@ void native_twist_attachment(bool reverse=false,double angle=90) {
     orientation=position;orientation.orientation_only=true;orientation.orientation_drives_rotation=true;orientation.orientation_role="top";
     tip.placement.references={position,orientation};tip.placement.x=1.1;tip.placement.y=2.1;tip.placement.z=48;tip.placement.rotation_offset_z=15;
     workspace::commit_profile(live,kernel,id,tip,workspace::ProfileEditMode::Create,tip_sketch);
+    std::optional<document::HistoryContainer> authored_cut;
+    if(with_cut) {
+        const auto& geometry=live.open_part(id)->session.calculated_boundaries().back().mesh.original_references;
+        const auto start=std::ranges::find_if(geometry.triangle_references,[&](const auto& face) {
+            return face.owner_id==tail.id&&face.semantic_key.starts_with("start:from:")&&face.surface;
+        });
+        check(start!=geometry.triangle_references.end(),"Cut has no exact Up To target");
+        auto contour=sketcher::Sketch::create_default();static_cast<void>(contour.add_rectangle(.6,-.15,.8,.15));
+        auto cut=document::PartDocument::create_feature_container(contour.id);
+        cut.combine_mode=document::CombineMode::Subtract;cut.feature.reversed_sides=true;
+        cut.placement=live.open_part(id)->session.document().find_container(tail.id)->placement;
+        position.owner_id=tail.id;position.semantic_key=tail_cap->semantic_key;
+        orientation=position;orientation.orientation_only=true;orientation.orientation_drives_rotation=true;orientation.orientation_role="top";
+        cut.placement.references={position,orientation};cut.placement.z=48;
+        cut.feature.sides[0].extrusion_extent=document::EndCondition::UpTo;
+        document::ExtrusionParameters::EndTarget target;
+        target.kind=document::EndTargetKind::Plane;target.reference=*start;
+        target.fallback_origin=start->surface->origin;target.fallback_normal=start->surface->axis;
+        cut.feature.sides[0].targets={target};
+        workspace::commit_profile(live,kernel,id,cut,workspace::ProfileEditMode::Create,contour);
+        const auto& result=live.open_part(id)->session.calculated_boundaries().back();
+        check(result.calculation_errors.empty(),"Twist attachment Up To cut failed before straightening");
+        authored_cut=*live.open_part(id)->session.document().find_container(cut.id);
+    }
     auto* state=live.open_part(id);const auto authored=*state->session.document().find_container(tail.id);
     const auto authored_tip=*state->session.document().find_container(tip.id);
     std::vector<kernel::ViewerPoint> points;
     for(const auto& point:state->session.calculated_boundaries().back().mesh.original_references.points)
-        if(point.reference.owner_id==tail.id||point.reference.owner_id==tip.id||point.reference.owner_id==foot.id)points.push_back(point);
+        if(!point.reference.semantic_key.starts_with("boolean:")&&
+           (point.reference.owner_id==tail.id||point.reference.owner_id==tip.id||point.reference.owner_id==foot.id||
+            (authored_cut&&point.reference.owner_id==authored_cut->id)))points.push_back(point);
     check(!points.empty(),"Twist attachment has no native reference vertices");
     for(bool restore:{false,true,false,true}) {
         auto operation=document::PartDocument::create_solid_state_container(restore);
@@ -165,6 +192,7 @@ void native_twist_attachment(bool reverse=false,double angle=90) {
             near(after->position.z,fixed?p.z:p.z-8);
         }
         check(*doc.find_container(tail.id)==authored&&*doc.find_container(tip.id)==authored_tip,"Straightening rewrote the attached feature definition");
+        if(authored_cut)check(*doc.find_container(authored_cut->id)==*authored_cut,"Straightening rewrote the Up To cut or its target");
         };
         verify(state->session.document(),state->session.calculated_boundaries().back());
         const auto generation=state->session.data_generation(),revision=state->session.revision();
@@ -177,7 +205,7 @@ void native_twist_attachment(bool reverse=false,double angle=90) {
         verify(loaded,cache.back());kernel::OcctKernel cold;
         verify(loaded,workspace::calculate_part_with_resolved_references(cold,loaded).back());
     }
-    std::cout<<"Twist attachment angle="<<angle<<", reverse="<<reverse<<": two off-center rotated extrusions, four state transitions, no-op, Undo/Redo and cold native reopen passed\n";
+    std::cout<<"Twist attachment angle="<<angle<<", reverse="<<reverse<<", Up To cut="<<with_cut<<": two off-center rotated extrusions, four state transitions, no-op, Undo/Redo and cold native reopen passed\n";
 }
 void native_curved_chain(bool initially_straight,int sweep_kind=0) {
     kernel::OcctKernel kernel;workspace::Workspace live;auto doc=document::PartDocument::create_default();
@@ -545,9 +573,25 @@ void verify(bool circle,bool flip,int attachment=0,int invalid=0,int sweep_kind=
     if(invalid) {
         const auto before=state->session.document();
         const auto input=state->session.calculated_boundaries().back();
-        // New valid definitions retain a native calculation error. Editing an
-        // already successful definition has a separate atomic rejection policy.
-        check(workspace::commit_solid_state(live,kernel,id,restore),"Failed continuation definition was not retained");
+        workspace::ModelingConfirmation confirmation;
+        const auto revision=state->session.revision();
+        int calculations{};
+        workspace::CalculationExecutionScope counted([&](auto action){++calculations;action();});
+        // The first failed OK leaves the draft open; Cancel discards its
+        // acknowledgement. Only an unchanged second OK retains the failure.
+        for(int submit=0;submit<3;++submit) {
+            if(submit==1)confirmation.clear();
+            const auto count=calculations;
+            workspace::ModelingConfirmationAttempt attempt(confirmation,live,id);
+            bool rejected{};
+            try {check(workspace::commit_solid_state(live,kernel,id,restore),"Failed continuation definition was not retained");}
+            catch(const std::exception&){rejected=true;}
+            check(rejected==(submit<2)&&attempt.failed()==(submit<2),"Solid state did not use ordinary failed OK confirmation");
+            if(submit<2)check(state->session.revision()==revision&&
+                state->session.document().serialized()==before.serialized(),"Failed first OK modified the document");
+            else check(calculations==count&&state->session.revision()==revision+1,
+                "Second OK recalculated or created multiple Undo transactions");
+        }
         const auto& failed=state->session.calculated_boundaries().back();
         check(failed.calculation_errors.contains(restore.id)&&
             failed.calculation_errors.at(restore.id).find("coincident profile centroids")!=std::string::npos,
@@ -571,6 +615,35 @@ void verify(bool circle,bool flip,int attachment=0,int invalid=0,int sweep_kind=
             saved.back().calculation_errors.at(restore.id)==error&&saved.back().mesh.vertices==input.mesh.vertices&&
             saved.back().mesh.triangles==input.mesh.triangles,"Failed continuation persistence lost its definition, error or input");
         std::filesystem::remove(path);
+        if(invalid==6) {
+            auto section=sketcher::Sketch::create_default();static_cast<void>(section.add_rectangle(300,0,320,20));
+            const auto axis=section.add_segment(0,-100,0,100,true);section.set_segment_centerline(axis,true);
+            auto independent=document::PartDocument::create_revolution_container(section.id);
+            independent.revolution.axis_segment_id=axis;independent.revolution.angle_degrees=60;
+            workspace::commit_profile(live,kernel,id,independent,workspace::ProfileEditMode::Create,section);
+            auto next=document::PartDocument::create_solid_state_container();next.solid_state.all=false;next.solid_state.owners={independent.id};
+            std::cout<<"Checking independent state after failure\n";
+            check(workspace::commit_solid_state(live,kernel,id,next),"Independent state after retained failure was not committed");
+            const auto& result=state->session.calculated_boundaries().back();
+            if(!result.calculation_errors.contains(restore.id)||result.calculation_errors.contains(next.id)) {
+                std::cerr<<"Retained state="<<restore.id<<", independent="<<next.id<<'\n';
+                for(const auto& [owner,error]:result.calculation_errors)std::cerr<<owner<<": "<<error<<'\n';
+            }
+            check(result.calculation_errors.contains(restore.id)&&!result.calculation_errors.contains(next.id),
+                "Retained failed state poisoned a later independent state");
+            near(analyzed_volume(kernel,result),analyzed_volume(kernel,input)+400*310*std::numbers::pi/3);
+            auto cold=state->session.document();const auto recalculated=workspace::calculate_part_with_resolved_references(kernel,cold);
+            check(recalculated.back().calculation_errors.contains(restore.id)&&!recalculated.back().calculation_errors.contains(next.id),
+                "Cold regeneration lost failed-state isolation");
+            near(analyzed_volume(kernel,recalculated.back()),analyzed_volume(kernel,result));
+            // Repairing the source must retry the failed state; remembered
+            // errors are never a permanent suppression of authored history.
+            cold.find_container(child.id)->placement.rotation_offset_z=0;
+            std::cout<<"Checking repaired state\n";
+            const auto repaired=workspace::calculate_part_with_resolved_references(kernel,cold,&recalculated,{true});
+            check(!repaired.back().calculation_errors.contains(restore.id)&&
+                !repaired.back().calculation_errors.contains(next.id),"Repaired source retained a stale state failure");
+        }
         std::cout<<"Invalid continuation "<<invalid<<" retains explicit error and input; Undo/Redo and native reopen passed\n";return;
     }
     const auto started=std::chrono::steady_clock::now();
@@ -818,6 +891,7 @@ int main(int argc,char** argv)try {
         std::cout<<"User model straightened and restored: "<<straight_volume<<" mm3\n";return 0;
     }
     if(argc==2&&std::string(argv[1])=="--twist-attachment") {for(bool reverse:{false,true})for(double angle:{30.,90.,120.})native_twist_attachment(reverse,angle);return 0;}
+    if(argc==2&&std::string(argv[1])=="--twist-cut") {for(bool reverse:{false,true})native_twist_attachment(reverse,90,true);return 0;}
     if(argc==2&&std::string(argv[1])=="--curved-continuation") {
         native_curved_chain(false);native_curved_chain(true);return 0;
     }
