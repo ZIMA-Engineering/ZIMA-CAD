@@ -5,6 +5,7 @@
 #include <zima/workspace/edge_treatment_operations.hpp>
 #include <zima/workspace/operation_input.hpp>
 #include <zima/workspace/model_calculation.hpp>
+#include <zima/workspace/profile_operations.hpp>
 #include <zima/workspace/sheet_exchange_operations.hpp>
 #include <zima/document/edge_treatment_selection.hpp>
 #include <zima/document/viewer_packet_json.hpp>
@@ -1177,6 +1178,59 @@ void verify_node_wires(const kernel::OcctKernel& kernel,fs::path directory) {
     check_node({-10,-10,5},2,true);
     check_node({-10,-10,5},2,true,true);
 }
+void verify_saved_radius_edits(const kernel::OcctKernel& kernel,const fs::path& path,
+        const std::string& profile_id) {
+    std::vector<kernel::BodyResult> boundaries;
+    auto document=document::PartDocument::load(path,&boundaries);
+    const auto* found=document.find_container(profile_id);
+    require(found&&found->feature_kind==document::FeatureKind::Feature,"Saved profile is missing");
+    const auto profile=*found;
+    workspace::Workspace live;live.add_part(document,boundaries);live.activate(document.document_id);
+    auto& session=live.open_part(document.document_id)->session;
+    const auto base=std::ranges::find(document.sketches,profile.feature.sketch_id,&sketcher::Sketch::id);
+    require(base!=document.sketches.end(),"Saved profile Sketch is missing");
+    std::vector<std::pair<std::string,double>> radii;
+    for(const auto& d:base->dimensions)if(d.kind==sketcher::DimensionKind::Radius&&d.driving&&!d.suppressed)
+        radii.emplace_back(d.id,d.value);
+    require(!radii.empty(),"Saved profile has no driving radii");
+    for(double factor:{1.01,1.,.99,1.}) {
+        auto draft=*std::ranges::find(session.document().sketches,base->id,&sketcher::Sketch::id);
+        for(const auto& [id,radius]:radii)require(draft.set_dimension_value(id,radius*factor),"Radius edit did not solve");
+        const auto calculations=kernel::body_calculation_count.load();
+        const auto start=std::chrono::steady_clock::now();
+        workspace::commit_profile(live,kernel,document.document_id,profile,workspace::ProfileEditMode::Replace,draft);
+        std::cout<<"RADIUS EDIT factor="<<factor<<" ms="
+            <<std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-start).count()
+            <<" body_calculations="<<kernel::body_calculation_count.load()-calculations<<std::endl;
+        require(!session.calculated_boundaries().empty(),"Radius edit lost its Body");
+        auto result=session.calculated_boundaries().back();
+        for(const auto& [id,message]:result.calculation_errors)std::cout<<"RADIUS error "<<id<<": "<<message<<std::endl;
+        require(result.calculation_errors.empty(),"Radius edit broke a dependent operation");
+        require(BRepCheck_Analyzer(kernel::read_calculated_body_shape(result),true,false,true).IsValid(),"Radius edit produced invalid geometry");
+        const auto revision=session.revision();const auto count=kernel::body_calculation_count.load();
+        const auto accepted=*std::ranges::find(session.document().sketches,base->id,&sketcher::Sketch::id);
+        workspace::commit_profile(live,kernel,document.document_id,*session.document().find_container(profile_id),workspace::ProfileEditMode::Replace,accepted);
+        require(session.revision()==revision&&kernel::body_calculation_count.load()==count,"Unchanged profile OK recalculated or committed");
+        require(session.undo()&&session.redo(),"Radius edit Undo/Redo failed");
+        require(kernel::body_calculation_count.load()==count&&session.calculated_boundaries().back().kernel_shape==result.kernel_shape,"Radius Undo/Redo recalculated or changed geometry");
+        kernel.ensure_body_properties(result);
+        std::cout<<"RADIUS volume="<<std::setprecision(15)<<result.volume<<" unchanged_OK=1 undo_redo=1\n";
+    }
+    const auto output=path.parent_path()/"radius-edited.prtz";
+    session.document().save(output,session.calculated_boundaries());
+    std::vector<kernel::BodyResult> restored;
+    auto reopened=document::PartDocument::load(output,&restored);
+    require(reopened.history==session.document().history&&reopened.sketches.size()==session.document().sketches.size()&&
+        std::equal(reopened.sketches.begin(),reopened.sketches.end(),session.document().sketches.begin(),
+            [](const auto& a,const auto& b){return a.serialized()==b.serialized();}),"Radius reopen changed authored definitions");
+    workspace::PartCalculationPolicy policy;policy.publish_complete_history=true;
+    const auto fresh=workspace::calculate_part(kernel,reopened,nullptr,policy);
+    require(!fresh.empty()&&fresh.back().calculation_errors.empty(),"Radius result failed fresh regeneration");
+    auto a=restored.back(),b=fresh.back();kernel.ensure_body_properties(a);kernel.ensure_body_properties(b);
+    near(a.volume,b.volume);
+    require(BRepCheck_Analyzer(kernel::read_calculated_body_shape(b),true,false,true).IsValid(),"Fresh radius regeneration is invalid");
+    std::cout<<"RADIUS save_reopen=1 cold_regeneration=1 volume="<<b.volume<<std::endl;
+}
 void verify_saved_treatment(const kernel::OcctKernel& kernel,const fs::path& path,
         const std::string& owner) {
     std::vector<kernel::BodyResult> boundaries;
@@ -1489,6 +1543,9 @@ int main(){try{kernel::OcctKernel kernel;
     if(std::getenv("ZIMA_VERIFY_TWO_SIDED_SUPPORTS")){verify_two_sided_supports(kernel);return 0;}
     if(std::getenv("ZIMA_VERIFY_SUPPORT_PACKET")){verify_support_packet_roundtrip(kernel);std::cout<<"Current analytic supports and native packet roundtrip passed\n";return 0;}
     if(const auto* path=std::getenv("ZIMA_VERIFY_SAVED_TREATMENT")) {
+        if(const auto* profile=std::getenv("ZIMA_VERIFY_SAVED_RADIUS_EDITS")) {
+            verify_saved_radius_edits(kernel,fs::u8path(path),profile);return 0;
+        }
         const auto* owner=std::getenv("ZIMA_VERIFY_SAVED_TREATMENT_OWNER");
         require(owner,"Saved treatment verification requires its owner");
         if(std::getenv("ZIMA_VERIFY_SAVED_END_MODES"))verify_saved_end_modes(kernel,fs::u8path(path),owner);

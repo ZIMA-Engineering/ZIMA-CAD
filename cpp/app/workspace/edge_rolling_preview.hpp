@@ -98,7 +98,8 @@ std::optional<zima::kernel::Vec3> rolling_preview_center(
         const double rho=edge_preview_length(edge_preview_offset(delta,torus.axis,-height));
         double angle=std::atan2(height,rho-torus.radius);
         double gap=torus.radius-minor+radius-d;
-        if(std::abs(gap)<64.*std::numeric_limits<double>::epsilon()*(d+torus.radius+minor+radius)) {
+        if(std::abs(gap)<std::max(1.e-10,
+                64.*std::numeric_limits<double>::epsilon()*(d+torus.radius+minor+radius))) {
             gap=0.;
             if(std::abs(std::abs(angle)-std::numbers::pi)<1.e-5)
                 angle=std::copysign(std::numbers::pi,angle);

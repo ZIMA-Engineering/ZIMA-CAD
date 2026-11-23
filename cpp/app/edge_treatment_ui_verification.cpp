@@ -204,6 +204,84 @@ int verify_edge_treatment_ui(QApplication& application, AssemblyWorkspaceWindow&
         const auto finish=[&](bool commit) {
             dialog()->findChild<QDialogButtonBox*>()->button(commit?QDialogButtonBox::Ok:QDialogButtonBox::Cancel)->click();flush();
         };
+        if(const auto model=qEnvironmentVariable("ZIMA_VERIFY_PROFILE_RADII_MODEL");!model.isEmpty()) {
+            const auto file=directory/"profile-radii.prtz";
+            std::filesystem::copy_file(std::filesystem::u8path(model.toStdString()),file);
+            const auto source=document::PartDocument::load(file);
+            const auto owner=qEnvironmentVariable("ZIMA_VERIFY_PROFILE_RADII_OWNER").toStdString();
+            const auto* profile=source.find_container(owner);check(profile,"Radius profile is missing");
+            const auto sketch=std::ranges::find(source.sketches,profile->feature.sketch_id,&sketcher::Sketch::id);
+            check(sketch!=source.sketches.end(),"Radius profile Sketch is missing");
+            std::vector<std::pair<std::string,double>> radii;
+            for(const auto& d:sketch->dimensions)if(d.kind==sketcher::DimensionKind::Radius&&d.driving&&!d.suppressed)
+                radii.emplace_back(d.id,d.value);
+            check(!radii.empty(),"Radius fixture has no dimensions");
+            run("open",{{"path",document::path_to_utf8(file)}});run("regenerate");
+            const auto properties=[&]() -> PrimitivePropertiesDialog* {
+                for(auto* item:window.findChildren<QDialog*>())if(item->isVisible())
+                    if(auto* p=dynamic_cast<PrimitivePropertiesDialog*>(item);p&&p->container_id()==owner)return p;
+                return nullptr;
+            };
+            const auto open_properties=[&] {
+                QTreeWidgetItem* row{};
+                for(QTreeWidgetItemIterator it(tree);*it;++it)
+                    if((*it)->data(0,Qt::UserRole).toString().toStdString()==owner&&(*it)->data(0,Qt::UserRole+3)=="part-container"){row=*it;break;}
+                check(row,"Radius profile Tree row is missing");window.show_tree_item_properties(row);flush();
+                check(properties(),"Profile Properties did not open");
+            };
+            for(double factor:{1.01,1.,.99,1.}) {
+                const auto opening_calculations=kernel::body_calculation_count.load();
+                QElapsedTimer opening_timer;opening_timer.start();
+                open_properties();
+                std::cout<<"GUI profile opening ms="<<opening_timer.elapsed()<<" calculations="<<kernel::body_calculation_count.load()-opening_calculations<<std::endl;
+                // A compact saved boundary may need the established exact
+                // input materialization. Count draft/commit work separately.
+                const auto calculations=kernel::body_calculation_count.load();
+                auto* button=properties()->findChild<QPushButton*>("featureSketchButton");
+                check(button,"Profile Sketch button is missing");button->click();flush();
+                std::cout<<"GUI Sketch entry calculations="<<kernel::body_calculation_count.load()-calculations<<std::endl;
+                check(window.active_sketch_for_test(),"Profile Sketch did not open");
+                for(auto* animation:view->findChildren<QVariantAnimation*>())animation->setCurrentTime(animation->duration());
+                view->fit_all();flush();
+                for(const auto& [id,radius]:radii) {
+                    const auto& dimensions=view->mesh().dimensions;
+                    const auto d=std::ranges::find_if(dimensions,[&](const auto& d){return d.reference.owner_id==sketch->id&&d.reference.semantic_key=="dimension:"+id;});
+                    check(d!=dimensions.end(),"Profile radius annotation is missing");
+                    viewer::ViewerCandidate hit;hit.kind=viewer::CandidateKind::Dimension;hit.owner_id=sketch->id;
+                    hit.semantic_key=d->reference.semantic_key;hit.geometry_index=d-dimensions.begin();
+                    const auto label=view->candidate_dimension_label_position(hit);check(label.has_value(),"Radius label has no screen position");
+                    click(*label);mouse(QEvent::MouseButtonDblClick,*label,Qt::LeftButton,Qt::LeftButton);
+                    mouse(QEvent::MouseButtonRelease,*label,Qt::LeftButton,Qt::NoButton);
+                    auto* field=view->findChild<QLineEdit*>("inlineDimensionValueEdit");check(field,"Radius mouse editor did not open");
+                    field->setText(QString::number(radius*factor,'g',15));
+                    QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);QApplication::sendEvent(field,&enter);flush();
+                    const auto& draft=*window.active_sketch_for_test();
+                    const auto value=std::ranges::find(draft.dimensions,id,&sketcher::SketchDimension::id);
+                    check(value!=draft.dimensions.end()&&std::abs(value->value-radius*factor)<1.e-7,"GUI radius edit did not solve");
+                }
+                window.findChild<QAction*>("finishSketchAction")->trigger();flush();
+                std::cout<<"GUI Sketch return calculations="<<kernel::body_calculation_count.load()-calculations<<std::endl;
+                check(properties(),"Sketch did not return to Profile Properties");
+                check(kernel::body_calculation_count.load()==calculations,"Draft radius interaction calculated a Body");
+                QElapsedTimer timer;timer.start();
+                properties()->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+                std::cout<<"GUI radius factor="<<factor<<" ms="<<timer.elapsed()<<" calculations="<<kernel::body_calculation_count.load()-calculations<<std::endl;
+                check(kernel::body_calculation_count.load()==calculations+1,"Changed profile did not calculate exactly one Body");
+                check(!properties(),"Changed profile OK did not complete");run("save");
+                std::vector<kernel::BodyResult> cache;const auto saved=document::PartDocument::load(file,&cache);
+                check(!cache.empty()&&cache.back().calculation_errors.empty(),"GUI radius edit broke dependent history");
+                check(saved.history==source.history,"Radius edit changed treatment definitions or references");
+                run("undo");run("redo");run("close");run("open",{{"path",document::path_to_utf8(file)}});
+                const auto unchanged=run("documents");open_properties();
+                const auto count=kernel::body_calculation_count.load();
+                properties()->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+                check(run("documents")==unchanged&&kernel::body_calculation_count.load()==count,"Unchanged GUI profile OK calculated or committed");
+            }
+            view->set_standard_view(viewer::StandardView::Isometric);view->fit_all();flush();
+            window.grab().save(QString::fromStdString(document::path_to_utf8(directory/"profile-radii-result.png")));
+            std::cout<<"GUI profile radii: mouse dimension edits, deferred calculation, dependent treatments, unchanged OK, Undo/Redo and reopen passed\n";
+            return 0;
+        }
         if(const auto model=qEnvironmentVariable("ZIMA_VERIFY_TREATMENT_ROLLBACK_MODEL");!model.isEmpty()) {
             const auto file=directory/"treatment-rollback.prtz";
             std::filesystem::copy_file(std::filesystem::u8path(model.toStdString()),file);

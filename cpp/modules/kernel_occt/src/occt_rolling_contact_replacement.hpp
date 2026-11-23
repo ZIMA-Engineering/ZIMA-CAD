@@ -3,8 +3,20 @@
 #include <BRepLib_CheckCurveOnSurface.hxx>
 #include <BRepTools_ReShape.hxx>
 #include <BOPAlgo_ArgumentAnalyzer.hxx>
+#include <chrono>
 
 namespace zima::kernel::support_driven_fillet {
+
+struct ContactPhaseTimer {
+    std::chrono::steady_clock::time_point start=std::chrono::steady_clock::now();
+    void phase(const char* label) {
+        const auto now=std::chrono::steady_clock::now();
+        if(std::getenv("ZIMA_CPP_PROFILE_COMMAND"))
+            std::fprintf(stderr,"Rolling contact %s: %.3f ms\n",label,
+                std::chrono::duration<double,std::milli>(now-start).count());
+        start=now;
+    }
+};
 
 inline constexpr const char* tangent_transition_error=
     "The tangent transition could not be constructed. Adjust the radius or selected edges.";
@@ -26,7 +38,8 @@ decltype(auto) tangent_transition(Operation&& operation) {
 // Contact edges are measured against their actual surfaces. A Boolean may
 // preserve an approximate pcurve even when its unchanged 3D curve is accurate.
 // Correct only that parameterization; never move a contact to pass validation.
-inline void validate_contact_curves(const TopoDS_Shape& shape) {
+inline void validate_contact_curves(const TopoDS_Shape& shape,bool check_intersections=true) {
+    ContactPhaseTimer timer;
     constexpr double tolerance=1.e-7;
     for(TopExp_Explorer faces(shape,TopAbs_FACE);faces.More();faces.Next()) {
         const auto face=TopoDS::Face(faces.Current());
@@ -44,12 +57,19 @@ inline void validate_contact_curves(const TopoDS_Shape& shape) {
             builder.UpdateEdge(edge,std::max(BRep_Tool::Tolerance(edge),1.1*corrected.MaxDistance()));
         }
     }
+    timer.phase("curve parameters");
     if(!BRepCheck_Analyzer(shape,true,false,true).IsValid())
         throw std::runtime_error("Corner shell is not a solid");
+    timer.phase("exact topology");
+    // Intermediate routes need valid topology and accurate pcurves for the
+    // next trim. The caller checks self-intersections of the complete result
+    // after all routes and same-domain cleanup, once per Fillet operation.
+    if(!check_intersections)return;
     BOPAlgo_ArgumentAnalyzer check;
     check.SetShape1(shape);check.SelfInterMode()=true;
     check.CurveOnSurfaceMode()=true;check.Perform();
     if(check.HasFaulty())throw std::runtime_error("Corner shell is not a solid");
+    timer.phase("intersections and curves");
 }
 
 struct ContactReplacement {
@@ -65,6 +85,7 @@ inline ContactReplacement replace_contacts(const TopoDS_Shape& input,
         const TopoDS_Shape& domains,std::span<const TopoDS_Face> envelopes,
         const gp_Pnt& source_point) {
     constexpr double tolerance=1.e-7;
+    ContactPhaseTimer timer;
     TopoDS_Solid target;
     for(TopExp_Explorer solids(input,TopAbs_SOLID);solids.More();solids.Next()) {
         BRepClass3d_SolidClassifier classifier(solids.Current(),source_point,tolerance);
@@ -124,24 +145,86 @@ inline ContactReplacement replace_contacts(const TopoDS_Shape& input,
         if(!retained)trims->Remove(source);
     }
     history->Merge(trims);
+    timer.phase("support trims");
     sewing.Perform();
-    if(sewing.SewedShape().IsNull()||sewing.NbFreeEdges()||sewing.NbMultipleEdges())
+    auto sewn=sewing.SewedShape();
+    BRepTools_ReShape contact_seams;
+    std::set<int> paired;
+    // A nearly tangent Boolean can shorten a support's contact curve while
+    // retaining the same sewn end vertices. Reuse the envelope's accurate
+    // contact only after proving it lies on that actual support. This repairs
+    // the shared boundary, without increasing the sewing tolerance.
+    const auto owner=[&](const TopoDS_Edge& edge) {
+        TopoDS_Face result;
+        for(TopExp_Explorer faces(sewn,TopAbs_FACE);faces.More();faces.Next())
+            for(TopExp_Explorer edges(faces.Current(),TopAbs_EDGE);edges.More();edges.Next())
+                if(edges.Current().IsSame(edge)) {
+                    if(!result.IsNull())return TopoDS_Face{};
+                    result=TopoDS::Face(faces.Current());
+                }
+        return result;
+    };
+    const auto is_envelope=[&](const TopoDS_Face& face) {
+        return !face.IsNull()&&std::ranges::any_of(envelopes,[&](const auto& envelope) {
+            return BRep_Tool::Surface(face)==BRep_Tool::Surface(envelope);
+        });
+    };
+    for(int i=1;i<=sewing.NbFreeEdges();++i) {
+        if(paired.contains(i))continue;
+        auto exact=TopoDS::Edge(sewing.FreeEdge(i).Oriented(TopAbs_FORWARD));
+        const auto envelope=owner(exact);if(!is_envelope(envelope))continue;
+        TopoDS_Vertex a,b;TopExp::Vertices(exact,a,b,true);
+        int match=0;bool reverse=false;TopoDS_Face support;
+        for(int j=1;j<=sewing.NbFreeEdges();++j)if(j!=i&&!paired.contains(j)) {
+            const auto candidate=TopoDS::Edge(sewing.FreeEdge(j).Oriented(TopAbs_FORWARD));
+            TopoDS_Vertex c,d;TopExp::Vertices(candidate,c,d,true);
+            const bool forward=a.IsSame(c)&&b.IsSame(d),back=a.IsSame(d)&&b.IsSame(c);
+            if(!forward&&!back)continue;
+            const auto face=owner(candidate);if(face.IsNull()||is_envelope(face))continue;
+            if(match){match=0;break;}match=j;reverse=back;support=face;
+        }
+        if(!match)continue;
+        ShapeFix_Edge fix;fix.FixAddPCurve(exact,support,false,tolerance);
+        precise_pcurve(exact,support,tolerance);
+        BRepLib_CheckCurveOnSurface check(exact,support);check.Perform();
+        if(!check.IsDone()||check.MaxDistance()>2.*tolerance)continue;
+        auto replacement=exact;if(reverse)replacement.Reverse();
+        contact_seams.Replace(sewing.FreeEdge(match).Oriented(TopAbs_FORWARD),replacement);
+        paired.insert(i);paired.insert(match);
+    }
+    if(!paired.empty())sewn=contact_seams.Apply(sewn);
+    if(sewn.IsNull()||paired.size()!=std::size_t(sewing.NbFreeEdges())||sewing.NbMultipleEdges()) {
+        if(std::getenv("ZIMA_CPP_FILLET_END_TRACE")) {
+            std::fprintf(stderr,"Rolling replacement: free=%d multiple=%d witness=(%.12g,%.12g,%.12g)\n",sewing.NbFreeEdges(),sewing.NbMultipleEdges(),source_point.X(),source_point.Y(),source_point.Z());
+            for(int e=1;e<=sewing.NbFreeEdges();++e) {
+                const BRepAdaptor_Curve c(sewing.FreeEdge(e));const auto a=c.Value(c.FirstParameter()),b=c.Value(c.LastParameter());
+                TopoDS_Vertex first,last;TopExp::Vertices(sewing.FreeEdge(e),first,last);
+                std::fprintf(stderr,"  free=%d type=%d tolerances=%.12g/%.12g/%.12g from=(%.12g,%.12g,%.12g) to=(%.12g,%.12g,%.12g)\n",e,int(c.GetType()),BRep_Tool::Tolerance(sewing.FreeEdge(e)),BRep_Tool::Tolerance(first),BRep_Tool::Tolerance(last),a.X(),a.Y(),a.Z(),b.X(),b.Y(),b.Z());
+                for(TopExp_Explorer faces(sewing.SewedShape(),TopAbs_FACE);faces.More();faces.Next())
+                    for(TopExp_Explorer edges(faces.Current(),TopAbs_EDGE);edges.More();edges.Next())
+                        if(edges.Current().IsSame(sewing.FreeEdge(e)))std::fprintf(stderr,"    support=%d\n",int(BRepAdaptor_Surface(TopoDS::Face(faces.Current())).GetType()));
+            }
+        }
         throw std::runtime_error("Corner shell is not closed");
+    }
     BRepBuilderAPI_MakeSolid make;
-    for(TopExp_Explorer shells(sewing.SewedShape(),TopAbs_SHELL);shells.More();shells.Next()) {
+    for(TopExp_Explorer shells(sewn,TopAbs_SHELL);shells.More();shells.Next()) {
         if(!BRep_Tool::IsClosed(shells.Current()))throw std::runtime_error("Corner shell is not closed");
         make.Add(TopoDS::Shell(shells.Current()));
     }
     auto solid=make.Solid();
     if(solid.IsNull()||!BRepLib::OrientClosedSolid(solid))
         throw std::runtime_error("Corner shell is not a solid");
-    validate_contact_curves(solid);
+    timer.phase("sewing");
+    validate_contact_curves(solid,false);
+    timer.phase("validation");
     NCollection_IndexedMap<TopoDS_Shape,TopTools_ShapeMapHasher> members;
     TopExp::MapShapes(solid,members);
     auto sewn_history=occ::handle<BRepTools_History>(new BRepTools_History);
     for(const auto& source:sewing_inputs)if(BRepTools_History::IsSupportedType(source)) {
-        const auto changed=sewing.IsModifiedSubShape(source)?sewing.ModifiedSubShape(source):
+        auto changed=sewing.IsModifiedSubShape(source)?sewing.ModifiedSubShape(source):
             sewing.IsModified(source)?sewing.Modified(source):source;
+        if(!paired.empty()&&!changed.IsNull())changed=contact_seams.Apply(changed);
         bool retained=members.Contains(source);
         NCollection_IndexedMap<TopoDS_Shape,TopTools_ShapeMapHasher> descendants;
         if(!changed.IsNull())TopExp::MapShapes(changed,descendants);

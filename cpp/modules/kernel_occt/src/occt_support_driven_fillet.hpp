@@ -65,7 +65,11 @@ inline void precise_pcurve(const TopoDS_Edge& edge,const TopoDS_Face& face,doubl
         }
         gp_Pnt p;gp_Vec du,dv;surface->D1(uv.X(),uv.Y(),p,du,dv);
         if(p.Distance(point)>20.*tolerance){uv=project();surface->D1(uv.X(),uv.Y(),p,du,dv);}
-        if(p.Distance(point)>20.*tolerance){throw std::runtime_error("Contact pcurve leaves geometric support");}
+        if(p.Distance(point)>20.*tolerance){
+            if(std::getenv("ZIMA_CPP_FILLET_END_TRACE"))
+                std::fprintf(stderr,"Contact projection error=%.15g t=%.15g range=%.15g/%.15g uv=%.15g/%.15g support=%d point=%.15g/%.15g/%.15g\n",p.Distance(point),t,a,b,uv.X(),uv.Y(),int(BRepAdaptor_Surface(face).GetType()),point.X(),point.Y(),point.Z());
+            throw std::runtime_error("Contact pcurve leaves geometric support");
+        }
         const double aa=du.SquareMagnitude(),bb=dv.SquareMagnitude(),ab=du.Dot(dv),det=aa*bb-ab*ab;
         if(det<1.e-24)throw std::runtime_error("Contact surface parameterization is singular");
         return Sample{t,uv,gp_Vec2d((tangent.Dot(du)*bb-tangent.Dot(dv)*ab)/det,(tangent.Dot(dv)*aa-tangent.Dot(du)*ab)/det)};
@@ -353,8 +357,14 @@ inline void refine_parallel_torus_centers(Segment& item,double tolerance) {
     const auto parameter=[&](const gp_Pnt& p){const auto d=gp_Vec(torus.Location(),p);const double z=d.Dot(axis),rho=(d-axis*z).Magnitude();return std::atan2(z,rho-torus.MajorRadius());};
     double a=parameter(item.start),b=parameter(item.end);b+=2.*std::numbers::pi*std::round((a-b)/(2.*std::numbers::pi));
     double gap=torus.MajorRadius()-torus.MinorRadius()+cylinder.Radius()-distance;
-    // Only remove floating-point cancellation, never an authored finite gap.
-    if(std::abs(gap)<64.*std::numeric_limits<double>::epsilon()*(distance+torus.MajorRadius()+torus.MinorRadius()+cylinder.Radius())) {
+    // A solved tangent Sketch can leave a sub-nanometre residual between
+    // the supporting circles. Treat it within the center fit's accuracy,
+    // rather than fitting the resulting square-root cusp with thousands of
+    // stations. Keep the original support surfaces for contact validation.
+    constexpr double fit_tolerance=1.e-9;
+    const double tangent_residual=std::max(fit_tolerance*.1,
+        64.*std::numeric_limits<double>::epsilon()*(distance+torus.MajorRadius()+torus.MinorRadius()+cylinder.Radius()));
+    if(std::abs(gap)<tangent_residual) {
         gap=0.;
         for(auto* t:{&a,&b})if(std::abs(std::abs(*t)-std::numbers::pi)<1.e-5)*t=std::copysign(std::numbers::pi,*t);
     }
@@ -392,8 +402,17 @@ inline void refine_parallel_torus_centers(Segment& item,double tolerance) {
             curve->SetPole(control,sample(parameter).first.Translated(sample(parameter).second*(span/curve->Degree()*(end?-1.:1.))));
         }
         double error=0.;
-        for(int i=0;i<count-1;++i)for(double f:{.2,.4,.6,.8}){const double t=a+(b-a)*(i+f)/(count-1);error=std::max(error,curve->Value(t).Distance(sample(t).first));}
-        if(error<1.e-9){item.centers=curve;item.start=sample(backwards?b:a).first;item.end=sample(backwards?a:b).first;return;}
+        for(int i=0;i<count-1;++i)for(double f:{.2,.4,.6,.8}) {
+            const double t=a+(b-a)*(i+f)/(count-1);const auto p=curve->Value(t);
+            const auto d=gp_Vec(torus.Location(),p);const double z=d.Dot(axis);
+            const double rho=(d-axis*z).Magnitude();
+            error=std::max({error,p.Distance(sample(t).first),
+                std::abs(std::hypot(rho-torus.MajorRadius(),z)-torus.MinorRadius()),
+                std::abs(gp_Lin(cylinder.Axis()).Distance(p)-cylinder.Radius())});
+        }
+        if(std::getenv("ZIMA_CPP_FILLET_END_TRACE"))
+            std::fprintf(stderr,"Rolling center fit: stations=%d error=%.15g\n",count,error);
+        if(error<fit_tolerance){item.centers=curve;item.start=sample(backwards?b:a).first;item.end=sample(backwards?a:b).first;return;}
     }
     if(std::getenv("ZIMA_CPP_FILLET_END_TRACE"))
         std::fprintf(stderr,"Rolling center fit failed: major=%.15g minor=%.15g cylinder=%.15g d=%.15g gap=%.15g range=%.15g %.15g\n",torus.MajorRadius(),torus.MinorRadius(),cylinder.Radius(),distance,gap,a,b);
@@ -951,8 +970,17 @@ inline Result build(std::span<const TopoDS_Edge> ordered,
                 BRepBuilderAPI_Sewing sewing(10.*tolerance);
                 for(int k=1;k<=selected.Extent();++k)sewing.Add(selected.FindKey(k));
                 sewing.Perform();
-                if(sewing.SewedShape().IsNull()||sewing.NbFreeEdges()||sewing.NbMultipleEdges()||sewing.SewedShape().ShapeType()!=TopAbs_SHELL)
+                if(sewing.SewedShape().IsNull()||sewing.NbFreeEdges()||sewing.NbMultipleEdges()||sewing.SewedShape().ShapeType()!=TopAbs_SHELL) {
+                    if(std::getenv("ZIMA_CPP_FILLET_END_TRACE")) {
+                        std::fprintf(stderr,"Rolling shell: supports=%d/%d selected=%d free=%d multiple=%d first=(%.12g,%.12g,%.12g) last=(%.12g,%.12g,%.12g)\n",
+                            int(BRepAdaptor_Surface(item.supports[0].face).GetType()),int(BRepAdaptor_Surface(item.supports[1].face).GetType()),selected.Extent(),sewing.NbFreeEdges(),sewing.NbMultipleEdges(),first.X(),first.Y(),first.Z(),last.X(),last.Y(),last.Z());
+                        for(int e=1;e<=sewing.NbFreeEdges();++e) {
+                            const BRepAdaptor_Curve c(sewing.FreeEdge(e));const auto a=c.Value(c.FirstParameter()),b=c.Value(c.LastParameter());
+                            std::fprintf(stderr,"  free=%d type=%d from=(%.12g,%.12g,%.12g) to=(%.12g,%.12g,%.12g)\n",e,int(c.GetType()),a.X(),a.Y(),a.Z(),b.X(),b.Y(),b.Z());
+                        }
+                    }
                     throw std::runtime_error("Corner shell is not closed");
+                }
                 auto solid=BRepBuilderAPI_MakeSolid(TopoDS::Shell(sewing.SewedShape())).Solid();
                 if(!BRepLib::OrientClosedSolid(solid)||!BRepCheck_Analyzer(solid).IsValid()) {
                     throw std::runtime_error("Corner shell is not a solid");

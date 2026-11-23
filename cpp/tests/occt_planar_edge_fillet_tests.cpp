@@ -1402,10 +1402,10 @@ void verify_oblique_round_route() {
     }
 }
 
-void verify_toroidal_runouts() {
+void verify_toroidal_runouts(double tangent_residual=0.) {
     using namespace zima::kernel;
     TopoDS_Shape plate=BRepPrimAPI_MakeBox(gp_Pnt(-50,-50,-10),100,100,20).Shape();
-    for(const auto center:{gp_Pnt(90,0,-20),gp_Pnt(0,90,-20)})
+    for(const auto center:{gp_Pnt(90+tangent_residual,0,-20),gp_Pnt(0,90+tangent_residual,-20)})
         plate=BRepAlgoAPI_Cut(plate,BRepPrimAPI_MakeCylinder(gp_Ax2(center,gp_Dir(0,0,1)),60,40).Shape()).Shape();
     std::vector<TopoDS_Edge> rims;
     NCollection_IndexedMap<TopoDS_Shape,TopTools_ShapeMapHasher> plate_edges;
@@ -1437,7 +1437,9 @@ void verify_toroidal_runouts() {
     }
     require(route.size()>=3,"Toroidal runout fixture lost its route");
     std::ostringstream original;BRepTools::Write(input,original);
-    for(double radius:{1.,3.,5.,8.}) {
+    const std::vector<double> radii=tangent_residual==0.?
+        std::vector<double>{1.,3.,5.,8.}:std::vector<double>{2.};
+    for(double radius:radii) {
         std::optional<double> expected;
         for(bool reverse:{false,true}) {
             auto selected=route;
@@ -1486,8 +1488,17 @@ void verify_toroidal_runouts() {
 } // namespace
 
 int main() try {
-    if(std::getenv("ZIMA_VERIFY_TOROIDAL_RUNOUT")){verify_toroidal_runouts();std::cout<<"Toroidal runout route passed\n";return 0;}
+    // Separate reproduction of the remaining positive-gap contact-trim issue.
+    // Keep its exact assertions; it is not covered by the negative residual fix.
+    if(std::getenv("ZIMA_VERIFY_TOROIDAL_POSITIVE_RESIDUAL")){
+        verify_toroidal_runouts(2.e-11);return 0;
+    }
+    if(std::getenv("ZIMA_VERIFY_TOROIDAL_RUNOUT")){
+        verify_toroidal_runouts();verify_toroidal_runouts(-2.e-11);
+        std::cout<<"Toroidal runout route passed\n";return 0;
+    }
     verify_toroidal_runouts();
+    verify_toroidal_runouts(-2.e-11);
     verify_tangent_boss_terminals();
     if(std::getenv("ZIMA_VERIFY_CYLINDRICAL_RIB_ROUTE")){verify_cylindrical_rib_route();std::cout<<"Cylindrical rib route passed\n";return 0;}
     verify_cylindrical_rib_route();
