@@ -154,8 +154,25 @@ void AssemblyWorkspaceWindow::preview_section(){
     if(!section_dialog_||!section_dialog_->isVisible()||!active_sketch_id_.empty()||section_component_picking_)return;
     auto* dialog=section_dialog_.data();const bool placement_valid=dialog->resolve_pending_placement(primitive_reference_geometry_);dialog->refresh_axis_points(primitive_reference_geometry_);const auto s=dialog->values();
     primitive_translation_dof_=zima::document::point_constraint_remaining_dof(s.placement.references,primitive_reference_geometry_);
-    zima::document::PartDocument origin_doc;zima::document::ConstructionObject origin;origin.id=s.id;origin.entity_id=s.sketch.id;origin.container_origin=s.container_origin;origin.kind=zima::document::ConstructionKind::Point;
-    origin.origin={s.placement.x,s.placement.y,s.placement.z};origin.rotation={s.placement.rotation_x,s.placement.rotation_y,s.placement.rotation_z};origin.reference_valid=false;origin_doc.constructions.push_back(origin);primitive_origin_preview_mesh_=origin_doc.construction_viewer_mesh(s.id);
+    // Publish the selected Sketch work plane through the ordinary Plane
+    // preview carrier. The Section surface checkbox controls the cutting
+    // surface derived from its line, independently of this editing aid.
+    zima::document::PartDocument origin_doc;zima::document::ConstructionObject origin;
+    origin.id=s.id;origin.entity_id=s.sketch.id;origin.container_origin=s.container_origin;
+    origin.kind=zima::document::ConstructionKind::Plane;
+    origin.origin={s.placement.x,s.placement.y,s.placement.z};
+    origin.rotation={s.placement.rotation_x,s.placement.rotation_y,s.placement.rotation_z};
+    origin.base_plane=s.sketch.plane==zima::sketcher::SketchPlane::XY
+        ?zima::document::LocalDatumPlane::XY:s.sketch.plane==zima::sketcher::SketchPlane::XZ
+        ?zima::document::LocalDatumPlane::XZ:zima::document::LocalDatumPlane::YZ;
+    origin.entity_origin=s.sketch.resolved_origin;origin.direction=s.sketch.resolved_normal;
+    origin.reference_valid=true;origin_doc.constructions.push_back(origin);
+    primitive_origin_preview_mesh_=origin_doc.construction_viewer_mesh(s.id);
+    // Section Properties expose the container Origin; Sketch points remain
+    // exclusive to the embedded Sketch editor.
+    std::erase_if(primitive_origin_preview_mesh_->points,[](const auto& point){
+        return point.reference.semantic_key=="preview:plane-offset-point";
+    });
     auto mesh=section_preview_source_;QString error;
     const auto sketch=sketch_viewer_mesh(s.sketch);
     append(mesh,section_sketch_overlay(sketch,s.id));
@@ -175,7 +192,7 @@ void AssemblyWorkspaceWindow::preview_section(){
     // ends; only the selectable source Origins depend on the picking mode.
     append(mesh,*primitive_origin_preview_mesh_);
     if(!picking)viewer_->set_operation_direction_indicator({});
-    viewer_->set_mesh(std::move(mesh),false);viewer_->set_feature_preview_owners({s.container_origin.id});std::set<zima::viewer::EdgeKey> highlights;for(const auto& ref:dialog->highlighted_reference_entries()){highlights.insert({ref.owner_id,ref.semantic_key,ref.instance_path});if(ref.semantic_key=="plane")highlights.insert({ref.owner_id,"border",ref.instance_path});}viewer_->set_constraint_reference_highlights({},std::move(highlights));
+    viewer_->set_mesh(std::move(mesh),false);viewer_->set_feature_preview_owners({s.container_origin.id,s.sketch.id});std::set<zima::viewer::EdgeKey> highlights;for(const auto& ref:dialog->highlighted_reference_entries()){highlights.insert({ref.owner_id,ref.semantic_key,ref.instance_path});if(ref.semantic_key=="plane")highlights.insert({ref.owner_id,"border",ref.instance_path});}viewer_->set_constraint_reference_highlights({},std::move(highlights));
     if(!pending_primitive_reference_index_&&!local_origin_selection_active_)set_primitive_properties_dimension_selection();dialog->set_error(placement_valid?error:tr("Doplňte platné reference umístění řezu."));
 }
 bool AssemblyWorkspaceWindow::section_confirmation(const zima::viewer::ViewerCandidate& candidate){

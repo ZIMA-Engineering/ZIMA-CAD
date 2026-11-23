@@ -53,6 +53,26 @@ int verify_sections(QApplication& application,AssemblyWorkspaceWindow& window,co
         auto* view=dynamic_cast<viewer::MeshView*>(window.findChild<QOpenGLWidget*>());auto* tree=window.findChild<QTreeWidget*>("documentTree");auto* create=window.findChild<QAction*>("createSectionAction");auto* save=window.findChild<QAction*>("saveDocumentAction");
         check(view&&tree&&create&&create->isEnabled(),"Missing Section action");view->set_standard_view(viewer::StandardView::Top);{QEventLoop animation;QTimer::singleShot(1000,&animation,&QEventLoop::quit);animation.exec();}flush();
         const auto dialog=[&]{return dynamic_cast<SectionPropertiesDialog*>(window.findChild<QDialog*>("sectionProperties"));};
+        const auto work_plane=[&] {
+            const auto section=dialog()->values();
+            const auto& edges=view->mesh().edges;
+            const auto border=std::ranges::find_if(edges,[&](const auto& edge){
+                return edge.reference.owner_id==section.sketch.id&&edge.reference.semantic_key=="border";
+            });
+            check(border!=edges.end()&&border->overlay&&border->points.size()==5,
+                "Section Properties omitted the selected Sketch work-plane border");
+            kernel::Vec3 center;
+            for(unsigned i=0;i<4;++i) {
+                const auto p=border->points[i];
+                center.x+=p.x/4;center.y+=p.y/4;center.z+=p.z/4;
+                const auto n=section.sketch.resolved_normal,o=section.sketch.resolved_origin;
+                check(std::abs((p.x-o.x)*n.x+(p.y-o.y)*n.y+(p.z-o.z)*n.z)<1e-8,
+                    "Section work-plane border does not lie on its resolved Sketch plane");
+            }
+            const auto o=section.sketch.resolved_origin;
+            check(std::hypot(center.x-o.x,center.y-o.y,center.z-o.z)<1e-8,
+                "Section work-plane border did not follow the placed Sketch origin");
+        };
         unsigned placement_capture{};
         const auto placement_layout=[&] {
             auto* editor=dialog();auto* scroll=editor->findChild<QScrollArea*>("propertiesContentScrollArea");
@@ -75,14 +95,34 @@ int verify_sections(QApplication& application,AssemblyWorkspaceWindow& window,co
             check(position(name).y()==anchor.y(),"Resizing Section spread its upper controls vertically");
             editor->resize(size);flush();
             const auto appearance=ApplicationSettings::load(QString::fromStdString(base.string()));
+            const auto camera=view->camera_state();const auto viewport_anchor=view->camera_viewport_anchor();
+            const auto plane=editor->values();
+            // A preceding Drawing/Sketch interaction may leave the Section's
+            // Origin outside the current viewport. Frame this visual oracle
+            // explicitly, then restore the user's camera for the next action.
+            for(const auto& edge:view->mesh().edges)
+                if(edge.reference.owner_id==plane.sketch.id&&edge.reference.semantic_key=="border") {
+                    view->fit_points(edge.points);break;
+                }
+            view->set_view_direction(plane.sketch.resolved_normal);
+            {QEventLoop animation;QTimer::singleShot(1000,&animation,&QEventLoop::quit);animation.exec();}
             ++placement_capture;
             for(const auto* theme:{"light","dark","light"}) {
                 auto changed=appearance;changed.theme=theme;apply_application_appearance(application,changed);flush();
                 check(position(name).y()==anchor.y()&&!defaults->icon().isNull()&&!origins->icon().isNull(),
                     "Section theme change moved fields or lost Origin icons");
+                work_plane();
+                const auto highlighted=view->grabFramebuffer();
+                highlighted.save(QString::fromStdString((dir/("work-plane-"+std::to_string(placement_capture)+"-"+theme+".png")).string()));
+                const auto section=editor->values();
+                view->set_feature_preview_owners({section.container_origin.id});
+                const auto ordinary=view->grabFramebuffer();
+                view->set_feature_preview_owners({section.container_origin.id,section.sketch.id});
+                check(highlighted!=ordinary,"Section work plane was not visibly highlighted in this theme");
                 window.grab().save(QString::fromStdString((dir/("placement-"+std::to_string(placement_capture)+"-"+theme+".png")).string()));
             }
             apply_application_appearance(application,appearance);flush();
+            view->set_camera_state(camera);view->set_camera_viewport_anchor(viewport_anchor);flush();
         };
         const auto own_origin=[&] {
             const auto owner=dialog()->values().container_origin.id;
@@ -154,6 +194,23 @@ int verify_sections(QApplication& application,AssemblyWorkspaceWindow& window,co
         };
         create->trigger();flush();check(dialog()&&dialog()->parentWidget()==&window&&(dialog()->windowFlags()&Qt::WindowType_Mask)==Qt::SubWindow,"Section is not shared internal dialog");
         check(dialog()->windowTitle()==QObject::tr("Vlastnosti řezu"),"Section Properties has an inconsistent title");
+        check(!dialog()->values().show_plane&&dialog()->values().sketch.segments.empty(),
+            "Work-plane regression must start with an empty Sketch and hidden cutting surface");
+        const auto opening_revision=window.execute_console_command("section.list").data.at("revision");
+        const auto opening_calculations=window.property("sectionCalculationCount").toULongLong();
+        for(int plane:{0,1,2,0}) {
+            dialog()->findChild<QComboBox*>("sectionSketchPlane")->setCurrentIndex(plane);flush();work_plane();
+        }
+        for(unsigned axis=0;axis<3;++axis)
+            dialog()->findChild<QDoubleSpinBox*>(QString("sweepRotation%1").arg(axis))->setValue(17+axis*6);
+        for(int plane:{0,1,2,0}) {
+            dialog()->findChild<QComboBox*>("sectionSketchPlane")->setCurrentIndex(plane);flush();work_plane();
+        }
+        for(unsigned axis=0;axis<3;++axis)
+            dialog()->findChild<QDoubleSpinBox*>(QString("sweepRotation%1").arg(axis))->setValue(0);
+        check(window.execute_console_command("section.list").data.at("revision")==opening_revision&&
+            window.property("sectionCalculationCount").toULongLong()==opening_calculations,
+            "Switching the Section work plane changed history or calculated a cutting surface");
         placement_layout();
         check(!window.findChild<QAction*>("cancelSectionSketchAction"),"Section Sketch retains a separate Cancel action");
         const auto* sketch_button=dialog()->findChild<QPushButton*>("editSectionSketch");
@@ -192,9 +249,11 @@ int verify_sections(QApplication& application,AssemblyWorkspaceWindow& window,co
             check(reference.owner_id==origin_reference.owner_id && reference.semantic_key.starts_with("origin:plane:"),
                 "Section stored an incorrect document Origin reference");
         own_origin();
+        work_plane();
         window.grab().save(QString::fromStdString((dir/"origin-entry.png").string()));
         dialog()->buttons()->button(QDialogButtonBox::Cancel)->click();flush();create->trigger();flush();
         dialog()->findChild<QDoubleSpinBox*>("sweepTranslation0")->setValue(7);dialog()->findChild<QComboBox*>("sectionSketchPlane")->setCurrentIndex(1);
+        work_plane();
         check(std::abs(dialog()->values().plane_origin.x-7)<1e-7&&std::abs(dialog()->values().plane_y.z+1)<1e-7,"Section placement or own XZ plane was ignored");
         dialog()->findChild<QPushButton*>("editSectionSketch")->click();flush();window.findChild<QAction*>("finishSketchAction")->trigger();flush();check(dialog()->isVisible()&&dialog()->values().sketch.segments.empty(),"Finishing an empty Section Sketch did not return to Properties");line(true);dialog()->findChild<QCheckBox*>("sectionShowCut")->setChecked(true);flush();
         window.grab().save(QString::fromStdString((dir/"section-properties.png").string()));
@@ -277,6 +336,16 @@ int verify_sections(QApplication& application,AssemblyWorkspaceWindow& window,co
         window.show_tree_item_properties(group->child(1));flush();
         check(dialog()&&!dialog()->values().show_cut&&view->mesh().triangles.size()==cache.back().mesh.triangles.size(),
             "Editing an inactive Section clipped the solid");
+        work_plane();
+        const auto unchanged_revision=window.execute_console_command("section.list").data.at("revision");
+        const auto preview_sketch=dialog()->values().sketch.id;
+        dialog()->buttons()->button(QDialogButtonBox::Ok)->click();flush();
+        check(!dialog()&&window.execute_console_command("section.list").data.at("revision")==unchanged_revision,
+            "Unchanged Section OK created a history transaction");
+        check(std::ranges::none_of(view->mesh().edges,[&](const auto& edge){
+            return edge.reference.owner_id==preview_sketch&&edge.reference.semantic_key=="border";
+        }),"Closing Section Properties retained its transient work plane");
+        window.show_tree_item_properties(tree->topLevelItem(0)->child(1)->child(1));flush();work_plane();
         dialog()->findChild<QCheckBox*>("sectionShowPlane")->setChecked(true);flush();
         check(view->mesh().triangles.size()==cache.back().mesh.triangles.size()&&
             std::ranges::any_of(view->mesh().edges,[](const auto& edge){return edge.overlay&&edge.reference.semantic_key=="section:sketch";}),
@@ -292,6 +361,7 @@ int verify_sections(QApplication& application,AssemblyWorkspaceWindow& window,co
         check(view->mesh().triangles.size()==cache.back().mesh.triangles.size(),"Active Section Properties clipped the solid");
         const auto plane_edges=view->mesh().edges.size();
         dialog()->findChild<QCheckBox*>("sectionShowPlane")->setChecked(false);flush();
+        work_plane();
         check(view->mesh().edges.size()<plane_edges,"Active Section ignores Show plane toggle");
         dialog()->buttons()->button(QDialogButtonBox::Cancel)->click();flush();
         group=tree->topLevelItem(0)->child(1);menu_action(group,{},true);check(menu_action(group->child(1),QObject::tr("Aktivní")),"A-A cannot be activated");
