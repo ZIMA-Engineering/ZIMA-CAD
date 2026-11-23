@@ -281,6 +281,7 @@ add_library(zima_document_core
     modules/document_core/src/appearance.cpp
     modules/document_core/src/body_history.cpp
     modules/document_core/src/fem_definition.cpp
+    modules/document_core/src/render_definition.cpp
     modules/document_core/src/fem_condition.cpp
     modules/document_core/src/fem_presentation.cpp
     modules/document_core/src/section.cpp
@@ -308,6 +309,11 @@ target_include_directories(zima_document_core PUBLIC
 target_link_libraries(zima_document_core
     PUBLIC zima_kernel_api zima_sketcher zima_transition_core nlohmann_json::nlohmann_json
     PRIVATE OpenSSL::Crypto ZLIB::ZLIB zstd::libzstd)
+
+add_library(zima_render modules/render/src/renderer.cpp)
+find_package(Threads REQUIRED)
+target_include_directories(zima_render PUBLIC modules/render/include)
+target_link_libraries(zima_render PUBLIC zima_document_core zima_kernel_api PRIVATE Threads::Threads)
 
 add_library(zima_assembly
     modules/assembly/src/assembly_document.cpp
@@ -347,6 +353,8 @@ add_library(zima_workspace modules/workspace/src/workspace.cpp
     modules/workspace/src/file_removal_operations.cpp
     modules/workspace/src/file_rename_operations.cpp
     modules/workspace/src/body_operations.cpp
+    modules/workspace/src/calculated_body_source.cpp
+    modules/workspace/src/render_operations.cpp
     modules/workspace/src/fem_operations.cpp
     modules/workspace/src/fem_condition_operations.cpp
     modules/workspace/src/body_reference_operations.cpp modules/workspace/src/construction_reference_operations.cpp
@@ -658,6 +666,7 @@ endif()
 add_executable(zima-cad-cpp
     app/fem_body_command.cpp app/fem_body_ui_verification.cpp
     app/fem_condition_command.cpp
+    app/render_body_command.cpp app/render_job.cpp app/render_ui_verification.cpp
     app/body_link_ui_verification.cpp
     ${ZIMA_WORKSPACE_SOURCES}
     app/command_console.cpp app/console_ui_verification.cpp app/holes_ui_verification.cpp app/edge_treatment_ui_verification.cpp app/rotation_handle_ui_verification.cpp
@@ -748,7 +757,7 @@ target_link_libraries(zima_desktop_integration PUBLIC zima_ui Qt6::Widgets Qt6::
 if(WIN32)
     target_link_libraries(zima_desktop_integration PRIVATE shell32 ole32 propsys)
 endif()
-target_link_libraries(zima-cad-cpp PRIVATE zima_drawing_render zima_symbols zima_desktop_integration)
+target_link_libraries(zima-cad-cpp PRIVATE zima_render zima_drawing_render zima_symbols zima_desktop_integration)
 install(TARGETS zima-cad-cpp RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 
 # A console-subsystem executable. Qt Gui runs offscreen for shared PDF painting; no Widgets are created.
@@ -1525,6 +1534,9 @@ if(ZIMA_BUILD_TESTS)
     add_executable(zima_cpp_model_calculation_tests tests/model_calculation_tests.cpp)
     target_link_libraries(zima_cpp_model_calculation_tests PRIVATE zima_workspace)
     add_test(NAME zima_cpp_model_calculation_tests COMMAND zima_cpp_model_calculation_tests)
+    add_executable(zima_cpp_hole_rollback_tests tests/hole_rollback_tests.cpp)
+    target_link_libraries(zima_cpp_hole_rollback_tests PRIVATE zima_workspace)
+    add_test(NAME zima_cpp_hole_rollback_tests COMMAND zima_cpp_hole_rollback_tests)
     if(WIN32)
         add_test(NAME zima_cpp_numeric_value_locks_windows_contract COMMAND zima_cpp_ui_contract_tests)
         set_tests_properties(zima_cpp_numeric_value_locks_windows_contract PROPERTIES
@@ -1701,6 +1713,15 @@ if(ZIMA_BUILD_TESTS)
     set_tests_properties(zima_cpp_material_library_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
 
     add_executable(zima_cpp_family_table_tests tests/family_table_tests.cpp)
+    add_executable(zima_cpp_render_document_tests tests/render_document_tests.cpp)
+    add_executable(zima_cpp_render_image_tests tests/render_image_tests.cpp)
+    target_link_libraries(zima_cpp_render_image_tests PRIVATE zima_render zima_kernel_occt Qt6::Gui)
+    add_test(NAME zima_cpp_render_image_tests COMMAND zima_cpp_render_image_tests)
+    target_link_libraries(zima_cpp_render_document_tests PRIVATE zima_document_core zima_kernel_occt)
+    add_test(NAME zima_cpp_render_document_tests COMMAND zima_cpp_render_document_tests)
+    add_executable(zima_cpp_render_operations_tests tests/render_operations_tests.cpp)
+    target_link_libraries(zima_cpp_render_operations_tests PRIVATE zima_workspace)
+    add_test(NAME zima_cpp_render_operations_tests COMMAND zima_cpp_render_operations_tests)
     add_executable(zima_cpp_fem_document_tests tests/fem_document_tests.cpp)
     target_link_libraries(zima_cpp_fem_document_tests PRIVATE zima_document_core zima_kernel_occt)
     add_test(NAME zima_cpp_fem_document_tests COMMAND zima_cpp_fem_document_tests)
@@ -2418,6 +2439,14 @@ if(ZIMA_BUILD_TESTS)
         TIMEOUT 120 WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
     add_test(NAME zima_cpp_body_scale_ui_contract COMMAND zima-cad-cpp --verify-startup)
     add_test(NAME zima_cpp_fem_body_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    add_test(NAME zima_cpp_render_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    add_test(NAME zima_cpp_render_compact_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    set_tests_properties(zima_cpp_render_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_CONSOLE_ONLY=1;ZIMA_VERIFY_RENDER_ONLY=1"
+        TIMEOUT 180 WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
+    set_tests_properties(zima_cpp_render_compact_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_CONSOLE_ONLY=1;ZIMA_VERIFY_RENDER_ONLY=1;ZIMA_VERIFY_RENDER_COMPACT=1"
+        TIMEOUT 180 WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
     set_tests_properties(zima_cpp_fem_body_ui_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_FEM_BODY_ONLY=1"
         TIMEOUT 180 WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
@@ -2695,6 +2724,11 @@ if(ZIMA_BUILD_TESTS)
         TIMEOUT 180 RUN_SERIAL TRUE)
     add_test(NAME zima_cpp_sketch_arc_size_ui_contract COMMAND zima-cad-cpp --verify-startup)
     add_test(NAME zima_cpp_sketch_curve_fillet_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    add_test(NAME zima_cpp_sketch_offset_tangent_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    set_tests_properties(zima_cpp_sketch_offset_tangent_ui_contract PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.."
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_HIDDEN_WINDOWS=1;ZIMA_VERIFY_OFFSET_TANGENT_ONLY=1"
+        TIMEOUT 180 RUN_SERIAL TRUE LABELS "mandatory;sketcher")
     add_test(NAME zima_cpp_flat_end_correction_ui_contract COMMAND zima-cad-cpp --verify-startup)
     set_tests_properties(zima_cpp_flat_end_correction_ui_contract PROPERTIES
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.."
@@ -2788,6 +2822,10 @@ if(ZIMA_BUILD_TESTS)
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_OFFSET_ONLY=1"
         TIMEOUT 120)
     add_executable(zima_cpp_sketch_offset_geometry_tests tests/sketch_offset_geometry_tests.cpp)
+    add_executable(zima_cpp_sketch_offset_tangent_tests tests/sketch_offset_tangent_tests.cpp)
+    target_link_libraries(zima_cpp_sketch_offset_tangent_tests PRIVATE zima_sketcher)
+    add_test(NAME zima_cpp_sketch_offset_tangent_contract COMMAND zima_cpp_sketch_offset_tangent_tests)
+    set_tests_properties(zima_cpp_sketch_offset_tangent_contract PROPERTIES LABELS "mandatory;sketcher")
     add_executable(zima_cpp_work_plane_contract_tests tests/work_plane_contract_tests.cpp)
     target_link_libraries(zima_cpp_work_plane_contract_tests PRIVATE zima_command_host)
     target_compile_options(zima_cpp_work_plane_contract_tests PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)

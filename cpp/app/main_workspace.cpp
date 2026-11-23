@@ -8650,6 +8650,7 @@ using zima::test::check_coupled_equations;
 #include "sketch_mechanism_ui_verification.inc"
 #include "sketch_arc_size_ui_verification.inc"
 #include "sketch_curve_fillet_ui_verification.inc"
+#include "sketch_offset_tangent_ui_verification.inc"
 #include "assembly_presentation_ui_verification.inc"
 #include "sketch_angle_sector_ui_verification.inc"
 #include "sketch_external_midpoint_ui_verification.inc"
@@ -12101,6 +12102,7 @@ int verify_startup_contract(
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SHEET_TRANSITION")) return verify_sheet_transition_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_EQUAL_ENDPOINT_ONLY")) return verify_sketch_equal_endpoint_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_CURVE_FILLET_ONLY")) return verify_sketch_curve_fillet_ui(application,test_directory);
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_OFFSET_TANGENT_ONLY")) return verify_sketch_offset_tangent_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SYMMETRIC_EQUAL_ONLY")) return verify_sketch_symmetric_equal_ui(application,test_directory);
     if(qEnvironmentVariableIsSet("ZIMA_VERIFY_SHELL_VALUE_ONLY"))return verify_shell_value_label_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_MULTISOLID_SHELL_UI_FILE")) return verify_multisolid_shell_ui(application,test_directory);

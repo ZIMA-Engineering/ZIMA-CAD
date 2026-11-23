@@ -2,6 +2,10 @@
 #include <zima/sketcher/sketch.hpp>
 
 namespace zima::sketcher {
+// Endpoint identities may be joined by an explicit retained trim intersection.
+// This does not merge either authored point or infer incidence from proximity.
+[[nodiscard]] std::optional<std::array<std::string,2>> fillet_curve_junction(
+    const Sketch&,const std::string&,const std::string&);
 // Native endpoints only. Closed curves do not define a corner to trim.
 [[nodiscard]] std::optional<std::array<std::string,2>> fillet_curve_endpoints(
     const Sketch&,const std::string&);

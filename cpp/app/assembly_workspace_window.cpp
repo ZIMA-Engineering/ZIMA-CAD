@@ -90,6 +90,8 @@ void AssemblyWorkspaceWindow::changeEvent(QEvent* event) {
 }
 
 AssemblyWorkspaceWindow::~AssemblyWorkspaceWindow() {
+    stop_render();
+    render_tabs_.clear();active_render_page_=nullptr;
     // File Manager pages are owned by file_manager_stack_. Let Qt destroy that
     // subtree with the central widget; deleting QFileSystemModel pages while
     // their stack is still processing filesystem notifications corrupts the

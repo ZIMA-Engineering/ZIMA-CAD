@@ -82,6 +82,7 @@ struct FileManagerNativeParameters;
 class AssemblyWorkspaceWindow final : public QMainWindow {
     friend int verify_body_link(QApplication&,AssemblyWorkspaceWindow&,const std::filesystem::path&);
     friend int verify_fem_body(QApplication&,AssemblyWorkspaceWindow&,const std::filesystem::path&);
+    friend int verify_render_body(QApplication&,AssemblyWorkspaceWindow&,const std::filesystem::path&);
 public:
     explicit AssemblyWorkspaceWindow(
         const QString& working_directory = {}, const QString& settings_directory = {});
@@ -214,6 +215,7 @@ private:
         Piping,
         Drawing,
         Fem,
+        Render,
     };
 
     void create_command_console();
@@ -284,6 +286,7 @@ private:
     QToolButton* sheet_metal_mode_button_{};
     QToolButton* surface_mode_button_{};
     QToolButton* fem_mode_button_{};
+    QToolButton* render_mode_button_{};
     QComboBox* standard_view_combo_{};
     QLineEdit* inline_dimension_edit_{};
     QComboBox* selection_filter_combo_{};
@@ -324,7 +327,7 @@ private:
     QActionGroup* display_mode_group_{};
     QActionGroup* camera_projection_group_{};
     QActionGroup* application_group_{};
-    std::array<QAction*, 7> application_actions_{};
+    std::array<QAction*, 8> application_actions_{};
     ApplicationMode active_application_{ApplicationMode::Modeling};
     std::map<std::string,ApplicationMode> document_application_modes_;
     QMenu* command_insert_menu_{};
@@ -434,6 +437,35 @@ private:
     QAction* pattern_action_{};
     QAction* body_scale_action_{};
     QAction* create_fem_action_{};
+    QAction* create_render_action_{};
+    bool active_render_body() const;
+    const document::RenderObject* active_render_object(const std::string&) const;
+    void show_render_body_properties(const std::string& id = {});
+    void show_render_object_properties(document::RenderObjectKind,const std::string& id = {});
+    bool accept_render_tree_reference(QTreeWidgetItem*);
+    kernel::ViewerMesh render_display_mesh() const;
+    kernel::ViewerMesh render_object_wire(const document::RenderObject&) const;
+    document::RenderObject render_camera_from_view() const;
+    void select_render_object(std::string,bool inspect);
+    void remove_render_object(const std::string&);
+    void start_render();
+    void show_render_result();
+    void export_render_image();
+    bool render_result_current() const;
+    bool render_inputs_current() const;
+    bool render_running() const;
+    void stop_render();
+    std::optional<document::RenderObject> render_object_preview_;
+    struct RenderJob;
+    std::shared_ptr<RenderJob> render_job_;
+    QStackedWidget* render_stack_{};
+    QPointer<QWidget> active_render_page_;
+    std::map<QString,QWidget*> render_tabs_;
+    void select_render_tab(const QString&);
+    bool close_render_tab(int);
+    void refresh_render_tabs();
+    bool render_gallery_available() const;
+    void retain_render_image();
     void show_fem_body_properties(const std::string& id = {});
     void show_fem_mesh_settings();
     void generate_fem_mesh();

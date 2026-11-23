@@ -133,6 +133,19 @@ void Sketch::update_offset(const std::string& id,double distance,bool flipped) {
     static_cast<void>(next.supporting_curve(id));
     next.refresh_curve_dependencies();
     if(std::ranges::any_of(next.offsets,[&](const auto& c){return c.operation_id==group&&c.broken;}))throw std::invalid_argument("Offset trim intersection requires repair");
+    std::set<std::string> affected;
+    for(const auto& offset:next.offsets)if(offset.operation_id==group)affected.insert(offset.id);
+    for(bool changed=true;changed;) {
+        changed=false;for(const auto& offset:next.offsets)
+            if(affected.contains(offset.source_id)&&affected.insert(offset.id).second)changed=true;
+    }
+    if(std::ranges::any_of(next.constraints,[&](const auto& constraint) {
+        return !constraint.suppressed && (affected.contains(constraint.geometry_id)||affected.contains(constraint.second_geometry_id));
+    })) {
+        const auto solved=next.solve();
+        if(solved.status==SolveStatus::Conflicting||solved.status==SolveStatus::Invalid)
+            throw std::invalid_argument("Tangent constraint conflicts with existing geometry");
+    }
     next.validate();*this=std::move(next);
 }
 void Sketch::free_offset(const std::string& id) {

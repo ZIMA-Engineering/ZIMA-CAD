@@ -4,8 +4,11 @@
 #include "primitive_properties_dialog.hpp"
 #include "assembly_workspace_window.hpp"
 #include "sketch_properties_dialog.hpp"
+#include "construction_properties_dialog.hpp"
 #include <zima/document/part_document.hpp>
 #include <zima/document/placement_orientation.hpp>
+#include <zima/workspace/model_calculation.hpp>
+#include <zima/kernel/calculation_diagnostics.hpp>
 #include <zima/viewer/mesh_view.hpp>
 #include <QApplication>
 #include <QAction>
@@ -40,6 +43,55 @@ int verify_holes_ui(QApplication& application, AssemblyWorkspaceWindow& window,
     };
     try {
         window.showMaximized();flush();
+        if(qEnvironmentVariableIsSet("ZIMA_VERIFY_HOLE_ROLLBACK")) {
+            auto part=document::PartDocument::create_default();
+            auto stock=test::rectangular_feature(part,{20,20,20});
+            auto broken=document::PartDocument::create_extrusion_container("missing-sketch");
+            auto hole=document::PartDocument::create_thread_container();
+            part.history={stock,broken,hole};document::BodyHistoryGraph graph;
+            static_cast<void>(graph.create_body("Stock"));
+            for(const auto& f:part.history)graph.insert({document::PartHistoryKind::Feature,f.id});part.set_body_history(graph);
+            kernel::OcctKernel kernel;const auto calculated=workspace::calculate_part(kernel,part);
+            const auto path=directory/"hole-invalid-predecessor.prtz";part.save(path,calculated);
+            const auto supplied=qEnvironmentVariable("ZIMA_VERIFY_HOLE_ROLLBACK_FILE");
+            if(!supplied.isEmpty())std::filesystem::copy_file(std::filesystem::path(supplied.toStdWString()),path,std::filesystem::copy_options::overwrite_existing);
+            run("open",{{"path",path.string()}});part=document::PartDocument::load(path);
+            auto* tree=window.findChild<QTreeWidget*>("documentTree");
+            auto* view=dynamic_cast<viewer::MeshView*>(window.findChild<QWidget*>("modelWorkspace"));
+            check(tree&&view&&!view->mesh().triangles.empty(),"Opening the fixture lost its valid material");
+            const auto before=view->mesh().triangles;
+            const auto revision=run("documents").at(0).at("revision");
+            unsigned holes{};
+            for(const auto& feature:part.history)if(feature.feature_kind==document::FeatureKind::Hole||feature.feature_kind==document::FeatureKind::Thread) {
+                ++holes;
+                for(int repeat=0;repeat<3;++repeat) {
+                    QTreeWidgetItem* row{};for(QTreeWidgetItemIterator it(tree);*it;++it)
+                        if((*it)->data(0,Qt::UserRole).toString().toStdString()==feature.id){row=*it;break;}
+                    check(row,"Hole Tree row is missing");
+                    const auto calculations=kernel::body_calculation_count.load();
+                    window.show_tree_item_properties(row);flush();
+                    PrimitivePropertiesDialog* dialog{};
+                    for(auto* candidate:window.findChildren<QDialog*>())if(auto* p=dynamic_cast<PrimitivePropertiesDialog*>(candidate);p&&p->isVisible())dialog=p;
+                    check(dialog&&!view->mesh().triangles.empty(),"Hole Properties erased the preceding solid");
+                    check(std::ranges::none_of(view->mesh().triangle_references,[&](const auto& face){return face.owner_id==feature.id;}),"Hole Properties displayed its final result instead of the input");
+                    if(repeat)check(kernel::body_calculation_count.load()==calculations,"Reopening the same failed-prefix input recalculated CAD");
+                    check(run("documents").at(0).at("revision")==revision,"Opening Hole created an Undo transaction");
+                    if(repeat==1) {
+                        auto* depth=dialog->findChild<QDoubleSpinBox*>(feature.feature_kind==document::FeatureKind::Thread?"threadBoreLength":"holeBoreLength");
+                        check(depth,"Hole depth editor is missing");depth->setValue(depth->value()+1);
+                    }
+                    const auto button=repeat==2?QDialogButtonBox::Ok:QDialogButtonBox::Cancel;
+                    QPointer<PrimitivePropertiesDialog> guard=dialog;
+                    dialog->buttons()->button(button)->click();flush();
+                    check(!guard||!guard->isVisible(),"Hole dialog did not close");
+                    check(view->mesh().triangles==before,"Hole dialog close did not restore the final material");
+                    check(run("documents").at(0).at("revision")==revision,"Cancel/unchanged Hole OK changed the document");
+                }
+            }
+            check(holes!=0,"Fixture contains no Hole");
+            std::cout<<"Hole Properties after failed predecessor: retained input, no later faces, cached reopening, Cancel and unchanged OK passed\n";
+            return 0;
+        }
         const auto skeleton_fixture=qEnvironmentVariable("ZIMA_VERIFY_HOLES_SKELETON");
         if(!skeleton_fixture.isEmpty()) {
             run("open",{{"path",skeleton_fixture.toStdString()}});
@@ -367,6 +419,48 @@ int verify_holes_ui(QApplication& application, AssemblyWorkspaceWindow& window,
         check(saved_layout && *saved_layout==*committed_layout,"Native file lost the diameter layout");
         check(std::ranges::any_of(view->mesh().axes,[&](const auto& axis){return axis.reference.owner_id==owner;}),"Normal View did not show the drilling axis");
         check(std::abs(cached.back().volume-(64000-std::numbers::pi*9*40))<1e-5,"GUI drilled the wrong geometry");
+        // Pick both real drilling limits through the ordinary Point command.
+        // The displayed centerline extends beyond these authored limits.
+        const auto& axis=*std::ranges::find(view->mesh().axes,owner,[](const auto& value){return value.reference.owner_id;});
+        const auto axis_key=axis.reference.semantic_key;
+        for(bool start:{true,false}) {
+            const auto endpoint_key="profile:path-point:"+std::string(start?"start:from:":"end:from:")+axis_key;
+            const kernel::Vec3 expected{start?-20.:20.,0,3};
+            const auto before=run("documents");
+            auto* point_action=window.findChild<QAction*>("constructionPointAction");
+            check(point_action&&point_action->isEnabled(),"Point command unavailable for axis endpoint test");
+            point_action->trigger();flush();
+            ConstructionPropertiesDialog* point{};
+            for(auto* candidate:window.findChildren<QDialog*>())if(candidate->isVisible())
+                if(auto* typed=dynamic_cast<ConstructionPropertiesDialog*>(candidate))point=typed;
+            check(point,"Point Properties did not open for axis endpoint test");
+            point->findChild<QTableWidget*>("constructionReferenceTable")->cellClicked(0,1);flush();
+            const auto calculations=kernel::body_calculation_count.load();
+            click(hit([&](const auto& candidate){return candidate.owner_id==owner &&
+                candidate.semantic_key==endpoint_key;},true));
+            const auto references=point->populated_references();
+            check(references.size()==1&&references.front().owner_id==owner&&references.front().semantic_key==endpoint_key,
+                "Point entry did not accept the picked drilling endpoint");
+            const auto draft=point->pending_value();
+            check(std::hypot(draft.origin.x-expected.x,draft.origin.y-expected.y,draft.origin.z-expected.z)<1e-8,
+                "Point entry used the visual axis extension instead of the drilling limit");
+            check(kernel::body_calculation_count.load()==calculations&&run("documents")==before,
+                "Axis endpoint selection calculated or changed the document");
+            if(start) {
+                window.grab().save(QString::fromStdString((directory/"holes-axis-endpoint.png").string()));
+                point->buttons()->button(QDialogButtonBox::Cancel)->click();flush();
+                check(run("documents")==before,"Axis endpoint reference Cancel changed the document");
+            } else {
+                point->buttons()->button(QDialogButtonBox::Ok)->click();flush();run("save");
+                const auto saved=document::PartDocument::load(file);
+                const auto* dependent=saved.find_construction(draft.id);
+                check(dependent&&dependent->references.size()==1&&dependent->references.front().semantic_key==endpoint_key&&
+                    dependent->origin==expected,"Native file lost the dependent drilling endpoint reference");
+                run("undo");run("redo");run("save");
+                check(document::PartDocument::load(file).find_construction(draft.id),"Endpoint-dependent Point Redo failed");
+                run("undo");
+            }
+        }
         edit();pending=dialog();
         check(pending->pending_dimension_layout({owner,"parameter:diameter",{}})==committed_layout,"Reopened Holes lost its diameter layout");
         exercise_sketch(pending,"holes-edit-sketch.png");

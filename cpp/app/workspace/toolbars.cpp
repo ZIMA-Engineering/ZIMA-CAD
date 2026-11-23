@@ -19,16 +19,18 @@ void AssemblyWorkspaceWindow::update_document_area_visibility() {
     refresh_named_view_choices();
     const bool web=active_browser_!=nullptr;
     const bool files=active_file_manager_!=nullptr;const bool preview=active_preview_!=nullptr;
-    const bool has_document = workspace_.size() != 0 && !web && !files && !preview;
+    const bool render=active_render_page_!=nullptr;
+    const bool has_document = workspace_.size() != 0 && !web && !files && !preview && !render;
+    if(render_stack_)render_stack_->setVisible(render);
     if (tabs_ != nullptr) tabs_->setVisible(workspace_.size()!=0||!browser_tabs_.empty()||!file_manager_tabs_.empty()||!preview_tabs_.empty());
     if(preview_stack_)preview_stack_->setVisible(preview);
     if(browser_stack_)browser_stack_->setVisible(web);
     if(file_manager_stack_)file_manager_stack_->setVisible(files);
     if (document_splitter_ != nullptr) document_splitter_->setVisible(has_document);
     if (centralWidget() != nullptr) centralWidget()->update();
-    save_action_->setEnabled(has_document);
-    save_as_action_->setEnabled(has_document);
-    close_document_action_->setEnabled(has_document||web||files||preview);
+    save_action_->setEnabled(has_document||render);
+    save_as_action_->setEnabled(has_document||render);
+    close_document_action_->setEnabled(has_document||web||files||preview||render);
     regenerate_document_action_->setVisible(has_document);
     regenerate_document_action_->setEnabled(has_document);
     refresh_file_manager_action_->setVisible(files);
@@ -38,7 +40,7 @@ void AssemblyWorkspaceWindow::update_document_area_visibility() {
     selection_filter_combo_->setEnabled(has_document &&
         !workspace_.open_drawing(workspace_.active_document_id()));
     import_action_->setEnabled(has_document);
-    export_action_->setEnabled(has_document);
+    export_action_->setEnabled(has_document||render);
     parameters_action_->setEnabled(has_document);
     const bool has_editable_model = has_document &&
         (workspace_.open_part(workspace_.active_document_id()) != nullptr ||
@@ -57,10 +59,13 @@ void AssemblyWorkspaceWindow::update_document_area_visibility() {
     }
     update_application_actions();
     if(command_insert_menu_)command_insert_menu_->setEnabled(has_document);
-    if(undo_action_)undo_action_->setEnabled(has_document&&undo_action_->isEnabled());
-    if(redo_action_)redo_action_->setEnabled(has_document&&redo_action_->isEnabled());
-    if(section_action_&&(web||files||preview))section_action_->setEnabled(false);
-    if(measure_action_&&(web||files||preview))measure_action_->setEnabled(false);
+    if(undo_action_)undo_action_->setEnabled((has_document||render)&&undo_action_->isEnabled());
+    if(redo_action_)redo_action_->setEnabled((has_document||render)&&redo_action_->isEnabled());
+    if(render)if(const auto* part=workspace_.open_part(workspace_.active_document_id())) {
+        undo_action_->setEnabled(part->session.can_undo());redo_action_->setEnabled(part->session.can_redo());
+    }
+    if(section_action_&&(web||files||preview||render))section_action_->setEnabled(false);
+    if(measure_action_&&(web||files||preview||render))measure_action_->setEnabled(false);
     refresh_delete_file_actions();
     if(preview)for(auto* action:{rename_document_action_,delete_current_file_action_})action->setEnabled(false);
     if (!has_document && state_ != nullptr) state_->setText(tr("Připraveno."));
@@ -70,7 +75,7 @@ void AssemblyWorkspaceWindow::update_application_actions() {
     if(section_action_)section_action_->setEnabled(workspace_.active_document_id()==workspace_.displayed_document_id()&&!workspace_.open_drawing(workspace_.displayed_document_id())&&!properties_dialog_&&active_sketch_id_.empty()&&!template_sketch());
     for (auto* action : application_actions_) action->setEnabled(false);
     if(application_mode_selector_)application_mode_selector_->hide();
-    if (workspace_.size() == 0 || active_browser_ || active_file_manager_ || active_preview_) return;
+    if (workspace_.size() == 0 || active_browser_ || active_file_manager_ || active_preview_ || active_render_page_) return;
     const auto owner=workspace_.active_document_id();
     const auto saved=document_application_modes_.find(owner);
     active_application_=saved==document_application_modes_.end()
@@ -81,10 +86,12 @@ void AssemblyWorkspaceWindow::update_application_actions() {
         active_application_ = ApplicationMode::Drawing;
     } else if (const auto* part = workspace_.open_part(workspace_.active_document_id())) {
         const bool active_body = !part->session.document().body_history.active_body_id().empty();
-        const bool fem=active_fem_body();
-        application_actions_[static_cast<std::size_t>(ApplicationMode::Modeling)]->setEnabled(!fem);
+        const bool fem=active_fem_body(),render=active_render_body();
+        application_actions_[static_cast<std::size_t>(ApplicationMode::Modeling)]->setEnabled(!fem&&!render);
         application_actions_[static_cast<std::size_t>(ApplicationMode::Fem)]->setEnabled(fem);
-        if(fem)active_application_=ApplicationMode::Fem;
+        application_actions_[static_cast<std::size_t>(ApplicationMode::Render)]->setEnabled(render);
+        if(render)active_application_=ApplicationMode::Render;
+        else if(fem)active_application_=ApplicationMode::Fem;
         else if (active_body) {
             application_actions_[static_cast<std::size_t>(ApplicationMode::SheetMetal)]
                 ->setEnabled(true);
@@ -106,16 +113,17 @@ void AssemblyWorkspaceWindow::update_application_actions() {
         const auto* part=workspace_.open_part(workspace_.active_document_id());
         const bool part_context=part&&
             !part->session.document().body_history.active_body_id().empty();
-        const bool fem=active_fem_body();
+        const bool fem=active_fem_body(),render=active_render_body();
         if(modeling_mode_button_)
-            modeling_mode_button_->setVisible(part_context&&!fem);
+            modeling_mode_button_->setVisible(part_context&&!fem&&!render);
         if(fem_mode_button_)fem_mode_button_->setVisible(fem);
+        if(render_mode_button_)render_mode_button_->setVisible(render);
         if(assembly_mode_button_)
             assembly_mode_button_->hide();
         if(sheet_metal_mode_button_)
-            sheet_metal_mode_button_->setVisible(part_context&&!fem);
+            sheet_metal_mode_button_->setVisible(part_context&&!fem&&!render);
         if(surface_mode_button_)
-            surface_mode_button_->setVisible(part_context&&!fem);
+            surface_mode_button_->setVisible(part_context&&!fem&&!render);
         application_mode_selector_->setVisible(
             part_context&&
             !workspace_.open_drawing(workspace_.displayed_document_id()));
@@ -201,6 +209,7 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
     }
     if(command_insert_menu_){command_insert_menu_->clear();command_insert_menu_->setEnabled(workspace_.size()!=0);}
     tools_toolbar_->clear();
+    if(active_render_page_)return;
     if(active_sketch_id_.empty())sketch_edit_initial_.reset();
     else if(!sketch_edit_initial_||sketch_edit_initial_->id!=active_sketch_id_)
         if(const auto* sketch=active_sketch())sketch_edit_initial_=*sketch;
@@ -219,6 +228,7 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
     const bool drawing =
         workspace_.open_drawing(workspace_.displayed_document_id()) != nullptr;
     const QString heading_text = drawing ? tr("Výkres")
+        : active_render_body() ? tr("Render")
         : active_fem_body() ? tr("FEM")
         : !active_sketch_id_.empty() ? tr("Skica")
         : active_application_ == ApplicationMode::Modeling ? tr("Modelování")
@@ -278,15 +288,34 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
         }
     };
     if (workspace_.size() == 0) return;
-    if(active_fem_body()&&active_sketch_id_.empty()) {
+    if((active_fem_body()||active_render_body())&&active_sketch_id_.empty()) {
         // CAD actions may have shortcuts even when absent from the toolbar.
         // The analysis source is passive; its owner remains the material Body.
         for(auto* action:{sketch_action_,extrusion_action_,revolution_action_,construction_point_action_,construction_axis_action_,construction_plane_action_,
             curve_3d_action_,sweep2d_action_,sweep_3d_action_,helical_curve_action_,helical_sweep_action_,loft_action_,fillet_action_,chamfer_action_,shell_action_,
-            thread_action_,holes_action_,shaft_thread_action_,drill_point_action_,mirror_action_,pattern_action_,body_scale_action_,symbol_action_,create_body_action_,create_fem_action_,body_boolean_action_})if(action)action->setEnabled(false);
+            thread_action_,holes_action_,shaft_thread_action_,drill_point_action_,mirror_action_,pattern_action_,body_scale_action_,symbol_action_,create_body_action_,create_fem_action_,create_render_action_,body_boolean_action_})if(action)action->setEnabled(false);
         for(const auto* name:{"featurePrototypeAction","modelTwistAction","straightenAction","restoreShapeAction","planarSurfaceAction","generalSurfaceAction", "boundarySurfaceAction","surfaceSewingAction","surfaceIntersectionAction","sheetFromBodyAction","flatAction","bendAction","lineBendAction","sheetProfileAction"})
             if(auto* action=findChild<QAction*>(name))action->setEnabled(false);
         for(int i=0;i<6;++i)if(auto* action=findChild<QAction*>(QStringLiteral("featureShortcut%1Action").arg(i)))action->setEnabled(false);
+        if(active_render_body()) {
+            if(!properties_dialog_)viewer_->set_candidate_filter([this](const auto& c){return active_render_object(c.owner_id)!=nullptr;});
+            add_command(selection_action_);
+            for(const auto kind:{document::RenderObjectKind::Camera,document::RenderObjectKind::PointLight,document::RenderObjectKind::Sun}) {
+                const auto key=kind==document::RenderObjectKind::Camera?"Camera":kind==document::RenderObjectKind::Sun?"Sun":"PointLight";
+                auto* action=new QAction(resource_icon(kind==document::RenderObjectKind::Camera?"view-perspective":"point"),
+                    kind==document::RenderObjectKind::Camera?tr("Camera"):kind==document::RenderObjectKind::Sun?tr("Sun"):tr("Point light"),tools_toolbar_);
+                action->setObjectName(QString("render%1Action").arg(key));action->setEnabled(!properties_dialog_);
+                connect(action,&QAction::triggered,this,[this,kind]{show_render_object_properties(kind);});add_command(action);
+            }
+            auto* settings=new QAction(resource_icon("properties"),tr("Render Body properties"),tools_toolbar_);settings->setObjectName("renderBodyPropertiesAction");
+            settings->setEnabled(!properties_dialog_);connect(settings,&QAction::triggered,this,[this]{const auto* part=workspace_.open_part(workspace_.active_document_id());if(part)show_render_body_properties(part->session.document().body_history.active_body_id());});add_command(settings);
+            add_group_separator();
+            auto* render=new QAction(resource_icon("template-image"),tr("Render image"),tools_toolbar_);render->setObjectName("renderImageAction");render->setEnabled(!properties_dialog_);
+            connect(render,&QAction::triggered,this,[this]{start_render();});add_command(render);
+            auto* result=new QAction(resource_icon("template-image"),tr("Render gallery"),tools_toolbar_);result->setObjectName("renderShowResultAction");
+            result->setEnabled(!properties_dialog_&&render_gallery_available());connect(result,&QAction::triggered,this,[this]{show_render_result();});add_command(result);
+            add_command(export_action_);return;
+        }
         if(!properties_dialog_)viewer_->set_candidate_filter([this](const auto& c){return active_fem_condition(c.owner_id)!=nullptr;});
         add_command(selection_action_);
         for(auto kind:{document::FemConditionKind::Constraint,document::FemConditionKind::Force,document::FemConditionKind::Pressure,document::FemConditionKind::HeatSource,document::FemConditionKind::MeasurementPoint,document::FemConditionKind::MeasurementDistance}) {
@@ -431,10 +460,14 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
                 create_fem_action_=new QAction(resource_icon("result-body"),tr("Create FEM"),this);
                 create_fem_action_->setObjectName("createFemAction");
                 connect(create_fem_action_,&QAction::triggered,this,[this]{show_fem_body_properties();});
+                create_render_action_=new QAction(resource_icon("template-image"),tr("Create Render"),this);
+                create_render_action_->setObjectName("createRenderAction");
+                connect(create_render_action_,&QAction::triggered,this,[this]{show_render_body_properties();});
             }
             const auto& graph = part->session.document().body_history;
             create_body_action_->setEnabled(!properties_dialog_ && graph.active_body_id().empty());
             create_fem_action_->setEnabled(!properties_dialog_ && graph.active_body_id().empty());
+            create_render_action_->setEnabled(!properties_dialog_ && graph.active_body_id().empty());
             auto* boolean = body_boolean_action_;
             boolean->setEnabled(!properties_dialog_ && graph.active_body_id().empty() &&
                 graph.available_before(graph.insertion_cursor()).size() >= 2);
@@ -442,6 +475,7 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
             if (!active_body) {
                 add_command(create_body_action_);
                 add_command(create_fem_action_);
+                add_command(create_render_action_);
                 add_command(mirror_action_);
                 add_command(pattern_action_);
                 add_command(body_scale_action_);

@@ -542,6 +542,18 @@ int main() {
                     local_part_body, sketch_wire),
                 "Part Body Tree selection also recoloured Sketch geometry");
         zima::kernel::ViewerMesh cosmetic_thread_mesh;
+        for(const auto* key:{"render:marker:0","fem:mark:0"}) {
+            zima::kernel::ViewerMesh markers;
+            zima::kernel::ViewerEdge marker{{{-2,0,0},{2,0,0}},{"scene-object",key,{}}};
+            marker.overlay=true;marker.display_owner_id="scene-object";markers.edges.push_back(marker);
+            const auto picked=zima::viewer::ordered_viewer_candidates(markers,{0,0,10},{0,0,-1},.01);
+            require(std::ranges::any_of(picked,[](const auto& c){return c.kind==zima::viewer::CandidateKind::Container&&c.owner_id=="scene-object";})&&
+                std::ranges::none_of(picked,[](const auto& c){return c.kind==zima::viewer::CandidateKind::Edge;}),
+                "Render/FEM marker lost its owning object or became a model reference edge");
+            require(zima::viewer::candidate_recolors_wire_edge(
+                {zima::viewer::CandidateKind::Container,0,0,"scene-object"},marker),
+                "Render/FEM object selection did not highlight its authored marker wire");
+        }
         zima::kernel::ViewerEdge cosmetic_thread_edge;
         cosmetic_thread_edge.reference.semantic_key = "thread:wire:test:start";
         cosmetic_thread_edge.display_owner_id = "thread-container";
@@ -1110,8 +1122,10 @@ int main() {
                 "Ordinary Reference command did not retain its individual source kinds");
             require(zima::app::sketch_external_reference_candidate_kinds(true)==
                 std::vector{zima::viewer::CandidateKind::Edge,
-                    zima::viewer::CandidateKind::Face},
-                "Reference to outline stopped selecting body edges or circular faces");
+                    zima::viewer::CandidateKind::Face,
+                    zima::viewer::CandidateKind::SketchSegment,
+                    zima::viewer::CandidateKind::SketchCurve},
+                "Reference to outline lost its body or native Sketch curve selection kinds");
             for(const auto kind:{zima::viewer::CandidateKind::Edge,zima::viewer::CandidateKind::Axis,
                     zima::viewer::CandidateKind::Plane,zima::viewer::CandidateKind::Vertex,
                     zima::viewer::CandidateKind::SketchSegment,zima::viewer::CandidateKind::SketchCurve,

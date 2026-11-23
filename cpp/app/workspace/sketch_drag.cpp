@@ -96,16 +96,9 @@ bool AssemblyWorkspaceWindow::begin_sketch_point_drag(
         if (first && second) {
             std::string shared_point_id;
             std::string offered_corner_point_id;
-            for (const auto& first_point_id : *first) {
-                for (const auto& second_point_id : *second) {
-                    if (first_point_id == second_point_id) {
-                        shared_point_id = first_point_id;
-                        if (candidate.semantic_key == "point:" + first_point_id)
-                            offered_corner_point_id = first_point_id;
-                        break;
-                    }
-                }
-                if (!shared_point_id.empty()) break;
+            if(const auto junction=zima::sketcher::fillet_curve_junction(*sketch,selected_segments[0],selected_segments[1])) {
+                shared_point_id=(*junction)[0];
+                for(const auto& point:*junction)if(candidate.semantic_key=="point:"+point)offered_corner_point_id=point;
             }
             const bool pressed_shared_point =
                 candidate.kind == zima::viewer::CandidateKind::SketchPoint &&

@@ -5,14 +5,25 @@ static int verify_sketch_curve_fillet_ui(QApplication& application,const std::fi
     try {
         QTemporaryDir isolated(QString::fromStdString((parent/"curve-fillet-ui-XXXXXX").string()));require(isolated.isValid(),"Cannot isolate curve fillet GUI test");
         const auto directory=std::filesystem::u8path(isolated.path().toStdString());unsigned cases{};
-        for(bool assembly_mode:{false,true})for(bool real:{false,true})for(unsigned type=0;type<5;++type)for(bool reverse:{false,true}) {
+        for(bool assembly_mode:{false,true})for(bool real:{false,true})for(unsigned type=0;type<7;++type)for(bool reverse:{false,true}) {
             if(assembly_mode&&!real)continue;
+            if(type==6&&real)continue;
             std::cout<<"Curve fillet GUI "<<real<<' '<<type<<' '<<reverse<<" assembly="<<assembly_mode<<std::endl;
             auto s=Sketch::create_default();std::array<std::string,2> curves{s.add_segment(0,0,25,0),{}};
             if(type==0)curves[1]=s.add_segment(0,0,0,20);
             if(type==1)curves[1]=s.add_arc(-10,0,0,0,-10,10);
             if(type==2)curves[1]=s.add_elliptical_arc(-15,0,0,0,-15,10,0,0,-15,10);
-            if(type>=3)curves[1]=s.add_bspline({{0,0},{0,7},{5,14},{12,20}},3,false,false,1e-6,type==4);
+            if(type>=3&&type<5)curves[1]=s.add_bspline({{0,0},{0,7},{5,14},{12,20}},3,false,false,1e-6,type==4);
+            if(type>=5) {
+                s=Sketch::create_default();
+                curves[1]=s.add_arc(-10,0,0,0,-10,10);
+                if(type==5)curves[0]=s.add_arc(0,-10,10,-10,0,0);
+                else {
+                    const auto source=s.add_arc(0,-10,11,-10,-11,-10,true);
+                    curves[0]=s.add_offset(source,1,false);
+                    static_cast<void>(s.retain_curve_intervals(curves[0],{{0,.5}}));
+                }
+            }
             s.constraints.clear();if(reverse)std::swap(curves[0],curves[1]);
             auto authored=part(s);s=authored.sketches[0];const auto file=directory/("fillet-"+std::to_string(cases)+(assembly_mode?".asmz":".prtz"));
             if(assembly_mode) {
@@ -32,7 +43,7 @@ static int verify_sketch_curve_fillet_ui(QApplication& application,const std::fi
             } else authored.save(file);
             const std::array<const char*,5> languages{"cs","en","de","fr","ru"};
             QSettings config(isolated.filePath("config.ini"),QSettings::IniFormat);
-            config.setValue("Application/Language",languages[type]);
+            config.setValue("Application/Language",languages[type%languages.size()]);
             config.setValue("Paths/Localization",QString::fromStdString(std::filesystem::absolute("config/localization").string()));config.sync();
             const auto settings=app::ApplicationSettings::load(isolated.path());
             app::AssemblyWorkspaceWindow window(isolated.path());window.setAttribute(Qt::WA_DontShowOnScreen);window.resize(1200,900);window.show();flush();

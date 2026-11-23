@@ -495,10 +495,11 @@ void AssemblyWorkspaceWindow::set_sketch_tangent_contract() {
                 pending_external)
                 return false;
             const bool pending_spline=sketch && std::ranges::any_of(sketch->bsplines,
-                [&](const auto& value){return value.id==pending_geometry_id;});
+                [&](const auto& value){return value.id==pending_geometry_id;}) && !sketch->circular_radius(pending_geometry_id);
             if (pending_spline && candidate.kind == zima::viewer::CandidateKind::SketchExternalReference)
                 return false;
-            const bool candidate_spline=candidate.semantic_key.starts_with("bspline:");
+            const bool candidate_spline=candidate.semantic_key.starts_with("bspline:") &&
+                (!sketch || !sketch->circular_radius(candidate.semantic_key.substr(8)));
             if (candidate_spline && pending_external) return false;
             if ((pending_spline && candidate.kind==zima::viewer::CandidateKind::SketchCurve) ||
                 (candidate_spline && !reference_is_segment)) {
@@ -582,7 +583,7 @@ void AssemblyWorkspaceWindow::accept_sketch_tangent_selection(
         pending_tangent_reference_is_segment_ = is_segment;
         pending_tangent_reference_supports_curve_pair_ = supports_curve_pair;
         set_sketch_tangent_contract();
-        if (candidate.semantic_key.starts_with("bspline:")) {
+        if (candidate.semantic_key.starts_with("bspline:") && !active_sketch()->circular_radius(geometry_id)) {
             state_->setText(tr("Tečná vazba: vyberte druhou splinu se společným koncovým bodem C, "
                 "stejnou splinu s konci spojenými C (alespoň 4 různé body), nebo úsečku."));
             return;

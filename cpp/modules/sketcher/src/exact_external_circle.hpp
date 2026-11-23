@@ -79,4 +79,24 @@ inline std::optional<ExactExternalCircle> exact_external_circle(const kernel::BS
         std::hypot(result.first[0]-result.last[0],result.first[1]-result.last[1])<=1e-10*std::max(1.,result.radius);
     return result;
 }
+// Derived circular supports are immutable outputs, even when represented by
+// NURBS. Evaluate their current source instead of the last display cache so
+// source dimensions participate in the same constraint transaction.
+inline std::optional<ExactExternalCircle> exact_derived_circle(
+    const Sketch& sketch, const std::string& id) {
+    double first=0.,last=1.;
+    if(const auto* offset=sketch.find_offset(id)) {
+        if(offset->broken)return {};
+        first=offset->start;last=offset->end;
+    } else {
+        const auto trim=std::ranges::find(sketch.curve_trims,id,&SketchCurveTrim::id);
+        if(trim==sketch.curve_trims.end()||trim->broken)return {};
+        first=trim->start;last=trim->end;
+    }
+    try {
+        auto curve=sketch.supporting_curve(id);
+        if(first!=0.||last!=1.)curve=trim_curve_geometry(curve,first,last);
+        return exact_external_circle(curve);
+    } catch(const std::exception&) {return {};}
+}
 } // namespace zima::sketcher::detail

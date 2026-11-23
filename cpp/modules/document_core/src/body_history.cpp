@@ -78,11 +78,12 @@ void BodyHistoryGraph::sort_bodies() {
 }
 
 void BodyHistoryGraph::validate() const {
-    std::set<std::string> identities, preceding, available, entries, fem_identities;
+    std::set<std::string> identities, preceding, available, entries, non_material_identities;
     for (const auto& body : bodies_) {
         if (body.scope.id.empty() || !identities.insert(body.scope.id).second)
             throw std::invalid_argument("Body identity is empty or duplicated");
-        if(body.fem)fem_identities.insert(body.scope.id);
+        if(body.kind()!=BodyKind::Material)non_material_identities.insert(body.scope.id);
+        if(body.fem&&body.render)throw std::invalid_argument("Invalid Render definition.");
     }
     for (const auto& op : booleans_)
         if (op.id.empty() || !identities.insert(op.id).second)
@@ -94,6 +95,9 @@ void BodyHistoryGraph::validate() const {
     for(const auto& body:bodies_)if(body.fem)for(const auto& condition:body.fem->conditions)
         if(!condition_ids.insert(condition.id).second)
             throw std::invalid_argument("Invalid FEM condition definition.");
+    for(const auto& body:bodies_)if(body.render)for(const auto& object:body.render->objects)
+        if(!condition_ids.insert(object.id).second)
+            throw std::invalid_argument("Invalid Render definition.");
     for (const auto& id : order_) {
         if (!identities.contains(id) || preceding.contains(id))
             throw std::invalid_argument("Every body or Boolean must occur once in history");
@@ -108,10 +112,32 @@ void BodyHistoryGraph::validate() const {
                 const auto& source=body->fem->source_id;
                 const auto* source_body=find(source);
                 if(owner(source)||(identities.contains(source)&&!preceding.contains(source))||
-                        (source_body&&source_body->fem))
+                        (source_body&&source_body->kind()!=BodyKind::Material))
                     throw std::invalid_argument("FEM requires a preceding material Body or Boolean result.");
                 // A deleted source remains an explicit broken reference. Keep
                 // the analysis definition for repair; never replace its source.
+            }
+            if(body->render) {
+                validate_render_definition(*body->render);
+                if(body->link||body->scale||body->derived_copy||!body->entries.empty()||
+                        body->cursor||!body->dependencies.empty()||body->scope.placement!=Placement{})
+                    throw std::invalid_argument("A Render Body cannot own material history or placement.");
+                for(const auto& source:body->render->source_ids) {
+                    const auto* source_body=find(source);
+                    if(owner(source)||(identities.contains(source)&&!preceding.contains(source))||
+                            (source_body&&source_body->kind()!=BodyKind::Material))
+                        throw std::invalid_argument("Render requires preceding material Bodies or Boolean results.");
+                }
+                for(const auto& object:body->render->objects)for(const auto& reference:object.placement.references) {
+                    auto reference_id=reference.owner_id;
+                    if(reference_id.ends_with(":origin"))reference_id.resize(reference_id.size()-7);
+                    const auto* reference_owner=owner(reference_id);
+                    const auto& branch=reference_owner?reference_owner->scope.id:reference_id;
+                    if(non_material_identities.contains(branch)||
+                            (condition_ids.contains(branch)&&!identities.contains(branch))||
+                            (identities.contains(branch)&&!preceding.contains(branch)))
+                        throw std::invalid_argument("Invalid Render definition.");
+                }
             }
             if(body->link&&(body->derived_copy||body->scale||!body->entries.empty()||body->cursor||
                 body->link->document_id.empty()||body->link->body_id.empty()||body->link->source_path.empty()||
@@ -157,7 +183,7 @@ void BodyHistoryGraph::validate() const {
             for (const auto& reference : placement.references)
                 if (!std::isfinite(reference.offset)) throw std::invalid_argument("Body reference offset must be finite");
             for (const auto& dependency : body->dependencies)
-                if (!preceding.contains(dependency)||fem_identities.contains(dependency)) throw std::invalid_argument("Body reference must precede its dependent body");
+                if (!preceding.contains(dependency)||non_material_identities.contains(dependency)) throw std::invalid_argument("Body reference must precede its dependent body");
             for (const auto& entry : body->entries) {
                 if (entry.id.empty() || identities.contains(entry.id) || !entries.insert(entry.id).second)
                     throw std::invalid_argument("Every history entry must have exactly one body owner");
@@ -173,7 +199,7 @@ void BodyHistoryGraph::validate() const {
                 throw std::invalid_argument("Boolean requires two distinct available preceding results");
         }
         preceding.insert(id);
-        if(!fem_identities.contains(id))available.insert(id);
+        if(!non_material_identities.contains(id))available.insert(id);
     }
     if (!active_.empty() && (!find(active_) || find(active_)->derived_copy || find(active_)->scale || find(active_)->link)) throw std::invalid_argument("Active body does not exist");
     if(!active_.empty() && find(active_)->suppressed)
@@ -276,6 +302,42 @@ FemSourceState BodyHistoryGraph::fem_source_state(const std::string& body_id) co
     return FemSourceState::Missing;
 }
 
+std::string BodyHistoryGraph::create_render(BodyHistory body) {
+    if(!body.render)throw std::invalid_argument("Invalid Render definition.");
+    for(const auto& id:body.render->source_ids)if(!find(id)&&!find_boolean(id))
+        throw std::invalid_argument("Select at least one Render source Body.");
+    if(body.scope.id.empty())body.scope.id=zima::kernel::make_stable_id();
+    const auto id=body.scope.id;auto next=*this;
+    next.order_.insert(next.order_.begin()+static_cast<std::ptrdiff_t>(cursor_),id);
+    next.bodies_.push_back(std::move(body));next.sort_bodies();++next.cursor_;next.active_=id;
+    next.validate();*this=std::move(next);return id;
+}
+
+RenderSourceState BodyHistoryGraph::render_source_state(const std::string& body_id) const {
+    const auto* scene=find(body_id);
+    if(!scene||!scene->render)throw std::invalid_argument("The requested Render Body does not exist.");
+    const auto sources=render_sources(body_id);if(sources.empty())return RenderSourceState::Missing;
+    for(const auto& id:sources) {
+        if(const auto* source=find(id)){if(source->suppressed)return RenderSourceState::Suppressed;}
+        else if(const auto* source=find_boolean(id)){if(source->suppressed)return RenderSourceState::Suppressed;}
+        else return RenderSourceState::Missing;
+    }
+    return RenderSourceState::Available;
+}
+
+std::vector<std::string> BodyHistoryGraph::render_sources(const std::string& body_id) const {
+    const auto* scene=find(body_id);
+    if(!scene||!scene->render)throw std::invalid_argument("The requested Render Body does not exist.");
+    if(!scene->render->visible_bodies)return scene->render->source_ids;
+    const auto boundary=std::ranges::find(order_,body_id)-order_.begin();
+    auto sources=available_before(static_cast<std::size_t>(boundary));
+    std::erase_if(sources,[&](const auto& id){
+        if(const auto* body=find(id))return !body->visible||body->suppressed;
+        const auto* boolean=find_boolean(id);return !boolean||!boolean->visible||boolean->suppressed;
+    });
+    return sources;
+}
+
 void BodyHistoryGraph::activate(const std::string& id) {
     if (!id.empty() && !find(id)) throw std::invalid_argument("Body does not exist");
     if(!id.empty()&&find(id)->suppressed)throw std::invalid_argument("Restore the Body before activating it.");
@@ -356,7 +418,7 @@ std::vector<std::string> BodyHistoryGraph::available_before(std::size_t boundary
     for (std::size_t index = 0; index < boundary; ++index) {
         const auto& id = order_[index];
         const auto* body=find(id);
-        if(body&&body->fem)continue;
+        if(body&&body->kind()!=BodyKind::Material)continue;
         if (const auto* operation = find_boolean(id)) {
             available.erase(operation->target_id); available.erase(operation->tool_id);
         }
@@ -371,6 +433,10 @@ std::vector<std::string> BodyHistoryGraph::available_before(std::size_t boundary
 }
 
 std::vector<std::string> BodyHistoryGraph::visible_context() const {
+    if(const auto* body=find(active_);body&&body->render) {
+        if(render_source_state(active_)!=RenderSourceState::Available)return {};
+        return render_sources(active_);
+    }
     if(const auto* body=find(active_);body&&body->fem) {
         if(fem_source_state(active_)!=FemSourceState::Available)return {};
         return {body->fem->source_id};
@@ -442,7 +508,7 @@ std::vector<zima::kernel::HistoryOperation> BodyHistoryGraph::compile(const Comp
             continue;
         }
         const auto& body = *find(id);
-        if(body.fem)continue;
+        if(body.kind()!=BodyKind::Material)continue;
         if(body.link) {
             zima::kernel::HistoryOperation operation;operation.owner_id=id;operation.body.id=id;
             operation.body.result_suppressed=body.suppressed;operation.body.linked_body=body.link->calculated;
@@ -519,6 +585,11 @@ std::string BodyHistoryGraph::serialized() const {
     validate();
     auto bodies = nlohmann::json::array();
     for (const auto& body : bodies_) {
+        if(body.render) {
+            bodies.push_back({{"kind","render"},{"id",body.scope.id},{"name",body.name},
+                {"visible",body.visible},{"suppressed",body.suppressed},{"definition",*body.render}});
+            continue;
+        }
         if(body.fem) {
             bodies.push_back({{"kind","fem"},{"id",body.scope.id},{"name",body.name},
                 {"visible",body.visible},{"suppressed",body.suppressed},{"definition",*body.fem}});
@@ -555,8 +626,9 @@ BodyHistoryGraph BodyHistoryGraph::from_serialized(std::string_view source) {
         body.visible = row.at("visible").get<bool>();
         body.suppressed = row.at("suppressed").get<bool>();
         if(row.contains("kind")) {
-            if(row.at("kind")!="fem")throw std::invalid_argument("Unsupported Body kind.");
-            body.fem=row.at("definition").get<FemDefinition>();
+            if(row.at("kind")=="fem")body.fem=row.at("definition").get<FemDefinition>();
+            else if(row.at("kind")=="render")body.render=row.at("definition").get<RenderDefinition>();
+            else throw std::invalid_argument("Unsupported Body kind.");
             graph.bodies_.push_back(std::move(body));
             continue;
         }

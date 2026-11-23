@@ -5,14 +5,22 @@ followed by verification, documentation, commit/push and another Windows release
 The user approved this native-storage scope and verification plan on 2026-11-22,
 including protected-project checks on recoverable copies without overwriting
 originals. This satisfies the separate format agreement required by AGENTS.md.
-No Render format or product implementation has been changed yet.
+Native rendering, persistence and the first GUI/export matrix are implemented
+and verified locally. Start-template regeneration and GUI creation passed;
+factory FORM copies were recalculated and reopened. Packaged-release acceptance
+is still in progress. See the [user workflow](RENDER.md) and
+[finite Windows verification](verification/20261123-render-and-hole-properties.md).
 
 ## User workflow
 
-Create a Render Body from an already calculated material Body in the same Part.
-It references that source, following the existing FEM Body organization, and
-owns cameras, lights and render settings. It does not create material geometry.
-The first delivery targets one source Body, including a calculated Body Boolean;
+Create a Render Body in the same Part, following the FEM Body organization.
+It owns cameras, lights and render settings without creating material geometry.
+On 2026-11-23 the user approved a shared scene from visible Bodies by default,
+with an optional explicit selection of multiple source Bodies or Boolean results.
+All included Bodies share lighting, shadows and reflections. Source candidates
+precede the Render Body in history; visible mode uses available material results
+and excludes consumed inputs, hidden/suppressed Bodies and other Render/FEM Bodies.
+Explicit selection retains its chosen identities independently of View visibility.
 Assembly scenes and animation are later work.
 
 Initialize one camera from the current View and one useful default light. The
@@ -33,7 +41,7 @@ as PNG or JPEG. No external rendering application is required.
 
 Keep the existing native extensions. Add a Render definition to the Body graph:
 
-- Stable Render Body identity/name and an earlier material source Body ID.
+- Stable Render Body identity/name, source-selection mode and earlier material source Body IDs.
 - Stable camera/light IDs, names, visibility/enabled state and their complete
   ordinary placements, including references and retained resolved frames.
 - Camera field of view and the active camera ID.
@@ -42,9 +50,20 @@ Keep the existing native extensions. Add a Render definition to the Body graph:
   the initial background colors copied from the View.
 
 All required information belongs in `.prtz`, including when the Part is embedded
-in another native document. Render pixels, acceleration structures and intermediate
-samples are disposable derived data. Image export is an optional output, never a
+in another native document. Explicitly retained image pixels and thumbnails also live in the Render
+definition. Live previews, acceleration structures and intermediate samples
+remain disposable derived data. Image export is an optional output, never a
 required sidecar for reopening or rendering the document.
+
+Image export reuses the existing **File > Export (F7)** action, shared file
+dialog and atomic image encoder. In the Render workspace this action exports
+the explicitly selected completed snapshot as JPEG or PNG at its pixel dimensions;
+it does not capture the modeling viewport or its markers. A right-toolbar
+shortcut uses that same action. Normal Save still writes the native Part and
+the Render definition, including retained images. Export cancellation and file-write errors must leave
+the document and an existing output file intact. A missing image must not silently export another image. Earlier model states
+remain exportable as explicitly labelled snapshots. This follows the user's request
+on 2026-11-23 to match the application's existing export workflow.
 
 A missing/suppressed source remains an explicit repairable dependency. Camera
 and light reference loss retains the last valid position/orientation and marks
@@ -72,8 +91,9 @@ normals, sampled lights/reflections and progressive image accumulation. Its
 quality and performance must be measured on real curved Bodies before acceptance;
 the existing viewport image alone is not a completed high-quality renderer.
 
-Background work owns its immutable input. Cancellation, closing a document or
-changing the source invalidates pending publication. A cache is reusable only
+Background work owns its immutable input. Explicit cancellation or closing the
+owning document stops its job. Source edits allow the captured batch to finish
+as an earlier-state snapshot. A result describes the current model only
 when all actual source geometry, appearance and render inputs match. No reduced
 model precision or persistent approximated geometry is introduced for speed.
 
@@ -118,3 +138,25 @@ generic test descriptions and contain no private project identifiers.
   the same camera/light/settings definitions.
 - Verify the packaged Windows runtime, native dependency closure, signed/public
   archive and updater. Report native Linux execution separately.
+
+## Gallery and background snapshot scope agreed on 2026-11-23
+
+The user approved a separate Render tab and several explicitly retained images
+inside `.prtz`. The right command toolbar exposes **Render gallery** when images
+or a job are available. Rendering captures an immutable input batch; later
+modeling edits do not cancel that batch. Closing the tab does not stop the job.
+Completed earlier states remain exportable and retainable with an explicit
+snapshot label. A dedicated Stop action cancels the worker.
+
+The additive Render definition stores image identity, authored name, capture
+time, dimensions, compressed PNG bytes and a thumbnail. Immutable buffers are
+shared through document edits and Undo; no required sidecar is introduced. This
+extends the previously approved Render-only native schema, not ordinary Body
+serialization. Re-run the existing factory/start-template and protected-copy
+checks with the final implementation; never overwrite protected originals.
+
+Acceptance adds actual tab switching during rendering and model editing,
+unchanged snapshot pixels after source edits, Stop versus tab close, two retained
+images, rename/delete Undo/Redo, export, native save/reopen without a new job,
+five-language controls and Light -> Dark -> Light. Record measured interaction
+costs and finite coverage before publication.

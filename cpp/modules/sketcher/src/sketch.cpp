@@ -1195,6 +1195,7 @@ std::optional<double> circular_curve_radius(
         if (reference.id != geometry_id) continue;
         if (const auto circle = external_reference_circle(reference)) return (*circle)[2];
     }
+    if(const auto circle=detail::exact_derived_circle(sketch,geometry_id))return circle->radius;
     return std::nullopt;
 }
 
@@ -1268,6 +1269,16 @@ std::optional<std::array<double, 2>> tangent_curve_center(
 
 std::optional<TangentCurveData> tangent_curve_data(
     const Sketch& sketch, const std::string& geometry_id) {
+    if(const auto circle=detail::exact_derived_circle(sketch,geometry_id)) {
+        TangentCurveData result{"",circle->radius,0.,0.,circle->radius};
+        result.circular_radius=circle->radius;result.external_center=circle->center;
+        if(!circle->closed) {
+            const double start=std::atan2(circle->first[1]-circle->center[1],circle->first[0]-circle->center[0]);
+            result.parameter_domain=circle->sweep>=0. ? std::pair{start,start+circle->sweep}
+                : std::pair{start+circle->sweep,start};
+        }
+        return result;
+    }
     if (const auto circle = std::find_if(
             sketch.circles.begin(), sketch.circles.end(),
             [&](const auto& value) { return value.id == geometry_id; });
@@ -2563,14 +2574,11 @@ void Sketch::validate() const {
     };
     ids.clear();
     for (const auto& radius : corner_radii) {
-        const auto first = fillet_curve_endpoints(*this, radius.first_segment_id);
-        const auto second = fillet_curve_endpoints(*this, radius.second_segment_id);
-        const auto owns = [&](const auto& ends) { return ends &&
-            ((*ends)[0] == radius.vertex_id || (*ends)[1] == radius.vertex_id); };
+        const auto junction=fillet_curve_junction(*this,radius.first_segment_id,radius.second_segment_id);
         if (radius.id.empty() || !ids.insert(radius.id).second ||
             radius.vertex_id.empty() || find_point(radius.vertex_id) == nullptr ||
             radius.first_segment_id == radius.second_segment_id ||
-            !owns(first) || !owns(second) ||
+            !junction || (radius.vertex_id!=(*junction)[0]&&radius.vertex_id!=(*junction)[1]) ||
             !std::isfinite(radius.radius) || radius.radius < 0.0) {
             throw std::runtime_error("Sketch corner radius is invalid");
         }
@@ -6554,7 +6562,8 @@ std::string Sketch::add_tangent_constraint(
     auto reference_geometry_id = reference_input_id;
     auto driven_geometry_id = driven_input_id;
     const auto is_external = [&](const std::string& id) {
-        return std::ranges::any_of(external_references, [&](const auto& ref) { return ref.id == id; });
+        return detail::exact_derived_circle(*this,id).has_value() ||
+            std::ranges::any_of(external_references, [&](const auto& ref) { return ref.id == id; });
     };
     // An external reference is immutable regardless of selection order.
     if (is_external(driven_geometry_id) && !is_external(reference_geometry_id))
@@ -6622,6 +6631,15 @@ std::string Sketch::add_tangent_constraint(
                       sketch_keypoint_geometry_id(constraint.second_point_id) == curve_id));
             });
     };
+    if(resolved_contact_point_id.empty() && curve_pair) {
+        for(const auto& contact:constraints) {
+            if(contact.suppressed || contact.kind!=ConstraintKind::PointOnCircle)continue;
+            if(persisted_curve_contact(reference_geometry_id,contact.first_point_id) &&
+               persisted_curve_contact(driven_geometry_id,contact.first_point_id)) {
+                resolved_contact_point_id=contact.first_point_id;break;
+            }
+        }
+    }
     if(resolved_contact_point_id.empty() && curve_pair) {
         for(const auto& arc:arcs) {
             if(arc.id!=reference_geometry_id && arc.id!=driven_geometry_id)continue;
@@ -8356,20 +8374,15 @@ CornerFilletResult Sketch::add_corner_fillet(
     if (!first || !second) {
         throw std::invalid_argument("Corner radius segments do not exist");
     }
-    std::string vertex_id;
-    for (const auto& point_id : *first) {
-        if (point_id == (*second)[0] || point_id == (*second)[1]) {
-            vertex_id = point_id;
-            break;
-        }
-    }
+    const auto junction=fillet_curve_junction(next,first_segment_id,second_segment_id);
+    const std::string vertex_id=junction?(*junction)[0]:std::string{};
     if (vertex_id.empty()) {
         throw std::invalid_argument(
             "Corner radius segments do not share one topology vertex");
     }
     auto existing = std::find_if(next.corner_radii.begin(), next.corner_radii.end(),
         [&](const auto& value) {
-            return value.vertex_id == vertex_id &&
+            return (value.vertex_id == (*junction)[0] || value.vertex_id == (*junction)[1]) &&
                 ((value.first_segment_id == first_segment_id &&
                   value.second_segment_id == second_segment_id) ||
                  (value.first_segment_id == second_segment_id &&
@@ -11379,7 +11392,11 @@ SolveResult Sketch::solve(std::size_t maximum_iterations) {
             return reference!=external_references.end()&&
                 external_reference_circle(*reference).has_value();
         });
-    if(result.status==SolveStatus::Conflicting&&(symmetric_external_circle_component||
+    const bool derived_circle_contact=std::ranges::any_of(constraints,[&](const auto& c) {
+        return !c.suppressed&&(c.kind==ConstraintKind::PointOnCircle||c.kind==ConstraintKind::Tangent)&&
+            (detail::exact_derived_circle(*this,c.geometry_id)||detail::exact_derived_circle(*this,c.second_geometry_id));
+    });
+    if(result.status==SolveStatus::Conflicting&&(derived_circle_contact||symmetric_external_circle_component||
        std::ranges::any_of(dimensions,[](const auto& d){
         return !d.suppressed&&d.driving&&d.kind==DimensionKind::AngleBetween;
     })||std::ranges::any_of(constraints,[&](const auto& c){return !c.suppressed&&
@@ -15089,6 +15106,14 @@ SolveResult Sketch::solve_impl(
         for (const auto& point_id : spline.control_point_ids) {
             append_entity(spline.id, point_id);
         }
+    }
+    // Circular derived supports read their current native source in C/T
+    // equations. Colour those source columns together with the contact;
+    // perturbing both independently in one batch would cancel their residual.
+    for(const auto& offset:offsets)if(detail::exact_derived_circle(*this,offset.id)) {
+        auto source=offset.source_id;
+        while(const auto* parent=find_offset(source))source=parent->source_id;
+        append_entity(offset.id,source);
     }
 
     // Generated keypoint coordinates depend on the curve's native variables.

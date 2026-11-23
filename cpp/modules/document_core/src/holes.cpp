@@ -1,4 +1,5 @@
 #include <zima/document/holes.hpp>
+#include <zima/kernel/profile_centerlines.hpp>
 #include <algorithm>
 #include <cmath>
 #include <numbers>
@@ -54,6 +55,8 @@ kernel::FeatureGroupRequest holes_request(const HistoryContainer& feature,
         group.axes.push_back({{(start.x+end.x)*.5,(start.y+end.y)*.5,(start.z+end.z)*.5},
             {direction.x/length,direction.y/length,direction.z/length}, length+2.0,
             {feature.id,"axis:profile:holes:"+feature.feature_id+":from:"+segment.id,{}},"Osa otvoru"});
+        kernel::profile_centerlines::endpoints(group.reference_points,feature.id,
+            group.axes.back().reference.semantic_key,start,end);
         group.children.emplace_back(std::move(bore));
     }
     if (group.children.empty()) throw std::invalid_argument("Nakreslete alespoň jednu nekonstrukční úsečku otvoru.");
@@ -67,6 +70,7 @@ kernel::ViewerMesh holes_preview(const HistoryContainer& feature,
         return result;
     const auto request = holes_request(feature, sketch);
     result.axes = request.axes;
+    result.points = request.reference_points;
     result.edges.reserve(request.children.size() * 6);
     std::string dimension_segment;
     const auto cross = [](const kernel::Vec3& a, const kernel::Vec3& b) {

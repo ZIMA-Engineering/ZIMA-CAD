@@ -14,6 +14,14 @@ using namespace workspace_detail;
 
 
 void AssemblyWorkspaceWindow::show_tree_item_properties(QTreeWidgetItem* item) {
+    if(item&&item->data(0,Qt::UserRole+3)=="render-object") {
+        const auto id=item->data(0,Qt::UserRole).toString().toStdString();
+        if(const auto* object=active_render_object(id))show_render_object_properties(object->kind,id);return;
+    }
+    if(item&&item->data(0,Qt::UserRole+3)=="render-sources") {
+        show_render_body_properties(item->data(0,Qt::UserRole).toString().toStdString());return;
+    }
+    if(active_render_body()&&item&&item->data(0,Qt::UserRole+3)!="part-body")return;
     if(item&&item->data(0,Qt::UserRole+3)=="fem-condition") {
         const auto id=item->data(0,Qt::UserRole).toString().toStdString();
         if(const auto* condition=active_fem_condition(id))show_fem_condition_properties(condition->kind,id);return;
@@ -135,7 +143,9 @@ void AssemblyWorkspaceWindow::show_tree_item_properties(QTreeWidgetItem* item) {
     if (kind == "part-body") {
         const auto* part=workspace_.open_part(workspace_.active_document_id());
         const auto* body=part?part->session.document().body_history.find(id):nullptr;
-        if(body&&body->fem)show_fem_body_properties(id);
+        if(body&&body->render)show_render_body_properties(id);
+        else if(active_render_body())return;
+        else if(body&&body->fem)show_fem_body_properties(id);
         else if(active_fem_body())return;
         else if(body&&body->scale)show_body_scale_properties(id);
         else if(body&&body->derived_copy)show_derived_copy_properties(id);else show_body_properties(id);return;

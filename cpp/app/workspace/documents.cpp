@@ -233,6 +233,7 @@ QString AssemblyWorkspaceWindow::create_document(
 }
 
 void AssemblyWorkspaceWindow::close_document(int tab_index) {
+    if(close_render_tab(tab_index<0?tabs_->currentIndex():tab_index))return;
     if(close_browser(tab_index<0?tabs_->currentIndex():tab_index))return;
     if(close_file_manager(tab_index<0?tabs_->currentIndex():tab_index))return;
     if(close_model_preview(tab_index<0?tabs_->currentIndex():tab_index))return;
@@ -384,6 +385,7 @@ bool AssemblyWorkspaceWindow::open_document_path(const QString& path) {
 }
 
 void AssemblyWorkspaceWindow::finish_document_switch(bool opening) {
+    active_render_page_=nullptr;
     active_browser_=nullptr;
     active_file_manager_=nullptr;
     active_preview_=nullptr;
@@ -412,6 +414,7 @@ void AssemblyWorkspaceWindow::synchronize_instance_files() {
 }
 void AssemblyWorkspaceWindow::refresh_tabs() {
     synchronize_instance_files();
+    refresh_render_tabs();
     const int previous_index=tabs_->currentIndex();
     tabs_->blockSignals(true);
     while (tabs_->count() > 0) tabs_->removeTab(0);
@@ -468,6 +471,11 @@ void AssemblyWorkspaceWindow::refresh_tabs() {
         if(active_file_manager_==page){displayed_index=index;displayed_label=label;}
     }
     for(const auto& [id,page]:preview_tabs_){const QString label=QFileInfo(id.mid(8)).fileName();const int index=tabs_->addTab(resource_icon("file-manager"),label);tabs_->setTabData(index,id);if(active_preview_==page){displayed_index=index;displayed_label=label;}}
+    for(const auto& [id,page]:render_tabs_) {
+        const auto label=page->property("renderTitle").toString();
+        const int index=tabs_->addTab(resource_icon("template-image"),label);tabs_->setTabData(index,id);
+        if(active_render_page_==page){displayed_index=index;displayed_label=label;}
+    }
     for (int index = 0; index < tabs_->count(); ++index) {
         // Keep the slot width stable, with the close button near the tab's right edge.
         auto* close_slot = new QWidget(tabs_);
@@ -479,7 +487,7 @@ void AssemblyWorkspaceWindow::refresh_tabs() {
         auto* dirty_marker=new QLabel(close_slot);dirty_marker->setObjectName("documentTabDirtyMarker");
         dirty_marker->setFixedSize(12,22);dirty_marker->setAlignment(Qt::AlignCenter);
         const auto tab_id=tabs_->tabData(index).toString();
-        const bool utility=browser_tabs_.contains(tab_id)||file_manager_tabs_.contains(tab_id)||preview_tabs_.contains(tab_id);
+        const bool utility=browser_tabs_.contains(tab_id)||file_manager_tabs_.contains(tab_id)||preview_tabs_.contains(tab_id)||render_tabs_.contains(tab_id);
         const bool dirty=!utility &&
             workspace::document_needs_save(workspace_,tabs_->tabData(index).toString().toStdString());
         dirty_marker->setText(dirty?QStringLiteral("*"):QString{});
@@ -490,7 +498,7 @@ void AssemblyWorkspaceWindow::refresh_tabs() {
         close->setObjectName("documentTabCloseButton");
         close->setFixedSize(26, 22);
         close->setFocusPolicy(Qt::NoFocus);
-        const QString close_text=file_manager_tabs_.contains(tab_id)?tr("Zavřít Správce souborů"):
+        const QString close_text=render_tabs_.contains(tab_id)?tr("Close Render gallery"):file_manager_tabs_.contains(tab_id)?tr("Zavřít Správce souborů"):
             browser_tabs_.contains(tab_id)?tr("Zavřít webový prohlížeč"):tr("Zavřít dokument");
         close->setToolTip(close_text);
         close->setAccessibleName(close_text);
@@ -520,6 +528,7 @@ void AssemblyWorkspaceWindow::refresh_tabs() {
         if(browser_tabs_.contains(id))select_browser(id);
         else if(file_manager_tabs_.contains(id))select_file_manager(id);
         else if(preview_tabs_.contains(id))select_model_preview(id);
+        else if(render_tabs_.contains(id))select_render_tab(id);
     }
     setWindowTitle(QStringLiteral("ZIMA-CAD — %1 — %2")
         .arg(instance_.label(), displayed_label));

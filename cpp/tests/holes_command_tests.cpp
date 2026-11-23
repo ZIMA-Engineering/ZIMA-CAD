@@ -23,8 +23,37 @@ commands::Result run(command_host::Host& host, const std::string& command, Json 
     if (!result.ok) throw std::runtime_error(command+": "+result.message);
     return result;
 }
+void verify_endpoints(const document::HistoryContainer& feature, const sketcher::Sketch& sketch,
+    const std::vector<kernel::ViewerPoint>& points) {
+    std::size_t expected=0;
+    for(const auto& segment:sketch.segments) if(!segment.construction) {
+        for(bool start:{true,false}) {
+            ++expected;
+            const auto* source=sketch.find_point(start?segment.first_point_id:segment.second_point_id);
+            const auto position=sketch.world_point(source->x,source->y);
+            const auto key="profile:path-point:"+std::string(start?"start":"end")+
+                ":from:axis:profile:holes:"+feature.feature_id+":from:"+segment.id;
+            const auto matches=[&](const auto& point){return point.reference.owner_id==feature.id &&
+                point.reference.semantic_key==key;};
+            check(std::ranges::count_if(points,matches)==1,"Missing or duplicated drilling axis endpoint");
+            const auto& point=*std::ranges::find_if(points,matches);
+            check(std::hypot(point.position.x-position.x,point.position.y-position.y,
+                point.position.z-position.z)<1e-9,"Axis endpoint differs from the authored drilling limit");
+            check(point.display_owner_id==feature.id,"Axis endpoint lost its feature display owner");
+        }
+    }
+    const auto actual=std::ranges::count_if(points,[&](const auto& point){return point.reference.owner_id==feature.id &&
+        point.reference.semantic_key.starts_with("profile:path-point:") &&
+        point.reference.semantic_key.find(":from:axis:profile:holes:"+feature.feature_id+":from:")!=std::string::npos;});
+    if(actual!=expected) {
+        for(const auto& point:points)if(point.reference.owner_id==feature.id&&point.reference.semantic_key.starts_with("profile:path-point:"))
+            std::cerr<<"Axis point: "<<point.reference.semantic_key<<'\n';
+        throw std::runtime_error("Construction or deleted segment retained a drilling endpoint: "+std::to_string(actual)+" expected "+std::to_string(expected));
+    }
+}
 void verify_preview(const document::HistoryContainer& feature, const sketcher::Sketch& sketch) {
     const auto preview=document::holes_preview(feature,sketch);
+    verify_endpoints(feature,sketch,preview.points);
     std::size_t cylinders=0;
     for(const auto& segment:sketch.segments) {
         if(segment.construction)continue;
@@ -83,8 +112,15 @@ void verify(const kernel::OcctKernel& kernel, fs::path directory) {
     add_line({-20,0},{20,0});
     const auto standalone=workspace::document_sketch(live,id,sketch_id);
     run(host,"holes.create",{{"sketch",sketch_id},{"diameter_mm",6}});
-    const auto volume=[&]{return analyzed_body(kernel,
-        live.open_part(id)->session.calculated_boundaries().back()).volume;};
+    const auto volume=[&]{
+        const auto& active=state->session.document();
+        const auto& drilling=*active.find_container(owner);
+        const auto& axes=*std::ranges::find(active.sketches,sketch_id,&sketcher::Sketch::id);
+        const auto& body=state->session.calculated_boundaries().back();
+        verify_endpoints(drilling,axes,body.mesh.points);
+        verify_endpoints(drilling,axes,body.mesh.original_references.points);
+        return analyzed_body(kernel,body).volume;
+    };
     near(volume(),64000-std::numbers::pi*9*40);
     const auto feature=*state->session.document().find_container(owner);
     check(feature.feature_kind==document::FeatureKind::Holes && feature.id==standalone.owner_container_id,"Conversion lost ownership");
@@ -130,13 +166,17 @@ void verify(const kernel::OcctKernel& kernel, fs::path directory) {
     // Plane rotation and translation must use the resolved Sketch frame once.
     current.placement.rotation_x=90;current.placement.absolute_rotation_x=90;current.placement.z=5;
     workspace::commit_holes(live,kernel,id,current,sketch);
-    const auto& resolved=*std::ranges::find(state->session.document().sketches,sketch_id,&sketcher::Sketch::id);
+    const auto resolved=*std::ranges::find(state->session.document().sketches,sketch_id,&sketcher::Sketch::id);
     const auto request=document::holes_request(*state->session.document().find_container(owner),resolved);
     bool vertical=false;for(const auto& child:request.children){const auto& e=std::get<kernel::ExtrusionRequest>(child);vertical=vertical||std::abs(e.direction.z)>39.9;}
     check(vertical,"Rotated Sketch did not rotate drilling axes");
     verify_preview(current,resolved);
     run(host,"save");std::vector<kernel::BodyResult> loaded_cache;
     const auto loaded=document::PartDocument::load(state->path,&loaded_cache);
+    verify_endpoints(*loaded.find_container(owner),resolved,loaded_cache.back().mesh.points);
+    verify_endpoints(*loaded.find_container(owner),resolved,loaded_cache.back().mesh.original_references.points);
+    const auto regenerated=kernel.evaluate_history(loaded.kernel_operations()).back();
+    verify_endpoints(*loaded.find_container(owner),resolved,regenerated.mesh.original_references.points);
     for (const auto& axis:request.axes) {
         const auto matches=[&](const auto& a){return a.reference==axis.reference && a.point==axis.point &&
             a.direction==axis.direction && a.display_length==axis.display_length;};
@@ -147,7 +187,7 @@ void verify(const kernel::OcctKernel& kernel, fs::path directory) {
         "Drilling axes were duplicated or omitted");
     check(loaded.find_container(owner)->holes==current.holes,"Native file lost Holes parameters");
     near(analyzed_body(kernel,loaded_cache.back()).volume,volume());
-    near(analyzed_body(kernel,kernel.evaluate_history(loaded.kernel_operations()).back()).volume,volume());
+    near(analyzed_body(kernel,regenerated).volume,volume());
     // Unsupported curves and degenerate lines fail atomically.
     const auto saved=state->session.revision();
     auto invalid=sketch;static_cast<void>(invalid.add_circle(0,0,5));
@@ -170,6 +210,7 @@ void verify(const kernel::OcctKernel& kernel, fs::path directory) {
     static_cast<void>(adjacent.add_segment(0,0,10,0));static_cast<void>(adjacent.add_segment(0,0,0,10));
     auto adjacent_feature=current;adjacent_feature.holes.sketch_id=adjacent.id;
     const auto adjacent_request=document::holes_request(adjacent_feature,adjacent);
+    verify_endpoints(adjacent_feature,adjacent,adjacent_request.reference_points);
     check(std::get<kernel::ExtrusionRequest>(adjacent_request.children[0]).outer_vertex_source_ids!=
         std::get<kernel::ExtrusionRequest>(adjacent_request.children[1]).outer_vertex_source_ids,"Shared start point aliased bore topology");
     // Blind depth follows endpoints, including reversed drawing direction.

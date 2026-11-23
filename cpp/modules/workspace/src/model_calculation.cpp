@@ -1585,10 +1585,17 @@ bool complete_part_history_boundary(const kernel::OcctKernel& kernel,
     // kernel's direct grouped regeneration.  All authored inputs are already
     // present in the document, so calculate the requested prefix directly and
     // merge only its proven output into the immutable final-history packet.
+    // A failed operation is a no-op in material flow. Its saved intermediate
+    // packet may be compact too; reconstruct that exact prefix for display,
+    // retaining every already reported error. Never borrow later geometry or
+    // accept a newly failing prefix as a replacement for a valid input.
+    const auto expected_errors=current.size()>=operation_count
+        ?current[operation_count-1].calculation_errors
+        :decltype(kernel::BodyResult{}.calculation_errors){};
     auto calculated=calculate_part(
         kernel,document,nullptr,policy);
     if(calculated.size()!=operation_count||calculated.empty()||
-            !calculated.back().calculation_errors.empty())
+            calculated.back().calculation_errors!=expected_errors)
         throw std::runtime_error("History boundary materialization failed");
     kernel::BodyResult published_boundary=calculated.back();
     kernel::BodyResult body_boundary=published_boundary;
@@ -1675,18 +1682,20 @@ bool materialize_part_history_input_boundary(Workspace& workspace,
         }
     }
     if(preceding_owner.empty())return false;
-    // A failed predecessor has no exact output that can be materialized as
-    // the edited container's input.  Its published history row deliberately
-    // carries the last valid Body together with the calculation error so the
-    // dependent definition remains visible and repairable.  Recalculating the
-    // same invalid prefix would only throw from a Tree Properties action.
-    // Keep the cached last-valid rollback body; the dependent references stay
-    // unresolved and its preview remains empty until the predecessor recovers.
+    // Keep a complete cached last-valid rollback body. A compact saved row
+    // still needs its exact prefix materialized; otherwise Properties loses
+    // the preceding material even though the final Body remains visible.
+    // A failure before any material exists has an intentionally empty input.
+    // Compact solid/surface rows retain their material flag or face references.
     if(const auto rollback=part->session.rollback_boundary(container_id);
             rollback&&rollback->input_body&&
             rollback->input_body->calculation_errors.contains(
-                preceding_owner))
-        return false;
+                preceding_owner)) {
+        const auto& input=*rollback->input_body;
+        if(!input.mesh.triangles.empty()||(!input.has_solid()&&
+                input.kernel_shape.empty()&&
+                input.mesh.original_references.triangle_references.empty()))return false;
+    }
     const auto operations=group_solid_state_cached_operations(
         document,&part->session.calculated_boundaries());
     std::optional<std::size_t> operation_count;

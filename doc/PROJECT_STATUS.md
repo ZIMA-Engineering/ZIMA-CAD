@@ -8,13 +8,13 @@ not the current feature backlog.
 
 ## Current release boundary
 
-Signed Windows [2026112205](https://github.com/ZIMA-Engineering/ZIMA-CAD/releases/tag/ZIMA-CAD-2026112205)
+Signed Windows [2026112206](https://github.com/ZIMA-Engineering/ZIMA-CAD/releases/tag/ZIMA-CAD-2026112206)
 is the latest published stable build. It was published at
-`2026-11-22T21:01:11Z` from immutable source
-`171c4895414f42fdd4e6f2e6087a6b386d8a73ab` with Qt 6.11.0 and OCCT 8.0.1.
+`2026-11-22T22:47:02Z` from immutable source
+`3458330ab1006435d8461d2a822d95cd279a1229` with Qt 6.11.0 and OCCT 8.0.1.
 Candidate and signed native smoke, 1,185 factory assets, public download/signature
 checks and the production updater pass. See the
-[publication evidence](https://github.com/ZIMA-Engineering/ZIMA-CAD/blob/0add2820f4c0eb65e492363ce8cd25a84e6c6051/doc/verification/20261122-windows-2205-publication.json).
+[publication evidence](verification/20261122-windows-2206-publication.json).
 The release tag and portable package contain the complete matching source;
 the default branch may lag product development. Native Linux execution remains
 a separate host requirement.
@@ -168,6 +168,8 @@ evidence. Published 2501 and every older signed release remain immutable.
 
 | Work | Current boundary / next step |
 | --- | --- |
+| Render candidate | Part Render Bodies, cameras/lights, background snapshot calculation, separate gallery tab, explicitly retained native images and JPEG/PNG export are implemented. See [usage](RENDER.md) and [finite acceptance](verification/20261123-render-and-hole-properties.md); Windows publication is pending. |
+| CAM | Agreed future design: stock/result Bodies, fixtures, internal tools, machine/operation selection, generated and manual blocks, NC pane, simulation and chained setups. See [CAM backlog](CAM_BODY_DESIGN.md). No CAM implementation is claimed. |
 | Delivered FEM extension | Windows 2026112205 adds combined heating/force/pressure and distance measurements between two points. Optional pure thermal expansion remains available. Measurement points report temperature and displacement together. |
 | Skeleton interaction | New Feature opening measures 0.280--0.353 s, Default Origin 0.272--0.280 s and the representative Sketch move about 6 ms. The 32-operation Skeleton opens in about 7.4 s; cold explicit regeneration measures about 68.9 s after physical analysis leaves the critical path, while exact Save adds about 30 s. A late Solid Fillet edit/Undo/Redo succeeds, but its dependent suffix remains about 26 s. Production parallel batching and immediate Escape cancellation remain gated on exact identity and cooperative OCCT cancellation. |
 | Remaining fasteners | Cast wing-nut studies and toothed/fan washers remain unfinished. Preserve source-dimension discrepancies and private user edits. Two-part locking nuts are excluded. See [library queue](FASTENER_REMAINING_WORK.md). |

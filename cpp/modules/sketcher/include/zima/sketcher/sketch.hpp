@@ -405,9 +405,9 @@ struct CornerFilletResult {
     std::string second_tangent_point_id;
 };
 
-// A non-destructive corner treatment.  The source segments keep sharing the
-// original vertex; viewer/body evaluation derives their tangent trims and the
-// child arc from this persisted record.
+// A non-destructive corner treatment. Sources retain their shared native vertex
+// or explicitly anchored trim junction; viewer/body evaluation derives tangent
+// trims and the child arc without merging or moving the authored endpoints.
 struct SketchCornerRadius {
     std::string id;
     std::string vertex_id;

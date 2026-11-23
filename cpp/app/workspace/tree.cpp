@@ -6,6 +6,7 @@
 #include "../surface_trim_dialog.hpp"
 #include "workspace_internal.hpp"
 #include <zima/workspace/fem_condition_operations.hpp>
+#include <zima/workspace/calculated_body_source.hpp>
 #include <zima/sketcher/point_presentation.hpp>
 #include <zima/document/sheet_profile.hpp>
 #include <zima/document/sheet_from_body.hpp>
@@ -351,7 +352,7 @@ void AssemblyWorkspaceWindow::populate_sketch_tree(
 bool AssemblyWorkspaceWindow::part_history_insertion_allowed() const {
     // A hidden parent dialog still owns the transaction during Point/Sketch
     // editing. Do not restore history insertion until that whole command ends.
-    return !active_fem_body() && !properties_dialog_ && !tree_edit_dialog_ && !pending_profile_feature_ &&
+    return !active_fem_body() && !active_render_body() && !properties_dialog_ && !tree_edit_dialog_ && !pending_profile_feature_ &&
         active_sketch_id_.empty();
 }
 
@@ -832,6 +833,29 @@ void AssemblyWorkspaceWindow::add_part_tree_children(
                 auto font = row->font(0); font.setBold(true); row->setFont(0, font);
             }
             if (!definition) { shade_downstream(row, index); continue; }
+            if(definition->render) {
+                row->setIcon(0,resource_icon("template-image"));
+                const auto render_sources=graph.render_sources(id);
+                if(!render_sources.empty())if(const auto frame=workspace::material_source_frame_owner(graph,render_sources.front());!frame.empty()) {
+                    auto* source_origin=add_origin_tree_item(row,frame,false,construction_path);
+                    source_origin->setIcon(0,resource_icon("origin"));source_origin->setText(0,tr("Počátek tělesa"));
+                }
+                auto* sources=new QTreeWidgetItem(row,{definition->render->visible_bodies?tr("Visible Bodies"):tr("Selected Bodies")});
+                sources->setData(0,Qt::UserRole,QString::fromStdString(id));sources->setData(0,Qt::UserRole+3,"render-sources");
+                if(graph.render_source_state(id)!=document::RenderSourceState::Available) {
+                    sources->setForeground(0,QBrush(QColor("#FF5E52")));sources->setToolTip(0,tr("The Render source is missing or suppressed."));
+                }
+                const auto add_object=[&](const auto& object) {
+                    auto* item=new QTreeWidgetItem(row,{QString::fromStdString(object.name)});
+                    item->setData(0,Qt::UserRole,QString::fromStdString(object.id));item->setData(0,Qt::UserRole+3,"render-object");
+                    item->setIcon(0,resource_icon(object.kind==document::RenderObjectKind::Camera?"view-perspective":"point"));
+                    if(!object.placement.reference_valid)item->setForeground(0,QBrush(QColor("#FF5E52")));
+                    if(render_object_preview_&&object.id==render_object_preview_->id)item->setBackground(0,QBrush(QColor("#00BDE8")));
+                };
+                for(const auto& object:definition->render->objects)add_object(object);
+                if(id==graph.active_body_id()&&render_object_preview_&&std::ranges::none_of(definition->render->objects,[&](const auto& o){return o.id==render_object_preview_->id;}))add_object(*render_object_preview_);
+                row->setExpanded(true);shade_downstream(row,index);continue;
+            }
             if(definition->fem) {
                 const auto& source_id=definition->fem->source_id;
                 const auto* source=graph.find(source_id);const auto* operation=graph.find_boolean(source_id);

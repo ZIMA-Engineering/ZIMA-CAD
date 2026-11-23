@@ -101,6 +101,13 @@ thermal-mechanical analysis adds force and pressure to thermal expansion, and
 distance measurements report the physical change between two measurement points.
 See [FEM status, supported scope and verification](doc/FEM_STATUS.md).
 
+**Render is implemented for calculated Part Bodies.** Cameras, point lights and
+sun lighting produce background snapshot renders in a separate gallery tab.
+Images can be explicitly retained inside the Part and exported as JPEG/PNG.
+See [Render usage and limits](doc/RENDER.md) and
+[Windows acceptance](doc/verification/20261123-render-and-hole-properties.md).
+The agreed [CAM workflow](doc/CAM_BODY_DESIGN.md) remains future work.
+
 **Family Table is implemented**, including native Part/Assembly variants, shared
 parent-file storage, dimension and presence overrides, Assembly insertion and
 replacement, and Drawing variant selection. See the [Family Table guide](doc/FAMILY_TABLE.md).

@@ -217,7 +217,8 @@ void AssemblyWorkspaceWindow::create_layout() {
         const auto* part=workspace_.open_part(workspace_.active_document_id());
         std::vector<zima::kernel::ViewerEdge> wire;
         try {
-            if(const auto* condition=active_fem_condition(owner))wire=document::fem_condition_presentation(*condition,part->session.body_context_mesh()).edges;
+            if(const auto* object=active_render_object(owner))wire=render_object_wire(*object).edges;
+            else if(const auto* condition=active_fem_condition(owner))wire=document::fem_condition_presentation(*condition,part->session.body_context_mesh()).edges;
             else if(part)wire=authored_feature_wire(part->session,owner);
             else if(const auto* assembly=workspace_.open_assembly(workspace_.active_document_id()))
                 if(const auto* cut=assembly->session.document().find_cut(owner);cut&&!cut->definition.suppressed) {
@@ -237,7 +238,7 @@ void AssemblyWorkspaceWindow::create_layout() {
         }
         return wire;
     },[this](const std::string& owner,const std::string&) {
-        if(active_fem_condition(owner))return true;
+        if(active_render_object(owner)||active_fem_condition(owner))return true;
         if(const auto* part=workspace_.open_part(workspace_.active_document_id())) {
             if(std::ranges::any_of(part->session.document().sketches,[&](const auto& sketch){return sketch.id==owner;}))return true;
             if(const auto* feature=part->session.document().find_container(owner)) {
@@ -305,6 +306,7 @@ void AssemblyWorkspaceWindow::create_layout() {
     viewer_->set_selection_contract({zima::viewer::CandidateKind::Dimension,
                                      zima::viewer::CandidateKind::Occurrence});
     viewer_->set_confirmation_callback([this](const auto& candidate) {
+        if(!properties_dialog_&&active_render_object(candidate.owner_id)){select_render_object(candidate.owner_id,false);return;}
         if(!properties_dialog_&&active_fem_condition(candidate.owner_id)){select_fem_condition(candidate.owner_id,false);return;}
         if(accept_relation_dimension(candidate))return;
         if(accept_family_reference(candidate))return;
@@ -947,6 +949,11 @@ void AssemblyWorkspaceWindow::create_layout() {
     viewer_->set_dimension_layout_commit([this](const auto& reference,auto layout){commit_dimension_layout(reference,layout);});
     viewer_->set_context_menu_callback(
         [this](const auto& candidate, const QPoint& global_position) {
+            if(!properties_dialog_)if(const auto* object=active_render_object(candidate.owner_id)) {
+                const auto id=object->id;const auto kind=object->kind;QMenu menu(this);
+                auto* properties=menu.addAction(resource_icon("properties"),tr("Vlastnosti…"));auto* remove=menu.addAction(resource_icon("delete"),tr("Odstranit"));
+                const auto* selected=menu.exec(global_position);if(selected==properties)show_render_object_properties(kind,id);else if(selected==remove)remove_render_object(id);return;
+            }
             if(!properties_dialog_)if(const auto* condition=active_fem_condition(candidate.owner_id)) {
                 const auto id=condition->id;const auto kind=condition->kind;QMenu menu(this);
                 auto* properties=menu.addAction(resource_icon("properties"),tr("Vlastnosti…"));auto* remove=menu.addAction(resource_icon("delete"),tr("Odstranit"));
@@ -1680,6 +1687,10 @@ void AssemblyWorkspaceWindow::create_layout() {
             return true;
         });
     viewer_->set_double_confirmation_callback([this](const auto& candidate) {
+        if(!properties_dialog_)if(const auto* object=active_render_object(candidate.owner_id)) {
+            if(candidate.semantic_key.starts_with("render:parameter:"))show_render_object_properties(object->kind,object->id);
+            else select_render_object(candidate.owner_id,true);return;
+        }
         if(!properties_dialog_)if(const auto* condition=active_fem_condition(candidate.owner_id)) {
             if(candidate.semantic_key.starts_with("fem:parameter:"))show_fem_condition_properties(condition->kind,condition->id);
             else select_fem_condition(condition->id,true);return;
@@ -1877,6 +1888,7 @@ void AssemblyWorkspaceWindow::create_layout() {
     surface_mode_button_=mode_button(
         ApplicationMode::Surface,"surfaceModeButton");
     fem_mode_button_=mode_button(ApplicationMode::Fem,"femModeButton");
+    render_mode_button_=mode_button(ApplicationMode::Render,"renderModeButton");
     application_mode_selector_->hide();
     view_strip_layout->addWidget(
         application_mode_selector_,0,Qt::AlignRight|Qt::AlignVCenter);
@@ -1903,6 +1915,8 @@ void AssemblyWorkspaceWindow::create_layout() {
     file_manager_stack_=new QStackedWidget(central);
     file_manager_stack_->setObjectName("fileManagerStack");file_manager_stack_->hide();
     layout->addWidget(file_manager_stack_,1);
+    render_stack_=new QStackedWidget(central);render_stack_->setObjectName("renderStack");
+    render_stack_->hide();layout->addWidget(render_stack_,1);
     setCentralWidget(central);
     command_guidance_ = new CommandGuidance(viewer_);
     command_guidance_->set_guidance_enabled(application_settings_.vladimir);
@@ -1941,6 +1955,11 @@ void AssemblyWorkspaceWindow::create_layout() {
         if(tab_id.startsWith("web:")){select_browser(tab_id);return;}
         if(tab_id.startsWith("files:")){select_file_manager(tab_id);return;}
         if(tab_id.startsWith("preview:")){select_model_preview(tab_id);return;}
+        if(tab_id.startsWith("render:")){select_render_tab(tab_id);return;}
+        const bool from_render=active_render_page_!=nullptr;active_render_page_=nullptr;
+        if(from_render&&tab_id.toStdString()==workspace_.displayed_document_id()) {
+            update_document_area_visibility();rebuild_application_toolbar();return;
+        }
         active_browser_=nullptr;
         active_file_manager_=nullptr;active_preview_=nullptr;
         if(browser_stack_)browser_stack_->hide();
@@ -2030,6 +2049,7 @@ void AssemblyWorkspaceWindow::create_layout() {
             if (item == nullptr || !selected_items.contains(item)) {
                 item = selected_items.front();
             }
+            if(item->data(0,Qt::UserRole+3)=="render-object"){select_render_object(item->data(0,Qt::UserRole).toString().toStdString(),false);return;}
             if(item->data(0,Qt::UserRole+3)=="fem-condition") {
                 // This two-row command advances on itemClicked only. A single
                 // mouse gesture also emits selectionChanged and must not fill
@@ -2065,7 +2085,7 @@ void AssemblyWorkspaceWindow::create_layout() {
                 if(accept_relation_dimension(candidate))return;
                 if(accept_family_reference(candidate))return;
             }
-                if(accept_fem_tree_reference(item)||accept_body_scale_tree_reference(item)||accept_derived_copy_tree_reference(item))return;
+                if(accept_render_tree_reference(item)||accept_fem_tree_reference(item)||accept_body_scale_tree_reference(item)||accept_derived_copy_tree_reference(item))return;
             if(properties_dialog_&&(properties_dialog_->objectName()=="sheetStateDialog"||properties_dialog_->objectName()=="solidStateDialog"||properties_dialog_->objectName()=="boundarySurfaceDialog"||properties_dialog_->objectName()=="sheetFromBodyDialog")&&feature_reference_pick_) {
                 const auto role=item->data(0,Qt::UserRole+3).toString();
                 const bool boundary=properties_dialog_->objectName()=="boundarySurfaceDialog";
@@ -2468,7 +2488,7 @@ void AssemblyWorkspaceWindow::create_layout() {
         &AssemblyWorkspaceWindow::update_body_color_actions);
     connect(tree_, &QTreeWidget::itemClicked, this,
         [this, synchronize_tree_selection](QTreeWidgetItem* item, int) {
-            if(item&&(accept_fem_distance_tree_reference(item)||accept_fem_tree_reference(item)||accept_body_scale_tree_reference(item)))return;
+            if(item&&(accept_fem_distance_tree_reference(item)||accept_render_tree_reference(item)||accept_fem_tree_reference(item)||accept_body_scale_tree_reference(item)))return;
             if (local_origin_selection_active_ && item) {
                 auto id = item->data(0, Qt::UserRole).toString().toStdString();
                 const auto role=item->data(0,Qt::UserRole+3).toString();
@@ -2531,6 +2551,7 @@ void AssemblyWorkspaceWindow::create_layout() {
             auto owner=item->data(0,Qt::UserRole).toString().toStdString();
             const auto path=item->data(0,Qt::UserRole+1).toString().toStdString();
             if(role=="model-symbol"){show_model_symbol_properties(owner);return;}
+            if(role=="render-object"){select_render_object(owner,true);return;}
             if(role=="fem-condition"){select_fem_condition(owner,true);return;}
             const auto component=role=="part-opening-component"?item->data(0,Qt::UserRole+5).toString().toStdString():std::string{};
             if(role=="part-container-entity")owner=item->data(0,Qt::UserRole+6).toString().toStdString();
@@ -2635,7 +2656,12 @@ void AssemblyWorkspaceWindow::create_layout() {
                 properties->setObjectName("femConditionPropertiesAction");remove->setObjectName("femConditionRemoveAction");
                 const auto* selected=exec_tree_menu(menu,item,position);if(selected==properties)show_tree_item_properties(item);else if(selected==remove)remove_fem_condition(id);return;
             }
-            if(active_fem_body()&&step_kind!="part-body"&&step_kind!="part-result-body"&&step_kind!="part-body-boolean")return;
+            if(step_kind=="render-object") {
+                const auto id=item->data(0,Qt::UserRole).toString().toStdString();if(!active_render_object(id)||properties_dialog_)return;QMenu menu(this);
+                auto* properties=menu.addAction(resource_icon("properties"),tr("Vlastnosti…"));auto* remove=menu.addAction(resource_icon("delete"),tr("Odstranit"));
+                const auto* selected=exec_tree_menu(menu,item,position);if(selected==properties)show_tree_item_properties(item);else if(selected==remove)remove_render_object(id);return;
+            }
+            if((active_fem_body()||active_render_body())&&step_kind!="part-body"&&step_kind!="part-result-body"&&step_kind!="part-body-boolean")return;
             if(step_kind=="feature-operation") {
                 if(properties_dialog_)return;
                 QMenu menu(this);
@@ -2681,6 +2707,7 @@ void AssemblyWorkspaceWindow::create_layout() {
                 create_body->setObjectName("createBodyFromPartAction");
                 auto* create_fem=menu.addAction(resource_icon("result-body"),tr("Create FEM"));
                 create_fem->setObjectName("createFemFromPartAction");
+                auto* create_render=menu.addAction(resource_icon("template-image"),tr("Create Render"));create_render->setObjectName("createRenderFromPartAction");
                 auto* insert_body=menu.addAction(resource_icon("insert-component"),tr("Insert Body from Part…"));
                 insert_body->setObjectName("insertLinkedBodyAction");
                 const auto* link_target=workspace_.open_part(workspace_.active_document_id());
@@ -2695,6 +2722,7 @@ void AssemblyWorkspaceWindow::create_layout() {
                 else if (selected==activate) activate_body({});
                 else if (selected==create_body) { activate_body({});show_body_properties(); }
                 else if (selected==create_fem) { activate_body({});show_fem_body_properties(); }
+                else if (selected==create_render) { activate_body({});show_render_body_properties(); }
                 else if (selected==insert_body) insert_linked_body();
                 return;
             }
@@ -2738,8 +2766,8 @@ void AssemblyWorkspaceWindow::create_layout() {
                 menu.setObjectName("partActivationMenu");
                 auto* edit = menu.addAction(resource_icon("properties"),tr("Vlastnosti"));
                 const auto* body=part->session.document().body_history.find(id);
-                edit->setEnabled(!active_fem_body()||(body&&body->fem));
-                auto* dimensions=body && !body->fem && !body->derived_copy && !body->scale && !active_fem_body() ? menu.addAction(tr("Edit")) : nullptr;
+                edit->setEnabled((!active_fem_body()&&!active_render_body())||(body&&(body->fem||body->render)));
+                auto* dimensions=body && !body->fem && !body->render && !body->derived_copy && !body->scale && !active_fem_body() && !active_render_body() ? menu.addAction(tr("Edit")) : nullptr;
                 if(dimensions)dimensions->setObjectName("editBodyDimensionsAction");
                 auto* source_properties=body&&body->derived_copy ? menu.addAction(resource_icon("properties"),tr("Vlastnosti zdroje")) : nullptr;
                 auto* visibility=body ? menu.addAction(resource_icon(body->visible ? "hide" : "show"), body->visible ? tr("Skrýt") : tr("Zobrazit")) : nullptr;

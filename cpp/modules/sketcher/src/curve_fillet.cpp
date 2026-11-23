@@ -29,6 +29,32 @@ std::optional<std::array<std::string,2>> fillet_curve_endpoints(const Sketch& s,
         return {{c.control_point_ids.front(),c.control_point_ids.back()}};
     return {};
 }
+std::optional<std::array<std::string,2>> fillet_curve_junction(
+        const Sketch& s,const std::string& first,const std::string& second) {
+    const auto a=fillet_curve_endpoints(s,first),b=fillet_curve_endpoints(s,second);
+    if(!a||!b)return {};
+    for(const auto& p:*a)for(const auto& q:*b)if(p==q)return {{p,q}};
+    const auto anchored=[&](const std::string& own,const std::string& other,const auto& ends,const auto& other_ends)
+            ->std::optional<std::array<std::string,2>> {
+        std::array<std::optional<SketchTrimAnchor>,2> anchors;
+        if(const auto* offset=s.find_offset(own)) {
+            if(offset->broken)return {};anchors={offset->start_anchor,offset->end_anchor};
+        }else if(const auto trim=std::ranges::find(s.curve_trims,own,&SketchCurveTrim::id);trim!=s.curve_trims.end()) {
+            if(trim->broken)return {};anchors={trim->start_anchor,trim->end_anchor};
+        }else return {};
+        for(std::size_t i=0;i<2;++i)if(anchors[i]&&anchors[i]->curve_id==other) {
+            const auto* p=s.find_point(ends[i]);
+            for(const auto& endpoint:other_ends) {
+                const auto* q=s.find_point(endpoint);
+                if(p&&q&&std::hypot(p->x-q->x,p->y-q->y)<=1e-8)return {{ends[i],endpoint}};
+            }
+        }
+        return {};
+    };
+    if(const auto result=anchored(first,second,*a,*b))return result;
+    if(const auto result=anchored(second,first,*b,*a))return {{(*result)[1],(*result)[0]}};
+    return {};
+}
 CurveFilletGeometry curve_fillet_geometry(const Sketch& s,const std::string& first,
         const std::string& second,double radius,const std::string& vertex) {
     if(first==second||!std::isfinite(radius)||radius<=1e-9)
@@ -40,13 +66,14 @@ CurveFilletGeometry curve_fillet_geometry(const Sketch& s,const std::string& fir
     std::array<bool,2> at_start{};
     V focus{};
     if(!vertex.empty()) {
+        const auto junction=fillet_curve_junction(s,first,second);
+        if(!junction||((*junction)[0]!=vertex&&(*junction)[1]!=vertex))
+            throw std::invalid_argument("Corner fillet segments do not share a vertex");
         const auto* p=s.find_point(vertex);
         if(!p)throw std::invalid_argument("Corner fillet input is invalid");
         focus={p->x,p->y,0};
         for(std::size_t i=0;i<2;++i) {
-            if(ends[i][0]!=vertex&&ends[i][1]!=vertex)
-                throw std::invalid_argument("Corner fillet segments do not share a vertex");
-            at_start[i]=ends[i][0]==vertex;
+            at_start[i]=ends[i][0]==(*junction)[i];
         }
     } else {
         double best=INFINITY;
@@ -112,7 +139,7 @@ CornerFilletResult fillet_sketch_curves(Sketch& source,const std::string& first,
                 return spline.id==id && source.bspline_properties_read_only(id); }))
             throw std::invalid_argument("Fillet requires editable native curves.");
     }
-    for(const auto& id:*a)if(id==(*b)[0]||id==(*b)[1]){shared=id;break;}
+    if(const auto junction=fillet_curve_junction(source,first,second))shared=(*junction)[0];
     if(derived&&shared.empty())throw std::invalid_argument("Corner fillet segments do not share a vertex");
     if(!derived&&std::ranges::any_of(source.corner_radii,[&](const auto& c){return
         c.first_segment_id==first||c.second_segment_id==first||c.first_segment_id==second||c.second_segment_id==second;}))

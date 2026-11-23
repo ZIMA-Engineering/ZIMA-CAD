@@ -1,4 +1,5 @@
 #include "rectilinear_template_solver.hpp"
+#include "exact_external_circle.hpp"
 #include <zima/sketcher/external_curve_center.hpp>
 #include <zima/sketcher/sketch.hpp>
 #include <algorithm>
@@ -373,9 +374,14 @@ bool seed_circular_equations(Sketch& sketch,const std::vector<std::string>& anch
         };
         return support(c.geometry_id)||support(c.second_geometry_id);
     });
+    // Unrelated derived curves have no independent variables. Their presence
+    // must not disable a circular fit; the equation whitelist below still
+    // rejects every unsupported contact instead of omitting it.
+    const bool derived_only=(!sketch.offsets.empty()||!sketch.curve_trims.empty()) &&
+        std::ranges::all_of(sketch.bsplines,[&](const auto& curve){return sketch.bspline_properties_read_only(curve.id);});
     if((!line_component&&sketch.arcs.empty()&&sketch.circles.empty()&&!external_circle)||
-       !sketch.ellipses.empty()||(!curved_contact&&(!sketch.elliptical_arcs.empty()||!sketch.bsplines.empty()))||
-       !sketch.offsets.empty()||!sketch.curve_trims.empty())return false;
+       !sketch.ellipses.empty()||(!curved_contact&&(!sketch.elliptical_arcs.empty()||(!sketch.bsplines.empty()&&!derived_only)))||
+       ((!sketch.offsets.empty()||!sketch.curve_trims.empty())&&!derived_only))return false;
     auto next=sketch;
     const auto point=[&](const std::string& id)->std::optional<std::array<double,2>> {
         if(id=="sketch_origin")return std::array{0.,0.};
@@ -417,6 +423,7 @@ bool seed_circular_equations(Sketch& sketch,const std::vector<std::string>& anch
         }
         const auto external=std::ranges::find(next.external_references,id,&SketchExternalReference::id);
         if(external!=next.external_references.end())return external_reference_circle(*external);
+        if(const auto circle=detail::exact_derived_circle(next,id))return std::array{circle->center[0],circle->center[1],circle->radius};
         return {};
     };
     const auto ellipse_frame=[&](const SketchEllipticalArc& arc) {
@@ -720,9 +727,16 @@ bool seed_circular_equations(Sketch& sketch,const std::vector<std::string>& anch
         return r;
     };
     std::vector<double*> variables;
-    for(auto& p:next.points)if(!p.fixed&&!derived_endpoints.contains(p.id)&&std::ranges::find(anchors,p.id)==anchors.end()){variables.push_back(&p.x);variables.push_back(&p.y);}
-    for(auto& a:next.arcs)variables.push_back(&a.radius);
-    for(auto& c:next.circles)variables.push_back(&c.radius);
+    std::set<std::string> linked_points,linked_curves;
+    for(const auto& block:next.import_blocks)if(block.source_path.starts_with("external-reference:")) {
+        linked_points.insert(block.point_ids.begin(),block.point_ids.end());
+        linked_curves.insert(block.geometry_ids.begin(),block.geometry_ids.end());
+    }
+    for(const auto& spline:next.bsplines)if(next.bspline_properties_read_only(spline.id))
+        linked_points.insert(spline.control_point_ids.begin(),spline.control_point_ids.end());
+    for(auto& p:next.points)if(!p.fixed&&!linked_points.contains(p.id)&&!derived_endpoints.contains(p.id)&&std::ranges::find(anchors,p.id)==anchors.end()){variables.push_back(&p.x);variables.push_back(&p.y);}
+    for(auto& a:next.arcs)if(!linked_curves.contains(a.id))variables.push_back(&a.radius);
+    for(auto& c:next.circles)if(!linked_curves.contains(c.id))variables.push_back(&c.radius);
     for(auto& corner:next.corner_radii)if(!corner.dimension_visible)variables.push_back(&corner.radius);
     if(variables.empty())return false;
     // Bound the dense fit by its actual unknowns, not the number of authored

@@ -119,6 +119,7 @@
 #include "confirmed_face_hit.hpp"
 
 namespace zima::app {
+int verify_render_body(QApplication&,AssemblyWorkspaceWindow&,const std::filesystem::path&);
 #include "ordered_up_to_ui_verification.inc"
 #include "cylindrical_up_to_ui_verification.inc"
 #include "assembly_preview_wire_ui_verification.inc"
@@ -680,6 +681,7 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
     if(qEnvironmentVariableIsSet("ZIMA_VERIFY_FEATURE_AXIS_ENDS_ONLY"))return verify_feature_axis_ends(application,window,directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_WORK_PLANE_ONLY")) return verify_work_plane_ui(application,window,directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_ROTATION_HANDLE_ONLY")) return verify_rotation_handle_ui(application,window,directory);
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_RENDER_ONLY")) return verify_render_body(application,window,directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_HOLES_ONLY")) return verify_holes_ui(application,window,directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_EDGE_TREATMENT_ONLY")) return verify_edge_treatment_ui(application,window,directory);
     return verify_general_command_console(application,window,directory);

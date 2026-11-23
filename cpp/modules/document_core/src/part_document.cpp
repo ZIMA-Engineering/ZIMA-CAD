@@ -6049,7 +6049,7 @@ PartDocument PartDocument::body_document(const std::string& body_id) const {
 zima::kernel::ViewerReferenceGeometry PartDocument::body_origin_reference_geometry() const {
     zima::kernel::ViewerReferenceGeometry result;
     for (const auto& body : body_history.bodies()) {
-        if(body.fem)continue;
+        if(body.kind()!=BodyKind::Material)continue;
         PartDocument carrier;
         carrier.document_id = body.scope.id;
         auto origin = transform_reference_geometry(carrier.origin_viewer_mesh().original_references,
@@ -6376,7 +6376,7 @@ zima::kernel::ViewerMesh PartDocument::construction_viewer_mesh(
     if (!body_history.bodies().empty()) {
         zima::kernel::ViewerMesh result;
         for (const auto& body : body_history.bodies()) {
-            if(body.fem)continue;
+            if(body.kind()!=BodyKind::Material)continue;
             auto carrier = body_document(body.scope.id);
             append_body_mesh(result, body_placed_mesh(
                 carrier.construction_viewer_mesh(editing_object_id, reference_scene_size, show_sweep_stations, excluded_features), body.scope));
@@ -6963,9 +6963,9 @@ void PartDocument::resolve_constructions(
         append_reference_geometry(source_geometry, origin_viewer_mesh().original_references);
         append_reference_geometry(source_geometry, body_origin_reference_geometry());
         const auto final_material_body=std::find_if(body_history.bodies().rbegin(),body_history.bodies().rend(),
-            [](const auto& candidate){return !candidate.fem;});
+            [](const auto& candidate){return candidate.kind()==BodyKind::Material;});
         for (const auto& original_body : body_history.bodies()) {
-            if(original_body.fem)continue;
+            if(original_body.kind()!=BodyKind::Material)continue;
             const bool final_body = original_body.scope.id ==
                 final_material_body->scope.id;
             auto body = *next.body_history.find(original_body.scope.id);
@@ -7120,13 +7120,14 @@ void PartDocument::resolve_constructions(
         }
         // Analysis frames consume the current resolved material references.
         // A failed solve retains the authored frame for display and repair.
-        if(std::ranges::any_of(body_history.bodies(),[](const auto& body){return body.fem&&!body.fem->conditions.empty();})) {
+        if(std::ranges::any_of(body_history.bodies(),[](const auto& body){
+                return (body.fem&&!body.fem->conditions.empty())||(body.render&&!body.render->objects.empty());})) {
           auto fem_geometry=next.body_origin_reference_geometry();
           append_reference_geometry(fem_geometry,source_geometry);
           const PlacementReferenceGeometryIndex fem_index(fem_geometry);
-          for(const auto& original:body_history.bodies())if(original.fem&&!original.fem->conditions.empty()) {
+          for(const auto& original:body_history.bodies())if(original.fem||original.render) {
             auto body=*next.body_history.find(original.scope.id);
-            for(auto& condition:body.fem->conditions) {
+            if(body.fem)for(auto& condition:body.fem->conditions) {
                 if(condition.kind==FemConditionKind::MeasurementDistance)continue;
                 auto resolved=condition.placement;
                 const auto references=fem_index.select(resolved.references);
@@ -7135,6 +7136,12 @@ void PartDocument::resolve_constructions(
                     resolve_fem_condition_sketch_plane(condition,references);
                 }
                 else condition.placement.reference_valid=false;
+            }
+            if(body.render)for(auto& object:body.render->objects) {
+                auto resolved=object.placement;
+                if(resolve_placement(resolved,fem_index.select(resolved.references)))
+                    object.placement=std::move(resolved);
+                else object.placement.reference_valid=false;
             }
             next.body_history.update_body(std::move(body));
           }

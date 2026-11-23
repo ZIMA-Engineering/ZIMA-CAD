@@ -61,7 +61,7 @@ FileManagerTab* AssemblyWorkspaceWindow::open_file_manager(const QString& initia
     const QString working=QString::fromStdString(document::path_to_utf8(working_directory_));
     auto* page=new FileManagerTab(application_settings_,working,initial_path,file_manager_stack_);
     page->set_working_directory_action(working_directory_action_);
-    active_preview_=nullptr;
+    active_preview_=nullptr;active_render_page_=nullptr;
     active_browser_=nullptr;if(browser_stack_)browser_stack_->hide();
     page->setProperty("fileManagerTitle",tr("Správce souborů"));
     file_manager_tabs_[id]=page;file_manager_stack_->addWidget(page);active_file_manager_=page;
@@ -103,7 +103,7 @@ FileManagerTab* AssemblyWorkspaceWindow::open_file_manager(const QString& initia
 void AssemblyWorkspaceWindow::select_file_manager(const QString& id) {
     const auto found=file_manager_tabs_.find(id);if(found==file_manager_tabs_.end())return;
     if(properties_dialog_||!active_sketch_id_.empty()){refresh_tabs();return;}
-    active_preview_=nullptr;
+    active_preview_=nullptr;active_render_page_=nullptr;
     active_browser_=nullptr;active_file_manager_=found->second;
     if(browser_stack_)browser_stack_->hide();
     file_manager_stack_->setCurrentWidget(found->second);update_document_area_visibility();
@@ -134,14 +134,14 @@ void AssemblyWorkspaceWindow::open_model_preview(const QString& path){
     try{
         if(QFileInfo(path).suffix().compare("dxf",Qt::CaseInsensitive)==0){pending=std::make_unique<ModelPreviewTab>(canonical,preview_stack_);pending->load_dxf();}
         else{auto data=run_background_task([canonical]{return load_step_preview(canonical);});pending=std::make_unique<ModelPreviewTab>(canonical,preview_stack_);pending->set_step(std::move(data));}
-        auto* page=pending.release();preview_tabs_[id]=page;preview_stack_->addWidget(page);active_preview_=page;active_browser_=nullptr;active_file_manager_=nullptr;
+        auto* page=pending.release();preview_tabs_[id]=page;preview_stack_->addWidget(page);active_preview_=page;active_browser_=nullptr;active_file_manager_=nullptr;active_render_page_=nullptr;
         preview_stack_->setCurrentWidget(page);refresh_tabs();update_document_area_visibility();finish_status_operation(tr("Náhled načten."));
     }catch(const std::exception& error){finish_status_operation(tr("Načtení náhledu selhalo"),false);report_operation_error(tr("Načtení náhledu selhalo"),QObject::tr(error.what()));}
 }
 void AssemblyWorkspaceWindow::select_model_preview(const QString& id){
     const auto found=preview_tabs_.find(id);if(found==preview_tabs_.end())return;
     if(properties_dialog_||!active_sketch_id_.empty()){refresh_tabs();return;}
-    active_browser_=nullptr;active_file_manager_=nullptr;active_preview_=found->second;preview_stack_->setCurrentWidget(found->second);update_document_area_visibility();
+    active_browser_=nullptr;active_file_manager_=nullptr;active_preview_=found->second;active_render_page_=nullptr;preview_stack_->setCurrentWidget(found->second);update_document_area_visibility();
 }
 bool AssemblyWorkspaceWindow::close_model_preview(int index){
     if(index<0||index>=tabs_->count())return false;const QString id=tabs_->tabData(index).toString();const auto found=preview_tabs_.find(id);if(found==preview_tabs_.end())return false;
