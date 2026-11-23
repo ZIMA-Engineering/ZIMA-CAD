@@ -78,3 +78,16 @@ all intersecting multi-route combinations or nested Assembly GUI behavior.
 Windows used the shared C++ implementation, Qt 6.11 and OCCT 8.0.1. Native Linux
 execution was not performed. This work is separate from the immutable public
 `ZIMA-CAD-2026112303` release.
+
+## Local delivery
+
+The GUI and CLI from `f10b87780c3fec6926b06c854f1a050c4df53650` were
+installed in the canonical local development build directory after confirming
+that the user's application was closed. Both installed build identities match.
+Previous executables were backed up; launcher and user configuration hashes
+were preserved. The installed GUI passed the complete rollback, repeated radius
+edit, Undo/Redo and native reopening check again. Installation evidence is in
+`build/fillet-curved-junction-20261123/local-installation.json`.
+
+An existing failed cached result needs explicit Regenerate. Merely opening the
+document or confirming unchanged Properties does not silently recalculate it.
