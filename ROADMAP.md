@@ -15,6 +15,16 @@ remains separate. This update supersedes the older FEM planning entries below.
 
 ## Future work proposals
 
+### 3Dconnexion 3D mouse support (TODO, 2026-11-23)
+
+- Add support for 3Dconnexion SpaceMouse devices for simultaneous model-view
+  translation, rotation and zoom. Requested by the user on 2026-11-23.
+- Reuse the shared camera/navigation behavior, with sensitivity and axis
+  direction settings. Preserve ordinary mouse interaction and active commands.
+- Keep shared navigation logic for Windows and Linux; isolate only the required
+  device/driver integration. Select the supported integration and verify it with
+  physical hardware during implementation. This item is planned, not implemented.
+
 ### Render Body and camera (proposal, 2026-11-22)
 
 - Add a dedicated **Render Body**, following the FEM Body organization pattern.
