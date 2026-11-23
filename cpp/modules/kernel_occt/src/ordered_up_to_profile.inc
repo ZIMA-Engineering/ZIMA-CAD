@@ -103,7 +103,7 @@ double ordered_up_to_linear_span(const detail::OrderedLimitResult& limit,
 void clip_ordered_up_to_profile(PrimitiveData& result,const detail::OrderedLimitResult& limit,
         const OrderedUpToLimit& definition,const TopoDS_Shape& first,const TopoDS_Shape& last,
         const gp_Pnt& keep,const FaceReference& cap,const std::string& role,bool surface,double tolerance,
-        const TopoDS_Shape& terminal_window={}) {
+        const TopoDS_Shape& terminal_window={},bool remove_sketch_side=false) {
     BRepPrimAPI_MakeHalfSpace half(limit.shell,keep);
     std::vector<OwnedFace> named;
     for(std::size_t row=0;row<limit.patches.size();++row)
@@ -112,7 +112,8 @@ void clip_ordered_up_to_profile(PrimitiveData& result,const detail::OrderedLimit
             ordered_up_to_cap(cap,definition.patches[row].source_reference)});
     std::unique_ptr<BRepAlgoAPI_BooleanOperation> operation;
     if(terminal_window.IsNull()) {
-        operation=std::make_unique<BRepAlgoAPI_Common>();
+        if(remove_sketch_side)operation=std::make_unique<BRepAlgoAPI_Cut>();
+        else operation=std::make_unique<BRepAlgoAPI_Common>();
         set_boolean_inputs(*operation,result.shape,half.Solid());
     } else {
         // Beyond half a turn the limiting half-space also crosses an earlier

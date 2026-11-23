@@ -30,6 +30,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <chrono>
 #include <iostream>
 #include <numbers>
 #include <sstream>
@@ -52,7 +53,11 @@ void preview_matches_native(const zima::kernel::HistoryOperation& source,const z
         group.children.push_back(feature_side_request(rotation,source.owner_id,FeatureSide::End));
     }
     operation.primitive=std::move(group);OcctKernel private_kernel;
-    const auto wire=private_kernel.calculate_feature_preview(operation,{});
+    std::vector<OrderedUpToPatch> external;
+    std::visit([&](const auto& request){if constexpr(requires {request.ordered_end_limit;})
+        if(request.ordered_end_limit)for(const auto& patch:request.ordered_end_limit->patches)
+            if(patch.native_source)external.push_back(patch);},source.primitive);
+    const auto wire=private_kernel.calculate_feature_preview(operation,{},{},{},external);
     check(!wire.empty(),"Exact native preview returned no wire");
     std::vector<Vec3> expected,actual;
     for(const auto& edge:accepted.mesh.edges)if(!edge.parameter_seam)expected.insert(expected.end(),edge.points.begin(),edge.points.end());
@@ -167,6 +172,32 @@ double clipped(const OrderedLimitResult& source,double correction,bool reverse_d
 }
 }
 int main(){try {
+    unsigned relief_cases=0;
+    for(bool reverse:{false,true})for(double correction:{-2.,2.})for(double draft:{0.,2.}) {
+        using namespace zima::kernel;
+        active_case="surface relief reverse="+std::to_string(reverse)+" correction="+std::to_string(correction)+" draft="+std::to_string(draft);
+        auto request=native_extrusion({{{0,10},{0,10},{0,10}}},true,correction,reverse);
+        request.ordered_end_limit->patches.resize(1);
+        request.ordered_end_limit->patches[0].keep_next_positive.reset();
+        request.ordered_end_limit->from_target_surface=true;request.draft_angle_degrees=draft;
+        HistoryOperation operation;operation.owner_id="surface-relief";operation.primitive=request;operation.boolean_tolerance=1e-7;
+        OcctKernel engine;auto calculated=engine.evaluate_history({operation});
+        if(!calculated.back().calculation_errors.empty()) {
+            for(const auto& [id,message]:calculated.back().calculation_errors)std::cerr<<id<<": "<<message<<'\n';
+            throw std::runtime_error("Surface relief failed");
+        }
+        engine.ensure_body_properties(calculated.back());
+        const double slope=std::tan(draft*std::numbers::pi/180);
+        const auto integral=[&](double h){return 36*h-15*slope*h*h+4*slope*slope*h*h*h/3;};
+        check(std::abs(calculated.back().volume-std::abs(integral(10+correction)-integral(10)))<1e-5,"Relief volume differs from independent section integral");
+        for(const auto& edge:calculated.back().mesh.edges)for(auto p:edge.points)
+            check(std::abs(p.z)>=std::min(10.,10+correction)-1e-6&&std::abs(p.z)<=std::max(10.,10+correction)+1e-6,"Relief retained material back to Sketch");
+        preview_matches_native(operation,calculated.back());
+        auto ordinary=operation;std::get<ExtrusionRequest>(ordinary.primitive).ordered_end_limit->from_target_surface=false;
+        check(history_fingerprint({operation},1)!=history_fingerprint({ordinary},1),"Relief mode did not invalidate geometry cache");
+        ++relief_cases;
+    }
+    std::cout<<"PASS "<<relief_cases<<" planar surface relief cases: both directions/signs, draft, independent volume and exact preview\n";
     unsigned cases=0;Bnd_Box envelope;envelope.Update(-40,-40,-40,40,40,60);
     for(unsigned flipped=0;flipped<4;++flipped)for(bool reverse_order:{false,true})for(bool separated:{false,true})
     for(bool opposite_hemisphere:{false,true})for(double correction:{-1.,0.,1.}) {
@@ -206,6 +237,47 @@ int main(){try {
         check(bytes(source)==before,"Curvature certification changed the source surface");++cases;
     }
     const std::array<std::array<Plane,3>,2> shapes{{{{{1,10},{0,12},{-.5,15}}},{{{-1,12},{0,10},{1,4}}}}};
+    for(unsigned kind=0;kind<shapes.size();++kind)for(bool reverse:{false,true})
+    for(double correction:{-1.5,1.5})for(double draft:{-1.,0.,1.}) {
+        using namespace zima::kernel;
+        active_case="ordered surface relief "+std::to_string(kind)+" correction="+std::to_string(correction)+" draft="+std::to_string(draft);
+        auto request=native_extrusion(shapes[kind],kind!=0,correction,reverse);
+        request.draft_angle_degrees=draft;request.ordered_end_limit->from_target_surface=true;
+        HistoryOperation operation;operation.owner_id="ordered-relief";operation.primitive=request;operation.boolean_tolerance=1e-7;
+        OcctKernel engine;auto result=engine.evaluate_history({operation});
+        check(result.back().calculation_errors.empty(),"Ordered surface relief failed");engine.ensure_body_properties(result.back());
+        const double expected=std::abs(drafted_measure(shapes[kind],correction,draft,false)-drafted_measure(shapes[kind],0,draft,false));
+        check(std::abs(result.back().volume-expected)<1e-5,"Ordered relief differs from independent piecewise integral");
+        preview_matches_native(operation,result.back());++relief_cases;
+    }
+    for(bool reverse:{false,true})for(double correction:{-2.,2.}) {
+        using namespace zima::kernel;
+        active_case="cylindrical surface relief "+std::to_string(correction);
+        OcctKernel engine;ExtrusionRequest cylinder;cylinder.profile_region_id="cylinder-region";cylinder.outer_boundary_id="cylinder-boundary";
+        cylinder.outer_edge_source_ids={"circle"};cylinder.outer_profile=ExtrusionRequest::CircleProfile{{0,-10,reverse?-10.:10.},5};cylinder.direction={0,20,0};
+        HistoryOperation stock;stock.owner_id="cylindrical-target";stock.primitive=cylinder;
+        const auto input=engine.evaluate_history({stock});const auto original=input.back().kernel_shape;
+        const auto& references=input.back().mesh.original_references.triangle_references;
+        const auto found=std::ranges::find_if(references,[](const auto& ref){return ref.surface&&ref.surface->kind==SurfaceGeometry::Kind::Cylinder;});
+        check(found!=references.end(),"Relief fixture has no cylindrical support");
+        auto request=native_extrusion({{{0,10},{0,10},{0,10}}},true,correction,reverse);
+        request.outer_profile=ExtrusionRequest::PolygonProfile{{{-2,-1,0},{2,-1,0},{2,1,0},{-2,1,0}}};
+        OrderedUpToPatch patch;patch.source_reference=*found;patch.target.reference=*found;patch.target.planar=false;
+        patch.native_source=std::make_shared<const OrderedUpToSource>(OrderedUpToSource{BodySnapshot(input.back()),*found,{}});
+        request.ordered_end_limit->patches={patch};request.ordered_end_limit->from_target_surface=true;
+        HistoryOperation operation;operation.owner_id="cylindrical-relief";operation.primitive=request;operation.boolean_tolerance=1e-7;
+        const auto started=std::chrono::steady_clock::now();
+        auto result=engine.evaluate_history({operation});check(result.back().calculation_errors.empty(),"Cylindrical relief failed");
+        std::cout<<"Synthetic cylindrical relief reverse="<<reverse<<" correction="<<correction<<" calculation_ms="
+            <<std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-started).count()<<'\n';
+        engine.ensure_body_properties(result.back());check(std::abs(result.back().volume-8*std::abs(correction))<1e-5,"Cylindrical relief volume is wrong");
+        for(const auto& edge:result.back().mesh.edges)for(const auto p:edge.points) {
+            const double z=10-std::sqrt(25-p.x*p.x),actual=std::abs(p.z);
+            check(actual>=z+std::min(0.,correction)-1e-6&&actual<=z+std::max(0.,correction)+1e-6,"Cylindrical relief jumped to the far side");
+        }
+        preview_matches_native(operation,result.back());check(input.back().kernel_shape==original,"Relief changed its native target");++relief_cases;
+    }
+    std::cout<<"PASS "<<relief_cases<<" surface relief calculations including ordered convex/concave limits, draft and near cylindrical surfaces\n";
     for(unsigned kind=0;kind<shapes.size();++kind)for(unsigned flipped=0;flipped<8;++flipped)
     for(bool reverse_order:{false,true}) {
         const auto& planes=shapes[kind];

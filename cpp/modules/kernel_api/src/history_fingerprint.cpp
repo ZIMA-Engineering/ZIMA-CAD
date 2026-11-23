@@ -147,6 +147,8 @@ std::string encode_history_fingerprint(
                         u64(text.size());for(unsigned char c:text)byte(c);
                     }
                     u64(std::bit_cast<std::uint64_t>(ordered.path_correction));u64(ordered.patches.size());
+                    if(ordered.from_target_surface)
+                        for(unsigned char c:std::string_view("from-target-surface-v1"))byte(c);
                     for(const auto& patch:ordered.patches) {
                         for(const auto& text:{patch.source_reference.owner_id,patch.source_reference.semantic_key,patch.source_reference.instance_path}) {
                             u64(text.size());for(unsigned char c:text)byte(c);

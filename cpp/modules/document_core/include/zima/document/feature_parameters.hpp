@@ -29,6 +29,7 @@ struct FeatureUpToParameters {
     // than volatile row numbers. Reordering never transfers a retained side
     // to another source/adjacent pair.
     std::vector<FeatureUpToPatchChoice> retained_patches;
+    bool from_target_surface{};
     [[nodiscard]] bool neutral() const;
     [[nodiscard]] std::optional<bool> retained_side(const kernel::FaceReference& source,
         const kernel::FaceReference& adjacent) const;

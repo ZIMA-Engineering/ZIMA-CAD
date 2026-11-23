@@ -1906,10 +1906,10 @@ zima::kernel::ExtrusionRequest extrusion_request(
         !profile_arcs.empty()||!profile_elliptical_arcs.empty()||!profile_splines.empty();
     const bool mixed_ellipses=!profile_ellipses.empty()&&
         (profile_ellipses.size()>1||has_nonelliptic_profile||has_modeling_text);
-    // Separate native curved loops (for example several slots) use the same
+    // Separate native loops (for example several slots or rectangles) use the same
     // exact nesting, crossing validation and ancestry path as mixed profiles.
     std::vector<std::set<std::string>> curve_groups;
-    if(!profile_arcs.empty()||!profile_elliptical_arcs.empty()||!profile_splines.empty()) {
+    if(!profile_segments.empty()||!profile_arcs.empty()||!profile_elliptical_arcs.empty()||!profile_splines.empty()) {
         std::map<std::string,std::set<std::string>> ends;
         for(const auto* c:profile_segments)ends[c->id]={c->first_point_id,c->second_point_id};
         for(const auto* c:profile_arcs)ends[c->id]={c->start_point_id,c->end_point_id};
@@ -1927,7 +1927,7 @@ zima::kernel::ExtrusionRequest extrusion_request(
     }
     const bool multiple_curved_loops=curve_groups.size()>1;
     const bool mixed_linear_and_circular =
-        separate_linear_and_circular_profiles && !profile_segments.empty() &&
+        !multiple_curved_loops && separate_linear_and_circular_profiles && !profile_segments.empty() &&
         !profile_circles.empty() && profile_arcs.empty() &&
         profile_ellipses.empty() && profile_elliptical_arcs.empty() &&
         profile_splines.empty();
@@ -7922,7 +7922,7 @@ std::vector<zima::kernel::ViewerEdge> thin_profile_preview_edges(
 std::vector<zima::kernel::ViewerEdge> PartDocument::extrusion_preview_edges(
     const HistoryContainer& container, double through_all_span,
     double through_all_reverse_span, double draft_angle_degrees,
-    const PartDocument* reference_document, double up_to_path_correction) const {
+    const PartDocument* reference_document, double up_to_path_correction, bool from_target_surface) const {
     if (container.feature_kind != FeatureKind::Extrusion) return {};
     const auto sketch = std::find_if(sketches.begin(), sketches.end(),
         [&](const auto& value) { return value.id == container.extrusion.sketch_id; });
@@ -7978,6 +7978,9 @@ std::vector<zima::kernel::ViewerEdge> PartDocument::extrusion_preview_edges(
         reverse_target->fallback_normal={n.x-2*dot*unit.x,n.y-2*dot*unit.y,n.z-2*dot*unit.z};
         for(auto& p:reverse_target->fallback_triangles)p=reflect(p);
     }
+    const auto original_forward_target=from_target_surface?forward_target:std::nullopt;
+    const auto original_reverse_target=from_target_surface?reverse_target:std::nullopt;
+    if(from_target_surface&&!forward_target)return {};
     if(up_to_path_correction!=0) {
         // Translate the resolved support along the sweep, as in the exact
         // ordered-limit calculation. This is a transient viewer copy only.
@@ -8027,9 +8030,10 @@ std::vector<zima::kernel::ViewerEdge> PartDocument::extrusion_preview_edges(
     std::optional<DraftPreview> draft_preview;
     if(draft_angle_degrees!=0)draft_preview.emplace(request);
     const double draft_slope=std::tan(draft_angle_degrees*std::numbers::pi/180.);
-    const auto endpoint=[&](const zima::kernel::Vec3& point,bool backwards,bool wall_overhang=false) {
+    const auto endpoint=[&](const zima::kernel::Vec3& point,bool backwards,bool wall_overhang=false,bool original=false) {
         const auto condition=backwards?reverse_condition:forward_condition;
-        const auto& target=backwards?reverse_target:forward_target;
+        const auto& target=original?(backwards?original_reverse_target:original_forward_target):
+            (backwards?reverse_target:forward_target);
         const zima::kernel::Vec3 ray=backwards?zima::kernel::Vec3{-unit.x,-unit.y,-unit.z}:unit;
         double distance=backwards?reverse:forward;
         if(condition==EndCondition::ThroughAll)distance=backwards && through_all_reverse_span>0?through_all_reverse_span:through_all_span;
@@ -8081,13 +8085,16 @@ std::vector<zima::kernel::ViewerEdge> PartDocument::extrusion_preview_edges(
     for (const auto& source : profile_edges) {
         const auto index_in_profile=source_index++;
         if (source.points.size() < 2) continue;
+        // A symmetric relief consists of two separate layers. Each uses its
+        // own original and corrected target, never a bridge across the Sketch.
+        const auto append_layer=[&](bool backwards) {
         zima::kernel::ViewerEdge start = source;
         const auto profile_role = source.reference.semantic_key.starts_with("thin:")
             ? ":" + source.reference.semantic_key : std::string{};
         start.reference = {container.id, "preview:start" + profile_role, {}};
-        for(auto& point:start.points)point=endpoint(point,true,thin);
+        for(auto& point:start.points)point=from_target_surface?endpoint(point,backwards,thin,true):endpoint(point,true,thin);
         zima::kernel::ViewerEdge end;end.reference={container.id,"preview:end"+profile_role,{}};
-        end.points.reserve(source.points.size());for(const auto& point:source.points)end.points.push_back(endpoint(point,false,thin));
+        end.points.reserve(source.points.size());for(const auto& point:source.points)end.points.push_back(endpoint(point,from_target_surface?backwards:false,thin));
         if(reverse_condition==EndCondition::ThroughAll)start.preview_terminal_dashed=true;
         if(forward_condition==EndCondition::ThroughAll)end.preview_terminal_dashed=true;
         result.push_back(start);
@@ -8114,6 +8121,9 @@ std::vector<zima::kernel::ViewerEdge> PartDocument::extrusion_preview_edges(
             result.push_back({{start.points[index], end.points[index]},
                               {container.id, "preview:side", {}}});
         }
+        };
+        append_layer(false);
+        if(from_target_surface&&parameters.extent_mode==ProfileExtentMode::Symmetric)append_layer(true);
     }
     if(thin) {
         using namespace zima::kernel;
@@ -8157,7 +8167,7 @@ std::vector<zima::kernel::ViewerEdge> PartDocument::extrusion_preview_edges(
 std::vector<zima::kernel::ViewerEdge> PartDocument::extrusion_preview_edges(
     const HistoryContainer& container,
     const zima::kernel::ViewerMesh& through_all_input, double draft_angle_degrees,
-    const PartDocument* reference_document, double up_to_path_correction) const {
+    const PartDocument* reference_document, double up_to_path_correction, bool from_target_surface) const {
     const auto& parameters = container.extrusion;
     const bool needs_input_bounds =
         parameters.extent == ExtrusionExtent::ThroughAll ||
@@ -8166,7 +8176,7 @@ std::vector<zima::kernel::ViewerEdge> PartDocument::extrusion_preview_edges(
          parameters.extent_mode != ProfileExtentMode::Symmetric &&
          parameters.end_condition_reverse == EndCondition::ThroughAll);
     if (!needs_input_bounds) {
-        return extrusion_preview_edges(container,1000,0,draft_angle_degrees,reference_document,up_to_path_correction);
+        return extrusion_preview_edges(container,1000,0,draft_angle_degrees,reference_document,up_to_path_correction,from_target_surface);
     }
     const auto sketch = std::find_if(sketches.begin(), sketches.end(),
         [&](const auto& value) { return value.id == container.extrusion.sketch_id; });
@@ -8212,7 +8222,7 @@ std::vector<zima::kernel::ViewerEdge> PartDocument::extrusion_preview_edges(
             for (const auto& point : edge.points) include(point);
     if (!lower) {
         return extrusion_preview_edges(container,1000,0,draft_angle_degrees,
-            reference_document,up_to_path_correction);
+            reference_document,up_to_path_correction,from_target_surface);
     }
     for (unsigned mask = 0; mask < 8; ++mask) {
         const zima::kernel::Vec3 corner{mask & 1 ? upper.x : lower->x,
@@ -8227,7 +8237,7 @@ std::vector<zima::kernel::ViewerEdge> PartDocument::extrusion_preview_edges(
     const double margin = std::max(1.0, diagonal * 1.0e-4);
     return extrusion_preview_edges(container,
         std::max(1.0, farthest_forward + margin),
-        std::max(1.0, farthest_reverse + margin),draft_angle_degrees,reference_document,up_to_path_correction);
+        std::max(1.0, farthest_reverse + margin),draft_angle_degrees,reference_document,up_to_path_correction,from_target_surface);
 }
 
 std::vector<zima::kernel::ViewerEdge> PartDocument::primitive_preview_edges(
@@ -8803,7 +8813,8 @@ std::vector<zima::kernel::ViewerEdge> PartDocument::feature_preview_edges(
             p.extent_mode=definition.symmetric?ProfileExtentMode::Symmetric:ProfileExtentMode::OneSide;
             p.end_condition_forward=settings.extrusion_extent;
             p.end_targets_forward=settings.targets;
-            edges=extrusion_preview_edges(operand,input,settings.draft_angle_degrees,reference_document,settings.up_to.length_correction);
+            edges=extrusion_preview_edges(operand,input,settings.draft_angle_degrees,reference_document,settings.up_to.length_correction,
+                definition.result_type==ProfileResultType::Solid&&settings.extrusion_extent==EndCondition::UpTo&&settings.up_to.from_target_surface);
         } else {
             operand.feature_kind=FeatureKind::Revolution;
             auto& p=operand.revolution;p.sketch_id=definition.sketch_id;p.axis_segment_id=definition.axis_segment_id;
@@ -11879,6 +11890,7 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
             const auto ordered_limit=[&](const FeatureSideParameters& settings,bool angular,zima::kernel::Vec3 direction) {
                 zima::kernel::OrderedUpToLimit limit;
                 limit.path_correction=angular?settings.up_to.angle_correction_degrees:settings.up_to.length_correction;
+                limit.from_target_surface=!angular&&p.result_type==ProfileResultType::Solid&&settings.up_to.from_target_surface;
                 limit.primary_cap_source=settings.up_to.primary_cap_source;
                 for(std::size_t row=0;row<settings.targets.size();++row) {
                     const auto& source=settings.targets[row];
@@ -12067,6 +12079,7 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
                         request.mirror_forward_limit=p.symmetric&&side==1;
                         if(settings.targets.empty())throw std::runtime_error("Select at least one Feature end reference.");
                         if(settings.targets.size()>1||settings.up_to.length_correction!=0||
+                            (p.result_type==ProfileResultType::Solid&&settings.up_to.from_target_surface)||
                             std::ranges::any_of(settings.targets,[](const auto& t){return t.external_source.has_value();}))
                             request.ordered_end_limit=ordered_limit(settings,false,request.direction);
                         else {

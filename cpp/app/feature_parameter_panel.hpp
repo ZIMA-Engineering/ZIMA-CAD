@@ -114,6 +114,7 @@ public:
         connect(result,&QComboBox::currentIndexChanged,this,[=,this](int i){
             thickness->setEnabled(i==2);thin_side->setEnabled(i==2);
             refresh_operations();
+            for(int side=0;side<2;++side)if(sides_[side].from_target_surface)refresh_limit_controls(side);
         });
         content_->addWidget(result_group);
         projection_=new ProjectionParameterPanel(initial_.projection,this);
@@ -171,7 +172,15 @@ public:
             s.correction=number(i==0?"featureSideCorrection0":"featureSideCorrection1",false,true);
             s.authored_correction=s.pending.up_to.length_correction;s.correction->setValue(s.authored_correction);
             s.displayed_correction=s.correction->value();
-            rows->addRow(tr("Korekce"),s.correction);
+            s.correction_row=new QWidget(s.box);
+            auto* correction_layout=new QHBoxLayout(s.correction_row);correction_layout->setContentsMargins(0,0,0,0);
+            correction_layout->addWidget(s.correction);
+            s.from_target_surface=new QCheckBox(tr("From target surface"),s.correction_row);
+            s.from_target_surface->setObjectName(QString("featureFromTargetSurface%1").arg(i));
+            s.from_target_surface->setToolTip(tr("Keep only the layer between the target and its correction along the extrusion direction."));
+            s.from_target_surface->setChecked(s.pending.up_to.from_target_surface);
+            correction_layout->addWidget(s.from_target_surface);
+            rows->addRow(tr("Korekce"),s.correction_row);
             s.twist_angle=number(i==0?"featureTwistAngle0":"featureTwistAngle1",true);
             s.twist_angle->setRange(.001,36000);s.twist_angle->setValue(s.pending.angle_degrees);
             s.displayed_twist_angle=s.twist_angle->value();rows->addRow(tr("Úhel kroucení"),s.twist_angle);
@@ -399,8 +408,11 @@ protected:
         if(event->type()==QEvent::LanguageChange&&draft_notice_) {
             refresh_type();
             draft_notice_->setText(tr("Exact preview"));
-            for(auto& side:sides_)if(side.rows&&side.correction)
-                if(auto* label=qobject_cast<QLabel*>(side.rows->labelForField(side.correction)))label->setText(tr("Korekce"));
+            for(auto& side:sides_)if(side.rows&&side.correction) {
+                if(auto* label=qobject_cast<QLabel*>(side.rows->labelForField(side.correction_row)))label->setText(tr("Korekce"));
+                side.from_target_surface->setText(tr("From target surface"));
+                side.from_target_surface->setToolTip(tr("Keep only the layer between the target and its correction along the extrusion direction."));
+            }
             if(notice_changed_)notice_changed_();
         }
     }
@@ -409,6 +421,7 @@ private:
         QGroupBox* box{};QComboBox* mode{};QComboBox* end{};ui::UnitDoubleSpinBox* value{};ui::UnitDoubleSpinBox* draft{};QLabel* label{};QLineEdit* target{};QHBoxLayout* target_layout{};
         QFormLayout* rows{};QWidget* target_row{};bool displayed_axis{};
         FeatureLimitTable* limits{};ui::UnitDoubleSpinBox* correction{};
+        QWidget* correction_row{};QCheckBox* from_target_surface{};
         bool correction_angular{};double displayed_correction{},authored_correction{};
         document::FeatureSideParameters pending;
         int previous_mode{},displayed_end{};
@@ -451,6 +464,7 @@ private:
     std::function<void()> locks_changed_;
     static document::FeatureSideParameters capture_side(const Side& side,int mode) {
         auto value=side.pending;value.operation=static_cast<document::FeatureSideOperation>(mode);
+        if(side.from_target_surface)value.up_to.from_target_surface=side.from_target_surface->isChecked();
         if(side.draft&&side.draft->value()!=side.displayed_draft)value.draft_angle_degrees=side.draft->value();
         if(side.correction&&!side.displayed_axis) {
             const double correction=side.correction->value()==side.displayed_correction?side.authored_correction:side.correction->value();
@@ -594,7 +608,8 @@ private:
         side.rows->setRowVisible(side.target_row,extent_only_&&!extent_multiple_targets_?visible:
             selected_type()==document::FeatureType::Axis);
         side.rows->setRowVisible(side.limits,(!extent_only_||extent_multiple_targets_)&&visible);
-        side.rows->setRowVisible(side.correction,visible);
+        side.rows->setRowVisible(side.correction_row,visible);
+        side.from_target_surface->setVisible(visible&&!extent_only_&&mode==1&&result_->currentIndex()==0);
         side.limits->setEnabled(visible);side.correction->setEnabled(visible);if(!visible)side.limits->finish_entry(true);
         side.box->setSizePolicy(QSizePolicy::Preferred,visible?QSizePolicy::Expanding:QSizePolicy::Preferred);
         const double value=side.correction->value()==side.displayed_correction?side.authored_correction:side.correction->value();

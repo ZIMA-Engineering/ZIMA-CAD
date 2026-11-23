@@ -5,7 +5,7 @@
 
 namespace zima::document {
 bool FeatureUpToParameters::neutral() const {
-    return length_correction==0&&angle_correction_degrees==0&&
+    return !from_target_surface&&length_correction==0&&angle_correction_degrees==0&&
         !std::signbit(length_correction)&&!std::signbit(angle_correction_degrees)&&!primary_cap_source&&retained_patches.empty();
 }
 std::optional<bool> FeatureUpToParameters::retained_side(const kernel::FaceReference& source,

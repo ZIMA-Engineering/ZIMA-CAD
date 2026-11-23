@@ -628,6 +628,9 @@ struct OrderedUpToLimit {
     // Along the directed operation path: mm for Extrusion, degrees for Revolution.
     double path_correction{};
     std::optional<FaceReference> primary_cap_source;
+    // Solid Extrusion: retain only the layer between the resolved support and
+    // its path-corrected copy. Both limits use the same retained patches.
+    bool from_target_surface{};
 };
 struct OrderedUpToRetainedPatch {
     FaceReference source;

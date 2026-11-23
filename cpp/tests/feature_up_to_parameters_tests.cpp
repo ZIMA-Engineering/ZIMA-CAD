@@ -31,7 +31,8 @@ FeatureParameters fixture() {
 unsigned corrected_preview_matrix() {
     unsigned cases=0;
     for(bool reversed:{false,true})for(bool symmetric:{false,true})for(unsigned mode=0;mode<5;++mode)
-    for(double correction:{-2.,0.,1.25}) {
+    for(double correction:{-2.,0.,1.25})for(bool relief:{false,true}) {
+        if(relief&&(mode!=0||correction==0))continue;
         auto part=PartDocument::create_default();auto sketch=zima::sketcher::Sketch::create_default();
         static_cast<void>(sketch.add_rectangle(-2,-1,2,1));
         auto feature=PartDocument::create_feature_container(sketch.id);sketch.owner_container_id=feature.id;
@@ -42,7 +43,7 @@ unsigned corrected_preview_matrix() {
             auto& end=parameters.sides[side];end.operation=FeatureSideOperation::Extrusion;end.extrusion_extent=EndCondition::UpTo;
             ExtrusionParameters::EndTarget target;target.kind=EndTargetKind::Plane;target.reference={"preview-source-"+std::to_string(side),"face",{}};
             target.fallback_origin={0,0,parameters.side_direction_sign(side)*10};target.fallback_normal={0,0,1};
-            end.targets={target};end.up_to.length_correction=correction;
+            end.targets={target};end.up_to.length_correction=correction;end.up_to.from_target_surface=relief;
         }
         part.sketches={sketch};part.history={feature};BodyHistoryGraph graph;
         static_cast<void>(graph.create_body("Preview"));graph.insert({PartHistoryKind::Feature,feature.id});part.set_body_history(graph);part.resolve_constructions();
@@ -54,11 +55,13 @@ unsigned corrected_preview_matrix() {
             connector|=edge.reference.semantic_key=="preview:side";
             for(const auto p:edge.points) {
                 const double distance=std::abs(p.z);
-                check(std::abs(distance)<1e-7||std::abs(distance-(10+correction))<1e-7,"Correction preview disagrees with the independently translated plane");
-                start|=distance<1e-7;end|=distance>1;
+                check(std::abs(distance-(relief?10.:0.))<1e-7||std::abs(distance-(10+correction))<1e-7,"Correction preview disagrees with the independently translated plane");
+                start|=std::abs(distance-(relief?10.:0.))<1e-7;end|=std::abs(distance-(10+correction))<1e-7;
             }
         }
-        check(end&&connector&&(symmetric||start),"Corrected preview is only a flat profile");
+        check(end&&connector&&((symmetric&&!relief)||start),"Corrected preview is only a flat profile");
+        if(relief)for(const auto& edge:preview)if(edge.reference.semantic_key=="preview:side")
+            check(std::abs(std::abs(edge.points.back().z-edge.points.front().z)-std::abs(correction))<1e-7,"Symmetric relief bridges the Sketch plane");
         check(part.serialized()==original,"Correction preview modified the document or source target");
         const auto reopened=PartDocument::from_serialized(original);
         const auto repeated=reopened.feature_preview_edges(reopened.history.front());
@@ -80,8 +83,9 @@ int main(){try {
         check(std::signbit(angular?reopened.sides[side].up_to.angle_correction_degrees:reopened.sides[side].up_to.length_correction),
             "Otherwise neutral correction lost an authored negative zero");++cases;
     }
-    for(bool reversed:{false,true})for(bool symmetric:{false,true})for(bool angular:{false,true}) {
+    for(bool reversed:{false,true})for(bool symmetric:{false,true})for(bool angular:{false,true})for(bool relief:{false,true}) {
         auto p=base;p.reversed_sides=reversed;p.symmetric=symmetric;
+        for(auto& side:p.sides)side.up_to.from_target_surface=relief;
         for(auto& side:p.sides)if(angular){side.operation=FeatureSideOperation::Revolution;side.rotation_extent=FeatureRotationExtent::UpTo;}
         const auto stored=serialize_feature_parameters(p);const auto reopened=load_feature_parameters(nlohmann::json::parse(stored.dump()));
         check(p==reopened,"Feature corrections/retained sides did not round-trip");

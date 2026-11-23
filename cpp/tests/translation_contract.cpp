@@ -782,6 +782,15 @@ int verify_translations(QApplication& application, QWidget& parent) {
                 "Feature individual profile axes control is missing, enabled by default or untranslated");
             check(properties.findChild<QPushButton*>("featureSketchButton")->text()==settings.qt_translations.value("Skica"),"Feature Sketch action is untranslated");
             auto* mode=properties.findChild<QComboBox*>("featureSideMode0");
+            auto* relief=properties.findChild<QCheckBox*>("featureFromTargetSurface0");
+            check(relief&&relief->text()==settings.qt_translations.value("From target surface")&&
+                relief->toolTip()==settings.qt_translations.value("Keep only the layer between the target and its correction along the extrusion direction."),
+                "Relief checkbox or tooltip is untranslated");
+            check(!relief->isVisible(),"Length Feature exposes its Up To relief option");
+            auto* relief_end=properties.findChild<QComboBox*>("featureSideEnd0");relief_end->setCurrentIndex(1);
+            check(relief->isVisible(),"Solid Up To hides its relief option");relief->setChecked(true);
+            check(properties.pending_value().feature.sides[0].up_to.from_target_surface,"Relief checkbox did not update pending intent");
+            relief->setChecked(false);relief_end->setCurrentIndex(0);
             check(mode->itemText(0)==settings.qt_translations.value("Bez operace")&&mode->itemText(2)==settings.qt_translations.value("Rotace"),"Feature side modes are untranslated");
             auto* value=properties.findChild<QDoubleSpinBox*>("featureSideValue0");
             check(value->isReadOnly(),"Feature length lock was not restored");

@@ -150,6 +150,7 @@ nlohmann::json serialize_feature_parameters(const FeatureParameters& p) {
             sides.back()["up_to"]={{"length_correction",side.up_to.length_correction},
                 {"angle_correction_degrees",side.up_to.angle_correction_degrees},{"retained_patches",std::move(choices)}};
             if(side.up_to.primary_cap_source)sides.back()["up_to"]["primary_cap_source"]=reference(*side.up_to.primary_cap_source);
+            if(side.up_to.from_target_surface)sides.back()["up_to"]["from_target_surface"]=true;
         }
         if(side.operation==FeatureSideOperation::Twist) {
             sides.back()["twist_reverse"]=side.twist_reverse;
@@ -218,6 +219,7 @@ FeatureParameters load_feature_parameters(const nlohmann::json& source) {
             }
             if(value.contains("up_to")) {
                 const auto& up_to=value.at("up_to");
+                side.up_to.from_target_surface=up_to.value("from_target_surface",false);
                 side.up_to.length_correction=up_to.at("length_correction").get<double>();
                 side.up_to.angle_correction_degrees=up_to.at("angle_correction_degrees").get<double>();
                 if(up_to.contains("primary_cap_source"))side.up_to.primary_cap_source=reference(up_to.at("primary_cap_source"));

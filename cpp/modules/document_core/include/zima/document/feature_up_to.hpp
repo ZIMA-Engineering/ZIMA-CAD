@@ -9,6 +9,7 @@ inline bool feature_uses_extended_up_to(const FeatureParameters& parameters) {
         const auto& value=parameters.effective_side(side);
         if(value.operation==FeatureSideOperation::Extrusion&&value.extrusion_extent==EndCondition::UpTo&&
                 (value.targets.size()>1||value.up_to.length_correction!=0||
+                    (parameters.result_type==ProfileResultType::Solid&&value.up_to.from_target_surface)||
                     std::ranges::any_of(value.targets,[](const auto& t){return t.external_source.has_value();})))return true;
         if(value.operation==FeatureSideOperation::Revolution&&value.rotation_extent==FeatureRotationExtent::UpTo&&
                 (value.targets.size()>1||value.up_to.angle_correction_degrees!=0))return true;

@@ -407,7 +407,8 @@ void commit_profile(Workspace& live, const kernel::OcctKernel& kernel, const std
         for(std::size_t i=0;i<(parameters.symmetric?1u:2u);++i) {
             const auto side=parameters.effective_side(i);
             const bool extended=(side.operation==document::FeatureSideOperation::Extrusion&&side.extrusion_extent==document::EndCondition::UpTo&&
-                (side.targets.size()>1||side.up_to.length_correction!=0))||
+                (side.targets.size()>1||side.up_to.length_correction!=0||
+                    (parameters.result_type==document::ProfileResultType::Solid&&side.up_to.from_target_surface)))||
                 (side.operation==document::FeatureSideOperation::Revolution&&side.rotation_extent==document::FeatureRotationExtent::UpTo&&
                 (side.targets.size()>1||side.up_to.angle_correction_degrees!=0));
             if(extended) {

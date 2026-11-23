@@ -329,6 +329,38 @@ Q_NEVER_INLINE static int verify_ordered_up_to_ui(QApplication& application,
             "Failed GUI definition could not be reopened and repaired");
         run("undo");check(get().at("parameters")==failed.at("parameters"),"GUI repair Undo lost the failed definition");
         run("redo");check(get().at("parameters")==accepted.at("parameters"),"GUI repair Redo lost the valid definition");
+        const auto before_relief=get();dialog=edit();opening_is_read_only(dialog);
+        auto* relief=dialog->findChild<QCheckBox*>("featureFromTargetSurface0");
+        check(relief&&relief->isVisible()&&!relief->isChecked(),"Solid Up To is missing its relief option");
+        const auto relief_scene=view->base_mesh_revision();
+        relief->click();flush();exact(dialog);
+        check(dialog->pending_value().feature.sides[0].up_to.from_target_surface,"Relief toggle lost pending intent");
+        for(double correction:{-1.5,.75,1.5}) {
+            dialog->findChild<QDoubleSpinBox*>("featureSideCorrection0")->setValue(correction);flush();exact(dialog);
+            check(view->base_mesh_revision()==relief_scene,"Relief correction republished the rollback scene");
+            check(!view->transient_edges().empty(),"Relief has no cyan preview");
+            for(const auto& edge:view->transient_edges())for(const auto p:edge.points) {
+                const double roof=p.x<2?p.x+10:p.x<6?12:15-.5*p.x;
+                check(p.z>=roof+std::min(0.,correction)-1e-5&&p.z<=roof+std::max(0.,correction)+1e-5,
+                    "Relief preview includes material back to the Sketch or exceeds the target layer");
+            }
+        }
+        dialog->buttons()->button(QDialogButtonBox::Cancel)->click();flush();
+        check(get()==before_relief,"Relief Cancel changed the model");
+        dialog=edit();dialog->findChild<QCheckBox*>("featureFromTargetSurface0")->click();flush();exact(dialog);
+        dialog->buttons()->button(QDialogButtonBox::Ok)->click();flush();run("save");
+        check(!window.findChild<QWidget*>("featurePropertiesDialog"),"Relief OK did not close Properties");
+        std::vector<kernel::BodyResult> relief_geometry;const auto relief_saved=document::PartDocument::load(file,&relief_geometry);
+        check(relief_saved.find_container(feature.id)->feature.sides[0].up_to.from_target_surface,"Relief native save lost its option");
+        auto relief_measured=relief_geometry.back();engine.ensure_body_properties(relief_measured);
+        check(std::abs(relief_measured.volume-54.)<1e-5,"GUI relief volume is not the bounded target layer");
+        const auto relief_accepted=get();dialog=edit();opening_is_read_only(dialog);
+        check(dialog->findChild<QCheckBox*>("featureFromTargetSurface0")->isChecked()&&!view->transient_edges().empty(),"Relief reopening lost its checkbox or accepted preview");
+        dialog->buttons()->button(QDialogButtonBox::Ok)->click();flush();
+        check(get().at("revision")==relief_accepted.at("revision"),"Unchanged relief OK created a transaction");
+        run("undo");check(get().at("parameters")==accepted.at("parameters"),"Relief Undo lost ordinary Up To");
+        run("redo");check(get().at("parameters")==relief_accepted.at("parameters"),"Relief Redo lost its native option");
+        std::cout<<"Surface relief GUI: signed correction, bounded cyan preview, one rollback scene, Cancel, changed/unchanged OK, native saving and Undo/Redo passed\n";
         view->grabFramebuffer().save(QString::fromStdString((directory/"ordered-feature-ui-result.png").string()));
         std::cout<<"Ordered Feature GUI: View row picking, single-face correction wire, independent eyes, short MMB, Cancel, exact OK, original operand wire, unchanged OK, correction inspection, failed-definition persistence/repair and Undo/Redo passed\n";
         return 0;

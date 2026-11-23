@@ -7,7 +7,11 @@
 #include <zima/workspace/profile_operations.hpp>
 #include <zima/workspace/model_calculation.hpp>
 #include <zima/workspace/relation_operations.hpp>
+#include <zima/workspace/family_operations.hpp>
+#include <zima/workspace/engineering_metadata_operations.hpp>
+#include <zima/workspace/history_operations.hpp>
 #include <zima/kernel/feature_side_identity.hpp>
+#include <zima/kernel/calculation_diagnostics.hpp>
 #include <QCoreApplication>
 #include <BRepTools.hxx>
 #include <BRep_Builder.hxx>
@@ -220,8 +224,27 @@ unsigned independent_limits(const std::filesystem::path& output) {
     pending=*state->session.document().find_container(feature.id);
     pending.feature.sides[1].targets=pending.feature.sides[0].targets;
     document::prune_feature_up_to_patch_choices(pending.feature.sides[1]);
+    // The planner can classify parallel planes. The tilted infinite planes
+    // in the full chain cross both half-spaces; their direction is checked
+    // later by native calculation, which reports a structured Up To error.
+    auto invalid_document=state->session.document();
+    auto parallel=pending;
+    for(auto& side:parallel.feature.sides) {
+        side.targets={pending.feature.sides[0].targets[1]};
+        document::prune_feature_up_to_patch_choices(side);
+    }
+    *invalid_document.find_container(feature.id)=parallel;
+    bool invalid_plan=false;
+    try{static_cast<void>(invalid_document.kernel_operations());}catch(const std::exception& error) {
+        invalid_plan=std::string_view(error.what()).find("opačných stranách")!=std::string_view::npos;
+    }
+    check(invalid_plan,"Same-side Up To targets passed the document half-space guard");
     bool rejected=false;
-    try{workspace::commit_profile(live,engine,id,pending,workspace::ProfileEditMode::Replace);}catch(const std::exception& error){
+    try{workspace::commit_profile(live,engine,id,pending,workspace::ProfileEditMode::Replace);}
+    catch(const kernel::OrderedUpToError& error){
+        rejected=error.failure==kernel::OrderedUpToFailure::EmptyPatch&&error.row==0&&error.other_row==2;
+    }
+    catch(const std::exception& error){
         rejected=std::string_view(error.what()).find("opačných stranách")!=std::string_view::npos;
     }
     check(rejected&&state->session.revision()==revision&&state->session.document().serialized()==unchanged,
@@ -231,6 +254,10 @@ unsigned independent_limits(const std::filesystem::path& output) {
     check(rejected&&state->session.revision()==revision&&state->session.document().serialized()==unchanged,
         "Reversing toward fixed targets on the wrong side changed the native document");
     std::swap(pending.feature.sides[0].targets,pending.feature.sides[1].targets);
+    // Retained patches are authored choices attached to the source pair.
+    // Move those choices with the swapped targets; keep each logical side's
+    // correction and established cap identity in its own panel.
+    std::swap(pending.feature.sides[0].up_to.retained_patches,pending.feature.sides[1].up_to.retained_patches);
     for(auto& side:pending.feature.sides)document::prune_feature_up_to_patch_choices(side);
     workspace::commit_profile(live,engine,id,pending,workspace::ProfileEditMode::Replace);near(volume(engine,*state),810.);
     auto after=state->session.calculated_boundaries().back();engine.ensure_body_properties(after);
@@ -243,7 +270,104 @@ unsigned independent_limits(const std::filesystem::path& output) {
     std::vector<kernel::BodyResult> cached;auto reopened=document::PartDocument::load(file,&cached);
     workspace::Workspace cold_live;kernel::OcctKernel cold;cold_live.add_part(reopened,cached,file);
     static_cast<void>(workspace::regenerate_part(cold_live,cold,id));near(volume(cold,*cold_live.open_part(id)),810.);
+    std::cout<<"PASS independent side correction/reversal/reopen\n";
     return 6;
+}
+unsigned surface_relief_contract(const std::filesystem::path& output) {
+    unsigned cases=0;
+    for(bool reversed:{false,true})for(bool symmetric:{false,true})for(bool text_like:{false,true}) {
+        kernel::OcctKernel engine;workspace::Workspace live;auto part=document::PartDocument::create_default();
+        document::BodyHistoryGraph graph;static_cast<void>(graph.create_body("Surface relief"));part.set_body_history(graph);
+        const auto id=part.document_id;live.add_part(part);live.activate(id);
+        auto support=source(0,reversed?-10.:10.,-3,15,0);
+        check(workspace::commit_general_surface(live,engine,id,support),"Relief target did not commit");
+        auto* state=live.open_part(id);auto sketch=sketcher::Sketch::create_default();
+        static_cast<void>(sketch.add_rectangle(-2,0,10,3));
+        if(text_like) {static_cast<void>(sketch.add_circle(0,1.5,.5));static_cast<void>(sketch.add_rectangle(12,0,14,2));}
+        auto feature=document::PartDocument::create_feature_container(sketch.id);sketch.owner_container_id=feature.id;
+        feature.feature.symmetric=symmetric;feature.feature.reversed_sides=reversed;
+        auto& side=feature.feature.sides[0];side.extrusion_extent=document::EndCondition::UpTo;
+        side.up_to.from_target_surface=true;side.up_to.length_correction=2;
+        document::ExtrusionParameters::EndTarget target;target.reference={support.id,"surface:from:"+support.feature_id,{}};
+        side.targets={workspace::resolve_profile_end_target(state->session.document(),state->session.calculated_boundaries(),graph.active_body_id(),target)};
+        workspace::commit_profile(live,engine,id,feature,workspace::ProfileEditMode::Create,sketch);
+        const double area=(text_like?40-std::numbers::pi*.25:36)*(symmetric?2:1);
+        near(volume(engine,*state),area*2);
+        for(double correction:{-1.5,.75,2.}) {
+            const auto before=state->session.document().serialized();
+            auto pending=*state->session.document().find_container(feature.id);pending.feature.sides[0].up_to.length_correction=correction;
+            const auto calculations=kernel::body_calculation_count.load();
+            const auto wire=exact_draft(*state,pending);
+            check(kernel::body_calculation_count.load()==calculations+1,"Exact relief preview repeated its native operation");
+            workspace::commit_profile(live,engine,id,pending,workspace::ProfileEditMode::Replace);
+            check(kernel::body_calculation_count.load()==calculations+2,"Relief changed OK did not calculate exactly one Body");
+            near(volume(engine,*state),area*std::abs(correction));compare_accepted_wire(*state,feature.id,wire);
+            const auto accepted=state->session.document().serialized();const auto revision=state->session.revision();
+            workspace::commit_profile(live,engine,id,*state->session.document().find_container(feature.id),workspace::ProfileEditMode::Replace);
+            check(state->session.revision()==revision,"Unchanged relief OK created a transaction");
+            check(state->session.undo()&&state->session.document().serialized()==before,"Relief Undo changed prior intent");
+            check(state->session.redo()&&state->session.document().serialized()==accepted,"Relief Redo lost its mode or correction");
+            check(kernel::body_calculation_count.load()==calculations+2,"Unchanged relief OK or Undo/Redo recalculated geometry");
+            ++cases;
+        }
+        const auto before=state->session.document().serialized();const auto revision=state->session.revision();
+        auto zero=*state->session.document().find_container(feature.id);zero.feature.sides[0].up_to.length_correction=0;
+        bool rejected=false;try{workspace::commit_profile(live,engine,id,zero,workspace::ProfileEditMode::Replace);}catch(const std::exception&){rejected=true;}
+        check(rejected&&state->session.document().serialized()==before&&state->session.revision()==revision,"Zero relief was not rejected atomically");
+        const auto file=output/("surface-relief-"+std::to_string(cases)+".prtz");
+        state->session.document().save(file,state->session.calculated_boundaries());
+        std::vector<kernel::BodyResult> cached;auto reopened=document::PartDocument::load(file,&cached);
+        check(reopened.find_container(feature.id)->feature.sides[0].up_to.from_target_surface,"Native reopen lost relief mode");
+        workspace::Workspace cold_live;kernel::OcctKernel cold;cold_live.add_part(reopened,cached,file);
+        static_cast<void>(workspace::regenerate_part(cold_live,cold,id));near(volume(cold,*cold_live.open_part(id)),area*2);
+        if(!reversed&&!symmetric&&text_like) {
+            const auto valid=*state->session.document().find_container(feature.id);
+            const auto frame=[](const auto& p){return std::array{p.x,p.y,p.z,p.rotation_x,p.rotation_y,p.rotation_z};};
+            const auto sketch_frame=[&](const document::PartDocument& doc) {
+                const auto& s=*std::ranges::find(doc.sketches,sketch.id,&sketcher::Sketch::id);
+                return std::array{s.world_point(0,0),s.world_point(1,0),s.world_point(0,1)};
+            };
+            const auto saved_frame=sketch_frame(state->session.document());
+            workspace::delete_part_history(live,id,engine,support.id);
+            const auto* failed=state->session.document().find_container(feature.id);
+            check(failed->feature.sides[0].up_to.from_target_surface&&frame(failed->placement)==frame(valid.placement)&&
+                sketch_frame(state->session.document())==saved_frame&&
+                state->session.calculated_boundaries().back().calculation_errors.contains(feature.id),
+                "Missing relief target lost its mode/frame or advertised valid material");
+            const auto failed_file=output/"surface-relief-missing.prtz";
+            state->session.document().save(failed_file,state->session.calculated_boundaries());
+            std::vector<kernel::BodyResult> failed_cache;const auto failed_reopened=document::PartDocument::load(failed_file,&failed_cache);
+            check(failed_reopened.find_container(feature.id)->feature==failed->feature&&
+                frame(failed_reopened.find_container(feature.id)->placement)==frame(valid.placement)&&
+                sketch_frame(failed_reopened)==saved_frame&&
+                failed_cache.back().calculation_errors.contains(feature.id),"Unresolved relief did not reopen with its definition/frame/error");
+            check(state->session.undo(),"Relief source deletion Undo failed");near(volume(engine,*state),area*2);
+            check(state->session.redo()&&state->session.calculated_boundaries().back().calculation_errors.contains(feature.id),"Relief source deletion Redo lost the broken reference");
+            check(state->session.undo(),"Relief source restoration failed");near(volume(engine,*state),area*2);
+
+            document::FamilyTable family;family.columns={"Depth"};
+            family.bindings["Depth"]={"dimension",feature.id,"parameter:side0_up_to_length_correction"};
+            family.instances={{"Raised",{{"Depth","-1.5"}}},{"Recessed",{{"Depth","0.75"}}}};
+            static_cast<void>(workspace::set_family_table(cold_live,id,family));
+            for(const auto& row:family.instances) {
+                const auto member=workspace::open_family_instance(cold_live,cold,id,row.name);
+                const auto* variant=cold_live.open_part(member);
+                check(variant->session.document().find_container(feature.id)->feature.sides[0].up_to.from_target_surface,
+                    "Family member lost relief mode");
+                near(volume(cold,*variant),area*std::abs(std::stod(row.values.at("Depth"))));
+            }
+            near(volume(cold,*cold_live.open_part(id)),area*2);
+            const auto family_file=output/"surface-relief-family.prtz";
+            const auto* generic=cold_live.open_part(id);generic->session.document().save(family_file,generic->session.calculated_boundaries());
+            std::vector<kernel::BodyResult> family_cache;auto family_reopened=document::PartDocument::load(family_file,&family_cache);
+            workspace::Workspace family_live;family_live.add_part(family_reopened,family_cache,family_file);
+            const auto member=workspace::open_family_instance(family_live,cold,id,"Raised");
+            near(volume(cold,*family_live.open_part(member)),area*1.5);
+            std::cout<<"PASS relief source deletion persistence/Undo/Redo and signed Family variants after native reopen\n";
+        }
+    }
+    std::cout<<"PASS "<<cases<<" native relief edits: reversed/symmetric sides, holes and islands, both signs, exact wire, unchanged OK, zero rejection, Undo/Redo and cold reopen\n";
+    return cases;
 }
 unsigned assembly_limit_sources(const std::filesystem::path& source_file,const std::string& source_feature,
         const std::vector<kernel::FaceReference>& target_parents) {
@@ -316,6 +440,40 @@ unsigned assembly_limit_sources(const std::filesystem::path& source_file,const s
     near(cold_live.open_assembly(id)->session.document().find_occurrence(block_id)->calculated_source->volume,693.);
     check(cold_live.open_assembly(id)->session.document().find_occurrence(input_id)->calculated_source->source_fingerprint==native_source.source_fingerprint,
         "Moving the source occurrence rewrote its source Part geometry");
+    auto relief=cold_live.open_assembly(id)->session.document().find_cut(cut.id)->definition;
+    relief.feature.sides[0].up_to.from_target_surface=true;
+    workspace::commit_assembly_profile(cold_live,cold,id,relief,{block_id},workspace::ProfileEditMode::Replace);
+    near(cold_live.open_assembly(id)->session.document().find_occurrence(block_id)->calculated_source->volume,1026.);
+    const auto relief_file=source_file.parent_path()/"assembly-surface-relief.asmz";
+    cold_live.open_assembly(id)->session.document().save(relief_file);
+    const auto relief_reopened=assembly::AssemblyDocument::load(relief_file);
+    check(relief_reopened.find_cut(cut.id)->definition.feature.sides[0].up_to.from_target_surface&&
+        relief_reopened.find_cut(cut.id)->definition.combine_mode==document::CombineMode::Subtract,
+        "Assembly native relief lost its subtract-only mode");
+    workspace::Workspace relief_live;kernel::OcctKernel relief_engine;relief_live.add_assembly(relief_reopened,relief_file);
+    workspace::regenerate_assembly(relief_live,relief_engine,id);
+    near(relief_live.open_assembly(id)->session.document().find_occurrence(block_id)->calculated_source->volume,1026.);
+    auto relief_input=relief_reopened;
+    for(auto& component:relief_input.components)
+        component.calculated_source=relief_reopened.find_cut(cut.id)->input_component_bodies.at(component.occurrence_id);
+    const auto& relief_definition=relief_reopened.find_cut(cut.id)->definition;
+    kernel::OcctKernel relief_preview;
+    const auto relief_wire=relief_preview.calculate_feature_preview(
+        workspace::feature_preview_operation(relief_input.feature_document(),relief_definition),{}, {},
+        workspace::feature_preview_assembly_input(relief_input,{block_id}),
+        workspace::feature_preview_external_sources(relief_input,relief_definition));
+    bool original_limit=false,corrected_limit=false;
+    for(const auto& edge:relief_wire)for(const auto point:edge.points) {
+        const double height=(point.x<2?point.x+10:point.x<6?12:15-.5*point.x)+1.25;
+        check(point.z<=height+1e-5&&point.z>=height-1.5-1e-5,
+            "Assembly relief preview left the layer between its moved native targets");
+        original_limit|=std::abs(point.z-height)<1e-5;
+        corrected_limit|=std::abs(point.z-height+1.5)<1e-5;
+    }
+    check(original_limit&&corrected_limit,"Assembly relief preview lost an original or corrected cap");
+    check(cold_live.open_assembly(id)->session.undo(),"Assembly relief Undo failed");
+    near(cold_live.open_assembly(id)->session.document().find_occurrence(block_id)->calculated_source->volume,693.);
+    std::cout<<"PASS Assembly relief: selected occurrence cut, source placement, native reopen, cold regeneration and Undo\n";
     auto mixed=cold_live.open_assembly(id)->session.document().find_cut(cut.id)->definition;
     mixed.feature.sides[1].operation=document::FeatureSideOperation::Extrusion;
     mixed.feature.sides[1].extrusion_extent=document::EndCondition::ThroughAll;
@@ -325,7 +483,8 @@ unsigned assembly_limit_sources(const std::filesystem::path& source_file,const s
     auto before=mixed_document;
     for(auto& component:before.components)component.calculated_source=mixed_document.find_cut(cut.id)->input_component_bodies.at(component.occurrence_id);
     const auto operation=workspace::feature_preview_operation(before.feature_document(),mixed_document.find_cut(cut.id)->definition);
-    const auto draft=cold.calculate_feature_preview(operation,{}, {},workspace::feature_preview_assembly_input(before,{block_id}),
+    kernel::OcctKernel preview_kernel;
+    const auto draft=preview_kernel.calculate_feature_preview(operation,{}, {},workspace::feature_preview_assembly_input(before,{block_id}),
         workspace::feature_preview_external_sources(before,mixed_document.find_cut(cut.id)->definition));
     double minimum=1e100;for(const auto& edge:draft)for(const auto p:edge.points)minimum=std::min(minimum,p.z);
     near(minimum,-1.);
@@ -365,7 +524,7 @@ unsigned assembly_limit_sources(const std::filesystem::path& source_file,const s
     check(cold_live.open_assembly(id)->session.undo()&&cold_live.open_assembly(id)->session.redo(),"Mixed Assembly limit Undo/Redo failed");
     check(wire_packet(cold_live.open_assembly(id)->session.document(),cut.id)==mixed_wire,
         "Assembly Undo/Redo changed the cutter wire");
-    return 12;
+    return 15;
 }
 }
 int main(int argc,char** argv){QCoreApplication app(argc,argv);try {
@@ -386,6 +545,7 @@ int main(int argc,char** argv){QCoreApplication app(argc,argv);try {
     const auto output=std::filesystem::temp_directory_path()/
         ("zima-ordered-feature-"+std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     check(std::filesystem::create_directory(output),"Native evidence directory already exists");
+    cases+=surface_relief_contract(output);
     cases+=independent_limits(output);
     for(bool concave:{false,true})for(bool symmetric:{false,true}) {
         kernel::OcctKernel kernel;workspace::Workspace live;auto part=document::PartDocument::create_default();
@@ -523,4 +683,5 @@ int main(int argc,char** argv){QCoreApplication app(argc,argv);try {
         }
     }
     std::cout<<"PASS "<<cases<<" native ordered Feature checks: original finite faces, automatic choice persistence, symmetry, repeated corrections, unchanged OK, row identity/rejection, Undo/Redo, native save/reopen and explicit cold regeneration. Evidence: "<<output.generic_string()<<'\n';
-}catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}}
+}catch(const kernel::OrderedUpToError& error){std::cerr<<error.what()<<" code="<<static_cast<int>(error.failure)<<" rows="<<error.row<<","<<error.other_row<<'\n';return 1;}
+catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}}

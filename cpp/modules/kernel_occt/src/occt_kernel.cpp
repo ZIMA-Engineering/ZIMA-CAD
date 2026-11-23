@@ -2958,12 +2958,18 @@ PrimitiveData make_extrusion_data(
     if(!reference_vertex.More())throw std::runtime_error("Extrusion profile has no reference point");
     const auto profile_keep_point=BRep_Tool::Pnt(TopoDS::Vertex(reference_vertex.Current()));
     std::optional<detail::OrderedLimitResult> ordered;
+    std::optional<detail::OrderedLimitResult> relief_start;
+    const bool relief=request.ordered_end_limit&&request.ordered_end_limit->from_target_surface;
+    if(relief&&(request.surface_result||request.wall||
+            std::abs(request.ordered_end_limit->path_correction)<=linear_tolerance))
+        throw std::runtime_error("From target surface requires a solid profile and a nonzero correction larger than the modeling tolerance.");
     if(request.ordered_end_limit) {
         ordered=prepare_ordered_up_to(*request.ordered_end_limit,exact_ordered_targets,face,linear_tolerance);
         if(request.mirror_forward_limit) {
             gp_Trsf mirror;mirror.SetMirror(gp_Ax2(profile_keep_point,gp_Dir(unit.x,unit.y,unit.z)));
             ordered=detail::transform_ordered_up_to(*ordered,mirror);
         }
+        if(relief)relief_start=*ordered;
         if(request.ordered_end_limit->path_correction!=0) {
             gp_Trsf advance;advance.SetTranslation(gp_Vec(unit.x,unit.y,unit.z)*request.ordered_end_limit->path_correction);
             ordered=detail::transform_ordered_up_to(*ordered,advance);
@@ -3021,14 +3027,18 @@ PrimitiveData make_extrusion_data(
     }
     if(forward_boundary)bounded_end=extrusion_limit_span(*forward_boundary,unit,face,wires,request.wall.has_value(),exact_target);
     if(ordered) {
-        if(ordered->patches.size()==1&&!request.ordered_end_limit->patches.front().target.planar) {
+        const auto span=[&](const detail::OrderedLimitResult& limit) {
+        if(limit.patches.size()==1&&!request.ordered_end_limit->patches.front().target.planar) {
             // A single curved support terminates at the first contact, also
             // when correction routes it through the ordered-limit machinery.
             // Extending the auxiliary prism beyond the far side of a cylinder
             // leaves a disconnected tail in the retained outside half-space.
-            bounded_end=extrusion_limit_span(limit_view(request.ordered_end_limit->patches.front().target),
-                unit,face,wires,request.wall.has_value(),ordered->patches.front().face);
-        } else bounded_end=ordered_up_to_linear_span(*ordered,face,profile_keep_point,gp_Dir(unit.x,unit.y,unit.z));
+            return extrusion_limit_span(limit_view(request.ordered_end_limit->patches.front().target),
+                unit,face,wires,request.wall.has_value(),limit.patches.front().face);
+        } else return ordered_up_to_linear_span(limit,face,profile_keep_point,gp_Dir(unit.x,unit.y,unit.z));
+        };
+        bounded_end=span(*ordered);
+        if(relief_start)bounded_end=std::max(bounded_end,span(*relief_start));
     }
     if(reverse_boundary)bounded_start=-extrusion_limit_span(*reverse_boundary,{-unit.x,-unit.y,-unit.z},face,wires,request.wall.has_value(),reverse_exact);
     if(bounded_end<=bounded_start+1e-12)throw std::runtime_error("OCCT Extrusion interval is empty");
@@ -3069,14 +3079,19 @@ PrimitiveData make_extrusion_data(
             return nearest;
         };
         for(const auto& [key,seed]:profile_centerlines::seeds(request)) {
-            const double start=reverse_boundary?-distance_to(*reverse_boundary,reverse_exact,seed,{-unit.x,-unit.y,-unit.z}):bounded_start;
+            double start=reverse_boundary?-distance_to(*reverse_boundary,reverse_exact,seed,{-unit.x,-unit.y,-unit.z}):bounded_start;
             double end=forward_boundary?distance_to(*forward_boundary,exact_target,seed,unit):bounded_end;
             if(ordered) {
-                IntCurvesFace_ShapeIntersector hit;hit.Load(ordered->shell,linear_tolerance);
+                const auto station=[&](const detail::OrderedLimitResult& limit) {
+                IntCurvesFace_ShapeIntersector hit;hit.Load(limit.shell,linear_tolerance);
                 hit.Perform(gp_Lin(gp_Pnt(seed.x,seed.y,seed.z),gp_Dir(unit.x,unit.y,unit.z)),0,bounded_end);
-                end=std::numeric_limits<double>::infinity();
-                if(hit.IsDone())for(int i=1;i<=hit.NbPnt();++i)end=std::min(end,hit.WParameter(i));
-                if(!std::isfinite(end))throw std::runtime_error("Profile centerline does not intersect its end reference.");
+                double value=std::numeric_limits<double>::infinity();
+                if(hit.IsDone())for(int i=1;i<=hit.NbPnt();++i)value=std::min(value,hit.WParameter(i));
+                if(!std::isfinite(value))throw std::runtime_error("Profile centerline does not intersect its end reference.");
+                return value;
+                };
+                end=station(*ordered);
+                if(relief_start)start=station(*relief_start);
             }
             const auto first=dimension_add(seed,dimension_scale(unit,start)),last=dimension_add(seed,dimension_scale(unit,end));
             profile_centerlines::line(result.profile_references,owner_id,key,first_semantic_cap_is_start(request)?first:last,first_semantic_cap_is_start(request)?last:first);
@@ -3264,14 +3279,44 @@ PrimitiveData make_extrusion_data(
     // shell. Draft its overrun prism first, then create the exact curved rim.
     const bool draft_before_clip=request.surface_result&&request.draft_angle_degrees!=0&&
         ((forward_boundary&&!forward_boundary->planar)||(reverse_boundary&&!reverse_boundary->planar));
-    const bool ordered_draft_before_clip=ordered&&request.surface_result&&request.draft_angle_degrees!=0;
+    const bool ordered_draft_before_clip=ordered&&(request.surface_result||relief)&&request.draft_angle_degrees!=0;
+    const auto clip_ordered=[&] {
+        if(!relief_start) {
+            clip_ordered_up_to_profile(result,*ordered,*request.ordered_end_limit,first_boundary,last_boundary,
+                profile_keep_point,last_cap_reference,last_role,request.surface_result,linear_tolerance);
+            return;
+        }
+        // One drafted overrun prism, two clips of the same resolved target.
+        // The cap roles follow authored original/corrected limits, including
+        // negative corrections, rather than numerical height ordering.
+        const bool positive=request.ordered_end_limit->path_correction>0;
+        const auto& upper=positive?*ordered:*relief_start;
+        const auto& lower=positive?*relief_start:*ordered;
+        const auto& upper_cap=positive?last_cap_reference:first_cap_reference;
+        const auto& lower_cap=positive?first_cap_reference:last_cap_reference;
+        clip_ordered_up_to_profile(result,upper,*request.ordered_end_limit,first_boundary,last_boundary,
+            profile_keep_point,upper_cap,positive?last_role:first_role,false,linear_tolerance);
+        BRep_Builder builder;TopoDS_Compound retained;builder.MakeCompound(retained);
+        NCollection_IndexedMap<TopoDS_Shape,TopTools_ShapeMapHasher> sketch_cap;
+        TopExp::MapShapes(first_boundary,TopAbs_FACE,sketch_cap);
+        std::size_t count=0;
+        for(const auto& named:result.faces)if(!sketch_cap.Contains(named.shape)&&
+                (named.reference.semantic_key==upper_cap.semantic_key||
+                named.reference.semantic_key.starts_with(upper_cap.semantic_key+":limit:"))) {
+            builder.Add(retained,named.shape);++count;
+        }
+        if(!count)throw std::runtime_error("The target surface layer could not be constructed.");
+        clip_ordered_up_to_profile(result,lower,*request.ordered_end_limit,retained,first_boundary,
+            profile_keep_point,lower_cap,positive?first_role:last_role,false,linear_tolerance,{},true);
+        if(!TopExp_Explorer(result.shape,TopAbs_SOLID).More())
+            throw std::runtime_error("The target surface layer could not be constructed.");
+    };
     if(!draft_before_clip) {
         if(forward_boundary)clip_end(*forward_boundary,unit,exact_target,last_cap_reference);
         if(reverse_boundary)clip_end(*reverse_boundary,{-unit.x,-unit.y,-unit.z},reverse_exact,first_cap_reference);
     }
     if(ordered&&!ordered_draft_before_clip)
-        clip_ordered_up_to_profile(result,*ordered,*request.ordered_end_limit,first_boundary,last_boundary,
-            profile_keep_point,last_cap_reference,last_role,request.surface_result,linear_tolerance);
+        clip_ordered();
     if(request.draft_angle_degrees!=0) {
         BRepOffsetAPI_DraftAngle draft(result.shape);
         const gp_Dir pull(unit.x,unit.y,unit.z);
@@ -3312,6 +3357,14 @@ PrimitiveData make_extrusion_data(
                 if(edge.reference.semantic_key.starts_with(last_role+":"))builder.Add(last,edge.shape);
             }
             first_boundary=first;last_boundary=last;
+            if(!request.surface_result) {
+                builder.MakeCompound(first);builder.MakeCompound(last);
+                for(const auto& cap:result.faces) {
+                    if(cap.reference.semantic_key==first_cap_reference.semantic_key)builder.Add(first,cap.shape);
+                    if(cap.reference.semantic_key==last_cap_reference.semantic_key)builder.Add(last,cap.shape);
+                }
+                first_boundary=first;last_boundary=last;
+            }
         }
         BOPAlgo_ArgumentAnalyzer check;check.SetShape1(draft.Shape());check.SelfInterMode()=true;check.Perform();
         if(check.HasFaulty())throw std::runtime_error("Draft cannot preserve the profile; reduce the angle or length.");
@@ -3321,8 +3374,7 @@ PrimitiveData make_extrusion_data(
         if(forward_boundary)clip_end(*forward_boundary,unit,exact_target,last_cap_reference);
         if(reverse_boundary)clip_end(*reverse_boundary,{-unit.x,-unit.y,-unit.z},reverse_exact,first_cap_reference);
     }
-    if(ordered_draft_before_clip)clip_ordered_up_to_profile(result,*ordered,*request.ordered_end_limit,first_boundary,last_boundary,
-        profile_keep_point,last_cap_reference,last_role,request.surface_result,linear_tolerance);
+    if(ordered_draft_before_clip)clip_ordered();
     if (!request.additional_profile_regions.empty()) {
         TopoDS_Compound compound;
         BRep_Builder builder;
@@ -9153,6 +9205,20 @@ BodyResult OcctKernel::calculate_feature_geometry(HistoryOperation operation,
         throw std::invalid_argument("Invalid Feature definition.");
     try {
         HistoryContext context;context.preview_wire=wire_only;
+        // A document carrier cannot resolve Assembly faces by itself and marks
+        // external planar targets as datum fallbacks. The explicit native
+        // sources supplied by this calculation restore their real face domain
+        // and orientation before target collection and ordered-side clipping.
+        for(auto& child:std::get<FeatureGroupRequest>(operation.primitive).children)
+            std::visit([&](auto& value) {
+                if constexpr(requires {value.ordered_end_limit;})
+                    if(value.ordered_end_limit)for(auto& patch:value.ordered_end_limit->patches) {
+                        const auto supplied=std::ranges::find_if(external_sources,[&](const auto& source) {
+                            return source.native_source&&same_face_identity(source.target.reference,patch.target.reference);
+                        });
+                        if(supplied!=external_sources.end())patch.target.datum=false;
+                    }
+            },child);
         const auto& group=std::get<FeatureGroupRequest>(operation.primitive);
         const bool through_all=std::ranges::any_of(group.children,[](const auto& child) {
             const auto* extrusion=std::get_if<ExtrusionRequest>(&child);
