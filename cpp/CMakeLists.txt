@@ -310,6 +310,13 @@ target_link_libraries(zima_document_core
     PUBLIC zima_kernel_api zima_sketcher zima_transition_core nlohmann_json::nlohmann_json
     PRIVATE OpenSSL::Crypto ZLIB::ZLIB zstd::libzstd)
 
+add_library(zima_cam modules/cam/src/program.cpp modules/cam/src/facing.cpp)
+target_include_directories(zima_cam PUBLIC modules/cam/include)
+target_link_libraries(zima_cam PUBLIC zima_kernel_api)
+add_library(zima_cam_native modules/cam/src/native_sweep.cpp modules/cam/src/native_simulation.cpp)
+target_link_libraries(zima_cam_native PUBLIC zima_cam PRIVATE
+    TKernel TKMath TKG2d TKG3d TKGeomBase TKBRep TKGeomAlgo TKTopAlgo TKPrim TKBO TKBool)
+
 add_library(zima_render modules/render/src/renderer.cpp)
 find_package(Threads REQUIRED)
 target_include_directories(zima_render PUBLIC modules/render/include)
@@ -916,6 +923,17 @@ if(ZIMA_BUILD_TESTS)
     add_executable(zima_cpp_step_parallel_properties_tests tests/step_parallel_properties_tests.cpp)
     target_link_libraries(zima_cpp_step_parallel_properties_tests PRIVATE zima_interchange zima_kernel_occt TKPrim TKDESTEP)
     add_test(NAME zima_cpp_step_parallel_properties_tests COMMAND zima_cpp_step_parallel_properties_tests)
+    add_executable(zima_cpp_cam_program_tests tests/cam_program_tests.cpp)
+    target_link_libraries(zima_cpp_cam_program_tests PRIVATE zima_cam)
+    add_test(NAME zima_cpp_cam_program_tests COMMAND zima_cpp_cam_program_tests)
+    add_executable(zima_cpp_cam_sweep_tests tests/cam_sweep_tests.cpp)
+    target_link_libraries(zima_cpp_cam_sweep_tests PRIVATE zima_cam_native
+        TKernel TKMath TKG2d TKG3d TKGeomBase TKBRep TKTopAlgo)
+    add_test(NAME zima_cpp_cam_sweep_tests COMMAND zima_cpp_cam_sweep_tests)
+    add_executable(zima_cpp_cam_simulation_tests tests/cam_simulation_tests.cpp)
+    target_link_libraries(zima_cpp_cam_simulation_tests PRIVATE zima_cam_native
+        TKernel TKMath TKG2d TKG3d TKGeomBase TKBRep TKTopAlgo TKPrim)
+    add_test(NAME zima_cpp_cam_simulation_tests COMMAND zima_cpp_cam_simulation_tests)
     add_executable(zima_cpp_section_contract_tests tests/section_contract_tests.cpp)
     target_link_libraries(zima_cpp_section_contract_tests PRIVATE zima_document_core zima_assembly zima_drawing zima_kernel_occt)
     add_test(NAME zima_cpp_section_contract_tests COMMAND zima_cpp_section_contract_tests)

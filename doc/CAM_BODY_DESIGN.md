@@ -141,3 +141,43 @@ reuse shared reference entry and in-application properties windows, with all
 text in the five supported languages. A machine postprocessor is not a gate for
 the generic program, but executable export for that controller remains absent
 until its translation and acceptance checks are implemented.
+
+## Initial calculation implementation, 2026-11-23
+
+The first automatic operation is face milling down to the highest point of the
+target, optionally retaining a positive axial allowance. It complements manual
+linear/circular blocks; pockets, contours, turning and simultaneous rotary-axis
+motion are not implied by this first operation. Face milling requires a tool
+with a nonzero flat tip radius. The raster spacing cannot exceed its tip
+diameter, and each depth increment cannot exceed the cutting length. The
+complete authored profile, including shoulders and non-cutting regions, remains
+part of material and collision calculation.
+
+Generated transfers retract above the stock, target and fixture extents with an
+explicit clearance. Every generated program still passes machine limits and
+exact material/collision inspection before it can be accepted as a calculated
+result. Fixture intersections do not authorize silently omitting a pass.
+
+Generic NC positions describe the tool tip in millimetres internally; an inch
+display changes serialization units only. The authored tool origin remains the
+cutting/shank boundary. The mounting point is the axial end of the non-cutting
+profile. Machine travel checks use that mounting point plus the declared work
+offset, including complete circular-motion extrema. These limits are geometric
+axis limits, not a controller-specific tool-change or acceleration model.
+
+The calculation core constructs native swept solids for piecewise linear radial
+profiles and straight or planar circular tip motion. Linear motion sweeps
+monotone boundary strips; circular motion combines exact annular sectors with
+endpoint profiles. It does not sample material removal at animation frames.
+Boolean calculations use an explicit default linear tolerance of 0.0000001 mm.
+Pure contact has zero intersection volume; penetration exceeding the cube of
+that tolerance is reported. Fixture, target-gouge, rapid-stock and non-cutting
+stock intersections remain distinguishable and retain the corresponding block
+identity. Reported collisions do not remove material for rapid/non-cutting
+motion, and a colliding result must not become accepted stock for another setup.
+
+Native simulation owns private copies before validation, bounding-box inspection
+or Boolean calculation, because OCCT helpers may update lazy topology flags.
+The document publishes only a completed result matching all source inputs.
+This section defines the implementation in progress; it is not evidence that
+the CAM Body, persistence or user interface is complete.
