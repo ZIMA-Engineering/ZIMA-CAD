@@ -64,5 +64,11 @@ the corrected dedicated flag selected and passed the intended reference suite.
 
 No product UI text is added or changed. Translation coverage and catalog
 validation passed for Czech, English, German, French and Russian. Cone/Torus
-mouse input, nested Assembly mouse input, Linux execution and packaged Windows
-execution have not been verified by this matrix.
+mouse input, nested Assembly mouse input and Linux execution have not been
+verified by this matrix. All four new cases and the existing Body/curve GUI
+cases passed in the packaged Windows 2026112303 runtime.
+
+## Windows package acceptance
+
+The same focused GUI cases passed in the committed Windows 2026112303 package.
+See the [publication evidence](20261123-windows-2303-publication.json).

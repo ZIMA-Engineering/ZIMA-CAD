@@ -65,6 +65,10 @@ reference state. The original private file retains the SHA-256 recorded above.
 
 No new or changed product UI text is introduced. Translation coverage and
 catalog validation passed for Czech, English, German, French and Russian.
-Linux execution and verification of a packaged Windows
-release remain pending. This finite matrix does not establish every arbitrary
+Linux execution remains pending. Packaged Windows execution passed for 2026112303. This finite matrix does not establish every arbitrary
 profile, self-intersecting route or closed-loop frame configuration.
+
+## Windows package acceptance
+
+The same focused GUI cases passed in the committed Windows 2026112303 package.
+See the [publication evidence](20261123-windows-2303-publication.json).

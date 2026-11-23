@@ -76,5 +76,14 @@ freeform terminal surfaces. The added rollback GUI fixture covers a Part,
 not nested Assembly editing.
 
 These follow-up changes are not included in the immutable public
-`ZIMA-CAD-2026112303` package. Local development installation is tracked
-separately from publication of that already verified package.
+`ZIMA-CAD-2026112303` package. After the user saved and closed the application,
+the GUI and CLI from commit `222825f2af7112f84fc0581657044ec0ebf417b2`
+were installed in the existing local development build directory. Both report
+that development source identity. The unchanged `zima-cad.bat` still launches
+the canonical GUI path. Previous binaries were backed up; launcher and user
+configuration hashes were unchanged. The installed GUI passed the Hole
+rollback/edit/native-reopen check again.
+
+Local installation evidence is retained in the ignored
+`build/fillet-cylinder-end-20261123/local-installation.json`. This development
+installation is separate from publication of the verified 2026112303 package.

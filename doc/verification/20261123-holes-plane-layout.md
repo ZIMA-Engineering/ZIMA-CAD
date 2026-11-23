@@ -18,4 +18,9 @@ Windows verification on 2026-11-23:
 Local logs: `build/trim-contact-20261123/layout.out`,
 `build/trim-contact-20261123/translations.out` and
 `build/render-followup-20261123/holes.out`. Tests used the current native Windows
-build. Linux execution and packaged-release verification remain pending.
+build. Packaged Windows verification passed for 2026112303; Linux execution remains pending.
+
+## Windows package acceptance
+
+The same focused GUI cases passed in the committed Windows 2026112303 package.
+See the [publication evidence](20261123-windows-2303-publication.json).

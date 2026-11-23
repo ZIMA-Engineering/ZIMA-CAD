@@ -1,5 +1,18 @@
 # Application updates
 
+Signed Windows [2026112303](releases/2026112303.md#distribution-status) was
+published at `2026-11-23T15:06:37Z` from immutable source
+`65959a0a667b8705ce19d47c44d7dc03e0c17911`. Complete spatial spline cuts, retained Point supports,
+curved-face Point picking, coincident-contact Trim, shared Holes layout and
+Render marker/live-camera/Spotlight changes passed their finite contracts.
+Candidate and signed smoke, 1,185 factory native loads,
+twelve sheet-branch gates and twelve additional packaged GUI cases passed.
+Public downloads, signatures, safe extraction and production updater trust
+passed. The accepted binaries were also installed and verified locally.
+The later [cylindrical Fillet fix](verification/20261123-cylindrical-fillet-ends.md) is a separate local development build. User settings and protected originals were preserved. Linux, CAM, target-surface
+relief, image cropping and wrapping remain separate work. See the
+[publication evidence](verification/20261123-windows-2303-publication.json).
+
 Signed Windows [2026112302](releases/2026112302.md#distribution-status) was
 published at `2026-11-23T10:36:53Z` from immutable source
 `c1fe8367687d22f87a0c720a9ce99dfce7ec31cd`. It adds noncircular Offset tangency, supported Straighten

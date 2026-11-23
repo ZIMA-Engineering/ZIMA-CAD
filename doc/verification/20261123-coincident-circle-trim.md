@@ -72,3 +72,8 @@ counts alone as commit evidence.
 The initial Trim status incorrectly described a single middle click. It now
 describes the existing double-click contract in all five catalogs. Catalog/UI
 translation verification passed. Linux execution is pending.
+
+## Windows package acceptance
+
+The same focused GUI cases passed in the committed Windows 2026112303 package.
+See the [publication evidence](20261123-windows-2303-publication.json).

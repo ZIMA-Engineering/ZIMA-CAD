@@ -1,6 +1,6 @@
 # Spotlight, marker colors and live camera
 
-Status: native Windows development verification; not yet a published release.
+Status: verified in the signed Windows 2026112303 release.
 The user approved the spotlight's native storage scope on 2026-11-23.
 
 ## Changed behavior
@@ -77,5 +77,10 @@ runtime reports the same unsupported-format condition. Their modeling behavior
 is therefore unverified; no original file was converted or overwritten.
 
 The shared C++ implementation has not been executed on Linux. Packaged-runtime,
-committed-asset and public-release checks remain pending. Assembly Render scenes,
+committed-asset and public-release checks passed for Windows 2026112303. Assembly Render scenes,
 image cropping and cylindrical profile wrapping are outside this change.
+
+## Windows package acceptance
+
+The same focused GUI cases passed in the committed Windows 2026112303 package.
+See the [publication evidence](20261123-windows-2303-publication.json).
