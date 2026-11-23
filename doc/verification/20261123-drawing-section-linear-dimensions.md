@@ -72,3 +72,32 @@ added by this planar-support change. Broader Sketcher behavior is unchanged.
 Disposable local evidence: `build/drawing-section-line-before.log`,
 `build/drawing-section-line-final.log`, `build/drawing-parallel-after.png` and
 the CTest logs in `build/cpp-windows-release/Testing/Temporary`.
+
+## Local deployment
+
+The Drawing fix is commit `d5f4f3da6`. Deployment branch
+`codex/drawing-section-linear` applies it as `ef0991c95` on the previously
+verified local baseline `b29d6d60d`. This keeps the unfinished CAM integration
+out of the installed executable while retaining its work on the development
+branch. All eight tests passed again on this deployment source.
+
+The final Windows executable has SHA-256
+`7D8D7067765D04A4D8E96C0A4B4BF369D0357F6C5BB390133ED500C465874EB7`.
+Candidate and installed startup tests both passed factory-template creation,
+Box calculation, native save and rendered View. The candidate also retained
+the user-model Fillet preview exactly: 16 strokes, 10 source-node labels,
+zero geometric difference, and successful Cancel restoration.
+
+Both 20 mm and 40 mm real-file mouse workflows passed on the deployment build,
+including a repeat after compilation finished. One earlier 40 mm harness
+invocation ended with Windows status `0xC0000008` and no output. It did not
+recur in the two subsequent 40 mm runs; the inspected recent Application log
+contained no matching crash event. Its cause remains unconfirmed. This is not
+reported as a repaired application defect or silently counted as a passing run.
+
+The verified EXE was installed at `build/cpp-windows-release/zima-cad-cpp.exe`
+after confirming that ZIMA-CAD was closed and preserving a hash-verified copy
+of the preceding EXE. `zima-cad.bat` remains unchanged. The original `50.drwz`
+and all three pre-existing dirty user configuration files retained their hashes.
+No portable release was produced. Deployment logs and the previous executable
+are local disposable artifacts under `build/drawing-section-20261123`.
