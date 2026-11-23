@@ -10,6 +10,19 @@ input. Successful changes use `commit_sweep`: one calculation, revision, and Und
 are applied in sequence. The helper frame is in memory only. Reference preparation
 uses native data without OCCT; body calculation occurs only on explicit commit.
 
+When adding a first face reference to a new 3D Curve or Sweep-owned Point in the
+View, an analytic curved support captures the clicked surface location. The View hit is
+converted through the active occurrence, owning Body and parent path frames,
+then resolved on the existing surface constraint before entering the shared
+placement control. The existing free-coordinate capture and value locks remain
+authoritative. Ordinary planar faces retain projection of the owning Origin.
+Tree reference entry does not borrow an old mouse position. The pick position
+is transient input; the native Point keeps the established reference and
+coordinate representation.
+
+The focused mouse-input matrix and trimmed-surface kernel regression are
+documented in [curved-face Point verification](verification/20261123-curved-face-point-picking.md).
+
 ## Usage
 
 ~~~json

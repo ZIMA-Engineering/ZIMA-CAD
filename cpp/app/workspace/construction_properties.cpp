@@ -622,6 +622,19 @@ void AssemblyWorkspaceWindow::show_curve_point_properties(
             const auto& point_document=sweep_carrier ? *sweep_carrier : next;
             const auto* resolved = point_document.find_construction(preview.id);
             if (resolved == nullptr) return;
+            curve_point_reference_from_document_={};
+            if(!surface)if(const auto* parent=point_document.find_construction(curve_preview.id)) {
+                document::Placement body_frame,curve_frame;
+                if(const auto* body=next.body_owner_for_object(parent_guard->construction_id()))
+                    body_frame=body->scope.placement;
+                curve_frame.x=parent->origin.x;curve_frame.y=parent->origin.y;curve_frame.z=parent->origin.z;
+                curve_frame.rotation_x=parent->rotation.x;curve_frame.rotation_y=parent->rotation.y;
+                curve_frame.rotation_z=parent->rotation.z;
+                curve_point_reference_from_document_=[body_frame,curve_frame](kernel::Vec3 point) {
+                    return container_dimension_frame(curve_frame).inverse_point(
+                        container_dimension_frame(body_frame).inverse_point(point));
+                };
+            }
             if(surface)if(const auto* parent=point_document.find_construction(curve_preview.id)) {
                 zima::document::Placement frame;
                 frame.x=parent->origin.x;frame.y=parent->origin.y;frame.z=parent->origin.z;
@@ -724,6 +737,7 @@ void AssemblyWorkspaceWindow::show_curve_point_properties(
 
     connect(point_dialog, &QObject::destroyed, this,
         [this, parent_guard, committed] {
+            curve_point_reference_from_document_={};
             pending_construction_reference_index_.reset();
             construction_reference_auto_advance_ = false;
             viewer_->set_constraint_reference_highlights({}, {});

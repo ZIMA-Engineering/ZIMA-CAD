@@ -604,6 +604,9 @@ private:
         parameter_dimension_preview_;
     std::optional<zima::document::ConstructionObject>
         construction_parameter_preview_;
+    // Exists only while editing a Curve/Sweep-owned Point. Reference geometry
+    // uses its parent's local frame, after the owning Body transformation.
+    std::function<zima::kernel::Vec3(zima::kernel::Vec3)> curve_point_reference_from_document_;
     std::optional<std::size_t> pending_construction_reference_index_;
     bool construction_reference_auto_advance_{};
     int construction_translation_dof_{3};
@@ -1030,7 +1033,7 @@ private:
     void start_construction_reference_selection(
         std::size_t index, bool auto_advance = false);
     void accept_construction_reference(
-        const zima::viewer::ViewerCandidate& candidate);
+        const zima::viewer::ViewerCandidate& candidate, bool from_view = false);
     void start_primitive_reference_selection(
         std::size_t index, bool auto_advance = false);
     void accept_primitive_reference(

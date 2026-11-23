@@ -54,6 +54,7 @@
 #include "confirmed_face_hit.hpp"
 #include <zima/workspace/sweep_operations.hpp>
 #include "../tests/sweep_test_support.hpp"
+#include "../tests/spline_loop_sweep_fixture.hpp"
 #include <zima/workspace/profile_operations.hpp>
 #include <zima/workspace/opening_operations.hpp>
 #include <zima/workspace/edge_treatment_operations.hpp>
@@ -3307,6 +3308,9 @@ int verify_curve_radius_edit(QApplication& application,
             "Zero radius did not restore the sharp corner")) return 1;
     return 0;
 }
+
+#include "spline_loop_sweep_ui_verification.inc"
+#include "curved_face_point_ui_verification.inc"
 
 int verify_body_curve_references(QApplication& application, const std::filesystem::path& directory) {
     using namespace zima::document;
@@ -11799,6 +11803,10 @@ int verify_startup_contract(
     const QString& part_capture_path = {}, const QString& drawing_capture_path = {}) {
     auto test_directory = initial_test_directory;
     if(qEnvironmentVariableIsSet("ZIMA_VERIFY_HIDDEN_WINDOWS"))window.setAttribute(Qt::WA_DontShowOnScreen);
+    if(qEnvironmentVariableIsSet("ZIMA_VERIFY_SPLINE_LOOP_SWEEP_ONLY"))
+        return verify_spline_loop_sweep_ui(application,test_directory);
+    if(qEnvironmentVariableIsSet("ZIMA_VERIFY_CURVED_FACE_POINT_ONLY"))
+        return verify_curved_face_point_ui(application,test_directory);
     if(qEnvironmentVariableIsSet("ZIMA_VERIFY_TREE_GEOMETRY_ONLY")) {
         auto* tree=window.findChild<QTreeWidget*>("documentTree");
         if(tree)tree->setVerticalScrollBarPolicy(

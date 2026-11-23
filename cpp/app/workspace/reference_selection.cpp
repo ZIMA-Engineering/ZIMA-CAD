@@ -974,7 +974,7 @@ void AssemblyWorkspaceWindow::start_construction_reference_selection(
 }
 
 void AssemblyWorkspaceWindow::accept_construction_reference(
-    const zima::viewer::ViewerCandidate& offered) {
+    const zima::viewer::ViewerCandidate& offered, bool from_view) {
     const auto candidate=placement_reference_source_candidate(offered);
     if (!placement_origin_allowed(candidate.owner_id)) return;
     if (construction_reference_dialog_ == nullptr ||
@@ -1174,6 +1174,26 @@ void AssemblyWorkspaceWindow::accept_construction_reference(
     committed_reference.measured_offset=zima::document::measure_placement_reference_offset(committed_reference,construction_reference_geometry_,orientation_origin);
     if (proposed_reference.station_mode!=document::PlacementStationMode::None || proposed_reference.use_angle)
         committed_reference=proposed_reference;
+    if(from_view && curve_point_reference_from_document_ && selected_index==0 &&
+            selection_baseline.empty() && construction_reference_dialog_->first_empty_position_index()==0 &&
+            candidate.kind==viewer::CandidateKind::Face) {
+        const auto* surface=document::placement_surface(committed_reference,construction_reference_geometry_);
+        if(surface && surface->kind!=kernel::SurfaceGeometry::Kind::Plane)
+            if(const auto ray=viewer_->ray_at(viewer_->last_pointer_position()))
+                if(auto hit=confirmed_face_hit(viewer_->candidate_face_triangles(offered),ray->first,ray->second)) {
+                    const auto path=assembly::InstancePath::decode(workspace_.active_occurrence_path());
+                    if(!path.occurrence_ids.empty())*hit=workspace_.occurrence_point_from_scene(
+                        workspace_.displayed_document_id(),path,*hit);
+                    *hit=curve_point_reference_from_document_(*hit);
+                    auto seeded=construction_reference_dialog_->placement_seed();
+                    if(!seeded.value_locks.contains("x"))seeded.x=hit->x;
+                    if(!seeded.value_locks.contains("y"))seeded.y=hit->y;
+                    if(!seeded.value_locks.contains("z"))seeded.z=hit->z;
+                    seeded.references={committed_reference};
+                    if(document::resolve_placement(seeded,construction_reference_geometry_))
+                        committed_reference.picked_position=std::array{seeded.x,seeded.y,seeded.z};
+                }
+    }
     if (selected_index==0 && committed_reference.semantic_key.starts_with(kernel::placement_route_prefix)) {
         if (const auto hit=picked_route_origin(*viewer_,offered,committed_reference,construction_reference_geometry_))
             committed_reference.picked_position=std::array{hit->x,hit->y,hit->z};

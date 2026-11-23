@@ -185,6 +185,7 @@
 #include <GeomAPI_PointsToBSplineSurface.hxx>
 #include <GeomProjLib.hxx>
 #include <Geom_BSplineSurface.hxx>
+#include <Geom_RectangularTrimmedSurface.hxx>
 #include <BRepTools_Modification.hxx>
 #include <BRepTools_Modifier.hxx>
 #include <BRepAlgoAPI_Splitter.hxx>
@@ -267,6 +268,15 @@ namespace {
 constexpr std::size_t kLiveShapeCacheLimit = 256;
 
 gp_Trsf primitive_transform(const Vec3& translation, const Vec3& rotation_degrees);
+
+occ::handle<Geom_Surface> analytic_conversion_surface(occ::handle<Geom_Surface> surface) {
+    // OCCT 8.0.1 identifies a trimmed spline through its adaptor, then casts
+    // the wrapper itself to a spline while segmenting. Supply the basis;
+    // callers still pass the exact face UV bounds to the conversion.
+    while(const auto trimmed=occ::down_cast<Geom_RectangularTrimmedSurface>(surface))
+        surface=trimmed->BasisSurface();
+    return surface;
+}
 
 TopoDS_Shape read_kernel_shape(const BodyResult& body) {
     return read_calculated_body_shape(body);
@@ -2032,6 +2042,21 @@ PrimitiveData make_sweep3d_data(
         std::ranges::all_of(request.sections,[&](const auto& section){
             return section.profile_id==request.sections.front().profile_id;
         });
+    // A constant, centered circle has no authored twist. Keep its analytic
+    // section while sweeping a spline: interpolating rational NURBS circle
+    // sections can collapse the pipe when their transported seams turn around.
+    // Explicit/morphing profiles and sharp/polyline stations keep their path.
+    const bool inherited_circular_spline=[&] {
+        if(request.sections.size()!=1||request.sections.front().point_index!=0||
+                request.separate_segments||request.smooth_loft||request.fixed_section_frames||
+                std::ranges::none_of(request.path_segments,[](const auto& segment) {
+                    return !segment.bezier_control_points.empty()||!segment.bezier_spans.empty();
+                }))return false;
+        const auto* circle=std::get_if<ExtrusionRequest::CircleProfile>(&request.sections.front().profile.outer_profile);
+        if(!circle)return false;
+        const auto& p=request.path_points.front();
+        return std::hypot(circle->center.x-p.x,circle->center.y-p.y,circle->center.z-p.z)<1e-12;
+    }();
     std::optional<gp_Vec> previous_direction;
     std::optional<gp_Vec> transported_radial;
     const Sweep3DRequest::Section* previous_section{};
@@ -2087,7 +2112,7 @@ PrimitiveData make_sweep3d_data(
             station.wire=make_profile_wire(section->profile.outer_profile,
                 section->profile_normal,radial,&station.edges);
         }
-        if(!exact_revolution && !rigid_segmented_profile) {
+        if(!exact_revolution && !rigid_segmented_profile && !inherited_circular_spline) {
             BRepBuilderAPI_NurbsConvert nurbs(station.wire,true);
             station.wire=TopoDS::Wire(nurbs.Shape());
             for(auto& edge:station.edges)edge=TopoDS::Edge(nurbs.ModifiedShape(edge));
@@ -4371,7 +4396,7 @@ PrimitiveData make_sheet_cut_data(const PrimitiveData& projection,
         // its analytic support only during this explicit cut calculation.
         if(!twisted_source&&BRepAdaptor_Surface(face).GetType()==GeomAbs_BSplineSurface) {
             BRepAdaptor_Surface original(face);
-            GeomConvert_SurfToAnaSurf conversion(BRep_Tool::Surface(face));
+            GeomConvert_SurfToAnaSurf conversion(analytic_conversion_surface(BRep_Tool::Surface(face)));
             const auto analytic=conversion.ConvertToAnalytical(tolerance,
                 original.FirstUParameter(),original.LastUParameter(),
                 original.FirstVParameter(),original.LastVParameter());
@@ -6642,7 +6667,7 @@ std::optional<SurfaceGeometry> analytic_surface(const TopoDS_Face& face) {
             }
         }
         if(result.kind!=SurfaceGeometry::Kind::Cylinder) {
-            GeomConvert_SurfToAnaSurf conversion(support);
+            GeomConvert_SurfToAnaSurf conversion(analytic_conversion_surface(support));
             const auto converted=conversion.ConvertToAnalytical(1e-7,
                 surface.FirstUParameter(),surface.LastUParameter(),
                 surface.FirstVParameter(),surface.LastVParameter());

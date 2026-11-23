@@ -1157,6 +1157,19 @@ if(ZIMA_BUILD_TESTS)
     add_executable(zima_cpp_curve3d_sweep_contract_tests tests/curve3d_sweep_contract_tests.cpp)
     target_link_libraries(zima_cpp_curve3d_sweep_contract_tests PRIVATE zima_document_core zima_kernel_occt nlohmann_json::nlohmann_json)
     add_test(NAME zima_cpp_curve3d_sweep_contract_tests COMMAND zima_cpp_curve3d_sweep_contract_tests)
+    add_executable(zima_cpp_spline_loop_sweep_tests tests/spline_loop_sweep_tests.cpp)
+    target_link_libraries(zima_cpp_spline_loop_sweep_tests PRIVATE zima_workspace zima_kernel_occt TKTopAlgo)
+    add_test(NAME zima_cpp_spline_loop_sweep_tests COMMAND zima_cpp_spline_loop_sweep_tests)
+    add_test(NAME zima_cpp_spline_loop_sweep_ui_contract COMMAND zima-cad-cpp --verify-startup
+        --working-directory=Projects/test/spline-loop-sweep)
+    set_tests_properties(zima_cpp_spline_loop_sweep_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_CONSOLE_ONLY=1;ZIMA_VERIFY_SPLINE_LOOP_SWEEP_ONLY=1"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 180 RUN_SERIAL TRUE)
+    add_test(NAME zima_cpp_curved_face_point_ui_contract COMMAND zima-cad-cpp --verify-startup
+        --working-directory=Projects/test/curved-face-points)
+    set_tests_properties(zima_cpp_curved_face_point_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_CONSOLE_ONLY=1;ZIMA_VERIFY_CURVED_FACE_POINT_ONLY=1"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 180 RUN_SERIAL TRUE)
     add_executable(zima_cpp_helical_sweep_contract_tests tests/helical_sweep_contract_tests.cpp)
     target_link_libraries(zima_cpp_helical_sweep_contract_tests PRIVATE zima_document_core zima_kernel_occt)
     add_test(NAME zima_cpp_helical_sweep_contract_tests COMMAND zima_cpp_helical_sweep_contract_tests)

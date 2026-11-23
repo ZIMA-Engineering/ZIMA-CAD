@@ -67,6 +67,12 @@ Rounding retains a continuous sweep through arcs. In this mode, zero radius keep
 the original shared sharp-corner section. Splines also form continuous paths.
 Contours must be closed and have no holes.
 
+A single centered circular profile inherited along a spline remains analytic
+during sweeping. This prevents a transported circle seam from collapsing parts
+of a closed spatial route. Open and closed spline tests also cover rectangular
+and elliptical profiles, complete subtraction, native references and regeneration;
+see [the verification matrix](verification/20261123-spline-loop-sweep.md).
+
 Unrounded segment caps are named, for example, **Segment 1 → 2.1 — end** and
 **Segment 2.2 → 3.2 — start**. Identity uses both original point IDs and the
 start/end role, so renumbering preserves references. The complete original cap is

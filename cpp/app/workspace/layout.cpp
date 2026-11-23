@@ -342,7 +342,7 @@ void AssemblyWorkspaceWindow::create_layout() {
         }
         if (construction_reference_dialog_ != nullptr &&
             pending_construction_reference_index_) {
-            accept_construction_reference(candidate);
+            accept_construction_reference(candidate, true);
             return;
         }
         if (component_placement_dialog_ != nullptr &&

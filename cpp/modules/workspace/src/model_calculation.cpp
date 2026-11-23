@@ -731,9 +731,24 @@ static PlacementHistoryReferenceViews placement_history_reference_views(
                     *saved,requested);
                 const document::PlacementReferenceGeometryIndex index(
                     saved_geometry,requested);
+                // A compact saved display face can retain its identity and
+                // triangles without the analytic support needed by placement.
+                // It must not replace the complete reference just calculated
+                // at this boundary (notably a Cylinder used by Sweep Points).
+                std::set<std::pair<Key,kernel::SurfaceGeometry::Kind>> saved_supports;
+                for(const auto& face:saved_geometry.triangle_references)if(face.surface)
+                    saved_supports.emplace(Key{face.owner_id,face.semantic_key,face.instance_path},face.surface->kind);
+                const auto supports_complete=[&](const auto& faces) {
+                    return std::ranges::all_of(faces,[&](const auto& face) {
+                        const Key key{face.owner_id,face.semantic_key,face.instance_path};
+                        return !face.surface||!identities.contains(key)||
+                            saved_supports.contains({key,face.surface->kind});
+                    });
+                };
                 if(std::ranges::all_of(requested,[&](const auto& reference) {
                         return index.contains(reference);
-                    })) {
+                    }) && supports_complete(boundary.mesh.original_references.triangle_references) &&
+                    supports_complete(boundary.mesh.triangle_references)) {
                     replace_exact_operation_references(operations,calculated,
                         demand.output_owner,identities,saved_geometry);
                     const auto consumer_operation=std::ranges::find(operations,
