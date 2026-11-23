@@ -1,6 +1,6 @@
 # Current project status
 
-FEM scope and release status reviewed on 2026-11-22 against the shared C++
+Render, FEM and release status reviewed on 2026-11-23 against the shared C++
 implementation, focused native/GUI checks and the live GitHub release list.
 Other capability entries retain their earlier finite verification. Dated proposals and
 historical release records remain evidence for their original scope; they are
@@ -8,16 +8,24 @@ not the current feature backlog.
 
 ## Current release boundary
 
-Signed Windows [2026112206](https://github.com/ZIMA-Engineering/ZIMA-CAD/releases/tag/ZIMA-CAD-2026112206)
+Signed Windows [2026112301](https://github.com/ZIMA-Engineering/ZIMA-CAD/releases/tag/ZIMA-CAD-2026112301)
 is the latest published stable build. It was published at
-`2026-11-22T22:47:02Z` from immutable source
-`3458330ab1006435d8461d2a822d95cd279a1229` with Qt 6.11.0 and OCCT 8.0.1.
-Candidate and signed native smoke, 1,185 factory assets, public download/signature
-checks and the production updater pass. See the
-[publication evidence](verification/20261122-windows-2206-publication.json).
+`2026-11-23T03:09:17Z` from immutable source
+`1a5036d555894dd4c4399179393f7a69f6ff58b7` with Qt 6.11.0 and OCCT 8.0.1.
+Candidate and signed native smoke, 1,185 factory assets, nine additional packaged GUI checks,
+public download/signature checks and the production updater pass. See the
+[publication evidence](verification/20261123-windows-2301-publication.json).
 The release tag and portable package contain the complete matching source;
 the default branch may lag product development. Native Linux execution remains
 a separate host requirement.
+
+**Render is implemented and released.** Part scenes combine calculated Bodies,
+cameras and lights, with background snapshot calculation, a separate gallery
+tab, multiple explicitly retained images inside `.prtz` and JPEG/PNG export.
+The release also repairs circular Offset tangency, virtual arc/Offset rounding,
+Hole rollback after a failed predecessor and Holes axis endpoints/layout. See
+[Render usage](RENDER.md), [release notes](releases/2026112301.md) and the
+[finite Sketcher matrix](SKETCHER_OFFSET_FOLLOWUP_20261123.md).
 
 **Basic FEM is implemented and released, not merely planned.** It includes
 linear-elastic static and steady-state thermal analyses, volume meshing,
@@ -168,7 +176,7 @@ evidence. Published 2501 and every older signed release remain immutable.
 
 | Work | Current boundary / next step |
 | --- | --- |
-| Render candidate | Part Render Bodies, cameras/lights, background snapshot calculation, separate gallery tab, explicitly retained native images and JPEG/PNG export are implemented. See [usage](RENDER.md) and [finite acceptance](verification/20261123-render-and-hole-properties.md); Windows publication is pending. |
+| Render | Part Render Bodies, cameras/lights, background snapshot calculation, separate gallery tab, explicitly retained native images and JPEG/PNG export are implemented. See [usage](RENDER.md) and [finite acceptance](verification/20261123-render-and-hole-properties.md); released in Windows 2026112301. |
 | CAM | Agreed future design: stock/result Bodies, fixtures, internal tools, machine/operation selection, generated and manual blocks, NC pane, simulation and chained setups. See [CAM backlog](CAM_BODY_DESIGN.md). No CAM implementation is claimed. |
 | Delivered FEM extension | Windows 2026112205 adds combined heating/force/pressure and distance measurements between two points. Optional pure thermal expansion remains available. Measurement points report temperature and displacement together. |
 | Skeleton interaction | New Feature opening measures 0.280--0.353 s, Default Origin 0.272--0.280 s and the representative Sketch move about 6 ms. The 32-operation Skeleton opens in about 7.4 s; cold explicit regeneration measures about 68.9 s after physical analysis leaves the critical path, while exact Save adds about 30 s. A late Solid Fillet edit/Undo/Redo succeeds, but its dependent suffix remains about 26 s. Production parallel batching and immediate Escape cancellation remain gated on exact identity and cooperative OCCT cancellation. |

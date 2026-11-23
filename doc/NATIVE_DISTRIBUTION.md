@@ -1,5 +1,18 @@
 # Native versioned distribution
 
+Signed Windows [2026112301](releases/2026112301.md#distribution-status) was
+published at `2026-11-23T03:09:17Z` from immutable source
+`1a5036d555894dd4c4399179393f7a69f6ff58b7`. It adds the background Render gallery with
+retained native images and circular Offset/Hole/Holes repairs. Candidate and
+signed smoke, 1,185 factory native loads, twelve sheet-branch gates and nine additional
+packaged GUI cases pass. FEM GUI is also covered by mandatory smoke. Public
+digests, anonymous download, publisher signature, safe extraction and production
+updater trust/current status pass. Identical
+binaries are installed behind the unchanged development BAT; user settings are
+preserved. Native Linux execution and finite geometry/Render limits remain
+explicit in the [acceptance record](verification/20261123-render-and-hole-properties.md).
+See the [publication evidence](verification/20261123-windows-2301-publication.json).
+
 Signed Windows [2026112102](releases/2026112102.md#distribution-status) was
 published at `2026-11-21T03:47:58Z` from immutable source
 `c9aee3e7f11eade5b3036fa8f3b38c9b1468244b`. It adds the first FEM Constraint, Force and

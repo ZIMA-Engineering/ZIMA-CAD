@@ -2,8 +2,9 @@
 
 Render creates an image of calculated Bodies in a Part. A Render Body owns
 the scene settings, cameras and lights. It does not create or change material.
-The implementation is being verified for its first Windows release; see the
-[design and acceptance scope](RENDER_BODY_DESIGN.md).
+Available in [Windows 2026112301](releases/2026112301.md). See the
+[design and acceptance scope](RENDER_BODY_DESIGN.md) and
+[finite verification](verification/20261123-render-and-hole-properties.md).
 
 ## Create a scene
 

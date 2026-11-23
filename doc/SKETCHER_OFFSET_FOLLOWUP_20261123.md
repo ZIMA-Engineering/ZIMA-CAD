@@ -1,6 +1,6 @@
 # Offset contacts and virtual rounding verification
 
-Implemented for the Render release candidate on 2026-11-23. Windows tests use
+Released in [Windows 2026112301](releases/2026112301.md). Windows tests use
 the shared C++ implementation; native Linux execution remains unverified.
 
 ## Cause and repair

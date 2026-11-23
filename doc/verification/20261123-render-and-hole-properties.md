@@ -1,9 +1,12 @@
 # Render, Sketcher and Hole/Holes Windows verification
 
-Local candidate verification on 2026-11-23, MSVC, Qt 6.11.0 and OCCT 8.0.1.
-Publication is a separate gate; this record does not identify an unpublished
-candidate as the current release. The shared C++ implementation is used on both
-platforms; native Linux execution remains unverified for this change.
+Verification on 2026-11-23, MSVC, Qt 6.11.0 and OCCT 8.0.1. Signed Windows
+[2026112301](../releases/2026112301.md) passed the separate publication gates:
+public download, publisher signature, safe extraction and updater trust/current
+status. Its GUI/CLI/updater binaries match the tested candidate and the installed
+local development binaries. See the [publication evidence](20261123-windows-2301-publication.json).
+The shared C++ implementation is used on both platforms; native Linux execution
+remains unverified for this change.
 
 ## Render scope before the gallery extension
 
@@ -149,3 +152,31 @@ The 660-case property-dialog layout suite passed in 52.70 seconds and translatio
 catalog/coverage checks in 14.29 seconds. Sketcher changes reuse existing UI text;
 all new Render labels and errors are present in cs/en/de/fr/ru. These are local
 checks; the packaged-runtime evidence is recorded separately after publication.
+
+## Committed Windows candidate
+
+Candidate `2026112301` was built from `1a5036d555894dd4c4399179393f7a69f6ff58b7`.
+All twelve sheet-branch gates passed in 169.51 seconds, and FEM GUI passed in
+74.99 seconds. The independently extracted candidate passed dependency, archive,
+launcher, PDF/JPEG/font, native factory and GUI smoke checks. All 1,185 packaged
+factory native assets loaded successfully.
+
+Nine additional GUI workflows passed using the packaged executables, libraries
+and localization catalogs:
+
+| Workflow | Seconds |
+| --- | ---: |
+| Render, gallery and background modeling | 15.40 |
+| Render compact layout | 14.89 |
+| Holes workflow and axis endpoints | 9.04 |
+| Hole rollback after invalid input | 2.29 |
+| 16 native/external Offset contact cases | 25.68 |
+| 38 native/virtual curve-fillet cases | 131.37 |
+| Part/Assembly start-template contexts | 2.61 |
+| Multi-line arc contact regression | 25.26 |
+| Copied-circle contact regression | 31.05 |
+
+The packaged Render workflow measured 125 ms for the concurrent Extrusion
+Properties/OK edit on its small fixture. This is finite responsiveness evidence,
+not a bound for large production models. The reopened gallery was also visually
+inspected with two retained images and Czech controls.
