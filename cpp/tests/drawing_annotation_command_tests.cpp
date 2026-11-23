@@ -56,6 +56,10 @@ void verify_extrusion_lengths(const kernel::OcctKernel& kernel,fs::path director
             const auto count_lengths=std::ranges::count_if(view.model_annotations,[&](const auto& item){return item.source.owner_id==feature.id&&item.source.semantic_id.ends_with(unified?"_length":"length_forward");});
             require(count_lengths==(unified&&mode==1?2:1),"Symmetric length is duplicated or second side is missing");
             found->visible=true;drawing.sheets.front().views={view};const auto drawing_path=directory/"extrusion-length.drwz";drawing.save(drawing_path);
+            require(!workspace::set_drawing_model_dimension(live,kernel,drawing,drawing_path,view.id,reference,length),
+                "Equal Drawing extrusion value calculated or committed a model");
+            require(drawing.sheets.front().views.front().model_annotations==view.model_annotations&&live.drawing_edited_sources.empty(),
+                "Equal Drawing extrusion value changed annotations or pending source saves");
             require(drawing::DrawingDocument::load(drawing_path).sheets.front().views.front().model_annotations==view.model_annotations,"Drawing extrusion dimension did not survive native reopen");
             require(kernel::body_calculation_count.load()==count&&session.revision()==revision,"Drawing length inspection calculated material or changed history");
         }

@@ -3,10 +3,11 @@
 #include <zima/workspace/placement_edit.hpp>
 #include <zima/workspace/drawing_view_operations.hpp>
 #include <cmath>
+#include <charconv>
 #include <zima/workspace/drawing_annotation_operations.hpp>
 #include <algorithm>
 namespace zima::workspace {
-void set_drawing_model_dimension(Workspace& live,const kernel::OcctKernel& kernel,
+bool set_drawing_model_dimension(Workspace& live,const kernel::OcctKernel& kernel,
     drawing::DrawingDocument& drawing,const std::filesystem::path& path,const std::string& view_id,
     const drawing::ModelAnnotationReference& reference,double value) {
     const auto& annotation=drawing_annotation(drawing,view_id,reference);
@@ -43,8 +44,17 @@ void set_drawing_model_dimension(Workspace& live,const kernel::OcctKernel& kerne
     const document::FamilyColumn binding{"dimension",reference.owner_id,reference.semantic_id};
     // Recheck current source locks/driving state, rather than trusting a cached label.
     const auto available=family_references(staged,reference.document_id);
-    if(!std::ranges::any_of(available,[&](const auto& r){return r.binding==binding;}))
+    const auto current=std::ranges::find(available,binding,&FamilyReference::binding);
+    if(current==available.end())
         throw std::invalid_argument("Kóta je odvozená, zamčená nebo již není dostupná.");
+    // The source is authoritative: a Drawing may still show an older value.
+    // Family values are locale-independent, round-trip native numbers. Preserve
+    // the sign of zero because it can select the side of a driving dimension.
+    double previous{};
+    const auto [end,error]=std::from_chars(current->value.data(),
+        current->value.data()+current->value.size(),previous);
+    if(error==std::errc{}&&end==current->value.data()+current->value.size()&&
+            previous==value&&std::signbit(previous)==std::signbit(value))return false;
     if(auto* part=staged.open_part(reference.document_id)) {
         auto next=part->session.document();
         if(!assign_driving_dimension(next,binding,value))throw std::invalid_argument("Kótu nelze změnit.");
@@ -63,6 +73,7 @@ void set_drawing_model_dimension(Workspace& live,const kernel::OcctKernel& kerne
     staged.drawing_edited_sources[drawing.document_id].insert(reference.document_id);
     live=std::move(staged);
     drawing=std::move(projected);
+    return true;
 }
 
 const drawing::ModelAnnotation& drawing_annotation(const drawing::DrawingDocument& document,

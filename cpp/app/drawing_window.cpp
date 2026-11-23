@@ -3295,23 +3295,31 @@ void DrawingWindow::edit_model_dimension_value(const std::string& view_id,const 
     }
     if(inline_dimension_edit_) {inline_dimension_edit_->setProperty("cancelled",true);inline_dimension_edit_->deleteLater();}
     auto* edit=new InlineDimensionEdit(canvas_);inline_dimension_edit_=edit;
-    edit->setText(QString::fromStdString(kernel::dimension_number(dimension.value,ui::numeric_decimal_places(this))));
+    const auto initial_text=QString::fromStdString(kernel::dimension_number(dimension.value,ui::numeric_decimal_places(this)));
+    edit->setText(initial_text);
     edit->move(std::clamp(qRound(point.x())-52,0,std::max(0,canvas_->width()-104)),
         std::clamp(qRound(point.y())-14,0,std::max(0,canvas_->height()-28)));
     const QPointer<InlineDimensionEdit> guarded(edit);
-    const auto commit=[this,guarded,view_id,reference=found->source] {
+    const auto commit=[this,guarded,view_id,reference=found->source,initial_text,original=dimension.value] {
         if(!guarded||guarded->property("cancelled").toBool()||guarded->property("committed").toBool())return;
         double value;
         try {value=numeric_expression_value(guarded->text());if(!std::isfinite(value))throw std::invalid_argument("Invalid value");}
         catch(const std::exception&) {guarded->setStyleSheet(guarded->styleSheet()+" QLineEdit { border-color:#C64B4B; }");guarded->selectAll();return;}
         const double factor=std::pow(10.0,ui::numeric_decimal_places(this));
-        value=std::round(value*factor)/factor;
+        const auto displayed=numeric_expression_value(initial_text);
+        // Re-entering the displayed value (also as an equivalent expression)
+        // must retain any precision hidden by the label's decimal formatting.
+        value=value==displayed&&std::signbit(value)==std::signbit(displayed)
+            ?original:std::round(value*factor)/factor;
         guarded->setProperty("committed",true);
         try {
             kernel::OcctKernel kernel;
-            workspace::set_drawing_model_dimension(*workspace_,kernel,document_,path_,view_id,reference,value);
-            guarded->hide();guarded->deleteLater();refresh();
-            set_status_message(tr("Rozměr modelu i výkres byly aktualizovány."));
+            const bool changed=workspace::set_drawing_model_dimension(*workspace_,kernel,document_,path_,view_id,reference,value);
+            guarded->hide();guarded->deleteLater();
+            if(changed) {
+                refresh();
+                set_status_message(tr("Rozměr modelu i výkres byly aktualizovány."));
+            }
         } catch(const std::exception& error) {
             guarded->hide();guarded->deleteLater();set_status_message(tr(error.what()));
         }

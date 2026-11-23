@@ -41,6 +41,7 @@ decltype(auto) tangent_transition(Operation&& operation) {
 inline void validate_contact_curves(const TopoDS_Shape& shape,bool check_intersections=true) {
     ContactPhaseTimer timer;
     constexpr double tolerance=1.e-7;
+    const bool parallel=std::getenv("ZIMA_CPP_TEST_SERIAL_FILLET_VALIDATION")==nullptr;
     for(TopExp_Explorer faces(shape,TopAbs_FACE);faces.More();faces.Next()) {
         const auto face=TopoDS::Face(faces.Current());
         for(TopExp_Explorer edges(face,TopAbs_EDGE);edges.More();edges.Next()) {
@@ -58,7 +59,7 @@ inline void validate_contact_curves(const TopoDS_Shape& shape,bool check_interse
         }
     }
     timer.phase("curve parameters");
-    if(!BRepCheck_Analyzer(shape,true,false,true).IsValid())
+    if(!BRepCheck_Analyzer(shape,true,parallel,true).IsValid())
         throw std::runtime_error("Corner shell is not a solid");
     timer.phase("exact topology");
     // Intermediate routes need valid topology and accurate pcurves for the
@@ -66,6 +67,7 @@ inline void validate_contact_curves(const TopoDS_Shape& shape,bool check_interse
     // after all routes and same-domain cleanup, once per Fillet operation.
     if(!check_intersections)return;
     BOPAlgo_ArgumentAnalyzer check;
+    check.SetRunParallel(parallel);
     check.SetShape1(shape);check.SelfInterMode()=true;
     check.CurveOnSurfaceMode()=true;check.Perform();
     if(check.HasFaulty())throw std::runtime_error("Corner shell is not a solid");

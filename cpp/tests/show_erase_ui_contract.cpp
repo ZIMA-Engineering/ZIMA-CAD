@@ -1,4 +1,5 @@
 #include <zima/drawing/annotation_guides.hpp>
+#include <zima/kernel/calculation_diagnostics.hpp>
 #include <zima/workspace/drawing_annotation_operations.hpp>
 #include <zima/workspace/drawing_projection.hpp>
 #include <QKeyEvent>
@@ -54,6 +55,41 @@ void click(QWidget *w, QPointF p) {
   mouse(w, QEvent::MouseButtonPress, p, Qt::LeftButton, Qt::LeftButton);
   mouse(w, QEvent::MouseButtonRelease, p, Qt::LeftButton, Qt::NoButton);
 }
+void verify_unchanged_value_ui(zima::app::DrawingWindow& window,
+        zima::workspace::Workspace& live,const std::string& view,
+        const zima::drawing::ModelAnnotationReference& ref) {
+    using namespace zima;
+    auto* canvas=window.findChild<QWidget*>("drawingCanvas");
+    const auto& source=live.open_part(ref.document_id)->session;
+    const auto revision=source.revision(),generation=source.data_generation();
+    const auto dirty=source.is_dirty(),undo=source.can_undo(),redo=source.can_redo();
+    const auto* packet=&source.calculated_boundaries().back();
+    const auto count=kernel::body_calculation_count.load();
+    const auto drawing_id=window.document_for_test().document_id;
+    const auto drawing_revision=live.open_drawing(drawing_id)->revision();
+    const auto annotation=workspace::drawing_annotation(window.document_for_test(),view,ref);
+    const auto edited_sources=live.drawing_edited_sources;
+    for(int form=0;form<3;++form) {
+        canvas->grab();flush();const auto label=window.model_annotation_handle_for_test(ref,0,view);
+        require(label.has_value(),"Unchanged value label is missing");
+        click(canvas,*label);mouse(canvas,QEvent::MouseButtonDblClick,*label,Qt::LeftButton,Qt::LeftButton);
+        mouse(canvas,QEvent::MouseButtonRelease,*label,Qt::LeftButton,Qt::NoButton);
+        auto* edit=window.findChild<QLineEdit*>("inlineDimensionValueEdit");require(edit,"Unchanged value editor is missing");
+        // Untouched, retyped with another number format, equivalent expression.
+        if(form==1)edit->setText(" "+edit->text()+(edit->text().contains('.')?"0 ":".000 "));
+        if(form==2)edit->setText("("+edit->text()+")+0");
+        QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);QApplication::sendEvent(edit,&enter);flush();
+        require(!window.findChild<QLineEdit*>("inlineDimensionValueEdit"),"Unchanged editor did not close");
+        const auto& now=live.open_part(ref.document_id)->session;
+        require(now.revision()==revision&&now.data_generation()==generation&&now.is_dirty()==dirty&&
+            now.can_undo()==undo&&now.can_redo()==redo&& &now.calculated_boundaries().back()==packet,
+            "Unchanged Drawing value changed source history or geometry");
+        require(kernel::body_calculation_count.load()==count,"Unchanged Drawing value calculated geometry");
+        require(live.open_drawing(drawing_id)->revision()==drawing_revision&&live.drawing_edited_sources==edited_sources&&
+            workspace::drawing_annotation(window.document_for_test(),view,ref)==annotation,
+            "Unchanged value changed Drawing history, annotation or source save list");
+    }
+}
 } // namespace
 void verify_extrusion_length_ui() {
     using namespace zima;
@@ -63,8 +99,8 @@ void verify_extrusion_length_ui() {
         auto part=document::PartDocument::create_default();auto sketch=sketcher::Sketch::create_default();
         static_cast<void>(sketch.add_rectangle(-10,-5,10,5));
         auto feature=unified?document::PartDocument::create_feature_container(sketch.id):document::PartDocument::create_extrusion_container(sketch.id);
-        feature.feature.sides[0].length=12;feature.feature.reversed_sides=true;
-        feature.extrusion.length_forward=12;feature.extrusion.direction=document::ExtrusionDirection::Reverse;
+        feature.feature.sides[0].length=12.000000123;feature.feature.reversed_sides=true;
+        feature.extrusion.length_forward=12.000000123;feature.extrusion.direction=document::ExtrusionDirection::Reverse;
         sketch.owner_container_id=feature.id;part.sketches={sketch};part.history={feature};
         document::BodyHistoryGraph graph;static_cast<void>(graph.create_body("Body"));graph.insert({document::PartHistoryKind::Feature,feature.id});part.set_body_history(graph);part.resolve_constructions();
         auto calculated=kernel.evaluate_history(part.kernel_operations());part.save(path,calculated);live.add_part(part,calculated,path);
@@ -82,6 +118,7 @@ void verify_extrusion_length_ui() {
         const auto hit=window.model_annotation_handle_for_test(ref,0,view.id);require(hit.has_value(),"Extrusion length is not offered in the Drawing View");
         click(canvas,*hit);dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
         require(workspace::drawing_annotation(window.document_for_test(),view.id,ref).visible,"Clicking extrusion length did not display it");
+        verify_unchanged_value_ui(window,live,view.id,ref);
         for(double length:{15.,9.,12.}) {
             canvas->grab();flush();const auto label=window.model_annotation_handle_for_test(ref,0,view.id);require(label.has_value(),"Displayed extrusion dimension has no text hit");
             click(canvas,*label);mouse(canvas,QEvent::MouseButtonDblClick,*label,Qt::LeftButton,Qt::LeftButton);mouse(canvas,QEvent::MouseButtonRelease,*label,Qt::LeftButton,Qt::NoButton);
@@ -132,6 +169,7 @@ void verify_axial_diameter_ui() {
         require(after&&QLineF(*before,*after).length()>10,"Axial diameter could not be dragged upward");
     }
     const auto persisted_layout=workspace::drawing_annotation(window.document_for_test(),view.id,ref).view_layout;
+    verify_unchanged_value_ui(window,live,view.id,ref);
     for(double diameter:{34.,26.,30.}) {
         canvas->grab();flush();const auto label=window.model_annotation_handle_for_test(ref,0,view.id);require(label.has_value(),"Axial diameter label is missing");
         click(canvas,*label);mouse(canvas,QEvent::MouseButtonDblClick,*label,Qt::LeftButton,Qt::LeftButton);mouse(canvas,QEvent::MouseButtonRelease,*label,Qt::LeftButton,Qt::NoButton);
@@ -179,6 +217,7 @@ void verify_driving_value_ui() {
         auto* edit=window.findChild<QLineEdit*>("inlineDimensionValueEdit");
         require(edit,"Double-click did not open shared dimension editor");return edit;
     };
+    verify_unchanged_value_ui(window,live,view.id,ref);
     auto* edit=open();edit->setText("32");
     QKeyEvent escape(QEvent::KeyPress,Qt::Key_Escape,Qt::NoModifier);QApplication::sendEvent(edit,&escape);flush();
     require(live.open_part(part.document_id)->session.document().sketches.front().dimensions.front().value==20,"Escape changed source");
@@ -191,6 +230,15 @@ void verify_driving_value_ui() {
         require(std::abs(a.value-30)<1e-7,"Another view retained old dimension value");
     }
     require(live.drawing_edited_sources[doc.document_id].contains(part.document_id),"Drawing value edit did not register its source for Save");
+    verify_unchanged_value_ui(window,live,view.id,ref);
+    auto& source_session=live.open_part(part.document_id)->session;
+    require(source_session.undo()&&source_session.can_redo(),"Driving edit has no Undo/Redo state");
+    const auto undo_revision=source_session.revision(),undo_count=kernel::body_calculation_count.load();
+    auto unchanged_drawing=window.document_for_test();
+    require(!workspace::set_drawing_model_dimension(live,kernel,unchanged_drawing,{},view.id,ref,20),"Equal value after Undo was committed");
+    require(source_session.revision()==undo_revision&&source_session.can_redo()&&
+        kernel::body_calculation_count.load()==undo_count,"Unchanged value destroyed Redo or recalculated");
+    require(source_session.redo(),"Unchanged value lost the genuine edit's Redo");
     auto* save=window.findChild<QAction*>("drawingSaveAction");
     if(!save)for(auto* action:window.findChildren<QAction*>())if(action->shortcut()==QKeySequence::Save){save=action;break;}
     require(save,"Drawing Save action missing");save->trigger();flush();
@@ -204,6 +252,9 @@ void verify_driving_value_ui() {
     const auto envelope=kernel::model_envelope(calculated.back().mesh);
     require(envelope.valid&&std::abs(envelope.maximum.x-envelope.minimum.x-30)<1e-6,"Source solid did not change width");
     auto broken=draft;broken.sheets[0].views[1].source_document_id="missing-source";broken.sheets[0].views[1].source_path="missing-source.prtz";
+    const auto unchanged_count=kernel::body_calculation_count.load();
+    require(!workspace::set_drawing_model_dimension(live,kernel,broken,{},view.id,ref,30),"Equal source value was not a no-op");
+    require(kernel::body_calculation_count.load()==unchanged_count,"Equal source value calculated geometry");
     rejected=false;try {workspace::set_drawing_model_dimension(live,kernel,broken,{},view.id,ref,35);}catch(const std::exception&){rejected=true;}
     require(rejected&&live.open_part(part.document_id)->session.document().sketches.front().dimensions.front().value==30,"Failed projection committed a source edit");
     QTemporaryDir saved;
@@ -222,9 +273,16 @@ void verify_driving_value_ui() {
     auto closed_drawing=draft;
     for(auto& v:closed_drawing.sheets[0].views)v.source_path=source_file;
     closed.add_drawing(closed_drawing);closed.activate(closed_drawing.document_id);closed.display_top_level(closed_drawing.document_id);
+    const auto closed_count=kernel::body_calculation_count.load();
+    require(!workspace::set_drawing_model_dimension(closed,kernel,closed_drawing,{},view.id,ref,30),"Unchanged closed source was committed");
+    require(!closed.open_part(part.document_id)&&kernel::body_calculation_count.load()==closed_count,"Unchanged closed source was published or calculated");
     workspace::set_drawing_model_dimension(closed,kernel,closed_drawing,{},view.id,ref,32);
     require(closed.open_part(part.document_id)&&closed.open_part(part.document_id)->session.document().sketches.front().dimensions.front().value==32,"Closed native source did not open for edit");
     require(closed.active_document_id()==closed_drawing.document_id,"Opening source activated its tab");
+    // A stale Drawing value is not a substitute for the actual source input.
+    auto stale=draft;for(auto& v:stale.sheets[0].views)v.source_path=source_file;
+    require(workspace::set_drawing_model_dimension(closed,kernel,stale,{},view.id,ref,30),"Stale Drawing label suppressed a genuine source edit");
+    require(closed.open_part(part.document_id)->session.document().sketches.front().dimensions.front().value==30,"Stale Drawing edit did not restore requested value");
     // Snap the displayed text grip, with visible feedback owned by this view.
     const auto& snap_view=window.document_for_test().sheets[0].views[0];
     const auto guides=drawing::annotation_guides(snap_view);

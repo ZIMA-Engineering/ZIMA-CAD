@@ -18,6 +18,7 @@
 #include <BRepBuilderAPI_MakeFace.hxx>
 #include <BRepBuilderAPI_MakeWire.hxx>
 #include <BRepBuilderAPI_MakeVertex.hxx>
+#include <BRepBuilderAPI_Transform.hxx>
 #include <BRepBndLib.hxx>
 #include <BRepPrimAPI_MakeBox.hxx>
 #include <BRepPrimAPI_MakeHalfSpace.hxx>
@@ -1439,6 +1440,7 @@ void verify_toroidal_runouts(double tangent_residual=0.) {
     std::ostringstream original;BRepTools::Write(input,original);
     const std::vector<double> radii=tangent_residual==0.?
         std::vector<double>{1.,3.,5.,8.}:std::vector<double>{2.};
+    std::optional<double> paired_volume;
     for(double radius:radii) {
         std::optional<double> expected;
         for(bool reverse:{false,true}) {
@@ -1470,6 +1472,7 @@ void verify_toroidal_runouts(double tangent_residual=0.) {
             }
             require(contacts>=6,"Toroidal runout lost tangent boundaries");
             const auto actual=volume(result.shape);
+            if(radius==3.&&!reverse)paired_volume=actual;
             require(actual>volume(input),"Concave toroidal runout did not add material");
             if(expected)near(actual,*expected,"Toroidal runout depends on selection order");else expected=actual;
             std::ostringstream after;BRepTools::Write(input,after);
@@ -1481,6 +1484,30 @@ void verify_toroidal_runouts(double tangent_residual=0.) {
             BRepAlgoAPI_Cut hole(reopened,BRepPrimAPI_MakeCylinder(gp_Ax2(gp_Pnt(0,0,-40),gp_Dir(0,0,1)),5,80).Shape());
             require(hole.IsDone()&&BRepCheck_Analyzer(hole.Shape(),true,false,true).IsValid(),
                 "Toroidal runout broke a downstream hole");
+        }
+    }
+    if(paired_volume) {
+        gp_Trsf translation;translation.SetTranslation(gp_Vec(200,0,0));
+        BRepBuilderAPI_Transform moved(input,translation,true);
+        TopoDS_Compound pair;BRep_Builder builder;builder.MakeCompound(pair);
+        builder.Add(pair,input);builder.Add(pair,moved.Shape());
+        auto selected=route;
+        for(const auto& edge:route)selected.push_back(TopoDS::Edge(moved.ModifiedShape(edge)));
+        const std::array counts{route.size(),route.size()};
+        std::ostringstream before;BRepTools::Write(pair,before);
+        std::string repeated;
+        for(int pass=0;pass<2;++pass) {
+            const auto result=occt_planar_edge_fillet(pair,selected,3.,1.e-7,{},
+                OcctPlanarEdgeFilletEndMode::AutomaticBodyEnvelope,counts);
+            require(result.metrics.cutter_solids==2&&result.fillet_faces.size()==selected.size()&&
+                std::ranges::all_of(result.fillet_faces,[](const auto& faces){return !faces.empty();}),
+                "Independent rolling routes lost their authored ancestry");
+            require(BRepCheck_Analyzer(result.shape,true,false,true).IsValid(),"Parallel rolling result is invalid");
+            near(volume(result.shape),2.* *paired_volume,"Independent rolling routes changed material");
+            std::ostringstream after,archive;BRepTools::Write(pair,after);BRepTools::Write(result.shape,archive);
+            require(before.str()==after.str(),"Parallel rolling preparation changed its input");
+            if(pass)require(repeated==archive.str(),"Parallel rolling result is nondeterministic");
+            repeated=archive.str();
         }
     }
 }

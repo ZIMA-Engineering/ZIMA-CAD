@@ -3,9 +3,10 @@
 #include <zima/drawing/model_annotations.hpp>
 #include <zima/kernel/occt_kernel.hpp>
 namespace zima::workspace {
-// Explicit value confirmation calculates a private source and projects all views.
+// A changed value calculates a private source and projects all views. Equal
+// current source values return false without calculation, projection or commit.
 // Failure preserves both the source sessions and the Drawing.
-void set_drawing_model_dimension(Workspace&, const kernel::OcctKernel&,
+bool set_drawing_model_dimension(Workspace&, const kernel::OcctKernel&,
     drawing::DrawingDocument&, const std::filesystem::path&, const std::string& view,
     const drawing::ModelAnnotationReference&, double);
 struct AnnotationVisibility {

@@ -64,16 +64,19 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <future>
 #include <limits>
 #include <numeric>
 #include <numbers>
 #include <optional>
 #include <ranges>
 #include <stdexcept>
+#include <thread>
 #include <utility>
 
 #include "occt_support_driven_fillet.hpp"
@@ -3597,21 +3600,75 @@ OcctPlanarEdgeFilletResult occt_planar_edge_fillet(
             miter_builder.Face(),axis_intersection.Translated(
                 retained_distance*second_direction)});
     }
-    std::vector<Cutter> cutters;
-    cutters.reserve(routes.size());
-    for(const auto& route:routes) {
-        if(route.size()>1) {
-            std::optional<bool> toroidal_sense;
-            if(std::ranges::any_of(route,[&](const auto index) {
-                    return BRepAdaptor_Surface(jobs[index].first_face).GetType()==GeomAbs_Torus||
-                        BRepAdaptor_Surface(jobs[index].second_face).GetType()==GeomAbs_Torus;
-                })) {
-                toroidal_sense=treatment_adds_material(route.front());
-                for(const auto index:route)if(treatment_adds_material(index)!=*toroidal_sense)
-                    throw std::invalid_argument(support_driven_fillet::tangent_transition_error);
+    std::vector<Cutter> cutters(routes.size());
+    std::vector<std::optional<bool>> toroidal_senses(routes.size());
+    std::vector<std::size_t> rolling_routes;
+    for(std::size_t r=0;r<routes.size();++r) {
+        const auto& route=routes[r];
+        if(route.size()>1&&std::ranges::any_of(route,[&](const auto index) {
+                return BRepAdaptor_Surface(jobs[index].first_face).GetType()==GeomAbs_Torus||
+                    BRepAdaptor_Surface(jobs[index].second_face).GetType()==GeomAbs_Torus;
+            })) {
+            toroidal_senses[r]=treatment_adds_material(route.front());
+            for(const auto index:route)if(treatment_adds_material(index)!=*toroidal_senses[r])
+                throw std::invalid_argument(support_driven_fillet::tangent_transition_error);
+            if(std::ranges::all_of(route,[&](const auto index) {
+                    return jobs[index].material.IsSame(jobs[route.front()].material);
+                }))rolling_routes.push_back(r);
+        }
+    }
+    const auto workers=std::getenv("ZIMA_CPP_TEST_SERIAL_FILLET_ROUTES")?std::size_t{1}:
+        std::min<std::size_t>({4,std::max(1u,std::thread::hardware_concurrency()),rolling_routes.size()});
+    // These envelopes depend only on the unchanged input, not on preceding
+    // route results. Private copies isolate OCCT's lazy geometry/topology data.
+    // Publish in authored order; the material replacements remain sequential.
+    std::vector<std::exception_ptr> route_errors(routes.size());
+    if(workers>1) {
+        std::vector<std::vector<CutterJob>> private_jobs(rolling_routes.size());
+        for(std::size_t task=0;task<rolling_routes.size();++task) {
+            const auto& route=routes[rolling_routes[task]];
+            // The toroidal branch reads only the route and its two supports.
+            // Do not duplicate the complete input Body for every envelope.
+            TopoDS_Compound supports;BRep_Builder builder;builder.MakeCompound(supports);
+            NCollection_IndexedMap<TopoDS_Shape,TopTools_ShapeMapHasher> members;
+            for(const auto index:route)
+                for(const TopoDS_Shape& shape:{TopoDS_Shape(jobs[index].edge),
+                        TopoDS_Shape(jobs[index].first_face),TopoDS_Shape(jobs[index].second_face)})
+                    if(!members.Contains(shape)) {members.Add(shape);builder.Add(supports,shape);}
+            BRepBuilderAPI_Copy copy(supports,true,false);
+            auto& local=private_jobs[task];local.resize(jobs.size());
+            for(const auto index:route) {
+                local[index].edge=TopoDS::Edge(copy.ModifiedShape(jobs[index].edge).
+                    Oriented(jobs[index].edge.Orientation()));
+                local[index].first_face=TopoDS::Face(copy.ModifiedShape(jobs[index].first_face).
+                    Oriented(jobs[index].first_face.Orientation()));
+                local[index].second_face=TopoDS::Face(copy.ModifiedShape(jobs[index].second_face).
+                    Oriented(jobs[index].second_face.Orientation()));
             }
-            cutters.push_back(make_route_cutter(jobs,route,radius,
-                tolerance,end_faces,end_mode,toroidal_sense));
+        }
+        std::atomic_size_t next{};
+        std::vector<std::future<void>> tasks;
+        for(std::size_t worker=0;worker<workers;++worker)
+            tasks.push_back(std::async(std::launch::async,[&] {
+                for(;;) {
+                    const auto task=next.fetch_add(1);if(task>=rolling_routes.size())break;
+                    const auto r=rolling_routes[task];
+                    try {cutters[r]=make_route_cutter(private_jobs[task],routes[r],radius,
+                        tolerance,end_faces,end_mode,toroidal_senses[r]);}
+                    catch(...) {route_errors[r]=std::current_exception();}
+                }
+            }));
+        for(auto& task:tasks)task.get();
+    }
+    if(std::getenv("ZIMA_CPP_FILLET_ROUTE_PROFILE"))
+        std::fprintf(stderr,"Fillet envelope preparation: rolling_routes=%zu workers=%zu\n",rolling_routes.size(),workers);
+    for(std::size_t r=0;r<routes.size();++r) {
+        if(route_errors[r])std::rethrow_exception(route_errors[r]);
+        if(workers>1&&std::ranges::find(rolling_routes,r)!=rolling_routes.end())continue;
+        const auto& route=routes[r];
+        if(route.size()>1) {
+            cutters[r]=make_route_cutter(jobs,route,radius,
+                tolerance,end_faces,end_mode,toroidal_senses[r]);
             continue;
         }
         const auto index=route.front();
@@ -3624,7 +3681,7 @@ OcctPlanarEdgeFilletResult occt_planar_edge_fillet(
             clip_fillet_tool(cutter.solid,cutter.circular_faces,
                 trim.plane,trim.retained_point,tolerance);
         cutter.source_jobs={index};
-        cutters.push_back(std::move(cutter));
+        cutters[r]=std::move(cutter);
     }
     // Every selected fragment owns its exact tool.  Adjacent fragments may
     // change support faces and CUT/FUSE sense at their stable shared vertex;
