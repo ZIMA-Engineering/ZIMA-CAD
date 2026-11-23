@@ -84,6 +84,11 @@ The stable repository-root `zima-cad.bat` remains unchanged. The currently loade
 Qt DLLs match the pinned SDK copies byte-for-byte; harmless applocal copy warnings
 from their file locks do not represent missing or changed dependencies.
 
+After the user saved and closed ZIMA-CAD, the verified executable was installed
+at the normal development path. Its SHA-256 matches the candidate above. The
+installed GUI startup/preview check passes: all 16 preview strokes and 10 source
+node labels match the expected wire exactly, and Cancel restores the input.
+
 ## Drawing dimension no-op behavior
 
 The shared Drawing dimension operation compares the requested value with the
