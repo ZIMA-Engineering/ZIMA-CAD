@@ -352,7 +352,7 @@ void AssemblyWorkspaceWindow::populate_sketch_tree(
 bool AssemblyWorkspaceWindow::part_history_insertion_allowed() const {
     // A hidden parent dialog still owns the transaction during Point/Sketch
     // editing. Do not restore history insertion until that whole command ends.
-    return !active_fem_body() && !active_render_body() && !properties_dialog_ && !tree_edit_dialog_ && !pending_profile_feature_ &&
+    return !active_fem_body() && !active_render_body() && !active_cam_body() && !properties_dialog_ && !tree_edit_dialog_ && !pending_profile_feature_ &&
         active_sketch_id_.empty();
 }
 
@@ -833,6 +833,15 @@ void AssemblyWorkspaceWindow::add_part_tree_children(
                 auto font = row->font(0); font.setBold(true); row->setFont(0, font);
             }
             if (!definition) { shade_downstream(row, index); continue; }
+            if(definition->cam) {
+                const auto add=[&](const QString& text){auto* item=new QTreeWidgetItem(row,{text});item->setData(0,Qt::UserRole,QString::fromStdString(id));item->setData(0,Qt::UserRole+3,"cam-setup");};
+                const auto name=[&](const std::string& source){const auto* body=graph.find(source);const auto* operation=graph.find_boolean(source);return QString::fromStdString(body?body->name:operation?operation->name:source);};
+                add(tr("Stock")+": "+name(definition->cam->stock_id));add(tr("Target Body")+": "+name(definition->cam->target_id));
+                for(const auto& fixture:definition->cam->fixture_ids)add(tr("Fixture")+": "+name(fixture));
+                add(tr("Machine")+": "+QString::fromStdString(definition->cam->machine.name));
+                if(!definition->cam->work_frame.reference_valid)row->setForeground(0,QBrush(QColor("#FF5E52")));
+                row->setExpanded(true);shade_downstream(row,index);continue;
+            }
             if(definition->render) {
                 row->setIcon(0,resource_icon("template-image"));
                 const auto render_sources=graph.render_sources(id);

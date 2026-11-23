@@ -1891,6 +1891,7 @@ void AssemblyWorkspaceWindow::create_layout() {
         ApplicationMode::Surface,"surfaceModeButton");
     fem_mode_button_=mode_button(ApplicationMode::Fem,"femModeButton");
     render_mode_button_=mode_button(ApplicationMode::Render,"renderModeButton");
+    cam_mode_button_=mode_button(ApplicationMode::Cam,"camModeButton");
     application_mode_selector_->hide();
     view_strip_layout->addWidget(
         application_mode_selector_,0,Qt::AlignRight|Qt::AlignVCenter);
@@ -2081,7 +2082,7 @@ void AssemblyWorkspaceWindow::create_layout() {
                 if(accept_relation_dimension(candidate))return;
                 if(accept_family_reference(candidate))return;
             }
-                if(accept_render_tree_reference(item)||accept_fem_tree_reference(item)||accept_body_scale_tree_reference(item)||accept_derived_copy_tree_reference(item))return;
+                if(accept_cam_tree_reference(item)||accept_render_tree_reference(item)||accept_fem_tree_reference(item)||accept_body_scale_tree_reference(item)||accept_derived_copy_tree_reference(item))return;
             if(properties_dialog_&&(properties_dialog_->objectName()=="sheetStateDialog"||properties_dialog_->objectName()=="solidStateDialog"||properties_dialog_->objectName()=="boundarySurfaceDialog"||properties_dialog_->objectName()=="sheetFromBodyDialog")&&feature_reference_pick_) {
                 const auto role=item->data(0,Qt::UserRole+3).toString();
                 const bool boundary=properties_dialog_->objectName()=="boundarySurfaceDialog";
@@ -2484,7 +2485,7 @@ void AssemblyWorkspaceWindow::create_layout() {
         &AssemblyWorkspaceWindow::update_body_color_actions);
     connect(tree_, &QTreeWidget::itemClicked, this,
         [this, synchronize_tree_selection](QTreeWidgetItem* item, int) {
-            if(item&&(accept_fem_distance_tree_reference(item)||accept_render_tree_reference(item)||accept_fem_tree_reference(item)||accept_body_scale_tree_reference(item)))return;
+            if(item&&(accept_fem_distance_tree_reference(item)||accept_cam_tree_reference(item)||accept_render_tree_reference(item)||accept_fem_tree_reference(item)||accept_body_scale_tree_reference(item)))return;
             if (local_origin_selection_active_ && item) {
                 auto id = item->data(0, Qt::UserRole).toString().toStdString();
                 const auto role=item->data(0,Qt::UserRole+3).toString();
@@ -2652,6 +2653,10 @@ void AssemblyWorkspaceWindow::create_layout() {
                 properties->setObjectName("femConditionPropertiesAction");remove->setObjectName("femConditionRemoveAction");
                 const auto* selected=exec_tree_menu(menu,item,position);if(selected==properties)show_tree_item_properties(item);else if(selected==remove)remove_fem_condition(id);return;
             }
+            if(step_kind=="cam-setup") {
+                if(properties_dialog_)return;QMenu menu(this);auto* properties=menu.addAction(resource_icon("properties"),tr("Vlastnosti…"));
+                properties->setObjectName("camSetupPropertiesAction");if(exec_tree_menu(menu,item,position)==properties)show_tree_item_properties(item);return;
+            }
             if(step_kind=="render-object") {
                 const auto id=item->data(0,Qt::UserRole).toString().toStdString();if(!active_render_object(id)||properties_dialog_)return;QMenu menu(this);
                 auto* properties=menu.addAction(resource_icon("properties"),tr("Vlastnosti…"));auto* remove=menu.addAction(resource_icon("delete"),tr("Odstranit"));
@@ -2659,7 +2664,7 @@ void AssemblyWorkspaceWindow::create_layout() {
                 const auto* selected=exec_tree_menu(menu,item,position);if(selected==properties)show_tree_item_properties(item);else if(selected==remove)remove_render_object(id);
                 else if(view&&selected==view)if(const auto* camera=active_render_object(id))view_from_render_camera(*camera);return;
             }
-            if((active_fem_body()||active_render_body())&&step_kind!="part-body"&&step_kind!="part-result-body"&&step_kind!="part-body-boolean")return;
+            if((active_fem_body()||active_render_body()||active_cam_body())&&step_kind!="part-body"&&step_kind!="part-result-body"&&step_kind!="part-body-boolean")return;
             if(step_kind=="feature-operation") {
                 if(properties_dialog_)return;
                 QMenu menu(this);
@@ -2705,6 +2710,7 @@ void AssemblyWorkspaceWindow::create_layout() {
                 create_body->setObjectName("createBodyFromPartAction");
                 auto* create_fem=menu.addAction(resource_icon("result-body"),tr("Create FEM"));
                 create_fem->setObjectName("createFemFromPartAction");
+                auto* create_cam=menu.addAction(resource_icon("result-body"),tr("Create CAM"));create_cam->setObjectName("createCamFromPartAction");
                 auto* create_render=menu.addAction(resource_icon("template-image"),tr("Create Render"));create_render->setObjectName("createRenderFromPartAction");
                 auto* insert_body=menu.addAction(resource_icon("insert-component"),tr("Insert Body from Part…"));
                 insert_body->setObjectName("insertLinkedBodyAction");
@@ -2720,6 +2726,7 @@ void AssemblyWorkspaceWindow::create_layout() {
                 else if (selected==activate) activate_body({});
                 else if (selected==create_body) { activate_body({});show_body_properties(); }
                 else if (selected==create_fem) { activate_body({});show_fem_body_properties(); }
+                else if (selected==create_cam) { activate_body({});show_cam_body_properties(); }
                 else if (selected==create_render) { activate_body({});show_render_body_properties(); }
                 else if (selected==insert_body) insert_linked_body();
                 return;
@@ -2764,8 +2771,8 @@ void AssemblyWorkspaceWindow::create_layout() {
                 menu.setObjectName("partActivationMenu");
                 auto* edit = menu.addAction(resource_icon("properties"),tr("Vlastnosti"));
                 const auto* body=part->session.document().body_history.find(id);
-                edit->setEnabled((!active_fem_body()&&!active_render_body())||(body&&(body->fem||body->render)));
-                auto* dimensions=body && !body->fem && !body->render && !body->derived_copy && !body->scale && !active_fem_body() && !active_render_body() ? menu.addAction(tr("Edit")) : nullptr;
+                edit->setEnabled((!active_fem_body()&&!active_render_body()&&!active_cam_body())||(body&&(body->fem||body->render||body->cam)));
+                auto* dimensions=body && !body->fem && !body->render && !body->cam && !body->derived_copy && !body->scale && !active_fem_body() && !active_render_body() && !active_cam_body() ? menu.addAction(tr("Edit")) : nullptr;
                 if(dimensions)dimensions->setObjectName("editBodyDimensionsAction");
                 auto* source_properties=body&&body->derived_copy ? menu.addAction(resource_icon("properties"),tr("Vlastnosti zdroje")) : nullptr;
                 auto* visibility=body ? menu.addAction(resource_icon(body->visible ? "hide" : "show"), body->visible ? tr("Skrýt") : tr("Zobrazit")) : nullptr;

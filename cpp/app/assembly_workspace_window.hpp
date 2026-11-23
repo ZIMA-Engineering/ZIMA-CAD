@@ -81,6 +81,7 @@ struct FileManagerNativeParameters;
 
 class AssemblyWorkspaceWindow final : public QMainWindow {
     friend int verify_body_link(QApplication&,AssemblyWorkspaceWindow&,const std::filesystem::path&);
+    friend int verify_cam_body(QApplication&,AssemblyWorkspaceWindow&,const std::filesystem::path&);
     friend int verify_fem_body(QApplication&,AssemblyWorkspaceWindow&,const std::filesystem::path&);
     friend int verify_render_body(QApplication&,AssemblyWorkspaceWindow&,const std::filesystem::path&);
 public:
@@ -216,6 +217,7 @@ private:
         Drawing,
         Fem,
         Render,
+        Cam,
     };
 
     void create_command_console();
@@ -287,6 +289,7 @@ private:
     QToolButton* surface_mode_button_{};
     QToolButton* fem_mode_button_{};
     QToolButton* render_mode_button_{};
+    QToolButton* cam_mode_button_{};
     QComboBox* standard_view_combo_{};
     QLineEdit* inline_dimension_edit_{};
     QComboBox* selection_filter_combo_{};
@@ -327,7 +330,7 @@ private:
     QActionGroup* display_mode_group_{};
     QActionGroup* camera_projection_group_{};
     QActionGroup* application_group_{};
-    std::array<QAction*, 8> application_actions_{};
+    std::array<QAction*, 9> application_actions_{};
     ApplicationMode active_application_{ApplicationMode::Modeling};
     std::map<std::string,ApplicationMode> document_application_modes_;
     QMenu* command_insert_menu_{};
@@ -437,6 +440,15 @@ private:
     QAction* pattern_action_{};
     QAction* body_scale_action_{};
     QAction* create_fem_action_{};
+    QAction* create_cam_action_{};
+    bool active_cam_body() const;
+    void show_cam_body_properties(const std::string& id = {});
+    bool accept_cam_tree_reference(QTreeWidgetItem*);
+    kernel::ViewerMesh cam_display_mesh() const;
+    std::shared_ptr<kernel::ViewerMesh> cam_setup_input_;
+    std::optional<document::CamDefinition> cam_setup_preview_;
+    void apply_cam_surface_styles(const kernel::SurfaceStyle&, const std::map<std::string,kernel::SurfaceStyle>&,
+        const std::map<std::string,kernel::SurfaceStyle>&, std::map<std::string,kernel::SurfaceStyle>&) const;
     QAction* create_render_action_{};
     bool active_render_body() const;
     const document::RenderObject* active_render_object(const std::string&) const;

@@ -2050,6 +2050,10 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
                 !preserve_view_on_refresh_ && active_sketch_id_.empty());
             phase("viewer publication");
             preserve_view_on_refresh_ = false;
+        } else if(cam_setup_input_) {
+            publish_mesh(*cam_setup_input_,!preserve_view_on_refresh_);preserve_view_on_refresh_=false;
+        } else if(active_cam_body()&&!properties_dialog_) {
+            publish_mesh(cam_display_mesh(),!preserve_view_on_refresh_);preserve_view_on_refresh_=false;
         } else if(properties_dialog_&&properties_dialog_->objectName()=="femBodyDialog") {
             kernel::ViewerMesh input;
             if(body_dialog_context_&&!part->session.calculated_boundaries().empty()) {
@@ -2862,7 +2866,8 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
             }
             if(!properties_dialog_&&active_sketch_id_.empty())
                 filter_hidden_body_geometry(live_source.mesh,active_part->session.document());
-            if(active_render_body()&&(!properties_dialog_||render_object_preview_))live_source.mesh=render_display_mesh();
+            if(active_cam_body()&&!properties_dialog_)live_source.mesh=cam_display_mesh();
+            else if(active_render_body()&&(!properties_dialog_||render_object_preview_))live_source.mesh=render_display_mesh();
             else if(active_fem_body()&&(!properties_dialog_||fem_condition_preview_))live_source.mesh=fem_display_mesh();
             publish_mesh(workspace_.build_scene_with_part_override(
                 document.document_id,

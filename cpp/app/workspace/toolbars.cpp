@@ -86,11 +86,13 @@ void AssemblyWorkspaceWindow::update_application_actions() {
         active_application_ = ApplicationMode::Drawing;
     } else if (const auto* part = workspace_.open_part(workspace_.active_document_id())) {
         const bool active_body = !part->session.document().body_history.active_body_id().empty();
-        const bool fem=active_fem_body(),render=active_render_body();
-        application_actions_[static_cast<std::size_t>(ApplicationMode::Modeling)]->setEnabled(!fem&&!render);
+        const bool fem=active_fem_body(),render=active_render_body(),cam=active_cam_body();
+        application_actions_[static_cast<std::size_t>(ApplicationMode::Modeling)]->setEnabled(!fem&&!render&&!cam);
         application_actions_[static_cast<std::size_t>(ApplicationMode::Fem)]->setEnabled(fem);
         application_actions_[static_cast<std::size_t>(ApplicationMode::Render)]->setEnabled(render);
-        if(render)active_application_=ApplicationMode::Render;
+        application_actions_[static_cast<std::size_t>(ApplicationMode::Cam)]->setEnabled(cam);
+        if(cam)active_application_=ApplicationMode::Cam;
+        else if(render)active_application_=ApplicationMode::Render;
         else if(fem)active_application_=ApplicationMode::Fem;
         else if (active_body) {
             application_actions_[static_cast<std::size_t>(ApplicationMode::SheetMetal)]
@@ -113,17 +115,18 @@ void AssemblyWorkspaceWindow::update_application_actions() {
         const auto* part=workspace_.open_part(workspace_.active_document_id());
         const bool part_context=part&&
             !part->session.document().body_history.active_body_id().empty();
-        const bool fem=active_fem_body(),render=active_render_body();
+        const bool fem=active_fem_body(),render=active_render_body(),cam=active_cam_body();
         if(modeling_mode_button_)
-            modeling_mode_button_->setVisible(part_context&&!fem&&!render);
+            modeling_mode_button_->setVisible(part_context&&!fem&&!render&&!cam);
         if(fem_mode_button_)fem_mode_button_->setVisible(fem);
         if(render_mode_button_)render_mode_button_->setVisible(render);
+        if(cam_mode_button_)cam_mode_button_->setVisible(cam);
         if(assembly_mode_button_)
             assembly_mode_button_->hide();
         if(sheet_metal_mode_button_)
-            sheet_metal_mode_button_->setVisible(part_context&&!fem&&!render);
+            sheet_metal_mode_button_->setVisible(part_context&&!fem&&!render&&!cam);
         if(surface_mode_button_)
-            surface_mode_button_->setVisible(part_context&&!fem&&!render);
+            surface_mode_button_->setVisible(part_context&&!fem&&!render&&!cam);
         application_mode_selector_->setVisible(
             part_context&&
             !workspace_.open_drawing(workspace_.displayed_document_id()));
@@ -228,6 +231,7 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
     const bool drawing =
         workspace_.open_drawing(workspace_.displayed_document_id()) != nullptr;
     const QString heading_text = drawing ? tr("Výkres")
+        : active_cam_body() ? tr("CAM")
         : active_render_body() ? tr("Render")
         : active_fem_body() ? tr("FEM")
         : !active_sketch_id_.empty() ? tr("Skica")
@@ -288,15 +292,23 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
         }
     };
     if (workspace_.size() == 0) return;
-    if((active_fem_body()||active_render_body())&&active_sketch_id_.empty()) {
+    if((active_fem_body()||active_render_body()||active_cam_body())&&active_sketch_id_.empty()) {
         // CAD actions may have shortcuts even when absent from the toolbar.
         // The analysis source is passive; its owner remains the material Body.
         for(auto* action:{sketch_action_,extrusion_action_,revolution_action_,construction_point_action_,construction_axis_action_,construction_plane_action_,
             curve_3d_action_,sweep2d_action_,sweep_3d_action_,helical_curve_action_,helical_sweep_action_,loft_action_,fillet_action_,chamfer_action_,shell_action_,
-            thread_action_,holes_action_,shaft_thread_action_,drill_point_action_,mirror_action_,pattern_action_,body_scale_action_,symbol_action_,create_body_action_,create_fem_action_,create_render_action_,body_boolean_action_})if(action)action->setEnabled(false);
+            thread_action_,holes_action_,shaft_thread_action_,drill_point_action_,mirror_action_,pattern_action_,body_scale_action_,symbol_action_,create_body_action_,create_fem_action_,create_render_action_,create_cam_action_,body_boolean_action_})if(action)action->setEnabled(false);
         for(const auto* name:{"featurePrototypeAction","modelTwistAction","straightenAction","restoreShapeAction","planarSurfaceAction","generalSurfaceAction", "boundarySurfaceAction","surfaceSewingAction","surfaceIntersectionAction","sheetFromBodyAction","flatAction","bendAction","lineBendAction","sheetProfileAction"})
             if(auto* action=findChild<QAction*>(name))action->setEnabled(false);
         for(int i=0;i<6;++i)if(auto* action=findChild<QAction*>(QStringLiteral("featureShortcut%1Action").arg(i)))action->setEnabled(false);
+        if(active_cam_body()) {
+            if(!properties_dialog_)viewer_->set_candidate_filter([](const auto&){return false;});
+            add_command(selection_action_);
+            auto* setup=new QAction(resource_icon("properties"),tr("CAM setup properties"),tools_toolbar_);setup->setObjectName("camBodyPropertiesAction");
+            setup->setEnabled(!properties_dialog_&&workspace_.active_document_id()==workspace_.displayed_document_id());
+            connect(setup,&QAction::triggered,this,[this]{const auto* part=workspace_.open_part(workspace_.active_document_id());if(part)show_cam_body_properties(part->session.document().body_history.active_body_id());});add_command(setup);
+            return;
+        }
         if(active_render_body()) {
             if(!properties_dialog_)viewer_->set_candidate_filter([this](const auto& c){return active_render_object(c.owner_id)!=nullptr;});
             add_command(selection_action_);
@@ -460,6 +472,9 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
                 create_fem_action_=new QAction(resource_icon("result-body"),tr("Create FEM"),this);
                 create_fem_action_->setObjectName("createFemAction");
                 connect(create_fem_action_,&QAction::triggered,this,[this]{show_fem_body_properties();});
+                create_cam_action_=new QAction(resource_icon("result-body"),tr("Create CAM"),this);
+                create_cam_action_->setObjectName("createCamAction");
+                connect(create_cam_action_,&QAction::triggered,this,[this]{show_cam_body_properties();});
                 create_render_action_=new QAction(resource_icon("template-image"),tr("Create Render"),this);
                 create_render_action_->setObjectName("createRenderAction");
                 connect(create_render_action_,&QAction::triggered,this,[this]{show_render_body_properties();});
@@ -467,6 +482,7 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
             const auto& graph = part->session.document().body_history;
             create_body_action_->setEnabled(!properties_dialog_ && graph.active_body_id().empty());
             create_fem_action_->setEnabled(!properties_dialog_ && graph.active_body_id().empty());
+            create_cam_action_->setEnabled(!properties_dialog_ && graph.active_body_id().empty());
             create_render_action_->setEnabled(!properties_dialog_ && graph.active_body_id().empty());
             auto* boolean = body_boolean_action_;
             boolean->setEnabled(!properties_dialog_ && graph.active_body_id().empty() &&
@@ -476,6 +492,7 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
                 add_command(create_body_action_);
                 add_command(create_fem_action_);
                 add_command(create_render_action_);
+                add_command(create_cam_action_);
                 add_command(mirror_action_);
                 add_command(pattern_action_);
                 add_command(body_scale_action_);

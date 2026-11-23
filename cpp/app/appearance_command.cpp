@@ -203,6 +203,7 @@ void AssemblyWorkspaceWindow::update_viewer_body_colors(
   if (preview)
     add(*preview, preview_path);
   if (!preview) appearance_preview_paths_.reset();
+  apply_cam_surface_styles(base,instances,owners,faces);
   viewer_->set_body_surface_styles(base, std::move(instances),
                                    std::move(owners), std::move(faces));
 }

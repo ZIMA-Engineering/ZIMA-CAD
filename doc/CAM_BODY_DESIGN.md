@@ -251,3 +251,20 @@ for the exact evidence and remaining UI, template/library and platform gates.
 The user explicitly reaffirmed machine parameters on 2026-11-23: travel capability,
 maximum working feed, maximum spindle speed and rapid feed belong to machine
 settings. Actual feed and spindle commands must remain within these limits.
+
+## Setup UI checkpoint, 2026-11-24
+
+The source-Part setup editor now integrates stock/target/fixture reference entry,
+the shared work-frame controls and the machine editor. The user confirmed
+translucent stock with opaque target and fixtures; this is a display-only CAM
+override and preserves authored Modeling appearance. See
+[setup UI and stock verification](verification/20261124-cam-setup-ui.md) for GUI
+coverage, calculation counts and presentation checks. Tool/operation authoring,
+NC stepping, clamping-Sketch checks and the agreed deployment gates remain open.
+
+The user also requested visible toolpaths in yellow. The intended presentation
+uses solid yellow cutting-feed paths and dashed yellow rapid paths, with the
+selected motion emphasized and linked to its generic NC block. Stepping should
+show the tool at that motion's position. Derive all display paths from the actual
+calculated program and preserve exact motion/block identity; drawing the paths
+must not recalculate solids or become a separate source of machining geometry.

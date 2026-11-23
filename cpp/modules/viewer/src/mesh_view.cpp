@@ -4569,8 +4569,13 @@ if (impl_->show_origins) {
             // coincident technological sheet needs the unshifted depth so
             // its grey face remains visible on an outside cylinder, while
             // genuinely nearer solid geometry still occludes it.
-            glPolygonOffset(technological_thread ? 0.0F : 1.0F,
-                technological_thread ? 0.0F : 1.0F);
+            // Prefer opaque material where transparent stock lies on the same
+            // plane. Bias only blended fill, leaving native coordinates and
+            // the shared edge-depth pass intact. Technological sheets retain
+            // their intentional foreground presentation.
+            const float offset=technological_thread?0.0F:
+                (!depth_only&&color.alpha()<255?2.0F:1.0F);
+            glPolygonOffset(offset,offset);
             impl_->program.setUniformValue("roughness",static_cast<float>(style.roughness));
             impl_->program.setUniformValue("metallic",static_cast<float>(style.metallic));
             impl_->program.setUniformValue("color", color_vector(color));

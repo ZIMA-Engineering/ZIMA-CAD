@@ -68,9 +68,43 @@ void copied_axis_presentation() {
   }
   std::cout<<"Scale/Pattern/Mirror axes and curved centerlines: identical presentation and visibility toggles passed\n";
 }
+void coincident_transparent_surface() {
+  kernel::ViewerMesh opaque;
+  opaque.vertices={{-2,-2,0},{2,-2,0},{2,2,0},{-2,2,0},{0,0,0}};
+  opaque.triangles={0,1,2,0,2,3};
+  opaque.triangle_references={{"target","face",{}},{"target","face",{}}};
+  auto together=opaque;
+  together.triangles.insert(together.triangles.end(),{0,1,4,1,2,4,2,3,4,3,0,4});
+  for(int i=0;i<4;++i)together.triangle_references.push_back({"stock","face",{}});
+  viewer::MeshView view;view.resize(600,450);view.show();
+  view.set_candidate_filter([](const auto&){return false;});
+  view.set_display_mode(viewer::DisplayMode::Shaded);
+  view.set_body_surface_styles({"#CC4422",.5,0},{},{{"\x1f" "stock",{"#402244CC",.5,0}}});
+  for(const auto orientation:{viewer::StandardView::Top,viewer::StandardView::Isometric}) {
+    view.set_mesh(opaque);view.set_standard_view(orientation);
+    for(int frame=0;frame<4;++frame)render();
+    const auto expected=view.grabFramebuffer();
+    view.set_mesh(together,false);render();
+    require(expected==view.grabFramebuffer(),"Coincident transparent stock fights opaque target pixels");
+    // Distinct foreground material must still blend, not disappear with ties.
+    auto nearer=together;
+    for(const auto& p:opaque.vertices)nearer.vertices.push_back({p.x,p.y,p.z+.1});
+    for(std::size_t i=opaque.triangles.size();i<nearer.triangles.size();++i)nearer.triangles[i]+=5;
+    view.set_mesh(nearer,false);render();
+    require(expected!=view.grabFramebuffer(),"Nearer transparent stock was hidden");
+    std::reverse(together.triangle_references.begin(),together.triangle_references.end());
+    std::rotate(together.triangles.begin(),together.triangles.begin()+6,together.triangles.end());
+    view.set_mesh(together,false);render();
+    require(expected==view.grabFramebuffer(),"Coincident stock presentation depends on mesh order");
+    together=opaque;together.triangles.insert(together.triangles.end(),{0,1,4,1,2,4,2,3,4,3,0,4});
+    for(int i=0;i<4;++i)together.triangle_references.push_back({"stock","face",{}});
+  }
+  std::cout<<"Coincident stock/target: opaque pixels retained in top/isometric views and both mesh orders; nearer stock blends\n";
+}
 int main(int argc, char **argv) {
   QApplication app(argc, argv);
   try {
+    coincident_transparent_surface();
     copied_axis_presentation();
     kernel::Appearance a;
     a.body = {"#4DC57D5C", .12, 1};

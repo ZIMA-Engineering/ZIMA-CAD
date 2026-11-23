@@ -677,6 +677,7 @@ endif()
 add_executable(zima-cad-cpp
     app/fem_body_command.cpp app/fem_body_ui_verification.cpp
     app/fem_condition_command.cpp
+    app/cam_body_command.cpp app/cam_body_ui_verification.cpp
     app/render_body_command.cpp app/render_job.cpp app/render_ui_verification.cpp
     app/body_link_ui_verification.cpp
     ${ZIMA_WORKSPACE_SOURCES}
@@ -2499,6 +2500,10 @@ if(ZIMA_BUILD_TESTS)
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_FAMILY_ONLY=1;ZIMA_VERIFY_FAMILY_LABELS_ONLY=1"
         TIMEOUT 120 WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
     add_test(NAME zima_cpp_body_scale_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    add_test(NAME zima_cpp_cam_body_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    set_tests_properties(zima_cpp_cam_body_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_CAM_BODY_ONLY=1"
+        TIMEOUT 180 WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
     add_test(NAME zima_cpp_fem_body_ui_contract COMMAND zima-cad-cpp --verify-startup)
     add_test(NAME zima_cpp_render_ui_contract COMMAND zima-cad-cpp --verify-startup)
     add_test(NAME zima_cpp_render_compact_ui_contract COMMAND zima-cad-cpp --verify-startup)

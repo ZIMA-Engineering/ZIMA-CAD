@@ -82,3 +82,7 @@ No native format or protected placement-solver change was made in this step.
 The normal `zima-cad.bat` executable was not replaced. Its SHA-256 remains
 `FD192739063610FE0CF7406DA63FF349B79829E6A26BEF68221B5F86CC1BF3B9`, the previously
 verified Fillet build. No portable release was created or published.
+
+Follow-up: [2026-11-24 setup UI verification](20261124-cam-setup-ui.md) records
+main-window integration of the machine editor, source/frame selection and
+translucent stock. The remaining tool/operation, NC and clamping gates still apply.

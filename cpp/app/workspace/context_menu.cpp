@@ -14,6 +14,8 @@ using namespace workspace_detail;
 
 
 void AssemblyWorkspaceWindow::show_tree_item_properties(QTreeWidgetItem* item) {
+    if(item&&item->data(0,Qt::UserRole+3)=="cam-setup"){show_cam_body_properties(item->data(0,Qt::UserRole).toString().toStdString());return;}
+    if(active_cam_body()&&item&&item->data(0,Qt::UserRole+3)!="part-body")return;
     if(item&&item->data(0,Qt::UserRole+3)=="render-object") {
         const auto id=item->data(0,Qt::UserRole).toString().toStdString();
         if(const auto* object=active_render_object(id))show_render_object_properties(object->kind,id);return;
@@ -143,7 +145,9 @@ void AssemblyWorkspaceWindow::show_tree_item_properties(QTreeWidgetItem* item) {
     if (kind == "part-body") {
         const auto* part=workspace_.open_part(workspace_.active_document_id());
         const auto* body=part?part->session.document().body_history.find(id):nullptr;
-        if(body&&body->render)show_render_body_properties(id);
+        if(body&&body->cam)show_cam_body_properties(id);
+        else if(active_cam_body())return;
+        else if(body&&body->render)show_render_body_properties(id);
         else if(active_render_body())return;
         else if(body&&body->fem)show_fem_body_properties(id);
         else if(active_fem_body())return;
