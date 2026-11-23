@@ -563,7 +563,14 @@ std::vector<PersistedCurveContact> persisted_curve_contacts(
                 return block.source_path=="external-reference:"+owner &&
                     std::ranges::find(block.geometry_ids,curve.geometry_id)!=block.geometry_ids.end();
             });
-            if(!direct && !projected)continue;
+            // A native circle/arc can retain the same support as a reference
+            // through center K and equal radius, without being an imported
+            // profile. Its persisted contacts also delimit the editable copy.
+            // Keep the original point and reference owners; coincidence here
+            // only supplies trim boundaries, never a new dependency or C.
+            const bool coincident=!direct && !projected && curve.trimmable &&
+                sketch.coincident_circular_support(owner,curve.geometry_id);
+            if(!direct && !projected && !coincident)continue;
             // Persisted C contacts are exact ZIMA topology. In particular, a
             // common tangent supplies the exact circle contact used by both C and
             // T. Deriving an Arc boundary from the sampled display polyline moves
@@ -572,7 +579,7 @@ std::vector<PersistedCurveContact> persisted_curve_contacts(
             // dragging even unrelated points.
             const double parameter = persisted_contact_parameter(
                 sketch, curve, *point);
-            if(projected) {
+            if(projected || coincident) {
                 const auto p=exact_geometry_point(sketch,curve,parameter);
                 if(std::hypot(p[0]-point->x,p[1]-point->y)>1e-8)continue;
             }
@@ -738,13 +745,24 @@ std::vector<SketchTrimPiece> sketch_trim_topology(
             const auto persisted_tangent_contact = [&]()
                 -> const SketchConstraint* {
                 if(sketch.circular_radius(first.geometry_id)&&sketch.circular_radius(second.geometry_id)) {
+                    const auto same_support=[&](const std::string& a,const std::string& b) {
+                        return a==b||sketch.coincident_circular_support(a,b);
+                    };
                     const auto tangent=std::ranges::find_if(sketch.constraints,[&](const auto& t) {
                         if(t.suppressed||t.kind!=ConstraintKind::Tangent||!sketch.find_point(t.first_point_id))return false;
-                        if(!((t.geometry_id==first.geometry_id&&t.second_geometry_id==second.geometry_id)||
-                             (t.geometry_id==second.geometry_id&&t.second_geometry_id==first.geometry_id)))return false;
-                        for(const auto& id:{first.geometry_id,second.geometry_id})
+                        if(!((same_support(t.geometry_id,first.geometry_id)&&same_support(t.second_geometry_id,second.geometry_id))||
+                             (same_support(t.geometry_id,second.geometry_id)&&same_support(t.second_geometry_id,first.geometry_id))))return false;
+                        for(const auto& id:{t.geometry_id,t.second_geometry_id})
                             if(!geometry_owns_point(sketch,id,t.first_point_id)&&
                                !std::ranges::any_of(sketch.constraints,[&](const auto& c){return !c.suppressed&&c.kind==ConstraintKind::PointOnCircle&&c.geometry_id==id&&c.first_point_id==t.first_point_id;}))return false;
+                        // A contact on a coincident finite Arc must lie on its
+                        // surviving domain. Reuse that exact contact instead
+                        // of accepting two numerical roots beside a tangency.
+                        const auto* point=sketch.find_point(t.first_point_id);
+                        for(const auto* curve:{&first,&second})if(curve->trimmable) {
+                            const auto p=exact_geometry_point(sketch,*curve,persisted_contact_parameter(sketch,*curve,*point));
+                            if(std::hypot(p[0]-point->x,p[1]-point->y)>1e-8)return false;
+                        }
                         return true;
                     });
                     if(tangent!=sketch.constraints.end())return &*tangent;

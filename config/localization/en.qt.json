@@ -858,7 +858,7 @@
   "Řetězec lomené čáry dokončen. Kliknutím začnete nový řetězec.": "Polyline chain finished. Click to start a new chain.",
   "Obdélník skici: určete první roh. Escape příkaz zruší.": "Sketch rectangle: set the first corner. Escape cancels.",
   "Pravidelný %1úhelník: určete střed. Escape příkaz zruší.": "Regular %1-sided polygon: set the center. Escape cancels.",
-  "Ořezání: klikněte na část, nebo tažením přeškrtněte více částí. Prostřední klik potvrdí vše jako jednu revizi; Escape vše zahodí.": "Trim: click a section or drag across several sections. A middle click confirms all as one revision; Escape discards all.",
+  "Ořezání: klikněte na část, nebo tažením přeškrtněte více částí. Dvojklik prostředním tlačítkem potvrdí vše jako jednu revizi; Escape vše zahodí.": "Trim: click a section or drag across several sections. Double-click the middle button to confirm all as one revision; Escape discards all.",
   "Zaoblení rohu: vyberte první úsečku.": "Corner fillet: select the first segment.",
   "Zaoblení rohu: vyberte druhou připojenou úsečku.": "Corner fillet: select the second connected segment.",
   "Zaoblení rohu": "Corner fillet",

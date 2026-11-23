@@ -1402,6 +1402,9 @@ if(ZIMA_BUILD_TESTS)
     add_executable(zima_cpp_sketch_trim_fragment_tests tests/sketch_trim_fragment_tests.cpp)
     target_link_libraries(zima_cpp_sketch_trim_fragment_tests PRIVATE zima_sketcher zima_document_core)
     add_test(NAME zima_cpp_sketch_trim_fragment_tests COMMAND zima_cpp_sketch_trim_fragment_tests)
+    add_executable(zima_cpp_sketch_trim_contact_tests tests/sketch_trim_contact_tests.cpp)
+    target_link_libraries(zima_cpp_sketch_trim_contact_tests PRIVATE zima_sketcher zima_document_core)
+    add_test(NAME zima_cpp_sketch_trim_contact_tests COMMAND zima_cpp_sketch_trim_contact_tests)
     add_executable(zima_cpp_sketch_angle_sector_tests tests/sketch_angle_sector_tests.cpp)
     target_link_libraries(zima_cpp_sketch_angle_sector_tests PRIVATE zima_sketcher zima_document_core)
     add_test(NAME zima_cpp_sketch_angle_sector_tests COMMAND zima_cpp_sketch_angle_sector_tests)
@@ -1474,6 +1477,11 @@ if(ZIMA_BUILD_TESTS)
     set_tests_properties(zima_cpp_copied_circle_contact_ui_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_SKETCH_KEYPOINT_CONTACT_ONLY=1;ZIMA_VERIFY_NATIVE_CURVE_CONTACT_ONLY=1;ZIMA_VERIFY_DOUBLE_CIRCLE_UI_ONLY=1;ZIMA_VERIFY_COPIED_CIRCLE_UI_ONLY=1"
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." RUN_SERIAL TRUE TIMEOUT 300)
+    add_test(NAME zima_cpp_trim_contact_ui_contract COMMAND zima-cad-cpp --verify-startup
+        "--working-directory=${CMAKE_BINARY_DIR}/trim-contact-gui")
+    set_tests_properties(zima_cpp_trim_contact_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_SKETCH_KEYPOINT_CONTACT_ONLY=1;ZIMA_VERIFY_NATIVE_CURVE_CONTACT_ONLY=1;ZIMA_VERIFY_TRIM_CONTACT_UI_ONLY=1"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." RUN_SERIAL TRUE TIMEOUT 180)
     add_test(NAME zima_cpp_polyline_arc_contact_ui_contract COMMAND zima-cad-cpp --verify-startup
         "--working-directory=${CMAKE_BINARY_DIR}/polyline-arc-contact-gui")
     set_tests_properties(zima_cpp_polyline_arc_contact_ui_contract PROPERTIES

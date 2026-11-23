@@ -601,7 +601,7 @@ void AssemblyWorkspaceWindow::start_sketch_trim() {
     refresh_scene();
     state_->setText(tr(
         "Ořezání: klikněte na část, nebo tažením přeškrtněte více částí. "
-        "Prostřední klik potvrdí vše jako jednu revizi; Escape vše zahodí."));
+        "Dvojklik prostředním tlačítkem potvrdí vše jako jednu revizi; Escape vše zahodí."));
 }
 
 void AssemblyWorkspaceWindow::cancel_sketch_trim() {

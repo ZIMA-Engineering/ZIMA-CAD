@@ -858,7 +858,7 @@
   "Řetězec lomené čáry dokončen. Kliknutím začnete nový řetězec.": "Цепочка ломаной завершена. Нажмите для начала новой цепочки.",
   "Obdélník skici: určete první roh. Escape příkaz zruší.": "Прямоугольник эскиза: задайте первый угол. Escape отменяет команду.",
   "Pravidelný %1úhelník: určete střed. Escape příkaz zruší.": "Правильный %1-угольник: задайте центр. Escape отменяет команду.",
-  "Ořezání: klikněte na část, nebo tažením přeškrtněte více částí. Prostřední klik potvrdí vše jako jednu revizi; Escape vše zahodí.": "Обрезка: нажмите на участок или пересеките несколько участков перетаскиванием. Средняя кнопка подтверждает всё как одну ревизию; Escape отменяет всё.",
+  "Ořezání: klikněte na část, nebo tažením přeškrtněte více částí. Dvojklik prostředním tlačítkem potvrdí vše jako jednu revizi; Escape vše zahodí.": "Обрезка: нажмите на участок или пересеките несколько участков перетаскиванием. Двойной щелчок средней кнопкой подтверждает всё как одну ревизию; Escape отменяет всё.",
   "Zaoblení rohu: vyberte první úsečku.": "Скругление угла: выберите первый отрезок.",
   "Zaoblení rohu: vyberte druhou připojenou úsečku.": "Скругление угла: выберите второй соединённый отрезок.",
   "Zaoblení rohu": "Скругление угла",

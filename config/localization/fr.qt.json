@@ -858,7 +858,7 @@
   "Řetězec lomené čáry dokončen. Kliknutím začnete nový řetězec.": "Chaîne de polyligne terminée. Cliquez pour en commencer une autre.",
   "Obdélník skici: určete první roh. Escape příkaz zruší.": "Rectangle d’esquisse : définissez le premier coin. Échap annule.",
   "Pravidelný %1úhelník: určete střed. Escape příkaz zruší.": "Polygone régulier à %1 côtés : définissez le centre. Échap annule.",
-  "Ořezání: klikněte na část, nebo tažením přeškrtněte více částí. Prostřední klik potvrdí vše jako jednu revizi; Escape vše zahodí.": "Ajuster : cliquez sur une partie ou traversez plusieurs parties en glissant. Un clic central valide le tout en une révision ; Échap abandonne tout.",
+  "Ořezání: klikněte na část, nebo tažením přeškrtněte více částí. Dvojklik prostředním tlačítkem potvrdí vše jako jednu revizi; Escape vše zahodí.": "Ajuster : cliquez sur une partie ou traversez plusieurs parties en glissant. Un double-clic avec le bouton central valide le tout en une révision ; Échap abandonne tout.",
   "Zaoblení rohu: vyberte první úsečku.": "Congé d’angle : sélectionnez le premier segment.",
   "Zaoblení rohu: vyberte druhou připojenou úsečku.": "Congé d’angle : sélectionnez le second segment connecté.",
   "Zaoblení rohu": "Congé d’angle",

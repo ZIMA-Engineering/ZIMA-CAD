@@ -858,7 +858,7 @@
   "Řetězec lomené čáry dokončen. Kliknutím začnete nový řetězec.": "Polylinienkette fertiggestellt. Klicken, um eine neue Kette zu starten.",
   "Obdélník skici: určete první roh. Escape příkaz zruší.": "Skizzenrechteck: Erste Ecke festlegen. Escape bricht ab.",
   "Pravidelný %1úhelník: určete střed. Escape příkaz zruší.": "Regelmäßiges %1-Eck: Mittelpunkt festlegen. Escape bricht ab.",
-  "Ořezání: klikněte na část, nebo tažením přeškrtněte více částí. Prostřední klik potvrdí vše jako jednu revizi; Escape vše zahodí.": "Trimmen: Abschnitt anklicken oder mehrere Abschnitte durchstreichen. Mittelklick bestätigt alles als eine Revision; Escape verwirft alles.",
+  "Ořezání: klikněte na část, nebo tažením přeškrtněte více částí. Dvojklik prostředním tlačítkem potvrdí vše jako jednu revizi; Escape vše zahodí.": "Trimmen: Abschnitt anklicken oder mehrere Abschnitte durchstreichen. Doppelklick mit der mittleren Maustaste bestätigt alles als eine Revision; Escape verwirft alles.",
   "Zaoblení rohu: vyberte první úsečku.": "Eckverrundung: Erste Strecke auswählen.",
   "Zaoblení rohu: vyberte druhou připojenou úsečku.": "Eckverrundung: Zweite verbundene Strecke auswählen.",
   "Zaoblení rohu": "Eckverrundung",
