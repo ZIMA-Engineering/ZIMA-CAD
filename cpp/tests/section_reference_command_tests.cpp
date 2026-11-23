@@ -2,6 +2,7 @@
 #include "body_measurement_fixture.hpp"
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/section_reference_operations.hpp>
+#include <zima/workspace/model_calculation.hpp>
 #include <zima/document/placement_json.hpp>
 #include <algorithm>
 #include <cmath>
@@ -18,6 +19,54 @@ double area(const document::SectionResult& result) {
         const kernel::Vec3 cross{u.y*v.z-u.z*v.y,u.z*v.x-u.x*v.z,u.x*v.y-u.y*v.x};
         total+=std::sqrt(cross.x*cross.x+cross.y*cross.y+cross.z*cross.z)/2;
     }return total;
+}
+void verify_body_origin_regeneration(const kernel::OcctKernel& kernel,fs::path dir) {
+    workspace::Workspace live;command_host::Options options;
+    options.settings=[] {return command_host::Settings{{fs::absolute("config/templates"),"START_PART_mm.prtz","START_ASSEMBLY_mm.asmz","Body"},{}};};
+    command_host::Host host(live,kernel,dir,options);
+    const auto run=[&](const char* name,Json args=Json::object()) {
+        const auto result=host.execute({{"command",name},{"arguments",std::move(args)}});
+        if(!result.ok)throw std::runtime_error(std::string(name)+": "+result.message);return result.data;
+    };
+    run("new",{{"type","part"},{"name","section-body-origin"}});const auto id=live.active_document_id();
+    test::rectangular_commands(run,{{"length_mm","10"},{"width_mm","20"},{"height_mm","30"}});
+    auto* state=live.open_part(id);const auto body=state->session.document().body_history.active_body_id();
+    const auto section=run("section.create",{{"path_mm",{{-50,0},{50,0}}},{"plane","XY"},{"show_cut",true}}).at("object").get<std::string>();
+    const auto set=[&](int slot,const char* plane,double offset) {
+        run("section.reference.set",{{"object",section},{"index",slot},{"reference",{{"owner",body+":origin"},{"key",plane}}},{"offset_mm",offset}});
+    };
+    set(0,"origin:plane:xz",2);set(1,"origin:plane:xy",3);set(2,"origin:plane:yz",1);
+    const auto current=[&]()->const document::SectionDefinition&{return state->session.document().sections.front();};
+    const auto placed=current();require(placed.placement.references.size()==5,"Body Origin fixture lacks position and FRONT/TOP references");
+    const auto expected_area=area(document::calculate_section(live.authoritative_viewer_mesh(id),placed));
+    require(expected_area>0,"Body Origin fixture does not cut its solid");
+    const auto verify_frame=[&](const document::SectionDefinition& value) {
+        require(value.id==placed.id&&value.sketch.id==placed.sketch.id&&value.container_origin==placed.container_origin&&
+            value.plane_origin==placed.plane_origin&&value.plane_x==placed.plane_x&&value.plane_y==placed.plane_y,
+            "Regeneration changed the Section identity or last valid frame");
+    };
+    for(int repeat=0;repeat<2;++repeat) {
+        run("regenerate");require(current().placement.reference_valid,"Part regeneration lost existing Body Origin Section references");
+        verify_frame(current());require(current().placement.references==placed.placement.references,"Regeneration changed authored Section references");
+        near(area(document::calculate_section(live.authoritative_viewer_mesh(id),current())),expected_area);
+        near(test::measured_volume(kernel,state->session.calculated_boundaries().back()),6000);
+    }
+    set(0,"origin:plane:xz",4);run("undo");verify_frame(current());run("redo");near(current().placement.y,4);run("undo");
+    run("save");std::vector<kernel::BodyResult> cache;
+    auto reopened=document::PartDocument::load(dir/"section-body-origin.prtz",&cache);
+    require(reopened.sections.front().placement.reference_valid,"Native reopen lost Body Origin placement");verify_frame(reopened.sections.front());
+    // Recover the invalid flag persisted by the defective regeneration path.
+    reopened.sections.front().placement.reference_valid=false;
+    state->session.commit(std::move(reopened),cache);run("regenerate");
+    require(current().placement.reference_valid,"Regeneration did not recover an existing Body Origin reference");verify_frame(current());
+    // Genuine reference loss must still be reported without resetting the frame.
+    auto missing=state->session.document();for(auto& ref:missing.sections.front().placement.references)ref.owner_id="missing-body:origin";
+    state->session.commit(std::move(missing),state->session.calculated_boundaries());run("regenerate");
+    require(!current().placement.reference_valid,"Regeneration accepted a genuinely missing Body Origin");verify_frame(current());
+    bool rejected=false;try{static_cast<void>(document::calculate_section(live.authoritative_viewer_mesh(id),current()));}catch(const std::invalid_argument&){rejected=true;}
+    require(rejected,"Invalid Section was used for a new calculation");
+    run("save");const auto broken=document::PartDocument::load(dir/"section-body-origin.prtz");
+    require(!broken.sections.front().placement.reference_valid,"Native reopen hid a missing reference");verify_frame(broken.sections.front());
 }
 void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     workspace::Workspace live;command_host::Interaction interaction;command_host::Options options;
@@ -95,4 +144,4 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     const auto denied=host.execute({{"command","section.reference.set"},{"arguments",request}});require(!denied.ok&&denied.code=="unsupported_context","A hidden source Part was edited through top-level Section controls");
 }
 }
-int main(){try{const auto root=fs::canonical(fs::temp_directory_path()),dir=root/("zima-section-reference-"+document::PartDocument::create_default().document_id);require(fs::create_directory(dir),"Cannot create fixture directory");kernel::OcctKernel kernel;verify(kernel,dir);require(fs::canonical(dir).parent_path()==root,"Unsafe cleanup");fs::remove_all(dir);std::cout<<"Section references: original planes, cut area, exact nested occurrences, body preservation and native Undo passed\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}
+int main(){try{const auto root=fs::canonical(fs::temp_directory_path()),dir=root/("zima-section-reference-"+document::PartDocument::create_default().document_id);require(fs::create_directory(dir),"Cannot create fixture directory");kernel::OcctKernel kernel;verify_body_origin_regeneration(kernel,dir);verify(kernel,dir);require(fs::canonical(dir).parent_path()==root,"Unsafe cleanup");fs::remove_all(dir);std::cout<<"Section references: Body Origin regeneration and recovery, original planes, cut area, exact nested occurrences, body preservation and native Undo passed\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

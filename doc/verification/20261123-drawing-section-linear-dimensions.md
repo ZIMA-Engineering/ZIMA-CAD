@@ -55,6 +55,9 @@ dimension, Undo/Redo and native save/reopen. It asserts zero Body calculations
 and unchanged shared measurement geometry during the interaction. The user
 document is read only; temporary files receive all test saves. The actual-file
 test refreshes its Section from the already embedded source viewer packet.
+That original check did not exercise Part regeneration followed by the Drawing
+Regenerate action. The subsequent [Body Origin reference regression](20261123-section-body-origin-regeneration.md)
+documents that separate failure and its end-to-end verification.
 
 Eight CTest targets passed: `section_contract_tests`, `section_measurement_tests`,
 `measurement_picker_tests`, `measurement_dimension_contract_tests`,

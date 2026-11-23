@@ -1138,6 +1138,7 @@ calculate_part_reference_state(
                 append_reference_geometry(geometry,document.origin_viewer_mesh().original_references);
                 append_reference_geometry(geometry,document.construction_viewer_mesh().original_references);
                 append_reference_geometry(geometry,document.history_origin_reference_geometry_before({}));
+                append_reference_geometry(geometry,document.body_origin_reference_geometry());
                 zima::document::resolve_section_placements(document.sections,geometry);
             }
             if(!calculated.empty())for(const auto& feature:document.history)
