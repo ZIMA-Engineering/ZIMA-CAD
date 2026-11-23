@@ -5,6 +5,7 @@
 #include <zima/document/placement_types.hpp>
 #include <zima/document/fem_definition.hpp>
 #include <zima/document/render_definition.hpp>
+#include <zima/document/cam_definition.hpp>
 #include <zima/kernel/geometry_kernel.hpp>
 #include <string_view>
 #include <functional>
@@ -12,9 +13,10 @@
 
 namespace zima::document {
 
-enum class BodyKind { Material, Fem, Render };
+enum class BodyKind { Material, Fem, Render, Cam };
 enum class FemSourceState { Available, Missing, Suppressed };
 using RenderSourceState = FemSourceState;
+using CamSourceState = FemSourceState;
 
 // Ownership/order model for independent Part branches. It stores no OCCT
 // objects: activation, insertion and reorder are document-only transactions.
@@ -71,7 +73,8 @@ struct BodyHistory {
     std::optional<BodyLink> link;
     std::optional<FemDefinition> fem;
     std::optional<RenderDefinition> render;
-    [[nodiscard]] BodyKind kind() const { return render ? BodyKind::Render : fem ? BodyKind::Fem : BodyKind::Material; }
+    std::optional<CamDefinition> cam;
+    [[nodiscard]] BodyKind kind() const { return cam ? BodyKind::Cam : render ? BodyKind::Render : fem ? BodyKind::Fem : BodyKind::Material; }
     [[nodiscard]] ContainerOrigin origin() const { return create_container_origin(scope.id); }
     bool operator==(const BodyHistory&) const = default;
 };
@@ -109,6 +112,9 @@ public:
     [[nodiscard]] std::string create_render(BodyHistory body);
     [[nodiscard]] RenderSourceState render_source_state(const std::string& body_id) const;
     [[nodiscard]] std::vector<std::string> render_sources(const std::string& body_id) const;
+    [[nodiscard]] std::string create_cam(BodyHistory body);
+    [[nodiscard]] CamSourceState cam_source_state(const std::string& body_id) const;
+    [[nodiscard]] std::vector<std::string> cam_sources(const std::string& body_id) const;
     void activate(const std::string& id);
     void set_insertion_cursor(std::size_t cursor);
     void set_history_cursor(const std::string& body_id, std::size_t cursor);

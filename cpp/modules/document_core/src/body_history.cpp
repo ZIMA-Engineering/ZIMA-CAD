@@ -84,6 +84,7 @@ void BodyHistoryGraph::validate() const {
             throw std::invalid_argument("Body identity is empty or duplicated");
         if(body.kind()!=BodyKind::Material)non_material_identities.insert(body.scope.id);
         if(body.fem&&body.render)throw std::invalid_argument("Invalid Render definition.");
+        if(body.cam&&(body.fem||body.render))throw std::invalid_argument("Invalid CAM definition.");
     }
     for (const auto& op : booleans_)
         if (op.id.empty() || !identities.insert(op.id).second)
@@ -98,6 +99,9 @@ void BodyHistoryGraph::validate() const {
     for(const auto& body:bodies_)if(body.render)for(const auto& object:body.render->objects)
         if(!condition_ids.insert(object.id).second)
             throw std::invalid_argument("Invalid Render definition.");
+    for(const auto& body:bodies_)if(body.cam)for(const auto& operation:body.cam->operations)
+        if(!condition_ids.insert(cam_operation_id(operation)).second)
+            throw std::invalid_argument("Invalid CAM definition.");
     for (const auto& id : order_) {
         if (!identities.contains(id) || preceding.contains(id))
             throw std::invalid_argument("Every body or Boolean must occur once in history");
@@ -137,6 +141,31 @@ void BodyHistoryGraph::validate() const {
                             (condition_ids.contains(branch)&&!identities.contains(branch))||
                             (identities.contains(branch)&&!preceding.contains(branch)))
                         throw std::invalid_argument("Invalid Render definition.");
+                }
+            }
+            if(body->cam) {
+                validate_cam_definition(*body->cam);
+                if(body->link||body->scale||body->derived_copy||!body->entries.empty()||body->cursor||
+                   !body->dependencies.empty()||body->scope.placement!=Placement{})
+                    throw std::invalid_argument("A CAM Body cannot own material history or Body placement.");
+                const auto check_source=[&](const std::string& source,bool stock) {
+                    const auto* source_body=find(source);
+                    if(owner(source)||(condition_ids.contains(source)&&!identities.contains(source))||
+                       (identities.contains(source)&&!preceding.contains(source))||
+                       (source_body&&source_body->kind()!=BodyKind::Material&&!(stock&&source_body->cam)))
+                        throw std::invalid_argument("CAM requires preceding material sources or preceding CAM stock.");
+                };
+                check_source(body->cam->stock_id,true);check_source(body->cam->target_id,false);
+                for(const auto& source:body->cam->fixture_ids)check_source(source,false);
+                for(const auto& reference:body->cam->work_frame.references) {
+                    auto reference_id=reference.owner_id;
+                    if(reference_id.ends_with(":origin"))reference_id.resize(reference_id.size()-7);
+                    const auto* reference_owner=owner(reference_id);
+                    const auto& branch=reference_owner?reference_owner->scope.id:reference_id;
+                    if(non_material_identities.contains(branch)||
+                       (condition_ids.contains(branch)&&!identities.contains(branch))||
+                       (identities.contains(branch)&&!preceding.contains(branch)))
+                        throw std::invalid_argument("Invalid CAM definition.");
                 }
             }
             if(body->link&&(body->derived_copy||body->scale||!body->entries.empty()||body->cursor||
@@ -338,6 +367,34 @@ std::vector<std::string> BodyHistoryGraph::render_sources(const std::string& bod
     return sources;
 }
 
+std::string BodyHistoryGraph::create_cam(BodyHistory body) {
+    if(!body.cam)throw std::invalid_argument("Invalid CAM definition.");
+    if(body.scope.id.empty())body.scope.id=zima::kernel::make_stable_id();
+    const auto id=body.scope.id;auto next=*this;
+    next.order_.insert(next.order_.begin()+static_cast<std::ptrdiff_t>(cursor_),id);
+    next.bodies_.push_back(std::move(body));next.sort_bodies();++next.cursor_;next.active_=id;
+    next.validate();
+    if(next.cam_source_state(id)!=CamSourceState::Available)
+        throw std::invalid_argument("The CAM source is missing or suppressed.");
+    *this=std::move(next);return id;
+}
+std::vector<std::string> BodyHistoryGraph::cam_sources(const std::string& body_id) const {
+    const auto* setup=find(body_id);
+    if(!setup||!setup->cam)throw std::invalid_argument("The requested CAM Body does not exist.");
+    std::vector<std::string> result;
+    const auto add=[&](const auto& id){if(std::ranges::find(result,id)==result.end())result.push_back(id);};
+    add(setup->cam->stock_id);add(setup->cam->target_id);
+    for(const auto& id:setup->cam->fixture_ids)add(id);return result;
+}
+CamSourceState BodyHistoryGraph::cam_source_state(const std::string& body_id) const {
+    for(const auto& id:cam_sources(body_id)) {
+        if(const auto* source=find(id)){if(source->suppressed)return CamSourceState::Suppressed;}
+        else if(const auto* source=find_boolean(id)){if(source->suppressed)return CamSourceState::Suppressed;}
+        else return CamSourceState::Missing;
+    }
+    return CamSourceState::Available;
+}
+
 void BodyHistoryGraph::activate(const std::string& id) {
     if (!id.empty() && !find(id)) throw std::invalid_argument("Body does not exist");
     if(!id.empty()&&find(id)->suppressed)throw std::invalid_argument("Restore the Body before activating it.");
@@ -433,6 +490,14 @@ std::vector<std::string> BodyHistoryGraph::available_before(std::size_t boundary
 }
 
 std::vector<std::string> BodyHistoryGraph::visible_context() const {
+    if(const auto* body=find(active_);body&&body->cam) {
+        auto sources=cam_sources(active_);
+        std::erase_if(sources,[&](const auto& id) {
+            if(const auto* source=find(id))return source->suppressed;
+            const auto* source=find_boolean(id);return !source||source->suppressed;
+        });
+        return sources;
+    }
     if(const auto* body=find(active_);body&&body->render) {
         if(render_source_state(active_)!=RenderSourceState::Available)return {};
         return render_sources(active_);
@@ -585,6 +650,11 @@ std::string BodyHistoryGraph::serialized() const {
     validate();
     auto bodies = nlohmann::json::array();
     for (const auto& body : bodies_) {
+        if(body.cam) {
+            bodies.push_back({{"kind","cam"},{"id",body.scope.id},{"name",body.name},
+                {"visible",body.visible},{"suppressed",body.suppressed},{"definition",*body.cam}});
+            continue;
+        }
         if(body.render) {
             bodies.push_back({{"kind","render"},{"id",body.scope.id},{"name",body.name},
                 {"visible",body.visible},{"suppressed",body.suppressed},{"definition",*body.render}});
@@ -628,6 +698,7 @@ BodyHistoryGraph BodyHistoryGraph::from_serialized(std::string_view source) {
         if(row.contains("kind")) {
             if(row.at("kind")=="fem")body.fem=row.at("definition").get<FemDefinition>();
             else if(row.at("kind")=="render")body.render=row.at("definition").get<RenderDefinition>();
+            else if(row.at("kind")=="cam")body.cam=row.at("definition").get<CamDefinition>();
             else throw std::invalid_argument("Unsupported Body kind.");
             graph.bodies_.push_back(std::move(body));
             continue;

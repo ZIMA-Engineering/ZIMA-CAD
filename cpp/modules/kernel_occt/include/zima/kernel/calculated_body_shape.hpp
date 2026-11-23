@@ -7,6 +7,12 @@ namespace zima::kernel {
 // Kernel-only materialization, for explicit geometry calculation/export.
 [[nodiscard]] TopoDS_Shape read_calculated_body_shape(const BodyResult& body);
 
+// Explicit CAM calculation uses private work-coordinate solids. Remaining stock
+// is an inspection/material result, not a new source of design topology references.
+[[nodiscard]] TopoDS_Shape read_cam_work_shape(const BodyResult&,const KernelRigidPlacement&);
+[[nodiscard]] BodyResult make_cam_remaining_result(const TopoDS_Shape&,
+    const KernelRigidPlacement&,const std::string& input_key);
+
 using CalculatedTopologyReference = std::variant<VertexReference,EdgeReference,FaceReference>;
 
 struct CalculatedBodyTopology {

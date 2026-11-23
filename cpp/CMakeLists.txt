@@ -282,6 +282,7 @@ add_library(zima_document_core
     modules/document_core/src/body_history.cpp
     modules/document_core/src/fem_definition.cpp
     modules/document_core/src/render_definition.cpp
+    modules/document_core/src/cam_definition.cpp
     modules/document_core/src/fem_condition.cpp
     modules/document_core/src/fem_presentation.cpp
     modules/document_core/src/section.cpp
@@ -307,12 +308,12 @@ set_property(SOURCE modules/document_core/src/part_document.cpp APPEND PROPERTY
 target_include_directories(zima_document_core PUBLIC
     modules/document_core/include)
 target_link_libraries(zima_document_core
-    PUBLIC zima_kernel_api zima_sketcher zima_transition_core nlohmann_json::nlohmann_json
+    PUBLIC zima_kernel_api zima_sketcher zima_transition_core zima_cam nlohmann_json::nlohmann_json
     PRIVATE OpenSSL::Crypto ZLIB::ZLIB zstd::libzstd)
 
-add_library(zima_cam modules/cam/src/program.cpp modules/cam/src/facing.cpp)
+add_library(zima_cam modules/cam/src/program.cpp modules/cam/src/facing.cpp modules/cam/src/serialization.cpp)
 target_include_directories(zima_cam PUBLIC modules/cam/include)
-target_link_libraries(zima_cam PUBLIC zima_kernel_api)
+target_link_libraries(zima_cam PUBLIC zima_kernel_api nlohmann_json::nlohmann_json)
 add_library(zima_cam_native modules/cam/src/native_sweep.cpp modules/cam/src/native_simulation.cpp)
 target_link_libraries(zima_cam_native PUBLIC zima_cam PRIVATE
     TKernel TKMath TKG2d TKG3d TKGeomBase TKBRep TKGeomAlgo TKTopAlgo TKPrim TKBO TKBool)
@@ -361,6 +362,8 @@ add_library(zima_workspace modules/workspace/src/workspace.cpp
     modules/workspace/src/file_rename_operations.cpp
     modules/workspace/src/body_operations.cpp
     modules/workspace/src/calculated_body_source.cpp
+    modules/workspace/src/cam_operations.cpp
+    modules/workspace/src/cam_calculation.cpp
     modules/workspace/src/render_operations.cpp
     modules/workspace/src/fem_operations.cpp
     modules/workspace/src/fem_condition_operations.cpp
@@ -454,7 +457,7 @@ add_library(zima_workspace modules/workspace/src/workspace.cpp
 target_include_directories(zima_workspace PUBLIC modules/workspace/include)
 target_link_libraries(zima_workspace PUBLIC
     zima_document_core zima_assembly zima_drawing zima_kernel_occt zima_interchange zima_measurement zima_symbols
-    PRIVATE nlohmann_json::nlohmann_json)
+    PRIVATE nlohmann_json::nlohmann_json zima_cam_native TKBRep TKTopAlgo)
 
 add_library(zima_command_host
     modules/command_host/src/host.cpp
@@ -926,6 +929,9 @@ if(ZIMA_BUILD_TESTS)
     add_executable(zima_cpp_cam_program_tests tests/cam_program_tests.cpp)
     target_link_libraries(zima_cpp_cam_program_tests PRIVATE zima_cam)
     add_test(NAME zima_cpp_cam_program_tests COMMAND zima_cpp_cam_program_tests)
+    add_executable(zima_cpp_cam_document_tests tests/cam_document_tests.cpp)
+    target_link_libraries(zima_cpp_cam_document_tests PRIVATE zima_document_core zima_kernel_occt)
+    add_test(NAME zima_cpp_cam_document_tests COMMAND zima_cpp_cam_document_tests)
     add_executable(zima_cpp_cam_sweep_tests tests/cam_sweep_tests.cpp)
     target_link_libraries(zima_cpp_cam_sweep_tests PRIVATE zima_cam_native
         TKernel TKMath TKG2d TKG3d TKGeomBase TKBRep TKTopAlgo)
@@ -1760,6 +1766,12 @@ if(ZIMA_BUILD_TESTS)
     target_link_libraries(zima_cpp_render_document_tests PRIVATE zima_document_core zima_kernel_occt)
     add_test(NAME zima_cpp_render_document_tests COMMAND zima_cpp_render_document_tests)
     add_executable(zima_cpp_render_operations_tests tests/render_operations_tests.cpp)
+    add_executable(zima_cpp_cam_operations_tests tests/cam_operations_tests.cpp)
+    target_link_libraries(zima_cpp_cam_operations_tests PRIVATE zima_workspace)
+    add_test(NAME zima_cpp_cam_operations_tests COMMAND zima_cpp_cam_operations_tests)
+    add_executable(zima_cpp_cam_calculation_tests tests/cam_calculation_tests.cpp)
+    target_link_libraries(zima_cpp_cam_calculation_tests PRIVATE zima_workspace)
+    add_test(NAME zima_cpp_cam_calculation_tests COMMAND zima_cpp_cam_calculation_tests)
     target_link_libraries(zima_cpp_render_operations_tests PRIVATE zima_workspace)
     add_test(NAME zima_cpp_render_operations_tests COMMAND zima_cpp_render_operations_tests)
     add_executable(zima_cpp_fem_document_tests tests/fem_document_tests.cpp)

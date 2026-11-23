@@ -18672,6 +18672,25 @@ TopoDS_Shape read_calculated_body_shape(const BodyResult& body) {
     return shape;
 }
 
+TopoDS_Shape read_cam_work_shape(const BodyResult& body,const KernelRigidPlacement& frame) {
+    const auto transform=primitive_transform(frame.translation,frame.rotation_degrees).Inverted();
+    const auto source=read_calculated_body_shape(body);
+    BRepBuilderAPI_Transform placed(source,transform,true);placed.Build();
+    if(!placed.IsDone())throw std::runtime_error("CAM work-frame transformation failed.");
+    return BRepBuilderAPI_Copy(placed.Shape(),true,false).Shape();
+}
+BodyResult make_cam_remaining_result(const TopoDS_Shape& remaining,
+        const KernelRigidPlacement& frame,const std::string& input_key) {
+    if(input_key.empty()||remaining.IsNull())throw std::invalid_argument("Invalid CAM remaining stock.");
+    BRepBuilderAPI_Transform placed(remaining,primitive_transform(frame.translation,frame.rotation_degrees),true);
+    placed.Build();if(!placed.IsDone())throw std::runtime_error("CAM work-frame transformation failed.");
+    const auto shape=BRepBuilderAPI_Copy(placed.Shape(),true,false).Shape();
+    if(!BRepCheck_Analyzer(shape).IsValid())throw std::runtime_error("Invalid CAM remaining stock.");
+    auto result=make_result(shape,{},{},{});
+    result.source_fingerprint="cam-stock:"+dependency_fingerprint(input_key+":"+result.kernel_shape.get());
+    return result;
+}
+
 CalculatedBodyTopology read_calculated_body_topology(
         const BodyResult& body,const std::vector<CalculatedTopologyReference>& references) {
     if(references.empty())return {read_calculated_body_shape(body),{}};

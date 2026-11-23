@@ -181,3 +181,16 @@ or Boolean calculation, because OCCT helpers may update lazy topology flags.
 The document publishes only a completed result matching all source inputs.
 This section defines the implementation in progress; it is not evidence that
 the CAM Body, persistence or user interface is complete.
+
+## Native setup integration checkpoint, 2026-11-23
+
+CAM Body persistence, metadata transactions, source freshness, chained remaining
+stock and private explicit calculation now have native regression coverage.
+Two setups using different work frames are verified through native save/reopen
+and repeated calculation. See
+[document and calculation verification](verification/20261123-cam-document-and-calculation.md)
+for the exact evidence and remaining UI, template/library and platform gates.
+
+The user explicitly reaffirmed machine parameters on 2026-11-23: travel capability,
+maximum working feed, maximum spindle speed and rapid feed belong to machine
+settings. Actual feed and spindle commands must remain within these limits.

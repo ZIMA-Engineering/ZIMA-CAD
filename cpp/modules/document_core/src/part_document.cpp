@@ -7121,11 +7121,11 @@ void PartDocument::resolve_constructions(
         // Analysis frames consume the current resolved material references.
         // A failed solve retains the authored frame for display and repair.
         if(std::ranges::any_of(body_history.bodies(),[](const auto& body){
-                return (body.fem&&!body.fem->conditions.empty())||(body.render&&!body.render->objects.empty());})) {
+                return (body.fem&&!body.fem->conditions.empty())||(body.render&&!body.render->objects.empty())||body.cam.has_value();})) {
           auto fem_geometry=next.body_origin_reference_geometry();
           append_reference_geometry(fem_geometry,source_geometry);
           const PlacementReferenceGeometryIndex fem_index(fem_geometry);
-          for(const auto& original:body_history.bodies())if(original.fem||original.render) {
+          for(const auto& original:body_history.bodies())if(original.fem||original.render||original.cam) {
             auto body=*next.body_history.find(original.scope.id);
             if(body.fem)for(auto& condition:body.fem->conditions) {
                 if(condition.kind==FemConditionKind::MeasurementDistance)continue;
@@ -7142,6 +7142,12 @@ void PartDocument::resolve_constructions(
                 if(resolve_placement(resolved,fem_index.select(resolved.references)))
                     object.placement=std::move(resolved);
                 else object.placement.reference_valid=false;
+            }
+            if(body.cam) {
+                auto resolved=body.cam->work_frame;
+                if(resolve_placement(resolved,fem_index.select(resolved.references)))
+                    body.cam->work_frame=std::move(resolved);
+                else body.cam->work_frame.reference_valid=false;
             }
             next.body_history.update_body(std::move(body));
           }
@@ -10645,6 +10651,21 @@ void PartDocument::validate_body_ownership() const {
         }
     }
     if (!expected.empty()) throw std::invalid_argument("Every Part container must belong to a body");
+    for(const auto& body:body_history.bodies())if(body.cam) {
+        const auto boundary=std::ranges::find(body_history.order(),body.scope.id);
+        for(const auto& id:body.cam->clamping_sketch_ids) {
+            const auto sketch=std::ranges::find(sketches,id,&zima::sketcher::Sketch::id);
+            if(sketch==sketches.end()) {
+                if(find_container(id)||body_history.find(id)||body_history.find_boolean(id))
+                    throw std::invalid_argument("CAM clamping requires Sketch references.");
+                continue; // Missing sources remain repairable in their authored setup.
+            }
+            const auto* owner=body_owner_for_object(id);
+            if(!owner||owner->kind()!=BodyKind::Material||
+               std::ranges::find(body_history.order(),owner->scope.id)>=boundary)
+                throw std::invalid_argument("CAM clamping Sketches must precede their setup.");
+        }
+    }
     std::vector<PartHistoryEntry> projection;
     for (const auto& body : body_history.bodies())
         projection.insert(projection.end(), body.entries.begin(), body.entries.end());
