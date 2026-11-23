@@ -166,7 +166,13 @@ void SketchPropertiesDialog::set_holes_mode(double diameter,
     form->addRow(tr("Průměr otvorů"), field);
     content_layout()->insertLayout(content_layout()->indexOf(sketch_button_), form);
     content_layout()->removeWidget(sketch_button_);
-    place_sketch_button_beside_work_plane(plane_selector_,sketch_button_);
+    auto* plane_form=findChild<QFormLayout*>("sketchPlaneForm");
+    int plane_index=0;
+    while(plane_index<content_layout()->count()&&content_layout()->itemAt(plane_index)->layout()!=plane_form)++plane_index;
+    content_layout()->removeItem(plane_form);
+    auto* plane_controls=new ProfilePlaneControls(this,"holes",plane_form,plane_,plane_selector_,
+        static_cast<zima::ui::UnitDoubleSpinBox*>(offset_),sketch_button_);
+    content_layout()->insertWidget(plane_index,plane_controls);
     connect(field, &QDoubleSpinBox::valueChanged, this,
         [this, changed=std::move(changed)](double value) { changed(value); notify_preview(); });
     edit_pending_sketch_ = std::move(edit_sketch);

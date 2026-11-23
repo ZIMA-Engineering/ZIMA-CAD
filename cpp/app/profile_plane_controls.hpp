@@ -9,7 +9,7 @@
 #include <QEvent>
 
 namespace zima::app {
-// The ordinary Feature and FEM own the same Plane/Sketch presentation.
+// Feature, FEM and Holes own the same Plane/Sketch presentation.
 // Their hosts supply persistence and the existing placement-reference route.
 class ProfilePlaneControls final : public QWidget {
 public:
@@ -22,9 +22,7 @@ public:
     QPushButton* sketch{};
     ProfilePlaneControls(QWidget* parent,const QString& prefix,std::function<void()> request)
         :QWidget(parent) {
-        auto* row=new QHBoxLayout(this);row->setContentsMargins(0,0,0,0);
-        plane_group=new QGroupBox(this);plane_group->setObjectName(prefix+"PlaneGroup");
-        sketch_group=new QGroupBox(this);sketch_group->setObjectName(prefix+"SketchGroup");
+        make_groups(prefix);
         rows=new QFormLayout(plane_group);
         plane=new QComboBox(plane_group);plane->setObjectName(prefix+"ProfilePlane");
         plane->addItem("XY",0);plane->addItem("XZ",1);plane->addItem("YZ",2);
@@ -36,13 +34,33 @@ public:
         offset->setObjectName(prefix+"ProfileOffset");offset->setRange(-1000000,1000000);
         rows->addRow(tr("Odsazení roviny"),offset);
         sketch=new QPushButton(sketch_group);sketch->setObjectName(prefix+"SketchButton");
+        finish_sketch();
+    }
+    // Reparent the host's existing fields and connections, including the
+    // offset lock, without changing its placement or Sketch lifecycle.
+    ProfilePlaneControls(QWidget* parent,const QString& prefix,QFormLayout* existing_rows,
+        QComboBox* existing_plane,QWidget* existing_selector,ui::UnitDoubleSpinBox* existing_offset,
+        QPushButton* existing_sketch):QWidget(parent),rows(existing_rows),plane(existing_plane),
+        selector(existing_selector),offset(existing_offset),sketch(existing_sketch) {
+        make_groups(prefix);plane_group->setLayout(rows);
+        plane_label=qobject_cast<QLabel*>(rows->labelForField(selector));
+        finish_sketch();
+    }
+private:
+    void make_groups(const QString& prefix) {
+        auto* row=new QHBoxLayout(this);row->setContentsMargins(0,0,0,0);
+        plane_group=new QGroupBox(this);plane_group->setObjectName(prefix+"PlaneGroup");
+        sketch_group=new QGroupBox(this);sketch_group->setObjectName(prefix+"SketchGroup");
+        row->addWidget(plane_group,1);row->addWidget(sketch_group);
+    }
+    void finish_sketch() {
         style_sketch_button(sketch);sketch->setMinimumHeight(40);sketch->setMinimumWidth(100);
         sketch->setSizePolicy(QSizePolicy::Fixed,QSizePolicy::Expanding);
         sketch->setIcon(resource_icon("sketch"));sketch->setIconSize({20,20});
         (new QHBoxLayout(sketch_group))->addWidget(sketch);
-        row->addWidget(plane_group,1);row->addWidget(sketch_group);
         retranslate();
     }
+public:
     void retranslate() {
         plane_group->setTitle(tr("Rovina"));sketch_group->setTitle(tr("Skica"));
         plane_label->setText(tr("Výchozí rovina"));sketch->setText(tr("Skica"));

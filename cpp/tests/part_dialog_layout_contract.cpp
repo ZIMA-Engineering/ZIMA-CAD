@@ -98,6 +98,24 @@ int verify_part_dialog_layout(QApplication& application, QWidget& parent) {
                                 visible->mapTo(dialog.get(),visible->rect().center()).x())
                         errors<<"Active Body and Visible are not beside each other";
                 }
+                if(name=="holes") {
+                    auto* plane=dialog->findChild<QGroupBox*>("holesPlaneGroup");
+                    auto* sketch_group=dialog->findChild<QGroupBox*>("holesSketchGroup");
+                    auto* sketch=dialog->findChild<QPushButton*>("sketchOpenButton");
+                    auto* selector=dialog->findChild<QWidget*>("sketchPlaneSelector");
+                    auto* offset=dialog->findChild<QDoubleSpinBox*>("sketchPlaneOffset");
+                    const auto mapped=[&](const QWidget* widget) {
+                        return QRect(widget->mapTo(dialog.get(),QPoint{}),widget->size());
+                    };
+                    if(!plane||!sketch_group||!sketch||!selector||!offset||
+                            sketch->parentWidget()!=sketch_group||
+                            mapped(plane).top()!=mapped(sketch_group).top()||
+                            mapped(plane).height()!=mapped(sketch_group).height()||
+                            mapped(plane).right()>=mapped(sketch_group).left()||
+                            sketch->height()<mapped(offset).bottom()-mapped(selector).top()||
+                            sketch->icon().isNull())
+                        errors<<"Holes Plane/Sketch groups do not match the two-row Feature layout";
+                }
                 if(name=="flat"||name=="line-bend"||name=="sheet-cut") {
                     const bool primitive=name=="sheet-cut";
                     auto* sketch=dialog->findChild<QPushButton*>(
