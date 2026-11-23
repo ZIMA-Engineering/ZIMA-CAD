@@ -1059,6 +1059,38 @@ void verify_point_marker_colours(QApplication& application,QWidget& parent) {
             "Point base colour replaced confirmed azure highlighting");
     }
     view.set_reference_visibility(viewer::ReferenceVisibility::AxisPoints,false);
+    // Inspect real stroke pixels independently of yellow labels: the ordinary
+    // GL batch used to replace Render edge colors with the model wire color.
+    const auto verify_render_wires=[&] {
+    for(const auto mode:{viewer::DisplayMode::Wire,viewer::DisplayMode::HiddenEdges,
+            viewer::DisplayMode::NoHiddenEdges,viewer::DisplayMode::ShadedWithEdges,viewer::DisplayMode::Shaded}) {
+        kernel::ViewerMesh mesh;kernel::ViewerEdge marker;
+        marker.reference={"render-wire","render:marker:0",{}};marker.display_owner_id="render-wire";
+        marker.color="#F5CD50";marker.points={{-8,0,0},{8,0,0}};mesh.edges.push_back(marker);
+        view.clear_selection();view.set_mesh(mesh);view.set_display_mode(mode);
+        view.set_selection_contract({viewer::CandidateKind::Container});
+        view.fit_points({{-20,-20,0},{20,20,0}});view.set_camera_state({1,0,0,0,20,0,0,20});
+        QMouseEvent away(QEvent::MouseMove,QPointF(20,20),QPointF(view.mapToGlobal(QPoint(20,20))),Qt::NoButton,Qt::NoButton,Qt::NoModifier);
+        QApplication::sendEvent(&view,&away);application.processEvents();
+        require(framebuffer_contains_color_near(view.grabFramebuffer(),view.size(),{250,180},QColor("#F5CD50"),3),
+            "Render marker stroke is not dimension yellow in the current display mode");
+        const auto candidates=view.selection_candidates_at({250,180});
+        require(std::ranges::any_of(candidates,[](const auto& c){return c.owner_id=="render-wire";}),"Visible Render marker is not selectable");
+        QMouseEvent near(QEvent::MouseMove,QPointF(250,180),QPointF(view.mapToGlobal(QPoint(250,180))),Qt::NoButton,Qt::NoButton,Qt::NoModifier);
+        QApplication::sendEvent(&view,&near);application.processEvents();
+        require(framebuffer_contains_color_near(view.grabFramebuffer(),view.size(),{250,180},interaction::hover,3),"Render marker hover lost ordinary feedback");
+        view.confirm_container("render-wire");application.processEvents();
+        require(framebuffer_contains_color_near(view.grabFramebuffer(),view.size(),{250,180},interaction::selected,3),"Render marker selection lost ordinary feedback");
+        view.clear_selection();QApplication::sendEvent(&view,&away);mesh.edges.front().color="#FF5E52";view.set_mesh(mesh,false);application.processEvents();
+        require(framebuffer_contains_color_near(view.grabFramebuffer(),view.size(),{250,180},QColor("#FF5E52"),3),"Broken Render reference lost its red marker");
+        // Properties draft stays cyan even behind solid geometry, without hover.
+        kernel::ViewerMesh blocker;blocker.vertices={{-12,-12,1},{12,-12,1},{12,12,1},{-12,12,1}};blocker.triangles={0,1,2,0,2,3};
+        view.set_mesh(blocker,false);mesh.edges.front().color="#F5CD50";view.set_transient_context_mesh(mesh);application.processEvents();
+        require(framebuffer_contains_color_near(view.grabFramebuffer(),view.size(),{250,180},interaction::selected,3),"Render Properties preview is hidden or not cyan");
+        view.set_transient_context_mesh({});
+    }
+    view.set_display_mode(viewer::DisplayMode::ShadedWithEdges);
+    };
     view.set_selection_contract({viewer::CandidateKind::Vertex,viewer::CandidateKind::Axis});
     std::vector<std::string> endpoint_keys;
     for(const std::string key:{"axis:point:start",
@@ -1082,6 +1114,7 @@ void verify_point_marker_colours(QApplication& application,QWidget& parent) {
     for(const auto& theme:{QStringLiteral("light"),QStringLiteral("dark"),QStringLiteral("light")}) {
     app::ApplicationSettings appearance;appearance.theme=theme;
     app::apply_application_appearance(application,appearance);
+    verify_render_wires();
     for(bool projected:{false,true})for(auto kind:{document::FemConditionKind::Force,document::FemConditionKind::Constraint})
     for(auto region:{document::FemRegionKind::Curve,document::FemRegionKind::Surface}) {
         auto sketch=sketcher::Sketch::create_default();sketch.plane_auto=false;sketch.plane_offset=3;

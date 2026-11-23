@@ -1,4 +1,5 @@
 #include <zima/render/renderer.hpp>
+#include <zima/render/spot_cone.hpp>
 #include <algorithm>
 #include <atomic>
 #include <cmath>
@@ -137,7 +138,8 @@ V bounce_direction(const Material& m,V n,V view,Random& random,double& pdf) {
 struct Scene::Data {
     document::RenderDefinition definition;
     document::RenderObject camera;
-    std::vector<document::RenderObject> lights;
+    struct Light {document::RenderObject object;V spot_direction;SpotCone cone;};
+    std::vector<Light> lights;
     std::vector<Triangle> triangles;
     std::vector<unsigned> indices;
     std::vector<Node> nodes;
@@ -200,7 +202,8 @@ struct Scene::Data {
             auto ng=triangle.normal,n=shading_normal(triangle,hit,point);
             if(dot(ng,ray.direction)>0){ng=-ng;n=-n;}
             const auto view=-ray.direction;const auto start=point+ng*epsilon;
-            for(const auto& light:lights) {
+            for(const auto& prepared:lights) {
+                const auto& light=prepared.object;
                 V direction,radiance;double distance=INFINITY;
                 const double a=random.next(),b=random.next(),angle=2*pi*b;
                 if(light.kind==document::RenderObjectKind::Sun) {
@@ -216,6 +219,11 @@ struct Scene::Data {
                     const auto sampled=position(light)+basis(unit(delta),{radius*std::cos(angle),radius*std::sin(angle),0});
                     direction=sampled-start;distance=length(direction);direction=direction/distance;
                     radiance=from(light.color)*(light.intensity/(4*pi*std::max(1e-12,center_distance*center_distance*1e-6)*1000.));
+                    if(light.kind==document::RenderObjectKind::SpotLight) {
+                        const double falloff=prepared.cone.attenuation(dot(prepared.spot_direction,-delta/center_distance));
+                        if(falloff==0)continue;
+                        radiance=radiance*(4*pi*falloff/prepared.cone.solid_angle);
+                    }
                 }
                 const double nl=dot(n,direction);if(nl<=0||dot(ng,direction)<=0)continue;
                 const auto transmission=visibility({start,direction},distance-epsilon,rays,stop);
@@ -243,7 +251,8 @@ Scene::Scene(SceneInput input,std::stop_token stop) {
         const bool used=o.id==data->definition.active_camera_id||(o.enabled&&o.kind!=document::RenderObjectKind::Camera);
         if(used&&!o.placement.reference_valid)throw std::invalid_argument("The Render object placement is unresolved.");
         if(o.id==data->definition.active_camera_id){data->camera=o;camera=true;}
-        if(o.enabled&&o.kind!=document::RenderObjectKind::Camera)data->lights.push_back(o);
+        if(o.enabled&&o.kind!=document::RenderObjectKind::Camera)
+            data->lights.push_back({o,rotate(o.placement,{1,0,0}),SpotCone(o.cone_angle_degrees,o.edge_softness)});
     }
     if(!camera)throw std::invalid_argument("Select an active Render camera.");
     std::map<std::string,kernel::SurfaceStyle> face_styles;

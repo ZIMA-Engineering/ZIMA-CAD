@@ -3080,7 +3080,7 @@
   "Visible Bodies": "Visible Bodies",
   "Selected Bodies": "Selected Bodies",
   "Camera": "Camera",
-  "Point light": "Point light",
+  "Light": "Light",
   "Sun": "Sun",
   "Active camera": "Active camera",
   "No active camera": "No active camera",
@@ -3147,5 +3147,8 @@
   "Invalid retained Render image.": "Invalid retained Render image.",
   "Snapshot of an earlier model state. You can keep or export it.": "Snapshot of an earlier model state. You can keep or export it.",
   "Image %1": "Image %1",
-  "A render is already running.": "A render is already running."
+  "A render is already running.": "A render is already running.",
+  "Spotlight": "Spotlight",
+  "Cone angle": "Cone angle",
+  "Edge softness": "Edge softness"
 }

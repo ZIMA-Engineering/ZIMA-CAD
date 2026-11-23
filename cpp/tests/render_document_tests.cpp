@@ -91,12 +91,29 @@ void verify_controls() {
     document::RenderObject camera;camera.id="camera";camera.name="Camera";
     camera.placement.x=4;camera.placement.rotation_offset_z=20;
     value.objects.push_back(camera);value.active_camera_id=camera.id;
-    for(auto kind:{document::RenderObjectKind::PointLight,document::RenderObjectKind::Sun}) {
-        auto light=camera;light.id=kind==document::RenderObjectKind::Sun?"sun":"light";
+    for(auto kind:{document::RenderObjectKind::PointLight,document::RenderObjectKind::Sun,document::RenderObjectKind::SpotLight}) {
+        auto light=camera;light.id=kind==document::RenderObjectKind::Sun?"sun":kind==document::RenderObjectKind::SpotLight?"spot":"light";
+        light.cone_angle_degrees=kind==document::RenderObjectKind::SpotLight?62.5:45;
+        light.edge_softness=kind==document::RenderObjectKind::SpotLight?.42:.25;
         light.kind=kind;value.objects.push_back(light);
     }
     const nlohmann::json encoded=value;
     require(encoded.get<document::RenderDefinition>()==value,"Render controls changed after reload");
+    require(encoded["objects"].back()["kind"]=="spot-light"&&encoded["objects"].back()["spot"]["cone_angle_degrees"]==62.5,
+        "Spotlight lost its native kind or cone");
+    for(unsigned i=0;i<3;++i)require(!encoded["objects"][i].contains("spot"),"Spotlight changed another Render object's representation");
+    for(const auto* key:{"cone_angle_degrees","edge_softness"}) {
+        auto broken=encoded;broken["objects"].back()["spot"].erase(key);
+        auto destination=value;
+        rejects([&]{document::from_json(broken,destination);});require(destination==value,"Invalid spotlight partially replaced the definition");
+    }
+    for(double angle:{0.,-1.,180.,std::numeric_limits<double>::infinity(),std::numeric_limits<double>::quiet_NaN()}) {
+        auto bad=value;bad.objects.back().cone_angle_degrees=angle;rejects([&]{document::validate_render_definition(bad);});
+    }
+    for(double softness:{-0.01,1.01,std::numeric_limits<double>::infinity(),std::numeric_limits<double>::quiet_NaN()}) {
+        auto bad=value;bad.objects.back().edge_softness=softness;rejects([&]{document::validate_render_definition(bad);});
+    }
+    for(double softness:{0.,1.}) {auto valid=value;valid.objects.back().edge_softness=softness;document::validate_render_definition(valid);}
     for(const auto bad:{nlohmann::json(-1),nlohmann::json(0),nlohmann::json(1.5),
             nlohmann::json(4294967296ULL),nlohmann::json("3")}) {
         auto invalid=encoded;invalid["settings"]["width"]=bad;
@@ -147,7 +164,10 @@ void verify_document() {
     document::DocumentSession session(part,std::move(calculated));
     const auto* original_packet=&session.calculated_boundaries();
     auto next=session.document();
-    const auto render=graph.create_render(analysis(source));next.set_body_history(graph);
+    auto definition=analysis(source);document::RenderObject spot;spot.id="spot";spot.name="Authored spotlight";
+    spot.kind=document::RenderObjectKind::SpotLight;spot.cone_angle_degrees=71;spot.edge_softness=.62;
+    spot.placement.x=45;spot.placement.rotation_y=37;definition.render->objects.push_back(spot);
+    const auto render=graph.create_render(definition);next.set_body_history(graph);
     require(document::serialize_viewer_reference_geometry(next.body_origin_reference_geometry())==
         document::serialize_viewer_reference_geometry(original_origins),"Render added material Origin geometry");
     require(next.kernel_operations().size()==part.kernel_operations().size(),"Render added a CAD operation");

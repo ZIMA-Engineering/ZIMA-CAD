@@ -3080,7 +3080,7 @@
   "Visible Bodies": "Corps visibles",
   "Selected Bodies": "Corps sélectionnés",
   "Camera": "Caméra",
-  "Point light": "Lumière ponctuelle",
+  "Light": "Lumière",
   "Sun": "Soleil",
   "Active camera": "Caméra active",
   "No active camera": "Aucune caméra active",
@@ -3147,5 +3147,8 @@
   "Invalid retained Render image.": "Image de rendu conservée non valide.",
   "Snapshot of an earlier model state. You can keep or export it.": "Instantané d’un état antérieur du modèle. Vous pouvez le conserver ou l’exporter.",
   "Image %1": "Image %1",
-  "A render is already running.": "Un rendu est déjà en cours."
+  "A render is already running.": "Un rendu est déjà en cours.",
+  "Spotlight": "Projecteur",
+  "Cone angle": "Angle du cône",
+  "Edge softness": "Douceur du bord"
 }

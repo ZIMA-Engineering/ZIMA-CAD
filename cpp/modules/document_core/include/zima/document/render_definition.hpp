@@ -8,9 +8,9 @@
 
 namespace zima::document {
 
-enum class RenderObjectKind { Camera, PointLight, Sun };
+enum class RenderObjectKind { Camera, PointLight, Sun, SpotLight };
 
-// Camera/sun forward is the placed local X axis; local Z is camera up.
+// Camera/Sun/spotlight forward is the placed local X axis; local Z is camera up.
 // Placements use the ordinary FRONT/TOP and retained-reference-frame contract.
 struct RenderObject {
     std::string id, name;
@@ -22,10 +22,13 @@ struct RenderObject {
     bool orthographic{};
     double orthographic_height_mm{100};
     std::array<double,3> color{{1,1,1}};
-    // Point light: luminous power in lm. Sun: normal illuminance in lx.
+    // Point/spot light: luminous power in lm. Sun: normal illuminance in lx.
     double intensity{1000};
     double radius_mm{5};
     double angular_radius_degrees{0.266};
+    // Persisted only for SpotLight. Softness is the fractional angular rim.
+    double cone_angle_degrees{45};
+    double edge_softness{0.25};
     bool operator==(const RenderObject&) const = default;
 };
 

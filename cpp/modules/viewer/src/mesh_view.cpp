@@ -985,11 +985,22 @@ struct MeshView::Impl {
 
     int viewport_height{1};
     float perspective_field_of_view{kPerspectiveFieldOfViewDegrees};
+    std::optional<double> camera_output_aspect;
+    [[nodiscard]] QRectF output_rect(int width,int height) const {
+        const double aspect=*camera_output_aspect;
+        const double h=std::min(std::max(1.,height-24.),std::max(1.,width-24.)/aspect);
+        return {(width-h*aspect)/2.,(height-h)/2.,h*aspect,h};
+    }
 
     [[nodiscard]] QMatrix4x4 projection(int width, int height) const {
         const float aspect = height > 0 ? static_cast<float>(width) / height : 1.0F;
         QMatrix4x4 result;
         const auto anchored=[&](const QMatrix4x4& projection){
+            if(camera_output_aspect) {
+                const auto frame=output_rect(width,height);QMatrix4x4 scale;
+                const auto factor=float(frame.height()/std::max(1,height));scale.scale(factor,factor,1);
+                return scale*projection;
+            }
             QMatrix4x4 shift;shift.translate(static_cast<float>(2*resize_shift_pixels.x()/std::max(1,width)),static_cast<float>(-2*resize_shift_pixels.y()/std::max(1,height)));
             return shift*projection;
         };
@@ -1412,6 +1423,14 @@ std::array<float, 11> MeshView::camera_state() const {
 }
 
 double MeshView::camera_field_of_view() const { return impl_->perspective_field_of_view; }
+void MeshView::set_camera_output_aspect(std::optional<double> aspect) {
+    if(aspect&&(!std::isfinite(*aspect)||*aspect<=0))throw std::invalid_argument("Invalid camera output aspect");
+    impl_->camera_output_aspect=aspect;update();
+}
+std::optional<QRectF> MeshView::camera_output_rect() const {
+    if(!impl_->camera_output_aspect)return std::nullopt;
+    return impl_->output_rect(width(),height());
+}
 
 std::array<float,4> MeshView::camera_viewport_anchor() const {
     return {float(impl_->resize_shift_pixels.x()),float(impl_->resize_shift_pixels.y()),
@@ -4191,6 +4210,15 @@ void MeshView::upload_mesh() {
 }
 
 void MeshView::paintGL() {
+    const auto paint_output_frame=[&](QPainter& painter) {
+        const auto frame=camera_output_rect();if(!frame)return;
+        painter.save();const QColor shade(0,0,0,100);
+        painter.fillRect(QRectF(0,0,width(),frame->top()),shade);
+        painter.fillRect(QRectF(0,frame->bottom(),width(),height()-frame->bottom()),shade);
+        painter.fillRect(QRectF(0,frame->top(),frame->left(),frame->height()),shade);
+        painter.fillRect(QRectF(frame->right(),frame->top(),width()-frame->right(),frame->height()),shade);
+        painter.setPen(QPen(interaction::selected,1));painter.setBrush(Qt::NoBrush);painter.drawRect(*frame);painter.restore();
+    };
     if(!impl_->active_sketch_owner_id.empty())
         static_cast<void>(sketch_hv_swapped(impl_->active_sketch_owner_id,impl_->editing_curve_path));
     const bool profile_paint=qEnvironmentVariableIsSet("ZIMA_CPP_PROFILE_VIEW_PAINT");
@@ -4425,7 +4453,8 @@ if (impl_->show_origins) {
             for (std::size_t marker_index = 0;
                  marker_index < markers->size(); ++marker_index) {
                 const auto& marker = (*markers)[marker_index];
-                painter.setPen(QPen((marker.reference.semantic_key=="fem:label"||marker.reference.semantic_key=="render:label")?QColor(245,205,80):QColor("#7CFF6B"),2.0));
+                const bool transient_render=markers==&impl_->transient_context_mesh.constraint_markers&&marker.reference.semantic_key=="render:label";
+                painter.setPen(QPen(transient_render?interaction::selected:(marker.reference.semantic_key=="fem:label"||marker.reference.semantic_key=="render:label")?QColor(245,205,80):QColor("#7CFF6B"),2.0));
                 const QPointF anchor = project(marker.position);
                 const auto key = std::pair{
                     static_cast<int>(std::lround(anchor.x())),
@@ -4435,6 +4464,7 @@ if (impl_->show_origins) {
                     QString::fromStdString(sketch_hv_label(marker.label,marker.reference.owner_id,marker.reference.instance_path)));
             }
         }
+        paint_output_frame(painter);
         return;
     }
     impl_->program.bind();
@@ -4978,8 +5008,11 @@ if (impl_->show_origins) {
         glDepthMask(GL_TRUE);glEnable(GL_DEPTH_TEST);
     }
 
-    // Cosmetic thread lines and unreferenced coloured display helpers (Section
-    // hatching) remain visible in Shaded, obeying the body's depth buffer. LEQUAL keeps the portion lying on an
+    // Cosmetic threads, Render markers and unreferenced coloured display helpers
+    // (Section hatching) remain visible in Shaded, obeying the body's depth buffer.
+    // Render strokes retain their authored yellow/broken-reference colour even
+    // when the ordinary wire pass batches the complete scene in one base colour.
+    // LEQUAL keeps the portion lying on an
     // outside cylindrical face legible while ordinary LESS/occlusion hides
     // the part running inside material. Hidden Edges and Wire still reveal
     // the complete symbol through their normal display-mode passes.
@@ -4993,10 +5026,11 @@ if (impl_->show_origins) {
             const auto& semantic = edge.reference.semantic_key;
             const bool display_helper = !edge.reference.valid() &&
                 !edge.color.empty();
-            if (!display_helper && !semantic.starts_with("hole:cosmetic-thread:") &&
+            const bool render_marker = semantic.starts_with("render:marker:");
+            if (!display_helper && !render_marker && !semantic.starts_with("hole:cosmetic-thread:") &&
                 !semantic.starts_with("thread:wire:")) continue;
             QVector4D color(0.62F, 0.62F, 0.62F, 1.0F);
-            if (display_helper) {
+            if (display_helper || render_marker) {
                 const QColor source(QString::fromStdString(edge.color));
                 color = QVector4D(source.redF(), source.greenF(), source.blueF(), 1.0F);
             }
@@ -5290,7 +5324,8 @@ if (impl_->show_origins) {
         });
     const bool dimensions_visible = !impl_->mesh.dimensions.empty() ||
         !impl_->transient_dimensions.empty();
-    const bool overlay_edges_visible=std::ranges::any_of(impl_->mesh.edges,[](const auto& edge){return edge.overlay&&edge.reference.semantic_key=="section:sketch";});
+    const bool overlay_edges_visible=std::ranges::any_of(impl_->mesh.edges,[](const auto& edge){return edge.overlay&&edge.reference.semantic_key=="section:sketch";})||
+        std::ranges::any_of(impl_->transient_context_mesh.edges,[](const auto& edge){return edge.reference.semantic_key.starts_with("render:marker:");});
     if (!impl_->mesh.images.empty() || !impl_->transient_context_mesh.images.empty() ||
         impl_->command_snap_points_visible || overlay_edges_visible || axes_visible || points_visible || planes_visible ||
         sketch_geometry_visible || curve3d_geometry_visible ||
@@ -5870,6 +5905,16 @@ if (impl_->show_origins) {
         }
         for(const auto& edge:impl_->transient_context_mesh.edges)
             if(is_fem_wire_edge(edge))paint_result_wire(edge,QColor(245,205,80));
+        // Render Properties publish their visual-only draft in this channel.
+        // It must remain visible without hover and above material occlusion,
+        // just like the other editing previews, without adding pick geometry.
+        for(const auto& edge:impl_->transient_context_mesh.edges) {
+            if(!edge.reference.semantic_key.starts_with("render:marker:")||edge.points.empty())continue;
+            painter.setPen(QPen(interaction::selected,interaction::curve_wire_width,Qt::SolidLine,Qt::RoundCap,Qt::RoundJoin));
+            QPainterPath path(project(edge.points.front()));
+            for(std::size_t i=1;i<edge.points.size();++i)path.lineTo(project(edge.points[i]));
+            painter.drawPath(path);
+        }
         if(source_wire_visible)for(const auto& edge:impl_->selected_source_wire)
             paint_result_wire(edge,interaction::selected);
         if (curve3d_geometry_visible || axes_visible) {
@@ -5950,7 +5995,8 @@ if (impl_->show_origins) {
                     ((highlighted->kind == CandidateKind::SketchConstraint && highlighted->geometry_index == marker_index)||
                      (object_label&&highlighted->kind==CandidateKind::Container&&highlighted->owner_id==marker.reference.owner_id&&
                       highlighted->instance_path==marker.reference.instance_path));
-                painter.setPen(QPen(selected
+                const bool render_preview=markers==&impl_->transient_context_mesh.constraint_markers&&marker.reference.semantic_key=="render:label";
+                painter.setPen(QPen(render_preview?interaction::selected:selected
                     ? (impl_->confirmed_candidate ? interaction::selected
                                                   : interaction::hover)
                     : object_label?QColor(245,205,80):QColor("#7CFF6B"), 2.0));
@@ -7066,6 +7112,7 @@ if (impl_->show_origins) {
             }
         }
         // Editing handles remain above coincident geometry and point markers.
+        paint_output_frame(painter);
         if(impl_->dimension_layout_commit&&impl_->confirmed_candidate&&dimension_layout_editable(*impl_->confirmed_candidate)&&impl_->show_dimensions) {
             for(int i=0;i<3;++i)if(auto point=dimension_handle_position(*impl_->confirmed_candidate,i))draw_circular_marker(painter,*point,QColor("#D05CFF"));
         }

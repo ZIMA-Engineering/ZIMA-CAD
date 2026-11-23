@@ -110,10 +110,22 @@ kernel::ViewerMesh AssemblyWorkspaceWindow::render_object_wire(const document::R
     constexpr double size=12;
     if(object.kind==document::RenderObjectKind::Camera) {
         const double half=object.orthographic?size*.45:size*std::tan(object.field_of_view_degrees*std::numbers::pi/360);
-        const double aspect=16./9;
+        const auto* part=workspace_.open_part(workspace_.active_document_id());
+        const auto* body=part?part->session.document().body_history.find(part->session.document().body_history.active_body_id()):nullptr;
+        const double aspect=body&&body->render?double(body->render->settings.width)/body->render->settings.height:16./9;
         stroke({{size,-half*aspect,-half},{size,half*aspect,-half},{size,half*aspect,half},{size,-half*aspect,half},{size,-half*aspect,-half}});
         for(const double y:{-half*aspect,half*aspect})for(const double z:{-half,half})stroke({{0,object.orthographic?y:0,object.orthographic?z:0},{size,y,z}});
         stroke({{size,-half*.4,half},{size,0,half*1.4},{size,half*.4,half}});
+    } else if(object.kind==document::RenderObjectKind::SpotLight) {
+        const double half=object.cone_angle_degrees*std::numbers::pi/360;
+        const double x=size*std::cos(half),radius=size*std::sin(half);
+        const auto ring=[&](double r){std::vector<Vec3> points;
+            for(int i=0;i<=48;++i){const double a=i*2*std::numbers::pi/48;points.push_back({x,r*std::cos(a),r*std::sin(a)});}
+            stroke(std::move(points));};
+        ring(radius);
+        if(object.edge_softness>0&&object.edge_softness<1)ring(x*std::tan(half*(1-object.edge_softness)));
+        for(int i=0;i<4;++i){const double a=i*std::numbers::pi/2;stroke({{0,0,0},{x,radius*std::cos(a),radius*std::sin(a)}});}
+        stroke({{0,0,0},{size,0,0},{size*.75,size*.12,0}});stroke({{size,0,0},{size*.75,-size*.12,0}});
     } else {
         for(int plane=0;plane<3;++plane){std::vector<Vec3> circle;for(int i=0;i<=32;++i){const double a=i*2*std::numbers::pi/32;
             const double c=std::cos(a)*size*.25,s=std::sin(a)*size*.25;circle.push_back(plane==0?Vec3{0,c,s}:plane==1?Vec3{c,0,s}:Vec3{c,s,0});}stroke(std::move(circle));}
@@ -261,7 +273,25 @@ void AssemblyWorkspaceWindow::show_render_object_properties(document::RenderObje
             if(std::ranges::none_of(doc.body_history.find(body_id)->render->objects,[&](const auto& o){return o.name==initial.name;}))break;}
     }
     auto* dialog=new RenderObjectDialog(initial,[this,edit](auto value){static_cast<void>(workspace::commit_render_object(workspace_,edit,std::move(value)));},this);
-    dialog->view_from_camera=[this,dialog]{if(dialog->changed)dialog->changed();if(render_object_preview_)view_from_render_camera(*render_object_preview_);};
+    auto previous_view=std::make_shared<std::optional<DocumentCameraState>>();
+    const auto restore_view=[this,previous_view] {
+        viewer_->set_camera_output_aspect(std::nullopt);
+        if(!*previous_view)return;
+        const auto camera=**previous_view;previous_view->reset();
+        viewer_->set_projection_mode(camera.orthographic?viewer::ProjectionMode::Orthographic:viewer::ProjectionMode::Perspective);
+        viewer_->set_camera_state(camera.pose,camera.field_of_view);viewer_->set_camera_viewport_anchor(camera.viewport_anchor);
+        orthographic_camera_action_->setChecked(camera.orthographic);perspective_camera_action_->setChecked(!camera.orthographic);
+    };
+    dialog->view_from_camera=[this,dialog,previous_view,restore_view](bool enabled) {
+        if(enabled) {
+            *previous_view=DocumentCameraState{viewer_->camera_state(),viewer_->camera_field_of_view(),
+                viewer_->projection_mode()==viewer::ProjectionMode::Orthographic,viewer_->camera_viewport_anchor()};
+            if(dialog->changed)dialog->changed();
+        } else {
+            restore_view();
+            if(dialog->changed)dialog->changed();
+        }
+    };
     properties_dialog_=dialog;primitive_reference_dialog_=dialog;primitive_parameter_owner_id_=initial.id;construction_dimension_object_id_=initial.id;render_object_preview_=initial;
     const auto highlights=[this,dialog]{viewer_->set_constraint_reference_highlights({},highlighted_reference_edge_keys(*dialog));};
     dialog->set_reference_highlights_changed_callback(highlights);
@@ -276,18 +306,34 @@ void AssemblyWorkspaceWindow::show_render_object_properties(document::RenderObje
         const auto constraint=document::point_constraint_state(p.references,geometry,{p.x,p.y,p.z});primitive_translation_dof_=constraint.remaining_dof;
         dialog->set_translation_constraint_state(constraint,{p.x,p.y,p.z});dialog->set_rotation_constraint_state(document::orientation_constraint_state(p.references,geometry,true,{p.x,p.y,p.z}));
         dialog->set_orientation_base_rotation(base,oriented);dialog->set_resolved_rotation({p.rotation_x,p.rotation_y,p.rotation_z},valid);
-        render_object_preview_=value;value.visible=true;auto preview=render_object_wire(value);
-        auto frame=*carrier->body_history.find(frame_id);frame.scope.placement=p;carrier->body_history.update_body(frame);append_mesh(preview,carrier->place_body_mesh(origin,frame_id));
+        render_object_preview_=value;value.visible=true;kernel::ViewerMesh preview;
+        // The camera's own frustum and editing Origin surround its eye. Drawing
+        // their through-occlusion preview from that eye covers the composition.
+        // Restore them immediately when leaving the live camera view.
+        if(!dialog->follows_camera()) {
+            preview=render_object_wire(value);
+            auto frame=*carrier->body_history.find(frame_id);frame.scope.placement=p;carrier->body_history.update_body(frame);append_mesh(preview,carrier->place_body_mesh(origin,frame_id));
+        }
         viewer_->set_transient_context_mesh(std::move(preview));highlights();
+        if(dialog->follows_camera()) {
+            const auto* part=workspace_.open_part(workspace_.active_document_id());
+            const auto* body=part?part->session.document().body_history.find(part->session.document().body_history.active_body_id()):nullptr;
+            if(body&&body->render)viewer_->set_camera_output_aspect(double(body->render->settings.width)/body->render->settings.height);
+            view_from_render_camera(value);
+        }
     };
     dialog->set_reference_request_callback([this](std::size_t row){start_primitive_reference_selection(row);});
-    connect(dialog,&QDialog::finished,this,[this,dialog] {
+    connect(dialog,&QDialog::finished,this,[this,dialog,restore_view] {
         if(properties_dialog_!=dialog)return;
+        restore_view();
         properties_dialog_=nullptr;primitive_reference_dialog_=nullptr;primitive_reference_geometry_={};primitive_parameter_owner_id_.clear();construction_dimension_object_id_.clear();
         pending_primitive_reference_index_.reset();primitive_reference_auto_advance_=false;render_object_preview_.reset();
         viewer_->set_transient_context_mesh({});viewer_->set_constraint_reference_highlights({},{});viewer_->set_candidate_filter({});viewer_->set_selection_contract({});viewer_->clear_selection();
         tree_->setProperty("commandSelectionActive",false);preserve_view_on_refresh_=true;refresh_tabs();refresh_scene();
     });
-    bind_local_origin_selection(dialog);preserve_view_on_refresh_=true;refresh_scene();dialog->show();dialog->changed();set_primitive_properties_dimension_selection();
+    bind_local_origin_selection(dialog);preserve_view_on_refresh_=true;refresh_scene();dialog->show();dialog->changed();
+    if(id.empty()&&dialog->first_empty_position_index()<3)
+        start_primitive_reference_selection(dialog->first_empty_position_index(),true);
+    else set_primitive_properties_dimension_selection();
 }
 } // namespace zima::app

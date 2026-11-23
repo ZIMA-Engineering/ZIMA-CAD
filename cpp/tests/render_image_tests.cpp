@@ -1,5 +1,6 @@
 #include "profile_solid_fixture.hpp"
 #include <zima/render/renderer.hpp>
+#include <zima/render/spot_cone.hpp>
 #include <zima/kernel/occt_kernel.hpp>
 #include <zima/kernel/calculation_diagnostics.hpp>
 #include <QImage>
@@ -98,8 +99,78 @@ void write_image(render::SceneInput input,const std::filesystem::path& path) {
     std::cout<<"Triangles "<<scene.triangle_count()<<", rays "<<result.rays<<", seconds "
         <<std::chrono::duration<double>(std::chrono::steady_clock::now()-start).count()<<'\n';
 }
+void spotlight_contracts(const render::SceneInput& fixture) {
+    for(double angle:{.01,10.,45.,120.,179.99})for(double softness:{0.,.25,1.}) {
+        const render::SpotCone cone(angle,softness);
+        close(cone.attenuation(1),1);close(cone.attenuation(-1),0);
+        close(cone.attenuation(std::cos((angle/2+.001)*std::numbers::pi/180)),0);
+        // Numerically integrate intensity over a sphere independently of the
+        // prepared cone's analytic normalization.
+        constexpr unsigned samples=20000;double integral{};
+        const double lower=std::cos(angle*std::numbers::pi/360),step=(1-lower)/samples;
+        for(unsigned i=0;i<samples;++i)integral+=cone.attenuation(lower+(i+.5)*step)*step*2*std::numbers::pi;
+        require(std::abs(integral/cone.solid_angle-1)<1e-6,"Spotlight cone or soft rim changed emitted flux");
+        if(softness>0)require(std::abs(cone.attenuation((cone.inner_cos+cone.outer_cos)/2)-.5)<1e-7,"Spotlight soft rim is asymmetric");
+    }
+    auto input=fixture;input.sources.resize(1);input.definition.objects.resize(2);
+    input.definition.settings.environment_strength=0;input.definition.settings.bounces=1;
+    auto& spot=input.definition.objects[1];spot.kind=document::RenderObjectKind::SpotLight;
+    spot.radius_mm=0;spot.intensity=80;spot.cone_angle_degrees=45;spot.edge_softness=0;
+    spot.placement.rotation_y=std::atan2(120.,std::hypot(30.,70.))*180/std::numbers::pi;
+    spot.placement.rotation_z=std::atan2(70.,30.)*180/std::numbers::pi;
+    const auto calculations=kernel::body_calculation_count.load();
+    const auto sharp=render::Scene(input).render({}, {},1);
+    require(sharp.rgba==render::Scene(input).render({}, {},4).rgba,"Spotlight worker count changed the image");
+    spot.edge_softness=.8;const auto soft=render::Scene(input).render({}, {},2);
+    require(soft.rgba!=sharp.rgba,"Spotlight soft edge did not change illumination");
+    spot.enabled=false;const auto dark=render::Scene(input).render({}, {},1);
+    require(dark.rgba!=sharp.rgba&&dark.rgba!=soft.rgba,"Spotlight did not illuminate the surface");
+    spot.enabled=true;spot.placement.rotation_y=-spot.placement.rotation_y;spot.placement.rotation_z+=180;
+    require(render::Scene(input).render({}, {},2).rgba==dark.rgba,"Spotlight illuminated behind its cone");
+    spot.placement.rotation_y=-spot.placement.rotation_y;spot.placement.rotation_z-=180;spot.color={1,0,0};
+    require(render::Scene(input).render({}, {},2).rgba!=soft.rgba,"Spotlight ignored its color");
+    spot.kind=document::RenderObjectKind::PointLight;const auto omni=render::Scene(input).render({}, {},2);
+    spot.placement.rotation_y+=35;spot.placement.rotation_z+=160;
+    require(render::Scene(input).render({}, {},2).rgba==omni.rgba,"Omnidirectional light acquired a spotlight orientation");
+    spot.kind=document::RenderObjectKind::Sun;const auto sun=render::Scene(input).render({}, {},2);
+    spot.placement.x+=700;spot.placement.y-=500;spot.placement.z+=250;
+    require(render::Scene(input).render({}, {},2).rgba==sun.rgba,"Sun illumination acquired a position dependence");
+    require(kernel::body_calculation_count.load()==calculations,"Light edits recalculated CAD geometry");
+
+    // A small top-down patch keeps incidence constant to sub-pixel precision.
+    // Doubling source distance needs four times the flux; replacing the cone
+    // by an omnidirectional source needs its independent solid-angle ratio.
+    auto photometry=fixture;photometry.sources.resize(1);photometry.definition.objects.resize(2);
+    auto& options=photometry.definition.settings;options.width=options.height=16;options.samples=1;options.bounces=1;options.environment_strength=0;
+    auto& eye=photometry.definition.objects[0];eye.placement={};eye.placement.z=300;eye.placement.rotation_y=90;
+    eye.orthographic=true;eye.orthographic_height_mm=.001;
+    auto& source=photometry.definition.objects[1];source.placement={};source.placement.z=99;source.placement.rotation_y=90;
+    source.kind=document::RenderObjectKind::SpotLight;source.radius_mm=0;source.intensity=10;source.cone_angle_degrees=60;source.edge_softness=0;
+    const auto near_image=render::Scene(photometry).render({}, {},1);
+    require(near_image.rgba[0]>5&&near_image.rgba[0]<240,"Photometry fixture is dark or saturated");
+    source.placement.z=199;
+    const auto far_image=render::Scene(photometry).render({}, {},1);
+    require(far_image.rgba[0]<near_image.rgba[0],"Spotlight lacks distance attenuation");
+    source.intensity*=4;
+    require(render::Scene(photometry).render({}, {},1).rgba==near_image.rgba,"Spotlight inverse-square attenuation is incorrect");
+    source.kind=document::RenderObjectKind::PointLight;
+    source.intensity*=4*std::numbers::pi/(2*std::numbers::pi*(1-std::cos(std::numbers::pi/6)));
+    require(render::Scene(photometry).render({}, {},1).rgba==near_image.rgba,"Spotlight luminous-power normalization differs from the independent solid angle");
+    source.kind=document::RenderObjectKind::SpotLight;source.intensity=10;
+    source.placement.x=44;source.placement.y=16;source.placement.z=99;
+    source.placement.rotation_y=std::atan2(100.,std::hypot(44.,16.))*180/std::numbers::pi;
+    source.placement.rotation_z=std::atan2(-16.,-44.)*180/std::numbers::pi;
+    require(render::Scene(photometry).render({}, {},1).rgba[0]>5,"Shadow fixture is not lit");
+    // The fixture's box intersects the oblique source ray while remaining
+    // outside the camera's narrow vertical footprint on the floor.
+    photometry.sources.push_back(fixture.sources[2]);
+    const auto occluded=render::Scene(photometry).render({}, {},1);
+    for(std::size_t i=0;i<occluded.rgba.size();i+=4)
+        require(occluded.rgba[i]==0&&occluded.rgba[i+1]==0&&occluded.rgba[i+2]==0,"Spotlight ignored shadow occlusion");
+    require(kernel::body_calculation_count.load()==calculations,"Photometry recalculated CAD geometry");
 }
-int main(int argc,char** argv){try{camera_equations();const auto input=fixture();image_contracts(input);
+}
+int main(int argc,char** argv){try{camera_equations();const auto input=fixture();image_contracts(input);spotlight_contracts(input);
     if(argc>1)write_image(input,std::filesystem::u8path(argv[1]));
     std::cout<<"Render camera, multi-Body image, lighting, deterministic workers, cancellation and private snapshots passed\n";return 0;
 }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

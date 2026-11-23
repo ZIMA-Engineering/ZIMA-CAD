@@ -3080,7 +3080,7 @@
   "Visible Bodies": "Sichtbare Körper",
   "Selected Bodies": "Ausgewählte Körper",
   "Camera": "Kamera",
-  "Point light": "Punktlicht",
+  "Light": "Licht",
   "Sun": "Sonne",
   "Active camera": "Aktive Kamera",
   "No active camera": "Keine aktive Kamera",
@@ -3147,5 +3147,8 @@
   "Invalid retained Render image.": "Ungültiges gespeichertes Render-Bild.",
   "Snapshot of an earlier model state. You can keep or export it.": "Schnappschuss eines früheren Modellzustands. Sie können ihn speichern oder exportieren.",
   "Image %1": "Bild %1",
-  "A render is already running.": "Ein Rendering läuft bereits."
+  "A render is already running.": "Ein Rendering läuft bereits.",
+  "Spotlight": "Strahler",
+  "Cone angle": "Kegelwinkel",
+  "Edge softness": "Randweichheit"
 }

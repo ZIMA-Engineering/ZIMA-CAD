@@ -24,6 +24,7 @@ const char* kind_name(RenderObjectKind kind) {
     case RenderObjectKind::Camera:return "camera";
     case RenderObjectKind::PointLight:return "point-light";
     case RenderObjectKind::Sun:return "sun";
+    case RenderObjectKind::SpotLight:return "spot-light";
     }
     invalid();
 }
@@ -43,6 +44,8 @@ void validate_render_object(const RenderObject& value) {
     if(!range(value.field_of_view_degrees,1,175)||!range(value.orthographic_height_mm,1e-6,1e12)||
             !color(value.color)||!range(value.intensity,0,1e15)||
             !range(value.radius_mm,0,1e12)||!range(value.angular_radius_degrees,0,45))invalid();
+    if(value.kind==RenderObjectKind::SpotLight&&
+       (!range(value.cone_angle_degrees,1e-6,179.999999)||!range(value.edge_softness,0,1)))invalid();
 }
 
 bool same_render_scene(const RenderDefinition& a,const RenderDefinition& b) {
@@ -100,11 +103,15 @@ void to_json(nlohmann::json& j,const RenderDefinition& value) {
     for(const auto& image:value.images)j["images"].push_back({{"id",image.id},{"name",image.name},
         {"created_utc",image.created_utc},{"width",image.width},{"height",image.height},
         {"png_base64",image.data->png_base64},{"thumbnail_base64",image.data->thumbnail_base64}});
-    for(const auto& o:value.objects)j["objects"].push_back({{"id",o.id},{"name",o.name},
+    for(const auto& o:value.objects) {
+        j["objects"].push_back({{"id",o.id},{"name",o.name},
         {"kind",kind_name(o.kind)},{"placement",o.placement},{"visible",o.visible},{"enabled",o.enabled},
         {"field_of_view_degrees",o.field_of_view_degrees},{"orthographic",o.orthographic},
         {"orthographic_height_mm",o.orthographic_height_mm},{"color",o.color},{"intensity",o.intensity},
         {"radius_mm",o.radius_mm},{"angular_radius_degrees",o.angular_radius_degrees}});
+        if(o.kind==RenderObjectKind::SpotLight)j["objects"].back()["spot"]=
+            {{"cone_angle_degrees",o.cone_angle_degrees},{"edge_softness",o.edge_softness}};
+    }
 }
 
 void from_json(const nlohmann::json& j,RenderDefinition& value) {
@@ -124,11 +131,16 @@ void from_json(const nlohmann::json& j,RenderDefinition& value) {
         if(kind=="camera")o.kind=RenderObjectKind::Camera;
         else if(kind=="point-light")o.kind=RenderObjectKind::PointLight;
         else if(kind=="sun")o.kind=RenderObjectKind::Sun;
+        else if(kind=="spot-light")o.kind=RenderObjectKind::SpotLight;
         else invalid();
         o.placement=item.at("placement").get<Placement>();o.visible=item.at("visible");o.enabled=item.at("enabled");
         o.field_of_view_degrees=item.at("field_of_view_degrees");o.orthographic=item.at("orthographic");
         o.orthographic_height_mm=item.at("orthographic_height_mm");o.color=item.at("color").get<std::array<double,3>>();
         o.intensity=item.at("intensity");o.radius_mm=item.at("radius_mm");o.angular_radius_degrees=item.at("angular_radius_degrees");
+        if(o.kind==RenderObjectKind::SpotLight) {
+            o.cone_angle_degrees=item.at("spot").at("cone_angle_degrees");
+            o.edge_softness=item.at("spot").at("edge_softness");
+        }
         next.objects.push_back(std::move(o));
     }
     if(!j.at("images").is_array())invalid();

@@ -18,13 +18,15 @@
 namespace zima::app {
 inline QString render_object_name(document::RenderObjectKind kind) {
     switch(kind){case document::RenderObjectKind::Camera:return QObject::tr("Camera");
-    case document::RenderObjectKind::PointLight:return QObject::tr("Point light");
-    case document::RenderObjectKind::Sun:return QObject::tr("Sun");}return {};
+    case document::RenderObjectKind::PointLight:return QObject::tr("Light");
+    case document::RenderObjectKind::Sun:return QObject::tr("Sun");
+    case document::RenderObjectKind::SpotLight:return QObject::tr("Spotlight");}return {};
 }
 class RenderObjectDialog final : public ui::PropertiesSubWindow,public PlacementReferenceDialog {
 public:
     std::function<void()> changed;
-    std::function<void()> view_from_camera;
+    std::function<void(bool)> view_from_camera;
+    bool follows_camera() const {return camera_view_&&camera_view_->isChecked();}
     RenderObjectDialog(document::RenderObject value,std::function<void(document::RenderObject)> commit,QWidget* parent)
         : PropertiesSubWindow(tr("Render object properties"),parent),initial_(std::move(value)),pending_(initial_),commit_(std::move(commit)) {
         setObjectName("renderObjectDialog");setAttribute(Qt::WA_DeleteOnClose);
@@ -48,9 +50,9 @@ public:
             auto* height=number(parameters,QT_TR_NOOP("Camera frame height"),"renderCameraHeight",pending_.orthographic_height_mm,.001,1e9," mm");
             const auto visibility=[=,this]{parameters->setRowVisible(fov,!pending_.orthographic);parameters->setRowVisible(height,pending_.orthographic);};
             connect(ortho,&QCheckBox::toggled,this,[=,this](bool on){pending_.orthographic=on;visibility();notify();});visibility();
-            auto* view=new QPushButton(this);view->setObjectName("renderViewFromCamera");parameters->addRow(view);
+            auto* view=new QCheckBox(this);camera_view_=view;view->setObjectName("renderViewFromCamera");parameters->addRow(view);
             translate_.push_back([view]{view->setText(tr("View from camera"));});
-            connect(view,&QPushButton::clicked,this,[this]{if(view_from_camera)view_from_camera();});
+            connect(view,&QCheckBox::toggled,this,[this](bool enabled){if(view_from_camera)view_from_camera(enabled);});
         } else {
             auto* enabled=new QCheckBox(this);enabled->setObjectName("renderLightEnabled");enabled->setChecked(initial_.enabled);
             translate_.push_back([enabled]{enabled->setText(tr("Light enabled"));});parameters->addRow(enabled);
@@ -63,6 +65,10 @@ public:
             number(parameters,sun?QT_TR_NOOP("Illuminance"):QT_TR_NOOP("Luminous power"),"renderIntensity",pending_.intensity,0,1e12,sun?" lx":" lm");
             if(sun)number(parameters,QT_TR_NOOP("Angular radius"),"renderLightAngularRadius",pending_.angular_radius_degrees,0,45," °");
             else number(parameters,QT_TR_NOOP("Light radius"),"renderLightRadius",pending_.radius_mm,0,1e9," mm");
+            if(initial_.kind==document::RenderObjectKind::SpotLight) {
+                number(parameters,QT_TR_NOOP("Cone angle"),"renderConeAngle",pending_.cone_angle_degrees,.01,179.99," °");
+                number(parameters,QT_TR_NOOP("Edge softness"),"renderEdgeSoftness",pending_.edge_softness,0,1,{});
+            }
         }
         auto* visible=new QCheckBox(this);visible->setObjectName("renderObjectVisible");visible->setChecked(initial_.visible);
         translate_.push_back([visible]{visible->setText(tr("Show marker in View"));});parameters->addRow(visible);
@@ -122,7 +128,7 @@ protected:
 private:
     document::RenderObject initial_,pending_;
     std::function<void(document::RenderObject)> commit_;
-    ui::ContainerPlacementSection* placement_{};QLabel* status_{};QLineEdit* color_{};
+    ui::ContainerPlacementSection* placement_{};QLabel* status_{};QLineEdit* color_{};QCheckBox* camera_view_{};
     std::vector<std::function<void()>> translate_;
     void notify(){if(changed)changed();}
     void label(QFormLayout* form,const char* text,QWidget* field) {

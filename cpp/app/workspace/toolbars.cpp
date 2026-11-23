@@ -300,10 +300,10 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
         if(active_render_body()) {
             if(!properties_dialog_)viewer_->set_candidate_filter([this](const auto& c){return active_render_object(c.owner_id)!=nullptr;});
             add_command(selection_action_);
-            for(const auto kind:{document::RenderObjectKind::Camera,document::RenderObjectKind::PointLight,document::RenderObjectKind::Sun}) {
-                const auto key=kind==document::RenderObjectKind::Camera?"Camera":kind==document::RenderObjectKind::Sun?"Sun":"PointLight";
+            for(const auto kind:{document::RenderObjectKind::Camera,document::RenderObjectKind::PointLight,document::RenderObjectKind::Sun,document::RenderObjectKind::SpotLight}) {
+                const auto key=kind==document::RenderObjectKind::Camera?"Camera":kind==document::RenderObjectKind::Sun?"Sun":kind==document::RenderObjectKind::SpotLight?"SpotLight":"PointLight";
                 auto* action=new QAction(resource_icon(kind==document::RenderObjectKind::Camera?"view-perspective":"point"),
-                    kind==document::RenderObjectKind::Camera?tr("Camera"):kind==document::RenderObjectKind::Sun?tr("Sun"):tr("Point light"),tools_toolbar_);
+                    kind==document::RenderObjectKind::Camera?tr("Camera"):kind==document::RenderObjectKind::Sun?tr("Sun"):kind==document::RenderObjectKind::SpotLight?tr("Spotlight"):tr("Light"),tools_toolbar_);
                 action->setObjectName(QString("render%1Action").arg(key));action->setEnabled(!properties_dialog_);
                 connect(action,&QAction::triggered,this,[this,kind]{show_render_object_properties(kind);});add_command(action);
             }

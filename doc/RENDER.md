@@ -30,22 +30,27 @@ and metallic finish for the whole scene while retaining source colors.
 
 ## Cameras and lights
 
-Use **Camera**, **Point light** or **Sun** to add a placed scene object. These
+Use **Camera**, **Light**, **Sun** or **Spotlight** to add a placed scene object. These
 commands use the ordinary internal Properties window and shared placement
 controls: reference entry/replacement, independent inspection, position,
 orientation, corrections and whole-Origin placement. The default Origin comes
 from the first selected source's material Body; other source Origins can be
-selected explicitly. Missing references retain the last valid frame for repair.
+selected explicitly. New objects immediately arm the first placement reference.
+Missing references retain the last valid frame for repair.
 
 A perspective camera uses its field of view. An orthographic camera uses its
 frame height. Choose the active camera in Render Body properties. Deleting that
 camera leaves the scene awaiting an explicit replacement.
 
-A point light has a position, luminous power in lumens and radius in millimetres.
-A sun has a direction, illuminance in lux and angular radius in degrees. Radius
-controls soft shadows. Disabling a light removes its illumination; hiding its
-View marker only hides the editor marker. Local +X is the camera/sun direction
-and local +Z is camera up.
+**Light** emits in every direction from its position. It has luminous power in
+lumens and radius in millimetres. **Sun** emits parallel rays with illuminance
+in lux and angular radius in degrees. **Spotlight** adds a directed cone, its
+full angle and edge softness from zero (sharp) to one (fully softened). Luminous
+power describes the total cone output; narrowing the cone concentrates that
+power. Finite lights use inverse-square distance attenuation. Radius controls
+soft shadows. Disabling a light removes its illumination; hiding its View marker
+only hides the editor marker. Local +X is the camera/Sun/spotlight direction and
+local +Z is camera up.
 
 Single-click selects an object. Double-click exposes its position annotations;
 Properties are available from the context menu. Creation and editing use the
@@ -53,9 +58,16 @@ same window. Cancel discards pending edits; unchanged OK adds no Undo step.
 
 Camera and light markers, including their adjacent labels, use dimension yellow
 in ordinary display. Hover and selection retain the shared interaction colors.
-Choose **View from camera** in Camera Properties or its Tree/View context menu
-to see through that camera. Pending camera parameters can be inspected this way
-without committing them. This changes the View, not the camera definition.
+Enable **View from camera** in Camera Properties to follow pending position,
+orientation and camera parameter changes live. The cyan composition frame has
+the configured output aspect ratio; its rays match the final render, including
+portrait and wide images. Unchecking the option or closing Properties restores
+the preceding modeling view. The Tree/View context action remains a one-time
+view change. Properties drafts are visible in cyan, including hidden markers.
+
+The spotlight, live-camera framing and corrected yellow wire rendering are a
+verified development follow-up; see the [acceptance record](verification/20261123-render-spotlight-live-camera.md)
+for publication status and platform limits.
 
 ## Calculate and export
 

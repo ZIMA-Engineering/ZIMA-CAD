@@ -3080,7 +3080,7 @@
   "Visible Bodies": "Viditelná tělesa",
   "Selected Bodies": "Vybraná tělesa",
   "Camera": "Kamera",
-  "Point light": "Bodové světlo",
+  "Light": "Světlo",
   "Sun": "Slunce",
   "Active camera": "Aktivní kamera",
   "No active camera": "Žádná aktivní kamera",
@@ -3147,5 +3147,8 @@
   "Invalid retained Render image.": "Neplatný uchovaný obrázek Renderu.",
   "Snapshot of an earlier model state. You can keep or export it.": "Snímek dřívějšího stavu modelu. Můžete ho uchovat nebo exportovat.",
   "Image %1": "Obrázek %1",
-  "A render is already running.": "Render už se počítá."
+  "A render is already running.": "Render už se počítá.",
+  "Spotlight": "Reflektor",
+  "Cone angle": "Úhel kuželu",
+  "Edge softness": "Měkkost okraje"
 }

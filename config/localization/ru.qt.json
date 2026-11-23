@@ -3080,7 +3080,7 @@
   "Visible Bodies": "Видимые тела",
   "Selected Bodies": "Выбранные тела",
   "Camera": "Камера",
-  "Point light": "Точечный свет",
+  "Light": "Свет",
   "Sun": "Солнце",
   "Active camera": "Активная камера",
   "No active camera": "Нет активной камеры",
@@ -3147,5 +3147,8 @@
   "Invalid retained Render image.": "Недопустимое сохранённое изображение визуализации.",
   "Snapshot of an earlier model state. You can keep or export it.": "Снимок предыдущего состояния модели. Его можно сохранить или экспортировать.",
   "Image %1": "Изображение %1",
-  "A render is already running.": "Визуализация уже выполняется."
+  "A render is already running.": "Визуализация уже выполняется.",
+  "Spotlight": "Прожектор",
+  "Cone angle": "Угол конуса",
+  "Edge softness": "Мягкость края"
 }

@@ -132,6 +132,9 @@ public:
     void set_camera_state(const std::array<float, 11>& state);
     void set_camera_state(const std::array<float, 11>& state, double field_of_view_degrees);
     [[nodiscard]] double camera_field_of_view() const;
+    // Runtime-only composition frame while editing a Render camera.
+    void set_camera_output_aspect(std::optional<double> aspect);
+    [[nodiscard]] std::optional<QRectF> camera_output_rect() const;
     // Transient view through an authored camera; no document or placement edit.
     void set_camera_frame(const zima::kernel::Vec3& eye,
         const zima::kernel::Vec3& forward,const zima::kernel::Vec3& up,

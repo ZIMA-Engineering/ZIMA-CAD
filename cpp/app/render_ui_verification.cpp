@@ -125,15 +125,22 @@ int verify_render_body(QApplication& application,AssemblyWorkspaceWindow& window
         dialog->buttons()->button(QDialogButtonBox::Ok)->click();flush();check(workspace::read_render_sources(session,render_id).size()==2,"Explicit Render source set did not commit");
         window.undo_action_->trigger();flush();check(definition().visible_bodies,"Render source Undo failed");window.redo_action_->trigger();flush();check(!definition().visible_bodies,"Render source Redo failed");window.undo_action_->trigger();flush();
         const auto before_objects=session.revision();
-        for(auto kind:{document::RenderObjectKind::Camera,document::RenderObjectKind::PointLight,document::RenderObjectKind::Sun}) {
+        for(auto kind:{document::RenderObjectKind::Camera,document::RenderObjectKind::PointLight,document::RenderObjectKind::Sun,document::RenderObjectKind::SpotLight}) {
             window.show_render_object_properties(kind);flush();auto* entry=object();check(entry&&entry->windowType()==Qt::SubWindow&&!entry->buttons()->button(QDialogButtonBox::Apply),"Render object bypasses shared Properties");
+            check(window.pending_primitive_reference_index_==0,"New Render object did not arm initial placement entry");
             check(window.rect().contains(entry->geometry())&&entry->buttons()->isVisible(),"Render object Properties exceed the application bounds");
+            if(kind==document::RenderObjectKind::SpotLight) {
+                entry->findChild<QDoubleSpinBox*>("renderConeAngle")->setValue(58.5);
+                entry->findChild<QDoubleSpinBox*>("renderEdgeSoftness")->setValue(.65);flush();
+                check(window.render_object_preview_->cone_angle_degrees==58.5&&window.render_object_preview_->edge_softness==.65,"Spotlight controls did not update the transient cone");
+            }
             auto* origin=entry->findChild<QPushButton*>("containerDefaultOriginButton");check(origin&&origin->isEnabled(),"Render object has no whole-Origin placement");origin->click();flush();
             check(document::placement_references_use_whole_origin(entry->pending_value().placement.references),"Render whole-Origin placement failed");
             const auto id=entry->pending_value().id;entry->buttons()->button(QDialogButtonBox::Ok)->click();flush();
             check(!object()&&window.active_render_object(id)&&document::placement_references_use_whole_origin(window.active_render_object(id)->placement.references),"Render object placement was not persisted");
             const auto saved=*window.active_render_object(id);const auto object_revision=session.revision();window.show_render_object_properties(kind,id);flush();object()->buttons()->button(QDialogButtonBox::Ok)->click();flush();
             check(session.revision()==object_revision,"Unchanged Render object OK created Undo");
+            if(kind==document::RenderObjectKind::SpotLight)check(saved.cone_angle_degrees==58.5&&saved.edge_softness==.65,"Spotlight parameters were not committed");
             window.show_render_object_properties(kind,id);flush();entry=object();
             auto* refs=entry->findChild<QTableWidget*>("renderPlacementReferences");
             auto* inspection=refs->cellWidget(0,4)->findChild<QToolButton*>();check(inspection,"Render placement eye is missing");
@@ -160,9 +167,15 @@ int verify_render_body(QApplication& application,AssemblyWorkspaceWindow& window
         check(tree->currentItem()==row(camera_id),"Render View double-click lost Tree selection");
         check(session.revision()==selection_revision&&!window.properties_dialog_,"Render View double-click mutated or opened Properties");
         const auto previous_camera=view->camera_state();const auto previous_projection=view->projection_mode();
-        const auto check_camera=[&](const document::RenderObject& camera) {
-            for(const auto pixel:{QPointF(view->width()*.5,view->height()*.5),QPointF(view->width()*.2,view->height()*.25)}) {
-                const auto expected=render::Scene::camera_ray(camera,view->width(),view->height(),pixel.x(),pixel.y());
+        const auto check_camera=[&](const document::RenderObject& camera,unsigned output_width=0,unsigned output_height=0) {
+            const auto frame=view->camera_output_rect();
+            const auto rect=frame.value_or(QRectF(0,0,view->width(),view->height()));
+            const auto width=frame?(output_width?output_width:definition().settings.width):unsigned(view->width());
+            const auto height=frame?(output_height?output_height:definition().settings.height):unsigned(view->height());
+            if(frame)check(std::abs(rect.width()/rect.height()-double(width)/height)<1e-9,"Camera composition frame has the wrong aspect");
+            for(const auto fraction:{QPointF(.5,.5),QPointF(.2,.25),QPointF(.95,.95)}) {
+                const auto pixel=rect.topLeft()+QPointF(rect.width()*fraction.x(),rect.height()*fraction.y());
+                const auto expected=render::Scene::camera_ray(camera,width,height,fraction.x()*width,fraction.y()*height);
                 const auto actual=view->ray_at(pixel);check(actual.has_value(),"Camera view has no pick ray");
                 const auto d=actual->second,e=expected.direction;
                 if(std::hypot(d.x-e.x,d.y-e.y,d.z-e.z)>=1e-4)
@@ -196,10 +209,33 @@ int verify_render_body(QApplication& application,AssemblyWorkspaceWindow& window
                 "Camera tab switching calculated or modified the model");
         }
         window.show_render_object_properties(document::RenderObjectKind::Camera,camera_id);flush();
+        const auto editor_camera=view->camera_state();const auto editor_projection=view->projection_mode();const auto editor_fov=view->camera_field_of_view();
         object()->findChild<QCheckBox*>("renderOrthographic")->setChecked(false);
         object()->findChild<QDoubleSpinBox*>("renderFieldOfView")->setValue(67);
-        object()->findChild<QPushButton*>("renderViewFromCamera")->click();flush();check_camera(*window.render_object_preview_);
-        object()->reject();flush();check(session.revision()==selection_revision,"Camera view committed pending camera parameters");
+        object()->findChild<QCheckBox*>("renderViewFromCamera")->click();flush();check_camera(*window.render_object_preview_);
+        check(view->camera_output_rect().has_value(),"Live camera has no output composition frame");
+        check(view->transient_context_mesh().edges.empty()&&view->transient_context_mesh().axes.empty(),"The camera's own editing wire obstructs its live composition");
+        check(window.grab().save(QString::fromStdWString((directory/"render-live-camera.png").wstring())),"Live camera screenshot failed");
+        for(double delta:{2.,-3.,1.}) {
+            const auto before=window.render_object_preview_->placement.x;
+            check(object()->set_inline_parameter_value("placement:x",before+delta),"Camera position field is not editable");flush();
+            check(std::abs(window.render_object_preview_->placement.x-before-delta)<1e-6,"Live camera position did not move");check_camera(*window.render_object_preview_);
+        }
+        const auto editor_size=window.size();
+        for(bool orthographic:{false,true}) {
+            object()->findChild<QCheckBox*>("renderOrthographic")->setChecked(orthographic);flush();
+            for(const auto size:{QSize(320,200),QSize(200,320),QSize(2048,256)}) {
+                view->set_camera_output_aspect(double(size.width())/size.height());flush();check_camera(*window.render_object_preview_,size.width(),size.height());
+                window.resize(editor_size-QSize(100,100));flush();check_camera(*window.render_object_preview_,size.width(),size.height());
+                window.resize(editor_size);flush();check_camera(*window.render_object_preview_,size.width(),size.height());
+            }
+        }
+        if(object()->changed)object()->changed();flush();check_camera(*window.render_object_preview_);
+        object()->findChild<QCheckBox*>("renderViewFromCamera")->click();flush();
+        check(!view->camera_output_rect()&&view->camera_state()==editor_camera&&view->projection_mode()==editor_projection&&view->camera_field_of_view()==editor_fov,"Leaving live camera did not restore the modeling view");
+        check(!view->transient_context_mesh().edges.empty(),"Leaving live camera did not restore the camera editing wire");
+        object()->findChild<QCheckBox*>("renderViewFromCamera")->click();flush();check_camera(*window.render_object_preview_);
+        object()->reject();flush();check(session.revision()==selection_revision&&!view->camera_output_rect(),"Camera view committed pending parameters or retained its frame");
         bool camera_menu_used=false;QTimer camera_menu;camera_menu.setInterval(10);
         QObject::connect(&camera_menu,&QTimer::timeout,[&]{if(auto* menu=qobject_cast<QMenu*>(QApplication::activePopupWidget())) {
             camera_menu.stop();auto* action=menu->findChild<QAction*>("renderViewFromCameraAction");check(action,"Camera Tree context action is missing");
@@ -331,8 +367,18 @@ int verify_render_body(QApplication& application,AssemblyWorkspaceWindow& window
             window.show_render_body_properties(render_id);flush();check(settings()->windowTitle()==localized.qt_translations.value("Render Body properties"),"Render title did not translate");
             check(settings()->findChild<QComboBox*>("renderSourceMode")->itemText(0)==localized.qt_translations.value("Visible Bodies"),"Render source mode did not translate");settings()->reject();flush();
             window.show_render_object_properties(document::RenderObjectKind::Camera,camera_id);flush();check(object()->windowTitle()==localized.qt_translations.value("Render object properties"),"Render object title did not translate");
-            check(object()->findChild<QPushButton*>("renderViewFromCamera")->text()==localized.qt_translations.value("View from camera"),"Camera view action did not translate");
+            check(object()->findChild<QCheckBox*>("renderViewFromCamera")->text()==localized.qt_translations.value("View from camera"),"Camera view action did not translate");
             check(std::ranges::any_of(object()->findChildren<QLabel*>(),[&](const auto* label){return label->text()==localized.qt_translations.value("Camera frame height");}),"Render camera parameter did not translate");object()->reject();flush();
+            for(const auto kind:{document::RenderObjectKind::PointLight,document::RenderObjectKind::SpotLight}) {
+                window.show_render_object_properties(kind);flush();
+                for(const auto* source:kind==document::RenderObjectKind::SpotLight?
+                        std::vector<const char*>{"Spotlight","Cone angle","Edge softness"}:std::vector<const char*>{"Light"})
+                    check(std::ranges::any_of(object()->findChildren<QLabel*>(),[&](const auto* label){return label->text()==localized.qt_translations.value(source);}),"Light/Spotlight control did not translate");
+                check(window.rect().contains(object()->geometry())&&object()->buttons()->isVisible(),"Localized light Properties exceed the application bounds");
+                if(kind==document::RenderObjectKind::SpotLight&&std::string_view(language)=="cs")
+                    check(window.grab().save(QString::fromStdWString((directory/"render-spotlight-properties.png").wstring())),"Spotlight Properties screenshot failed");
+                object()->reject();flush();
+            }
         }
         apply_application_translations(application,window.application_settings_);window.activate_body(sources[0]);flush();check(window.sketch_action_->isEnabled()&&!window.render_mode_button_->isVisible(),"Leaving Render did not restore material commands");
         const auto saved_images=definition().images;window.save_active_document();flush();window.close_document(model_tab());flush();
