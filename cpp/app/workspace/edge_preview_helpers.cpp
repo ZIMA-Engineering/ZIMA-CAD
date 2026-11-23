@@ -996,6 +996,7 @@ std::vector<zima::kernel::Vec3> edge_preview_circular_terminal_intersection(
         const zima::kernel::ViewerMesh& mesh,const FilletPreviewTerminal& terminal) {
     const auto& circle=*terminal.circular_path;
     std::vector<std::pair<zima::kernel::Vec3,zima::kernel::Vec3>> planes;
+    std::vector<FilletPreviewCylinder> cylinders;
     const auto preceding=edge_preview_rotate(terminal.node,circle,
         std::min(.1,terminal.extent/circle.radius*.1));
     for(const auto& face:terminal.curved_terminal_faces)
@@ -1003,8 +1004,12 @@ std::vector<zima::kernel::Vec3> edge_preview_circular_terminal_intersection(
             if(edge_preview_dot(edge_preview_difference(preceding,plane->first),plane->second)<0.)
                 plane->second=edge_preview_offset({},plane->second,-1.);
             planes.push_back(*plane);
+        } else {
+            for(const auto& cylinder:edge_preview_terminal_cylinders(mesh,face,terminal.node))
+                if(std::abs(edge_preview_dot(cylinder.axis,circle.axis))>1.-1.e-10)
+                    cylinders.push_back(cylinder);
         }
-    if(planes.empty())return {};
+    if(planes.empty()&&cylinders.empty())return {};
     std::vector<zima::kernel::Vec3> result;
     for(const auto& point:terminal.section.wire.points) {
         const auto relative=edge_preview_difference(point,circle.center);
@@ -1026,6 +1031,40 @@ std::vector<zima::kernel::Vec3> edge_preview_circular_terminal_intersection(
                 const double angle=root+turn*2.*std::numbers::pi;
                 if(angle<parameter-1.e-9||angle>terminal.extent/circle.radius+1.e-9)continue;
                 if(!intersection||angle<*intersection)intersection=angle;
+            }
+            if(!intersection)return {};
+            parameter=*intersection;
+        }
+        // A section transported along a circular route follows a circle too.
+        // For a parallel cylindrical terminal its exact intersection reduces
+        // to a*cos(angle)+b*sin(angle)+c=0. Use the retained route side, as in
+        // the native cutter, rather than the perpendicular endpoint section.
+        for(const auto& cylinder:cylinders) {
+            const auto perpendicular=[&](const auto& value) {
+                return edge_preview_offset(value,cylinder.axis,
+                    -edge_preview_dot(value,cylinder.axis));
+            };
+            const auto delta=perpendicular(edge_preview_difference(center,cylinder.center));
+            const auto side=[&](const auto& p) {
+                const auto offset=perpendicular(edge_preview_difference(p,cylinder.center));
+                return edge_preview_dot(offset,offset)-cylinder.radius*cylinder.radius;
+            };
+            const double retained=side(preceding);
+            if(std::abs(retained)<=1.e-10)continue;
+            const double sign=retained>0.?1.:-1.;
+            if(sign*side(edge_preview_rotate(point,circle,parameter))>=-1.e-8)continue;
+            const double a=2.*edge_preview_dot(delta,radial);
+            const double b=2.*edge_preview_dot(delta,tangent);
+            const double c=edge_preview_dot(delta,delta)+edge_preview_dot(radial,radial)-
+                cylinder.radius*cylinder.radius;
+            const double magnitude=std::hypot(a,b);
+            if(magnitude<=1.e-12||std::abs(c)>magnitude+1.e-8)return {};
+            const double phase=std::atan2(b,a),angle=std::acos(std::clamp(-c/magnitude,-1.,1.));
+            std::optional<double> intersection;
+            for(const double root:{phase-angle,phase+angle})for(int turn=-1;turn<=1;++turn) {
+                const double candidate=root+turn*2.*std::numbers::pi;
+                if(candidate<parameter-1.e-9||candidate>terminal.extent/circle.radius+1.e-9)continue;
+                if(!intersection||candidate<*intersection)intersection=candidate;
             }
             if(!intersection)return {};
             parameter=*intersection;

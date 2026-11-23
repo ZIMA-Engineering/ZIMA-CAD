@@ -1815,18 +1815,34 @@ Cutter make_cutter(const TopoDS_Edge& edge,
     // this removal (exact local stop) from one which bends away (continue only
     // to its first adjoining planar cap).  The same decision applies when a
     // Boolean represents that local radius with different curved faces.
-    const bool continue_first=local_curved_first&&!adds_material&&
+    bool continue_first=local_curved_first&&!adds_material&&
         !explicit_first&&route_crossing_first.empty()&&
         removal_profile_continues_past_curved_terminal(
             material,path.first,first_outward,
             first_terminal_first_inward,first_terminal_second_inward,
             radius,tolerance);
-    const bool continue_last=local_curved_last&&!adds_material&&
+    bool continue_last=local_curved_last&&!adds_material&&
         !explicit_last&&route_crossing_last.empty()&&
         removal_profile_continues_past_curved_terminal(
             material,path.last,last_outward,
             last_terminal_first_inward,last_terminal_second_inward,
             radius,tolerance);
+    // Material beyond a tangent endpoint permits continuation only when the
+    // incident curved face has a real adjoining cap to terminate it. A boss
+    // cylinder can contain the probe without such a cap; it remains the exact
+    // local stop instead of silently degrading Cut to a perpendicular end.
+    if(continue_first) {
+        terminal_faces[0]=remote_terminal_faces_through_local_curve(
+            material,first_face,second_face,path.first,first_outward,
+            tolerance);
+        continue_first=!terminal_faces[0].empty();
+    }
+    if(continue_last) {
+        terminal_faces[1]=remote_terminal_faces_through_local_curve(
+            material,first_face,second_face,path.last,last_outward,
+            tolerance);
+        continue_last=!terminal_faces[1].empty();
+    }
     std::array<std::vector<TopoDS_Face>,2> nearby_terminal_planes;
     std::array<std::vector<TopoDS_Face>,2> nearby_terminal_surfaces;
     if(local_curved_first&&!continue_first&&!explicit_first&&
@@ -1852,14 +1868,6 @@ Cutter make_cutter(const TopoDS_Edge& edge,
     // result of a historical full-edge selection while consuming only the
     // one current Body edge.  When the curved terminal bends into a removal
     // wedge, `continue_*` is false and the arc remains the exact endpoint.
-    if(continue_first)
-        terminal_faces[0]=remote_terminal_faces_through_local_curve(
-            material,first_face,second_face,path.first,first_outward,
-            tolerance);
-    if(continue_last)
-        terminal_faces[1]=remote_terminal_faces_through_local_curve(
-            material,first_face,second_face,path.last,last_outward,
-            tolerance);
     // An unresolved automatic terminal is an actual end of the selected
     // Body edge, not permission to sweep through the complete Body envelope.
     // Proven earlier-radius continuation already owns explicit remote faces

@@ -84,6 +84,52 @@ bool shares_endpoint(const TopoDS_Edge& first,const TopoDS_Edge& second) {
         first_b.IsSame(second_a)||first_b.IsSame(second_b);
 }
 
+void verify_tangent_boss_terminals() {
+    using namespace zima::kernel;
+    const auto boss0=BRepPrimAPI_MakeCylinder(20.,25.).Shape();
+    const auto boss1=BRepPrimAPI_MakeCylinder(
+        gp_Ax2(gp_Pnt(0,80,0),gp_Dir(0,0,1)),20.,25.).Shape();
+    const auto notch=BRepPrimAPI_MakeCylinder(
+        gp_Ax2(gp_Pnt(-30,40,0),gp_Dir(0,0,1),gp_Dir(-1,0,0)),30.,10.).Shape();
+    BRepAlgoAPI_Cut rib(BRepPrimAPI_MakeBox(gp_Pnt(-12,16,0),52.,48.,10.).Shape(),notch);
+    BRepAlgoAPI_Fuse first(rib.Shape(),boss0),joined(first.Shape(),boss1);
+    joined.SimplifyResult();
+    const auto input=joined.Shape();
+    require(BRepCheck_Analyzer(input).IsValid(),"Tangent boss fixture is invalid");
+    TopoDS_Edge route;
+    for(TopExp_Explorer item(input,TopAbs_EDGE);item.More();item.Next()) {
+        const auto edge=TopoDS::Edge(item.Current());const BRepAdaptor_Curve c(edge);
+        if(c.GetType()==GeomAbs_Circle&&std::abs(c.Circle().Radius()-30.)<1.e-7&&
+                std::abs(c.Value(c.FirstParameter()).Z()-10.)<1.e-7&&
+                std::abs(c.Value(c.FirstParameter()).X()+12.)<1.e-7&&
+                std::abs(c.Value(c.LastParameter()).X()+12.)<1.e-7)route=edge;
+    }
+    require(!route.IsNull(),"Tangent boss fixture lost the rib edge");
+    for(const bool reversed:{false,true})for(const double radius:{1.,3.,5.}) {
+        std::cerr<<"tangent-boss radius="<<radius<<" reverse="<<reversed<<'\n';
+        auto edge=route;if(reversed)edge.Reverse();
+        const auto result=occt_planar_edge_fillet(input,std::array{edge},radius,1.e-7,{},
+            OcctPlanarEdgeFilletEndMode::AutomaticBodyEnvelope).shape;
+        const auto flat=occt_planar_edge_fillet(input,std::array{edge},radius,1.e-7).shape;
+        require(BRepCheck_Analyzer(result).IsValid(),"Tangent boss end trim is invalid");
+        NCollection_IndexedMap<TopoDS_Shape,TopTools_ShapeMapHasher> solids;
+        TopExp::MapShapes(result,TopAbs_SOLID,solids);
+        require(solids.Extent()==1,"Tangent boss Fillet split its solid");
+        for(TopExp_Explorer shell(result,TopAbs_SHELL);shell.More();shell.Next())
+            require(BRep_Tool::IsClosed(shell.Current()),"Tangent boss Fillet left an open shell");
+        BRepAlgoAPI_Cut removed(input,result);
+        require(removed.IsDone()&&volume(removed.Shape())>1.e-4,
+            "Tangent boss Fillet removed no rib material");
+        for(const auto& boss:{boss0,boss1}) {
+            BRepAlgoAPI_Common forbidden(removed.Shape(),boss);
+            require(forbidden.IsDone()&&volume(forbidden.Shape())<1.e-6,
+                "Tangent boss Fillet cut beyond its cylindrical terminal");
+        }
+        require(std::abs(volume(result)-volume(flat))>1.e-4,
+            "Tangent boss Cut silently retained the perpendicular NoCut end");
+    }
+}
+
 std::vector<TopoDS_Edge> vertical_edges(const TopoDS_Shape& shape,
         double height) {
     std::vector<TopoDS_Edge> result;
@@ -1357,6 +1403,7 @@ void verify_oblique_round_route() {
 } // namespace
 
 int main() try {
+    verify_tangent_boss_terminals();
     if(std::getenv("ZIMA_VERIFY_CYLINDRICAL_RIB_ROUTE")){verify_cylindrical_rib_route();std::cout<<"Cylindrical rib route passed\n";return 0;}
     verify_cylindrical_rib_route();
     if(std::getenv("ZIMA_VERIFY_OBLIQUE_ROUND_ROUTE")){verify_oblique_round_route();std::cout<<"Oblique rolling route passed\n";return 0;}

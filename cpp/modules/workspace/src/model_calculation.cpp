@@ -216,17 +216,27 @@ static kernel::HistoryOutputPolicy history_output_policy(
             result.input_boundary_consumers.insert(consumer);
         return true;
     });
-    // Edge-treatment queries and edits resolve their persisted routes against
-    // the exact input immediately before the operation.  Retain that narrow
-    // edge/identity packet just like other explicit input consumers; keeping
-    // it avoids either a stale empty boundary or an on-demand OCCT rebuild.
-    // Drill-point repair likewise validates selected bottoms against its exact
-    // input body.
+    // Edge-treatment Properties displays and picks the complete input Body,
+    // not only the route edges. A narrow dependency packet can contain some
+    // requested faces (for example Hole walls) and still omit the rest of the
+    // shaded solid. Publish its exact input during explicit calculation so
+    // opening Properties does not mistake that partial packet for a full one.
     for(const auto& feature:document.history)
         if(feature.feature_kind==document::FeatureKind::Fillet||
                 feature.feature_kind==document::FeatureKind::Chamfer||
                 feature.feature_kind==document::FeatureKind::DrillPoint)
             result.input_boundary_consumers.insert(feature.id);
+    for(std::size_t index=1;index<operations.size();++index) {
+        const auto* feature=document.find_container(operations[index].owner_id);
+        if(!feature||feature->suppressed||
+                (feature->feature_kind!=document::FeatureKind::Fillet&&
+                 feature->feature_kind!=document::FeatureKind::Chamfer))continue;
+        for(std::size_t previous=index;previous>0;--previous)
+            if(operations[previous-1].body.id==operations[index].body.id) {
+                result.retained_output_owners.insert(operations[previous-1].owner_id);
+                break;
+            }
+    }
     // A subtraction consumes the complete Body immediately before its tool.
     // Keep that exact input as a native continuation checkpoint. Without it,
     // reopening a Part whose sheet was assembled by a direct additive block

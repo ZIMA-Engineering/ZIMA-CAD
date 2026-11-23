@@ -907,6 +907,66 @@ void circular_terminal_wire() {
         }
     std::cout<<"Circular terminal wire: tangent cap, Fillet/Chamfer, R1/R5/R8 and reversed endpoints passed\n";
 }
+void circular_cylinder_terminal_wire() {
+    kernel::ViewerEdge route;route.reference={"rib","route",{}};
+    route.edge_treatment_endpoint_references={{"rib","first",{}},{"rib","last",{}}};
+    route.edge_treatment_side_references={{"rib","top",{}},{"rib","wall",{}}};
+    route.edge_treatment_side_directions.resize(2);
+    const double span=std::atan2(24.,18.);
+    for(int i=0;i<=40;++i) {
+        const double angle=-span+2.*span*i/40.;
+        route.points.push_back({-30.+30.*std::cos(angle),40.+30.*std::sin(angle),10.});
+        route.edge_treatment_side_directions[0].push_back({0,0,-1});
+        route.edge_treatment_side_directions[1].push_back({std::cos(angle),std::sin(angle),0});
+    }
+    kernel::ViewerMesh mesh;mesh.edges={route};
+    for(const bool first:{true,false}) {
+        const auto node=first?route.points.front():route.points.back();
+        const double y=first?0.:80.;
+        kernel::FaceReference face{"boss",first?"first":"last",{}};
+        auto surface=std::make_shared<kernel::SurfaceGeometry>();
+        surface->kind=kernel::SurfaceGeometry::Kind::Cylinder;face.surface=surface;
+        mesh.triangle_references.push_back(face);
+        kernel::ViewerEdge boundary;boundary.edge_treatment_side_references={face};
+        const double angle=std::atan2(node.y-y,node.x);
+        for(const double offset:{0.,.2,.4})
+            boundary.points.push_back({20.*std::cos(angle+offset),y+20.*std::sin(angle+offset),10.});
+        mesh.edges.push_back(boundary);
+    }
+    using Mode=document::EdgeTreatmentParameters::RouteEndMode;
+    for(const double radius:{1.,3.,5.})for(const bool reversed:{false,true})
+        for(const bool cut_first:{false,true})for(const bool cut_last:{false,true}) {
+            document::EdgeTreatmentParameters parameters;parameters.primary_size=radius;
+            parameters.route_end_faces.resize(1);auto& end=parameters.route_end_faces.front();
+            end.first_vertex=route.edge_treatment_endpoint_references.front();
+            end.last_vertex=route.edge_treatment_endpoint_references.back();
+            end.first_mode=cut_first?Mode::Cut:Mode::NoCut;
+            end.last_mode=cut_last?Mode::Cut:Mode::NoCut;
+            auto selected=route;
+            if(reversed) {
+                std::ranges::reverse(selected.points);
+                std::ranges::reverse(selected.edge_treatment_endpoint_references);
+                for(auto& side:selected.edge_treatment_side_directions)std::ranges::reverse(side);
+            }
+            const auto wire=app::workspace_detail::edge_treatment_preview_wire(
+                {{selected}},parameters,document::FeatureKind::Fillet,"boss-preview",&mesh);
+            require(wire.edges.size()==4,"Cylinder terminal lost its analytical wire");
+            for(std::size_t index=2;index<4;++index) {
+                const auto& points=wire.edges[index].points;
+                const bool first=points.front().y<40.;
+                const auto node=first?route.points.front():route.points.back();
+                for(const auto& point:points) {
+                    if(first?cut_first:cut_last)
+                        require(std::abs(std::hypot(point.x,point.y-(first?0.:80.))-20.)<1.e-7,
+                            "Circular Fillet end missed its cylindrical terminal");
+                    else
+                        require(std::abs((point.x-node.x)*(first?.8:-.8)+(point.y-node.y)*.6)<1.e-7,
+                            "NoCut cylinder terminal lost its perpendicular section");
+                }
+            }
+        }
+    std::cout<<"Circular cylinder wire: R1/R3/R5, reversed routes and independent Cut/NoCut ends passed\n";
+}
 void revolution_matrix(const kernel::OcctKernel& engine) {
     unsigned cases{};
     for(auto plane:{sketcher::SketchPlane::XY,sketcher::SketchPlane::XZ})
@@ -1459,7 +1519,7 @@ int main(int argc,char** argv) {
         if(argc>1&&std::string_view(argv[1])=="--edge-treatment-wire") {
             const auto before=kernel::body_calculation_count.load();
             edge_treatment_source_node_labels();rolling_edge_treatment_preview();
-            independent_fillet_node_preview();planar_terminal_wire();circular_terminal_wire();
+            independent_fillet_node_preview();planar_terminal_wire();circular_terminal_wire();circular_cylinder_terminal_wire();
             require(kernel::body_calculation_count.load()==before,"Wire interaction calculated a Body");
             return 0;
         }
@@ -1480,7 +1540,7 @@ int main(int argc,char** argv) {
         kernel::OcctKernel engine;line_bend_wire(engine);
         planar_surface_wire_and_cues(engine);rectangular_matrix(engine);
         edge_treatment_source_node_labels();rolling_edge_treatment_preview();
-        independent_fillet_node_preview();planar_terminal_wire();circular_terminal_wire();
+        independent_fillet_node_preview();planar_terminal_wire();circular_terminal_wire();circular_cylinder_terminal_wire();
         revolution_matrix(engine);rounded_profile_matrix(engine);
         if(const auto* file=std::getenv("ZIMA_THIN_REVIEW_FILE"))review_fillets(engine,std::filesystem::u8path(file));
         return 0;}

@@ -204,6 +204,74 @@ int verify_edge_treatment_ui(QApplication& application, AssemblyWorkspaceWindow&
         const auto finish=[&](bool commit) {
             dialog()->findChild<QDialogButtonBox*>()->button(commit?QDialogButtonBox::Ok:QDialogButtonBox::Cancel)->click();flush();
         };
+        if(const auto model=qEnvironmentVariable("ZIMA_VERIFY_TREATMENT_ROLLBACK_MODEL");!model.isEmpty()) {
+            const auto file=directory/"treatment-rollback.prtz";
+            std::filesystem::copy_file(std::filesystem::u8path(model.toStdString()),file);
+            std::vector<kernel::BodyResult> cached;
+            const auto source=document::PartDocument::load(file,&cached);
+            const auto& feature=source.history.back();
+            document::DocumentSession session(source,cached);
+            const auto boundary=session.rollback_boundary(feature.id);
+            check(boundary&&boundary->input_body,"Missing treatment rollback input");
+            const auto& expected=boundary->input_body->mesh;
+            check(expected.triangle_references.size()>1000,
+                "Rollback fixture retained only a narrow dependency packet");
+            run("open",{{"path",document::path_to_utf8(file)}});
+            view->set_standard_view(viewer::StandardView::Isometric);flush();
+            const auto before=run("documents");
+            const auto triangle_owners=[](const auto& mesh) {
+                std::map<std::string,std::size_t> result;
+                for(const auto& ref:mesh.triangle_references)++result[ref.owner_id];
+                return result;
+            };
+            const auto complete=triangle_owners(expected);
+            check(complete.size()>=3,"Rollback fixture must contain both features and Hole");
+            const auto calculations=kernel::body_calculation_count.load();
+            for(const bool accept:{false,true,false,true}) {
+                edit(feature.id);
+                check(view->display_mode()==viewer::DisplayMode::ShadedWithEdges,
+                    "Treatment Properties changed the display mode");
+                check(triangle_owners(view->mesh())==complete,
+                    "Treatment Properties omitted shaded input faces");
+                window.grab().save(QString::fromStdString(document::path_to_utf8(directory/"treatment-rollback.png")));
+                finish(accept);
+                check(run("documents")==before,"Unchanged treatment changed document revision");
+            }
+            check(kernel::body_calculation_count.load()==calculations,
+                "Opening unchanged treatment recalculated its Body");
+            double previous=feature.edge_treatment.primary_size;
+            for(const double radius:{3.,5.,feature.edge_treatment.primary_size}) {
+                auto* pending=edit(feature.id);
+                pending->findChild<QDoubleSpinBox*>("edgeTreatmentPrimary")->setValue(radius);
+                flush();finish(true);
+                check(run("fillet.get",{{"container",feature.id}}).at("radius_mm")==radius,
+                    "Treatment radius edit was not committed");
+                run("undo");
+                check(run("fillet.get",{{"container",feature.id}}).at("radius_mm")==previous,
+                    "Treatment after Hole lost its previous radius on Undo");
+                run("redo");run("save");run("close");
+                std::vector<kernel::BodyResult> saved_cache;
+                const auto saved=document::PartDocument::load(file,&saved_cache);
+                check(saved.find_container(feature.id)->edge_treatment.routes==feature.edge_treatment.routes&&
+                    saved.find_container(feature.id)->edge_treatment.route_end_faces==feature.edge_treatment.route_end_faces,
+                    "Treatment edit changed its route or endpoint identities");
+                check(!saved_cache.empty()&&saved_cache.back().calculation_errors.empty(),
+                    "Treatment after Hole saved an invalid calculation");
+                run("open",{{"path",document::path_to_utf8(file)}});
+                check(run("fillet.get",{{"container",feature.id}}).at("radius_mm")==radius,
+                    "Treatment radius was lost on native reopening");
+                const auto count=kernel::body_calculation_count.load();
+                edit(feature.id);
+                check(triangle_owners(view->mesh())==complete,
+                    "Reopened treatment lost its complete shaded Hole input");
+                finish(false);
+                check(kernel::body_calculation_count.load()==count,
+                    "Reopened treatment Properties recalculated its Body");
+                previous=radius;
+            }
+            std::cout<<"Treatment rollback: complete shaded Hole input, repeated Cancel/OK, zero opening calculations, radius edits, Undo/Redo and native reopening passed\n";
+            return 0;
+        }
         if(const auto model=qEnvironmentVariable("ZIMA_VERIFY_CONNECTED_FILLET_SOURCE");!model.isEmpty()) {
             const auto file=directory/"connected-fillet-input.prtz";
             std::filesystem::copy_file(std::filesystem::u8path(model.toStdString()),file);
