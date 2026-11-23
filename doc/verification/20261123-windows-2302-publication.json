@@ -1,0 +1,314 @@
+{
+  "release": {
+    "version": "2026112302",
+    "commit": "c1fe8367687d22f87a0c720a9ce99dfce7ec31cd",
+    "tag": "ZIMA-CAD-2026112302",
+    "url": "https://github.com/ZIMA-Engineering/ZIMA-CAD/releases/tag/ZIMA-CAD-2026112302",
+    "published_at": "2026-11-23T10:36:53Z"
+  },
+  "public_assets": [
+    {
+      "name": "ZIMA-CAD-2026112302.zip",
+      "size": 992536392,
+      "sha256": "4c83f69ceb211c929301efa7c650ea5a64567cfe23a2978305fe711a7c7f8707",
+      "github_digest_matches": true,
+      "anonymous_download_matches": true
+    },
+    {
+      "name": "update-manifest.json",
+      "size": 703,
+      "sha256": "3a6806d23450ebfd6e4df6113352a1345f4ab887438cf1cd763891b4b779ca0d",
+      "github_digest_matches": true,
+      "anonymous_download_matches": true
+    },
+    {
+      "name": "update-manifest.sig",
+      "size": 176,
+      "sha256": "f482c3b321ab802502265bcccbc0b7abd72e9fc23b81032983659cdc67362db0",
+      "github_digest_matches": true,
+      "anonymous_download_matches": true
+    }
+  ],
+  "publisher_signature": {
+    "key_id": "zcp-8fa1f825cbde5d81",
+    "verification": "passed"
+  },
+  "candidate": {
+    "archive_sha256": "04e495569be7d789bbdaa619f8ae25ce97aac27d9810ab22f9da259b91f3b754",
+    "windows_smoke": "passed",
+    "native_factory_assets_loaded": 1185,
+    "native_factory_asset_failures": 0,
+    "sheet_branch_tests": {
+      "log_sha256": "b52c860999d80fb42c6f402848caa5e28c1b48276358872c8990a85c0c7eb4da",
+      "result": "passed",
+      "tests": [
+        "zima_cpp_bend_end_constraints_contract",
+        "zima_cpp_sheet_branch_common-parent",
+        "zima_cpp_sheet_branch_contained",
+        "zima_cpp_sheet_branch_edge-contact",
+        "zima_cpp_sheet_branch_face-contact",
+        "zima_cpp_sheet_branch_gui",
+        "zima_cpp_sheet_branch_line-bend",
+        "zima_cpp_sheet_branch_overlap",
+        "zima_cpp_sheet_branch_point-contact",
+        "zima_cpp_sheet_branch_separated",
+        "zima_cpp_sheet_exchange_tests",
+        "zima_cpp_sheet_transition_command_tests"
+      ]
+    }
+  },
+  "signed_release": {
+    "fileCount": 17851,
+    "name": "ZIMA-CAD-2026112302.zip",
+    "sha256": "4c83f69ceb211c929301efa7c650ea5a64567cfe23a2978305fe711a7c7f8707",
+    "size": 992536392,
+    "unpackedSize": 3267094332,
+    "windows_smoke": "passed",
+    "linux_smoke": "not-run"
+  },
+  "verification": {
+    "public_archive_safe_extraction": "passed",
+    "packaged_gui": {
+      "version": "2026112302",
+      "commit": "c1fe8367687d22f87a0c720a9ce99dfce7ec31cd",
+      "identities": {
+        "zima-cad-cpp.exe": {
+          "product": "ZIMA-CAD",
+          "version": "2026112302",
+          "commit": "c1fe8367687d22f87a0c720a9ce99dfce7ec31cd",
+          "source_modified": false,
+          "platform": "windows-x64",
+          "qt": "6.11.0",
+          "occt": "8.0.1",
+          "compiler": "MSVC 19.51.36248.0",
+          "configuration": "Release"
+        },
+        "zima-cad-cli.exe": {
+          "product": "ZIMA-CAD",
+          "version": "2026112302",
+          "commit": "c1fe8367687d22f87a0c720a9ce99dfce7ec31cd",
+          "source_modified": false,
+          "platform": "windows-x64",
+          "qt": "6.11.0",
+          "occt": "8.0.1",
+          "compiler": "MSVC 19.51.36248.0",
+          "configuration": "Release"
+        }
+      },
+      "cases": [
+        {
+          "name": "render",
+          "exit_code": 0,
+          "seconds": 18.976,
+          "log_sha256": "072178f7bf9e0ad1b30343987d2309b2f338b1f1cbd713b3bca0a75816529fbe"
+        },
+        {
+          "name": "render-compact",
+          "exit_code": 0,
+          "seconds": 17.646,
+          "log_sha256": "0f4e2b8bf6f02f68af0af4eedfa9cdf50f88b9fbe77c8af15890d160b92894db"
+        },
+        {
+          "name": "holes",
+          "exit_code": 0,
+          "seconds": 9.604,
+          "log_sha256": "d22c710d6963c0822ef293ec5594b1c492922b5d7c342bf8fe42e2fd45540c3f"
+        },
+        {
+          "name": "hole-rollback",
+          "exit_code": 0,
+          "seconds": 2.304,
+          "log_sha256": "9da75a8f12a702de6460e364ec90dd19005784622fdd1aa1a137e577f063eddd"
+        },
+        {
+          "name": "offset",
+          "exit_code": 0,
+          "seconds": 27.345,
+          "log_sha256": "bd3c9aa0e6cf0dadc150d559201942ba00b4c25653b69376fb4ff8c21a57965f"
+        },
+        {
+          "name": "noncircular-offset",
+          "exit_code": 0,
+          "seconds": 177.071,
+          "log_sha256": "ff738796b5c83c24a61ad7bc5664c2c5434e05813e2092765d0f19c0bcb3a66b"
+        },
+        {
+          "name": "solid-state-failed",
+          "exit_code": 0,
+          "seconds": 2.508,
+          "log_sha256": "df99930a0b7d6da5eb119888a6ddc3a465d5fb18da1a0eeedd837ee92e607a65"
+        },
+        {
+          "name": "curve-fillet",
+          "exit_code": 0,
+          "seconds": 132.298,
+          "log_sha256": "16e4097e54158b3b3993ad2684e07bae0d5a32fc76973e90dc14df64fc76b0a2"
+        },
+        {
+          "name": "templates",
+          "exit_code": 0,
+          "seconds": 2.61,
+          "log_sha256": "183da00b1b36caaa06b391f2b3434bc8327ec424e8223d338aaac41cb5e3b494"
+        },
+        {
+          "name": "fem-body",
+          "exit_code": 0,
+          "seconds": 57.274,
+          "log_sha256": "8c0b2e4085d799accd394e0ec65cfa76f8d7f785feec19264f17694c5762d63d"
+        },
+        {
+          "name": "polyline-arc",
+          "exit_code": 0,
+          "seconds": 24.848,
+          "log_sha256": "2629d3897347c2a7ba30195979827515497b986bdb33bd87d976aa8f6502a3ba"
+        },
+        {
+          "name": "copied-circle",
+          "exit_code": 0,
+          "seconds": 30.893,
+          "log_sha256": "52e1f39b4c37c75accd944969c4c75fe7489d77958890ce3c832acf186f74842"
+        }
+      ],
+      "binary_sha256": {
+        "zima-cad-cpp.exe": "9b123409a3523f1d106ce48c77ee25451ab64cd19ff6d0558679cf862a37ebef",
+        "zima-cad-cli.exe": "867e314b61aa5b4b62aa5104758f93dcd84cd5eb266f1d58855cb6c2ad7f3bff",
+        "zima-cad-update.exe": "7b0baae2937579a746c1c8e43e3d80921c08c5078213d4ca527c12cc0859bb99"
+      },
+      "previous_attempt": {
+        "cases": [
+          {
+            "name": "render",
+            "exit_code": 0,
+            "seconds": 18.976,
+            "log_sha256": "072178f7bf9e0ad1b30343987d2309b2f338b1f1cbd713b3bca0a75816529fbe"
+          },
+          {
+            "name": "render-compact",
+            "exit_code": 0,
+            "seconds": 17.646,
+            "log_sha256": "0f4e2b8bf6f02f68af0af4eedfa9cdf50f88b9fbe77c8af15890d160b92894db"
+          },
+          {
+            "name": "holes",
+            "exit_code": 0,
+            "seconds": 9.604,
+            "log_sha256": "d22c710d6963c0822ef293ec5594b1c492922b5d7c342bf8fe42e2fd45540c3f"
+          },
+          {
+            "name": "hole-rollback",
+            "exit_code": 0,
+            "seconds": 2.304,
+            "log_sha256": "9da75a8f12a702de6460e364ec90dd19005784622fdd1aa1a137e577f063eddd"
+          },
+          {
+            "name": "offset",
+            "exit_code": 0,
+            "seconds": 27.345,
+            "log_sha256": "bd3c9aa0e6cf0dadc150d559201942ba00b4c25653b69376fb4ff8c21a57965f"
+          },
+          {
+            "name": "noncircular-offset",
+            "exit_code": 0,
+            "seconds": 177.071,
+            "log_sha256": "ff738796b5c83c24a61ad7bc5664c2c5434e05813e2092765d0f19c0bcb3a66b"
+          },
+          {
+            "name": "solid-state-failed",
+            "exit_code": 0,
+            "seconds": 2.508,
+            "log_sha256": "df99930a0b7d6da5eb119888a6ddc3a465d5fb18da1a0eeedd837ee92e607a65"
+          },
+          {
+            "name": "curve-fillet",
+            "exit_code": 1,
+            "seconds": 40.348,
+            "log_sha256": "146db51ca84c4355fa856065049445c6547fea92c9beda9def8da3b7c6069d88"
+          }
+        ],
+        "failure": "Curve Fillet test formed its localization directory with a narrow std::filesystem::path::string() conversion under the Unicode smoke-extraction path. The same unmodified binary and complete 38-case test passed from the clean ASCII staging package. Ordinary portable smoke, including FEM, passed from the Unicode extraction path.",
+        "test_harness_source": "cpp/app/sketch_curve_fillet_ui_verification.inc:47"
+      },
+      "case_log_directories": {
+        "render": "packaged-ui/render",
+        "render-compact": "packaged-ui/render-compact",
+        "holes": "packaged-ui/holes",
+        "hole-rollback": "packaged-ui/hole-rollback",
+        "offset": "packaged-ui/offset",
+        "noncircular-offset": "packaged-ui/noncircular-offset",
+        "solid-state-failed": "packaged-ui/solid-state-failed",
+        "curve-fillet": "clean-fillet/curve-fillet",
+        "templates": "remaining-ui/templates",
+        "fem-body": "remaining-ui/fem-body",
+        "polyline-arc": "remaining-ui/polyline-arc",
+        "copied-circle": "remaining-ui/copied-circle"
+      }
+    },
+    "public_and_local_binaries_match_gui_tested_candidate": true,
+    "updater_status": {
+      "event": "result",
+      "installedVersion": "2026112302",
+      "schemaVersion": 1,
+      "status": "idle",
+      "trusted": true
+    },
+    "updater_check": {
+      "event": "result",
+      "installedVersion": "2026112302",
+      "schemaVersion": 1,
+      "status": "current"
+    },
+    "local_development_installation": {
+      "launcher": "zima-cad.bat",
+      "identities": {
+        "zima-cad-cpp.exe": {
+          "product": "ZIMA-CAD",
+          "version": "2026112302",
+          "commit": "c1fe8367687d22f87a0c720a9ce99dfce7ec31cd",
+          "source_modified": false,
+          "platform": "windows-x64",
+          "qt": "6.11.0",
+          "occt": "8.0.1",
+          "compiler": "MSVC 19.51.36248.0",
+          "configuration": "Release"
+        },
+        "zima-cad-cli.exe": {
+          "product": "ZIMA-CAD",
+          "version": "2026112302",
+          "commit": "c1fe8367687d22f87a0c720a9ce99dfce7ec31cd",
+          "source_modified": false,
+          "platform": "windows-x64",
+          "qt": "6.11.0",
+          "occt": "8.0.1",
+          "compiler": "MSVC 19.51.36248.0",
+          "configuration": "Release"
+        }
+      },
+      "copied_files": [
+        {
+          "name": "zima-cad-cpp.exe",
+          "sha256": "9b123409a3523f1d106ce48c77ee25451ab64cd19ff6d0558679cf862a37ebef"
+        },
+        {
+          "name": "zima-cad-cli.exe",
+          "sha256": "867e314b61aa5b4b62aa5104758f93dcd84cd5eb266f1d58855cb6c2ad7f3bff"
+        },
+        {
+          "name": "zima-cad-update.exe",
+          "sha256": "7b0baae2937579a746c1c8e43e3d80921c08c5078213d4ca527c12cc0859bb99"
+        }
+      ],
+      "preserved_config_and_launcher": {
+        "zima-cad.bat": "2eecdbd63408afd05de6bdd800cfb56edd007ba0e86eb7a4e017bf10528263d0",
+        "config\\config.ini": "2be01c549d9464065f5cb75f30f961055b4ef1ee4bc0cff8af7e44ca62e13d72",
+        "config\\config.ini.1": "2be01c549d9464065f5cb75f30f961055b4ef1ee4bc0cff8af7e44ca62e13d72",
+        "config\\config.ini.2": "9b2fa5fc415df0419582e04d15c97fe90d7eee1a4b75fb56a9b25f0f9a566da8"
+      }
+    }
+  },
+  "limits": [
+    "Native Linux execution not performed.",
+    "Finite Sketcher and Render coverage is documented separately.",
+    "Post-release user evidence: ordinary Render marker strokes still use the model wire color; Properties marker visibility also needs correction. Labels are yellow. A follow-up fix is in progress.",
+    "CAM, image cropping, arbitrary nested nonlinear Offsets and all possible Straighten attachments are not included in this acceptance."
+  ]
+}

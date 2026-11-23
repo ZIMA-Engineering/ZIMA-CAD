@@ -1,5 +1,21 @@
 # Application updates
 
+Signed Windows [2026112302](releases/2026112302.md#distribution-status) was
+published at `2026-11-23T10:36:53Z` from immutable source
+`c1fe8367687d22f87a0c720a9ce99dfce7ec31cd`. It adds noncircular Offset tangency, supported Straighten
+attachment repairs, axis presentation fixes, Render interaction improvements and
+yellow FEM marks, annotation labels and FEM region boundaries. Ordinary Render
+marker stroke color and Properties preview visibility remain known follow-ups
+after user framebuffer evidence. Candidate and signed
+smoke, 1,185 factory native loads, twelve sheet-branch gates and twelve
+additional packaged GUI checks passed. Public digests, anonymous downloads,
+publisher signature, safe extraction and production updater trust/current status
+passed. Identical binaries are installed behind the unchanged development BAT;
+user settings were preserved. CAM and image cropping remain pending, and native
+Linux execution is unverified. See the
+[finite acceptance matrix](verification/20261123-offset-render-straighten.md) and
+[publication evidence](verification/20261123-windows-2302-publication.json).
+
 Signed Windows [2026112004](releases/2026112004.md#distribution-status) was
 published at `2026-11-20T21:41:22Z` from immutable source
 `0d571813e2f64ee917efe9d76bf5e7049c13dd92`. Projection and the preceding modeling

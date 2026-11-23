@@ -96,8 +96,12 @@ to the image Tree context menu. Export belongs to the image tab. Save to Part
 explicitly retains a result in the native document. Background rendering still
 uses an isolated scene snapshot while modeling continues.
 
-FEM marks and Render camera/light strokes and adjacent labels use dimension
-yellow. Owned planar/projected FEM Sketch region boundaries use the same color
+FEM marks and FEM/Render labels use dimension yellow. Render camera/light
+strokes carried yellow metadata, but subsequent user framebuffer evidence found
+that the ordinary GL wire pass did not honor it. Properties marker visibility
+also needs a follow-up. The earlier Render checks covered metadata and label
+pixels, not those actual strokes. Owned planar/projected FEM Sketch region
+boundaries use yellow
 in ordinary display and pending Properties, retaining the owning condition for
 selection. Projected display reuses the existing viewer-packet projection;
 native region geometry and authored Sketch editing colors are unchanged.
@@ -121,6 +125,20 @@ field of view instead of resetting an authored camera's projection.
 
 New or changed visible strings are present in cs/en/de/fr/ru. The annotation
 color and region changes add no text. Catalog validation and the affected local
-GUI checks have passed. Committed Windows packaging gates remain required.
+GUI checks have passed. Committed Windows packaging, signing and publication gates passed for
+2026112302; see the [publication evidence](20261123-windows-2302-publication.json).
 Private models, user configuration and temporary diagnostics are excluded from
 the change and release archives.
+
+## Portable test fixture follow-up
+
+The initial extra Curve Fillet GUI run stopped at its label assertion when run
+from the Unicode-named smoke extraction directory. Its test-only localization
+path uses `std::filesystem::path::string()` followed by `QString::fromStdString`,
+which loses that path's encoding on this Windows host. The identical packaged
+binary and full 38-case matrix passed from the clean ASCII staging package,
+including all five languages. The original failure, log digest and corrected
+run are retained in the publication evidence. The test harness's non-ASCII path
+variant remains a follow-up; ordinary package smoke, native library loading and
+FEM GUI passed in the Unicode extraction directory. No assertion was removed
+and no product binary changed between these runs.
