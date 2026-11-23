@@ -74,3 +74,16 @@ calculation, native save and rendered-View startup checks. The existing Fillet
 preview test also passed: 16/16 strokes, 10/10 labels, zero coordinate difference
 and Cancel restoration. Candidate SHA-256:
 `6B76A2AC1B8DCC1B764F07E84D9968DDB4EAC440D4D92742E7B0C4ADE7D1B1E6`.
+
+## Local deployment
+
+After the user closed the running application, the verified executable from
+deployment commit `03d20c0ff` replaced `build/cpp-windows-release/zima-cad-cpp.exe`.
+The previous executable was backed up and its hash verified first. The installed
+hash matches the candidate above, and its factory-template/solid/native-save/View
+startup check passed. The root `zima-cad.bat` entry point remains unchanged.
+
+The fix was also cherry-picked as `2f65c87c8` onto `codex/sketcher-mechanisms`,
+preserving the separate unfinished CAM work. This local executable contains
+the isolated Drawing/Section fixes, not that unfinished CAM work. This is a
+local development deployment, not a new published portable release.
