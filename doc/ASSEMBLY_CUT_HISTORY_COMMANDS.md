@@ -6,17 +6,15 @@ The user prefers a strict separation: Parts own geometry, multibody operations
 and CAM; Assemblies own component insertion, placement and constraints. A new
 machining Part takes Bodies from source Parts through the ordinary linked-Body
 workflow, then performs its own material operations and CAM. This is not a
-request to import an entire Assembly as a machining Part. Shared design Sketches
-and 3D curves should live in a source/skeleton Part rather than add another
-modeling context to the Assembly.
+request to import an entire Assembly as a machining Part. The final agreed
+Assembly authoring scope retains Point, Axis, Plane, Sketch, 3D Curve, Mirror
+and Pattern for references, layout and future mechanisms.
 
-The preferred final direction is to remove Assembly solid-authoring operations,
-rather than only hide their icons. Hiding authoring entry points can be an
-intermediate step; it does not itself remove persisted operations or calculation
-code. Before changing implementation or format, inventory existing Assembly cuts,
-their references and saved results, agree any required conversion, and verify
-copies under the native-format and protected-project rules. Do not silently drop
-existing geometry. The current commands documented below remain implemented.
+New Assembly material Extrusion/Revolution and conversion of reference geometry
+to material cuts are rejected in both GUI and CLI. Existing cut definitions,
+editing and calculation are retained without changing the native format or
+dropping authored geometry. The management commands below remain implemented.
+See the [workflow verification](verification/20261124-assembly-fem-workflow.md).
 
 The intended design offers Render in both Parts and Assemblies with the same
 behavior. The current Part implementation groups independent Render definitions

@@ -274,4 +274,5 @@ void transactions(){
 }
 #include "fem_distance_transactions.inc"
 #include "fem_confirmation_transactions.inc"
-int main(){try{serialization();marks();transactions();distance_transactions();fem_confirmation_transactions();std::cout<<"FEM condition serialization, validation, partial Projection region, marks, transactions, unresolved confirmation/repair, Undo/Redo, native reopen and no implicit CAD recalculation passed\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}
+#include "fem_placement_regeneration_tests.inc"
+int main(){try{serialization();marks();transactions();distance_transactions();fem_confirmation_transactions();fem_placement_regeneration();std::cout<<"FEM condition serialization, validation, partial Projection region, marks, transactions, unresolved confirmation/repair, Undo/Redo, native reopen and no implicit CAD recalculation passed\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

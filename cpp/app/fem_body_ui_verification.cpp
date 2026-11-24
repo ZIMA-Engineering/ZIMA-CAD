@@ -72,6 +72,17 @@ int verify_fem_body(QApplication& application,AssemblyWorkspaceWindow& window,co
             for(const auto& body:session.document().body_history.bodies())if(body.fem){fem=body.scope.id;break;}
             check(!fem.empty(),"FEM reproduction contains no FEM Body");
             window.activate_body(fem);flush();
+            if(qEnvironmentVariableIsSet("ZIMA_VERIFY_FEM_REGENERATE")) {
+                window.regenerate_document_action_->trigger();flush();
+                const auto& conditions=session.document().body_history.find(fem)->fem->conditions;
+                check(std::ranges::all_of(conditions,[](const auto& c){return c.placement.reference_valid;}),
+                    "FEM reproduction regeneration retained unresolved placements");
+                const auto output=directory/"fem-regenerated-copy.prtz";
+                session.document().save(output,session.calculated_boundaries());
+                const auto reopened=document::PartDocument::load(output);
+                check(reopened.body_history.find(fem)->fem->conditions==conditions,"Reopen changed regenerated FEM conditions");
+                std::cout<<"FEM native document regeneration: all condition placements resolved; native reopen preserved definitions\n";
+            }
             const auto revision=session.revision(),calculations=kernel::body_calculation_count.load();
             auto* progress=window.operation_progress_;
             unsigned mesh_ticks=0,solve_ticks=0;
@@ -88,7 +99,7 @@ int verify_fem_body(QApplication& application,AssemblyWorkspaceWindow& window,co
             });
             observer.start(20);
             window.generate_fem_mesh();flush();
-            check(window.active_generated_fem_mesh(),"FEM reproduction mesh generation failed");
+            if(!window.active_generated_fem_mesh())throw std::runtime_error("FEM reproduction mesh generation failed: "+window.state_->text().toStdString());
             solving=true;
             window.solve_fem_statics();flush();
             observer.stop();
@@ -246,6 +257,7 @@ int verify_fem_body(QApplication& application,AssemblyWorkspaceWindow& window,co
         check(!current()&&row(fem)&&row(fem)->childCount()==2&&window.active_fem_body(),"FEM creation did not activate its history-free Body");
         check(workspace::read_fem_source(session,fem).shares_with(snapshot),"FEM source packet was duplicated");
         check(view->mesh().triangles==snapshot->mesh.triangles&&view->mesh().vertices==snapshot->mesh.vertices,"Active FEM contains another or duplicate Body");
+#include "fem_origin_ui_verification.inc"
         for(auto* command:{window.sketch_action_,window.extrusion_action_,window.shell_action_,window.construction_axis_action_})check(!command->isEnabled(),"FEM enables material editing");
         check(window.fem_mode_button_->isVisible()&&!window.sheet_metal_mode_button_->isVisible(),"FEM mode buttons are incorrect");
         const auto mesh_controls=[&]{return session.document().body_history.find(fem)->fem->mesh;};
@@ -263,9 +275,26 @@ int verify_fem_body(QApplication& application,AssemblyWorkspaceWindow& window,co
             button->click();flush();
             check(opened,"FEM sidebar click did not open its menu");
         };
-        sidebar_menu(mesh_menu);
+        const auto sidebar_action=[&](QAction* action) {
+            window.tools_toolbar_->layout()->activate();flush();
+            auto* button=qobject_cast<QToolButton*>(window.tools_toolbar_->widgetForAction(action));
+            check(button&&button->isVisible()&&button->defaultAction()==action&&!action->menu(),
+                "FEM direct command is missing its shared sidebar button");
+            check(button->isCheckable()==action->isCheckable()&&button->isChecked()==action->isChecked(),
+                "FEM sidebar toggle lost its checked state");
+            return button;
+        };
+        const auto sidebar_actions=window.tools_toolbar_->actions();
+        const auto current_sidebar_action=[&](const char* name)->QAction* {
+            for(auto* action:window.tools_toolbar_->actions())if(action->objectName()==name)return action;
+            return nullptr;
+        };
+        check(sidebar_actions.indexOf(current_sidebar_action("femBodyPropertiesAction"))==
+            sidebar_actions.indexOf(window.selection_action_)+1,"FEM Body properties is not directly below Selection");
+        for(auto* action:mesh_menu->actions())sidebar_action(action);
+        check(!window.tools_toolbar_->widgetForAction(mesh_menu->menuAction()),"FEM still exposes the Mesh popup");
 #ifdef ZIMA_ENABLE_FEM_MESHER
-        sidebar_menu(window.findChild<QMenu*>("femCalculationMenu"));
+        for(auto* action:window.findChild<QMenu*>("femCalculationMenu")->actions())sidebar_action(action);
 #endif
         const auto open_settings=[&] {
             mesh_settings->trigger();flush();
@@ -282,12 +311,13 @@ int verify_fem_body(QApplication& application,AssemblyWorkspaceWindow& window,co
             const auto* packet=window.active_generated_fem_mesh();
             check(packet&&!packet->triangles.empty()&&!packet->edges.empty(),"FEM did not generate a drawable volume-mesh boundary");
             check(show_mesh->isChecked()&&view->mesh().triangles==packet->triangles,"FEM did not display the generated mesh");
+            check(sidebar_action(show_mesh)->isChecked(),"Displayed FEM mesh has no active sidebar state");
             check(!window.operation_activity_->active()&&window.operation_progress_->value()==100,
                 "FEM mesh progress was not completed");
             const auto progress_generation=window.operation_progress_generation_;
             generate->trigger();flush();
             check(window.operation_progress_generation_==progress_generation,"Cached FEM mesh restarted progress");
-            show_mesh->trigger();flush();
+            sidebar_action(show_mesh)->click();flush();
             check(!show_mesh->isChecked()&&view->mesh().triangles==snapshot->mesh.triangles,"FEM mesh toggle did not restore the source");
         };
         if(generate) {
@@ -560,7 +590,12 @@ int verify_fem_body(QApplication& application,AssemblyWorkspaceWindow& window,co
             apply_application_translations(application,settings);
 #ifdef ZIMA_ENABLE_FEM_MESHER
             window.rebuild_application_toolbar();
-            sidebar_menu(mesh_menu);
+            for(auto* action:mesh_menu->actions())sidebar_action(action);
+            for(const auto& entry:std::vector<std::pair<const char*,const char*>>{
+                    {"femMeshSettingsAction","Mesh settings"},{"femGenerateMeshAction","Generate mesh"},
+                    {"femShowMeshAction","Show mesh"},{"femBodyPropertiesAction","FEM Body properties"}})
+                check(current_sidebar_action(entry.first)&&current_sidebar_action(entry.first)->text()==settings.qt_translations.value(entry.second),
+                    "FEM direct sidebar command did not translate");
             const auto* calculation=window.findChild<QMenu*>("femCalculationMenu");
             const auto* solve=window.findChild<QAction*>("femLinearStaticsAction");
             const auto* deformation=window.findChild<QAction*>("femShowDeformationAction");
@@ -779,6 +814,16 @@ int verify_fem_body(QApplication& application,AssemblyWorkspaceWindow& window,co
                 apply_application_translations(application,localized);window.update_fem_result_presentation();
                 for(const auto* theme:{"dark","light"}) {
                     localized.theme=theme;apply_application_appearance(application,localized);
+                    window.rebuild_application_toolbar();flush();
+                    auto* display=window.findChild<QAction*>("femShowDeformationAction");
+                    auto* display_button=sidebar_action(display);
+                    check(display->isChecked(),"FEM result display is not marked active");
+                    const auto image=display_button->grab().toImage();unsigned azure=0;
+                    for(int y=0;y<image.height();++y)for(int x=0;x<image.width();++x) {
+                        const auto color=image.pixelColor(x,y);
+                        if(color.red()<40&&color.green()>150&&color.blue()>180)++azure;
+                    }
+                    check(azure>unsigned(image.width()*image.height()/3),"Active FEM sidebar button is not azure in this theme");
                     settings_action->trigger();flush();
                     auto* form=window.findChild<QDialog*>("femDeformationSettingsDialog");
                     check(form,"Localized deformation settings are missing");

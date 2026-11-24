@@ -43,6 +43,15 @@ void commit_assembly_profile(Workspace& live, const kernel::OcctKernel& kernel,
         throw ProfileOperationError("invalid_arguments", "An Assembly profile must subtract material.");
     const auto& before = state->session.document();
     const auto* existing = before.find_cut(value.id);
+    const auto material_profile=[](const auto& definition) {
+        return definition.feature_kind!=document::FeatureKind::Feature||
+            definition.feature.type>=document::FeatureType::Modeling;
+    };
+    // Keep authored cut data editable and regenerable. New Assembly geometry
+    // is reference geometry for layout/mechanisms; material belongs to Parts.
+    if(material_profile(value)&&!(mode==ProfileEditMode::Replace&&existing&&
+            material_profile(existing->definition)))
+        throw ProfileOperationError("unsupported_document", "Create Extrusion and Revolution in a Part. Assemblies support reference geometry.");
     if (mode == ProfileEditMode::Create) {
         if (existing || before.find_sketch_container(value.id) || value.id.empty() || value.feature_id.empty())
             throw ProfileOperationError("identity_changed", "A new container must have a new nonempty identity.");

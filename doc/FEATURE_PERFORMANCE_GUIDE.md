@@ -177,5 +177,10 @@ separately from those checks. The finite large-import evidence is in the
   demand and complete disposable intermediate packets during idle time. The
   measured GUI result remains above the three-second early-edit target.
 
+- [Body reordering across FEM](verification/20261124-assembly-fem-workflow.md):
+  validate dependency order and exact calculation inputs before recording a
+  metadata-only reorder. Compare a fresh result and real Tree mouse interaction
+  in addition to CLI timings.
+
 These are patterns to evaluate, not feature lists to copy blindly. Their reported
 percentages apply only to the recorded operations and fixtures.

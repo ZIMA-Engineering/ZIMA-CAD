@@ -3,6 +3,7 @@
 #pragma once
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/profile_operations.hpp>
+#include <zima/document/feature_serialization.hpp>
 #include <algorithm>
 #include <cmath>
 #include <stdexcept>
@@ -44,9 +45,44 @@ struct Fixture {
     workspace::AssemblyState& state(){return *live.open_assembly(owner);}
     const assembly::AssemblyDocument& doc(){return state().session.document();}
     double volume(const std::string& target){return zima::test::measured_volume(kernel,doc().find_occurrence(target)->calculated_source.get());}
+    // Existing native cuts remain supported. Seed their authored data directly;
+    // production commands no longer create material operations in Assemblies.
+    Json seed_feature(Json args) {
+        if(live.open_part(live.active_document_id()))return run("feature.create",std::move(args));
+        const auto sketch_id=args.at("sketch").get<std::string>();
+        auto value=workspace::profile_from_sketch(doc(),sketch_id,document::FeatureKind::Feature);
+        auto parameters=document::serialize_feature_parameters(value.feature);
+        if(args.contains("parameters")) {
+            auto patch=args.at("parameters");
+            if(patch.contains("sides"))for(auto& side:patch["sides"])
+                if(side.value("operation",std::string{})=="extrude")side["operation"]="extrusion";
+            parameters.merge_patch(patch);
+        }
+        value.feature=document::load_feature_parameters(parameters);value.feature.sketch_id=sketch_id;
+        const auto id=value.id;
+        auto next=live.prepare_assembly_calculation(owner);
+        auto& sketch=*std::ranges::find(next.sketches,sketch_id,&sketcher::Sketch::id);
+        if(args.value("profile_plane",std::string{})=="AUTO")sketch.plane_auto=true;
+        if(value.feature.effective_side(0).operation==document::FeatureSideOperation::Revolution||
+                value.feature.effective_side(1).operation==document::FeatureSideOperation::Revolution)
+            value.feature.axis_segment_id=workspace::prepare_revolution_axis(sketch,value.feature.axis_segment_id,true);
+        sketch.owner_container_id=id;sketch.plane_offset=value.feature.profile_plane_offset;
+        workspace::normalize_owned_profile_front_references(value);
+        std::erase_if(next.sketch_containers,[&](const auto& row){return row.id==id;});
+        for(auto& row:next.history_order)if(row.id==id)row.kind=assembly::AssemblyDocument::HistoryKind::Cut;
+        auto targets=args.value("targets",std::vector<std::string>{});
+        if(!args.contains("targets"))for(const auto& occurrence:next.components)
+            if(occurrence.source_kind==assembly::ComponentSourceKind::Part&&!occurrence.derived_copy)
+                targets.push_back(occurrence.occurrence_id);
+        next.cuts.push_back({std::move(value),std::move(targets)});
+        next.synchronize_history();next.validate_sketch_containers();
+        workspace::calculate_resolved_assembly_cuts(kernel,next,false,&live);
+        state().session.commit(std::move(next));
+        return run("feature.get",{{"container",id}});
+    }
     Json create_feature(const std::string& sketch,document::FeatureParameters parameters={},Json extra=Json::object()) {
         auto values=zima::test::public_feature_parameters(parameters);values.erase("sketch_id");
-        extra["sketch"]=sketch;extra["parameters"]=std::move(values);return run("feature.create",std::move(extra));
+        extra["sketch"]=sketch;extra["parameters"]=std::move(values);return seed_feature(std::move(extra));
     }
     template<class Edit> Json set_feature(const std::string& id,Edit edit,Json extra=Json::object()) {
         auto values=zima::test::public_feature_parameters(doc().find_cut(id)->definition.feature);edit(values);

@@ -722,21 +722,19 @@ int main(int argc,char** argv){
         const auto referenced_body=zima::test::load_part_with_properties(body_reference_path).body_history.find(body_reference_target)->scope.placement;
         require(referenced_body.z==7&&referenced_body.references[0].owner_id==body_reference_source&&referenced_body.references[0].offset==7,"CLI lost native Body source or offset");
 
-        result=launch(executable,root,common+QStringList{"--command","new part cli-cut-source","--command","@fixture.rectangular 10 10 10","--command","save"});
-        require(result.exit_code==0,"CLI cut source creation failed");
-        const auto cut_source=zima::test::load_part_with_properties(project/"cli-cut-source.prtz");
-        const auto insert_cut_source=command({{"command","component.insert"},{"arguments",{{"source",cut_source.document_id}}}});
-        result=launch(executable,root,common+QStringList{"--command","open cli-cut-source.prtz","--command","new assembly cli-profile-cuts","--command",insert_cut_source,"--command",insert_cut_source,"--command","sketch.create CutProfile XY","--command","save"});
-        require(result.exit_code==0,"CLI cut Assembly creation failed");
-        const auto cut_path=project/"cli-profile-cuts.asmz";const auto cut_fixture=assembly::AssemblyDocument::load(cut_path);
-        const auto cut_sketch=cut_fixture.sketches.front().id,cut_target=cut_fixture.components.front().occurrence_id;
-        QStringList cut_commands{"--command","open cli-profile-cuts.asmz"};
-        for(const auto& points:std::vector<std::array<double,4>>{{-1,-1.5,1,-1.5},{1,-1.5,1,1.5},{1,1.5,-1,1.5},{-1,1.5,-1,-1.5}})
-            cut_commands<<"--command"<<command({{"command","sketch.segment.create"},{"arguments",{{"sketch",cut_sketch},{"first",{points[0],points[1]}},{"second",{points[2],points[3]}},{"snap_mm",0.000001}}}});
-        cut_commands<<"--command"<<command({{"command","feature.create"},{"arguments",{{"sketch",cut_sketch},{"parameters",zima::test::feature_profile_parameters(4)},{"targets",{cut_target}}}}})
-                    <<"--command"<<"undo"<<"--command"<<"redo"<<"--command"<<"save"<<"--command"<<"assembly.cut.list";
-        result=launch(executable,root,common+cut_commands);
-        require(result.exit_code==0&&result.results().back().at("data").at("total")==1,"CLI Assembly cut or history failed");
+        kernel::OcctKernel cut_kernel;
+        assembly_profile_test::Fixture cut_seed(cut_kernel,project,"cli-profile-cuts");
+        const auto cut_path=project/"cli-profile-cuts.asmz";
+        const auto cut_sketch=cut_seed.rectangle(-1,-1.5,2,3),cut_target=cut_seed.first;
+        cut_seed.run("save");
+        const Json cut_args={{"sketch",cut_sketch},{"parameters",zima::test::feature_profile_parameters(4)},{"targets",{cut_target}}};
+        result=launch(executable,root,common+QStringList{"--command","open cli-profile-cuts.asmz",
+            "--command",command({{"command","feature.create"},{"arguments",cut_args}})});
+        require(result.exit_code!=0&&result.results().back().at("code")=="unsupported_document",
+            "CLI still creates material operations in an Assembly");
+        cut_seed.seed_feature(cut_args);cut_seed.run("save");
+        result=launch(executable,root,common+QStringList{"--command","open cli-profile-cuts.asmz","--command","assembly.cut.list"});
+        require(result.exit_code==0&&result.results().back().at("data").at("total")==1,"CLI cannot reopen an authored Assembly cut");
         const auto cut_saved=assembly::AssemblyDocument::load(cut_path);
         require(cut_saved.cuts.front().target_occurrence_ids==std::vector<std::string>{cut_target}&&cut_saved.sketches.front().owner_container_id==cut_saved.cuts.front().definition.id,"CLI cut lost native ownership");
         require(std::abs(cut_saved.components.front().calculated_source->volume-976)<1e-6&&std::abs(cut_saved.components.back().calculated_source->volume-1000)<1e-6,"CLI cut changed wrong occurrence or volume");
@@ -952,7 +950,7 @@ int main(int argc,char** argv){
                 const auto axis=fixture.line(sketch,0,0,0,4);
                 fixture.run("sketch.segment.centerline",{{"sketch",sketch},{"segment",axis},{"centerline",true}});
             }
-            const std::string cut=fixture.run("feature.create",create).at("container");fixture.run("save");
+            const std::string cut=fixture.seed_feature(create).at("container");fixture.run("save");
             const auto set=command({{"command","placement.reference.set"},{"arguments",{{"object",cut},{"index",0},
                 {"reference",{{"owner",fixture.owner+":origin"},{"key","origin:plane:xy"}}},{"offset_mm",1}}}});
             const auto get=command({{"command","feature.get"},{"arguments",{{"container",cut}}}});

@@ -160,6 +160,12 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
         return;
     }
     const bool assembly_cut = assembly != nullptr;
+    if(assembly_cut&&container_id.empty()) {
+        if(feature_kind!=zima::document::FeatureKind::Feature||
+                (feature_preset&&*feature_preset>=zima::document::FeatureType::Modeling))return;
+        if(!feature_preset)feature_preset=zima::document::FeatureType::Point;
+    }
+    if(assembly_cut&&feature_preset&&*feature_preset>=zima::document::FeatureType::Modeling)return;
     if (assembly_cut && feature_kind != zima::document::FeatureKind::Extrusion &&
         feature_kind != zima::document::FeatureKind::Revolution && feature_kind!=zima::document::FeatureKind::Feature) return;
     std::string source_sketch_id;

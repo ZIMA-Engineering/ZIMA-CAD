@@ -377,8 +377,10 @@ public:
         operation_group_->button(0)->setEnabled(false);
         if(auto* model=qobject_cast<QStandardItemModel*>(result_->model()))model->item(1)->setEnabled(false);
         if(result_->currentIndex()==1)result_->setCurrentIndex(0);
-        if(auto* model=qobject_cast<QStandardItemModel*>(type_->model()))
-            if(auto* item=model->item(static_cast<int>(document::FeatureType::Projection)))item->setEnabled(false);
+        if(auto* model=qobject_cast<QStandardItemModel*>(type_->model())) {
+            model->item(static_cast<int>(document::FeatureType::Projection))->setEnabled(false);
+            model->item(static_cast<int>(document::FeatureType::Modeling))->setEnabled(initial_.type==document::FeatureType::Modeling);
+        }
     }
     void bind_side_locks(std::set<std::string>& locks,std::function<void()> changed) {
         locks_=&locks;locks_changed_=std::move(changed);

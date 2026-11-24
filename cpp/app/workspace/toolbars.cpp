@@ -191,9 +191,13 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
             !workspace_.open_drawing(workspace_.displayed_document_id());
         fem_mesh_menu_->menuAction()->setVisible(fem_active);
         fem_mesh_menu_->setEnabled(fem_active&&!properties_dialog_);
+        for(auto* action:fem_mesh_menu_->actions())action->setEnabled(fem_active&&!properties_dialog_);
+        fem_mesh_menu_->findChild<QAction*>("femMeshSettingsAction")->setText(tr("Mesh settings"));
+        if(auto* generate=fem_mesh_menu_->findChild<QAction*>("femGenerateMeshAction"))generate->setText(tr("Generate mesh"));
         if(auto* show=fem_mesh_menu_->findChild<QAction*>("femShowMeshAction")) {
+            show->setText(tr("Show mesh"));
             const bool available=fem_active&&active_generated_fem_mesh();
-            show->setEnabled(available);
+            show->setEnabled(available&&!properties_dialog_);
             show->setChecked(available&&show_generated_fem_mesh_&&
                 !(show_fem_deformation_&&active_fem_deformation()));
         }
@@ -201,13 +205,14 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
             fem_solution_menu_->setTitle(tr("Calculation"));
             fem_solution_menu_->menuAction()->setVisible(fem_active);
             fem_solution_menu_->setEnabled(fem_active&&!properties_dialog_);
+            for(auto* action:fem_solution_menu_->actions())action->setEnabled(fem_active&&!properties_dialog_);
             fem_solution_menu_->findChild<QAction*>("femLinearStaticsAction")->setText(
                 fem_analysis_kind()==document::FemAnalysisKind::ThermalMechanical?tr("Thermal-mechanical analysis"):
                 fem_thermal_analysis()?tr("Steady-state thermal analysis"):tr("Linear statics"));
             auto* show=fem_solution_menu_->findChild<QAction*>("femShowDeformationAction");
             show->setText(fem_thermal_analysis()?tr("Show temperatures"):tr("Show deformation"));
             const bool available=fem_active&&active_fem_deformation();
-            show->setEnabled(available);
+            show->setEnabled(available&&!properties_dialog_);
             show->setChecked(available&&show_fem_deformation_);
         }
     }
@@ -331,6 +336,9 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
         }
         if(!properties_dialog_)viewer_->set_candidate_filter([this](const auto& c){return active_fem_condition(c.owner_id)!=nullptr;});
         add_command(selection_action_);
+        auto* edit=new QAction(resource_icon("properties"),tr("FEM Body properties"),tools_toolbar_);edit->setObjectName("femBodyPropertiesAction");
+        edit->setEnabled(!properties_dialog_);connect(edit,&QAction::triggered,this,[this]{
+            const auto* part=workspace_.open_part(workspace_.active_document_id());if(part)show_fem_body_properties(part->session.document().body_history.active_body_id());});add_command(edit);
         for(auto kind:{document::FemConditionKind::Constraint,document::FemConditionKind::Force,document::FemConditionKind::Pressure,document::FemConditionKind::HeatSource,document::FemConditionKind::MeasurementPoint,document::FemConditionKind::MeasurementDistance}) {
             if(!document::fem_measurement(kind)&&!document::fem_condition_applies_to_analysis(kind,
                     fem_analysis_kind(),fem_expansion_analysis()))continue;
@@ -340,12 +348,12 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
             auto* action=new QAction(resource_icon(icon),name,tools_toolbar_);action->setObjectName(QString("fem%1Action").arg(key));
             action->setEnabled(!properties_dialog_);connect(action,&QAction::triggered,this,[this,kind]{show_fem_condition_properties(kind);});add_command(action);
         }
-        auto* edit=new QAction(resource_icon("properties"),tr("FEM Body properties"),tools_toolbar_);edit->setObjectName("femBodyPropertiesAction");
-        edit->setEnabled(!properties_dialog_);connect(edit,&QAction::triggered,this,[this]{
-            const auto* part=workspace_.open_part(workspace_.active_document_id());if(part)show_fem_body_properties(part->session.document().body_history.active_body_id());});add_command(edit);
         add_group_separator();
-        add_command(fem_mesh_menu_->menuAction(),false);
-        if(fem_solution_menu_)add_command(fem_solution_menu_->menuAction(),false);
+        for(auto* action:fem_mesh_menu_->actions())add_command(action,false);
+        if(fem_solution_menu_) {
+            add_group_separator();
+            for(auto* action:fem_solution_menu_->actions())add_command(action,false);
+        }
         if(fem_results_menu_)add_command(fem_results_menu_->menuAction(),false);
         return;
     }
@@ -633,7 +641,7 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
         add_command(insert_action_);
         add_group_separator();
         if(auto* feature=findChild<QAction*>("featurePrototypeAction"))add_command(feature);
-        for(int i=0;i<6;++i)
+        for(int i=0;i<4;++i)
             if(auto* shortcut=findChild<QAction*>(QStringLiteral("featureShortcut%1Action").arg(i)))add_command(shortcut);
         add_command(curve_3d_action_);
         tools_toolbar_->addSeparator();

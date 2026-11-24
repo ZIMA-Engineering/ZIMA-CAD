@@ -6962,6 +6962,10 @@ void PartDocument::resolve_constructions(
         auto next = *this;
         append_reference_geometry(source_geometry, origin_viewer_mesh().original_references);
         append_reference_geometry(source_geometry, body_origin_reference_geometry());
+        const bool analysis_frames=std::ranges::any_of(body_history.bodies(),[](const auto& body) {
+            return (body.fem&&!body.fem->conditions.empty())||
+                (body.render&&!body.render->objects.empty())||body.cam.has_value();
+        });
         const auto final_material_body=std::find_if(body_history.bodies().rbegin(),body_history.bodies().rend(),
             [](const auto& candidate){return candidate.kind()==BodyKind::Material;});
         for (const auto& original_body : body_history.bodies()) {
@@ -7076,8 +7080,11 @@ void PartDocument::resolve_constructions(
             // the full source packet for Body placement and later branches,
             // but do not transform/copy it into a carrier with no consumers.
             if (!independent_imports) {
+                // Analysis frames still consume this world-space packet after
+                // the last material carrier. Moving it here emptied valid FEM
+                // face references before their placement could be resolved.
                 auto local_geometry = transform_reference_geometry(
-                    final_body ? std::move(source_geometry) : source_geometry,
+                    final_body&&!analysis_frames ? std::move(source_geometry) : source_geometry,
                     body.scope.translation(), body.scope.rotation_degrees());
                 append_reference_geometry(local_origin,std::move(local_geometry));
                 local_views=boundary_views;
@@ -7102,7 +7109,7 @@ void PartDocument::resolve_constructions(
                 const auto target = std::ranges::find_if(next.sketches, [&](const auto& value) { return value.id == sketch.id; });
                 *target = std::move(sketch);
             }
-            // The final branch has no subsequent reference consumer. Its
+            // The final branch needs no additional published datum packet. Its
             // resolved definitions are already stored in next; do not assemble
             // an unused full reference packet solely to discard it on return.
             if(final_body)continue;
@@ -7120,8 +7127,7 @@ void PartDocument::resolve_constructions(
         }
         // Analysis frames consume the current resolved material references.
         // A failed solve retains the authored frame for display and repair.
-        if(std::ranges::any_of(body_history.bodies(),[](const auto& body){
-                return (body.fem&&!body.fem->conditions.empty())||(body.render&&!body.render->objects.empty())||body.cam.has_value();})) {
+        if(analysis_frames) {
           auto fem_geometry=next.body_origin_reference_geometry();
           append_reference_geometry(fem_geometry,source_geometry);
           const PlacementReferenceGeometryIndex fem_index(fem_geometry);

@@ -392,9 +392,14 @@ anchored. The shared properties-window implementation owns this layout policy.
 
 ## Assembly editing ownership
 
-- Assembly Extrusion and Revolution always subtract material from selected
-  immediate Part occurrences. Creation, editing and conversion of a standalone
-  Sketch must never add material. GUI and CLI enforce this same rule.
+- New Extrusion and Revolution material features belong to Parts. Assemblies
+  retain Point, Axis, Plane, Sketch, 3D Curve, Mirror and Pattern authoring for
+  references, layouts and future mechanisms. GUI and CLI reject new material
+  profiles and conversion of Assembly reference geometry into material cuts.
+- Existing authored Assembly cuts retain their definitions, Properties and
+  explicit regeneration. They subtract only from selected immediate Part
+  occurrences; editing must never change them into additive material.
+- This authoring scope was confirmed by the user on 2026-11-24.
 
 - Every component is positioned only by its immediate owning Assembly. A
   parent Assembly treats an inserted subassembly as one component and must not

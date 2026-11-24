@@ -183,7 +183,7 @@ void conversion(const kernel::OcctKernel& kernel,const fs::path& directory,bool 
     auto values=zima::test::public_feature_parameters(parameters);values.erase("sketch_id");
     Json args={{"sketch",sketch},{"targets",{f.first}},{"parameters",values}};
     const std::string command="feature.create";
-    require(f.run(command.c_str(),args).at("container")==owner.id,"Conversion replaced owning container");
+    require(f.seed_feature(args).at("container")==owner.id,"Conversion replaced owning container");
     const auto* cut=f.doc().find_cut(owner.id);
     require(cut&&cut->definition.container_origin==owner.container_origin&&cut->definition.combine_mode==document::CombineMode::Subtract&&
         f.doc().sketch_containers.empty(),"Conversion lost Origin, duplicated owner, or added material");

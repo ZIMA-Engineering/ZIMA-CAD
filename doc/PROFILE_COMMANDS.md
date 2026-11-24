@@ -85,10 +85,12 @@ reference identity and dependent history remain in the native document.
 
 ## Transactions and Assembly cuts
 
-A Part edit requires the active editable owning Body. Assembly modeling always
-subtracts from selected immediate Part occurrences. Top-level `targets` contains
-those occurrence IDs; omitted creation targets select current unsuppressed editable
-immediate Parts, while omitted edit targets retain the stored list. Duplicate,
+A Part edit requires the active editable owning Body. Since 2026-11-24, new
+material profiles belong to Parts; Assembly creation and conversion to material
+are rejected. Assembly reference features remain supported. Existing Assembly
+cuts can still be edited and regenerated and always subtract from selected
+immediate Part occurrences. Top-level `targets` contains those occurrence IDs;
+omitted edit targets retain the stored list. Duplicate,
 unknown, derived, or internal subassembly targets are rejected. Source Parts are
 read-only inputs, including their current unsaved calculated geometry.
 

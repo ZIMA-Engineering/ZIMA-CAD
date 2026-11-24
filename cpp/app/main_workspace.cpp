@@ -11913,6 +11913,7 @@ int verify_selection_filter(QApplication& application,
 #include "rounded_tangent_wing_ui_verification.inc"
 
 #include "derived_copy_save_ui_verification.inc"
+#include "assembly_reference_tools_ui_verification.inc"
 #include "import_interaction_ui_verification.inc"
 #include "profile_edit_visibility_ui_verification.inc"
 
@@ -11966,6 +11967,7 @@ int verify_startup_contract(
     if(qEnvironmentVariableIsSet("ZIMA_VERIFY_IMPORTED_BODY_ONLY"))return verify_imported_body_interaction(application,window,test_directory);
     if(qEnvironmentVariableIsSet("ZIMA_VERIFY_PROFILE_EDIT_VISIBILITY_ONLY"))return verify_profile_edit_visibility(application,window);
     if(qEnvironmentVariableIsSet("ZIMA_VERIFY_COPY_SAVE_ONLY"))return verify_derived_copy_save(application,window,test_directory);
+    if(qEnvironmentVariableIsSet("ZIMA_VERIFY_ASSEMBLY_REFERENCE_TOOLS_ONLY"))return verify_assembly_reference_tools(application,window,test_directory);
     if(qEnvironmentVariableIsSet("ZIMA_VERIFY_COMPACT_WINDOW_ONLY")) {
         window.show();
         auto* document_toolbar=window.findChild<QToolBar*>("mainToolbar");

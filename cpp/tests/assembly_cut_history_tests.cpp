@@ -5,9 +5,9 @@ using namespace assembly_profile_test;
 namespace {
 void verify(const kernel::OcctKernel& kernel,const fs::path& directory) {
     Fixture f(kernel,directory,"cut-history");const auto sketch1=f.rectangle(-1,-1.5,2,3);
-    const std::string first=f.run("feature.create",{{"sketch",sketch1},{"parameters",zima::test::feature_profile_parameters(4)},{"targets",{f.first}}}).at("container");
+    const std::string first=f.seed_feature({{"sketch",sketch1},{"parameters",zima::test::feature_profile_parameters(4)},{"targets",{f.first}}}).at("container");
     const auto sketch2=f.rectangle(2,0,1,2);
-    const std::string second=f.run("feature.create",{{"sketch",sketch2},{"parameters",zima::test::feature_profile_parameters(3)},{"targets",{f.first}}}).at("container");
+    const std::string second=f.seed_feature({{"sketch",sketch2},{"parameters",zima::test::feature_profile_parameters(3)},{"targets",{f.first}}}).at("container");
     near(f.volume(f.first),970);near(f.volume(f.second),1000);
     near(f.doc().find_cut(second)->input_component_bodies.at(f.first).volume,976);
     // A profile edited after calculation still references its own input body,
@@ -76,7 +76,7 @@ void verify(const kernel::OcctKernel& kernel,const fs::path& directory) {
 }
 void lost_reference(const kernel::OcctKernel& kernel,const fs::path& directory) {
     Fixture f(kernel,directory,"cut-lost-reference");const auto profile=f.rectangle(-1,-1.5,2,3);
-    const std::string cut=f.run("feature.create",{{"sketch",profile},{"parameters",zima::test::feature_profile_parameters(4)},{"targets",{f.first}}}).at("container");
+    const std::string cut=f.seed_feature({{"sketch",profile},{"parameters",zima::test::feature_profile_parameters(4)},{"targets",{f.first}}}).at("container");
     const std::string survivor=f.run("sketch.create",{{"name","Dependent curve"},{"plane","XY"}}).at("sketch");
     auto next=f.doc();auto& sketch=*std::ranges::find(next.sketches,survivor,&sketcher::Sketch::id);
     auto reference=sketcher::Sketch::create_external_reference(sketcher::ExternalReferenceKind::Edge);

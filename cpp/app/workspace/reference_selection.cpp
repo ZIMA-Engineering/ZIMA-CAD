@@ -1,4 +1,5 @@
 #include "workspace_internal.hpp"
+#include "../fem_condition_dialog.hpp"
 #include "../confirmed_face_hit.hpp"
 #include <zima/document/placement_surface.hpp>
 #include <zima/document/placement_reference_geometry.hpp>
@@ -419,7 +420,8 @@ void AssemblyWorkspaceWindow::set_primitive_properties_dimension_selection() {
 
 bool AssemblyWorkspaceWindow::placement_origin_allowed(const std::string& owner_id) const {
     const auto* part = workspace_.open_part(workspace_.active_document_id());
-    if (!part || section_dialog_ || dynamic_cast<BodyPropertiesDialog*>(primitive_reference_dialog_)) return true;
+    if (!part || section_dialog_ || dynamic_cast<BodyPropertiesDialog*>(primitive_reference_dialog_) ||
+            dynamic_cast<FemConditionDialog*>(primitive_reference_dialog_)) return true;
     const auto& document = part->session.document();
     const bool body_feature = !document.body_history.active_body_id().empty() ||
         document.body_owner_for_object(primitive_parameter_owner_id_) ||

@@ -119,8 +119,8 @@ void verify(const kernel::OcctKernel& kernel,const fs::path& directory) {
 
     // The general history command delegates cuts to their calculated transaction.
     const auto sketch_a=f.rectangle(-4,-4,1,1),sketch_b=f.rectangle(2,2,1,1);
-    const std::string cut1=f.run("feature.create",{{"sketch",sketch_a},{"parameters",zima::test::feature_profile_parameters(1)},{"targets",{f.first}}}).at("container");
-    const std::string cut2=f.run("feature.create",{{"sketch",sketch_b},{"parameters",zima::test::feature_profile_parameters(2)},{"targets",{f.first}}}).at("container");
+    const std::string cut1=f.seed_feature({{"sketch",sketch_a},{"parameters",zima::test::feature_profile_parameters(1)},{"targets",{f.first}}}).at("container");
+    const std::string cut2=f.seed_feature({{"sketch",sketch_b},{"parameters",zima::test::feature_profile_parameters(2)},{"targets",{f.first}}}).at("container");
     near(f.volume(f.first),997);
     const auto cut_revision=f.state().session.revision();
     require(f.run("history.can_move",{{"object",cut2},{"before",cut1}}).at("body_calculated")==false &&

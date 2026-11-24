@@ -49,6 +49,31 @@ void require_editable(const document::PartDocument& document,const std::string& 
         owner && owner->scope.id!=document.body_history.active_body_id())
         throw HistoryOperationError("inactive_body", "Activate the owning Body before editing its history.");
 }
+bool unchanged_geometry_across_fem(const document::PartDocument& before,
+        const document::PartDocument& after,const std::vector<kernel::BodyResult>& calculated) {
+    if(calculated.empty())return false;
+    // Only cross analysis rows. Moving material branches relative to one
+    // another still uses the full reference/calculation validation below.
+    const auto material_order=[](const auto& document) {
+        auto order=document.body_history.order();
+        std::erase_if(order,[&](const auto& id) {
+            const auto* body=document.body_history.find(id);
+            return body&&body->kind()==document::BodyKind::Fem;
+        });
+        return order;
+    };
+    if(material_order(before)!=material_order(after))return false;
+    for(const auto& body:before.body_history.bodies()) {
+        const auto* next=after.body_history.find(body.scope.id);
+        if(!next||*next!=body)return false;
+    }
+    const auto old_operations=group_solid_state_cached_operations(before,&calculated,false);
+    const auto new_operations=group_solid_state_cached_operations(after,&calculated,false);
+    const auto fingerprint=kernel::history_fingerprint(old_operations,old_operations.size());
+    return calculated.back().source_fingerprint==fingerprint&&
+        old_operations.size()==new_operations.size()&&
+        fingerprint==kernel::history_fingerprint(new_operations,new_operations.size());
+}
 }
 bool part_history_suppressed(const document::PartDocument& document,const std::string& id) {
     if (const auto* feature=document.find_container(id)) return feature->suppressed;
@@ -165,6 +190,14 @@ bool move_part_history(Workspace& live,const std::string& document_id,const kern
     sort_history_records(next.history,storage_order,[](const auto& entry){return entry.id;});
     sort_history_records(next.constructions,storage_order,[](const auto& entry){return entry.id;});
     sort_history_records(next.sketches,storage_order,[](const auto& entry){return entry.owner_container_id.empty() ? entry.id : entry.owner_container_id;});
+    if(body_step&&!inspection&&unchanged_geometry_across_fem(
+            original,next,part.session.calculated_boundaries())) {
+        // Dependency ordering was checked before changing the graph. Exact
+        // unchanged calculation inputs and Body definitions retain frames,
+        // topology and FEM sources; record only the undoable Tree order.
+        commit_part_document_metadata(live,document_id,std::move(next));
+        return true;
+    }
     auto calculated=calculate_part_with_resolved_references(kernel,next,&part.session.calculated_boundaries());
     // Persist the calculation for the exact resolved parameters. Placement
     // equality treats signed zero as equal, whereas persisted fingerprints

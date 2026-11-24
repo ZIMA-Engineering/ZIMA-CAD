@@ -46,22 +46,17 @@ existing cuts. `sketch.set` returns `body_calculated=false`. Editing a cut-owned
 Sketch commits the entire profile cut and can calculate bodies. Tab switching
 never triggers this calculation.
 
-## Conversion to a cut
+## Material operations
 
-By explicit user rule, Assembly Extrusion and Revolution always subtract material.
-This applies to creation, editing, and standalone Sketch conversion through GUI
-and CLI. The shared transaction rejects CombineMode::Add before changing the
-Assembly. Only an immediate editable Part occurrence may be a target.
+As agreed on 2026-11-24, new Extrusion/Revolution material operations belong to
+Parts. GUI and CLI reject converting an Assembly Sketch or reference feature
+into a material cut. Point, Axis, Plane, Sketch and 3D Curve remain available in
+Assemblies, along with Mirror and Pattern.
 
-Conversion preserves container ID, Origin, placement, references, and Sketch
-identity. It changes the feature kind and atomically replaces the entry in
-`sketch_containers` with an entry in `cuts`. Undo restores the original standalone
-Sketch and bodies. Cancel leaves the original container unchanged.
-
-Conversion transfers the work-plane offset lock from standalone Sketch parameters
-to profile-feature parameters. The lock has one persisted owner. Internal Sketch
-Properties read and commit it through the shared adapter; choosing another
-command cannot bypass the locked value.
+Already authored Assembly cuts remain editable and regenerable. They always
+subtract from immediate editable Part occurrences. Their owned Sketch identity,
+Origin, placement, references and work-plane offset lock retain the ordinary
+Properties, Undo/Redo and native persistence contracts.
 
 ## Deletion and dependencies
 

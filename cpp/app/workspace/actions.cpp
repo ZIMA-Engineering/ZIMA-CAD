@@ -423,11 +423,14 @@ void AssemblyWorkspaceWindow::create_actions() {
     fem_mesh_menu_->menuAction()->setVisible(false);
     auto* mesh_settings=fem_mesh_menu_->addAction(tr("Mesh settings"),this,[this]{show_fem_mesh_settings();});
     mesh_settings->setObjectName("femMeshSettingsAction");
+    mesh_settings->setIcon(resource_icon("parameters"));
 #ifdef ZIMA_ENABLE_FEM_MESHER
     auto* generate_mesh=fem_mesh_menu_->addAction(tr("Generate mesh"),this,[this]{generate_fem_mesh();});
     generate_mesh->setObjectName("femGenerateMeshAction");
+    generate_mesh->setIcon(resource_icon("display-wire"));
     auto* show_mesh=fem_mesh_menu_->addAction(tr("Show mesh"));
     show_mesh->setObjectName("femShowMeshAction");
+    show_mesh->setIcon(resource_icon("display-wire"));
     show_mesh->setCheckable(true);
     connect(show_mesh,&QAction::triggered,this,[this](bool show) {
         show_generated_fem_mesh_=show;
@@ -440,10 +443,11 @@ void AssemblyWorkspaceWindow::create_actions() {
     fem_solution_menu_->setIcon(resource_icon("parameters"));
     fem_solution_menu_->setObjectName("femCalculationMenu");
     fem_solution_menu_->menuAction()->setVisible(false);
-    fem_solution_menu_->addAction(tr("Linear statics"),this,[this]{solve_fem_statics();})
+    fem_solution_menu_->addAction(resource_icon("parameters"),tr("Linear statics"),this,[this]{solve_fem_statics();})
         ->setObjectName("femLinearStaticsAction");
     auto* show_deformation=fem_solution_menu_->addAction(tr("Show deformation"));
     show_deformation->setObjectName("femShowDeformationAction");
+    show_deformation->setIcon(resource_icon("display-shaded"));
     show_deformation->setCheckable(true);
     connect(show_deformation,&QAction::triggered,this,[this](bool show) {
         show_fem_deformation_=show;
@@ -577,7 +581,6 @@ void AssemblyWorkspaceWindow::create_actions() {
         if(properties_dialog_||!active_sketch_id_.empty())return;
         show_primitive_properties(zima::document::FeatureKind::Feature);
     });
-    connect(extrusion_action_,&QAction::changed,this,[this,feature_prototype]{feature_prototype->setEnabled(extrusion_action_->isEnabled());});
     const std::array feature_labels{tr("Bod"),tr("Osa"),tr("Rovina"),tr("Skica"),tr("Tažení"),tr("Rotace")};
     const std::array feature_icons{"point","axis","plane","sketch","protrusion","revolve"};
     for(std::size_t i=0;i<feature_labels.size();++i) {
@@ -588,8 +591,9 @@ void AssemblyWorkspaceWindow::create_actions() {
             show_primitive_properties(zima::document::FeatureKind::Feature,{},false,
                 static_cast<zima::document::FeatureType>(std::min<std::size_t>(i,4)),i==5);
         });
-        connect(feature_prototype,&QAction::changed,shortcut,[feature_prototype,shortcut] {
-            shortcut->setEnabled(feature_prototype->isEnabled());
+        connect(feature_prototype,&QAction::changed,shortcut,[this,feature_prototype,shortcut,i] {
+            shortcut->setEnabled(feature_prototype->isEnabled()&&
+                (i<4||workspace_.open_part(workspace_.active_document_id())));
         });
     }
 

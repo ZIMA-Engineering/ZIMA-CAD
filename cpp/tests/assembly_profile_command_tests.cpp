@@ -5,6 +5,7 @@
 #include <zima/workspace/placement_edit.hpp>
 #include <zima/document/feature_serialization.hpp>
 #include <zima/document/viewer_packet_json.hpp>
+#include <zima/kernel/calculation_diagnostics.hpp>
 #include <algorithm>
 #include <cmath>
 #include <iostream>
@@ -14,6 +15,31 @@ using commands::Json;
 namespace fs = std::filesystem;
 namespace {
 using namespace assembly_profile_test;
+void reference_authoring(const kernel::OcctKernel& kernel,const fs::path& directory) {
+    Fixture f(kernel,directory,"assembly-reference-authoring");
+    const auto sketch=f.rectangle(1,1,2,2);
+    const auto count=kernel::body_calculation_count.load();
+    for(const auto operation:{"extrude","revolution"}) {
+        auto parameters=zima::test::feature_profile_parameters(4);
+        parameters["sides"][0]["operation"]=operation;
+        f.reject("feature.create",{{"sketch",sketch},{"parameters",parameters},{"targets",{f.first}}},"unsupported_document");
+    }
+    require(kernel::body_calculation_count.load()==count,"Rejected Assembly modeling calculated geometry");
+    for(const auto type:{"point","axis","plane","sketch"}) {
+        auto parameters=zima::test::feature_profile_parameters(4);parameters["type"]=type;
+        const auto created=f.run("feature.create",{{"sketch",sketch},{"parameters",parameters}});
+        const auto id=created.at("container").get<std::string>();
+        require(created.at("parameters").at("type")==type,"Assembly reference type was changed");
+        near(f.volume(f.first),1000);near(f.volume(f.second),1000);
+        f.reject_feature(id,[](auto& p){p["type"]="modeling";},"unsupported_document");
+        f.run("undo");require(f.doc().find_sketch_container(id),"Reference creation Undo lost the Sketch");
+        f.run("redo");f.run("save");
+        const auto reopened=assembly::AssemblyDocument::load(directory/"assembly-reference-authoring.asmz");
+        require(reopened.find_cut(id)->definition==f.doc().find_cut(id)->definition,
+            "Assembly reference geometry lost its native definition");
+        f.run("undo");
+    }
+}
 void side_reversal(const kernel::OcctKernel& kernel,const fs::path& directory) {
     Fixture f(kernel,directory,"assembly-side-reversal");const auto source_before=f.live.open_part(f.source)->session.document().serialized();
     const auto sketch=f.rectangle(1,2,3,2);document::FeatureParameters p;
@@ -42,7 +68,7 @@ void shared_feature(const kernel::OcctKernel& kernel,const fs::path& directory) 
     auto feature=workspace::profile_from_sketch(f.doc(),sketch,document::FeatureKind::Feature);
     feature.feature.sides[0].length=4;
     const auto id=feature.id;
-    const auto created=f.run("feature.create",{{"sketch",sketch},{"parameters",zima::test::public_feature_parameters(feature.feature)},{"targets",{f.first}}});
+    const auto created=f.seed_feature({{"sketch",sketch},{"parameters",zima::test::public_feature_parameters(feature.feature)},{"targets",{f.first}}});
     require(created.at("container")==id&&created.at("parameters").at("type")=="modeling","Feature CLI did not use the shared definition");
     near(f.volume(f.first),976);near(f.volume(f.second),1000);
     feature=f.doc().find_cut(id)->definition;
@@ -77,7 +103,7 @@ void shared_feature(const kernel::OcctKernel& kernel,const fs::path& directory) 
 void extrusion(const kernel::OcctKernel& kernel,const fs::path& directory) {
     Fixture f(kernel,directory,"assembly-extrusion");const auto sketch=f.rectangle(-1,-1.5,2,3);
     const auto source_revision=f.live.open_part(f.source)->session.revision();
-    const auto made=f.run("feature.create",{{"sketch",sketch},{"parameters",zima::test::feature_profile_parameters(4)},{"targets",{f.first}}});
+    const auto made=f.seed_feature({{"sketch",sketch},{"parameters",zima::test::feature_profile_parameters(4)},{"targets",{f.first}}});
     const std::string cut=made.at("container");near(f.volume(f.first),976);near(f.volume(f.second),1000);
     near(f.doc().find_cut(cut)->input_component_bodies.at(f.first).volume,1000);
     const auto packet=f.doc().serialized();
@@ -130,7 +156,7 @@ void extrusion(const kernel::OcctKernel& kernel,const fs::path& directory) {
     kernel.ensure_body_properties(analyzed_source);near(analyzed_source.volume,2000);
     require(analyzed_source.kernel_shape.get()==source_shape,"Source property analysis replaced Assembly input geometry");
     const std::string open=f.run("sketch.create",{{"name","Open profile"},{"plane","XY"}}).at("sketch");f.line(open,0,0,2,0);
-    f.reject("feature.create",{{"sketch",open},{"targets",{f.first}}},"profile_rejected");
+    f.reject("feature.create",{{"sketch",open},{"targets",{f.first}}},"unsupported_document");
     f.run("new",{{"type","assembly"},{"name","nested-cut-target"}});const auto nested=f.live.active_document_id();
     const auto leaf=f.run("component.insert",{{"source",f.source}}).at("occurrence");f.run("save");f.run("activate",{{"document",f.owner}});
     const auto nested_occurrence=f.run("component.insert",{{"source",nested}}).at("occurrence");
@@ -159,7 +185,7 @@ void references(const kernel::OcctKernel& kernel,const fs::path& directory,bool 
         const auto axis=f.line(sketch,0,0,0,4);
         f.run("sketch.segment.centerline",{{"sketch",sketch},{"segment",axis},{"centerline",true}});
     }
-    const std::string cut=f.run("feature.create",create).at("container");
+    const std::string cut=f.seed_feature(create).at("container");
     const std::string command="placement.reference.set";
     const auto source_revision=f.live.open_part(f.source)->session.revision();
     const auto* source_cache=f.live.open_part(f.source)->session.calculated_boundaries().data();
@@ -265,7 +291,7 @@ void revolution(const kernel::OcctKernel& kernel,const fs::path& directory) {
     Fixture f(kernel,directory,"assembly-revolution");const auto sketch=f.rectangle(1,0,1,4);
     document::FeatureParameters parameters;parameters.sides[0].operation=document::FeatureSideOperation::Revolution;parameters.sides[0].angle_degrees=360;
     auto initial=zima::test::public_feature_parameters(parameters);initial.erase("sketch_id");
-    f.reject("feature.create",{{"sketch",sketch},{"parameters",initial}},"profile_rejected");
+    f.reject("feature.create",{{"sketch",sketch},{"parameters",initial}},"unsupported_document");
     const auto axis=f.line(sketch,0,0,0,4);f.run("sketch.segment.centerline",{{"sketch",sketch},{"segment",axis},{"centerline",true}});
     require(!std::ranges::find(f.doc().sketches,sketch,&sketcher::Sketch::id)->geometry_visible_in_3d(axis),
         "New Assembly construction axis is unexpectedly visible before rotation commit");
@@ -307,7 +333,7 @@ void revolution(const kernel::OcctKernel& kernel,const fs::path& directory) {
 }
 int main(){try{
     const auto root=fs::canonical(fs::temp_directory_path());const auto directory=root/("zima-assembly-profile-"+document::PartDocument::create_default().document_id);
-    require(fs::create_directory(directory),"Cannot create fixture directory");kernel::OcctKernel kernel;extrusion(kernel,directory);revolution(kernel,directory);references(kernel,directory,true);references(kernel,directory,false);shared_feature(kernel,directory);side_reversal(kernel,directory);
+    require(fs::create_directory(directory),"Cannot create fixture directory");kernel::OcctKernel kernel;reference_authoring(kernel,directory);extrusion(kernel,directory);revolution(kernel,directory);references(kernel,directory,true);references(kernel,directory,false);shared_feature(kernel,directory);side_reversal(kernel,directory);
     require(directory.parent_path()==root,"Unexpected cleanup path");fs::remove_all(directory);
     std::cout<<"Assembly profiles: exact cuts, source ownership, shared draft edits, original end targets, native files and history passed\n";return 0;
 }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}}

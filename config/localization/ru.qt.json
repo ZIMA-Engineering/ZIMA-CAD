@@ -1,4 +1,5 @@
 {
+  "Create Extrusion and Revolution in a Part. Assemblies support reference geometry.": "Создавайте выдавливания и вращения в детали. Сборки поддерживают вспомогательную геометрию.",
   "Repair unresolved FEM conditions before calculation.": "Перед расчётом исправьте неработающие условия МКЭ.",
   "Create section": "Создать разрез",
   "Renders": "Рендеры",

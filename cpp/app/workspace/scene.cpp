@@ -2333,6 +2333,8 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
         construction_plane_action_->setEnabled(true);
         extrusion_action_->setEnabled(true);
         if(auto* feature=findChild<QAction*>("featurePrototypeAction"))feature->setEnabled(workspace_.open_part(workspace_.active_document_id())!=nullptr);
+        for(int i=0;i<6;++i)
+            if(auto* shortcut=findChild<QAction*>(QStringLiteral("featureShortcut%1Action").arg(i)))shortcut->setEnabled(true);
         revolution_action_->setEnabled(true);
         sketch_action_->setEnabled(true);
         sketch_normal_view_action_->setEnabled(!active_sketch_id_.empty());
@@ -2923,9 +2925,12 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
     const bool active_assembly_owner =
         workspace_.open_assembly(workspace_.active_document_id()) != nullptr;
     const bool profile_feature_owner = active_part != nullptr || active_assembly_owner;
-    extrusion_action_->setEnabled(profile_feature_owner);
+    extrusion_action_->setEnabled(active_part != nullptr);
     if(auto* feature=findChild<QAction*>("featurePrototypeAction"))feature->setEnabled(profile_feature_owner);
-    revolution_action_->setEnabled(profile_feature_owner);
+    revolution_action_->setEnabled(active_part != nullptr);
+    for(int i=0;i<6;++i)
+        if(auto* shortcut=findChild<QAction*>(QStringLiteral("featureShortcut%1Action").arg(i)))
+            shortcut->setEnabled(profile_feature_owner&&(i<4||active_part));
     sketch_action_->setEnabled(active_part != nullptr || active_assembly_owner);
     const bool has_active_part_sketch =
         (active_part != nullptr || active_assembly_owner) &&
