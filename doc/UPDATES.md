@@ -1,5 +1,19 @@
 # Application updates
 
+Signed Windows [2026112403](releases/2026112403.md#distribution-status) was
+published at `2026-11-24T13:56:30Z` from immutable source
+`858e66e3fa31876aac2f1c35cd7079b57fae68fa`. It repairs FEM placement regeneration, enables FEM Origin references,
+provides direct FEM sidebar controls, avoids recalculation when reordering across
+unchanged FEM Bodies and restricts new Assembly authoring to reference geometry.
+Candidate and signed smoke, 1,190 factory loads, twelve sheet-branch gates and
+fourteen additional packaged GUI cases passed. Public downloads, signatures,
+safe extraction and production updater trust/current status passed. The unchanged
+development BAT starts the accepted binaries; personal settings were preserved.
+The reported 50.prtz passed regeneration, mesh and linear statics on a copy;
+the original remains unchanged. Native Linux execution and the documented
+Assembly Render/CAM feature gaps remain separate. See the
+[publication evidence](verification/20261124-windows-2403-publication.json).
+
 Signed Windows [2026112402](releases/2026112402.md#distribution-status) was
 published at `2026-11-24T11:04:57Z` from immutable source
 `8a909e6b82ac046cfabc98ac22a6e2c315d0c879`. It includes FEM second-OK retention and projected-region meshing

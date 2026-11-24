@@ -91,7 +91,9 @@ clicks, checked state, azure framebuffer pixels in dark/light themes, five
 languages, structural/thermal/coupled calculation, progress, region modes,
 condition editing, Undo/Redo and native persistence.
 
-Publication is pending. Current normal development/release binaries remain
-2026112402; these changes were verified in a separate local executable. Native Linux
-execution has not been verified. No user model or personal configuration has
-been overwritten.
+Windows 2026112403 publication passed the committed-source package, fourteen
+additional packaged GUI cases, signature and public-download acceptance gates.
+The accepted binaries are installed behind the unchanged development BAT.
+Native Linux execution has not been verified. No user model or personal
+configuration has been overwritten. See the
+[publication evidence](20261124-windows-2403-publication.json).
