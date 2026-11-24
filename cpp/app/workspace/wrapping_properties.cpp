@@ -28,7 +28,7 @@ void AssemblyWorkspaceWindow::install_wrapping_properties(PrimitivePropertiesDia
         if(!analytic_faces->contains({candidate.owner_id,candidate.semantic_key,candidate.instance_path}))return false;
         kernel::FaceReference reference{candidate.owner_id,candidate.semantic_key,candidate.instance_path==path?std::string{}:candidate.instance_path};
         if(candidate.instance_path==path)return document::boundary_surface_support_allowed(doc,pending.id,reference);
-        if(panel->parameters().output==document::WrappingOutput::Relief)return false;
+        if(panel->parameters().output==document::WrappingOutput::Relief||panel->parameters().output==document::WrappingOutput::Split)return false;
         const auto file=workspace_.occurrence_source_file(workspace_.displayed_document_id(),assembly::InstancePath::decode(candidate.instance_path));
         return file&&assembly::is_skeleton_file(*file);
     };

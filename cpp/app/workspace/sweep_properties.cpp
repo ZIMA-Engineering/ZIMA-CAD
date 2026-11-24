@@ -267,6 +267,17 @@ void AssemblyWorkspaceWindow::show_sweep_properties(zima::document::FeatureKind 
         zima::document::PartDocument preview;
         zima::document::ConstructionObject origin;origin.id=c.id;origin.entity_id=c.feature_id;origin.container_origin=c.container_origin;
         origin.kind=zima::document::ConstructionKind::Point;origin.origin={c.placement.x,c.placement.y,c.placement.z};origin.rotation={c.placement.rotation_x,c.placement.rotation_y,c.placement.rotation_z};origin.reference_valid=false;
+        if(c.feature_kind==document::FeatureKind::HelicalSweep) {
+            document::PartDocument::reframe_helical_sketches(c,0);
+            const auto base=sketcher::Sketch::from_serialized(c.helical.sketches[0]);
+            // Consume the same Plane presentation as ordinary Feature
+            // Properties, using the already resolved owned Sketch frame.
+            origin.kind=document::ConstructionKind::Plane;
+            origin.base_plane=base.plane==sketcher::SketchPlane::XY?document::LocalDatumPlane::XY:
+                base.plane==sketcher::SketchPlane::XZ?document::LocalDatumPlane::XZ:document::LocalDatumPlane::YZ;
+            origin.direction=base.resolved_normal;origin.entity_origin=base.resolved_origin;
+            origin.offset=base.plane_offset;origin.reference_valid=true;
+        }
         preview.constructions.push_back(origin);primitive_origin_preview_mesh_=preview.construction_viewer_mesh(c.id);
         if(transition) {
             const auto points=zima::document::sheet_transition_axis_points(c,true);

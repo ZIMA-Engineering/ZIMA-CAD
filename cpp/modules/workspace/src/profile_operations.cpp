@@ -133,8 +133,8 @@ void validate_profile_definition(const document::HistoryContainer& value) {
         if (value.is_surface_result() && value.combine_mode == document::CombineMode::Subtract)
             throw ProfileOperationError("invalid_arguments", "A surface cannot subtract material.");
         if(value.feature.type==document::FeatureType::Projection&&
-                (value.combine_mode!=document::CombineMode::Add||value.feature.profile_source!=document::ProfileSource::Internal))
-            throw ProfileOperationError("invalid_arguments","Projection requires an owned planar Sketch and does not add or subtract solid material.");
+                ((value.feature.projection.output!=document::ProjectionOutput::Relief&&value.combine_mode!=document::CombineMode::Add)||value.feature.profile_source!=document::ProfileSource::Internal))
+            throw ProfileOperationError("invalid_arguments","Projection requires its own planar Sketch and a valid result operation.");
         if(value.feature.type==document::FeatureType::Wrapping&&
                 (value.feature.profile_source!=document::ProfileSource::Internal||
                  (value.feature.wrapping.output!=document::WrappingOutput::Relief&&value.combine_mode!=document::CombineMode::Add)))

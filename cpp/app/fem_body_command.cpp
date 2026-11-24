@@ -183,13 +183,10 @@ public:
         playback->addWidget(play_button);
         timeline_=new QSlider(Qt::Horizontal,this);timeline_->setObjectName("femPlayerTimeline");timeline_->setRange(0,1000);
         timeline_->setAccessibleName(tr("Animation time"));playback->addWidget(timeline_,1);
-        time_=new QLabel(this);time_->setObjectName("femPlayerTime");playback->addWidget(time_);
+        time_=new QLabel(this);time_->setObjectName("femPlayerTime");
+        time_->setFixedWidth(time_->fontMetrics().horizontalAdvance(tr("%1 / %2 s").arg(locale().toString(30.,'f',2),locale().toString(30.,'f',2)))+12);
+        playback->addWidget(time_);
         content_layout()->addLayout(playback);
-        auto* settings_button=new QToolButton(this);settings_button->setObjectName("femPlayerSettings");
-        settings_button->setText(tr("Playback settings"));settings_button->setCheckable(true);
-        settings_button->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);settings_button->setArrowType(Qt::RightArrow);
-        settings_button->setStyleSheet(command_button_style());
-        content_layout()->addWidget(settings_button);
         auto* settings=new QWidget(this);
         auto* form=new QFormLayout;
         settings->setLayout(form);
@@ -201,20 +198,22 @@ public:
         connect(automatic,&QPushButton::clicked,this,[this,suggested]{scale_->setValue(suggested);});form->addRow({},automatic);
         duration_=new QDoubleSpinBox(this);duration_->setObjectName("femAnimationDuration");
         duration_->setRange(.3,30);duration_->setDecimals(2);duration_->setValue(3/speed);duration_->setSuffix(" s");
-        form->addRow(tr("Cycle duration"),duration_);content_layout()->addWidget(settings);settings->hide();
-        connect(settings_button,&QToolButton::toggled,this,[this,settings,settings_button](bool expanded) {
-            settings->setVisible(expanded);settings_button->setArrowType(expanded?Qt::DownArrow:Qt::RightArrow);
-            adjustSize();place_bottom_right();
-        });
+        form->addRow(tr("Cycle duration"),duration_);content_layout()->addWidget(settings);
         auto* explanation=new QLabel(tr("Animation interpolates the static result. Values and colors always show the calculated load case."),this);
         explanation->setWordWrap(true);form->addRow(explanation);
         auto* save=new QPushButton(resource_icon("export"),tr("Save video"),this);save->setObjectName("femSaveVideo");
         content_layout()->addWidget(save);
-        status_=new QLabel(this);status_->setWordWrap(true);status_->setObjectName("femVideoStatus");content_layout()->addWidget(status_);
+        status_=new QLabel(this);status_->setWordWrap(true);status_->setObjectName("femVideoStatus");
+        // Export progress and a long destination path must not resize the
+        // player or move its controls while playback/settings are in use.
+        status_->setSizePolicy(QSizePolicy::Ignored,QSizePolicy::Fixed);
+        status_->setFixedHeight(status_->fontMetrics().lineSpacing()*3+6);
+        content_layout()->addWidget(status_);
         connect(save,&QPushButton::clicked,this,[this,save_video] {
             animation_.pause();
             try {status_->setText(save_video(duration_->value()));}
             catch(const std::exception& error){status_->setText(tr(error.what()));}
+            status_->setToolTip(status_->text());
         });
         animation_.setStartValue(0.);animation_.setEndValue(1.);animation_.setLoopCount(-1);
         animation_.setDuration(qRound(1000*duration_->value()));
@@ -237,7 +236,7 @@ public:
             present(phase);if(running)animation_.resume();
         });
         animation_.start();animation_.pause();animation_.setCurrentTime(qRound(animation_.duration()*phase));
-        present(phase);update_fem_animation_action(play_,false);set_initial_size({490,210});
+        present(phase);update_fem_animation_action(play_,false);set_initial_size({540,420});
     }
     void set_anchor(QWidget* view){anchor_=view;place_bottom_right();}
     void set_export_progress(int value,int total){status_->setText(tr("Saving video: %1 / %2 frames").arg(value).arg(total));}

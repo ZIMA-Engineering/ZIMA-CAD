@@ -29,7 +29,7 @@ void AssemblyWorkspaceWindow::install_projection_properties(PrimitivePropertiesD
         kernel::FaceReference reference{candidate.owner_id,candidate.semantic_key,candidate.instance_path==path?std::string{}:candidate.instance_path};
         if(panel->active_pick()==Pick::Region)return std::ranges::any_of(panel->parameters().targets,[&](const auto& value){return value.reference==reference;});
         if(candidate.instance_path==path)return document::boundary_surface_support_allowed(doc,pending.id,reference);
-        if(panel->parameters().output==document::ProjectionOutput::Split)return false;
+        if(panel->parameters().output==document::ProjectionOutput::Split||panel->parameters().output==document::ProjectionOutput::Relief)return false;
         const auto file=workspace_.occurrence_source_file(workspace_.displayed_document_id(),assembly::InstancePath::decode(candidate.instance_path));
         return file&&assembly::is_skeleton_file(*file);
     };
@@ -92,7 +92,7 @@ void AssemblyWorkspaceWindow::install_projection_properties(PrimitivePropertiesD
     };
     panel->refresh();
     connect(dialog->findChild<QComboBox*>("featureType"),&QComboBox::currentIndexChanged,dialog,
-        [panel,finish](int type){if(type!=static_cast<int>(document::FeatureType::Projection)&&panel->active_pick()!=ProjectionParameterPanel::Pick::None)finish();});
+        [dialog,panel,finish](int){if(dialog->pending_value().feature.type!=document::FeatureType::Projection&&panel->active_pick()!=ProjectionParameterPanel::Pick::None)finish();});
     connect(dialog,&QObject::destroyed,this,[this] {
         feature_reference_pick_={};feature_reference_end_={};viewer_->set_inspected_faces({});viewer_->set_constraint_reference_highlights({},{});
     });

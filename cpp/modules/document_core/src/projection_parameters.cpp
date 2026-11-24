@@ -26,6 +26,7 @@ std::string output_name(ProjectionOutput value) {
     case ProjectionOutput::Curves:return "curves";
     case ProjectionOutput::Split:return "split";
     case ProjectionOutput::Surface:return "surface";
+    case ProjectionOutput::Relief:return "relief";
     }
     invalid();
 }
@@ -33,6 +34,7 @@ std::string output_name(ProjectionOutput value) {
 
 void validate_projection_parameters(const ProjectionParameters& p) {
     static_cast<void>(output_name(p.output));
+    if(p.output==ProjectionOutput::Relief&&(!std::isfinite(p.height)||p.height<=0))invalid();
     if(p.direction!=ProjectionDirection::SketchNormal&&p.direction!=ProjectionDirection::Reference)invalid();
     if(p.direction_reference.owner_id.empty()!=p.direction_reference.semantic_key.empty())invalid();
     std::set<std::tuple<std::string,std::string,std::string>> seen;
@@ -67,9 +69,11 @@ nlohmann::json serialize_projection_parameters(const ProjectionParameters& p) {
     }
     for(const auto& region:p.regions)regions.push_back({{"target",reference(region.target)},
         {"seed",vector(region.seed)},{"boundary_key",region.boundary_key}});
-    return {{"output",output_name(p.output)},{"targets",std::move(targets)},
+    nlohmann::json result={{"output",output_name(p.output)},{"targets",std::move(targets)},
         {"direction",p.direction==ProjectionDirection::SketchNormal?"sketch_normal":"reference"},
         {"direction_reference",reference(p.direction_reference)},{"reverse",p.reverse},{"regions",std::move(regions)}};
+    if(p.output==ProjectionOutput::Relief)result["height"]=p.height;
+    return result;
 }
 
 ProjectionParameters load_projection_parameters(const nlohmann::json& value) {
@@ -79,6 +83,7 @@ ProjectionParameters load_projection_parameters(const nlohmann::json& value) {
         if(output=="curves")p.output=ProjectionOutput::Curves;
         else if(output=="split")p.output=ProjectionOutput::Split;
         else if(output=="surface")p.output=ProjectionOutput::Surface;
+        else if(output=="relief") {p.output=ProjectionOutput::Relief;p.height=value.at("height").get<double>();}
         else invalid();
         const auto direction=value.at("direction").get<std::string>();
         if(direction=="sketch_normal")p.direction=ProjectionDirection::SketchNormal;

@@ -23,8 +23,11 @@ public:
         :QWidget(parent),pending_(std::move(initial)) {
         setObjectName("wrappingParameters");auto* layout=new QVBoxLayout(this);layout->setContentsMargins(0,0,0,0);
         form_=new QFormLayout;layout->addLayout(form_);
-        output_=new QComboBox(this);output_->setObjectName("wrappingOutput");output_->addItems({tr("Křivky"),tr("Plocha")});
-        output_->setCurrentIndex(std::min(1,static_cast<int>(pending_.output)));form_->addRow(tr("Výsledek"),output_);
+        output_=new QComboBox(this);output_->setObjectName("wrappingOutput");
+        output_->addItem(tr("Skica"),int(document::WrappingOutput::Curves));
+        output_->addItem(tr("Rozdělit"),int(document::WrappingOutput::Split));
+        output_->addItem(tr("Plocha"),int(document::WrappingOutput::Surface));
+        output_->setCurrentIndex(std::max(0,output_->findData(int(pending_.output))));form_->addRow(tr("Výsledek"),output_);
         target_=new QTableWidget(1,4,this);target_->setObjectName("wrappingTarget");target_->verticalHeader()->hide();
         target_->setSelectionMode(QAbstractItemView::NoSelection);target_->setEditTriggers(QAbstractItemView::NoEditTriggers);
         ui::install_reference_cell_delegate(target_);target_->setRowHeight(0,34);target_->setFixedHeight(72);
@@ -36,7 +39,7 @@ public:
         height_->setToolTip(tr("Positive correction adds material outward; negative correction removes material inward."));
         notice_=new QLabel(tr("The Feature Origin anchors the wrap. On a sphere, distances from the Origin are preserved and widths change."),this);
         notice_->setWordWrap(true);layout->addWidget(notice_);
-        connect(output_,&QComboBox::currentIndexChanged,this,[this](int index){pending_.output=static_cast<document::WrappingOutput>(index);refresh();notify();if(layout_changed)layout_changed();});
+        connect(output_,&QComboBox::currentIndexChanged,this,[this](int index){pending_.output=static_cast<document::WrappingOutput>(output_->itemData(index).toInt());refresh();notify();if(layout_changed)layout_changed();});
         connect(height_,&QDoubleSpinBox::valueChanged,this,[this](double value){pending_.height=std::abs(value)==std::abs(displayed_height_)?initial_height_:std::abs(value);notify();});
         connect(target_,&QTableWidget::cellClicked,this,[this](int,int column){if(column==2)begin_entry();});refresh();
     }
@@ -44,7 +47,7 @@ public:
     void set_relief_mode(bool relief) {
         if(relief)pending_.output=document::WrappingOutput::Relief;
         else if(pending_.output==document::WrappingOutput::Relief)pending_.output=document::WrappingOutput::Curves;
-        {const QSignalBlocker blocker(output_);output_->setCurrentIndex(pending_.output==document::WrappingOutput::Surface?1:0);}
+        {const QSignalBlocker blocker(output_);output_->setCurrentIndex(std::max(0,output_->findData(int(pending_.output))));}
         refresh();
     }
     bool subtract()const{return pending_.output==document::WrappingOutput::Relief&&height_->value()<0;}
@@ -75,7 +78,7 @@ public:
 protected:
     void changeEvent(QEvent* event)override {
         QWidget::changeEvent(event);if(event->type()!=QEvent::LanguageChange)return;
-        output_->setItemText(0,tr("Křivky"));output_->setItemText(1,tr("Plocha"));
+        output_->setItemText(0,tr("Skica"));output_->setItemText(1,tr("Rozdělit"));output_->setItemText(2,tr("Plocha"));
         static_cast<QLabel*>(form_->labelForField(output_))->setText(tr("Výsledek"));
         static_cast<QLabel*>(details_->labelForField(height_))->setText(tr("Korekce"));
         height_->setToolTip(tr("Positive correction adds material outward; negative correction removes material inward."));

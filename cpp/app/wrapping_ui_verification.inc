@@ -8,7 +8,84 @@ int verify_wrapping_ui(QApplication& application,AssemblyWorkspaceWindow& window
         }
     };
     try {
-        for(int output=0;output<3;++output) {
+        if(const auto fixture=qEnvironmentVariable("ZIMA_VERIFY_WRAP_SELECTION_FILE");!fixture.isEmpty()) {
+            const auto model=document::PartDocument::load(std::filesystem::path(fixture.toStdWString()));
+            window.resize(1440,1000);window.show();
+            check(window.open_document_path(fixture),"Wrap selection fixture did not open");flush();
+            check(window.execute_console_command(QString::fromStdString(commands::Json{{"command","body.activate"},
+                {"arguments",{{"body",model.body_history.active_body_id()}}}}.dump())).ok,"Wrap selection Body did not activate");flush();
+            auto* view=dynamic_cast<viewer::MeshView*>(window.findChild<QWidget*>("modelWorkspace"));
+            auto* tree=window.findChild<QTreeWidget*>("documentTree");check(view&&tree,"Wrap selection workspace is missing");
+            view->fit_all();flush();
+            const auto project=[&](kernel::Vec3 point) {
+                const auto center=view->ray_at({view->width()*.5,view->height()*.5});check(center.has_value(),"Camera ray missing");
+                const auto dot=[](kernel::Vec3 a,kernel::Vec3 b){return a.x*b.x+a.y*b.y+a.z*b.z;};
+                const auto sub=[](kernel::Vec3 a,kernel::Vec3 b){return kernel::Vec3{a.x-b.x,a.y-b.y,a.z-b.z};};
+                const auto hit=[&](QPointF screen) {
+                    const auto ray=view->ray_at(screen);check(ray.has_value(),"Projection ray missing");
+                    const double t=dot(sub(point,ray->first),center->second)/dot(ray->second,center->second);
+                    return kernel::Vec3{ray->first.x+t*ray->second.x,ray->first.y+t*ray->second.y,ray->first.z+t*ray->second.z};
+                };
+                const auto origin=hit({0,0}),u=sub(hit({100,0}),origin),v=sub(hit({0,100}),origin),r=sub(point,origin);
+                const double uu=dot(u,u),vv=dot(v,v),uv=dot(u,v),det=uu*vv-uv*uv;
+                return QPointF(100*(dot(r,u)*vv-dot(r,v)*uv)/det,100*(dot(r,v)*uu-dot(r,u)*uv)/det);
+            };
+            const auto state=window.execute_console_command("documents").data;
+            const auto calls=kernel::body_calculation_count.load();
+            for(const auto& feature:model.history)if(feature.feature_kind==document::FeatureKind::Feature&&
+                    feature.feature.type==document::FeatureType::Wrapping&&feature.feature.wrapping.output==document::WrappingOutput::Curves) {
+                tree->clearSelection();view->clear_selection();flush();
+                std::vector<kernel::ViewerEdge> curves;
+                for(const auto& edge:view->mesh().edges)if(edge.reference.owner_id==feature.id&&edge.reference.semantic_key.starts_with("wrap:sketch:"))curves.push_back(edge);
+                check(!curves.empty(),"Wrap result curves are absent after reopening");
+                unsigned hits{};QPointF inspection_hit;
+                for(const auto& edge:curves)if(edge.points.size()>1) {
+                    const auto a=edge.points[(edge.points.size()-1)/2],b=edge.points[(edge.points.size()-1)/2+1];
+                    const auto pixel=project({(a.x+b.x)/2,(a.y+b.y)/2,(a.z+b.z)/2});
+                    if(!view->rect().adjusted(4,4,-4,-4).contains(pixel.toPoint()))continue;
+                    QMouseEvent hover(QEvent::MouseMove,pixel,QPointF(view->mapToGlobal(pixel.toPoint())),Qt::NoButton,Qt::NoButton,Qt::NoModifier);
+                    QApplication::sendEvent(view,&hover);flush();
+                    const auto image=view->grabFramebuffer();const double scale=double(image.width())/view->width();
+                    image.save(QString::fromStdWString((directory/("wrap-hover-"+std::to_string(hits)+".png")).wstring()));
+                    const auto candidate=view->hovered_candidate();
+                    std::cout<<"Wrap curve hover: overlay="<<edge.overlay<<" owner="<<(candidate?candidate->owner_id:"none")
+                        <<" kind="<<(candidate?int(candidate->kind):-1)<<" wire="<<view->property("gpuSourceWireVertexCount").toInt()<<std::endl;
+                    check(candidate&&candidate->kind==viewer::CandidateKind::Container&&candidate->owner_id==feature.id,"Hover on a wrapped curve selects another object");
+                    bool azure{};const auto p=(pixel*scale).toPoint();
+                    for(int y=p.y()-3;y<=p.y()+3;++y)for(int x=p.x()-3;x<=p.x()+3;++x)if(image.rect().contains(x,y)) {
+                        const auto c=image.pixelColor(x,y);azure|=c.red()<60&&c.green()>140&&c.blue()>180;
+                    }
+                    check(azure&&view->property("gpuSourceWireVertexCount").toInt()>0,"Wrapped curve hover has no visible azure preview");
+                    ++hits;inspection_hit=pixel;
+                }
+                check(hits>0,"No wrapped curve hover was exercised");
+                check(std::ranges::none_of(view->mesh().edges,[&](const auto& edge){return edge.reference.owner_id==feature.feature.sketch_id;}),
+                    "Hover exposed the planar source Sketch");
+                click(view,inspection_hit);flush();
+                QTreeWidgetItem* row{};
+                for(QTreeWidgetItemIterator it(tree);*it;++it)if((*it)->data(0,Qt::UserRole).toString().toStdString()==feature.id&&
+                    (*it)->data(0,Qt::UserRole+3)=="part-container")row=*it;
+                check(row&&row->isSelected(),"Wrap View click did not select its Tree feature");
+                check(std::ranges::none_of(view->mesh().dimensions,[&](const auto& d){return d.reference.owner_id==feature.id||d.reference.owner_id==feature.feature.sketch_id;}),
+                    "Single click exposed Wrap dimensions");
+                QMouseEvent inspect(QEvent::MouseButtonDblClick,inspection_hit,QPointF(view->mapToGlobal(inspection_hit.toPoint())),Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);
+                QApplication::sendEvent(view,&inspect);flush();
+                row=nullptr;
+                for(QTreeWidgetItemIterator it(tree);*it;++it)if((*it)->data(0,Qt::UserRole).toString().toStdString()==feature.id&&
+                    (*it)->data(0,Qt::UserRole+3)=="part-container")row=*it;
+                check(row&&row->isSelected(),"Wrap inspection lost Tree selection");
+                check(std::ranges::any_of(view->mesh().edges,[&](const auto& edge){return edge.reference.owner_id==feature.feature.sketch_id;}),
+                    "Double click did not display the planar source Sketch");
+                check(std::ranges::any_of(view->mesh().edges,[&](const auto& edge){return edge.reference.owner_id==feature.id&&edge.reference.semantic_key.starts_with("wrap:sketch:");}),
+                    "Double click hid the wrapped result");
+                check(std::ranges::any_of(view->mesh().dimensions,[&](const auto& d){return d.reference.owner_id==feature.id||d.reference.owner_id==feature.feature.sketch_id;}),
+                    "Double click omitted Wrap dimensions");
+                view->grabFramebuffer().save(QString::fromStdWString((directory/"wrap-source-and-result.png").wstring()));
+            }
+            check(window.execute_console_command("documents").data==state&&kernel::body_calculation_count.load()==calls,"Wrap hover changed history or calculated geometry");
+            return 0;
+        }
+        for(int output=0;output<4;++output) {
             workspace::Workspace live;kernel::OcctKernel engine;
             auto part=document::PartDocument::create_default();const auto document_id=part.document_id;
             document::BodyHistoryGraph graph;const auto body=graph.create_body("Wrap source");part.set_body_history(std::move(graph));
@@ -64,7 +141,10 @@ int verify_wrapping_ui(QApplication& application,AssemblyWorkspaceWindow& window
             type->hidePopup();flush();
             check(!type->itemIcon(int(document::FeatureType::Wrapping)).isNull(),"Wrap icon is missing");
             auto* panel=editor()->wrapping_panel();check(panel&&panel->isVisible(),"Wrap panel is missing");
-            if(output!=2)editor()->findChild<QComboBox*>("wrappingOutput")->setCurrentIndex(output);flush();
+            if(output!=2) {
+                auto* result=editor()->findChild<QComboBox*>("wrappingOutput");
+                result->setCurrentIndex(result->findData(output));
+            }flush();
             check(panel->parameters().output==static_cast<document::WrappingOutput>(output),"Wrap type selected the wrong output mode");
             auto* target=editor()->findChild<QTableWidget*>("wrappingTarget");check(target,"Wrap target table is missing");
             for(auto* ancestor=target->parentWidget();ancestor;ancestor=ancestor->parentWidget())if(auto* scroll=qobject_cast<QScrollArea*>(ancestor))scroll->ensureWidgetVisible(target);
@@ -106,6 +186,8 @@ int verify_wrapping_ui(QApplication& application,AssemblyWorkspaceWindow& window
                     auto settings=ApplicationSettings::load(temporary.path());
                     apply_application_translations(application,settings);flush();
                     check(type->itemText(6)==settings.qt_translations.value("Wrap sketch")&&type->itemText(7)==settings.qt_translations.value("Wrap relief"),"Wrap Feature types did not translate");
+                    check(type->itemText(5)==settings.qt_translations.value("Project sketch")&&
+                        type->itemText(projection_relief_type_index)==settings.qt_translations.value("Project relief"),"Projection Feature types did not translate");
                     check(!panel->findChild<QCheckBox*>("wrappingReverseU")&&!panel->findChild<QCheckBox*>("wrappingReverseV"),"Wrap retained redundant direction controls");
                     check(panel->findChild<QDoubleSpinBox*>("wrappingHeight")->toolTip()==settings.qt_translations.value("Positive correction adds material outward; negative correction removes material inward."),"Signed Wrap correction did not translate");
                     check(std::ranges::any_of(panel->findChildren<QLabel*>(),[&](const auto* label){return label->text()==settings.qt_translations.value("Korekce");}),"Wrap correction did not translate");

@@ -8,7 +8,7 @@ namespace {
 bool finite(kernel::Vec3 p){return std::isfinite(p.x)&&std::isfinite(p.y)&&std::isfinite(p.z);}
 nlohmann::json vector(kernel::Vec3 p){return {p.x,p.y,p.z};}
 kernel::Vec3 vector(const nlohmann::json& j){if(!j.is_array()||j.size()!=3)invalid();return {j.at(0),j.at(1),j.at(2)};}
-const char* output_name(WrappingOutput value){switch(value){case WrappingOutput::Curves:return "curves";case WrappingOutput::Surface:return "surface";case WrappingOutput::Relief:return "relief";}invalid();}
+const char* output_name(WrappingOutput value){switch(value){case WrappingOutput::Curves:return "curves";case WrappingOutput::Surface:return "surface";case WrappingOutput::Relief:return "relief";case WrappingOutput::Split:return "split";}invalid();}
 }
 void validate_wrapping_parameters(const WrappingParameters& p) {
     static_cast<void>(output_name(p.output));
@@ -37,7 +37,8 @@ WrappingParameters load_wrapping_parameters(const nlohmann::json& value) {
         WrappingParameters p;const auto output=value.at("output").get<std::string>();
         if(output=="curves")p.output=WrappingOutput::Curves;
         else if(output=="surface")p.output=WrappingOutput::Surface;
-        else if(output=="relief")p.output=WrappingOutput::Relief;else invalid();
+        else if(output=="relief")p.output=WrappingOutput::Relief;
+        else if(output=="split")p.output=WrappingOutput::Split;else invalid();
         p.height=value.at("height");p.reverse_u=value.at("reverse_u");p.reverse_v=value.at("reverse_v");
         if(value.contains("target")) {
             const auto& t=value.at("target");p.target.emplace();auto& target=*p.target;

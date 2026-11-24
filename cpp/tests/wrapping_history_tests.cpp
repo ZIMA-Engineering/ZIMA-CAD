@@ -5,9 +5,13 @@
 #include <BRepPrimAPI_MakeCone.hxx>
 #include <BRepPrimAPI_MakeSphere.hxx>
 #include <BRepCheck_Analyzer.hxx>
+#include <BRepGProp.hxx>
+#include <GProp_GProps.hxx>
+#include <TopExp_Explorer.hxx>
 #include <STEPControl_Writer.hxx>
 #include <filesystem>
 #include <iostream>
+#include <iomanip>
 #include <set>
 
 namespace k=zima::kernel;
@@ -15,6 +19,11 @@ void require(bool value,const std::string& message){if(!value)throw std::runtime
 void valid(const k::BodyResult& result) {
     for(const auto& [owner,message]:result.calculation_errors)throw std::runtime_error(owner+": "+message);
     require(BRepCheck_Analyzer(k::read_calculated_body_shape(result)).IsValid(),"Wrap produced invalid BRep");
+}
+double precise_volume(const k::BodyResult& result) {
+    GProp_GProps properties;
+    BRepGProp::VolumeProperties(k::read_calculated_body_shape(result),properties,1e-12,true);
+    return properties.Mass();
 }
 int main(){try {
     // Native circle Extrusion uses an indirect cylindrical support. A nonzero
@@ -76,7 +85,7 @@ int main(){try {
         const auto external_source=kernel.capture_reference_face(initial,target);
         for(bool polar:{false,true}) {
         if(polar&&kind!=k::SurfaceGeometry::Kind::Sphere)continue;
-        for(auto output:{k::WrappingResult::Curves,k::WrappingResult::Surface,k::WrappingResult::Relief})
+        for(auto output:{k::WrappingResult::Curves,k::WrappingResult::Surface,k::WrappingResult::Relief,k::WrappingResult::Split})
         for(bool inward:{false,true}) {
             k::WrappingRequest request;request.sketch_id="wrap-sketch";request.target=target;request.output=output;
             request.origin=kind==k::SurfaceGeometry::Kind::Sphere?k::Vec3{30,0,0}:k::Vec3{kind==k::SurfaceGeometry::Kind::Cone?25.:30.,0,20};
@@ -98,13 +107,48 @@ int main(){try {
             require(result.mesh.images.front().surface_vertices.size()==result.mesh.images.front().surface_uv.size(),"Wrapped image UV mismatch");
             for(const auto& uv:result.mesh.images.front().surface_uv)require(uv[0]>=-1e-10&&uv[0]<=1+1e-10&&uv[1]>=-1e-10&&uv[1]<=1+1e-10,"Image clipping failed");
             if(output==k::WrappingResult::Relief)require(inward?result.volume<initial.volume:result.volume>initial.volume,"Relief changed the wrong material side");
-            else require(std::abs(result.volume-initial.volume)<1e-5,"Nonmaterial Wrap changed volume");
+            else {
+                // Check the unchanged volume budget with independent adaptive
+                // native integration of closed shells. Open Surface output
+                // does not contribute material volume.
+                const auto before=precise_volume(initial),after=precise_volume(result);
+                if(std::abs(after-before)>=1e-5)
+                    std::cerr<<"Volume before="<<std::setprecision(17)<<before<<" after="<<after<<'\n';
+                require(std::abs(after-before)<1e-5,"Nonmaterial Wrap changed volume");
+            }
             std::set<std::string> edges;
             for(const auto& edge:result.mesh.original_references.edges)if(edge.reference.owner_id=="wrap")edges.insert(edge.reference.semantic_key);
+            if(edges.size()<4)for(const auto& edge:result.mesh.original_references.edges)
+                std::cerr<<"Wrap ancestry diagnostic: "<<edge.reference.owner_id<<" "<<edge.reference.semantic_key<<'\n';
             require(edges.size()>=4,"Wrapped curves lost authored ancestry");
             const auto repeated=kernel.evaluate_history(history).back();valid(repeated);
             require(repeated.mesh.images.size()==1&&repeated.mesh.images.front().surface_vertices==result.mesh.images.front().surface_vertices,"Cached wrap lost its decal");
             require(result.source_fingerprint==repeated.source_fingerprint&&std::abs(result.volume-repeated.volume)<1e-8,"Unchanged Wrap did not reuse equivalent geometry");
+            if(output==k::WrappingResult::Split) {
+                const auto face_keys=[](const auto& value) {
+                    std::set<std::pair<std::string,std::string>> keys;
+                    for(const auto& face:value.mesh.triangle_references)keys.emplace(face.owner_id,face.semantic_key);return keys;
+                };
+                if(face_keys(result).size()<=face_keys(initial).size()) {
+                    unsigned before{},after{};
+                    for(TopExp_Explorer it(k::read_calculated_body_shape(initial),TopAbs_FACE);it.More();it.Next())++before;
+                    for(TopExp_Explorer it(k::read_calculated_body_shape(result),TopAbs_FACE);it.More();it.Next())++after;
+                    std::cerr<<"Split native faces="<<before<<" -> "<<after<<'\n';
+                    for(const auto& key:face_keys(result))std::cerr<<"face "<<key.first<<" "<<key.second<<'\n';
+                }
+                require(face_keys(result).size()>face_keys(initial).size(),"Wrap Split kept an undivided target");
+                require(face_keys(result)==face_keys(repeated),"Cached Wrap Split changed region identities");
+                auto external=request;external.external_target=std::make_shared<const k::OrderedUpToSource>(k::OrderedUpToSource{external_source,target,{}});
+                bool rejected=false;
+                try {const auto invalid=kernel.evaluate_history({base,{"external-split",external}});rejected=!invalid.back().calculation_errors.empty();}catch(const std::exception&){rejected=true;}
+                require(rejected,"Wrap Split modified a read-only external support");
+                auto open=request;open.images.clear();auto& segment=open.profiles.front();
+                segment.outer_profile=k::ExtrusionRequest::CurvedProfile{{k::ExtrusionRequest::LineCurve{p(-4,-3),p(4,3)}}};
+                segment.outer_edge_source_ids={"diagonal"};segment.outer_vertex_source_ids={"start"};segment.open_profile_end_id="end";
+                rejected=false;
+                try {const auto invalid=kernel.evaluate_history({base,{"dangling-split",open}});rejected=!invalid.back().calculation_errors.empty();}catch(const std::exception&){rejected=true;}
+                require(rejected,"Wrap Split accepted a dangling tool inside its target face");
+            }
             if(output==k::WrappingResult::Curves&&!polar) {
                 k::ExtrusionRequest cut;cut.outer_profile=k::ExtrusionRequest::PolygonProfile{{{0,-1,-50},{0,1,-50},{0,1,60},{0,-1,60}}};
                 cut.profile_region_id="slot-region";cut.outer_boundary_id="slot-boundary";

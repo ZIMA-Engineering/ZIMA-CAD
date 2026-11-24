@@ -1,5 +1,11 @@
 # H-Sweep (Helical Sweep)
 
+H-Curve and H-Sweep use the same adjacent **Plane** and **Sketch** groups as
+Extrusion. Select XY, XZ or YZ and its signed offset before opening **Circle and
+initial point**. The selected plane button and the corresponding View plane
+preview update together. These controls place the base circle and its initial
+point; the radial-guide and cross-section Sketches retain their derived frames.
+
 The properties preview shows the selected initial point alongside the base
 circle, even before the radial guide is complete. Radial-guide and profile
 Sketch editing retain both as passive context. The marker follows the resolved

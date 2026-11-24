@@ -6,15 +6,20 @@
 #include <BRepBndLib.hxx>
 #include <BRepBuilderAPI_MakeEdge.hxx>
 #include <BRepBuilderAPI_MakeVertex.hxx>
+#include <BRepBuilderAPI_MakeWire.hxx>
 #include <BRepBuilderAPI_Transform.hxx>
 #include <BRepCheck_Analyzer.hxx>
 #include <BRepExtrema_DistShapeShape.hxx>
 #include <BRepLib_CheckCurveOnSurface.hxx>
+#include <ShapeFix_ShapeTolerance.hxx>
+#include <BRepTools_History.hxx>
 #include <BRepPrimAPI_MakePrism.hxx>
 #include <BRep_Tool.hxx>
 #include <BRep_Builder.hxx>
 #include <Bnd_Box.hxx>
 #include <GeomAPI_ProjectPointOnCurve.hxx>
+#include <GeomConvert.hxx>
+#include <GeomConvert_CompCurveToBSplineCurve.hxx>
 #include <GeomLib_IsPlanarSurface.hxx>
 #include <GeomProjLib.hxx>
 #include <Geom_Plane.hxx>
@@ -97,21 +102,30 @@ double candidate_parameter(const Candidate& candidate, const SourceParameters& s
     return (lo + hi) * .5;
 }
 
-void retain_target_curve(const TopoDS_Edge& edge, const TopoDS_Face& target, double tolerance) {
+void retain_target_curve(const TopoDS_Edge& edge, const TopoDS_Face& target, double tolerance,bool refine=false) {
     const auto precise=[&] {
+        double first{},last{};
+        if(BRep_Tool::CurveOnSurface(edge,target,first,last).IsNull())return false;
         BRepLib_CheckCurveOnSurface check(edge,target);check.Perform();
         return check.IsDone()&&std::isfinite(check.MaxDistance())&&check.MaxDistance()<=tolerance*8;
     };
-    if(precise())return;
+    if(!refine&&precise())return;
     // Joining native section edges can leave a pcurve outside the same spatial
     // correspondence budget used to classify its source. Reproject the unchanged
     // native 3D curve instead of accepting a mismatching surface representation.
     BRep_Builder builder;
     const NativeCurve curve(edge);
+    const double precision=refine?tolerance/4096:tolerance/16;
+    double reached=precision;
+    auto projected=GeomProjLib::Curve2d(curve.curve,curve.first,curve.last,BRep_Tool::Surface(target),reached);
+    if(!projected.IsNull()) {
+        builder.UpdateEdge(edge,projected,target,tolerance);
+        if(precise())return;
+    }
     ShapeConstruct_ProjectCurveOnSurface projector;
-    projector.Init(BRep_Tool::Surface(target),tolerance/16);
+    projector.Init(BRep_Tool::Surface(target),precision);
     Handle(Geom2d_Curve) corrected;
-    if(projector.Perform(curve.curve,curve.first,curve.last,corrected,tolerance/16,tolerance/16)&&!corrected.IsNull())
+    if(projector.Perform(curve.curve,curve.first,curve.last,corrected,precision,precision)&&!corrected.IsNull())
         builder.UpdateEdge(edge,corrected,target,tolerance);
     if(!precise())throw std::runtime_error("Projection could not retain the target parameter curve.");
 }
@@ -425,7 +439,108 @@ DirectionalProjection project_directionally(const std::vector<ProjectionCurve>& 
             result.curves.push_back({std::move(edge),source.source_key,std::move(target_keys),first,last});
         }
     }
+    // Surface and curtain seams can divide one continuous first-hit branch.
+    // Concatenate only adjacent source intervals on the same target set whose
+    // physical endpoints meet. Preserve the exact bounded native geometry at
+    // full C0 knot multiplicity, as Surface Intersection does; never fit a new
+    // smooth curve or invent an authored point at an implementation seam.
+    for(std::size_t i=1;i<result.curves.size();) {
+        auto& a=result.curves[i-1];const auto& b=result.curves[i];
+        if(a.source_key!=b.source_key||a.target_keys!=b.target_keys||
+                std::abs(a.source_last-b.source_first)>1e-10*std::max(1.,std::abs(b.source_last-a.source_first))||
+                BRep_Tool::Pnt(TopExp::LastVertex(a.edge,true)).Distance(BRep_Tool::Pnt(TopExp::FirstVertex(b.edge,true)))>tolerance) {++i;continue;}
+        BRepBuilderAPI_MakeWire wire(a.edge,b.edge);
+        ShapeUpgrade_UnifySameDomain merge(wire.Wire(),true,false,true);
+        merge.SetSafeInputMode(true);merge.SetLinearTolerance(tolerance);merge.Build();
+        TopoDS_Edge unified;int edge_count=0;
+        for(TopExp_Explorer it(merge.Shape(),TopAbs_EDGE);it.More();it.Next()) {unified=TopoDS::Edge(it.Current());++edge_count;}
+        if(edge_count==1) {
+            if(BRep_Tool::Pnt(TopExp::FirstVertex(unified,true)).Distance(BRep_Tool::Pnt(TopExp::FirstVertex(a.edge,true)))>tolerance)unified.Reverse();
+            for(const auto& key:a.target_keys) {
+                const auto target=std::ranges::find(targets,key,&ProjectionTarget::target_key);
+                retain_target_curve(unified,target->face,tolerance);
+            }
+            a.edge=unified;a.source_last=b.source_last;result.curves.erase(result.curves.begin()+i);continue;
+        }
+        GeomConvert_CompCurveToBSplineCurve joined;
+        for(const auto& edge:{a.edge,b.edge}) {
+            const NativeCurve native(edge);
+            Handle(Geom_TrimmedCurve) bounded=new Geom_TrimmedCurve(native.curve,native.first,native.last);
+            if(edge.Orientation()==TopAbs_REVERSED)bounded->Reverse();
+            const auto spline=GeomConvert::CurveToBSplineCurve(bounded);
+            const auto previous=joined.BSplineCurve();
+            const int degree=previous.IsNull()?spline->Degree():std::max(previous->Degree(),spline->Degree());
+            if(!joined.Add(spline,tolerance,true,true,degree))throw std::runtime_error("Projection intersection failed.");
+        }
+        const auto curve=joined.BSplineCurve();
+        auto combined=BRepBuilderAPI_MakeEdge(curve,TopExp::FirstVertex(a.edge,true),TopExp::LastVertex(b.edge,true),
+            curve->FirstParameter(),curve->LastParameter()).Edge();
+        for(const auto& key:a.target_keys) {
+            const auto target=std::ranges::find(targets,key,&ProjectionTarget::target_key);
+            ShapeFix_Edge fix;fix.FixAddPCurve(combined,target->face,false,tolerance);
+            retain_target_curve(combined,target->face,tolerance);
+        }
+        a.edge=combined;a.source_last=b.source_last;result.curves.erase(result.curves.begin()+i);
+    }
     return result;
+}
+
+void certify_projection_edge(const TopoDS_Edge& edge,const TopoDS_Face& face,double tolerance,bool bound_disposable_copy=false) {
+    BRep_Builder builder;
+    const auto measure=[&] {
+        double first{},last{};
+        if(BRep_Tool::CurveOnSurface(edge,face,first,last).IsNull())
+            return std::numeric_limits<double>::infinity();
+        BRepLib_CheckCurveOnSurface check(edge,face);check.Perform();
+        return check.IsDone()?std::nextafter(check.MaxDistance()*1.01,
+            std::numeric_limits<double>::infinity()):std::numeric_limits<double>::infinity();
+    };
+    auto required=measure();
+    if(!bound_disposable_copy&&required<=BRep_Tool::Tolerance(edge))return;
+    if(!std::isfinite(required)||required>tolerance||(bound_disposable_copy&&required>tolerance/128)) {
+        // Offset construction uses edge/vertex tolerances when approximating
+        // its closing walls. Refine the disposable skin's parameter curve so
+        // an inherited section tolerance cannot degrade that approximation.
+        retain_target_curve(edge,face,tolerance/16,bound_disposable_copy);
+        required=measure();
+    }
+    if(!std::isfinite(required)||required>tolerance)
+        throw std::runtime_error("Projection face partition failed.");
+    if(bound_disposable_copy)
+        ShapeFix_ShapeTolerance{}.SetTolerance(edge,std::max(Precision::Confusion(),required),TopAbs_EDGE);
+    else if(required>BRep_Tool::Tolerance(edge))builder.UpdateEdge(edge,required);
+}
+
+void certify_projection_face(const TopoDS_Face& face,double tolerance,bool bound_disposable_copy) {
+    for(TopExp_Explorer it(face,TopAbs_EDGE);it.More();it.Next()) {
+        const auto edge=TopoDS::Edge(it.Current());
+        if(BRep_Tool::Degenerated(edge))continue;
+        certify_projection_edge(edge,face,tolerance,bound_disposable_copy);
+    }
+    // Native unification may temporarily enlarge a seam vertex's tolerance to
+    // cover its old parameter curve. After repairing that curve, certify the
+    // copied vertex against every incident native endpoint before reducing it.
+    // This is permitted only on an explicitly disposable, deep-copied skin.
+    for(TopExp_Explorer point(face,TopAbs_VERTEX);point.More();point.Next()) {
+        const auto vertex=TopoDS::Vertex(point.Current());
+        if(!bound_disposable_copy)continue;
+        double required=Precision::Confusion();bool found=false;
+        for(TopExp_Explorer it(face,TopAbs_EDGE);it.More();it.Next()) {
+            const auto edge=TopoDS::Edge(it.Current());if(BRep_Tool::Degenerated(edge))continue;
+            const NativeCurve curve(edge);
+            for(const auto& [endpoint,parameter]:{std::pair{TopExp::FirstVertex(edge),curve.first},std::pair{TopExp::LastVertex(edge),curve.last}})
+                if(endpoint.IsSame(vertex)) {
+                    found=true;required=std::max({required,BRep_Tool::Tolerance(edge),
+                        BRep_Tool::Pnt(vertex).Distance(curve.curve->Value(parameter))*1.01});
+                }
+        }
+        if(!found&&BRep_Tool::Tolerance(vertex)<=tolerance)continue;
+        if(!found||!std::isfinite(required)||required>tolerance)
+            throw std::runtime_error("Projection face partition failed.");
+        ShapeFix_ShapeTolerance{}.SetTolerance(vertex,required,TopAbs_VERTEX);
+    }
+    if(!BRepCheck_Analyzer(face,true,false,true).IsValid())
+        throw std::runtime_error("Projection face partition failed.");
 }
 
 ProjectionPartition partition_projection(const TopoDS_Shape& input,
@@ -460,7 +575,17 @@ ProjectionPartition partition_projection(const TopoDS_Shape& input,
     NCollection_List<TopoDS_Shape> arguments,tools;
     if(!input.IsNull())arguments.Append(input);
     else for(const auto& target:targets)arguments.Append(target.face);
-    for(const auto& curve:projection.curves)tools.Append(curve.edge);
+    for(const auto& curve:projection.curves) {
+        for(const auto& target:targets)if(std::ranges::find(curve.target_keys,target.target_key)!=curve.target_keys.end()) {
+            double first{},last{};
+            // Section tools already carry a target pcurve that the splitter
+            // trusts. Certify it here. Pure 3D tools (including Wrap) use the
+            // splitter's established native parameter-curve construction.
+            if(!BRep_Tool::CurveOnSurface(curve.edge,target.face,first,last).IsNull())
+                certify_projection_edge(curve.edge,target.face,tolerance);
+        }
+        tools.Append(curve.edge);
+    }
     BRepAlgoAPI_Splitter split;
     split.SetArguments(arguments);split.SetTools(tools);
     split.SetNonDestructive(true);split.SetFuzzyValue(tolerance);split.Build();
@@ -468,17 +593,43 @@ ProjectionPartition partition_projection(const TopoDS_Shape& input,
         throw std::runtime_error("Projection face partition failed.");
     ProjectionPartition result;
     result.shape=split.Shape();result.history=split.History();
+    // A periodic parameter seam is not an authored partition tool. Join the
+    // regions across its descendants while protecting every physical/tool
+    // boundary and every unrelated vertex. Otherwise a circle crossing the
+    // cone/cylinder seam would produce two selectable half-discs.
+    NCollection_IndexedMap<TopoDS_Shape,TopTools_ShapeMapHasher> seams;
+    for(const auto& target:targets)for(TopExp_Explorer it(target.face,TopAbs_EDGE);it.More();it.Next()) {
+        const auto edge=TopoDS::Edge(it.Current());
+        if(!BRep_Tool::IsClosed(edge,target.face))continue;
+        for(const auto& child:split.Modified(edge))if(child.ShapeType()==TopAbs_EDGE) {
+            seams.Add(child);
+        }
+    }
+    if(!seams.IsEmpty()) {
+        ShapeUpgrade_UnifySameDomain unify(result.shape,false,true,false);
+        unify.SetSafeInputMode(true);unify.SetLinearTolerance(tolerance);
+        for(TopExp_Explorer it(result.shape,TopAbs_EDGE);it.More();it.Next())
+            if(!seams.Contains(it.Current()))unify.KeepShape(it.Current());
+        unify.Build();
+        if(unify.Shape().IsNull())throw std::runtime_error("Projection face partition failed.");
+        result.shape=unify.Shape();result.history->Merge(unify.History());
+
+    }
     bool separated=false;
     for(const auto& target:targets) {
-        std::size_t count=0;
-        for(NCollection_List<TopoDS_Shape>::Iterator it(split.Modified(target.face));it.More();it.Next())
-            if(it.Value().ShapeType()==TopAbs_FACE) {
-                result.regions.push_back({TopoDS::Face(it.Value()),target.target_key});++count;
+        NCollection_IndexedMap<TopoDS_Shape,TopTools_ShapeMapHasher> regions;
+        for(NCollection_List<TopoDS_Shape>::Iterator it(result.history->Modified(target.face));it.More();it.Next())
+            if(it.Value().ShapeType()==TopAbs_FACE&&!regions.Contains(it.Value())) {
+                regions.Add(it.Value());result.regions.push_back({TopoDS::Face(it.Value()),target.target_key});
             }
-        if(!count && !split.IsDeleted(target.face))result.regions.push_back(target);
-        separated=separated||count>1;
+        if(regions.IsEmpty() && !result.history->IsRemoved(target.face))result.regions.push_back(target);
+        separated=separated||regions.Extent()>1;
     }
     if(!separated)throw std::invalid_argument("Projected curves do not divide the selected faces.");
+    // The splitter can underestimate a new section edge's tolerance by
+    // sampling its pcurve. Certify the actual correspondence before downstream
+    // thickening: retain the native curves and the requested accuracy budget.
+    for(const auto& region:result.regions)certify_projection_face(region.face,tolerance);
     return result;
 }
 
@@ -540,8 +691,9 @@ void name_projected_curves(DirectionalProjection& projection,
             piece.semantic_key="projection:curve:"+parents+":closed";
         } else {
             piece.first_point_key=endpoint(piece.source_first);piece.last_point_key=endpoint(piece.source_last);
-            if(piece.first_point_key.empty()||piece.last_point_key.empty())
+            if(piece.first_point_key.empty()||piece.last_point_key.empty()) {
                 throw std::runtime_error("Projection endpoint ancestry is missing.");
+            }
             piece.semantic_key="projection:curve:"+parents+":between:"+field(piece.first_point_key)+field(piece.last_point_key);
         }
         if(!curve_keys.insert(piece.semantic_key).second)

@@ -93,8 +93,8 @@ kernel::ProjectionRequest projection_request(const PartDocument& part,
     const auto source=std::ranges::find(part.sketches,container.feature.sketch_id,&sketcher::Sketch::id);
     if(source==part.sketches.end())throw std::runtime_error("Extrusion references a missing Sketch");
     if(container.feature.profile_source!=ProfileSource::Internal||source->owner_container_id!=container.id||
-            container.combine_mode!=CombineMode::Add)
-        throw std::runtime_error("Projection requires an owned planar Sketch and does not add or subtract solid material.");
+            (p.output!=ProjectionOutput::Relief&&container.combine_mode!=CombineMode::Add))
+        throw std::runtime_error("Projection requires its own planar Sketch and a valid result operation.");
     if(std::ranges::any_of(source->offsets,[](const auto& value){return value.broken;})||
        std::ranges::any_of(source->curve_trims,[](const auto& value){return value.broken;}))
         throw std::runtime_error("Sketch contains an unresolved offset or trim intersection");
@@ -104,7 +104,9 @@ kernel::ProjectionRequest projection_request(const PartDocument& part,
     result.tolerance=tolerance;result.reverse=p.reverse;
     result.both_directions=p.direction==ProjectionDirection::SketchNormal;
     result.output=p.output==ProjectionOutput::Curves?kernel::ProjectionResult::Curves:
-        p.output==ProjectionOutput::Split?kernel::ProjectionResult::Split:kernel::ProjectionResult::Surface;
+        p.output==ProjectionOutput::Split?kernel::ProjectionResult::Split:
+        p.output==ProjectionOutput::Surface?kernel::ProjectionResult::Surface:kernel::ProjectionResult::Relief;
+    result.height=p.height;result.inward=container.combine_mode==CombineMode::Subtract;
     if(result.output==kernel::ProjectionResult::Curves)
         for(const auto& point:evaluated.viewer_mesh(false).points)
             if(!point.construction&&point.always_visible&&point.reference.semantic_key.starts_with("point:"))
@@ -133,8 +135,8 @@ kernel::ProjectionRequest projection_request(const PartDocument& part,
     }
     for(const auto& target:p.targets) {
         if(target.external_source) {
-            if(result.output==kernel::ProjectionResult::Split)
-                throw std::runtime_error("Projection cannot split a read-only external target.");
+            if(result.output==kernel::ProjectionResult::Split||result.output==kernel::ProjectionResult::Relief)
+                throw std::runtime_error("Projection cannot modify a read-only external target.");
             const auto& external=*target.external_source;
             if(external.source_face->kernel_shape.empty())
                 throw std::runtime_error("Projection source ancestry is missing.");
@@ -145,7 +147,7 @@ kernel::ProjectionRequest projection_request(const PartDocument& part,
             throw std::runtime_error("Projection target must be a preceding bounded face in the active Body.");
         result.targets.push_back(target.reference);
     }
-    if(result.output==kernel::ProjectionResult::Surface)for(const auto& region:p.regions) {
+    if(result.output==kernel::ProjectionResult::Surface||result.output==kernel::ProjectionResult::Relief)for(const auto& region:p.regions) {
         auto seed=region.seed;
         if(const auto* target=part.find_container(region.target.owner_id);target&&region.target.instance_path.empty()) {
             const auto& placement=target->placement;

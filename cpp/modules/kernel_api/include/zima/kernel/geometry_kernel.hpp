@@ -1216,7 +1216,7 @@ struct SurfaceTrimRequest {
     static constexpr bool surface_result=true;
 };
 
-enum class ProjectionResult { Curves, Split, Surface };
+enum class ProjectionResult { Curves, Split, Surface, Relief };
 struct ProjectionRegionIntent {
     FaceReference target;
     Vec3 seed;
@@ -1228,7 +1228,7 @@ struct ProjectionTargetSource {
 };
 struct ProjectionRequest {
     // Shared native planar profile curves and their authored point/curve IDs.
-    // Unlike extrusion, this operation never sweeps solid material.
+    // Relief thickens selected projected regions along the material normal.
     std::vector<ExtrusionRequest> profiles;
     std::vector<Vec3> display_points;
     std::string sketch_id;
@@ -1242,6 +1242,8 @@ struct ProjectionRequest {
     std::vector<ProjectionTargetSource> external_targets;
     std::vector<ProjectionRegionIntent> regions;
     ProjectionResult output{ProjectionResult::Curves};
+    double height{1};
+    bool inward{};
     double tolerance{0.001};
 };
 struct ResolvedProjectionRegion {
@@ -1250,7 +1252,7 @@ struct ResolvedProjectionRegion {
     std::string boundary_key;
 };
 
-enum class WrappingResult { Curves, Surface, Relief };
+enum class WrappingResult { Curves, Surface, Relief, Split };
 struct WrappingRequest {
     std::vector<ExtrusionRequest> profiles;
     std::vector<ViewerImage> images;

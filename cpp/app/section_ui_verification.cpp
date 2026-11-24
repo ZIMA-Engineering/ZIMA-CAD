@@ -294,7 +294,7 @@ int verify_sections(QApplication& application,AssemblyWorkspaceWindow& window,co
                 const bool can_create=row->data(0,Qt::UserRole+3)=="document-sections";
                 if(!can_create)protected_ok&=menu->actions().front()->text()==QObject::tr("Aktivní")&&
                     (!menu->actions().front()->icon().isNull())==row->font(0).bold();
-                protected_ok&=std::ranges::count_if(menu->actions(),[](auto* action){return action->text()==QObject::tr("Nový řez…");})==(can_create?1:0);
+                protected_ok&=std::ranges::count_if(menu->actions(),[](auto* action){return action->text()==QObject::tr("Create section")&&!action->icon().isNull();})==(can_create?1:0);
                 for(auto* action:menu->actions()){if(protected_row&&(action->text()==QObject::tr("Odstranit")||action->text()==QObject::tr("Vlastnosti")||action->objectName()=="renameTreeItemAction"))protected_ok=false;
                     if(action->text()==label){chosen=true;menu->setActiveAction(action);QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);QApplication::sendEvent(menu,&enter);return;}}
                 menu->close();return;

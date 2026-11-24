@@ -314,7 +314,7 @@ bool AssemblyWorkspaceWindow::section_context_menu(QTreeWidgetItem* item,const Q
     if(!item||!item->data(0,Qt::UserRole+3).toString().startsWith("document-section"))return false;
     if(properties_dialog_||!active_sketch_id_.empty()||workspace_.active_document_id()!=workspace_.displayed_document_id())return true;
     QMenu menu(this);const auto id=item->data(0,Qt::UserRole).toString().toStdString();const auto kind=item->data(0,Qt::UserRole+3).toString();
-    QAction* create=kind=="document-sections"?menu.addAction(tr("Nový řez…")):nullptr;QAction *activate=nullptr,*edit=nullptr,*draw=nullptr,*remove=nullptr;
+    QAction* create=kind=="document-sections"?menu.addAction(resource_icon("sections"),tr("Create section")):nullptr;QAction *activate=nullptr,*edit=nullptr,*draw=nullptr,*remove=nullptr;
     if(kind!="document-sections") {
         activate=menu.addAction(tr("Aktivní"));
         activate->setObjectName("activateSectionAction");

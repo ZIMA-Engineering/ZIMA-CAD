@@ -7,6 +7,14 @@
 #include <zima/workspace/operation_input.hpp>
 #include <zima/kernel/occt_kernel.hpp>
 #include <zima/kernel/calculation_diagnostics.hpp>
+#include <zima/kernel/calculated_body_shape.hpp>
+#include <BRepCheck_Analyzer.hxx>
+#include <BRepGProp.hxx>
+#include <GProp_GProps.hxx>
+#include <BRepPrimAPI_MakeCone.hxx>
+#include <BRepPrimAPI_MakeSphere.hxx>
+#include <STEPControl_Writer.hxx>
+#include <set>
 #include <algorithm>
 #include <cmath>
 #include <filesystem>
@@ -16,7 +24,9 @@
 using namespace zima;
 void require(bool condition,const char* message){if(!condition)throw std::runtime_error(message);}
 #include "projection_external_contract.inc"
+#include "projection_relief_contract.inc"
 int main(){try {
+    verify_projection_relief();
     for(const auto mode:{document::ProjectionOutput::Curves,document::ProjectionOutput::Split,document::ProjectionOutput::Surface}) {
         kernel::OcctKernel engine;workspace::Workspace live;
         auto part=document::PartDocument::create_default();const auto id=part.document_id;

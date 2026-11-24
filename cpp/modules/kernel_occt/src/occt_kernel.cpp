@@ -96,6 +96,7 @@
 #include <BRepPrimAPI_MakeCone.hxx>
 #include <BRepBuilderAPI_MakeVertex.hxx>
 #include <BRepClass_FaceClassifier.hxx>
+#include <BRepTopAdaptor_FClass2d.hxx>
 #include <BRepClass_FaceExplorer.hxx>
 #include <BRepClass3d_SolidClassifier.hxx>
 #include <BRepExtrema_DistShapeShape.hxx>
@@ -12100,6 +12101,8 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
         }
     }
     const auto operation_needs_original_edges=[](const auto& operation) {
+        if(!operation.suppressed)if(const auto* wrap=std::get_if<WrappingRequest>(&operation.primitive))
+            if(wrap->output==WrappingResult::Split)return true;
         if(!operation.suppressed&&(std::holds_alternative<SurfaceIntersectionRequest>(operation.primitive)||std::holds_alternative<SurfaceTrimRequest>(operation.primitive)||std::holds_alternative<ProjectionRequest>(operation.primitive)))return true;
         if(!operation.suppressed) {
             if(const auto* fillet=std::get_if<FilletRequest>(
@@ -12355,7 +12358,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                 }
             if(!operations[matching_prefix].suppressed)if(const auto* projection=std::get_if<ProjectionRequest>(&operations[matching_prefix].primitive)) {
                 const auto& refs=previous_boundaries.back().mesh.original_references.triangle_references;
-                if(projection->output==ProjectionResult::Surface&&std::ranges::any_of(projection->regions,[&](const auto& region) {
+                if((projection->output==ProjectionResult::Surface||projection->output==ProjectionResult::Relief)&&std::ranges::any_of(projection->regions,[&](const auto& region) {
                     return !region.expected_region_key.empty()&&!std::ranges::any_of(refs,[&](const auto& face) {
                         return face.owner_id==operations[matching_prefix].owner_id&&face.semantic_key==region.expected_region_key;
                     });
@@ -12938,6 +12941,8 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
             native_original_before=context.original_faces;
             native_reference_before.emplace(original_references);
             std::vector<ResolvedOrderedUpToLimit> resolved_up_to;
+            std::vector<ResolvedProjectionRegion> relief_regions;
+            std::optional<PrimitiveData> projected_relief;
             struct OperationProfile {
                 const HistoryOperation& operation;
                 std::size_t count,index;
@@ -12974,7 +12979,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                 };
                 bind_target_side(faces,result_shape);
                 if(const auto& external=request.external_target) {
-                    if(request.output==WrappingResult::Relief)throw std::runtime_error("Wrap cannot change material on a read-only external face.");
+                    if(request.output==WrappingResult::Relief||request.output==WrappingResult::Split)throw std::runtime_error("Wrap cannot change material on a read-only external face.");
                     auto source=native_face_source(external->body.get(),external->reference).geometry(*this);
                     for(const auto& placement:external->placements) {
                         BRepBuilderAPI_Transform transform(source.shape,primitive_transform(placement.translation,placement.rotation_degrees),true);
@@ -14956,6 +14961,49 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                     wrapped_images[operation_index].push_back(std::move(image));
                 }
             }
+            if(const auto* wrap=std::get_if<WrappingRequest>(&operation.primitive);wrap&&wrap->output==WrappingResult::Split) {
+                auto request=*wrap;request.output=WrappingResult::Curves;
+                const auto targets=wrapping_faces(request);
+                auto curves=make_wrapping_data(request,operation.owner_id,targets);
+                std::vector<detail::ProjectionTarget> selected;
+                for(const auto& face:targets)if(same_face_identity(face.reference,request.target))
+                    selected.push_back({TopoDS::Face(face.shape),encoded_topology_reference(face.reference)});
+                detail::DirectionalProjection tools;
+                for(const auto& edge:curves.edges) {
+                    detail::ProjectedCurve tool;tool.edge=TopoDS::Edge(edge.shape);
+                    tool.source_key=tool.semantic_key=edge.reference.semantic_key;
+                    for(const auto& target:selected)tool.target_keys.push_back(target.target_key);
+                    tools.curves.push_back(std::move(tool));
+                }
+                // The shared partition stage changes only face boundaries.
+                // Wrapped curves already lie on the exact bounded support;
+                // they must never be projected in a second direction here.
+                const auto partition=detail::partition_projection(result_shape,selected,tools,request.tolerance);
+                auto parents=owned_topology->edges;parents.insert(parents.end(),curves.edges.begin(),curves.edges.end());
+                auto points=owned_topology->vertices;points.insert(points.end(),curves.vertices.begin(),curves.vertices.end());
+                PrimitiveData derived;derived.shape=partition.shape;
+                derived.faces=propagate_topology(partition.history,owned_topology->faces);
+                derived.edges=propagate_topology(partition.history,parents);
+                derived.vertices=propagate_topology(partition.history,points);
+                derived.vertices=complete_boolean_vertices(derived.shape,derived.faces,derived.edges,derived.vertices,operation.owner_id,"wrap");
+                derived.faces=complete_boolean_faces(derived.shape,derived.faces,derived.edges,derived.vertices,operation.owner_id,"wrap",operations);
+                distinguish_partition_sides(derived.faces,derived.edges);
+                derived.edges=complete_boolean_edges(derived.shape,derived.faces,derived.edges,operation.owner_id,"wrap",{},derived.vertices);
+                const auto authored=[&](const auto& values) {
+                    auto result=values;std::erase_if(result,[&](const auto& value){return value.reference.owner_id!=operation.owner_id;});return result;
+                };
+                retain_originals(authored(derived.faces),authored(derived.edges),authored(derived.vertices));
+                retain_copy_solid(derived);result_shape=derived.shape;
+                owned_topology=std::make_shared<LiveCache::Topology>(LiveCache::Topology{
+                    std::move(derived.faces),std::move(derived.edges),std::move(derived.vertices),{}});
+                auto boundary=make_published_result(result_shape,owned_topology->faces,owned_topology->edges,
+                    owned_topology->vertices,true,persist_boundary_shape,true);
+                append_reference_geometry(original_references,reference_geometry_for_owners(boundary.mesh.original_references,
+                    std::unordered_set<std::string>{operation.owner_id}));
+                boundary.mesh.original_references=original_references;boundary.source_fingerprint=fingerprint(operations,operation_index+1);
+                boundaries.push_back(std::move(boundary));remember_live_boundary(boundaries.back().source_fingerprint,result_shape,owned_topology);
+                continue;
+            }
             if(const auto* wrap=std::get_if<WrappingRequest>(&operation.primitive);wrap&&(wrap->output==WrappingResult::Curves||wrap->profiles.empty())) {
                 auto derived=make_wrapping_data(*wrap,operation.owner_id,wrapping_faces(*wrap));
                 retain_originals({},derived.edges,derived.vertices);
@@ -14998,7 +15046,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                 if(request.reverse)request.direction={-request.direction.x,-request.direction.y,-request.direction.z};
                 auto faces=owned_topology->faces;auto edges=owned_topology->edges;auto vertices=owned_topology->vertices;
                 for(const auto& external:projection->external_targets) {
-                    if(!external.source||projection->output==ProjectionResult::Split)
+                    if(!external.source||projection->output==ProjectionResult::Split||projection->output==ProjectionResult::Relief)
                         throw std::runtime_error("Projection face partition failed.");
                     auto source=native_face_source(external.source->body.get(),external.source->reference).geometry(*this);
                     for(const auto& placement:external.source->placements) {
@@ -15013,8 +15061,15 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                     vertices.insert(vertices.end(),source.vertices.begin(),source.vertices.end());
                 }
                 std::vector<ResolvedProjectionRegion> resolved_regions;
+                PrimitiveData retained_geometry;
                 auto derived=make_projection_data(request,operation.owner_id,result_shape,
-                    owned_topology->faces,owned_topology->edges,owned_topology->vertices,faces,edges,vertices,operations,resolved_regions);
+                    owned_topology->faces,owned_topology->edges,owned_topology->vertices,faces,edges,vertices,operations,resolved_regions,retained_geometry);
+                if(projection->output==ProjectionResult::Relief) {
+                    auto regions=make_operation_result(retained_geometry.shape,retained_geometry.faces,
+                        retained_geometry.edges,retained_geometry.vertices,true,false,true,{},false);
+                    append_reference_geometry(original_references,std::move(regions.mesh.original_references));
+                    relief_regions=std::move(resolved_regions);projected_relief=std::move(derived);
+                } else {
                 const auto authored=[&](const auto& values) {
                     auto selected=values;std::erase_if(selected,[&](const auto& value){return value.reference.owner_id!=operation.owner_id;});return selected;
                 };
@@ -15047,6 +15102,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                 boundary.resolved_projection_regions=std::move(resolved_regions);
                 boundaries.push_back(std::move(boundary));remember_live_boundary(boundaries.back().source_fingerprint,result_shape,owned_topology);
                 continue;
+                }
             }
             if(const auto* intersection=std::get_if<SurfaceIntersectionRequest>(&operation.primitive)) {
                 std::vector<OwnedFace> faces;std::vector<OwnedEdge> edges;std::vector<OwnedVertex> vertices;
@@ -17618,6 +17674,9 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                     return make_boundary_surface_data(primitive,operation.owner_id,sources,edges,vertices);
                 } else if constexpr (std::is_same_v<Request, WrappingRequest>) {
                     return make_wrapping_data(primitive,operation.owner_id,wrapping_faces(primitive));
+                } else if constexpr (std::is_same_v<Request, ProjectionRequest>) {
+                    if(!projected_relief)throw std::logic_error("Invalid Projection definition.");
+                    return std::move(*projected_relief);
                 } else if constexpr (std::is_same_v<Request, StepRequest>) {
                     return make_step_data(primitive, operation.owner_id, step_documents);
                 } else {
@@ -17930,6 +17989,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
             const bool referenced_boundary=boundary_request&&std::ranges::any_of(boundary_request->constraints,[](const auto& c){return c.edge.has_value();});
             const bool cache_reference_mesh =
                 !std::holds_alternative<SurfaceThickenRequest>(operation.primitive) &&
+                !std::holds_alternative<ProjectionRequest>(operation.primitive) &&
                 !referenced_boundary && !operation.feature_copy && !imported_step && !std::holds_alternative<FeatureGroupRequest>(operation.primitive) &&
                 (extrusion_request == nullptr || (!extrusion_request->sheet_cut &&
                  (extrusion_request->extent == ExtrusionRequest::Extent::Blind &&
@@ -18290,6 +18350,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
             boundaries.back().source_fingerprint =
                 fingerprint(operations, boundaries.size());
             boundaries.back().resolved_up_to_limits=std::move(resolved_up_to);
+            boundaries.back().resolved_projection_regions=std::move(relief_regions);
             if (!cold_reference_tail)
                 remember_live_boundary(boundaries.back().source_fingerprint,
                     result_shape, owned_topology,

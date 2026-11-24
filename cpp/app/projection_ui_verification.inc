@@ -9,7 +9,9 @@ int verify_projection_ui(QApplication& application,AssemblyWorkspaceWindow& wind
         }
     };
     try {
-        for(int output=0;output<3;++output) {
+        for(int output=0;output<5;++output) {
+            const bool relief=output>=3,inward=output==4;
+            const auto expected_volume=[&](double radius){return 39600.+(relief?(inward?-1.:1.)*std::numbers::pi*radius*radius*2.:0.);};
             workspace::Workspace live;kernel::OcctKernel engine;
             auto part=document::PartDocument::create_default();const auto document_id=part.document_id;
             document::BodyHistoryGraph graph;
@@ -49,14 +51,19 @@ int verify_projection_ui(QApplication& application,AssemblyWorkspaceWindow& wind
             const auto calculations=kernel::body_calculation_count.load();
             if(output==0) {
                 auto* toolbar=window.findChild<QToolBar*>("toolsToolbar");
-                auto* sketch_action=window.findChild<QAction*>("featureShortcut3Action");
+                auto* twist_action=window.findChild<QAction*>("modelTwistAction");
                 auto* projection=window.findChild<QAction*>("projectionAction");
-                check(toolbar&&sketch_action,"Modeling toolbar or Sketch action is missing");
+                check(toolbar&&twist_action,"Modeling toolbar or Twist action is missing");
                 check(projection&&projection->isEnabled(),"Projection toolbar action is unavailable");
                 check(!projection->icon().isNull(),"Projection toolbar icon is missing");
                 const auto actions=toolbar->actions();
-                check(actions.contains(sketch_action)&&actions.indexOf(projection)==actions.indexOf(sketch_action)+1,
-                    "Projection toolbar action must follow Sketch");
+                check(actions.contains(twist_action)&&actions.indexOf(projection)==actions.indexOf(twist_action)+1,
+                    "Projection toolbar action must follow Twist");
+                auto* relief_action=window.findChild<QAction*>("projectionReliefAction");
+                auto* wrap_action=window.findChild<QAction*>("wrapSketchAction");
+                check(relief_action&&relief_action->isEnabled()&&!relief_action->icon().isNull()&&
+                    actions.indexOf(relief_action)==actions.indexOf(projection)+1&&
+                    actions.indexOf(wrap_action)==actions.indexOf(relief_action)+1,"Projection/Wrap command order or relief icon is wrong");
                 auto* button=toolbar->widgetForAction(projection);
                 check(button,"Projection toolbar button is missing");
                 click(button,button->rect().center());check(editor(),"Projection button did not open shared Feature Properties");
@@ -67,11 +74,17 @@ int verify_projection_ui(QApplication& application,AssemblyWorkspaceWindow& wind
                 editor()->reject();flush();
                 check(window.execute_console_command("documents").data==unchanged,"Cancelling the Projection shortcut changed the document");
                 check(kernel::body_calculation_count.load()==calculations,"Opening or cancelling the Projection shortcut calculated geometry");
+                relief_action->trigger();flush();check(editor(),"Project relief did not open shared Properties");
+                check(editor()->pending_value().feature.projection.output==document::ProjectionOutput::Relief&&
+                    editor()->findChild<QDoubleSpinBox*>("projectionHeight")->isVisible()&&
+                    !editor()->findChild<QComboBox*>("projectionOutput")->isVisible(),"Relief shortcut has the wrong controls");
+                editor()->reject();flush();
             }
             window.show_tree_item_properties(row());flush();check(editor(),"Shared Feature Properties did not open");
             check(editor()->windowType()==Qt::SubWindow,"Projection uses a floating Properties window");
-            editor()->findChild<QComboBox*>("featureType")->setCurrentIndex(static_cast<int>(document::FeatureType::Projection));
-            editor()->findChild<QComboBox*>("projectionOutput")->setCurrentIndex(output);
+            editor()->findChild<QComboBox*>("featureType")->setCurrentIndex(relief?projection_relief_type_index:static_cast<int>(document::FeatureType::Projection));
+            if(relief)editor()->findChild<QDoubleSpinBox*>("projectionHeight")->setValue(inward?-2.:2.);
+            else editor()->findChild<QComboBox*>("projectionOutput")->setCurrentIndex(output);
             flush();
             auto* panel=editor()->projection_panel();check(panel&&panel->isVisible(),"Projection controls are missing");
             const auto field=[&](const char* name,int row) {
@@ -104,23 +117,28 @@ int verify_projection_ui(QApplication& application,AssemblyWorkspaceWindow& wind
             targets->cellWidget(0,3)->findChild<QToolButton*>()->click();flush();check(panel->inspected_faces().size()==1,"Target inspection did not remain independent");
             targets->cellWidget(0,1)->findChild<QPushButton*>()->click();flush();check(panel->parameters().targets.empty()&&panel->inspected_faces().empty(),"Clearing a target retained its inspection");
             pick_face(false);check(panel->parameters().targets.size()==1,"Target replacement failed");
-            if(output==2){field("projectionRegions",0);pick_face(true);check(panel->parameters().regions.size()==1,"View click did not retain region intent");}
+            if(output==2||relief){field("projectionRegions",0);pick_face(true);check(panel->parameters().regions.size()==1,"View click did not retain region intent");}
             check(window.execute_console_command("documents").data==unchanged,"Projection preview changed the document");
             check(kernel::body_calculation_count.load()==calculations,"Projection preview invoked native geometry calculation");
-            bool source_preview=false,result_preview=false;
+            bool source_preview=false,result_preview=false,relief_preview=false;
             for(const auto& edge:view->transient_edges()) {
                 source_preview|=edge.reference.semantic_key.starts_with("projection:preview:source:");
                 result_preview|=edge.reference.semantic_key=="projection:preview:result";
+                if(edge.reference.semantic_key=="projection:preview:relief") {
+                    relief_preview=true;for(const auto& point:edge.points)check(std::abs(point.z-(inward?9.:13.))<1e-6,"Relief preview is on the wrong material side");
+                }
                 check(edge.color=="#FFFFFF"&&!edge.preview_terminal_dashed,"Valid Projection preview has an unexpected style or helper line");
             }
-            check(source_preview&&result_preview,"Live Projection preview omitted source or result");
+            check(source_preview&&result_preview&&(!relief||relief_preview),"Live Projection preview omitted source, result or relief");
             window.grab().save(QString::fromStdString((directory/("projection-properties-"+std::to_string(output)+".png")).string()));
             editor()->buttons()->button(QDialogButtonBox::Ok)->click();flush();
             if(editor())throw std::runtime_error("Projection OK failed: "+editor()->findChild<QLabel*>("featureValidationError")->text().toStdString());
             window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
             std::vector<kernel::BodyResult> cache;const auto saved=document::PartDocument::load(path,&cache);
             check(saved.find_container(feature.id)->feature.type==document::FeatureType::Projection&&cache.back().calculation_errors.empty(),"Projection native output was not saved");
-            check(std::abs(cache.back().volume-39600)<.001,"Projection changed material volume");
+            check(std::abs(cache.back().volume-expected_volume(12))<.001,"Projection has the wrong material volume");
+            if(relief)check(saved.find_container(feature.id)->feature.projection.height==2&&
+                saved.find_container(feature.id)->combine_mode==(inward?document::CombineMode::Subtract:document::CombineMode::Add),"Relief correction/sign did not persist");
             const auto committed=window.execute_console_command("documents").data;const auto count=kernel::body_calculation_count.load();
             window.show_tree_item_properties(row());flush();check(editor(),"Projection cannot reopen Properties");
             auto pending_document=saved;*pending_document.find_container(feature.id)=editor()->pending_value();
@@ -191,7 +209,7 @@ int verify_projection_ui(QApplication& application,AssemblyWorkspaceWindow& wind
                 std::vector<kernel::BodyResult> changed_cache;const auto changed=document::PartDocument::load(path,&changed_cache);
                 const auto changed_source=std::ranges::find(changed.sketches,source.id,&sketcher::Sketch::id);
                 check(changed_source!=changed.sketches.end()&&std::abs(changed_source->circles.front().radius-radius)<1e-7,"Projection source radius edit did not persist");
-                check(changed_cache.back().calculation_errors.empty()&&std::abs(changed_cache.back().volume-39600)<.001,"Projection source dimension edit broke dependent geometry");
+                check(changed_cache.back().calculation_errors.empty()&&std::abs(changed_cache.back().volume-expected_volume(radius))<.001,"Projection source dimension edit broke dependent geometry");
             }
             window.show_tree_item_properties(row());flush();check(editor(),"Projection placement editor did not reopen");
             const auto before_placement=window.execute_console_command("documents").data;

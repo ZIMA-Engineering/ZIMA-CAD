@@ -34,7 +34,7 @@ FeatureParameters fixture() {
 }
 }
 int main() { try {
-    for(auto output:{WrappingOutput::Curves,WrappingOutput::Surface,WrappingOutput::Relief})
+    for(auto output:{WrappingOutput::Curves,WrappingOutput::Surface,WrappingOutput::Relief,WrappingOutput::Split})
     for(bool reverse_u:{false,true})for(bool reverse_v:{false,true}) {
         auto p=fixture();p.type=FeatureType::Wrapping;p.wrapping.output=output;
         p.wrapping.reverse_u=reverse_u;p.wrapping.reverse_v=reverse_v;p.wrapping.height=2.75;
@@ -53,11 +53,12 @@ int main() { try {
     }
     // Projection adds a required discriminated definition without changing
     // existing Feature payloads or the planar source Sketch's ownership.
-    for(const auto output:{ProjectionOutput::Curves,ProjectionOutput::Split,ProjectionOutput::Surface})
+    for(const auto output:{ProjectionOutput::Curves,ProjectionOutput::Split,ProjectionOutput::Surface,ProjectionOutput::Relief})
     for(const auto direction:{ProjectionDirection::SketchNormal,ProjectionDirection::Reference})
     for(bool reverse:{false,true}) {
         FeatureParameters p;p.type=FeatureType::Projection;p.sketch_id="source-sketch";
         auto& projection=p.projection;projection.output=output;projection.direction=direction;projection.reverse=reverse;
+        if(output==ProjectionOutput::Relief)projection.height=2.123456789;
         projection.direction_reference={"axis-owner","axis:authored","occurrence/part"};
         ExtrusionParameters::EndTarget target;target.reference={"target-owner","face:from:profile","occurrence/target"};
         target.label="User-authored target";target.fallback_origin={-0.,2,8};target.fallback_normal={0,0,-1};
@@ -66,6 +67,13 @@ int main() { try {
         const auto encoded=serialize_feature_parameters(p);
         const auto restored=load_feature_parameters(encoded);
         check(restored==p,"Projection definition changed on native round-trip");
+        check(encoded["projection"].contains("height")== (output==ProjectionOutput::Relief),"Projection height escaped its relief definition");
+        if(output==ProjectionOutput::Relief) {
+            auto missing=encoded;missing["projection"].erase("height");rejected([&]{load_feature_parameters(missing);});
+            for(double height:{0.,-1.,std::numeric_limits<double>::infinity()}) {
+                auto invalid=p;invalid.projection.height=height;rejected([&]{serialize_feature_parameters(invalid);});
+            }
+        }
         check(restored.uses_sketch()&&!restored.sketch_only()&&!restored.shows_sketch(),"Projection confused its planar input with derived output");
         check(std::signbit(restored.projection.targets[0].fallback_origin.x)&&std::signbit(restored.projection.regions[0].seed.z),
             "Projection normalized signed zero");

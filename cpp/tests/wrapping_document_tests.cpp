@@ -16,6 +16,7 @@
 #include <filesystem>
 #include <iostream>
 #include <numbers>
+#include <set>
 using namespace zima;
 void require(bool value,const char* message){if(!value)throw std::runtime_error(message);}
 double volume_of(const kernel::BodyResult& result) {
@@ -32,7 +33,7 @@ void valid(const std::vector<kernel::BodyResult>& results) {
 }
 int main(int argc,char** argv){try {
     for(bool internal:{false,true})
-    for(const auto output:{document::WrappingOutput::Curves,document::WrappingOutput::Surface,document::WrappingOutput::Relief})
+    for(const auto output:{document::WrappingOutput::Curves,document::WrappingOutput::Surface,document::WrappingOutput::Relief,document::WrappingOutput::Split})
     for(bool inward:{false,true}) {
         workspace::Workspace live;kernel::OcctKernel kernel;
         auto part=document::PartDocument::create_default();const auto id=part.document_id;
@@ -81,6 +82,12 @@ int main(int argc,char** argv){try {
                     "Committed wrapped polygon shifted from the cyan preview");
         }
         const double result_volume=volume_of(state->session.calculated_boundaries().back());
+        if(output==document::WrappingOutput::Split) {
+            const auto face_count=[](const kernel::BodyResult& result) {
+                unsigned count{};for(TopExp_Explorer it(kernel::read_calculated_body_shape(result),TopAbs_FACE);it.More();it.Next())++count;return count;
+            };
+            require(face_count(state->session.calculated_boundaries().back())>face_count(*input),"Wrap Split did not divide the target face");
+        }
         if(output==document::WrappingOutput::Surface) {
             auto shape=kernel::read_calculated_body_shape(state->session.calculated_boundaries().back());
             for(TopExp_Explorer it(shape,TopAbs_FACE,TopAbs_SOLID);it.More();it.Next()) {
@@ -112,10 +119,20 @@ int main(int argc,char** argv){try {
             std::abs(volume_of(state->session.calculated_boundaries().back())-result_volume)<1e-6&&
             kernel::body_calculation_count.load()==calculations,"Wrap Redo changed material or calculated geometry");
         const auto file=std::filesystem::temp_directory_path()/("zima-wrapped-polygon-"+id+".prtz");
+        const auto identities=[&](const kernel::BodyResult& result) {
+            std::set<std::pair<std::string,std::string>> keys;
+            for(const auto& face:result.mesh.triangle_references)keys.emplace(face.owner_id,face.semantic_key);
+            for(const auto& edge:result.mesh.edges)keys.emplace(edge.reference.owner_id,edge.reference.semantic_key);
+            for(const auto& edge:result.mesh.original_references.edges)if(edge.reference.owner_id==feature.id)
+                keys.emplace(edge.reference.owner_id,edge.reference.semantic_key);
+            return keys;
+        };
+        const auto before_keys=identities(state->session.calculated_boundaries().back());
         state->session.document().save(file,state->session.calculated_boundaries());
         std::vector<kernel::BodyResult> cached;auto restored=document::PartDocument::load(file,&cached);valid(cached);
         kernel::OcctKernel cold;const auto fresh=workspace::calculate_part_with_resolved_references(cold,restored);valid(fresh);
         require(std::abs(volume_of(fresh.back())-result_volume)<1e-6,"Cold native reopen changed wrapped material");
+        require(identities(fresh.back())==before_keys,"Cold native reopen changed wrapped face or edge identities");
         std::filesystem::remove(file);
         std::cout<<"PASS constrained polygon Wrap output="<<int(output)<<" inward="<<inward<<" internal="<<internal<<'\n';
     }

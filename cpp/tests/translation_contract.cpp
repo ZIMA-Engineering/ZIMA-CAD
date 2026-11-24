@@ -400,12 +400,15 @@ int verify_translations(QApplication& application, QWidget& parent) {
             helical.show();application.processEvents();
             auto* result=helical.findChild<QComboBox*>("helicalResultType");
             auto* plane_selector=helical.findChild<QWidget*>("helicalBasePlaneSelector");
-            check(plane_selector&&helical.findChild<QPushButton*>("helicalSketch2")->y()<result->y()&&
-                    result->y()<plane_selector->y()&&plane_selector->y()<base_offset->y(),
-                "Helical controls are not ordered Sketches, result, plane, offset");
-            bool plane_label=false;
-            for(auto* label:helical.findChildren<QLabel*>())plane_label|=label->text()==settings.qt_translations.value("Rovina");
-            check(plane_label,"Helical plane label is not localized");
+            auto* plane_group=helical.findChild<QGroupBox*>("helicalPlaneGroup");
+            auto* sketch_group=helical.findChild<QGroupBox*>("helicalSketchGroup");
+            const auto top=[&](QWidget* control){return control->mapTo(&helical,QPoint{}).y();};
+            check(plane_selector&&plane_group&&sketch_group&&top(plane_group)==top(sketch_group)&&
+                    top(plane_selector)<top(base_offset)&&top(base_offset)<top(helical.findChild<QPushButton*>("helicalSketch2"))&&
+                    top(helical.findChild<QPushButton*>("helicalSketch2"))<top(result),
+                "Helical base Plane/Sketch groups must precede the remaining Sketches and result");
+            check(plane_group->title()==settings.qt_translations.value("Rovina")&&
+                sketch_group->title()==settings.qt_translations.value("Skica"),"Helical Plane/Sketch groups are not localized");
             check_modes(helical,"helicalResultType","helicalThickness");
             app::Sweep2DDialog planar(test_support::sweep_fixture(document::FeatureKind::Sweep2D),commit,&parent);
             planar.setAttribute(Qt::WA_DeleteOnClose,false);

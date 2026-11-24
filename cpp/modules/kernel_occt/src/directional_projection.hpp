@@ -71,6 +71,10 @@ struct ProjectionPartition {
     std::vector<ProjectionTarget> regions;
     Handle(BRepTools_History) history;
 };
+// Certify native 3D/pcurve correspondence after partition or local boundary
+// unification, repairing only the parameter curve within the requested budget.
+void certify_projection_face(const TopoDS_Face&, double tolerance,
+    bool bound_disposable_copy = false);
 // A null input partitions only the target surfaces. Otherwise split the actual
 // input body in place, preserving all material and unaffected topology.
 ProjectionPartition partition_projection(const TopoDS_Shape& input,

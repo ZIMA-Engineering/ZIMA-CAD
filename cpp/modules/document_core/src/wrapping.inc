@@ -17,9 +17,10 @@ kernel::WrappingRequest wrapping_request(const PartDocument& part,
     result.height=p.height;result.tolerance=tolerance;result.reverse_u=p.reverse_u;result.reverse_v=p.reverse_v;
     result.inward=container.combine_mode==CombineMode::Subtract;
     result.output=p.output==WrappingOutput::Curves?kernel::WrappingResult::Curves:
-        p.output==WrappingOutput::Surface?kernel::WrappingResult::Surface:kernel::WrappingResult::Relief;
+        p.output==WrappingOutput::Surface?kernel::WrappingResult::Surface:
+        p.output==WrappingOutput::Split?kernel::WrappingResult::Split:kernel::WrappingResult::Relief;
     if(target.external_source) {
-        if(p.output==WrappingOutput::Relief)throw std::runtime_error("Wrap cannot change material on a read-only external face.");
+        if(p.output==WrappingOutput::Relief||p.output==WrappingOutput::Split)throw std::runtime_error("Wrap cannot change material on a read-only external face.");
         const auto& external=*target.external_source;
         if(external.source_face->kernel_shape.empty())throw std::runtime_error("Wrap target is unavailable.");
         auto local=target.reference;local.instance_path.clear();
@@ -31,7 +32,7 @@ kernel::WrappingRequest wrapping_request(const PartDocument& part,
     result.images=evaluated.viewer_mesh(false).images;
     auto curves=evaluated;curves.texts.clear();
     const auto profiles=projection_sketch_profiles(curves);
-    if(p.output==WrappingOutput::Curves) {
+    if(p.output==WrappingOutput::Curves||p.output==WrappingOutput::Split) {
         result.profiles=profiles;
         if(!evaluated.texts.empty()) {
             auto text=evaluated;text.segments.clear();text.circles.clear();text.arcs.clear();

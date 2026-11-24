@@ -49,6 +49,8 @@ public:
         type_=feature_type_control(this,initial_.type);
         if(initial_.type==document::FeatureType::Wrapping&&initial_.wrapping.output==document::WrappingOutput::Relief)
             type_->setCurrentIndex(wrap_relief_type_index);
+        if(initial_.type==document::FeatureType::Projection&&initial_.projection.output==document::ProjectionOutput::Relief)
+            type_->setCurrentIndex(projection_relief_type_index);
         auto* plane_controls=new ProfilePlaneControls(this,"feature",[this] {
             if(work_plane_reference_requested_)work_plane_reference_requested_();
         });
@@ -373,10 +375,11 @@ public:
     }
     QDoubleSpinBox* side_draft(std::size_t side) const { return sides_.at(side).draft; }
     QGroupBox* side_group(std::size_t side) const { return sides_.at(side).box; }
-    bool subtract() const { if(selected_type()==document::FeatureType::Wrapping)return wrapping_->subtract();return selected_type()!=document::FeatureType::Projection&&result_->currentIndex()!=1 && operation_group_->checkedId()==1; }
+    bool subtract() const { if(selected_type()==document::FeatureType::Wrapping)return wrapping_->subtract();if(selected_type()==document::FeatureType::Projection)return projection_->subtract();return result_->currentIndex()!=1 && operation_group_->checkedId()==1; }
     void set_subtract(bool value) {
         last_operation_=value?1:0;
         wrapping_->set_subtract(value);
+        projection_->set_subtract(value);
         refresh_operations();
     }
     void set_assembly_context() {
@@ -388,6 +391,7 @@ public:
             model->item(static_cast<int>(document::FeatureType::Projection))->setEnabled(false);
             model->item(static_cast<int>(document::FeatureType::Wrapping))->setEnabled(false);
             model->item(wrap_relief_type_index)->setEnabled(false);
+            model->item(projection_relief_type_index)->setEnabled(false);
             model->item(static_cast<int>(document::FeatureType::Modeling))->setEnabled(initial_.type==document::FeatureType::Modeling);
         }
     }
@@ -404,7 +408,7 @@ public:
         const auto notify=[this,changed]{if(!changing_operation_&&!refreshing_side_&&!normalizing_rotations_)changed();};
         change_requested_=notify;
         for(auto* box:findChildren<QComboBox*>())if(!projection_->isAncestorOf(box)&&!wrapping_->isAncestorOf(box)&&!box->property("featureLimitChoice").toBool())connect(box,&QComboBox::currentIndexChanged,this,notify);
-        for(auto* box:findChildren<QDoubleSpinBox*>())if(!wrapping_->isAncestorOf(box))connect(box,&QDoubleSpinBox::valueChanged,this,notify);
+        for(auto* box:findChildren<QDoubleSpinBox*>())if(!projection_->isAncestorOf(box)&&!wrapping_->isAncestorOf(box))connect(box,&QDoubleSpinBox::valueChanged,this,notify);
         for(auto* box:findChildren<QCheckBox*>())if(!projection_->isAncestorOf(box)&&!wrapping_->isAncestorOf(box))connect(box,&QCheckBox::toggled,this,notify);
         projection_->changed=notify;
         wrapping_->changed=notify;
@@ -509,6 +513,7 @@ private:
     void refresh_type() {
         const auto type=selected_type();
         if(type==document::FeatureType::Wrapping)wrapping_->set_relief_mode(type_->currentIndex()==wrap_relief_type_index);
+        if(type==document::FeatureType::Projection)projection_->set_relief_mode(type_->currentIndex()==projection_relief_type_index);
         const bool modeling=type==document::FeatureType::Modeling;
         const bool axis=type==document::FeatureType::Axis;
         const bool lengths=modeling||type==document::FeatureType::Axis;

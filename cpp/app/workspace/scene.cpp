@@ -1311,6 +1311,18 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
                 if constexpr(requires { document.body_history; })
                     if(const auto* body=document.body_owner_for_object(shown.owner_container_id.empty()?shown.id:shown.owner_container_id))
                         sketch_mesh=document.place_body_mesh(std::move(sketch_mesh),body->scope.id);
+                if constexpr(requires { document.find_container(shown.owner_container_id); })
+                    if(const auto* owner=document.find_container(shown.owner_container_id);
+                            owner&&owner->feature_kind==zima::document::FeatureKind::Feature&&
+                            owner->feature.type==zima::document::FeatureType::Wrapping&&!properties_dialog_) {
+                        // Inspect the source in its persisted planar frame next
+                        // to the wrapped result. This is a read-only display;
+                        // it neither enters Sketcher nor changes the definition.
+                        shown.filter_hidden_3d_geometry(sketch_mesh);
+                        for(auto& edge:sketch_mesh.edges)edge.display_owner_id=owner->id;
+                        mesh.edges.insert(mesh.edges.end(),sketch_mesh.edges.begin(),sketch_mesh.edges.end());
+                        mesh.images.insert(mesh.images.end(),sketch_mesh.images.begin(),sketch_mesh.images.end());
+                    }
                 bool bound_bend_start{};
                 if constexpr(requires { document.sheet_from_body_child_bound(shown.owner_container_id); })
                     if(const auto* owner=document.find_container(shown.owner_container_id))

@@ -17,6 +17,7 @@
 #include <zima/kernel/mirror_geometry.hpp>
 #include <zima/kernel/pattern_geometry.hpp>
 #include <zima/kernel/transition_edge_display.hpp>
+#include <zima/kernel/wrapped_image.hpp>
 
 namespace zima::app {
 inline bool authored_sketch_profile(const document::HistoryContainer& feature) {
@@ -100,7 +101,24 @@ inline std::vector<kernel::ViewerEdge> authored_feature_wire(
     using document::FeatureKind;
     switch(feature->feature_kind) {
     case FeatureKind::Feature:
-        if(feature->feature.type==document::FeatureType::Projection||feature->feature.type==document::FeatureType::Wrapping) {
+        if(feature->feature.type==document::FeatureType::Wrapping) {
+            // Native reopen may keep only the final display packet. Its
+            // original references still carry the authored target support,
+            // even when the intermediate input boundary has no display mesh.
+            // Reuse that analytic metadata with the ordinary Wrap generator;
+            // never calculate topology or highlight later Boolean fragments.
+            kernel::ViewerMesh support;
+            const auto retain_support=[&](const auto& faces) {
+                if(!support.triangle_references.empty()||!feature->feature.wrapping.target)return;
+                for(const auto& face:faces)if(kernel::wrapped_image_face_matches(feature->feature.wrapping.target->reference,face)&&
+                        (face.surface||face.contour_surface)) {support.triangle_references.push_back(face);break;}
+            };
+            retain_support(input_mesh.triangle_references);retain_support(input_mesh.original_references.triangle_references);
+            if(!session.calculated_boundaries().empty())
+                retain_support(session.calculated_boundaries().back().mesh.original_references.triangle_references);
+            wire.edges=doc.feature_preview_edges(*feature,support,&doc);return place(std::move(wire));
+        }
+        if(feature->feature.type==document::FeatureType::Projection) {
             wire.edges=doc.feature_preview_edges(*feature,input_mesh,&doc);return place(std::move(wire));
         }
         if(feature->feature.type!=document::FeatureType::Modeling)break;

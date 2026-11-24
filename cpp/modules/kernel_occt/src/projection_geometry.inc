@@ -1,3 +1,23 @@
+void distinguish_partition_sides(std::vector<OwnedFace>& faces,const std::vector<OwnedEdge>& edges) {
+    std::map<std::string,unsigned> identities;
+    for(const auto& face:faces)++identities[encoded_topology_reference(face.reference)];
+    for(auto& face:faces)if(identities[encoded_topology_reference(face.reference)]>1) {
+        // On a closed support the inside patch and its complement
+        // can have identical boundary parents. Their opposite
+        // uses of those authored edges distinguish the two regions
+        // without coordinates or enumeration-based identities.
+        std::set<std::string> sides;
+        for(TopExp_Explorer edge(face.shape,TopAbs_EDGE);edge.More();edge.Next())
+            for(const auto& parent:edges)if(parent.reference.valid()&&parent.shape.IsSame(edge.Current()))
+                sides.insert(encoded_topology_reference(parent.reference)+
+                    (parent.shape.Orientation()==edge.Current().Orientation()?":forward":":reverse"));
+        face.reference.semantic_key+=":boundary-sides:"+compact_topology_token(encoded_topology_reference_set(sides));
+    }
+    std::set<std::string> distinct;
+    for(const auto& face:faces)if(!distinct.insert(encoded_topology_reference(face.reference)).second)
+        throw std::runtime_error("Projection curve ancestry is ambiguous.");
+}
+
 // Shared exact stage for all Projection outputs. This runs only during an
 // explicit history calculation and consumes the actual bounded input faces.
 PrimitiveData make_projection_data(const ProjectionRequest& request,const std::string& owner,
@@ -6,9 +26,11 @@ PrimitiveData make_projection_data(const ProjectionRequest& request,const std::s
         const std::vector<OwnedFace>& available_faces,const std::vector<OwnedEdge>& available_edges,
         const std::vector<OwnedVertex>& available_vertices,
         const std::vector<HistoryOperation>& operations,
-        std::vector<ResolvedProjectionRegion>& resolved_regions) {
+        std::vector<ResolvedProjectionRegion>& resolved_regions,PrimitiveData& retained_geometry) {
     if(request.targets.empty()||request.sketch_id.empty())
         throw std::invalid_argument("Projection requires source curves, target faces and a positive tolerance.");
+    if(request.output==ProjectionResult::Relief&&(!std::isfinite(request.height)||request.height<=0))
+        throw std::invalid_argument("Surface thickness must be positive.");
     const auto field=[](const std::string& value){return std::to_string(value.size())+":"+value;};
     std::vector<detail::ProjectionTarget> targets;
     for(const auto& selected:request.targets) {
@@ -19,6 +41,16 @@ PrimitiveData make_projection_data(const ProjectionRequest& request,const std::s
         }
         if(!found)throw std::runtime_error("Projection source ancestry is missing.");
         detail::ProjectionTarget target{TopoDS::Face(found->shape),encoded_topology_reference(selected)};
+        if(request.output==ProjectionResult::Relief) {
+            // The current solid, rather than its generating face binding,
+            // owns the material normal (also for a native cylindrical bore).
+            NCollection_IndexedMap<TopoDS_Shape,TopTools_ShapeMapHasher> material_faces;
+            for(TopExp_Explorer solid(input,TopAbs_SOLID);solid.More();solid.Next())
+                TopExp::MapShapes(solid.Current(),TopAbs_FACE,material_faces);
+            const auto index=material_faces.FindIndex(found->shape);
+            if(!index)throw std::runtime_error("Projection target must be a preceding bounded face in the active Body.");
+            target.face=TopoDS::Face(material_faces.FindKey(index));
+        }
         for(TopExp_Explorer it(found->shape,TopAbs_EDGE);it.More();it.Next()) {
             const auto edge=TopoDS::Edge(it.Current());
             if(BRep_Tool::Degenerated(edge))continue;
@@ -119,6 +151,7 @@ PrimitiveData make_projection_data(const ProjectionRequest& request,const std::s
     auto vertices=propagate_topology(partition.history,original_vertices);
     vertices=complete_boolean_vertices(partition.shape,faces,edges,vertices,owner,"projection");
     faces=complete_boolean_faces(partition.shape,faces,edges,vertices,owner,"projection",operations);
+    distinguish_partition_sides(faces,edges);
     edges=complete_boolean_edges(partition.shape,faces,edges,owner,"projection",{},vertices);
     if(request.output==ProjectionResult::Split) {
         PrimitiveData result;result.shape=partition.shape;result.faces=std::move(faces);
@@ -139,13 +172,20 @@ PrimitiveData make_projection_data(const ProjectionRequest& request,const std::s
             if(!intent.expected_region_key.empty())match=named->reference.semantic_key==intent.expected_region_key;
             else {
                 const gp_Pnt seed(intent.seed.x,intent.seed.y,intent.seed.z);
-                BRepClass_FaceClassifier classify(region.face,seed,request.tolerance);
-                if(classify.State()==TopAbs_ON)throw std::runtime_error("Select a retained region away from its boundary.");
-                match=classify.State()==TopAbs_IN;
+                // The 3D face classifier can project onto the antipodal
+                // stationary point of a sphere and select both complementary
+                // regions. Classify the nearest support parameters explicitly.
+                GeomAPI_ProjectPointOnSurf locate(seed,BRep_Tool::Surface(target->face),request.tolerance);
+                if(!locate.IsDone()||!locate.NbPoints())throw std::runtime_error("The retained trim region changed. Select the region again.");
+                double u{},v{};locate.LowerDistanceParameters(u,v);
+                const auto state=BRepTopAdaptor_FClass2d(region.face,request.tolerance).Perform(gp_Pnt2d(u,v));
+                if(state==TopAbs_ON)throw std::runtime_error("Select a retained region away from its boundary.");
+                match=state==TopAbs_IN;
             }
             if(match) {
                 if(selected)throw std::runtime_error("Surface trim retained region is ambiguous.");
                 selected=*named;
+                if(request.output==ProjectionResult::Relief)selected->shape.Orientation(target->face.Orientation());
             }
         }
         if(!selected)throw std::runtime_error("The retained trim region changed. Select the region again.");
@@ -153,6 +193,53 @@ PrimitiveData make_projection_data(const ProjectionRequest& request,const std::s
         if(std::ranges::none_of(retained,[&](const auto& face){return face.shape.IsSame(selected->shape);}))retained.push_back(*selected);
     }
     PrimitiveData result;TopoDS_Compound combined;builder.MakeCompound(combined);
+    if(request.output==ProjectionResult::Relief) {
+        // Retain the selected native region for guard validation on unchanged
+        // and cold cache reuse. Only explicit calculation prepares this packet.
+        TopoDS_Compound regions;builder.MakeCompound(regions);
+        for(auto& face:retained) {face.reference.owner_id=owner;face.reference.instance_path.clear();face.reference.surface_result=true;builder.Add(regions,face.shape);}
+        retained_geometry.shape=regions;retained_geometry.faces=retained;
+        retained_geometry.edges=edges;retained_geometry.vertices=vertices;
+        for(const auto& face:retained) {
+            // The complementary periodic region still owns its parameter seam.
+            // Join seam-divided boundary curves on the retained region alone,
+            // preserving authored points and native history for the offset.
+            // Unification can raise tolerances on reused seam vertices even
+            // in safe mode. Isolate this offset preparation from the model.
+            BRepBuilderAPI_Copy skin_copy(face.shape,true,false);
+            NCollection_IndexedMap<TopoDS_Shape,TopTools_ShapeMapHasher> skin_members;
+            TopExp::MapShapes(face.shape,skin_members);
+            const auto copy_members=[&](const auto& source) {
+                std::decay_t<decltype(source)> copied;
+                for(const auto& item:source)if(skin_members.Contains(item.shape))
+                    copied.push_back({skin_copy.ModifiedShape(item.shape),item.reference});
+                return copied;
+            };
+            ShapeUpgrade_UnifySameDomain skin(skin_copy.Shape(),true,false,true);
+            skin.SetSafeInputMode(true);skin.SetLinearTolerance(request.tolerance);
+            for(const auto& point:original_vertices) {
+                const auto& modified=partition.history->Modified(point.shape);
+                for(const auto& child:modified)if(child.ShapeType()==TopAbs_VERTEX&&skin_members.Contains(child))skin.KeepShape(skin_copy.ModifiedShape(child));
+                if(modified.IsEmpty()&&!partition.history->IsRemoved(point.shape)&&skin_members.Contains(point.shape))skin.KeepShape(skin_copy.ModifiedShape(point.shape));
+            }
+            skin.Build();
+            if(skin.Shape().IsNull())throw std::runtime_error("Projection face partition failed.");
+            auto local_edges=propagate_topology(skin.History(),copy_members(edges));
+            auto local_vertices=propagate_topology(skin.History(),copy_members(vertices));
+            // Unification's sampled tolerance has the same exact certification
+            // requirement as the partition; no 3D boundary is moved.
+            detail::certify_projection_face(TopoDS::Face(skin.Shape()),request.tolerance,true);
+            SurfaceThickenRequest thickness;thickness.face=face.reference;
+            thickness.thickness=request.height;thickness.tolerance=request.tolerance;
+            thickness.side=request.inward?SurfaceThicknessSide::Second:SurfaceThicknessSide::First;
+            auto solid=make_thickened_surface_data(thickness,owner,skin.Shape(),{{skin.Shape(),face.reference}},local_edges,local_vertices).operand;
+            builder.Add(combined,solid.shape);
+            result.faces.insert(result.faces.end(),solid.faces.begin(),solid.faces.end());
+            result.edges.insert(result.edges.end(),solid.edges.begin(),solid.edges.end());
+            result.vertices.insert(result.vertices.end(),solid.vertices.begin(),solid.vertices.end());
+        }
+        result.shape=combined;return result;
+    }
     if(!input.IsNull())builder.Add(combined,input);
     result.faces=input_faces;result.edges=input_edges;result.vertices=input_vertices;
     // Copy the selected region set together. Adjacent selected regions share

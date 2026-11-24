@@ -924,6 +924,7 @@ std::string encode_history_fingerprint(
                 for(auto p:{primitive.sketch_origin,primitive.sketch_normal,primitive.direction})
                     for(double v:{p.x,p.y,p.z})u64(number_bits(v));
                 u64(static_cast<unsigned>(primitive.output));u64(std::bit_cast<std::uint64_t>(primitive.tolerance));
+                if(primitive.output==ProjectionResult::Relief) {u64(number_bits(primitive.height));byte(primitive.inward);}
                 // Target rows are a set. Row order is not a modeling input.
                 std::vector<std::tuple<std::string,std::string,std::string>> targets;
                 for(const auto& r:primitive.targets)targets.emplace_back(r.owner_id,r.semantic_key,r.instance_path);

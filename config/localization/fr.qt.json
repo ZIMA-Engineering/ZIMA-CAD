@@ -1,4 +1,8 @@
 {
+  "Project sketch": "Projeter une esquisse",
+  "Project relief": "Projeter un relief",
+  "Projection requires its own planar Sketch and a valid result operation.": "La projection nécessite sa propre esquisse plane et une opération de résultat valide.",
+  "Projection cannot modify a read-only external target.": "La projection ne peut pas modifier une cible externe en lecture seule.",
   "Positive correction adds material outward; negative correction removes material inward.": "Une correction positive ajoute de la matière vers l’extérieur ; une correction négative en retire vers l’intérieur.",
   "Deformation player": "Lecteur de déformation",
   "Animation time": "Temps de l’animation",
@@ -3000,9 +3004,7 @@
   "Vyberte zachovanou oblast na cílové ploše…": "Sélectionnez une région à conserver sur la face cible…",
   "Odstranit cílovou plochu ze seznamu": "Retirer la face cible de la liste",
   "Odstranit výběr oblasti": "Supprimer la sélection de région",
-  "Projection cannot split a read-only external target.": "La projection ne peut pas diviser une cible externe en lecture seule.",
   "Projection direction reference is missing or is not straight.": "La référence de direction de projection est manquante ou n’est pas droite.",
-  "Projection requires an owned planar Sketch and does not add or subtract solid material.": "La projection nécessite sa propre esquisse plane et n’ajoute ni ne retire de matière solide.",
   "Projection target must be a preceding bounded face in the active Body.": "La cible de projection doit être une face délimitée antérieure dans le corps actif.",
   "FEM requires a source Body or Boolean result.": "Le FEM nécessite un corps source ou un résultat booléen.",
   "Unsupported FEM analysis type.": "Type d’analyse FEM non pris en charge.",

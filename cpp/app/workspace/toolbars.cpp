@@ -543,14 +543,25 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
                     show_primitive_properties(document::FeatureKind::Feature,{},false,document::FeatureType::Projection);
                 });
             }
-            projection->setText(tr("Promítnutí"));
+            projection->setText(tr("Project sketch"));
             projection->setEnabled(boundary_body&&!boundary_body->derived_copy&&!properties_dialog_);
         }
         for(int i=0;i<6;++i) {
             if(auto* shortcut=findChild<QAction*>(QStringLiteral("featureShortcut%1Action").arg(i)))add_command(shortcut);
-            if(i==static_cast<int>(document::FeatureType::Sketch)&&projection)add_command(projection);
         }
         add_command(twist);
+        if(projection)add_command(projection);
+        auto* projection_relief=findChild<QAction*>("projectionReliefAction");
+        if(!projection_relief) {
+            projection_relief=new QAction(resource_icon("projection"),QString{},this);
+            projection_relief->setObjectName("projectionReliefAction");
+            connect(projection_relief,&QAction::triggered,this,[this] {
+                show_primitive_properties(document::FeatureKind::Feature,{},false,document::FeatureType::Projection,false,false,false,true);
+            });
+        }
+        projection_relief->setText(tr("Project relief"));
+        projection_relief->setEnabled(boundary_body&&!boundary_body->derived_copy&&!properties_dialog_);
+        add_command(projection_relief);
         for(bool relief:{false,true}) {
             const auto name=relief?"wrapReliefAction":"wrapSketchAction";
             auto* action=findChild<QAction*>(name);

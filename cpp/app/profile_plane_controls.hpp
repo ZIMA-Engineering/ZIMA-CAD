@@ -40,13 +40,14 @@ public:
     // offset lock, without changing its placement or Sketch lifecycle.
     ProfilePlaneControls(QWidget* parent,const QString& prefix,QFormLayout* existing_rows,
         QComboBox* existing_plane,QWidget* existing_selector,ui::UnitDoubleSpinBox* existing_offset,
-        QPushButton* existing_sketch):QWidget(parent),rows(existing_rows),plane(existing_plane),
-        selector(existing_selector),offset(existing_offset),sketch(existing_sketch) {
+        QPushButton* existing_sketch,const char* sketch_key="Skica"):QWidget(parent),rows(existing_rows),plane(existing_plane),
+        selector(existing_selector),offset(existing_offset),sketch(existing_sketch),sketch_key_(sketch_key) {
         make_groups(prefix);plane_group->setLayout(rows);
         plane_label=qobject_cast<QLabel*>(rows->labelForField(selector));
         finish_sketch();
     }
 private:
+    const char* sketch_key_{"Skica"};
     void make_groups(const QString& prefix) {
         auto* row=new QHBoxLayout(this);row->setContentsMargins(0,0,0,0);
         plane_group=new QGroupBox(this);plane_group->setObjectName(prefix+"PlaneGroup");
@@ -63,7 +64,7 @@ private:
 public:
     void retranslate() {
         plane_group->setTitle(tr("Rovina"));sketch_group->setTitle(tr("Skica"));
-        plane_label->setText(tr("Výchozí rovina"));sketch->setText(tr("Skica"));
+        plane_label->setText(tr("Výchozí rovina"));sketch->setText(tr(sketch_key_));
         if(auto* label=qobject_cast<QLabel*>(rows->labelForField(offset)))label->setText(tr("Odsazení roviny"));
     }
 protected:

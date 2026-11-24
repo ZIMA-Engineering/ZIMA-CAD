@@ -1,7 +1,9 @@
 # Wrap on cylindrical, conical and spherical faces
 
-Status: implementation plan; the user approved this scope and the native persisted
-definition on 2026-11-24, including affected factory assets and start templates.
+Status: implemented with finite Windows verification. The user approved the
+native definition on 2026-11-24, including affected factory assets and start
+templates. Follow-up acceptance is recorded in
+[Wrap fixes](verification/20261124-wrap-fixes.md).
 The existing From target surface relief remains a separate, working operation.
 
 ## User-visible scope
@@ -15,9 +17,12 @@ The existing From target surface relief remains a separate, working operation.
 - Add Wrapping as a type of the existing Feature, with its existing owned Sketch,
   Properties window, placement contract and history lifecycle.
   Expose **Wrap sketch / Nabalit skicu** and **Wrap relief / Nabalit reliéf**
-  as two choices in the downward-opening Feature type list. The first creates
-  curves, optional surface regions and embedded artwork. The second uses
-  Add/Subtract and a normal **Correction / Korekce** for raised or recessed material.
+  as separate commands below Project sketch / Project relief, and as two
+  choices in the downward-opening Feature type list. The first creates
+  **Sketch**, **Split** or **Surface** results and embedded artwork. Split
+  partitions the target face without changing material volume. Relief uses a
+  signed normal **Correction / Korekce**: positive adds outward and negative
+  removes inward, respecting the target solid’s material side.
 - Support a cylindrical, conical or spherical face. The placed Feature Origin
   defines the anchor; do not introduce a separate independently picked anchor.
   Signed Sketch coordinates wrap in both directions from that anchor;
@@ -62,7 +67,7 @@ curves and independent error checks, never a display polyline substituted for
 the engineering curve. Source tangent orientation, both signed directions and
 normal material offsets must remain consistent in preview and calculation.
 
-## Proposed native definition and ownership
+## Native definition and ownership
 
 Extend the Feature type mapping with `wrapping`. Its definition stores the
 stable target face reference, direction choices, and normal height/depth for

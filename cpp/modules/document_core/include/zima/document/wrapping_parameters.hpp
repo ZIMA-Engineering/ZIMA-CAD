@@ -2,7 +2,7 @@
 #include <zima/document/profile_parameters.hpp>
 
 namespace zima::document {
-enum class WrappingOutput { Curves, Surface, Relief };
+enum class WrappingOutput { Curves, Surface, Relief, Split };
 struct WrappingParameters {
     WrappingOutput output{WrappingOutput::Curves};
     std::optional<ExtrusionParameters::EndTarget> target;

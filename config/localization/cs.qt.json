@@ -1,4 +1,8 @@
 {
+  "Project sketch": "Promítnout skicu",
+  "Project relief": "Promítnout reliéf",
+  "Projection requires its own planar Sketch and a valid result operation.": "Promítnutí vyžaduje vlastní rovinnou skicu a platnou operaci výsledku.",
+  "Projection cannot modify a read-only external target.": "Promítnutí nemůže měnit externí cíl určený jen ke čtení.",
   "Positive correction adds material outward; negative correction removes material inward.": "Kladná korekce přidává materiál ven; záporná odebírá materiál dovnitř.",
   "Deformation player": "Přehrávač deformace",
   "Animation time": "Čas animace",
@@ -3000,9 +3004,7 @@
   "Vyberte zachovanou oblast na cílové ploše…": "Vyberte zachovanou oblast na cílové ploše…",
   "Odstranit cílovou plochu ze seznamu": "Odstranit cílovou plochu ze seznamu",
   "Odstranit výběr oblasti": "Odstranit výběr oblasti",
-  "Projection cannot split a read-only external target.": "Promítnutí nemůže rozdělit externí cíl určený jen ke čtení.",
   "Projection direction reference is missing or is not straight.": "Reference směru promítnutí chybí nebo není přímá.",
-  "Projection requires an owned planar Sketch and does not add or subtract solid material.": "Promítnutí vyžaduje vlastní rovinnou skicu a nepřičítá ani neodečítá materiál tělesa.",
   "Projection target must be a preceding bounded face in the active Body.": "Cílem promítnutí musí být předchozí ohraničená plocha v aktivním tělese.",
   "FEM requires a source Body or Boolean result.": "FEM vyžaduje zdrojové těleso nebo výsledek booleovské operace.",
   "Unsupported FEM analysis type.": "Nepodporovaný typ analýzy FEM.",

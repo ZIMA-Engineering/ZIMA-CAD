@@ -463,6 +463,28 @@ int main() {
                 require(keys==expected,"Coordinates or target row order changed derived identity");
             }
         });
+        run("tangent cylinder source crosses zero depth without an artificial endpoint",[&] {
+            const double radius=99.699320241;
+            const auto face=analytical_face(BRepPrimAPI_MakeCylinder(radius,150.6390984).Shape(),GeomAbs_Cylinder);
+            const gp_Pln sketch(gp_Pnt(radius,0,0),gp_Dir(1,0,0));const gp_Dir direction(1,0,0);
+            for(bool reversed:{false,true})for(double slope:{0.,.125}) {
+                const gp_Pnt a(radius,38.544972477,57.),b(radius,-30.897193718,57.+slope*69.442166195);
+                const auto edge=reversed?line(b,a):line(a,b);
+                const std::vector<p::ProjectionCurve> sources{{edge,"tangent-source","start","end"}};
+                const std::vector<p::ProjectionTarget> targets{{face,"cylinder"}};
+                auto result=project(edge,targets,sketch,direction,true);
+                if(result.curves.size()!=1)for(const auto& piece:result.curves) {
+                    const BRepAdaptor_Curve curve(piece.edge);
+                    std::cerr<<"tangent piece slope="<<slope<<" reversed="<<reversed<<" source="<<piece.source_first<<".."<<piece.source_last
+                        <<" native="<<curve.FirstParameter()<<".."<<curve.LastParameter()<<" type="<<int(curve.GetType())<<'\n';
+                }
+                require(result.curves.size()==1&&!result.ambiguous&&result.gaps.empty(),"Zero-depth curtain split a continuous cylindrical projection");
+                // The helper uses its own authored key when checking equations.
+                result.curves.front().source_key="tangent-source";
+                p::name_projected_curves(result,sources,targets,sketch,direction,tolerance);
+                require(!result.curves.front().first_point_key.empty()&&!result.curves.front().last_point_key.empty(),"Tangent cylindrical projection lost authored endpoints");
+            }
+        });
         std::cout<<"Passed "<<passed<<" directional projection cases\n";
         return 0;
     } catch(const Standard_Failure& failure) {std::cerr<<"OCCT: "<<failure.GetMessageString()<<'\n';}

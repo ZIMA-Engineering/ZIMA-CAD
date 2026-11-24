@@ -2587,6 +2587,27 @@ int verify_helical_sweep_command(QApplication& application,zima::app::AssemblyWo
     if(!verify(dialog->pending.placement.x==12&&dialog->pending.placement.y==-3&&dialog->pending.placement.z==8&&std::abs(dialog->pending.placement.rotation_y-25)<1e-6&&placement_view->camera_state()==camera,"Sweep placement fields did not update or moved camera"))return 1;
     auto* base_plane=dialog->findChild<QComboBox*>("helicalBasePlane");
     if(!verify(base_plane&&base_plane->currentText()=="XZ","Helical base plane default missing"))return 1;
+    auto* plane_group=dialog->findChild<QGroupBox*>("helicalPlaneGroup");
+    auto* sketch_group=dialog->findChild<QGroupBox*>("helicalSketchGroup");
+    auto* offset=dialog->findChild<QDoubleSpinBox*>("helicalBaseOffset");
+    auto* circle_button=dialog->findChild<QPushButton*>("helicalSketch0");
+    if(!verify(plane_group&&sketch_group&&offset&&circle_button&&
+            circle_button->parentWidget()==sketch_group&&plane_group->y()==sketch_group->y(),
+            "Helical base plane does not share the ordinary Plane/Sketch layout"))return 1;
+    for(int plane=0;plane<3;++plane)for(double distance:{-3.,2.}) {
+        auto* button=dialog->findChild<QToolButton*>(QString("helicalBasePlaneChoice")+QStringList{"XY","XZ","YZ"}[plane]);
+        if(!verify(button!=nullptr,"Helical plane button missing"))return 1;
+        button->click();offset->setValue(distance);application.processEvents();
+        if(!verify(base_plane->currentData().toInt()==plane&&button->isChecked(),"Helical plane button is not selected"))return 1;
+        const auto framed=zima::sketcher::Sketch::from_serialized(dialog->pending.helical.sketches[0]);
+        const auto expected=framed.world_point(0,0),normal=framed.normal();
+        std::vector<zima::kernel::Vec3> corners;
+        for(const auto& edge:placement_view->mesh().edges)if(edge.reference.owner_id==dialog->pending.feature_id&&edge.reference.semantic_key=="border")
+            corners.insert(corners.end(),edge.points.begin(),edge.points.end());
+        if(!verify(!corners.empty(),"Helical base plane has no View boundary"))return 1;
+        for(const auto& point:corners)if(!verify(std::abs((point.x-expected.x)*normal.x+(point.y-expected.y)*normal.y+(point.z-expected.z)*normal.z)<1e-8,
+                "Helical base plane boundary differs from its Sketch frame"))return 1;
+    }
     base_plane->setCurrentIndex(2);dialog->findChild<QDoubleSpinBox*>("helicalBaseOffset")->setValue(-3);
     application.processEvents();
     auto base=zima::sketcher::Sketch::from_serialized(dialog->pending.helical.sketches[0]);

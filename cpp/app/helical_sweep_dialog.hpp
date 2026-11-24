@@ -2,6 +2,7 @@
 #include "sketch_button_style.hpp"
 #include "resource_icon.hpp"
 #include "work_plane_selection.hpp"
+#include "profile_plane_controls.hpp"
 #include <zima/document/part_document.hpp>
 #include "sweep_placement_dialog.hpp"
 #include <QComboBox>
@@ -36,13 +37,38 @@ public:
         connect(name,&QLineEdit::textChanged,this,[this](auto v){pending.name=v.toStdString();});
         content_layout()->addLayout(form);install_placement();
         form=new QFormLayout;
+        auto* base_plane=new QComboBox(this);base_plane->setObjectName("helicalBasePlane");
+        for(const auto* label:{"XY","XZ","YZ"})base_plane->addItem(label,base_plane->count());
+        base_plane->setCurrentIndex(static_cast<int>(sketcher::Sketch::from_serialized(pending.helical.sketches[0]).plane));
+        auto* base_selector=compact_work_plane_selector(base_plane,
+            [this] {if(request_placement)request_placement(0);});
+        form->addRow(tr("Výchozí rovina"),base_selector);
+        connect(base_plane,&QComboBox::currentIndexChanged,this,[this](int index){
+            auto base=sketcher::Sketch::from_serialized(pending.helical.sketches[0]);
+            base.plane=static_cast<sketcher::SketchPlane>(index);
+            pending.helical.sketches[0]=base.serialized();notify();
+        });
+        auto* base_offset=new ui::UnitDoubleSpinBox(ui::InputQuantity::Length,this);base_offset->setObjectName("helicalBaseOffset");
+        base_offset->set_display_decimals(ui::numeric_decimal_places(this,4));base_offset->setRange(-1000000,1000000);
+        base_offset->setValue(sketcher::Sketch::from_serialized(pending.helical.sketches[0]).plane_offset);
+        form->addRow(tr("Odsazení roviny"),base_offset);
+        ui::bind_numeric_value_lock(base_offset,"base_offset",pending.value_locks,[this]{notify();});
+        connect(base_offset,&QDoubleSpinBox::valueChanged,this,[this](double value){
+            auto base=sketcher::Sketch::from_serialized(pending.helical.sketches[0]);base.plane_offset=value;
+            pending.helical.sketches[0]=base.serialized();notify();
+        });
         const std::array<QString,3> names{tr("1. Kružnice a počáteční bod…"),tr("2. Radiální vodicí skica…"),tr("3. Skica průřezu…")};
         QPushButton* section{};
         for(unsigned i=0;i<3;++i){
             auto* button=new QPushButton(names[i],this);
             button->setObjectName(QString("helicalSketch%1").arg(i));
             style_sketch_button(button);
-            form->addRow(button);
+            if(i==0) {
+                content_layout()->addWidget(new ProfilePlaneControls(this,"helical",form,
+                    base_plane,base_selector,base_offset,button,"1. Kružnice a počáteční bod…"));
+                form=new QFormLayout;
+            }
+            else form->addRow(button);
             if (i==2) section=button;
             connect(button,&QPushButton::clicked,this,[this,i]{if(edit_sketch)edit_sketch(i);});
         }
@@ -88,25 +114,6 @@ public:
         connect(thickness,&QDoubleSpinBox::valueChanged,this,[this](double v){pending.helical.thickness=v;notify();});
         connect(side,&QComboBox::currentIndexChanged,this,[this](int i){pending.helical.thin_mode=i==0?document::ThinMode::OneSide:i==1?document::ThinMode::OtherSide:document::ThinMode::Symmetric;notify();});
         update_thin();
-        auto* base_plane=new QComboBox(this);base_plane->setObjectName("helicalBasePlane");
-        base_plane->addItems({"XY","XZ","YZ"});
-        base_plane->setCurrentIndex(static_cast<int>(sketcher::Sketch::from_serialized(pending.helical.sketches[0]).plane));
-        form->addRow(tr("Rovina"),compact_work_plane_selector(base_plane,
-            [this] {if(request_placement)request_placement(0);}));
-        connect(base_plane,&QComboBox::currentIndexChanged,this,[this](int index){
-            auto base=sketcher::Sketch::from_serialized(pending.helical.sketches[0]);
-            base.plane=static_cast<sketcher::SketchPlane>(index);
-            pending.helical.sketches[0]=base.serialized();notify();
-        });
-        auto* base_offset=new ui::UnitDoubleSpinBox(ui::InputQuantity::Length,this);base_offset->setObjectName("helicalBaseOffset");
-        base_offset->set_display_decimals(ui::numeric_decimal_places(this,4));base_offset->setRange(-1000000,1000000);
-        base_offset->setValue(sketcher::Sketch::from_serialized(pending.helical.sketches[0]).plane_offset);
-        form->addRow(tr("Odsazení základní skici"),base_offset);
-        ui::bind_numeric_value_lock(base_offset,"base_offset",pending.value_locks,[this]{notify();});
-        connect(base_offset,&QDoubleSpinBox::valueChanged,this,[this](double value){
-            auto base=sketcher::Sketch::from_serialized(pending.helical.sketches[0]);base.plane_offset=value;
-            pending.helical.sketches[0]=base.serialized();notify();
-        });
         circle_=new QComboBox(this);point_=new QComboBox(this);circle_->setObjectName("helicalCircle");point_->setObjectName("helicalStartPoint");
         form->addRow(tr("Základní kružnice"),circle_);form->addRow(tr("Počáteční bod"),point_);
         connect(circle_,&QComboBox::activated,this,[this]{pending.helical.circle_id=circle_->currentData().toString().toStdString();notify();});

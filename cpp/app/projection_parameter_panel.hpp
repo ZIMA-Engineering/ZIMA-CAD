@@ -1,6 +1,8 @@
 #pragma once
 #include <zima/document/projection_parameters.hpp>
 #include <zima/ui/reference_cell.hpp>
+#include <zima/ui/unit_spin_box.hpp>
+#include <QSignalBlocker>
 #include <QComboBox>
 #include <QFormLayout>
 #include <QHeaderView>
@@ -34,6 +36,14 @@ public:
         output_->setCurrentIndex(static_cast<int>(pending_.output));form->addRow(tr("Výsledek"),output_);
         targets_=table("projectionTargets",tr("Cílové plochy"));layout->addWidget(targets_,1);
         regions_=table("projectionRegions",tr("Zachované oblasti"));layout->addWidget(regions_,1);
+        details_=new QFormLayout;layout->addLayout(details_);
+        height_=new ui::UnitDoubleSpinBox(ui::InputQuantity::Length,this);height_->setObjectName("projectionHeight");
+        height_->setRange(-1000000,1000000);height_->setValue(pending_.height);
+        displayed_height_=height_->value();initial_height_=pending_.height;
+        details_->addRow(tr("Korekce"),height_);
+        height_->setToolTip(tr("Positive correction adds material outward; negative correction removes material inward."));
+        connect(height_,&QDoubleSpinBox::valueChanged,this,[this](double value){
+            pending_.height=std::abs(value)==std::abs(displayed_height_)?initial_height_:std::abs(value);notify();});
         auto* notice=new QLabel(tr("Promítá se kolmo ke skicové rovině na nejbližší vybranou plochu. Pořadí ploch výsledek nemění."),this);notice_=notice;
         notice->setObjectName("projectionNotice");
         notice->setWordWrap(true);layout->addWidget(notice);
@@ -43,6 +53,14 @@ public:
         refresh();
     }
     const document::ProjectionParameters& parameters()const{return pending_;}
+    void set_relief_mode(bool relief) {
+        if(relief)pending_.output=document::ProjectionOutput::Relief;
+        else if(pending_.output==document::ProjectionOutput::Relief)pending_.output=document::ProjectionOutput::Curves;
+        {const QSignalBlocker blocker(output_);output_->setCurrentIndex(relief?0:int(pending_.output));}
+        refresh();
+    }
+    bool subtract()const{return pending_.output==document::ProjectionOutput::Relief&&height_->value()<0;}
+    void set_subtract(bool on){const QSignalBlocker blocker(height_);height_->setValue((on?-1.:1.)*pending_.height);displayed_height_=height_->value();}
     Pick active_pick()const{return active_;}
     void begin_entry(Pick kind,int row) {active_=kind;row_=row;refresh();if(pick_requested)pick_requested(kind);}
     void finish_entry(bool clear_inspection=false) {
@@ -78,7 +96,9 @@ public:
     }
     void refresh() {
         const auto previous=layout_state();
-        regions_->setVisible(pending_.output==document::ProjectionOutput::Surface);
+        const bool relief=pending_.output==document::ProjectionOutput::Relief;
+        form_->setRowVisible(output_,!relief);details_->setRowVisible(height_,relief);
+        regions_->setVisible(pending_.output==document::ProjectionOutput::Surface||relief);
         fill(targets_,Pick::Target,static_cast<int>(pending_.targets.size())+1);
         fill(regions_,Pick::Region,static_cast<int>(pending_.regions.size())+1);
         if(previous!=layout_state()) {
@@ -92,6 +112,8 @@ protected:
         if(event->type()!=QEvent::LanguageChange)return;
         output_->setItemText(0,tr("Skica"));output_->setItemText(1,tr("Rozdělit"));output_->setItemText(2,tr("Plocha"));
         static_cast<QLabel*>(form_->labelForField(output_))->setText(tr("Výsledek"));
+        static_cast<QLabel*>(details_->labelForField(height_))->setText(tr("Korekce"));
+        height_->setToolTip(tr("Positive correction adds material outward; negative correction removes material inward."));
         notice_->setText(tr("Promítá se kolmo ke skicové rovině na nejbližší vybranou plochu. Pořadí ploch výsledek nemění."));
         targets_->setHorizontalHeaderLabels({tr("Č."),{},tr("Cílové plochy"),{}});
         regions_->setHorizontalHeaderLabels({tr("Č."),{},tr("Zachované oblasti"),{}});
@@ -163,6 +185,7 @@ private:
     document::ProjectionParameters pending_;
     QComboBox* output_{};
     QFormLayout* form_{};QLabel* notice_{};
+    QFormLayout* details_{};ui::UnitDoubleSpinBox* height_{};double displayed_height_{},initial_height_{};
     QTableWidget *targets_{},*regions_{};
     Pick active_{Pick::None};int row_{-1};std::set<Key> inspected_faces_;
 };

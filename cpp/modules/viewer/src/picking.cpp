@@ -1175,6 +1175,18 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
         if (priority(left) != priority(right)) {
             return priority(left) < priority(right);
         }
+        if(left.kind==CandidateKind::Container&&right.kind==CandidateKind::Container) {
+            const auto result_curve=[&](const auto& candidate) {
+                if(candidate.geometry!=CandidateGeometry::Display||candidate.geometry_index>=mesh.edges.size())return false;
+                const auto& edge=mesh.edges[candidate.geometry_index];
+                return edge.overlay&&edge.display_owner_id==candidate.owner_id&&edge.reference.instance_path==candidate.instance_path&&
+                    (edge.reference.semantic_key.starts_with("wrap:sketch:")||edge.reference.semantic_key.starts_with("projection:curve:"));
+            };
+            // These result curves are painted above material occlusion. A
+            // visible curve hit must select its owner before the solid under
+            // that stroke; reference-taking candidate kinds remain unchanged.
+            if(result_curve(left)!=result_curve(right))return result_curve(left);
+        }
         if(visible_treatment&&left.kind==CandidateKind::Container&&right.kind==CandidateKind::Container) {
             // A narrow, actually hit treatment face must not lose ordinary
             // selection to its preceding Sketch within the wire tolerance.

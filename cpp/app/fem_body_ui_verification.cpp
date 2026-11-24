@@ -860,7 +860,10 @@ int verify_fem_body(QApplication& application,AssemblyWorkspaceWindow& window,co
                     const auto* buttons=form->findChild<QDialogButtonBox*>();
                     check(buttons&&buttons->button(QDialogButtonBox::Cancel)->text()==localized.qt_translations.value("Zrušit"),
                         "Deformation settings Cancel did not use the common catalog");
-                    form->findChild<QToolButton*>("femPlayerSettings")->click();flush();
+                    check(form->findChild<QDoubleSpinBox*>("femMagnification")->isVisible()&&
+                        form->findChild<QDoubleSpinBox*>("femAnimationDuration")->isVisible()&&
+                        form->findChild<QPushButton*>("femAutomaticMagnification")->isVisible(),"Player settings are initially hidden");
+                    const auto player_geometry=form->geometry();
                     check(form->windowTitle()==localized.qt_translations.value("Deformation player"),"FEM player title did not translate");
                     auto* player_button=form->findChild<QToolButton*>("femPlayerPlayButton");
                     check(player_button->defaultAction()->text()==localized.qt_translations.value("Play deformation"),"Player Play did not translate");
@@ -875,6 +878,12 @@ int verify_fem_body(QApplication& application,AssemblyWorkspaceWindow& window,co
                     check(playing_azure>unsigned(playing_image.width()*playing_image.height()/3),"Playing FEM button is not azure in this theme");
                     player_button->click();flush();
                     check(form->findChild<QPushButton*>("femSaveVideo")->text()==localized.qt_translations.value("Save video"),"Save video did not translate");
+                    for(double seconds:{.3,30.,3.}) {
+                        form->findChild<QDoubleSpinBox*>("femAnimationDuration")->setValue(seconds);
+                        form->findChild<QDoubleSpinBox*>("femMagnification")->setValue(seconds*100);
+                        form->findChild<QSlider*>("femPlayerTimeline")->setValue(500);flush();
+                        check(form->geometry()==player_geometry,"Player resized or moved after changing its settings");
+                    }
                     for(const auto* key:{"Deformation magnification","Cycle duration",
                             "Animation interpolates the static result. Values and colors always show the calculated load case."})
                         check(std::ranges::any_of(form->findChildren<QLabel*>(),[&](const auto* label){return label->text()==localized.qt_translations.value(key);}),
@@ -891,6 +900,7 @@ int verify_fem_body(QApplication& application,AssemblyWorkspaceWindow& window,co
             check(settings&&settings->parentWidget()==&window&&(settings->windowFlags()&Qt::WindowType_Mask)==Qt::SubWindow,
                 "Deformation settings do not use the shared properties window");
             const auto player_calculations=kernel::body_calculation_count.load();
+            const auto player_geometry=settings->geometry();
             auto* timeline=settings->findChild<QSlider*>("femPlayerTimeline");
             auto* play=settings->findChild<QToolButton*>("femPlayerPlayButton");
             const QRect view_area(view->mapTo(&window,QPoint{}),view->size());
@@ -923,6 +933,7 @@ int verify_fem_body(QApplication& application,AssemblyWorkspaceWindow& window,co
             if(QFileInfo(video_path).size()<=1000)
                 std::cerr<<settings->findChild<QLabel*>("femVideoStatus")->text().toStdString()<<'\n';
             check(QFileInfo(video_path).size()>1000,"Video export did not write MP4");
+            check(settings->geometry()==player_geometry,"Video export status resized or moved the player");
             check(view->result_deformation_factor()==1,"Video export did not restore the displayed deformation");
             check(view->camera_state()==export_camera,"Video export moved the camera");
             check(beam_session->revision()==beam_revision,"Video export changed the native document");
