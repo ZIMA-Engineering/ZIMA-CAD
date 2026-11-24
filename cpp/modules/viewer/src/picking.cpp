@@ -286,7 +286,7 @@ bool candidate_recolors_wire_edge(
         (candidate.semantic_key.empty() || candidate.semantic_key == "solid")) {
         const bool screen_curve = edge.overlay &&
             (is_curve3d_edge(edge.reference.semantic_key)||edge.reference.semantic_key.starts_with("intersection:curve:from:")||
-                edge.reference.semantic_key.starts_with("projection:curve:")||edge.reference.semantic_key.starts_with("fem:mark:")||
+                edge.reference.semantic_key.starts_with("projection:curve:")||edge.reference.semantic_key.starts_with("wrap:sketch:")||edge.reference.semantic_key.starts_with("fem:mark:")||
                 edge.reference.semantic_key.starts_with("fem:region:")||
                 edge.reference.semantic_key.starts_with("render:marker:"));
         const auto& key = edge.reference.semantic_key;
@@ -929,7 +929,7 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
             }
             if ((is_curve3d_edge(edge.reference.semantic_key)||
                  (geometry==CandidateGeometry::Display&&(edge.reference.semantic_key.starts_with("intersection:curve:from:")||
-                    edge.reference.semantic_key.starts_with("projection:curve:")))) &&
+                    edge.reference.semantic_key.starts_with("projection:curve:")||edge.reference.semantic_key.starts_with("wrap:sketch:")))) &&
                 edge.edge < source.edges.size() &&
                 !source.edges[edge.edge].display_owner_id.empty() &&
                 std::none_of(result.begin(), result.end(),

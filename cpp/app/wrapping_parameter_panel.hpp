@@ -2,9 +2,6 @@
 #include <zima/document/wrapping_parameters.hpp>
 #include <zima/ui/reference_cell.hpp>
 #include <zima/ui/unit_spin_box.hpp>
-#include "profile_operation_button.hpp"
-#include <QButtonGroup>
-#include <QCheckBox>
 #include <QComboBox>
 #include <QEvent>
 #include <QFormLayout>
@@ -14,6 +11,7 @@
 #include <QTableWidget>
 #include <QVBoxLayout>
 #include <functional>
+#include <cmath>
 
 namespace zima::app {
 class WrappingParameterPanel final:public QWidget {
@@ -34,21 +32,12 @@ public:
         target_->horizontalHeader()->setSectionResizeMode(2,QHeaderView::Stretch);layout->addWidget(target_);
         details_=new QFormLayout;layout->addLayout(details_);
         height_=new ui::UnitDoubleSpinBox(ui::InputQuantity::Length,this);height_->setObjectName("wrappingHeight");
-        height_->setRange(.000001,1000000);height_->setValue(pending_.height);displayed_height_=height_->value();initial_height_=pending_.height;details_->addRow(tr("Korekce"),height_);
-        operations_=new QWidget(this);auto* operations=new QHBoxLayout(operations_);operations->setContentsMargins(0,0,0,0);
-        group_=new QButtonGroup(this);
-        for(int i=0;i<2;++i){auto* b=new ProfileOperationButton(i==0,i==0?tr("Přičíst"):tr("Odečíst"),operations_);b->setCheckable(true);group_->addButton(b,i);operations->addWidget(b);}
-        group_->button(0)->setChecked(true);details_->addRow(tr("Operace"),operations_);
-        reverse_u_=new QCheckBox(tr("Reverse horizontal direction"),this);reverse_u_->setObjectName("wrappingReverseU");reverse_u_->setChecked(pending_.reverse_u);
-        reverse_v_=new QCheckBox(tr("Reverse vertical direction"),this);reverse_v_->setObjectName("wrappingReverseV");reverse_v_->setChecked(pending_.reverse_v);
-        layout->addWidget(reverse_u_);layout->addWidget(reverse_v_);
+        height_->setRange(-1000000,1000000);height_->setValue(pending_.height);displayed_height_=height_->value();initial_height_=pending_.height;details_->addRow(tr("Korekce"),height_);
+        height_->setToolTip(tr("Positive correction adds material outward; negative correction removes material inward."));
         notice_=new QLabel(tr("The Feature Origin anchors the wrap. On a sphere, distances from the Origin are preserved and widths change."),this);
         notice_->setWordWrap(true);layout->addWidget(notice_);
         connect(output_,&QComboBox::currentIndexChanged,this,[this](int index){pending_.output=static_cast<document::WrappingOutput>(index);refresh();notify();if(layout_changed)layout_changed();});
-        connect(height_,&QDoubleSpinBox::valueChanged,this,[this](double value){pending_.height=value==displayed_height_?initial_height_:value;notify();});
-        connect(group_,&QButtonGroup::idClicked,this,[this]{notify();});
-        connect(reverse_u_,&QCheckBox::toggled,this,[this](bool on){pending_.reverse_u=on;notify();});
-        connect(reverse_v_,&QCheckBox::toggled,this,[this](bool on){pending_.reverse_v=on;notify();});
+        connect(height_,&QDoubleSpinBox::valueChanged,this,[this](double value){pending_.height=std::abs(value)==std::abs(displayed_height_)?initial_height_:std::abs(value);notify();});
         connect(target_,&QTableWidget::cellClicked,this,[this](int,int column){if(column==2)begin_entry();});refresh();
     }
     const document::WrappingParameters& parameters()const{return pending_;}
@@ -58,8 +47,8 @@ public:
         {const QSignalBlocker blocker(output_);output_->setCurrentIndex(pending_.output==document::WrappingOutput::Surface?1:0);}
         refresh();
     }
-    bool subtract()const{return pending_.output==document::WrappingOutput::Relief&&group_->checkedId()==1;}
-    void set_subtract(bool on){group_->button(on?1:0)->setChecked(true);}
+    bool subtract()const{return pending_.output==document::WrappingOutput::Relief&&height_->value()<0;}
+    void set_subtract(bool on){const QSignalBlocker blocker(height_);height_->setValue((on?-1.:1.)*pending_.height);displayed_height_=height_->value();}
     bool active_pick()const{return active_;}
     void begin_entry(){active_=true;refresh();if(pick_requested)pick_requested(true);}
     void finish_entry(){active_=false;refresh();}
@@ -73,7 +62,7 @@ public:
     void refresh() {
         const bool relief=pending_.output==document::WrappingOutput::Relief;
         form_->setRowVisible(output_,!relief);
-        details_->setRowVisible(height_,relief);details_->setRowVisible(operations_,relief);
+        details_->setRowVisible(height_,relief);
         target_->setHorizontalHeaderLabels({tr("Č."),{},tr("Cílová plocha"),{}});
         target_->setItem(0,0,new QTableWidgetItem("1"));
         auto* indicator=ui::build_reference_row_indicator([this]{pending_.target.reset();inspected_=false;active_=true;refresh();notify();if(inspection_changed)inspection_changed();if(pick_requested)pick_requested(true);});
@@ -88,16 +77,15 @@ protected:
         QWidget::changeEvent(event);if(event->type()!=QEvent::LanguageChange)return;
         output_->setItemText(0,tr("Křivky"));output_->setItemText(1,tr("Plocha"));
         static_cast<QLabel*>(form_->labelForField(output_))->setText(tr("Výsledek"));
-        static_cast<QLabel*>(details_->labelForField(height_))->setText(tr("Korekce"));static_cast<QLabel*>(details_->labelForField(operations_))->setText(tr("Operace"));
-        group_->button(0)->setText(tr("Přičíst"));group_->button(1)->setText(tr("Odečíst"));
-        reverse_u_->setText(tr("Reverse horizontal direction"));reverse_v_->setText(tr("Reverse vertical direction"));
+        static_cast<QLabel*>(details_->labelForField(height_))->setText(tr("Korekce"));
+        height_->setToolTip(tr("Positive correction adds material outward; negative correction removes material inward."));
         notice_->setText(tr("The Feature Origin anchors the wrap. On a sphere, distances from the Origin are preserved and widths change."));refresh();
     }
 private:
     void notify(){if(changed)changed();}
     document::WrappingParameters pending_;
     QFormLayout *form_{},*details_{};QComboBox* output_{};QTableWidget* target_{};
-    ui::UnitDoubleSpinBox* height_{};double displayed_height_{},initial_height_{};QWidget* operations_{};QButtonGroup* group_{};
-    QCheckBox *reverse_u_{},*reverse_v_{};QLabel* notice_{};bool active_{},inspected_{};
+    ui::UnitDoubleSpinBox* height_{};double displayed_height_{},initial_height_{};
+    QLabel* notice_{};bool active_{},inspected_{};
 };
 }

@@ -32,7 +32,7 @@ using namespace workspace_detail;
 void AssemblyWorkspaceWindow::show_primitive_properties(
     zima::document::FeatureKind feature_kind,
     const std::string& container_id, bool sheet_metal,
-    std::optional<zima::document::FeatureType> feature_preset, bool rotation_preset, bool twist_preset) {
+    std::optional<zima::document::FeatureType> feature_preset, bool rotation_preset, bool twist_preset, bool wrap_relief_preset) {
     QElapsedTimer profile_timer;profile_timer.start();
     const bool profile_command=qEnvironmentVariableIsSet("ZIMA_CPP_PROFILE_COMMAND");
     const auto profile_phase=[&](const char* phase) {
@@ -330,6 +330,8 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
     if ((!edit_mode || sketch_type_shortcut) && !resuming_profile && !pending_profile_edit && feature_preset &&
         feature_kind==zima::document::FeatureKind::Feature) {
         initial.feature.type=*feature_preset;
+        if(*feature_preset==zima::document::FeatureType::Wrapping&&wrap_relief_preset)
+            initial.feature.wrapping.output=zima::document::WrappingOutput::Relief;
         if(rotation_preset)for(auto& side:initial.feature.sides)
             side.operation=zima::document::FeatureSideOperation::Revolution;
         if(twist_preset) {

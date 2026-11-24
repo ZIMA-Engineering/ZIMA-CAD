@@ -3,7 +3,11 @@ static std::vector<kernel::ExtrusionRequest> projection_sketch_profiles(const sk
     const auto append=[&](const auto& curves) {
         for(const auto& curve:curves)if(!curve.construction) {
             auto isolated=evaluated;
-            const auto keep=[&](auto& values){std::erase_if(values,[&](const auto& value){return value.id!=curve.id;});};
+            // Isolate the modeling curve, not the constraint graph. A polygon
+            // may still reference its construction circle, or another segment
+            // through equal-length constraints. Removing those supports made
+            // an otherwise valid Sketch fail validation in the profile adapter.
+            const auto keep=[&](auto& values){for(auto& value:values)if(value.id!=curve.id)value.construction=true;};
             keep(isolated.segments);keep(isolated.circles);keep(isolated.arcs);
             keep(isolated.ellipses);keep(isolated.elliptical_arcs);keep(isolated.bsplines);
             profiles.push_back(body_profile_request(isolated,1.,ExtrusionDirection::Forward,

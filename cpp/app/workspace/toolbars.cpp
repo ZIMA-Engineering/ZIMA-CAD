@@ -551,6 +551,19 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
             if(i==static_cast<int>(document::FeatureType::Sketch)&&projection)add_command(projection);
         }
         add_command(twist);
+        for(bool relief:{false,true}) {
+            const auto name=relief?"wrapReliefAction":"wrapSketchAction";
+            auto* action=findChild<QAction*>(name);
+            if(!action) {
+                action=new QAction(resource_icon("wrap"),QString{},this);action->setObjectName(name);
+                connect(action,&QAction::triggered,this,[this,relief] {
+                    show_primitive_properties(document::FeatureKind::Feature,{},false,document::FeatureType::Wrapping,false,false,relief);
+                });
+            }
+            action->setText(relief?tr("Wrap relief"):tr("Wrap sketch"));
+            action->setEnabled(boundary_body&&!boundary_body->derived_copy&&!properties_dialog_);
+            add_command(action);
+        }
         add_group_separator();
         add_command(sweep2d_action_);
         add_command(curve_3d_action_);

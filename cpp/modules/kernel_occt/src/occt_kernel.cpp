@@ -12961,6 +12961,18 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
             const auto* feature_group=std::get_if<FeatureGroupRequest>(&operation.primitive);
             const auto wrapping_faces=[&](const WrappingRequest& request) {
                 auto faces=owned_topology->faces;
+                const auto bind_target_side=[&](auto& bindings,const TopoDS_Shape& shape) {
+                    NCollection_IndexedMap<TopoDS_Shape,TopTools_ShapeMapHasher> actual;
+                    TopExp::MapShapes(shape,TopAbs_FACE,actual);
+                    for(auto& face:bindings)if(same_face_identity(face.reference,request.target)) {
+                        const auto index=actual.FindIndex(face.shape);
+                        if(!index)throw std::runtime_error("Wrap target is unavailable.");
+                        // An ancestry binding can retain a generating face's
+                        // orientation. The current Body owns the material side.
+                        face.shape=actual.FindKey(index);
+                    }
+                };
+                bind_target_side(faces,result_shape);
                 if(const auto& external=request.external_target) {
                     if(request.output==WrappingResult::Relief)throw std::runtime_error("Wrap cannot change material on a read-only external face.");
                     auto source=native_face_source(external->body.get(),external->reference).geometry(*this);
@@ -12969,6 +12981,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                         source=transformed_bound_topology(source,transform,[](auto metadata){return metadata;});
                     }
                     for(auto& face:source.faces)face.reference.instance_path=request.target.instance_path;
+                    bind_target_side(source.faces,source.shape);
                     faces.insert(faces.end(),source.faces.begin(),source.faces.end());
                 }
                 return faces;

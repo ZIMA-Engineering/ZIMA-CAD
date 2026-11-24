@@ -1017,7 +1017,7 @@ private:
     void show_primitive_properties(
         zima::document::FeatureKind feature_kind,
         const std::string& container_id = {}, bool sheet_metal = false,
-        std::optional<zima::document::FeatureType> feature_preset = {}, bool rotation_preset = false, bool twist_preset = false);
+        std::optional<zima::document::FeatureType> feature_preset = {}, bool rotation_preset = false, bool twist_preset = false, bool wrap_relief_preset = false);
     void install_projection_properties(PrimitivePropertiesDialog*,const std::string& document_id);
     void install_wrapping_properties(PrimitivePropertiesDialog*,const std::string& document_id);
     void show_sweep_properties(zima::document::FeatureKind kind, const std::string& container_id,

@@ -24,7 +24,8 @@ int verify_wrapping_ui(QApplication& application,AssemblyWorkspaceWindow& window
             artwork.data_base64=QByteArray("<svg xmlns='http://www.w3.org/2000/svg' width='80' height='60'><rect width='80' height='60' fill='#ff0000'/><rect x='40' width='40' height='60' fill='#0000ff'/><path d='M10 45V15H30' stroke='white' stroke-width='5' fill='none'/></svg>").toBase64().toStdString();
             source.reference_images.push_back(artwork);
             auto feature=document::PartDocument::create_feature_container(source.id);feature.name="Wrap GUI";
-            feature.feature.type=document::FeatureType::Sketch;feature.placement.x=30;
+            feature.feature.type=document::FeatureType::Sketch;feature.placement.x=30*std::cos(-.37);feature.placement.y=30*std::sin(-.37);
+            feature.placement.rotation_z=-.37*180/std::numbers::pi;
             feature.placement.rotation_y=90;feature.placement.absolute_rotation_y=90;
             workspace::commit_profile(live,engine,document_id,feature,workspace::ProfileEditMode::Create,source);
             auto* state=live.open_part(document_id);const auto file=directory/("wrap-ui-"+std::to_string(output)+".prtz");
@@ -44,6 +45,16 @@ int verify_wrapping_ui(QApplication& application,AssemblyWorkspaceWindow& window
             };
             const auto baseline=window.execute_console_command("documents").data;
             const auto before=kernel::body_calculation_count.load();
+            for(bool relief:{false,true}) {
+                auto* action=window.findChild<QAction*>(relief?"wrapReliefAction":"wrapSketchAction");
+                check(action&&action->isEnabled(),"Standalone Wrap command is unavailable");action->trigger();flush();
+                check(editor()&&editor()->pending_value().feature.type==document::FeatureType::Wrapping&&
+                    editor()->pending_value().feature.wrapping.output==(relief?document::WrappingOutput::Relief:document::WrappingOutput::Curves),
+                    "Standalone Wrap command opened the wrong feature type");
+                editor()->reject();flush();
+                check(window.execute_console_command("documents").data==baseline&&kernel::body_calculation_count.load()==before,
+                    "Cancelled standalone Wrap changed history or calculated geometry");
+            }
             check(row(),"Wrap Tree row missing");window.show_tree_item_properties(row());flush();check(editor(),"Wrap shared Properties did not open");
             check(editor()->windowType()==Qt::SubWindow,"Wrap Properties is not an internal window");
             auto* type=editor()->findChild<QComboBox*>("featureType");check(type&&type->count()>int(document::FeatureType::Wrapping),"Wrap is absent from Feature types");
@@ -78,6 +89,13 @@ int verify_wrapping_ui(QApplication& application,AssemblyWorkspaceWindow& window
             check(!view->transient_edges().empty(),"Wrap has no live authored wire");
             check(kernel::body_calculation_count.load()==before,"Wrap picking or preview invoked OCCT");
             if(output==2) {
+                auto* correction=panel->findChild<QDoubleSpinBox*>("wrappingHeight");
+                for(double value:{-2.,3.,-1.}) {
+                    correction->setValue(value);flush();const auto pending=editor()->pending_value();
+                    check(pending.feature.wrapping.height==std::abs(value)&&
+                        pending.combine_mode==(value<0?document::CombineMode::Subtract:document::CombineMode::Add),
+                        "Signed correction did not determine the material direction");
+                }
                 const auto retained=editor()->pending_value();
                 const auto original_settings=ApplicationSettings::load(QDir::currentPath());
                 QTemporaryDir temporary;check(temporary.isValid(),"Wrap localization directory unavailable");
@@ -88,7 +106,8 @@ int verify_wrapping_ui(QApplication& application,AssemblyWorkspaceWindow& window
                     auto settings=ApplicationSettings::load(temporary.path());
                     apply_application_translations(application,settings);flush();
                     check(type->itemText(6)==settings.qt_translations.value("Wrap sketch")&&type->itemText(7)==settings.qt_translations.value("Wrap relief"),"Wrap Feature types did not translate");
-                    check(panel->findChild<QCheckBox*>("wrappingReverseU")->text()==settings.qt_translations.value("Reverse horizontal direction"),"Wrap direction did not translate");
+                    check(!panel->findChild<QCheckBox*>("wrappingReverseU")&&!panel->findChild<QCheckBox*>("wrappingReverseV"),"Wrap retained redundant direction controls");
+                    check(panel->findChild<QDoubleSpinBox*>("wrappingHeight")->toolTip()==settings.qt_translations.value("Positive correction adds material outward; negative correction removes material inward."),"Signed Wrap correction did not translate");
                     check(std::ranges::any_of(panel->findChildren<QLabel*>(),[&](const auto* label){return label->text()==settings.qt_translations.value("Korekce");}),"Wrap correction did not translate");
                     for(const auto* theme:{"dark","light"}) {
                         settings.theme=theme;apply_application_appearance(application,settings);flush();
@@ -109,6 +128,10 @@ int verify_wrapping_ui(QApplication& application,AssemblyWorkspaceWindow& window
             window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
             std::vector<kernel::BodyResult> cached;const auto saved=document::PartDocument::load(file,&cached);
             check(saved.find_container(feature.id)->feature.type==document::FeatureType::Wrapping&&!cached.empty()&&cached.back().calculation_errors.empty(),"Saved Wrap definition or geometry is invalid");
+            if(output==2)check(saved.find_container(feature.id)->combine_mode==document::CombineMode::Subtract,
+                "Negative correction did not persist its inward material operation");
+            if(output==0)for(const auto& point:view->mesh().points)if(point.reference.owner_id==feature.id)
+                check(!point.always_visible,"Wrapped Sketch retained ordinary black endpoint markers");
             check(cached.back().mesh.images.size()==1&&!cached.back().mesh.images.front().surface_vertices.empty(),"Saved Wrap lost the embedded curved image");
             check(cached.back().mesh.images.front().data_base64==artwork.data_base64,"Wrap changed embedded image bytes");
             const auto committed=window.execute_console_command("documents").data;const auto calculations=kernel::body_calculation_count.load();
@@ -123,7 +146,7 @@ int verify_wrapping_ui(QApplication& application,AssemblyWorkspaceWindow& window
                 std::cerr<<"Unchanged diagnostics: open="<<(editor()!=nullptr)<<" calls="<<calculations<<" -> "<<kernel::body_calculation_count.load()<<" documents="<<committed.dump()<<" -> "<<window.execute_console_command("documents").data.dump()<<'\n';
             check(!editor()&&window.execute_console_command("documents").data==committed&&kernel::body_calculation_count.load()==calculations,"Unchanged Wrap OK recalculated or changed the document");
             window.show_tree_item_properties(row());flush();
-            editor()->findChild<QCheckBox*>("wrappingReverseU")->setChecked(true);flush();
+            editor()->findChild<QLineEdit*>("featureName")->setText("Cancelled Wrap edit");flush();
             editor()->buttons()->button(QDialogButtonBox::Cancel)->click();flush();
             check(window.execute_console_command("documents").data==committed&&kernel::body_calculation_count.load()==calculations,"Wrap Cancel changed the document or calculated geometry");
             view->fit_all();flush();const auto artwork_frame=view->grabFramebuffer();artwork_frame.save(QString::fromStdWString((directory/("wrap-result-"+std::to_string(output)+".png")).wstring()));
@@ -156,6 +179,10 @@ int verify_wrapping_ui(QApplication& application,AssemblyWorkspaceWindow& window
                 if(!candidates.empty()&&candidates.front().kind==viewer::CandidateKind::Container&&candidates.front().owner_id==feature.id)selected_hit=QPointF(x,y);
             }
             check(selected_hit.has_value(),"Wrap result has no selectable feature in the View");
+            view->clear_selection();
+            QMouseEvent hover(QEvent::MouseMove,*selected_hit,QPointF(view->mapToGlobal(selected_hit->toPoint())),Qt::NoButton,Qt::NoButton,Qt::NoModifier);
+            QApplication::sendEvent(view,&hover);flush();
+            check(view->hovered_candidate()&&view->hovered_candidate()->owner_id==feature.id,"Wrapped geometry cannot be hovered");
             click(view,*selected_hit);check(row()->isSelected(),"Wrap View selection did not synchronize the Tree");
             QMouseEvent inspect(QEvent::MouseButtonDblClick,*selected_hit,QPointF(view->mapToGlobal(selected_hit->toPoint())),Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);
             QApplication::sendEvent(view,&inspect);flush();

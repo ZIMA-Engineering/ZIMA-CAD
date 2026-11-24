@@ -556,12 +556,15 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
                     // Later body operations do not consume their display wires.
                     for(const auto& edge:reference_geometry().edges)if(edge.reference.owner_id==feature.id&&
                         std::ranges::none_of(mesh.edges,[&](const auto& shown){return shown.reference==edge.reference;})) {
-                        auto shown=edge;shown.display_owner_id=feature.id;mesh.edges.push_back(std::move(shown));
+                        auto shown=edge;shown.display_owner_id=feature.id;
+                        if(feature.feature.type==zima::document::FeatureType::Wrapping)shown.overlay=true;
+                        mesh.edges.push_back(std::move(shown));
                     }
                     for(const auto& point:reference_geometry().points)if(point.reference.owner_id==feature.id&&
                         std::ranges::none_of(mesh.points,[&](const auto& shown){return shown.reference==point.reference;})) {
                         auto shown=point;shown.display_owner_id=feature.id;
-                        if(feature.feature.type==zima::document::FeatureType::Projection||feature.feature.type==zima::document::FeatureType::Wrapping)shown.always_visible=true;
+                        if(feature.feature.type==zima::document::FeatureType::Projection)shown.always_visible=true;
+                        if(feature.feature.type==zima::document::FeatureType::Wrapping)shown.always_visible=false;
                         mesh.points.push_back(std::move(shown));
                     }
                     continue;

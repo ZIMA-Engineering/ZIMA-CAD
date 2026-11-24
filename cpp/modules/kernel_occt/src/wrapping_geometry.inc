@@ -40,7 +40,17 @@ PrimitiveData make_wrapping_data(const WrappingRequest& request,const std::strin
     auto support=BRep_Tool::Surface(target);
     const double tolerance=request.tolerance;
     const auto anchor=map.point(0,0);
-    if(analytic->kind==SurfaceGeometry::Kind::Sphere) {
+    if(analytic->kind==SurfaceGeometry::Kind::Cylinder) {
+        // SurfaceWrap uses a right-handed analytic frame. A native circle
+        // Extrusion can have an indirect support, and a converted analytic
+        // surface need not share these UV coordinates. Use an equivalent
+        // direct support for our exact p-curves; retain the real bounded face
+        // for trimming and reference identity.
+        support=new Geom_CylindricalSurface(gp_Ax3(
+            gp_Pnt(analytic->origin.x,analytic->origin.y,analytic->origin.z),
+            gp_Dir(analytic->axis.x,analytic->axis.y,analytic->axis.z),
+            gp_Dir(analytic->radial.x,analytic->radial.y,analytic->radial.z)),analytic->radius);
+    } else if(analytic->kind==SurfaceGeometry::Kind::Sphere) {
         // A native sphere's arbitrary UV pole must not become a singularity
         // of an otherwise regular inscription. Put the anchor on this
         // equivalent support's equator; the bounded target remains unchanged.
@@ -180,7 +190,13 @@ PrimitiveData make_wrapping_data(const WrappingRequest& request,const std::strin
             face.Add(TopoDS::Wire(BRepTools::OuterWire(hole.Face()).Reversed()));
         }
         if(!face.IsDone()||!BRepCheck_Analyzer(face.Face()).IsValid())throw std::runtime_error("Wrapped region is not valid.");
-        auto skin=face.Face();if(analytic->reversed)skin.Reverse();
+        auto skin=face.Face();
+        // MakeFace may reverse the face to bound a clockwise authored wire.
+        // Material direction belongs to the selected support, independently
+        // of that wire winding and the support's native UV handedness.
+        const auto skin_surface=analytic_surface(skin);
+        if(!skin_surface)throw std::runtime_error("Wrapped region is not valid.");
+        if(skin_surface->reversed!=analytic->reversed)skin.Reverse();
         BRepAlgoAPI_Cut outside;
         NCollection_List<TopoDS_Shape> arguments,tools;arguments.Append(skin);tools.Append(target);
         outside.SetArguments(arguments);outside.SetTools(tools);outside.SetNonDestructive(true);outside.SetFuzzyValue(tolerance);outside.Build();

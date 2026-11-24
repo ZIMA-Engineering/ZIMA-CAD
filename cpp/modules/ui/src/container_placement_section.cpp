@@ -724,7 +724,18 @@ void ContainerPlacementSection::prepare_position_orientation(
         auto trial=existing;trial.push_back(proposed);
         const auto pose=numeric_placement();const zima::kernel::Vec3 origin{pose.x,pose.y,pose.z};
         const auto& geometry=branch_geometry_();
-        if(zima::document::orientation_constraint_remaining_dof(trial,geometry,true,origin)<
+        // A curved face already supplies the normal at the positioned point.
+        // An additional automatic direction can rotate that normal instead of
+        // merely locating the point. Preserve it; the explicit Orientation
+        // checkbox remains available when the user wants another equation.
+        const bool curved_normal=std::ranges::any_of(existing,[&](const auto& driver) {
+            if(!driver.orientation_drives_rotation||driver.use_axis||driver.use_angle)return false;
+            const auto* surface=zima::document::placement_surface(driver,geometry);
+            return surface&&(surface->kind==zima::kernel::SurfaceGeometry::Kind::Cylinder||
+                surface->kind==zima::kernel::SurfaceGeometry::Kind::Cone||
+                surface->kind==zima::kernel::SurfaceGeometry::Kind::Sphere);
+        });
+        if(!curved_normal && zima::document::orientation_constraint_remaining_dof(trial,geometry,true,origin)<
            zima::document::orientation_constraint_remaining_dof(existing,geometry,true,origin))
             reference=std::move(proposed);
     }

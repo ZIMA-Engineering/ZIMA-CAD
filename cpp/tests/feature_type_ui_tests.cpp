@@ -199,7 +199,7 @@ static void verify_curve_stroke_width(QApplication& application,QWidget& parent)
     for(const auto* theme:{"dark","light"}) {
         app::ApplicationSettings settings;settings.theme=theme;app::apply_application_appearance(application,settings);flush();
         const auto foreground=viewer::view_theme(application.palette()).foreground;
-        for(const auto* key:{"segment:fixture","curve:segment:fixture","projection:curve:fixture"}) {
+        for(const auto* key:{"segment:fixture","curve:segment:fixture","projection:curve:fixture","wrap:sketch:7:fixture:curve:1:a"}) {
             kernel::ViewerEdge edge;edge.reference={"curve",key,{}};edge.display_owner_id="curve";
             edge.overlay=!std::string_view(key).starts_with("projection:");edge.points={{-20,0,0},{20,0,0}};
             kernel::ViewerMesh mesh;mesh.edges={edge};mesh.original_references.edges=mesh.edges;

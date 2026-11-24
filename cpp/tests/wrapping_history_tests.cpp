@@ -17,6 +17,45 @@ void valid(const k::BodyResult& result) {
     require(BRepCheck_Analyzer(k::read_calculated_body_shape(result)).IsValid(),"Wrap produced invalid BRep");
 }
 int main(){try {
+    // Native circle Extrusion uses an indirect cylindrical support. A nonzero
+    // azimuth and asymmetric profile expose a UV handedness/seam mismatch.
+    {
+        k::OcctKernel kernel;k::ExtrusionRequest cylinder;
+        cylinder.outer_profile=k::ExtrusionRequest::CircleProfile{{0,0,0},30};
+        cylinder.direction={0,0,40};cylinder.profile_region_id="disc";
+        cylinder.outer_boundary_id="circle";cylinder.outer_edge_source_ids={"circle"};
+        const k::HistoryOperation base{"native-cylinder",cylinder};
+        const auto initial=kernel.evaluate_history({base}).back();valid(initial);
+        k::FaceReference target;
+        for(const auto& face:initial.mesh.triangle_references)
+            if(face.surface&&face.surface->kind==k::SurfaceGeometry::Kind::Cylinder)target=face;
+        require(target.valid(),"Native cylinder target missing");
+        for(double azimuth:{-.37,.61}) {
+            k::WrappingRequest request;request.sketch_id="asymmetric";request.target=target;
+            request.origin={30*std::cos(azimuth),30*std::sin(azimuth),20};
+            request.x_axis={0,0,-1};request.y_axis={-std::sin(azimuth),std::cos(azimuth),0};
+            request.normal={std::cos(azimuth),std::sin(azimuth),0};
+            request.height=1;request.tolerance=1e-6;
+            auto& profile=request.profiles.emplace_back();
+            const std::array<std::pair<double,double>,4> uv{{{-3,2},{5,2},{5,9},{-3,9}}};
+            std::vector<k::Vec3> points;
+            for(const auto [u,v]:uv)points.push_back(k::wrap_detail::add(request.origin,
+                k::wrap_detail::add(k::wrap_detail::scale(request.x_axis,u),k::wrap_detail::scale(request.y_axis,v))));
+            profile.outer_profile=k::ExtrusionRequest::PolygonProfile{points};profile.direction=request.normal;
+            profile.outer_edge_source_ids={"ab","bc","cd","da"};profile.outer_vertex_source_ids={"a","b","c","d"};
+            profile.profile_region_id="region";profile.outer_boundary_id="boundary";
+            const auto result=kernel.evaluate_history({base,{"wrap",request}}).back();valid(result);
+            for(std::size_t i=0;i<uv.size();++i) {
+                const auto [u,v]=uv[i];const auto angle=azimuth+v/30.;
+                const k::Vec3 expected{30*std::cos(angle),30*std::sin(angle),20-u};
+                const auto key="wrap:sketch:10:asymmetric:point:1:"+std::string(1,char('a'+i));
+                const auto found=std::ranges::find_if(result.mesh.original_references.points,[&](const auto& p){return p.reference.owner_id=="wrap"&&p.reference.semantic_key==key;});
+                require(found!=result.mesh.original_references.points.end(),"Wrapped endpoint identity missing");
+                require(k::wrap_detail::length(k::wrap_detail::sub(found->position,expected))<1e-5,
+                    "Native cylinder Wrap disagrees with the independent preview equation");
+            }
+        }
+    }
     const auto directory=std::filesystem::temp_directory_path()/"zima-wrapping-native-tests";
     std::filesystem::create_directories(directory);
     for(auto kind:{k::SurfaceGeometry::Kind::Cylinder,k::SurfaceGeometry::Kind::Cone,k::SurfaceGeometry::Kind::Sphere}) {
@@ -34,6 +73,7 @@ int main(){try {
             if(surface&&surface->kind==kind)target=face;
         }
         require(target.valid(),"Missing analytic wrap target metadata");
+        const auto external_source=kernel.capture_reference_face(initial,target);
         for(bool polar:{false,true}) {
         if(polar&&kind!=k::SurfaceGeometry::Kind::Sphere)continue;
         for(auto output:{k::WrappingResult::Curves,k::WrappingResult::Surface,k::WrappingResult::Relief})
@@ -86,6 +126,14 @@ int main(){try {
                 edge.outer_edge_source_ids={"diagonal"};edge.outer_vertex_source_ids={"start"};edge.open_profile_end_id="end";
                 const auto open_result=kernel.evaluate_history({base,{"open",open}}).back();valid(open_result);
                 require(std::abs(open_result.volume-initial.volume)<1e-5,"Open Wrap curve changed material");
+                if(kind==k::SurfaceGeometry::Kind::Cylinder&&!inward) {
+                    auto external=open;external.target.instance_path={"source"};
+                    external.external_target=std::make_shared<const k::OrderedUpToSource>(k::OrderedUpToSource{
+                        external_source,target,{}});
+                    const auto external_result=kernel.evaluate_history({{"external-wrap",external}}).back();
+                    require(external_result.calculation_errors.empty()&&!external_result.mesh.original_references.edges.empty()&&std::abs(external_result.volume)<1e-8,
+                        "Wrapping a read-only external face lost its curves or introduced material");
+                }
                 auto changed=request;changed.reverse_v=!changed.reverse_v;
                 const auto changed_result=kernel.evaluate_history({base,{"wrap",changed}}).back();valid(changed_result);
                 require(changed_result.source_fingerprint!=result.source_fingerprint,"A changed direction reused stale Wrap output");

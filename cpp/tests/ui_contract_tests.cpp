@@ -1248,6 +1248,42 @@ int verify_stable_placement_rows() {
     {
         using namespace zima;
         const auto source=document::PartDocument::create_default();
+        for(const auto kind:{kernel::SurfaceGeometry::Kind::Cylinder,kernel::SurfaceGeometry::Kind::Cone,kernel::SurfaceGeometry::Kind::Sphere}) {
+            auto geometry=source.origin_viewer_mesh().original_references;
+            auto surface=std::make_shared<kernel::SurfaceGeometry>();surface->kind=kind;
+            surface->radius=30;surface->axis={0,0,1};surface->radial={1,0,0};surface->semi_angle=.2;
+            kernel::FaceReference face{"curved","skin",{}};face.surface=surface;geometry.triangle_references.push_back(face);
+            QWidget host;auto* layout=new QVBoxLayout(&host);
+            ui::ContainerPlacementSection section(&host,layout,true,true);
+            section.set_branch_geometry_resolver([&]()->const auto& {return geometry;});
+            document::Placement placement;placement.x=30;placement.z=5;section.initialize_numeric_values(placement);
+            document::ConstructionReference first{{},"curved","skin",0,true};
+            first.orientation_drives_rotation=true;first.orientation_role="top";first.picked_position=std::array<double,3>{30,0,5};
+            QString error;require(section.set_reference(0,first,"Curved face",&error),"Curved placement reference rejected");
+            const auto normal_reference=section.references().front();
+            const auto same_normal=[&] {
+                const auto& current=section.references().front();
+                return current.owner_id==normal_reference.owner_id&&current.semantic_key==normal_reference.semantic_key&&
+                    current.orientation_drives_rotation==normal_reference.orientation_drives_rotation&&
+                    current.orientation_role==normal_reference.orientation_role&&current.flip==normal_reference.flip;
+            };
+            require(section.set_reference(1,{{},source.document_id+":origin","origin:plane:yz",0,true},"YZ",&error)&&
+                section.set_reference(2,{{},source.document_id+":origin","origin:plane:xy",0,true},"XY",&error),"Curved placement positioning references rejected");
+            require(same_normal()&&!section.references()[1].orientation_drives_rotation&&
+                !section.references()[2].orientation_drives_rotation,"Position entry automatically changed the curved face normal");
+            auto* box=section.reference_table()->cellWidget(1,5)->findChild<QCheckBox*>();
+            require(box&&box->isEnabled()&&!box->isChecked(),"Secondary curved-face orientation is not explicitly available");
+            box->click();require(section.references()[1].orientation_drives_rotation,"Manual curved-face orientation was disabled");
+            const auto persisted=section.combined_references(3);section.initialize_from_references(persisted,{});
+            require(section.combined_references(3)==persisted,"Reopening replaced explicit curved-face orientation");
+            section.reference_table()->cellWidget(1,5)->findChild<QCheckBox*>()->click();
+            require(!section.references()[1].orientation_drives_rotation&&same_normal(),
+                "Removing explicit secondary orientation changed the curved normal reference");
+        }
+    }
+    {
+        using namespace zima;
+        const auto source=document::PartDocument::create_default();
         const auto geometry=source.origin_viewer_mesh().original_references;
         std::array<std::string,3> keys{"origin:plane:xy","origin:plane:xz","origin:plane:yz"};
         do {

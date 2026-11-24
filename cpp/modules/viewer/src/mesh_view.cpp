@@ -138,7 +138,8 @@ bool is_sketch_wire_edge(const zima::kernel::ViewerEdge& edge) {
 
 bool is_projection_wire_edge(const zima::kernel::ViewerEdge& edge) {
     const auto& key=edge.reference.semantic_key;
-    return key.starts_with("projection:curve:")||key.starts_with("projection:preview:");
+    return key.starts_with("projection:curve:")||key.starts_with("projection:preview:")||
+        (edge.overlay&&key.starts_with("wrap:sketch:"));
 }
 
 bool is_fem_wire_edge(const zima::kernel::ViewerEdge& edge) {
