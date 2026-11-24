@@ -20,10 +20,14 @@ struct ProjectedMeasurementCurve {
     bool line{}, circular{}, axis{};
     std::optional<Point2> center;
     Point2 cosine_axis, sine_axis;
+    // Exact opposite generators of one analytic cylindrical face. Transient:
+    // the native Drawing already retains both source curves and their identity.
+    std::optional<Point2> diameter_offset;
 };
 struct MeasurementPickRequest {
     int mode{-1}; // Automatic, or an explicit DimensionAttachmentKind.
     bool circles_only{}, lines_only{};
+    bool cylinder_diameters{};
     kernel::EdgeReference intersection_first, parallel_line;
     Point2 tangent_direction{1, 0};
     std::optional<Point2> tangent_origin;

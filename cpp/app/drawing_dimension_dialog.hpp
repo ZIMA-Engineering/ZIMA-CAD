@@ -248,6 +248,7 @@ class DrawingDimensionDialog final : public ui::PropertiesSubWindow {
         if(angular()){request.lines_only=true;request.mode=int(drawing::DimensionAttachmentKind::Line);return request;}
         request.mode = row==draft_row_?-1:modes_[row];
         request.circles_only = radial();
+        request.cylinder_diameters = value_.kind == drawing::DrawingDimensionKind::Diameter;
         if (const auto *view = view_(value_.view_id)) {
             if (value_.direction == drawing::DimensionDirection::Vertical)
                 request.tangent_direction = {0, 1};

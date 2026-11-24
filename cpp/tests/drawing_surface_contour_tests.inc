@@ -48,6 +48,16 @@ void verify_cylindrical_contours(const std::filesystem::path& directory) {
             require(std::ranges::any_of(candidates,[&](const auto& c){return c.attachment.reference==curve.source;}),"Shaft boundary cannot be selected by the common dimension picker");
         }
         for(bool order:{false,true}) {
+            drawing::MeasurementPickRequest diameter_request;diameter_request.circles_only=true;diameter_request.cylinder_diameters=true;
+            const auto& selected=contours[order?1:0];
+            const drawing::Point2 middle{(selected.points.front().x+selected.points.back().x)/2,(selected.points.front().y+selected.points.back().y)/2};
+            const auto picks=picker.candidates(view,middle,.001*scale,diameter_request);
+            const auto pick=std::ranges::find_if(picks,[&](const auto& c){return c.attachment.reference==selected.source;});
+            require(pick!=picks.end(),"Diameter command rejected a cylinder generator");
+            auto diameter=drawing::make_drawing_dimension(view.id,drawing::DrawingDimensionKind::Diameter);diameter.attachments[0]=pick->attachment;
+            diameter_request.cylinder_diameters=false;
+            const auto radius_picks=picker.candidates(view,middle,.001*scale,diameter_request);
+            require(std::ranges::none_of(radius_picks,[&](const auto& c){return c.attachment.reference==selected.source;}),"Radius command accepted a straight cylinder generator");
             auto dimension=drawing::make_drawing_dimension(view.id);
             dimension.direction=drawing::DimensionDirection::Horizontal;
             dimension.attachments={{drawing::DimensionAttachmentKind::Line,contours[order?1:0].source,{},.5},
@@ -55,10 +65,19 @@ void verify_cylindrical_contours(const std::filesystem::path& directory) {
             for(double radius:{7*scale,3*scale,5*scale}) {
                 drawing::prepare_interactive_view(view,std::make_shared<const kernel::ViewerMesh>(source(radius,20*scale)));
                 drawing::refresh_drawing_dimension(view,dimension);
+                drawing::refresh_drawing_dimension(view,diameter);
+                auto measured=drawing::evaluate_drawing_dimension(view,diameter);
+                require(measured.state==drawing::MeasurementState::Resolved&&measured.presentations.front().kind==kernel::ViewerDimensionKind::Linear&&
+                    measured.presentations.front().label_prefix=="⌀"&&std::abs(measured.presentations.front().value-2*radius)<1e-7*std::max(1.,scale),"Silhouette diameter lost its true value or linear witnesses after regeneration");
                 const auto evaluated=drawing::evaluate_drawing_dimension(view,dimension);
                 require(evaluated.state==drawing::MeasurementState::Resolved&&std::abs(evaluated.presentations.front().value-2*radius)<1e-7*std::max(1.,scale),"Shaft boundary dimension failed to follow the exact changed diameter");
                 for(auto delta:std::array{drawing::Point2{1,2},drawing::Point2{-2,-1},drawing::Point2{1,-1}}) {
                     drawing::drag_drawing_dimension(view,dimension,0,0,delta);
+                    const auto before=drawing::evaluate_drawing_dimension(view,diameter).presentations.front();
+                    drawing::drag_drawing_dimension(view,diameter,0,0,delta);
+                    const auto after=drawing::evaluate_drawing_dimension(view,diameter).presentations.front();
+                    require(after.label_position!=before.label_position&&after.witness_first==before.witness_first&&after.witness_second==before.witness_second&&
+                        std::abs(after.value-2*radius)<1e-7*std::max(1.,scale),"Diameter grip did not move independently of its witnesses/value");
                     require(std::abs(drawing::evaluate_drawing_dimension(view,dimension).presentations.front().value-2*radius)<1e-7*std::max(1.,scale),"Dragging a shaft boundary dimension changed its measurement");
                 }
             }
@@ -71,10 +90,19 @@ void verify_cylindrical_contours(const std::filesystem::path& directory) {
                 const auto evaluated=drawing::evaluate_drawing_dimension(view,axial_dimension);
                 require(evaluated.state==drawing::MeasurementState::Resolved&&std::abs(evaluated.presentations.front().value-height*std::abs(std::cos(tilt)))<1e-7*std::max(1.,scale),"Shaft boundary endpoints failed to follow changed length");
             }
-            auto document=drawing::DrawingDocument::create_default();document.sheets.front().views={view};document.sheets.front().dimensions={dimension,axial_dimension};
+            auto document=drawing::DrawingDocument::create_default();document.sheets.front().views={view};document.sheets.front().dimensions={dimension,diameter,axial_dimension};
             const auto file=directory/("shaft-contour-"+std::to_string(cases)+".drwz");document.save(file);
             const auto reopened=drawing::DrawingDocument::load(file);
             require(reopened.sheets.front().dimensions.front()==dimension,"Shaft dimension lost reference/side/layout on native reopen");
+            require(reopened.sheets.front().dimensions[1]==diameter&&drawing::evaluate_drawing_dimension(reopened.sheets.front().views.front(),diameter).state==drawing::MeasurementState::Resolved,
+                "Silhouette diameter lost its reference or requires external data after native reopen");
+            auto precise=view;drawing::prepare_output_view(precise);
+            require(!precise.output_source&&drawing::evaluate_drawing_dimension(precise,diameter).state==drawing::MeasurementState::Resolved,"Precise output lost the silhouette diameter");
+            auto missing=view;auto geometry=*view.measurement_geometry;
+            std::erase_if(geometry.curves,[&](const auto& curve){return curve.source==contours[order?0:1].source;});
+            missing.measurement_geometry=drawing::share_measurement_geometry(std::move(geometry));
+            const auto unresolved=drawing::evaluate_drawing_dimension(missing,diameter);
+            require(unresolved.state==drawing::MeasurementState::Unresolved&&!unresolved.presentations.empty(),"Lost opposite contour did not retain a repairable last diameter");
             require(drawing::evaluate_drawing_dimension(reopened.sheets.front().views.front(),reopened.sheets.front().dimensions.front()).state==drawing::MeasurementState::Resolved,"Embedded shaft contour dimension could not reopen without its source Part");
             require(drawing::evaluate_drawing_dimension(reopened.sheets.front().views.front(),reopened.sheets.front().dimensions.back()).state==drawing::MeasurementState::Resolved,"Embedded shaft endpoint dimension could not reopen without its source Part");
             ++cases;
@@ -82,8 +110,62 @@ void verify_cylindrical_contours(const std::filesystem::path& directory) {
     }
     std::cout<<"Cylindrical boundaries: "<<cases<<" axis/view/scale/occurrence/rim/selection-order cases, repeated diameter changes, label drags and embedded reopen passed\n";
 }
+void verify_independent_rounded_boundaries(const std::filesystem::path& directory) {
+    unsigned cases{};
+    for(bool horizontal:{false,true})for(bool reverse:{false,true})for(bool automatic:{false,true})
+        for(int pair=0;pair<3;++pair)for(auto kind:{drawing::DrawingDimensionKind::Linear,drawing::DrawingDimensionKind::Chain}) {
+            const auto point=[&](double x,double y){return horizontal?drawing::Point2{y,x}:drawing::Point2{x,y};};
+            auto view=test::rounded_boundary_view(3,5,horizontal);
+            drawing::MeasurementPicker picker;drawing::MeasurementPickRequest request;
+            if(!automatic)request.mode=int(drawing::DimensionAttachmentKind::Line);
+            const auto pick=[&](drawing::Point2 cursor) {
+                const auto candidates=picker.candidates(view,cursor,.1,request);
+                const auto candidate=std::ranges::find_if(candidates,[](const auto& p){return p.attachment.kind==drawing::DimensionAttachmentKind::Line;});
+                require(candidate!=candidates.end(),"Independent round/axis not selectable as a line");return candidate->attachment;
+            };
+            auto first=pick(point(pair==2?0:-23,4)),second=pick(point(pair==1?0:35,4));
+            require(first.reference!=second.reference,"Independent contour references merged");
+            if(reverse)std::swap(first,second);
+            auto dimension=drawing::make_drawing_dimension(view.id,kind);dimension.attachments={first,second};
+            drawing::resize_dimension_segments(dimension);
+            for(const auto radii:std::array{std::pair{3.,5.},std::pair{7.,2.},std::pair{4.,9.}}) {
+                view=test::rounded_boundary_view(radii.first,radii.second,horizontal);
+                const double expected=pair==0?50+radii.first+radii.second:pair==1?20+radii.first:30+radii.second;
+                for(auto delta:std::array{drawing::Point2{1,2},drawing::Point2{-2,-1},drawing::Point2{1,-1}}) {
+                    drawing::refresh_drawing_dimension(view,dimension);drawing::drag_drawing_dimension(view,dimension,0,0,delta);
+                    const auto result=drawing::evaluate_drawing_dimension(view,dimension);
+                    require(result.state==drawing::MeasurementState::Resolved&&std::abs(result.presentations.front().value-expected)<1e-8,
+                        "Independent round/axis dimension did not follow exact changed surfaces");
+                }
+                require(dimension.attachments[0]==first&&dimension.attachments[1]==second,"Radius change/label drag replaced the selected side or occurrence");
+                drawing::MeasurementPickRequest points;points.mode=int(drawing::DimensionAttachmentKind::Point);
+                const auto endpoint=picker.candidates(view,point(-20-radii.first,-10),.1,points);
+                require(std::ranges::none_of(endpoint,[](const auto& p){return p.attachment.reference.semantic_key.starts_with("drawing-cylinder-diameter:");}),
+                    "Cylindrical measurement support invented a trimming endpoint");
+                ++cases;
+            }
+            auto saved=drawing::DrawingDocument::create_default();saved.sheets.front().views={view};saved.sheets.front().dimensions={dimension};
+            const auto path=directory/("independent-rounds-"+std::to_string(cases)+".drwz");saved.save(path);
+            auto reopened=drawing::DrawingDocument::load(path);
+            require(reopened.sheets.front().dimensions.front()==dimension&&
+                drawing::evaluate_drawing_dimension(reopened.sheets.front().views.front(),dimension).state==drawing::MeasurementState::Resolved,
+                "Independent boundary dimension lost attachment on native reopen");
+            drawing::prepare_output_view(saved.sheets.front().views.front());saved.save(path);reopened=drawing::DrawingDocument::load(path);
+            require(drawing::evaluate_drawing_dimension(reopened.sheets.front().views.front(),dimension).state==drawing::MeasurementState::Resolved,
+                "Independent boundary dimension lost attachment without interactive packet");
+            auto missing=*view.measurement_geometry;
+            std::erase_if(missing.curves,[&](const auto& c){return c.source==first.reference;});
+            if(!first.reference.semantic_key.starts_with("axis:")) {
+                view.measurement_geometry=drawing::share_measurement_geometry(std::move(missing));
+                const auto lost=drawing::evaluate_drawing_dimension(view,dimension);
+                require(lost.state!=drawing::MeasurementState::Resolved&&!lost.presentations.empty(),"Missing boundary was silently rebound or lost its last presentation");
+            }
+        }
+    std::cout<<"Independent rounded boundaries: "<<cases<<" line/axis/orientation/order/kind/radius cases, label drags and native reopen passed\n";
+}
 void verify_surface_contours(const std::filesystem::path& directory) {
     verify_cylindrical_contours(directory);
+    verify_independent_rounded_boundaries(directory);
     using K=kernel::SurfaceGeometry::Kind;
     const double pi=std::numbers::pi;
     {

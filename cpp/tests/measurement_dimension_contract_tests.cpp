@@ -55,6 +55,43 @@ int main() {
     try {
         verify_drawing_axis_cross_contract();
         verify_exact_circular_contacts();
+        for(const int direction:{1,-1})for(const double radius:{2.,6.,3.})
+            for(const auto kind:{DrawingDimensionKind::Radius,DrawingDimensionKind::Diameter}) {
+                kernel::ViewerMesh mesh;mesh.edges={circle("semicircle",0,0,radius,direction*std::numbers::pi)};
+                auto current=view(mesh);MeasurementPickRequest request;request.circles_only=true;
+                request.cylinder_diameters=kind==DrawingDimensionKind::Diameter;
+                const auto picks=checked_candidates(current,{0,direction*radius},.01,request);
+                require(!picks.empty(),"Semicircle cannot be selected for R/diameter");
+                auto dimension=make_drawing_dimension(current.id,kind);dimension.attachments[0]=picks.front().attachment;
+                for(auto delta:std::array{Point2{1,2},Point2{-2,-1},Point2{1,-1}}) {
+                    refresh_drawing_dimension(current,dimension);drag_drawing_dimension(current,dimension,0,0,delta);
+                    const auto result=evaluate_drawing_dimension(current,dimension);
+                    require(result.state==MeasurementState::Resolved,"Semicircle R/diameter became unresolved");
+                    near(result.presentations.front().value,radius*(kind==DrawingDimensionKind::Diameter?2:1));
+                }
+            }
+        std::cout<<"Semicircle R/diameter: 12 orientation/radius/kind cases and repeated label drags passed\n";
+        {
+            const std::string first="drawing-contour:4:wall:side:1",second="drawing-contour:4:wall:side:-1";
+            kernel::ViewerMesh mesh;mesh.edges={line(first,{-5,0,0},{-5,20,0}),line(second,{5,0,0},{5,20,0})};
+            auto current=view(mesh);MeasurementPickRequest request;request.circles_only=true;request.cylinder_diameters=true;
+            auto picks=checked_candidates(current,{-5,7},.01,request);require(picks.size()==1,"Exact cylinder support missing");
+            auto diameter=make_drawing_dimension(current.id,DrawingDimensionKind::Diameter);diameter.attachments[0]=picks.front().attachment;
+            near(evaluate_drawing_dimension(current,diameter).presentations.front().value,10);
+            require(drawing_dimension_text(diameter,evaluate_drawing_dimension(current,diameter).presentations.front())=="⌀10","Linear diameter presentation lost the diameter symbol");
+            for(int variant=0;variant<5;++variant) {
+                auto invalid=mesh;
+                if(variant==0){invalid.edges[0].reference.semantic_key="left";invalid.edges[1].reference.semantic_key="right";}
+                if(variant==1){invalid.edges[0].points.back().x=-7;invalid.edges[1].points.back().x=7;}
+                if(variant==2)invalid.edges[1].reference.instance_path="different-occurrence";
+                if(variant==3)invalid.edges[1].reference.owner_id="different-feature";
+                if(variant==4)invalid.edges[1].reference.semantic_key="drawing-contour:4:other:side:-1";
+                auto rejected=view(invalid);
+                require(checked_candidates(rejected,{-5,7},.01,request).empty(),"Diameter accepted arbitrary lines, a cone or a different face/occurrence");
+            }
+            current.camera={{0,1,0},{0,0,1},{1,0,0}};
+            require(evaluate_drawing_dimension(current,diameter).state!=MeasurementState::Resolved,"Stale camera silently foreshortened a diameter");
+        }
         {
             kernel::ViewerMesh mesh;mesh.edges={circle("closed",0,0,5),line("straight",{10,0,0},{30,0,0}),circle("open",40,0,5,std::numbers::pi)};
             const auto v=view(mesh);

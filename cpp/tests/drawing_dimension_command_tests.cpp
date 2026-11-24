@@ -6,6 +6,7 @@
 #include <zima/workspace/relation_operations.hpp>
 #include <zima/workspace/drawing_projection.hpp>
 #include "profile_command_fixture.hpp"
+#include "drawing_rounded_boundary_fixture.hpp"
 #include <cmath>
 #include <iostream>
 #include <numbers>
@@ -100,7 +101,7 @@ void verify_actual_shaft_rounding(const kernel::OcctKernel& kernel,std::filesyst
     const auto fillet=run(host,"fillet.create",{{"radius_mm",1},{"routes",Json::array({Json{{"edges",Json::array({Json{{"owner",ring->reference.owner_id},{"key",ring->reference.semantic_key}}})}}})}}).data.at("container").get<std::string>();
     std::set<std::pair<std::string,std::string>> expected;
     drawing::DrawingDocument saved;
-    unsigned measurements{};
+    unsigned measurements{},shaft_diameters{};
     for(double radius:{1.,2.5,1.5}) {
         run(host,"fillet.set",{{"container",fillet},{"radius_mm",radius}});
         require(live.open_part(part_id)->session.calculated_boundaries().back().calculation_errors.empty(),"Actual shaft rounding did not calculate");
@@ -124,6 +125,26 @@ void verify_actual_shaft_rounding(const kernel::OcctKernel& kernel,std::filesyst
                 }
             }
             require(references.size()==2,"Actual rounded shaft has no two exact selectable fillet arcs");
+            unsigned generators{};
+            for(const auto& curve:drawing::projected_measurement_curves(view))
+                if(curve.source.semantic_key.starts_with("drawing-contour:")&&curve.diameter_offset) {
+                    drawing::MeasurementPickRequest request;request.circles_only=true;request.cylinder_diameters=true;
+                    const auto middle=curve.points[curve.points.size()/2];
+                    const auto picks=drawing::measurement_candidates(view,middle,.01,request);
+                    const auto pick=std::ranges::find_if(picks,[&](const auto& p){return p.attachment.reference==curve.source;});
+                    require(pick!=picks.end(),"Rounded shaft cylinder silhouette cannot be selected for diameter");
+                    auto dimension=drawing::make_drawing_dimension(view.id,drawing::DrawingDimensionKind::Diameter);
+                    dimension.attachments[0]=pick->attachment;
+                    for(auto delta:std::array{drawing::Point2{1,2},drawing::Point2{-2,-1},drawing::Point2{1,-1}}) {
+                        drawing::refresh_drawing_dimension(view,dimension);drawing::drag_drawing_dimension(view,dimension,0,0,delta);
+                        const auto result=drawing::evaluate_drawing_dimension(view,dimension);
+                        require(result.state==drawing::MeasurementState::Resolved&&std::abs(result.presentations.front().value-20)<1e-7&&
+                            drawing::drawing_dimension_text(dimension,result.presentations.front())=="⌀20",
+                            "Cylinder diameter was confused with its end fillet diameter");
+                    }
+                    dimensions.push_back(std::move(dimension));++generators;++shaft_diameters;
+                }
+            require(generators==2,"Rounded shaft lost either cylindrical diameter silhouette");
             if(expected.empty())expected=references;else require(references==expected,"Changing actual shaft rounding replaced its contour identities");
             saved=drawing::DrawingDocument::create_default();saved.source_document_id=part_id;saved.source_path=view.source_path;
             saved.sheets.front().views={view};saved.sheets.front().dimensions=std::move(dimensions);
@@ -132,9 +153,17 @@ void verify_actual_shaft_rounding(const kernel::OcctKernel& kernel,std::filesyst
     run(host,"save");
     const auto file=directory/"rounded-shaft.drwz";saved.save(file);
     const auto reopened=drawing::DrawingDocument::load(file);
-    for(const auto& dimension:reopened.sheets.front().dimensions)
-        require(drawing::evaluate_drawing_dimension(reopened.sheets.front().views.front(),dimension).state==drawing::MeasurementState::Resolved,"Actual shaft fillet dimension did not reopen");
+    for(const auto& dimension:reopened.sheets.front().dimensions) {
+        const auto result=drawing::evaluate_drawing_dimension(reopened.sheets.front().views.front(),dimension);
+        if(result.state!=drawing::MeasurementState::Resolved) {
+            std::cerr<<"Reopen failed: "<<dimension.attachments.front().reference.semantic_key<<" "<<result.message<<'\n';
+            for(const auto& c:drawing::projected_measurement_curves(reopened.sheets.front().views.front()))
+                if(c.source.semantic_key.starts_with("drawing-"))std::cerr<<"Reopened curve "<<c.source.semantic_key<<" line="<<c.line<<" diameter="<<bool(c.diameter_offset)<<'\n';
+        }
+        require(result.state==drawing::MeasurementState::Resolved,"Actual shaft fillet dimension did not reopen");
+    }
     std::cout<<"Actual native shaft Fillet: "<<measurements<<" R/diameter checks, repeated radius changes, label drags, stable references and native reopen passed\n";
+    std::cout<<"Rounded shaft cylinder diameter: "<<shaft_diameters<<" side/facing/fillet-radius checks passed\n";
 }
 void verify(const kernel::OcctKernel& kernel,std::filesystem::path directory) {
     verify_surface_contours(directory);

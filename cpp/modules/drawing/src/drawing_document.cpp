@@ -1039,9 +1039,10 @@ DrawingDocument DrawingDocument::load(const std::filesystem::path& path) {
                 // Native references and Thread designation are persisted
                 // measurement data, not reconstructed from a display packet.
                 // Only camera-derived analytic contours are refreshed here.
-                std::erase_if(measurements.curves,[](const auto& curve){return curve.source.semantic_key.starts_with("drawing-contour:");});
+                const auto contour=[](const auto& curve){return curve.source.semantic_key.starts_with("drawing-contour:")||curve.source.semantic_key.starts_with(detail::cylinder_diameter_prefix);};
+                std::erase_if(measurements.curves,contour);
                 for(const auto& curve:view.measurement_geometry->curves)
-                    if(curve.source.semantic_key.starts_with("drawing-contour:"))measurements.curves.push_back(curve);
+                    if(contour(curve))measurements.curves.push_back(curve);
                 view.measurement_geometry=share_measurement_geometry(std::move(measurements));
             }
             sheet.views.push_back(std::move(view));

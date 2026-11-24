@@ -1,5 +1,6 @@
 #include "drawing_dimension_dialog.hpp"
 #include "profile_solid_fixture.hpp"
+#include "drawing_rounded_boundary_fixture.hpp"
 #include <zima/kernel/occt_kernel.hpp>
 #include "../common/interaction_colors.hpp"
 #include "application_settings.hpp"
@@ -49,10 +50,16 @@ void pick(QWidget *w, QPointF p) {
 #include "drawing_axis_cross_ui.inc"
 #include "drawing_repeat_ui.inc"
 #include "drawing_parallel_ui.inc"
+#include "drawing_cylinder_diameter_ui.inc"
+#include "drawing_rounded_boundary_ui.inc"
 int verify_measurement_dimension_ui() {
     using namespace zima;
     using namespace drawing;
     try {
+        if(qEnvironmentVariableIsSet("ZIMA_VERIFY_CYLINDER_DIAMETER_FILE")) {
+            verify_rounded_boundary_ui();
+            return verify_cylinder_diameter_ui(std::filesystem::path(qEnvironmentVariable("ZIMA_VERIFY_CYLINDER_DIAMETER_FILE").toStdString()));
+        }
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_DRAWING_PARALLEL_FILE")||qEnvironmentVariableIsSet("ZIMA_VERIFY_DRAWING_PARALLEL_ONLY"))return verify_drawing_parallel_ui();
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_DRAWING_REPEAT_ONLY"))return verify_repeated_drawing_dimensions();
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_DRAWING_AXIS_CROSS"))return verify_drawing_axis_cross_ui();

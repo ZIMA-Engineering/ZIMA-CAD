@@ -1,4 +1,5 @@
 #include <zima/drawing/measurement_dimension.hpp>
+#include "../modules/drawing/src/drawing_projection.hpp"
 #include <chrono>
 #include <cmath>
 #include <iostream>
@@ -150,6 +151,14 @@ void benchmark(const char* path) {
     const auto document=DrawingDocument::load(path);
     double total_before=0,total_after=0,total_preparation=0;std::size_t count=0;
     for(const auto& sheet:document.sheets)for(const auto& view:sheet.views) {
+        if(view.output_source) {
+            auto mesh=drawing_profile_mesh(*view.output_source,view.camera);
+            auto actual=detail::project_drawing_edges(mesh,view.camera,true,false,true);
+            std::erase_if(mesh.original_references.edges,[](const auto& edge){return edge.reference.semantic_key.starts_with(detail::cylinder_diameter_prefix);});
+            const auto previous=detail::project_drawing_edges(mesh,view.camera,true,false,true);
+            for(auto& edge:actual)if(edge.source.semantic_key.starts_with(detail::cylinder_diameter_prefix))edge.source={};
+            require(actual==previous,"Cylinder measurement references changed displayed strokes, visibility or depth");
+        }
         MeasurementPicker picker;std::vector<Point2> probes;
         const auto stride=std::max(std::size_t{1},(view.projected_edges.size()+23)/24);
         for(std::size_t i=0;i<view.projected_edges.size();i+=stride) {

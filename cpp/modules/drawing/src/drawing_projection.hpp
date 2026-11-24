@@ -8,6 +8,7 @@
 #include <numeric>
 #include <set>
 #include <tuple>
+#include "cylinder_measurement.hpp"
 
 namespace zima::drawing::detail {
 // All projection consumes persisted display triangles/curves. No kernel calls
@@ -59,6 +60,9 @@ inline std::vector<ProjectedEdge> project_drawing_edges(
     // than duplicating them on each result triangle and adjacent edge face.
     using FaceKey=std::tuple<std::string,std::string,std::string>;
     const auto face_key=[](const auto& ref){return FaceKey{ref.owner_id,ref.semantic_key,ref.instance_path};};
+    std::map<FaceKey,std::vector<const zima::kernel::ViewerEdge*>> diameter_supports;
+    for(const auto& edge:mesh.original_references.edges)if(edge.reference.semantic_key.starts_with(cylinder_diameter_prefix))
+        for(const auto& face:edge.edge_treatment_side_references)diameter_supports[face_key(face)].push_back(&edge);
     std::set<FaceKey> profile_surfaces;
     for(const auto& edge:source_edges)if(edge.reference.semantic_key.starts_with("drawing-contour:"))
         for(const auto& face:edge.edge_treatment_side_references)profile_surfaces.insert(face_key(face));
@@ -98,7 +102,7 @@ inline std::vector<ProjectedEdge> project_drawing_edges(
     struct Triangle {std::array<ProjectionVertex,3> v;double determinant;double xmin{},xmax{},ymin{},ymax{};const zima::kernel::FaceReference* source{};std::array<unsigned,3> indices;unsigned rim_sides{};std::array<double,3> clip_tolerances{};};
     std::vector<Triangle> triangles;
     using Key=std::tuple<long long,long long,long long>;
-    struct Boundary {zima::kernel::Vec3 a,b;bool front{},back{};int count{};bool thread{};bool axial_surface{true},analytic_profile{true};};
+    struct Boundary {zima::kernel::Vec3 a,b;bool front{},back{};int count{};bool thread{};bool axial_surface{true},analytic_profile{true};const zima::kernel::FaceReference* face{};bool same_face{true};};
     std::map<std::tuple<Key,Key,Owner>,Boundary> boundaries;
     std::map<std::tuple<FaceKey,Key,Key>,unsigned> face_edge_counts;
     const auto key=[&](const auto& p){return Key{std::llround(p.x/epsilon),std::llround(p.y/epsilon),std::llround(p.z/epsilon)};};
@@ -153,6 +157,8 @@ inline std::vector<ProjectedEdge> project_drawing_edges(
             // Keep ordinary feature owners together inside that occurrence.
             const Owner scope{thread?ref->owner_id:std::string{},ref?ref->instance_path:std::string{}};
             auto& edge=boundaries[{ka,kb,scope}];edge.a=pa;edge.b=pb;++edge.count;edge.thread=thread;
+            if(edge.count==1)edge.face=ref;
+            else edge.same_face&=ref&&edge.face&&face_key(*ref)==face_key(*edge.face);
             edge.analytic_profile&=ref&&profile_surfaces.contains(face_key(*ref));
             // A cylinder/cone viewed along its analytic axis has no visible
             // generator. An unmatched mesh seam near a cone apex is not a
@@ -444,6 +450,19 @@ inline std::vector<ProjectedEdge> project_drawing_edges(
     }
     if(silhouettes)for(const auto& [key,edge]:boundaries)if(!edge.axial_surface&&!edge.analytic_profile&&((edge.front&&edge.back)||edge.count==1)) {
         zima::kernel::EdgeReference reference;
+        if(edge.face&&edge.same_face)if(const auto found=diameter_supports.find(face_key(*edge.face));found!=diameter_supports.end()) {
+            double nearest=std::numeric_limits<double>::infinity();
+            for(const auto* support:found->second) {
+                const auto axis=zima::kernel::dimension_unit(zima::kernel::dimension_sub(support->points.back(),support->points.front()));
+                const auto direction=zima::kernel::dimension_unit(zima::kernel::dimension_sub(edge.b,edge.a));
+                const auto cross=zima::kernel::dimension_cross(axis,direction);
+                if(zima::kernel::dimension_dot(cross,cross)>1e-16)continue;
+                const auto delta=zima::kernel::dimension_sub(edge.a,support->points.front());
+                const auto radial=zima::kernel::dimension_sub(delta,zima::kernel::dimension_scale(axis,zima::kernel::dimension_dot(delta,axis)));
+                const double distance=zima::kernel::dimension_dot(radial,radial);
+                if(distance<nearest){nearest=distance;reference=support->reference;}
+            }
+        }
         if(edge.thread)for(const auto& original:source_edges)
             if(is_thread(original.reference)&&owner(original.reference)==std::get<2>(key)&&
                thread_cylinder_boundary(original.reference)) {

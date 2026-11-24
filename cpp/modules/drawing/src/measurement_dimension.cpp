@@ -3,6 +3,7 @@
 #include <zima/drawing/dimension_text.hpp>
 #include <zima/drawing/view_breaks.hpp>
 #include <mutex>
+#include <map>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -18,6 +19,7 @@
 #include <zima/drawing/model_annotations.hpp>
 #include <zima/kernel/stable_id.hpp>
 #include <zima/kernel/boolean_face_ancestry.hpp>
+#include "cylinder_measurement.hpp"
 namespace zima::drawing {
 namespace {
 constexpr double pi = std::numbers::pi;
@@ -115,6 +117,39 @@ bool inherited_edge(const kernel::EdgeReference& child,const kernel::EdgeReferen
     return false;
 }
 auto key(const kernel::EdgeReference &r) { return std::tuple{r.owner_id, r.semantic_key, r.instance_path}; }
+std::optional<kernel::EdgeReference> opposite_contour(const kernel::EdgeReference& ref) {
+    std::string_view text=ref.semantic_key;
+    const std::string_view prefix=text.starts_with(detail::cylinder_diameter_prefix)?detail::cylinder_diameter_prefix:"drawing-contour:";
+    if(!text.starts_with(prefix))return {};
+    text.remove_prefix(prefix.size());const auto separator=text.find(':');
+    if(separator==text.npos)return {};
+    std::size_t size{};const auto parsed=std::from_chars(text.data(),text.data()+separator,size);
+    if(parsed.ec!=std::errc{}||parsed.ptr!=text.data()+separator||size==0)return {};
+    text.remove_prefix(separator+1);if(size>text.size())return {};
+    const auto side=text.substr(size);
+    if(side!=":side:1"&&side!=":side:-1")return {};
+    auto result=ref;result.semantic_key.resize(ref.semantic_key.size()-side.size());
+    result.semantic_key+=side==":side:1"?":side:-1":":side:1";
+    return result;
+}
+std::optional<Point2> cylinder_diameter_offset(const MeasurementCurve& first,
+    const MeasurementCurve& second,const ProjectionCamera& camera) {
+    // These references are emitted only for exact rotational surface contours.
+    // Parallel, separated 3D generators of the same face certify a cylinder;
+    // cone generators converge and torus contours are curved. Never infer a
+    // diameter from arbitrary parallel drawing lines or triangle silhouettes.
+    if(!first.line||!second.line||first.points.size()<2||second.points.size()<2)return {};
+    const auto a=kernel::dimension_unit(kernel::dimension_sub(first.points.back(),first.points.front()));
+    const auto b=kernel::dimension_unit(kernel::dimension_sub(second.points.back(),second.points.front()));
+    const auto cross=kernel::dimension_cross(a,b);
+    if(kernel::dimension_dot(a,a)<.5||kernel::dimension_dot(b,b)<.5||kernel::dimension_dot(cross,cross)>1e-24)return {};
+    const auto delta=kernel::dimension_sub(second.points.front(),first.points.front());
+    const auto offset=kernel::dimension_sub(delta,kernel::dimension_scale(a,kernel::dimension_dot(delta,a)));
+    const double diameter=std::sqrt(kernel::dimension_dot(offset,offset));
+    if(diameter<1e-9||length(project(a,camera))<1e-9||
+        std::abs(kernel::dimension_dot(offset,camera.depth))>diameter*1e-10)return {};
+    return project(offset,camera);
+}
 std::optional<MeasurementCircle> circle_geometry(const std::vector<kernel::Vec3> &points) {
     if (points.size() < 5)
         return {};
@@ -525,16 +560,32 @@ kernel::ViewerMesh drawing_profile_mesh(const kernel::ViewerMesh& mesh,const Pro
         const double alignment=std::abs(kernel::dimension_dot(surface.axis,camera.depth));
         if(cylinder?kernel::dimension_dot(kernel::dimension_cross(surface.axis,camera.depth),
             kernel::dimension_cross(surface.axis,camera.depth))<=1e-24:alignment>1e-9)continue;
+        if(cylinder&&surface.radius>1e-9&&surface.axial_max-surface.axial_min>1e-9) {
+            // A trimmed cylinder may not have two complete circular rims.
+            // Preserve its exact line supports for diameter and linear dimensions;
+            // these are not display edges or selectable endpoints. The projection
+            // binds only actual silhouette fragments of this same analytic face.
+            const auto transverse=kernel::dimension_unit(kernel::dimension_cross(surface.axis,camera.depth));
+            for(const int side:{1,-1}) {
+                kernel::ViewerEdge support;support.reference=detail::cylinder_diameter_reference(face,side);
+                support.edge_treatment_side_references={face};
+                for(const double t:{surface.axial_min,surface.axial_max})support.points.push_back(kernel::dimension_add(surface.origin,
+                    kernel::dimension_add(kernel::dimension_scale(transverse,side*surface.radius),kernel::dimension_scale(surface.axis,t))));
+                result.original_references.edges.push_back(std::move(support));
+            }
+        }
         const double slope=surface.kind==kernel::SurfaceGeometry::Kind::Cone?std::tan(surface.semi_angle):0.;
         if(torus&&(!surface.complete_profile||surface.radius<=surface.minor_radius||
             std::floor((surface.v_min+pi/2+1e-9)/pi)!=std::floor((surface.v_max+pi/2-1e-9)/pi)))continue;
         std::vector<std::pair<kernel::Vec3,kernel::Vec3>> clipping_planes;
         std::optional<double> cone_angle_origin;
         double cone_angle_min=0,cone_angle_max=0;
+        double profile_min=surface.axial_min,profile_max=surface.axial_max;
         if(!torus) {
             // Only a complete rotational band bounded by its two exact circular
             // rims is rectangular in parameter space. Reject cut/holed bands.
             std::set<decltype(key(reference))> seen_edges;unsigned rings=0;bool complete=true;
+            std::vector<double> rim_positions;
             for(const auto* pointer:boundaries[face_key(face)]) {
                 const auto& edge=*pointer;
                 if(!edge.reference.valid()){complete=false;continue;}
@@ -546,10 +597,18 @@ kernel::ViewerMesh drawing_profile_mesh(const kernel::ViewerMesh& mesh,const Pro
                     const auto delta=kernel::dimension_sub(circle->center,surface.origin);
                     const double axial=kernel::dimension_dot(delta,surface.axis);
                     const auto off=kernel::dimension_sub(delta,kernel::dimension_scale(surface.axis,axial));
-                    if(kernel::dimension_dot(off,off)>1e-14||std::abs(circle->radius-surface.radius-axial*slope)>1e-7||
-                        std::min(std::abs(axial-surface.axial_min),std::abs(axial-surface.axial_max))>1e-7)complete=false;
+                    if(kernel::dimension_dot(off,off)>1e-14||std::abs(circle->radius-surface.radius-axial*slope)>1e-7)complete=false;
+                    rim_positions.push_back(axial);
                 }
                 ++rings;
+            }
+            if(complete&&rings==2&&rim_positions.size()==2) {
+                // The current circular trimming rims own the finite band.
+                // A support inherited from the pre-Fillet cylinder can retain
+                // its original axial range, including after native reopening.
+                profile_min=std::min(rim_positions[0],rim_positions[1]);
+                profile_max=std::max(rim_positions[0],rim_positions[1]);
+                complete=profile_max-profile_min>1e-9;
             }
             if(!complete||rings!=2) {
                 // A convex planar trim (for example a hexagonal bolt head)
@@ -644,7 +703,7 @@ kernel::ViewerMesh drawing_profile_mesh(const kernel::ViewerMesh& mesh,const Pro
             }else {
                 const auto start=kernel::dimension_add(surface.origin,kernel::dimension_scale(radial,surface.radius));
                 const auto direction=kernel::dimension_add(surface.axis,kernel::dimension_scale(radial,slope));
-                double low=surface.axial_min,high=surface.axial_max;
+                double low=profile_min,high=profile_max;
                 for(const auto& [origin,normal]:clipping_planes) {
                     const double value=kernel::dimension_dot(kernel::dimension_sub(start,origin),normal);
                     const double rate=kernel::dimension_dot(direction,normal);
@@ -698,10 +757,16 @@ void capture_measurement_geometry(DrawingView &view, const kernel::ViewerMesh &m
 }
 std::vector<ProjectedMeasurementCurve> projected_measurement_curves(const DrawingView &view) {
     std::vector<ProjectedMeasurementCurve> result;
+    std::map<decltype(key(kernel::EdgeReference{})),const MeasurementCurve*> contours;
+    for(const auto& curve:view.measurement_geometry->curves)
+        if(curve.line&&(curve.source.semantic_key.starts_with("drawing-contour:")||curve.source.semantic_key.starts_with(detail::cylinder_diameter_prefix)))contours.emplace(key(curve.source),&curve);
     for (const auto &curve : view.measurement_geometry->curves) {
         ProjectedMeasurementCurve c;
         c.source = curve.source;
         c.line = curve.line;
+        if(curve.line)if(const auto opposite=opposite_contour(curve.source))
+            if(const auto found=contours.find(key(*opposite));found!=contours.end())
+                c.diameter_offset=cylinder_diameter_offset(curve,*found->second,view.camera);
         double total = 0;
         c.parameters.push_back(0);
         for (std::size_t i = 0; i < curve.points.size(); ++i) {
@@ -774,7 +839,7 @@ std::vector<std::vector<Point2>> reference_geometry(
     if (!ref.valid())
         return result;
     for (const auto &entry : edges) {const auto& edge=value(entry);
-        if (inherited_edge(edge.source, ref) && !edge.hatch && (!edge.silhouette||edge.thread) && drawing_edge_visible(view, edge))
+        if (inherited_edge(edge.source, ref) && !edge.hatch && (!edge.silhouette||edge.thread||ref.semantic_key.starts_with(detail::cylinder_diameter_prefix)) && drawing_edge_visible(view, edge))
             result.push_back(edge.points);
     }
     for (const auto &entry : annotations) {const auto& item=value(entry);
@@ -1207,6 +1272,10 @@ std::vector<MeasurementCandidate> measurement_candidates_impl(const DrawingView 
     } else for(std::size_t i=0;i<curves.size();++i)nearby.push_back(i);
     for (const auto index : nearby) {
         const auto& curve=curves[index];
+        const bool cylinder_support=curve.source.semantic_key.starts_with(detail::cylinder_diameter_prefix);
+        if(cylinder_support&&!(request.circles_only&&request.cylinder_diameters)&&
+            (request.circles_only||request.intersection_first.valid()||
+             !(request.lines_only||request.mode<0||request.mode==int(DimensionAttachmentKind::Line))))continue;
         const bool cross_stroke=measurement_axis_cross_stroke(curve.source).has_value();
         // Offer the displayed child geometry, then canonicalize its reference.
         // Do not offer the removed endpoints/midpoint of an untrimmed parent.
@@ -1215,7 +1284,8 @@ std::vector<MeasurementCandidate> measurement_candidates_impl(const DrawingView 
         if (request.lines_only && !straight_support(&curve))
             continue;
         const bool thread=curve.source.semantic_key.starts_with("thread:boundary:");
-        if (request.circles_only && (!curve.center || (!curve.circular&&!thread)))
+        if (request.circles_only && !(request.cylinder_diameters&&curve.diameter_offset) &&
+            (!curve.center || (!curve.circular&&!thread)))
             continue;
         double distance = std::numeric_limits<double>::infinity();
         const auto local_fragments = prepared ? std::vector<std::vector<Point2>>{} : measurement_reference_geometry(view, curve.source);
@@ -1289,7 +1359,7 @@ std::vector<MeasurementCandidate> measurement_candidates_impl(const DrawingView 
         }
         // Section supports can span disconnected intervals of one planar face.
         // Their tessellation nodes and overall midpoint are not source vertices.
-        if (!curve.axis && !curve.source.semantic_key.starts_with("drawing-section-line:") && (mode < 0 || mode == int(DimensionAttachmentKind::Point) ||
+        if (!curve.axis && !cylinder_support && !curve.source.semantic_key.starts_with("drawing-section-line:") && (mode < 0 || mode == int(DimensionAttachmentKind::Point) ||
             mode == int(DimensionAttachmentKind::CurvePoint))) {
             std::vector<double> parameters{0.,.5,1.};
             if(!curve.line)if(const auto support=straight_support(&curve))
@@ -1324,7 +1394,7 @@ std::vector<MeasurementCandidate> measurement_candidates_impl(const DrawingView 
             continue;
         }
         a.parameter = parameter_at(curve, cursor);
-        if(request.curve_contacts) {
+        if(request.curve_contacts&&!cylinder_support) {
             a.parameter=contact_parameter(curve,cursor);
             a.kind=DimensionAttachmentKind::CurvePoint;
             add_candidate(a,point_at(curve,a.parameter),distance);
@@ -1335,7 +1405,7 @@ std::vector<MeasurementCandidate> measurement_candidates_impl(const DrawingView 
                 continue;
             a.kind = DimensionAttachmentKind::Line;
             const auto support=*straight_support(&curve);
-            a.parameter = curve.line?.5:parameter_at(curve,mul(add(support.first,support.second),.5));
+            if(!cylinder_support)a.parameter = curve.line?.5:parameter_at(curve,mul(add(support.first,support.second),.5));
             add_candidate(a, point_at(curve, a.parameter), distance + .05 * tolerance);
         }
     }
@@ -1380,6 +1450,9 @@ DimensionEvaluation evaluate_drawing_dimension(const DrawingView &view, const Dr
     };
     if (d.view_id != view.id || d.attachments.empty())
         return missing("Vyberte geometrické vazby kóty.");
+    if(std::ranges::any_of(d.attachments,[&](const auto& a){return a.reference.semantic_key.starts_with(detail::cylinder_diameter_prefix)&&
+        d.kind!=DrawingDimensionKind::Diameter&& !((d.kind==DrawingDimensionKind::Linear||d.kind==DrawingDimensionKind::Chain)&&a.kind==DimensionAttachmentKind::Line);}))
+        return missing("Vyberte geometrické vazby kóty.");
     for(std::size_t i=0;i<d.attachments.size();++i)if(!(d.chain_datum_only&&d.chain_direction&&i!=d.anchor_attachment))if(auto p=resolve_dimension_attachment(view,d.attachments[i]);p&&break_hidden(view,*p)) {
         result.state=MeasurementState::Hidden;result.message="Reference kóty je skrytá přerušením pohledu.";return result;
     }
@@ -1415,6 +1488,31 @@ DimensionEvaluation evaluate_drawing_dimension(const DrawingView &view, const Dr
     const bool radial = d.kind == DrawingDimensionKind::Radius || d.kind == DrawingDimensionKind::Diameter;
     if (radial) {
         const auto *curve = find_curve(curves, d.attachments[0].reference);
+        if(curve&&curve->diameter_offset&&d.kind==DrawingDimensionKind::Diameter&&!d.segments.empty()) {
+            auto a=point_at(*curve,d.attachments[0].parameter),b=add(a,*curve->diameter_offset);
+            if(break_hidden(view,b)) {
+                result.state=MeasurementState::Hidden;result.message="Reference kóty je skrytá přerušením pohledu.";return result;
+            }
+            auto direction=unit(sub(b,a));
+            if((std::abs(direction.x)>=std::abs(direction.y)?direction.x:direction.y)<0) {
+                std::swap(a,b);direction=mul(direction,-1);
+            }
+            const auto outward=perp(direction);const auto& layout=d.segments[0].layout;
+            const auto shift=mul(outward,8/view.scale+layout.line_offset);
+            const auto start=add(a,shift),end=add(b,shift);
+            const auto label=add(mul(add(start,end),.5),add(mul(direction,layout.text_along),mul(outward,layout.text_outward)));
+            kernel::ViewerDimension value;value.kind=kernel::ViewerDimensionKind::Linear;
+            value.witness_first={a.x,a.y,0};value.witness_second={b.x,b.y,0};
+            value.line_first={start.x,start.y,0};value.line_second={end.x,end.y,0};
+            value.label_position=kernel::Vec3{label.x,label.y,0};
+            value.measurement_direction={direction.x,direction.y,0};
+            value.value=length(*curve->diameter_offset);value.label_prefix="⌀";value.driving=false;
+            value.arrows_reversed=layout.arrows_reversed;
+            result.resolved_attachments[0]=true;result.presentations={value};
+            result.state=MeasurementState::Resolved;return result;
+        }
+        if(d.attachments[0].reference.semantic_key.starts_with(detail::cylinder_diameter_prefix))
+            return missing("Některá vazba není dostupná. Vyberte její náhradu.");
         if (!curve || !curve->center || d.segments.empty())
             return missing("Vyberte kružnici nebo kruhový oblouk.");
         result.resolved_attachments[0] = true;
@@ -1681,6 +1779,10 @@ std::string drawing_dimension_text(const DrawingDimension &d, const kernel::View
     static_cast<void>(unresolved);
     auto style=sheet_dimension_style(d.style);
     if(style.text_override.empty()&&!value.display_text_override.empty())style.text_override=value.display_text_override;
+    if(d.kind==DrawingDimensionKind::Diameter&&value.kind==kernel::ViewerDimensionKind::Linear) {
+        auto nominal=value;nominal.kind=kernel::ViewerDimensionKind::Diameter;
+        return sheet_dimension_text(nominal,style);
+    }
     return sheet_dimension_text(value,style);
 }
 void drag_drawing_dimension(const DrawingView &view, DrawingDimension &d, std::size_t index, int handle,
