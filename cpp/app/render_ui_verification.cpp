@@ -101,10 +101,16 @@ int verify_render_body(QApplication& application,AssemblyWorkspaceWindow& window
         view->set_projection_mode(viewer::ProjectionMode::Orthographic);
         const auto revision=session.revision();
         auto* create=window.findChild<QAction*>("createRenderAction");check(create&&create->isEnabled()&&!create->icon().isNull(),"Create Render action missing");
+        const auto render_command_button=[&] {
+            auto* button=qobject_cast<QToolButton*>(window.tools_toolbar_->widgetForAction(create));
+            check(button&&button->isVisible()&&button->isEnabled(),"Create Render is absent from the visible right command panel");
+            return button;
+        };
+        render_command_button();
         create_from_group();check(settings()&&settings()->windowType()==Qt::SubWindow,"Render settings are not shared internal Properties");
         check(window.rect().contains(settings()->geometry())&&settings()->buttons()->isVisible(),"Render settings exceed the application bounds");
         settings()->reject();flush();check(session.revision()==revision,"Render creation Cancel changed the document");
-        create->trigger();flush();auto* dialog=settings();check(dialog,"Render settings did not reopen");
+        render_command_button()->click();flush();auto* dialog=settings();check(dialog,"Right-panel Render button did not open settings");
         const auto render_id=dialog->pending.scope.id;dialog->findChild<QSpinBox*>("renderWidth")->setValue(320);dialog->findChild<QSpinBox*>("renderHeight")->setValue(200);dialog->findChild<QSpinBox*>("renderSamples")->setValue(8);
         const auto initial_camera=dialog->pending.render->objects.front();
         click(view,{view->width()/2.,view->height()/2.},Qt::MiddleButton,true);
@@ -377,6 +383,13 @@ int verify_render_body(QApplication& application,AssemblyWorkspaceWindow& window
             QTemporaryDir temporary;QSettings ini(temporary.filePath("config.ini"),QSettings::IniFormat);ini.setValue("Application/Language",language);ini.setValue("Paths/Localization",QDir::current().absoluteFilePath("config/localization"));ini.sync();
             const auto localized=ApplicationSettings::load(temporary.path());apply_application_translations(application,localized);window.refresh_scene();flush();
             check(render_group()&&render_group()->text(0)==localized.qt_translations.value("Renders"),"Render group did not translate");
+            window.activate_body({});flush();
+            check(create->text()==localized.qt_translations.value("Create Render")&&
+                window.section_action_->text()==localized.qt_translations.value("Create section"),"Right-panel Render/Section commands did not translate");
+            render_command_button();
+            check(window.tools_toolbar_->widgetForAction(window.section_action_)->isVisible(),"Localized Section command is hidden");
+            if(std::string_view(language)=="cs")check(window.grab().save(QString::fromStdWString((directory/"render-section-commands.png").wstring())),"Command-panel screenshot failed");
+            window.activate_body(render_id);flush();
             window.show_render_result();flush();page=window.active_render_page_;
             for(const auto& control:std::vector<std::pair<const char*,const char*>>{{"renderKeepImage","Save to Part"},{"renderRenameImage","Rename"},{"renderDeleteImage","Delete image"}})
                 check(page->findChild<QAction*>(control.first)->text()==localized.qt_translations.value(control.second),"Gallery control did not translate");

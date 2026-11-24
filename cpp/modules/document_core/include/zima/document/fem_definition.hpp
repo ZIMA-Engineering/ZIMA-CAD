@@ -56,6 +56,8 @@ inline bool fem_thermal_expansion(const FemDefinition& value) {
 }
 
 void validate_fem_definition(const FemDefinition&);
+// Persisted unresolved definitions are legal documents, never solver inputs.
+void require_resolved_fem_conditions(const FemDefinition&);
 void refresh_fem_distances(FemDefinition&);
 void to_json(nlohmann::json&, const FemDefinition&);
 void from_json(const nlohmann::json&, FemDefinition&);

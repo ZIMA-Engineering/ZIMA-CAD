@@ -3,6 +3,7 @@
 #include <zima/document/fem_presentation.hpp>
 #include <zima/document/placement_reference_geometry.hpp>
 #include <zima/kernel/fem_region_validation.hpp>
+#include <zima/workspace/modeling_confirmation.hpp>
 #include <algorithm>
 
 namespace zima::workspace {
@@ -24,7 +25,7 @@ bool commit_fem_condition(Workspace& live,const BodyGraphEdit& edit,document::Fe
     const auto* body=state->session.document().body_history.find(edit.object_id);
     if(!body||!body->fem)throw std::invalid_argument("The requested FEM Body does not exist.");
     const auto* old=find_fem_condition(state->session.document(),edit.object_id,value.id);
-    if(old&&*old==value){return commit_fem(live,edit,*body);}
+    if(old&&*old==value&&value.calculation_error.empty()){return commit_fem(live,edit,*body);}
     document::validate_fem_condition(value);
     if(value.distance) {
         for(const auto& id:value.distance->point_ids) {
@@ -39,6 +40,8 @@ bool commit_fem_condition(Workspace& live,const BodyGraphEdit& edit,document::Fe
         if(item==conditions.end())conditions.push_back(std::move(value));else *item=std::move(value);
         return commit_fem(live,edit,std::move(updated));
     }
+    value.calculation_error.clear();
+    const auto validate=[&](document::FemCondition& value) {
     const auto source=read_fem_source(state->session,edit.object_id);
     const auto target_kind=value.projected_sketch?document::FemRegionKind::Surface:value.region;
     for(const auto& r:value.references)if(!document::fem_region_reference_available(r,target_kind,source->mesh)) {
@@ -56,7 +59,7 @@ bool commit_fem_condition(Workspace& live,const BodyGraphEdit& edit,document::Fe
     }
     if(value.projected_sketch&&value.placement.reference_valid&&
             (!old||old->projected_sketch!=value.projected_sketch||old->region!=value.region||
-             old->references!=value.references||old->placement!=value.placement)) {
+             old->references!=value.references||old->placement!=value.placement||!old->calculation_error.empty())) {
         std::vector<kernel::FaceReference> references;
         for(const auto& ref:value.references)
             references.push_back({ref.owner_id,ref.semantic_key,ref.instance_path});
@@ -66,6 +69,10 @@ bool commit_fem_condition(Workspace& live,const BodyGraphEdit& edit,document::Fe
                 value.projected_sketch->surface_seeds,value.projected_sketch->surface_region_keys);
         else kernel::validate_planar_mesh_region(source.get(),document::fem_condition_planar_request(value));
     }
+    };
+    if(auto* attempt=ModelingConfirmationAttempt::current();attempt&&attempt->applies(state->session.document()))
+        attempt->validate(value,edit.object_id,validate);
+    else validate(value);
     auto updated=*body;auto& conditions=updated.fem->conditions;
     const auto item=std::ranges::find(conditions,value.id,&document::FemCondition::id);
     if(item==conditions.end())conditions.push_back(std::move(value));else *item=std::move(value);

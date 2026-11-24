@@ -126,7 +126,7 @@ void AssemblyWorkspaceWindow::show_fem_condition_properties(document::FemConditi
         dialog->set_translation_constraint_state(constraint,{p.x,p.y,p.z});
         dialog->set_rotation_constraint_state(document::orientation_constraint_state(p.references,geometry,true,{p.x,p.y,p.z}));
         dialog->set_orientation_base_rotation(base,oriented);dialog->set_resolved_rotation({p.rotation_x,p.rotation_y,p.rotation_z},valid);
-        fem_condition_preview_=value;auto preview=document::fem_condition_presentation(value,source->mesh);
+        fem_condition_preview_=value;auto preview=document::fem_condition_presentation(value,source->mesh,10,true);
         if(value.projected_sketch) {
             // Use the same native Plane wire as Feature Properties, at the
             // resolved Sketch frame (including its offset and placement).

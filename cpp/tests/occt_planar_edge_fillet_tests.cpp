@@ -1514,7 +1514,11 @@ void verify_toroidal_runouts(double tangent_residual=0.) {
 
 } // namespace
 
+#include "oversized_fillet_corner_fixture.hpp"
+
 int main() try {
+    verify_oversized_fillet_corners();
+    if(std::getenv("ZIMA_VERIFY_OVERSIZED_FILLET")){std::cout<<"Oversized corner matrix passed\n";return 0;}
     // Separate reproduction of the remaining positive-gap contact-trim issue.
     // Keep its exact assertions; it is not covered by the negative residual fix.
     if(std::getenv("ZIMA_VERIFY_TOROIDAL_POSITIVE_RESIDUAL")){

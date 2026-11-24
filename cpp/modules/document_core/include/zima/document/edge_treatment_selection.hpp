@@ -244,7 +244,9 @@ inline std::vector<kernel::ViewerEdge> current_treatment_selection_wire(
 // fallback and it never selects geometry by proximity.
 inline bool prune_unresolved_treatment_references(
         document::EdgeTreatmentParameters& parameters,
-        const kernel::ViewerMesh& input) {
+        const kernel::ViewerMesh& input,
+        std::span<const kernel::BodyResult::KernelBinding<kernel::EdgeReference>>
+            current_edges = {}) {
     const auto original=parameters;
     std::vector<std::vector<kernel::EdgeReference>> routes;
     std::vector<kernel::VertexReference> starts;
@@ -256,7 +258,14 @@ inline bool prune_unresolved_treatment_references(
     for(std::size_t route=0;route<original.routes.size();++route) {
         std::vector<kernel::EdgeReference> retained;
         for(std::size_t member=0;member<original.routes[route].size();++member) {
-            if(!current_treatment_selection_wire(original,route,member,input).empty())
+            // A compact viewer packet may omit a current authored rail after
+            // a failed treatment. An exact binding in this input B-Rep proves
+            // that it still exists; absence from the viewer is not deletion.
+            const auto& reference=original.routes[route][member];
+            if(!current_treatment_selection_wire(original,route,member,input).empty()||
+                    std::ranges::any_of(current_edges,[&](const auto& edge) {
+                        return edge.reference==reference;
+                    }))
                 retained.push_back(original.routes[route][member]);
             else
                 changed=true;

@@ -85,6 +85,7 @@ void to_json(nlohmann::json& j,const FemCondition& v) {
         {"placement",v.placement},{"references",nlohmann::json::array()},
         {"force_N",v.force_N},{"pressure_MPa",v.pressure_MPa},{"restrained",v.restrained},
         {"pressure_reversed",v.pressure_reversed},{"visible",v.visible}};
+    if(!v.calculation_error.empty())j["calculation_error"]=v.calculation_error;
     if(v.kind==FemConditionKind::HeatSource)j["heat_W"]=v.heat_W;
     if(v.distance) {
         auto positions=nlohmann::json::array();for(auto p:v.distance->positions)positions.push_back({p.x,p.y,p.z});
@@ -136,6 +137,7 @@ void from_json(const nlohmann::json& j,FemCondition& v) {
     if(!restrained.is_array()||restrained.size()!=3)throw std::invalid_argument("Invalid FEM condition definition.");
     n.restrained=restrained.get<std::array<bool,3>>();
     n.pressure_reversed=j.at("pressure_reversed");n.visible=j.at("visible");
+    if(j.contains("calculation_error"))n.calculation_error=j.at("calculation_error").get<std::string>();
     validate_fem_condition(n);v=std::move(n);
 }
 } // namespace zima::document

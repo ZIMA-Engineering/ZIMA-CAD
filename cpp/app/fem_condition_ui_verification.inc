@@ -43,6 +43,11 @@
             force_action()->trigger();flush();auto* entry=condition_dialog();
             check(entry&&window.pending_primitive_reference_index_==0&&window.primitive_reference_auto_advance_,"FEM did not automatically start placement entry");
             for(std::size_t index=0;index<3;++index) {
+                if(index==1) {
+                    auto* capture=entry->findChild<QAction*>("valueLock:placement:reference_slot:1");
+                    check(capture,"FEM empty placement row has no distance lock");
+                    if(!capture->isChecked())capture->trigger();flush();
+                }
                 QTreeWidgetItem* plane{};
                 for(QTreeWidgetItemIterator it(tree);*it;++it)
                     if(((*it)->data(0,Qt::UserRole+5).toString()==QString("origin:plane:")+order[index]||
@@ -220,14 +225,65 @@
                     !condition->pending_value().projected_sketch->project_to_body&&
                     condition->pending_value().projected_sketch->serialized==authored,"Projection toggle lost Sketch or retained hidden entry");
             }
+            // An invalid region must report beside OK, even when the form is
+            // scrolled. The failed attempt must leave the native document alone.
+            offset->setValue(100.);flush();
+            condition->buttons()->button(QDialogButtonBox::Ok)->click();flush();
+            auto* error=condition->findChild<QLabel*>("propertiesSubmitError");
+            check(condition_dialog()==condition&&error&&error->isVisible()&&!error->text().isEmpty()&&
+                session.revision()==unchanged_revision_for_sketch,
+                "Failed Force OK hid its error or changed the document");
+            const auto failed_id=condition->pending_value().id;
+            if(region==document::FemRegionKind::Surface) {
+                mouse(QEvent::MouseButtonDblClick,Qt::MiddleButton);
+                mouse(QEvent::MouseButtonRelease,Qt::NoButton);
+            }else {condition->buttons()->button(QDialogButtonBox::Ok)->click();flush();}
+            const auto* failed=workspace::find_fem_condition(session.document(),fem,failed_id);
+            check(!condition_dialog()&&failed&&!failed->calculation_error.empty()&&
+                session.revision()==unchanged_revision_for_sketch+1,
+                "Second Force OK did not retain one unresolved definition");
+            check(condition_row(failed_id)&&condition_row(failed_id)->foreground(0).color()==QColor("#FF5E52")&&
+                !condition_row(failed_id)->toolTip(0).isEmpty(),"Unresolved Force has no red Tree error");
+            window.generate_fem_mesh();flush();
+            check(window.state_->text()==QCoreApplication::translate("AssemblyWorkspaceWindow",
+                "Repair unresolved FEM conditions before calculation."),"Unresolved Force did not block meshing");
+            window.solve_fem_statics();flush();
+            check(window.state_->text()==QCoreApplication::translate("AssemblyWorkspaceWindow",
+                "Repair unresolved FEM conditions before calculation."),"Unresolved Force did not block solving");
+            window.findChild<QAction*>("undoAction")->trigger();flush();
+            check(!workspace::find_fem_condition(session.document(),fem,failed_id),"Unresolved Force Undo failed");
+            window.findChild<QAction*>("redoAction")->trigger();flush();
+            window.show_tree_item_properties(condition_row(failed_id));flush();condition=condition_dialog();
+            offset=condition->findChild<QDoubleSpinBox*>("femSketchOffset");
+            offset->setValue(2.5);flush();
             const auto value=condition->pending_value();
             condition->buttons()->button(QDialogButtonBox::Ok)->click();flush();
             const auto* stored=workspace::find_fem_condition(session.document(),fem,value.id);
             check(!condition_dialog()&&stored&&stored->region==region&&stored->projected_sketch==value.projected_sketch,"Planar FEM region did not persist");
+            check(stored->calculation_error.empty(),"Repaired Force retained its error");
             const auto unchanged_revision=session.revision();
             window.show_tree_item_properties(condition_row(value.id));flush();condition=condition_dialog();
             condition->buttons()->button(QDialogButtonBox::Ok)->click();flush();
             check(!condition_dialog()&&session.revision()==unchanged_revision,"Unchanged planar FEM OK changed the document");
+            for(const bool back:{true,false,true,false}) {
+                window.show_tree_item_properties(condition_row(value.id));flush();condition=condition_dialog();
+                condition->findChild<QPushButton*>("containerOrientationFlipButton")->click();flush();
+                auto* plane_offset=condition->findChild<QDoubleSpinBox*>("femSketchOffset");
+                check(plane_offset,"FEM orientation test lost its plane offset");
+                plane_offset->setValue(back?-2.5:2.5);flush();
+                condition->buttons()->button(QDialogButtonBox::Ok)->click();flush();
+                const auto* flipped=workspace::find_fem_condition(session.document(),fem,value.id);
+                check(!condition_dialog()&&flipped&&flipped->placement.orientation_back==back,
+                    "Force FRONT/BACK OK did not commit its orientation");
+                const auto sketch=document::fem_condition_sketch(*flipped);
+                check(std::abs(sketch.resolved_origin.z-2.5)<1e-7&&
+                    std::abs(sketch.normal().z-(back?-1.:1.))<1e-7,
+                    "Force FRONT/BACK changed the intended plane or lost its normal");
+                window.findChild<QAction*>("undoAction")->trigger();flush();
+                window.findChild<QAction*>("redoAction")->trigger();flush();
+                check(workspace::find_fem_condition(session.document(),fem,value.id)->placement.orientation_back==back,
+                    "Force orientation did not survive Undo/Redo");
+            }
             window.show_tree_item_properties(condition_row(value.id));flush();condition=condition_dialog();
             condition->findChild<QComboBox*>("femConditionRegion")->setCurrentIndex(3);flush();
             check(condition->findChild<QTableWidget*>("femConditionGeometry")->isVisible()&&

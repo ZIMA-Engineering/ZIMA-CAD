@@ -3,6 +3,7 @@
 #include <zima/workspace/fem_condition_operations.hpp>
 #include <zima/workspace/profile_operations.hpp>
 #include <zima/workspace/sketch_reference_operations.hpp>
+#include <zima/workspace/modeling_confirmation.hpp>
 #include <zima/kernel/calculation_diagnostics.hpp>
 #include <zima/kernel/calculated_body_shape.hpp>
 #include <BRepGProp.hxx>
@@ -12,6 +13,7 @@
 #include <limits>
 #include <filesystem>
 #include <numbers>
+#include <ranges>
 
 using namespace zima;
 namespace {
@@ -271,4 +273,5 @@ void transactions(){
 }
 }
 #include "fem_distance_transactions.inc"
-int main(){try{serialization();marks();transactions();distance_transactions();std::cout<<"FEM condition serialization, validation, partial Projection region, marks, transactions, Undo/Redo, native reopen and no CAD recalculation passed\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}
+#include "fem_confirmation_transactions.inc"
+int main(){try{serialization();marks();transactions();distance_transactions();fem_confirmation_transactions();std::cout<<"FEM condition serialization, validation, partial Projection region, marks, transactions, unresolved confirmation/repair, Undo/Redo, native reopen and no implicit CAD recalculation passed\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

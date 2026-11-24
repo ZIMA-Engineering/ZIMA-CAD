@@ -1,4 +1,6 @@
 {
+  "Repair unresolved FEM conditions before calculation.": "Před výpočtem opravte nefunkční podmínky FEM.",
+  "Create section": "Vytvořit řez",
   "Renders": "Rendery",
   "CAM": "CAM",
   "CAM setup properties": "Vlastnosti nastavení CAM",
@@ -3120,7 +3122,7 @@
   "Original %1 · deformed %2 · Δ %3 mm": "Původní %1 · po deformaci %2 · Δ %3 mm",
   "Select two measurement points from this FEM Body. Results show the original distance, deformed distance and their difference, independent of display magnification.": "Vyberte dva body měření z tohoto FEM tělesa. Výsledky ukazují původní vzdálenost, vzdálenost po deformaci a jejich rozdíl nezávisle na zvětšení zobrazení.",
   "Render": "Render",
-  "Create Render": "Vytvořit Render",
+  "Create Render": "Vytvořit render",
   "Render Body": "Render těleso",
   "Render Body properties": "Vlastnosti Render tělesa",
   "Render object properties": "Vlastnosti objektu Renderu",

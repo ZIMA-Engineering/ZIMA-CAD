@@ -104,7 +104,8 @@ bool refresh_edge_treatment_references(document::PartDocument& doc,
             route.route_start_vertices=index<parameters.route_start_vertices.size()
                 ?std::vector{parameters.route_start_vertices[index]}:std::vector<kernel::VertexReference>{};
             const auto original=route;
-            static_cast<void>(document::prune_unresolved_treatment_references(route,input->mesh));
+            static_cast<void>(document::prune_unresolved_treatment_references(
+                route,input->mesh,input->kernel_edges.get()));
             // Total reference loss must retain the unresolved definition for
             // repair. It must never silently remove the feature or its intent.
             if(route.routes.empty())continue;
@@ -186,7 +187,7 @@ bool commit_edge_treatment(Workspace& live,const kernel::OcctKernel& kernel,cons
     // Fillet/Chamfer. Repair the pending definition from exact topology
     // ancestry before validation; OK persists that deterministic repair.
     static_cast<void>(document::prune_unresolved_treatment_references(
-        parameters,input->mesh));
+        parameters,input->mesh,input->kernel_edges.get()));
     if(parameters.routes.empty())throw Error("invalid_reference","Select at least one input edge route.");
     const bool asymmetric_chamfer=!fillet&&
         parameters.chamfer_mode!=Parameters::ChamferMode::EqualDistance;

@@ -1,4 +1,6 @@
 {
+  "Repair unresolved FEM conditions before calculation.": "Repair unresolved FEM conditions before calculation.",
+  "Create section": "Create section",
   "Renders": "Renders",
   "CAM": "CAM",
   "CAM setup properties": "CAM setup properties",

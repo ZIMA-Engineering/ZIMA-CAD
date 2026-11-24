@@ -60,6 +60,9 @@ struct FemCondition {
     bool visible{true};
     double heat_W{100};
     std::optional<FemDistanceMeasurement> distance;
+    // An explicitly confirmed failed geometric evaluation remains repairable.
+    // This is independent of placement/reference validity and blocks analysis.
+    std::string calculation_error;
     bool operator==(const FemCondition&) const = default;
 };
 

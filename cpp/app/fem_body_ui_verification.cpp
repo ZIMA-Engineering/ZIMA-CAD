@@ -582,7 +582,8 @@ int verify_fem_body(QApplication& application,AssemblyWorkspaceWindow& window,co
                     "FEM: checking mesh quality…","FEM: optimizing the quadratic mesh…","FEM: preparing mesh data…",
                     "FEM: assembling the system…","FEM: applying loads and restraints…",
                     "FEM: solving the system (iteration %1)…","FEM: calculating displacement and stress…",
-                    "FEM: preparing result display…","FEM inputs changed. Repeat the operation.","FEM mesh generated."})
+                    "FEM: preparing result display…","FEM inputs changed. Repeat the operation.","FEM mesh generated.",
+                    "Repair unresolved FEM conditions before calculation."})
                 check(!settings.qt_translations.value(key).isEmpty()&&QObject::tr(key)==settings.qt_translations.value(key),
                     "FEM progress phase did not translate");
 #endif

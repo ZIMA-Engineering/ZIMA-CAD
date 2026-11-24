@@ -81,6 +81,7 @@
 
 #include "occt_support_driven_fillet.hpp"
 #include "occt_rolling_contact_replacement.hpp"
+#include "occt_oversized_fillet_corner.hpp"
 
 namespace zima::kernel {
 namespace {
@@ -2831,7 +2832,13 @@ Cutter make_route_cutter(const std::vector<CutterJob>& jobs,
             if(!first_angle)first_angle=angle;
         }
     }
-    if(varying&&analytic) {
+    auto oversized=planar_binormal&&!profile.adds_material&&!varying
+        ?oversized_fillet_corner::build(ordered,supports,*planar_binormal,radius,tolerance)
+        :std::optional<oversized_fillet_corner::Result>{};
+    if(oversized) {
+        profile.solid=std::move(oversized->solid);
+        profile.circular_faces=std::move(oversized->faces);
+    } else if(varying&&analytic) {
         try {
             auto rolling=support_driven_fillet::build(ordered,supports,radius,profile.adds_material,tolerance);
             profile.solid=std::move(rolling.solid);

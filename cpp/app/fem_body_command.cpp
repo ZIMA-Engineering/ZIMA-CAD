@@ -256,11 +256,12 @@ void AssemblyWorkspaceWindow::solve_fem_statics() {
     if(properties_dialog_||!active_fem_body())return;
     bool progress_started=false;
     try {
-        if(!active_generated_fem_mesh())throw std::runtime_error("Generate the FEM mesh before solving.");
-        const auto mesh=generated_fem_mesh_;
         const auto& id=workspace_.active_document_id();
         const auto& graph=workspace_.open_part(id)->session.document().body_history;
         const auto definition=*graph.find(graph.active_body_id())->fem;
+        document::require_resolved_fem_conditions(definition);
+        if(!active_generated_fem_mesh())throw std::runtime_error("Generate the FEM mesh before solving.");
+        const auto mesh=generated_fem_mesh_;
         const auto material=elastic_material(workspace::material_data(workspace_,id));
         const auto thermal_material=fem_thermal_material(workspace::material_data(workspace_,id));
         const auto expansion_material=fem_expansion_material(workspace::material_data(workspace_,id));
@@ -539,6 +540,7 @@ const kernel::ViewerMesh* AssemblyWorkspaceWindow::active_generated_fem_mesh() c
             body->fem->source_id!=generated_fem_mesh_->definition.source_id)return nullptr;
     const auto same_region=[](const auto& a,const auto& b) {
         return a.id==b.id&&a.region==b.region&&a.references==b.references&&a.projected_sketch==b.projected_sketch&&
+            a.calculation_error==b.calculation_error&&
             a.placement.reference_valid==b.placement.reference_valid&&
             (!a.projected_sketch||
                 std::tie(a.placement.x,a.placement.y,a.placement.z,a.placement.rotation_x,a.placement.rotation_y,a.placement.rotation_z)==
@@ -566,6 +568,7 @@ void AssemblyWorkspaceWindow::generate_fem_mesh() {
     const auto body_id=graph.active_body_id();
     bool progress_started=false;
     try {
+        document::require_resolved_fem_conditions(*graph.find(body_id)->fem);
         if(!active_generated_fem_mesh()) {
             const auto source=workspace::read_fem_source(session,body_id);
             const auto definition=*graph.find(body_id)->fem;

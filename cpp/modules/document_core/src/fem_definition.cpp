@@ -7,6 +7,12 @@
 #include <algorithm>
 
 namespace zima::document {
+void require_resolved_fem_conditions(const FemDefinition& definition) {
+    for(const auto& condition:definition.conditions)
+        if(fem_condition_applies_to_analysis(condition.kind,definition.analysis,fem_thermal_expansion(definition))&&
+                !condition.calculation_error.empty())
+            throw std::invalid_argument("Repair unresolved FEM conditions before calculation.");
+}
 void refresh_fem_distances(FemDefinition& value) {
     for(auto& condition:value.conditions)if(condition.distance) {
         auto& distance=*condition.distance;std::array<kernel::Vec3,2> positions;bool valid=true;

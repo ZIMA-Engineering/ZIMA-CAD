@@ -878,6 +878,10 @@ void AssemblyWorkspaceWindow::add_part_tree_children(
                     auto* item=new QTreeWidgetItem(row,{QString::fromStdString(condition.name)});
                     item->setData(0,Qt::UserRole,QString::fromStdString(condition.id));item->setData(0,Qt::UserRole+3,"fem-condition");
                     item->setIcon(0,resource_icon(fem_condition_icon(condition.kind)));
+                    if(!condition.calculation_error.empty()) {
+                        item->setForeground(0,QBrush(QColor("#FF5E52")));
+                        item->setToolTip(0,tr(condition.calculation_error.c_str()));
+                    }
                     if(fem_condition_preview_&&condition.id==fem_condition_preview_->id)item->setBackground(0,QBrush(QColor("#00BDE8")));
                 };
                 for(const auto& condition:definition->fem->conditions)add_condition(condition);

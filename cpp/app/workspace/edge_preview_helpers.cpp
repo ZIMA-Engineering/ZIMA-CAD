@@ -1,6 +1,7 @@
 #include "edge_treatment_preview.hpp"
 #include <zima/document/edge_treatment_selection.hpp>
 #include <zima/kernel/dimension_layout.hpp>
+#include <zima/kernel/oversized_fillet_corner.hpp>
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -813,6 +814,51 @@ std::optional<bool> edge_preview_adds_material(
             }
         const double side=edge_preview_dot(offset,outward);
         if(std::abs(side)>1.0e-9)return side>0.;
+    }
+    return {};
+}
+
+std::optional<zima::kernel::OversizedFilletCorner> edge_preview_oversized_corner(
+        const EdgeTreatmentPreviewPath& path,const zima::kernel::ViewerMesh& mesh,
+        const EdgeTreatmentSection& first_section,double radius) {
+    using Surface=zima::kernel::SurfaceGeometry;
+    if(path.edges.size()!=3)return {};
+    const auto& first=path.edges[0];const auto& arc=path.edges[1];const auto& last=path.edges[2];
+    const auto circle=edge_preview_circular_path(arc,true);
+    if(!circle||radius<=circle->radius+1.e-7||
+       edge_preview_adds_material(&mesh,first,first_section,first.points.front())!=std::optional<bool>{false})return {};
+    const auto straight=[](const auto& edge) {
+        const auto axis=edge_preview_normalized(edge_preview_difference(edge.points.back(),edge.points.front()));
+        return axis&&std::ranges::all_of(edge.points,[&](const auto& p) {
+            return edge_preview_length(zima::kernel::dimension_cross(*axis,edge_preview_difference(p,edge.points.front())))<=1.e-7;
+        });
+    };
+    if(!straight(first)||!straight(last))return {};
+    for(const auto& reference:arc.edge_treatment_side_references) {
+        const auto plane=edge_preview_surface(mesh,reference);
+        if(!plane||plane->kind!=Surface::Kind::Plane||std::abs(edge_preview_dot(plane->axis,circle->axis))<1.-1.e-9)continue;
+        const auto normal=edge_preview_offset({},plane->axis,plane->reversed?-1.:1.);
+        bool supported=true;
+        for(std::size_t i=0;i<3;++i) {
+            bool common_plane=false,side=false;
+            for(const auto& ref:path.edges[i].edge_treatment_side_references) {
+                const auto surface=edge_preview_surface(mesh,ref);if(!surface)continue;
+                if(surface->kind==Surface::Kind::Plane) {
+                    common_plane|=std::abs(edge_preview_dot(surface->axis,normal))>1.-1.e-9&&
+                        std::abs(edge_preview_dot(edge_preview_difference(surface->origin,arc.points.front()),normal))<=1.e-7;
+                    side|=i!=1&&std::abs(edge_preview_dot(surface->axis,normal))<1.e-9;
+                } else if(i==1&&surface->kind==Surface::Kind::Cylinder) {
+                    side|=std::abs(edge_preview_dot(surface->axis,normal))>1.-1.e-9&&
+                        std::abs(surface->radius-circle->radius)<=1.e-7&&
+                        edge_preview_length(zima::kernel::dimension_cross(surface->axis,edge_preview_difference(circle->center,surface->origin)))<=1.e-7;
+                }
+            }
+            supported&=common_plane&&side;
+        }
+        if(!supported)continue;
+        return zima::kernel::oversized_fillet_corner_frame(arc.points.front(),arc.points.back(),circle->center,normal,
+            edge_preview_difference(first.points.front(),arc.points.front()),
+            edge_preview_difference(last.points.back(),arc.points.back()),radius);
     }
     return {};
 }
@@ -1975,7 +2021,34 @@ EdgeTreatmentPreviewGeometry edge_treatment_preview_wire(
                 }
                 return section;
             };
-            for (std::size_t edge_index = 0;
+            std::optional<zima::kernel::OversizedFilletCorner> oversized;
+            if(fillet&&!linear_fillet&&input_mesh&&parameters.calculation_method!=
+                    zima::document::EdgeTreatmentParameters::CalculationMethod::Occt) {
+                const auto initial=section_at(path.edges.front(),0,parameters.primary_size);
+                if(initial)oversized=edge_preview_oversized_corner(path,*input_mesh,*initial,parameters.primary_size);
+            }
+            if(oversized) {
+                first_section=section_at(path.edges.front(),0,parameters.primary_size);
+                last_section=section_at(path.edges.back(),path.edges.back().points.size()-1,parameters.primary_size);
+                if(first_section&&last_section) {
+                    const auto& frame=*oversized;
+                    const auto top=[&](const auto& section,const auto& source) {
+                        return std::abs(edge_preview_dot(edge_preview_difference(section.first_tangent,source),frame.normal))<1.e-7;
+                    };
+                    const bool first_top=top(*first_section,path.edges.front().points.front());
+                    if(top(*last_section,path.edges.back().points.back())!=first_top)edge_preview_swap_section_sides(*last_section);
+                    auto& upper=first_top?first_rail:second_rail;
+                    auto& lower=first_top?second_rail:first_rail;
+                    upper.points={first_top?first_section->first_tangent:first_section->second_tangent,
+                        frame.apex,first_top?last_section->first_tangent:last_section->second_tangent};
+                    for(const auto& edge:path.edges)for(const auto& p:edge.points) {
+                        const auto point=edge_preview_offset(p,frame.normal,-frame.radius);
+                        if(lower.points.empty()||!edge_preview_same_point(lower.points.back(),point))lower.points.push_back(point);
+                    }
+                    first_measurable_section=first_section;last_measurable_section=last_section;
+                }else rails_valid=false;
+            }
+            for (std::size_t edge_index = 0; !oversized&&
                  edge_index < path.edges.size(); ++edge_index) {
                 const auto& edge = path.edges[edge_index];
                 bool swap_section_sides{};
@@ -2051,6 +2124,12 @@ EdgeTreatmentPreviewGeometry edge_treatment_preview_wire(
             result.edges.push_back(std::move(second_rail));
             result.edges.push_back(first_section->wire);
             result.edges.push_back(last_section->wire);
+            if(oversized)for(const auto& contact:{oversized->first,oversized->second}) {
+                zima::kernel::ViewerEdge boundary;boundary.overlay=true;
+                for(int sample=0;sample<=64;++sample)
+                    boundary.points.push_back(oversized->surface(contact,(std::numbers::pi/2.)*sample/64.));
+                result.edges.push_back(std::move(boundary));
+            }
             path_rails.emplace_back(edge_offset,edge_offset+1);
             for(const bool at_start:{true,false}) {
                 const auto& edge=at_start?path.edges.front():path.edges.back();

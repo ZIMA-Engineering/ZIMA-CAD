@@ -1,4 +1,6 @@
 {
+  "Repair unresolved FEM conditions before calculation.": "Beheben Sie vor der Berechnung die fehlerhaften FEM-Bedingungen.",
+  "Create section": "Schnitt erstellen",
   "Renders": "Renderings",
   "CAM": "CAM",
   "CAM setup properties": "CAM-Aufspannungseigenschaften",

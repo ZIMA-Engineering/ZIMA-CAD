@@ -260,6 +260,7 @@ std::vector<FemElementStress> fem_element_stresses(const FemVolumeMesh& mesh,
 FemStaticResult solve_fem_linear_statics(const FemVolumeMesh& mesh,
         const document::FemDefinition& definition,FemElasticMaterial material,
         const FemProgressCallback& progress,const FemThermalStrain* thermal){
+    document::require_resolved_fem_conditions(definition);
     if(!std::isfinite(material.young_MPa)||material.young_MPa<=0||
         !std::isfinite(material.poisson)||material.poisson<=-1||material.poisson>=.5)
         throw std::runtime_error("Set a valid Young's modulus and Poisson ratio in the Part material.");

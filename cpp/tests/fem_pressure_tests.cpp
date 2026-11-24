@@ -12,6 +12,7 @@
 #include <iostream>
 #include <numbers>
 #include <numeric>
+#include <set>
 
 using namespace zima;
 using kernel::Vec3;
@@ -328,6 +329,62 @@ void curved_regions(){
     }
     std::cout<<"Pressure curved cylinder: radial normals, integrated radial moment and bounded projected patch passed\n";
 }
+void projected_curve_contacts(){
+    kernel::OcctKernel engine;auto doc=document::PartDocument::create_default();
+    doc.history={test::circular_feature(doc,5,4)};
+    const auto solid=workspace::calculate_part_with_resolved_references(engine,doc).back();
+    const auto original=solid.kernel_shape;
+    const auto bottom=face_at(solid.mesh,2,0),top=face_at(solid.mesh,2,4);
+    kernel::FaceReference wall;
+    for(const auto& f:solid.mesh.triangle_references)
+        if(f.semantic_key!=bottom.semantic_key&&f.semantic_key!=top.semantic_key){wall=f;break;}
+    check(wall.valid(),"Projected curve fixture has no cylindrical wall");
+    for(auto order:{document::FemElementOrder::Linear,document::FemElementOrder::Quadratic})
+    for(bool boundary:{false,true})for(bool crossing:{false,true}) {
+        document::FemDefinition def;def.mesh.maximum_size_mm=1.;def.mesh.order=order;
+        document::FemCondition curve;curve.id="seam-curve";curve.name="Seam curve";
+        curve.region=document::FemRegionKind::Curve;set_face(curve,wall);
+        auto sketch=sketcher::Sketch::create_default();sketch.owner_container_id=curve.id;
+        sketch.plane_auto=false;sketch.plane=sketcher::SketchPlane::YZ;sketch.plane_offset=6;
+        const double low=boundary?0.:1.,high=boundary?4.:3.;
+        static_cast<void>(sketch.add_rectangle(-1,low,1,high));
+        curve.projected_sketch=document::FemProjectedSketch{sketch.serialized(),{}, {}};
+        def.conditions={curve};
+        if(crossing) {
+            auto other=curve;other.id="crossing-curve";other.name="Crossing curve";
+            auto crossing_sketch=sketcher::Sketch::create_default();crossing_sketch.owner_container_id=other.id;
+            crossing_sketch.plane_auto=false;crossing_sketch.plane=sketcher::SketchPlane::YZ;crossing_sketch.plane_offset=6;
+            static_cast<void>(crossing_sketch.add_rectangle(-.5,low+.5,1.5,high-.5));
+            other.projected_sketch->serialized=crossing_sketch.serialized();def.conditions.push_back(std::move(other));
+        }
+        const auto mesh=app::generate_fem_volume_mesh(solid,def);
+        const auto& region=mesh.condition_regions.at(curve.id);
+        check(region.kind==document::FemRegionKind::Curve&&!region.nodes.empty()&&!region.elements.empty(),
+            "Projected seam curve lost its mesh group");
+        std::set<std::uint32_t> volume_nodes;
+        for(const auto& cell:mesh.tetrahedra)for(unsigned i=0;i<(order==document::FemElementOrder::Linear?4u:10u);++i)volume_nodes.insert(cell[i]);
+        for(auto node:region.nodes) {
+            check(volume_nodes.contains(node),"Projected curve has disconnected mesh nodes");
+            const auto p=mesh.surface.vertices.at(node);
+            check(std::abs(std::hypot(p.x,p.y)-5)<1e-7&&p.z>=low-1e-7&&p.z<=high+1e-7&&
+                (std::abs(std::abs(p.y)-1)<1e-7||std::abs(p.z-low)<1e-7||std::abs(p.z-high)<1e-7),
+                "Projected curve mesh changed its authored boundary");
+        }
+        if(crossing) {
+            const auto& other=mesh.condition_regions.at("crossing-curve");
+            check(!other.elements.empty(),"Crossing curve lost its condition group");
+            unsigned shared{};
+            for(auto node:region.nodes)if(std::ranges::find(other.nodes,node)!=other.nodes.end()) {
+                ++shared;const auto p=mesh.surface.vertices.at(node);
+                check(std::abs(p.y-1)<1e-7&&(std::abs(p.z-low-.5)<1e-7||std::abs(p.z-high+.5)<1e-7),
+                    "Crossing curve shared an unrelated mesh node");
+            }
+            check(shared==2,"Crossing curves do not share their exact intersection nodes");
+        }
+        check(solid.kernel_shape==original,"Projected curve meshing modified the CAD source");
+    }
+    std::cout<<"Projected curve mesh: cylindrical seam, face boundaries, intersecting conditions, linear/quadratic conformity and unchanged CAD passed\n";
+}
 }
 int main(int argc,char** argv){try{
     if(argc>1){
@@ -404,6 +461,6 @@ int main(int argc,char** argv){try{
                 check(bool(output),"Result diagnostic write failed");
             }
         }
-    }else{single_element();stress_fields();generated_regions();curved_regions();}
+    }else{single_element();stress_fields();generated_regions();curved_regions();projected_curve_contacts();}
     return 0;
 }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

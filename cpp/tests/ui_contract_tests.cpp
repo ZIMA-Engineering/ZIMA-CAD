@@ -1115,8 +1115,9 @@ void verify_point_marker_colours(QApplication& application,QWidget& parent) {
     app::ApplicationSettings appearance;appearance.theme=theme;
     app::apply_application_appearance(application,appearance);
     verify_render_wires();
-    for(bool projected:{false,true})for(auto kind:{document::FemConditionKind::Force,document::FemConditionKind::Constraint})
+    for(bool projected:{false,true})for(auto kind:{document::FemConditionKind::Force,document::FemConditionKind::Constraint,document::FemConditionKind::Pressure})
     for(auto region:{document::FemRegionKind::Curve,document::FemRegionKind::Surface}) {
+        if(kind==document::FemConditionKind::Pressure&&region!=document::FemRegionKind::Surface)continue;
         auto sketch=sketcher::Sketch::create_default();sketch.plane_auto=false;sketch.plane_offset=3;
         sketch.owner_container_id="region";
         static_cast<void>(sketch.add_rectangle(-5,-4,5,4));const auto authored=sketch.serialized();
@@ -1139,7 +1140,16 @@ void verify_point_marker_colours(QApplication& application,QWidget& parent) {
         }
         require(region_edges>=4&&(!projected||projected_edges>=4)&&condition==before&&sketch.serialized()==authored,
             "FEM region display omitted its Sketch or modified authored data");
-        if(projected)require(mesh.points.size()==8,"FEM projection lost source or projected point grips");
+        if(projected) {
+            require(mesh.points.size()==4&&region_edges==projected_edges,
+                "Committed FEM condition retained the source Sketch");
+            for(const auto& point:mesh.points)require(std::abs(point.position.z)<1e-9,
+                "Committed FEM point grip left the target surface");
+            const auto editing=document::fem_condition_presentation(condition,source,10,true);
+            require(editing.points.size()==8&&std::ranges::any_of(editing.edges,[](const auto& edge){
+                return edge.reference.semantic_key.starts_with("fem:region:projection:preview:source:");}),
+                "FEM editing lost its source Sketch context");
+        }
         require(std::ranges::none_of(sketch.viewer_mesh(false).edges,[](const auto& edge){return edge.color=="#F5CD50";}),
             "Ordinary Sketch geometry inherited FEM region color");
         view.clear_selection();view.set_mesh(mesh);view.set_selection_contract({viewer::CandidateKind::Container});

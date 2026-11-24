@@ -1254,6 +1254,30 @@ void verify_saved_treatment(const kernel::OcctKernel& kernel,const fs::path& pat
     const auto& session=prepared.open_part(document.document_id)->session;
     const auto* input=workspace::calculated_operation_input(session,owner);
     require(input,"Saved treatment has no calculated input");
+    if(std::getenv("ZIMA_VERIFY_SAVED_TREATMENT_FAILURE")) {
+        auto candidate=feature;
+        candidate.edge_treatment.calculation_method=document::EdgeTreatmentParameters::CalculationMethod::Zima;
+        workspace::Workspace trial;trial.add_part(session.document(),session.calculated_boundaries());
+        const auto revision=trial.open_part(document.document_id)->session.revision();
+        require(workspace::commit_edge_treatment(trial,kernel,document.document_id,candidate,
+            workspace::EdgeTreatmentEditMode::Replace),"Failed treatment edit did not retain its definition");
+        auto& edited=trial.open_part(document.document_id)->session;
+        require(edited.calculated_boundaries().back().calculation_errors.contains(owner)&&
+                *edited.document().find_container(owner)==candidate&&edited.revision()==revision+1,
+            "Failed treatment lost its complete route, terminal choices or single transaction");
+        const auto saved=path.parent_path()/("failed-route-"+owner+".prtz");
+        edited.document().save(saved,edited.calculated_boundaries());
+        std::vector<kernel::BodyResult> restored;
+        const auto reopened=document::PartDocument::load(saved,&restored);
+        require(*reopened.find_container(owner)==candidate&&!restored.empty()&&
+                restored.back().calculation_errors.contains(owner),
+            "Native reopen lost the failed treatment definition or error");
+        require(edited.undo()&&*edited.document().find_container(owner)==feature&&
+                edited.redo()&&*edited.document().find_container(owner)==candidate,
+            "Failed treatment route or terminals changed across Undo/Redo");
+        std::cout<<"Failed treatment: complete route and terminals, one transaction, save/reopen and Undo/Redo passed\n";
+        return;
+    }
     if(std::getenv("ZIMA_VERIFY_SAVED_PREVIEW_ONLY")) {
         std::vector<std::vector<kernel::ViewerEdge>> groups;
         for(std::size_t r=0;r<feature.edge_treatment.routes.size();++r)
@@ -1270,6 +1294,7 @@ void verify_saved_treatment(const kernel::OcctKernel& kernel,const fs::path& pat
         auto measured_input=*input;kernel.ensure_body_properties(measured_input);
         std::cout<<"BLEND input_volume="<<std::setprecision(15)<<measured_input.volume<<std::endl;
         for(const bool native:{false,true}) {
+            if(!native&&std::getenv("ZIMA_VERIFY_SAVED_BLEND_OCCT_ONLY"))continue;
             if(native&&std::getenv("ZIMA_VERIFY_SAVED_BLEND_ZIMA_ONLY"))break;
             auto candidate=feature;
             if(const auto* mode=std::getenv("ZIMA_VERIFY_SAVED_BLEND_CHAMFER")) {

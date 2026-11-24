@@ -49,7 +49,7 @@ kernel::Vec3 fem_force_direction(const FemCondition& condition){
 }
 bool fem_region_reference_available(const FemRegionReference& r,FemRegionKind k,const kernel::ViewerMesh& source){return !samples(r,k,source).empty();}
 
-kernel::ViewerMesh fem_condition_presentation(const FemCondition& value,const kernel::ViewerMesh& source,double size){
+kernel::ViewerMesh fem_condition_presentation(const FemCondition& value,const kernel::ViewerMesh& source,double size,bool editing){
     kernel::ViewerMesh mesh;if(!value.visible)return mesh;
     if(value.distance) {
         const auto& d=*value.distance;
@@ -61,7 +61,7 @@ kernel::ViewerMesh fem_condition_presentation(const FemCondition& value,const ke
     }
     const Vec3 origin{value.placement.x,value.placement.y,value.placement.z};
     const auto normal=fem_force_direction(value);
-    std::vector<Sample> locations;bool broken=!value.placement.reference_valid;
+    std::vector<Sample> locations;bool broken=!value.placement.reference_valid||!value.calculation_error.empty();
     if(value.projected_sketch) {
         for(const auto& r:value.references)broken|=!fem_region_reference_available(r,FemRegionKind::Surface,source);
         if(!value.projected_sketch->project_to_body) {
@@ -101,20 +101,22 @@ kernel::ViewerMesh fem_condition_presentation(const FemCondition& value,const ke
                 feature.feature.projection.targets.push_back(std::move(target));
             }
             kernel::ViewerMesh wire;
-            if(feature.feature.projection.targets.empty())wire=sketch.viewer_mesh(false);
+            if(feature.feature.projection.targets.empty()){if(editing)wire=sketch.viewer_mesh(false);}
             else {
                 projection.sketches.push_back(std::move(sketch));
                 wire=projection.projection_preview_mesh(feature,source);
             }
             for(auto& edge:wire.edges) {
+                if(!editing&&!edge.reference.semantic_key.starts_with("projection:preview:result"))continue;
                 edge.reference.owner_id=value.id;
                 edge.reference.semantic_key="fem:region:"+edge.reference.semantic_key;
                 edge.display_owner_id=value.id;edge.overlay=true;
                 mesh.edges.push_back(std::move(edge));
             }
-            // Retain the source/projected point grips supplied by the shared
-            // preview; their presentation belongs to this FEM condition too.
+            // The authored source is editing context. A committed condition
+            // displays only its actual projected region on the body.
             for(auto& point:wire.points) {
+                if(!editing&&!point.reference.semantic_key.starts_with("projection:preview:result"))continue;
                 point.reference.owner_id=value.id;
                 point.reference.semantic_key="fem:region:"+point.reference.semantic_key;
                 point.display_owner_id=value.id;
@@ -159,7 +161,7 @@ kernel::ViewerMesh fem_condition_presentation(const FemCondition& value,const ke
     else if(value.kind==FemConditionKind::Constraint){text<<" (";for(int i=0;i<3;++i)if(value.restrained[i])text<<"U"<<char('X'+i)<<"=0 ";text<<")";}
     if(broken)text<<" !";
     mesh.constraint_markers.push_back({label,text.str(),{value.id,"fem:label",{}},{}});
-    for(auto& edge:mesh.edges)edge.color="#F5CD50";
+    for(auto& edge:mesh.edges)edge.color=value.calculation_error.empty()?"#F5CD50":"#FF5E52";
     mesh.original_references.edges=mesh.edges;return mesh;
 }
 } // namespace zima::document

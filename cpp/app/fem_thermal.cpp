@@ -53,6 +53,7 @@ FemThermalMaterial fem_thermal_material(const document::MaterialData& material) 
 FemThermalResult solve_fem_steady_thermal(const FemVolumeMesh& mesh,
         const document::FemDefinition& definition,FemThermalMaterial material,const FemProgressCallback& progress) {
     document::validate_fem_definition(definition);
+    document::require_resolved_fem_conditions(definition);
     if(!definition.thermal)throw std::runtime_error("Set the thermal analysis conditions before solving.");
     if(!std::isfinite(material.conductivity_W_mmK)||material.conductivity_W_mmK<=0)
         throw std::runtime_error("Set a positive thermal conductivity in the Part material.");

@@ -10,6 +10,11 @@ Section creation has moved from the View toolbar to the right command panel at
 Part Body-list level and in the Assembly workspace. It uses the existing Sections
 Tree icon. The Render group, definitions and creation action use a camera icon.
 
+The follow-up fixes the missing Render button at Part Body-list level: the
+existing action is now actually added to the command toolbar. Section creation
+is labelled `Create section` (`Vytvořit řez` in Czech), and the adjacent Render
+action is `Vytvořit render` in Czech. The plural Tree groups remain unchanged.
+
 ## Windows verification
 
 - Full Render GUI regression passed: source selection, object placement, unchanged
@@ -26,7 +31,11 @@ Tree icon. The Render group, definitions and creation action use a camera icon.
   button confirmation, Drawing hatches/PDF, Undo/Redo and repeated components.
 - The CAM GUI regression passed 204 checks again after grouping Render definitions.
 - The new group label is translated in cs/en/de/fr/ru and checked after rebuilding
-  the Tree under each language. Existing Section and creation labels are reused.
+  the Tree under each language. The Section command label is translated in all
+  five catalogs; shared Render creation keys are reused.
+- The follow-up GUI test clicks the actual visible Render toolbar button,
+  verifies both command buttons and their labels under all five languages, and
+  records `render-section-commands.png`. Full Render and Section GUI suites pass.
 
 Evidence is in `build/cam-20261124/`, including the Render group screenshot,
 section fixtures and per-suite logs. Tests use isolated documents and do not

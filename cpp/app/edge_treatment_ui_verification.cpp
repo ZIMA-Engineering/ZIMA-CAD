@@ -292,7 +292,11 @@ int verify_edge_treatment_ui(QApplication& application, AssemblyWorkspaceWindow&
             const auto boundary=session.rollback_boundary(feature.id);
             check(boundary&&boundary->input_body,"Missing treatment rollback input");
             const auto& expected=boundary->input_body->mesh;
-            check(expected.triangle_references.size()>1000,
+            const bool oversized_corner=qEnvironmentVariableIsSet("ZIMA_VERIFY_OVERSIZED_CORNER_ROLLBACK");
+            if(oversized_corner) {
+                check(feature.feature_kind==document::FeatureKind::Fillet&&feature.edge_treatment.primary_size==9.&&
+                    !expected.triangle_references.empty(),"Oversized corner rollback fixture is incomplete");
+            } else check(expected.triangle_references.size()>1000,
                 "Rollback fixture retained only a narrow dependency packet");
             run("open",{{"path",document::path_to_utf8(file)}});
             view->set_standard_view(viewer::StandardView::Isometric);flush();
@@ -303,7 +307,7 @@ int verify_edge_treatment_ui(QApplication& application, AssemblyWorkspaceWindow&
                 return result;
             };
             const auto complete=triangle_owners(expected);
-            check(complete.size()>=3,"Rollback fixture must contain both features and Hole");
+            check(complete.size()>=3,"Rollback fixture must contain multiple preceding features");
             const auto calculations=kernel::body_calculation_count.load();
             for(const bool accept:{false,true,false,true}) {
                 edit(feature.id);

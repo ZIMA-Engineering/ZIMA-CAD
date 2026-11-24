@@ -4,6 +4,7 @@
 #include "profile_solid_fixture.hpp"
 #include <zima/document/edge_treatment_selection.hpp>
 #include <zima/kernel/stable_id.hpp>
+#include <zima/kernel/calculation_diagnostics.hpp>
 #include <zima/workspace/model_calculation.hpp>
 #include <zima/workspace/body_operations.hpp>
 #include <zima/workspace/edge_treatment_operations.hpp>
@@ -1069,6 +1070,40 @@ void verify_failed_predecessor_rollback_remains_editable(
                 edge_treatment,0,std::nullopt,rollback->input_body->mesh).empty(),
         "Dependent invalid Fillet guessed a replacement edge on the last-valid Body");
 }
+void verify_failed_treatment_keeps_complete_route(const kernel::OcctKernel& kernel) {
+    auto part=document::PartDocument::create_default();
+    auto stock=test::rectangular_feature(part,{20,20,20});
+    part.history={stock};
+    auto calculated=workspace::calculate_part(kernel,part);
+    require(!calculated.empty()&&calculated.back().mesh.edges.size()>1,
+        "Failed-route fixture requires two native input edges");
+    const auto first=calculated.back().mesh.edges[0];
+    const auto second=calculated.back().mesh.edges[1];
+    auto fillet=document::PartDocument::create_fillet_container({first.reference,second.reference});
+    fillet.edge_treatment.primary_size=1000.;
+    part.history.push_back(fillet);
+    // Model the compact input packet after unsuccessful construction: it
+    // contains one current member but is not proof of deletion of the other.
+    calculated.back().mesh.edges={first};
+    calculated.back().mesh.original_references.edges.clear();
+    auto failed=calculated.back();
+    failed.calculation_errors[fillet.id]="Fillet construction failed";
+    calculated.push_back(std::move(failed));
+    const auto authored=part.serialized();
+    const auto count=kernel::body_calculation_count.load();
+    require(!workspace::refresh_edge_treatment_references(part,calculated)&&
+            part.serialized()==authored&&kernel::body_calculation_count.load()==count,
+        "Failed construction silently shortened the authored route or calculated geometry");
+    // Actual native reference loss retains the established repair policy,
+    // even when the remaining sharp route cannot currently be constructed.
+    calculated.front().kernel_edges=std::vector<kernel::BodyResult::KernelBinding<kernel::EdgeReference>>{
+        {"",first.reference}};
+    require(workspace::refresh_edge_treatment_references(part,calculated)&&
+            part.find_container(fillet.id)->edge_treatment.routes==
+                std::vector<std::vector<kernel::EdgeReference>>{{first.reference}}&&
+            kernel::body_calculation_count.load()==count,
+        "Failure protection disabled successful partial-route repair");
+}
 void verify_zima_edge_treatment_dependent_cut_identity(
         const kernel::OcctKernel& kernel) {
     auto part=document::PartDocument::create_default();
@@ -1301,6 +1336,14 @@ void verify_assembly(const kernel::OcctKernel& kernel){
 }
 }
 int main(){try{
+    if(std::getenv("ZIMA_VERIFY_FAILED_TREATMENT_ROUTE_ONLY")) {
+        const kernel::OcctKernel kernel;
+        verify_failed_treatment_keeps_complete_route(kernel);
+        verify_failed_predecessor_rollback_remains_editable(kernel);
+        verify_zima_edge_treatment_dependent_cut_identity(kernel);
+        std::cout<<"Failed route retention, predecessor rollback and dependent Cut identity passed\n";
+        return 0;
+    }
     kernel::OcctKernel kernel;
     {
         kernel::ViewerReferenceGeometry geometry;
@@ -1443,6 +1486,7 @@ int main(){try{
     verify_independent_history_continues_after_failure(kernel);
     verify_valid_reference_across_failed_history(kernel);
     verify_failed_predecessor_rollback_remains_editable(kernel);
+    verify_failed_treatment_keeps_complete_route(kernel);
     verify_zima_edge_treatment_dependent_cut_identity(kernel);
     verify_edge_treatment_preserves_history_boundary_placement(kernel);
     verify_recovery_policy(kernel);

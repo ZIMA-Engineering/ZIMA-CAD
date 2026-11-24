@@ -38,6 +38,11 @@ public:
     std::vector<kernel::BodyResult> calculate(document::PartDocument&,
         const PartCalculationPolicy&, const Calculation&);
     [[nodiscard]] static ModelingConfirmationAttempt* current();
+    // Metadata-owned FEM geometry uses the same dialog acknowledgement and
+    // source-generation guard without calculating or copying a CAD Body.
+    using FemValidation = std::function<void(document::FemCondition&)>;
+    void validate(document::FemCondition&, const std::string& body_id,
+        const FemValidation&);
 private:
     ModelingConfirmation& confirmation_;
     const Workspace& workspace_;

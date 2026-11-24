@@ -43,6 +43,7 @@ struct ModelingConfirmation::Pending {
     std::set<std::string> failed_owners;
     std::string message;
     std::optional<assembly::AssemblyDocument> assembly_result;
+    std::optional<document::FemCondition> fem_result;
 };
 ModelingConfirmation::ModelingConfirmation()=default;
 ModelingConfirmation::~ModelingConfirmation()=default;
@@ -69,6 +70,25 @@ bool ModelingConfirmationAttempt::accepted(const std::string& owner) const {
 }
 bool confirmed_unresolved_modeling_definition(const std::string& owner) {
     return active_attempt&&active_attempt->accepted(owner);
+}
+void ModelingConfirmationAttempt::validate(document::FemCondition& candidate,
+        const std::string& body_id,const FemValidation& validate) {
+    const nlohmann::json input={{"document",document_id_},{"body",body_id},{"condition",candidate}};
+    auto sources=source_generations(workspace_);
+    auto& pending=confirmation_.pending_;
+    if(pending&&pending->fem_result&&pending->input==input&&pending->sources==sources) {
+        candidate=*pending->fem_result;accepted_owners_=pending->failed_owners;return;
+    }
+    confirmation_.clear();
+    try {validate(candidate);}
+    catch(const std::exception& error) {
+        if(dynamic_cast<const std::bad_alloc*>(&error))throw;
+        candidate.calculation_error=error.what();
+        pending=std::make_unique<ModelingConfirmation::Pending>();
+        pending->input=input;pending->sources=std::move(sources);pending->fem_result=candidate;
+        pending->failed_owners.insert(candidate.id);pending->message=error.what();failed_=true;
+        throw;
+    }
 }
 std::vector<kernel::BodyResult> ModelingConfirmationAttempt::calculate(
         document::PartDocument& candidate,const PartCalculationPolicy& policy,

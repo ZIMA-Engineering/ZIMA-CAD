@@ -1,4 +1,6 @@
 {
+  "Repair unresolved FEM conditions before calculation.": "Перед расчётом исправьте неработающие условия МКЭ.",
+  "Create section": "Создать разрез",
   "Renders": "Рендеры",
   "CAM": "CAM",
   "CAM setup properties": "Свойства наладки CAM",

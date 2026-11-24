@@ -236,7 +236,10 @@ public:
     }
     bool set_reference(std::size_t i,document::ConstructionReference r,const QString& label)override{
         if(owns_reference_owner(r.owner_id))return false;
-        QString error;bool ok=placement_->set_reference(i,prepare_reference_candidate(i,std::move(r)),label,&error);
+        // The shared picker already prepared this reference and supplied the
+        // measured offset required by a locked empty row. Preparing it again
+        // consumes that measurement before the actual assignment.
+        QString error;bool ok=placement_->set_reference(i,std::move(r),label,&error);
         set_status(error);return ok;
     }
     void set_reference_request_callback(std::function<void(std::size_t)> f){reference_request_=f;placement_->set_reference_request_callback(std::move(f));}
@@ -276,7 +279,7 @@ protected:
         project_->setText(tr("Project Sketch onto body"));plane_controls_->retranslate();
         refresh_kind();refresh_references();
     }
-    bool submit()override{try{auto v=pending_value();document::validate_fem_condition(v);commit_(std::move(v));return true;}catch(const std::exception& e){set_status(tr(e.what()));return false;}}
+    bool submit()override{auto v=pending_value();document::validate_fem_condition(v);commit_(std::move(v));return true;}
 private:
     static constexpr int body_surface_choice=3;
     class ReferenceTable final:public QTableWidget {

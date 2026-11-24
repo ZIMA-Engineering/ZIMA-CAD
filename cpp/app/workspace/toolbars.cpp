@@ -72,6 +72,7 @@ void AssemblyWorkspaceWindow::update_document_area_visibility() {
 }
 
 void AssemblyWorkspaceWindow::update_application_actions() {
+    if(section_action_)section_action_->setText(tr("Create section"));
     if(section_action_)section_action_->setEnabled(workspace_.active_document_id()==workspace_.displayed_document_id()&&!workspace_.open_drawing(workspace_.displayed_document_id())&&!properties_dialog_&&active_sketch_id_.empty()&&!template_sketch());
     for (auto* action : application_actions_) action->setEnabled(false);
     if(application_mode_selector_)application_mode_selector_->hide();
@@ -484,6 +485,7 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
             create_fem_action_->setEnabled(!properties_dialog_ && graph.active_body_id().empty());
             create_cam_action_->setEnabled(!properties_dialog_ && graph.active_body_id().empty());
             create_render_action_->setEnabled(!properties_dialog_ && graph.active_body_id().empty());
+            create_render_action_->setText(tr("Create Render"));
             auto* boolean = body_boolean_action_;
             boolean->setEnabled(!properties_dialog_ && graph.active_body_id().empty() &&
                 graph.available_before(graph.insertion_cursor()).size() >= 2);
@@ -492,6 +494,7 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
                 add_command(create_body_action_);
                 add_command(create_fem_action_);
                 add_command(section_action_);
+                add_command(create_render_action_);
                 add_command(create_cam_action_);
                 add_command(mirror_action_);
                 add_command(pattern_action_);

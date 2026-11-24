@@ -41,6 +41,7 @@ public:
 FemVolumeMesh generate_fem_volume_mesh(
         const kernel::BodyResult& source,const document::FemDefinition& authored_definition,
         const FemProgressCallback& progress) {
+    document::require_resolved_fem_conditions(authored_definition);
     // Only the selected analysis binds regions. Inspection points sample the
     // solution, while loads for another analysis must not partition its mesh.
     auto definition=authored_definition;
@@ -132,13 +133,14 @@ FemVolumeMesh generate_fem_volume_mesh(
                 // Fragment all patches together below: a preceding partition
                 // must not split the next condition's single face reference
                 // into multiple targets with only one retained-region seed.
-                if(!projections[index].faces.empty())partition_regions=true;
+                if(!projections[index].faces.empty()||!projections[index].curves.empty())partition_regions=true;
                 for(const auto& face:projections[index].faces)region.tags.push_back(import(face,2));
                 for(const auto& curve:projections[index].curves) {
-                    const int edge=import(curve.edge,1);
-                    const int face=bind(curve.face,2);
-                    embeddings.push_back({1,edge,2,face});
-                    region.tags.push_back(edge);
+                    // A projected curve can reach a face boundary or cross
+                    // another condition. Plain embedding leaves independent
+                    // endpoint nodes there; fragment it with the source just
+                    // like a projected face so every contact is conformal.
+                    region.tags.push_back(import(curve.edge,1));
                 }
             }else if(condition.references.empty()&&condition.region==document::FemRegionKind::Point) {
                 const auto& p=condition.placement;
