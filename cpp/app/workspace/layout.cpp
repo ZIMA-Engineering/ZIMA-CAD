@@ -240,6 +240,7 @@ void AssemblyWorkspaceWindow::create_layout() {
     },[this](const std::string& owner,const std::string&) {
         if(active_render_object(owner)||active_fem_condition(owner))return true;
         if(const auto* part=workspace_.open_part(workspace_.active_document_id())) {
+            if(const auto* body=part->session.document().body_history.find(owner);body&&body->derived_copy)return true;
             if(std::ranges::any_of(part->session.document().sketches,[&](const auto& sketch){return sketch.id==owner;}))return true;
             if(const auto* feature=part->session.document().find_container(owner)) {
                 if (feature->feature_kind == document::FeatureKind::Feature &&
@@ -2438,6 +2439,10 @@ void AssemblyWorkspaceWindow::create_layout() {
                        item->data(0, Qt::UserRole + 3).toString() == "part-body-boolean") {
                 const auto id = item->data(0, Qt::UserRole).toString().toStdString();
                 const auto* part = workspace_.open_part(workspace_.active_document_id());
+                if(part)if(const auto* body=part->session.document().body_history.find(id);body&&body->derived_copy) {
+                    viewer_->confirm_reference(id,{},workspace_.active_occurrence_path(),viewer::CandidateKind::Container);
+                    return;
+                }
                 if (part && !part->session.calculated_boundaries().empty()) {
                     const auto& cache = part->session.calculated_boundaries().back();
                     const auto& outputs = item->data(0, Qt::UserRole + 3).toString() == "part-body"

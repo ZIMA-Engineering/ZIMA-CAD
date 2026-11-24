@@ -15452,8 +15452,20 @@ nlohmann::json PartDocument::serialized(
         // sides of that boundary so native save cannot splice unlike prefixes.
         const bool has_exact_reference_output =
             !boundary.history_reference_coverage.empty();
+        // Scoped document boundaries are compacted independently. A loaded
+        // exact packet retains its geometry but intentionally loses the live
+        // coverage proof. It must not become an append prefix on the next Save.
+        const bool previous_scoped_packet = boundary_index > 0 &&
+            !expected_operations[boundary_index - 1].body.id.empty() &&
+            (!previous_references->vertices.empty() ||
+             !previous_references->triangles.empty() ||
+             !previous_references->triangle_references.empty() ||
+             !previous_references->edges.empty() ||
+             !previous_references->points.empty() ||
+             !previous_references->axes.empty());
         const bool full_references = !reuses_previous_body &&
-            (has_exact_reference_output || previous_has_exact_reference_output);
+            (has_exact_reference_output || previous_has_exact_reference_output ||
+             previous_scoped_packet);
         const auto delta = reuses_previous_body || full_references
             ? zima::kernel::ViewerReferenceGeometry{}
             : reference_geometry_delta(boundary.mesh.original_references,

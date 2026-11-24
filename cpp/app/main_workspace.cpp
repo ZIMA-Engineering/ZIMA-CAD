@@ -871,6 +871,56 @@ int verify_derived_copy_commands(QApplication& application,zima::app::AssemblyWo
         return nullptr;
     };
     if(!verify(action&&action->isEnabled()&&!action->icon().isNull()&&view,"Mirror action/icon missing"))return 1;
+    const auto verify_mirror_plane=[&](app::DerivedCopyDialog* mirror,const std::string& prefix=std::string{}) {
+        // A just-picked plane has an independent confirmed-selection overlay.
+        // Remove it before checking the Properties reference presentation.
+        view->clear_selection();flush();
+        const auto before=window.execute_console_command("documents").data;
+        const auto calculations=kernel::body_calculation_count.load();
+        const auto camera=view->camera_state();
+        const auto& ref=mirror->derived_copy.reference;
+        auto instance=assembly::InstancePath::decode(prefix);
+        for(const auto& occurrence:assembly::InstancePath::decode(ref.instance_path).occurrence_ids)
+            instance=instance.child(occurrence);
+        std::set<viewer::EdgeKey> expected{{ref.owner_id,ref.semantic_key,instance.encoded()}};
+        if(ref.semantic_key=="plane")expected.insert({ref.owner_id,"border",instance.encoded()});
+        const auto automatic=view->grabFramebuffer();
+        view->set_constraint_reference_highlights({},expected);flush();
+        if(!verify(automatic==view->grabFramebuffer(),"Mirror omitted its selected plane wire"))return false;
+        view->set_constraint_reference_highlights({},{});flush();
+        if(automatic==view->grabFramebuffer()) {
+            std::cerr<<"Missing Mirror highlight: "<<ref.owner_id<<" / "<<ref.semantic_key<<" / "<<instance.encoded()<<'\n';
+            for(const auto* edges:{&view->mesh().edges,&view->mesh().original_references.edges}) {
+                std::cerr<<"Plane packet: "<<edges->size()<<'\n';
+                for(const auto& edge:*edges)if(edge.reference.owner_id==ref.owner_id)
+                    std::cerr<<edge.reference.semantic_key<<" path="<<edge.reference.instance_path<<" points="<<edge.points.size()<<'\n';
+            }
+            window.grab().save(QString::fromStdString((directory/"mirror-plane-missing.png").string()));
+            if(!verify(false,"Mirror plane inspection has no visible wire"))return false;
+        }
+        mirror->changed();flush();
+        return verify(automatic==view->grabFramebuffer()&&camera==view->camera_state()&&
+            before==window.execute_console_command("documents").data&&
+            calculations==kernel::body_calculation_count.load(),
+            "Mirror plane refresh changed the scene, camera or document");
+    };
+    // Command-first creation must show its plane even with no selected source.
+    tree->clearSelection();view->clear_selection();action->trigger();flush();
+    auto* empty_mirror=dynamic_cast<app::DerivedCopyDialog*>(window.findChild<QDialog*>("mirrorDialog"));
+    if(!verify(empty_mirror&&empty_mirror->derived_copy.source_ids.empty(),"Empty Mirror fixture preselected a source"))return 1;
+    const auto saved_palette=application.palette();
+    for(const bool dark:{false,true}) {
+        auto palette=saved_palette;
+        palette.setColor(QPalette::Window,dark?QColor(32,32,32):QColor(245,245,245));
+        palette.setColor(QPalette::WindowText,dark?Qt::white:Qt::black);
+        application.setPalette(palette);flush();
+        for(const auto* name:{"XY","YZ","XZ","XY"}) {
+            empty_mirror->findChild<QToolButton*>(QStringLiteral("copyReferencePreset")+name)->click();flush();
+            if(!verify_mirror_plane(empty_mirror))return 1;
+        }
+        window.grab().save(QString::fromStdString((directory/(dark?"mirror-plane-dark.png":"mirror-plane-light.png")).string()));
+    }
+    application.setPalette(saved_palette);empty_mirror->reject();flush();
     const auto copy_query=[&](const char* command,const std::string& object={}) {
         commands::Json args=commands::Json::object();if(!object.empty())args["object"]=object;
         return window.execute_console_command(QString::fromStdString(commands::Json{{"command",command},{"arguments",std::move(args)}}.dump()));
@@ -1016,6 +1066,7 @@ int verify_derived_copy_commands(QApplication& application,zima::app::AssemblyWo
         if(dialog->is_axis_input(input)) {
             dialog->set_linear_axis(dialog->axis_row(input),initial_axis);flush();
         }
+        if(!pattern&&!verify_mirror_plane(dialog,prefix))return false;
         return true;
     };
     if(!verify_copy_origin_selection())return 1;
@@ -1040,6 +1091,7 @@ int verify_derived_copy_commands(QApplication& application,zima::app::AssemblyWo
             dialog->derived_copy.reference.owner_id==source+":origin"&&
             dialog->derived_copy.reference.semantic_key=="origin:plane:yz",
             "Mirror did not accept a plane selected from View/Tree"))return 1;
+    if(!verify_mirror_plane(dialog))return 1;
     window.grab().save(QString::fromStdString((directory/"mirror-ui.png").string()));
     dialog->buttons()->button(QDialogButtonBox::Ok)->click();flush();
     if(auto* failed=window.findChild<QDialog*>("mirrorDialog")){for(auto* label:failed->findChildren<QLabel*>())std::cerr<<label->text().toStdString()<<"\n";return 1;}
@@ -1053,9 +1105,74 @@ int verify_derived_copy_commands(QApplication& application,zima::app::AssemblyWo
         return 1;
     auto bodies=kernel.evaluate_history(stored.kernel_operations());
     if(!verify(std::abs(bodies.back().volume-384)<1e-7&&bodies.back().body_inputs.contains(id),"Mirror is not a selectable full body"))return 1;
+    // Expanding a Tree row must not select the command's checked-on-azure icon.
+    for(const bool dark:{false,true}) {
+        auto palette=saved_palette;
+        palette.setColor(QPalette::Window,dark?QColor(32,32,32):QColor(245,245,245));
+        palette.setColor(QPalette::WindowText,dark?Qt::white:Qt::black);
+        application.setPalette(palette);flush();
+        auto* mirror_row=row(id,"part-body");
+        for(const bool expanded:{false,true}) {
+            mirror_row->setExpanded(expanded);flush();
+            for(const auto mode:{QIcon::Normal,QIcon::Selected})
+                if(!verify(mirror_row->icon(0).pixmap(QSize(20,20),mode,expanded?QIcon::On:QIcon::Off).toImage()==
+                        action->icon().pixmap(QSize(20,20),mode,QIcon::Off).toImage(),
+                        "Mirror Tree icon differs from its command in the current theme/state"))return 1;
+        }
+        window.grab().save(QString::fromStdString((directory/(dark?"mirror-tree-dark.png":"mirror-tree-light.png")).string()));
+    }
+    application.setPalette(saved_palette);flush();
     const auto copy_command=[&](const char* command,commands::Json args) {
+        if(args.is_null())args=commands::Json::object();
         return window.execute_console_command(QString::fromStdString(commands::Json{{"command",command},{"arguments",std::move(args)}}.dump()));
     };
+    // Bind the actual Body rows, including the derived Body, through the same
+    // Family reference entry used by an original/mirrored production pair.
+    window.findChild<QAction*>("familyTableAction")->trigger();flush();
+    auto* family=dynamic_cast<app::FamilyTableDialog*>(window.findChild<QDialog*>("familyTableDialog"));
+    if(!verify(family,"Mirror Family dialog did not open"))return 1;
+    auto* family_table=family->findChild<QTableWidget*>("familyTableTable");
+    const auto bind_body=[&](const std::string& owner) {
+        auto* item=row(owner,"part-body");if(!item)return false;
+        const auto expected_name=item->text(0);
+        tree->scrollToItem(item);flush();const QPointF p=tree->visualItemRect(item).center();
+        QMouseEvent press(QEvent::MouseButtonPress,p,p,p,Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);
+        QMouseEvent release(QEvent::MouseButtonRelease,p,p,p,Qt::LeftButton,Qt::NoButton,Qt::NoModifier);
+        QApplication::sendEvent(tree->viewport(),&press);QApplication::sendEvent(tree->viewport(),&release);flush();
+        const auto column=family->active_column();
+        return column>=0&&family_table->horizontalHeaderItem(4+2*column)->text()==expected_name;
+    };
+    if(!verify(bind_body(source),"Family could not bind the original Body"))return 1;
+    family->findChild<QPushButton*>("familyAddColumn")->click();flush();
+    if(!verify(bind_body(id),"Family could not bind the Mirror Body"))return 1;
+    family_table->item(1,1)->setText("Original variant");flush();
+    family_table->item(2,1)->setText("Mirrored variant");flush();
+    for(int r=1;r<=2;++r)for(int c=0;c<2;++c) {
+        auto* combo=qobject_cast<QComboBox*>(family_table->cellWidget(r,4+2*c));
+        if(!verify(combo,"Mirror Family presence has no Yes/No editor"))return 1;
+        combo->setCurrentIndex(combo->findData((r==1)==(c==0)?"yes":"no"));
+    }
+    family->buttons()->button(QDialogButtonBox::Ok)->click();flush();
+    if(!verify(!window.findChild<QDialog*>("familyTableDialog"),"Mirror Family OK did not close"))return 1;
+    const auto family_definition=copy_command("document.family.get",{{"document",part.document_id}});
+    if(!verify(family_definition.ok&&family_definition.data.at("table").at("bindings").size()==2,
+            "Mirror Family did not store both Body bindings"))return 1;
+    for(const auto& name:{"Original variant","Mirrored variant"}) {
+        const auto opened=copy_command("document.family.open",{{"document",part.document_id},{"instance",name}});flush();
+        if(!verify(opened.ok,"Mirror Family variant failed to open"))return 1;
+        const auto listed=copy_command("body.list",{});
+        bool source_suppressed=false,mirror_suppressed=false;
+        for(const auto& body:listed.data.at("items")) {
+            if(body.at("body")==source)source_suppressed=body.at("suppressed");
+            if(body.at("body")==id)mirror_suppressed=body.at("suppressed");
+        }
+        if(!verify(source_suppressed==(std::string_view(name)=="Mirrored variant")&&source_suppressed!=mirror_suppressed,
+                "Mirror Family GUI applied presence to the wrong Body"))return 1;
+        if(!verify(copy_command("close",{{"discard",true}}).ok,"Mirror Family variant did not close"))return 1;flush();
+        if(!verify(copy_command("activate",{{"document",part.document_id}}).ok,"Mirror Family generic did not reactivate"))return 1;flush();
+    }
+    if(!verify(copy_command("undo",{}).ok,"Mirror Family table Undo failed"))return 1;flush();
+    std::cout<<"Mirror Family GUI: Tree bindings, opposite Yes/No values, both variant tabs and Undo passed\n";
     for(const bool patterned:{false,true}) {
         const auto created=copy_command(patterned?"pattern.create":"mirror.create",patterned?
             commands::Json{{"source",source},{"linear",commands::Json::array({commands::Json{{"axis","x"},{"count",2}}})}}:
@@ -1076,6 +1193,7 @@ int verify_derived_copy_commands(QApplication& application,zima::app::AssemblyWo
     window.show_tree_item_properties(row(id,"part-body"));flush();
     dialog=dynamic_cast<app::DerivedCopyDialog*>(window.findChild<QDialog*>("mirrorDialog"));
     if(!verify(dialog&&dialog->pending.id==id,"Mirror edit did not reopen the same dialog"))return 1;
+    if(!verify_mirror_plane(dialog))return 1;
     const auto initial_origin_display=view->grabFramebuffer();
     view->set_editing_origin_visible(true);flush();
     if(!verify(initial_origin_display==view->grabFramebuffer(),

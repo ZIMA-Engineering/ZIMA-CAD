@@ -1,4 +1,5 @@
 #include <zima/kernel/placement_route.hpp>
+#include <zima/kernel/appearance_resolution.hpp>
 #include <zima/viewer/sweep_axis_route.hpp>
 #include <zima/kernel/transition_edge_display.hpp>
 #include <zima/kernel/axis_display.hpp>
@@ -491,9 +492,15 @@ struct MeshView::Impl {
             if(triangle>=mesh.triangle_references.size())return style;
             const auto& r=mesh.triangle_references[triangle];
             if(const auto it=instance_styles.find(r.instance_path);it!=instance_styles.end())style=it->second;
-            const auto owner=r.instance_path+"\x1f"+r.owner_id;
-            if(const auto it=owner_styles.find(owner);it!=owner_styles.end())style=it->second;
-            if(const auto it=face_styles.find(owner+"\x1f"+r.semantic_key);it!=face_styles.end())style=it->second;
+            const auto prefix=r.instance_path+"\x1f";
+            if(const auto* inherited=kernel::copied_face_style(r.owner_id,r.semantic_key,
+                    [&](const auto& owner,const auto& key)->const kernel::SurfaceStyle* {
+                        const auto found=face_styles.find(prefix+owner+"\x1f"+key);
+                        return found==face_styles.end()?nullptr:&found->second;
+                    },[&](const auto& owner)->const kernel::SurfaceStyle* {
+                        const auto found=owner_styles.find(prefix+owner);
+                        return found==owner_styles.end()?nullptr:&found->second;
+                    }))style=*inherited;
             if(r.semantic_key.starts_with("thread:surface:"))style={"#8F969D",.5,.65};
             if(r.surface_result)style={zima::kernel::surface_result_color,0.0,.55};
             return style;
@@ -6379,7 +6386,9 @@ if (impl_->show_origins) {
                         point.reference.semantic_key.starts_with("point:");
                     const bool selected = (ordinary_sketch_point&&impl_->confirmed_candidate) || point.reference.owner_id ==
                             impl_->selected_container_origin_id ||
-                        (!point.display_owner_id.empty() && impl_->confirmed_candidate &&
+                        (!authored_preview && !point.display_owner_id.empty() && impl_->confirmed_candidate &&
+                         impl_->confirmed_candidate->semantic_key!="component:body" &&
+                         impl_->confirmed_candidate->semantic_key!="component:document-result" &&
                          impl_->confirmed_candidate->kind == CandidateKind::Container &&
                          impl_->confirmed_candidate->owner_id == point.display_owner_id &&
                          impl_->confirmed_candidate->instance_path == point.reference.instance_path) ||
@@ -6396,7 +6405,7 @@ if (impl_->show_origins) {
                          impl_->confirmed_candidate->instance_path ==
                             point.reference.instance_path);
                     const bool hovered = (ordinary_sketch_point&&!impl_->confirmed_candidate) || (!impl_->confirmed_candidate && highlighted &&
-                        ((!point.display_owner_id.empty() &&
+                        ((!authored_preview && !point.display_owner_id.empty() &&
                           highlighted->kind == CandidateKind::Container &&
                           highlighted->owner_id == point.display_owner_id) ||
                          (highlighted->kind == CandidateKind::Container &&

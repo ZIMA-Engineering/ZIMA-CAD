@@ -1,4 +1,5 @@
 #include <IntCurvesFace_ShapeIntersector.hxx>
+#include <zima/kernel/appearance_resolution.hpp>
 #include "ordered_up_to.hpp"
 #include "sectioned_normal_offset.hpp"
 #include "directional_projection.hpp"
@@ -9934,17 +9935,7 @@ BodyResult OcctKernel::subtract_bodies(
 namespace {
 const SurfaceStyle* exchange_face_style(const Appearance& appearance,
         const FaceReference& reference) {
-    const auto key=reference.owner_id+"::"+reference.semantic_key;
-    for(auto group=appearance.groups.rbegin();
-            group!=appearance.groups.rend();++group)
-        if(std::ranges::find(group->faces,key)!=group->faces.end())
-            return &group->style;
-    if(const auto owner=appearance.owner_bodies.find(reference.owner_id);
-            owner!=appearance.owner_bodies.end())
-        if(const auto body=appearance.bodies.find(owner->second);
-                body!=appearance.bodies.end())
-            return &body->second;
-    return nullptr;
+    return copied_face_style(appearance,reference);
 }
 
 void apply_exchange_appearance(

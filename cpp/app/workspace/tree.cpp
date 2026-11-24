@@ -821,7 +821,9 @@ void AssemblyWorkspaceWindow::add_part_tree_children(
             const bool suppressed=definition?definition->suppressed:graph.find_boolean(id)->suppressed;
             auto* row = new QTreeWidgetItem(parent, {QString::fromStdString(
                 definition ? definition->name : graph.find_boolean(id)->name)+(suppressed?tr(" [potlačeno]"):QString{})});
-            row->setIcon(0, resource_icon(definition&&definition->scale?"scale":definition&&definition->derived_copy ? (definition->derived_copy->pattern?"pattern":"mirror") : "result-body"));
+            row->setIcon(0, definition&&definition->derived_copy ?
+                resource_tree_icon(definition->derived_copy->pattern?"pattern":"mirror") :
+                resource_icon(definition&&definition->scale?"scale":"result-body"));
             row->setData(0, Qt::UserRole, QString::fromStdString(id));
             row->setData(0, Qt::UserRole + 3, definition ? "part-body" : "part-body-boolean");
             if(suppressed) {
@@ -1200,7 +1202,7 @@ void AssemblyWorkspaceWindow::add_snapshot_tree_children(
         }
         const auto path = parent_path.child(component.occurrence_id);
         if(!component.derived_source_id.empty()) {
-            item->setIcon(0,resource_icon(component.pattern_group?"pattern":"mirror"));
+            item->setIcon(0,resource_tree_icon(component.pattern_group?"pattern":"mirror"));
             auto* origin=add_origin_tree_item(item,component.occurrence_id,false,parent_path);
             origin->setIcon(0, resource_icon("origin-feature"));
             origin->setText(0,component.pattern_group?tr("Počátek Pole"):tr("Počátek Zrcadla"));

@@ -246,6 +246,19 @@ void AssemblyWorkspaceWindow::show_derived_copy_properties(const std::string& id
         dialog->pending.derived_copy=dialog->derived_copy;
         const bool valid=dialog->resolve_pending_placement(geometry);
         auto origin=mirror_origin(dialog->pending);
+        // Offer an external selected Origin through the command's established
+        // temporary visibility policy, so its plane exists in the scene.
+        const auto& plane=dialog->derived_copy.reference;
+        if(!dialog->derived_copy.pattern&&plane.owner_id!=dialog->pending.container_origin.id&&
+                plane.semantic_key.starts_with("origin:plane:")) {
+            visible_local_origin_ids_.insert(plane.owner_id);
+            if(!plane.instance_path.empty()) {
+                auto path=assembly::InstancePath::decode(prefix);
+                for(const auto& occurrence:assembly::InstancePath::decode(plane.instance_path).occurrence_ids)
+                    path=path.child(occurrence);
+                visible_occurrence_origin_paths_.insert(path.encoded());
+            }
+        }
         // Keep the draft in the existing scene-preview channel. Reference
         // confirmation refreshes the scene again after this callback returns.
         // A one-shot append to MeshView would lose the Origin on that refresh.
@@ -368,9 +381,20 @@ void AssemblyWorkspaceWindow::show_derived_copy_properties(const std::string& id
                 if((*i)->data(0,Qt::UserRole+1).toString().toStdString()==prefix){parent=*i;break;}
             if(parent){auto* row=new QTreeWidgetItem(parent,{QString::fromStdString(dialog->pending.name)});
                 row->setData(0,Qt::UserRole,QString::fromStdString(dialog->pending.id));row->setData(0,Qt::UserRole+3,"copy-draft");
-                row->setIcon(0,resource_icon(dialog->derived_copy.pattern?"pattern":"mirror"));row->setBackground(0,QBrush(QColor("#4DD811")));row->setForeground(0,QBrush(QColor("#102027")));}
+                row->setIcon(0,resource_tree_icon(dialog->derived_copy.pattern?"pattern":"mirror"));row->setBackground(0,QBrush(QColor("#4DD811")));row->setForeground(0,QBrush(QColor("#102027")));}
         }
         std::set<viewer::EdgeKey> highlights;
+        // The Mirror plane has no inspection eye: it is the command's always
+        // visible reference, including before the first source is selected.
+        // Reuse the exact reference-wire overlay and occurrence identity.
+        if(!dialog->derived_copy.pattern&&!dialog->derived_copy.reference.owner_id.empty()) {
+            const auto& ref=dialog->derived_copy.reference;
+            auto path=assembly::InstancePath::decode(prefix);
+            for(const auto& occurrence:assembly::InstancePath::decode(ref.instance_path).occurrence_ids)
+                path=path.child(occurrence);
+            highlights.insert({ref.owner_id,ref.semantic_key,path.encoded()});
+            if(ref.semantic_key=="plane")highlights.insert({ref.owner_id,"border",path.encoded()});
+        }
         bool inspecting=false;
         for(const int field:dialog->input_fields())
             if(!dialog->is_source_input(field)&&dialog->inspected(field)&&

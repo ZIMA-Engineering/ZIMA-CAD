@@ -15,6 +15,8 @@
 #include <zima/kernel/dimension_layout.hpp>
 #include <zima/workspace/operation_input.hpp>
 #include <zima/kernel/mirror_geometry.hpp>
+#include <zima/kernel/pattern_geometry.hpp>
+#include <zima/kernel/transition_edge_display.hpp>
 
 namespace zima::app {
 inline bool authored_sketch_profile(const document::HistoryContainer& feature) {
@@ -26,6 +28,26 @@ inline bool authored_sketch_profile(const document::HistoryContainer& feature) {
 inline std::vector<kernel::ViewerEdge> authored_feature_wire(
         const document::DocumentSession& session,const std::string& owner) {
     const auto& doc=session.document();
+    if(const auto* copy=doc.body_history.find(owner);copy&&copy->derived_copy) {
+        if(session.calculated_boundaries().empty())return {};
+        const auto& outputs=session.calculated_boundaries().back().body_outputs;
+        const auto& parameters=*copy->derived_copy;
+        std::vector<kernel::ViewerEdge> result;
+        for(const auto& source:parameters.source_ids) {
+            kernel::ViewerMesh input;
+            if(doc.find_container(source))input.edges=authored_feature_wire(session,source);
+            else if(const auto found=outputs.find(source);found!=outputs.end())input.edges=found->second->mesh.edges;
+            const auto append=[&](kernel::ViewerMesh mesh) {
+                for(auto& edge:mesh.edges)if(!edge.parameter_seam&&!kernel::smooth_transition_junction(edge))
+                    result.push_back(std::move(edge));
+            };
+            if(parameters.pattern) {
+                const auto pattern=kernel::validated_pattern(*parameters.pattern);
+                for(unsigned i=1;i<pattern.count;++i)append(kernel::pattern_copy_mesh(input,pattern,i,owner));
+            } else append(kernel::mirrored_viewer_mesh(std::move(input),parameters.resolved_plane,owner));
+        }
+        return result;
+    }
     const auto selected_sketch=std::ranges::find(doc.sketches,owner,&sketcher::Sketch::id);
     const auto* feature=doc.find_container(selected_sketch==doc.sketches.end()?owner:selected_sketch->owner_container_id);
     if(!feature||feature->suppressed)return {};

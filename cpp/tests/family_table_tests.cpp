@@ -6,7 +6,10 @@
 #include <zima/workspace/family_operations.hpp>
 #include <zima/workspace/engineering_metadata_operations.hpp>
 #include <zima/document/physical_properties.hpp>
+#include <zima/document/viewer_packet_json.hpp>
 #include <zima/document/bend.hpp>
+#include <zima/kernel/mirror_geometry.hpp>
+#include <cstdlib>
 #include <zima/workspace/bend_operations.hpp>
 #include <zima/workspace/history_operations.hpp>
 #include <zima/workspace/document_operations.hpp>
@@ -22,6 +25,129 @@ namespace fs=std::filesystem;
 namespace {
 void require(bool condition,const char* text){if(!condition)throw std::runtime_error(text);}
 double volume(const kernel::OcctKernel& engine,const workspace::Workspace& live,const std::string& id){return test::measured_volume(engine,live.open_part(id)->session.calculated_boundaries().back());}
+void mirror_family_test(const kernel::OcctKernel& engine,const fs::path& directory) {
+    auto base=document::PartDocument::create_default();
+    std::vector<kernel::BodyResult> cache;
+    std::string source,mirror;
+    if(const auto* path=std::getenv("ZIMA_VERIFY_MIRROR_FAMILY_MODEL")) {
+        base=document::PartDocument::load(fs::u8path(path),&cache);
+        for(const auto& body:base.body_history.bodies())if(body.derived_copy&&!body.derived_copy->pattern) {
+            mirror=body.scope.id;source=body.derived_copy->source_ids.front();break;
+        }
+    } else {
+        auto block=test::rectangular_feature(base,{10,8,6});block.placement.y=20;
+        auto cut=test::rectangular_feature(base,{2,2,6});cut.placement.x=4;cut.placement.y=23;
+        cut.combine_mode=document::CombineMode::Subtract;
+        base.history={block,cut};document::BodyHistoryGraph graph;
+        source=graph.create_body("Source");graph.insert({document::PartHistoryKind::Feature,block.id});
+        graph.insert({document::PartHistoryKind::Feature,cut.id});graph.activate({});
+        document::BodyHistory copy;copy.name="Mirror";copy.scope.id="family-mirror";
+        copy.derived_copy=document::DerivedCopyParameters{{source},{{},"family-mirror:origin","origin:plane:xz"}};
+        copy.derived_copy->resolved_plane={{0,0,0},{0,1,0}};
+        mirror=graph.create_derived_copy(copy);base.set_body_history(graph);
+        cache=workspace::calculate_part_with_resolved_references(engine,base,nullptr,{true});
+    }
+    require(!source.empty()&&!mirror.empty()&&!cache.empty(),"Mirror Family fixture is incomplete");
+    const auto plane=base.body_history.find(mirror)->derived_copy->resolved_plane;
+    const auto original=cache.back().body_outputs.at(source).get();
+    if(!std::getenv("ZIMA_VERIFY_MIRROR_FAMILY_MODEL")) {
+        // Scoped exact-reference packets are sparse, not cumulative. Their
+        // live coverage proof must disappear on load without changing geometry.
+        auto sparse=cache;
+        sparse.front().mesh.original_references.points.push_back(
+            {{1,2,3},{base.history.front().id,"vertex:reference-test",{}}});
+        const auto& ref=sparse.front().mesh.original_references.points.front().reference;
+        sparse.front().history_reference_coverage.insert({ref.owner_id,ref.semantic_key,{}});
+        std::vector<kernel::BodyResult> restored;
+        auto copy=document::PartDocument::from_serialized(base.serialized(sparse),&restored);
+        require(restored.front().history_reference_coverage.empty(),"Native load retained ephemeral calculation proof");
+        for(int cycle=0;cycle<3;++cycle) {
+            copy=document::PartDocument::from_serialized(copy.serialized(restored),&restored);
+            for(std::size_t i=0;i<sparse.size();++i)
+                require(document::serialize_viewer_reference_geometry(sparse[i].mesh.original_references)==
+                        document::serialize_viewer_reference_geometry(restored.at(i).mesh.original_references),
+                    "Repeated native Save changed a sparse history reference packet");
+        }
+    }
+    const double expected_volume=test::measured_volume(engine,original);
+    const auto generic=base.document_id;
+    workspace::Workspace live;live.add_part(base,cache,directory/"mirror-family.prtz");live.activate(generic);
+    document::FamilyTable table;table.columns={"Source","Mirror"};
+    table.bindings={{"Source",{"body",source,{}}},{"Mirror",{"body",mirror,{}}}};
+    table.instances={{"Original",{{"Source","yes"},{"Mirror","no"}}},{"Mirrored",{{"Source","no"},{"Mirror","yes"}}}};
+    static_cast<void>(workspace::set_family_table(live,generic,table));
+    std::vector<std::string> variants;
+    for(const bool mirrored:{false,true}) {
+        const auto id=workspace::open_family_instance(live,engine,generic,mirrored?"Mirrored":"Original");variants.push_back(id);
+        auto* part=live.open_part(id);const auto& model=part->session.document();
+        require(model.body_history.find(source)->suppressed==mirrored&&model.body_history.find(mirror)->suppressed!=mirrored,
+            "Family did not preserve independent source/Mirror presence");
+        require(model.body_history.visible_context()==std::vector<std::string>{mirrored?mirror:source},
+            "Family View contains the suppressed Body");
+        require(std::abs(volume(engine,live,id)-expected_volume)<1e-6,"Family mass geometry includes both Bodies");
+        const auto& mesh=part->session.calculated_boundaries().back().mesh;
+        const auto expected=mirrored?kernel::mirrored_viewer_mesh(original.mesh,plane,mirror):original.mesh;
+        const auto bounds=[](const kernel::ViewerMesh& value) {
+            std::array<double,6> result{1e100,1e100,1e100,-1e100,-1e100,-1e100};
+            for(const auto& p:value.vertices) {
+                const std::array<double,3> v{p.x,p.y,p.z};
+                for(int axis=0;axis<3;++axis){result[axis]=std::min(result[axis],v[axis]);result[axis+3]=std::max(result[axis+3],v[axis]);}
+            }return result;
+        };
+        const auto actual_bounds=bounds(mesh),expected_bounds=bounds(expected);
+        for(int i=0;i<6;++i)if(std::abs(actual_bounds[i]-expected_bounds[i])>=1e-6) {
+            std::cerr<<"Mirror="<<mirrored<<" bound="<<i<<" actual="<<actual_bounds[i]<<" expected="<<expected_bounds[i]<<'\n';
+            throw std::runtime_error("Family contains the wrong handed geometry");
+        }
+        auto regenerated=model;auto regenerated_cache=workspace::calculate_part_with_resolved_references(engine,regenerated,nullptr,{true});
+        require(std::abs(test::measured_volume(engine,regenerated_cache.back())-expected_volume)<1e-6,
+            "Cold Family regeneration lost the suppressed Mirror source");
+        std::vector<kernel::BodyResult> roundtrip_cache;
+        auto roundtrip=document::PartDocument::from_serialized(regenerated.serialized(regenerated_cache),&roundtrip_cache);
+        for(std::size_t i=0;i<regenerated_cache.size();++i)
+            require(document::serialize_viewer_reference_geometry(roundtrip_cache.at(i).mesh.original_references)==
+                    document::serialize_viewer_reference_geometry(regenerated_cache[i].mesh.original_references),
+                "Family native roundtrip changed exact reference geometry");
+        static_cast<void>(document::PartDocument::from_serialized(roundtrip.serialized(roundtrip_cache)));
+        static_cast<void>(workspace::regenerate_part(live,engine,id));
+        try {
+            const auto saved=workspace::prepare_document_save(live,id,directory/"mirror-family.prtz").write();
+            require(workspace::complete_document_save(live,saved),"Family Save was not published");
+        } catch(const std::exception&) {
+            const auto& cache=live.open_part(generic)->session.calculated_boundaries();
+            for(std::size_t i=0;i<cache.size();++i) {
+                const auto& refs=cache[i].mesh.original_references;
+                std::cerr<<"Generic boundary "<<i<<": vertices="<<refs.vertices.size()<<" triangles="<<refs.triangles.size()<<" edges="<<refs.edges.size()<<" points="<<refs.points.size()<<" axes="<<refs.axes.size()<<'\n';
+            }
+            for(const auto& [name,packet]:live.open_part(generic)->session.document().family.evaluated) {
+                std::vector<kernel::BodyResult> member_cache;
+                static_cast<void>(document::PartDocument::from_serialized(*packet,&member_cache));
+                for(std::size_t i=0;i<member_cache.size();++i) {
+                    const auto& refs=member_cache[i].mesh.original_references;
+                    std::cerr<<"Member "<<name<<" boundary "<<i<<": vertices="<<refs.vertices.size()<<" triangles="<<refs.triangles.size()<<" edges="<<refs.edges.size()<<" points="<<refs.points.size()<<" axes="<<refs.axes.size()<<" exact="<<member_cache[i].history_reference_coverage.size()<<'\n';
+                }
+            }
+            throw;
+        }
+    }
+    const auto saved=directory/"mirror-family.prtz";
+    live.open_part(generic)->session.document().save(saved,live.open_part(generic)->session.calculated_boundaries());
+    for(const auto& id:variants) {
+        std::vector<kernel::BodyResult> reopened;
+        const auto model=workspace::read_family_part(nullptr,saved,id,reopened);
+        require(model.family.parent_id==generic&&!reopened.empty()&&std::abs(test::measured_volume(engine,reopened.back())-expected_volume)<1e-6,
+            "Saved Family variant lost its calculated Body");
+    }
+    auto assembly=assembly::AssemblyDocument::create_default();const auto assembly_id=assembly.document_id;live.add_assembly(assembly);
+    for(const auto& id:variants) {
+        const auto occurrence=live.insert_open_part(assembly_id,id,id);
+        require(std::abs(test::measured_volume(engine,live.open_assembly(assembly_id)->session.document().find_occurrence(occurrence)->calculated_source.get())-expected_volume)<1e-6,
+            "Assembly inserted both generic Bodies instead of one Family variant");
+    }
+    require(workspace::step_document_history(live,generic,workspace::HistoryDirection::Undo),"Mirror Family Undo failed");
+    require(workspace::step_document_history(live,generic,workspace::HistoryDirection::Redo),"Mirror Family Redo failed");
+    std::cout<<"Mirror Family: opposite presence, handed bounds, volume, cold regeneration, native reopen, Assembly insertion and Undo/Redo passed\n";
+}
 void fractional_family_test(const kernel::OcctKernel& kernel,const fs::path& directory) {
     auto base=document::PartDocument::create_default();base.name="Fractional base";
     auto box=test::rectangular_feature(base,{10.5,8,6});base.history={box};
@@ -562,4 +688,4 @@ void family_test(const kernel::OcctKernel& kernel,const fs::path& directory) {
     auto opened=host.execute({{"command","document.family.open"},{"arguments",{{"document",id},{"instance","Long"}}}});if(!opened.ok)throw std::runtime_error(opened.code+": "+opened.message);require(opened.data.at("document")==variant,"CLI did not open the same family instance");
 }
 }
-int main(){try{kernel::OcctKernel kernel;const auto root=fs::canonical(fs::temp_directory_path());const auto dir=root/("zima-family-"+document::PartDocument::create_default().document_id);fs::create_directory(dir);fractional_family_test(kernel,dir);family_test(kernel,dir);component_test(kernel,dir);bend_state_test(kernel,dir);require(dir.parent_path()==root,"Unsafe test cleanup");fs::remove_all(dir);std::cout<<"Linked Family Table, component insertion/replacement, cold nested sources, shared history, drawings and CLI passed\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}
+int main(){try{kernel::OcctKernel kernel;const auto root=fs::canonical(fs::temp_directory_path());const auto dir=root/("zima-family-"+document::PartDocument::create_default().document_id);fs::create_directory(dir);mirror_family_test(kernel,dir);if(!std::getenv("ZIMA_VERIFY_MIRROR_FAMILY_MODEL")){fractional_family_test(kernel,dir);family_test(kernel,dir);component_test(kernel,dir);bend_state_test(kernel,dir);std::cout<<"Linked Family Table, component insertion/replacement, cold nested sources, shared history, drawings and CLI passed\n";}require(dir.parent_path()==root,"Unsafe test cleanup");fs::remove_all(dir);return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

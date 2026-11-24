@@ -1,4 +1,5 @@
 #include <zima/render/renderer.hpp>
+#include <zima/kernel/appearance_resolution.hpp>
 #include <zima/render/spot_cone.hpp>
 #include <algorithm>
 #include <atomic>
@@ -277,7 +278,16 @@ Scene::Scene(SceneInput input,std::stop_token stop) {
             auto body_id=source.body_id;
             if(const auto it=input.appearance.owner_bodies.find(ref.owner_id);it!=input.appearance.owner_bodies.end())body_id=it->second;
             if(const auto it=input.appearance.bodies.find(body_id);it!=input.appearance.bodies.end())style=it->second;
-            if(const auto it=face_styles.find(ref.owner_id+"::"+ref.semantic_key);it!=face_styles.end())style=it->second;
+            if(const auto* inherited=kernel::copied_face_style(ref.owner_id,ref.semantic_key,
+                    [&](const auto& owner,const auto& key)->const kernel::SurfaceStyle* {
+                        const auto found=face_styles.find(owner+"::"+key);
+                        return found==face_styles.end()?nullptr:&found->second;
+                    },[&](const auto& owner)->const kernel::SurfaceStyle* {
+                        const auto found=input.appearance.owner_bodies.find(owner);
+                        if(found!=input.appearance.owner_bodies.end())
+                            if(const auto body=input.appearance.bodies.find(found->second);body!=input.appearance.bodies.end())return &body->second;
+                        return nullptr;
+                    }))style=*inherited;
             if(!data->definition.settings.use_model_finish){style.roughness=data->definition.settings.roughness;style.metallic=data->definition.settings.metallic;}
             Triangle triangle{a,b,c,unit(cross_normal),{},{},{},material(style),ref.surface};
             triangle.bounds.add(a);triangle.bounds.add(b);triangle.bounds.add(c);

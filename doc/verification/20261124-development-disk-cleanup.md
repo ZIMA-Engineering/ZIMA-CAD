@@ -28,3 +28,13 @@ Total reclaimed space is approximately 11.1 GiB. After concurrent development
 builds, the observed free space was 14.54 GiB. This is a point-in-time measurement,
 not a guarantee about later disk use. Local inventories and digest evidence are
 under `build/fem-20261124/cleanup-inventory.json` and `cleanup-archives.json`.
+
+## Superseded 2401 candidate staging
+
+Before preparing 2402, the verified disposable assembly/extraction directory
+`C:/zcb/r2002/p-4nlgjo2l` was removed, reclaiming 7,546,362,909 bytes. Its candidate
+ZIP and validation evidence were retained and its archive SHA-256 checked before
+deletion. The clean `C:/zcb/zc2401-release-tree` worktree was also removed through
+Git after checking its status; the source commit and local tag remain available.
+These were temporary release inputs, not user projects or SDKs. The reusable
+release build stage and protected Toyota backup remain intact.

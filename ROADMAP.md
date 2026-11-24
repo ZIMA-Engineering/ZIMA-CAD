@@ -15,6 +15,28 @@ remains separate. This update supersedes the older FEM planning entries below.
 
 ## Future work proposals
 
+### Native Blender geometry import (TODO, 2026-11-24)
+
+- Load geometry directly from native Blender `.blend` files. The user confirmed
+  geometry-only import as the first scope; materials, animation and other scene
+  data are possible later extensions.
+- Define supported geometry and Blender versions during implementation. Preserve
+  object placement, units and handedness, and store the imported result in the
+  native CAD document. Do not imply reconstruction of a CAD feature history.
+- This item is planned, not implemented; it does not change a document format.
+
+### Direct 3D curve editing and reconstruction (TODO, 2026-11-24)
+
+- Support shaping curves by dragging points in 3D, with an interaction inspired
+  by Blender. The intended output is native mathematical spline geometry usable
+  by CAD surface and solid operations, not only displaced mesh vertices.
+- Preserve applicable constraints, reference identity, editable dimensions,
+  Undo/Redo and native save/reopen. Reuse existing native curve editing where it
+  applies; define any additional freeform controls separately.
+- For polygonal imports, reconstruct curves and surfaces against an explicit
+  fitting tolerance and report the measured deviation. Mesh samples alone do not
+  uniquely identify the original exact curves. This remains future work.
+
 ### 3Dconnexion 3D mouse support (TODO, 2026-11-23)
 
 - Add support for 3Dconnexion SpaceMouse devices for simultaneous model-view

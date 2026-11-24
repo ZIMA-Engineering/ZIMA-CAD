@@ -20,6 +20,7 @@
 #include <zima/document/part_document.hpp>
 #include <zima/kernel/pattern_geometry.hpp>
 #include <zima/kernel/axis_display.hpp>
+#include <zima/kernel/appearance_resolution.hpp>
 using namespace zima;
 void require(bool ok, const char *message) {
   if (!ok)
@@ -32,6 +33,63 @@ void render() {
     QApplication::processEvents();
     QThread::msleep(5);
   }
+}
+void mirrored_appearance() {
+  kernel::Appearance appearance;
+  appearance.bodies["source-body"]={"#E53935",.32,.7};
+  appearance.owner_bodies={{"source","source-body"},{"mirror","mirror-body"},{"nested","nested-body"}};
+  appearance.groups.push_back({"white","White face","source-body",{"#ECEFF1",.1,.2},{"source::cap"}});
+  const kernel::FaceReference face{"mirror",kernel::mirror_source_key("source","cap"),{}};
+  const kernel::FaceReference other{"mirror",kernel::mirror_source_key("source","side"),{}};
+  require(*kernel::copied_face_style(appearance,face)==appearance.groups.front().style,"Mirror lost its source face finish");
+  require(*kernel::copied_face_style(appearance,other)==appearance.bodies.at("source-body"),"Mirror lost its source Body finish");
+  const kernel::FaceReference nested{"nested",kernel::mirror_source_key("mirror",face.semantic_key),{}};
+  require(*kernel::copied_face_style(appearance,nested)==appearance.groups.front().style,"Nested Mirror lost face ancestry");
+  appearance.groups.front().style.color="#2277CC";
+  require(kernel::copied_face_style(appearance,nested)->color=="#2277CC","Mirror retained stale source colors");
+  appearance.bodies["mirror-body"]={"#CCAA22",.5,0};
+  require(*kernel::copied_face_style(appearance,face)==appearance.bodies.at("mirror-body"),"Explicit Mirror appearance does not override inheritance");
+  appearance.groups.push_back({"override","Override","mirror-body",{"#226644",.2,.4},{face.owner_id+"::"+face.semantic_key}});
+  require(*kernel::copied_face_style(appearance,face)==appearance.groups.back().style,"Explicit Mirror face style lost precedence");
+  const auto roundtrip=document::deserialize_appearance(document::serialize_appearance(appearance));
+  require(*kernel::copied_face_style(roundtrip,face)==appearance.groups.back().style,"Mirror colors lost native persistence");
+  std::cout<<"Mirror source Body/face finish, nested copies, changed source, explicit overrides and persistence passed\n";
+}
+void mirrored_view_presentation() {
+  kernel::ViewerMesh source;
+  source.vertices={{-2,-1,0},{2,-1,0},{0,2,0}};source.triangles={0,1,2};
+  source.triangle_references={{"source","cap",{}}};
+  for(int i=0;i<3;++i) {
+    kernel::ViewerEdge edge;edge.points={source.vertices[i],source.vertices[(i+1)%3]};
+    edge.reference={"source","edge:"+std::to_string(i),{}};source.edges.push_back(edge);
+    kernel::ViewerPoint point;point.position=source.vertices[i];point.reference={"source","vertex:"+std::to_string(i),{}};
+    point.always_visible=false;point.display_owner_id="source";source.points.push_back(point);
+  }
+  source.original_references={source.vertices,source.triangles,source.triangle_references,source.edges,source.points,{}};
+  const auto copied=kernel::mirrored_viewer_mesh(source,{{0,0,0},{1,0,0}},"mirror");
+  viewer::MeshView view;view.resize(600,450);view.show();
+  view.set_candidate_filter([](const auto&){return false;});view.set_mesh(copied);view.set_standard_view(viewer::StandardView::Top);
+  view.set_body_surface_styles({}, {},{{"\x1fsource",{"#E53935",.35,.6}}},{{"\x1fsource\x1f" "cap",{"#ECEFF1",.1,.2}}});
+  for(int i=0;i<4;++i)render();const auto inherited=view.grabFramebuffer();
+  view.set_body_surface_styles({}, {},{{"\x1fmirror",{"#ECEFF1",.1,.2}}});render();
+  require(inherited==view.grabFramebuffer(),"Mirror View does not inherit source face color and finish");
+  view.set_body_surface_styles({}, {},{{"\x1fsource",{"#E53935",.35,.6}}});render();const auto inherited_body=view.grabFramebuffer();
+  view.set_body_surface_styles({}, {},{{"\x1fmirror",{"#E53935",.35,.6}}});render();
+  require(inherited_body==view.grabFramebuffer()&&inherited_body!=inherited,"Mirror View does not inherit source Body color and finish");
+  view.set_container_preview_provider([&](const auto&,const auto&){return copied.edges;},[](const auto&,const auto&){return true;});
+  for(const bool component:{false,true}) {
+    const auto select=[&] {
+      if(component)view.confirm_container_component_wire("mirror","body",copied.edges,{});
+      else view.confirm_container("mirror");
+      render();
+    };
+    view.set_mesh(copied,false);select();const auto with_points=view.grabFramebuffer();
+    auto without=copied;without.points.clear();without.original_references.points.clear();
+    view.set_mesh(without,false);select();
+    require(with_points==view.grabFramebuffer(),"Whole Mirror selection exposed its topology points");
+    require(with_points!=inherited_body,"Whole Mirror selection has no wire feedback");
+  }
+  std::cout<<"Mirror View face/Body appearance and whole-container selection without topology points passed\n";
 }
 void copied_axis_presentation() {
   kernel::ViewerMesh source;
@@ -104,6 +162,8 @@ void coincident_transparent_surface() {
 int main(int argc, char **argv) {
   QApplication app(argc, argv);
   try {
+    mirrored_appearance();
+    mirrored_view_presentation();
     coincident_transparent_surface();
     copied_axis_presentation();
     kernel::Appearance a;
