@@ -1,0 +1,323 @@
+{
+  "release": {
+    "version": "2026112404",
+    "commit": "3e826acd81163d5f4d14cf4e6549c9625dc63715",
+    "tag": "ZIMA-CAD-2026112404",
+    "url": "https://github.com/ZIMA-Engineering/ZIMA-CAD/releases/tag/ZIMA-CAD-2026112404",
+    "published_at": "2026-11-24T18:18:56Z"
+  },
+  "public_assets": [
+    {
+      "name": "ZIMA-CAD-2026112404.zip",
+      "size": 1002683986,
+      "sha256": "13925896e8953489bcfd7adcc382e35d64a24331904e6efe6eab172bb0153289",
+      "github_digest_matches": true,
+      "anonymous_download_matches": true
+    },
+    {
+      "name": "update-manifest.json",
+      "size": 704,
+      "sha256": "7a2c17d5ea87c10175bcd84c13ed15eaf1e596935a5a7eaf2cfaa32600c8bcbf",
+      "github_digest_matches": true,
+      "anonymous_download_matches": true
+    },
+    {
+      "name": "update-manifest.sig",
+      "size": 176,
+      "sha256": "79d19af29a77045b146478ae1a7edf780d2ab62c7cdd62c5594e6bc93c449ff2",
+      "github_digest_matches": true,
+      "anonymous_download_matches": true
+    }
+  ],
+  "publisher_signature": {
+    "key_id": "zcp-8fa1f825cbde5d81",
+    "verification": "passed"
+  },
+  "candidate": {
+    "archive_sha256": "8d9f03c1fe8807b2bcda4325cf4738f27b0c49ff34f0d3e562caff21b263d66b",
+    "windows_smoke": "passed",
+    "native_factory_assets_loaded": 1190,
+    "sheet_branch_tests": {
+      "log_sha256": "b9c8f9f368cb5d256ea619a14be1ba450dff0be966710905f22d2172d7030ad0",
+      "result": "passed",
+      "tests": [
+        "zima_cpp_bend_end_constraints_contract",
+        "zima_cpp_sheet_branch_common-parent",
+        "zima_cpp_sheet_branch_contained",
+        "zima_cpp_sheet_branch_edge-contact",
+        "zima_cpp_sheet_branch_face-contact",
+        "zima_cpp_sheet_branch_gui",
+        "zima_cpp_sheet_branch_line-bend",
+        "zima_cpp_sheet_branch_overlap",
+        "zima_cpp_sheet_branch_point-contact",
+        "zima_cpp_sheet_branch_separated",
+        "zima_cpp_sheet_exchange_tests",
+        "zima_cpp_sheet_transition_command_tests"
+      ]
+    }
+  },
+  "signed_release": {
+    "fileCount": 17989,
+    "name": "ZIMA-CAD-2026112404.zip",
+    "sha256": "13925896e8953489bcfd7adcc382e35d64a24331904e6efe6eab172bb0153289",
+    "size": 1002683986,
+    "unpackedSize": 3290420679,
+    "windows_smoke": "passed",
+    "linux_smoke": "not-run"
+  },
+  "verification": {
+    "localization_catalog_coverage": "passed",
+    "public_archive_safe_extraction": "passed",
+    "archive_privacy": {
+      "members": 17989,
+      "sha256": "13925896e8953489bcfd7adcc382e35d64a24331904e6efe6eab172bb0153289",
+      "private_browser_or_key_members": 0,
+      "user_project_members": 0,
+      "source_included": true,
+      "crc": "passed"
+    },
+    "packaged_gui": {
+      "version": "2026112404",
+      "commit": "3e826acd81163d5f4d14cf4e6549c9625dc63715",
+      "identities": {
+        "zima-cad-cpp.exe": {
+          "product": "ZIMA-CAD",
+          "version": "2026112404",
+          "commit": "3e826acd81163d5f4d14cf4e6549c9625dc63715",
+          "source_modified": false,
+          "platform": "windows-x64",
+          "qt": "6.11.0",
+          "occt": "8.0.1",
+          "compiler": "MSVC 19.51.36248.0",
+          "configuration": "Release"
+        },
+        "zima-cad-cli.exe": {
+          "product": "ZIMA-CAD",
+          "version": "2026112404",
+          "commit": "3e826acd81163d5f4d14cf4e6549c9625dc63715",
+          "source_modified": false,
+          "platform": "windows-x64",
+          "qt": "6.11.0",
+          "occt": "8.0.1",
+          "compiler": "MSVC 19.51.36248.0",
+          "configuration": "Release"
+        }
+      },
+      "cases": [
+        {
+          "name": "render",
+          "exit_code": 0,
+          "seconds": 19.868,
+          "log_sha256": "bd90f701ec4109042ddd06129059babcb5e53d06f0043340162fee7da6e624a2"
+        },
+        {
+          "name": "sections",
+          "exit_code": 0,
+          "seconds": 20.517,
+          "log_sha256": "5d238891f37fcbb4da38842392c25aa3b9f8653aef0d3f25370018828be942dd"
+        },
+        {
+          "name": "cam",
+          "exit_code": 0,
+          "seconds": 5.967,
+          "log_sha256": "b45def62e9236fa7be634da2e2d8426ede85652e9f1f962c30d0851ac12693e7"
+        },
+        {
+          "name": "new-documents",
+          "exit_code": 0,
+          "seconds": 40.144,
+          "log_sha256": "69ebd01be3949866b32a6ef80cbc62a92b9c28038751ae319b7db30bc814e8df"
+        },
+        {
+          "name": "ordered-up-to",
+          "exit_code": 0,
+          "seconds": 9.476,
+          "log_sha256": "7c7c2b6a780735b7f6128ae303f14b88536fa63fa582f695ff38771685694db9"
+        },
+        {
+          "name": "fillet",
+          "exit_code": 0,
+          "seconds": 42.291,
+          "log_sha256": "04cf538139ae9c89a9ec8215119941238114a6e7dca0e24460db0bc7179141ce"
+        },
+        {
+          "name": "oversized-preview",
+          "exit_code": 0,
+          "seconds": 2.309,
+          "log_sha256": "0439c83298f403bf2de3bd1dadbfd55207e7bc39ad4ce8930f0803c6b00367c2"
+        },
+        {
+          "name": "oversized-rollback",
+          "exit_code": 0,
+          "seconds": 6.084,
+          "log_sha256": "36df52c6f2761aca45531f9cde856f18dfdb4d8a542c678e446cd665204e41e9"
+        },
+        {
+          "name": "oversized-inspection",
+          "exit_code": 0,
+          "seconds": 3.059,
+          "log_sha256": "90f511832b53b6ff3ebbe05fd256a998844c019685d61b3be43e221f83b63086"
+        },
+        {
+          "name": "mirror",
+          "exit_code": 0,
+          "seconds": 76.183,
+          "log_sha256": "1a1b82a195ca3f6924f6de363fd7d17b6a358b185b57599408773d394059f880"
+        },
+        {
+          "name": "copy-save",
+          "exit_code": 0,
+          "seconds": 2.124,
+          "log_sha256": "bb7d0ff996d9344364980f982322b557ae42cba970df7de0b8fc934a8d476002"
+        },
+        {
+          "name": "family",
+          "exit_code": 0,
+          "seconds": 5.378,
+          "log_sha256": "a301556236396d5f14ce68a9781b73fcb109068bffab1ff015813d8952b94a8b"
+        },
+        {
+          "name": "assembly-reference-tools",
+          "exit_code": 0,
+          "seconds": 11.767,
+          "log_sha256": "2f3512eac8991583c87b49abbd9d0a9cedcf965aae6f752cb502266d61ddc608"
+        },
+        {
+          "name": "model50",
+          "exit_code": 0,
+          "seconds": 42.415,
+          "log_sha256": "b8ec48bfad4cc845bdb7127909f3dcb83d5f605ee4ef688c06f521c138e90a59"
+        },
+        {
+          "name": "wrap",
+          "exit_code": 0,
+          "seconds": 10.795,
+          "log_sha256": "d468ef3907d2b63cc77c0f2022027849f6380b098ef3961f4800e1085f1f3e81"
+        },
+        {
+          "name": "fem-player-video",
+          "exit_code": 0,
+          "seconds": 64.047,
+          "log_sha256": "ac66997690697b19f75c4d5180e3c78aee762a2c09b2291a88239e56189a6a42"
+        }
+      ],
+      "binary_sha256": {
+        "zima-cad-cpp.exe": "bbf19c7d3dccbe47bbdafc547c09635712f319bda5895080222a39bc1c803037",
+        "zima-cad-cli.exe": "dd2931666399de08144ab579abd444020160ff5df6d56b0a6202432aee5da4e6",
+        "zima-cad-update.exe": "5fd012807122b3b515f7853e854e1ea52908cec5e7149df336a72d39abc62545"
+      }
+    },
+    "candidate_isolation_recheck": {
+      "reason": "Concurrent GUI verification changed the shared test installation configuration.",
+      "unchanged_source_commit": "3e826acd81163d5f4d14cf4e6549c9625dc63715",
+      "unchanged_candidate_sha256": "8d9f03c1fe8807b2bcda4325cf4738f27b0c49ff34f0d3e562caff21b263d66b",
+      "isolated_smoke": "passed",
+      "configuration_preservation": "passed",
+      "factory_loads": 1190
+    },
+    "public_and_local_binaries_match_gui_tested_candidate": true,
+    "updater_status": {
+      "event": "result",
+      "installedVersion": "2026112404",
+      "schemaVersion": 1,
+      "status": "idle",
+      "trusted": true
+    },
+    "updater_check": {
+      "event": "result",
+      "installedVersion": "2026112404",
+      "schemaVersion": 1,
+      "status": "current"
+    },
+    "local_development_installation": {
+      "version": "2026112404",
+      "commit": "3e826acd81163d5f4d14cf4e6549c9625dc63715",
+      "copied_files": [
+        {
+          "name": "zima-cad-cpp.exe",
+          "sha256": "bbf19c7d3dccbe47bbdafc547c09635712f319bda5895080222a39bc1c803037"
+        },
+        {
+          "name": "zima-cad-cli.exe",
+          "sha256": "dd2931666399de08144ab579abd444020160ff5df6d56b0a6202432aee5da4e6"
+        },
+        {
+          "name": "zima-cad-update.exe",
+          "sha256": "5fd012807122b3b515f7853e854e1ea52908cec5e7149df336a72d39abc62545"
+        },
+        {
+          "name": "avcodec-61.dll",
+          "sha256": "234b8fb87d31ab4354266e371ddbd31f48ec03b577ed6ae5c92627574c0306f3"
+        },
+        {
+          "name": "avformat-61.dll",
+          "sha256": "9f4a77b9e0ca76ed468ea03e98432ea535aeef885ffb0241aaaa692b3aab53c1"
+        },
+        {
+          "name": "avutil-59.dll",
+          "sha256": "84caa85aa91dc13b717d8929d6e4f8cb41b2e278280595cde0564d2898e40800"
+        },
+        {
+          "name": "swresample-5.dll",
+          "sha256": "5a19dc6f6f2ec8ef038af7086c899520a4ba8ac316c105057ff6c8a212f75abc"
+        },
+        {
+          "name": "swscale-8.dll",
+          "sha256": "119df11c41ad1d5c76e854782919bf5118085a5efab335acfb1998bdaa17ca3b"
+        }
+      ],
+      "identities": {
+        "zima-cad-cpp.exe": {
+          "product": "ZIMA-CAD",
+          "version": "2026112404",
+          "commit": "3e826acd81163d5f4d14cf4e6549c9625dc63715",
+          "source_modified": false,
+          "platform": "windows-x64",
+          "qt": "6.11.0",
+          "occt": "8.0.1",
+          "compiler": "MSVC 19.51.36248.0",
+          "configuration": "Release"
+        },
+        "zima-cad-cli.exe": {
+          "product": "ZIMA-CAD",
+          "version": "2026112404",
+          "commit": "3e826acd81163d5f4d14cf4e6549c9625dc63715",
+          "source_modified": false,
+          "platform": "windows-x64",
+          "qt": "6.11.0",
+          "occt": "8.0.1",
+          "compiler": "MSVC 19.51.36248.0",
+          "configuration": "Release"
+        }
+      },
+      "preserved_config_and_launcher": {
+        "zima-cad.bat": "2eecdbd63408afd05de6bdd800cfb56edd007ba0e86eb7a4e017bf10528263d0",
+        "config\\config.ini": "2be01c549d9464065f5cb75f30f961055b4ef1ee4bc0cff8af7e44ca62e13d72",
+        "config\\config.ini.1": "2be01c549d9464065f5cb75f30f961055b4ef1ee4bc0cff8af7e44ca62e13d72",
+        "config\\config.ini.2": "9b2fa5fc415df0419582e04d15c97fe90d7eee1a4b75fb56a9b25f0f9a566da8"
+      },
+      "backup": "C:\\Users\\vladi\\Prace\\ZIMA-Engineering\\00-SOFTWARE\\01-ZIMA\\ZIMA-CAD\\build\\release-2026112404\\before-2404-local"
+    }
+  },
+  "user_copy_verification": {
+    "originals_unchanged": true,
+    "model50_regeneration": "passed",
+    "model50_sha256": "388a12792b3cbbea2ba0e1990342f3e1caccb0e5d6a5761edeae5dc8cda75abb",
+    "toyota_protected_original_count": 172,
+    "toyota_native_copies": 10,
+    "toyota_supported_copies": 2,
+    "toyota_preexisting_unsupported_copies": 8
+  },
+  "limits": [
+    "Native Linux execution not performed.",
+    "Finite geometry and GUI coverage is documented in 20261124-wrap.md and 20261124-fem-player-and-video.md.",
+    "Dedicated interactive external-Skeleton and nested-Assembly Wrap matrix not performed.",
+    "Assembly Render and the remaining CAM editors are future work."
+  ],
+  "disk_cleanup": {
+    "retained_signed_archive_sha256": "13925896e8953489bcfd7adcc382e35d64a24331904e6efe6eab172bb0153289",
+    "generated_release_copies_removed_bytes": 9994792443,
+    "free_bytes_after_cleanup": 14352097280,
+    "user_models_and_configuration": "preserved"
+  }
+}

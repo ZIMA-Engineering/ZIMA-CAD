@@ -1,7 +1,7 @@
 # FEM player, video export and activation visibility
 
-Status: verified in the private Windows development build; not published.
-Baseline: `ab2ed1633` with the pending changes described below.
+Status: verified in the Windows development runtime and signed portable 2026112404.
+Development baseline: `ab2ed1633`.
 
 ## Behavior and ownership
 
@@ -56,11 +56,17 @@ The complete translation coverage contract and FEM GUI language/theme matrix
 passed after the final changes. Player time values use the UI locale's numeric
 formatting.
 
-## Remaining gates
+## Platform coverage
 
-The private run used the matching Qt SDK plugin directory. Deployment and MP4
-export/playback from the final portable runtime still require verification.
+The private run used the matching Qt SDK plugin directory. The final portable
+runtime subsequently passed deployment and MP4 export/playback verification.
 Linux build, multimedia dependency closure and GUI execution remain unverified
 and are recorded in `doc/LINUX_RELEASE_HANDOFF.md`.
-Wrap is separate ongoing work and is not claimed complete here. The user removed
+Wrap is verified separately in [its finite matrix](20261124-wrap.md). The user removed
 Unwrap from the agreed scope; the original planar Sketch remains editable.
+
+## Portable publication acceptance
+
+The Windows 2026112404 portable build repeats the relevant GUI matrix with only
+its own dependencies. Wrap and full FEM video export/decode pass. Native Linux
+execution remains unverified. See [publication evidence](20261124-windows-2404-publication.json).

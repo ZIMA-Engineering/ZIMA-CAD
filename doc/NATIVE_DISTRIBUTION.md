@@ -1,5 +1,18 @@
 # Native versioned distribution
 
+Signed Windows [2026112404](releases/2026112404.md#distribution-status) was
+published at `2026-11-24T18:18:56Z` from immutable source
+`3e826acd81163d5f4d14cf4e6549c9625dc63715`. It adds Wrap sketch/relief on cylinders, cones and
+spheres, embedded curved artwork, direct FEM result controls, the result player
+and external MP4 export. Active-FEM mesh visibility is restored correctly.
+Candidate and signed smoke, 1,190 factory loads, twelve sheet-branch gates and
+sixteen additional packaged GUI cases pass. Public downloads, signature, safe
+extraction and production updater trust/current status pass. The unchanged
+development BAT uses the verified binaries; personal settings are preserved.
+User models were checked on copies. Native Linux and the documented finite Wrap,
+Assembly Render and CAM gaps remain separate. See the
+[publication evidence](verification/20261124-windows-2404-publication.json).
+
 Signed Windows [2026112403](releases/2026112403.md#distribution-status) was
 published at `2026-11-24T13:56:30Z` from immutable source
 `858e66e3fa31876aac2f1c35cd7079b57fae68fa`. It repairs FEM placement regeneration, enables FEM Origin references,
