@@ -1,4 +1,5 @@
 {
+  "Renders": "Renderings",
   "CAM": "CAM",
   "CAM setup properties": "CAM-Aufspannungseigenschaften",
   "CAM setup": "CAM-Aufspannung",
@@ -418,7 +419,6 @@
   "Keep current registration": "Aktuelle Registrierung beibehalten",
   "Register or repair": "Registrieren oder reparieren",
   "Remove this registration": "Diese Registrierung entfernen",
-  "Register .prtz, .asmz, .drwz, .frmz, .tblz and .symz with their icons for this user. Existing default applications are preserved.": "Dateitypen .prtz, .asmz, .drwz, .frmz, .tblz und .symz mit ihren Symbolen für diesen Benutzer registrieren. Bestehende Standardanwendungen bleiben erhalten.",
   "Default applications": "Standardanwendungen",
   "Desktop integration is registered.": "Die Desktop-Integration ist registriert.",
   "Desktop integration is not registered or needs repair.": "Die Desktop-Integration ist nicht registriert oder muss repariert werden.",
@@ -732,7 +732,6 @@
   "Zpět do sestavy": "Zurück zur Baugruppe",
   "Vytvořit těleso": "Körper erstellen",
   "Potlačit": "Unterdrücken",
-  "Dokumenty ZIMA-CAD (*.prtz *.asmz *.drwz *.frmz *.tblz *.symz)": "ZIMA-CAD-Dokumente (*.prtz *.asmz *.drwz *.frmz *.tblz *.symz)",
   "O aplikaci ZIMA-CAD": "Über ZIMA-CAD",
   "Uložit sestavu ZIMA-CAD": "ZIMA-CAD-Baugruppe speichern",
   "Sestava ZIMA-CAD (*.asmz)": "ZIMA-CAD-Baugruppe (*.asmz)",
@@ -3204,5 +3203,17 @@
   "From target surface": "Ab Zielfläche",
   "Keep only the layer between the target and its correction along the extrusion direction.": "Nur die Schicht zwischen dem Ziel und seiner Korrektur in Extrusionsrichtung beibehalten.",
   "From target surface requires a solid profile and a nonzero correction larger than the modeling tolerance.": "Ab Zielfläche erfordert ein Volumenprofil und eine Korrektur ungleich null, die größer als die Modellierungstoleranz ist.",
-  "The target surface layer could not be constructed.": "Die Schicht ab der Zielfläche konnte nicht erstellt werden."
+  "The target surface layer could not be constructed.": "Die Schicht ab der Zielfläche konnte nicht erstellt werden.",
+  "CAM machine library": "CAM-Maschinenbibliothek",
+  "CAM tool library": "CAM-Werkzeugbibliothek",
+  "CAM workholding library": "CAM-Spannmittelbibliothek",
+  "Libraries may contain subfolders. Paths are relative to this configuration file. A CAM setup keeps its own copy of each selected definition.": "Bibliotheken können Unterordner enthalten. Pfade beziehen sich auf diese Konfigurationsdatei. Eine CAM-Aufspannung behält eine eigene Kopie jeder ausgewählten Definition.",
+  "CAM tool": "CAM-Werkzeug",
+  "Cutting portion": "Schneidteil",
+  "Shank": "Schaft",
+  "Register .prtz, .asmz, .drwz, .frmz, .tblz, .symz and .toolz with their icons for this user. Existing default applications are preserved.": "Dateitypen .prtz, .asmz, .drwz, .frmz, .tblz, .symz und .toolz mit ihren Symbolen für diesen Benutzer registrieren. Bestehende Standardanwendungen bleiben erhalten.",
+  "Dokumenty ZIMA-CAD (*.prtz *.asmz *.drwz *.frmz *.tblz *.symz *.toolz)": "ZIMA-CAD-Dokumente (*.prtz *.asmz *.drwz *.frmz *.tblz *.symz *.toolz)",
+  "CAM tool (*.toolz)": "CAM-Werkzeug (*.toolz)",
+  "Expected part, assembly, drawing or tool.": "Bauteil, Baugruppe, Zeichnung oder Werkzeug erwartet.",
+  "Model ZIMA-CAD (*.prtz *.toolz *.asmz)": "ZIMA-CAD-Modell (*.prtz *.toolz *.asmz)"
 }

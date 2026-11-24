@@ -10,7 +10,7 @@ struct DocumentNaming {
         if(!uppercase&&!remove_diacritics&&!replace_spaces)return name;
         if(replace_spaces)name=name.trimmed();
         QString suffix;
-        for(const auto* extension:{".prtz",".asmz",".drwz",".tblz",".frmz"})
+        for(const auto* extension:{".toolz",".prtz",".asmz",".drwz",".tblz",".frmz"})
             if(name.endsWith(QLatin1String(extension),Qt::CaseInsensitive)) {
                 suffix=QLatin1String(extension);name.chop(suffix.size());break;
             }

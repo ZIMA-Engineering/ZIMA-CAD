@@ -1,0 +1,225 @@
+[Containers]
+items=
+
+[Document]
+appearance={"bodies":{},"body":{"color":"#B9C2CC","metallic":0.0,"roughness":0.55},"groups":[],"owners":{}}
+body_color=#B9C2CC
+body_history={"active":"01a20b20219572078e314b928cc7b346","bodies":[{"cursor":0,"dependencies":[],"derived_copy":null,"entries":[],"id":"01a20b20219572078e314b928cc7b346","link":null,"name":"Body","placement":{"absolute_rotation_x":0.0,"absolute_rotation_y":0.0,"absolute_rotation_z":0.0,"orientation_back":false,"orientation_quarter_turns":0,"reference_valid":true,"references":[{"branch_sources":[],"flip":false,"instance_path":"","offset":0.0,"offset_locked":false,"orientation_drives_rotation":false,"orientation_only":false,"orientation_role":"none","owner_id":"01a20b20219572078e314b928cc7b345:origin","semantic_key":"origin:plane:xy","solution_branch":0,"supports_offset":true,"use_angle":false,"use_axis":false},{"branch_sources":[],"flip":false,"instance_path":"","offset":0.0,"offset_locked":false,"orientation_drives_rotation":false,"orientation_only":false,"orientation_role":"none","owner_id":"01a20b20219572078e314b928cc7b345:origin","semantic_key":"origin:plane:xz","solution_branch":0,"supports_offset":true,"use_angle":false,"use_axis":false},{"branch_sources":[],"flip":false,"instance_path":"","offset":0.0,"offset_locked":false,"orientation_drives_rotation":false,"orientation_only":false,"orientation_role":"none","owner_id":"01a20b20219572078e314b928cc7b345:origin","semantic_key":"origin:plane:yz","solution_branch":0,"supports_offset":true,"use_angle":false,"use_axis":false},{"branch_sources":[],"flip":false,"instance_path":"","offset":0.0,"offset_locked":false,"orientation_drives_rotation":true,"orientation_only":true,"orientation_role":"front","owner_id":"01a20b20219572078e314b928cc7b345:origin","semantic_key":"origin:plane:xz","solution_branch":0,"supports_offset":false,"use_angle":false,"use_axis":false},{"branch_sources":[],"flip":false,"instance_path":"","offset":0.0,"offset_locked":false,"orientation_drives_rotation":true,"orientation_only":true,"orientation_role":"top","owner_id":"01a20b20219572078e314b928cc7b345:origin","semantic_key":"origin:plane:xy","solution_branch":0,"supports_offset":false,"use_angle":false,"use_axis":false}],"rotation_offset_x":0.0,"rotation_offset_y":0.0,"rotation_offset_z":0.0,"rotation_x":0.0,"rotation_y":0.0,"rotation_z":0.0,"value_locks":[],"x":0.0,"y":0.0,"z":0.0},"scale":null,"suppressed":false,"visible":true}],"booleans":[],"cursor":1,"order":["01a20b20219572078e314b928cc7b346"]}
+body_properties=[]
+calculated_definition=zima-part-definition-sha256-v1
+dimension_identifiers={"entries":[],"next":1}
+dimension_layouts=[]
+document_id=01a20b20219572078e314b928cc7b345
+family={"evaluated":{},"parent":"","row":""}
+family_table={"bindings":{},"columns":[],"instances":[]}
+form_corner_finish=false
+form_outward=false
+format_version=56
+history_cursor=0
+measurements=[]
+name=Three_axis_mill
+named_views=[]
+reference_errors={}
+removed_reference_states={}
+sections=[]
+sketch_views={}
+surface_wire_visibility={}
+symbol_annotations=[]
+symbol_editor_definition=null
+type=part
+
+[DocumentPrecision]
+angular_tolerance=0.001
+decimal_places=3
+linear_tolerance=0.001
+mesh_deflection=0.1
+sheet_cut_tolerance=0.05
+
+[DocumentUnits]
+Angle=deg
+Length=mm
+Mass=kg
+Stress=MPa
+Temperature=C
+Time=s
+
+[Material]
+Name=S235JR
+
+[MaterialDescriptions]
+CONDITION\cs=Stav materiálu
+CONDITION\de=Materialzustand
+CONDITION\en=Material condition
+CONDITION\fr=État du matériau
+CONDITION\ru=Состояние материала
+EMISSIVITY\cs=Emisivita
+EMISSIVITY\en=Emissivity
+EMISSIVITY\ru=Степень черноты
+HARDNESS\cs=Tvrdost
+HARDNESS\en=Hardness
+HARDNESS\ru=Твёрдость
+MASS_DENSITY\cs=Hustota
+MASS_DENSITY\de=Massendichte
+MASS_DENSITY\en=Mass density
+MASS_DENSITY\fr=Masse volumique
+MASS_DENSITY\ru=Плотность
+MATERIAL_NAME\cs=Materiál
+MATERIAL_NAME\de=Material
+MATERIAL_NAME\en=Material
+MATERIAL_NAME\fr=Matériau
+MATERIAL_NAME\ru=Материал
+POISSON_RATIO\cs=Poissonovo číslo
+POISSON_RATIO\en=Poisson ratio
+POISSON_RATIO\ru=Коэффициент Пуассона
+SHEAR_MODULUS\cs=Modul pružnosti ve smyku
+SHEAR_MODULUS\en=Shear modulus
+SHEAR_MODULUS\ru=Модуль сдвига
+SHEETMETAL_K_FACTOR\cs=K-faktor plechu
+SHEETMETAL_K_FACTOR\en=Sheet-metal K-factor
+SHEETMETAL_K_FACTOR\ru=Коэффициент K листового металла
+SPECIFIC_HEAT\cs=Měrná tepelná kapacita
+SPECIFIC_HEAT\en=Specific heat
+SPECIFIC_HEAT\ru=Удельная теплоёмкость
+STRESS_LIMIT_FOR_COMPRESSION\cs=Mez napětí v tlaku
+STRESS_LIMIT_FOR_COMPRESSION\en=Compressive stress limit
+STRESS_LIMIT_FOR_COMPRESSION\ru=Предел прочности при сжатии
+STRESS_LIMIT_FOR_SHEAR\cs=Mez smykového napětí
+STRESS_LIMIT_FOR_SHEAR\en=Shear stress limit
+STRESS_LIMIT_FOR_SHEAR\ru=Предел прочности при сдвиге
+STRESS_LIMIT_FOR_TENSION\cs=Mez napětí v tahu
+STRESS_LIMIT_FOR_TENSION\en=Tensile stress limit
+STRESS_LIMIT_FOR_TENSION\ru=Предел прочности при растяжении
+STRUCTURAL_DAMPING_COEFFICIENT\cs=Součinitel konstrukčního tlumení
+STRUCTURAL_DAMPING_COEFFICIENT\en=Structural damping coefficient
+STRUCTURAL_DAMPING_COEFFICIENT\ru=Коэффициент конструкционного демпфирования
+THERMAL_CONDUCTIVITY\cs=Tepelná vodivost
+THERMAL_CONDUCTIVITY\en=Thermal conductivity
+THERMAL_CONDUCTIVITY\ru=Теплопроводность
+THERMAL_EXPANSION_COEFFICIENT\cs=Součinitel teplotní roztažnosti
+THERMAL_EXPANSION_COEFFICIENT\en=Thermal expansion coefficient
+THERMAL_EXPANSION_COEFFICIENT\ru=Коэффициент теплового расширения
+THERM_EXPANSION_REF_TEMPERATURE\cs=Referenční teplota roztažnosti
+THERM_EXPANSION_REF_TEMPERATURE\en=Thermal expansion reference temperature
+THERM_EXPANSION_REF_TEMPERATURE\ru=Опорная температура расширения
+YOUNG_MODULUS\cs=Youngův modul
+YOUNG_MODULUS\en=Young's modulus
+YOUNG_MODULUS\ru=Модуль Юнга
+
+[MaterialProperties]
+CONDITION=EN 10025-2, válcovaný stav, reprezentativní hodnoty při 20 °C
+EMISSIVITY=7.000000E-01
+HARDNESS=120 HB
+MASS_DENSITY=7.850000E-06
+POISSON_RATIO=3.000000E-01
+SHEAR_MODULUS=8.076923E+04
+SHEETMETAL_K_FACTOR=0.318309886184
+SPECIFIC_HEAT=4.700000E+08
+STRESS_LIMIT_FOR_COMPRESSION=2.350000E+02
+STRESS_LIMIT_FOR_SHEAR=1.360000E+02
+STRESS_LIMIT_FOR_TENSION=2.350000E+02
+STRUCTURAL_DAMPING_COEFFICIENT=2.000000E-03
+THERMAL_CONDUCTIVITY=5.000000E+04
+THERMAL_EXPANSION_COEFFICIENT=1.200000E-05
+THERM_EXPANSION_REF_TEMPERATURE=20
+YOUNG_MODULUS=2.100000E+05
+
+[MaterialUnits]
+EMISSIVITY=1
+MASS_DENSITY=kg/mm^3
+POISSON_RATIO=1
+SHEAR_MODULUS=MPa
+SHEETMETAL_K_FACTOR=1
+SPECIFIC_HEAT=mm^2/(s^2*C)
+STRESS_LIMIT_FOR_COMPRESSION=MPa
+STRESS_LIMIT_FOR_SHEAR=MPa
+STRESS_LIMIT_FOR_TENSION=MPa
+STRUCTURAL_DAMPING_COEFFICIENT=1
+THERMAL_CONDUCTIVITY=mm*kg/(s^3*C)
+THERMAL_EXPANSION_COEFFICIENT=1/C
+THERM_EXPANSION_REF_TEMPERATURE=C
+YOUNG_MODULUS=MPa
+
+[Relations]
+Data="mass = model.mass\n"
+
+[Sketches]
+items=
+
+[UserParameterLabels]
+approved_by\cs=schvalil
+approved_by\de=Genehmigt von
+approved_by\en=Approved
+approved_by\fr=Approuvé par
+approved_by\ru=Утвердил
+cam_machine_axes\cs=pocet os
+cam_machine_axes\de=Anzahl Achsen
+cam_machine_axes\en=Axis count
+cam_machine_axes\fr=Nombre d’axes
+cam_machine_axes\ru=Число осей
+cam_maximum_feed_mm_min\cs=maximalni posuv [mm/min]
+cam_maximum_feed_mm_min\de=Maximaler Vorschub [mm/min]
+cam_maximum_feed_mm_min\en=Maximum feed [mm/min]
+cam_maximum_feed_mm_min\fr=Avance maximale [mm/min]
+cam_maximum_feed_mm_min\ru=Максимальная подача [мм/мин]
+cam_maximum_spindle_rpm\cs=maximalni otacky [1/min]
+cam_maximum_spindle_rpm\de=Maximale Drehzahl [1/min]
+cam_maximum_spindle_rpm\en=Maximum spindle speed [1/min]
+cam_maximum_spindle_rpm\fr=Vitesse maximale de broche [1/min]
+cam_maximum_spindle_rpm\ru=Максимальная частота вращения [1/мин]
+cam_rapid_mm_min\cs=rychloposuv [mm/min]
+cam_rapid_mm_min\de=Eilgang [mm/min]
+cam_rapid_mm_min\en=Rapid feed [mm/min]
+cam_rapid_mm_min\fr=Avance rapide [mm/min]
+cam_rapid_mm_min\ru=Быстрый ход [мм/мин]
+date\cs=datum
+date\de=Datum
+date\en=Date
+date\fr=Date
+date\ru=Дата
+drawn_by\cs=kreslil
+drawn_by\de=Gezeichnet von
+drawn_by\en=Drew
+drawn_by\fr=Dessiné par
+drawn_by\ru=Разработал
+mass\cs=hmotnost
+mass\de=Gewicht
+mass\en=Weight
+mass\fr=Masse
+mass\ru=Масса
+material\cs=material
+material\de=Material
+material\en=Material
+material\fr=Matériau
+material\ru=Материал
+name\cs=nazev
+name\de=Name
+name\en=Name
+name\fr=Nom
+name\ru=Наименование
+quantity\cs=mnozstvi
+quantity\de=Menge
+quantity\en=Quantity
+quantity\fr=Quantité
+quantity\ru=Количество
+revision\cs=verze
+revision\de=Version
+revision\en=Version
+revision\fr=Version
+revision\ru=Версия
+standard\cs=norma
+standard\de=Norm
+standard\en=Standard
+standard\fr=Norme
+standard\ru=Стандарт
+stock\cs=polotovar
+stock\de=Rohteil
+stock\en=Stock
+stock\fr=Ébauche
+stock\ru=Заготовка
+
+[UserParameterValues]
+Data={"approved_by":{"":""},"cam_machine_axes":{"":"3"},"cam_machine_kind":{"":"milling"},"cam_maximum_feed_mm_min":{"":"10000"},"cam_maximum_spindle_rpm":{"":"12000"},"cam_maximum_x_mm":{"":"500"},"cam_maximum_y_mm":{"":"500"},"cam_maximum_z_mm":{"":"500"},"cam_minimum_x_mm":{"":"-500"},"cam_minimum_y_mm":{"":"-500"},"cam_minimum_z_mm":{"":"-500"},"cam_postprocessor":{"":"generic"},"cam_rapid_mm_min":{"":"20000"},"date":{"":""},"drawn_by":{"":""},"mass":{"":"0"},"material":{"":"S235JR"},"name":{"":""},"quantity":{"":"1"},"revision":{"":"00"},"standard":{"":""},"stock":{"":""}}
+
+[UserParameters]
+Order=name, standard, stock, material, quantity, drawn_by, approved_by, revision, date, mass, cam_machine_axes, cam_maximum_spindle_rpm, cam_maximum_feed_mm_min, cam_rapid_mm_min, cam_machine_kind, cam_postprocessor, cam_minimum_x_mm, cam_maximum_x_mm, cam_minimum_y_mm, cam_maximum_y_mm, cam_minimum_z_mm, cam_maximum_z_mm
+

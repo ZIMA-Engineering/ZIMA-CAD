@@ -37,6 +37,11 @@ std::vector<std::filesystem::path> Workspace::save_copy(
     auto extension=target.extension().string();
     std::transform(extension.begin(),extension.end(),extension.begin(),[](unsigned char c){return std::tolower(c);});
     std::string expected=std::holds_alternative<PartState>(*source)?".prtz":std::holds_alternative<AssemblyState>(*source)?".asmz":".drwz";
+    if(const auto* part=std::get_if<PartState>(source)) {
+        auto source_extension=part->path.extension().string();
+        std::ranges::transform(source_extension,source_extension.begin(),[](unsigned char c){return std::tolower(c);});
+        if(source_extension==".toolz")expected=".toolz";
+    }
     if(const auto* part=std::get_if<PartState>(source);part&&(part->native_drawing_template||part->symbol_definition)) {
         expected=part->path.extension().string();
         std::ranges::transform(expected,expected.begin(),[](unsigned char c){return std::tolower(c);});
@@ -218,6 +223,9 @@ std::vector<std::filesystem::path> Workspace::save_copy(
             throw std::invalid_argument("Zdrojový dokument výkresu nelze otevřít.");
         model_path=std::visit([](const auto& state){return normalized(state.path);},*model);
         auto model_target=target;model_target.replace_extension(std::holds_alternative<PartState>(*model)?".prtz":".asmz");
+        auto model_extension=model_path.extension().string();
+        std::ranges::transform(model_extension,model_extension.begin(),[](unsigned char c){return std::tolower(c);});
+        if(std::holds_alternative<PartState>(*model)&&model_extension==".toolz")model_target.replace_extension(".toolz");
         const auto model_copy_id=zima::document::PartDocument::create_default().document_id;
         append_copy(*model,model_id,model_target,model_copy_id);
         append_drawing(*drawing,target,new_id,model_id,model_target,model_copy_id,model_path);

@@ -67,6 +67,20 @@ int main(int argc, char** argv) {
         require(settings.language == "de" && settings.units["Length"] == "cm", "common overrides lost");
         require(QDir::cleanPath(settings.resolved_paths["Templates"]) == root + "/config/my-templates", "platform-relative path wrong");
         require(settings.resolved_paths["WorkingDirectory"] == root + "/Projects", "portable project default wrong");
+        require(settings.resolved_paths["CamTools"].endsWith("/config/lib/CAM/Tools"),"CAM library default lost its factory configuration anchor");
+        {
+            QSettings config(root+"/config/"+platform+"/config.ini",QSettings::IniFormat);
+            config.setValue("CAM/ToolsDirectory","../custom-tools");config.sync();
+            auto cam=zima::app::ApplicationSettings::load(root+"/Projects",exe);
+            require(QDir::cleanPath(cam.resolved_paths["CamTools"])==root+"/config/custom-tools","CAM library override is not relative to its configuration");
+            cam.configured_paths["CamTools"]="../shared-tools";QString error;
+            require(cam.save(&error),"CAM library path save failed");
+            auto reopened=zima::app::ApplicationSettings::load(root+"/Projects",exe);
+            require(QDir::cleanPath(reopened.resolved_paths["CamTools"])==root+"/shared-tools","CAM library path changed after reopen");
+            QSettings saved_cam(root+"/config/"+platform+"/config.ini",QSettings::IniFormat);
+            require(saved_cam.contains("CAM/ToolsDirectory")&&!saved_cam.contains("Paths/CamTools"),"CAM path was saved outside its section");
+            saved_cam.remove("CAM/ToolsDirectory");saved_cam.sync();
+        }
         // Release factory config resolves the receiving user's home, not the build host.
         write(factory, factory_bytes + "[Paths]\nWorkingDirectory=~\n");
         require(zima::app::ApplicationSettings::load(root + "/Projects", exe).resolved_paths["WorkingDirectory"] == QDir::homePath(), "release home default wrong");

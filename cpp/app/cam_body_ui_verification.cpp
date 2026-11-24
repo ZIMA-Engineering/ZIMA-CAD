@@ -1,16 +1,20 @@
 #include "assembly_workspace_window.hpp"
 #include "cam_body_dialog.hpp"
 #include "cam_machine_dialog.hpp"
+#include "global_settings_dialog.hpp"
 #include "../tests/profile_solid_fixture.hpp"
 #include <zima/workspace/cam_operations.hpp>
 #include <zima/workspace/model_calculation.hpp>
 #include <zima/document/placement_orientation.hpp>
 #include <zima/document/viewer_packet_json.hpp>
 #include <zima/kernel/calculation_diagnostics.hpp>
+#include <zima/command_host/host.hpp>
 #include <zima/viewer/mesh_view.hpp>
 #include <QAction>
 #include <QApplication>
 #include <QDialogButtonBox>
+#include <QLabel>
+#include <QScopedValueRollback>
 #include <QMouseEvent>
 #include <QSettings>
 #include <QTemporaryDir>
@@ -139,7 +143,68 @@ int verify_cam_body(QApplication& application,AssemblyWorkspaceWindow& window,co
         apply_application_translations(application,window.application_settings_);apply_application_appearance(application,window.application_settings_);flush();
         check(window.grab().save(QString::fromStdString(document::path_to_utf8(directory/"cam-setup.png"))),"CAM capture failed");dialog->reject();flush();view->fit_all();flush();
         check(view->grabFramebuffer().save(QString::fromStdString(document::path_to_utf8(directory/"cam-stock-transparent.png"))),"CAM stock capture failed");
-        std::cout<<"CAM setup UI: "<<checks<<" checks passed; zero CAD calculations during setup editing\n";return 0;
+        {
+            const auto locale_directory=QString::fromStdString(document::path_to_utf8(
+                std::filesystem::path(__FILE__).parent_path().parent_path().parent_path()/"config/localization"));
+            QTemporaryDir config;
+            for(const auto* language:{"cs","en","de","fr","ru"}) {
+                QSettings ini(config.filePath("config.ini"),QSettings::IniFormat);
+                ini.setValue("Application/Language",language);ini.setValue("Paths/Localization",locale_directory);ini.sync();
+                auto settings=ApplicationSettings::load(config.path());apply_application_translations(application,settings);
+                GlobalSettingsDialog global(settings,&window);global.show();flush();
+                for(const auto* key:{"CamTools","CamMachines","CamFixtures"}) {
+                    auto* field=global.findChild<QLineEdit*>(QString("globalPath")+key);
+                    check(field&&field->text()==settings.configured_paths.value(key),"CAM library path field missing or changed");
+                }
+                bool translated=false;
+                for(auto* label:global.findChildren<QLabel*>())if(label->text()==settings.qt_translations.value("CAM tool library"))translated=true;
+                check(translated,"CAM library field was not translated");
+                global.findChild<QLineEdit*>("globalPathCamTools")->setText("custom-tools");
+                global.buttons()->button(QDialogButtonBox::Ok)->click();flush();
+                check(global.settings().configured_paths.value("CamTools")=="custom-tools","CAM library path edit was lost");
+            }
+            apply_application_translations(application,window.application_settings_);
+        }
+        // Use the actual GUI document factory and normal ownership/commands.
+        // A .toolz file changes library selection, not the Part editing model.
+        for(const auto* unit:{"mm","in"}) {
+            window.working_directory_=directory;window.application_settings_.units["Length"]=unit;
+            const auto error=window.create_document("tool",QString("tool-template-")+unit);check(error.isEmpty(),"GUI tool template creation failed");flush();
+            const auto tool_id=window.workspace_.active_document_id();
+            auto& tool_session=window.workspace_.open_part(tool_id)->session;
+            const auto& tool=tool_session.document();
+            const auto cutting=tool.user_parameters.at("cam_cutting_body"),shank=tool.user_parameters.at("cam_shank_body");
+            check(tool.document_units.at("Length")==unit&&tool.body_history.bodies().size()==2,"GUI tool template lost units/Bodies");
+            check(tool.body_history.active_body_id()==cutting&&window.sketch_action_->isEnabled(),"GUI tool did not activate an editable cutting Body");
+            window.activate_body({});flush();
+            const auto root_revision=tool_session.revision();
+            const auto root_create=window.command_host_->execute({{"command","sketch.create"},{"arguments",{{"name","Rejected root Sketch"},{"plane","XY"}}}});
+            check(!root_create.ok&&tool_session.revision()==root_revision,"Tool allowed root-level Sketch creation");
+            check(std::ranges::none_of(window.findChildren<QToolButton*>(),[&](auto* button){return button->defaultAction()==window.sketch_action_;}),"Tool root panel exposes the Sketch command");
+            window.activate_body(shank);flush();check(window.sketch_action_->isEnabled(),"Tool shank did not expose ordinary Modeling commands");
+            const auto result=window.command_host_->execute({{"command","sketch.create"},{"arguments",{{"name","Tool test profile"},{"plane","XY"}}}});
+            check(result.ok,"Ordinary Sketch creation failed in tool shank");
+            if(window.command_host_->change())window.apply_console_change(*window.command_host_->change());flush();
+            check(tool_session.document().sketches.size()==1,"Tool Sketch was not retained");
+            check(tool_session.document().body_owner_for_object(tool_session.document().sketches.front().owner_container_id)->scope.id==shank,"Tool Sketch escaped its owning Body");
+            {
+                const QScopedValueRollback capture_error(window.console_executing_,true);
+                window.console_operation_error_.clear();window.save_active_document();
+                if(!window.console_operation_error_.isEmpty())throw std::runtime_error(window.console_operation_error_.toStdString());
+            }
+            flush();
+            check(std::filesystem::exists(directory/(std::string("tool-template-")+unit+".toolz")),"GUI tool save failed");
+            const auto reopened=document::PartDocument::load(directory/(std::string("tool-template-")+unit+".toolz"));
+            check(reopened.sketches.size()==1&&reopened.body_history.active_body_id()==shank,"Tool save/reopen lost Sketch or active Body");
+            check(!std::filesystem::exists(directory/(std::string("tool-template-")+unit+".prtz")),"Tool save silently changed the extension");
+        }
+        {
+            const auto tool_path=std::filesystem::path(__FILE__).parent_path().parent_path().parent_path()/"config/lib/CAM/Tools/Milling/End_mill_10.toolz";
+            check(window.open_document_path(QString::fromStdString(document::path_to_utf8(tool_path))),"Factory tool did not open in the GUI");flush();
+            window.viewer_->fit_all();flush();
+            check(window.viewer_->grabFramebuffer().save(QString::fromStdString(document::path_to_utf8(directory/"cam-library-tool.png"))),"Tool framebuffer capture failed");
+        }
+        std::cout<<"CAM setup and tool template UI: "<<checks<<" checks passed; zero CAD calculations during setup editing\n";return 0;
     }catch(const std::exception& e){std::cerr<<"CAM setup UI after "<<checks<<" checks: "<<e.what()<<'\n';return 1;}
 }
 } // namespace zima::app

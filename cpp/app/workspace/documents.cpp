@@ -74,6 +74,7 @@ public:
             "title-block", true);
         part_->setChecked(true);
         add_type(layout, QObject::tr("Symbol"), "symbol", "symbol", true);
+        add_type(layout, QObject::tr("CAM tool"), "tool", "part", true);
         error_ = new QLabel(content);
         error_->setObjectName("newDocumentError");
         error_->setWordWrap(true);
@@ -179,7 +180,7 @@ QString AssemblyWorkspaceWindow::create_document(
             ? QStringLiteral(".asmz")
             : document_type == QStringLiteral("drawing")
                 ? QStringLiteral(".drwz") : document_type == "title_block" ? QStringLiteral(".tblz")
-                    : document_type == "drawing_format" ? QStringLiteral(".frmz") : document_type == "symbol" ? QStringLiteral(".symz") : QString{};
+                    : document_type == "drawing_format" ? QStringLiteral(".frmz") : document_type == "symbol" ? QStringLiteral(".symz") : document_type == "tool" ? QStringLiteral(".toolz") : QString{};
     if (suffix.isEmpty()) return tr("Tento typ dokumentu zatím není podporován.");
     const std::filesystem::path path = working_directory_ /
         std::filesystem::u8path(name + suffix.toStdString());
@@ -205,7 +206,7 @@ QString AssemblyWorkspaceWindow::create_document(
             if(type==workspace::NativeDocumentType::Drawing) {
                 const auto selected=open_file(this,tr("Zdroj výkresu"),
                     QString::fromStdString(zima::document::path_to_utf8(working_directory_)),
-                    tr("Model ZIMA-CAD (*.prtz *.asmz)"),application_settings_.translations);
+                    tr("Model ZIMA-CAD (*.prtz *.toolz *.asmz)"),application_settings_.translations);
                 if(selected.isEmpty())return tr("Vyberte zdrojový díl nebo sestavu pro nový výkres.");
                 const auto source_path=std::filesystem::u8path(selected.toStdString());
                 const auto source=workspace::read_native_document(source_path,workspace::native_source_resolver(workspace_));
@@ -323,7 +324,7 @@ void AssemblyWorkspaceWindow::open_document() {
         application_settings_.text("file.open_document", tr("Otevřít dokument")),
         QString::fromStdString(zima::document::path_to_utf8(working_directory_)),
         application_settings_.text("file.filter.document",
-            tr("Dokumenty ZIMA-CAD (*.prtz *.asmz *.drwz *.frmz *.tblz *.symz)")),
+            tr("Dokumenty ZIMA-CAD (*.prtz *.asmz *.drwz *.frmz *.tblz *.symz *.toolz)")),
         application_settings_.translations);
     if (path.isEmpty()) return;
     static_cast<void>(open_document_path(path));

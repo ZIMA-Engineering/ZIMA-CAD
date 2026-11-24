@@ -182,7 +182,7 @@ FileManagerNativeParameters AssemblyWorkspaceWindow::file_manager_native_paramet
             }
             return result;
         }
-        if(QStringList{"prtz","asmz","frmz","tblz","symz"}.contains(suffix)){
+        if(QStringList{"toolz","prtz","asmz","frmz","tblz","symz"}.contains(suffix)){
             const auto data=document::read_native_user_parameters(requested);
             struct ParameterInspection {
                 const decltype(data.flat)& user_parameters;
@@ -223,7 +223,7 @@ QString AssemblyWorkspaceWindow::edit_file_manager_native_parameter(const QStrin
             if(!file.open(QIODevice::WriteOnly)||file.write(content.data(),static_cast<qint64>(content.size()))!=static_cast<qint64>(content.size())||!file.commit())return file.errorString();
             return {};
         }
-        if(QStringList{"prtz","frmz","tblz","symz"}.contains(suffix)){std::vector<kernel::BodyResult> calculated;auto document=document::PartDocument::load(requested,&calculated);set_parameter(document,parameter,value,application_settings_.language);document.save(requested,calculated);return {};}
+        if(QStringList{"toolz","prtz","frmz","tblz","symz"}.contains(suffix)){std::vector<kernel::BodyResult> calculated;auto document=document::PartDocument::load(requested,&calculated);set_parameter(document,parameter,value,application_settings_.language);document.save(requested,calculated);return {};}
         if(suffix=="asmz"){auto document=assembly::AssemblyDocument::load(requested,{},false);set_parameter(document,parameter,value,application_settings_.language);document.save(requested);return {};}
         return tr("Tento typ souboru nemá upravitelné nativní parametry.");
     }catch(const std::exception& error){

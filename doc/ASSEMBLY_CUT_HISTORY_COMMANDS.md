@@ -1,5 +1,36 @@
 # Assembly profile-cut history
 
+## Preferred architecture agreed on 2026-11-24
+
+The user prefers a strict separation: Parts own geometry, multibody operations
+and CAM; Assemblies own component insertion, placement and constraints. A new
+machining Part takes Bodies from source Parts through the ordinary linked-Body
+workflow, then performs its own material operations and CAM. This is not a
+request to import an entire Assembly as a machining Part. Shared design Sketches
+and 3D curves should live in a source/skeleton Part rather than add another
+modeling context to the Assembly.
+
+The preferred final direction is to remove Assembly solid-authoring operations,
+rather than only hide their icons. Hiding authoring entry points can be an
+intermediate step; it does not itself remove persisted operations or calculation
+code. Before changing implementation or format, inventory existing Assembly cuts,
+their references and saved results, agree any required conversion, and verify
+copies under the native-format and protected-project rules. Do not silently drop
+existing geometry. The current commands documented below remain implemented.
+
+The intended design offers Render in both Parts and Assemblies with the same
+behavior. The current Part implementation groups independent Render definitions
+under Renders, directly below Sections. Assembly Render still requires its own
+implementation and persistence review. The presentation change does not change
+underlying placement or persistence contracts.
+
+Removing cut calculations can improve explicit regeneration of Assemblies that
+use cuts. It is not evidence that cut-free Assemblies, loading or navigation will
+be faster. Measure representative source hydration, mate solving, cut calculation
+and scene presentation separately before claiming a performance benefit.
+
+## Current implementation
+
 This extends [PROFILE_COMMANDS.md](PROFILE_COMMANDS.md). Operations manage only
 cuts in the exact open owning Assembly. These commands do not modify source
 Parts or internal components of inserted subassemblies.

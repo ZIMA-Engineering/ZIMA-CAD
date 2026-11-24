@@ -318,7 +318,7 @@ void AssemblyWorkspaceWindow::save_active_document() {
             tr("Díl ZIMA-CAD (*.prtz)")), "prtz",
         application_settings_.translations);
     if (path.isEmpty()) return;
-    if (!path.endsWith(".prtz", Qt::CaseInsensitive)) {
+    if (!path.endsWith(".prtz", Qt::CaseInsensitive)&&!path.endsWith(".toolz", Qt::CaseInsensitive)) {
         auto normalized = std::filesystem::u8path(path.toStdString());
         normalized.replace_extension(".prtz");
         path = QString::fromStdString(zima::document::path_to_utf8(normalized));
@@ -393,6 +393,9 @@ void AssemblyWorkspaceWindow::save_active_document_as() {
         filter = application_settings_.text("file.filter.part",
             tr("Díl ZIMA-CAD (*.prtz)"));
         suffix = "prtz";
+        if(QString::fromStdString(document::path_to_utf8(part->path)).endsWith(".toolz",Qt::CaseInsensitive)) {
+            fallback_name="tool.toolz";filter=tr("CAM tool (*.toolz)");suffix="toolz";
+        }
     } else {
         return;
     }

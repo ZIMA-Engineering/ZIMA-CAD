@@ -1,4 +1,5 @@
 {
+  "Renders": "Rendery",
   "CAM": "CAM",
   "CAM setup properties": "Vlastnosti nastavení CAM",
   "CAM setup": "Nastavení CAM",
@@ -418,7 +419,6 @@
   "Keep current registration": "Ponechat současnou registraci",
   "Register or repair": "Zaregistrovat nebo opravit",
   "Remove this registration": "Odebrat tuto registraci",
-  "Register .prtz, .asmz, .drwz, .frmz, .tblz and .symz with their icons for this user. Existing default applications are preserved.": "Zaregistrovat .prtz, .asmz, .drwz, .frmz, .tblz a .symz s jejich ikonami pro tohoto uživatele. Stávající výchozí aplikace zůstanou zachovány.",
   "Default applications": "Výchozí aplikace",
   "Desktop integration is registered.": "Integrace do systému je zaregistrována.",
   "Desktop integration is not registered or needs repair.": "Integrace do systému není zaregistrována nebo potřebuje opravu.",
@@ -732,7 +732,6 @@
   "Zpět do sestavy": "Zpět do sestavy",
   "Vytvořit těleso": "Vytvořit těleso",
   "Potlačit": "Potlačit",
-  "Dokumenty ZIMA-CAD (*.prtz *.asmz *.drwz *.frmz *.tblz *.symz)": "Dokumenty ZIMA-CAD (*.prtz *.asmz *.drwz *.frmz *.tblz *.symz)",
   "O aplikaci ZIMA-CAD": "O aplikaci ZIMA-CAD",
   "Uložit sestavu ZIMA-CAD": "Uložit sestavu ZIMA-CAD",
   "Sestava ZIMA-CAD (*.asmz)": "Sestava ZIMA-CAD (*.asmz)",
@@ -3204,5 +3203,17 @@
   "From target surface": "Od cílové plochy",
   "Keep only the layer between the target and its correction along the extrusion direction.": "Ponechat pouze vrstvu mezi cílem a jeho korekcí ve směru tažení.",
   "From target surface requires a solid profile and a nonzero correction larger than the modeling tolerance.": "Od cílové plochy vyžaduje objemový profil a nenulovou korekci větší než tolerance modelování.",
-  "The target surface layer could not be constructed.": "Vrstvu od cílové plochy se nepodařilo vytvořit."
+  "The target surface layer could not be constructed.": "Vrstvu od cílové plochy se nepodařilo vytvořit.",
+  "CAM machine library": "Knihovna strojů CAM",
+  "CAM tool library": "Knihovna nástrojů CAM",
+  "CAM workholding library": "Knihovna upínání CAM",
+  "Libraries may contain subfolders. Paths are relative to this configuration file. A CAM setup keeps its own copy of each selected definition.": "Knihovny mohou obsahovat podsložky. Cesty jsou relativní k tomuto konfiguračnímu souboru. Upnutí CAM uchovává vlastní kopii každé vybrané definice.",
+  "CAM tool": "Nástroj CAM",
+  "Cutting portion": "Řezná část",
+  "Shank": "Stopka",
+  "Register .prtz, .asmz, .drwz, .frmz, .tblz, .symz and .toolz with their icons for this user. Existing default applications are preserved.": "Zaregistrovat .prtz, .asmz, .drwz, .frmz, .tblz, .symz a .toolz s jejich ikonami pro tohoto uživatele. Stávající výchozí aplikace zůstanou zachovány.",
+  "Dokumenty ZIMA-CAD (*.prtz *.asmz *.drwz *.frmz *.tblz *.symz *.toolz)": "Dokumenty ZIMA-CAD (*.prtz *.asmz *.drwz *.frmz *.tblz *.symz *.toolz)",
+  "CAM tool (*.toolz)": "CAM nástroj (*.toolz)",
+  "Expected part, assembly, drawing or tool.": "Očekáván díl, sestava, výkres nebo nástroj.",
+  "Model ZIMA-CAD (*.prtz *.toolz *.asmz)": "Model ZIMA-CAD (*.prtz *.toolz *.asmz)"
 }

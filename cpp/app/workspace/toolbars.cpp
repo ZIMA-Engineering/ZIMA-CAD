@@ -475,7 +475,7 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
                 create_cam_action_=new QAction(resource_icon("result-body"),tr("Create CAM"),this);
                 create_cam_action_->setObjectName("createCamAction");
                 connect(create_cam_action_,&QAction::triggered,this,[this]{show_cam_body_properties();});
-                create_render_action_=new QAction(resource_icon("template-image"),tr("Create Render"),this);
+                create_render_action_=new QAction(resource_icon("render"),tr("Create Render"),this);
                 create_render_action_->setObjectName("createRenderAction");
                 connect(create_render_action_,&QAction::triggered,this,[this]{show_render_body_properties();});
             }
@@ -491,7 +491,7 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
             if (!active_body) {
                 add_command(create_body_action_);
                 add_command(create_fem_action_);
-                add_command(create_render_action_);
+                add_command(section_action_);
                 add_command(create_cam_action_);
                 add_command(mirror_action_);
                 add_command(pattern_action_);
@@ -626,6 +626,7 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
     }
     if (active_application_ == ApplicationMode::Assembly) {
         add_command(selection_action_);
+        add_command(section_action_);
         add_command(insert_action_);
         add_group_separator();
         if(auto* feature=findChild<QAction*>("featurePrototypeAction"))add_command(feature);

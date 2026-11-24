@@ -1102,7 +1102,7 @@ void AssemblyWorkspaceWindow::create_actions() {
     mass_properties_action_=view_toolbar_->addAction(resource_icon("body-properties"),tr("Měření tělesa"));
     mass_properties_action_->setObjectName("massPropertiesAction");
     connect(mass_properties_action_,&QAction::triggered,this,[this]{show_mass_properties();});
-    section_action_=view_toolbar_->addAction(tr("Řezy…"));
+    section_action_=new QAction(resource_icon("sections"),tr("Řezy…"),this);
     section_action_->setObjectName("createSectionAction");
     connect(section_action_,&QAction::triggered,this,[this]{show_section_properties();});
     view_toolbar_->addSeparator();

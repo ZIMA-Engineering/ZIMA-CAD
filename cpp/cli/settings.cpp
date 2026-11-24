@@ -125,6 +125,7 @@ Settings load_settings(const fs::path& executable,const fs::path& working,const 
         result.documents.units[key]=value(("Units/"+key).c_str(),fallback.c_str());
     result.documents.templates.skeleton_template=fs::u8path(value("Templates/Skeleton",
         result.documents.units.at("Length")=="in"?"START_SKELETON_in.prtz":"START_SKELETON_mm.prtz"));
+    result.documents.templates.tool_template=result.documents.units.at("Length")=="in"?"START_TOOL_in.toolz":"START_TOOL_mm.toolz";
     for(auto* selected:{&result.documents.templates.part_template,&result.documents.templates.assembly_template,
             &result.documents.templates.skeleton_template})
         *selected=distribution::updated_factory_template(result.documents.templates.directory,*selected,
@@ -139,6 +140,8 @@ Settings load_settings(const fs::path& executable,const fs::path& working,const 
             if(text.is_string())result.translations[key]=text.get<std::string>();
     }
     result.documents.templates.first_body_name=result.translate("Těleso 1","QObject");
+    result.documents.templates.cutting_body_name=result.translate("Cutting portion","QObject");
+    result.documents.templates.shank_body_name=result.translate("Shank","QObject");
     result.documents.templates.first_sheet_name=result.translate("List","QObject")+" 1";
     return result;
 }

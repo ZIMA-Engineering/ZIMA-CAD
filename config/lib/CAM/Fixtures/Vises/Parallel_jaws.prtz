@@ -1,0 +1,308 @@
+[Children.01a20b20219572078e314b928cc7b330]
+items=01a20b20219572078e314b928cc7b331
+
+[Children.01a20b20219572078e314b928cc7b33b]
+items=01a20b20219572078e314b928cc7b33c
+
+[Container.01a20b20219572078e314b928cc7b330]
+TYPE=SKETCH
+combine_mode=+
+id=01a20b20219572078e314b928cc7b330
+kind=container
+name=Fixed jaw contact
+param.cpp_history={"combine":"add","container_origin":{"children":[{"id":"01a20b20219572078e314b928cc7b330:origin:point","key":"point","kind":"point","locked":true,"name":"Point 0,0,0","parent_id":"01a20b20219572078e314b928cc7b330:origin"},{"id":"01a20b20219572078e314b928cc7b330:origin:axis:x","key":"axis:x","kind":"axis","locked":true,"name":"X Axis","parent_id":"01a20b20219572078e314b928cc7b330:origin"},{"id":"01a20b20219572078e314b928cc7b330:origin:axis:y","key":"axis:y","kind":"axis","locked":true,"name":"Y Axis","parent_id":"01a20b20219572078e314b928cc7b330:origin"},{"id":"01a20b20219572078e314b928cc7b330:origin:axis:z","key":"axis:z","kind":"axis","locked":true,"name":"Z Axis","parent_id":"01a20b20219572078e314b928cc7b330:origin"},{"id":"01a20b20219572078e314b928cc7b330:origin:plane:xy","key":"plane:xy","kind":"plane","locked":true,"name":"XY Plane","parent_id":"01a20b20219572078e314b928cc7b330:origin"},{"id":"01a20b20219572078e314b928cc7b330:origin:plane:yz","key":"plane:yz","kind":"plane","locked":true,"name":"YZ Plane","parent_id":"01a20b20219572078e314b928cc7b330:origin"},{"id":"01a20b20219572078e314b928cc7b330:origin:plane:xz","key":"plane:xz","kind":"plane","locked":true,"name":"XZ Plane","parent_id":"01a20b20219572078e314b928cc7b330:origin"}],"id":"01a20b20219572078e314b928cc7b330:origin","locked":true,"name":"Container Origin","parent_id":"01a20b20219572078e314b928cc7b330"},"feature_id":"01a20b20219572078e314b928cc7b331","feature_parent_id":"01a20b20219572078e314b928cc7b330","id":"01a20b20219572078e314b928cc7b330","name":"Fixed jaw contact","origin_point_visible":false,"origin_text_visible":false,"placement":{"absolute_rotation_x":0.0,"absolute_rotation_y":0.0,"absolute_rotation_z":0.0,"orientation_back":false,"orientation_quarter_turns":0,"reference_valid":true,"references":[],"rotation_offset_x":0.0,"rotation_offset_y":0.0,"rotation_offset_z":0.0,"rotation_x":0.0,"rotation_y":-0.0,"rotation_z":0.0,"value_locks":[],"x":0.0,"y":0.0,"z":0.0},"suppressed":false,"type":"sketch","value_locks":[]}
+param.cpp_kind=history
+rx=0.000000
+ry=-0.000000
+rz=0.000000
+show_auxiliary_geometry=false
+suppressed=false
+tree_exposure=public
+user_visible=true
+x=0.000000
+y=0.000000
+z=0.000000
+
+[Container.01a20b20219572078e314b928cc7b33b]
+TYPE=SKETCH
+combine_mode=+
+id=01a20b20219572078e314b928cc7b33b
+kind=container
+name=Moving jaw contact
+param.cpp_history={"combine":"add","container_origin":{"children":[{"id":"01a20b20219572078e314b928cc7b33b:origin:point","key":"point","kind":"point","locked":true,"name":"Point 0,0,0","parent_id":"01a20b20219572078e314b928cc7b33b:origin"},{"id":"01a20b20219572078e314b928cc7b33b:origin:axis:x","key":"axis:x","kind":"axis","locked":true,"name":"X Axis","parent_id":"01a20b20219572078e314b928cc7b33b:origin"},{"id":"01a20b20219572078e314b928cc7b33b:origin:axis:y","key":"axis:y","kind":"axis","locked":true,"name":"Y Axis","parent_id":"01a20b20219572078e314b928cc7b33b:origin"},{"id":"01a20b20219572078e314b928cc7b33b:origin:axis:z","key":"axis:z","kind":"axis","locked":true,"name":"Z Axis","parent_id":"01a20b20219572078e314b928cc7b33b:origin"},{"id":"01a20b20219572078e314b928cc7b33b:origin:plane:xy","key":"plane:xy","kind":"plane","locked":true,"name":"XY Plane","parent_id":"01a20b20219572078e314b928cc7b33b:origin"},{"id":"01a20b20219572078e314b928cc7b33b:origin:plane:yz","key":"plane:yz","kind":"plane","locked":true,"name":"YZ Plane","parent_id":"01a20b20219572078e314b928cc7b33b:origin"},{"id":"01a20b20219572078e314b928cc7b33b:origin:plane:xz","key":"plane:xz","kind":"plane","locked":true,"name":"XZ Plane","parent_id":"01a20b20219572078e314b928cc7b33b:origin"}],"id":"01a20b20219572078e314b928cc7b33b:origin","locked":true,"name":"Container Origin","parent_id":"01a20b20219572078e314b928cc7b33b"},"feature_id":"01a20b20219572078e314b928cc7b33c","feature_parent_id":"01a20b20219572078e314b928cc7b33b","id":"01a20b20219572078e314b928cc7b33b","name":"Moving jaw contact","origin_point_visible":false,"origin_text_visible":false,"placement":{"absolute_rotation_x":0.0,"absolute_rotation_y":0.0,"absolute_rotation_z":0.0,"orientation_back":false,"orientation_quarter_turns":0,"reference_valid":true,"references":[],"rotation_offset_x":0.0,"rotation_offset_y":0.0,"rotation_offset_z":0.0,"rotation_x":0.0,"rotation_y":-0.0,"rotation_z":0.0,"value_locks":[],"x":0.0,"y":0.0,"z":0.0},"suppressed":false,"type":"sketch","value_locks":[]}
+param.cpp_kind=history
+rx=0.000000
+ry=-0.000000
+rz=0.000000
+show_auxiliary_geometry=false
+suppressed=false
+tree_exposure=public
+user_visible=true
+x=0.000000
+y=0.000000
+z=0.000000
+
+[Containers]
+items=01a20b20219572078e314b928cc7b330,01a20b20219572078e314b928cc7b33b
+
+[Document]
+appearance={"bodies":{},"body":{"color":"#B9C2CC","metallic":0.0,"roughness":0.55},"groups":[],"owners":{}}
+body_color=#B9C2CC
+body_history={"active":"01a20b20219572078e314b928cc7b32e","bodies":[{"cursor":2,"dependencies":[],"derived_copy":null,"entries":[{"id":"01a20b20219572078e314b928cc7b330","kind":0},{"id":"01a20b20219572078e314b928cc7b33b","kind":0}],"id":"01a20b20219572078e314b928cc7b32e","link":null,"name":"Body","placement":{"absolute_rotation_x":0.0,"absolute_rotation_y":0.0,"absolute_rotation_z":0.0,"orientation_back":false,"orientation_quarter_turns":0,"reference_valid":true,"references":[{"branch_sources":[],"flip":false,"instance_path":"","offset":0.0,"offset_locked":false,"orientation_drives_rotation":false,"orientation_only":false,"orientation_role":"none","owner_id":"01a20b20219572078e314b928cc7b32d:origin","semantic_key":"origin:plane:xy","solution_branch":0,"supports_offset":true,"use_angle":false,"use_axis":false},{"branch_sources":[],"flip":false,"instance_path":"","offset":0.0,"offset_locked":false,"orientation_drives_rotation":false,"orientation_only":false,"orientation_role":"none","owner_id":"01a20b20219572078e314b928cc7b32d:origin","semantic_key":"origin:plane:xz","solution_branch":0,"supports_offset":true,"use_angle":false,"use_axis":false},{"branch_sources":[],"flip":false,"instance_path":"","offset":0.0,"offset_locked":false,"orientation_drives_rotation":false,"orientation_only":false,"orientation_role":"none","owner_id":"01a20b20219572078e314b928cc7b32d:origin","semantic_key":"origin:plane:yz","solution_branch":0,"supports_offset":true,"use_angle":false,"use_axis":false},{"branch_sources":[],"flip":false,"instance_path":"","offset":0.0,"offset_locked":false,"orientation_drives_rotation":true,"orientation_only":true,"orientation_role":"front","owner_id":"01a20b20219572078e314b928cc7b32d:origin","semantic_key":"origin:plane:xz","solution_branch":0,"supports_offset":false,"use_angle":false,"use_axis":false},{"branch_sources":[],"flip":false,"instance_path":"","offset":0.0,"offset_locked":false,"orientation_drives_rotation":true,"orientation_only":true,"orientation_role":"top","owner_id":"01a20b20219572078e314b928cc7b32d:origin","semantic_key":"origin:plane:xy","solution_branch":0,"supports_offset":false,"use_angle":false,"use_axis":false}],"rotation_offset_x":0.0,"rotation_offset_y":0.0,"rotation_offset_z":0.0,"rotation_x":0.0,"rotation_y":-0.0,"rotation_z":0.0,"value_locks":[],"x":0.0,"y":0.0,"z":0.0},"scale":null,"suppressed":false,"visible":true}],"booleans":[],"cursor":1,"order":["01a20b20219572078e314b928cc7b32e"]}
+body_properties=[]
+calculated_definition=zima-part-definition-sha256-v1
+dimension_identifiers={"entries":[{"key":"parameter:placement:rotation_x","number":4,"owner":"01a20b20219572078e314b928cc7b330"},{"key":"parameter:placement:rotation_y","number":5,"owner":"01a20b20219572078e314b928cc7b330"},{"key":"parameter:placement:rotation_z","number":6,"owner":"01a20b20219572078e314b928cc7b330"},{"key":"parameter:placement:x","number":1,"owner":"01a20b20219572078e314b928cc7b330"},{"key":"parameter:placement:y","number":2,"owner":"01a20b20219572078e314b928cc7b330"},{"key":"parameter:placement:z","number":3,"owner":"01a20b20219572078e314b928cc7b330"},{"key":"parameter:profile_offset","number":7,"owner":"01a20b20219572078e314b928cc7b330"},{"key":"parameter:placement:rotation_x","number":11,"owner":"01a20b20219572078e314b928cc7b33b"},{"key":"parameter:placement:rotation_y","number":12,"owner":"01a20b20219572078e314b928cc7b33b"},{"key":"parameter:placement:rotation_z","number":13,"owner":"01a20b20219572078e314b928cc7b33b"},{"key":"parameter:placement:x","number":8,"owner":"01a20b20219572078e314b928cc7b33b"},{"key":"parameter:placement:y","number":9,"owner":"01a20b20219572078e314b928cc7b33b"},{"key":"parameter:placement:z","number":10,"owner":"01a20b20219572078e314b928cc7b33b"},{"key":"parameter:profile_offset","number":14,"owner":"01a20b20219572078e314b928cc7b33b"}],"next":15}
+dimension_layouts=[]
+document_id=01a20b20219572078e314b928cc7b32d
+family={"evaluated":{},"parent":"","row":""}
+family_table={"bindings":{},"columns":[],"instances":[]}
+form_corner_finish=false
+form_outward=false
+format_version=56
+history_cursor=2
+measurements=[]
+name=Parallel_jaws
+named_views=[]
+reference_errors={}
+removed_reference_states={}
+sections=[]
+sketch_views={}
+surface_wire_visibility={}
+symbol_annotations=[]
+symbol_editor_definition=null
+type=part
+
+[DocumentPrecision]
+angular_tolerance=0.001
+decimal_places=3
+linear_tolerance=0.001
+mesh_deflection=0.1
+sheet_cut_tolerance=0.05
+
+[DocumentUnits]
+Angle=deg
+Length=mm
+Mass=kg
+Stress=MPa
+Temperature=C
+Time=s
+
+[Entity.01a20b20219572078e314b928cc7b331]
+combine_mode=+
+id=01a20b20219572078e314b928cc7b331
+kind=sketch
+name=Fixed jaw contact
+param.cpp_feature_id=01a20b20219572078e314b928cc7b331
+param.feature_id=01a20b20219572078e314b928cc7b331
+param.feature_parent_id=01a20b20219572078e314b928cc7b330
+param.operation=add
+param.origin_point_visible=false
+param.origin_text_visible=false
+param.unit=mm
+param.value_locks=[]
+rx=0.000000
+ry=0.000000
+rz=0.000000
+show_auxiliary_geometry=false
+suppressed=false
+tree_exposure=internal
+user_visible=true
+x=0.000000
+y=0.000000
+z=0.000000
+
+[Entity.01a20b20219572078e314b928cc7b33c]
+combine_mode=+
+id=01a20b20219572078e314b928cc7b33c
+kind=sketch
+name=Moving jaw contact
+param.cpp_feature_id=01a20b20219572078e314b928cc7b33c
+param.feature_id=01a20b20219572078e314b928cc7b33c
+param.feature_parent_id=01a20b20219572078e314b928cc7b33b
+param.operation=add
+param.origin_point_visible=false
+param.origin_text_visible=false
+param.unit=mm
+param.value_locks=[]
+rx=0.000000
+ry=0.000000
+rz=0.000000
+show_auxiliary_geometry=false
+suppressed=false
+tree_exposure=internal
+user_visible=true
+x=0.000000
+y=0.000000
+z=0.000000
+
+[Material]
+Name=S235JR
+
+[MaterialDescriptions]
+CONDITION\cs=Stav materiálu
+CONDITION\de=Materialzustand
+CONDITION\en=Material condition
+CONDITION\fr=État du matériau
+CONDITION\ru=Состояние материала
+EMISSIVITY\cs=Emisivita
+EMISSIVITY\en=Emissivity
+EMISSIVITY\ru=Степень черноты
+HARDNESS\cs=Tvrdost
+HARDNESS\en=Hardness
+HARDNESS\ru=Твёрдость
+MASS_DENSITY\cs=Hustota
+MASS_DENSITY\de=Massendichte
+MASS_DENSITY\en=Mass density
+MASS_DENSITY\fr=Masse volumique
+MASS_DENSITY\ru=Плотность
+MATERIAL_NAME\cs=Materiál
+MATERIAL_NAME\de=Material
+MATERIAL_NAME\en=Material
+MATERIAL_NAME\fr=Matériau
+MATERIAL_NAME\ru=Материал
+POISSON_RATIO\cs=Poissonovo číslo
+POISSON_RATIO\en=Poisson ratio
+POISSON_RATIO\ru=Коэффициент Пуассона
+SHEAR_MODULUS\cs=Modul pružnosti ve smyku
+SHEAR_MODULUS\en=Shear modulus
+SHEAR_MODULUS\ru=Модуль сдвига
+SHEETMETAL_K_FACTOR\cs=K-faktor plechu
+SHEETMETAL_K_FACTOR\en=Sheet-metal K-factor
+SHEETMETAL_K_FACTOR\ru=Коэффициент K листового металла
+SPECIFIC_HEAT\cs=Měrná tepelná kapacita
+SPECIFIC_HEAT\en=Specific heat
+SPECIFIC_HEAT\ru=Удельная теплоёмкость
+STRESS_LIMIT_FOR_COMPRESSION\cs=Mez napětí v tlaku
+STRESS_LIMIT_FOR_COMPRESSION\en=Compressive stress limit
+STRESS_LIMIT_FOR_COMPRESSION\ru=Предел прочности при сжатии
+STRESS_LIMIT_FOR_SHEAR\cs=Mez smykového napětí
+STRESS_LIMIT_FOR_SHEAR\en=Shear stress limit
+STRESS_LIMIT_FOR_SHEAR\ru=Предел прочности при сдвиге
+STRESS_LIMIT_FOR_TENSION\cs=Mez napětí v tahu
+STRESS_LIMIT_FOR_TENSION\en=Tensile stress limit
+STRESS_LIMIT_FOR_TENSION\ru=Предел прочности при растяжении
+STRUCTURAL_DAMPING_COEFFICIENT\cs=Součinitel konstrukčního tlumení
+STRUCTURAL_DAMPING_COEFFICIENT\en=Structural damping coefficient
+STRUCTURAL_DAMPING_COEFFICIENT\ru=Коэффициент конструкционного демпфирования
+THERMAL_CONDUCTIVITY\cs=Tepelná vodivost
+THERMAL_CONDUCTIVITY\en=Thermal conductivity
+THERMAL_CONDUCTIVITY\ru=Теплопроводность
+THERMAL_EXPANSION_COEFFICIENT\cs=Součinitel teplotní roztažnosti
+THERMAL_EXPANSION_COEFFICIENT\en=Thermal expansion coefficient
+THERMAL_EXPANSION_COEFFICIENT\ru=Коэффициент теплового расширения
+THERM_EXPANSION_REF_TEMPERATURE\cs=Referenční teplota roztažnosti
+THERM_EXPANSION_REF_TEMPERATURE\en=Thermal expansion reference temperature
+THERM_EXPANSION_REF_TEMPERATURE\ru=Опорная температура расширения
+YOUNG_MODULUS\cs=Youngův modul
+YOUNG_MODULUS\en=Young's modulus
+YOUNG_MODULUS\ru=Модуль Юнга
+
+[MaterialProperties]
+CONDITION=EN 10025-2, válcovaný stav, reprezentativní hodnoty při 20 °C
+EMISSIVITY=7.000000E-01
+HARDNESS=120 HB
+MASS_DENSITY=7.850000E-06
+POISSON_RATIO=3.000000E-01
+SHEAR_MODULUS=8.076923E+04
+SHEETMETAL_K_FACTOR=0.318309886184
+SPECIFIC_HEAT=4.700000E+08
+STRESS_LIMIT_FOR_COMPRESSION=2.350000E+02
+STRESS_LIMIT_FOR_SHEAR=1.360000E+02
+STRESS_LIMIT_FOR_TENSION=2.350000E+02
+STRUCTURAL_DAMPING_COEFFICIENT=2.000000E-03
+THERMAL_CONDUCTIVITY=5.000000E+04
+THERMAL_EXPANSION_COEFFICIENT=1.200000E-05
+THERM_EXPANSION_REF_TEMPERATURE=20
+YOUNG_MODULUS=2.100000E+05
+
+[MaterialUnits]
+EMISSIVITY=1
+MASS_DENSITY=kg/mm^3
+POISSON_RATIO=1
+SHEAR_MODULUS=MPa
+SHEETMETAL_K_FACTOR=1
+SPECIFIC_HEAT=mm^2/(s^2*C)
+STRESS_LIMIT_FOR_COMPRESSION=MPa
+STRESS_LIMIT_FOR_SHEAR=MPa
+STRESS_LIMIT_FOR_TENSION=MPa
+STRUCTURAL_DAMPING_COEFFICIENT=1
+THERMAL_CONDUCTIVITY=mm*kg/(s^3*C)
+THERMAL_EXPANSION_COEFFICIENT=1/C
+THERM_EXPANSION_REF_TEMPERATURE=C
+YOUNG_MODULUS=MPa
+
+[Relations]
+Data="mass = model.mass\n\nd14 = cam_opening_mm\n"
+
+[Sketch.01a20b20219572078e314b928cc7b32f]
+data={"arcs":[],"bsplines":[],"circles":[],"constraints":[],"corner_radii":[],"curve_supports":[],"curve_trims":[],"dimension_layouts":[],"dimensions":[],"ellipses":[],"elliptical_arcs":[],"external_references":[],"format":"zima-cad-cpp-sketch","id":"01a20b20219572078e314b928cc7b32f","import_blocks":[],"name":"Fixed jaw contact","offsets":[],"owner_container_id":"01a20b20219572078e314b928cc7b330","plane":"xz","plane_auto":false,"plane_offset":0.0,"plane_reference_owner_id":"","points":[{"centerline":false,"construction":false,"fixed":false,"id":"01a20b20219572078e314b928cc7b332","visible_in_3d":true,"x":-50.8,"y":0.0},{"centerline":false,"construction":false,"fixed":false,"id":"01a20b20219572078e314b928cc7b333","visible_in_3d":true,"x":50.8,"y":0.0},{"centerline":false,"construction":false,"fixed":false,"id":"01a20b20219572078e314b928cc7b335","visible_in_3d":true,"x":50.8,"y":44.5},{"centerline":false,"construction":false,"fixed":false,"id":"01a20b20219572078e314b928cc7b337","visible_in_3d":true,"x":-50.8,"y":44.5}],"resolved_normal":[0.0,1.0,0.0],"resolved_origin":[0.0,0.0,0.0],"resolved_x_axis":[1.0,0.0,0.0],"resolved_y_axis":[0.0,0.0,-1.0],"segments":[{"centerline":false,"construction":false,"first":"01a20b20219572078e314b928cc7b332","id":"01a20b20219572078e314b928cc7b334","second":"01a20b20219572078e314b928cc7b333","visible_in_3d":true},{"centerline":false,"construction":false,"first":"01a20b20219572078e314b928cc7b333","id":"01a20b20219572078e314b928cc7b336","second":"01a20b20219572078e314b928cc7b335","visible_in_3d":true},{"centerline":false,"construction":false,"first":"01a20b20219572078e314b928cc7b335","id":"01a20b20219572078e314b928cc7b338","second":"01a20b20219572078e314b928cc7b337","visible_in_3d":true},{"centerline":false,"construction":false,"first":"01a20b20219572078e314b928cc7b337","id":"01a20b20219572078e314b928cc7b339","second":"01a20b20219572078e314b928cc7b332","visible_in_3d":true}],"suppressed":false,"symbols":[],"texts":[],"version":36}
+
+[Sketch.01a20b20219572078e314b928cc7b33a]
+data={"arcs":[],"bsplines":[],"circles":[],"constraints":[],"corner_radii":[],"curve_supports":[],"curve_trims":[],"dimension_layouts":[],"dimensions":[],"ellipses":[],"elliptical_arcs":[],"external_references":[],"format":"zima-cad-cpp-sketch","id":"01a20b20219572078e314b928cc7b33a","import_blocks":[],"name":"Moving jaw contact","offsets":[],"owner_container_id":"01a20b20219572078e314b928cc7b33b","plane":"xz","plane_auto":false,"plane_offset":100.0,"plane_reference_owner_id":"","points":[{"centerline":false,"construction":false,"fixed":false,"id":"01a20b20219572078e314b928cc7b33d","visible_in_3d":true,"x":-50.8,"y":0.0},{"centerline":false,"construction":false,"fixed":false,"id":"01a20b20219572078e314b928cc7b33e","visible_in_3d":true,"x":50.8,"y":0.0},{"centerline":false,"construction":false,"fixed":false,"id":"01a20b20219572078e314b928cc7b340","visible_in_3d":true,"x":50.8,"y":44.5},{"centerline":false,"construction":false,"fixed":false,"id":"01a20b20219572078e314b928cc7b342","visible_in_3d":true,"x":-50.8,"y":44.5}],"resolved_normal":[0.0,1.0,0.0],"resolved_origin":[0.0,100.0,0.0],"resolved_x_axis":[1.0,0.0,0.0],"resolved_y_axis":[0.0,0.0,-1.0],"segments":[{"centerline":false,"construction":false,"first":"01a20b20219572078e314b928cc7b33d","id":"01a20b20219572078e314b928cc7b33f","second":"01a20b20219572078e314b928cc7b33e","visible_in_3d":true},{"centerline":false,"construction":false,"first":"01a20b20219572078e314b928cc7b33e","id":"01a20b20219572078e314b928cc7b341","second":"01a20b20219572078e314b928cc7b340","visible_in_3d":true},{"centerline":false,"construction":false,"first":"01a20b20219572078e314b928cc7b340","id":"01a20b20219572078e314b928cc7b343","second":"01a20b20219572078e314b928cc7b342","visible_in_3d":true},{"centerline":false,"construction":false,"first":"01a20b20219572078e314b928cc7b342","id":"01a20b20219572078e314b928cc7b344","second":"01a20b20219572078e314b928cc7b33d","visible_in_3d":true}],"suppressed":false,"symbols":[],"texts":[],"version":36}
+
+[Sketches]
+items=01a20b20219572078e314b928cc7b32f,01a20b20219572078e314b928cc7b33a
+
+[UserParameterLabels]
+approved_by\cs=schvalil
+approved_by\de=Genehmigt von
+approved_by\en=Approved
+approved_by\fr=Approuvé par
+approved_by\ru=Утвердил
+cam_opening_mm\cs=rozevreni [mm]
+cam_opening_mm\de=Backenöffnung [mm]
+cam_opening_mm\en=Jaw opening [mm]
+cam_opening_mm\fr=Ouverture des mors [mm]
+cam_opening_mm\ru=Раскрытие губок [мм]
+date\cs=datum
+date\de=Datum
+date\en=Date
+date\fr=Date
+date\ru=Дата
+drawn_by\cs=kreslil
+drawn_by\de=Gezeichnet von
+drawn_by\en=Drew
+drawn_by\fr=Dessiné par
+drawn_by\ru=Разработал
+mass\cs=hmotnost
+mass\de=Gewicht
+mass\en=Weight
+mass\fr=Masse
+mass\ru=Масса
+material\cs=material
+material\de=Material
+material\en=Material
+material\fr=Matériau
+material\ru=Материал
+name\cs=nazev
+name\de=Name
+name\en=Name
+name\fr=Nom
+name\ru=Наименование
+quantity\cs=mnozstvi
+quantity\de=Menge
+quantity\en=Quantity
+quantity\fr=Quantité
+quantity\ru=Количество
+revision\cs=verze
+revision\de=Version
+revision\en=Version
+revision\fr=Version
+revision\ru=Версия
+standard\cs=norma
+standard\de=Norm
+standard\en=Standard
+standard\fr=Norme
+standard\ru=Стандарт
+stock\cs=polotovar
+stock\de=Rohteil
+stock\en=Stock
+stock\fr=Ébauche
+stock\ru=Заготовка
+
+[UserParameterValues]
+Data={"approved_by":{"":""},"cam_fixed_jaw_sketch":{"":"01a20b20219572078e314b928cc7b32f"},"cam_moving_jaw_sketch":{"":"01a20b20219572078e314b928cc7b33a"},"cam_opening_mm":{"":"100"},"date":{"":""},"drawn_by":{"":""},"mass":{"":""},"material":{"":"S235JR"},"name":{"":""},"quantity":{"":"1"},"revision":{"":"00"},"standard":{"":""},"stock":{"":""}}
+
+[UserParameters]
+Order=name, standard, stock, material, quantity, drawn_by, approved_by, revision, date, mass, cam_fixed_jaw_sketch, cam_moving_jaw_sketch, cam_opening_mm
+

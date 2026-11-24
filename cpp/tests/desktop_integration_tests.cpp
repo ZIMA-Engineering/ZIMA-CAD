@@ -52,7 +52,7 @@ int main(int argc,char** argv) {
         check(desktop_exec("/a b/100%/\"$`x").contains("100%%"),"Desktop percent field was not escaped");
         QXmlStreamReader xml(mime_package());int types=0;
         while(!xml.atEnd()){xml.readNext();if(xml.isStartElement()&&xml.name()=="mime-type")++types;}
-        check(!xml.hasError()&&types==6,"Invalid MIME XML");
+        check(!xml.hasError()&&types==7&&entry.contains("application/x-zima-toolz;"),"Invalid MIME XML");
         QWidget parent;parent.resize(900,600);parent.show();
         c.installed=true;offer_first_launch(&parent,c);app.processEvents();
         auto* offer=parent.findChild<QDialog*>("desktopIntegrationOffer");

@@ -1,4 +1,5 @@
 {
+  "Renders": "Rendus",
   "CAM": "CAM",
   "CAM setup properties": "Propriétés de la configuration FAO",
   "CAM setup": "Configuration FAO",
@@ -418,7 +419,6 @@
   "Keep current registration": "Conserver l’enregistrement actuel",
   "Register or repair": "Enregistrer ou réparer",
   "Remove this registration": "Supprimer cet enregistrement",
-  "Register .prtz, .asmz, .drwz, .frmz, .tblz and .symz with their icons for this user. Existing default applications are preserved.": "Enregistrer .prtz, .asmz, .drwz, .frmz, .tblz et .symz avec leurs icônes pour cet utilisateur. Les applications par défaut existantes sont conservées.",
   "Default applications": "Applications par défaut",
   "Desktop integration is registered.": "L’intégration au bureau est enregistrée.",
   "Desktop integration is not registered or needs repair.": "L’intégration au bureau n’est pas enregistrée ou doit être réparée.",
@@ -732,7 +732,6 @@
   "Zpět do sestavy": "Retour à l’assemblage",
   "Vytvořit těleso": "Créer un corps",
   "Potlačit": "Inhiber",
-  "Dokumenty ZIMA-CAD (*.prtz *.asmz *.drwz *.frmz *.tblz *.symz)": "Documents ZIMA-CAD (*.prtz *.asmz *.drwz *.frmz *.tblz *.symz)",
   "O aplikaci ZIMA-CAD": "À propos de ZIMA-CAD",
   "Uložit sestavu ZIMA-CAD": "Enregistrer l’assemblage ZIMA-CAD",
   "Sestava ZIMA-CAD (*.asmz)": "Assemblage ZIMA-CAD (*.asmz)",
@@ -3204,5 +3203,17 @@
   "From target surface": "Depuis la surface cible",
   "Keep only the layer between the target and its correction along the extrusion direction.": "Conserver uniquement la couche entre la cible et sa correction dans la direction d’extrusion.",
   "From target surface requires a solid profile and a nonzero correction larger than the modeling tolerance.": "Depuis la surface cible nécessite un profil volumique et une correction non nulle supérieure à la tolérance de modélisation.",
-  "The target surface layer could not be constructed.": "Impossible de créer la couche depuis la surface cible."
+  "The target surface layer could not be constructed.": "Impossible de créer la couche depuis la surface cible.",
+  "CAM machine library": "Bibliothèque de machines FAO",
+  "CAM tool library": "Bibliothèque d’outils FAO",
+  "CAM workholding library": "Bibliothèque de bridages FAO",
+  "Libraries may contain subfolders. Paths are relative to this configuration file. A CAM setup keeps its own copy of each selected definition.": "Les bibliothèques peuvent contenir des sous-dossiers. Les chemins sont relatifs à ce fichier de configuration. Chaque montage FAO conserve sa propre copie des définitions sélectionnées.",
+  "CAM tool": "Outil FAO",
+  "Cutting portion": "Partie coupante",
+  "Shank": "Queue",
+  "Register .prtz, .asmz, .drwz, .frmz, .tblz, .symz and .toolz with their icons for this user. Existing default applications are preserved.": "Enregistrer .prtz, .asmz, .drwz, .frmz, .tblz, .symz et .toolz avec leurs icônes pour cet utilisateur. Les applications par défaut existantes sont conservées.",
+  "Dokumenty ZIMA-CAD (*.prtz *.asmz *.drwz *.frmz *.tblz *.symz *.toolz)": "Documents ZIMA-CAD (*.prtz *.asmz *.drwz *.frmz *.tblz *.symz *.toolz)",
+  "CAM tool (*.toolz)": "Outil FAO (*.toolz)",
+  "Expected part, assembly, drawing or tool.": "Pièce, assemblage, dessin ou outil attendu.",
+  "Model ZIMA-CAD (*.prtz *.toolz *.asmz)": "Modèle ZIMA-CAD (*.prtz *.toolz *.asmz)"
 }

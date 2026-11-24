@@ -1,5 +1,26 @@
 # Development follow-ups and historical design notes
 
+## User follow-ups, 2026-11-24
+
+- PDM: add a dedicated PDM directory/section in the CAD file browser as an entry
+  point to a separate server service and browser UI. Initial scope is native
+  document storage, versions/revisions, dependency references, permissions and
+  edit reservations. The service may run on an internal or hosted web server.
+  Approval workflows can follow later. This is a backlog item, not an implemented
+  server or a decision about deployment technology.
+- Separate modeling ownership: Parts own multibody geometry and CAM; Assemblies
+  own component placement and constraints. A new machining Part takes Bodies
+  from source Parts. See the agreed direction and existing-data gates in
+  [Assembly cut history](ASSEMBLY_CUT_HISTORY_COMMANDS.md).
+- Keep Render in both document contexts as the intended design. The Part Tree now
+  has a Renders group directly below Sections, containing independent Render
+  definitions and a creation context action. Section creation is in the right
+  command panel at Body-list level, reusing its Tree icon. Assembly Render still
+  requires a separate implementation/persistence review. See the
+  [presentation verification](verification/20261124-render-group-and-section-command.md).
+- CAM toolpaths: yellow cutting/feed moves and red rapid transfers. Preserve
+  motion/block identity and derive paths from the calculated program.
+
 ## Current work index - 2026-10-26
 
 Update 2026-11-11: Sheet Profile now reuses the shared multi-target Up To table,

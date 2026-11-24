@@ -172,13 +172,13 @@ void Host::register_commands(){
     });
     dispatcher_.add({"new",tr("Nový dokument: new part|assembly|drawing název."),{{"type",true},{"name",true}},true},[this](const Json& args){
         const auto kind=args["type"].get<std::string>();
-        if(kind!="part"&&kind!="assembly"&&kind!="drawing")return Result::failure("invalid_arguments","Expected part, assembly or drawing.");
+        if(kind!="part"&&kind!="assembly"&&kind!="drawing"&&kind!="tool")return Result::failure("invalid_arguments",tr("Expected part, assembly, drawing or tool."));
         const auto settings=options_.settings?options_.settings():Settings{};
         auto name=trim(args["name"].get<std::string>());
         if(settings.normalize_document_name)name=settings.normalize_document_name(name);
         if(name.empty()||name=="."||name==".."||name.find_first_of("\\/:*?\"<>|")!=std::string::npos||name.back()=='.')
             return Result::failure("invalid_name",tr("Zadejte název bez cesty a přípony."));
-        const auto suffix=kind=="part"?".prtz":kind=="assembly"?".asmz":".drwz";
+        const auto suffix=kind=="part"?".prtz":kind=="assembly"?".asmz":kind=="tool"?".toolz":".drwz";
         const auto path=directory_/std::filesystem::u8path(name+suffix);
         auto prepared=workspace::prepare_new_native_document(workspace::native_document_type(path),name,path,settings.templates,settings.units);
         const auto id=workspace::insert_native_document(workspace_,std::move(prepared));

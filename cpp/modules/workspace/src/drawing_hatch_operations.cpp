@@ -75,7 +75,7 @@ std::function<bool()> prepare_section_component_commit(Workspace* live,const std
             throw Error("stale_edit","The source model changed while hatch properties were open.");
     };
     auto extension=path.extension().string();std::ranges::transform(extension,extension.begin(),[](unsigned char c){return static_cast<char>(std::tolower(c));});
-    if(extension==".prtz") {
+    if((extension==".prtz"||extension==".toolz")) {
         std::vector<kernel::BodyResult> boundaries;auto model=document::PartDocument::load(path,&boundaries);
         if(model.document_id!=id)throw Error("source_identity","Source model identity changed");
         auto next=model;assign(next,section);

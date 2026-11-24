@@ -1,4 +1,5 @@
 {
+  "Renders": "Рендеры",
   "CAM": "CAM",
   "CAM setup properties": "Свойства наладки CAM",
   "CAM setup": "Наладка CAM",
@@ -418,7 +419,6 @@
   "Keep current registration": "Сохранить текущую регистрацию",
   "Register or repair": "Зарегистрировать или исправить",
   "Remove this registration": "Удалить эту регистрацию",
-  "Register .prtz, .asmz, .drwz, .frmz, .tblz and .symz with their icons for this user. Existing default applications are preserved.": "Зарегистрировать .prtz, .asmz, .drwz, .frmz, .tblz и .symz с их значками для этого пользователя. Существующие приложения по умолчанию сохраняются.",
   "Default applications": "Приложения по умолчанию",
   "Desktop integration is registered.": "Интеграция с рабочим столом зарегистрирована.",
   "Desktop integration is not registered or needs repair.": "Интеграция с рабочим столом не зарегистрирована или требует исправления.",
@@ -732,7 +732,6 @@
   "Zpět do sestavy": "Вернуться к сборке",
   "Vytvořit těleso": "Создать тело",
   "Potlačit": "Подавить",
-  "Dokumenty ZIMA-CAD (*.prtz *.asmz *.drwz *.frmz *.tblz *.symz)": "Документы ZIMA-CAD (*.prtz *.asmz *.drwz *.frmz *.tblz *.symz)",
   "O aplikaci ZIMA-CAD": "О программе ZIMA-CAD",
   "Uložit sestavu ZIMA-CAD": "Сохранить сборку ZIMA-CAD",
   "Sestava ZIMA-CAD (*.asmz)": "Сборка ZIMA-CAD (*.asmz)",
@@ -3204,5 +3203,17 @@
   "From target surface": "От целевой поверхности",
   "Keep only the layer between the target and its correction along the extrusion direction.": "Оставить только слой между целью и её коррекцией вдоль направления выдавливания.",
   "From target surface requires a solid profile and a nonzero correction larger than the modeling tolerance.": "Режим «От целевой поверхности» требует объёмного профиля и ненулевой коррекции, превышающей допуск моделирования.",
-  "The target surface layer could not be constructed.": "Не удалось создать слой от целевой поверхности."
+  "The target surface layer could not be constructed.": "Не удалось создать слой от целевой поверхности.",
+  "CAM machine library": "Библиотека станков CAM",
+  "CAM tool library": "Библиотека инструментов CAM",
+  "CAM workholding library": "Библиотека креплений CAM",
+  "Libraries may contain subfolders. Paths are relative to this configuration file. A CAM setup keeps its own copy of each selected definition.": "Библиотеки могут содержать подпапки. Пути задаются относительно этого файла конфигурации. Установ CAM хранит собственную копию каждого выбранного определения.",
+  "CAM tool": "Инструмент CAM",
+  "Cutting portion": "Режущая часть",
+  "Shank": "Хвостовик",
+  "Register .prtz, .asmz, .drwz, .frmz, .tblz, .symz and .toolz with their icons for this user. Existing default applications are preserved.": "Зарегистрировать .prtz, .asmz, .drwz, .frmz, .tblz, .symz и .toolz с их значками для этого пользователя. Существующие приложения по умолчанию сохраняются.",
+  "Dokumenty ZIMA-CAD (*.prtz *.asmz *.drwz *.frmz *.tblz *.symz *.toolz)": "Документы ZIMA-CAD (*.prtz *.asmz *.drwz *.frmz *.tblz *.symz *.toolz)",
+  "CAM tool (*.toolz)": "Инструмент CAM (*.toolz)",
+  "Expected part, assembly, drawing or tool.": "Ожидается деталь, сборка, чертёж или инструмент.",
+  "Model ZIMA-CAD (*.prtz *.toolz *.asmz)": "Модель ZIMA-CAD (*.prtz *.toolz *.asmz)"
 }

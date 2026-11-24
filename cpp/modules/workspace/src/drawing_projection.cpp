@@ -160,7 +160,7 @@ struct DrawingProjection::Impl {
                 auto assembly=read_family_assembly(&*loaded,path,view.source_document_id);
                 if(!loaded->find(assembly.document_id))loaded->add_assembly(std::move(assembly),path);
             }
-            else if(extension==".prtz") {
+            else if((extension==".prtz"||extension==".toolz")) {
                 std::vector<kernel::BodyResult> boundaries;
                 auto part=read_family_part(&*loaded,path,view.source_document_id,boundaries);
                 if(boundaries.empty()&&!part.kernel_operations().empty())throw DrawingOperationError("uncalculated_source","The Part has no saved calculated model. Regenerate and save it first.");

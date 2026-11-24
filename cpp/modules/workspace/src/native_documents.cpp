@@ -28,7 +28,7 @@ std::filesystem::path template_path(const std::filesystem::path& requested,
 NativeDocumentType native_document_type(const std::filesystem::path& path) {
     auto extension=path.extension().string();
     std::transform(extension.begin(),extension.end(),extension.begin(),[](unsigned char c){return static_cast<char>(std::tolower(c));});
-    if(extension==".prtz")return NativeDocumentType::Part;
+    if(extension==".prtz"||extension==".toolz")return NativeDocumentType::Part;
     if(extension==".asmz")return NativeDocumentType::Assembly;
     if(extension==".drwz")return NativeDocumentType::Drawing;
     throw std::invalid_argument("Unsupported native document extension");
@@ -48,6 +48,17 @@ document::PartDocument part_from_template(const NativeTemplateSettings& settings
     char tolerance[64];const auto encoded=std::to_chars(tolerance,tolerance+sizeof(tolerance),settings.sheet_cut_tolerance);
     if(encoded.ec!=std::errc{})throw std::invalid_argument("Cannot encode Sheet Cut tolerance.");
     document.document_precision["sheet_cut_tolerance"]={tolerance,encoded.ptr};
+    return document;
+}
+document::PartDocument tool_from_template(const NativeTemplateSettings& settings) {
+    auto selected=settings;selected.part_template=settings.tool_template;selected.first_body_name=settings.cutting_body_name;
+    auto document=part_from_template(selected);
+    const auto cutting=document.body_history.bodies().front().scope.id;
+    const auto shank=document::create_origin_bound_body(document.body_history,document.document_id,settings.shank_body_name);
+    document.body_history.activate(cutting);
+    document.user_parameters["cam_cutting_body"]=cutting;document.user_parameters["cam_shank_body"]=shank;
+    document.appearance.bodies[cutting]={"#FFD54A",.55,0};
+    document.appearance.bodies[shank]={"#D8483E",.55,0};
     return document;
 }
 assembly::AssemblyDocument assembly_from_template(const NativeTemplateSettings& settings) {
@@ -226,8 +237,9 @@ PreparedNativeDocument prepare_new_native_document(NativeDocumentType type, cons
         case NativeDocumentType::Part: {
             auto selected=settings;
             if(assembly::is_skeleton_file(target))selected.part_template=settings.skeleton_template;
+            auto extension=target.extension().string();std::ranges::transform(extension,extension.begin(),[](unsigned char c){return std::tolower(c);});
             prepared.document_=PreparedNativeDocument::Part{
-                part_from_template(selected),{}, {}};break;
+                extension==".toolz"?tool_from_template(selected):part_from_template(selected),{}, {}};break;
         }
         case NativeDocumentType::Assembly: prepared.document_=assembly_from_template(settings);break;
         case NativeDocumentType::Drawing: {

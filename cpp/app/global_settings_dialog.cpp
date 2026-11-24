@@ -240,6 +240,21 @@ GlobalSettingsDialog::GlobalSettingsDialog(
     auto* sheet_note=new QLabel(tr("Výchozí hodnota pro nové díly. Otevřené a uložené díly používají své vlastní nastavení."),sheet_page);
     sheet_note->setWordWrap(true);sheet_form->addRow(sheet_note);
     sections_->addTab(sheet_page,tr("Plechy"));
+    auto* cam_page=new QWidget(sections_);cam_page->setObjectName("globalCamSettings");
+    auto* cam_layout=new QVBoxLayout(cam_page);auto* cam_form=new QFormLayout;
+    cam_layout->addLayout(cam_form);
+    for(const auto& [key,label]:{std::pair{"CamMachines",tr("CAM machine library")},
+                               std::pair{"CamTools",tr("CAM tool library")},
+                               std::pair{"CamFixtures",tr("CAM workholding library")}}) {
+        auto* row=new QWidget(cam_page);auto* layout=new QHBoxLayout(row);layout->setContentsMargins(0,0,0,0);
+        auto* edit=new QLineEdit(settings_.configured_paths.value(key),row);edit->setObjectName(QStringLiteral("globalPath")+key);
+        auto* browse=new QPushButton(settings_.text("button.browse",tr("Procházet...")),row);
+        browse->setObjectName(QStringLiteral("globalBrowse")+key);
+        connect(browse,&QPushButton::clicked,this,[this,key]{browse_path(key);});
+        layout->addWidget(edit,1);layout->addWidget(browse);path_fields_.insert(key,edit);cam_form->addRow(label,row);
+    }
+    auto* cam_note=new QLabel(tr("Libraries may contain subfolders. Paths are relative to this configuration file. A CAM setup keeps its own copy of each selected definition."),cam_page);
+    cam_note->setWordWrap(true);cam_layout->addWidget(cam_note);cam_layout->addStretch();sections_->addTab(cam_page,tr("CAM"));
     auto* drawing_page=new QWidget(sections_);drawing_page->setObjectName("globalDrawingSettings");
     auto* drawing_form=new QFormLayout(drawing_page);
     drawing_view_style_=new QComboBox(drawing_page);drawing_view_style_->setObjectName("globalDrawingViewStyle");

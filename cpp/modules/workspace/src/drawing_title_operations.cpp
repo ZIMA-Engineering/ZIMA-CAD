@@ -75,7 +75,7 @@ DrawingTitleEdit prepare_drawing_title_edit(const drawing::DrawingDocument& doc,
     };
     if(live&&live->open_part(edit.source_document))collect(live->open_part(edit.source_document)->session.document());
     else if(live&&live->open_assembly(edit.source_document))collect(live->open_assembly(edit.source_document)->session.document());
-    else if(extension(edit.source_path)==".prtz"){std::vector<kernel::BodyResult> cache;collect(read_family_part(live,edit.source_path,edit.source_document,cache));}
+    else if((extension(edit.source_path)==".prtz"||extension(edit.source_path)==".toolz")){std::vector<kernel::BodyResult> cache;collect(read_family_part(live,edit.source_path,edit.source_document,cache));}
     else if(extension(edit.source_path)==".asmz")collect(read_family_assembly(live,edit.source_path,edit.source_document));
     edit.fields=sheet->title_block_fields;
     const auto add_parameters=[&](const std::string& expression) {
@@ -140,10 +140,10 @@ DrawingTitleChange edit_drawing_title(drawing::DrawingDocument& doc,Workspace* l
         if(!live->open_part(current.source_document)&&!live->open_assembly(current.source_document)) {
             const auto root=current.source_document.substr(0,current.source_document.find(":family:"));
             if(root!=current.source_document&&!live->find(root)) {
-                if(extension(current.source_path)==".prtz") {std::vector<kernel::BodyResult> cache;auto base=document::PartDocument::load(current.source_path,&cache);live->add_part(std::move(base),std::move(cache),current.source_path);}
+                if((extension(current.source_path)==".prtz"||extension(current.source_path)==".toolz")) {std::vector<kernel::BodyResult> cache;auto base=document::PartDocument::load(current.source_path,&cache);live->add_part(std::move(base),std::move(cache),current.source_path);}
                 else if(extension(current.source_path)==".asmz")live->add_assembly(assembly::AssemblyDocument::load(current.source_path),current.source_path);
             }
-            if(extension(current.source_path)==".prtz") {
+            if((extension(current.source_path)==".prtz"||extension(current.source_path)==".toolz")) {
                 std::vector<kernel::BodyResult> boundaries;auto model=read_family_part(live,current.source_path,current.source_document,boundaries);
                 if(model.document_id!=current.source_document||model_parameters(model)!=parameters(current.context))stale();live->add_part(std::move(model),std::move(boundaries),current.source_path);
             } else if(extension(current.source_path)==".asmz") {

@@ -52,6 +52,7 @@ int verify_render_body(QApplication& application,AssemblyWorkspaceWindow& window
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_RENDER_COMPACT")){const auto ratio=window.devicePixelRatioF();window.resize(int(1920/ratio),int(1040/ratio));flush();}
         auto* view=window.viewer_;auto* tree=window.tree_;
         const auto row=[&](const std::string& id)->QTreeWidgetItem*{for(QTreeWidgetItemIterator it(tree);*it;++it)if((*it)->data(0,Qt::UserRole).toString().toStdString()==id)return *it;return nullptr;};
+        const auto render_group=[&]()->QTreeWidgetItem*{for(QTreeWidgetItemIterator it(tree);*it;++it)if((*it)->data(0,Qt::UserRole+3)=="document-renders")return *it;return nullptr;};
         const auto click=[&](QWidget* target,QPointF at,Qt::MouseButton button=Qt::LeftButton,bool twice=false) {
             const auto global=QPointF(target->mapToGlobal(at.toPoint()));
             QMouseEvent move(QEvent::MouseMove,at,global,Qt::NoButton,Qt::NoButton,Qt::NoModifier);QApplication::sendEvent(target,&move);
@@ -68,6 +69,17 @@ int verify_render_body(QApplication& application,AssemblyWorkspaceWindow& window
             throw std::runtime_error("Render object/source unavailable in the common View picker: "+id);
         };
         const auto settings=[&]{return dynamic_cast<RenderBodyDialog*>(window.properties_dialog_);};
+        const auto create_from_group=[&] {
+            auto* group=render_group();check(group,"Render document group is missing");
+            group->parent()->setExpanded(true);tree->scrollToItem(group);flush();
+            bool used=false;QTimer timer;timer.setInterval(10);
+            QObject::connect(&timer,&QTimer::timeout,[&]{if(auto* menu=qobject_cast<QMenu*>(QApplication::activePopupWidget())) {
+                timer.stop();auto* action=menu->findChild<QAction*>("createRenderFromGroupAction");
+                check(action,"Render group creation action is missing");used=true;click(menu,menu->actionGeometry(action).center());
+            }});timer.start();
+            QMetaObject::invokeMethod(tree,"customContextMenuRequested",Qt::DirectConnection,Q_ARG(QPoint,tree->visualItemRect(group).center()));flush();timer.stop();
+            check(used&&settings(),"Render group did not open the shared creation dialog");
+        };
         const auto object=[&]{return dynamic_cast<RenderObjectDialog*>(window.properties_dialog_);};
         auto other=document::PartDocument::create_default();const auto other_path=directory/"camera-tab.prtz";other.save(other_path);
         check(window.open_document_path(QString::fromStdString(other_path.string())),"Cannot open camera tab fixture");flush();
@@ -89,7 +101,7 @@ int verify_render_body(QApplication& application,AssemblyWorkspaceWindow& window
         view->set_projection_mode(viewer::ProjectionMode::Orthographic);
         const auto revision=session.revision();
         auto* create=window.findChild<QAction*>("createRenderAction");check(create&&create->isEnabled()&&!create->icon().isNull(),"Create Render action missing");
-        create->trigger();flush();check(settings()&&settings()->windowType()==Qt::SubWindow,"Render settings are not shared internal Properties");
+        create_from_group();check(settings()&&settings()->windowType()==Qt::SubWindow,"Render settings are not shared internal Properties");
         check(window.rect().contains(settings()->geometry())&&settings()->buttons()->isVisible(),"Render settings exceed the application bounds");
         settings()->reject();flush();check(session.revision()==revision,"Render creation Cancel changed the document");
         create->trigger();flush();auto* dialog=settings();check(dialog,"Render settings did not reopen");
@@ -97,6 +109,13 @@ int verify_render_body(QApplication& application,AssemblyWorkspaceWindow& window
         const auto initial_camera=dialog->pending.render->objects.front();
         click(view,{view->width()/2.,view->height()/2.},Qt::MiddleButton,true);
         check(!settings()&&window.active_render_body()&&row(render_id),"Render creation did not commit/activate via middle double-click");
+        {
+            auto* item=row(render_id);auto* group=render_group();check(group&&item->parent()==group,"Render definition is outside its document group");auto* root=group->parent();int sections=-1;
+            for(int i=0;i<root->childCount();++i)if(root->child(i)->data(0,Qt::UserRole+3).toString()=="document-sections")sections=i;
+            check(sections>=0&&root->indexOfChild(group)==sections+1,"Renders group is not directly below Sections in the Tree");
+            check(item->isExpanded(),"Moving Render below Sections collapsed its camera/source rows");
+            check(!window.view_toolbar_->actions().contains(window.section_action_)&&!window.section_action_->icon().isNull(),"Section action did not leave the View toolbar or lost its Tree icon");
+        }
         check(!window.sketch_action_->isEnabled()&&window.render_mode_button_->isVisible()&&!window.fem_mode_button_->isVisible(),"Render editing context exposes material commands");
         check(!window.tools_toolbar_->actions().contains(window.export_action_),"Render Body exposes image Export outside the gallery");
         const auto definition=[&]()->const document::RenderDefinition&{return *session.document().body_history.find(render_id)->render;};
@@ -356,7 +375,8 @@ int verify_render_body(QApplication& application,AssemblyWorkspaceWindow& window
         window.tabs_->setCurrentIndex(model_tab());flush();
         for(const auto* language:{"cs","en","de","fr","ru"}) {
             QTemporaryDir temporary;QSettings ini(temporary.filePath("config.ini"),QSettings::IniFormat);ini.setValue("Application/Language",language);ini.setValue("Paths/Localization",QDir::current().absoluteFilePath("config/localization"));ini.sync();
-            const auto localized=ApplicationSettings::load(temporary.path());apply_application_translations(application,localized);
+            const auto localized=ApplicationSettings::load(temporary.path());apply_application_translations(application,localized);window.refresh_scene();flush();
+            check(render_group()&&render_group()->text(0)==localized.qt_translations.value("Renders"),"Render group did not translate");
             window.show_render_result();flush();page=window.active_render_page_;
             for(const auto& control:std::vector<std::pair<const char*,const char*>>{{"renderKeepImage","Save to Part"},{"renderRenameImage","Rename"},{"renderDeleteImage","Delete image"}})
                 check(page->findChild<QAction*>(control.first)->text()==localized.qt_translations.value(control.second),"Gallery control did not translate");
@@ -389,6 +409,24 @@ int verify_render_body(QApplication& application,AssemblyWorkspaceWindow& window
         check(loaded_images==saved_images&&page&&page->findChild<QListWidget*>("renderGalleryImages")->count()==2,
             "GUI save/close/reopen lost retained images or required rendering");
         check(window.grab().save(QString::fromStdWString((directory/"render-gallery-reopened.png").wstring())),"Reopened gallery screenshot failed");
+        window.tabs_->setCurrentIndex(model_tab());flush();
+        auto& reopened_session=window.workspace_.open_part(part.document_id)->session;
+        const auto first_definition=*reopened_session.document().body_history.find(render_id)->render;
+        const auto group_revision=reopened_session.revision();const auto group_calculations=kernel::body_calculation_count.load();
+        render_group()->setExpanded(false);window.refresh_scene();flush();
+        check(!render_group()->isExpanded()&&reopened_session.revision()==group_revision&&kernel::body_calculation_count.load()==group_calculations,
+            "Render group refresh lost collapse state or modified/calculated the document");
+        create_from_group();const auto second_render=settings()->pending.scope.id;
+        settings()->buttons()->button(QDialogButtonBox::Ok)->click();flush();
+        check(render_group()->childCount()==2&&row(render_id)->parent()==render_group()&&row(second_render)->parent()==render_group(),
+            "Two independent renders are not inside the same document group");
+        check(*reopened_session.document().body_history.find(render_id)->render==first_definition,"Creating a second Render changed the first definition");
+        window.undo_action_->trigger();flush();check(render_group()->childCount()==1&&!row(second_render),"Second Render creation Undo failed");
+        window.redo_action_->trigger();flush();check(render_group()->childCount()==2&&row(second_render),"Second Render creation Redo failed");
+        render_group()->setExpanded(true);window.save_active_document();flush();window.close_document(model_tab());flush();
+        check(window.open_document_path(QString::fromStdWString(path.wstring())),"Multiple Render document did not reopen");flush();
+        check(render_group()&&render_group()->childCount()==2&&row(render_id)&&row(second_render),"Save/reopen lost the multiple Render group");
+        check(window.grab().save(QString::fromStdWString((directory/"render-group.png").wstring())),"Render group screenshot failed");
         std::cout<<"Render GUI: source selection, whole-Origin objects, Cancel/unchanged OK, Undo/Redo, private rendering, JPEG/PNG export, background snapshots, gallery Undo/Redo, save/reopen and five languages passed\n";
         return 0;
     }catch(const std::exception& e){std::cerr<<e.what()<<'\n';window.grab().save(QString::fromStdWString((directory/"render-failure.png").wstring()));return 1;}

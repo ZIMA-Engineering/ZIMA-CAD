@@ -15,9 +15,12 @@ struct NativeTemplateSettings {
     std::filesystem::path materials_directory;
     std::string drawing_frame_variant, drawing_title_block_variant;
     std::filesystem::path skeleton_template{"START_SKELETON_mm.prtz"};
+    std::filesystem::path tool_template{"START_TOOL_mm.toolz"};
+    std::string cutting_body_name{"Cutting portion"},shank_body_name{"Shank"};
 };
 // Uses the existing body-origin attachment contract unchanged.
 [[nodiscard]] document::PartDocument part_from_template(const NativeTemplateSettings& settings);
+[[nodiscard]] document::PartDocument tool_from_template(const NativeTemplateSettings& settings);
 [[nodiscard]] assembly::AssemblyDocument assembly_from_template(const NativeTemplateSettings& settings);
 [[nodiscard]] drawing::DrawingDocument drawing_from_template(const NativeTemplateSettings& settings);
 

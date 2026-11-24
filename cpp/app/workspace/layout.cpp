@@ -2609,6 +2609,14 @@ void AssemblyWorkspaceWindow::create_layout() {
                 }
             }
             if(measurement_context_menu(item,position)||section_context_menu(item,position))return;
+            if(item&&item->data(0,Qt::UserRole+3)=="document-renders") {
+                if(properties_dialog_||!active_sketch_id_.empty()||workspace_.active_document_id()!=workspace_.displayed_document_id())return;
+                QMenu menu(this);
+                auto* create=menu.addAction(resource_icon("render"),tr("Create Render"));
+                create->setObjectName("createRenderFromGroupAction");
+                if(exec_tree_menu(menu,item,position)==create){activate_body({});show_render_body_properties();}
+                return;
+            }
             if(item&&workspace_.open_drawing(workspace_.displayed_document_id())&&
                 item->data(0,Qt::UserRole+3).toString()!="drawing-document") {
                 if(properties_dialog_)return;
@@ -2711,7 +2719,7 @@ void AssemblyWorkspaceWindow::create_layout() {
                 auto* create_fem=menu.addAction(resource_icon("result-body"),tr("Create FEM"));
                 create_fem->setObjectName("createFemFromPartAction");
                 auto* create_cam=menu.addAction(resource_icon("result-body"),tr("Create CAM"));create_cam->setObjectName("createCamFromPartAction");
-                auto* create_render=menu.addAction(resource_icon("template-image"),tr("Create Render"));create_render->setObjectName("createRenderFromPartAction");
+                auto* create_render=menu.addAction(resource_icon("render"),tr("Create Render"));create_render->setObjectName("createRenderFromPartAction");
                 auto* insert_body=menu.addAction(resource_icon("insert-component"),tr("Insert Body from Part…"));
                 insert_body->setObjectName("insertLinkedBodyAction");
                 const auto* link_target=workspace_.open_part(workspace_.active_document_id());

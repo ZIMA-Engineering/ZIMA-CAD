@@ -415,12 +415,12 @@ QString logical_file_id(const QFileInfo& info) {
     const QRegularExpression proe(QStringLiteral(R"(^(.+)\.(?:prt|asm|drw)\.\d+$)"),QRegularExpression::CaseInsensitiveOption);
     const auto match=proe.match(name);if(match.hasMatch())return match.captured(1);
     const QString suffix=info.suffix().toLower();
-    if(QStringList{"prtz","asmz","drwz","frmz","tblz","symz","matz"}.contains(suffix))return info.completeBaseName();
+    if(QStringList{"toolz","prtz","asmz","drwz","frmz","tblz","symz","matz"}.contains(suffix))return info.completeBaseName();
     return name;
 }
 
 bool is_version_file(const QFileInfo& info) {
-    static const QRegularExpression version(QStringLiteral(R"(\.(?:prt|asm|drw|prtz|asmz|drwz|frmz|tblz|symz)\.\d+$)"),QRegularExpression::CaseInsensitiveOption);
+    static const QRegularExpression version(QStringLiteral(R"(\.(?:prt|asm|drw|toolz|prtz|asmz|drwz|frmz|tblz|symz)\.\d+$)"),QRegularExpression::CaseInsensitiveOption);
     return version.match(info.fileName()).hasMatch();
 }
 
@@ -889,7 +889,7 @@ void FileManagerTab::build_ui(){
     auto* include_status=new QLabel(files_page);include_status->setObjectName("fileManagerIncludeStatus");include_status->setTextFormat(Qt::PlainText);include_status->setWordWrap(true);include_status->hide();files_layout->addWidget(include_status);files_layout->addWidget(files_,1);
     auto* actions=new QHBoxLayout;
     filters_=new QToolButton(files_page);filters_->setObjectName("fileManagerFilters");filters_->setText(tr("Filters…"));filters_->setIcon(resource_icon("filter"));filters_->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);filters_->setCheckable(true);filters_->setStyleSheet(command_button_style());actions->addWidget(filters_);connect(filters_,&QToolButton::clicked,this,&FileManagerTab::edit_filters);
-    for(const auto* extension:{"prtz","asmz","drwz","matz","frmz","tblz","symz"}){const QString type=QString::fromLatin1(extension);auto* button=new QToolButton(files_page);button->setText(type);button->setStyleSheet(command_button_style());button->setIcon(type=="matz"?resource_icon("material"):native_file_icon(QFileInfo("file."+type)));button->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);button->setObjectName("fileManagerType_"+type);button->setCheckable(true);button->setChecked(true);type_filters_.insert(type,button);actions->addWidget(button);connect(button,&QToolButton::toggled,this,[this]{save_type_filters();apply_file_filters();});}
+    for(const auto* extension:{"toolz","prtz","asmz","drwz","matz","frmz","tblz","symz"}){const QString type=QString::fromLatin1(extension);auto* button=new QToolButton(files_page);button->setText(type);button->setStyleSheet(command_button_style());button->setIcon(type=="matz"?resource_icon("material"):native_file_icon(QFileInfo("file."+type)));button->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);button->setObjectName("fileManagerType_"+type);button->setCheckable(true);button->setChecked(true);type_filters_.insert(type,button);actions->addWidget(button);connect(button,&QToolButton::toggled,this,[this]{save_type_filters();apply_file_filters();});}
     files_->header()->setContextMenuPolicy(Qt::CustomContextMenu);connect(files_->header(),&QWidget::customContextMenuRequested,this,[this](const QPoint& point){QMenu menu(this);auto* type=menu.addAction(tr("Show Type column"));type->setCheckable(true);type->setChecked(!files_->isColumnHidden(2));connect(type,&QAction::toggled,this,[this](bool visible){files_->setColumnHidden(2,!visible);save_column_layout();});menu.exec(files_->header()->mapToGlobal(point));});
     new_directory_=new QPushButton(tr("New folder…"),files_page);new_directory_->setObjectName("fileManagerNewDirectory");new_directory_->setIcon(resource_icon("web-folder"));actions->addWidget(new_directory_);connect(new_directory_,&QPushButton::clicked,this,&FileManagerTab::create_directory);
     const auto operation=[&](const QString& text,const char* name){auto* button=new QPushButton(text,files_page);button->setObjectName(name);actions->addWidget(button);return button;};
@@ -1065,7 +1065,7 @@ void FileManagerTab::refresh_files(){
     auto entries=directory.entryInfoList(filters,QDir::DirsFirst|QDir::Name|QDir::IgnoreCase);if(!metadata.value("Directory/SubdirectoriesAsParts",true).toBool())entries.erase(std::remove_if(entries.begin(),entries.end(),[](const QFileInfo& info){return info.isDir();}),entries.end());
     QMap<QString,FileManagerNativeParameters> native_parameters;
     const auto read_native=[this](const QFileInfo& info){const QString stamp=info.lastModified().toUTC().toString(Qt::ISODateWithMs)+QLatin1Char(':')+QString::number(info.size())+(native_parameters_revision_requested?QLatin1Char(':')+native_parameters_revision_requested(info.absoluteFilePath()):QString{});auto cached=native_parameter_cache_.constFind(info.absoluteFilePath());if(cached!=native_parameter_cache_.cend()&&cached->first==stamp)return cached->second;auto data=native_parameters_requested(info.absoluteFilePath());if(data.error.isEmpty())native_parameter_cache_.insert(info.absoluteFilePath(),{stamp,data});return data;};
-    const auto native_file=[](const QFileInfo& info){return info.isFile()&&QStringList{"prtz","asmz","frmz","tblz","symz","matz"}.contains(info.suffix().toLower());};
+    const auto native_file=[](const QFileInfo& info){return info.isFile()&&QStringList{"toolz","prtz","asmz","frmz","tblz","symz","matz"}.contains(info.suffix().toLower());};
     if(native_parameters_requested)for(const auto& info:entries){if(!native_file(info))continue;auto data=read_native(info);if(!data.error.isEmpty())continue;native_parameters.insert(info.absoluteFilePath(),std::move(data));}
     QSet<QString> stems;for(const auto& info:entries)if(info.isFile())stems.insert(info.completeBaseName());
     for(int source_index=1;source_index<parameter_sources.directories.size();++source_index){
@@ -1369,7 +1369,7 @@ void FileManagerTab::save_parameter(const QModelIndex &index) {
 bool FileManagerTab::current_source_read_only()const{const int index=source_index_for(current_directory_);return index<0||sources_.at(index).source.read_only;}
 QString FileManagerTab::current_source_label()const{const int index=source_index_for(current_directory_);return index<0?QString{}:sources_.at(index).source.name;}
 
-void FileManagerTab::open_entry(const QString& path){const QFileInfo info(path);if(info.isDir()){navigate(path);return;}const QString suffix=info.suffix().toLower();if(QStringList{"prtz","asmz","drwz","frmz","tblz","symz","matz"}.contains(suffix)&&open_file_requested){open_file_requested(path);return;}QDesktopServices::openUrl(QUrl::fromLocalFile(path));}
+void FileManagerTab::open_entry(const QString& path){const QFileInfo info(path);if(info.isDir()){navigate(path);return;}const QString suffix=info.suffix().toLower();if(QStringList{"toolz","prtz","asmz","drwz","frmz","tblz","symz","matz"}.contains(suffix)&&open_file_requested){open_file_requested(path);return;}QDesktopServices::openUrl(QUrl::fromLocalFile(path));}
 
 void FileManagerTab::show_source_menu(const QPoint& point){
     auto* item=source_list_->itemAt(point);if(!item)return;const int index=source_list_->row(item);if(index<0||index>=sources_.size())return;

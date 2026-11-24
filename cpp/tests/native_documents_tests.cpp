@@ -55,6 +55,23 @@ int main(){
         const NativeTemplateSettings settings{template_root,"START_PART_mm.prtz","START_ASSEMBLY_mm.asmz","Těleso 1"};
         const auto part_template_bytes=bytes(template_root/settings.part_template);
         const auto assembly_template_bytes=bytes(template_root/settings.assembly_template);
+        for(const auto* unit:{"mm","in"}) {
+            auto tool_settings=settings;tool_settings.tool_template=std::string("START_TOOL_")+unit+".toolz";
+            const auto source=template_root/tool_settings.tool_template;
+            const auto original=bytes(source);
+            const auto first=tool_from_template(tool_settings),second=tool_from_template(tool_settings);
+            const auto standard=document::PartDocument::load(template_root/(std::string("START_PART_")+unit+".prtz"));
+            for(const auto& [key,value]:standard.user_parameters)
+                require(first.user_parameters.at(key)==value,"Tool template changed a standard Part parameter");
+            require(native_document_type("cutter.TOOLZ")==NativeDocumentType::Part,"Tool extension is not an ordinary Part");
+            require(first.document_units.at("Length")==unit,"Tool template lost its units");
+            require(first.body_history.bodies().size()==2&&first.history.empty()&&first.sketches.empty(),"Tool template has incorrect ownership");
+            const auto cutting=first.user_parameters.at("cam_cutting_body"),shank=first.user_parameters.at("cam_shank_body");
+            require(cutting!=shank&&first.body_history.active_body_id()==cutting,"Tool did not activate its cutting Body");
+            require(first.document_id!=second.document_id&&cutting!=second.user_parameters.at("cam_cutting_body"),"Tool template reused identities");
+            require(first.user_parameters.contains("cam_diameter_mm")&&first.user_parameters.contains("cam_spindle_rpm"),"Tool parameters are absent");
+            require(bytes(source)==original,"Tool creation changed its template");
+        }
         const auto template_part=document::PartDocument::load(template_root/settings.part_template);
         const auto template_assembly=assembly::AssemblyDocument::load(template_root/settings.assembly_template);
         const auto check_labels=[](const auto& model) {

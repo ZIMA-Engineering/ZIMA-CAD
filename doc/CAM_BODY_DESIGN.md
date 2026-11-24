@@ -262,9 +262,37 @@ override and preserves authored Modeling appearance. See
 coverage, calculation counts and presentation checks. Tool/operation authoring,
 NC stepping, clamping-Sketch checks and the agreed deployment gates remain open.
 
-The user also requested visible toolpaths in yellow. The intended presentation
-uses solid yellow cutting-feed paths and dashed yellow rapid paths, with the
+The user requested yellow cutting-feed paths and red rapid-transfer paths
+(confirmed on 2026-11-24). The intended presentation uses solid yellow cutting
+paths and dashed red rapid paths, with the
 selected motion emphasized and linked to its generic NC block. Stepping should
 show the tool at that motion's position. Derive all display paths from the actual
 calculated program and preserve exact motion/block identity; drawing the paths
 must not recalculate solids or become a separate source of machining geometry.
+
+## Library definition checkpoint, 2026-11-24
+
+Global settings contain a CAM section with independent paths for machine,
+tool and workholding libraries. Generic native definitions and dedicated tool
+templates are authored and verified; see the
+[verification record](verification/20261124-cam-library-definitions.md).
+The planned library browser will allow nested directories and load items lazily.
+Selecting an item will copy the required definition into the native setup,
+without loading or depending on the complete library. This import UI is pending.
+
+Tools use ordinary Part modeling and Body ownership through the agreed `.toolz`
+extension and a dedicated start template. The cutting Body is yellow; the shank
+Body is red. Their common origin is the cutting/shank interface, with cutting
+geometry towards negative local Z and shank geometry towards positive Z.
+Parameters and Relations drive geometry and manually authored cutting presets;
+there is no automatic material database. Presets must identify their intended
+conditions and sources. Machine profiles contain the established axis, travel,
+feed, spindle and postprocessor parameters; a machine solid is optional graphics.
+
+The first vise definition needs only two named contact Sketches in an ordinary
+Body. Fixed-jaw contact lies at Y=0; moving-jaw contact lies at Y=opening. Both
+upper jaw edges lie at Z=0. The opening parameter moves the second Sketch only;
+stable role identities must not depend on editable Sketch names. A 3D vise model
+is optional presentation. Whole-definition placement uses the existing shared
+reference contract; the machining work origin remains independently selectable.
+These definitions and their editors/import are not yet a completed library UI.

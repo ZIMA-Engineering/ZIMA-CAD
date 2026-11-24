@@ -53,7 +53,14 @@ private:
 const QStringList path_keys{
     QStringLiteral("Materials"), QStringLiteral("Templates"),
     QStringLiteral("Formats"), QStringLiteral("Symbols"), QStringLiteral("Forms"), QStringLiteral("Localization"),
-    QStringLiteral("WorkingDirectory")};
+    QStringLiteral("WorkingDirectory"), QStringLiteral("CamMachines"), QStringLiteral("CamTools"), QStringLiteral("CamFixtures")};
+
+QString path_setting_key(const QString& key) {
+    if(key=="CamMachines")return "CAM/MachinesDirectory";
+    if(key=="CamTools")return "CAM/ToolsDirectory";
+    if(key=="CamFixtures")return "CAM/FixturesDirectory";
+    return "Paths/"+key;
+}
 
 const QMap<QString, QString> path_defaults{
     {QStringLiteral("Materials"), QStringLiteral("materials")},
@@ -62,7 +69,10 @@ const QMap<QString, QString> path_defaults{
     {QStringLiteral("Symbols"), QStringLiteral("symbols")},
     {QStringLiteral("Forms"), QStringLiteral("lib/01-SHEETMETAL/01-FORM")},
     {QStringLiteral("Localization"), QStringLiteral("localization")},
-    {QStringLiteral("WorkingDirectory"), QStringLiteral("../Projects")}};
+    {QStringLiteral("WorkingDirectory"), QStringLiteral("../Projects")},
+    {QStringLiteral("CamMachines"), QStringLiteral("lib/CAM/Machines")},
+    {QStringLiteral("CamTools"), QStringLiteral("lib/CAM/Tools")},
+    {QStringLiteral("CamFixtures"), QStringLiteral("lib/CAM/Fixtures")}};
 
 const QMap<QString, QString> unit_defaults{
     {QStringLiteral("Length"), QStringLiteral("mm")},
@@ -177,7 +187,7 @@ ApplicationSettings ApplicationSettings::load(const QString& working_directory, 
     for (const auto& key : path_keys) {
         QString origin;
         const auto fallback = installed && key == "WorkingDirectory" ? qpath(installed->root / "Projects") : path_defaults.value(key);
-        const auto configured = value("Paths/" + key, fallback, &origin);
+        const auto configured = value(path_setting_key(key), fallback, &origin);
         const auto resolved = resolved_path(origin, configured);
         result.resolved_paths.insert(key, resolved);
         // Display relative paths against the writable config, not a hidden lower layer.
@@ -468,7 +478,7 @@ bool ApplicationSettings::save(QString* error) const {
         auto path = QDir::fromNativeSeparators(it.value().trimmed());
         if (!platform_config_path.isEmpty() && !path.isEmpty() && !QDir::isAbsolutePath(path))
             path = QDir(QFileInfo(platform_config_path).absolutePath()).relativeFilePath(resolved_path(config_path, path));
-        paths.insert("Paths/" + it.key(), path);
+        paths.insert(path_setting_key(it.key()), path);
     }
     if (platform_config_path.isEmpty()) common.insert(paths);
     if (platform_config_path.isEmpty() || paths.isEmpty()) return save_values(config_path, common, error);

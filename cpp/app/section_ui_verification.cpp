@@ -18,6 +18,7 @@
 #include <QKeyEvent>
 #include <QRadioButton>
 #include <QToolBar>
+#include <QToolButton>
 #include <QScrollArea>
 #include <iostream>
 namespace zima::app {
@@ -51,6 +52,23 @@ int verify_sections(QApplication& application,AssemblyWorkspaceWindow& window,co
         const auto cache=kernel.evaluate_history(part.kernel_operations());const auto path=dir/"section.prtz";part.save(path,cache);
         window.showMaximized();check(window.open_document_path(QString::fromStdString(path.string())),"Cannot open section fixture");flush();
         auto* view=dynamic_cast<viewer::MeshView*>(window.findChild<QOpenGLWidget*>());auto* tree=window.findChild<QTreeWidget*>("documentTree");auto* create=window.findChild<QAction*>("createSectionAction");auto* save=window.findChild<QAction*>("saveDocumentAction");
+        // Opening a Part activates its first editable Body. Exercise the new
+        // command at the user-requested Body-list level through normal Tree UI.
+        QTimer activate_root;activate_root.setInterval(10);
+        QObject::connect(&activate_root,&QTimer::timeout,[&]{if(auto* menu=qobject_cast<QMenu*>(QApplication::activePopupWidget())) {
+            activate_root.stop();auto* action=menu->findChild<QAction*>("activatePartAction");
+            check(action,"Part root activation action is missing");menu->setActiveAction(action);
+            QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);QApplication::sendEvent(menu,&enter);
+        }});activate_root.start();
+        QMetaObject::invokeMethod(tree,"customContextMenuRequested",Qt::DirectConnection,Q_ARG(QPoint,tree->visualItemRect(tree->topLevelItem(0)).center()));flush();activate_root.stop();
+        const auto section_command_location=[&] {
+            auto* tools=window.findChild<QToolBar*>("toolsToolbar");
+            auto* views=window.findChild<QToolBar*>("viewToolbar");
+            check(tools&&views&&std::ranges::any_of(tools->findChildren<QToolButton*>(),[&](const auto* button){return button->defaultAction()==create;})&&!views->actions().contains(create),
+                "Section creation must be in the right command panel, outside the View toolbar");
+            check(!create->icon().isNull(),"Section creation lost its shared Tree icon");
+        };
+        section_command_location();
         check(view&&tree&&create&&create->isEnabled(),"Missing Section action");view->set_standard_view(viewer::StandardView::Top);{QEventLoop animation;QTimer::singleShot(1000,&animation,&QEventLoop::quit);animation.exec();}flush();
         const auto dialog=[&]{return dynamic_cast<SectionPropertiesDialog*>(window.findChild<QDialog*>("sectionProperties"));};
         const auto work_plane=[&] {
@@ -522,7 +540,7 @@ int verify_sections(QApplication& application,AssemblyWorkspaceWindow& window,co
         // Read-only source resolution and repeated occurrence rows in Assembly.
         workspace::Workspace fixture;fixture.add_part(stored,cache,path);auto assembly=assembly::AssemblyDocument::create_default();const auto aid=assembly.document_id;const auto assembly_path=dir/"section.asmz";fixture.add_assembly(assembly,assembly_path);
         const auto first=fixture.insert_open_part(aid,part.document_id,"Tube 1"),second=fixture.insert_open_part(aid,part.document_id,"Tube 2");assembly=fixture.open_assembly(aid)->session.document();assembly.find_occurrence(second)->placement.x=65;assembly.save(assembly_path);
-        check(window.open_document_path(QString::fromStdString(assembly_path.string())),"Cannot open section Assembly");flush();view->set_standard_view(viewer::StandardView::Top);create->trigger();flush();line();check(dialog()!=nullptr,"Assembly Section dialog missing");auto* rows=dialog()->findChild<QTableWidget*>("sectionComponents");check(rows&&rows->rowCount()==2&&rows->item(0,0)->data(Qt::UserRole)!=rows->item(1,0)->data(Qt::UserRole),"Repeated components were merged in Section settings");
+        check(window.open_document_path(QString::fromStdString(assembly_path.string())),"Cannot open section Assembly");flush();section_command_location();view->set_standard_view(viewer::StandardView::Top);create->trigger();flush();line();check(dialog()!=nullptr,"Assembly Section dialog missing");auto* rows=dialog()->findChild<QTableWidget*>("sectionComponents");check(rows&&rows->rowCount()==2&&rows->item(0,0)->data(Qt::UserRole)!=rows->item(1,0)->data(Qt::UserRole),"Repeated components were merged in Section settings");
         const auto first_key=rows->item(0,0)->data(Qt::UserRole).toString().toStdString(),second_key=rows->item(1,0)->data(Qt::UserRole).toString().toStdString();
         placement_layout();own_origin();
         auto* component_rows=dynamic_cast<SectionComponentsWidget*>(rows);check(component_rows!=nullptr,"Unexpected component table");

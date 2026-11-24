@@ -216,6 +216,41 @@ void AssemblyWorkspaceWindow::update_section_ui(){
         if(component && zima::assembly::is_skeleton(*component)) ++position;
     }
     root->insertChild(position,group);group->setExpanded(section_tree_expanded_[id]);
+    // Render definitions share a document group, like Sections. Their ordinary
+    // native Body identities, source order and calculation contracts stay intact.
+    if(const auto* part=workspace_.open_part(id)) {
+        auto* render_group=new QTreeWidgetItem(QStringList{tr("Renders")});
+        render_group->setData(0,Qt::UserRole+3,"document-renders");
+        render_group->setFlags(render_group->flags()&~Qt::ItemIsUserCheckable);
+        render_group->setIcon(0,resource_icon("render"));
+        root->insertChild(root->indexOfChild(group)+1,render_group);
+        render_group->setExpanded(true); // Ordinary Tree expansion restoration owns later refreshes.
+        std::vector<QTreeWidgetItem*> renders;
+        for(int i=0;i<root->childCount();++i) {
+            auto* item=root->child(i);
+            if(item->data(0,Qt::UserRole+3).toString()!="part-body")continue;
+            const auto* body=part->session.document().body_history.find(item->data(0,Qt::UserRole).toString().toStdString());
+            if(body&&body->render)renders.push_back(item);
+        }
+        for(auto* item:renders) {
+            // Detaching a Qt item drops the view's index-based state, including
+            // expanded camera/source children. Retain it across this UI move.
+            struct RowState { QTreeWidgetItem* item; bool expanded; bool selected; };
+            std::vector<RowState> states;
+            const auto remember=[&](auto&& self,QTreeWidgetItem* row)->void {
+                states.push_back({row,row->isExpanded(),row->isSelected()});
+                for(int i=0;i<row->childCount();++i)self(self,row->child(i));
+            };
+            remember(remember,item);
+            auto* current=tree_->currentItem();
+            root->takeChild(root->indexOfChild(item));render_group->addChild(item);
+            for(const auto& state:states) {
+                state.item->setExpanded(state.expanded);
+                if(state.item==current)tree_->setCurrentItem(current,0,QItemSelectionModel::NoUpdate);
+                state.item->setSelected(state.selected);
+            }
+        }
+    }
     const auto row=[&](const QString& name,const std::string& key,const char* type,bool active){
         auto* item=new QTreeWidgetItem(group,QStringList{name});
         item->setData(0,Qt::UserRole,QString::fromStdString(key));item->setData(0,Qt::UserRole+3,type);

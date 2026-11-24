@@ -80,7 +80,8 @@ class PackageTests(unittest.TestCase):
             expected = ('config/templates/START_PART_mm.prtz',
                         'config/lib/01-SHEETMETAL/01-FORM/CornerGusset90.prtz',
                         'config/lib/future/NEW-FEATURE.PRTZ',
-                        'config/symbols/example.symz', 'config/formats/example.tblz')
+                        'config/symbols/example.symz', 'config/formats/example.tblz',
+                        'config/lib/CAM/Tools/Milling/example.toolz')
             for name in (*expected, 'config/lib/private.prtz.1', 'config/readme.txt'):
                 path = runtime / name
                 path.parent.mkdir(parents=True, exist_ok=True)

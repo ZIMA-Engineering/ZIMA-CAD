@@ -1,4 +1,5 @@
 {
+  "Renders": "Renders",
   "CAM": "CAM",
   "CAM setup properties": "CAM setup properties",
   "CAM setup": "CAM setup",
@@ -418,7 +419,6 @@
   "Keep current registration": "Keep current registration",
   "Register or repair": "Register or repair",
   "Remove this registration": "Remove this registration",
-  "Register .prtz, .asmz, .drwz, .frmz, .tblz and .symz with their icons for this user. Existing default applications are preserved.": "Register .prtz, .asmz, .drwz, .frmz, .tblz and .symz with their icons for this user. Existing default applications are preserved.",
   "Default applications": "Default applications",
   "Desktop integration is registered.": "Desktop integration is registered.",
   "Desktop integration is not registered or needs repair.": "Desktop integration is not registered or needs repair.",
@@ -732,7 +732,6 @@
   "Zpět do sestavy": "Return to assembly",
   "Vytvořit těleso": "Create Body",
   "Potlačit": "Suppress",
-  "Dokumenty ZIMA-CAD (*.prtz *.asmz *.drwz *.frmz *.tblz *.symz)": "ZIMA-CAD Documents (*.prtz *.asmz *.drwz *.frmz *.tblz *.symz)",
   "O aplikaci ZIMA-CAD": "About ZIMA-CAD",
   "Uložit sestavu ZIMA-CAD": "Save ZIMA-CAD Assembly",
   "Sestava ZIMA-CAD (*.asmz)": "ZIMA-CAD Assembly (*.asmz)",
@@ -3204,5 +3203,17 @@
   "From target surface": "From target surface",
   "Keep only the layer between the target and its correction along the extrusion direction.": "Keep only the layer between the target and its correction along the extrusion direction.",
   "From target surface requires a solid profile and a nonzero correction larger than the modeling tolerance.": "From target surface requires a solid profile and a nonzero correction larger than the modeling tolerance.",
-  "The target surface layer could not be constructed.": "The target surface layer could not be constructed."
+  "The target surface layer could not be constructed.": "The target surface layer could not be constructed.",
+  "CAM machine library": "CAM machine library",
+  "CAM tool library": "CAM tool library",
+  "CAM workholding library": "CAM workholding library",
+  "Libraries may contain subfolders. Paths are relative to this configuration file. A CAM setup keeps its own copy of each selected definition.": "Libraries may contain subfolders. Paths are relative to this configuration file. A CAM setup keeps its own copy of each selected definition.",
+  "CAM tool": "CAM tool",
+  "Cutting portion": "Cutting portion",
+  "Shank": "Shank",
+  "Register .prtz, .asmz, .drwz, .frmz, .tblz, .symz and .toolz with their icons for this user. Existing default applications are preserved.": "Register .prtz, .asmz, .drwz, .frmz, .tblz, .symz and .toolz with their icons for this user. Existing default applications are preserved.",
+  "Dokumenty ZIMA-CAD (*.prtz *.asmz *.drwz *.frmz *.tblz *.symz *.toolz)": "ZIMA-CAD Documents (*.prtz *.asmz *.drwz *.frmz *.tblz *.symz *.toolz)",
+  "CAM tool (*.toolz)": "CAM tool (*.toolz)",
+  "Expected part, assembly, drawing or tool.": "Expected part, assembly, drawing or tool.",
+  "Model ZIMA-CAD (*.prtz *.toolz *.asmz)": "ZIMA-CAD model (*.prtz *.toolz *.asmz)"
 }

@@ -439,7 +439,7 @@ drawing_annotation_sources(const Workspace *workspace,
                     workspace->open_part(id)->session.calculated_boundaries().back().calculation_errors);
     else if (workspace && workspace->open_assembly(id))
       assembly_mesh(workspace->open_assembly(id)->session.document());
-    else if (extension == ".prtz") {
+    else if ((extension == ".prtz" || extension == ".toolz")) {
       std::vector<kernel::BodyResult> boundaries;
       auto part = read_family_part(workspace,path,id,boundaries);
       Workspace source;

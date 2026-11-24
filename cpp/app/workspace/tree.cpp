@@ -843,7 +843,7 @@ void AssemblyWorkspaceWindow::add_part_tree_children(
                 row->setExpanded(true);shade_downstream(row,index);continue;
             }
             if(definition->render) {
-                row->setIcon(0,resource_icon("template-image"));
+                row->setIcon(0,resource_icon("render"));
                 const auto render_sources=graph.render_sources(id);
                 if(!render_sources.empty())if(const auto frame=workspace::material_source_frame_owner(graph,render_sources.front());!frame.empty()) {
                     auto* source_origin=add_origin_tree_item(row,frame,false,construction_path);

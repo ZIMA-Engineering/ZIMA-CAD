@@ -218,6 +218,8 @@ zima::workspace::NativeTemplateSettings native_template_settings(const Applicati
     configure_new_drawing(result,new_drawing_options(settings));
     result.materials_directory=std::filesystem::u8path(settings.resolved_paths.value("Materials").toStdString());
     result.skeleton_template=std::filesystem::u8path(settings.skeleton_template.toStdString());
+    result.tool_template=settings.units.value("Length")=="in"?"START_TOOL_in.toolz":"START_TOOL_mm.toolz";
+    result.cutting_body_name=QObject::tr("Cutting portion").toStdString();result.shank_body_name=QObject::tr("Shank").toStdString();
     return result;
 }
 

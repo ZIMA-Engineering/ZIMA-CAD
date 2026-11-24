@@ -37,7 +37,7 @@ std::vector<zima::document::SectionDefinition> source_sections(
         if(const auto* a=workspace->open_assembly(*open))return sections_for_assembly(a->session.document());
     }
     auto extension=path.extension().string();std::ranges::transform(extension,extension.begin(),[](unsigned char c){return static_cast<char>(std::tolower(c));});
-    if(extension==".prtz") {
+    if((extension==".prtz"||extension==".toolz")) {
         std::vector<kernel::BodyResult> cache;const auto model=read_family_part(workspace,path,id,cache);
         if(!id.empty()&&model.document_id!=id)throw DrawingOperationError("source_identity","Source model identity changed");
         return sections_for_part(model);
@@ -88,7 +88,7 @@ std::vector<zima::drawing::BomRow> build_bom_rows_for_source(
         for(const auto& component:assembly->components)if(!assembly::is_skeleton(component)&&!suppressed.contains(component.occurrence_id))
             append(component.source_document_id,component.source_path,component.name,assembly::InstancePath{}.child(component.occurrence_id).encoded(),component.bom_ignore_variant);
     }
-    else if((workspace&&workspace->open_part(source_id))||source_extension(source_path)==".prtz")
+    else if((workspace&&workspace->open_part(source_id))||(source_extension(source_path)==".prtz"||source_extension(source_path)==".toolz"))
         append(source_id,!source_path.empty()&&source_path.is_relative()?std::filesystem::absolute(source_path):source_path,zima::document::path_to_utf8(source_path.stem()),{});
     return bom;
 }
@@ -105,7 +105,7 @@ zima::drawing::TitleBlockContext build_title_block_context_for_source(
     std::optional<zima::document::PartDocument> loaded_part;
     if (workspace != nullptr) if (const auto* open = workspace->open_part(source_id))
         part = &open->session.document();
-    if (part == nullptr && !source_path.empty() && source_extension(source_path) == ".prtz") {
+    if (part == nullptr && !source_path.empty() && (source_extension(source_path) == ".prtz" || source_extension(source_path) == ".toolz")) {
         try { std::vector<kernel::BodyResult> cache;loaded_part = read_family_part(workspace,source_path,source_id,cache); part = &*loaded_part; }
         catch (const std::exception&) { part = nullptr; }
     }

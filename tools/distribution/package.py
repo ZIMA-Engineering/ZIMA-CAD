@@ -324,7 +324,7 @@ def clean_environment(runtime):
 
 def native_factory_assets(runtime):
     """Discover all native factory documents, including future library assets."""
-    extensions = {'.prtz', '.asmz', '.drwz', '.tblz', '.frmz', '.symz'}
+    extensions = {'.prtz', '.asmz', '.drwz', '.tblz', '.frmz', '.symz', '.toolz'}
     return sorted(path for path in (runtime / 'config').rglob('*')
                   if path.is_file() and path.suffix.lower() in extensions)
 
