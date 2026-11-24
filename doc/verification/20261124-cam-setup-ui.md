@@ -114,3 +114,13 @@ Linux and nested-occurrence GUI verification have not been performed.
 The normal `zima-cad.bat` executable remains the verified Section-fix build,
 SHA-256 `6B76A2AC1B8DCC1B764F07E84D9968DDB4EAC440D4D92742E7B0C4ADE7D1B1E6`.
 No portable release was created or published.
+
+## Windows 2026112402 publication
+
+The development-only deployment status above is historical. The committed Windows
+2026112402 package passed the applicable GUI cases, mandatory FEM smoke, 1,190
+native factory loads, template creation, signature and public-download gates.
+The accepted runtime is installed behind the unchanged development BAT.
+This publication does not change the explicitly stated unfinished features,
+unsupported protected files, finite geometry coverage or Linux verification gap.
+See the [publication evidence](20261124-windows-2402-publication.json).

@@ -38,3 +38,45 @@ deletion. The clean `C:/zcb/zc2401-release-tree` worktree was also removed throu
 Git after checking its status; the source commit and local tag remain available.
 These were temporary release inputs, not user projects or SDKs. The reusable
 release build stage and protected Toyota backup remain intact.
+
+## 2402 packaging preparation
+
+Another 1,983,468,189 bytes were reclaimed from the three local 2103 publication
+assets and the unsigned 2303 candidate ZIP. Each 2103 asset matched the size and
+SHA-256 reported by its published GitHub release. The 2303 candidate matched its
+validation record, and the newer signed 2303 ZIP was retained after checking its
+SHA-256. Local evidence is in
+`build/release-2026112402/cleanup-old-archives.json`.
+
+Before reusing the compilation stage, all 10,167 exported source files matched
+the recorded 2401 Git archive, including Windows line endings. The 146 additional
+files were generated FEM/sheet test outputs; they were preserved outside the
+source export in `C:/zcb/r2002/previous-test-artifacts-2401`. The repository's
+packager then performed its own source verification before refreshing to 2402.
+
+After all twelve additional 2402 packaged GUI cases passed, the disposable smoke
+extraction, duplicate staging ZIP and superseded unsigned 2401 ZIP were removed,
+reclaiming 5,273,490,365 bytes. The accepted 2402 candidate ZIP and previous signed
+2303 release remained available. The paths, identities and retained archive
+digest were checked before removal; the evidence is in
+`build/release-2026112402/cleanup-before-sign.json`.
+
+## Final cleanup after publication
+
+After public download, signature, updater and local installation acceptance,
+the disposable 2402 assembly, public extraction and two redundant ZIPs were
+removed, reclaiming 8,520,244,266 bytes. The clean release worktree was removed
+through Git, reclaiming another 1,411,136,938 bytes. All recursive targets were
+resolved inside their explicit staging roots and checked for unexpected links
+and running processes before removal.
+
+The signed 2402 ZIP remains in `.dist-output/2026112402-signed`, with SHA-256
+`48a2e3733d95d66bbfae9d77a0b146e29e0d103dc83cb7bb58632beb691e3e8e`.
+The preceding signed 2303 release, protected Toyota backup, independent verified
+Family copy, SDKs and reusable compilation stage are also retained. Validation
+records and signatures remain available for the removed archive copies.
+
+Observed free space after this cleanup was 13,477,089,280 bytes (13.48 GB,
+12.55 GiB). This is a point-in-time measurement. Evidence is in
+`build/release-2026112402/cleanup-after-publication.json` and
+`build/release-2026112402/cleanup-release-worktree.json`.

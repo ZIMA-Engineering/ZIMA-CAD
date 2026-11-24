@@ -1,5 +1,20 @@
 # Native versioned distribution
 
+Signed Windows [2026112402](releases/2026112402.md#distribution-status) was
+published at `2026-11-24T11:04:57Z` from immutable source
+`8a909e6b82ac046cfabc98ac22a6e2c315d0c879`. It includes FEM second-OK retention and projected-region meshing
+repairs, exact oversized fillet corners, Drawing silhouettes, target-surface
+relief, Render/Section commands, Mirror presentation and appearance, handed Family
+variants and the documented CAM setup/library checkpoint.
+Candidate and signed smoke, 1,190 factory loads, twelve sheet-branch gates and
+twelve additional packaged GUI cases passed. Public downloads, signatures, safe
+extraction and production updater trust/current status passed. The unchanged
+development BAT starts the same accepted binaries; personal settings and all
+172 Toyota originals were preserved. Two Toyota Drawing copies passed; seven
+older Parts and one Assembly remain unsupported as in 2303. Native Linux and
+the explicitly unfinished CAM/Assembly Render work remain separate. See the
+[publication evidence](verification/20261124-windows-2402-publication.json).
+
 Signed Windows [2026112303](releases/2026112303.md#distribution-status) was
 published at `2026-11-23T15:06:37Z` from immutable source
 `65959a0a667b8705ce19d47c44d7dc03e0c17911`. Complete spatial spline cuts, retained Point supports,

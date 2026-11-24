@@ -80,4 +80,14 @@ a fresh document identity. Its `50-original` and `50-mirror` rows both pass
 regeneration and Save through the generic. The source original's SHA-256 remains
 `4d454a28e8072c4afc1c4d847e56ab81c60863d161ccb056d5e7a06bf4cb7a07`.
 
-Windows package/publication acceptance remains pending.
+Windows package/publication acceptance passed as recorded below.
+
+## Windows 2026112402 publication
+
+The development-only deployment status above is historical. The committed Windows
+2026112402 package passed the applicable GUI cases, mandatory FEM smoke, 1,190
+native factory loads, template creation, signature and public-download gates.
+The accepted runtime is installed behind the unchanged development BAT.
+This publication does not change the explicitly stated unfinished features,
+unsupported protected files, finite geometry coverage or Linux verification gap.
+See the [publication evidence](20261124-windows-2402-publication.json).

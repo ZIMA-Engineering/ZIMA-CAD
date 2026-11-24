@@ -81,3 +81,13 @@ The normal `zima-cad.bat` target was rebuilt and verified locally. Its SHA-256
 is `ffafbf226e2501fa727659d60958446125ce7fb0edc19e048fedb3d4bef40427`.
 This is an uncommitted development build, not a published release. The previous
 development executable is retained under `build/fem-20261124/`.
+
+## Windows 2026112402 publication
+
+The development-only deployment status above is historical. The committed Windows
+2026112402 package passed the applicable GUI cases, mandatory FEM smoke, 1,190
+native factory loads, template creation, signature and public-download gates.
+The accepted runtime is installed behind the unchanged development BAT.
+This publication does not change the explicitly stated unfinished features,
+unsupported protected files, finite geometry coverage or Linux verification gap.
+See the [publication evidence](20261124-windows-2402-publication.json).

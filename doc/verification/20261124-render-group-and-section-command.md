@@ -40,3 +40,13 @@ action is `Vytvořit render` in Czech. The plural Tree groups remain unchanged.
 Evidence is in `build/cam-20261124/`, including the Render group screenshot,
 section fixtures and per-suite logs. Tests use isolated documents and do not
 modify user Parts or Drawings. Linux GUI execution is unverified.
+
+## Windows 2026112402 publication
+
+The development-only deployment status above is historical. The committed Windows
+2026112402 package passed the applicable GUI cases, mandatory FEM smoke, 1,190
+native factory loads, template creation, signature and public-download gates.
+The accepted runtime is installed behind the unchanged development BAT.
+This publication does not change the explicitly stated unfinished features,
+unsupported protected files, finite geometry coverage or Linux verification gap.
+See the [publication evidence](20261124-windows-2402-publication.json).
