@@ -131,6 +131,9 @@ document::ExtrusionParameters::EndTarget prepare_skeleton_end_target(
 
 void refresh_external_profile_targets(const Workspace& live,const kernel::OcctKernel& kernel,document::PartDocument& part) {
     for(auto& feature:part.history)if(!feature.suppressed&&feature.feature_kind==document::FeatureKind::Feature&&
+            feature.feature.type==document::FeatureType::Wrapping&&feature.feature.wrapping.target&&feature.feature.wrapping.target->external_source)
+        feature.feature.wrapping.target=prepare_skeleton_end_target(live,part,feature.id,*feature.feature.wrapping.target,&kernel,true);
+    for(auto& feature:part.history)if(!feature.suppressed&&feature.feature_kind==document::FeatureKind::Feature&&
             feature.feature.type==document::FeatureType::Projection)
         for(auto& target:feature.feature.projection.targets)if(target.external_source)
             target=prepare_skeleton_end_target(live,part,feature.id,target,&kernel,true);
@@ -146,5 +149,5 @@ void refresh_external_profile_targets(const Workspace& live,const kernel::OcctKe
 void refresh_cached_external_profile_target_frames(document::PartDocument& part) {
     for(auto& feature:part.history)if(!feature.suppressed&&feature.feature_kind==document::FeatureKind::Feature)
         document::visit_feature_targets(feature.feature,[&](auto& target){if(target.external_source)
-            target=resolve_cached_external_target(part,feature.id,target,feature.feature.type==document::FeatureType::Projection);});
+            target=resolve_cached_external_target(part,feature.id,target,feature.feature.type==document::FeatureType::Projection||feature.feature.type==document::FeatureType::Wrapping);});
 }

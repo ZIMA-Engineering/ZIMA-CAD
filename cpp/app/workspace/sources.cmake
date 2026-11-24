@@ -29,6 +29,7 @@ set(ZIMA_WORKSPACE_SOURCES
     app/workspace/part_history.cpp
     app/workspace/primitive_properties.cpp
     app/workspace/projection_properties.cpp
+    app/workspace/wrapping_properties.cpp
     app/workspace/reference_selection.cpp
     app/workspace/scene.cpp
     app/workspace/sketch_constraints.cpp

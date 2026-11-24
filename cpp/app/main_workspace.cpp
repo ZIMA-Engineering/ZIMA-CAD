@@ -12250,6 +12250,7 @@ int verify_startup_contract(
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_GENERAL_SURFACE_ONLY")) return zima::app::verify_general_surface_ui(application,window,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SURFACE_TRIM_ONLY")) return zima::app::verify_surface_trim_ui(application,window,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_PROJECTION_ONLY")) return zima::app::verify_projection_ui(application,window,test_directory);
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_WRAPPING_ONLY")) return zima::app::verify_wrapping_ui(application,window,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SURFACE_INTERSECTION_ONLY")) return zima::app::verify_surface_intersection_ui(application,window,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SPLINE_TANGENT_ONLY")) return verify_spline_tangent_selection(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SHEET_STATE_ONLY")) return verify_sheet_state_ui(application,test_directory);

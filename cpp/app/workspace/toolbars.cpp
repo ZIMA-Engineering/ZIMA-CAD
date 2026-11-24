@@ -1,4 +1,5 @@
 #include "../fem_condition_labels.hpp"
+#include "../fem_animation_action.hpp"
 #include "workspace_internal.hpp"
 #include <zima/workspace/shell_operations.hpp>
 #include <zima/document/sheet_transition.hpp>
@@ -161,6 +162,7 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
         const bool thermal=fem_thermal_analysis();
         const bool mechanical=!thermal||fem_expansion_analysis();
         fem_results_menu_->setEnabled(available);
+        for(auto* action:fem_results_menu_->actions())action->setEnabled(available);
         auto* displacement=fem_results_menu_->findChild<QAction*>("femDisplacementResultAction");
         auto* stress=fem_results_menu_->findChild<QAction*>("femStressResultAction");
         auto* temperature=fem_results_menu_->findChild<QAction*>("femTemperatureResultAction");
@@ -177,13 +179,13 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
         const auto result_action=[&](const char* name,const QString& label,bool checked) {
             auto* action=fem_results_menu_->findChild<QAction*>(name);action->setText(label);action->setChecked(checked);return action;
         };
-        result_action("femAnimateAction",tr("Play / pause deformation"),fem_animation_running());
+        update_fem_animation_action(fem_results_menu_->findChild<QAction*>("femAnimateAction"),fem_animation_running());
         result_action("femOriginalAction",tr("Transparent original"),fem_show_original_);
         result_action("femExtremaAction",tr("Show minimum / maximum"),fem_show_extrema_);
         result_action("femProbeAction",tr("Probe results"),fem_probe_enabled_)->setToolTip(
             fem_result_quantity_==FemResultQuantity::Temperature?tr("Click the displayed mesh to read the nearest surface node temperature."):
             tr("Click the displayed mesh to read the nearest surface node displacement or the owning element's average stress."));
-        fem_results_menu_->findChild<QAction*>("femDeformationSettingsAction")->setText(tr("Deformation settings"));
+        fem_results_menu_->findChild<QAction*>("femDeformationSettingsAction")->setText(tr("Deformation player"));
     }
     if(fem_mesh_menu_) {
         fem_mesh_menu_->setTitle(tr("Mesh"));
@@ -354,7 +356,13 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
             add_group_separator();
             for(auto* action:fem_solution_menu_->actions())add_command(action,false);
         }
-        if(fem_results_menu_)add_command(fem_results_menu_->menuAction(),false);
+        if(fem_results_menu_) {
+            add_group_separator();
+            for(auto* action:fem_results_menu_->actions()) {
+                if(action->isSeparator())add_group_separator();
+                else add_command(action,false);
+            }
+        }
         return;
     }
     if (drawing) {

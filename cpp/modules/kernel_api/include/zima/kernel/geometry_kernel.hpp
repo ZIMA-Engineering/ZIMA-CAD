@@ -37,7 +37,7 @@ struct Vec3 {
 // Exact analytic data captured during explicit body calculation. These are
 // measurements of the persisted source face, never topology identity.
 struct SurfaceGeometry {
-    enum class Kind { Plane, Cylinder, Cone, Torus };
+    enum class Kind { Plane, Cylinder, Cone, Torus, Sphere };
     Kind kind{Kind::Plane};
     Vec3 origin;
     Vec3 axis{0,0,1};
@@ -76,7 +76,7 @@ struct FaceReference {
     // references and commands.
     std::string display_owner_id;
 
-    // Exact drawing contour support. It does not opt an unsupported surface
+    // Exact contour/Wrap support. It does not opt an unsupported surface
     // into container placement, symbols or other modeling commands.
     std::shared_ptr<const SurfaceGeometry> contour_surface;
 
@@ -500,6 +500,10 @@ struct ViewerImage {
     std::string data_base64;
     std::string format{"png"};
     double opacity{1.0};
+    // Curved decal triangle list; UV uses the same pixel top-left origin.
+    // Empty keeps the established planar artwork presentation.
+    std::vector<Vec3> surface_vertices;
+    std::vector<std::array<double,2>> surface_uv;
 };
 
 // Tight geometric envelope. Annotations, origins and construction datums never
@@ -1246,6 +1250,19 @@ struct ResolvedProjectionRegion {
     std::string boundary_key;
 };
 
+enum class WrappingResult { Curves, Surface, Relief };
+struct WrappingRequest {
+    std::vector<ExtrusionRequest> profiles;
+    std::vector<ViewerImage> images;
+    std::string sketch_id;
+    FaceReference target;
+    std::shared_ptr<const OrderedUpToSource> external_target;
+    Vec3 origin, x_axis{1,0,0}, y_axis{0,1,0}, normal{0,0,1};
+    WrappingResult output{WrappingResult::Curves};
+    double height{1},tolerance{0.001};
+    bool reverse_u{},reverse_v{},inward{};
+};
+
 struct HistoryOperation;
 // Ordinary native Body histories of an independently copied FORM definition.
 // This packet is prepared by the document; only explicit calculation evaluates
@@ -1279,7 +1296,7 @@ using PrimitiveRequest = std::variant<
     Sweep3DRequest, StepRequest, FilletRequest, ChamferRequest, ShellRequest,
     ThreadSurfaceRequest, DrillPointRequest, SheetStateRequest, SheetRipRequest, LineBendRequest, BoundarySurfaceRequest,
     SolidStateRequest, SurfaceSewingRequest, SurfaceIntersectionRequest, SurfaceTrimRequest, SurfaceThickenRequest, SheetFormRequest, LoftRequest,
-    ProjectionRequest>;
+    ProjectionRequest, WrappingRequest>;
 
 // Transient material-frame transfer for a source end-section attachment.
 // No container/reference definition or native document format changes.

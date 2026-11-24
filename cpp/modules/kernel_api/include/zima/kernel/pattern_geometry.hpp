@@ -100,6 +100,12 @@ inline ViewerMesh pattern_copy_mesh(ViewerMesh mesh,PatternRequest p,unsigned in
         else if(owner.empty())frames[key]=frame;
         else if(key.first.empty()&&key.second.empty())frames[{owner,{}}]=frame;
     }mesh.annotation_frames=std::move(frames);
-    geometry(mesh);geometry(mesh.original_references);mesh.dimensions.clear();mesh.constraint_markers.clear();return mesh;
+    geometry(mesh);geometry(mesh.original_references);
+    for(auto& image:mesh.images) {
+        ref(image.reference);
+        for(auto& v:image.corners)v=pattern_point(v,p,index);
+        for(auto& v:image.surface_vertices)v=pattern_point(v,p,index);
+    }
+    mesh.dimensions.clear();mesh.constraint_markers.clear();return mesh;
 }
 } // namespace zima::kernel

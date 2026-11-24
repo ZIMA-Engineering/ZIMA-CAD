@@ -670,13 +670,20 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
         });
     }
     if(feature_kind==zima::document::FeatureKind::Feature) {
-        dialog->set_feature_name_provider([this,owner_id,initial](zima::document::FeatureType type) {
-            if(type==initial.feature.type && initial.name==initial.feature.automatic_name)
+        dialog->set_feature_name_provider([this,owner_id,initial,dialog](zima::document::FeatureType type) {
+            const bool wrapping=type==zima::document::FeatureType::Wrapping;
+            const bool relief=wrapping&&dialog->pending_value().feature.wrapping.output==zima::document::WrappingOutput::Relief;
+            const bool same_output=!wrapping||relief==(initial.feature.wrapping.output==zima::document::WrappingOutput::Relief);
+            if(type==initial.feature.type && same_output && initial.name==initial.feature.automatic_name)
                 return initial.name;
+            const auto next_name=[&](const zima::document::PartDocument& document) {
+                return wrapping?document.next_numbered_name(tr(relief?"Wrap relief":"Wrap sketch").toStdString(),initial.id):
+                    next_feature_name(document,type,initial.id);
+            };
             const auto* current=workspace_.open_part(owner_id);
-            if(current)return next_feature_name(current->session.document(),type,initial.id);
+            if(current)return next_name(current->session.document());
             if(const auto* assembly=workspace_.open_assembly(owner_id))
-                return next_feature_name(assembly->session.document().feature_document(),type,initial.id);
+                return next_name(assembly->session.document().feature_document());
             return initial.name;
         });
     }
@@ -951,7 +958,7 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                 if(origin_marker!=primitive_origin_preview_mesh_->points.end())
                     origin_marker->label=preview.name;
             }
-            if(preview.feature.uses_sketch()&&preview.feature.type!=zima::document::FeatureType::Projection&&
+            if(preview.feature.uses_sketch()&&preview.feature.type!=zima::document::FeatureType::Projection&&preview.feature.type!=zima::document::FeatureType::Wrapping&&
                     !(preview.feature.type==zima::document::FeatureType::Modeling&&
                       preview.feature.result_type==zima::document::ProfileResultType::Thin)) {
                 // Rollback hides saved output; show the pending owned geometry.
@@ -1251,7 +1258,7 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
         if(part)dialog->set_sheet_default_thickness(zima::document::sheet_metal_defaults(part->session.document()).thickness_mm.value_or(1));
         dialog->set_reference_request_callback(
             [this,dialog](std::size_t index) {
-                if(dialog->pending_value().feature.type==zima::document::FeatureType::Projection&&feature_reference_end_){auto finish=feature_reference_end_;finish();}
+                if((dialog->pending_value().feature.type==zima::document::FeatureType::Projection||dialog->pending_value().feature.type==zima::document::FeatureType::Wrapping)&&feature_reference_end_){auto finish=feature_reference_end_;finish();}
                 start_primitive_reference_selection(index);
             });
         dialog->set_reference_highlights_changed_callback([this, dialog] {
@@ -1844,6 +1851,10 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                         else if(state_->text()==tr("Projection preview is incomplete. Check the Sketch plane and target faces."))state_->clear();
                         viewer_->set_transient_edges(std::move(mesh.edges));
                         viewer_->set_transient_model_points(std::move(mesh.points));
+                    }else if(preview.feature.type==zima::document::FeatureType::Wrapping) {
+                        auto mesh=document.wrapping_preview_mesh(preview,input?*input:empty_input,references,true);
+                        viewer_->set_transient_edges(std::move(mesh.edges));
+                        if(primitive_origin_preview_mesh_)primitive_origin_preview_mesh_->images=std::move(mesh.images);
                     }else viewer_->set_transient_edges(document.feature_preview_edges(preview,input?*input:empty_input,references));
                     }
                     preview_phase("wire");
@@ -2529,6 +2540,7 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
     });
     dialog->show();
     if(feature_kind==zima::document::FeatureKind::Feature&&part)install_projection_properties(dialog,owner_id);
+    if(feature_kind==zima::document::FeatureKind::Feature&&part)install_wrapping_properties(dialog,owner_id);
     // Properties is not a picking command by itself. Keep all model hover
     // disabled until the user explicitly requests one placement/Up-to
     // reference field; that command installs its own exact selection

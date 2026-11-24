@@ -1,5 +1,18 @@
 # Linux build and distribution handoff - 2026-09-15
 
+## Pending FEM player and video verification (2026-11-24)
+
+The shared FEM player uses Qt Multimedia 6.8 or newer and its FFmpeg backend for
+MP4 export. Install the matching Qt Multimedia development/runtime module in the
+native Linux SDK. The portable packager now requires
+`plugins/multimedia/libffmpegmediaplugin.so` and resolves its library closure.
+No platform-specific modeling or animation algorithm is introduced.
+
+Linux export/playback, plugin deployment and FEM activation checks must run on
+the Linux host before publication. Windows verification does not establish those
+results. Exercise a saved MP4, Unicode output paths, an existing destination on
+failure, player Cancel restoration, and repeated Material Body/FEM activation.
+
 ## Linux 2026110404 acceptance (2026-11-05)
 
 The native Debian 13 x86_64 candidate and finalized signed package pass their

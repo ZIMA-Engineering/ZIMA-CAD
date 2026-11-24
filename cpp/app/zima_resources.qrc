@@ -1,5 +1,7 @@
 <RCC>
   <qresource prefix="/zima">
+    <file alias="icons/media-play.svg">../../resources/icons/media-play.svg</file>
+    <file alias="icons/media-pause.svg">../../resources/icons/media-pause.svg</file>
     <file alias="icons/filter.svg">../../resources/icons/filter.svg</file>
     <file alias="icons/overview.svg">../../resources/icons/overview.svg</file>
     <file alias="icons/clean.svg">../../resources/icons/clean.svg</file>
@@ -141,6 +143,7 @@
     <file alias="icons/sketch-text.svg">../../resources/icons/sketch-text.svg</file>
     <file alias="icons/sketch-reference.svg">../../resources/icons/sketch-reference.svg</file>
     <file alias="icons/projection.svg">../../resources/icons/projection.svg</file>
+    <file alias="icons/wrap.svg">../../resources/icons/wrap.svg</file>
     <file alias="icons/fem-force.svg">../../resources/icons/fem-force.svg</file>
     <file alias="icons/fem-pressure.svg">../../resources/icons/fem-pressure.svg</file>
     <file alias="icons/fem-heat.svg">../../resources/icons/fem-heat.svg</file>

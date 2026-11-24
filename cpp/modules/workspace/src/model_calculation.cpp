@@ -250,14 +250,15 @@ static kernel::HistoryOutputPolicy history_output_policy(
                     kernel::BooleanOperation::Subtract)
             result.retained_output_owners.insert(
                 operations[index-1].owner_id);
-    // Projection previews and target replacement consume the bounded input
+    // Projection and Wrap previews and target replacement consume the bounded input
     // faces. Retain that already calculated Body checkpoint so reopening its
     // Properties never has to regenerate a compact dependency-only packet.
     for(std::size_t index=1;index<operations.size();++index) {
         const auto* feature=document.find_container(operations[index].owner_id);
         if(!feature||feature->suppressed||
                 feature->feature_kind!=document::FeatureKind::Feature||
-                feature->feature.type!=document::FeatureType::Projection)continue;
+                (feature->feature.type!=document::FeatureType::Projection&&
+                 feature->feature.type!=document::FeatureType::Wrapping))continue;
         for(std::size_t previous=index;previous>0;--previous)
             if(operations[previous-1].body.id==operations[index].body.id) {
                 result.retained_output_owners.insert(operations[previous-1].owner_id);

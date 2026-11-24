@@ -135,6 +135,10 @@ void validate_profile_definition(const document::HistoryContainer& value) {
         if(value.feature.type==document::FeatureType::Projection&&
                 (value.combine_mode!=document::CombineMode::Add||value.feature.profile_source!=document::ProfileSource::Internal))
             throw ProfileOperationError("invalid_arguments","Projection requires an owned planar Sketch and does not add or subtract solid material.");
+        if(value.feature.type==document::FeatureType::Wrapping&&
+                (value.feature.profile_source!=document::ProfileSource::Internal||
+                 (value.feature.wrapping.output!=document::WrappingOutput::Relief&&value.combine_mode!=document::CombineMode::Add)))
+            throw ProfileOperationError("invalid_arguments","Wrap requires an owned planar Sketch.");
         if(value.feature.planar_surface() &&
                 (value.feature.profile_source!=document::ProfileSource::Internal ||
                  value.combine_mode!=document::CombineMode::Add ||
@@ -317,6 +321,10 @@ void commit_profile(Workspace& live, const kernel::OcctKernel& kernel, const std
         if(container.feature.type==document::FeatureType::Projection)
             for(auto& target:container.feature.projection.targets)if(target.external_source)
                 target=prepare_skeleton_end_target(live,next,container.id,target,&kernel,true);
+        if(container.feature.type==document::FeatureType::Wrapping&&container.feature.wrapping.target) {
+            auto& target=*container.feature.wrapping.target;
+            if(target.external_source)target=prepare_skeleton_end_target(live,next,container.id,target,&kernel,true);
+        }
         if(container.feature.type==document::FeatureType::Modeling || container.feature.type==document::FeatureType::Axis)
         for (auto& side:container.feature.sides) {
             const bool limit=((side.operation==document::FeatureSideOperation::Extrusion ||
@@ -387,7 +395,7 @@ void commit_profile(Workspace& live, const kernel::OcctKernel& kernel, const std
         throw ProfileOperationError("invalid_reference", "The proposed feature placement references cannot be resolved.");
     phase("placement preflight");
     auto policy = feature_definition_calculation_policy(before, previous, container_id);
-    if(feature&&next.find_container(container_id)->feature.type==document::FeatureType::Projection)
+    if(feature&&(next.find_container(container_id)->feature.type==document::FeatureType::Projection||next.find_container(container_id)->feature.type==document::FeatureType::Wrapping))
         policy.reject_errors=true;
     if (existing) {policy.edited_document_id = id; policy.edited_history_limit = before.history_index(container_id);}
     if(existing && policy.edited_history_limit &&

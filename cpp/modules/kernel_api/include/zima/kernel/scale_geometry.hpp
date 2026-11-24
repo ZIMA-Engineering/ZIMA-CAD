@@ -55,6 +55,11 @@ inline ViewerMesh scaled_body_mesh(ViewerMesh mesh,double factor,Vec3 center,con
     };
     // Positive uniform scaling preserves normals, winding and geometric sides.
     geometry(mesh);geometry(mesh.original_references);mark_copy_display(mesh,owner);
+    for(auto& image:mesh.images) {
+        reference(image.reference);
+        for(auto& p:image.corners)point(p);
+        for(auto& p:image.surface_vertices)point(p);
+    }
     mesh.annotation_frames.clear();mesh.dimensions.clear();mesh.constraint_markers.clear();
     return mesh;
 }

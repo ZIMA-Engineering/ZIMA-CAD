@@ -37,6 +37,7 @@
 #include <QFontMetricsF>
 #include <QOpenGLBuffer>
 #include <QOpenGLShaderProgram>
+#include <QOpenGLTexture>
 #include <QOpenGLVertexArrayObject>
 #include <QPainter>
 #include <QPainterPath>
@@ -245,6 +246,10 @@ struct MeshView::Impl {
     std::vector<std::size_t> sketch_dimension_indices;
     std::vector<std::size_t> sketch_constraint_indices;
     QOpenGLShaderProgram program;
+    QOpenGLShaderProgram decal_program;
+    struct Decal {QOpenGLBuffer vertices{QOpenGLBuffer::VertexBuffer};std::unique_ptr<QOpenGLTexture> texture;GLsizei count{};float opacity{1};};
+    std::vector<std::unique_ptr<Decal>> decals;
+    bool decals_dirty{true};
     QOpenGLBuffer vertices{QOpenGLBuffer::VertexBuffer};
     QOpenGLBuffer transparent_triangles{QOpenGLBuffer::IndexBuffer};
     QOpenGLBuffer scalar_colors{QOpenGLBuffer::VertexBuffer};
@@ -549,6 +554,7 @@ struct MeshView::Impl {
     bool fly_navigation_enabled{};
     QVector3D fly_position;
     DisplayMode display_mode{DisplayMode::ShadedWithEdges};
+    bool analysis_mesh_edges{};
     int dimension_decimal_places{3};
     DimensionDisplayUnits dimension_units;
     bool show_origins{true};
@@ -1079,6 +1085,7 @@ MeshView::MeshView(QWidget* parent)
 MeshView::~MeshView() {
     if (context() != nullptr) {
         makeCurrent();
+        impl_->decals.clear();
         impl_->vertex_array.destroy();
         impl_->vertices.destroy();
         impl_->transparent_triangles.destroy();
@@ -1106,6 +1113,7 @@ void MeshView::update_annotation_presentation() const {
 }
 
 void MeshView::set_mesh(zima::kernel::ViewerMesh mesh, bool fit_view) {
+    impl_->decals_dirty=true;
     set_triangle_scalar_field({});
     set_result_displacements({});
     QElapsedTimer timer;timer.start();
@@ -2683,8 +2691,10 @@ void MeshView::set_transient_context_mesh(zima::kernel::ViewerMesh mesh) {
             for(auto& point:edge.points)point=transform(point);
         }
         for(auto& point:mesh.points)point.position=transform(point.position);
-        for(auto& image:mesh.images)
+        for(auto& image:mesh.images) {
             for(auto& corner:image.corners)corner=transform(corner);
+            for(auto& point:image.surface_vertices)point=transform(point);
+        }
         for(auto& axis:mesh.axes) {
             const auto origin=transform(axis.point);
             const auto endpoint=transform({
@@ -2699,6 +2709,7 @@ void MeshView::set_transient_context_mesh(zima::kernel::ViewerMesh mesh) {
             marker.position=transform(marker.position);
     }
     impl_->transient_context_mesh=std::move(mesh);
+    impl_->decals_dirty=true;
     setProperty("transientContextEdgeCount",
         static_cast<qulonglong>(impl_->transient_context_mesh.edges.size()));
     setProperty("transientContextPointCount",
@@ -3493,6 +3504,11 @@ void MeshView::set_display_mode(DisplayMode mode) {
     update();
 }
 
+void MeshView::set_analysis_mesh_edges(bool visible) {
+    if(impl_->analysis_mesh_edges==visible)return;
+    impl_->analysis_mesh_edges=visible;update();
+}
+
 DisplayMode MeshView::display_mode() const { return impl_->display_mode; }
 
 void MeshView::set_projection_mode(ProjectionMode mode) {
@@ -3854,6 +3870,13 @@ void main(){
 }
 )GLSL");
     impl_->program.link();
+    impl_->decal_program.addShaderFromSourceCode(QOpenGLShader::Vertex,
+        "#version 330 core\nlayout(location=0) in vec3 position;layout(location=1) in vec2 texcoord;"
+        "uniform mat4 mvp;out vec2 uv;void main(){uv=texcoord;gl_Position=mvp*vec4(position,1.0);}");
+    impl_->decal_program.addShaderFromSourceCode(QOpenGLShader::Fragment,
+        "#version 330 core\nin vec2 uv;uniform sampler2D artwork;uniform float opacity;out vec4 fragmentColor;"
+        "void main(){fragmentColor=texture(artwork,uv);fragmentColor.a*=opacity;if(fragmentColor.a<0.001)discard;}");
+    impl_->decal_program.link();impl_->decals_dirty=true;
     impl_->vertex_array.create();
     impl_->vertex_array.bind();
     impl_->vertices.create();
@@ -4331,6 +4354,7 @@ void MeshView::paintGL() {
         paint_normal_text(painter,impl_->mesh.edges,impl_->transient_edges,project,impl_->show_sketches,impl_->show_symbols);
         for(const auto* images:{&impl_->mesh.images,&impl_->transient_context_mesh.images})
         for(const auto& image:*images) {
+            if(!image.surface_vertices.empty())continue;
             QPolygonF target;for(const auto& p:image.corners)target<<project(p);
             painter.save();painter.setOpacity(image.opacity);
             paint_embedded_image(painter,image.data_base64,image.format,target);
@@ -5001,12 +5025,16 @@ if (impl_->show_origins) {
             break;
         case DisplayMode::Shaded:
             draw_triangles();
+            if(impl_->analysis_mesh_edges) {
+                depth_prepass();draw_visible_lines();break;
+            }
             glDepthFunc(GL_LEQUAL);
             draw_lines(/*force_black_if_not_highlighted=*/false,
                        /*highlighted_only=*/true);
             glDepthFunc(GL_LESS);
             break;
     }
+    #include "wrapped_image_paint.inc"
     // Whole-object and individual-face selection are wire-only.
     setProperty("selectedFeatureFaceTriangleCount",QVariant::fromValue<qulonglong>(0));
     if(color_key&&!impl_->geometry_editing_presentation&&impl_->display_mode!=DisplayMode::Wire) {
@@ -5379,6 +5407,7 @@ if (impl_->show_origins) {
         paint_normal_text(painter,impl_->mesh.edges,impl_->transient_edges,project,impl_->show_sketches,impl_->show_symbols);
         for(const auto* images:{&impl_->mesh.images,&impl_->transient_context_mesh.images})
         for(const auto& image:*images) {
+            if(!image.surface_vertices.empty())continue;
             QPolygonF target;for(const auto& p:image.corners)target<<project(p);
             painter.save();painter.setOpacity(image.opacity);
             paint_embedded_image(painter,image.data_base64,image.format,target);

@@ -50,23 +50,30 @@ class PackageTests(unittest.TestCase):
             redist.mkdir(); (installed/'bin').mkdir(parents=True)
             (installed/'bin/Qt6Core.dll').write_bytes(b'foreign-kit')
             files=['bin/QtWebEngineProcess.exe','bin/Qt6Core.dll','bin/Qt6WebEngineCore.dll',
+                   'bin/Qt6Multimedia.dll','bin/avcodec-61.dll','bin/avutil-59.dll',
                    'resources/qtwebengine_resources.pak','resources/qtwebengine_resources.debug.pak',
                    'translations/qtwebengine_locales/en-US.pak',
                    'plugins/platforms/qwindows.dll','plugins/platforms/qoffscreen.dll',
                    'plugins/imageformats/qjpeg.dll','plugins/imageformats/qsvg.dll',
+                   'plugins/multimedia/ffmpegmediaplugin.dll',
                    'plugins/styles/qmodernwindowsstyle.dll','plugins/tls/qschannelbackend.dll']
             for name in files:
                 path=sdk/name;path.parent.mkdir(parents=True,exist_ok=True);path.write_bytes(b'selected-kit')
             inspected=[]
             def imports(arguments, **kwargs):
                 binary=Path(arguments[-1]);inspected.append(binary.name)
-                dependencies={'QtWebEngineProcess.exe':'Qt6WebEngineCore.dll','Qt6WebEngineCore.dll':'Qt6Core.dll'}
+                dependencies={'QtWebEngineProcess.exe':'Qt6WebEngineCore.dll','Qt6WebEngineCore.dll':'Qt6Core.dll',
+                              'ffmpegmediaplugin.dll':'Qt6Multimedia.dll\n    avcodec-61.dll',
+                              'Qt6Multimedia.dll':'Qt6Core.dll','avcodec-61.dll':'avutil-59.dll'}
                 return subprocess.CompletedProcess(arguments,0,('    '+dependencies.get(binary.name,'')+'\n').encode())
             with patch.dict(os.environ,{'SystemRoot':str(root/'windows')}),patch.object(package,'run',side_effect=imports):
                 runtime=root/'runtime';runtime.mkdir()
                 package.deploy_dependencies(runtime,installed,redist,'dumpbin',sdk)
                 self.assertIn('QtWebEngineProcess.exe',inspected)
                 self.assertEqual((runtime/'Qt6Core.dll').read_bytes(),b'selected-kit')
+                for library in ('Qt6Multimedia.dll','avcodec-61.dll','avutil-59.dll'):
+                    self.assertIn(library,inspected)
+                    self.assertEqual((runtime/library).read_bytes(),b'selected-kit')
                 self.assertTrue((runtime/'resources/qt/resources/qtwebengine_resources.pak').is_file())
                 self.assertFalse((runtime/'resources/qt/resources/qtwebengine_resources.debug.pak').exists())
                 (sdk/'bin/Qt6Core.dll').unlink()

@@ -149,6 +149,8 @@ public:
     // Frame an editing subject while retaining the complete passive scene.
     void fit_points(const std::vector<zima::kernel::Vec3>& points);
     void set_display_mode(DisplayMode mode);
+    // FEM mesh visibility is independent of the ordinary CAD shading preference.
+    void set_analysis_mesh_edges(bool visible);
     [[nodiscard]] DisplayMode display_mode() const;
     void set_projection_mode(ProjectionMode mode);
     [[nodiscard]] ProjectionMode projection_mode() const;

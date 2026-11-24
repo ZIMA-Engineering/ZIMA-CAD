@@ -159,6 +159,13 @@
                 check(window.fem_result_quantity_==AssemblyWorkspaceWindow::FemResultQuantity::Temperature&&
                     !window.findChild<QAction*>("femAnimateAction")->isVisible()&&
                     !window.findChild<QAction*>("femDisplacementResultAction")->isVisible(),"Thermal results expose mechanical deformation controls");
+                check(sidebar_action(window.findChild<QAction*>("femTemperatureResultAction"))->isChecked(),
+                    "Thermal results are missing their active direct sidebar button");
+                for(const auto* name:{"femDisplacementResultAction","femStressResultAction","femAnimateAction","femOriginalAction","femDeformationSettingsAction"}) {
+                    auto* action=window.findChild<QAction*>(name);
+                    check(!action->isVisible()&&!window.tools_toolbar_->widgetForAction(action)->isVisible(),
+                        "Pure thermal analysis exposes a mechanical result button");
+                }
                 check(window.active_fem_deformation()->vertices==window.active_generated_fem_mesh()->vertices&&
                     !view->triangle_scalar_field().empty()&&measurement_marker().label.endsWith(" °C"),"Thermal result or measurement temperature missing");
                 check(pressure_session.revision()==thermal_revision,"Thermal solve edited the document");

@@ -54,6 +54,7 @@
 #include <zima/workspace/sketch_operations.hpp>
 #include <zima/workspace/flat_operations.hpp>
 #include <zima/workspace/profile_operations.hpp>
+#include <zima/workspace/family_operations.hpp>
 #include <QTabBar>
 #include <QTabWidget>
 #include <QLabel>
@@ -282,6 +283,7 @@ Q_NEVER_INLINE static int verify_sketch_roles(QApplication& application, Assembl
 #include "surface_intersection_ui_verification.inc"
 #include "surface_trim_ui_verification.inc"
 #include "projection_ui_verification.inc"
+#include "wrapping_ui_verification.inc"
 #include "drawing_file_rename_ui_verification.inc"
 
 #include "cylinder_mate_ui_verification.inc"

@@ -60,12 +60,12 @@ def deploy(runtime, sdk, qt_sdk):
     shutil.copytree(web_locales, runtime / 'translations/qtwebengine_locales')
     for group in ('platforms', 'imageformats', 'iconengines', 'tls', 'networkinformation',
                   'xcbglintegrations', 'wayland-shell-integration', 'wayland-graphics-integration-client',
-                  'wayland-decoration-client'):
+                  'wayland-decoration-client', 'multimedia'):
         if (plugins / group).is_dir():
             shutil.copytree(plugins / group, runtime / 'plugins' / group)
     for relative in ('platforms/libqwayland.so', 'platforms/libqxcb.so',
                      'platforms/libqoffscreen.so', 'imageformats/libqjpeg.so', 'imageformats/libqsvg.so',
-                     'tls/libqopensslbackend.so'):
+                     'tls/libqopensslbackend.so', 'multimedia/libffmpegmediaplugin.so'):
         if not (runtime / 'plugins' / relative).is_file():
             raise ValueError('Required Qt plugin missing: ' + relative)
     libraries = runtime / 'lib'; libraries.mkdir()

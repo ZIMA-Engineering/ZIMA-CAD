@@ -2,6 +2,13 @@
 #include "fem_body_dialog.hpp"
 #include "fem_condition_dialog.hpp"
 #include "fem_distance_dialog.hpp"
+#include "fem_video_export.hpp"
+#include <QSlider>
+#include <QMediaPlayer>
+#include <QVideoSink>
+#include <QVideoFrame>
+#include <QFile>
+#include <QFileDialog>
 #include <zima/workspace/fem_condition_operations.hpp>
 #include <zima/document/placement_orientation.hpp>
 #include "../tests/profile_solid_fixture.hpp"
@@ -264,17 +271,6 @@ int verify_fem_body(QApplication& application,AssemblyWorkspaceWindow& window,co
         auto* mesh_menu=window.findChild<QMenu*>("femMeshMenu");
         auto* mesh_settings=window.findChild<QAction*>("femMeshSettingsAction");
         check(mesh_menu&&mesh_menu->menuAction()->isVisible()&&mesh_settings&&mesh_settings->isEnabled(),"FEM mesh settings menu is missing");
-        const auto sidebar_menu=[&](QMenu* menu) {
-            window.tools_toolbar_->layout()->activate();flush();
-            check(menu&&!window.menuBar()->actions().contains(menu->menuAction()),"FEM command still appears in the top menu bar");
-            auto* button=qobject_cast<QToolButton*>(window.tools_toolbar_->widgetForAction(menu->menuAction()));
-            check(button&&button->isVisible()&&button->popupMode()==QToolButton::InstantPopup&&button->defaultAction()->menu()==menu,
-                "FEM sidebar command is missing its shared popup menu");
-            bool opened=false;
-            QTimer::singleShot(80,menu,[menu,&opened]{opened=menu->isVisible();menu->close();});
-            button->click();flush();
-            check(opened,"FEM sidebar click did not open its menu");
-        };
         const auto sidebar_action=[&](QAction* action) {
             window.tools_toolbar_->layout()->activate();flush();
             auto* button=qobject_cast<QToolButton*>(window.tools_toolbar_->widgetForAction(action));
@@ -295,6 +291,14 @@ int verify_fem_body(QApplication& application,AssemblyWorkspaceWindow& window,co
         check(!window.tools_toolbar_->widgetForAction(mesh_menu->menuAction()),"FEM still exposes the Mesh popup");
 #ifdef ZIMA_ENABLE_FEM_MESHER
         for(auto* action:window.findChild<QMenu*>("femCalculationMenu")->actions())sidebar_action(action);
+        auto* results_menu=window.findChild<QMenu*>("femResultsMenu");
+        check(results_menu&&!window.tools_toolbar_->widgetForAction(results_menu->menuAction()),"FEM still exposes the Results popup");
+        int previous_result=sidebar_actions.indexOf(current_sidebar_action("femShowDeformationAction"));
+        for(auto* action:results_menu->actions())if(!action->isSeparator()&&action->isVisible()) {
+            check(!sidebar_action(action)->isEnabled(),"FEM result command is available before calculation");
+            const int index=sidebar_actions.indexOf(action);
+            check(index>previous_result,"FEM results are not ordered after calculation");previous_result=index;
+        }
 #endif
         const auto open_settings=[&] {
             mesh_settings->trigger();flush();
@@ -324,6 +328,28 @@ int verify_fem_body(QApplication& application,AssemblyWorkspaceWindow& window,co
             check(show_mesh&&!show_mesh->isEnabled(),"FEM offered a mesh before generation");
             check_mesh();
             check(session.revision()==settings_revision&&kernel::body_calculation_count.load()==count,"FEM meshing recalculated or changed CAD");
+            sidebar_action(show_mesh)->click();flush();
+            const auto* packet=window.active_generated_fem_mesh();
+            const auto previous_mode=view->display_mode();const auto mesh_calculations=kernel::body_calculation_count.load();
+            view->set_display_mode(viewer::DisplayMode::Shaded);flush();
+            const auto with_edges=view->grabFramebuffer();
+            view->set_analysis_mesh_edges(false);flush();
+            check(view->grabFramebuffer()!=with_edges,"Show mesh does not draw FEM edges in Shaded mode");
+            window.preserve_view_on_refresh_=true;window.refresh_scene();flush();
+            for(int cycle=0;cycle<2;++cycle) {
+                window.activate_body(b);flush();
+                check(!window.active_fem_body()&&view->mesh().vertices!=packet->vertices,"Material Body activation retained the FEM mesh");
+                const auto material_view=view->grabFramebuffer();view->set_analysis_mesh_edges(false);flush();
+                check(view->grabFramebuffer()==material_view,"Material Body retained the FEM wire override");
+                window.activate_body(fem);flush();
+                check(show_mesh->isChecked()&&view->mesh().vertices==packet->vertices&&view->grabFramebuffer()==with_edges,
+                    "Returning to FEM did not restore the checked, visible mesh exactly");
+            }
+            check(view->display_mode()==viewer::DisplayMode::Shaded&&kernel::body_calculation_count.load()==mesh_calculations,
+                "FEM activation changed CAD shading preferences or recalculated geometry");
+            view->set_display_mode(previous_mode);flush();
+            sidebar_action(show_mesh)->click();flush();
+            settings_revision=session.revision(); // Body activation is a separate UI transaction.
         }
 #ifdef ZIMA_ENABLE_FEM_MESHER
         {
@@ -608,10 +634,10 @@ int verify_fem_body(QApplication& application,AssemblyWorkspaceWindow& window,co
                 window.findChild<QAction*>("femStressResultAction")->text()==settings.qt_translations.value("Von Mises stress [MPa]"),
                 "FEM result choices did not translate");
             for(const auto& entry:std::vector<std::pair<const char*,const char*>>{
-                    {"femAnimateAction","Play / pause deformation"},{"femOriginalAction","Transparent original"},
+                    {"femAnimateAction","Play deformation"},{"femOriginalAction","Transparent original"},
                     {"femExtremaAction","Show minimum / maximum"},{"femProbeAction","Probe results"},
-                    {"femDeformationSettingsAction","Deformation settings"}})
-                check(window.findChild<QAction*>(entry.first)->text()==settings.qt_translations.value(entry.second),
+                    {"femDeformationSettingsAction","Deformation player"}})
+                check(current_sidebar_action(entry.first)&&current_sidebar_action(entry.first)->text()==settings.qt_translations.value(entry.second),
                     "FEM presentation action did not translate");
             for(const auto* key:{"FEM: preparing geometry…","FEM: generating the volume mesh…",
                     "FEM: checking mesh quality…","FEM: optimizing the quadratic mesh…","FEM: preparing mesh data…",
@@ -769,7 +795,8 @@ int verify_fem_body(QApplication& application,AssemblyWorkspaceWindow& window,co
             check(window.operation_progress_generation_==progress_generation,"Cached FEM solution restarted calculation progress");
             auto* stress_action=window.findChild<QAction*>("femStressResultAction");
             auto* displacement_action=window.findChild<QAction*>("femDisplacementResultAction");
-            sidebar_menu(window.findChild<QMenu*>("femResultsMenu"));
+            for(auto* action:results_menu->actions())if(!action->isSeparator()&&action->isVisible())
+                check(sidebar_action(action)->isEnabled(),"Calculated FEM result command is not available in the sidebar");
             const auto colors=view->triangle_scalar_field();
             check(colors.size()==volume.surface.triangles.size()/3,"Displacement colors are missing");
             const auto displacement_image=view->grabFramebuffer();
@@ -791,13 +818,13 @@ int verify_fem_body(QApplication& application,AssemblyWorkspaceWindow& window,co
             const auto upload=view->property("gpuMeshUploadCount");const auto camera=view->camera_state();
             const auto mesh_vertices=view->mesh().vertices;
             for(unsigned repeat=0;repeat<3;++repeat) {
-                stress_action->trigger();flush();
+                sidebar_action(stress_action)->click();flush();
                 check(stress_action->isChecked()&&!displacement_action->isChecked(),"Result choice is not exclusive");
                 check(view->triangle_scalar_field()!=colors,"Stress did not replace displacement colors");
                 const auto stress_image=view->grabFramebuffer();
                 verify_legend(stress_image,QObject::tr("Von Mises stress [MPa]"));
                 check(stress_image!=displacement_image,"Result switching did not change the rendered field");
-                displacement_action->trigger();flush();
+                sidebar_action(displacement_action)->click();flush();
                 check(view->triangle_scalar_field()==colors,"Displacement field was not restored exactly");
                 check(view->mesh().vertices==mesh_vertices&&view->camera_state()==camera&&view->property("gpuMeshUploadCount")==upload,
                     "Result switching rebuilt geometry or moved the camera");
@@ -818,19 +845,37 @@ int verify_fem_body(QApplication& application,AssemblyWorkspaceWindow& window,co
                     auto* display=window.findChild<QAction*>("femShowDeformationAction");
                     auto* display_button=sidebar_action(display);
                     check(display->isChecked(),"FEM result display is not marked active");
-                    const auto image=display_button->grab().toImage();unsigned azure=0;
-                    for(int y=0;y<image.height();++y)for(int x=0;x<image.width();++x) {
-                        const auto color=image.pixelColor(x,y);
-                        if(color.red()<40&&color.green()>150&&color.blue()>180)++azure;
+                    for(auto* active_button:{display_button,sidebar_action(displacement_action)}) {
+                        check(active_button->isChecked(),"Current FEM result quantity has no active sidebar state");
+                        const auto image=active_button->grab().toImage();unsigned azure=0;
+                        for(int y=0;y<image.height();++y)for(int x=0;x<image.width();++x) {
+                            const auto color=image.pixelColor(x,y);
+                            if(color.red()<40&&color.green()>150&&color.blue()>180)++azure;
+                        }
+                        check(azure>unsigned(image.width()*image.height()/3),"Active FEM sidebar button is not azure in this theme");
                     }
-                    check(azure>unsigned(image.width()*image.height()/3),"Active FEM sidebar button is not azure in this theme");
-                    settings_action->trigger();flush();
+                    sidebar_action(settings_action)->click();flush();
                     auto* form=window.findChild<QDialog*>("femDeformationSettingsDialog");
                     check(form,"Localized deformation settings are missing");
                     const auto* buttons=form->findChild<QDialogButtonBox*>();
                     check(buttons&&buttons->button(QDialogButtonBox::Cancel)->text()==localized.qt_translations.value("Zrušit"),
                         "Deformation settings Cancel did not use the common catalog");
-                    for(const auto* key:{"Deformation magnification","Animation speed",
+                    form->findChild<QToolButton*>("femPlayerSettings")->click();flush();
+                    check(form->windowTitle()==localized.qt_translations.value("Deformation player"),"FEM player title did not translate");
+                    auto* player_button=form->findChild<QToolButton*>("femPlayerPlayButton");
+                    check(player_button->defaultAction()->text()==localized.qt_translations.value("Play deformation"),"Player Play did not translate");
+                    player_button->click();flush();
+                    check(player_button->isChecked()&&player_button->defaultAction()->text()==localized.qt_translations.value("Pause deformation"),
+                        "Player Pause did not translate or become active");
+                    const auto playing_image=player_button->grab().toImage();unsigned playing_azure=0;
+                    for(int y=0;y<playing_image.height();++y)for(int x=0;x<playing_image.width();++x) {
+                        const auto color=playing_image.pixelColor(x,y);
+                        if(color.red()<40&&color.green()>150&&color.blue()>180)++playing_azure;
+                    }
+                    check(playing_azure>unsigned(playing_image.width()*playing_image.height()/3),"Playing FEM button is not azure in this theme");
+                    player_button->click();flush();
+                    check(form->findChild<QPushButton*>("femSaveVideo")->text()==localized.qt_translations.value("Save video"),"Save video did not translate");
+                    for(const auto* key:{"Deformation magnification","Cycle duration",
                             "Animation interpolates the static result. Values and colors always show the calculated load case."})
                         check(std::ranges::any_of(form->findChildren<QLabel*>(),[&](const auto* label){return label->text()==localized.qt_translations.value(key);}),
                             "Deformation settings contain untranslated text");
@@ -840,29 +885,87 @@ int verify_fem_body(QApplication& application,AssemblyWorkspaceWindow& window,co
             }
             apply_application_translations(application,ApplicationSettings{});
             window.update_fem_result_presentation();window.rebuild_application_toolbar();
+            flush();const auto player_camera=view->camera_state();
             settings_action->trigger();flush();
             auto* settings=window.findChild<QDialog*>("femDeformationSettingsDialog");
             check(settings&&settings->parentWidget()==&window&&(settings->windowFlags()&Qt::WindowType_Mask)==Qt::SubWindow,
                 "Deformation settings do not use the shared properties window");
+            const auto player_calculations=kernel::body_calculation_count.load();
+            auto* timeline=settings->findChild<QSlider*>("femPlayerTimeline");
+            auto* play=settings->findChild<QToolButton*>("femPlayerPlayButton");
+            const QRect view_area(view->mapTo(&window,QPoint{}),view->size());
+            check(timeline&&play&&view_area.contains(settings->geometry()),"FEM player is not inside the bottom right of the View");
+            timeline->setValue(0);flush();check(view->result_deformation_factor()==0,"Player start is not undeformed");
+            timeline->setValue(500);flush();check(view->result_deformation_factor()==1,"Player midpoint is not the full static deformation");
+            const auto play_icon=play->icon().pixmap(24,24).toImage();play->click();flush();
+            check(play->isChecked()&&play->icon().pixmap(24,24).toImage()!=play_icon,"Player did not switch from Play to Pause");
+            play->click();flush();const auto paused_factor=view->result_deformation_factor();
+            check(!play->isChecked()&&play->icon().pixmap(24,24).toImage()==play_icon,"Player pause did not restore Play");
+            QEventLoop held_frame;QTimer::singleShot(80,&held_frame,&QEventLoop::quit);held_frame.exec();
+            check(view->result_deformation_factor()==paused_factor,"Paused player advanced its frame");
+            timeline->setValue(1000);flush();check(view->result_deformation_factor()==0,"Player end did not return to the undeformed state");
+            timeline->setValue(500);flush();
+            check(beam_session->revision()==beam_revision&&kernel::body_calculation_count.load()==player_calculations,
+                "Player navigation changed the document or calculated CAD");
+            const auto export_camera=view->camera_state();
+            const auto video_path=QString::fromStdString(document::path_to_utf8(directory/std::filesystem::u8path("deformation-žluťoučký.mp4")));
+            bool video_name_offered=false;
+            QTimer::singleShot(100,settings,[&] {
+                if(auto* chooser=window.findChild<QFileDialog*>()) {
+                    video_name_offered=QFileInfo(chooser->selectedFiles().value(0)).fileName()=="fem-cantilever.mp4";
+                    // A visible QFileDialog proxy can discard selectFile() while loading.
+                    chooser->findChild<QLineEdit*>("fileNameEdit")->setText(video_path);
+                    QMetaObject::invokeMethod(chooser,"accept",Qt::DirectConnection);
+                }
+            });
+            settings->findChild<QPushButton*>("femSaveVideo")->click();flush();
+            check(video_name_offered,"Video export did not offer the source filename");
+            if(QFileInfo(video_path).size()<=1000)
+                std::cerr<<settings->findChild<QLabel*>("femVideoStatus")->text().toStdString()<<'\n';
+            check(QFileInfo(video_path).size()>1000,"Video export did not write MP4");
+            check(view->result_deformation_factor()==1,"Video export did not restore the displayed deformation");
+            check(view->camera_state()==export_camera,"Video export moved the camera");
+            check(beam_session->revision()==beam_revision,"Video export changed the native document");
+            QMediaPlayer decoded;QVideoSink sink;QEventLoop playback;QTimer deadline;deadline.setSingleShot(true);
+            decoded.setVideoSink(&sink);int decoded_frames=0;QImage first_frame,peak_frame;bool decode_failed=false;
+            QObject::connect(&sink,&QVideoSink::videoFrameChanged,&playback,[&](const QVideoFrame& frame) {
+                if(!frame.isValid())return;++decoded_frames;
+                if(first_frame.isNull())first_frame=frame.toImage();
+                if(frame.startTime()>=1400000&&frame.startTime()<=1600000)peak_frame=frame.toImage();
+            });
+            QObject::connect(&decoded,&QMediaPlayer::mediaStatusChanged,&playback,[&](auto status) {if(status==QMediaPlayer::EndOfMedia)playback.quit();});
+            QObject::connect(&decoded,&QMediaPlayer::errorOccurred,&playback,[&](auto,const QString&){decode_failed=true;playback.quit();});
+            QObject::connect(&deadline,&QTimer::timeout,&playback,&QEventLoop::quit);
+            deadline.start(15000);decoded.setSource(QUrl::fromLocalFile(video_path));decoded.play();playback.exec();decoded.stop();
+            check(!decode_failed&&decoded_frames>=85&&std::abs(decoded.duration()-3000)<100&&!first_frame.isNull(),
+                "Exported MP4 cannot be played with its expected frame count and duration");
+            check(!peak_frame.isNull()&&peak_frame!=first_frame,"Exported MP4 did not animate the deformation");
+            const auto protected_video=QString::fromStdString(document::path_to_utf8(directory/"existing-video.mp4"));
+            {QFile existing(protected_video);check(existing.open(QIODevice::WriteOnly),"Cannot prepare protected export fixture");existing.write("keep-existing-video");}
+            bool export_failed=false;
+            try {write_fem_video(protected_video,.3,[](double)->QImage {throw std::runtime_error("deliberate frame failure");});}
+            catch(const std::exception&){export_failed=true;}
+            {QFile existing(protected_video);check(existing.open(QIODevice::ReadOnly)&&export_failed&&existing.readAll()=="keep-existing-video",
+                "Failed video export replaced an existing file");}
             settings->findChild<QDoubleSpinBox*>("femMagnification")->setValue(20);
             settings->reject();flush();
-            check(window.fem_magnification_==1&&view->camera_state()==camera,"Cancel changed deformation settings");
+            check(window.fem_magnification_==1&&view->camera_state()==player_camera,"Cancel changed deformation settings");
             settings_action->trigger();flush();settings=window.findChild<QDialog*>("femDeformationSettingsDialog");
             settings->findChild<QPushButton*>("femAutomaticMagnification")->click();
             const double magnification=settings->findChild<QDoubleSpinBox*>("femMagnification")->value();
             check(magnification>1,"Automatic magnification did not reveal bending");
-            settings->findChild<QDoubleSpinBox*>("femAnimationSpeed")->setValue(2);
+            settings->findChild<QDoubleSpinBox*>("femAnimationDuration")->setValue(1.5);
             mouse(QEvent::MouseButtonPress,Qt::MiddleButton);mouse(QEvent::MouseButtonRelease,Qt::NoButton);
             check(window.properties_dialog_==settings,"Short middle click committed deformation settings");
             mouse(QEvent::MouseButtonDblClick,Qt::MiddleButton);flush();
             check(window.fem_magnification_==magnification&&window.fem_animation_speed_==2&&
                 view->result_deformation_factor()==magnification,"Deformation settings did not commit presentation");
             const auto enlarged=view->grabFramebuffer();
-            original->trigger();flush();const auto ghost=view->grabFramebuffer();
+            sidebar_action(original)->click();flush();const auto ghost=view->grabFramebuffer();
             check(ghost!=enlarged,"Transparent original did not affect rendering");
-            extrema->trigger();flush();
+            sidebar_action(extrema)->click();flush();
             check(view->result_markers().size()==2,"Minimum and maximum markers are missing");
-            probe->trigger();flush();
+            sidebar_action(probe)->click();flush();
             QPointF probe_pixel;std::optional<viewer::MeshView::ResultHit> hit;
             for(int y=50;y<view->height()-60&&!hit;y+=12)for(int x=40;x<view->width()-220&&!hit;x+=12) {
                 probe_pixel={double(x),double(y)};hit=view->result_hit_at(probe_pixel);
@@ -881,12 +984,12 @@ int verify_fem_body(QApplication& application,AssemblyWorkspaceWindow& window,co
             view->grabFramebuffer();const auto vector_upload=view->property("resultVectorUploadCount");
             const auto field_upload=view->property("scalarFieldUploadCount");
             const auto animation_calculations=kernel::body_calculation_count.load();
-            animate->trigger();flush();
+            sidebar_action(animate)->click();flush();
             check(window.fem_animation_running(),"Animation did not start");
             window.fem_animation_->setCurrentTime(375);flush();const auto animated=view->grabFramebuffer();
             check(std::abs(view->result_deformation_factor()-magnification*.5)<magnification*.1,
                 "Animation factor does not interpolate the static result");
-            animate->trigger();flush();const auto paused=view->result_deformation_factor();
+            sidebar_action(animate)->click();flush();const auto paused=view->result_deformation_factor();
             QEventLoop pause_wait;QTimer::singleShot(120,&pause_wait,&QEventLoop::quit);pause_wait.exec();
             check(!window.fem_animation_running()&&view->result_deformation_factor()==paused,"Animation pause did not hold the frame");
             check(animated!=ghost&&view->property("gpuMeshUploadCount")==upload&&

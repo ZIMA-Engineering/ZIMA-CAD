@@ -834,6 +834,7 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
             [this,fit_feature_controls]{QTimer::singleShot(0,this,fit_feature_controls);});
         QTimer::singleShot(0,this,fit_feature_controls);
         feature_panel_->projection_panel()->layout_changed=[this,fit_feature_controls]{QTimer::singleShot(0,this,fit_feature_controls);};
+        feature_panel_->wrapping_panel()->layout_changed=[this,fit_feature_controls]{QTimer::singleShot(0,this,fit_feature_controls);};
         feature_panel_->on_preview_notice_changed([this,fit_feature_controls]{QTimer::singleShot(0,this,fit_feature_controls);});
         profile_plane_=feature_panel_->plane_control();
         feature_axis_direction_=feature_panel_->axis_direction_control();
@@ -2121,6 +2122,9 @@ std::vector<zima::document::ExtrusionParameters::EndTarget>& PrimitiveProperties
 }
 ProjectionParameterPanel* PrimitivePropertiesDialog::projection_panel()const {
     return feature_panel_?feature_panel_->projection_panel():nullptr;
+}
+WrappingParameterPanel* PrimitivePropertiesDialog::wrapping_panel()const {
+    return feature_panel_?feature_panel_->wrapping_panel():nullptr;
 }
 const std::vector<zima::document::ExtrusionParameters::EndTarget>& PrimitivePropertiesDialog::profile_end_targets(bool reverse) const {
     return initial_.feature_kind==zima::document::FeatureKind::Feature

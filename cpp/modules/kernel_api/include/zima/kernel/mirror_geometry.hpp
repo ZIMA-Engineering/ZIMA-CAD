@@ -66,6 +66,11 @@ inline ViewerMesh mirrored_viewer_mesh(ViewerMesh mesh,MirrorPlane plane,const s
         for(auto& axis:value.axes){point(axis.point);vector(axis.direction);reference(axis.reference);}
     };
     geometry(mesh);geometry(mesh.original_references);mark_copy_display(mesh,owner);
+    for(auto& image:mesh.images) {
+        reference(image.reference);
+        for(auto& p:image.corners)point(p);
+        for(auto& p:image.surface_vertices)point(p);
+    }
     std::map<ObjectEnvelopeKey,ModelEnvelope> frames;
     for(auto [key,frame]:mesh.annotation_frames){point(frame.origin);for(auto& axis:frame.axes)vector(axis);
         if(owner.empty())frames[key]=frame;

@@ -2,13 +2,14 @@
 
 #include <zima/document/profile_parameters.hpp>
 #include <zima/document/projection_parameters.hpp>
+#include <zima/document/wrapping_parameters.hpp>
 #include <stdexcept>
 #include <array>
 #include <optional>
 
 namespace zima::document {
 
-enum class FeatureType { Point, Axis, Plane, Sketch, Modeling, Projection };
+enum class FeatureType { Point, Axis, Plane, Sketch, Modeling, Projection, Wrapping };
 
 enum class FeatureSideOperation { None, Extrusion, Revolution, Twist };
 enum class FeatureRotationExtent { Angle, Full, UpTo };
@@ -70,6 +71,7 @@ struct FeatureParameters {
     std::string automatic_name;
     FeatureType type{FeatureType::Modeling};
     ProjectionParameters projection;
+    WrappingParameters wrapping;
     std::string sketch_id;
     std::string axis_segment_id;
     ProfileSource profile_source{ProfileSource::Internal};
@@ -113,7 +115,7 @@ struct FeatureParameters {
             effective_side(1).operation==FeatureSideOperation::None;
     }
     [[nodiscard]] bool sketch_only() const {
-        if(type==FeatureType::Projection)return false;
+        if(type==FeatureType::Projection||type==FeatureType::Wrapping)return false;
         return type!=FeatureType::Modeling ||
             (!planar_surface() &&
              effective_side(0).operation==FeatureSideOperation::None &&
@@ -123,7 +125,7 @@ struct FeatureParameters {
         return type==FeatureType::Sketch || (type==FeatureType::Modeling&&sketch_only());
     }
     [[nodiscard]] bool uses_sketch() const {
-        return type==FeatureType::Sketch || type==FeatureType::Modeling || type==FeatureType::Projection;
+        return type==FeatureType::Sketch || type==FeatureType::Modeling || type==FeatureType::Projection || type==FeatureType::Wrapping;
     }
     bool operator==(const FeatureParameters&) const = default;
 };
@@ -135,6 +137,7 @@ void visit_feature_targets(Feature& feature,Visitor visitor) {
     for(auto& side:feature.sides)for(auto& target:side.targets)visitor(target);
     if(feature.type==FeatureType::Projection)
         for(auto& target:feature.projection.targets)visitor(target);
+    if(feature.type==FeatureType::Wrapping&&feature.wrapping.target)visitor(*feature.wrapping.target);
 }
 
 } // namespace zima::document

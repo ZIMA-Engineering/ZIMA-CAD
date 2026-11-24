@@ -147,6 +147,7 @@ void write_ini(const std::filesystem::path& path, const IniSections& ini) {
 
 void append_viewer_mesh(zima::kernel::ViewerMesh& target,
                         zima::kernel::ViewerMesh source) {
+    target.images.insert(target.images.end(),std::make_move_iterator(source.images.begin()),std::make_move_iterator(source.images.end()));
     // This function owns source; transferring its payload keeps reference and
     // geometry order intact without reallocating every edge's point array.
     const auto offset = static_cast<std::uint32_t>(target.vertices.size());
@@ -1800,6 +1801,12 @@ zima::kernel::ViewerMesh AssemblyDocument::build_scene() const {
             !component.visible) continue;
         const std::string path = InstancePath{}.child(component.occurrence_id).encoded();
         const auto append_component_mesh = [&](const zima::kernel::ViewerMesh& source_mesh) {
+            for(auto image:source_mesh.images) {
+                assign_instance(image.reference,path);
+                for(auto& point:image.corners)point=transform_point(point,component.placement);
+                for(auto& point:image.surface_vertices)point=transform_point(point,component.placement);
+                scene.images.push_back(std::move(image));
+            }
             auto source_frames=zima::kernel::object_envelopes(source_mesh);
             for(auto [key,frame]:source_frames){
                 frame.origin=transform_point(frame.origin,component.placement);

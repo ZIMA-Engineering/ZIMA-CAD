@@ -257,6 +257,7 @@ def deploy_dependencies(runtime, installed, redist, dumpbin, qt_sdk=None):
     plugins = (qt_sdk / 'plugins') if qt_sdk else installed / 'Qt6/plugins'
     for group, names in {'platforms': ['qwindows.dll', 'qoffscreen.dll'],
                          'imageformats': ['qjpeg.dll', 'qsvg.dll'],
+                         'multimedia': ['ffmpegmediaplugin.dll'],
                          'styles': ['qmodernwindowsstyle.dll'],
                          'tls': ['qschannelbackend.dll']}.items():
         (runtime / 'plugins' / group).mkdir(parents=True)

@@ -461,25 +461,31 @@ void AssemblyWorkspaceWindow::create_actions() {
     auto* results_group=new QActionGroup(this);results_group->setExclusive(true);
     auto* displacement=fem_results_menu_->addAction(tr("Displacement [mm]"),this,[this]{select_fem_result(FemResultQuantity::Displacement);});
     displacement->setObjectName("femDisplacementResultAction");
+    displacement->setIcon(resource_icon("fem-force"));
     auto* stress=fem_results_menu_->addAction(tr("Von Mises stress [MPa]"),this,[this]{select_fem_result(FemResultQuantity::VonMises);});
     stress->setObjectName("femStressResultAction");
+    stress->setIcon(resource_icon("display-shaded"));
     auto* temperature=fem_results_menu_->addAction(tr("Temperature [°C]"),this,[this]{select_fem_result(FemResultQuantity::Temperature);});
     temperature->setObjectName("femTemperatureResultAction");
+    temperature->setIcon(resource_icon("fem-heat"));
     for(auto* action:{displacement,stress,temperature}){action->setCheckable(true);results_group->addAction(action);}
     fem_results_menu_->addSeparator();
-    auto* animation=fem_results_menu_->addAction(tr("Play / pause deformation"));
+    auto* animation=fem_results_menu_->addAction(resource_icon("media-play"),tr("Play deformation"));
     animation->setObjectName("femAnimateAction");animation->setCheckable(true);
     connect(animation,&QAction::triggered,this,[this](bool run){set_fem_animation(run);rebuild_application_toolbar();});
-    fem_results_menu_->addAction(tr("Deformation settings"),this,[this]{show_fem_deformation_settings();})
+    fem_results_menu_->addAction(resource_icon("parameters"),tr("Deformation player"),this,[this]{show_fem_deformation_settings();})
         ->setObjectName("femDeformationSettingsAction");
     auto* original=fem_results_menu_->addAction(tr("Transparent original"));
     original->setObjectName("femOriginalAction");original->setCheckable(true);
+    original->setIcon(resource_icon("display-hidden"));
     connect(original,&QAction::triggered,this,[this](bool show){fem_show_original_=show;select_fem_result(fem_result_quantity_);});
     auto* extrema=fem_results_menu_->addAction(tr("Show minimum / maximum"));
     extrema->setObjectName("femExtremaAction");extrema->setCheckable(true);
+    extrema->setIcon(resource_icon("measure"));
     connect(extrema,&QAction::triggered,this,[this](bool show){fem_show_extrema_=show;select_fem_result(fem_result_quantity_);});
     auto* probe=fem_results_menu_->addAction(tr("Probe results"));
     probe->setObjectName("femProbeAction");probe->setCheckable(true);
+    probe->setIcon(resource_icon("point"));
     connect(probe,&QAction::triggered,this,[this](bool show){fem_probe_enabled_=show;select_fem_result(fem_result_quantity_);});
 #endif
     auto* window_menu = menuBar()->addMenu(t("menu.window", "Okno"));

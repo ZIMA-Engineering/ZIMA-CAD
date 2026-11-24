@@ -258,6 +258,8 @@ void append_surface_shell_source_pick_aliases(
 
 void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMesh()> assembly_preview,
                                             bool rebuild_tree) {
+    if(viewer_)viewer_->set_analysis_mesh_edges(active_fem_body()&&!properties_dialog_&&active_sketch_id_.empty()&&
+        show_generated_fem_mesh_&&active_generated_fem_mesh()&&!(show_fem_deformation_&&active_fem_deformation()));
     if(!sketch_intersection_choices_.empty() && (!sketch_external_intersection_active_ ||
             !sketch_intersection_inputs_ || *sketch_intersection_inputs_!=sketch_intersection_inputs())) {
         sketch_intersection_choices_.clear();sketch_intersection_inputs_.reset();
@@ -546,8 +548,9 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
                     i >= part_rollback_->history_limit) break;
                 const auto& feature = document.history[i];
                 if(feature.feature_kind==zima::document::FeatureKind::SurfaceIntersection||
-                        (feature.feature_kind==zima::document::FeatureKind::Feature&&feature.feature.type==zima::document::FeatureType::Projection&&
-                         feature.feature.projection.output==zima::document::ProjectionOutput::Curves)) {
+                        (feature.feature_kind==zima::document::FeatureKind::Feature&&
+                         ((feature.feature.type==zima::document::FeatureType::Projection&&feature.feature.projection.output==zima::document::ProjectionOutput::Curves)||
+                          (feature.feature.type==zima::document::FeatureType::Wrapping&&feature.feature.wrapping.output==zima::document::WrappingOutput::Curves)))) {
                     if(feature.suppressed||(!document.history_order.empty()&&!visible_ids.contains(feature.id)))continue;
                     // The derived curves are native calculated reference data.
                     // Later body operations do not consume their display wires.
@@ -558,7 +561,7 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
                     for(const auto& point:reference_geometry().points)if(point.reference.owner_id==feature.id&&
                         std::ranges::none_of(mesh.points,[&](const auto& shown){return shown.reference==point.reference;})) {
                         auto shown=point;shown.display_owner_id=feature.id;
-                        if(feature.feature.type==zima::document::FeatureType::Projection)shown.always_visible=true;
+                        if(feature.feature.type==zima::document::FeatureType::Projection||feature.feature.type==zima::document::FeatureType::Wrapping)shown.always_visible=true;
                         mesh.points.push_back(std::move(shown));
                     }
                     continue;

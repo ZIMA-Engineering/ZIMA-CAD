@@ -29,7 +29,8 @@ constexpr std::array feature_types{
     std::pair{FeatureType::Plane,std::string_view{"plane"}},
     std::pair{FeatureType::Sketch,std::string_view{"sketch"}},
     std::pair{FeatureType::Modeling,std::string_view{"modeling"}},
-    std::pair{FeatureType::Projection,std::string_view{"projection"}}};
+    std::pair{FeatureType::Projection,std::string_view{"projection"}},
+    std::pair{FeatureType::Wrapping,std::string_view{"wrapping"}}};
 constexpr std::array operations{
     std::pair{FeatureSideOperation::None,std::string_view{"none"}},
     std::pair{FeatureSideOperation::Extrusion,std::string_view{"extrusion"}},
@@ -76,6 +77,7 @@ kernel::FaceReference reference(const nlohmann::json& value) {
 void validate_feature_parameters(const FeatureParameters& p) {
     static_cast<void>(name(p.type,feature_types));
     if(p.type==FeatureType::Projection)validate_projection_parameters(p.projection);
+    if(p.type==FeatureType::Wrapping)validate_wrapping_parameters(p.wrapping);
     static_cast<void>(name(p.profile_source,sources));
     static_cast<void>(name(p.result_type,results));
     static_cast<void>(name(p.thin_mode,thin_modes));
@@ -167,6 +169,7 @@ nlohmann::json serialize_feature_parameters(const FeatureParameters& p) {
         {"sides",std::move(sides)}};
     if(p.reversed_sides)result["reversed_sides"]=true;
     if(p.type==FeatureType::Projection)result["projection"]=serialize_projection_parameters(p.projection);
+    if(p.type==FeatureType::Wrapping)result["wrapping"]=serialize_wrapping_parameters(p.wrapping);
     return result;
 }
 
@@ -176,6 +179,7 @@ FeatureParameters load_feature_parameters(const nlohmann::json& source) {
         p.automatic_name=source.value("automatic_name",std::string{});
         p.type=parse(source.at("type"),feature_types);
         if(p.type==FeatureType::Projection)p.projection=load_projection_parameters(source.at("projection"));
+        if(p.type==FeatureType::Wrapping)p.wrapping=load_wrapping_parameters(source.at("wrapping"));
         p.sketch_id=source.at("sketch_id").get<std::string>();
         p.axis_segment_id=source.at("axis_segment_id").get<std::string>();
         p.profile_source=parse(source.at("profile_source"),sources);

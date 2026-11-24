@@ -151,7 +151,7 @@ nlohmann::json serialize_surface(const zima::kernel::SurfaceGeometry& value) {
 zima::kernel::SurfaceGeometry load_surface(const nlohmann::json& value) {
     zima::kernel::SurfaceGeometry result;
     const int kind=value.at("kind");
-    if (kind<0 || kind>3) throw std::runtime_error("Invalid analytic surface kind");
+    if (kind<0 || kind>4) throw std::runtime_error("Invalid analytic surface kind");
     result.kind=static_cast<zima::kernel::SurfaceGeometry::Kind>(kind);
     result.origin=load_vec3(value.at("origin"));result.axis=load_vec3(value.at("axis"));
     result.radial=load_vec3(value.at("radial"));result.radius=value.at("radius");
@@ -878,6 +878,11 @@ nlohmann::json serialize_body_result(const zima::kernel::BodyResult& result, boo
             auto corners=nlohmann::json::array();for(const auto& p:image.corners)corners.push_back(serialize_vec3(p));
             packet["images"].push_back({{"corners",corners},{"owner",image.reference.owner_id},
                 {"key",image.reference.semantic_key},{"instance_path",image.reference.instance_path},{"data_base64",image.data_base64},{"format",image.format},{"opacity",image.opacity}});
+            if(!image.surface_vertices.empty()) {
+                auto vertices=nlohmann::json::array();for(const auto& p:image.surface_vertices)vertices.push_back(serialize_vec3(p));
+                packet["images"].back()["surface_vertices"]=std::move(vertices);
+                packet["images"].back()["surface_uv"]=image.surface_uv;
+            }
         }
     }
     packet["annotation_frames"]=annotation_frames_json(result.mesh.annotation_frames);
@@ -1196,6 +1201,14 @@ zima::kernel::BodyResult load_body_result(const nlohmann::json& source,
         image.data_base64=stored_string(row.at("data_base64"),shared_strings);
         image.format=row.at("format");
         image.opacity=row.value("opacity",1.0);
+        if(row.contains("surface_vertices")) {
+            for(const auto& p:row.at("surface_vertices"))image.surface_vertices.push_back(load_vec3(p));
+            image.surface_uv=row.at("surface_uv").get<std::vector<std::array<double,2>>>();
+            if(image.surface_vertices.empty()||image.surface_vertices.size()%3||image.surface_vertices.size()!=image.surface_uv.size()||
+                std::ranges::any_of(image.surface_uv,[](const auto& uv){return !std::isfinite(uv[0])||!std::isfinite(uv[1]);})||
+                std::ranges::any_of(image.surface_vertices,[](const auto& point){return !std::isfinite(point.x)||!std::isfinite(point.y)||!std::isfinite(point.z);}))
+                throw std::runtime_error("Invalid wrapped image mesh.");
+        }
         result.mesh.images.push_back(std::move(image));
     }
     result.mesh.annotation_frames=annotation_frames_from_json(source.value("annotation_frames",nlohmann::json::array()));

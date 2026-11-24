@@ -15,6 +15,7 @@
     "zstd",
     "zlib",
     "qtsvg",
+    "qtmultimedia",
     {
       "name": "qtwebengine",
       "default-features": false,

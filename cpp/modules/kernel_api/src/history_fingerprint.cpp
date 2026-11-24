@@ -951,6 +951,31 @@ std::string encode_history_fingerprint(
                     // cache reuse too. Capturing it must not run Splitter twice.
                     for(double v:{region.seed.x,region.seed.y,region.seed.z})u64(std::bit_cast<std::uint64_t>(v));
                 }
+            } else if constexpr (std::is_same_v<Request, WrappingRequest>) {
+                u64(1);
+                const auto text=[&](const std::string& value){u64(value.size());for(unsigned char c:value)byte(c);};
+                const auto reference=[&](const auto& r){text(r.owner_id);text(r.semantic_key);text(r.instance_path);};
+                u64(primitive.profiles.size());
+                for(const auto& profile:primitive.profiles)text(history_fingerprint({HistoryOperation{operation.owner_id,profile}},1));
+                text(primitive.sketch_id);reference(primitive.target);
+                  u64(primitive.images.size());
+                  for(const auto& image:primitive.images) {
+                      reference(image.reference);text(image.data_base64);text(image.format);u64(number_bits(image.opacity));
+                      for(const auto p:image.corners)for(double v:{p.x,p.y,p.z})u64(number_bits(v));
+                  }
+                for(const auto p:{primitive.origin,primitive.x_axis,primitive.y_axis,primitive.normal})
+                    for(double v:{p.x,p.y,p.z})u64(number_bits(v));
+                u64(static_cast<unsigned>(primitive.output));
+                u64(std::bit_cast<std::uint64_t>(primitive.height));u64(std::bit_cast<std::uint64_t>(primitive.tolerance));
+                byte(primitive.reverse_u);byte(primitive.reverse_v);byte(primitive.inward);
+                byte(static_cast<bool>(primitive.external_target));
+                if(const auto& source=primitive.external_target) {
+                    reference(source->reference);text(source->body->source_fingerprint);
+                    u64(source->placements.size());
+                    for(const auto& placement:source->placements)
+                        for(double v:{placement.translation.x,placement.translation.y,placement.translation.z,
+                            placement.rotation_degrees.x,placement.rotation_degrees.y,placement.rotation_degrees.z})u64(number_bits(v));
+                }
             } else if constexpr (std::is_same_v<Request, SurfaceTrimRequest>) {
                 u64(2);u64(std::bit_cast<std::uint64_t>(primitive.tolerance));
                 const auto reference=[&](const auto& r){for(const auto* value:{&r.owner_id,&r.semantic_key,&r.instance_path}){u64(value->size());for(unsigned char c:*value)byte(c);}};

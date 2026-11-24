@@ -968,6 +968,8 @@ struct HistoryContainer {
     [[nodiscard]] bool is_surface_result() const {
         if(feature_kind==FeatureKind::Feature&&feature.type==FeatureType::Projection)
             return feature.projection.output==ProjectionOutput::Surface;
+        if(feature_kind==FeatureKind::Feature&&feature.type==FeatureType::Wrapping)
+            return feature.wrapping.output==WrappingOutput::Surface;
         return feature_kind==FeatureKind::SurfaceTrim || feature_kind==FeatureKind::BoundarySurface || feature_kind==FeatureKind::SurfaceSewing || feature_kind==FeatureKind::GeneralSurface ||
             (feature_kind==FeatureKind::Shell && shell.thickness==0.) ||
             (feature_kind==FeatureKind::Sweep2D && sweep2d.result_type==ProfileResultType::Surface) ||
@@ -1154,6 +1156,8 @@ public:
         const PartDocument* reference_document = nullptr) const;
     // Read-only Projection display from the already calculated target packet.
     // Includes source/result point markers; never supplies native reference data.
+    [[nodiscard]] zima::kernel::ViewerMesh wrapping_preview_mesh(
+        const HistoryContainer&,const zima::kernel::ViewerMesh&,const PartDocument* owners=nullptr,bool images=false) const;
     [[nodiscard]] zima::kernel::ViewerMesh projection_preview_mesh(
         const HistoryContainer& container, const zima::kernel::ViewerMesh& input,
           const PartDocument* reference_document = nullptr, bool* incomplete = nullptr) const;

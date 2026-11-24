@@ -64,6 +64,10 @@ struct HistoryDependencyCollector {
         switch(feature.feature_kind) {
         case FeatureKind::Feature:
             use(root,feature.feature.sketch_id);
+              if(feature.feature.type==document::FeatureType::Wrapping) {
+                  if(feature.feature.wrapping.target)reference(root,feature.feature.wrapping.target->reference);
+                  break;
+              }
             if(feature.feature.type==document::FeatureType::Projection) {
                 for(const auto& target:feature.feature.projection.targets)reference(root,target.reference);
                 if(feature.feature.projection.direction==document::ProjectionDirection::Reference)

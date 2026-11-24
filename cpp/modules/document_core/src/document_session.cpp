@@ -267,6 +267,7 @@ zima::kernel::ViewerMesh DocumentSession::body_context_mesh(const BodyHistoryGra
         append(result.triangle_references, mesh.triangle_references);
         append(result.edges, mesh.edges); append(result.points, mesh.points); append(result.axes, mesh.axes);
         append(result.dimensions, mesh.dimensions); append(result.constraint_markers, mesh.constraint_markers);
+        append(result.images, mesh.images);
         auto& refs = result.original_references;
         const auto ref_offset = static_cast<std::uint32_t>(refs.vertices.size());
         append(refs.vertices, mesh.original_references.vertices);

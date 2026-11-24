@@ -23,6 +23,7 @@ inline FeatureViewCues feature_view_cues(const document::HistoryContainer& featu
                                        const sketcher::Sketch& sketch) {
     FeatureViewCues out;
     const auto& p=feature.feature;
+    if(p.type==document::FeatureType::Wrapping)return out;
     if(p.type==document::FeatureType::Point) {
         const auto& placement=feature.placement;
         if(auto annotation=point_station_annotation(feature.id,{placement.x,placement.y,placement.z},placement.references,placement.reference_valid))

@@ -129,6 +129,20 @@ runtime; the native image command tests decode both formats and verify DPI.
 This is local development deployment, not a portable-release pipeline.
 
 
+## FEM video runtime
+
+The FEM player exports MP4 through the shared Qt Multimedia implementation and
+its FFmpeg media plugin. Use the same Qt kit as the rest of the application.
+Native Windows deployment includes `multimedia/ffmpegmediaplugin.dll`; portable
+packages put it in `plugins/multimedia/` and resolve its complete DLL dependency
+closure, including the matching FFmpeg libraries. The SDK provisioner already
+includes Qt Multimedia. Do not rely on an unrelated `ffmpeg.exe` from PATH.
+
+Before publishing a candidate, export and decode an MP4 with the packaged
+runtime, verify the expected duration and changing frames, and check that failed
+exports preserve an existing destination. The export is an independent file,
+never an embedded native document dependency.
+
 ## Local command-line executable
 
 `tools/build-windows.ps1` builds both `zima-cad-cpp.exe` and `zima-cad-cli.exe`.

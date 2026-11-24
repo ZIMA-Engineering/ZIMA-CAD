@@ -17,7 +17,8 @@ inline const std::string& surface_boundary_wire_owner(const document::GeneralSur
 inline std::optional<std::string> surface_wire_owner(
         const document::PartDocument& part,const std::string& id) {
     if(const auto* feature=part.find_container(id);feature&&feature->feature_kind==document::FeatureKind::Feature&&
-        feature->feature.type==document::FeatureType::Projection&&feature->feature.projection.output==document::ProjectionOutput::Curves)return id;
+        ((feature->feature.type==document::FeatureType::Projection&&feature->feature.projection.output==document::ProjectionOutput::Curves)||
+         (feature->feature.type==document::FeatureType::Wrapping&&feature->feature.wrapping.output==document::WrappingOutput::Curves)))return id;
     for(const auto& sketch:part.sketches)if(sketch.id==id||sketch.owner_container_id==id)return sketch.id;
     for(const auto& curve:part.constructions)if(curve.kind==document::ConstructionKind::Curve3D&&
         (curve.id==id||curve.entity_id==id))return curve.id;
@@ -44,7 +45,8 @@ inline std::optional<std::string> surface_wire_container_owner(
     if(feature&&(feature->feature_kind==document::FeatureKind::Sketch||
         feature->feature_kind==document::FeatureKind::SurfaceIntersection||
         (feature->feature_kind==document::FeatureKind::Feature&&(feature->feature.type==document::FeatureType::Sketch||
-            (feature->feature.type==document::FeatureType::Projection&&feature->feature.projection.output==document::ProjectionOutput::Curves)))))
+            (feature->feature.type==document::FeatureType::Projection&&feature->feature.projection.output==document::ProjectionOutput::Curves)||
+            (feature->feature.type==document::FeatureType::Wrapping&&feature->feature.wrapping.output==document::WrappingOutput::Curves)))))
         return surface_wire_owner(part,id);
     return {};
 }

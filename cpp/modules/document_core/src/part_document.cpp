@@ -1,4 +1,6 @@
 #include <zima/kernel/placement_route.hpp>
+#include <zima/kernel/surface_wrap.hpp>
+#include <zima/kernel/wrapped_image.hpp>
 #include <zima/document/trajectory_point_release.hpp>
 #include <zima/document/placement_reference_assignment.hpp>
 #include "../../../common/datum_display.hpp"
@@ -3388,10 +3390,15 @@ zima::kernel::ViewerMesh body_placed_mesh(zima::kernel::ViewerMesh mesh,
         if (dimension.label_position) point(*dimension.label_position);
     }
     for (auto& marker : mesh.constraint_markers) point(marker.position);
+    for(auto& image:mesh.images) {
+        for(auto& corner:image.corners)point(corner);
+        for(auto& vertex:image.surface_vertices)point(vertex);
+    }
     return mesh;
 }
 
 void append_body_mesh(zima::kernel::ViewerMesh& target, zima::kernel::ViewerMesh source) {
+    target.images.insert(target.images.end(),std::make_move_iterator(source.images.begin()),std::make_move_iterator(source.images.end()));
     const auto offset = static_cast<std::uint32_t>(target.vertices.size());
     target.vertices.insert(target.vertices.end(), source.vertices.begin(), source.vertices.end());
     for (const auto index : source.triangles) target.triangles.push_back(offset + index);
@@ -8763,12 +8770,15 @@ std::vector<zima::kernel::ViewerEdge> PartDocument::thread_edges(
 }
 
 #include "projection_preview.inc"
+#include "wrapping_preview.inc"
 
 std::vector<zima::kernel::ViewerEdge> PartDocument::feature_preview_edges(
         const HistoryContainer& container,const zima::kernel::ViewerMesh& input,
         const PartDocument* reference_document) const {
     if(container.feature_kind==FeatureKind::Feature&&container.feature.type==FeatureType::Projection)
         return projection_preview_mesh(container,input,reference_document).edges;
+    if(container.feature_kind==FeatureKind::Feature&&container.feature.type==FeatureType::Wrapping)
+        return wrapping_preview_mesh(container,input,reference_document).edges;
     if(container.feature_kind!=FeatureKind::Feature || container.feature.type!=FeatureType::Modeling)return {};
     const auto& definition=container.feature;
     validate_feature_parameters(definition);
@@ -11392,6 +11402,7 @@ zima::kernel::Sweep3DRequest twisted_sheet_request(
 }
 
 #include "projection.inc"
+#include "wrapping.inc"
 
 std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
     bool allow_persisted_external_target, bool recover_errors) const {
@@ -11888,6 +11899,8 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
             primitive = point;
         } else if (container.feature_kind == FeatureKind::Feature && container.feature.type==FeatureType::Projection) {
             primitive=projection_request(*this,container,boolean_tolerance);
+        } else if (container.feature_kind == FeatureKind::Feature && container.feature.type==FeatureType::Wrapping) {
+            primitive=wrapping_request(*this,container,boolean_tolerance);
         } else if (container.feature_kind == FeatureKind::Feature) {
             const auto& p=container.feature;
             validate_feature_parameters(p);

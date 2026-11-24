@@ -29,6 +29,7 @@ namespace {
 
 void append_mesh(zima::kernel::ViewerMesh& target,
                  const zima::kernel::ViewerMesh& source) {
+    target.images.insert(target.images.end(),source.images.begin(),source.images.end());
     target.points.insert(target.points.end(), source.points.begin(), source.points.end());
     target.axes.insert(target.axes.end(), source.axes.begin(), source.axes.end());
     target.edges.insert(target.edges.end(), source.edges.begin(), source.edges.end());

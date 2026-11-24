@@ -50,6 +50,7 @@ endif()
 
 find_package(Qt6 6.5 REQUIRED COMPONENTS Core Gui Widgets OpenGL OpenGLWidgets Svg Network)
 find_package(Qt6 REQUIRED COMPONENTS WebEngineWidgets WebChannel Quick)
+find_package(Qt6 6.8 REQUIRED COMPONENTS Multimedia)
 if(ZIMA_QT_SDK_ROOT AND NOT Qt6_VERSION VERSION_EQUAL "6.11.0")
     message(FATAL_ERROR "The selected SDK must match the shared Qt 6.11.0 dependency pin")
 endif()
@@ -266,6 +267,7 @@ add_library(zima_document_core
     modules/document_core/src/profile_serialization.cpp
     modules/document_core/src/feature_serialization.cpp
     modules/document_core/src/projection_parameters.cpp
+    modules/document_core/src/wrapping_parameters.cpp
     modules/document_core/src/feature_up_to.cpp
     modules/document_core/src/feature_result_geometry.cpp
     modules/document_core/src/part_document.cpp
@@ -675,7 +677,7 @@ if(ZIMA_BUILD_TESTS)
 endif()
 
 add_executable(zima-cad-cpp
-    app/fem_body_command.cpp app/fem_body_ui_verification.cpp
+    app/fem_body_command.cpp app/fem_body_ui_verification.cpp app/fem_video_export.cpp
     app/fem_condition_command.cpp
     app/cam_body_command.cpp app/cam_body_ui_verification.cpp
     app/render_body_command.cpp app/render_job.cpp app/render_ui_verification.cpp
@@ -709,7 +711,7 @@ target_link_libraries(zima-cad-cpp PRIVATE
     zima_edge_treatment_preview
     zima_command_host zima_commands zima_workspace zima_assembly zima_document_core zima_drawing zima_kernel_occt zima_viewer zima_ui
     zima_interchange nlohmann_json::nlohmann_json
-    Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Svg)
+    Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Svg Qt6::Multimedia)
 option(ZIMA_ENABLE_FEM_MESHER "Enable the native Gmsh 4.15.2 FEM mesher" OFF)
 if(ZIMA_ENABLE_FEM_MESHER)
     find_path(ZIMA_GMSH_INCLUDE_DIR gmsh.h REQUIRED)
@@ -727,6 +729,16 @@ if(ZIMA_ENABLE_FEM_MESHER)
     endif()
 endif()
 set_target_properties(zima-cad-cpp PROPERTIES AUTORCC ON)
+if(WIN32 AND TARGET Qt6::QFFmpegMediaPlugin)
+    add_custom_command(TARGET zima-cad-cpp POST_BUILD
+        COMMAND ${CMAKE_COMMAND}
+            "-DPLUGIN=$<TARGET_FILE:Qt6::QFFmpegMediaPlugin>"
+            "-DPLUGIN_NAME=$<TARGET_FILE_NAME:Qt6::QFFmpegMediaPlugin>"
+            "-DPLUGIN_GROUP=multimedia"
+            "-DQT_RUNTIME_DIRECTORY=$<TARGET_FILE_DIR:Qt6::Core>"
+            "-DOUTPUT_DIRECTORY=$<TARGET_FILE_DIR:zima-cad-cpp>"
+            -P "${CMAKE_SOURCE_DIR}/../tools/deploy-qt-image-plugin.cmake")
+endif()
 target_sources(zima-cad-cpp PRIVATE app/workspace/browser.cpp browser/browser.cpp browser/browser.hpp
     browser/credentials.cpp browser/credentials.hpp)
 target_link_libraries(zima-cad-cpp PRIVATE zima_browser_store qt6keychain Qt6::WebEngineWidgets Qt6::WebChannel Qt6::Quick)
@@ -3084,6 +3096,10 @@ if(ZIMA_BUILD_TESTS)
     target_link_libraries(zima_cpp_projection_history_tests PRIVATE zima_kernel_occt TKTopAlgo TKBO)
     target_compile_options(zima_cpp_projection_history_tests PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
     add_test(NAME zima_cpp_projection_history_tests COMMAND zima_cpp_projection_history_tests)
+    add_executable(zima_cpp_wrapping_history_tests tests/wrapping_history_tests.cpp)
+    target_link_libraries(zima_cpp_wrapping_history_tests PRIVATE zima_kernel_occt TKPrim TKDESTEP TKTopAlgo)
+    target_compile_options(zima_cpp_wrapping_history_tests PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
+    add_test(NAME zima_cpp_wrapping_history_tests COMMAND zima_cpp_wrapping_history_tests)
     add_executable(zima_cpp_projection_document_tests tests/projection_document_tests.cpp)
     target_link_libraries(zima_cpp_projection_document_tests PRIVATE zima_workspace zima_kernel_occt)
     if(MSVC)
@@ -3346,6 +3362,9 @@ if(ZIMA_BUILD_TESTS)
     set_tests_properties(zima_cpp_feature_type_ui_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT}")
     add_executable(zima_cpp_feature_parameters_tests tests/feature_parameters_tests.cpp)
+    add_executable(zima_cpp_cylindrical_wrap_tests tests/cylindrical_wrap_tests.cpp)
+    target_link_libraries(zima_cpp_cylindrical_wrap_tests PRIVATE zima_kernel_api)
+    add_test(NAME zima_cpp_cylindrical_wrap COMMAND zima_cpp_cylindrical_wrap_tests)
     add_executable(zima_cpp_feature_up_to_parameters_tests tests/feature_up_to_parameters_tests.cpp)
     target_link_libraries(zima_cpp_feature_up_to_parameters_tests PRIVATE zima_document_core)
     add_test(NAME zima_cpp_feature_up_to_parameters_tests COMMAND zima_cpp_feature_up_to_parameters_tests)

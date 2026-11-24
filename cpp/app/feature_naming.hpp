@@ -14,6 +14,7 @@ inline QString feature_name_prefix(document::FeatureType type) {
         case FeatureType::Sketch:return QObject::tr("Skica");
         case FeatureType::Modeling:return QObject::tr("Tažení");
         case FeatureType::Projection:return QObject::tr("Promítnutí");
+        case FeatureType::Wrapping:return QObject::tr("Wrap");
     }
     return {};
 }

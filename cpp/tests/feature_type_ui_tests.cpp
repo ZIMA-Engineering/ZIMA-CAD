@@ -254,8 +254,10 @@ static void verify_limit_localization(QApplication& application,QWidget& parent)
             check(dialog.findChild<QLabel*>("featureUpToDraftNotice")->text()==QObject::tr(
                 "Exact preview"),"Draft preview notice did not follow the live language");
             auto* correction=dialog.findChild<QDoubleSpinBox*>("featureSideCorrection0");
-            auto* form=qobject_cast<QFormLayout*>(correction->parentWidget()->layout());
-            check(form&&qobject_cast<QLabel*>(form->labelForField(correction))->text()==QObject::tr("Korekce"),
+            auto* correction_row=correction->parentWidget();
+            auto* form=qobject_cast<QFormLayout*>(correction_row->parentWidget()->layout());
+            auto* label=form?qobject_cast<QLabel*>(form->labelForField(correction_row)):nullptr;
+            check(label&&label->text()==QObject::tr("Korekce"),
                 "Correction label did not follow the live language");
             for(int row:{0,1}) {
                 QImage cell(240,36,QImage::Format_ARGB32_Premultiplied);cell.fill(application.palette().color(QPalette::Base));

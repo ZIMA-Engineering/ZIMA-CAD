@@ -1,5 +1,9 @@
 #include "assembly_workspace_window.hpp"
 #include "fem_body_dialog.hpp"
+#include "fem_animation_action.hpp"
+#include "fem_video_export.hpp"
+#include "file_dialog.hpp"
+#include "tool_button_style.hpp"
 #include "workspace/workspace_internal.hpp"
 #include <zima/workspace/fem_operations.hpp>
 #include <zima/workspace/engineering_metadata_operations.hpp>
@@ -12,6 +16,11 @@
 #include <QVariantAnimation>
 #include <QPushButton>
 #include <QAction>
+#include <QSlider>
+#include <QSignalBlocker>
+#include <QFileInfo>
+#include <QToolButton>
+#include <QScopeGuard>
 #include <cmath>
 #include <numbers>
 #include <limits>
@@ -162,27 +171,89 @@ private:
 };
 class FemDeformationSettingsDialog final : public ui::PropertiesSubWindow {
 public:
-    FemDeformationSettingsDialog(double scale,double speed,double suggested,
-            std::function<void(double,double)> commit,QWidget* parent)
-        : PropertiesSubWindow(tr("Deformation settings"),parent),commit_(std::move(commit)) {
+    FemDeformationSettingsDialog(double scale,double speed,double suggested,double phase,
+            std::function<void(double,double)> preview,std::function<void(double,double)> commit,
+            std::function<QString(double)> save_video,QWidget* parent)
+        : PropertiesSubWindow(tr("Deformation player"),parent),commit_(std::move(commit)),preview_(std::move(preview)) {
         setObjectName("femDeformationSettingsDialog");setAttribute(Qt::WA_DeleteOnClose);
+        auto* playback=new QHBoxLayout;
+        play_=new QAction(this);play_->setCheckable(true);play_->setObjectName("femPlayerPlayAction");
+        auto* play_button=new QToolButton(this);play_button->setDefaultAction(play_);play_button->setObjectName("femPlayerPlayButton");
+        play_button->setStyleSheet(command_button_style());
+        playback->addWidget(play_button);
+        timeline_=new QSlider(Qt::Horizontal,this);timeline_->setObjectName("femPlayerTimeline");timeline_->setRange(0,1000);
+        timeline_->setAccessibleName(tr("Animation time"));playback->addWidget(timeline_,1);
+        time_=new QLabel(this);time_->setObjectName("femPlayerTime");playback->addWidget(time_);
+        content_layout()->addLayout(playback);
+        auto* settings_button=new QToolButton(this);settings_button->setObjectName("femPlayerSettings");
+        settings_button->setText(tr("Playback settings"));settings_button->setCheckable(true);
+        settings_button->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);settings_button->setArrowType(Qt::RightArrow);
+        settings_button->setStyleSheet(command_button_style());
+        content_layout()->addWidget(settings_button);
+        auto* settings=new QWidget(this);
         auto* form=new QFormLayout;
+        settings->setLayout(form);
         scale_=new QDoubleSpinBox(this);scale_->setObjectName("femMagnification");
         scale_->setRange(0,1000000);scale_->setDecimals(3);scale_->setValue(scale);scale_->setSuffix(" ×");
         form->addRow(tr("Deformation magnification"),scale_);
         auto* automatic=new QPushButton(tr("Fit magnification to model"),this);
         automatic->setObjectName("femAutomaticMagnification");
         connect(automatic,&QPushButton::clicked,this,[this,suggested]{scale_->setValue(suggested);});form->addRow({},automatic);
-        speed_=new QDoubleSpinBox(this);speed_->setObjectName("femAnimationSpeed");
-        speed_->setRange(.1,10);speed_->setDecimals(2);speed_->setValue(speed);speed_->setSuffix(" ×");
-        form->addRow(tr("Animation speed"),speed_);content_layout()->addLayout(form);
+        duration_=new QDoubleSpinBox(this);duration_->setObjectName("femAnimationDuration");
+        duration_->setRange(.3,30);duration_->setDecimals(2);duration_->setValue(3/speed);duration_->setSuffix(" s");
+        form->addRow(tr("Cycle duration"),duration_);content_layout()->addWidget(settings);settings->hide();
+        connect(settings_button,&QToolButton::toggled,this,[this,settings,settings_button](bool expanded) {
+            settings->setVisible(expanded);settings_button->setArrowType(expanded?Qt::DownArrow:Qt::RightArrow);
+            adjustSize();place_bottom_right();
+        });
         auto* explanation=new QLabel(tr("Animation interpolates the static result. Values and colors always show the calculated load case."),this);
-        explanation->setWordWrap(true);content_layout()->addWidget(explanation);set_initial_size({490,240});
+        explanation->setWordWrap(true);form->addRow(explanation);
+        auto* save=new QPushButton(resource_icon("export"),tr("Save video"),this);save->setObjectName("femSaveVideo");
+        content_layout()->addWidget(save);
+        status_=new QLabel(this);status_->setWordWrap(true);status_->setObjectName("femVideoStatus");content_layout()->addWidget(status_);
+        connect(save,&QPushButton::clicked,this,[this,save_video] {
+            animation_.pause();
+            try {status_->setText(save_video(duration_->value()));}
+            catch(const std::exception& error){status_->setText(tr(error.what()));}
+        });
+        animation_.setStartValue(0.);animation_.setEndValue(1.);animation_.setLoopCount(-1);
+        animation_.setDuration(qRound(1000*duration_->value()));
+        connect(&animation_,&QVariantAnimation::stateChanged,this,[this] {
+            update_fem_animation_action(play_,animation_.state()==QAbstractAnimation::Running);
+        });
+        connect(&animation_,&QVariantAnimation::valueChanged,this,[this](const QVariant& value){present(value.toDouble());});
+        connect(play_,&QAction::triggered,this,[this](bool run) {
+            if(run) {if(animation_.state()==QAbstractAnimation::Paused)animation_.resume();else animation_.start();}
+            else animation_.pause();
+        });
+        connect(timeline_,&QSlider::valueChanged,this,[this](int value) {
+            animation_.pause();animation_.setCurrentTime(qRound(animation_.duration()*value/1000.));
+            present(value/1000.);
+        });
+        connect(scale_,&QDoubleSpinBox::valueChanged,this,[this]{present(timeline_->value()/1000.);});
+        connect(duration_,&QDoubleSpinBox::valueChanged,this,[this](double seconds) {
+            const auto phase=timeline_->value()/1000.;const bool running=animation_.state()==QAbstractAnimation::Running;
+            animation_.pause();animation_.setDuration(qRound(1000*seconds));animation_.setCurrentTime(qRound(animation_.duration()*phase));
+            present(phase);if(running)animation_.resume();
+        });
+        animation_.start();animation_.pause();animation_.setCurrentTime(qRound(animation_.duration()*phase));
+        present(phase);update_fem_animation_action(play_,false);set_initial_size({490,210});
     }
+    void set_anchor(QWidget* view){anchor_=view;place_bottom_right();}
+    void set_export_progress(int value,int total){status_->setText(tr("Saving video: %1 / %2 frames").arg(value).arg(total));}
 protected:
-    bool submit()override{commit_(scale_->value(),speed_->value());return true;}
+    bool submit()override{animation_.pause();commit_(scale_->value(),3/duration_->value());return true;}
 private:
-    QDoubleSpinBox *scale_{},*speed_{};std::function<void(double,double)> commit_;
+    void present(double phase) {
+        const QSignalBlocker blocker(timeline_);timeline_->setValue(qRound(1000*phase));
+        time_->setText(tr("%1 / %2 s").arg(locale().toString(phase*duration_->value(),'f',2),locale().toString(duration_->value(),'f',2)));
+        preview_(scale_->value(),.5-.5*std::cos(phase*2*std::numbers::pi));
+    }
+    void place_bottom_right() {
+        if(anchor_&&parentWidget())move(anchor_->mapTo(parentWidget(),QPoint(anchor_->width()-width()-12,anchor_->height()-height()-12)));
+    }
+    QDoubleSpinBox *scale_{},*duration_{};std::function<void(double,double)> commit_,preview_;
+    QVariantAnimation animation_;QAction* play_{};QSlider* timeline_{};QLabel *time_{},*status_{};QWidget* anchor_{};
 };
 }
 
@@ -370,6 +441,9 @@ void AssemblyWorkspaceWindow::set_fem_animation(bool run) {
         fem_animation_=new QVariantAnimation(this);
         fem_animation_->setStartValue(0.);fem_animation_->setKeyValueAt(.5,1.);fem_animation_->setEndValue(0.);
         fem_animation_->setLoopCount(-1);
+        connect(fem_animation_,&QVariantAnimation::stateChanged,this,[this] {
+            update_fem_animation_action(findChild<QAction*>("femAnimateAction"),fem_animation_running());
+        });
         connect(fem_animation_,&QVariantAnimation::valueChanged,this,[this](const QVariant& value) {
             if(viewer_->triangle_scalar_field().empty()||!viewer_->isVisible()) {set_fem_animation(false);return;}
             fem_animation_fraction_=.5-.5*std::cos(value.toDouble()*std::numbers::pi);
@@ -486,7 +560,11 @@ void AssemblyWorkspaceWindow::show_fem_deformation_settings() {
 #ifdef ZIMA_ENABLE_FEM_MESHER
     if(properties_dialog_||!active_fem_deformation()||(fem_thermal_analysis()&&!fem_expansion_analysis()))return;
     const bool was_running=fem_animation_running();
+    const auto initial_scale=fem_magnification_,initial_speed=fem_animation_speed_,initial_fraction=fem_animation_fraction_;
+    const auto initial_camera=viewer_->camera_state();
+    const bool initial_display=show_fem_deformation_;
     set_fem_animation(false);
+    if(!show_fem_deformation_){show_fem_deformation_=true;preserve_view_on_refresh_=true;refresh_scene();}
     const auto& solved=*generated_fem_mesh_->solution;
     kernel::Vec3 low=solved.deformation.vertices.front(),high=low;
     for(const auto p:generated_fem_mesh_->mesh.surface.vertices) {
@@ -495,9 +573,15 @@ void AssemblyWorkspaceWindow::show_fem_deformation_settings() {
     }
     const double span=std::hypot(high.x-low.x,high.y-low.y,high.z-low.z);
     const double suggested=solved.maximum_mm>0?std::clamp(.1*span/solved.maximum_mm,1.,1000000.):1.;
-    auto* dialog=new FemDeformationSettingsDialog(fem_magnification_,fem_animation_speed_,suggested,[this](double scale,double speed) {
-        if(fem_magnification_==scale&&fem_animation_speed_==speed)return;
-        const bool scale_changed=fem_magnification_!=scale;
+    const double phase=fem_animation_&&fem_animation_->state()!=QAbstractAnimation::Stopped?
+        double(fem_animation_->currentLoopTime())/fem_animation_->duration():
+        std::acos(1-2*std::clamp(initial_fraction,0.,1.))/(2*std::numbers::pi);
+    const auto preview=[this](double scale,double fraction) {
+        fem_magnification_=scale;fem_animation_fraction_=fraction;update_fem_deformation();
+    };
+    const auto commit=[this,initial_scale,initial_speed](double scale,double speed) {
+        if(initial_scale==scale&&initial_speed==speed)return;
+        const bool scale_changed=initial_scale!=scale;
         fem_magnification_=scale;fem_animation_speed_=speed;fem_animation_fraction_=1;
         if(fem_animation_)fem_animation_->stop();
         update_fem_deformation();
@@ -508,14 +592,41 @@ void AssemblyWorkspaceWindow::show_fem_deformation_settings() {
                 bounds.push_back(kernel::dimension_add(result.deformation.vertices[i],kernel::dimension_scale(result.displacement[i],scale-1)));
             viewer_->fit_points(bounds);
         }
-    },this);
+    };
+    const auto export_video=[this](double duration) {
+        const auto* part=workspace_.open_part(workspace_.active_document_id());
+        auto suggested=part->path;
+        if(suggested.empty())suggested=working_directory_/std::filesystem::u8path(part->session.document().name);
+        suggested.replace_extension(".mp4");
+        const auto path=save_file(this,tr("Save video"),QString::fromStdString(document::path_to_utf8(suggested)),
+            tr("MP4 video (*.mp4)"),"mp4",application_settings_.translations);
+        if(path.isEmpty())return QString{};
+        const auto fraction=fem_animation_fraction_;
+        const auto restore=qScopeGuard([&]{fem_animation_fraction_=fraction;update_fem_deformation();});
+        ui::OperationActivity::InputBlock input;
+        write_fem_video(path,duration,[this](double phase) {
+            fem_animation_fraction_=.5-.5*std::cos(phase*2*std::numbers::pi);update_fem_deformation();
+            return viewer_->grabFramebuffer();
+        },[this](int value,int total) {
+            if(auto* player=dynamic_cast<FemDeformationSettingsDialog*>(properties_dialog_))player->set_export_progress(value,total);
+        });
+        return tr("Video saved: %1").arg(path);
+    };
+    auto* dialog=new FemDeformationSettingsDialog(fem_magnification_,fem_animation_speed_,suggested,phase,preview,commit,export_video,this);
     properties_dialog_=dialog;
-    connect(dialog,&QDialog::finished,this,[this,was_running](int result) {
+    connect(dialog,&QDialog::finished,this,[this,was_running,initial_scale,initial_speed,initial_fraction,initial_camera,initial_display](int result) {
         properties_dialog_=nullptr;
-        if(result==QDialog::Rejected&&was_running)set_fem_animation(true);
+        if(result==QDialog::Rejected) {
+            fem_magnification_=initial_scale;fem_animation_speed_=initial_speed;fem_animation_fraction_=initial_fraction;
+            if(show_fem_deformation_!=initial_display) {
+                show_fem_deformation_=initial_display;preserve_view_on_refresh_=true;refresh_scene();
+            }else update_fem_deformation();
+            if(viewer_->camera_state()!=initial_camera)viewer_->set_camera_state(initial_camera);
+            if(was_running)set_fem_animation(true);
+        }
         rebuild_application_toolbar();
     });
-    rebuild_application_toolbar();dialog->show();
+    rebuild_application_toolbar();dialog->show();dialog->set_anchor(viewer_);
 #endif
 }
 

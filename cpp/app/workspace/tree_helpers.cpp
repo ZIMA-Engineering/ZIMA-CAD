@@ -115,6 +115,7 @@ QString feature_icon_name(const zima::document::HistoryContainer& feature) {
             case FeatureType::Plane:return QStringLiteral("plane");
             case FeatureType::Sketch:return QStringLiteral("sketch");
             case FeatureType::Projection:return QStringLiteral("projection");
+            case FeatureType::Wrapping:return QStringLiteral("wrap");
             case FeatureType::Modeling: {
                 if(feature.feature.planar_surface())
                     return QStringLiteral("boundary-surface");
