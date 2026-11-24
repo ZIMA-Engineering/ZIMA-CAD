@@ -56,8 +56,9 @@ Dedicated interactive nested-Assembly/external-Skeleton Wrap coverage and native
 Linux execution remain unverified. Existing cached results require explicit
 Regenerate to apply corrected geometry; tab switching still does not calculate.
 
-Portable publication is a separate gate, recorded in the release notes after
-candidate, signed-runtime and public-download verification.
+Signed Windows 2026112405 repeated the Wrap GUI matrix with its own portable
+dependencies and passed candidate, signed-runtime and public-download gates.
+See [publication evidence](20261124-windows-2405-publication.json).
 
 ## Follow-up interaction and partition acceptance
 

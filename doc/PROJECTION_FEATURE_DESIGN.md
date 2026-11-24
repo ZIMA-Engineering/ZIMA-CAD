@@ -4,11 +4,15 @@ Status: implemented; targeted Windows acceptance passes. Distribution acceptance
 for 2026112004 is recorded separately in the [verification report](verification/20261120-projection.md).
 The accepted interaction requirements remain in
 [the modeling follow-up](MODELING_FOLLOWUP_20261119.md).
+The 2026-11-24 extension adds Project relief; its native preparation and finite
+acceptance are recorded in [the relief contract](design/PROJECTION_RELIEF.md).
 
 ## User-visible behavior
 
-Projection is a type in the shared Feature command: `Promítnutí` in Czech and
-`Projection` in English. It owns an ordinary editable planar input Sketch and
+Projection has two presets in the shared Feature command: Project sketch and
+Project relief (`Promítnout skicu` and `Promítnout reliéf` in Czech). They also
+appear directly below Twist, before Wrap sketch and Wrap relief.
+It owns an ordinary editable planar input Sketch and
 uses selected existing faces as its target. Its ordinary numbered Tree name
 follows the current feature naming policy.
 
@@ -17,8 +21,9 @@ follows the current feature naming policy.
 | Sketch | Spatial curves lying on the selected faces, derived from the planar input | No material change |
 | Split | Partition the selected faces along the projected boundaries | Same volume, material and occupied space |
 | Surface | Independent bounded surface patches selected from the projected regions | Surface output; no added or removed solid material |
+| Relief | Selected projected regions thickened along the target's material normal | Positive Correction adds material; negative Correction removes it |
 
-The input remains a planar Sketch in all three modes. A curved target can
+The input remains a planar Sketch in all four modes. A curved target can
 produce spatial output curves, which must not be put into the input Sketch's
 two-dimensional solver or edited as a second independent Sketch. Editing the
 source dimensions drives the feature and its dependents.
@@ -44,8 +49,10 @@ boundaries. Surface output uses explicit region selection when several patches
 are possible; never choose a patch by traversal order or nearest centroid.
 Incomplete boundaries must not produce an apparently successful partial patch.
 
-There is no Thin output, Add/Subtract selector or wrapping mode. Thickness is a
-downstream Surface Thicken/Shell concern. Rotational wrapping and FEM loads
+There is no Thin output, separate Add/Subtract selector or wrapping mode.
+Project sketch offers Sketch, Split and Surface; Project relief exposes a signed
+Correction instead. Surface Thicken/Shell remain available for downstream work.
+Rotational wrapping and FEM loads
 remain separate commands. FEM may later reference a stable projected region;
 that does not give Projection ownership of an analysis case.
 

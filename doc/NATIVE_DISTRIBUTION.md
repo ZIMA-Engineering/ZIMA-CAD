@@ -1,5 +1,19 @@
 # Native versioned distribution
 
+Signed Windows [2026112405](releases/2026112405.md#distribution-status) was
+published at `2026-11-24T23:13:06Z` from immutable source
+`934979cb4f471f052494ddb01d8e811291b1cb80`. It fixes native cylindrical Wrap placement, constrained
+polygon relief, current material-side orientation, curve hover/width/markers,
+signed Correction and secondary automatic placement orientation. Project sketch, Project relief, Wrap sketch and Wrap relief are directly
+available below Twist. The approved native extension adds Wrap Split and
+Projection relief height; regenerated templates and all factory assets pass.
+Candidate and signed smoke, 1,190 factory loads, twelve sheet-branch gates and
+nineteen packaged GUI cases pass. Public download, signature, safe extraction
+and updater trust/current checks pass. The development BAT uses the same
+verified binaries, preserving personal settings. Native Linux and dedicated
+interactive external/nested Wrap coverage remain unverified. See the
+[publication evidence](verification/20261124-windows-2405-publication.json).
+
 Signed Windows [2026112404](releases/2026112404.md#distribution-status) was
 published at `2026-11-24T18:18:56Z` from immutable source
 `3e826acd81163d5f4d14cf4e6549c9625dc63715`. It adds Wrap sketch/relief on cylinders, cones and
