@@ -40,6 +40,44 @@ than silently converted. Backward compatibility with old Part and Assembly
 formats is not maintained during development. Required geometry and reference
 data live inside native documents; see [cache storage](CACHE_STORAGE.md).
 
+## First-stage CAM workflow
+
+In a source Part, deactivate the current Body and choose **Create CAM**. Select
+the stock and target Bodies, add fixture Bodies if needed, and place the work
+frame using the ordinary reference controls. The machine work-origin offset
+defines where that frame lies inside the machine's travel envelope.
+
+Open **Machine**, **CAM tools** and **Machining operations** from the setup.
+Machine/tool library import copies the selected definition's explicit parameters;
+it does not create an external dependency. The initial tool import uses
+cylindrical cutting/shank envelopes. For a different rotational profile, edit
+its axial stations and radii. Z=0 is the cutting/shank interface: cutting stations
+have negative Z and shank stations positive Z. Feed, spindle speed and travel
+must fit the selected machine limits.
+
+Add **Facing** for automatic face milling, or **Manual operation** for ordered
+tool/spindle/feed commands and rapid, linear or XY circular motion. Select the
+ordering checkbox and use **Up/Down** to reorder; click an item's field to edit
+it. Child-window OK keeps the setup draft; setup **Cancel** discards it all.
+
+**Clamping Sketches** pairs a bounded contact Sketch with a jaw-top Sketch plane.
+Inspect each reference with its eye and check its indicated outward/upper normal;
+reverse the side when needed. Existing fixture Bodies remain additional collision
+obstacles. The first stage uses source-Part references; importing/placing a
+workholding-library definition is not yet available.
+
+Confirm the setup and choose **Calculate CAM**. The resulting **Generic NC
+program** links each motion line to its tool position. Yellow paths are cutting
+feed; dashed red paths are rapids. Step between motions or move along the selected
+motion. The stock checkbox shows final calculated remaining material. Reports
+identify collisions, cuts below jaw tops and lost contact area; click a report
+to select its motion. Colliding results cannot supply a later setup's stock.
+Reopening a current result does not repeat simulation.
+
+**Export generic NC text** saves this program, not a controller-ready file.
+Controller postprocessors, pocket/contour operations, turning and 4/5-axis motion
+are outside the first stage. See the [CAM design and acceptance](CAM_BODY_DESIGN.md).
+
 ## New documents
 
 **New / F1** offers a contextual chooser beside the document type. For a Part,

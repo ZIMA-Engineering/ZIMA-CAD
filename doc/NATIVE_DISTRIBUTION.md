@@ -1,5 +1,17 @@
 # Native versioned distribution
 
+Signed Windows [2026112503](releases/2026112503.md#distribution-status) was
+published at `2026-11-25T03:13:18Z` from immutable source
+`27dd6be5cb70637a6d18b13cdc378cd39edce060`. It completes first-stage three-axis CAM authoring,
+explicit exact simulation, clamping reports, generic NC inspection and text
+export. The supported subset and remaining extensions are stated in its
+acceptance matrix. Candidate and signed smoke, 1,190 factory loads, twelve
+sheet-branch gates, twenty packaged GUI cases and all five catalogs pass.
+Public downloads, publisher signature, safe extraction and updater trust/current
+status pass. User originals/settings remain unchanged. Native Linux execution
+remains unverified. See the
+[publication evidence](verification/20261125-windows-2503-publication.json).
+
 Signed Windows [2026112502](releases/2026112502.md#distribution-status) was
 published at `2026-11-25T01:40:59Z` from immutable source
 `c115552ef399d23fbe4d6c17b2451ea0c89fffae`. It avoids repeated Projection/Family calculations,

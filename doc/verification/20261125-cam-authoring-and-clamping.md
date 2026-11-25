@@ -114,3 +114,6 @@ verification of every possible Sketch or machine. Existing Sketch dimension,
 dragging and solver behavior is consumed without modification. Workholding
 library placement, arbitrary-solid tool conversion, controller postprocessing
 and later machining operations remain separate extensions.
+
+Signed Windows 2026112503 passed the packaged and public-download gates; see
+[publication evidence](20261125-windows-2503-publication.json).
