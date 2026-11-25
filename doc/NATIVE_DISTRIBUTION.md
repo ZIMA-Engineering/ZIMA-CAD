@@ -1,5 +1,15 @@
 # Native versioned distribution
 
+Signed Windows [2026112504](releases/2026112504.md#distribution-status) was
+published at `2026-11-25T21:14:07Z` from immutable source
+`0939ea23baabf7018c33865d0a580bd426e0767a`. It includes exact mathematical surface references,
+downstream placement repairs and the verified factory format update. Candidate
+and signed smoke, 1,190 native factory loads, twelve sheet-branch gates and
+twenty-five packaged GUI scenarios pass. Public downloads, publisher signature,
+safe extraction and updater trust/current status pass. See the
+[publication evidence](verification/20261125-windows-2504-publication.json).
+Native Linux execution remains unverified.
+
 Signed Windows [2026112503](releases/2026112503.md#distribution-status) was
 published at `2026-11-25T03:13:18Z` from immutable source
 `27dd6be5cb70637a6d18b13cdc378cd39edce060`. It completes first-stage three-axis CAM authoring,

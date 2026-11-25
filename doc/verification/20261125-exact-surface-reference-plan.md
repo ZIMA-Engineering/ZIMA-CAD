@@ -1,9 +1,11 @@
-# Exact surface references: proposed persisted contract
+# Exact surface references: implementation and verification
 
-Status: the user approved this scope, including the native-format change, on
-2026-11-25. Implementation and verification are in progress. The later instruction
-authorizes commit, push and Windows publication after the repairs and acceptance
-gates pass. Publication remains stopped while those gates are incomplete.
+Status: the approved implementation and finite verification matrices are complete.
+Signed Windows 2026112504 is published and independently verified; see the
+[publication evidence](20261125-windows-2504-publication.json). Native Linux
+execution remains unverified. The proposal and chronological checkpoints below
+retain their original context; earlier pending states are superseded by the
+final checkpoint and publication evidence. Documented user-model limits remain.
 
 ## Reason for the change
 
@@ -553,8 +555,11 @@ The final dependent Drawing pass is 137/137, both Assembly template native
 round trips pass, and actual new-document creation from mm/in templates passes
 in cs/en/de/fr/ru with active editing contexts and normal commands. Final
 native output and canonical Git blob hashes are recorded for all 1,202 assets.
-The current correction still requires a new committed Windows candidate and
-all packaged GUI, native, signing and public-download gates before publication.
+The committed Windows candidate now passes all 25 packaged GUI cases, the
+1,190 factory native loads, twelve sheet-branch gates and the separate full
+edge-treatment gate with eight converted branches and cold regenerations.
+Signing, public download, safe extraction and updater trust/current checks pass;
+see the [publication evidence](20261125-windows-2504-publication.json).
 
 The preceding analytic-patch checkpoint passed all 1,063 tracked Part-based factory/test
 assets, all 137 dependent Drawings and both Assembly start-template native
