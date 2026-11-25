@@ -184,3 +184,8 @@ separately from those checks. The finite large-import evidence is in the
 
 These are patterns to evaluate, not feature lists to copy blindly. Their reported
 percentages apply only to the recorded operations and fixtures.
+
+The [Projection/Family follow-up](verification/20261125-projection-performance-player.md)
+records cold reference-packet recovery without replaying unchanged later geometry,
+validated sharing of local Body calculations within a Family transaction, and
+separate GUI unchanged/changed confirmation measurements on a user model.

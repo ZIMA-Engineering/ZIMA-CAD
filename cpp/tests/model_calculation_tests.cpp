@@ -1228,8 +1228,10 @@ void verify_retained_edge_treatment_boundary(const kernel::OcctKernel& kernel){
         part,complete,stock.id);
     auto deferred=workspace::calculate_part(kernel,edited,&complete,policy);
     const auto reference=workspace::calculate_part(kernel,edited);
+    // Fillet Properties consumes the complete preceding Body. Both its input
+    // and identity-bearing output must survive final-first publication.
     require(deferred.size()==3&&
-        deferred[0].mesh.triangles.empty()&&!deferred[0].mesh.edges.empty()&&
+        !deferred[0].mesh.triangles.empty()&&!deferred[0].mesh.edges.empty()&&
         !deferred[1].mesh.triangles.empty()&&!deferred[1].mesh.edges.empty()&&
         !deferred.back().mesh.triangles.empty(),
         "Final-first edit lost the identity-bearing Fillet output");

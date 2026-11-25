@@ -135,11 +135,11 @@ int verify_wrapping_ui(QApplication& application,AssemblyWorkspaceWindow& window
             check(row(),"Wrap Tree row missing");window.show_tree_item_properties(row());flush();check(editor(),"Wrap shared Properties did not open");
             check(editor()->windowType()==Qt::SubWindow,"Wrap Properties is not an internal window");
             auto* type=editor()->findChild<QComboBox*>("featureType");check(type&&type->count()>int(document::FeatureType::Wrapping),"Wrap is absent from Feature types");
-            type->setCurrentIndex(output==2?wrap_relief_type_index:int(document::FeatureType::Wrapping));flush();
+            type->setCurrentIndex(output==2?wrap_relief_type_index:feature_type_index(document::FeatureType::Wrapping));flush();
             click(type,QPointF(type->width()-8,type->height()/2));
             check(type->view()->isVisible()&&type->view()->window()->geometry().top()>=type->mapToGlobal(QPoint(0,type->height())).y(),"Feature type menu did not open downward");
             type->hidePopup();flush();
-            check(!type->itemIcon(int(document::FeatureType::Wrapping)).isNull(),"Wrap icon is missing");
+            check(!type->itemIcon(feature_type_index(document::FeatureType::Wrapping)).isNull(),"Wrap icon is missing");
             auto* panel=editor()->wrapping_panel();check(panel&&panel->isVisible(),"Wrap panel is missing");
             if(output!=2) {
                 auto* result=editor()->findChild<QComboBox*>("wrappingOutput");
@@ -172,6 +172,7 @@ int verify_wrapping_ui(QApplication& application,AssemblyWorkspaceWindow& window
                 auto* correction=panel->findChild<QDoubleSpinBox*>("wrappingHeight");
                 for(double value:{-2.,3.,-1.}) {
                     correction->setValue(value);flush();const auto pending=editor()->pending_value();
+                    for(const auto& edge:view->transient_edges())check(edge.color=="#00D1FF","Wrap relief material preview is not azure");
                     check(pending.feature.wrapping.height==std::abs(value)&&
                         pending.combine_mode==(value<0?document::CombineMode::Subtract:document::CombineMode::Add),
                         "Signed correction did not determine the material direction");
@@ -185,7 +186,7 @@ int verify_wrapping_ui(QApplication& application,AssemblyWorkspaceWindow& window
                     ini.setValue("Paths/Localization",QDir::current().absoluteFilePath("config/localization"));ini.sync();
                     auto settings=ApplicationSettings::load(temporary.path());
                     apply_application_translations(application,settings);flush();
-                    check(type->itemText(6)==settings.qt_translations.value("Wrap sketch")&&type->itemText(7)==settings.qt_translations.value("Wrap relief"),"Wrap Feature types did not translate");
+                    check(type->itemText(feature_type_index(document::FeatureType::Wrapping))==settings.qt_translations.value("Wrap sketch")&&type->itemText(wrap_relief_type_index)==settings.qt_translations.value("Wrap relief"),"Wrap Feature types did not translate");
                     check(type->itemText(5)==settings.qt_translations.value("Project sketch")&&
                         type->itemText(projection_relief_type_index)==settings.qt_translations.value("Project relief"),"Projection Feature types did not translate");
                     check(!panel->findChild<QCheckBox*>("wrappingReverseU")&&!panel->findChild<QCheckBox*>("wrappingReverseV"),"Wrap retained redundant direction controls");

@@ -180,25 +180,28 @@ static QIcon raster_resource_icon(const QString& name, bool surface) {
 // Rasterization remains cached; repainting with an unchanged palette reuses it.
 class PaletteIconEngine final : public QIconEngine {
 public:
-    PaletteIconEngine(QString name, bool surface, bool tree = false) : name_(std::move(name)),surface_(surface),tree_(tree) {}
-    QIconEngine* clone() const override { return new PaletteIconEngine(name_,surface_,tree_); }
+    PaletteIconEngine(QString name, bool surface, bool tree = false, bool foreground = false) : name_(std::move(name)),surface_(surface),tree_(tree),foreground_(foreground) {}
+    QIconEngine* clone() const override { return new PaletteIconEngine(name_,surface_,tree_,foreground_); }
     bool isNull() override { return current().isNull(); }
     QSize actualSize(const QSize& size,QIcon::Mode mode,QIcon::State state) override {
-        return current().actualSize(size,mode,tree_?QIcon::Off:state);
+        return current().actualSize(size,icon_mode(mode),tree_?QIcon::Off:state);
     }
     QList<QSize> availableSizes(QIcon::Mode mode,QIcon::State state) override {
-        return current().availableSizes(mode,tree_?QIcon::Off:state);
+        return current().availableSizes(icon_mode(mode),tree_?QIcon::Off:state);
     }
     QPixmap pixmap(const QSize& size,QIcon::Mode mode,QIcon::State state) override {
-        return current().pixmap(size,mode,tree_?QIcon::Off:state);
+        return current().pixmap(size,icon_mode(mode),tree_?QIcon::Off:state);
     }
     QPixmap scaledPixmap(const QSize& size,QIcon::Mode mode,QIcon::State state,qreal scale) override {
-        return current().pixmap(size,scale,mode,tree_?QIcon::Off:state);
+        return current().pixmap(size,scale,icon_mode(mode),tree_?QIcon::Off:state);
     }
     void paint(QPainter* painter,const QRect& rect,QIcon::Mode mode,QIcon::State state) override {
-        current().paint(painter,rect,Qt::AlignCenter,mode,tree_?QIcon::Off:state);
+        current().paint(painter,rect,Qt::AlignCenter,icon_mode(mode),tree_?QIcon::Off:state);
     }
 private:
+    QIcon::Mode icon_mode(QIcon::Mode mode) const {
+        return foreground_&&mode!=QIcon::Disabled?QIcon::Normal:mode;
+    }
     const QIcon& current() {
         const auto key=qApp ? qApp->palette().cacheKey() : 0;
         if(icon_.isNull() || palette_key_!=key) {
@@ -210,6 +213,7 @@ private:
     bool surface_;
     // Tree expansion is not a checked command with an azure background.
     bool tree_;
+    bool foreground_;
     qint64 palette_key_=-1;
     QIcon icon_;
 };
@@ -219,6 +223,10 @@ QIcon resource_icon(const QString& name,bool surface) {
     const auto key=name+QLatin1Char('|')+QString::number(surface);
     if (!icons.contains(key)) icons.insert(key,QIcon(new PaletteIconEngine(name,surface)));
     return icons.value(key);
+}
+
+QIcon resource_foreground_icon(const QString& name) {
+    return QIcon(new PaletteIconEngine(name,false,true,true));
 }
 
 QIcon application_icon() {

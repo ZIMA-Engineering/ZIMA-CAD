@@ -42,6 +42,40 @@ int main(){try {
     for(const auto& face:initial.mesh.original_references.triangle_references)
         if(face.owner_id=="base"&&face.semantic_key.starts_with("end:from:"))target=face;
     require(target.valid(),"Missing authored top face");
+    {
+        const k::HistoryReferenceIdentity absent{"base","generated:absent-fragment",{}};
+        k::HistoryOutputPolicy policy;policy.final_boundary_first=true;
+        policy.reference_output_owners["base"].insert(absent);
+        std::vector<k::HistoryOperation> operations{base,
+            {"earlier-projection",projection(target,k::ProjectionResult::Curves)},
+            {"edited-projection",projection(target,k::ProjectionResult::Curves)}};
+        auto saved=kernel.evaluate_history_recovering(operations,{},policy);
+        require(saved.front().history_reference_coverage.contains(absent),
+            "Missing-fragment fixture has no fresh absence proof");
+        // Native reopen discards only the disposable coverage proof.
+        for(auto& boundary:saved)boundary.history_reference_coverage.clear();
+        const auto* retained=saved[1].kernel_shape.get().data();
+        auto& edited=std::get<k::ProjectionRequest>(operations.back().primitive);
+        std::get<k::ExtrusionRequest::CircleProfile>(edited.profiles[0].outer_profile).radius=3.;
+        k::OcctKernel cold;
+        const auto result=cold.evaluate_history_recovering(operations,saved,policy);
+        require(result.back().calculation_errors.empty()&&
+            result.front().history_reference_coverage.contains(absent),
+            "Cold suffix edit did not restore exact absent-reference coverage");
+        require(result[1].kernel_shape.get().data()==retained,
+            "Recovering an earlier reference packet recalculated unchanged later geometry");
+        k::OcctKernel independent;
+        const auto expected=independent.evaluate_history_recovering(operations,{},policy);
+        require(std::ranges::equal(result.back().mesh.edges,expected.back().mesh.edges,
+                [](const auto& a,const auto& b) {
+                    return a.points==b.points&&a.reference==b.reference&&a.exact_spline==b.exact_spline&&
+                        a.color==b.color&&a.surface_result==b.surface_result;
+                })&&result.back().mesh.vertices==expected.back().mesh.vertices&&
+            result.back().mesh.triangles==expected.back().mesh.triangles&&
+            result.back().mesh.triangle_references==expected.back().mesh.triangle_references,
+            "Reference-only recovery changed projected geometry or stable identities");
+        std::cout<<"Cold absent-reference recovery preserved unchanged history and exact Projection output\n";
+    }
     for(const auto output:{k::ProjectionResult::Curves,k::ProjectionResult::Split,k::ProjectionResult::Surface}) {
         const auto request=projection(target,output);
         const std::vector<k::HistoryOperation> operations{base,{"projection",request}};

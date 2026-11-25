@@ -42,6 +42,7 @@ kernel::ViewerMesh PartDocument::wrapping_preview_mesh(const HistoryContainer& f
             auto wrapped=edge;wrapped.points.clear();wrapped.exact_spline.reset();wrapped.annotation.reset();
             wrapped.reference.owner_id=feature.id;wrapped.display_owner_id=feature.id;wrapped.overlay=true;
             wrapped.reference.semantic_key="wrap:preview:"+edge.reference.semantic_key;
+            if(p.output==WrappingOutput::Relief)wrapped.color="#00D1FF";
             const auto append=[&](auto&& self,Vec3 a,Vec3 b,Vec3 ma,Vec3 mb,unsigned level)->void {
                 const auto middle=wrap_detail::scale(wrap_detail::add(a,b),.5),mapped_middle=mapped(middle,offset);
                 const auto chord=wrap_detail::scale(wrap_detail::add(ma,mb),.5);
@@ -55,7 +56,7 @@ kernel::ViewerMesh PartDocument::wrapping_preview_mesh(const HistoryContainer& f
             result.edges.push_back(std::move(wrapped));
         }
         if(depth!=0)for(const auto point:{edge.points.front(),edge.points.back()}) {
-            ViewerEdge wall;wall.points={mapped(point,0),mapped(point,depth)};wall.overlay=true;wall.display_owner_id=feature.id;result.edges.push_back(std::move(wall));
+            ViewerEdge wall;wall.points={mapped(point,0),mapped(point,depth)};wall.overlay=true;wall.display_owner_id=feature.id;wall.color="#00D1FF";result.edges.push_back(std::move(wall));
         }
     }
     if(images&&!source.images.empty()) {

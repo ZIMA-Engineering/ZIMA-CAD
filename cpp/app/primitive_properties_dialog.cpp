@@ -2626,6 +2626,16 @@ std::vector<std::string> PrimitivePropertiesDialog::selected_assembly_targets() 
 }
 
 void PrimitivePropertiesDialog::notify_preview() {
+    if(projection_region_required_ && feature_panel_) {
+        const auto pending=feature_panel_->parameters();
+        if(pending.type!=zima::document::FeatureType::Projection ||
+                (pending.projection.output!=zima::document::ProjectionOutput::Surface &&
+                 pending.projection.output!=zima::document::ProjectionOutput::Relief) ||
+                !pending.projection.regions.empty()) {
+            projection_region_required_=false;
+            if(error_)error_->clear();
+        }
+    }
     if(feature_panel_)feature_panel_->update_draft_notice();
     if(placement_ && feature_panel_)
         placement_->set_point_circle_plane_policy(feature_panel_->parameters().type==zima::document::FeatureType::Point);
@@ -2895,6 +2905,16 @@ bool PrimitivePropertiesDialog::submit() {
         result == *accepted_baseline_ &&
         selected_targets == accepted_target_baseline_) {
         return true;
+    }
+    if(result.feature_kind==zima::document::FeatureKind::Feature&&
+            result.feature.type==zima::document::FeatureType::Projection&&
+            (result.feature.projection.output==zima::document::ProjectionOutput::Surface||
+             result.feature.projection.output==zima::document::ProjectionOutput::Relief)&&
+            result.feature.projection.regions.empty()) {
+        projection_region_required_=true;
+        error_->setText(tr("Select a retained region on the target face before confirming the projection."));
+        if(auto* panel=projection_panel())panel->begin_entry(ProjectionParameterPanel::Pick::Region,0);
+        return false;
     }
     try {
         commit_(std::move(result), std::move(selected_targets));

@@ -31,6 +31,8 @@ PrimitiveData make_projection_data(const ProjectionRequest& request,const std::s
         throw std::invalid_argument("Projection requires source curves, target faces and a positive tolerance.");
     if(request.output==ProjectionResult::Relief&&(!std::isfinite(request.height)||request.height<=0))
         throw std::invalid_argument("Surface thickness must be positive.");
+    if((request.output==ProjectionResult::Surface||request.output==ProjectionResult::Relief)&&request.regions.empty())
+        throw std::invalid_argument("Select a retained region on the target face before confirming the projection.");
     const auto field=[](const std::string& value){return std::to_string(value.size())+":"+value;};
     std::vector<detail::ProjectionTarget> targets;
     for(const auto& selected:request.targets) {
@@ -157,7 +159,6 @@ PrimitiveData make_projection_data(const ProjectionRequest& request,const std::s
         PrimitiveData result;result.shape=partition.shape;result.faces=std::move(faces);
         result.edges=std::move(edges);result.vertices=std::move(vertices);return result;
     }
-    if(request.regions.empty())throw std::invalid_argument("Specify a surface, cutting tools and a retained region.");
     std::vector<OwnedFace> retained;
     for(std::size_t intent_index=0;intent_index<request.regions.size();++intent_index) {
         const auto& intent=request.regions[intent_index];

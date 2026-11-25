@@ -11004,8 +11004,13 @@ std::vector<BodyResult> OcctKernel::evaluate_body_histories(
             context.dependency_key+=":frame:"+history_fingerprint({frame_key},1);
             context.dependency_key=":references:"+dependency_fingerprint(context.dependency_key);
         }
-        context.require_original_faces=requested_shell_bodies.contains(branch.scope.id)||std::ranges::any_of(requested_faces,[&](const auto& reference) {
-            return std::ranges::any_of(branch.operations,[&](const auto& operation){return operation.owner_id==reference.owner_id;});
+        // Only another Body consumes this branch's original face operands.
+        // References within the branch are resolved by its own evaluator.
+        context.require_original_faces=requested_shell_bodies.contains(branch.scope.id)||std::ranges::any_of(branches,[&](const auto& consumer) {
+            if(&consumer==&branch)return false;
+            return std::ranges::any_of(extrusion_references(consumer.operations),[&](const auto& reference) {
+                return std::ranges::any_of(branch.operations,[&](const auto& operation){return operation.owner_id==reference.owner_id;});
+            });
         });
         const std::vector<BodyResult> empty_local;
         const auto& cached_local=cached==previous.body_boundaries.end()?empty_local:cached->second.get();
@@ -11206,9 +11211,23 @@ std::vector<BodyResult> OcctKernel::evaluate_body_histories(
             }
             const auto source=inputs.size()==1?inputs.front().body:
                 compound_bodies(inputs);
-            auto copied=branch.scope.combination==BodyCombination::Mirror
-                ? mirror_body(source,branch.scope.mirror_plane,branch.scope.id)
-                : pattern_body(source,branch.scope.pattern,branch.scope.id);
+            const auto copied_body=[&]() {
+                if(branch.scope.combination==BodyCombination::Mirror&&branch.scope.target_id.empty()) {
+                    HistoryOperation key;key.owner_id=branch.scope.id;
+                    key.body.combination=BodyCombination::Mirror;
+                    key.body.mirror_plane=normalized_mirror_plane(branch.scope.mirror_plane);
+                    const auto fingerprint=source.source_fingerprint+":mirror:"+history_fingerprint({key},1);
+                    const auto old=previous.body_outputs.find(branch.scope.id);
+                    if(!source.source_fingerprint.empty()&&old!=previous.body_outputs.end()&&
+                       old->second->calculation_errors.empty()&&old->second->source_fingerprint==fingerprint&&
+                       old->second->physical_properties_current==source.physical_properties_current)
+                        return old->second.get();
+                }
+                return branch.scope.combination==BodyCombination::Mirror
+                    ? mirror_body(source,branch.scope.mirror_plane,branch.scope.id)
+                    : pattern_body(source,branch.scope.pattern,branch.scope.id);
+            };
+            auto copied=copied_body();
             if(!branch.scope.target_id.empty()) {
                 const auto references=copied.mesh.original_references;
                 copied=subtract_bodies(document.body_outputs.at(branch.scope.target_id),copied,{},{},
@@ -12103,7 +12122,9 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
     const auto operation_needs_original_edges=[](const auto& operation) {
         if(!operation.suppressed)if(const auto* wrap=std::get_if<WrappingRequest>(&operation.primitive))
             if(wrap->output==WrappingResult::Split)return true;
-        if(!operation.suppressed&&(std::holds_alternative<SurfaceIntersectionRequest>(operation.primitive)||std::holds_alternative<SurfaceTrimRequest>(operation.primitive)||std::holds_alternative<ProjectionRequest>(operation.primitive)))return true;
+        // Projection consumes the current bounded topology (including its edge
+        // identities), not the original standalone operands of prior features.
+        if(!operation.suppressed&&(std::holds_alternative<SurfaceIntersectionRequest>(operation.primitive)||std::holds_alternative<SurfaceTrimRequest>(operation.primitive)))return true;
         if(!operation.suppressed) {
             if(const auto* fillet=std::get_if<FilletRequest>(
                     &operation.primitive))
@@ -12382,8 +12403,37 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
             if(!std::includes(covered.begin(),covered.end(),
                     requested.begin(),requested.end())&&
                     !contains_history_references(
-                        previous_boundaries[boundary-1],requested))
+                        previous_boundaries[boundary-1],requested)) {
+                if(std::getenv("ZIMA_CPP_PROFILE_COMMAND"))
+                    std::cerr<<"[history missing reference output] boundary="<<boundary<<" prefix="<<matching_prefix<<" requested="<<requested.size()<<'\n';
+                // A compact saved packet can intentionally contain no geometry
+                // for a vanished reference. Recover that boundary's disposable
+                // coverage independently: its unchanged later results are not
+                // invalidated merely because this proof was not serialized.
+                if(boundary<matching_prefix) {
+                    auto reference_context=context;
+                    reference_context.defer_terminal_publication=false;
+                    std::erase_if(reference_context.reference_output_boundaries,
+                        [&](const auto& item){return item.first>boundary;});
+                    const std::vector<HistoryOperation> prefix(
+                        operations.begin(),operations.begin()+boundary);
+                    const std::vector<BodyResult> input(
+                        previous_boundaries.begin(),previous_boundaries.begin()+boundary-1);
+                    const auto recovered=evaluate_flat_history(prefix,input,reference_context);
+                    if(recovered.size()==boundary&&
+                       recovered.back().source_fingerprint==previous_boundaries[boundary-1].source_fingerprint&&
+                       recovered.back().calculation_errors.empty()&&
+                       std::includes(recovered.back().history_reference_coverage.begin(),
+                           recovered.back().history_reference_coverage.end(),requested.begin(),requested.end())) {
+                        auto repaired=previous_boundaries;
+                        repaired[boundary-1].mesh.original_references=reference_geometry_for_history_references(
+                            recovered.back().mesh.original_references,requested);
+                        repaired[boundary-1].history_reference_coverage=recovered.back().history_reference_coverage;
+                        return evaluate_flat_history(operations,repaired,context);
+                    }
+                }
                 matching_prefix=std::min(matching_prefix,boundary-1);
+            }
         }
         // A saved interactive packet may deliberately defer aggregate
         // properties.  It is a valid geometry prefix, but not a valid answer
@@ -12491,8 +12541,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
             (!shortened_history||can_republish_shortened) &&
             ((context.requested_solids.empty()&&!has_subtractions)||matching_prefix==previous_boundaries.size()||
                 (matching_prefix>0&&live_cache_->copy_references.contains(previous_boundaries[matching_prefix-1].source_fingerprint)))&&
-            (!context.require_original_faces || complete_live!=live_cache_->boundaries.end()) &&
-            (!retain_original_edges || (complete_live!=live_cache_->boundaries.end()&&complete_live->second.original_edges_retained))) {
+            (!context.require_original_faces || complete_live!=live_cache_->boundaries.end())) {
             const auto restored=restore_copy_sources(matching_prefix);
             if(std::getenv("ZIMA_CPP_PROFILE_COMMAND"))
                 std::cerr<<"[history reuse] operations="<<operations.size()<<" reused="<<matching_prefix

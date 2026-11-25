@@ -1,4 +1,8 @@
 {
+  "Start playback": "Start",
+  "Pause playback": "Pauza",
+  "Stop playback": "Stop",
+  "Select a retained region on the target face before confirming the projection.": "Před potvrzením promítnutí vyberte zachovanou oblast na cílové ploše.",
   "Project sketch": "Promítnout skicu",
   "Project relief": "Promítnout reliéf",
   "Projection requires its own planar Sketch and a valid result operation.": "Promítnutí vyžaduje vlastní rovinnou skicu a platnou operaci výsledku.",

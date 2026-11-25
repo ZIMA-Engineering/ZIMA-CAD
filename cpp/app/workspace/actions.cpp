@@ -470,10 +470,7 @@ void AssemblyWorkspaceWindow::create_actions() {
     temperature->setIcon(resource_icon("fem-heat"));
     for(auto* action:{displacement,stress,temperature}){action->setCheckable(true);results_group->addAction(action);}
     fem_results_menu_->addSeparator();
-    auto* animation=fem_results_menu_->addAction(resource_icon("media-play"),tr("Play deformation"));
-    animation->setObjectName("femAnimateAction");animation->setCheckable(true);
-    connect(animation,&QAction::triggered,this,[this](bool run){set_fem_animation(run);rebuild_application_toolbar();});
-    fem_results_menu_->addAction(resource_icon("parameters"),tr("Deformation player"),this,[this]{show_fem_deformation_settings();})
+    fem_results_menu_->addAction(resource_icon("media-play"),tr("Deformation player"),this,[this]{show_fem_deformation_settings();})
         ->setObjectName("femDeformationSettingsAction");
     auto* original=fem_results_menu_->addAction(tr("Transparent original"));
     original->setObjectName("femOriginalAction");original->setCheckable(true);

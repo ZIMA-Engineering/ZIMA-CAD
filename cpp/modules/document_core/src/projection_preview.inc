@@ -90,7 +90,8 @@ kernel::ViewerMesh PartDocument::projection_preview_mesh(
         (feature.combine_mode==CombineMode::Subtract?-1.:1.)*p.height:0;
     const auto raised=[&](const Hit& hit){return placement_vec_add(hit.point,placement_vec_scale(hit.normal,depth));};
     const auto span=[&](Vec3 a,Vec3 b,const char* role) {
-        ViewerEdge edge;edge.reference={feature.id,role,{}};edge.points={a,b};edge.color="#FFFFFF";
+        ViewerEdge edge;edge.reference={feature.id,role,{}};edge.points={a,b};
+        edge.color=p.output==ProjectionOutput::Relief?"#00D1FF":"#FFFFFF";
         result.edges.push_back(std::move(edge));
     };
     auto source=sketch->evaluated_profile_sketch().viewer_mesh(false);

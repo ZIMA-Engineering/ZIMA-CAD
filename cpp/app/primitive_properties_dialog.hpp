@@ -400,6 +400,7 @@ private:
     int remaining_translation_dof_{3};
     int remaining_rotation_dof_{3};
     QLabel* error_{};
+    bool projection_region_required_{};
     QString edge_treatment_preview_error_;
     QListWidget* assembly_targets_{};
     ReferenceHighlightsChangedCallback reference_highlights_changed_;

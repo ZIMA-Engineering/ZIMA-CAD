@@ -1,6 +1,5 @@
 #include "assembly_workspace_window.hpp"
 #include "fem_body_dialog.hpp"
-#include "fem_animation_action.hpp"
 #include "fem_video_export.hpp"
 #include "file_dialog.hpp"
 #include "tool_button_style.hpp"
@@ -177,10 +176,18 @@ public:
         : PropertiesSubWindow(tr("Deformation player"),parent),commit_(std::move(commit)),preview_(std::move(preview)) {
         setObjectName("femDeformationSettingsDialog");setAttribute(Qt::WA_DeleteOnClose);
         auto* playback=new QHBoxLayout;
-        play_=new QAction(this);play_->setCheckable(true);play_->setObjectName("femPlayerPlayAction");
-        auto* play_button=new QToolButton(this);play_button->setDefaultAction(play_);play_button->setObjectName("femPlayerPlayButton");
-        play_button->setStyleSheet(command_button_style());
-        playback->addWidget(play_button);
+        const auto action=[&](const char* icon,const QString& text,const char* name) {
+            auto* value=new QAction(resource_icon(icon),text,this);
+            value->setObjectName(QString::fromLatin1(name)+"Action");
+            auto* button=new QToolButton(this);button->setDefaultAction(value);
+            button->setObjectName(QString::fromLatin1(name)+"Button");
+            button->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+            button->setStyleSheet(command_button_style());playback->addWidget(button);
+            return value;
+        };
+        play_=action("media-play",tr("Start playback"),"femPlayerPlay");
+        pause_=action("media-pause",tr("Pause playback"),"femPlayerPause");
+        stop_=action("media-stop",tr("Stop playback"),"femPlayerStop");
         timeline_=new QSlider(Qt::Horizontal,this);timeline_->setObjectName("femPlayerTimeline");timeline_->setRange(0,1000);
         timeline_->setAccessibleName(tr("Animation time"));playback->addWidget(timeline_,1);
         time_=new QLabel(this);time_->setObjectName("femPlayerTime");
@@ -218,13 +225,14 @@ public:
         animation_.setStartValue(0.);animation_.setEndValue(1.);animation_.setLoopCount(-1);
         animation_.setDuration(qRound(1000*duration_->value()));
         connect(&animation_,&QVariantAnimation::stateChanged,this,[this] {
-            update_fem_animation_action(play_,animation_.state()==QAbstractAnimation::Running);
+            refresh_playback();
         });
         connect(&animation_,&QVariantAnimation::valueChanged,this,[this](const QVariant& value){present(value.toDouble());});
-        connect(play_,&QAction::triggered,this,[this](bool run) {
-            if(run) {if(animation_.state()==QAbstractAnimation::Paused)animation_.resume();else animation_.start();}
-            else animation_.pause();
+        connect(play_,&QAction::triggered,this,[this] {
+            if(animation_.state()==QAbstractAnimation::Paused)animation_.resume();else animation_.start();
         });
+        connect(pause_,&QAction::triggered,this,[this]{animation_.pause();});
+        connect(stop_,&QAction::triggered,this,[this]{animation_.stop();animation_.setCurrentTime(0);present(0);});
         connect(timeline_,&QSlider::valueChanged,this,[this](int value) {
             animation_.pause();animation_.setCurrentTime(qRound(animation_.duration()*value/1000.));
             present(value/1000.);
@@ -236,13 +244,17 @@ public:
             present(phase);if(running)animation_.resume();
         });
         animation_.start();animation_.pause();animation_.setCurrentTime(qRound(animation_.duration()*phase));
-        present(phase);update_fem_animation_action(play_,false);set_initial_size({540,420});
+        present(phase);refresh_playback();set_initial_size({540,0});
     }
     void set_anchor(QWidget* view){anchor_=view;place_bottom_right();}
     void set_export_progress(int value,int total){status_->setText(tr("Saving video: %1 / %2 frames").arg(value).arg(total));}
 protected:
     bool submit()override{animation_.pause();commit_(scale_->value(),3/duration_->value());return true;}
 private:
+    void refresh_playback() {
+        const bool running=animation_.state()==QAbstractAnimation::Running;
+        play_->setEnabled(!running);pause_->setEnabled(running);
+    }
     void present(double phase) {
         const QSignalBlocker blocker(timeline_);timeline_->setValue(qRound(1000*phase));
         time_->setText(tr("%1 / %2 s").arg(locale().toString(phase*duration_->value(),'f',2),locale().toString(duration_->value(),'f',2)));
@@ -252,7 +264,7 @@ private:
         if(anchor_&&parentWidget())move(anchor_->mapTo(parentWidget(),QPoint(anchor_->width()-width()-12,anchor_->height()-height()-12)));
     }
     QDoubleSpinBox *scale_{},*duration_{};std::function<void(double,double)> commit_,preview_;
-    QVariantAnimation animation_;QAction* play_{};QSlider* timeline_{};QLabel *time_{},*status_{};QWidget* anchor_{};
+    QVariantAnimation animation_;QAction *play_{},*pause_{},*stop_{};QSlider* timeline_{};QLabel *time_{},*status_{};QWidget* anchor_{};
 };
 }
 
@@ -440,9 +452,6 @@ void AssemblyWorkspaceWindow::set_fem_animation(bool run) {
         fem_animation_=new QVariantAnimation(this);
         fem_animation_->setStartValue(0.);fem_animation_->setKeyValueAt(.5,1.);fem_animation_->setEndValue(0.);
         fem_animation_->setLoopCount(-1);
-        connect(fem_animation_,&QVariantAnimation::stateChanged,this,[this] {
-            update_fem_animation_action(findChild<QAction*>("femAnimateAction"),fem_animation_running());
-        });
         connect(fem_animation_,&QVariantAnimation::valueChanged,this,[this](const QVariant& value) {
             if(viewer_->triangle_scalar_field().empty()||!viewer_->isVisible()) {set_fem_animation(false);return;}
             fem_animation_fraction_=.5-.5*std::cos(value.toDouble()*std::numbers::pi);

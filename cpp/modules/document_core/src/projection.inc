@@ -90,6 +90,8 @@ kernel::ProjectionRequest projection_request(const PartDocument& part,
         const HistoryContainer& container,double tolerance) {
     const auto& p=container.feature.projection;
     validate_feature_parameters(container.feature);
+    if((p.output==ProjectionOutput::Surface||p.output==ProjectionOutput::Relief)&&p.regions.empty())
+        throw std::runtime_error("Select a retained region on the target face before confirming the projection.");
     const auto source=std::ranges::find(part.sketches,container.feature.sketch_id,&sketcher::Sketch::id);
     if(source==part.sketches.end())throw std::runtime_error("Extrusion references a missing Sketch");
     if(container.feature.profile_source!=ProfileSource::Internal||source->owner_container_id!=container.id||

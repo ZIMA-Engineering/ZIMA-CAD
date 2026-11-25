@@ -157,11 +157,11 @@
                 const auto thermal_revision=pressure_session.revision();solve->trigger();flush();
                 if(!window.active_fem_deformation())throw std::runtime_error("Thermal GUI solve failed: "+window.state_->text().toStdString());
                 check(window.fem_result_quantity_==AssemblyWorkspaceWindow::FemResultQuantity::Temperature&&
-                    !window.findChild<QAction*>("femAnimateAction")->isVisible()&&
+                    !window.findChild<QAction*>("femDeformationSettingsAction")->isVisible()&&
                     !window.findChild<QAction*>("femDisplacementResultAction")->isVisible(),"Thermal results expose mechanical deformation controls");
                 check(sidebar_action(window.findChild<QAction*>("femTemperatureResultAction"))->isChecked(),
                     "Thermal results are missing their active direct sidebar button");
-                for(const auto* name:{"femDisplacementResultAction","femStressResultAction","femAnimateAction","femOriginalAction","femDeformationSettingsAction"}) {
+                for(const auto* name:{"femDisplacementResultAction","femStressResultAction","femOriginalAction","femDeformationSettingsAction"}) {
                     auto* action=window.findChild<QAction*>(name);
                     check(!action->isVisible()&&!window.tools_toolbar_->widgetForAction(action)->isVisible(),
                         "Pure thermal analysis exposes a mechanical result button");

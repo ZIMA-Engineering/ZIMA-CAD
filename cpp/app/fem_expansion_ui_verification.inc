@@ -16,7 +16,7 @@
                 check(window.findChild<QAction*>("femTemperatureResultAction")->isVisible()&&
                     window.findChild<QAction*>("femDisplacementResultAction")->isVisible()&&
                     window.findChild<QAction*>("femStressResultAction")->isVisible()&&
-                    window.findChild<QAction*>("femAnimateAction")->isVisible(),"Coupled result commands are missing");
+                    window.findChild<QAction*>("femDeformationSettingsAction")->isVisible(),"Coupled result commands are missing");
                 const auto coupled_measurement=measurement_marker();
                 check(coupled_measurement.label.contains("°C")&&coupled_measurement.label.contains("ΔX")&&coupled_measurement.label.contains("ΔZ")&&
                     std::hypot(coupled_measurement.displacement.x,coupled_measurement.displacement.y,coupled_measurement.displacement.z)>1e-5,

@@ -634,7 +634,7 @@ int verify_fem_body(QApplication& application,AssemblyWorkspaceWindow& window,co
                 window.findChild<QAction*>("femStressResultAction")->text()==settings.qt_translations.value("Von Mises stress [MPa]"),
                 "FEM result choices did not translate");
             for(const auto& entry:std::vector<std::pair<const char*,const char*>>{
-                    {"femAnimateAction","Play deformation"},{"femOriginalAction","Transparent original"},
+                    {"femOriginalAction","Transparent original"},
                     {"femExtremaAction","Show minimum / maximum"},{"femProbeAction","Probe results"},
                     {"femDeformationSettingsAction","Deformation player"}})
                 check(current_sidebar_action(entry.first)&&current_sidebar_action(entry.first)->text()==settings.qt_translations.value(entry.second),
@@ -831,7 +831,7 @@ int verify_fem_body(QApplication& application,AssemblyWorkspaceWindow& window,co
                 check(beam_session->revision()==beam_revision,"Result switching changed the document");
             }
             // Result presentation owns no model transaction or per-frame upload.
-            auto* animate=window.findChild<QAction*>("femAnimateAction");
+            check(!window.findChild<QAction*>("femAnimateAction"),"Duplicate deformation playback action remains");
             auto* original=window.findChild<QAction*>("femOriginalAction");
             auto* extrema=window.findChild<QAction*>("femExtremaAction");
             auto* probe=window.findChild<QAction*>("femProbeAction");
@@ -866,17 +866,17 @@ int verify_fem_body(QApplication& application,AssemblyWorkspaceWindow& window,co
                     const auto player_geometry=form->geometry();
                     check(form->windowTitle()==localized.qt_translations.value("Deformation player"),"FEM player title did not translate");
                     auto* player_button=form->findChild<QToolButton*>("femPlayerPlayButton");
-                    check(player_button->defaultAction()->text()==localized.qt_translations.value("Play deformation"),"Player Play did not translate");
+                    auto* pause_button=form->findChild<QToolButton*>("femPlayerPauseButton");
+                    auto* stop_button=form->findChild<QToolButton*>("femPlayerStopButton");
+                    check(pause_button&&stop_button&&
+                        player_button->text()==localized.qt_translations.value("Start playback")&&
+                        pause_button->text()==localized.qt_translations.value("Pause playback")&&
+                        stop_button->text()==localized.qt_translations.value("Stop playback"),"Player transport controls did not translate");
                     player_button->click();flush();
-                    check(player_button->isChecked()&&player_button->defaultAction()->text()==localized.qt_translations.value("Pause deformation"),
-                        "Player Pause did not translate or become active");
-                    const auto playing_image=player_button->grab().toImage();unsigned playing_azure=0;
-                    for(int y=0;y<playing_image.height();++y)for(int x=0;x<playing_image.width();++x) {
-                        const auto color=playing_image.pixelColor(x,y);
-                        if(color.red()<40&&color.green()>150&&color.blue()>180)++playing_azure;
-                    }
-                    check(playing_azure>unsigned(playing_image.width()*playing_image.height()/3),"Playing FEM button is not azure in this theme");
-                    player_button->click();flush();
+                    check(!player_button->isEnabled()&&pause_button->isEnabled(),"Player transport state did not become Running");
+                    pause_button->click();flush();
+                    check(player_button->isEnabled()&&!pause_button->isEnabled(),"Player transport state did not become Paused");
+                    check(form->height()<=form->sizeHint().height()+12,"Player has surplus initial height");
                     check(form->findChild<QPushButton*>("femSaveVideo")->text()==localized.qt_translations.value("Save video"),"Save video did not translate");
                     for(double seconds:{.3,30.,3.}) {
                         form->findChild<QDoubleSpinBox*>("femAnimationDuration")->setValue(seconds);
@@ -907,12 +907,17 @@ int verify_fem_body(QApplication& application,AssemblyWorkspaceWindow& window,co
             check(timeline&&play&&view_area.contains(settings->geometry()),"FEM player is not inside the bottom right of the View");
             timeline->setValue(0);flush();check(view->result_deformation_factor()==0,"Player start is not undeformed");
             timeline->setValue(500);flush();check(view->result_deformation_factor()==1,"Player midpoint is not the full static deformation");
-            const auto play_icon=play->icon().pixmap(24,24).toImage();play->click();flush();
-            check(play->isChecked()&&play->icon().pixmap(24,24).toImage()!=play_icon,"Player did not switch from Play to Pause");
-            play->click();flush();const auto paused_factor=view->result_deformation_factor();
-            check(!play->isChecked()&&play->icon().pixmap(24,24).toImage()==play_icon,"Player pause did not restore Play");
+            auto* pause=settings->findChild<QToolButton*>("femPlayerPauseButton");
+            auto* stop=settings->findChild<QToolButton*>("femPlayerStopButton");
+            check(pause&&stop,"Player transport buttons are missing");
+            play->click();flush();check(!play->isEnabled()&&pause->isEnabled(),"Player did not start");
+            pause->click();flush();const auto paused_factor=view->result_deformation_factor();
             QEventLoop held_frame;QTimer::singleShot(80,&held_frame,&QEventLoop::quit);held_frame.exec();
-            check(view->result_deformation_factor()==paused_factor,"Paused player advanced its frame");
+            check(play->isEnabled()&&!pause->isEnabled()&&view->result_deformation_factor()==paused_factor,"Paused player advanced its frame");
+            stop->click();flush();
+            check(timeline->value()==0&&view->result_deformation_factor()==0,"Stop did not return to the first frame");
+            play->click();flush();pause->click();flush();
+            check(settings->geometry()==player_geometry,"Transport controls resized the player");
             timeline->setValue(1000);flush();check(view->result_deformation_factor()==0,"Player end did not return to the undeformed state");
             timeline->setValue(500);flush();
             check(beam_session->revision()==beam_revision&&kernel::body_calculation_count.load()==player_calculations,
@@ -995,12 +1000,12 @@ int verify_fem_body(QApplication& application,AssemblyWorkspaceWindow& window,co
             view->grabFramebuffer();const auto vector_upload=view->property("resultVectorUploadCount");
             const auto field_upload=view->property("scalarFieldUploadCount");
             const auto animation_calculations=kernel::body_calculation_count.load();
-            sidebar_action(animate)->click();flush();
+            window.set_fem_animation(true);flush();
             check(window.fem_animation_running(),"Animation did not start");
             window.fem_animation_->setCurrentTime(375);flush();const auto animated=view->grabFramebuffer();
             check(std::abs(view->result_deformation_factor()-magnification*.5)<magnification*.1,
                 "Animation factor does not interpolate the static result");
-            sidebar_action(animate)->click();flush();const auto paused=view->result_deformation_factor();
+            window.set_fem_animation(false);flush();const auto paused=view->result_deformation_factor();
             QEventLoop pause_wait;QTimer::singleShot(120,&pause_wait,&QEventLoop::quit);pause_wait.exec();
             check(!window.fem_animation_running()&&view->result_deformation_factor()==paused,"Animation pause did not hold the frame");
             check(animated!=ghost&&view->property("gpuMeshUploadCount")==upload&&
@@ -1009,7 +1014,7 @@ int verify_fem_body(QApplication& application,AssemblyWorkspaceWindow& window,co
                 beam_session->revision()==beam_revision&&kernel::body_calculation_count.load()==animation_calculations,
                 "Animation changed results, uploaded geometry, solved CAD or edited the document");
             window.grab().save(QString::fromStdString(document::path_to_utf8(directory/"fem-animation-comparison.png")));
-            animate->trigger();flush();deformation->trigger();flush();
+            window.set_fem_animation(true);flush();deformation->trigger();flush();
             check(!window.fem_animation_running()&&view->result_markers().empty(),"Hiding results retained animation or markers");
             window.fem_magnification_=1;window.fem_animation_fraction_=1;
             window.fem_show_original_=window.fem_show_extrema_=window.fem_probe_enabled_=false;

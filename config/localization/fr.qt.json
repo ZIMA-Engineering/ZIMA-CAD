@@ -1,4 +1,8 @@
 {
+  "Start playback": "Démarrer",
+  "Pause playback": "Pause",
+  "Stop playback": "Arrêter",
+  "Select a retained region on the target face before confirming the projection.": "Sélectionnez une région à conserver sur la face cible avant de confirmer la projection.",
   "Project sketch": "Projeter une esquisse",
   "Project relief": "Projeter un relief",
   "Projection requires its own planar Sketch and a valid result operation.": "La projection nécessite sa propre esquisse plane et une opération de résultat valide.",

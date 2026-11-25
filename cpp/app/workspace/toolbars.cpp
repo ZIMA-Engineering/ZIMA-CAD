@@ -1,5 +1,4 @@
 #include "../fem_condition_labels.hpp"
-#include "../fem_animation_action.hpp"
 #include "workspace_internal.hpp"
 #include <zima/workspace/shell_operations.hpp>
 #include <zima/document/sheet_transition.hpp>
@@ -169,7 +168,7 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
         temperature->setText(tr("Temperature [°C]"));temperature->setVisible(thermal);
         temperature->setChecked(available&&show_fem_deformation_&&fem_result_quantity_==FemResultQuantity::Temperature);
         displacement->setVisible(mechanical);stress->setVisible(mechanical);
-        for(const auto* name:{"femAnimateAction","femOriginalAction","femDeformationSettingsAction"})
+        for(const auto* name:{"femOriginalAction","femDeformationSettingsAction"})
             fem_results_menu_->findChild<QAction*>(name)->setVisible(mechanical);
         displacement->setText(tr("Displacement [mm]"));stress->setText(tr("Von Mises stress [MPa]"));
         stress->setToolTip(tr("Volume-averaged stress in each element, without nodal smoothing."));
@@ -179,7 +178,6 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
         const auto result_action=[&](const char* name,const QString& label,bool checked) {
             auto* action=fem_results_menu_->findChild<QAction*>(name);action->setText(label);action->setChecked(checked);return action;
         };
-        update_fem_animation_action(fem_results_menu_->findChild<QAction*>("femAnimateAction"),fem_animation_running());
         result_action("femOriginalAction",tr("Transparent original"),fem_show_original_);
         result_action("femExtremaAction",tr("Show minimum / maximum"),fem_show_extrema_);
         result_action("femProbeAction",tr("Probe results"),fem_probe_enabled_)->setToolTip(

@@ -1,4 +1,8 @@
 {
+  "Start playback": "Пуск",
+  "Pause playback": "Пауза",
+  "Stop playback": "Стоп",
+  "Select a retained region on the target face before confirming the projection.": "Перед подтверждением проекции выберите сохраняемую область на целевой грани.",
   "Project sketch": "Спроецировать эскиз",
   "Project relief": "Спроецировать рельеф",
   "Projection requires its own planar Sketch and a valid result operation.": "Для проецирования требуются собственный плоский эскиз и допустимая операция результата.",

@@ -9,6 +9,78 @@ int verify_projection_ui(QApplication& application,AssemblyWorkspaceWindow& wind
         }
     };
     try {
+        if(const auto model=qEnvironmentVariable("ZIMA_VERIFY_PROJECTION_MODEL");!model.isEmpty()) {
+            const auto path=directory/"user-projection.prtz";
+            std::filesystem::copy_file(std::filesystem::u8path(model.toStdString()),path,
+                std::filesystem::copy_options::overwrite_existing);
+            std::vector<kernel::BodyResult> cache;
+            const auto part=document::PartDocument::load(path,&cache);
+            const auto found=std::ranges::find_if(part.history,[](const auto& value) {
+                return value.feature_kind==document::FeatureKind::Feature&&
+                    value.feature.type==document::FeatureType::Projection&&value.feature.projection.targets.size()==2;
+            });
+            check(found!=part.history.end(),"User fixture has no two-face Projection");
+            const auto feature=*found;
+            window.resize(1440,1000);window.show();
+            check(window.open_document_path(QString::fromStdString(document::path_to_utf8(path))),"Cannot open user Projection copy");flush();
+            const auto row=[&]()->QTreeWidgetItem* {
+                auto* tree=window.findChild<QTreeWidget*>("documentTree");
+                for(QTreeWidgetItemIterator it(tree);*it;++it)
+                    if((*it)->data(0,Qt::UserRole).toString().toStdString()==feature.id&&
+                       (*it)->data(0,Qt::UserRole+3)=="part-container")return *it;
+                return nullptr;
+            };
+            const auto editor=[&]()->PrimitivePropertiesDialog* {
+                for(auto* child:window.findChildren<QDialog*>())
+                    if(auto* dialog=dynamic_cast<PrimitivePropertiesDialog*>(child);dialog&&dialog->isVisible())return dialog;
+                return nullptr;
+            };
+            check(row(),"User Projection Tree row is missing");
+            const auto state=window.execute_console_command("documents").data;
+            const auto calls=kernel::body_calculation_count.load();
+            QElapsedTimer elapsed;elapsed.start();window.show_tree_item_properties(row());flush();
+            std::cout<<"User Projection GUI open: "<<elapsed.elapsed()<<" ms\n";
+            check(editor(),"User Projection Properties did not open");
+            elapsed.restart();editor()->buttons()->button(QDialogButtonBox::Ok)->click();flush();
+            std::cout<<"User Projection GUI unchanged OK: "<<elapsed.elapsed()<<" ms\n";
+            check(!editor()&&window.execute_console_command("documents").data==state&&
+                kernel::body_calculation_count.load()==calls,"User unchanged Properties calculated or committed geometry");
+            window.show_tree_item_properties(row());flush();check(editor(),"User Projection reopen failed");
+            editor()->findChild<QComboBox*>("featureType")->setCurrentIndex(projection_relief_type_index);
+            editor()->findChild<QDoubleSpinBox*>("projectionHeight")->setValue(-3.);flush();
+            auto* panel=editor()->projection_panel();
+            elapsed.restart();editor()->buttons()->button(QDialogButtonBox::Ok)->click();flush();
+            std::cout<<"User relief GUI missing-region OK: "<<elapsed.elapsed()<<" ms\n";
+            check(editor()&&panel->active_pick()==ProjectionParameterPanel::Pick::Region&&
+                kernel::body_calculation_count.load()==calls&&window.execute_console_command("documents").data==state,
+                "User missing-region relief calculated or modified history");
+            const auto source=std::ranges::find(part.sketches,feature.feature.sketch_id,&sketcher::Sketch::id);
+            check(source!=part.sketches.end(),"User source Sketch is missing");
+            double ymin=1e100,ymax=-1e100;
+            for(const auto& point:source->points)if(!point.construction){ymin=std::min(ymin,point.y);ymax=std::max(ymax,point.y);}
+            const auto n=source->normal(),u=source->resolved_y_axis;
+            const double t=(ymin+ymax)/2.,radial=std::sqrt(900.-t*t);
+            for(std::size_t i=0;i<feature.feature.projection.targets.size();++i) {
+                panel->begin_entry(ProjectionParameterPanel::Pick::Region,int(i));
+                check(panel->set_region(feature.feature.projection.targets[i].reference,
+                    {n.x*radial+u.x*t,118.8051986694336+n.y*radial+u.y*t,i==0?4.:-4.}),"User region entry failed");
+            }
+            flush();
+            check(editor()->findChild<QLabel*>("featureValidationError")->text().isEmpty(),
+                "Valid retained regions did not clear the missing-region prompt");
+            window.grab().save(QString::fromStdString((directory/"user-relief-preview.png").string()));
+            elapsed.restart();editor()->buttons()->button(QDialogButtonBox::Ok)->click();flush();
+            std::cout<<"User relief GUI changed OK: "<<elapsed.elapsed()<<" ms\n";
+            if(editor())throw std::runtime_error("User relief OK failed: "+editor()->findChild<QLabel*>("featureValidationError")->text().toStdString());
+            window.show_tree_item_properties(row());flush();check(editor(),"User relief inspection failed");
+            const auto accepted=window.execute_console_command("documents").data;
+            const auto accepted_calls=kernel::body_calculation_count.load();
+            elapsed.restart();editor()->buttons()->button(QDialogButtonBox::Ok)->click();flush();
+            std::cout<<"User relief GUI unchanged OK: "<<elapsed.elapsed()<<" ms\n";
+            check(!editor()&&window.execute_console_command("documents").data==accepted&&
+                kernel::body_calculation_count.load()==accepted_calls,"User unchanged relief calculated or committed geometry");
+            std::cout<<"User Projection/relief GUI confirmation checks passed\n";return 0;
+        }
         for(int output=0;output<5;++output) {
             const bool relief=output>=3,inward=output==4;
             const auto expected_volume=[&](double radius){return 39600.+(relief?(inward?-1.:1.)*std::numbers::pi*radius*radius*2.:0.);};
@@ -71,6 +143,18 @@ int verify_projection_ui(QApplication& application,AssemblyWorkspaceWindow& wind
                 check(type&&type->currentIndex()==static_cast<int>(document::FeatureType::Projection),
                     "Projection button did not preset Projection");
                 for(int i=0;i<type->count();++i)check(!type->itemIcon(i).isNull(),"Feature type is missing its icon");
+                check(projection_relief_type_index==feature_type_index(document::FeatureType::Projection)+1&&
+                    feature_type_index(document::FeatureType::Wrapping)==projection_relief_type_index+1&&
+                    wrap_relief_type_index==feature_type_index(document::FeatureType::Wrapping)+1,
+                    "Feature types do not keep the Project and Wrap pairs together");
+                const auto settings_before=ApplicationSettings::load(QDir::currentPath());
+                for(const auto* theme:{"light","dark","light"}) {
+                    auto settings=settings_before;settings.theme=theme;apply_application_appearance(application,settings);flush();
+                    const auto icon=type->itemIcon(feature_type_index(document::FeatureType::Projection));
+                    check(icon.pixmap(24,24,QIcon::Normal).toImage()==icon.pixmap(24,24,QIcon::Selected).toImage(),
+                        "Selected Feature type changed its neutral icon foreground");
+                }
+                apply_application_appearance(application,settings_before);flush();
                 editor()->reject();flush();
                 check(window.execute_console_command("documents").data==unchanged,"Cancelling the Projection shortcut changed the document");
                 check(kernel::body_calculation_count.load()==calculations,"Opening or cancelling the Projection shortcut calculated geometry");
@@ -117,7 +201,15 @@ int verify_projection_ui(QApplication& application,AssemblyWorkspaceWindow& wind
             targets->cellWidget(0,3)->findChild<QToolButton*>()->click();flush();check(panel->inspected_faces().size()==1,"Target inspection did not remain independent");
             targets->cellWidget(0,1)->findChild<QPushButton*>()->click();flush();check(panel->parameters().targets.empty()&&panel->inspected_faces().empty(),"Clearing a target retained its inspection");
             pick_face(false);check(panel->parameters().targets.size()==1,"Target replacement failed");
-            if(output==2||relief){field("projectionRegions",0);pick_face(true);check(panel->parameters().regions.size()==1,"View click did not retain region intent");}
+            if(output==2||relief) {
+                const auto before_rejection=window.execute_console_command("documents").data;
+                const auto count=kernel::body_calculation_count.load();
+                editor()->buttons()->button(QDialogButtonBox::Ok)->click();flush();
+                check(editor()&&panel->active_pick()==ProjectionParameterPanel::Pick::Region&&
+                    window.execute_console_command("documents").data==before_rejection&&kernel::body_calculation_count.load()==count,
+                    "Missing region did not immediately arm input without calculation or transaction");
+                field("projectionRegions",0);pick_face(true);check(panel->parameters().regions.size()==1,"View click did not retain region intent");
+            }
             check(window.execute_console_command("documents").data==unchanged,"Projection preview changed the document");
             check(kernel::body_calculation_count.load()==calculations,"Projection preview invoked native geometry calculation");
             bool source_preview=false,result_preview=false,relief_preview=false;
@@ -127,7 +219,9 @@ int verify_projection_ui(QApplication& application,AssemblyWorkspaceWindow& wind
                 if(edge.reference.semantic_key=="projection:preview:relief") {
                     relief_preview=true;for(const auto& point:edge.points)check(std::abs(point.z-(inward?9.:13.))<1e-6,"Relief preview is on the wrong material side");
                 }
-                check(edge.color=="#FFFFFF"&&!edge.preview_terminal_dashed,"Valid Projection preview has an unexpected style or helper line");
+                const bool material=relief&&!edge.reference.semantic_key.starts_with("projection:preview:source:");
+                check(edge.color==(material?"#00D1FF":"#FFFFFF")&&!edge.preview_terminal_dashed,
+                    "Valid Projection preview lost source-white/material-azure style or added a helper line");
             }
             check(source_preview&&result_preview&&(!relief||relief_preview),"Live Projection preview omitted source, result or relief");
             window.grab().save(QString::fromStdString((directory/("projection-properties-"+std::to_string(output)+".png")).string()));

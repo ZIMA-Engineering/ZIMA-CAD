@@ -17,6 +17,7 @@
 #include <set>
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 #include <filesystem>
 #include <iostream>
 #include <numbers>
@@ -25,7 +26,11 @@ using namespace zima;
 void require(bool condition,const char* message){if(!condition)throw std::runtime_error(message);}
 #include "projection_external_contract.inc"
 #include "projection_relief_contract.inc"
+#include "projection_user_model_contract.inc"
 int main(){try {
+    if(const auto* path=std::getenv("ZIMA_VERIFY_PROJECTION_MODEL")) {
+        verify_projection_user_model(std::filesystem::u8path(path));return 0;
+    }
     verify_projection_relief();
     for(const auto mode:{document::ProjectionOutput::Curves,document::ProjectionOutput::Split,document::ProjectionOutput::Surface}) {
         kernel::OcctKernel engine;workspace::Workspace live;

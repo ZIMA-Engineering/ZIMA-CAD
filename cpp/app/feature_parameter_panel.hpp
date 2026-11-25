@@ -389,7 +389,7 @@ public:
         if(result_->currentIndex()==1)result_->setCurrentIndex(0);
         if(auto* model=qobject_cast<QStandardItemModel*>(type_->model())) {
             model->item(static_cast<int>(document::FeatureType::Projection))->setEnabled(false);
-            model->item(static_cast<int>(document::FeatureType::Wrapping))->setEnabled(false);
+            model->item(feature_type_index(document::FeatureType::Wrapping))->setEnabled(false);
             model->item(wrap_relief_type_index)->setEnabled(false);
             model->item(projection_relief_type_index)->setEnabled(false);
             model->item(static_cast<int>(document::FeatureType::Modeling))->setEnabled(initial_.type==document::FeatureType::Modeling);

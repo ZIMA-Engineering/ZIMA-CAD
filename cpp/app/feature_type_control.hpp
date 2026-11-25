@@ -7,12 +7,13 @@
 #include "resource_icon.hpp"
 
 namespace zima::app {
-inline constexpr int wrap_relief_type_index=7;
-inline constexpr int projection_relief_type_index=8;
+inline constexpr int projection_relief_type_index=6;
+inline constexpr int wrap_relief_type_index=8;
+inline int feature_type_index(document::FeatureType type) {
+    return type==document::FeatureType::Wrapping?7:static_cast<int>(type);
+}
 inline document::FeatureType selected_feature_type(const QComboBox* control) {
-    return control->currentIndex()==wrap_relief_type_index?document::FeatureType::Wrapping:
-        control->currentIndex()==projection_relief_type_index?document::FeatureType::Projection:
-        static_cast<document::FeatureType>(control->currentIndex());
+    return static_cast<document::FeatureType>(control->currentData().toInt());
 }
 class FeatureTypeControl final:public QComboBox {
 public:
@@ -32,7 +33,7 @@ protected:
     void changeEvent(QEvent* event)override {
         QComboBox::changeEvent(event);
         if(event->type()==QEvent::LanguageChange&&count()==9) {
-            const char* keys[]={"Bod","Osa","Rovina","Skica","Tažení","Project sketch","Wrap sketch","Wrap relief","Project relief"};
+            const char* keys[]={"Bod","Osa","Rovina","Skica","Tažení","Project sketch","Project relief","Wrap sketch","Wrap relief"};
             for(int i=0;i<9;++i)setItemText(i,QObject::tr(keys[i]));
         }
     }
@@ -42,16 +43,19 @@ protected:
 inline QComboBox* feature_type_control(QWidget* parent,document::FeatureType type,
         bool editable=true) {
     auto* control=new FeatureTypeControl(parent);control->setObjectName("featureType");
-    control->addItem(resource_icon("point"),QObject::tr("Bod"));
-    control->addItem(resource_icon("axis"),QObject::tr("Osa"));
-    control->addItem(resource_icon("plane"),QObject::tr("Rovina"));
-    control->addItem(resource_icon("sketch"),QObject::tr("Skica"));
-    control->addItem(resource_icon("protrusion"),QObject::tr("Tažení"));
-    control->addItem(resource_icon("projection"),QObject::tr("Project sketch"));
-    control->addItem(resource_icon("wrap"),QObject::tr("Wrap sketch"));
-    control->addItem(resource_icon("wrap"),QObject::tr("Wrap relief"));
-    control->addItem(resource_icon("projection"),QObject::tr("Project relief"));
-    control->setCurrentIndex(static_cast<int>(type));control->setEnabled(editable);
+    const auto add=[&](const char* icon,const QString& label,document::FeatureType value) {
+        control->addItem(resource_foreground_icon(icon),label,static_cast<int>(value));
+    };
+    add("point",QObject::tr("Bod"),document::FeatureType::Point);
+    add("axis",QObject::tr("Osa"),document::FeatureType::Axis);
+    add("plane",QObject::tr("Rovina"),document::FeatureType::Plane);
+    add("sketch",QObject::tr("Skica"),document::FeatureType::Sketch);
+    add("protrusion",QObject::tr("Tažení"),document::FeatureType::Modeling);
+    add("projection",QObject::tr("Project sketch"),document::FeatureType::Projection);
+    add("projection",QObject::tr("Project relief"),document::FeatureType::Projection);
+    add("wrap",QObject::tr("Wrap sketch"),document::FeatureType::Wrapping);
+    add("wrap",QObject::tr("Wrap relief"),document::FeatureType::Wrapping);
+    control->setCurrentIndex(feature_type_index(type));control->setEnabled(editable);
     return control;
 }
 } // namespace zima::app

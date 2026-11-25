@@ -298,6 +298,12 @@ void commit_profile(Workspace& live, const kernel::OcctKernel& kernel, const std
             original_profile->serialized() == profile->serialized() &&
             commit_origin_display_only(live,id,value).has_value()) return;
     }
+    if(feature&&value.feature.type==document::FeatureType::Projection&&
+            (value.feature.projection.output==document::ProjectionOutput::Surface||
+             value.feature.projection.output==document::ProjectionOutput::Relief)&&
+            value.feature.projection.regions.empty())
+        throw ProfileOperationError("invalid_arguments",
+            "Select a retained region on the target face before confirming the projection.");
     const auto container_id = value.id;
     if (existing) *next.find_container(container_id) = std::move(value);
     else {next.insert_history_entry(document::PartHistoryKind::Feature, container_id); next.history.push_back(std::move(value));}

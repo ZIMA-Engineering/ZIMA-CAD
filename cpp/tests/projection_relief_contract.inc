@@ -101,10 +101,31 @@ void verify_projection_relief() {
         if(curved) {feature.placement.x=bore?18:35;feature.placement.rotation_y=90;feature.placement.absolute_rotation_y=90;}
         document::ExtrusionParameters::EndTarget selected;selected.reference=target;
         feature.feature.projection.targets={selected};
+        const auto before_missing=state->session.document().serialized();
+        const auto missing_generation=state->session.data_generation();
+        const auto missing_calculations=kernel::body_calculation_count.load();
+        bool rejected_missing=false;
+        try {workspace::commit_profile(live,engine,id,feature,workspace::ProfileEditMode::Create,sketch);}
+        catch(const workspace::ProfileOperationError& error) {
+            rejected_missing=std::string_view(error.what())=="Select a retained region on the target face before confirming the projection.";
+        }
+        require(rejected_missing&&state->session.document().serialized()==before_missing&&
+            state->session.data_generation()==missing_generation&&kernel::body_calculation_count.load()==missing_calculations,
+            "Missing relief region did work or changed the document");
         feature.feature.projection.regions={{target,curved?kernel::Vec3{std::sqrt((bore?400.:900.)-.25),.5,20}:kernel::Vec3{hole?2.:0.,0,40},{}}};
         workspace::commit_profile(live,engine,id,feature,workspace::ProfileEditMode::Create,sketch);
         feature=*state->session.document().find_container(feature.id);
         sketch=*std::ranges::find(state->session.document().sketches,sketch.id,&sketcher::Sketch::id);
+        const auto* preview_input=workspace::calculated_operation_input(state->session,feature.id);
+        require(preview_input,"Relief preview input is missing");
+        const auto preview=state->session.document().projection_preview_mesh(feature,preview_input->mesh,&state->session.document());
+        bool source_visible=false,volume_visible=false;
+        for(const auto& edge:preview.edges) {
+            const bool source=edge.reference.semantic_key.starts_with("projection:preview:source:");
+            require(edge.color==(source?"#FFFFFF":"#00D1FF"),"Relief preview mixed source and material colors");
+            source_visible|=source;volume_visible|=!source;
+        }
+        require(source_visible&&volume_visible,"Relief preview must show both source and material wire");
         const auto keys=[&](const auto& result) {
             std::set<std::pair<std::string,std::string>> value;
             for(const auto& face:result.mesh.triangle_references)value.emplace(face.owner_id,face.semantic_key);

@@ -20,7 +20,10 @@
 #include <zima/document/physical_properties.hpp>
 #include <algorithm>
 #include <charconv>
+#include <chrono>
 #include <cmath>
+#include <cstdio>
+#include <cstdlib>
 #include <map>
 #include <stdexcept>
 
@@ -485,12 +488,46 @@ template<class Doc> Doc merge_member(const Doc& base,const Doc& before,Doc next)
     return next;
 }
 std::vector<kernel::BodyResult> evaluated_part(document::PartDocument& next,
-    const std::vector<kernel::BodyResult>& previous,const kernel::OcctKernel& kernel) {
+    const std::vector<kernel::BodyResult>& previous,const kernel::OcctKernel& kernel,
+    const std::vector<kernel::BodyResult>* shared=nullptr) {
     const auto operations=group_solid_state_cached_operations(next,&previous);
     bool exact=previous.size()==operations.size();
     for(std::size_t i=0;exact&&i<previous.size();++i)exact=previous[i].source_fingerprint==kernel::history_fingerprint(operations,i+1);
     if(exact)return previous;
-    auto calculated=calculate_part_with_resolved_references(kernel,next,&previous,{true});
+    auto input=previous;
+    if(shared&&!shared->empty()) {
+        // A row may change only Body visibility/mirroring. Reuse an already
+        // calculated local Body from this transaction when more of its actual
+        // input prefix matches. The kernel still validates dependency keys and
+        // native bindings; this never substitutes a result for changed inputs.
+        std::map<std::string,std::vector<kernel::HistoryOperation>> branches;
+        for(auto operation:operations) {
+            const auto body=operation.body.id;operation.body={};
+            branches[body].push_back(std::move(operation));
+        }
+        if(input.empty())input.resize(1);
+        for(const auto& operation:operations)
+            if(operation.body.combination==kernel::BodyCombination::Mirror)
+                if(const auto found=shared->back().body_outputs.find(operation.body.id);
+                        found!=shared->back().body_outputs.end())
+                    input.back().body_outputs.insert_or_assign(found->first,found->second);
+        for(const auto& [body,local]:branches) {
+            const auto candidate=shared->back().body_boundaries.find(body);
+            if(candidate==shared->back().body_boundaries.end())continue;
+            const auto keys=kernel::history_fingerprints(local);
+            const auto prefix=[&](const auto& values) {
+                std::size_t count=0;
+                while(count<values.size()&&count<local.size()&&values[count].calculation_errors.empty()&&
+                    values[count].source_fingerprint==keys[count+1])++count;
+                return count;
+            };
+            auto& current=input.back().body_boundaries;
+            const auto old=current.find(body);
+            if(prefix(candidate->second)>(old==current.end()?0:prefix(old->second)))
+                current.insert_or_assign(body,candidate->second);
+        }
+    }
+    auto calculated=calculate_part_with_resolved_references(kernel,next,&input,{true});
     const auto resolved=group_solid_state_cached_operations(next,&calculated);
     exact=calculated.size()==resolved.size();
     for(std::size_t i=0;exact&&i<calculated.size();++i)exact=calculated[i].source_fingerprint==kernel::history_fingerprint(resolved,i+1);
@@ -533,6 +570,13 @@ bool commit_family_part(Workspace& live,const std::string& id,document::PartDocu
     const auto* source=std::as_const(live).open_part(id);const auto* parent=std::as_const(live).open_part(owner);
     if(!parent)throw std::invalid_argument("The owning family document is not open.");
     if(owner==id&&parent->session.document().family.evaluated.empty())return false;
+    auto phase_start=std::chrono::steady_clock::now();
+    const auto phase=[&](const char* label) {
+        const auto now=std::chrono::steady_clock::now();
+        if(std::getenv("ZIMA_CPP_PROFILE_COMMAND"))std::fprintf(stderr,"Family commit %s: %.3f ms\n",label,
+            std::chrono::duration<double,std::milli>(now-phase_start).count());
+        phase_start=now;
+    };
     FamilyTransaction transaction(live);
     auto base=owner==id?candidate:merge_member(parent->session.document(),source->session.document(),candidate);
     const auto table=document::parse_family_table(base.family_table);document::validate_family_table(table,base.name);
@@ -545,22 +589,28 @@ bool commit_family_part(Workspace& live,const std::string& id,document::PartDocu
     },state);
     const kernel::OcctKernel kernel;
     auto base_calculated=evaluated_part(base,owner==id?calculated:parent->session.calculated_boundaries(),kernel);
+    phase("base");
     auto rows=evaluated_rows(parent->session.document().family);if(owner!=id)rows.insert(source->session.document().family.row_id);
     base.family={};
     std::map<std::string,document::DocumentSession> members;
     for(const auto& row:table.instances)if(rows.contains(row.id)) {
         auto next=member(base,table,row);std::vector<kernel::BodyResult> previous;
+        phase("member definition");
         const auto* existing=std::as_const(live).open_part(next.document_id);
         if(existing)previous=existing->session.calculated_boundaries();
         else if(const auto old=parent->session.document().family.evaluated.find(row.id);old!=parent->session.document().family.evaluated.end())
             static_cast<void>(document::PartDocument::from_serialized(*old->second,&previous));
-        auto result=evaluated_part(next,previous,kernel);
+        phase("previous member");
+        auto result=evaluated_part(next,previous,kernel,&base_calculated);
+        phase("member calculation");
         auto session=existing?existing->session:document::DocumentSession(next,result);
         if(existing)session.commit(std::move(next),std::move(result));
         base.family.evaluated[row.id]=std::make_shared<const nlohmann::json>(session.document().serialized(session.calculated_boundaries()));
+        phase("member storage");
         members.emplace(session.document().document_id,std::move(session));
     }
     auto prepared=parent->session;prepared.commit(std::move(base),std::move(base_calculated));
+    phase("base transaction");
     // Prepared session copies retain monotonic revisions/generations for viewers and commands.
     // Rebind routing immediately after publication for callers retaining a state pointer.
     live.open_part(owner)->session=std::move(prepared);
