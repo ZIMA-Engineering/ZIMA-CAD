@@ -129,8 +129,8 @@ int main(){
         {
             const auto fixture=fs::absolute("cpp/tests/fixtures/parity/ventilation-linux.prtz");
             const auto before=bytes(fixture);
-            require(before.find("format_version=56")!=std::string::npos&&
-                before.find("definition_fingerprint=f747018d60fd604d84fb898a07693ed8902d2cb10b3b2129493befa911f387ef")!=std::string::npos,
+            require(before.find("format_version=57")!=std::string::npos&&
+                before.find("definition_fingerprint=f2cb222bf5d15a2dd76119404917994424c9050ab1246eff0a75f801da84cd66")!=std::string::npos,
                 "Converted cross-platform fixture lost its format or definition identity");
             std::vector<kernel::BodyResult> calculated;
             const auto portable=document::PartDocument::load(fixture,&calculated);

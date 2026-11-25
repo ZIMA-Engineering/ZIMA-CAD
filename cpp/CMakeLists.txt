@@ -197,7 +197,8 @@ target_link_libraries(zima_ai PUBLIC zima_commands Qt6::Gui)
 set_target_properties(zima_ai PROPERTIES AUTOMOC ON AUTORCC ON)
 target_compile_options(zima_ai PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
 
-add_library(zima_kernel_api STATIC modules/kernel_api/src/history_fingerprint.cpp)
+add_library(zima_kernel_api STATIC modules/kernel_api/src/history_fingerprint.cpp
+    modules/kernel_api/src/exact_surface.cpp modules/kernel_api/src/surface_contact.cpp)
 target_include_directories(zima_kernel_api PUBLIC
     modules/kernel_api/include)
 
@@ -522,6 +523,7 @@ target_sources(zima_command_host PRIVATE modules/command_host/src/browser_comman
 target_compile_options(zima_command_host PUBLIC $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
 
 add_library(zima_kernel_occt
+    modules/kernel_occt/src/occt_surface_data.cpp
     modules/kernel_occt/src/curve_plane_intersection.cpp
     modules/kernel_occt/src/occt_boundary_intersection_graph.cpp
     modules/kernel_occt/src/occt_boundary_union.cpp
@@ -1406,9 +1408,15 @@ if(ZIMA_BUILD_TESTS)
     add_test(NAME zima_cpp_route_pick_order_tests COMMAND zima_cpp_route_pick_order_tests)
     set_tests_properties(zima_cpp_route_pick_order_tests PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
     add_executable(zima_cpp_curve_placement_contract_tests tests/curve_placement_contract_tests.cpp)
-    add_executable(zima_cpp_mesh_surface_placement_tests tests/mesh_surface_placement_tests.cpp)
-    target_link_libraries(zima_cpp_mesh_surface_placement_tests PRIVATE zima_document_core zima_kernel_occt)
-    add_test(NAME zima_cpp_mesh_surface_placement_tests COMMAND zima_cpp_mesh_surface_placement_tests)
+    add_executable(zima_cpp_exact_surface_tests tests/exact_surface_tests.cpp)
+    target_link_libraries(zima_cpp_exact_surface_tests PRIVATE zima_kernel_api)
+    add_test(NAME zima_cpp_exact_surface_tests COMMAND zima_cpp_exact_surface_tests)
+    add_executable(zima_cpp_exact_surface_capture_tests tests/exact_surface_capture_tests.cpp)
+    target_link_libraries(zima_cpp_exact_surface_capture_tests PRIVATE zima_kernel_occt TKTopAlgo nlohmann_json::nlohmann_json)
+    add_test(NAME zima_cpp_exact_surface_capture_tests COMMAND zima_cpp_exact_surface_capture_tests)
+    add_executable(zima_cpp_exact_surface_placement_tests tests/exact_surface_placement_tests.cpp)
+    target_link_libraries(zima_cpp_exact_surface_placement_tests PRIVATE zima_document_core zima_kernel_occt)
+    add_test(NAME zima_cpp_exact_surface_placement_tests COMMAND zima_cpp_exact_surface_placement_tests)
     target_link_libraries(zima_cpp_curve_placement_contract_tests PRIVATE zima_command_host)
     add_test(NAME zima_cpp_curve_placement_contract_tests COMMAND zima_cpp_curve_placement_contract_tests)
     add_test(NAME zima_cpp_whole_origin_ui_contract COMMAND zima-cad-cpp --verify-startup)
@@ -1840,7 +1848,7 @@ if(ZIMA_BUILD_TESTS)
     target_link_libraries(zima_title_block_family_tool PRIVATE zima_workspace)
     add_test(NAME zima_cpp_title_block_family_tests COMMAND zima_title_block_family_tool --verify)
     set_tests_properties(zima_cpp_title_block_family_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
-    target_link_libraries(zima_refresh_start_templates PRIVATE zima_workspace zima_kernel_occt)
+    target_link_libraries(zima_refresh_start_templates PRIVATE zima_workspace zima_kernel_occt TKBool TKTopAlgo)
     target_link_libraries(zima_cpp_body_scale_tests PRIVATE zima_workspace)
     add_test(NAME zima_cpp_body_scale_tests COMMAND zima_cpp_body_scale_tests)
     target_link_libraries(zima_cpp_family_table_tests PRIVATE zima_command_host)

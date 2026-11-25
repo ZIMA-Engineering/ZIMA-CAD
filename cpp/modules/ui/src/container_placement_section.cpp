@@ -3,7 +3,7 @@
 #include <zima/document/placement_reference_assignment.hpp>
 #include <zima/document/placement_orientation.hpp>
 #include <zima/document/placement_surface.hpp>
-#include <zima/document/placement_mesh_surface.hpp>
+#include <zima/document/placement_exact_surface.hpp>
 #include "zima/ui/container_placement_section.hpp"
 #include <zima/ui/properties_subwindow.hpp>
 #include <zima/ui/unit_spin_box.hpp>
@@ -731,9 +731,10 @@ void ContainerPlacementSection::prepare_position_orientation(
         const bool curved_normal=std::ranges::any_of(existing,[&](const auto& driver) {
             if(!driver.orientation_drives_rotation||driver.use_axis||driver.use_angle)return false;
             const auto* surface=zima::document::placement_surface(driver,geometry);
-            return surface&&(surface->kind==zima::kernel::SurfaceGeometry::Kind::Cylinder||
+            return zima::document::placement_exact::is_surface(driver,geometry) ||
+                (surface&&(surface->kind==zima::kernel::SurfaceGeometry::Kind::Cylinder||
                 surface->kind==zima::kernel::SurfaceGeometry::Kind::Cone||
-                surface->kind==zima::kernel::SurfaceGeometry::Kind::Sphere);
+                surface->kind==zima::kernel::SurfaceGeometry::Kind::Sphere));
         });
         if(!curved_normal && zima::document::orientation_constraint_remaining_dof(trial,geometry,true,origin)<
            zima::document::orientation_constraint_remaining_dof(existing,geometry,true,origin))
@@ -806,7 +807,7 @@ bool ContainerPlacementSection::set_reference(std::size_t index,
             if(!capture && branch_geometry_) {
                 const auto& ref=references_[0];
                 const auto& geometry=branch_geometry_();
-                capture=zima::document::placement_mesh::is_surface(ref,geometry) || std::ranges::any_of(geometry.edges,[&](const auto& edge) {
+                capture=zima::document::placement_exact::is_surface(ref,geometry) || std::ranges::any_of(geometry.edges,[&](const auto& edge) {
                     return edge.exact_spline && edge.exact_spline->degree>1 &&
                         edge.reference.owner_id==ref.owner_id && edge.reference.semantic_key==ref.semantic_key &&
                         edge.reference.instance_path==ref.instance_path;
@@ -831,7 +832,10 @@ bool ContainerPlacementSection::set_reference(std::size_t index,
                 std::pair{translation_[axis]->value(),0.0};
         }
     }
-    accept_full_owner_origin_projection_=seed_from_owner_origin;
+    // A picked position has already been projected onto its mathematical
+    // support. Keep all unlocked components when publishing that solution,
+    // including coordinates that remain tangential degrees of freedom.
+    accept_full_owner_origin_projection_=seed_from_owner_origin || seed_from_picked_position;
     if(seed_from_picked_position && picked)for(std::size_t axis=0;axis<3;++axis) {
         const char* key=axis==0?"x":axis==1?"y":"z";
         if(!value_locks_.contains(key) && std::isfinite((*picked)[axis])) {
@@ -1219,6 +1223,14 @@ void ContainerPlacementSection::refresh_reference_table() {
                 [this, index](double value) {
                     if (index < references_.size() && !reference_offset_fields_[index]->property("pointCircleDerivedOffset").toBool()) {
                         references_[index].offset = value;
+                        const auto* support=surface_resolver_?surface_resolver_(references_[index]):nullptr;
+                        const bool curved=(support&&support->kind!=zima::kernel::SurfaceGeometry::Kind::Plane)||
+                            (branch_geometry_&&zima::document::placement_exact::is_surface(references_[index],branch_geometry_()));
+                        // A curved offset moves along its exact normal. Keeping
+                        // the old free Cartesian fields while displaying only
+                        // the constrained component produces a point off the
+                        // solved surface. Publish the complete unlocked result.
+                        if(curved)accept_full_owner_origin_projection_=true;
                         notify_changed();
                     }
                 });

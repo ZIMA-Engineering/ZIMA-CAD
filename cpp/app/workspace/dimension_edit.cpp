@@ -750,6 +750,15 @@ void AssemblyWorkspaceWindow::edit_dimension_inline(
                         if(!document::set_feature_direction(container->feature,next_value))throw std::runtime_error(document::feature_direction_error);
                         changed=true;
                     } else if(key=="profile_offset") {container->feature.profile_plane_offset=next_value;changed=true;}
+                    else if(key=="relief_depth") {
+                        auto& p=container->feature;
+                        if(p.type==document::FeatureType::Projection&&p.projection.output==document::ProjectionOutput::Relief) {
+                            p.projection.height=std::abs(next_value);changed=true;
+                        } else if(p.type==document::FeatureType::Wrapping&&p.wrapping.output==document::WrappingOutput::Relief) {
+                            p.wrapping.height=std::abs(next_value);changed=true;
+                        }
+                        if(changed)container->combine_mode=next_value<0?document::CombineMode::Subtract:document::CombineMode::Add;
+                    }
                     else if(key=="thin_thickness")positive(container->feature.thin_thickness);
                     else if(key=="side0_length" || key=="side1_length") {
                         if(next_value<0&&container->value_locks.contains("direction"))throw std::runtime_error(tr("Hodnota je zamčená. Nejprve ji odemkněte.").toStdString());

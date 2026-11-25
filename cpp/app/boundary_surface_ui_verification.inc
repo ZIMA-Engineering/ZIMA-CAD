@@ -358,7 +358,12 @@ int verify_boundary_surface_ui(QApplication& application,AssemblyWorkspaceWindow
             return nullptr;
         };
         auto* fillet_action=window.findChild<QAction*>("filletAction");check(fillet_action&&fillet_action->isEnabled(),"Fillet on a sewn shell is unavailable");
-        fillet_action->trigger();flush();check(fillet_dialog(),"Sewn shell Fillet dialog did not open");view->fit_all();flush();
+        fillet_action->trigger();flush();check(fillet_dialog(),"Sewn shell Fillet dialog did not open");
+        // The ZIMA material-removal algorithm requires a solid. Exercise the
+        // supported shell blend through the explicit OCCT method control.
+        auto* shell_method=fillet_dialog()->findChild<QCheckBox*>("edgeTreatmentMethodOcct");
+        check(shell_method&&shell_method->isEnabled(),"Shell Fillet method control missing");
+        shell_method->click();flush();view->fit_all();flush();
         std::optional<QPointF> joint_pixel;std::size_t joint_candidate_index=0;
         for(int y=20;y<view->height()-20&&!joint_pixel;y+=4)for(int x=20;x<view->width()-20&&!joint_pixel;x+=4) {
             const auto candidates=view->selection_candidates_at(QPointF(x,y));
@@ -374,7 +379,9 @@ int verify_boundary_surface_ui(QApplication& application,AssemblyWorkspaceWindow
         for(std::size_t i=0;i<joint_candidate_index;++i){send_joint(QEvent::MouseButtonPress,Qt::RightButton,Qt::RightButton);send_joint(QEvent::MouseButtonRelease,Qt::RightButton,Qt::NoButton);}
         send_joint(QEvent::MouseButtonPress,Qt::LeftButton,Qt::LeftButton);send_joint(QEvent::MouseButtonRelease,Qt::LeftButton,Qt::NoButton);
         fillet_dialog()->findChild<QDoubleSpinBox*>("edgeTreatmentPrimary")->setValue(5);flush();
-        fillet_dialog()->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();check(!fillet_dialog(),"Sewn shell Fillet OK failed");
+        fillet_dialog()->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+        if(fillet_dialog())throw std::runtime_error("Sewn shell Fillet OK failed: "+
+            fillet_dialog()->findChild<QLabel*>("featureValidationError")->text().toStdString());
         window.findChild<QAction*>("saveDocumentAction")->trigger();flush();std::vector<kernel::BodyResult> fillet_results;
         const auto fillet_saved=document::PartDocument::load(sewing_path,&fillet_results);const auto fillet_id=fillet_saved.history.back().id;
         check(fillet_saved.history.back().feature_kind==document::FeatureKind::Fillet&&!fillet_results.empty()&&

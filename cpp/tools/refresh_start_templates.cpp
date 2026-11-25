@@ -4,11 +4,14 @@
 #include <zima/workspace/model_calculation.hpp>
 #include <zima/document/feature_sketches.hpp>
 #include <zima/document/cache_storage.hpp>
+#include <zima/document/file_path.hpp>
 #include <zima/document/relation_program.hpp>
 #include <zima/document/engineering_metadata.hpp>
 #include <zima/workspace/family_operations.hpp>
 #include <zima/workspace/placement_edit.hpp>
+#include <zima/workspace/drawing_view_operations.hpp>
 #include <zima/drawing/drawing_template.hpp>
+#include <zima/drawing/measurement_dimension.hpp>
 #include <algorithm>
 #include <charconv>
 #include <limits>
@@ -443,6 +446,11 @@ bool same_reference_curves(const zima::kernel::ViewerReferenceGeometry& left,
                 approximately_same_contract(
                     spline_contract(*a.exact_spline),
                     spline_contract(*b.exact_spline)))continue;
+        // Matching vertices are already witnesses for both directed
+        // point-to-segment distances. Avoid a quadratic search for unchanged
+        // long polylines; retain that search for different tessellations.
+        if(a.points.size()==b.points.size()&&
+                std::equal(a.points.begin(),a.points.end(),b.points.begin(),same_point))continue;
         if(!follows_polyline(a.points,b.points)||
                 !follows_polyline(b.points,a.points))return false;
     }
@@ -461,45 +469,77 @@ nlohmann::json annotated_contract_diff(const nlohmann::json& before,
     }
     return changes;
 }
+nlohmann::json compare_semantic_reference_contracts(
+    const zima::kernel::ViewerReferenceGeometry& before,
+    const zima::kernel::ViewerReferenceGeometry& after);
 std::string format_migration_calculated_contract_error(
         const std::vector<zima::kernel::BodyResult>& before,
-        const std::vector<zima::kernel::BodyResult>& after) {
+        const std::vector<zima::kernel::BodyResult>& after,
+        bool added_exact_surface_data=false) {
     if(before.size()!=after.size())return "boundary count "+
         std::to_string(before.size())+" -> "+std::to_string(after.size());
     for(std::size_t index=0;index<before.size();++index) {
-        const auto old_packet=zima::document::serialize_body_result(
-            before[index]);
-        const auto new_packet=zima::document::serialize_body_result(
-            after[index]);
-        const auto old_references=calculated_reference_contract(
+        const auto phase_start=std::chrono::steady_clock::now();
+        const auto phase=[&](const char* name) {
+            if(std::getenv("ZIMA_CPP_PROFILE_COMMAND"))std::cerr<<"Contract boundary="<<index<<' '<<name<<" elapsed-ms="
+                <<std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-phase_start).count()<<'\n';
+        };
+        auto old_references=calculated_reference_contract(
             before[index].mesh.original_references);
-        const auto new_references=calculated_reference_contract(
+        auto new_references=calculated_reference_contract(
             after[index].mesh.original_references);
-        if(!approximately_same_contract(old_references,new_references)||
+        phase("reference serialization");
+        if(added_exact_surface_data) {
+            // The upgraded packets add exact support/continuation metadata.
+            // Exempt additions only; never hide a changed or removed existing
+            // support, side, identity or branch. A second native regeneration
+            // below compares the complete new contract without this exemption.
+            const auto remove_added_data=[](const auto& self,
+                    const nlohmann::json& old_value,nlohmann::json& new_value)->void {
+                if(old_value.is_object()&&new_value.is_object()) {
+                    for(const auto* field:{"exact_surface","surface",
+                            "contour_surface","continuation_group"})
+                        if(!old_value.contains(field))new_value.erase(field);
+                    for(const auto& [key,child]:old_value.items())
+                        if(new_value.contains(key))self(self,child,new_value[key]);
+                } else if(old_value.is_array()&&new_value.is_array()&&
+                        old_value.size()==new_value.size())
+                    for(std::size_t i=0;i<old_value.size();++i)
+                        self(self,old_value[i],new_value[i]);
+            };
+            remove_added_data(remove_added_data,old_references,new_references);
+        }
+        bool references_equal=approximately_same_contract(old_references,new_references);
+        if(!references_equal&&added_exact_surface_data)
+            references_equal=compare_semantic_reference_contracts(
+                before[index].mesh.original_references,
+                after[index].mesh.original_references).at("equal_except_declared_added_surface_data").get<bool>();
+        if(!references_equal||
                 !same_reference_curves(
                     before[index].mesh.original_references,
                     after[index].mesh.original_references))
             return "boundary "+std::to_string(index)+
                 " changed original reference geometry";
-        const auto same_property=[&](const char* name) {
-            const auto& first=old_packet.at(name);
-            const auto& second=new_packet.at(name);
-            if(!first.is_number()||!second.is_number())return first==second;
-            const double a=first,b=second;
+        phase("reference comparison");
+        // Comparing two scalars must not serialize the complete native BRep,
+        // display meshes and all retained history archives a second time.
+        const auto same_property=[](double a,double b) {
             return std::abs(a-b)<=std::max(1.0e-6,
                 1.0e-8*std::max(std::abs(a),std::abs(b)));
         };
-        if(!same_property("volume")||!same_property("surface_area"))
+        if(!same_property(before[index].volume,after[index].volume)||
+                !same_property(before[index].surface_area,after[index].surface_area))
             return "boundary "+std::to_string(index)+
-                " changed volume "+old_packet.at("volume").dump()+" -> "+
-                new_packet.at("volume").dump()+" or surface area "+
-                old_packet.at("surface_area").dump()+" -> "+
-                new_packet.at("surface_area").dump();
+                " changed volume "+nlohmann::json(before[index].volume).dump()+" -> "+
+                nlohmann::json(after[index].volume).dump()+" or surface area "+
+                nlohmann::json(before[index].surface_area).dump()+" -> "+
+                nlohmann::json(after[index].surface_area).dump();
     }
     return {};
 }
 bool only_declared_placement_numeric_normalization(
-        const nlohmann::json& before,const nlohmann::json& after) {
+        const nlohmann::json& before,const nlohmann::json& after,
+        bool allow_absolute_rotation=true) {
     const auto changes=nlohmann::json::diff(before,after);
     if(changes.empty())return true;
     constexpr double zero_tolerance=1.0e-12;
@@ -526,7 +566,7 @@ bool only_declared_placement_numeric_normalization(
             const double new_number=new_value.get<double>();
             const bool allowed=resolved_rotation_fields.contains(field)
                 ?std::abs(old_number-new_number)<=zero_tolerance
-                :std::abs(old_number)<=zero_tolerance&&
+                :allow_absolute_rotation&&std::abs(old_number)<=zero_tolerance&&
                     std::abs(new_number)<=zero_tolerance;
             if(!allowed)
                 return false;
@@ -1575,9 +1615,47 @@ void attach_verified_legacy_part_cache(
 }
 
 #include "angular_format_upgrade.inc"
+#include "exact_surface_verification_upgrade.inc"
+#include "native_geometry_comparison.inc"
 
 int main(int argc,char** argv){try{
+    if(argc==2&&std::string_view(argv[1])=="--verify-semantic-reference-comparison") {
+        verify_semantic_reference_comparison();
+        std::cout<<"Semantic reference audit accepts added trims and rejects changed identities, sides, axes and existing trims\n";
+        return 0;
+    }
+    if(argc==4&&std::string_view(argv[1])=="--audit-calculated-physical-inputs") {
+        audit_native_physical_inputs(std::filesystem::u8path(argv[2]),
+            std::filesystem::u8path(argv[3]),true);return 0;
+    }
+    if(argc==4&&std::string_view(argv[1])=="--audit-native-physical-inputs") {
+        audit_native_physical_inputs(std::filesystem::u8path(argv[2]),
+            std::filesystem::u8path(argv[3]));return 0;
+    }
+    if(argc==5&&std::string_view(argv[1])=="--compare-native-contracts") {
+        compare_native_contracts(std::filesystem::u8path(argv[2]),
+            std::filesystem::u8path(argv[3]),std::filesystem::u8path(argv[4]));return 0;
+    }
+    if(argc==5&&std::string_view(argv[1])=="--audit-native-prefix") {
+        audit_native_prefix(std::filesystem::u8path(argv[2]),std::stoull(argv[3]),std::filesystem::u8path(argv[4]));return 0;
+    }
+    if(argc==5&&std::string_view(argv[1])=="--prepare-exact-surface-verification-document") {
+        prepare_exact_surface_verification_document(std::filesystem::u8path(argv[2]),
+            std::filesystem::u8path(argv[3]),std::filesystem::u8path(argv[4]));return 0;
+    }
+    if(argc==4&&std::string_view(argv[1])=="--audit-exact-surface-capture") {
+        audit_exact_surface_capture(std::filesystem::u8path(argv[2]),std::filesystem::u8path(argv[3]));return 0;
+    }
+    if(argc==5&&std::string_view(argv[1])=="--compare-retained-native-geometry") {
+        compare_retained_native_geometry(std::filesystem::u8path(argv[2]),
+            std::filesystem::u8path(argv[3]),std::filesystem::u8path(argv[4]));return 0;
+    }
     using namespace zima;
+    if(argc==5&&std::string_view(argv[1])=="--prepare-exact-surface-verification-part") {
+        prepare_exact_surface_verification_part(std::filesystem::u8path(argv[2]),
+            std::filesystem::u8path(argv[3]),std::filesystem::u8path(argv[4]));
+        return 0;
+    }
     if(argc==5 && std::string_view(argv[1])=="--upgrade-angular-native-asset") {
         upgrade_angular_native_asset(std::filesystem::u8path(argv[2]),
             std::filesystem::u8path(argv[3]),std::filesystem::u8path(argv[4]));
@@ -2067,6 +2145,124 @@ int main(int argc,char** argv){try{
             {"calculation_errors",0}}.dump(2)<<'\n';
         return evidence?0:1;
     }
+    if(argc==5&&std::string_view(argv[1])=="--regenerate-exact-surface-drawing") {
+        const auto source=std::filesystem::u8path(argv[2]),output=std::filesystem::u8path(argv[3]);
+        const auto report=std::filesystem::u8path(argv[4]);
+        if(std::filesystem::absolute(source).lexically_normal()==std::filesystem::absolute(output).lexically_normal())
+            throw std::runtime_error("Verification output must be separate from its source");
+        std::filesystem::create_directories(output.parent_path());
+        const auto authored=drawing::DrawingDocument::load(source);
+        auto source_baseline=authored;
+        // Obtain current model annotation values from the untouched source
+        // Parts as well. A stored Drawing may predate signed-dimension display
+        // fixes; its annotation cache is not an independent mathematical oracle.
+        static_cast<void>(workspace::regenerate_drawing_views(source_baseline,nullptr,source));
+        auto updated=authored;
+        // Relative sources resolve into the independently regenerated staging
+        // tree. The original factory Drawing and its source Parts stay intact.
+        const auto count=workspace::regenerate_drawing_views(updated,nullptr,output);
+        const auto packet=[](const std::filesystem::path& path) {
+            std::ifstream stream(document::native_file_io_path(path),std::ios::binary);std::string line;
+            if(!stream)throw std::runtime_error("Cannot read saved Drawing verification payload");
+            while(std::getline(stream,line))if(line.starts_with("param.cpp_drawing=")) {
+                auto value=nlohmann::json::parse(line.substr(18));
+                // Measuring geometry is keyed by source identity. The reader
+                // reconstitutes contour entries after ordinary curves; that
+                // derived array order is not a persisted reference identity.
+                for(auto& measurement:value.at("measurement_sources"))for(const auto* kind:{"curves","points"})
+                    std::sort(measurement.at(kind).begin(),measurement.at(kind).end(),[](const auto& a,const auto& b){return a.at("source").dump()<b.at("source").dump();});
+                return value;
+            }
+            throw std::runtime_error("Saved Drawing payload is missing");
+        };
+        auto scratch=output;scratch+=".verification.drwz";
+        if(std::filesystem::exists(scratch))throw std::runtime_error("Drawing verification target must be unused");
+        authored.save(scratch);const auto original_packet=packet(scratch);
+        updated.save(output);const auto regenerated_packet=packet(output);
+        std::filesystem::remove(scratch);
+        const auto definition=[](nlohmann::json value) {
+            value.erase("output_sources");value.erase("measurement_sources");
+            // Explicit regeneration refreshes these derived BOM fields from
+            // the resolved source. Historical factory caches can still name
+            // their former authoring directory. Keep row identity, quantity,
+            // parameters, mass, material and all table settings in comparison.
+            for(auto& sheet:value.at("sheets"))for(auto& row:sheet.at("bom_rows"))
+                for(const auto* field:{"name","designation","source_path"})row.erase(field);
+            for(auto& sheet:value.at("sheets"))for(auto& view:sheet.at("views"))
+                for(const auto* field:{"projected_edges","projected_triangles","output_source","measurement_source","model_annotations"})
+                    view.erase(field);
+            return value;
+        };
+        if(!approximately_same_contract(definition(original_packet),definition(regenerated_packet)))
+            throw std::runtime_error("Drawing regeneration changed authored views, dimensions or sheet content");
+        std::size_t measured_views{},exact_patches{},additional_measurement_references{};
+        for(const auto& sheet:updated.sheets)for(const auto& view:sheet.views) {
+            const auto* before=authored.find_view(view.id);
+            const auto* baseline=source_baseline.find_view(view.id);
+            if(!before)throw std::runtime_error("Drawing regeneration changed view identities");
+            // Model annotation strokes are derived from current source data.
+            // Preserve every authored Show/Erase and paper-layout decision,
+            // and require old identities/values to remain resolved. Newly
+            // available source annotations must not become visible by default.
+            for(const auto& old:before->model_annotations) {
+                const auto found=std::ranges::find_if(view.model_annotations,[&](const auto& item){return item.source==old.source;});
+                if(found==view.model_annotations.end()||found->kind!=old.kind||
+                        found->visible!=old.visible||found->paper_handles!=old.paper_handles||
+                        found->view_layout!=old.view_layout||
+                        found->handle_camera_horizontal!=old.handle_camera_horizontal||
+                        found->handle_camera_vertical!=old.handle_camera_vertical||
+                        (!old.unresolved&&found->unresolved))
+                    throw std::runtime_error("Drawing regeneration changed an authored annotation decision, value or reference: "+
+                        old.source.owner_id+"/"+old.source.semantic_id);
+                const auto source_value=std::ranges::find_if(baseline->model_annotations,[&](const auto& item){return item.source==old.source;});
+                if(source_value==baseline->model_annotations.end()||source_value->unresolved!=found->unresolved||
+                        !approximately_same_contract(nlohmann::json(source_value->value),nlohmann::json(found->value)))
+                    throw std::runtime_error("Drawing annotation value differs from the untouched source Part");
+            }
+            for(const auto& item:view.model_annotations)
+                if(item.visible&&std::ranges::none_of(before->model_annotations,[&](const auto& old){return item.source==old.source;}))
+                    throw std::runtime_error("Drawing regeneration unexpectedly displayed a new annotation");
+            const auto old_measurements=nlohmann::json::parse(drawing::serialize_measurement_geometry(*baseline));
+            const auto new_measurements=nlohmann::json::parse(drawing::serialize_measurement_geometry(view));
+            for(const auto* kind:{"curves","points"}) {
+                const auto& old_items=old_measurements.at(kind);const auto& new_items=new_measurements.at(kind);
+                for(const auto& item:old_items) {
+                    const auto found=std::ranges::find_if(new_items,[&](const auto& candidate){return candidate.at("source")==item.at("source");});
+                    if(found==new_items.end()||!approximately_same_contract(item,*found))
+                        throw std::runtime_error("Drawing regeneration changed existing measurement geometry or reference identity: "+item.at("source").dump());
+                }
+                // New centerline ends and exact surface contours may expose
+                // additional measuring references. Every previous identity and
+                // its geometry must survive; repeated regeneration below also
+                // checks the complete expanded packet, without this allowance.
+                additional_measurement_references+=new_items.size()-old_items.size();
+            }
+            if(view.output_source) {
+                ++measured_views;
+                for(const auto& face:view.output_source->original_references.triangle_references)
+                    if(face.exact_surface)++exact_patches;
+            }
+        }
+        const auto reopened=drawing::DrawingDocument::load(output);
+        reopened.save(scratch);
+        if(packet(scratch)!=regenerated_packet)
+            throw std::runtime_error("Drawing native readback changed its exact output or definition");
+        std::filesystem::remove(scratch);
+        auto repeated=reopened;
+        static_cast<void>(workspace::regenerate_drawing_views(repeated,nullptr,output));
+        repeated.save(scratch);
+        if(!approximately_same_contract(packet(scratch),regenerated_packet))
+            throw std::runtime_error("Drawing regeneration is not repeatable");
+        std::filesystem::remove(scratch);
+        std::filesystem::create_directories(report.parent_path());
+        std::ofstream evidence(report);
+        evidence<<nlohmann::json{{"native_readback_exact",true},
+            {"authored_history_unchanged",true},{"calculated_contracts_preserved",true},
+            {"exact_surface_regeneration_repeatable",true},{"views",count},
+            {"output_views",measured_views},{"exact_surface_triangles",exact_patches},
+            {"additional_measurement_references",additional_measurement_references}}.dump(2)<<'\n';
+        return evidence?0:1;
+    }
     if(argc==5&&std::string_view(argv[1])=="--rewrite-native-asset") {
         const auto source=std::filesystem::u8path(argv[2]),output=std::filesystem::u8path(argv[3]);
         if(std::filesystem::absolute(source).lexically_normal()==std::filesystem::absolute(output).lexically_normal())
@@ -2102,6 +2298,7 @@ int main(int argc,char** argv){try{
         return 0;
     }
     if(argc==5&&(std::string_view(argv[1])=="--regenerate-asset"||
+            std::string_view(argv[1])=="--regenerate-exact-surface-asset"||
             std::string_view(argv[1])=="--regenerate-format-asset"||
             std::string_view(argv[1])==
                 "--regenerate-format-asset-from-authored-history"||
@@ -2109,6 +2306,7 @@ int main(int argc,char** argv){try{
             std::string_view(argv[1])=="--reexpress-coordinate-asset")) {
         const auto source=std::filesystem::u8path(argv[2]),output=std::filesystem::u8path(argv[3]);
         const auto report=std::filesystem::u8path(argv[4]);
+        const bool exact_surface_upgrade=std::string_view(argv[1])=="--regenerate-exact-surface-asset";
         const bool authored_history_format_baseline=
             std::string_view(argv[1])==
                 "--regenerate-format-asset-from-authored-history";
@@ -2128,6 +2326,10 @@ int main(int argc,char** argv){try{
             :document::PartDocument::load(source,&cached);
         auto authored=source_authored;
         kernel::OcctKernel engine;std::size_t embedded_forms{};
+        // Some authored tools defer mass/area while retaining the original
+        // exact BRep. Measure that saved shape for the comparison; do not
+        // substitute regenerated geometry for the input oracle.
+        if(exact_surface_upgrade)cached=analyze_retained_native_baseline(cached,engine);
         std::vector<kernel::BodyResult> authored_history_baseline;
         if(authored_history_format_baseline) {
             workspace::PartCalculationPolicy baseline_policy;
@@ -2149,7 +2351,7 @@ int main(int argc,char** argv){try{
             ? reparameterize_legacy_single_orientation_placements(
                 authored, placement_migration_geometry)
             : nlohmann::json::array();
-        if(format_migration||
+        if(format_migration||exact_surface_upgrade||
                 std::string_view(argv[1])=="--reexpress-coordinate-asset") {
             embedded_forms=regenerate_embedded_forms(authored,engine,
                 std::string_view(argv[1])=="--reexpress-coordinate-asset");
@@ -2181,7 +2383,11 @@ int main(int argc,char** argv){try{
         // FORM insertion also consumes hidden role Bodies; deferred interactive
         // prefixes are deliberately not the factory authoring output.
         {
-            kernel::AggregatePropertyScope all(kernel::AggregatePropertyDemand::All);
+            // Historical physical properties are an explicit migration oracle.
+            // Ordinary authoring needs complete reference history and current
+            // final Body properties, not repeated integration of every prefix.
+            kernel::AggregatePropertyScope all(format_migration||exact_surface_upgrade?
+                kernel::AggregatePropertyDemand::All:kernel::AggregatePropertyDemand::Final);
             calculated=engine.evaluate_history(updated.kernel_operations());
         }
         // A legacy single-direction reference may expose the same oriented
@@ -2222,7 +2428,7 @@ int main(int argc,char** argv){try{
         // compact intermediate packets, so replay a complete offline oracle
         // without changing the packets persisted by normal regeneration.
         auto verification_calculated=calculated;
-        if(format_migration) {
+        if(format_migration||exact_surface_upgrade) {
             auto verification_policy=policy;
             verification_policy.publish_complete_history=true;
             verification_calculated=workspace::calculate_part(
@@ -2236,9 +2442,9 @@ int main(int argc,char** argv){try{
         }
         const auto& format_baseline=authored_history_format_baseline
             ?authored_history_baseline:cached;
-        const auto calculated_contract_error=format_migration
+        const auto calculated_contract_error=(format_migration||exact_surface_upgrade)
             ?format_migration_calculated_contract_error(
-                format_baseline,verification_calculated)
+                format_baseline,verification_calculated,exact_surface_upgrade)
             :std::string{};
         const bool calculated_contracts_preserved=
             calculated_contract_error.empty();
@@ -2337,9 +2543,9 @@ int main(int argc,char** argv){try{
             topology_migration_preserves_authored_definition(
                 authored,updated,topology_changes);
         const bool declared_placement_numeric_normalization=
-            format_migration&&!placement_frame_migrations.empty()&&
+            ((format_migration&&!placement_frame_migrations.empty())||exact_surface_upgrade)&&
             only_declared_placement_numeric_normalization(
-                authored.serialized(),updated.serialized());
+                authored.serialized(),updated.serialized(),!exact_surface_upgrade);
         if((topology_migration&&(!same_history_structure(authored,updated)||
                     !authored_definition_preserved))||
                 (!topology_migration&&(comparable_history(updated.history)!=
@@ -2393,6 +2599,25 @@ int main(int argc,char** argv){try{
                 throw std::runtime_error("Factory native readback lost geometry or side identities");
             }
         }
+        if(exact_surface_upgrade) {
+            workspace::Workspace repeated;
+            repeated.add_part(reopened,restored,output);
+            auto repeated_policy=policy;
+            repeated_policy.publish_complete_history=true;
+            static_cast<void>(workspace::regenerate_part(repeated,engine,id,repeated_policy));
+            const auto* again=repeated.open_part(id);
+            if(!again)throw std::runtime_error("Repeated factory regeneration lost the document");
+            auto repeated_boundaries=workspace::calculate_part(
+                engine,again->session.document(),nullptr,repeated_policy);
+            for(auto& boundary:repeated_boundaries)engine.ensure_body_properties(boundary);
+            const auto difference=format_migration_calculated_contract_error(
+                verification_calculated,repeated_boundaries);
+            if(!difference.empty())throw std::runtime_error(
+                "Repeated exact-surface regeneration changed calculated contracts: "+difference);
+            if(comparable_history(again->session.document().history)!=comparable_history(updated.history)||
+                    again->session.document().body_history!=updated.body_history)
+                throw std::runtime_error("Repeated exact-surface regeneration changed history or ownership");
+        }
         nlohmann::json evidence={{"calculated_boundaries",calculated.size()},{"history_count",updated.history.size()},
             {"authored_history_unchanged",!topology_migration&&
                 placement_frame_migrations.empty()},
@@ -2406,12 +2631,15 @@ int main(int argc,char** argv){try{
             {"sketch_entity_id_sets_unchanged",true},
             {"topology_reference_migration",topology_migration},
             {"format_migration",format_migration},
+            {"exact_surface_upgrade",exact_surface_upgrade},
+            {"resolved_frame_roundoff_only",declared_placement_numeric_normalization},
+            {"exact_surface_regeneration_repeatable",exact_surface_upgrade},
             {"format_migration_baseline",authored_history_format_baseline
                 ?"recalculated-authored-history":"persisted-cache"},
             {"persisted_cache_contract_checked",
-                !authored_history_format_baseline},
+                (format_migration||exact_surface_upgrade)&&!authored_history_format_baseline},
             {"calculated_contracts_preserved",
-                calculated_contracts_preserved},
+                (format_migration||exact_surface_upgrade)&&calculated_contracts_preserved},
             {"native_readback_exact",true}};
         if(topology_migration) {
             evidence["authored_definition_change_count"]=topology_changes.size();

@@ -21,6 +21,7 @@ int verify_surface_trim_ui(QApplication& application,AssemblyWorkspaceWindow& wi
         window.resize(1280,900);window.show();check(window.open_document_path(QString::fromStdString(path.string())),"Cannot open Trim fixture");flush();
         check(window.execute_console_command(QString::fromStdString(commands::Json{{"command","body.activate"},{"arguments",{{"body",body}}}}.dump())).ok,"Cannot activate Trim Body");flush();
         auto* view=dynamic_cast<viewer::MeshView*>(window.findChild<QWidget*>("modelWorkspace"));check(view,"Trim View missing");
+        window.findChild<QAction*>("applicationModeAction3")->trigger();flush();
         auto* action=window.findChild<QAction*>("surfaceTrimAction");check(action&&action->isEnabled(),"Trim action unavailable");
         const auto editor=[&]{return dynamic_cast<SurfaceTrimDialog*>(window.findChild<QWidget*>("surfaceTrimDialog"));};
         const auto documents=window.execute_console_command("documents").data;

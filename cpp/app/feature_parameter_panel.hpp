@@ -214,8 +214,25 @@ public:
         symmetric->setChecked(initial_.symmetric);
         result->setCurrentIndex(initial_.result_type==document::ProfileResultType::Surface?1:
             initial_.result_type==document::ProfileResultType::Thin?2:0);
-        connect(type_,&QComboBox::currentIndexChanged,this,[this]{
+        connect(type_,&QComboBox::currentIndexChanged,this,[this,last_surface_type=initial_.type]()mutable{
             changing_operation_=true;
+            const auto type=selected_type();
+            if(type==document::FeatureType::Projection||type==document::FeatureType::Wrapping) {
+                if(type!=last_surface_type) {
+                    if(last_surface_type==document::FeatureType::Projection) {
+                        projection_->finish_entry(true);
+                        wrapping_->set_targets(projection_->parameters().targets);
+                    } else if(last_surface_type==document::FeatureType::Wrapping) {
+                        wrapping_->finish_entry();
+                        const auto& source=wrapping_->parameters();
+                        std::vector<document::ExtrusionParameters::EndTarget> targets;
+                        if(source.target)targets.push_back(*source.target);
+                        targets.insert(targets.end(),source.continuations.begin(),source.continuations.end());
+                        projection_->set_targets(targets);
+                    }
+                }
+                last_surface_type=type;
+            }
             if(initial_.planar_surface()&&type_->currentIndex()==feature_type_index(document::FeatureType::Modeling)&&
                     sides_[0].mode->currentIndex()==0&&sides_[1].mode->currentIndex()==0)
                 sides_[0].mode->setCurrentIndex(1);

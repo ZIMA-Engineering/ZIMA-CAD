@@ -137,6 +137,15 @@ private:
     bool previous_;
 };
 
+// Bounded explicit-analysis memo. properties contains scalars and its source
+// fingerprint only, never a duplicate mesh, topology or history snapshot.
+struct BodyPropertyAnalysis {
+    KernelShapeArchive geometry;
+    std::vector<KernelRigidPlacement> placements;
+    bool surface_result{}, imported_step{};
+    BodyResult properties;
+};
+
 class OcctKernel final : public GeometryKernel {
 public:
     OcctKernel();
@@ -147,6 +156,10 @@ public:
     [[nodiscard]] bool has_current_calculation(const std::vector<BodyResult>& boundaries) const;
     // Integrate the already calculated solid; never rebuild geometry or references.
     void ensure_body_properties(BodyResult& body) const;
+    // Operation-local completed analysis shared by final Body and measurements.
+    // Reuse requires identical native geometry and integration modes. Rigid
+    // placement differences transform centroid/inertia without reintegration.
+    void ensure_body_properties(BodyResult& body, std::vector<BodyPropertyAnalysis>& analysis) const;
     [[nodiscard]] std::vector<std::optional<double>> measure_face_areas(
         const BodyResult& body, std::span<const FaceReference> references) const;
     // Decode an already calculated Body once and classify the exact native

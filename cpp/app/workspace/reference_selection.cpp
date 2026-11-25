@@ -2,6 +2,7 @@
 #include "../fem_condition_dialog.hpp"
 #include "../confirmed_face_hit.hpp"
 #include <zima/document/placement_surface.hpp>
+#include <zima/document/placement_exact_surface.hpp>
 #include <zima/document/placement_reference_geometry.hpp>
 #include <QElapsedTimer>
 #include <QScopeGuard>
@@ -1180,7 +1181,8 @@ void AssemblyWorkspaceWindow::accept_construction_reference(
             selection_baseline.empty() && construction_reference_dialog_->first_empty_position_index()==0 &&
             candidate.kind==viewer::CandidateKind::Face) {
         const auto* surface=document::placement_surface(committed_reference,construction_reference_geometry_);
-        if(surface && surface->kind!=kernel::SurfaceGeometry::Kind::Plane)
+        if((surface && surface->kind!=kernel::SurfaceGeometry::Kind::Plane) ||
+                document::placement_exact::is_surface(committed_reference,construction_reference_geometry_))
             if(const auto ray=viewer_->ray_at(viewer_->last_pointer_position()))
                 if(auto hit=confirmed_face_hit(viewer_->candidate_face_triangles(offered),ray->first,ray->second)) {
                     const auto path=assembly::InstancePath::decode(workspace_.active_occurrence_path());

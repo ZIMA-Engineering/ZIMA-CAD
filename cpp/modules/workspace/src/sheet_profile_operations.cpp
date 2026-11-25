@@ -1271,7 +1271,9 @@ bool refresh_attached_sheet_profiles_from_source(
 }
 
 bool refresh_sheet_profile_definitions(document::PartDocument& current,
-        const kernel::ViewerReferenceGeometry& references) {
+        const kernel::ViewerReferenceGeometry& references,
+        const document::HistoryReferenceViews& boundary_views) {
+    const document::HistoryReferenceResolver resolver(references,boundary_views);
     std::vector<std::string> profiles;
     for(const auto& feature:current.history)
         if(feature.feature_kind==document::FeatureKind::SheetProfile&&!feature.suppressed)
@@ -1289,7 +1291,11 @@ bool refresh_sheet_profile_definitions(document::PartDocument& current,
             auto input=current;auto active=input.body_history;
             const auto original_active=active.active_body_id();
             active.activate(body->scope.id);input.set_body_history(std::move(active));
-            auto next=prepare_sheet_profile(input,*profile,*driver,references).document;
+            // Regeneration consumes the same input boundary as creation and
+            // placement. The generated children may already trim this edge
+            // out of the final Body; they cannot replace their own source.
+            auto local_references=references;resolver.enter(id,local_references);
+            auto next=prepare_sheet_profile(input,*profile,*driver,std::move(local_references)).document;
             auto restored=next.body_history;restored.activate(original_active);next.set_body_history(std::move(restored));
             for(const auto& feature:next.history)if(feature.sheet_profile_binding.parent_id==id)
                 next.reference_errors.erase(feature.id);
@@ -1303,7 +1309,9 @@ bool refresh_sheet_profile_definitions(document::PartDocument& current,
                     const auto* old=current.find_container(feature.id);return !old||*old!=feature;
                 });
             if(sketches_changed||definitions_changed||next.body_history.bodies()!=current.body_history.bodies()||
-                    next.reference_errors!=current.reference_errors) {current=std::move(next);changed=true;}
+                    next.reference_errors!=current.reference_errors) {
+                current=std::move(next);changed=true;
+            }
         } catch(const std::exception& error) {
             // Retain the last valid frames and all authored corrections for
             // repair; stale generated material must not count as a success.

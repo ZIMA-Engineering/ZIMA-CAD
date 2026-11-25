@@ -87,6 +87,19 @@ inline bool same_feature_side_rail(const EdgeReference& first,
     return counterpart&&*counterpart==second;
 }
 
+// Distinct faces generated from the same authored curve on opposite Feature
+// branches. This is ancestry only: it neither merges faces nor changes a side.
+inline bool opposite_feature_side_faces(const ViewerEdge& edge) {
+    const auto& faces=edge.edge_treatment_side_references;
+    if(faces.size()!=2||faces[0].owner_id!=faces[1].owner_id||
+       faces[0].instance_path!=faces[1].instance_path)return false;
+    constexpr std::string_view prefix="generated:";
+    if(!faces[0].semantic_key.starts_with(prefix)||!faces[1].semantic_key.starts_with(prefix))return false;
+    const auto a=feature_side_parent(std::string_view(faces[0].semantic_key).substr(prefix.size()));
+    const auto b=feature_side_parent(std::string_view(faces[1].semantic_key).substr(prefix.size()));
+    return a&&b&&a->feature_id==b->feature_id&&a->source_id==b->source_id&&a->side!=b->side;
+}
+
 // Scope the source parents of one side before constructing a FeatureGroup.
 // Geometry is unchanged; the OCCT adapter still derives caps, rims and swept
 // topology through its ordinary profile ancestry contract.

@@ -10,6 +10,7 @@
 #include <zima/document/physical_properties.hpp>
 #include <zima/document/viewer_packet_json.hpp>
 #include <zima/kernel/occt_kernel.hpp>
+#include <zima/kernel/calculation_diagnostics.hpp>
 #include <future>
 #include <iostream>
 #include <chrono>
@@ -163,15 +164,18 @@ int main() {try {
     auto& current=w.open_part(id)->session;
     before=current.document();before.physical_parameters.clear();current.commit(before,current.calculated_boundaries());save(w,id,path);
     check(current.document().user_parameters.at("mass").empty(),"Unknown material produced a false zero mass");
-    // Explicit Regenerate keeps exact physical integration out of the
-    // geometry-critical path. Save (and the GUI idle worker) publishes it.
+    // Explicit Regenerate publishes current physical-dependent Relations.
+    // Subsequent Save reuses that accepted analysis without reintegration.
     before=current.document();before.physical_parameters["MASS_DENSITY"]="7850";current.commit(before,pending);
     static_cast<void>(workspace::regenerate_part(w,kernel,id));
-    check(!w.open_part(id)->session.calculated_boundaries().back().physical_properties_current&&
-            w.open_part(id)->session.document().user_parameters.at("mass").empty(),
-        "Regenerate synchronously published deferred physical analysis");
+    check(w.open_part(id)->session.calculated_boundaries().back().physical_properties_current&&
+            w.open_part(id)->session.document().user_parameters.at("mass")=="0.047",
+        "Regenerate did not publish current physical analysis");
+    const auto integrations_after_regenerate=kernel::body_property_integration_count.load();
     save(w,id,path);
-    check(w.open_part(id)->session.document().user_parameters.at("mass")=="0.047","Save did not publish deferred mass");
+    check(w.open_part(id)->session.document().user_parameters.at("mass")=="0.047"&&
+        kernel::body_property_integration_count.load()==integrations_after_regenerate,
+        "Save repeated or changed current Regenerate analysis");
     auto& units=w.open_part(id)->session;
     before=units.document();before.document_units["Mass"]="g";units.commit(before,units.calculated_boundaries());save(w,id,path);
     check(units.document().user_parameters.at("mass")=="47.1","Save used the wrong mass unit");
@@ -232,11 +236,15 @@ int main() {try {
         first=assembly::AssemblyDocument::create_part_occurrence("Cut",family_id,family_path,shape);first.density_kg_mm3=7.85e-6;
         second=assembly::AssemblyDocument::create_part_occurrence("Uncut",family_id,family_path,shape);second.density_kg_mm3=7.85e-6;
         cut_family.components={first,second};const auto cut_family_id=cut_family.document_id;const auto cut_family_path=dir/"cut-family.asmz";
-        family_live.add_assembly(cut_family,cut_family_path);
         auto cutter=sketcher::Sketch::create_default();static_cast<void>(cutter.add_rectangle(-2,-10,2,10));
         auto cut=document::PartDocument::create_extrusion_container(cutter.id);cutter.owner_container_id=cut.id;
         cut.combine_mode=document::CombineMode::Subtract;cut.extrusion.extent_mode=document::ProfileExtentMode::Symmetric;cut.extrusion.length_forward=5;
-        workspace::commit_assembly_profile(family_live,kernel,cut_family_id,cut,{first.occurrence_id},workspace::ProfileEditMode::Create,cutter);
+        // Existing Assembly-owned cuts remain supported. New material-cut
+        // creation is deliberately unavailable in the Assembly workspace.
+        cut_family.sketches.push_back(cutter);
+        cut_family.cuts.push_back({cut,{first.occurrence_id}});
+        workspace::calculate_resolved_assembly_cuts(kernel,cut_family,false,&family_live);
+        family_live.add_assembly(cut_family,cut_family_path);
         table={};table.columns={"Cut"};table.bindings["Cut"]={"feature",cut.id,{}};
         table.instances={{"Cut",{{"Cut","yes"}}},{"Uncut",{{"Cut","no"}}}};
         static_cast<void>(workspace::set_family_table(family_live,cut_family_id,table));

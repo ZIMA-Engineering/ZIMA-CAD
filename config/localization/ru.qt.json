@@ -3379,5 +3379,15 @@
   "Select a cylindrical, conical, spherical or planar face to wrap.": "Выберите цилиндрическую, коническую, сферическую или плоскую грань для обёртывания.",
   "Wrap continuation requires connected cylindrical or planar faces with a straight common boundary.": "Продолжение обёртывания требует соединённых цилиндрических или плоских граней с прямой общей границей.",
   "Wrap continuations must belong to the same editable Body.": "Грани продолжения обёртывания должны принадлежать одному редактируемому телу.",
-  "Select faces in continuation order. Connected parts of the same surface are included automatically. The Feature Origin anchors the wrap; on a sphere, distances from it are preserved and widths change.": "Выбирайте грани в порядке их продолжения. Смежные части одной поверхности включаются автоматически. Начало элемента задаёт привязку обёртывания; на сфере расстояния от него сохраняются, а ширина изменяется."
+  "Select faces in continuation order. Connected parts of the same surface are included automatically. The Feature Origin anchors the wrap; on a sphere, distances from it are preserved and widths change.": "Выбирайте грани в порядке их продолжения. Смежные части одной поверхности включаются автоматически. Начало элемента задаёт привязку обёртывания; на сфере расстояния от него сохраняются, а ширина изменяется.",
+  "Invalid exact surface generator": "Недопустимая образующая точной поверхности",
+  "Invalid exact surface kind": "Недопустимый тип точной поверхности",
+  "Invalid exact surface data": "Недопустимые данные точной поверхности",
+  "Invalid exact surface spline arrays": "Недопустимые сплайновые данные точной поверхности",
+  "Invalid exact offset surface": "Недопустимая точная эквидистантная поверхность",
+  "Invalid exact surface frame or domain": "Недопустимая система координат или область точной поверхности",
+  "Invalid exact surface trim loop": "Недопустимый контур обрезки точной поверхности",
+  "Unsupported exact surface generator": "Неподдерживаемая образующая точной поверхности",
+  "Unsupported exact surface definition": "Неподдерживаемое определение точной поверхности",
+  "Exact surface trimming curve is missing": "Отсутствует кривая обрезки точной поверхности"
 }

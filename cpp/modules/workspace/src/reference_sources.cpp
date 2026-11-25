@@ -1,5 +1,6 @@
 #include <zima/workspace/reference_sources.hpp>
 #include <zima/kernel/boolean_face_ancestry.hpp>
+#include <zima/kernel/exact_surface.hpp>
 #include <map>
 #include <set>
 #include <algorithm>
@@ -17,9 +18,18 @@ void append_original_reference_geometry(kernel::ViewerReferenceGeometry& target,
     const auto matches=[&](OriginalReferenceKind kind,const auto& reference) {
         return accept(kind,reference.owner_id,reference.semantic_key,frame.path(reference.instance_path));
     };
+    std::map<std::string,kernel::ExactSurfaceTransformCache> exact_surfaces;
+    const auto exact_face=[&](kernel::FaceReference& face,const std::string& path) {
+        exact_surfaces[path].apply(face.exact_surface,
+            [&](auto p){return frame.surface_point(path,p);},
+            [&](auto v){return frame.surface_direction(path,v);});
+    };
     for(const auto& edge:source.edges)if(matches(OriginalReferenceKind::Edge,edge.reference)) {
         auto copy=edge;copy.reference.instance_path=frame.path(edge.reference.instance_path);
-        for(auto& reference:copy.edge_treatment_side_references)reference.instance_path=frame.path(reference.instance_path);
+        for(auto& reference:copy.edge_treatment_side_references) {
+            exact_face(reference,reference.instance_path);
+            reference.instance_path=frame.path(reference.instance_path);
+        }
         for(auto& reference:copy.edge_treatment_endpoint_references)reference.instance_path=frame.path(reference.instance_path);
         for(auto& point:copy.points)point=frame.point(point);
         if(copy.exact_spline)for(auto& point:copy.exact_spline->poles)point=frame.point(point);
@@ -40,6 +50,7 @@ void append_original_reference_geometry(kernel::ViewerReferenceGeometry& target,
         const auto& face=source.triangle_references[triangle];if(!matches(OriginalReferenceKind::Face,face))continue;
         if(triangle*3+2>=source.triangles.size())throw ReferenceQueryError("invalid_reference_geometry","The persisted reference geometry is incomplete.");
         auto copy=face;copy.instance_path=frame.path(face.instance_path);
+        exact_face(copy,face.instance_path);
         if(face.contour_surface) {
             auto [entry,inserted]=contours.try_emplace(std::make_tuple(face.owner_id,face.semantic_key,face.instance_path));
             if(inserted) {
@@ -78,6 +89,7 @@ void append_display_face_reference_geometry(kernel::ViewerReferenceGeometry& tar
         complete.emplace(reference.owner_id,reference.semantic_key,reference.instance_path);
     std::map<std::uint32_t,std::uint32_t> vertices;
     std::map<Identity,std::shared_ptr<const kernel::SurfaceGeometry>> surfaces,contours;
+    std::map<std::string,kernel::ExactSurfaceTransformCache> exact_surfaces;
     const auto inherited=[&](const kernel::FaceReference& face,bool contour)
             ->std::shared_ptr<const kernel::SurfaceGeometry> {
         auto owner=face.owner_id,key=face.semantic_key;
@@ -131,6 +143,9 @@ void append_display_face_reference_geometry(kernel::ViewerReferenceGeometry& tar
             throw ReferenceQueryError("invalid_reference_geometry","The display reference geometry is incomplete.");
         auto copy=face;copy.owner_id=identity.owner_id;copy.semantic_key=identity.semantic_key;
         copy.instance_path=identity.instance_path;
+        exact_surfaces[face.instance_path].apply(copy.exact_surface,
+            [&](auto p){return frame.surface_point(face.instance_path,p);},
+            [&](auto v){return frame.surface_direction(face.instance_path,v);});
         copy.surface=transformed_surface(identity,face,
             face.surface?face.surface:inherited(face,false),surfaces);
         copy.contour_surface=transformed_surface(identity,face,

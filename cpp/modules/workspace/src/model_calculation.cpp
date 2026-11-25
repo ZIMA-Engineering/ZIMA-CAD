@@ -586,19 +586,20 @@ static const kernel::BodyResult& exact_operation_output(
     return *result;
 }
 
-std::map<std::string,HistoryReferenceStatus> cached_sheet_attachment_reference_status(
+std::map<std::string,HistoryReferenceStatus> cached_history_placement_reference_status(
         const document::PartDocument& document,
         const std::vector<kernel::BodyResult>& calculated) {
     std::map<std::string,HistoryReferenceStatus> result;
     if(calculated.empty())return result;
     const auto attachment=[](const document::HistoryContainer& feature) {
         return !feature.suppressed&&
-            ((feature.feature_kind==document::FeatureKind::Flat&&feature.flat.sheet_attachment)||
+            (!feature.placement.references.empty()||
+             (feature.feature_kind==document::FeatureKind::Flat&&feature.flat.sheet_attachment)||
              (feature.feature_kind==document::FeatureKind::Bend&&feature.bend.sheet_attachment)||
              (feature.feature_kind==document::FeatureKind::SheetProfile&&feature.sheet_profile.sheet_attachment));
     };
     if(std::ranges::none_of(document.history,attachment))return result;
-    const auto operations=document.kernel_operations();
+    const auto operations=document.kernel_operations(false,true);
     for(const auto& [consumer,demand]:history_boundary_reference_demands(document,operations)) {
         const auto* feature=document.find_container(consumer);
         if(!feature||!attachment(*feature))continue;
@@ -1056,9 +1057,13 @@ calculate_part_reference_state(
         const bool reuse_reference_resolution=
             policy.reuse_unchanged_reference_resolution &&
             unchanged_source_prefix && unchanged_reference_inputs;
-        if(!reuse_reference_resolution) {
+        const bool has_sheet_profiles=std::ranges::any_of(document.history,[](const auto& feature){
+            return feature.feature_kind==document::FeatureKind::SheetProfile&&!feature.suppressed;
+        });
+        document::HistoryReferenceViews state_views;
+        if(!reuse_reference_resolution||has_sheet_profiles) {
             auto reference_geometry=construction_resolution_geometry(document,calculated);
-            auto state_views=calculated.empty()?document::HistoryReferenceViews{}:
+            state_views=calculated.empty()?document::HistoryReferenceViews{}:
                 document::solid_state_reference_views(document,calculated.back(),reference_geometry);
             if(!calculated.empty()) {
                 const auto resolved_operations=
@@ -1074,7 +1079,7 @@ calculate_part_reference_state(
                     placement_views.state_output_consumers);
             }
             phase("reference preparation");
-            document.resolve_constructions(std::move(reference_geometry),state_views);
+            if(!reuse_reference_resolution)document.resolve_constructions(std::move(reference_geometry),state_views);
             phase("reference resolution");
         }
         const bool sheet_from_body_changed=
@@ -1126,20 +1131,19 @@ calculate_part_reference_state(
             prune_missing_drill_point_references(document, calculated);
         phase("Drill Point references");
         const bool profile_targets_changed=refresh_profile_end_targets(document,calculated);
-        const bool sheet_profiles_changed=std::ranges::any_of(document.history,[](const auto& feature){
-            return feature.feature_kind==document::FeatureKind::SheetProfile&&!feature.suppressed;
-        })&&refresh_sheet_profile_definitions(document,construction_resolution_geometry(document,calculated));
+        const bool sheet_profiles_changed=has_sheet_profiles&&refresh_sheet_profile_definitions(
+            document,construction_resolution_geometry(document,calculated),state_views);
         phase("profile targets");
         const bool opening_targets_changed=refresh_opening_end_targets(document,calculated);
         phase("opening targets");
         if(std::getenv("ZIMA_CPP_PROFILE_COMMAND"))std::fprintf(stderr,
-            "Part settling pass=%zu changes external=%d drill=%d profile=%d opening=%d history=%d constructions=%d bodies=%d frames=%d\n",
+            "Part settling pass=%zu changes external=%d drill=%d profile=%d opening=%d history=%d constructions=%d bodies=%d frames=%d sheet-profiles=%d\n",
             pass,int(external_references_changed),int(drill_points_changed),
             int(profile_targets_changed),int(opening_targets_changed),
             int(document.history!=history_before),
             int(document.constructions!=constructions_before),
             int(document.body_history.bodies()!=bodies_before),
-            int(sketch_frames()!=sketch_frames_before));
+            int(sketch_frames()!=sketch_frames_before),int(sheet_profiles_changed));
         const auto current_fingerprint=[&] {
             if(unchanged_operations)
                 return kernel::history_fingerprint(*unchanged_operations,calculated.size());
@@ -1800,12 +1804,13 @@ bool complete_part_physical_analysis(const kernel::OcctKernel& kernel,
     bool include_final_body) {
     if(calculated.empty())return false;
     std::map<std::string,kernel::BodyResult> analysis;
+    std::vector<kernel::BodyPropertyAnalysis> completed_analysis;
     const auto request=[&](const kernel::BodyResult& source) {
         if(source.physical_properties_current)return;
         if(source.source_fingerprint.empty())
             throw std::runtime_error("Deferred physical analysis has no source fingerprint");
         if(analysis.contains(source.source_fingerprint))return;
-        auto body=source;kernel.ensure_body_properties(body);
+        auto body=source;kernel.ensure_body_properties(body,completed_analysis);
         analysis.emplace(body.source_fingerprint,std::move(body));
     };
     if(include_final_body)request(calculated.back());
@@ -1815,6 +1820,8 @@ bool complete_part_physical_analysis(const kernel::OcctKernel& kernel,
         // Broken records remain editable/removable and keep their established
         // error. They must not block unrelated final-body analysis.
     }
+    for(auto& entry:completed_analysis)
+        analysis.try_emplace(entry.properties.source_fingerprint,std::move(entry.properties));
     if(analysis.empty())return false;
     const auto update=[&](auto&& self,kernel::BodyResult& result)->bool {
         bool changed=false;

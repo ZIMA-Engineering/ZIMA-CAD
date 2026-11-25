@@ -2040,7 +2040,7 @@ int main() {
             (std::istreambuf_iterator<char>(empty_serialized)),
             std::istreambuf_iterator<char>());
         require(empty_text.find("[Document]\n") != std::string::npos &&
-                    empty_text.find("format_version=56\n") != std::string::npos &&
+                    empty_text.find("format_version=57\n") != std::string::npos &&
                     empty_text.find("[DocumentUnits]\n") != std::string::npos &&
                     empty_text.find("[UserParameterValues]\n") != std::string::npos,
                 "Part persistence did not write the current native INI sections");
@@ -4289,6 +4289,14 @@ int main() {
         for (auto& point : parity_document.sketches.front().points) {
             if (point.x > 12.0) point.x += 6.0;
         }
+        parity_document.history.back().edge_treatment.route_end_faces = {{
+            parity_edge->edge_treatment_endpoint_references.front(),
+            parity_edge->edge_treatment_endpoint_references.back(),
+            zima::document::EdgeTreatmentParameters::RouteEndMode::RoundedJoin,
+            zima::document::EdgeTreatmentParameters::RouteEndMode::NoCut,
+            {},{}}};
+        parity_fillet.edge_treatment.route_end_faces =
+            parity_document.history.back().edge_treatment.route_end_faces;
         const auto parity_regenerated = kernel.evaluate_history(
             parity_document.kernel_operations());
         require(parity_regenerated.size() == 2 &&
@@ -4302,14 +4310,6 @@ int main() {
                                     "generated:" + parity_point_id;
                         }),
                 "Sketch edit broke downstream inherited Fillet ancestry");
-        parity_document.history.back().edge_treatment.route_end_faces = {{
-            parity_edge->edge_treatment_endpoint_references.front(),
-            parity_edge->edge_treatment_endpoint_references.back(),
-            zima::document::EdgeTreatmentParameters::RouteEndMode::RoundedJoin,
-            zima::document::EdgeTreatmentParameters::RouteEndMode::NoCut,
-            {},{}}};
-        parity_fillet.edge_treatment.route_end_faces =
-            parity_document.history.back().edge_treatment.route_end_faces;
         const auto parity_path = std::filesystem::temp_directory_path() /
             "zima-cad-cpp-part-parity-slice.prtz";
         parity_document.save(parity_path, parity_regenerated);

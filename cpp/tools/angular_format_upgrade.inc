@@ -38,20 +38,61 @@ std::size_t upgrade_angle_reference_json(nlohmann::json& value) {
        !value.contains("correspondence_reversed")) {value["correspondence_reversed"]=nlohmann::json::array();++changed;}
     for (auto& item:value) changed+=upgrade_angle_reference_json(item);
     if (value.value("format",std::string{})=="zima-cad-cpp" && value.value("type",std::string{})=="part") {
-        if (value.at("format_version")!=77&&value.at("format_version")!=78&&value.at("format_version")!=79)
-            throw std::runtime_error("Expected an embedded conversion-source Part format 77, 78 or 79");
-        value["format_version"]=79;
+        // Factory and approved protected-project Drawings retain older embedded,
+        // Sketch-only frames and title blocks. Convert those snapshots offline;
+        // this does not authorize arbitrary old modeling-history recovery.
+        const bool embedded_drawing_library=(value.at("format_version")==70||value.at("format_version")==71)&&
+            std::ranges::all_of(value.at("history"),[](const auto& item) {
+                return item.value("type",std::string{})=="sketch";
+            });
+        if (!embedded_drawing_library&&value.at("format_version")!=77&&value.at("format_version")!=78&&value.at("format_version")!=79&&value.at("format_version")!=80)
+            throw std::runtime_error("Unexpected embedded conversion-source Part format or history");
+        value["format_version"]=80;
         auto authored=value;authored["calculated_boundaries"]=nlohmann::json::array();
         value["calculation_definition_fingerprint"]=zima::document::PartDocument::from_serialized(authored)
             .serialized().at("calculation_definition_fingerprint");
         ++changed;
     }
     if (value.value("format",std::string{})=="zima-cad-cpp" && value.value("type",std::string{})=="assembly") {
-        if (value.at("format_version")!=49&&value.at("format_version")!=50)
-            throw std::runtime_error("Expected an embedded conversion-source Assembly format 49 or 50");
-        value["format_version"]=50;++changed;
+        if (value.at("format_version")!=49&&value.at("format_version")!=50&&value.at("format_version")!=51)
+            throw std::runtime_error("Expected an embedded conversion-source Assembly format 49, 50 or 51");
+        value["format_version"]=51;++changed;
     }
     return changed;
+}
+
+std::vector<zima::kernel::BodyResult> analyze_retained_native_baseline(
+        const std::vector<zima::kernel::BodyResult>& baseline,zima::kernel::OcctKernel& engine) {
+    using namespace zima;
+    // A user document may defer scalar analysis. Compare properties of its
+    // retained exact B-Rep with the new calculation, never pending/zero fields
+    // with calculated values. This does not regenerate the comparison source.
+    auto analyzed_baseline=baseline;
+    std::map<std::string,const kernel::BodyResult*> native_sources;
+    std::set<const kernel::BodyResult*> visited;
+    const auto retain_native=[&](auto&& self,const kernel::BodyResult& body)->void {
+        if(!visited.insert(&body).second)return;
+        if(!body.source_fingerprint.empty()&&!body.kernel_shape.empty())
+            native_sources.try_emplace(body.source_fingerprint,&body);
+        for(const auto* snapshots:{&body.body_inputs,&body.body_outputs})
+            for(const auto& [id,value]:*snapshots)self(self,value.get());
+        for(const auto& [id,values]:body.body_boundaries)for(const auto& value:values.get())self(self,value);
+        if(body.incremental_history)for(const auto& frame:body.incremental_history->frames.get())self(self,frame.native_body.get());
+    };
+    for(const auto& body:baseline)retain_native(retain_native,body);
+    for(std::size_t i=0;i<analyzed_baseline.size();++i) {
+        auto& body=analyzed_baseline[i];if(body.physical_properties_current)continue;
+        if(body.kernel_shape.empty())if(const auto found=native_sources.find(body.source_fingerprint);found!=native_sources.end()) {
+            // Final-first publication can keep a boundary's exact B-Rep in
+            // the native history archive rather than its display packet.
+            auto native=*found->second;engine.ensure_body_properties(native);
+            body.volume=native.volume;body.surface_area=native.surface_area;
+            body.physical_properties_current=true;
+        }
+        if(!body.physical_properties_current)try {engine.ensure_body_properties(body);}
+        catch(const std::exception& e){throw std::runtime_error("Cannot analyze retained baseline boundary "+std::to_string(i)+": "+e.what());}
+    }
+    return analyzed_baseline;
 }
 
 std::vector<zima::kernel::BodyResult> recalculate_angle_format_part(
@@ -81,34 +122,7 @@ std::vector<zima::kernel::BodyResult> recalculate_angle_format_part(
     }
     for (const auto& body:calculated) if (!body.calculation_errors.empty())
         throw std::runtime_error("Angular format factory calculation contains errors");
-    // A user document may defer scalar analysis. Compare properties of its
-    // retained exact B-Rep with the new calculation, never pending/zero fields
-    // with calculated values. This does not regenerate the comparison source.
-    auto analyzed_baseline=baseline;
-    std::map<std::string,const kernel::BodyResult*> native_sources;
-    std::set<const kernel::BodyResult*> visited;
-    const auto retain_native=[&](auto&& self,const kernel::BodyResult& body)->void {
-        if(!visited.insert(&body).second)return;
-        if(!body.source_fingerprint.empty()&&!body.kernel_shape.empty())
-            native_sources.try_emplace(body.source_fingerprint,&body);
-        for(const auto* snapshots:{&body.body_inputs,&body.body_outputs})
-            for(const auto& [id,value]:*snapshots)self(self,value.get());
-        for(const auto& [id,values]:body.body_boundaries)for(const auto& value:values.get())self(self,value);
-        if(body.incremental_history)for(const auto& frame:body.incremental_history->frames.get())self(self,frame.native_body.get());
-    };
-    for(const auto& body:baseline)retain_native(retain_native,body);
-    for(std::size_t i=0;i<analyzed_baseline.size();++i) {
-        auto& body=analyzed_baseline[i];if(body.physical_properties_current)continue;
-        if(body.kernel_shape.empty())if(const auto found=native_sources.find(body.source_fingerprint);found!=native_sources.end()) {
-            // Final-first publication can keep a boundary's exact B-Rep in
-            // the native history archive rather than its display packet.
-            auto native=*found->second;engine.ensure_body_properties(native);
-            body.volume=native.volume;body.surface_area=native.surface_area;
-            body.physical_properties_current=true;
-        }
-        if(!body.physical_properties_current)try {engine.ensure_body_properties(body);}
-        catch(const std::exception& e){throw std::runtime_error("Cannot analyze retained baseline boundary "+std::to_string(i)+": "+e.what());}
-    }
+    const auto analyzed_baseline=analyze_retained_native_baseline(baseline,engine);
     const auto error=format_migration_calculated_contract_error(analyzed_baseline,calculated);
     if (!error.empty()) throw std::runtime_error("Angular format conversion changed the prior geometry: "+error);
     if (comparable_history(original.history)!=comparable_history(updated.history) ||
@@ -139,8 +153,8 @@ void upgrade_angular_native_asset(const std::filesystem::path& source,const std:
         if (section=="Document" && line.starts_with("format_version=")) {
             if (version_seen) throw std::runtime_error("Duplicate native format declaration");
             version_seen=true;
-            if (line=="format_version=54"||line=="format_version=55"||line=="format_version=56")line="format_version=56";
-            else if (line=="format_version=37"||line=="format_version=38") {line="format_version=38";is_assembly=true;}
+            if (line=="format_version=54"||line=="format_version=55"||line=="format_version=56"||line=="format_version=57")line="format_version=57";
+            else if (line=="format_version=37"||line=="format_version=38"||line=="format_version=39") {line="format_version=39";is_assembly=true;}
             else throw std::runtime_error("Offline conversion requires Part 54/55/56 or Assembly 37/38");
         }
         const auto equals=line.find('=');

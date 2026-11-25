@@ -19,6 +19,7 @@
 #include "../document_numeric_display.hpp"
 #include "ordinary_selection.hpp"
 #include "../feature_view_cues.hpp"
+#include "../authored_feature_wire.hpp"
 #include "../curve_point_annotations.hpp"
 #include <zima/document/helical_geometry.hpp>
 #include <zima/document/general_surface.hpp>
@@ -989,7 +990,13 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
                     if(!primitive_origin_preview_mesh_) {
                         const auto sketch=std::ranges::find(document.sketches,container->feature.sketch_id,&zima::sketcher::Sketch::id);
                         if(sketch!=document.sketches.end()) {
-                            auto display=feature_view_cues(*container,*sketch).dimensions;
+                            std::vector<kernel::ViewerEdge> relief_wire;
+                            if(container->feature.type==document::FeatureType::Projection||container->feature.type==document::FeatureType::Wrapping) {
+                                if(parameter_dimension_preview_)relief_wire=viewer_->transient_edges();
+                                else if(const auto* part=workspace_.open_part(document.document_id))
+                                    relief_wire=authored_feature_wire(part->session,container->id,false);
+                            }
+                            auto display=feature_view_cues(*container,*sketch,relief_wire).dimensions;
                             if(!parameter_dimension_preview_)
                                 if(const auto* body=document.body_owner_for_object(container->id))
                                     display=document.place_body_mesh(std::move(display),body->scope.id);

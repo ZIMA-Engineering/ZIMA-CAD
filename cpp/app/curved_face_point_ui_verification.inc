@@ -13,10 +13,12 @@ int verify_curved_face_point_ui(QApplication& application,const std::filesystem:
     };
     const auto minus=[](kernel::Vec3 a,kernel::Vec3 b){return kernel::Vec3{a.x-b.x,a.y-b.y,a.z-b.z};};
     const auto norm=[](kernel::Vec3 p){return std::hypot(p.x,p.y,p.z);};
-    for(bool sweep:{false,true})for(bool placed:{false,true}) {
-        std::cout<<"Curved-face Point GUI: sweep="<<sweep<<" placed="<<placed<<std::endl;
+    for(bool elliptic:{false,true})for(bool sweep:{false,true})for(bool placed:{false,true}) {
+        const double radius_y=elliptic?30.:40.;
+        std::cout<<"Curved-face Point GUI: elliptic="<<elliptic<<" sweep="<<sweep<<" placed="<<placed<<std::endl;
         auto doc=document::PartDocument::create_default();auto sketch=sketcher::Sketch::create_default();
-        static_cast<void>(sketch.add_circle(0,0,40));
+        if(elliptic)static_cast<void>(sketch.add_ellipse(0,0,40,0,0,radius_y));
+        else static_cast<void>(sketch.add_circle(0,0,40));
         auto cylinder=document::PartDocument::create_extrusion_container(sketch.id);
         cylinder.extrusion.length_forward=120;sketch.owner_container_id=cylinder.id;
         doc.sketches={sketch};doc.history={cylinder};document::BodyHistoryGraph graph;
@@ -31,7 +33,7 @@ int verify_curved_face_point_ui(QApplication& application,const std::filesystem:
         body.scope.placement.absolute_rotation_z=body_rotation.z;graph.update_body(body);doc.set_body_history(graph);
         doc.resolve_constructions();
         kernel::OcctKernel engine;
-        const auto file=directory/(std::string(sweep?"sweep":"curve")+(placed?"-placed":"-origin")+"-surface-points.prtz");
+        const auto file=directory/(std::string(elliptic?"elliptic-":"circular-")+(sweep?"sweep":"curve")+(placed?"-placed":"-origin")+"-surface-points.prtz");
         doc.save(file,engine.evaluate_history(doc.kernel_operations()));
         app::AssemblyWorkspaceWindow window(QString::fromStdWString(directory.wstring()));
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_HIDDEN_WINDOWS"))window.setAttribute(Qt::WA_DontShowOnScreen);
@@ -61,20 +63,26 @@ int verify_curved_face_point_ui(QApplication& application,const std::filesystem:
             auto* point=dialog();if(!verify(point&&point!=parent,"Cannot create an owned Point"))return 1;
             std::optional<QPointF> pixel;kernel::Vec3 expected_body;double best=1e9;
             for(int y=20;y<view->height()-20;y+=12)for(int x=20;x<view->width()-20;x+=12) {
-                const QPointF screen(x,y);const auto candidates=view->selection_candidates_at(screen);
-                if(candidates.empty()||candidates.front().kind!=viewer::CandidateKind::Face||candidates.front().owner_id!=cylinder.id)continue;
+                const QPointF screen(x,y);
                 const auto ray=view->ray_at(screen);if(!ray)continue;
                 const auto origin=rotate(minus(ray->first,body_origin),body_rotation,true);
                 const auto direction=rotate(ray->second,body_rotation,true);
-                const double a=direction.x*direction.x+direction.y*direction.y;
-                const double b=2*(origin.x*direction.x+origin.y*direction.y);
-                const double c=origin.x*origin.x+origin.y*origin.y-1600;
+                const double a=direction.x*direction.x/1600+direction.y*direction.y/(radius_y*radius_y);
+                const double b=2*(origin.x*direction.x/1600+origin.y*direction.y/(radius_y*radius_y));
+                const double c=origin.x*origin.x/1600+origin.y*origin.y/(radius_y*radius_y)-1;
                 const double discriminant=b*b-4*a*c;if(a<1e-12||discriminant<=0)continue;
                 const double t=(-b-std::sqrt(discriminant))/(2*a);
                 const kernel::Vec3 hit{origin.x+t*direction.x,origin.y+t*direction.y,origin.z+t*direction.z};
                 if(t<=0||hit.z<10||hit.z>110)continue;
                 const double score=std::abs(hit.z-(25+35*point_index));
-                if(score<best){best=score;pixel=screen;expected_body=hit;}
+                if(score<best) {
+                    // Locate the independent analytic target before asking the
+                    // real picker. A test-grid search must not simulate thousands
+                    // of unnecessary hover solves on the same mathematical face.
+                    const auto candidates=view->selection_candidates_at(screen);
+                    if(candidates.empty()||candidates.front().kind!=viewer::CandidateKind::Face||candidates.front().owner_id!=cylinder.id)continue;
+                    best=score;pixel=screen;expected_body=hit;
+                }
             }
             if(!verify(pixel.has_value()&&best<4,"Cannot find a visible cylinder point at the requested height"))return 1;
             QMouseEvent move(QEvent::MouseMove,*pixel,QPointF(view->mapToGlobal(pixel->toPoint())),Qt::NoButton,Qt::NoButton,Qt::NoModifier);
@@ -87,11 +95,40 @@ int verify_curved_face_point_ui(QApplication& application,const std::filesystem:
             const auto expected_local=rotate(minus(expected_body,parent_origin),parent_rotation,true);
             const auto actual_rotated=rotate(pending.origin,parent_rotation,false);
             const kernel::Vec3 actual_body{actual_rotated.x+parent_origin.x,actual_rotated.y+parent_origin.y,actual_rotated.z+parent_origin.z};
+            if(norm(minus(pending.origin,expected_local))>=.2||
+                    std::abs(actual_body.x*actual_body.x/1600+actual_body.y*actual_body.y/(radius_y*radius_y)-1)>=1e-9)
+                std::cerr<<"Point click diagnostic expected="<<expected_local.x<<","<<expected_local.y<<","<<expected_local.z
+                    <<" actual="<<pending.origin.x<<","<<pending.origin.y<<","<<pending.origin.z<<" distance="<<norm(minus(pending.origin,expected_local))
+                    <<" equation="<<actual_body.x*actual_body.x/1600+actual_body.y*actual_body.y/(radius_y*radius_y)-1
+                    <<" valid="<<pending.reference_valid<<std::endl;
             if(!verify(!pending.references.empty()&&pending.references.front().owner_id==cylinder.id&&
                     norm(minus(pending.origin,expected_local))<.2&&
-                    std::abs(std::hypot(actual_body.x,actual_body.y)-40)<1e-7,
+                    std::abs(actual_body.x*actual_body.x/1600+actual_body.y*actual_body.y/(radius_y*radius_y)-1)<1e-9,
                     "Owned Point did not capture the clicked cylinder position in its local frame"))return 1;
-            positions.push_back(pending.origin);
+            const kernel::Vec3 gradient{actual_body.x/1600,actual_body.y/(radius_y*radius_y),0};
+            const auto length=norm(gradient);
+            const auto normal=rotate({gradient.x/length,gradient.y/length,0},parent_rotation,true);
+            auto* references=point->findChild<QTableWidget*>("constructionReferenceTable");
+            auto* offset=references?qobject_cast<QDoubleSpinBox*>(references->cellWidget(0,3)):nullptr;
+            if(!verify(offset!=nullptr,"Owned Point has no shared reference offset control"))return 1;
+            for(double distance:{1.,-1.,.5,-.5,0.}) {
+                offset=qobject_cast<QDoubleSpinBox*>(references->cellWidget(0,3));
+                if(!verify(offset!=nullptr,"Owned Point lost its offset editor"))return 1;
+                offset->setValue(distance);flush();
+                const auto edited=point->pending_value();
+                const kernel::Vec3 expected{pending.origin.x+normal.x*distance,pending.origin.y+normal.y*distance,pending.origin.z+normal.z*distance};
+                const auto front=rotate({0,1,0},edited.rotation,false);
+                const auto dot=front.x*normal.x+front.y*normal.y+front.z*normal.z;
+                if(!edited.reference_valid||norm(minus(edited.origin,expected))>=1e-6||
+                        std::abs(dot-(edited.references.front().flip?-1.:1.))>=1e-8)
+                    std::cerr<<"Point offset diagnostic distance="<<distance<<" error="<<norm(minus(edited.origin,expected))
+                        <<" normal_dot="<<dot<<" valid="<<edited.reference_valid<<" flip="<<edited.references.front().flip
+                        <<" role="<<edited.references.front().orientation_role<<" rotation="<<edited.rotation.x<<","<<edited.rotation.y<<","<<edited.rotation.z<<std::endl;
+                if(!verify(edited.reference_valid&&norm(minus(edited.origin,expected))<1e-6&&
+                    std::abs(dot-(edited.references.front().flip?-1.:1.))<1e-8,
+                    "Owned Point offset or orientation differs from the exact surface normal"))return 1;
+            }
+            positions.push_back(point->pending_value().origin);
             point->buttons()->button(QDialogButtonBox::Ok)->click();flush();
             if(!verify(dialog()==parent&&parent->pending_value().curve_points.size()==positions.size(),"Point OK did not return to its owning path"))return 1;
         }
@@ -114,7 +151,7 @@ int verify_curved_face_point_ui(QApplication& application,const std::filesystem:
             if(direction.z>=-1e-6)continue;
             const double t=(120-origin.z)/direction.z;
             const double px=origin.x+t*direction.x,py=origin.y+t*direction.y;
-            if(t>0&&std::hypot(px,py)<32&&std::hypot(px-parent_origin.x,py-parent_origin.y)>8)cap_pixel=pixel;
+            if(t>0&&px*px/1600+py*py/(radius_y*radius_y)<.64&&std::hypot(px-parent_origin.x,py-parent_origin.y)>8)cap_pixel=pixel;
         }
         if(!verify(cap_pixel.has_value(),"Cannot find the planar cylinder cap"))return 1;
         for(const auto type:{QEvent::MouseMove,QEvent::MouseButtonPress,QEvent::MouseButtonRelease}) {
@@ -157,6 +194,18 @@ int verify_curved_face_point_ui(QApplication& application,const std::filesystem:
         std::cout<<"Confirm path"<<std::endl;
         parent->buttons()->button(QDialogButtonBox::Ok)->click();flush();
         std::cout<<"Path confirmed"<<std::endl;
+        if(guard&&guard->isVisible()) {
+            for(auto* label:parent->findChildren<QLabel*>())
+                if((label->styleSheet().contains("d96b6b")||label->objectName()=="propertiesSubmitError")&&!label->text().isEmpty())
+                    std::cerr<<"Path confirmation diagnostic: "<<label->text().toStdString()<<std::endl;
+            if(sweep) {
+                auto failed=doc;
+                const auto pending=parent->pending_sweep_value();
+                failed.insert_history_entry(document::PartHistoryKind::Feature,pending.id);
+                failed.history.push_back(pending);
+                failed.save(directory/"failed-surface-point-sweep.prtz");
+            }
+        }
         if(!verify(!guard||!guard->isVisible(),"Curve/Sweep OK did not commit its surface Points"))return 1;
         window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
         if(!verify(!dialog_error,"Curve/Sweep confirmation or Save displayed an error"))return 1;
@@ -179,6 +228,6 @@ int verify_curved_face_point_ui(QApplication& application,const std::filesystem:
         if(!verify(check(document::PartDocument::load(file)),"Redo lost the captured surface Points"))return 1;
         if(!verify(!dialog_error,"Curve/Sweep Undo/Redo displayed an error"))return 1;
     }
-    std::cout<<"Curve/Sweep cylinder point clicks, transformed frames, Cancel, native persistence and Undo/Redo passed\n";
+    std::cout<<"Curve/Sweep circular/elliptical surface Point clicks, exact normals, signed offsets, transformed frames, Cancel, native persistence and Undo/Redo passed\n";
     return 0;
 }

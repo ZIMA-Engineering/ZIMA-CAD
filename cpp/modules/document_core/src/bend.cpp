@@ -436,7 +436,8 @@ void update_sheet_edge_profile(const Placement& placement,double& thickness,sket
     // origin dimensions supply its width; changing the source edge length
     // must not replace them by offsets from its endpoints.
     if(sheet_attachment_at_midpoint(placement.references))return;
-    std::array<std::pair<double,kernel::VertexReference>,2> ends;
+    struct Endpoint {double first;kernel::VertexReference second;kernel::Vec3 position;};
+    std::array<Endpoint,2> ends;
     for(std::size_t i=0;i<2;++i) {
         const auto& reference=edge->edge_treatment_endpoint_references[i];
         // Endpoint identities and positions are an explicit ViewerEdge
@@ -445,7 +446,8 @@ void update_sheet_edge_profile(const Placement& placement,double& thickness,sket
         const auto local=add(i?edge->points.back():edge->points.front(),scale(sketch.resolved_origin,-1));
         if(std::abs(dot(local,sketch.resolved_y_axis))>1e-6||std::abs(dot(local,sketch.resolved_normal))>1e-6)
             throw std::invalid_argument("Bend profile does not lie on its attachment edge.");
-        ends[i]={dot(local,sketch.resolved_x_axis),reference};
+        ends[i]={dot(local,sketch.resolved_x_axis),reference,
+            i?edge->points.back():edge->points.front()};
     }
     if(ends[1].first<ends[0].first)std::swap(ends[0],ends[1]);
     const auto segment=*std::ranges::find_if(sketch.segments,[](const auto& s){return !s.construction;});
@@ -499,8 +501,10 @@ void update_sheet_edge_profile(const Placement& placement,double& thickness,sket
         auto& external=*existing;external.id=reference_id;external.kind=sketcher::ExternalReferenceKind::Point;
         external.source_document_id=document_id;external.source_owner_id=end.second.owner_id;
         external.source_semantic_key=end.second.semantic_key;external.source_instance_path=end.second.instance_path;
-        const auto source_point=std::ranges::find_if(geometry.points,[&](const auto& point){return point.reference==end.second;});
-        external.cached_points={sketch.local_point(source_point->position)};external.broken=false;
+        // The exact edge endpoints remain available when the reference packet
+        // omits separate point markers. Keep the position with its identity
+        // through endpoint ordering instead of dereferencing a missing marker.
+        external.cached_points={sketch.local_point(end.position)};external.broken=false;
         const auto dimension=std::ranges::find(sketch.dimensions,sketch.id+":position"+suffix,&sketcher::SketchDimension::id);
         if(dimension==sketch.dimensions.end())throw std::invalid_argument("Missing Bend endpoint offset dimension.");
         dimension->first_point_id=reference_id;

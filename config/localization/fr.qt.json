@@ -3379,5 +3379,15 @@
   "Select a cylindrical, conical, spherical or planar face to wrap.": "Sélectionnez une face cylindrique, conique, sphérique ou plane pour l’enroulement.",
   "Wrap continuation requires connected cylindrical or planar faces with a straight common boundary.": "La continuité de l’enroulement nécessite des faces cylindriques ou planes raccordées par une limite commune droite.",
   "Wrap continuations must belong to the same editable Body.": "Les faces de continuation de l’enroulement doivent appartenir au même corps modifiable.",
-  "Select faces in continuation order. Connected parts of the same surface are included automatically. The Feature Origin anchors the wrap; on a sphere, distances from it are preserved and widths change.": "Sélectionnez les faces dans l’ordre de leur raccordement. Les parties adjacentes de la même surface sont incluses automatiquement. L’origine de l’élément fixe l’enroulement ; sur une sphère, les distances depuis cette origine sont conservées et les largeurs varient."
+  "Select faces in continuation order. Connected parts of the same surface are included automatically. The Feature Origin anchors the wrap; on a sphere, distances from it are preserved and widths change.": "Sélectionnez les faces dans l’ordre de leur raccordement. Les parties adjacentes de la même surface sont incluses automatiquement. L’origine de l’élément fixe l’enroulement ; sur une sphère, les distances depuis cette origine sont conservées et les largeurs varient.",
+  "Invalid exact surface generator": "Courbe génératrice de surface exacte invalide",
+  "Invalid exact surface kind": "Type de surface exacte invalide",
+  "Invalid exact surface data": "Données de surface exacte invalides",
+  "Invalid exact surface spline arrays": "Données spline de surface exacte invalides",
+  "Invalid exact offset surface": "Surface décalée exacte invalide",
+  "Invalid exact surface frame or domain": "Repère ou domaine de surface exacte invalide",
+  "Invalid exact surface trim loop": "Boucle de découpe de surface exacte invalide",
+  "Unsupported exact surface generator": "Courbe génératrice de surface exacte non prise en charge",
+  "Unsupported exact surface definition": "Définition de surface exacte non prise en charge",
+  "Exact surface trimming curve is missing": "La courbe de découpe de la surface exacte est absente"
 }

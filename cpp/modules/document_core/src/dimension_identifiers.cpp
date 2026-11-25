@@ -146,7 +146,10 @@ void append_dimension_parameters(std::vector<DimensionParameter>& out,
         add({"profile_offset"}); break;
     case FeatureKind::Feature:
         add({"profile_offset", "side0_length", "side1_length", "side0_angle", "side1_angle", "thin_thickness", "side0_draft_angle", "side1_draft_angle", "direction",
-            "side0_up_to_length_correction","side1_up_to_length_correction","side0_up_to_angle_correction","side1_up_to_angle_correction"}); break;
+            "side0_up_to_length_correction","side1_up_to_length_correction","side0_up_to_angle_correction","side1_up_to_angle_correction"});
+        if((feature.feature.type==FeatureType::Projection&&feature.feature.projection.output==ProjectionOutput::Relief)||
+           (feature.feature.type==FeatureType::Wrapping&&feature.feature.wrapping.output==WrappingOutput::Relief))add({"relief_depth"});
+        break;
     case FeatureKind::Extrusion:
         add({"profile_offset", "length_forward", "length_reverse", "thin_thickness"}); break;
     case FeatureKind::Revolution:

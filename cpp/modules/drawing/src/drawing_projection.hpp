@@ -1,5 +1,6 @@
 #pragma once
 #include <zima/drawing/drawing_document.hpp>
+#include <zima/kernel/feature_side_identity.hpp>
 #include <algorithm>
 #include <cmath>
 #include <map>
@@ -399,6 +400,10 @@ inline std::vector<ProjectedEdge> project_drawing_edges(
         }
     };
     for(const auto& edge:source_edges)if(!edge.parameter_seam&&!edge.construction&&!edge.overlay) {
+        // The model shows this boundary to distinguish the two selectable
+        // Feature branches. It is not a physical edge in a smooth wall and
+        // must be absent from interactive views and precise print/export.
+        if(zima::kernel::opposite_feature_side_faces(edge)&&tangent_boundary(edge))continue;
         const bool thread=is_thread(edge.reference);
         if(thread&&axial_threads.contains(owner(edge.reference)))continue;
         // Display wires can be substantially coarser than their adjacent face

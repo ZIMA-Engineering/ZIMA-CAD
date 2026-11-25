@@ -20,10 +20,41 @@ struct FeatureViewCues {
 // Editing and ordinary parameter inspection consume the same authored values
 // and resolved Sketch frame. No body topology or kernel calculation is needed.
 inline FeatureViewCues feature_view_cues(const document::HistoryContainer& feature,
-                                       const sketcher::Sketch& sketch) {
+                                       const sketcher::Sketch& sketch,
+                                       const std::vector<kernel::ViewerEdge>& preview_wire = {}) {
     FeatureViewCues out;
     const auto& p=feature.feature;
-    if(p.type==document::FeatureType::Wrapping)return out;
+    if(p.type==document::FeatureType::Wrapping||p.type==document::FeatureType::Projection) {
+        const bool wrap=p.type==document::FeatureType::Wrapping;
+        if(!wrap&&std::abs(p.profile_plane_offset)>1e-12) {
+            const auto a=kernel::dimension_sub(sketch.resolved_origin,kernel::dimension_scale(sketch.resolved_normal,p.profile_plane_offset));
+            const auto offset=kernel::dimension_scale(sketch.resolved_x_axis,8.);
+            out.dimensions.dimensions.push_back({a,sketch.resolved_origin,kernel::dimension_add(a,offset),
+                kernel::dimension_add(sketch.resolved_origin,offset),p.profile_plane_offset,{feature.id,"parameter:profile_offset",{}}});
+        }
+        if(wrap?p.wrapping.output!=document::WrappingOutput::Relief:
+                p.projection.output!=document::ProjectionOutput::Relief)return out;
+        const double depth=(feature.combine_mode==document::CombineMode::Subtract?-1.:1.)*
+            (wrap?p.wrapping.height:p.projection.height);
+        // Witnesses come from the command's actual normal/projection offset,
+        // including reversed supports and wrap continuation charts.
+        for(const auto& edge:preview_wire)if(edge.reference.owner_id==feature.id&&
+                edge.reference.semantic_key==(wrap?"wrap:preview:wall":"projection:preview:wall")&&edge.points.size()==2) {
+            const auto a=edge.points.front(),b=edge.points.back();
+            const auto direction=kernel::dimension_unit(kernel::dimension_sub(b,a));
+            if(std::abs(depth)<1e-12)break;
+            auto offset=kernel::dimension_sub(sketch.resolved_x_axis,
+                kernel::dimension_scale(direction,kernel::dimension_dot(sketch.resolved_x_axis,direction)));
+            if(kernel::dimension_dot(offset,offset)<1e-12)
+                offset=kernel::dimension_sub(sketch.resolved_y_axis,
+                    kernel::dimension_scale(direction,kernel::dimension_dot(sketch.resolved_y_axis,direction)));
+            offset=kernel::dimension_scale(kernel::dimension_unit(offset),8.);
+            out.dimensions.dimensions.push_back({a,b,kernel::dimension_add(a,offset),kernel::dimension_add(b,offset),
+                depth,{feature.id,"parameter:relief_depth",{}}});
+            break;
+        }
+        return out;
+    }
     if(p.type==document::FeatureType::Point) {
         const auto& placement=feature.placement;
         if(auto annotation=point_station_annotation(feature.id,{placement.x,placement.y,placement.z},placement.references,placement.reference_valid))

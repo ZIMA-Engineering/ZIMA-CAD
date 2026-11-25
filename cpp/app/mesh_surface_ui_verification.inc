@@ -44,7 +44,17 @@ static void verify_mesh_surface_placement(QApplication& application,AssemblyWork
     auto picked=dialog()->pending_value();
     check(!picked.placement.references.empty(),"General face click was rejected");
     check(document::resolve_placement(picked.placement,geometry),"Clicked mesh point cannot resolve");
-    check(std::hypot(picked.placement.x-expected->x,picked.placement.y-expected->y,picked.placement.z-expected->z)<1e-5,"Mesh click moved to a different triangle");
+    // Filling four boundaries does not uniquely prescribe a bilinear patch.
+    // Independently measure the attachment against the calculated trimmed
+    // OCCT face, without reusing our surface evaluator or its contact solver.
+    check(std::hypot(picked.placement.x-expected->x,picked.placement.y-expected->y,picked.placement.z-expected->z)<.2,
+        "Surface click moved away from the picked neighborhood");
+    const auto exact_shape=kernel::read_calculated_body_shape(calculated.back());
+    BRepExtrema_DistShapeShape distance(BRepBuilderAPI_MakeVertex(
+        gp_Pnt(picked.placement.x,picked.placement.y,picked.placement.z)).Vertex(),exact_shape);
+    check(distance.IsDone()&&distance.Value()<1e-7,
+        "Surface click does not lie on the independent exact trimmed face");
+    expected=kernel::Vec3{picked.placement.x,picked.placement.y,picked.placement.z};
     document::ConstructionReference x{{},patch.container_origin.id,"origin:plane:yz",0,true};x.measured_offset=expected->x;
     document::ConstructionReference y{{},patch.container_origin.id,"origin:plane:xz",0,true};y.measured_offset=expected->y;
     check(dialog()->set_reference(1,x,"X")&&dialog()->set_reference(2,y,"Y"),"Mesh reference capture failed");flush();

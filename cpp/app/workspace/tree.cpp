@@ -548,11 +548,11 @@ void AssemblyWorkspaceWindow::add_part_tree_children(
         ? zima::assembly::InstancePath{}
         : zima::assembly::InstancePath::decode(workspace_.active_occurrence_path());
     auto references=part_reference_index(document);
-    std::map<std::string,zima::workspace::HistoryReferenceStatus> sheet_reference_status;
+    std::map<std::string,zima::workspace::HistoryReferenceStatus> history_reference_status;
     if (const auto* part=workspace_.open_part(document.document_id)) {
         const auto& boundaries=part->session.calculated_boundaries();
         if (!boundaries.empty()) references.add_geometry(boundaries.back().mesh.original_references);
-        sheet_reference_status=zima::workspace::cached_sheet_attachment_reference_status(document,boundaries);
+        history_reference_status=zima::workspace::cached_history_placement_reference_status(document,boundaries);
     }
     add_origin_tree_item(parent, document.document_id, false, construction_path);
     for (std::size_t index = 0; index < document.history.size(); ++index) {
@@ -577,19 +577,18 @@ void AssemblyWorkspaceWindow::add_part_tree_children(
             ? &part->session.calculated_boundaries().back().mesh.original_references : nullptr;
         add_history_container_tree_children(item, container, construction_path,
             owned_sketch == document.sketches.end() ? nullptr : &*owned_sketch,false,calculated_references);
-        // Only edge treatments validate operational edge identities against
-        // their exact pre-feature body. Building a rollback boundary copies a
-        // potentially large mesh, so do not create one for the other feature
-        // kinds whose reference diagnostics consume only the shared index.
+        // Edge treatments inspect their current bounded wires. Placement checks
+        // use the cached identity-only history status above, so they retain the
+        // correct input boundary without copying a rollback mesh or calculating.
         const bool needs_input_geometry =
             container.feature_kind == zima::document::FeatureKind::Fillet ||
             container.feature_kind == zima::document::FeatureKind::Chamfer;
         const auto boundary=part && needs_input_geometry
             ? part->session.rollback_boundary(container.id) : std::nullopt;
-        const auto sheet_status=sheet_reference_status.find(container.id);
+        const auto history_status=history_reference_status.find(container.id);
         const auto issue=feature_reference_issue(container,document,references,
             boundary && boundary->input_body ? &boundary->input_body->mesh : nullptr,
-            sheet_status==sheet_reference_status.end()?nullptr:&sheet_status->second);
+            history_status==history_reference_status.end()?nullptr:&history_status->second);
         tree_reference_state_.apply(item,document.document_id,container.id,issue);
         for (int child=0;child<item->childCount();++child) {
             auto* row=item->child(child);

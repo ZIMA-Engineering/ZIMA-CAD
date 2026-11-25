@@ -12,6 +12,8 @@
 #include <zima/workspace/model_calculation.hpp>
 #include <zima/workspace/history_operations.hpp>
 #include <zima/workspace/drawing_sources.hpp>
+#include <zima/drawing/drawing_document.hpp>
+#include <cstdlib>
 #include <nlohmann/json.hpp>
 #include <iostream>
 #include <set>
@@ -1215,7 +1217,53 @@ void verify_hidden_sketch_axis_drawing(const kernel::OcctKernel& kernel) {
     std::cout<<"Unused Sketch axis: hidden in model, editable in Sketcher, native reopen and Drawing annotation available passed\n";
 }
 
+void two_sided_feature_seams(const kernel::OcctKernel& kernel) {
+    for(int profile=0;profile<3;++profile)for(bool reversed:{false,true})for(bool symmetric:{false,true}) {
+        auto part=fixture(false);auto& sketch=part.sketches.front();
+        sketch=sketcher::Sketch::create_default();sketch.owner_container_id=part.history.front().id;
+        if(profile==0)static_cast<void>(sketch.add_rectangle(-5,-4,5,4));
+        else if(profile==1)static_cast<void>(sketch.add_circle(0,0,5));
+        else {static_cast<void>(sketch.add_arc(0,0,5,0,-5,0));static_cast<void>(sketch.add_segment(-5,0,5,0));}
+        auto& feature=part.history.front();feature.feature_kind=document::FeatureKind::Feature;
+        feature.feature.sketch_id=sketch.id;feature.feature.symmetric=symmetric;feature.feature.reversed_sides=reversed;
+        for(auto& side:feature.feature.sides){side.operation=document::FeatureSideOperation::Extrusion;side.length=10;}
+        if(!symmetric)feature.feature.sides[1].length=7;
+        part.resolve_constructions();auto bodies=kernel.evaluate_history(part.kernel_operations());
+        const double area=profile==0?80:25*std::numbers::pi/(profile==2?2:1);
+        near(bodies.back().volume,area*(symmetric?20:17));
+        std::set<std::string> sides;
+        auto inspect=[&](const kernel::ViewerMesh& mesh) {
+            unsigned count{};
+            for(const auto& edge:mesh.edges)if(kernel::opposite_feature_side_faces(edge)) {
+                ++count;check(!edge.parameter_seam,"An authored two-side join is hidden as a UV seam");
+                for(const auto& point:edge.points)near(point.z,0.);
+                for(const auto& face:edge.edge_treatment_side_references)sides.insert(face.semantic_key);
+            }
+            check(count>0,"Two-sided Feature lost its shared topological boundary");
+            check(sides.size()>=2,"Opposite side faces were merged");
+            auto only=mesh;std::erase_if(only.edges,[](const auto& edge){return !kernel::opposite_feature_side_faces(edge);});
+            // No silhouettes: isolate the authored join while retaining its
+            // real adjacent-face inward directions for drawing filtering.
+            only.vertices.clear();only.triangles.clear();only.triangle_references.clear();only.original_references={};
+            drawing::DrawingView view;view.camera=drawing::standard_camera(drawing::ViewOrientation::Isometric);
+            drawing::prepare_interactive_view(view,std::make_shared<const kernel::ViewerMesh>(only));
+            check(view.projected_edges.empty()&&drawing::project_edges(only,view.camera).empty(),"Smooth authored join leaked into a Drawing");
+            // A real crease at the same ancestry boundary must survive.
+            for(auto& edge:only.edges)for(auto& v:edge.edge_treatment_side_directions[1])v={1,0,1};
+            check(!drawing::project_edges(only,view.camera).empty(),"Drawing suppressed a real crease");
+        };
+        inspect(bodies.back().mesh);const auto initial=sides;
+        std::vector<kernel::BodyResult> cache;auto saved=document::PartDocument::from_serialized(part.serialized(bodies),&cache);
+        sides.clear();inspect(cache.back().mesh);check(sides==initial,"Native reopen changed side identity");
+        saved.history.front().feature.sides[0].length=13;
+        auto edited=kernel.evaluate_history(saved.kernel_operations());sides.clear();inspect(edited.back().mesh);
+        check(sides==initial,"Length edit changed the authored face branches");
+    }
+    std::cout<<"Two-sided rectangle/circle/arc: both directions, symmetric/unequal lengths, visible joins, distinct ancestry, native reopen, edits and interactive/precise Drawing suppression passed\n";
+}
+
 int main(){try {
+ if(std::getenv("ZIMA_VERIFY_FEATURE_SEAMS_ONLY")){kernel::OcctKernel kernel;two_sided_feature_seams(kernel);return 0;}
  coincident_revolution_endpoints();
  using E=kernel::ExtrusionRequest;E request;request.centerlines.origin={0,0,0};request.centerlines.normal={0,0,1};
  request.outer_profile=E::PolygonProfile{{{0,0,0},{20,0,0},{20,10,0},{0,10,0}}};
@@ -1231,6 +1279,7 @@ int main(){try {
  request.outer_profile=E::CurvedProfile{{parabola,E::LineCurve{{1,0,0},{-1,0,0}}}};near(kernel::profile_centerlines::centroid(request),{0,.2,0});
  request.centerlines.origin={3,5,7};request.centerlines.normal={1,0,0};request.outer_profile=E::PolygonProfile{{{3,5,7},{3,15,7},{3,15,13},{3,5,13}}};near(kernel::profile_centerlines::centroid(request),{3,10,10});
  kernel::OcctKernel kernel;
+ two_sided_feature_seams(kernel);
  verify_hidden_sketch_axis_drawing(kernel);
  axis_display_contract(kernel);
  mixed_feature_directions(kernel);

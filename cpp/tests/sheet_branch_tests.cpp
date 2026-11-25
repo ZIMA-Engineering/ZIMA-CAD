@@ -266,7 +266,7 @@ commands::Result command(command_host::Host& host,const char* name,commands::Jso
 }
 void references_valid(const document::PartDocument& part,const std::vector<kernel::BodyResult>& calculated) {
     require(!calculated.empty()&&calculated.back().calculation_errors.empty(),"Branch calculation failed");
-    const auto statuses=workspace::cached_sheet_attachment_reference_status(part,calculated);
+    const auto statuses=workspace::cached_history_placement_reference_status(part,calculated);
     const auto index=app::part_reference_index(part,calculated.back().mesh.original_references);
     for(const auto& feature:part.history) {
         const auto found=statuses.find(feature.id);

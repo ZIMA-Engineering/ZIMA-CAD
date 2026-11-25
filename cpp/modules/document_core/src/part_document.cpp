@@ -13,7 +13,8 @@
 #include <array>
 #include <cstring>
 #include <zima/document/placement_surface.hpp>
-#include <zima/document/placement_mesh_surface.hpp>
+#include <zima/document/placement_exact_surface.hpp>
+#include <zima/kernel/exact_surface.hpp>
 #include <zima/document/placement_reference_geometry.hpp>
 #include <zima/document/feature_rotation_span.hpp>
 #include <zima/document/native_read_capture.hpp>
@@ -1039,12 +1040,12 @@ nlohmann::json read_part_ini(const std::filesystem::path& path,
     const auto ini = read_ini(path);
     profile.phase("INI scan");
     const auto native_format=ini_value(ini, "Document", "format_version");
-    if (native_format != "56") {
+    if (native_format != "57") {
         throw std::runtime_error("Unsupported ZIMA-CAD Part document format");
     }
     nlohmann::json root = {
         {"format", "zima-cad-cpp"},
-        {"format_version", 79},
+        {"format_version", 80},
         {"document_id", ini_required(ini, "Document", "document_id")},
         {"type", ini_value(ini, "Document", "type", "part")},
         {"name", ini_value(ini, "Document", "name", "Nový díl")},
@@ -1242,7 +1243,7 @@ NativeCalculatedCachePtr write_part_ini(
     NativeIoProfile profile("Part write");
     IniSections ini;
     ini["Document"] = {
-        {"format_version", "56"},
+        {"format_version", "57"},
         {"calculated_definition", "zima-part-definition-sha256-v1"},
         {"type", "part"},
         {"document_id", root.at("document_id").get<std::string>()},
@@ -3327,7 +3328,9 @@ zima::kernel::ViewerReferenceGeometry transform_reference_geometry(
     std::unordered_map<const zima::kernel::SurfaceGeometry*,std::pair<
         std::shared_ptr<const zima::kernel::SurfaceGeometry>,
         std::shared_ptr<const zima::kernel::SurfaceGeometry>>> placed_surfaces;
+    kernel::ExactSurfaceTransformCache exact_surfaces;
     const auto face = [&](auto& reference) {
+        exact_surfaces.apply(reference.exact_surface,point,direction);
         if(reference.contour_surface) {
             const auto original=reference.contour_surface;
             if(const auto cached=placed_surfaces.find(original.get());cached!=placed_surfaces.end())reference.contour_surface=cached->second.second;
@@ -3656,6 +3659,7 @@ std::optional<PlacementReferencePlane> placement_reference_plane(
         return PlacementReferencePlane{projected->point,projected->normal,
             tangent,placement_vec_cross(projected->normal,tangent)};
     }
+    if(placement_exact::is_surface(reference,geometry))return std::nullopt;
     for (std::size_t index = 0; index < geometry.triangle_references.size(); ++index) {
         if (!placement_reference_matches(geometry.triangle_references[index], reference)) continue;
         const auto& a = geometry.vertices[geometry.triangles[index * 3]];
@@ -3906,7 +3910,7 @@ bool placement_solve_position_step(
 }
 
 #include "placement_branches.inc"
-#include "placement_mesh_constraints.inc"
+#include "placement_exact_constraints.inc"
 
 bool placement_solve_position(
     const std::vector<std::reference_wrapper<const ConstructionReference>>& references,
@@ -3922,7 +3926,7 @@ bool placement_solve_position(
             if (!ref.use_axis && !ref.use_angle && surface &&
                 surface->kind!=kernel::SurfaceGeometry::Kind::Plane &&
                 surface->kind!=kernel::SurfaceGeometry::Kind::Cylinder) return false;
-            if (!ref.use_axis && !surface && placement_mesh::is_surface(ref,geometry) &&
+            if (!ref.use_axis && !surface && placement_exact::is_surface(ref,geometry) &&
                 !construction_reference_is_planar_face(ref,geometry)) return false;
         }
         return placement_solve_position_step(references,geometry,origin);
@@ -3978,9 +3982,19 @@ bool placement_solve_position(
             return true;
         }
     }
-    if(const auto mesh=placement_mesh_solutions(references,geometry,origin)) {
+    if(const auto mesh=placement_exact_solutions(references,geometry,origin)) {
         if(mesh->points.empty())return false;
-        origin=*std::ranges::min_element(mesh->points,{},[&](auto p){return placement_mesh::square(placement_mesh::sub(p,origin));});
+        const auto solved=*std::ranges::min_element(mesh->points,{},[&](auto p){return placement_exact::square(placement_exact::sub(p,origin));});
+        // Preserve a validated fixed point at floating-point roundoff only.
+        // Replacing it with another equally accurate representation on each
+        // solve prevents exact history/fingerprint convergence. The current
+        // surface, trim and equations were still evaluated above; this is not
+        // cached validity and does not normalize side choices or signed zero.
+        const double roundoff=64*std::numeric_limits<double>::epsilon()*
+            std::max({1.,std::abs(origin.x),std::abs(origin.y),std::abs(origin.z),
+                std::abs(solved.x),std::abs(solved.y),std::abs(solved.z)});
+        if(placement_exact::square(placement_exact::sub(solved,origin))>roundoff*roundoff)
+            origin=solved;
         return true;
     }
     if(const auto branches=placement_branches(references,geometry,origin)) {
@@ -4198,13 +4212,13 @@ std::vector<Placement> placement_solution_branches(Placement placement,
     for(auto& ref:placement.references){ref.solution_branch=0;ref.branch_sources.clear();}
     std::vector<std::reference_wrapper<const ConstructionReference>> refs;
     for(const auto& ref:placement.references)if(!ref.orientation_only)refs.push_back(ref);
-    if(const auto mesh=placement_mesh_solutions(refs,geometry,{placement.x,placement.y,placement.z},true)) {
+    if(const auto mesh=placement_exact_solutions(refs,geometry,{placement.x,placement.y,placement.z},true)) {
         std::vector<Placement> result;
         if(!mesh->discrete)return result;
         for(const auto point:mesh->points) {
             auto candidate=placement;candidate.x=point.x;candidate.y=point.y;candidate.z=point.z;
-            // The persisted resolved position anchors this solution. Triangle
-            // indices and tessellation order are never persisted as branches.
+            // The persisted resolved position anchors this solution. Display
+            // tessellation and UV enumeration never become branch identities.
             if(resolve_placement(candidate,geometry))result.push_back(std::move(candidate));
         }
         return result;
@@ -4686,7 +4700,7 @@ bool resolve_construction(ConstructionObject& object,
     };
     const auto plane = [&](const ConstructionReference& reference)
         -> std::optional<PlacementReferencePlane> {
-        return placement_reference_plane(reference, geometry, object.origin);
+        return placement_contact_plane(reference, geometry, object.origin);
     };
     // Even an absolute construction with no references must continue
     // through the common frame calculation below. Plane in particular must
@@ -5566,7 +5580,7 @@ PointConstraintState point_constraint_state(
                 append_axis_rows(axis->direction);
             continue;
         }
-        if(placement_surface(reference,geometry) || placement_mesh::is_surface(reference,geometry)) {
+        if(placement_surface(reference,geometry) || placement_exact::is_surface(reference,geometry)) {
             if(const auto plane=placement_contact_plane(reference,geometry,origin))
                 rows.push_back(plane->normal);
             continue;
@@ -5746,7 +5760,7 @@ std::vector<zima::kernel::ViewerDimension> construction_point_dimensions(
             (reference.owner_id.empty() && reference.semantic_key.empty())) {
             continue;
         }
-        if (const auto plane = placement_reference_plane(reference, geometry, object.origin)) {
+        if (const auto plane = placement_contact_plane(reference, geometry, object.origin)) {
             constraint_normals.push_back(plane->normal);
         }
         if (constraint_normals.size() == 3) break;
@@ -5777,7 +5791,7 @@ std::vector<zima::kernel::ViewerDimension> construction_point_dimensions(
         }
         if (current_index >= 3 || !reference.supports_offset ||
             std::abs(reference.offset) <= 1.0e-12) continue;
-        const auto plane = placement_reference_plane(reference, geometry, object.origin);
+        const auto plane = placement_contact_plane(reference, geometry, object.origin);
         if (!plane) continue;
 
         const auto normal = plane->normal;
@@ -13329,7 +13343,7 @@ PartDocument PartDocument::load(
 }
 PartDocument PartDocument::from_serialized(const nlohmann::json& root,
     std::vector<zima::kernel::BodyResult>* calculated_boundaries) {
-    if (root.value("format","")!="zima-cad-cpp" || root.at("format_version")!=79 || root.value("type","")!="part")
+    if (root.value("format","")!="zima-cad-cpp" || root.at("format_version")!=80 || root.value("type","")!="part")
         throw std::runtime_error("Unsupported ZIMA-CAD Part document format");
     NativeIoProfile profile("Part reconstruction");
     const auto& calculated_cache=root.at("calculated_boundaries");
@@ -15649,7 +15663,7 @@ nlohmann::json PartDocument::serialized(
     static_cast<void>(zima::document::parse_named_views(named_views));
     nlohmann::json root = {
         {"format", "zima-cad-cpp"},
-        {"format_version", 79},
+        {"format_version", 80},
         {"reference_errors", reference_errors},
         {"removed_reference_states",removed_reference_states},
         {"document_id", document_id},

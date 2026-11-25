@@ -3,8 +3,6 @@
 #include <zima/ui/reference_cell.hpp>
 #include <zima/ui/unit_spin_box.hpp>
 #include <QComboBox>
-#include <QCheckBox>
-#include <QHBoxLayout>
 #include <set>
 #include <QEvent>
 #include <QFormLayout>
@@ -31,17 +29,11 @@ public:
         output_->addItem(tr("Rozdělit"),int(document::WrappingOutput::Split));
         output_->addItem(tr("Plocha"),int(document::WrappingOutput::Surface));
         output_->setCurrentIndex(std::max(0,output_->findData(int(pending_.output))));form_->addRow(tr("Výsledek"),output_);
-        target_=new QTableWidget(1,5,this);target_->setObjectName("wrappingTarget");target_->verticalHeader()->hide();
+        target_=new QTableWidget(1,4,this);target_->setObjectName("wrappingTarget");target_->verticalHeader()->hide();
         target_->setSelectionMode(QAbstractItemView::NoSelection);target_->setEditTriggers(QAbstractItemView::NoEditTriggers);
         ui::install_reference_cell_delegate(target_);target_->verticalHeader()->setDefaultSectionSize(34);target_->setMinimumHeight(140);
-        for(int col:{0,1,2,4}){target_->horizontalHeader()->setSectionResizeMode(col,QHeaderView::Fixed);target_->setColumnWidth(col,34);}
-        target_->horizontalHeader()->setSectionResizeMode(3,QHeaderView::Stretch);layout->addWidget(target_,1);
-        auto* ordering=new QHBoxLayout;layout->addLayout(ordering);
-        for(bool down:{false,true}) {
-            auto* button=new QPushButton(ui::reference_arrow_icon(down?Qt::DownArrow:Qt::UpArrow),down?tr("Dolů"):tr("Nahoru"),this);
-            button->setObjectName(down?"wrappingTargetsDown":"wrappingTargetsUp");moves_[down?1:0]=button;ordering->addWidget(button);
-            connect(button,&QPushButton::clicked,this,[this,down]{move_target(down?1:-1);});
-        }
+        for(int col:{0,1,3}){target_->horizontalHeader()->setSectionResizeMode(col,QHeaderView::Fixed);target_->setColumnWidth(col,34);}
+        target_->horizontalHeader()->setSectionResizeMode(2,QHeaderView::Stretch);layout->addWidget(target_,1);
         details_=new QFormLayout;layout->addLayout(details_);
         height_=new ui::UnitDoubleSpinBox(ui::InputQuantity::Length,this);height_->setObjectName("wrappingHeight");
         height_->setRange(-1000000,1000000);height_->setValue(pending_.height);displayed_height_=height_->value();initial_height_=pending_.height;details_->addRow(tr("Korekce"),height_);
@@ -50,9 +42,18 @@ public:
         notice_->setWordWrap(true);layout->addWidget(notice_);
         connect(output_,&QComboBox::currentIndexChanged,this,[this](int index){pending_.output=static_cast<document::WrappingOutput>(output_->itemData(index).toInt());refresh();notify();if(layout_changed)layout_changed();});
         connect(height_,&QDoubleSpinBox::valueChanged,this,[this](double value){pending_.height=std::abs(value)==std::abs(displayed_height_)?initial_height_:std::abs(value);notify();});
-        connect(target_,&QTableWidget::cellClicked,this,[this](int row,int column){if(column==3)begin_entry(row);});refresh();
+        connect(target_,&QTableWidget::cellClicked,this,[this](int row,int column){if(column==2)begin_entry(row);});refresh();
     }
     const document::WrappingParameters& parameters()const{return pending_;}
+    void set_targets(const std::vector<document::ExtrusionParameters::EndTarget>& values) {
+        active_=false;row_=0;inspected_.clear();
+        pending_.target.reset();pending_.continuations.clear();
+        if(!values.empty()) {
+            pending_.target=values.front();
+            pending_.continuations.assign(values.begin()+1,values.end());
+        }
+        refresh();
+    }
     void set_relief_mode(bool relief) {
         if(relief)pending_.output=document::WrappingOutput::Relief;
         else if(pending_.output==document::WrappingOutput::Relief)pending_.output=document::WrappingOutput::Curves;
@@ -80,20 +81,16 @@ public:
     void refresh() {
         const bool relief=pending_.output==document::WrappingOutput::Relief;
         form_->setRowVisible(output_,!relief);details_->setRowVisible(height_,relief);
-        target_->setHorizontalHeaderLabels({tr("Č."),{},{},tr("Cílové plochy"),{}});
+        target_->setHorizontalHeaderLabels({tr("Č."),{},tr("Cílové plochy"),{}});
         target_->setRowCount(count()+1);
         for(int row=0;row<=count();++row) {
             const bool populated=row<count();
             const auto reference=populated?target(row).reference:kernel::FaceReference{};
             const bool inspected=populated&&inspected_.contains(key(reference));
             target_->setItem(row,0,new QTableWidgetItem(QString::number(row+1)));
-            auto* ordering=new QCheckBox(target_);ordering->setEnabled(populated);ordering->setChecked(populated&&ordered_&&*ordered_==reference);
-            ordering->setObjectName("wrappingTargetOrder");
-            connect(ordering,&QCheckBox::clicked,this,[this,reference](bool on){ordered_=on?std::optional{reference}:std::nullopt;refresh();});
-            target_->setCellWidget(row,1,ui::centered_cell_widget(ordering));
             auto* indicator=ui::build_reference_row_indicator([this,row]{
                 if(row>=count())return;
-                const auto removed=target(row).reference;inspected_.erase(key(removed));if(ordered_&&*ordered_==removed)ordered_.reset();
+                const auto removed=target(row).reference;inspected_.erase(key(removed));
                 if(row==0) {
                     if(pending_.continuations.empty())pending_.target.reset();
                     else {pending_.target=std::move(pending_.continuations.front());pending_.continuations.erase(pending_.continuations.begin());}
@@ -101,22 +98,19 @@ public:
                 row_=std::min(row,count());active_=true;refresh();notify();if(inspection_changed)inspection_changed();if(pick_requested)pick_requested(true);
             });
             indicator->findChild<QPushButton*>()->setToolTip(tr("Odstranit cílovou plochu ze seznamu"));
-            ui::set_reference_row_populated(indicator,populated);target_->setCellWidget(row,2,indicator);
+            ui::set_reference_row_populated(indicator,populated);target_->setCellWidget(row,1,indicator);
             const auto label=populated?(face_label?face_label(reference):QString::fromStdString(target(row).label)):tr("Select a cylindrical, conical, spherical or planar face to wrap.");
             auto* cell=new ui::ReferenceCellItem(label);if(populated)cell->set_reference(QString::fromStdString(reference.owner_id+":"+reference.semantic_key));
-            cell->set_active_input(active_&&row_==row);cell->set_inspected(inspected);target_->setItem(row,3,cell);
-            target_->setCellWidget(row,4,ui::centered_cell_widget(ui::build_reference_inspection_button(populated,inspected,[this,reference](bool on){
+            cell->set_active_input(active_&&row_==row);cell->set_inspected(inspected);target_->setItem(row,2,cell);
+            target_->setCellWidget(row,3,ui::centered_cell_widget(ui::build_reference_inspection_button(populated,inspected,[this,reference](bool on){
                 if(on)inspected_.insert(key(reference));else inspected_.erase(key(reference));refresh();if(inspection_changed)inspection_changed();
             })));
         }
-        int selected=-1;for(int i=0;i<count();++i)if(ordered_&&target(i).reference==*ordered_)selected=i;
-        moves_[0]->setEnabled(selected>0);moves_[1]->setEnabled(selected>=0&&selected+1<count());
     }
 
 protected:
     void changeEvent(QEvent* event)override {
         QWidget::changeEvent(event);if(event->type()!=QEvent::LanguageChange)return;
-        moves_[0]->setText(tr("Nahoru"));moves_[1]->setText(tr("Dolů"));
         output_->setItemText(0,tr("Skica"));output_->setItemText(1,tr("Rozdělit"));output_->setItemText(2,tr("Plocha"));
         static_cast<QLabel*>(form_->labelForField(output_))->setText(tr("Výsledek"));
         static_cast<QLabel*>(details_->labelForField(height_))->setText(tr("Korekce"));
@@ -129,18 +123,10 @@ private:
     int count()const{return pending_.target?1+static_cast<int>(pending_.continuations.size()):0;}
     document::ExtrusionParameters::EndTarget& target(int row){return row==0?*pending_.target:pending_.continuations.at(row-1);}
     const document::ExtrusionParameters::EndTarget& target(int row)const{return row==0?*pending_.target:pending_.continuations.at(row-1);}
-    void move_target(int step) {
-        int selected=-1;for(int i=0;i<count();++i)if(ordered_&&target(i).reference==*ordered_)selected=i;
-        if(selected<0||selected+step<0||selected+step>=count())return;
-        std::optional<kernel::FaceReference> active;if(active_&&row_<count())active=target(row_).reference;
-        std::swap(target(selected),target(selected+step));
-        if(active)for(int i=0;i<count();++i)if(target(i).reference==*active)row_=i;
-        refresh();notify();
-    }
     void notify(){if(changed)changed();}
     document::WrappingParameters pending_;
     QFormLayout *form_{},*details_{};QComboBox* output_{};QTableWidget* target_{};
     ui::UnitDoubleSpinBox* height_{};double displayed_height_{},initial_height_{};
-    QLabel* notice_{};bool active_{};int row_{};std::set<Key> inspected_;std::optional<kernel::FaceReference> ordered_;QPushButton* moves_[2]{};
+    QLabel* notice_{};bool active_{};int row_{};std::set<Key> inspected_;
 };
 }

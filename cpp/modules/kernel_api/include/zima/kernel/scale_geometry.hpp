@@ -27,8 +27,11 @@ inline ViewerMesh scaled_body_mesh(ViewerMesh mesh,double factor,Vec3 center,con
         if(ref.semantic_key!="container:display")ref.semantic_key=std::string(derivation)+":from:"+std::to_string(ref.owner_id.size())+":"+ref.owner_id+ref.semantic_key;
         ref.owner_id=owner;ref.instance_path.clear();
     };
+    ExactSurfaceTransformCache exact_surfaces;
     const auto face=[&](FaceReference& ref){
         reference(ref);ref.display_owner_id=owner;
+        exact_surfaces.apply(ref.exact_surface,[&](Vec3 v){return scaled_body_point(v,factor,center);},
+            [&](Vec3 v){return Vec3{v.x*factor,v.y*factor,v.z*factor};});
         if(ref.measured_area)*ref.measured_area*=factor*factor;
         ref.sheet_thickness*=factor;
         if(!ref.sheet_owner.empty())ref.sheet_owner=std::string(derivation)+":from:"+std::to_string(ref.sheet_owner.size())+":"+ref.sheet_owner+"sheet";

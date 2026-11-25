@@ -1,5 +1,6 @@
 #include <IntCurvesFace_ShapeIntersector.hxx>
 #include <zima/kernel/surface_wrap.hpp>
+#include <zima/kernel/occt_surface_data.hpp>
 #include <zima/kernel/surface_wrap_chain.hpp>
 #include <zima/kernel/viewer_wrap_charts.hpp>
 #include <zima/kernel/wrapped_chart_image.hpp>
@@ -283,6 +284,7 @@ namespace {
 constexpr std::size_t kLiveShapeCacheLimit = 256;
 
 gp_Trsf primitive_transform(const Vec3& translation, const Vec3& rotation_degrees);
+void place_body_physical_properties(BodyResult& result,const gp_Trsf& placement);
 
 occ::handle<Geom_Surface> analytic_conversion_surface(occ::handle<Geom_Surface> surface) {
     // OCCT 8.0.1 identifies a trimmed spline through its adaptor, then casts
@@ -6368,10 +6370,34 @@ std::string serialize_kernel_shape(const TopoDS_Shape& shape) {
 
 std::optional<SurfaceGeometry> analytic_surface(const TopoDS_Face& face);
 
+class ExactSurfaceCaptureCache {
+    NCollection_IndexedMap<TopoDS_Shape,TopTools_ShapeMapHasher> faces_;
+    struct Entry {bool captured{};std::shared_ptr<const ExactSurfaceGeometry> surface;};
+    std::vector<std::array<Entry,2>> entries_;
+public:
+    std::shared_ptr<const ExactSurfaceGeometry> get(const TopoDS_Face& face) {
+        const auto index=static_cast<std::size_t>(faces_.Add(face)-1);
+        if(index==entries_.size())entries_.emplace_back();
+        auto& entry=entries_[index][face.Orientation()==TopAbs_REVERSED?1:0];
+        if(!entry.captured) {
+            const auto analytic=analytic_surface(face);
+            // Preserve the established analytic placement contracts. General
+            // supports, including spheres/tori, retain exact bounded UV data.
+            if(!analytic||analytic->kind==SurfaceGeometry::Kind::Sphere||
+                    analytic->kind==SurfaceGeometry::Kind::Torus)
+                entry.surface=capture_exact_surface_geometry(face);
+            entry.captured=true;
+        }
+        return entry.surface;
+    }
+};
+
 void persist_surface_topology(const TopoDS_Shape& shape,const std::vector<OwnedFace>& faces,
         const std::vector<OwnedEdge>& edges,const std::vector<OwnedVertex>& vertices,BodyResult& result,
         const std::vector<TopoDS_Shape>* hidden=nullptr,std::vector<std::string>* hidden_locators=nullptr,
-        bool clean_unused_pcurves=false) {
+        bool clean_unused_pcurves=false,ExactSurfaceCaptureCache* shared_surfaces=nullptr) {
+    ExactSurfaceCaptureCache local_surfaces;
+    auto& exact_surfaces=shared_surfaces?*shared_surfaces:local_surfaces;
     // Result edges can still be shared with earlier history/preview inputs.
     // A p-curve unused here may be required by a face in that other Body.
     // Strip unused representations only from private serialization topology;
@@ -6398,7 +6424,9 @@ void persist_surface_topology(const TopoDS_Shape& shape,const std::vector<OwnedF
             if constexpr(std::is_same_v<std::decay_t<decltype(item.reference)>,FaceReference>) {
                 auto& reference=captured.back().reference;
                 reference.surface.reset();reference.contour_surface.reset();
-                if(const auto geometry=analytic_surface(TopoDS::Face(members.FindKey(members.FindIndex(item.shape))))) {
+                const auto face=TopoDS::Face(members.FindKey(members.FindIndex(item.shape)));
+                reference.exact_surface=exact_surfaces.get(face);
+                if(const auto geometry=analytic_surface(face)) {
                     auto& target=(geometry->kind==SurfaceGeometry::Kind::Torus||geometry->kind==SurfaceGeometry::Kind::Sphere)?
                         reference.contour_surface:reference.surface;
                     target=std::make_shared<const SurfaceGeometry>(*geometry);
@@ -6905,6 +6933,7 @@ double corner_form_integrals(const TopoDS_Shape& shape,GProp_GProps& properties,
 void calculate_aggregate_properties(const TopoDS_Shape& shape,BodyResult& result,
     bool surface_result,bool imported_step,bool parallel_corner_volume,
     const std::function<void(const char*)>& profile=[](const char*){}) {
+    ++body_property_integration_count;
     const bool profile_calc=std::getenv("ZIMA_CPP_CALC_PROFILE")!=nullptr;
     GProp_GProps volume_properties;
     GProp_GProps surface_properties;
@@ -7094,6 +7123,7 @@ BodyResult make_result(
         // serial OCCT face loop. Precision and requested properties are equal.
         imported_step,parallel_corner_volume||imported_step,profile);
     const bool pending_face_measurements=!eager_face_measurements&&!owned_faces.empty();
+    ExactSurfaceCaptureCache exact_surfaces;
     if (!dependency_edges_only&&(persist_kernel_shape||pending_face_measurements)) {
         // Native boundaries must retain the same exact source ancestry after
         // reopening as in the live calculation cache. Face-only bindings cannot
@@ -7101,7 +7131,7 @@ BodyResult make_result(
         // Reuse one archive for all owned kinds; inspection never rebuilds it.
         if(!owned_faces.empty())
             persist_surface_topology(shape,owned_faces,owned_edges,owned_vertices,result,
-                nullptr,nullptr,persist_kernel_shape);
+                nullptr,nullptr,persist_kernel_shape,&exact_surfaces);
         else result.kernel_shape = serialize_kernel_shape(shape);
     }
     profile("BRep persistence");
@@ -7245,6 +7275,8 @@ BodyResult make_result(
         }
         else reference.measured_area.reset();
         reference.contour_surface.reset();
+        reference.exact_surface=reference.valid()?exact_surfaces.get(face):nullptr;
+        if(reference.exact_surface)reference.surface.reset();
         if (reference.valid()) if (const auto surface=support_surface_for(face)) {
             auto geometry=*surface;
             if(reference.surface&&
@@ -7566,6 +7598,7 @@ BodyResult make_result(
                 const auto face=TopoDS::Face(iterator.Value());
                 face_reference.surface.reset();
                 face_reference.contour_surface.reset();
+                face_reference.exact_surface=exact_surfaces.get(face);
                 if(const auto surface=support_surface_for(face)) {
                     auto& target=(surface->kind==SurfaceGeometry::Kind::Torus||surface->kind==SurfaceGeometry::Kind::Sphere)?
                         face_reference.contour_surface:face_reference.surface;
@@ -7662,6 +7695,10 @@ BodyResult make_result(
             viewer_edge.edge_treatment_side_directions.clear();
             viewer_edge.edge_treatment_side_references.clear();
         }
+        // A shared boundary between authored Feature branches is not a UV
+        // seam. Show the split in the model just as for planar side faces;
+        // Drawing projection suppresses its smooth join independently.
+        if(opposite_feature_side_faces(viewer_edge))viewer_edge.parameter_seam=false;
         // Publish the exact straight-edge midpoint as a stable attachment
         // datum during calculation. Selection and editing only consume this
         // packet; they do not query the kernel or alter the placement solver.
@@ -7979,9 +8016,26 @@ bool contains_history_references(const BodyResult& boundary,
         const std::set<HistoryReferenceIdentity>& requested) {
     return std::ranges::all_of(requested,[&](const auto& identity) {
         const VertexReference datum{std::get<0>(identity),std::get<1>(identity),std::get<2>(identity)};
+        // Compact display tags persist identity without analytic support. They
+        // cannot prove a complete placement input: using their triangle normals
+        // would rotate an unchanged cylinder-attached feature after reopening.
+        // Recover the exact requested boundary through the existing native
+        // publication path. General supports carry their exact mathematics in
+        // the packet; display tessellation is never sufficient evidence.
+        const bool curved_support=std::ranges::any_of(boundary.kernel_faces,[&](const auto& binding) {
+            const auto& face=binding.reference;
+            const auto support=face.surface?face.surface:face.contour_surface;
+            return HistoryReferenceIdentity{face.owner_id,face.semantic_key,face.instance_path}==identity&&
+                (face.exact_surface||(support&&support->kind!=SurfaceGeometry::Kind::Plane));
+        });
+        const bool incomplete_display_face=curved_support&&std::ranges::any_of(
+            boundary.mesh.triangle_references,[&](const auto& face) {
+                return HistoryReferenceIdentity{face.owner_id,face.semantic_key,face.instance_path}==identity&&
+                    !face.surface&&!face.contour_surface&&!face.exact_surface;
+            });
         return contains_history_reference(
                    boundary.mesh.original_references,identity)||
-            contains_history_reference(boundary.mesh,identity)||
+            (!incomplete_display_face&&contains_history_reference(boundary.mesh,identity))||
             find_sheet_edge_midpoint(boundary.mesh,datum).has_value()||
             find_sheet_edge_midpoint(boundary.mesh.original_references,datum).has_value();
     });
@@ -8212,6 +8266,11 @@ static void aggregate_body_properties(BodyResult& document,const std::set<std::s
 }
 
 void OcctKernel::ensure_body_properties(BodyResult& body) const {
+    std::vector<BodyPropertyAnalysis> analysis;
+    ensure_body_properties(body,analysis);
+}
+
+void OcctKernel::ensure_body_properties(BodyResult& body,std::vector<BodyPropertyAnalysis>& analysis) const {
     if(body.physical_properties_current)return;
     if(body.kernel_shape==kernel_body_compound&&body.kernel_compound_bodies.empty()&&
         (!body.mesh.triangles.empty()||body.has_solid()))
@@ -8220,12 +8279,54 @@ void OcctKernel::ensure_body_properties(BodyResult& body) const {
         auto analyzed=body;
         const std::set<std::string> available(body.kernel_compound_bodies.begin(),body.kernel_compound_bodies.end());
         for(const auto& id:available)if(!analyzed.body_outputs.at(id)->physical_properties_current) {
-            auto output=analyzed.body_outputs.at(id).get();ensure_body_properties(output);
+            auto output=analyzed.body_outputs.at(id).get();ensure_body_properties(output,analysis);
             analyzed.body_outputs.insert_or_assign(id,std::move(output));
         }
         aggregate_body_properties(analyzed,available);
         body=std::move(analyzed);return;
     }
+    const auto modes=[](const BodyResult& value) {
+        return std::pair{
+            std::ranges::any_of(value.mesh.triangle_references,[](const auto& face){return face.surface_result;})||
+                std::ranges::any_of(value.kernel_faces,[](const auto& face){return face.reference.surface_result;}),
+            std::ranges::any_of(value.mesh.triangle_references,[](const auto& face){return face.semantic_key.starts_with("step:face:#");})};
+    };
+    const auto input_modes=modes(body);
+    const auto publish=[&](const BodyResult& properties) {
+        body.volume=properties.volume;body.surface_area=properties.surface_area;
+        body.volume_integrals=properties.volume_integrals;body.surface_centroid=properties.surface_centroid;
+        body.solid_present=properties.solid_present;body.physical_properties_current=true;
+    };
+    const auto remember=[&] {
+        BodyPropertyAnalysis entry;
+        entry.geometry=body.kernel_shape;entry.placements=body.kernel_placements;
+        entry.surface_result=input_modes.first;entry.imported_step=input_modes.second;
+        auto& values=entry.properties;values.source_fingerprint=body.source_fingerprint;
+        values.volume=body.volume;values.surface_area=body.surface_area;
+        values.volume_integrals=body.volume_integrals;values.surface_centroid=body.surface_centroid;
+        values.solid_present=body.solid_present;values.physical_properties_current=true;
+        analysis.push_back(std::move(entry));
+    };
+    // A local boundary and its placed output can have distinct source keys.
+    // Exact rigid placement preserves volume/area; transform the centroid and
+    // central inertia through the established placement equations. Never use
+    // a compound marker, empty archive or approximate/hash-only geometry match.
+    // No geometry, authored placement or reference metadata is transferred.
+    if(!body.kernel_shape.empty())for(const auto& cached:analysis)
+        if(cached.geometry==body.kernel_shape&&
+                std::pair{cached.surface_result,cached.imported_step}==input_modes) {
+            auto properties=cached.properties;
+            if(cached.placements!=body.kernel_placements) {
+                gp_Trsf previous_frame,current_frame;
+                for(const auto& frame:cached.placements)
+                    previous_frame.PreMultiply(primitive_transform(frame.translation,frame.rotation_degrees));
+                for(const auto& frame:body.kernel_placements)
+                    current_frame.PreMultiply(primitive_transform(frame.translation,frame.rotation_degrees));
+                place_body_physical_properties(properties,current_frame*previous_frame.Inverted());
+            }
+            publish(properties);
+            remember();return;
+        }
     TopoDS_Shape shape;
     if(!body.kernel_shape.empty())shape=read_kernel_shape(body);
     else if(const auto found=live_cache_->boundaries.find(body.source_fingerprint);found!=live_cache_->boundaries.end())
@@ -8233,15 +8334,11 @@ void OcctKernel::ensure_body_properties(BodyResult& body) const {
     else throw std::invalid_argument("Regenerate the model before measuring body properties.");
     if(shape.IsNull())throw std::invalid_argument("Regenerate the model before measuring body properties.");
     BodyResult properties;
-    calculate_aggregate_properties(shape,properties,
-        std::ranges::any_of(body.mesh.triangle_references,[](const auto& face){return face.surface_result;})||
-            std::ranges::any_of(body.kernel_faces,[](const auto& face){return face.reference.surface_result;}),
-        std::ranges::any_of(body.mesh.triangle_references,[](const auto& face){return face.semantic_key.starts_with("step:face:#");}),true);
+    calculate_aggregate_properties(shape,properties,input_modes.first,input_modes.second,true);
     // Publish only completed analysis. Geometry, bindings, ancestry, mesh and
     // source fingerprint remain exactly the previously calculated snapshot.
-    body.volume=properties.volume;body.surface_area=properties.surface_area;
-    body.volume_integrals=properties.volume_integrals;body.surface_centroid=properties.surface_centroid;
-    body.solid_present=properties.solid_present;body.physical_properties_current=true;
+    publish(properties);
+    remember();
 }
 
 std::vector<std::optional<double>> OcctKernel::measure_face_areas(
@@ -10432,10 +10529,7 @@ std::vector<std::string> authored_copy_feature_ids(
     return result;
 }
 
-void place_body_result(BodyResult& result, const gp_Trsf& placement) {
-    // Archive addresses refer to the original local BRep only. A placed
-    // viewer packet must not advertise bindings for rewritten geometry.
-    result.kernel_faces.clear();result.kernel_edges.clear();result.kernel_vertices.clear();
+void place_body_physical_properties(BodyResult& result,const gp_Trsf& placement) {
     if(result.volume_integrals) {
         auto& p=*result.volume_integrals;
         const auto c=gp_Pnt(p.centroid.x,p.centroid.y,p.centroid.z).Transformed(placement);
@@ -10443,12 +10537,23 @@ void place_body_result(BodyResult& result, const gp_Trsf& placement) {
         for(int i=0;i<3;++i)for(int j=0;j<3;++j)r[3*i+j]=placement.Value(i+1,j+1);
         p.inertia=inertia_rotate(p.inertia,r);
     }
+    if(result.surface_centroid) {
+        auto& value=*result.surface_centroid;
+        const auto p=gp_Pnt(value.x,value.y,value.z).Transformed(placement);
+        value={p.X(),p.Y(),p.Z()};
+    }
+}
+
+void place_body_result(BodyResult& result, const gp_Trsf& placement) {
+    // Archive addresses refer to the original local BRep only. A placed
+    // viewer packet must not advertise bindings for rewritten geometry.
+    result.kernel_faces.clear();result.kernel_edges.clear();result.kernel_vertices.clear();
+    place_body_physical_properties(result,placement);
     auto& mesh = result.mesh;
     const auto point = [&](Vec3& value) {
         const auto p = gp_Pnt(value.x, value.y, value.z).Transformed(placement);
         value = {p.X(), p.Y(), p.Z()};
     };
-    if(result.surface_centroid)point(*result.surface_centroid);
     const auto direction = [&](Vec3& value) {
         const auto v = gp_Vec(value.x, value.y, value.z).Transformed(placement);
         value = {v.X(), v.Y(), v.Z()};
@@ -10457,7 +10562,10 @@ void place_body_result(BodyResult& result, const gp_Trsf& placement) {
     // each once for this rigid placement and retain the original key's lifetime.
     std::unordered_map<const SurfaceGeometry*,std::pair<
         std::shared_ptr<const SurfaceGeometry>,std::shared_ptr<const SurfaceGeometry>>> placed_surfaces;
+    ExactSurfaceTransformCache placed_exact_surfaces;
     const auto face = [&](FaceReference& reference) {
+        placed_exact_surfaces.apply(reference.exact_surface,
+            [&](Vec3 p){point(p);return p;},[&](Vec3 v){direction(v);return v;});
         for(auto* target:{&reference.surface,&reference.contour_surface})if(*target) {
         const auto original=*target;
         if(const auto cached=placed_surfaces.find(original.get());cached!=placed_surfaces.end()) {

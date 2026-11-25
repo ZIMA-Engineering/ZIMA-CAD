@@ -32,7 +32,7 @@ using namespace workspace_detail;
 void AssemblyWorkspaceWindow::show_primitive_properties(
     zima::document::FeatureKind feature_kind,
     const std::string& container_id, bool sheet_metal,
-    std::optional<zima::document::FeatureType> feature_preset, bool rotation_preset, bool twist_preset, bool wrap_relief_preset, bool projection_relief_preset) {
+    std::optional<zima::document::FeatureType> feature_preset, bool rotation_preset, bool twist_preset, bool wrap_relief_preset, bool projection_relief_preset, bool planar_surface_preset) {
     QElapsedTimer profile_timer;profile_timer.start();
     const bool profile_command=qEnvironmentVariableIsSet("ZIMA_CPP_PROFILE_COMMAND");
     const auto profile_phase=[&](const char* phase) {
@@ -338,6 +338,10 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
         }
         if(sketch_type_shortcut && !rotation_preset && !twist_preset)
             initial.feature.sides[0].operation=zima::document::FeatureSideOperation::Extrusion;
+        if(planar_surface_preset) {
+            initial.feature.result_type=zima::document::ProfileResultType::Surface;
+            for(auto& side:initial.feature.sides)side.operation=zima::document::FeatureSideOperation::None;
+        }
         if(sketch_type_shortcut && initial.name==initial.feature.automatic_name) {
             initial.name=next_feature_name(part?part->session.document():assembly->session.document().feature_document(),initial.feature.type,initial.id);
             initial.feature.automatic_name=initial.name;
@@ -363,6 +367,8 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
         else if(initial.feature.type==zima::document::FeatureType::Wrapping)
             initial.name=name_document.next_numbered_name(tr(initial.feature.wrapping.output==zima::document::WrappingOutput::Relief?
                 "Wrap relief":"Wrap sketch").toStdString(),initial.id);
+        else if(initial.feature.planar_surface())
+            initial.name=name_document.next_numbered_name(tr("Plocha").toStdString(),initial.id);
         else initial.name=next_feature_name(name_document,initial.feature.type,initial.id);
         initial.feature.automatic_name=initial.name;
     }
@@ -1058,7 +1064,7 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
             }
         }
         if(preview.feature_kind==zima::document::FeatureKind::Feature) {
-            auto cues=feature_view_cues(preview,*sketch);
+            auto cues=feature_view_cues(preview,*sketch,viewer_->transient_edges());
             primitive_origin_preview_mesh_->dimensions=std::move(cues.dimensions.dimensions);
             viewer_->set_extent_manipulators(std::move(cues.handles));
             viewer_->set_operation_direction_indicators(std::move(cues.directions));
@@ -1876,6 +1882,13 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                     viewer_->set_transient_edges({});
                     state_->setText(tr(error.what()));
                 }
+                // Relief witnesses depend on the newly generated offset wire.
+                // The earlier frame update still sees the previous draft wire.
+                if(primitive_origin_preview_mesh_&&profile!=document.sketches.end()&&
+                        (preview.feature.type==document::FeatureType::Projection||
+                         preview.feature.type==document::FeatureType::Wrapping))
+                    primitive_origin_preview_mesh_->dimensions=feature_view_cues(
+                        preview,*profile,viewer_->transient_edges()).dimensions.dimensions;
                 const bool lightweight_context=owner&&original==nullptr&&
                     profile!=document.sketches.end()&&
                     profile->points.empty()&&profile->segments.empty()&&

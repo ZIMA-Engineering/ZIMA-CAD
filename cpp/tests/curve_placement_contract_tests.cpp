@@ -6,6 +6,8 @@
 #include <zima/document/viewer_packet_json.hpp>
 #include <zima/kernel/curve_evaluation.hpp>
 #include <zima/kernel/curve_constraints.hpp>
+#include <zima/kernel/exact_surface.hpp>
+#include <zima/kernel/placement_route.hpp>
 #include <zima/sketcher/sketch.hpp>
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/primitive_operations.hpp>
@@ -150,6 +152,28 @@ void curve_matrix() {
             check(document::orientation_constraint_remaining_dof(placed.references,g,true,p)==1,"One tangent did not leave one rotation");
             auto free=placed.references;free.erase(free.begin());free.front().orientation_only=false;
             check(document::point_constraint_state(free,g,p).remaining_dof==1,"Curve did not leave one position DOF");
+            // Display tessellation cannot move a point or replace its tangent.
+            // Exercise both the direct edge and the aggregate route contract.
+            for(bool route:{false,true})for(int display=0;display<3;++display) {
+                auto changed=g;
+                // Other matrix curves share endpoints but are unrelated test
+                // supports. A route through that branched set is ambiguous.
+                if(route)std::erase_if(changed.edges,[&](const auto& value){return value.reference!=edge.reference;});
+                auto& sampled=*std::ranges::find_if(changed.edges,[&](const auto& value){return value.reference==edge.reference;});
+                sampled.points=display==0?std::vector<kernel::Vec3>{{100,200,300},{101,201,301}}:
+                    display==1?std::vector<kernel::Vec3>{p,p,p}:std::vector<kernel::Vec3>{{-999,0,0},{0,-999,0},{0,0,-999}};
+                changed=document::load_viewer_reference_geometry(document::serialize_viewer_reference_geometry(changed));
+                auto attached=placed;
+                if(route)attached.references.back().semantic_key=kernel::placement_route_key(edge.reference.semantic_key);
+                if(!indexed_resolve(attached,changed))throw std::runtime_error(
+                    "Display samples invalidated exact curve contact: key="+edge.reference.semantic_key+
+                    " route="+std::to_string(route)+" display="+std::to_string(display)+" t="+std::to_string(t));
+                near(attached.x,placed.x);near(attached.y,placed.y);near(attached.z,placed.z);
+                near(front(attached).x,normal.x);near(front(attached).y,normal.y);near(front(attached).z,normal.z);
+                attached.references={attached.references.back()};attached.references.front().orientation_only=false;
+                check(indexed_resolve(attached,changed),"Display samples invalidated free exact curve placement");
+                near(attached.x,p.x);near(attached.y,p.y);near(attached.z,p.z);
+            }
             g.points.pop_back();
         }
     }
@@ -203,9 +227,25 @@ void surface_placement() {
     g.triangle_references[0].surface.reset();
     g.vertices.insert(g.vertices.end(),{{0,0,0},{1,0,0},{0,1,0}});
     g.triangles.insert(g.triangles.end(),{3,4,5});g.triangle_references.push_back({"source","face",{}});
-    check(indexed_resolve(p,g),"General source triangles cannot resolve");
+    const auto retained=p;
+    check(!indexed_resolve(p,g),"Display triangles supplied a mathematical surface constraint");
+    near(p.x,retained.x);near(p.y,retained.y);near(p.z,retained.z);
+    near(p.rotation_x,retained.rotation_x);near(p.rotation_y,retained.rotation_y);near(p.rotation_z,retained.rotation_z);
+    auto support=std::make_shared<kernel::ExactSurface>();support->kind=kernel::ExactSurface::Kind::Plane;
+    auto exact=std::make_shared<kernel::ExactSurfaceGeometry>();exact->support=support;
+    exact->u_min=exact->v_min=0;exact->u_max=exact->v_max=1;
+    exact->trim_loops={{{1,{{0,0,0},{1,0,0}},{0,0,1,1},{1,1}},
+                       {1,{{1,0,0},{0,1,0}},{0,0,1,1},{1,1}},
+                       {1,{{0,1,0},{0,0,0}},{0,0,1,1},{1,1}}}};
+    g.triangle_references[0].exact_surface=exact;
+    check(indexed_resolve(p,g),"Exact trimmed general surface cannot resolve");
     check(p.x>=0&&p.y>=0&&p.x+p.y<=1+1e-7&&std::abs(p.z)<1e-7,
-        "General surface extrapolated the plane of its first triangle");
+        "General surface contact escaped its exact trim");
+    const auto mathematical=p;
+    for(auto& vertex:g.vertices){vertex.x+=100;vertex.y-=70;vertex.z+=200;}
+    check(indexed_resolve(p,g),"Display tessellation invalidated the exact surface");
+    near(p.x,mathematical.x);near(p.y,mathematical.y);near(p.z,mathematical.z);
+    near(front(p).x,0);near(front(p).y,0);near(front(p).z,1);
 }
 void solution_branches() {
     for(bool ellipse:{false,true})for(bool rotated:{false,true}) {

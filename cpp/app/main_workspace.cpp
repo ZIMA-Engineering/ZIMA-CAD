@@ -2567,6 +2567,30 @@ int verify_helical_sweep_command(QApplication& application,zima::app::AssemblyWo
     action->trigger();application.processEvents();
     auto* dialog=dynamic_cast<zima::app::HelicalSweepDialog*>(window.findChild<QDialog*>("helicalSweepDialog"));
     if(!verify(dialog!=nullptr,"Helical properties did not open"))return 1;
+    {
+        const auto state=window.execute_console_command("documents").data;
+        const auto calls=zima::kernel::body_calculation_count.load();
+        const auto geometry=doc.origin_viewer_mesh().original_references;
+        for(int mode:{0,1})for(const auto* plane:{"origin:plane:xy","origin:plane:xz","origin:plane:yz"})for(bool flip:{false,true}) {
+            dialog->findChild<QComboBox*>("helicalFeatureMode")->setCurrentIndex(mode);
+            const auto face=std::ranges::find_if(geometry.triangle_references,[&](const auto& r){return r.semantic_key==plane;});
+            if(!verify(face!=geometry.triangle_references.end(),"Helical placement fixture plane missing"))return 1;
+            zima::document::ConstructionReference ref{face->instance_path,face->owner_id,face->semantic_key};ref.supports_offset=true;ref.flip=flip;
+            if(!verify(dialog->set_reference(0,ref,QString::fromUtf8(plane))&&dialog->resolve_pending_placement(geometry),"Helical first-plane placement failed"))return 1;
+            const auto& placement=dialog->pending.placement;
+            if(!verify(placement.references.front().orientation_role=="top"&&placement.references.front().orientation_drives_rotation,
+                "Helical first plane did not author local XY orientation"))return 1;
+            const auto normal=zima::document::construction_direction_from_local_axis("z",{placement.rotation_x,placement.rotation_y,placement.rotation_z});
+            const auto expected=std::string_view(plane)=="origin:plane:xy"?zima::kernel::Vec3{0,0,1}:
+                std::string_view(plane)=="origin:plane:xz"?zima::kernel::Vec3{0,1,0}:zima::kernel::Vec3{1,0,0};
+            if(!verify(std::abs(std::abs(zima::kernel::dimension_dot(normal,expected))-1.)<1e-8,"Helical local XY is not parallel to the selected plane"))return 1;
+        }
+        dialog->buttons()->button(QDialogButtonBox::Cancel)->click();application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
+        if(!verify(window.execute_console_command("documents").data==state&&zima::kernel::body_calculation_count.load()==calls,"Helical plane preview/Cancel changed the model"))return 1;
+        action->trigger();application.processEvents();
+        dialog=dynamic_cast<zima::app::HelicalSweepDialog*>(window.findChild<QDialog*>("helicalSweepDialog"));
+        if(!verify(dialog!=nullptr,"Helical Properties did not reopen after plane checks"))return 1;
+    }
     const auto feature_id=dialog->pending.id;
     auto* add_operation=dialog->findChild<QPushButton*>("primitiveAddOperation");
     auto* subtract_operation=dialog->findChild<QPushButton*>("primitiveSubtractOperation");
@@ -3379,6 +3403,9 @@ int verify_spline_tangent_selection(QApplication& application,
     if(!verify(has_tangent(&result),
         "Drawn spline self tangency did not persist"))return 1;
     if(result.bsplines.back().interpolating) {
+        // Self tangency can move this unconstrained point to the viewport rim.
+        // Fit the resulting geometry before exercising actual mouse dragging.
+        window.findChild<QAction*>("fitViewAction")->trigger();application.processEvents();
         const auto point_id=result.bsplines.back().control_point_ids[2];
         const auto state_point=[&] {return *window.active_sketch_for_test()->find_point(point_id);};
         const auto hit_point=[&]()->std::optional<QPointF> {
@@ -3396,6 +3423,13 @@ int verify_spline_tangent_selection(QApplication& application,
         };
         for(int offset:{12,-15,9}) {
             const auto hit=hit_point();
+            if(!hit) {
+                view->grabFramebuffer().save(QString::fromStdString((directory/"spline-drag-unavailable.png").string()));
+                std::cerr<<"Spline drag point "<<point_id<<" at "<<state_point().x<<","<<state_point().y
+                         <<"; contract:";
+                for(const auto kind:view->selection_contract())std::cerr<<" "<<static_cast<int>(kind);
+                std::cerr<<"\n";
+            }
             if(!verify(hit.has_value(),"Interpolating spline point cannot be picked for drag"))return 1;
             const auto before=state_point();
             const auto to=*hit+QPointF(0,offset);

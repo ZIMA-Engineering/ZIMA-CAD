@@ -18,10 +18,25 @@ namespace {
 void require(bool condition, const char* message) {
     if (!condition) throw std::runtime_error(message);
 }
+zima::drawing::DrawingDocument native_drawing_fixture() {
+    auto document=zima::drawing::DrawingDocument::create_default();
+    document.document_id="drawing-fixture-001";
+    document.name="Fixture Drawing";
+    document.add_data_source({"part-fixture-001","part.prtz","part-fixture-001"});
+    auto view=zima::drawing::DrawingDocument::create_view("part-fixture-001","part.prtz",{},
+        zima::drawing::ViewOrientation::Front);
+    view.id="view-fixture-001";
+    document.sheets.front().views.push_back(std::move(view));
+    return document;
+}
 }
 
 int main(int argc,char** argv) {
     try {
+        const zima::drawing::DrawingView defaults;
+        require(defaults.display_style==zima::drawing::DisplayStyle::HiddenEdges&&
+            defaults.tangent_edge_style==zima::drawing::TangentEdgeStyle::Hidden,
+            "New drawing views must show hidden edges and hide tangent edges");
         {
             // Opposite contact faces belong to independent occurrences, even
             // when the same source Part supplies both meshes at exact contact.
@@ -153,7 +168,7 @@ int main(int argc,char** argv) {
                 "Unused registered source was lost or restored an old title binding");
         }
         {
-            const auto current=folder/"current-schema.drwz";const auto fixture=zima::drawing::DrawingDocument::load("tests/fixtures/cross_language/drawing.drwz");fixture.save(current);
+            const auto current=folder/"current-schema.drwz";const auto fixture=native_drawing_fixture();fixture.save(current);
             std::ifstream input(current);std::string line;std::ofstream output(folder/"previous-schema.drwz");
             while(std::getline(input,line)) {
                 if(line.starts_with("format_version="))line="format_version=18";
@@ -164,12 +179,13 @@ int main(int argc,char** argv) {
                 }
                 output<<line<<'\n';
             }
-            output.close();const auto previous=zima::drawing::DrawingDocument::load(folder/"previous-schema.drwz");
-            require(previous.data_sources().size()==fixture.data_sources().size()&&previous.sheets.front().views.size()==1,
-                "Immediately preceding Drawing format lost its registered sources");
+            output.close();bool rejected=false;
+            try {static_cast<void>(zima::drawing::DrawingDocument::load(folder/"previous-schema.drwz"));}
+            catch(const std::runtime_error&) {rejected=true;}
+            require(rejected,"Unsupported Drawing schema was accepted by the current reader");
         }
         if(argc>1&&std::string(argv[1])=="--verify-sources") {
-            std::cout<<"Drawing sources: cross-sheet cascade, annotations, duplicate rejection, empty/unused persistence and previous schema passed\n";return 0;
+            std::cout<<"Drawing sources: cross-sheet cascade, annotations, duplicate rejection, empty/unused persistence and old-schema rejection passed\n";return 0;
         }
         {
             using namespace zima::drawing;
@@ -353,17 +369,16 @@ Data={"points":{"a":{"x":-10,"y":-5},"b":{"x":-20,"y":-5}},"geometry":{"line":{"
             }
             sheet.repeat_regions.clear();require(zima::drawing::title_block_layout(sheet,context).lines.size()==1,"BOM rendered without a repeat region");
         }
-        const auto fixture = zima::drawing::DrawingDocument::load(
-            std::filesystem::current_path() / "tests/fixtures/cross_language/drawing.drwz");
+        const auto fixture = native_drawing_fixture();
         require(fixture.document_id == "drawing-fixture-001" &&
                     fixture.sheets.size() == 1 &&
                     fixture.sheets.front().views.size() == 1 &&
                     fixture.sheets.front().views.front().source_document_id ==
                         "part-fixture-001",
-                "Python Drawing fixture lost sheet or view identity");
+                "Native Drawing fixture lost sheet or view identity");
 
         // Edit/regenerate/reopen: append a second View to the sole sheet of
-        // the Python-produced Drawing fixture, save it, and reopen it to
+        // the native Drawing fixture, save it, and reopen it to
         // prove the fixture also survives an explicit edit-regenerate-reopen
         // cycle, matching the Part/Assembly coverage in the other contract
         // tests.
@@ -525,7 +540,7 @@ Data={"points":{"a":{"x":-10,"y":-5},"b":{"x":-20,"y":-5}},"geometry":{"line":{"
         require(static_cast<bool>(persisted), "Drawing contract file was not written");
         const std::string ini((std::istreambuf_iterator<char>(persisted)), {});
         require(ini.find("[Document]\n") != std::string::npos &&
-                    ini.find("format_version=21\n") != std::string::npos &&
+                    ini.find("format_version=22\n") != std::string::npos &&
                     ini.find("type=drawing\n") != std::string::npos &&
                     ini.find("param.cpp_drawing={") != std::string::npos &&
                     ini.find("[Containers]\n") != std::string::npos &&

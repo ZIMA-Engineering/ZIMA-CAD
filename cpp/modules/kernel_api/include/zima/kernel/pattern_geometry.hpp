@@ -83,7 +83,11 @@ inline ViewerMesh pattern_copy_mesh(ViewerMesh mesh,PatternRequest p,unsigned in
     const auto ref=[&](auto& r){if(!r.valid())return;
         if(occurrence){const auto copy=pattern_copy_id(p,index);r.instance_path=std::to_string(copy.size())+":"+copy+r.instance_path;}
         else if(!owner.empty()){if(r.semantic_key!="container:display")r.semantic_key="pattern:"+pattern_copy_id(p,index)+":"+mirror_source_key(r.owner_id,r.semantic_key);r.owner_id=owner;r.instance_path.clear();}};
-    const auto face=[&](FaceReference& r){ref(r);for(auto* target:{&r.surface,&r.contour_surface})if(*target) {
+    ExactSurfaceTransformCache exact_surfaces;
+    const auto face=[&](FaceReference& r){ref(r);
+        exact_surfaces.apply(r.exact_surface,[&](Vec3 v){return pattern_point(v,p,index);},
+            [&](Vec3 v){return pattern_vector(v,p,index);});
+        for(auto* target:{&r.surface,&r.contour_surface})if(*target) {
         auto surface=std::make_shared<SurfaceGeometry>(**target);
         surface->origin=pattern_point(surface->origin,p,index);surface->axis=pattern_vector(surface->axis,p,index);surface->radial=pattern_vector(surface->radial,p,index);*target=std::move(surface);}};
     const auto geometry=[&](auto& g){for(auto& v:g.vertices)v=pattern_point(v,p,index);for(auto& r:g.triangle_references)face(r);

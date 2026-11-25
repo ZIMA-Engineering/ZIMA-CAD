@@ -1,5 +1,6 @@
 #pragma once
 #include <zima/kernel/geometry_kernel.hpp>
+#include <zima/kernel/exact_surface.hpp>
 #include <cmath>
 #include <charconv>
 #include <stdexcept>
@@ -46,7 +47,10 @@ inline ViewerMesh mirrored_viewer_mesh(ViewerMesh mesh,MirrorPlane plane,const s
     const auto vector=[&](Vec3& p){p=mirrored_vector(p,plane);};
     const auto reference=[&](auto& ref){if(owner.empty()||!ref.valid())return;
         if(ref.semantic_key!="container:display")ref.semantic_key=mirror_source_key(ref.owner_id,ref.semantic_key);ref.owner_id=owner;ref.instance_path.clear();};
+    ExactSurfaceTransformCache exact_surfaces;
     const auto face=[&](FaceReference& ref){reference(ref);
+        exact_surfaces.apply(ref.exact_surface,[&](Vec3 v){return mirrored_point(v,plane);},
+            [&](Vec3 v){return mirrored_vector(v,plane);});
         for(auto* target:{&ref.surface,&ref.contour_surface})if(*target) {
             auto surface=std::make_shared<SurfaceGeometry>(**target);point(surface->origin);vector(surface->axis);vector(surface->radial);
             // Reflection reverses the surface frame's angular handedness.

@@ -1177,6 +1177,8 @@ void MeshView::set_mesh(zima::kernel::ViewerMesh mesh, bool fit_view) {
         for(auto& p:edge.points)p={center.x+(p.x-center.x)*factor,center.y+(p.y-center.y)*factor,center.z+(p.z-center.z)*factor};
         edge.points.push_back(edge.points.front());mesh.edges.push_back(std::move(edge));
     }
+    for(auto& edge:mesh.edges)
+        if(zima::kernel::opposite_feature_side_faces(edge))edge.parameter_seam=false;
     std::erase_if(mesh.edges, [](const auto& edge) {
         return edge.parameter_seam || zima::kernel::smooth_transition_junction(edge);
     });
@@ -1833,9 +1835,15 @@ std::vector<ViewerCandidate> MeshView::selection_candidates_at(
         // Keep the point first so a normal press can drag geometry; the same
         // Dimension remains immediately behind it for RMB cycling and can be
         // selected directly on its line, leader or text away from the point.
+        const bool direct_text=direct_dimension_text_hits.contains(index);
         const auto insertion = std::find_if(candidates.begin(), candidates.end(),
-            [](const auto& candidate) {
-                return candidate.kind != CandidateKind::SketchPoint;
+            [&](const auto& candidate) {
+                if(candidate.kind==CandidateKind::SketchPoint)return false;
+                // Actual value text takes precedence over another label's
+                // expanded hit tolerance. Otherwise adjacent radius/depth
+                // labels can open the neighbour despite clicking the value.
+                return direct_text||candidate.kind!=CandidateKind::Dimension||
+                    !direct_dimension_text_hits.contains(candidate.geometry_index);
             });
         candidates.insert(insertion, ViewerCandidate{
             CandidateKind::Dimension, 0.0, index,

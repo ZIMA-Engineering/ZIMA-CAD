@@ -1,5 +1,6 @@
 #include <zima/kernel/bspline_json.hpp>
 #include <zima/kernel/axis_display.hpp>
+#include <zima/kernel/exact_surface_json.hpp>
 #include <zima/kernel/solid_state_ancestry.hpp>
 #include <zima/document/dimension_layout_json.hpp>
 #include <zima/document/viewer_packet_json.hpp>
@@ -182,16 +183,20 @@ void load_sheet_face(zima::kernel::FaceReference& face,const nlohmann::json& val
     face.sheet_role=static_cast<zima::kernel::SheetFaceRole>(role);face.sheet_thickness=thickness;
     face.sheet_owner=value.at("sheet_owner");
     face.display_owner_id=value.value("display_owner",std::string{});
+    if(value.contains("exact_surface"))
+        face.exact_surface=kernel::exact_surface_from_json(value.at("exact_surface"));
     if(value.contains("continuation_group"))
         face.continuation_group=std::make_shared<const std::string>(value.at("continuation_group").get<std::string>());
 }
 nlohmann::json sheet_edge_json(const zima::kernel::ViewerEdge& edge) {
     if(zima::kernel::sheet_edge_role(edge)==zima::kernel::SheetEdgeRole::Unknown)return nullptr;
     nlohmann::json sides=nlohmann::json::array(),ends=nlohmann::json::array();
-    for(const auto& r:edge.edge_treatment_side_references)
+    for(const auto& r:edge.edge_treatment_side_references) {
         sides.push_back({{"owner",r.owner_id},{"key",r.semantic_key},{"instance_path",r.instance_path},
             {"sheet_role",static_cast<int>(r.sheet_role)},{"sheet_thickness",r.sheet_thickness},{"sheet_owner",r.sheet_owner},
             {"display_owner",r.display_owner_id}});
+        if(r.exact_surface)sides.back()["exact_surface"]=kernel::exact_surface_json(*r.exact_surface);
+    }
     for(const auto& r:edge.edge_treatment_endpoint_references)
         ends.push_back({{"owner",r.owner_id},{"key",r.semantic_key},{"instance_path",r.instance_path}});
     return {{"sides",sides},{"endpoints",ends}};
@@ -351,14 +356,32 @@ namespace {
 nlohmann::json serialize_reference_geometry(
     const zima::kernel::ViewerReferenceGeometry& geometry) {
     nlohmann::json references = nlohmann::json::array();
-    std::map<std::tuple<std::string, std::string, std::string>, std::uint32_t>
+    std::map<std::tuple<std::string, std::string, std::string,
+        std::shared_ptr<const kernel::ExactSurfaceGeometry>,
+        std::shared_ptr<const kernel::SurfaceGeometry>,
+        std::shared_ptr<const kernel::SurfaceGeometry>>, std::uint32_t>
         reference_indices;
     const auto reference_index = [&](const auto& reference) {
         if (!reference.valid()) {
             throw std::runtime_error("Original reference is invalid");
         }
+        const auto exact=[&]() -> std::shared_ptr<const kernel::ExactSurfaceGeometry> {
+            if constexpr(requires {reference.exact_surface;})return reference.exact_surface;
+            else return {};
+        }();
+        const auto analytic=[&]() {
+            if constexpr(requires {reference.surface;})
+                return std::pair{reference.surface,reference.contour_surface};
+            else return std::pair<std::shared_ptr<const kernel::SurfaceGeometry>,
+                std::shared_ptr<const kernel::SurfaceGeometry>>{};
+        }();
+        // Different current trims can share one authored face identity. Their
+        // packet rows must remain distinct without changing that identity.
+        // Analytic-only patches also need their own support and oriented side;
+        // they cannot share a row just because both exact-surface handles are null.
         const auto key = std::tuple{reference.owner_id,
-            reference.semantic_key, reference.instance_path};
+            reference.semantic_key, reference.instance_path,exact,
+            analytic.first,analytic.second};
         const auto found = reference_indices.find(key);
         if (found != reference_indices.end()) return found->second;
         if (reference_indices.size() >=
@@ -382,6 +405,7 @@ nlohmann::json serialize_reference_geometry(
             if(reference.continuation_group)references.back()["continuation_group"]=*reference.continuation_group;
             if (reference.surface) references.back()["surface"]=serialize_surface(*reference.surface);
             if (reference.contour_surface) references.back()["contour_surface"]=serialize_surface(*reference.contour_surface);
+            if (exact) references.back()["exact_surface"]=kernel::exact_surface_json(*exact);
             if (reference.measured_area) references.back()["measured_area"]=*reference.measured_area;
         }
         return index;
@@ -683,10 +707,12 @@ nlohmann::json serialize_body_result(const zima::kernel::BodyResult& result, boo
             {"sheet_owner", reference.sheet_owner},
             {"display_owner", reference.display_owner_id}});
         if(reference.continuation_group)face_references.back()["continuation_group"]=*reference.continuation_group;
+        if(reference.exact_surface)face_references.back()["exact_surface"]=kernel::exact_surface_json(*reference.exact_surface);
     };
     const auto same_face_reference=[](const auto& left,const auto& right) {
         return left.owner_id==right.owner_id&&left.semantic_key==right.semantic_key&&
             left.instance_path==right.instance_path&&
+            kernel::same_exact_surface(left.exact_surface,right.exact_surface)&&
             left.surface_result==right.surface_result&&
             left.sheet_role==right.sheet_role&&
             left.sheet_thickness==right.sheet_thickness&&
@@ -746,6 +772,7 @@ nlohmann::json serialize_body_result(const zima::kernel::BodyResult& result, boo
                 {"instance_path", reference.instance_path},
                 {"sheet_role",static_cast<int>(reference.sheet_role)},{"sheet_thickness",reference.sheet_thickness},{"sheet_owner",reference.sheet_owner},
                 {"display_owner",reference.display_owner_id}});
+            if(reference.exact_surface)side_references.back()["exact_surface"]=kernel::exact_surface_json(*reference.exact_surface);
         }
         nlohmann::json endpoint_references = nlohmann::json::array();
         for (const auto& reference :
@@ -868,6 +895,7 @@ nlohmann::json serialize_body_result(const zima::kernel::BodyResult& result, boo
                 row["display_owner"]=ref.display_owner_id;
                 if(ref.surface)row["surface"]=serialize_surface(*ref.surface);
                 if(ref.contour_surface)row["contour_surface"]=serialize_surface(*ref.contour_surface);
+                if(ref.exact_surface)row["exact_surface"]=kernel::exact_surface_json(*ref.exact_surface);
                 if(ref.measured_area)row["measured_area"]=*ref.measured_area;
             } else if constexpr(std::is_same_v<std::decay_t<decltype(ref)>,zima::kernel::EdgeReference>) {
                 row["display_owner"]=ref.display_owner_id;
@@ -989,6 +1017,7 @@ nlohmann::json serialize_body_result(const zima::kernel::BodyResult& result, boo
                         return bool(a)==bool(b)&&(!a||*a==*b);
                     };
                     return left==right&&same_surface(left.surface,right.surface)&&
+                        kernel::same_exact_surface(left.exact_surface,right.exact_surface)&&
                         left.measured_area==right.measured_area&&
                         left.surface_result==right.surface_result&&
                         left.sheet_role==right.sheet_role&&

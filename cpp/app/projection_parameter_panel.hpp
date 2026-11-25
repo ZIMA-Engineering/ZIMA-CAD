@@ -60,6 +60,13 @@ public:
         refresh();
     }
     const document::ProjectionParameters& parameters()const{return pending_;}
+    void set_targets(const std::vector<document::ExtrusionParameters::EndTarget>& values) {
+        active_=Pick::None;row_=-1;inspected_faces_.clear();pending_.targets=values;
+        std::erase_if(pending_.regions,[&](const auto& region) {
+            return std::ranges::none_of(values,[&](const auto& value){return value.reference==region.target;});
+        });
+        refresh();
+    }
     void set_relief_mode(bool relief) {
         if(relief) {
             if(pending_.output!=document::ProjectionOutput::Relief) {

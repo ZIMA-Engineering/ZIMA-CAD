@@ -32,7 +32,72 @@ void valid(const std::vector<kernel::BodyResult>& results) {
         throw std::runtime_error(id+": "+error);
 }
 #include "wrapping_chain_document_contract.inc"
+#include "wrapping_downstream_contract.inc"
 int main(int argc,char** argv){try {
+    if(const auto* path=std::getenv("ZIMA_VERIFY_WRAP_DOWNSTREAM_MODEL")) {
+        std::vector<kernel::BodyResult> cache;auto saved=document::PartDocument::load(path,&cache);
+        const auto report=[](const char* label,const auto& part,const auto& results) {
+            valid(results);
+            std::cout<<label<<'\n';
+            for(const auto& feature:part.history)std::cout<<feature.id<<" valid="<<feature.placement.reference_valid<<" frame="<<feature.placement.x<<','<<feature.placement.y<<','<<feature.placement.z<<" rotation="<<feature.placement.rotation_x<<','<<feature.placement.rotation_y<<','<<feature.placement.rotation_z<<'\n';
+            if(!results.empty())for(const auto& [id,error]:results.back().calculation_errors)std::cout<<id<<": "<<error<<'\n';
+            if(part.history.size()>1&&!part.history[1].placement.references.empty()) {
+                const auto& ref=part.history[1].placement.references.front();
+                for(std::size_t i=0;i<results.size();++i) {
+                    const auto count=[&](const auto& faces) {int n=0,a=0;for(const auto& face:faces)if(face.owner_id==ref.owner_id&&face.semantic_key==ref.semantic_key){++n;if(face.surface)++a;}return std::to_string(n)+"/"+std::to_string(a);};
+                    std::cout<<"boundary "<<i<<" display/analytic="<<count(results[i].mesh.triangle_references)<<" reference/analytic="<<count(results[i].mesh.original_references.triangle_references)<<'\n';
+                }
+            }
+            std::cout<<std::flush;
+        };
+        report("saved",saved,cache);
+        kernel::OcctKernel cold;
+        auto replay=saved;auto fresh=workspace::calculate_part_with_resolved_references(cold,replay);
+        report("cold",replay,fresh);
+        workspace::PartCalculationPolicy policy;policy.history_reference_baseline=&cache;
+        replay=saved;fresh=workspace::calculate_part_with_resolved_references(cold,replay,nullptr,policy);
+        report("saved baseline",replay,fresh);
+        if(const auto* previous=std::getenv("ZIMA_VERIFY_WRAP_DOWNSTREAM_BEFORE")) {
+            std::vector<kernel::BodyResult> before_cache;auto before=document::PartDocument::load(previous,&before_cache);
+            workspace::Workspace live;const auto id=before.document_id;
+            live.add_part(before,before_cache);live.activate(id);
+            auto feature=saved.history.back();
+            const auto sketch=*std::ranges::find(saved.sketches,feature.feature.sketch_id,&sketcher::Sketch::id);
+            workspace::commit_profile(live,cold,id,feature,workspace::ProfileEditMode::Create,sketch,workspace::ProfileFailurePolicy::KeepDefinition);
+            const auto unchanged=[&] {
+                const auto& after=live.open_part(id)->session.document();
+                for(const auto& old:before.history) {
+                    const auto* current=after.find_container(old.id);require(current,"Downstream extrusion removed a preceding feature");
+                    const auto& a=old.placement;const auto& b=current->placement;
+                    require(b.reference_valid&&a.references==b.references,"Downstream extrusion broke preceding reference identity");
+                    for(const auto delta:{a.x-b.x,a.y-b.y,a.z-b.z,a.rotation_x-b.rotation_x,a.rotation_y-b.rotation_y,a.rotation_z-b.rotation_z})
+                        require(std::abs(delta)<1e-8,"Downstream extrusion changed a preceding frame");
+                }
+                const auto status=workspace::cached_history_placement_reference_status(after,live.open_part(id)->session.calculated_boundaries());
+                for(const auto& [owner,value]:status)for(const auto& reference:after.find_container(owner)->placement.references)
+                    if(value.requested.contains(reference.owner_id,reference.semantic_key,reference.instance_path))
+                        require(value.missing(reference,{}).empty(),"Valid user input is marked missing after the downstream extrusion");
+            };
+            report("appended",live.open_part(id)->session.document(),live.open_part(id)->session.calculated_boundaries());
+            unchanged();
+            for(int i=0;i<3;++i) {
+                static_cast<void>(workspace::regenerate_part(live,cold,id));
+                report("regenerated",live.open_part(id)->session.document(),live.open_part(id)->session.calculated_boundaries());
+                unchanged();
+            }
+            require(live.open_part(id)->session.undo()&&live.open_part(id)->session.redo(),"User downstream Undo/Redo unavailable");
+            unchanged();
+            if(const auto* output=std::getenv("ZIMA_VERIFY_WRAP_DOWNSTREAM_OUTPUT")) {
+                const auto& session=live.open_part(id)->session;
+                session.document().save(output,session.calculated_boundaries());
+                std::vector<kernel::BodyResult> persisted;
+                const auto reopened=document::PartDocument::load(output,&persisted);valid(persisted);
+                require(reopened.find_container(feature.id)!=nullptr,"Repaired copy lost the final extrusion");
+            }
+        }
+        return 0;
+    }
+    wrapping_downstream_contract();
     wrapping_chain_document_contract();
     for(bool internal:{false,true})
     for(const auto output:{document::WrappingOutput::Curves,document::WrappingOutput::Surface,document::WrappingOutput::Relief,document::WrappingOutput::Split})

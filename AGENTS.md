@@ -1,5 +1,28 @@
 # ZIMA-CAD development rules
 
+## Excellent mathematics, geometry and speed (mandatory)
+
+- The project's guiding principle is excellent mathematics, geometry and speed.
+  Treat geometric correctness, stable reference identity and measured performance
+  as joint requirements for every modeling algorithm.
+- Resolve attachments, points, tangents, normals and offsets from the exact
+  authored curve or surface within explicit numerical tolerances. Display
+  tessellation must not become the mathematical definition of a CAD reference.
+  Preserve the selected side and solution branch through edits, regeneration,
+  save/reopen and Undo/Redo.
+- Improve speed by eliminating unnecessary work and reusing calculations whose
+  actual inputs remain valid. Never trade away accuracy, supported behavior or
+  reference stability to obtain a faster result. Verify geometric equations and
+  measure representative operations before claiming correctness or a speedup.
+- Apply this principle to the whole application: startup, file loading/saving,
+  dependency resolution, allocations and data copies, Tree and selection,
+  dialogs, Sketcher, 3D presentation, Drawings and Undo/Redo. Measure complete
+  user-visible operations and their bottlenecks, not just isolated mathematical
+  kernels. Choose CPU scheduling, GPU work, OCCT calls, caching and I/O together;
+  parallel execution is useful only when it improves measured end-to-end cost
+  while preserving accuracy, determinism, reference identity and responsiveness.
+- This principle was explicitly requested by the user on 2026-11-25.
+
 ## Shared Windows and Linux implementation (mandatory)
 
 - Keep one shared C++ implementation for Windows and Linux. Restrict platform

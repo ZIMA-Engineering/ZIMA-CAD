@@ -3471,6 +3471,14 @@ bool PrimitivePropertiesDialog::set_inline_parameter_value(
         return placement_->set_reference_offset(index, value);
     }
     if (feature_panel_) {
+        if(key=="relief_depth") {
+            const auto p=feature_panel_->parameters();
+            if(p.type==document::FeatureType::Projection&&p.projection.output==document::ProjectionOutput::Relief)
+                return set_field(feature_panel_->projection_panel()->findChild<QDoubleSpinBox*>("projectionHeight"));
+            if(p.type==document::FeatureType::Wrapping&&p.wrapping.output==document::WrappingOutput::Relief)
+                return set_field(feature_panel_->wrapping_panel()->findChild<QDoubleSpinBox*>("wrappingHeight"));
+            return false;
+        }
         if(key=="direction") {
             if(value!=1.&&value!=-1.)return false;
             return set_field(feature_panel_->direction_control());

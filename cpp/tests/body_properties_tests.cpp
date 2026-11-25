@@ -12,6 +12,7 @@
 #include <zima/document/body_origin_attachment.hpp>
 #include <zima/assembly/physical_properties.hpp>
 #include <zima/kernel/stable_id.hpp>
+#include <zima/kernel/calculation_diagnostics.hpp>
 #include <iostream>
 #include <BRepTools.hxx>
 #include <BRep_Builder.hxx>
@@ -102,6 +103,59 @@ void deferred_analysis(const kernel::OcctKernel& kernel) {
     check(document::load_body_result(document::serialize_body_result(restored)).physical_properties_current,"Completed analysis remained pending after save/reopen");
     const auto before=document::serialize_body_result(restored);reopened.ensure_body_properties(restored);
     check(document::serialize_body_result(restored)==before,"Repeated analysis modified a current packet");
+    {
+        std::vector<kernel::BodyPropertyAnalysis> analysis;
+        auto first=pending;const auto count=kernel::body_property_integration_count.load();
+        reopened.ensure_body_properties(first,analysis);
+        auto alias=pending;alias.source_fingerprint+="/independent-reference-owner";
+        reopened.ensure_body_properties(alias,analysis);
+        check(kernel::body_property_integration_count.load()==count+1&&
+            alias.volume_integrals==first.volume_integrals&&alias.volume==first.volume&&
+            alias.surface_area==first.surface_area&&alias.source_fingerprint!=first.source_fingerprint,
+            "Identical physical input was integrated twice or lost its own reference key");
+        auto placed=pending;placed.source_fingerprint+="/translated";
+        placed.kernel_placements.push_back({{50,0,0},{}});
+        reopened.ensure_body_properties(placed,analysis);
+        check(kernel::body_property_integration_count.load()==count+1,
+            "Rigid placement unnecessarily repeated native integration");
+        near(placed.volume_integrals->centroid.x,first.volume_integrals->centroid.x+50,
+            "Placed physical centroid");
+        const auto compare_placed=[&](const kernel::BodyResult& seed,
+                const kernel::BodyResult& target) {
+            std::vector<kernel::BodyPropertyAnalysis> memo;
+            auto analyzed=seed;reopened.ensure_body_properties(analyzed,memo);
+            auto expected=target;reopened.ensure_body_properties(expected);
+            auto actual=target;const auto integrations=kernel::body_property_integration_count.load();
+            reopened.ensure_body_properties(actual,memo);
+            check(kernel::body_property_integration_count.load()==integrations,
+                "Equivalent rigidly placed native geometry was reintegrated");
+            near(actual.volume,expected.volume,"Shared placed volume");
+            near(actual.surface_area,expected.surface_area,"Shared placed area");
+            const auto point=[&](kernel::Vec3 a,kernel::Vec3 b,const char* label) {
+                near(a.x,b.x,label);near(a.y,b.y,label);near(a.z,b.z,label);
+            };
+            point(actual.volume_integrals->centroid,expected.volume_integrals->centroid,"Shared placed volume centroid");
+            point(*actual.surface_centroid,*expected.surface_centroid,"Shared placed surface centroid");
+            for(int i=0;i<9;++i)near(actual.volume_integrals->inertia[i],
+                expected.volume_integrals->inertia[i],"Shared placed inertia");
+            check(actual.kernel_shape==target.kernel_shape&&actual.kernel_placements==target.kernel_placements&&
+                actual.source_fingerprint==target.source_fingerprint,
+                "Physical analysis changed an authored rigid placement or identity");
+        };
+        auto rotated=pending;rotated.kernel_placements={{{17,-23,31},{19,-31,47}}};
+        auto chained=pending;chained.kernel_placements={{{31,8,-11},{13,29,-41}},{{-7,50,3},{-17,61,9}}};
+        compare_placed(pending,rotated);
+        compare_placed(rotated,pending);
+        compare_placed(rotated,chained);
+        const auto mode_count=kernel::body_property_integration_count.load();
+        auto surface_mode=pending;surface_mode.source_fingerprint+="/surface-mode";
+        auto bindings=surface_mode.kernel_faces.get();
+        check(!bindings.empty(),"Physical input fixture has no face bindings");
+        bindings.front().reference.surface_result=true;surface_mode.kernel_faces=std::move(bindings);
+        reopened.ensure_body_properties(surface_mode,analysis);
+        check(kernel::body_property_integration_count.load()==mode_count+1,
+            "Different surface integration mode reused an incompatible analysis");
+    }
     auto mixed=operations;mixed.front().body.id="material";
     kernel::BoundarySurfaceRequest surface;surface.region_id="surface-region";
     const std::array<kernel::Vec3,4> corners{{{0,0,0},{10,0,0},{10,8,0},{0,8,0}}};
@@ -145,6 +199,10 @@ void deferred_assembly(const kernel::OcctKernel& kernel,const std::filesystem::p
     check(!calculated.back().physical_properties_current&&calculated.back().has_solid(),"Native adaptive Part did not defer analysis");
     {
         auto recorded=doc;document::BodyProperties row;
+        auto placed=*recorded.body_history.find(recorded.body_history.active_body_id());
+        placed.scope.placement.x=37;placed.scope.placement.y=-19;
+        placed.scope.placement.rotation_z=placed.scope.placement.absolute_rotation_z=43;
+        recorded.body_history.update_body(placed);
         row.id=kernel::make_stable_id();row.name="Deferred centroid";
         row.body_id=recorded.body_history.active_body_id();row.after_object_id=feature.id;
         recorded.body_properties={row};
@@ -152,11 +210,36 @@ void deferred_assembly(const kernel::OcctKernel& kernel,const std::filesystem::p
         check(!deferred.back().physical_properties_current,
             "Unreferenced centroid forced exact analysis into geometry calculation");
         const auto geometry_packet=document::serialize_body_result(deferred.back());
+        const auto integrations=kernel::body_property_integration_count.load();
         check(workspace::complete_part_physical_analysis(kernel,recorded,deferred),
             "Private background analysis did not complete pending properties");
+        check(kernel::body_property_integration_count.load()==integrations+1,
+            "Final Body and its measurement integrated the same exact input twice");
         check(deferred.back().physical_properties_current&&recorded.body_properties.front().integrals&&
             recorded.body_properties.front().error.empty(),
             "Background analysis did not publish the exact centroid record");
+        near(recorded.body_properties.front().volume,480,"Shared measurement volume");
+        const auto completed_packet=document::serialize_body_result(deferred.back());
+        check(!workspace::complete_part_physical_analysis(kernel,recorded,deferred)&&
+            kernel::body_property_integration_count.load()==integrations+1&&
+            document::serialize_body_result(deferred.back())==completed_packet,
+            "Unchanged completed analysis recalculated or changed its packet");
+        const auto saved_path=directory/"shared-measurement.prtz";recorded.save(saved_path,deferred);
+        std::vector<kernel::BodyResult> saved_boundaries;
+        auto saved_document=document::PartDocument::load(saved_path,&saved_boundaries);
+        check(!workspace::complete_part_physical_analysis(kernel,saved_document,saved_boundaries)&&
+            kernel::body_property_integration_count.load()==integrations+1,
+            "Reopening completed physical analysis recalculated the same input");
+        auto edited=recorded;edited.history.front().extrusion.length_forward=12;
+        auto edited_boundaries=workspace::calculate_part_with_resolved_references(kernel,edited,&deferred);
+        const auto edited_count=kernel::body_property_integration_count.load();
+        check(workspace::complete_part_physical_analysis(kernel,edited,edited_boundaries)&&
+            kernel::body_property_integration_count.load()==edited_count+1,
+            "Changed source did not calculate exactly one new physical analysis");
+        near(edited_boundaries.back().volume,960,"Changed source final volume");
+        near(edited.body_properties.front().volume,960,"Changed source measured volume");
+        check(document::serialize_body_result(deferred.back())==completed_packet,
+            "Analyzing changed geometry modified the retained source snapshot");
         auto analyzed_packet=document::serialize_body_result(deferred.back());
         const auto erase_analysis=[&](const auto& self,nlohmann::json& value)->void {
             if(value.is_object()) {

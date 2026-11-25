@@ -27,7 +27,7 @@ inline bool authored_sketch_profile(const document::HistoryContainer& feature) {
 // Use the command's analytical preview, rather than its calculated topology.
 // The viewer prepares this only when its source changes and caches one GPU batch.
 inline std::vector<kernel::ViewerEdge> authored_feature_wire(
-        const document::DocumentSession& session,const std::string& owner) {
+        const document::DocumentSession& session,const std::string& owner,bool place_body=true) {
     const auto& doc=session.document();
     if(const auto* copy=doc.body_history.find(owner);copy&&copy->derived_copy) {
         if(session.calculated_boundaries().empty())return {};
@@ -55,7 +55,7 @@ inline std::vector<kernel::ViewerEdge> authored_feature_wire(
     kernel::ViewerMesh wire;
     const auto* body=doc.body_owner_for_object(feature->id);
     const auto place=[&](kernel::ViewerMesh mesh) {
-        if(body)mesh=doc.place_body_mesh(std::move(mesh),body->scope.id);
+        if(body&&place_body)mesh=doc.place_body_mesh(std::move(mesh),body->scope.id);
         return std::move(mesh.edges);
     };
     if(selected_sketch!=doc.sketches.end()||authored_sketch_profile(*feature)) {

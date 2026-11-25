@@ -335,6 +335,7 @@ int verify_projection_ui(QApplication& application,AssemblyWorkspaceWindow& wind
             window.show_tree_item_properties(row());flush();
             check(std::abs(editor()->pending_value().placement.z)<1e-8,"Reopened Projection lost its placement");
             editor()->buttons()->button(QDialogButtonBox::Cancel)->click();flush();
+            if(relief)verify_relief_depth_edit(application,window,view,row,editor,feature.id,path);
             if(relief)verify_relief_failure_confirmation(application,window,row,editor,feature.id,"projectionTargets",path);
             std::cout<<"Projection GUI output "<<output<<": picking, replacement, independent inspection, zero-calculation preview, OK, no-op, Cancel, save, Undo/Redo, whole Origin and automatic normal direction passed\n";
             std::cout<<"Projection GUI source dimensions: Tree single/double-click, zero-calculation inspection and three successive View radius edits passed\n";

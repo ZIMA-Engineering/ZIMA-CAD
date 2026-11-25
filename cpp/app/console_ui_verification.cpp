@@ -1,5 +1,8 @@
 #include "../tests/native_property_fixture.hpp"
 #include <zima/kernel/calculation_diagnostics.hpp>
+#include <zima/kernel/calculated_body_shape.hpp>
+#include <BRepBuilderAPI_MakeVertex.hxx>
+#include <BRepExtrema_DistShapeShape.hxx>
 #include "../tests/broken_reference_fixture.hpp"
 #include "../tests/thin_wire_verification.hpp"
 #include <zima/sketcher/face_curve_reference.hpp>

@@ -5,6 +5,7 @@
 #include "profile_plane_controls.hpp"
 #include <zima/document/part_document.hpp>
 #include <zima/document/helical_geometry.hpp>
+#include <zima/document/sketch_placement.hpp>
 #include "sweep_placement_dialog.hpp"
 #include <QComboBox>
 #include <QDoubleSpinBox>
@@ -24,6 +25,15 @@
 namespace zima::app {
 class HelicalSweepDialog final : public SweepPlacementDialog {
 public:
+    document::ConstructionReference prepare_reference_candidate(std::size_t index,
+            document::ConstructionReference reference)const override {
+        if(!entering_whole_origin())
+            document::prepare_profile_plane_reference(index,reference,pending.placement.references);
+        return reference;
+    }
+    bool set_reference(std::size_t index,document::ConstructionReference reference,const QString& label)override {
+        return SweepPlacementDialog::set_reference(index,prepare_reference_candidate(index,std::move(reference)),label);
+    }
     HelicalSweepDialog(document::HistoryContainer initial,std::function<void(document::HistoryContainer)> commit,QWidget* parent)
       : SweepPlacementDialog(tr("Vlastnosti H-tažení"),std::move(initial),parent),commit_(std::move(commit)) {
         setObjectName("helicalSweepDialog");setAttribute(Qt::WA_DeleteOnClose);setMinimumWidth(360);

@@ -414,6 +414,10 @@ int verify_sections(QApplication& application,AssemblyWorkspaceWindow& window,co
             window.findChild<QAction*>("undoAction")->trigger();flush();
         }
         dw->select_view_for_test(cut.id);window.findChild<QAction*>("editDrawingViewAction")->trigger();flush();
+        auto* display_properties=window.findChild<QDialog*>("drawingViewProperties");
+        check(display_properties&&display_properties->findChild<QComboBox*>("drawingViewDisplay")->currentIndex()==int(drawing::DisplayStyle::HiddenEdges)&&
+            display_properties->findChild<QComboBox*>("drawingTangentEdgeStyle")->currentIndex()==int(drawing::TangentEdgeStyle::Hidden),
+            "New view Properties did not retain hidden-edge/tangent-hidden defaults after reopening");
         auto* props=window.findChild<QDialog*>("drawingViewProperties");check(props!=nullptr,"Missing drawing properties");auto* combo=props->findChild<QComboBox*>("drawingSection");check(combo&&combo->count()==2,"Saved Section is missing from drawing choices");combo->setCurrentIndex(1);check(!props->findChild<QCheckBox*>("drawingSectionAlign")&&props->findChild<QComboBox*>("drawingViewOrientation")->isEnabled()&&props->findChild<QPushButton*>("drawingRotateRight")->isEnabled(),"Section took ownership of view orientation");flush();
         auto* hatch_rows=dynamic_cast<SectionComponentsWidget*>(props->findChild<QTableWidget*>("sectionComponents"));check(hatch_rows&&hatch_rows->rowCount()>0,"Missing component hatch row");
         check(hatch_rows->findChildren<QCheckBox*>().empty(),"Redundant custom-hatch checkbox remains");

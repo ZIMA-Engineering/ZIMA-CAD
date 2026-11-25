@@ -34,7 +34,7 @@ struct PreparedSheetProfile {
 // Explicit calculation only: consume current resolved native Sketches and
 // targets, then propagate the generated chain in route order. No kernel calls.
 [[nodiscard]] bool refresh_sheet_profile_definitions(document::PartDocument&,
-    const kernel::ViewerReferenceGeometry&);
+    const kernel::ViewerReferenceGeometry&,const document::HistoryReferenceViews&);
 
 // Reconcile edits made through the ordinary first Flat/Bend editor back into
 // the parent route, then regenerate the stable child group. Non-master

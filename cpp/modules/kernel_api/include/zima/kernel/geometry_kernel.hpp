@@ -58,6 +58,7 @@ struct SurfaceGeometry {
 enum class SheetFaceRole { Unknown, SideA, SideB, ThicknessFace };
 enum class SheetEdgeRole { Unknown, Boundary, Thickness, Junction };
 enum class SheetOperation { None, Flat, Bend, Revolution };
+struct ExactSurfaceGeometry;
 
 struct FaceReference {
     std::string owner_id;
@@ -83,6 +84,9 @@ struct FaceReference {
     // edge was suppressed. Not topology identity: original face references and
     // actual bounded regions remain distinct. Shared by all triangle tags.
     std::shared_ptr<const std::string> continuation_group;
+    // Exact bounded support captured at calculation time. Shared by all tags
+    // of this face; the semantic owner/key/occurrence remain its identity.
+    std::shared_ptr<const ExactSurfaceGeometry> exact_surface;
 
     [[nodiscard]] bool valid() const {
         return !owner_id.empty() && !semantic_key.empty();

@@ -21,6 +21,7 @@ int verify_surface_intersection_ui(QApplication& application,AssemblyWorkspaceWi
         window.resize(1280,900);window.show();check(window.open_document_path(QString::fromStdString(path.string())),"Cannot open Intersection fixture");flush();
         check(window.execute_console_command(QString::fromStdString(commands::Json{{"command","body.activate"},{"arguments",{{"body",body}}}}.dump())).ok,"Cannot activate Intersection Body");flush();
         auto* view=dynamic_cast<viewer::MeshView*>(window.findChild<QWidget*>("modelWorkspace"));check(view,"Intersection View missing");
+        window.findChild<QAction*>("applicationModeAction3")->trigger();flush();
         auto* action=window.findChild<QAction*>("surfaceIntersectionAction");check(action&&action->isEnabled(),"Intersection action unavailable");
         const auto editor=[&]{return dynamic_cast<SurfaceIntersectionDialog*>(window.findChild<QWidget*>("surfaceIntersectionDialog"));};
         const auto documents=window.execute_console_command("documents").data;

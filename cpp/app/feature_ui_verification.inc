@@ -943,7 +943,19 @@ static void verify_polar_datum_placement(QApplication& application,
     const std::array<const char*,3> keys{"origin:plane:xz","origin:plane:yz","origin:plane:xy"};
     for(std::size_t index=0;index<keys.size();++index) {
         check(dialog->set_reference(index,{{},datum.container_origin.id,keys[index],0,true},QString::fromUtf8(keys[index])),"Polar datum plane entry failed");flush();
-        check(std::abs(dialog->pending_value().placement.rotation_y)<1e-8,"Polar datum introduced arbitrary in-plane rotation");
+        if(index>0) {
+            // A second independent plane normally completes the frame. This
+            // scenario explicitly keeps only the first TOP direction so its
+            // polar azimuth and remaining manual rotation can be exercised.
+            auto* references=dialog->findChild<QTableWidget*>("primitiveReferenceTable");
+            auto* orientation=references->cellWidget(static_cast<int>(index),5)->findChild<QCheckBox*>();
+            check(orientation&&orientation->isEnabled(),"Polar positional orientation control missing");
+            if(index==1)check(orientation->isChecked(),"Second independent plane did not complete orientation");
+            if(orientation->isChecked()){orientation->click();flush();}
+        }
+        if(std::abs(dialog->pending_value().placement.rotation_y)>=1e-8)
+            throw std::runtime_error("Polar datum introduced arbitrary in-plane rotation at reference "+
+                std::to_string(index)+": "+nlohmann::json(dialog->pending_value().placement).dump());
     }
     check(dialog->set_inline_parameter_value("placement:rotation_z",17),"Polar datum free rotation is not editable");flush();
     check(dialog->set_inline_parameter_value("placement:rotation_x",11),"Polar datum correction is not editable");flush();

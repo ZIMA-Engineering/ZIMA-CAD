@@ -87,7 +87,7 @@ kernel::ViewerMesh PartDocument::wrapping_preview_mesh(const HistoryContainer& f
                     result.edges.push_back(std::move(wrapped));
                 }
                 if(depth!=0)for(const auto point:{from,to})if(point==edge.points.front()||point==edge.points.back()||lo>0||hi<1) {
-                    ViewerEdge wall;wall.points={mapped(point,0),mapped(point,depth)};wall.overlay=true;wall.display_owner_id=feature.id;wall.color="#00D1FF";result.edges.push_back(std::move(wall));
+                    ViewerEdge wall;wall.reference={feature.id,"wrap:preview:wall",{}};wall.points={mapped(point,0),mapped(point,depth)};wall.overlay=true;wall.display_owner_id=feature.id;wall.color="#00D1FF";result.edges.push_back(std::move(wall));
                 }
             }
         }

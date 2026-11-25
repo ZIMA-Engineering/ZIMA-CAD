@@ -1573,8 +1573,8 @@ void ConstructionPropertiesDialog::refresh_curve_points() {
 zima::document::ConstructionObject ConstructionPropertiesDialog::current_value() const {
     auto value = initial_;
     value.name = name_->text().trimmed().toStdString();
-    value.origin = {origin_[0]->value(), origin_[1]->value(), origin_[2]->value()};
     const auto numeric = placement_->numeric_placement();
+    value.origin = {numeric.x,numeric.y,numeric.z};
     std::erase_if(value.value_locks,[](const auto& key){return key.starts_with("placement:");});
     for(const auto& key:numeric.value_locks)value.value_locks.insert("placement:"+key);
     if (rotation_[0] != nullptr) {

@@ -592,7 +592,7 @@ void DrawingDocument::save(const std::filesystem::path& path,
     if (document_id.empty() || name.empty() || sheets.empty()) {
         throw std::runtime_error("Drawing identity, name and sheets are required");
     }
-    nlohmann::json root{{"format", "zima-cad-drawing"}, {"version", 13},
+    nlohmann::json root{{"format", "zima-cad-drawing"}, {"version", 14},
                         {"document_id", document_id}, {"name", name},
                         {"source_document_id", source_document_id},
                         {"source_path", zima::document::path_to_utf8(source_path)},
@@ -791,7 +791,7 @@ void DrawingDocument::save(const std::filesystem::path& path,
         // C++ drawing model has no Python entity fields, so its complete payload
         // lives in the ordinary param.* namespace.
         stream << "[Document]\n"
-               << "format_version=21\n"
+               << "format_version=22\n"
                << "type=drawing\n"
                << "document_id=" << root.at("document_id").get<std::string>() << "\n"
                << "name=" << root.at("name").get<std::string>() << "\n"
@@ -812,7 +812,7 @@ DrawingDocument DrawingDocument::load(const std::filesystem::path& path) {
     const auto document_section = ini.find("Document");
     if (document_section == ini.end() ||
         document_section->second.find("format_version") == document_section->second.end() ||
-        (document_section->second.at("format_version") != "21" && document_section->second.at("format_version") != "20" && document_section->second.at("format_version") != "19" && document_section->second.at("format_version") != "18") ||
+        document_section->second.at("format_version") != "22" ||
         document_section->second.find("type") == document_section->second.end() ||
         document_section->second.at("type") != "drawing")
         throw std::runtime_error("Unsupported Drawing document format");
@@ -826,21 +826,8 @@ DrawingDocument DrawingDocument::load(const std::filesystem::path& path) {
         throw std::runtime_error(
             std::string("Invalid C++ Drawing payload: ") + error.what());
     }
-    const bool previous=document_section->second.at("format_version")=="18"&&root.value("version",0)==10;
-    const bool preceding=document_section->second.at("format_version")=="19"&&root.value("version",0)==11;
-    const bool vector_views=document_section->second.at("format_version")=="20"&&root.value("version",0)==12;
-    if (root.value("format", "") != "zima-cad-drawing" || (!previous && !preceding && !vector_views &&
-        (document_section->second.at("format_version")!="21"||root.value("version",0)!=13)))
+    if (root.value("format", "") != "zima-cad-drawing" || root.value("version",0)!=14)
         throw std::runtime_error("Unsupported C++ Drawing payload");
-    // The immediately preceding Drawing schema already persists every view
-    // source and title binding. Introduce only the new registry/chooser fields.
-    if(previous) {
-        root["sources"]=nlohmann::json::array();
-        for(auto& sheet:root.at("sheets")) {
-            if(sheet.at("bom_source_document_id").get<std::string>().empty())sheet["bom_source_document_id"]=root.value("source_document_id",std::string{});
-            sheet["selected_source_document_id"]=sheet.at("bom_source_document_id");
-        }
-    }
     std::map<std::string,std::shared_ptr<const MeasurementGeometry>> measurement_sources;
     std::map<std::string,std::shared_ptr<const kernel::ViewerMesh>> output_sources;
     if(root.contains("output_sources"))for(const auto& [id,packet]:root.at("output_sources").items())

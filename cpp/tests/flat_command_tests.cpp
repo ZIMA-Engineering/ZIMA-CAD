@@ -358,7 +358,7 @@ void verify_cut_edge_attachment(std::filesystem::path directory,bool placed_body
             const auto* feature=state->session.document().find_container(created);
             check(feature&&feature->placement.reference_valid,"Cut edge attachment is unresolved");
             const auto verify_tree=[&](const document::PartDocument& part,const auto& boundaries,bool valid) {
-                const auto status=workspace::cached_sheet_attachment_reference_status(part,boundaries);
+                const auto status=workspace::cached_history_placement_reference_status(part,boundaries);
                 const auto exact=status.find(created);
                 check(exact!=status.end(),"Sheet attachment has no exact Tree reference check");
                 const auto index=app::part_reference_index(part,boundaries.back().mesh.original_references);
@@ -372,7 +372,7 @@ void verify_cut_edge_attachment(std::filesystem::path directory,bool placed_body
                 auto broken=state->session.document();
                 auto& reference=broken.find_container(created)->placement.references.front();
                 reference.semantic_key+="-missing";
-                auto status=workspace::cached_sheet_attachment_reference_status(broken,state->session.calculated_boundaries());
+                auto status=workspace::cached_history_placement_reference_status(broken,state->session.calculated_boundaries());
                 auto stale=app::part_reference_index(broken,state->session.calculated_boundaries().back().mesh.original_references);
                 stale.add(reference);
                 check(!app::feature_reference_issue(*broken.find_container(created),broken,stale,nullptr,&status.at(created)).empty(),

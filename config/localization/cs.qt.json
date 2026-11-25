@@ -3379,5 +3379,15 @@
   "Select a cylindrical, conical, spherical or planar face to wrap.": "Vyberte válcovou, kuželovou, kulovou nebo rovinnou plochu pro nabalení.",
   "Wrap continuation requires connected cylindrical or planar faces with a straight common boundary.": "Navázání nabalení vyžaduje spojené válcové nebo rovinné plochy s přímou společnou hranicí.",
   "Wrap continuations must belong to the same editable Body.": "Navazující plochy nabalení musí patřit do stejného upravitelného tělesa.",
-  "Select faces in continuation order. Connected parts of the same surface are included automatically. The Feature Origin anchors the wrap; on a sphere, distances from it are preserved and widths change.": "Plochy vybírejte v pořadí návaznosti. Navazující části stejného povrchu se zahrnou automaticky. Počátek prvku určuje umístění nabalení; na kouli se zachovávají vzdálenosti od něj a mění se šířky."
+  "Select faces in continuation order. Connected parts of the same surface are included automatically. The Feature Origin anchors the wrap; on a sphere, distances from it are preserved and widths change.": "Plochy vybírejte v pořadí návaznosti. Navazující části stejného povrchu se zahrnou automaticky. Počátek prvku určuje umístění nabalení; na kouli se zachovávají vzdálenosti od něj a mění se šířky.",
+  "Invalid exact surface generator": "Neplatná tvořicí křivka přesné plochy",
+  "Invalid exact surface kind": "Neplatný typ přesné plochy",
+  "Invalid exact surface data": "Neplatná data přesné plochy",
+  "Invalid exact surface spline arrays": "Neplatná spline data přesné plochy",
+  "Invalid exact offset surface": "Neplatná přesná odsazená plocha",
+  "Invalid exact surface frame or domain": "Neplatné umístění nebo rozsah přesné plochy",
+  "Invalid exact surface trim loop": "Neplatná ořezová smyčka přesné plochy",
+  "Unsupported exact surface generator": "Nepodporovaná tvořicí křivka přesné plochy",
+  "Unsupported exact surface definition": "Nepodporovaná definice přesné plochy",
+  "Exact surface trimming curve is missing": "Chybí ořezová křivka přesné plochy"
 }

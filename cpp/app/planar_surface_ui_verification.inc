@@ -35,6 +35,24 @@ int verify_planar_surface_ui(QApplication& application,
                 if(auto* dialog=dynamic_cast<PrimitivePropertiesDialog*>(child);dialog&&dialog->isVisible())return dialog;
             return nullptr;
         };
+        auto* modeling=window.findChild<QAction*>("applicationModeAction0");
+        check(modeling&&modeling->isEnabled(),"Modeling workspace unavailable");modeling->trigger();flush();
+        auto* shortcut=window.findChild<QAction*>("surfaceFeatureAction");
+        auto* tools=window.findChild<QToolBar*>("toolsToolbar");
+        check(shortcut&&shortcut->isEnabled()&&tools,"Surface Feature shortcut unavailable");
+        const auto actions=tools->actions();
+        check(actions.indexOf(shortcut)==actions.indexOf(window.findChild<QAction*>("wrapReliefAction"))+1,
+            "Surface Feature shortcut is not directly below Wrap relief");
+        const auto before_shortcut=run("documents").data;const auto shortcut_calls=kernel::body_calculation_count.load();
+        auto* button=qobject_cast<QToolButton*>(tools->widgetForAction(shortcut));
+        check(button,"Surface Feature command button missing");button->click();flush();
+        check(editor()&&editor()->windowType()==Qt::SubWindow&&editor()->pending_value().feature.planar_surface()&&
+            editor()->findChild<QComboBox*>("featureType")->currentIndex()==planar_surface_type_index,
+            "Surface shortcut did not preselect Surface in shared Properties");
+        check(editor()->pending_value().name==QObject::tr("Plocha").toStdString()+" 01","Surface shortcut automatic name is incorrect");
+        editor()->reject();flush();
+        check(run("documents").data==before_shortcut&&kernel::body_calculation_count.load()==shortcut_calls,
+            "Surface shortcut opening or Cancel changed the model");
         auto* surface_mode=window.findChild<QAction*>("applicationModeAction3");
         check(surface_mode&&surface_mode->isEnabled(),"Surface workspace unavailable");surface_mode->trigger();flush();
         check(!window.findChild<QAction*>("planarSurfaceAction"),"Obsolete standalone planar Surface action remains");
@@ -93,6 +111,14 @@ int verify_planar_surface_ui(QApplication& application,
         check(window.open_document_path(QString::fromStdString(path.string())),"Surface native reopen failed");flush();
         window.show_tree_item_properties(row());flush();check(editor(),"Saved Surface cannot be edited");
         check(editor()->pending_value().feature.planar_surface(),"Surface lost type after Undo/Redo and reopen");editor()->reject();flush();
+        for(const auto* language:{"cs","en","de","fr","ru"}) {
+            QSettings ini(translations.filePath("config.ini"),QSettings::IniFormat);
+            ini.setValue("Application/Language",QString::fromLatin1(language));ini.sync();
+            const auto settings=ApplicationSettings::load(translations.path());apply_application_translations(application,settings);flush();
+            modeling->trigger();flush();
+            check(shortcut->text()==settings.qt_translations.value("Plocha"),"Surface shortcut did not translate");
+        }
+        apply_application_translations(application,settings_before);flush();
         std::cout<<"Surface Feature creation/convert, shared placement, hole/island geometry, no-op OK, Cancel, Undo/Redo and native reopen passed\n";
         return 0;
     } catch(const std::exception& error) {std::cerr<<error.what()<<'\n';return 1;}

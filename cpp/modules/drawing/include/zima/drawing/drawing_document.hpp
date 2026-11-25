@@ -167,9 +167,9 @@ struct DrawingView {
     ViewOrientation orientation{ViewOrientation::Front};
     ProjectionCamera camera;
     ProjectionDirection projection_direction{ProjectionDirection::None};
-    DisplayStyle display_style{DisplayStyle::VisibleEdges};
+    DisplayStyle display_style{DisplayStyle::HiddenEdges};
     HiddenEdgeStyle hidden_edge_style{HiddenEdgeStyle::Dashed};
-    TangentEdgeStyle tangent_edge_style{TangentEdgeStyle::Visible};
+    TangentEdgeStyle tangent_edge_style{TangentEdgeStyle::Hidden};
     bool show_thread_leadins{};
     std::string section_id, section_parent_id;
     std::optional<zima::document::SectionDefinition> section_snapshot;
