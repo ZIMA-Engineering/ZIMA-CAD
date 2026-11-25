@@ -9,6 +9,18 @@ lifecycle. Its signed Correction adds material outward for positive values and
 removes material inward for negative values, following the target solid's side.
 The shared placement solver is unchanged.
 
+The filled Sketch determines the complete material region, including holes and
+disconnected islands. Relief has no retained-region input. That input belongs
+only to Project sketch's Surface output. A source Sketch stays white and all
+projected relief-tool strokes are azure, including the selected depth direction.
+
+New Project relief commands default to **Along projection direction**. Each
+selected patch is swept along the projection axis by the signed Correction;
+its cap is translated, not offset along changing surface normals. The alternative
+**Normal to target surface** uses a constant normal offset. Both modes follow
+the target solid's material side, also on bores. Changing the mode invalidates
+the calculated relief and updates its lightweight preview.
+
 ## Approved persistence scope
 
 The native Projection definition has a Relief output, with a positive height
@@ -18,14 +30,31 @@ documents carry the same contract; extensions remain `.prtz` and `.asmz`.
 Existing Sketch, Split and Surface definitions do not acquire required fields.
 No migration path or required external cache is introduced.
 
+The direction choice was approved on 2026-11-25. Relief definitions store
+`relief_direction` as `projection` or `surface_normal`. An omitted choice means
+the previously authored normal direction; opening a model must not silently
+change its material operation. Other Projection outputs have no new required
+field. This is an optional extension within the existing native format.
+
 ## Implementation and acceptance
 
-Reuse the native directional projection and retained-region partition, followed
-by the established surface thickening and Boolean paths. Preserve source,
+Reuse the native directional projection and exact face partition. Classify each
+patch against the ordinary filled Sketch profiles and nearest bounded target
+along the projection line. Form a translated prism or a normal thickening,
+according to the stored direction. Preserve source,
 region and geometry-side identities. Reject incomplete, ambiguous or invalid
 regions without committing a partial solid. External read-only targets cannot
 be changed by relief. Draft changes publish lightweight preview only; unchanged
 OK, hover and inspection do not calculate geometry or create Undo transactions.
+
+Join adjacent material tools before applying them to the Body. A compound of
+touching tools can leave an internal wall even when total volume is correct.
+The join preserves actual curve/face/vertex ancestry, including a Sketch crossing
+the junction of a two-sided Extrusion or two successive coaxial Extrusions.
+After a failed calculation the first OK retains the draft and shows the error.
+A second unchanged OK retains that definition as a red unresolved feature and
+closes Properties. Cancel discards the pending edit. This uses the shared
+confirmation contract, without a relief-specific transaction path.
 
 Verify positive and negative correction on planar and curved targets, reversed
 surface parameterization and bore sides, holes, successive edits, source changes,
@@ -60,7 +89,7 @@ disposable copy may have those tolerances reduced. The usual native thickening,
 solid-validity, self-interference and ancestry checks still accept or reject the
 result; no check is bypassed and no display mesh supplies modeling geometry.
 
-Status: functional and persistence scope explicitly approved by the user on
+Previous acceptance (normal-depth mode): functional and persistence scope explicitly approved by the user on
 2026-11-24 under AGENTS.md File-format compatibility. GUI creation and editing
 pass for all five outputs, including both relief signs. Six native cases cover
 cone and equatorial/polar sphere relief in both directions, with independent

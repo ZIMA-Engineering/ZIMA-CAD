@@ -441,12 +441,35 @@ void verify_helical_curve_conversion(const kernel::OcctKernel& kernel, const fs:
     const auto path=[&] {return document::PartDocument::helical_curve_geometry(
         *session.document().find_container(owner));};
     const auto refs=path().original_references.edges;
+    const auto endpoints=path().original_references.points;
+    require(endpoints.size()==4&&path().points.size()==4&&path().axes.size()==1,
+        "Helical Curve path and rotation-axis endpoints are not offered");
+    std::vector<std::string> attached;
+    for(const auto& endpoint:endpoints) {
+        auto point=document::PartDocument::create_construction(document::ConstructionKind::Point);
+        point.references={{{},endpoint.reference.owner_id,endpoint.reference.semantic_key}};
+        attached.push_back(point.id);
+        workspace::commit_construction(f.live,id,point,workspace::ConstructionEditMode::Create);
+    }
+    const auto check_endpoints=[&](const auto& part) {
+        const auto current=document::PartDocument::helical_curve_geometry(*part.find_container(owner));
+        require(current.original_references.points.size()==4,"Helical endpoint references disappeared");
+        for(std::size_t i=0;i<endpoints.size();++i) {
+            const auto& endpoint=current.original_references.points[i];
+            require(endpoint.reference==endpoints[i].reference,"Helical endpoint identity changed");
+            const auto* point=part.find_construction(attached[i]);
+            require(point&&point->reference_valid,"Dependent endpoint Point became unresolved");
+            near(point->origin.x,endpoint.position.x);near(point->origin.y,endpoint.position.y);near(point->origin.z,endpoint.position.z);
+        }
+    };
+    check_endpoints(session.document());
     auto anchor=document::PartDocument::create_construction(document::ConstructionKind::Point);
     anchor.origin=refs.front().points.front();const auto anchor_origin=anchor.container_origin.id;
     workspace::commit_construction(f.live,id,anchor,workspace::ConstructionEditMode::Create);
     const auto route_point=add_route_point(f,kernel,owner,{{},anchor_origin,"point"},12.);
     const auto station=session.document().find_container(route_point)->placement;
     const auto check_point=[&](const auto& part) {
+        check_endpoints(part);
         const auto& p=part.find_container(route_point)->placement;
         require(p.reference_valid&&p.references==station.references,"Helical conversion broke the route Point reference");
         near(p.x,station.x);near(p.y,station.y);near(p.z,station.z);
@@ -468,6 +491,8 @@ void verify_helical_curve_conversion(const kernel::OcctKernel& kernel, const fs:
     require(session.calculated_boundaries().back().has_solid() &&
         same_path(path().original_references.edges),
         "Helical Sweep changed the curve or failed to add material");
+    for(const auto& endpoint:endpoints)require(std::ranges::any_of(session.calculated_boundaries().back().mesh.points,
+        [&](const auto& point){return point.reference==endpoint.reference;}),"Sweep centerline replaced a Curve endpoint identity");
     auto curve=*session.document().find_container(owner);
     curve.helical.curve_only=true;
     workspace::commit_sweep(f.live,kernel,id,curve,workspace::SweepEditMode::Replace);
@@ -489,6 +514,56 @@ void verify_helical_curve_conversion(const kernel::OcctKernel& kernel, const fs:
     check(session.document());
     f.run("save");
     check(document::PartDocument::load(directory/"helical-curve-conversion.prtz"));
+    for(double pitch:{7.,3.,6.}) {
+        auto changed=*session.document().find_container(owner);changed.helical.pitch=pitch;
+        changed.helical.left_handed=!changed.helical.left_handed;
+        auto guide=sketcher::Sketch::from_serialized(changed.helical.sketches[1]);
+        for(auto& point:guide.points)if(point.id!=changed.helical.guide_start_point_id)point.y+=1.;
+        changed.helical.sketches[1]=guide.serialized();
+        workspace::commit_sweep(f.live,kernel,id,changed,workspace::SweepEditMode::Replace);
+        check_endpoints(session.document());
+        f.run("undo");check_endpoints(session.document());f.run("redo");check_endpoints(session.document());
+        f.run("save");check_endpoints(document::PartDocument::load(directory/"helical-curve-conversion.prtz"));
+    }
+}
+
+void verify_helical_endpoint_with_cap(const kernel::OcctKernel& kernel,const fs::path& directory) {
+    Fixture f(kernel,directory);
+    f.run("new",{{"type","part"},{"name","helical-endpoint-with-cap"}});
+    const auto source=test_support::sweep_fixture(document::FeatureKind::HelicalSweep);
+    const auto document_id=f.live.active_document_id();
+    workspace::commit_sweep(f.live,kernel,document_id,source,workspace::SweepEditMode::Create);
+    auto& session=f.state().session;
+    const auto path=document::PartDocument::helical_curve_geometry(*session.document().find_container(source.id));
+    const auto endpoint=std::ranges::find_if(path.original_references.points,[](const auto& p){return p.reference.semantic_key.starts_with("sweep:path-point:end:");});
+    require(endpoint!=path.original_references.points.end(),"Helical end Point is missing");
+    const auto& faces=session.calculated_boundaries().back().mesh.original_references.triangle_references;
+    const auto cap=std::ranges::find_if(faces,[&](const auto& face){return face.owner_id==source.id&&face.semantic_key.starts_with("end:from:");});
+    require(cap!=faces.end(),"Helical end cap is missing");
+    auto point=document::PartDocument::create_construction(document::ConstructionKind::Point);
+    point.references={{{},source.id,endpoint->reference.semantic_key},{{},source.id,cap->semantic_key}};
+    auto& direction=point.references.back();direction.orientation_only=true;
+    direction.orientation_drives_rotation=true;direction.orientation_role="direction";
+    const auto point_id=point.id;
+    workspace::commit_construction(f.live,document_id,point,workspace::ConstructionEditMode::Create);
+    const auto references=session.document().find_construction(point_id)->references;
+    const auto check=[&](const document::PartDocument& part) {
+        const auto geometry=document::PartDocument::helical_curve_geometry(*part.find_container(source.id));
+        const auto current=std::ranges::find_if(geometry.original_references.points,[&](const auto& p){return p.reference==endpoint->reference;});
+        const auto* attached=part.find_construction(point_id);
+        require(attached&&attached->reference_valid&&attached->references==references,
+            "Exact cap selection masked the authored Helical endpoint");
+        require(current!=geometry.original_references.points.end(),"Helical endpoint identity changed");
+        near(attached->origin.x,current->position.x);near(attached->origin.y,current->position.y);near(attached->origin.z,current->position.z);
+    };
+    check(session.document());
+    for(double pitch:{7.,3.,6.}) {
+        auto changed=*session.document().find_container(source.id);changed.helical.pitch=pitch;
+        changed.helical.left_handed=!changed.helical.left_handed;
+        workspace::commit_sweep(f.live,kernel,document_id,changed,workspace::SweepEditMode::Replace);
+        check(session.document());f.run("undo");check(session.document());f.run("redo");check(session.document());
+        f.run("save");check(document::PartDocument::load(directory/"helical-endpoint-with-cap.prtz"));
+    }
 }
 
 void verify_release_trajectory_points(const kernel::OcctKernel& kernel, const fs::path& directory) {
@@ -909,6 +984,30 @@ void verify_helical_source_frames() {
         } catch(const std::exception& error) {throw std::runtime_error("Helical source frame "+std::to_string(scenario)+": "+error.what());}
     }
 }
+void verify_helical_guide_redraw(const kernel::OcctKernel& kernel,const fs::path& directory) {
+    Fixture f(kernel,directory);f.run("new",{{"type","part"},{"name","helical-redrawn-guide"}});
+    auto feature=test_support::sweep_fixture(document::FeatureKind::HelicalSweep);
+    const auto id=feature.id,owner=f.live.active_document_id();
+    workspace::commit_sweep(f.live,kernel,owner,feature,workspace::SweepEditMode::Create);
+    const auto guide_id=sketcher::Sketch::from_serialized(feature.helical.sketches[1]).id;
+    for(double height:{12.,8.,10.}) {
+        const auto before=*f.state().session.document().find_container(id);
+        std::string endpoint;
+        require(workspace::mutate_document_sketch(f.live,owner,guide_id,[&](auto& guide) {
+            guide.remove_geometry(guide.segments.front().id);
+            static_cast<void>(guide.add_segment(0,0,0,height));endpoint=guide.segments.front().first_point_id;
+        }),"Guide redraw was not committed");
+        const auto updated=*f.state().session.document().find_container(id);
+        require(updated.helical.guide_start_point_id==endpoint&&endpoint!=before.helical.guide_start_point_id,
+            "Owned Sketch transaction retained the deleted guide start");
+        f.run("undo");require(f.state().session.document().find_container(id)->helical==before.helical,"Undo lost the old guide reference or frame");
+        f.run("redo");require(f.state().session.document().find_container(id)->helical==updated.helical,"Redo lost the new guide reference or frame");
+        f.run("regenerate");near(f.volume(),std::numbers::pi*.25*height*std::hypot(4*std::numbers::pi,1.),1e-3);
+        f.run("save");const auto reopened=document::PartDocument::load(directory/"helical-redrawn-guide.prtz");
+        require(reopened.find_container(id)->helical.guide_start_point_id==endpoint,"Save/reopen lost the redrawn guide start");
+    }
+    std::cout<<"Owned Helical guide redraw, regeneration, Undo/Redo and native reopening passed\n";
+}
 void verify_helical_creation(const kernel::OcctKernel& kernel, const fs::path& directory) {
     Fixture f(kernel,directory);f.run("new",{{"type","part"},{"name","helical-created"}});
     const auto definition=test_support::sweep_fixture(document::FeatureKind::HelicalSweep);
@@ -1074,10 +1173,12 @@ int main(int argc,char** argv) {
         verify_trajectory_conversion(kernel, directory);
         verify_release_trajectory_points(kernel, directory);
         verify_helical_curve_conversion(kernel, directory);
+        verify_helical_endpoint_with_cap(kernel,directory);
         verify_creation_profiles(kernel, directory);
         verify_planar_creation(kernel, directory);
         verify_planar_curved_creation(kernel, directory);
         verify_helical_source_frames();
+        verify_helical_guide_redraw(kernel,directory);
         verify_helical_creation(kernel, directory);
         verify_path_plane(kernel, directory);
         verify_original_path_plane(kernel, directory);

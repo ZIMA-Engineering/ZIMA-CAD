@@ -21,7 +21,7 @@ follows the current feature naming policy.
 | Sketch | Spatial curves lying on the selected faces, derived from the planar input | No material change |
 | Split | Partition the selected faces along the projected boundaries | Same volume, material and occupied space |
 | Surface | Independent bounded surface patches selected from the projected regions | Surface output; no added or removed solid material |
-| Relief | Selected projected regions thickened along the target's material normal | Positive Correction adds material; negative Correction removes it |
+| Relief | Filled Sketch projected onto the nearest selected faces, swept along the projection direction or offset normally | Positive Correction adds material; negative Correction removes it |
 
 The input remains a planar Sketch in all four modes. A curved target can
 produce spatial output curves, which must not be put into the input Sketch's
@@ -52,6 +52,10 @@ Incomplete boundaries must not produce an apparently successful partial patch.
 There is no Thin output, separate Add/Subtract selector or wrapping mode.
 Project sketch offers Sketch, Split and Surface; Project relief exposes a signed
 Correction instead. Surface Thicken/Shell remain available for downstream work.
+Relief derives all material regions from the filled Sketch and does not expose
+retained-region selection. Its stored depth direction defaults to Along
+projection direction for a new command; Normal to target surface is the other
+choice. The normal sign follows the solid's material side in both modes.
 Rotational wrapping and FEM loads
 remain separate commands. FEM may later reference a stable projected region;
 that does not give Projection ownership of an analysis case.

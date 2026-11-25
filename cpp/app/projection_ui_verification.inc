@@ -15,10 +15,13 @@ int verify_projection_ui(QApplication& application,AssemblyWorkspaceWindow& wind
                 std::filesystem::copy_options::overwrite_existing);
             std::vector<kernel::BodyResult> cache;
             const auto part=document::PartDocument::load(path,&cache);
-            const auto found=std::ranges::find_if(part.history,[](const auto& value) {
+            auto found=std::ranges::find_if(part.history,[](const auto& value) {
                 return value.feature_kind==document::FeatureKind::Feature&&
                     value.feature.type==document::FeatureType::Projection&&value.feature.projection.targets.size()==2;
             });
+            for(auto it=part.history.begin();it!=part.history.end();++it)
+                if(it->feature_kind==document::FeatureKind::Feature&&it->feature.type==document::FeatureType::Projection&&
+                        it->feature.projection.output==document::ProjectionOutput::Relief&&it->feature.projection.targets.size()==2)found=it;
             check(found!=part.history.end(),"User fixture has no two-face Projection");
             const auto feature=*found;
             window.resize(1440,1000);window.show();
@@ -47,27 +50,9 @@ int verify_projection_ui(QApplication& application,AssemblyWorkspaceWindow& wind
                 kernel::body_calculation_count.load()==calls,"User unchanged Properties calculated or committed geometry");
             window.show_tree_item_properties(row());flush();check(editor(),"User Projection reopen failed");
             editor()->findChild<QComboBox*>("featureType")->setCurrentIndex(projection_relief_type_index);
+            editor()->findChild<QComboBox*>("projectionReliefDirection")->setCurrentIndex(0);
             editor()->findChild<QDoubleSpinBox*>("projectionHeight")->setValue(-3.);flush();
-            auto* panel=editor()->projection_panel();
-            elapsed.restart();editor()->buttons()->button(QDialogButtonBox::Ok)->click();flush();
-            std::cout<<"User relief GUI missing-region OK: "<<elapsed.elapsed()<<" ms\n";
-            check(editor()&&panel->active_pick()==ProjectionParameterPanel::Pick::Region&&
-                kernel::body_calculation_count.load()==calls&&window.execute_console_command("documents").data==state,
-                "User missing-region relief calculated or modified history");
-            const auto source=std::ranges::find(part.sketches,feature.feature.sketch_id,&sketcher::Sketch::id);
-            check(source!=part.sketches.end(),"User source Sketch is missing");
-            double ymin=1e100,ymax=-1e100;
-            for(const auto& point:source->points)if(!point.construction){ymin=std::min(ymin,point.y);ymax=std::max(ymax,point.y);}
-            const auto n=source->normal(),u=source->resolved_y_axis;
-            const double t=(ymin+ymax)/2.,radial=std::sqrt(900.-t*t);
-            for(std::size_t i=0;i<feature.feature.projection.targets.size();++i) {
-                panel->begin_entry(ProjectionParameterPanel::Pick::Region,int(i));
-                check(panel->set_region(feature.feature.projection.targets[i].reference,
-                    {n.x*radial+u.x*t,118.8051986694336+n.y*radial+u.y*t,i==0?4.:-4.}),"User region entry failed");
-            }
-            flush();
-            check(editor()->findChild<QLabel*>("featureValidationError")->text().isEmpty(),
-                "Valid retained regions did not clear the missing-region prompt");
+            check(editor()->findChild<QTableWidget*>("projectionRegions")->isHidden(),"Relief exposed manual region selection");
             window.grab().save(QString::fromStdString((directory/"user-relief-preview.png").string()));
             elapsed.restart();editor()->buttons()->button(QDialogButtonBox::Ok)->click();flush();
             std::cout<<"User relief GUI changed OK: "<<elapsed.elapsed()<<" ms\n";
@@ -201,7 +186,28 @@ int verify_projection_ui(QApplication& application,AssemblyWorkspaceWindow& wind
             targets->cellWidget(0,3)->findChild<QToolButton*>()->click();flush();check(panel->inspected_faces().size()==1,"Target inspection did not remain independent");
             targets->cellWidget(0,1)->findChild<QPushButton*>()->click();flush();check(panel->parameters().targets.empty()&&panel->inspected_faces().empty(),"Clearing a target retained its inspection");
             pick_face(false);check(panel->parameters().targets.size()==1,"Target replacement failed");
-            if(output==2||relief) {
+            if(relief) {
+                check(editor()->findChild<QTableWidget*>("projectionRegions")->isHidden(),"Relief region picker must be hidden");
+                auto* direction=editor()->findChild<QComboBox*>("projectionReliefDirection");
+                check(direction&&direction->currentIndex()==0,"New relief must default to the projection direction");
+                for(int mode:{1,0}) {
+                    direction->setCurrentIndex(mode);flush();
+                    check(static_cast<int>(editor()->pending_value().feature.projection.relief_direction)==mode,"Relief direction selector changed the wrong parameter");
+                }
+                const auto original_settings=ApplicationSettings::load(QDir::currentPath());
+                QTemporaryDir temporary;check(temporary.isValid(),"Relief localization directory unavailable");
+                for(const auto* language:{"cs","en","de","fr","ru"}) {
+                    QSettings ini(temporary.filePath("config.ini"),QSettings::IniFormat);
+                    ini.setValue("Application/Language",QString::fromLatin1(language));
+                    ini.setValue("Paths/Localization",QDir::current().absoluteFilePath("config/localization"));ini.sync();
+                    const auto settings=ApplicationSettings::load(temporary.path());
+                    apply_application_translations(application,settings);flush();
+                    check(direction->itemText(0)==settings.qt_translations.value("Along projection direction")&&
+                        direction->itemText(1)==settings.qt_translations.value("Normal to target surface"),"Relief directions did not translate");
+                }
+                apply_application_translations(application,original_settings);flush();
+            }
+            if(output==2) {
                 const auto before_rejection=window.execute_console_command("documents").data;
                 const auto count=kernel::body_calculation_count.load();
                 editor()->buttons()->button(QDialogButtonBox::Ok)->click();flush();
@@ -329,6 +335,7 @@ int verify_projection_ui(QApplication& application,AssemblyWorkspaceWindow& wind
             window.show_tree_item_properties(row());flush();
             check(std::abs(editor()->pending_value().placement.z)<1e-8,"Reopened Projection lost its placement");
             editor()->buttons()->button(QDialogButtonBox::Cancel)->click();flush();
+            if(relief)verify_relief_failure_confirmation(application,window,row,editor,feature.id,"projectionTargets",path);
             std::cout<<"Projection GUI output "<<output<<": picking, replacement, independent inspection, zero-calculation preview, OK, no-op, Cancel, save, Undo/Redo, whole Origin and automatic normal direction passed\n";
             std::cout<<"Projection GUI source dimensions: Tree single/double-click, zero-calculation inspection and three successive View radius edits passed\n";
         }

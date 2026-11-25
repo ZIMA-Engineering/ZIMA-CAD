@@ -1,4 +1,7 @@
 {
+  "Relief direction": "Direction du relief",
+  "Along projection direction": "Dans la direction de projection",
+  "Normal to target surface": "Perpendiculaire à la surface cible",
   "Invalid CAM clamping direction.": "Direction de serrage FAO invalide.",
   "CAM clamping requires a planar contact region.": "Le serrage FAO nécessite une zone de contact plane.",
   "Clamping Sketches": "Esquisses de serrage",
@@ -3358,5 +3361,23 @@
   "The tool definition needs valid CAM dimensions, cutting and shank Body roles, feed and spindle speed.": "La définition de l’outil nécessite des dimensions FAO valides, les rôles des corps coupant et de queue, une avance et une vitesse de broche.",
   "The machine definition needs valid machining type, axes, travel, feed and spindle limits.": "La définition de la machine nécessite un type d’usinage, des axes, des courses et des limites d’avance et de broche valides.",
   "Export generic NC text…": "Exporter le texte CN générique…",
-  "The generic NC text could not be saved.": "Impossible d’enregistrer le texte CN générique."
+  "The generic NC text could not be saved.": "Impossible d’enregistrer le texte CN générique.",
+  "Chybějící bod vodicí skici": "Un point de l’esquisse guide est manquant.",
+  "Neplatná spline vodicí skici": "La spline de l’esquisse guide est invalide.",
+  "Neplatná výška nebo více než 1000 otáček": "La hauteur est invalide ou dépasse 1000 tours.",
+  "Neurčitý směr Helical Sweepu": "La direction du balayage hélicoïdal est indéfinie.",
+  "Počáteční bod musí ležet na kružnici": "Le point initial doit se trouver sur le cercle.",
+  "Segmenty vodicí dráhy musí navazovat tečně": "Les segments du chemin guide doivent être raccordés tangentiellement.",
+  "Stoupání musí být kladné": "Le pas doit être positif.",
+  "Vodicí dráha musí postupovat ve výšce jedním směrem a zůstat mimo osu": "Le chemin guide doit progresser dans un seul sens en hauteur et rester à l’écart de l’axe.",
+  "Vodicí dráha nesmí mít čistě radiální tečnu": "Le chemin guide ne doit pas avoir de tangente purement radiale.",
+  "Vyberte základní kružnici": "Sélectionnez le cercle de base.",
+  "The first arc requires a valid plane normal.": "Le premier arc nécessite une normale de plan valide.",
+  "An arc endpoint must differ from its start and lie off the starting tangent.": "Le point final d’un arc doit être distinct de son point initial et ne pas se trouver sur la tangente initiale.",
+  "Curve type must be polyline, interpolating_spline or arc.": "Le type de courbe doit être polyline, interpolating_spline ou arc.",
+  "Arc directions follow the first plane normal and preceding arc tangent.": "La direction des arcs suit la normale du premier plan et la tangente de l’arc précédent.",
+  "Select a cylindrical, conical, spherical or planar face to wrap.": "Sélectionnez une face cylindrique, conique, sphérique ou plane pour l’enroulement.",
+  "Wrap continuation requires connected cylindrical or planar faces with a straight common boundary.": "La continuité de l’enroulement nécessite des faces cylindriques ou planes raccordées par une limite commune droite.",
+  "Wrap continuations must belong to the same editable Body.": "Les faces de continuation de l’enroulement doivent appartenir au même corps modifiable.",
+  "Select faces in continuation order. Connected parts of the same surface are included automatically. The Feature Origin anchors the wrap; on a sphere, distances from it are preserved and widths change.": "Sélectionnez les faces dans l’ordre de leur raccordement. Les parties adjacentes de la même surface sont incluses automatiquement. L’origine de l’élément fixe l’enroulement ; sur une sphère, les distances depuis cette origine sont conservées et les largeurs varient."
 }

@@ -172,7 +172,9 @@ static void thin_sweep_contracts() {
         require(rejected,"Invalid or collapsing Thin thickness was accepted");
     }
 }
+#include "curve3d_arc_contract.inc"
 int main(){try{
+    arc_curve_contracts();
     for (const bool interpolate : {false, true}) {
         auto doc=document::PartDocument::create_default();
         auto curve=fixture(5).sweep3d.path;

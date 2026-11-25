@@ -304,7 +304,7 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
         for(auto* action:{sketch_action_,extrusion_action_,revolution_action_,construction_point_action_,construction_axis_action_,construction_plane_action_,
             curve_3d_action_,sweep2d_action_,sweep_3d_action_,helical_curve_action_,helical_sweep_action_,loft_action_,fillet_action_,chamfer_action_,shell_action_,
             thread_action_,holes_action_,shaft_thread_action_,drill_point_action_,mirror_action_,pattern_action_,body_scale_action_,symbol_action_,create_body_action_,create_fem_action_,create_render_action_,create_cam_action_,body_boolean_action_})if(action)action->setEnabled(false);
-        for(const auto* name:{"featurePrototypeAction","modelTwistAction","straightenAction","restoreShapeAction","planarSurfaceAction","generalSurfaceAction", "boundarySurfaceAction","surfaceSewingAction","surfaceIntersectionAction","sheetFromBodyAction","flatAction","bendAction","lineBendAction","sheetProfileAction"})
+        for(const auto* name:{"featurePrototypeAction","modelTwistAction","straightenAction","restoreShapeAction","generalSurfaceAction", "boundarySurfaceAction","surfaceSewingAction","surfaceIntersectionAction","sheetFromBodyAction","flatAction","bendAction","lineBendAction","sheetProfileAction"})
             if(auto* action=findChild<QAction*>(name))action->setEnabled(false);
         for(int i=0;i<6;++i)if(auto* action=findChild<QAction*>(QStringLiteral("featureShortcut%1Action").arg(i)))action->setEnabled(false);
         if(active_cam_body()) {
@@ -619,11 +619,8 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
             modeling_part->session.document().body_history.find(
                 modeling_part->session.document().body_history.active_body_id()):nullptr;
         add_command(selection_action_);
+        if(auto* feature=findChild<QAction*>("featurePrototypeAction"))add_command(feature);
         add_group_separator();
-        auto* planar=findChild<QAction*>("planarSurfaceAction");
-        if(!planar){planar=new QAction(resource_icon("boundary-surface"),tr("Planární plocha"),this);
-            planar->setObjectName("planarSurfaceAction");connect(planar,&QAction::triggered,this,[this]{show_sketch_properties({},false,false,false,false,false,true);});}
-        planar->setEnabled(boundary_body&&!boundary_body->derived_copy&&!properties_dialog_);add_command(planar);
         auto* general=findChild<QAction*>("generalSurfaceAction");
         if(!general){general=new QAction(resource_icon("boundary-surface"),tr("Obecná plocha"),this);
             general->setObjectName("generalSurfaceAction");connect(general,&QAction::triggered,this,[this]{show_sweep_properties(zima::document::FeatureKind::GeneralSurface,{});});}

@@ -39,16 +39,18 @@ int main() { try {
         auto p=fixture();p.type=FeatureType::Wrapping;p.wrapping.output=output;
         p.wrapping.reverse_u=reverse_u;p.wrapping.reverse_v=reverse_v;p.wrapping.height=2.75;
         p.wrapping.target=p.sides[1].targets.front();
+        p.wrapping.continuations={*p.wrapping.target,*p.wrapping.target};
+        p.wrapping.continuations.back().reference.semantic_key="next-support";
         const auto encoded=serialize_feature_parameters(p);const auto restored=load_feature_parameters(encoded);
         check(restored==p,"Wrap native definition changed on round-trip");
         check(restored.uses_sketch()&&!restored.sketch_only()&&!restored.shows_sketch(),"Wrap lost its source/output distinction");
         check(std::signbit(restored.wrapping.target->fallback_origin.x),"Wrap normalized signed zero");
         unsigned visited=0;visit_feature_targets(restored,[&](const auto&){++visited;});
-        check(visited==2,"Wrap target bypassed the common reference lifecycle");
+        check(visited==4,"Wrap target bypassed the common reference lifecycle");
         auto invalid=encoded;invalid.erase("wrapping");rejected([&]{load_feature_parameters(invalid);});
         invalid=encoded;invalid["wrapping"]["height"]=0;rejected([&]{load_feature_parameters(invalid);});
         invalid=encoded;invalid["wrapping"]["output"]="unwrap";rejected([&]{load_feature_parameters(invalid);});
-        p.wrapping.target.reset();check(load_feature_parameters(serialize_feature_parameters(p))==p,"Wrap cannot retain an unresolved target");
+        p.wrapping.target.reset();p.wrapping.continuations.clear();check(load_feature_parameters(serialize_feature_parameters(p))==p,"Wrap cannot retain an unresolved target");
         p.type=FeatureType::Modeling;check(!serialize_feature_parameters(p).contains("wrapping"),"Wrap changed other Feature definitions");
     }
     // Projection adds a required discriminated definition without changing
@@ -69,6 +71,12 @@ int main() { try {
         check(restored==p,"Projection definition changed on native round-trip");
         check(encoded["projection"].contains("height")== (output==ProjectionOutput::Relief),"Projection height escaped its relief definition");
         if(output==ProjectionOutput::Relief) {
+            for(const auto depth_direction:{ProjectionReliefDirection::Projection,ProjectionReliefDirection::SurfaceNormal}) {
+                auto variant=p;variant.projection.relief_direction=depth_direction;
+                check(load_feature_parameters(serialize_feature_parameters(variant))==variant,"Relief depth direction did not persist");
+            }
+            auto invalid_direction=encoded;invalid_direction["projection"]["relief_direction"]="unknown";
+            rejected([&]{load_feature_parameters(invalid_direction);});
             auto missing=encoded;missing["projection"].erase("height");rejected([&]{load_feature_parameters(missing);});
             for(double height:{0.,-1.,std::numeric_limits<double>::infinity()}) {
                 auto invalid=p;invalid.projection.height=height;rejected([&]{serialize_feature_parameters(invalid);});

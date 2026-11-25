@@ -21,24 +21,26 @@ private:
 };
 
 PrimitiveData make_wrapping_data(const WrappingRequest& request,const std::string& owner,
-        const std::vector<OwnedFace>& available_faces) {
+        const std::vector<OwnedFace>& available_faces,
+        std::map<std::string,std::vector<std::string>>* edge_targets=nullptr) {
     if(request.sketch_id.empty()||!request.target.valid()||(request.profiles.empty()&&request.images.empty())||
             !std::isfinite(request.tolerance)||request.tolerance<=0||!std::isfinite(request.height)||request.height<=0)
         throw std::invalid_argument("Invalid Wrap definition.");
-    TopoDS_Face target;
-    for(const auto& face:available_faces)if(same_face_identity(face.reference,request.target)) {
-        if(!target.IsNull()&&!target.IsSame(face.shape))throw std::runtime_error("Wrap target is ambiguous.");
-        target=TopoDS::Face(face.shape);
+    const double tolerance=request.tolerance;
+    PrimitiveData result,material;BRep_Builder builder;TopoDS_Compound compound;builder.MakeCompound(compound);
+    const auto field=[](const std::string& value){return std::to_string(value.size())+":"+value;};
+    const std::string prefix="wrap:sketch:"+field(request.sketch_id);
+    std::map<std::string,TopoDS_Vertex> shared_points;
+    const auto charts=native_wrap_charts(request,available_faces);
+    for(const auto& chart:charts) {
+    const auto* analytic=&chart.surface;const auto& map=chart.map;
+    TopoDS_Face target;std::vector<TopoDS_Face> coverage;
+    for(const auto& reference:chart.coverage)for(const auto& face:available_faces)if(same_face_identity(face.reference,reference)) {
+        if(reference==chart.anchor)target=TopoDS::Face(face.shape);
+        if(std::ranges::none_of(coverage,[&](const auto& f){return f.IsSame(face.shape);}))coverage.push_back(TopoDS::Face(face.shape));
     }
     if(target.IsNull())throw std::runtime_error("Wrap target is unavailable.");
-    const auto analytic=analytic_surface(target);
-    if(!analytic||(analytic->kind!=SurfaceGeometry::Kind::Cylinder&&analytic->kind!=SurfaceGeometry::Kind::Cone&&
-            analytic->kind!=SurfaceGeometry::Kind::Sphere))
-        throw std::runtime_error("Select a cylindrical, conical or spherical face to wrap.");
-    const SurfaceWrap map(*analytic,request.origin,request.x_axis,request.y_axis,request.reverse_u,request.reverse_v);
-    // BRep_Tool returns a world-space supporting surface, including Location.
     auto support=BRep_Tool::Surface(target);
-    const double tolerance=request.tolerance;
     const auto anchor=map.point(0,0);
     if(analytic->kind==SurfaceGeometry::Kind::Cylinder) {
         // SurfaceWrap uses a right-handed analytic frame. A native circle
@@ -62,10 +64,6 @@ PrimitiveData make_wrapping_data(const WrappingRequest& request,const std::strin
     }
     ShapeAnalysis_Surface parameterization(support);
     const auto anchor_uv=parameterization.ValueOfUV(gp_Pnt(anchor.x,anchor.y,anchor.z),tolerance);
-    PrimitiveData result;BRep_Builder builder;TopoDS_Compound compound;builder.MakeCompound(compound);
-    const auto field=[](const std::string& value){return std::to_string(value.size())+":"+value;};
-    const std::string prefix="wrap:sketch:"+field(request.sketch_id);
-    std::map<std::string,TopoDS_Vertex> shared_points;
     const auto vertex=[&](const std::string& key,const gp_Pnt& point) {
         auto [it,added]=shared_points.try_emplace(key);
         if(added){it->second=BRepBuilderAPI_MakeVertex(point).Vertex();builder.UpdateVertex(it->second,tolerance);}
@@ -79,19 +77,23 @@ PrimitiveData make_wrapping_data(const WrappingRequest& request,const std::strin
             throw std::runtime_error("Wrap source curve is invalid.");
         WrapCurveEvaluator evaluator(curve,map,request);
         occ::handle<Geom2d_Curve> pcurve;
-        if(analytic->kind==SurfaceGeometry::Kind::Cylinder) {
+        if(analytic->kind==SurfaceGeometry::Kind::Cylinder||analytic->kind==SurfaceGeometry::Kind::Plane) {
             const gp_Ax3 frame(gp_Pnt(request.origin.x,request.origin.y,request.origin.z),
                 gp_Dir(request.normal.x,request.normal.y,request.normal.z),gp_Dir(request.x_axis.x,request.x_axis.y,request.x_axis.z));
             auto planar=GeomAPI::To2d(curve,gp_Pln(frame));
             auto trimmed=new Geom2d_TrimmedCurve(planar,first,last);
             auto spline=Geom2dConvert::CurveToBSplineCurve(trimmed);
-            const auto anchor=map.point(0,0);const auto delta=wrap_detail::sub(anchor,analytic->origin);
+            const auto source_anchor=map.source_anchor();const auto anchor=map.point(source_anchor.first,source_anchor.second);const auto delta=wrap_detail::sub(anchor,analytic->origin);
             const auto tangent=wrap_detail::cross(analytic->axis,analytic->radial);
             const double angle=std::atan2(wrap_detail::dot(delta,tangent),wrap_detail::dot(delta,analytic->radial));
             const double axial=wrap_detail::dot(delta,analytic->axis);
             for(int i=1;i<=spline->NbPoles();++i) {
                 const auto p=spline->Pole(i);const auto [u,v]=map.canonical_coordinates(p.X(),p.Y());
-                spline->SetPole(i,gp_Pnt2d(angle+u/analytic->radius,axial+v));
+                if(analytic->kind==SurfaceGeometry::Kind::Cylinder)spline->SetPole(i,gp_Pnt2d(angle+u/analytic->radius,axial+v));
+                else {
+                    const auto point=map.point(p.X(),p.Y());
+                    spline->SetPole(i,parameterization.ValueOfUV(gp_Pnt(point.x,point.y,point.z),tolerance));
+                }
             }
             pcurve=spline;first=spline->FirstParameter();last=spline->LastParameter();
         } else {
@@ -136,19 +138,25 @@ PrimitiveData make_wrapping_data(const WrappingRequest& request,const std::strin
         BRepAdaptor_Curve check(mapped);
         for(int i=0;i<=64;++i) {
             const auto point=check.Value(check.FirstParameter()+(check.LastParameter()-check.FirstParameter())*i/64.);
-            BRepClass_FaceClassifier classifier(target,point,tolerance);
-            if(classifier.State()!=TopAbs_IN&&classifier.State()!=TopAbs_ON)
+            if(std::ranges::none_of(coverage,[&](const auto& face) {
+                const auto state=BRepClass_FaceClassifier(face,point,tolerance).State();
+                return state==TopAbs_IN||state==TopAbs_ON;
+            }))
                 throw std::runtime_error("Wrapped geometry extends outside the selected face.");
         }
         // Point samples cannot detect a narrow hole between two samples.
         // Check the complete mapped edge against the exact bounded face.
         BRepAlgoAPI_Cut outside;
-        NCollection_List<TopoDS_Shape> arguments,tools;arguments.Append(mapped);tools.Append(target);
+        NCollection_List<TopoDS_Shape> arguments,tools;arguments.Append(mapped);for(const auto& face:coverage)tools.Append(face);
         outside.SetArguments(arguments);outside.SetTools(tools);outside.SetNonDestructive(true);outside.SetFuzzyValue(tolerance);outside.Build();
         if(!outside.IsDone()||outside.HasErrors())throw std::runtime_error("Wrapped region is not valid.");
         GProp_GProps uncovered;BRepGProp::LinearProperties(outside.Shape(),uncovered);
         if(uncovered.Mass()>tolerance)throw std::runtime_error("Wrapped geometry extends outside the selected face.");
         result.edges.push_back({mapped,{owner,key,{}}});
+        if(edge_targets)for(const auto& face:chart.coverage) {
+            auto& targets=(*edge_targets)[key];const auto identity=encoded_topology_reference(face);
+            if(std::ranges::find(targets,identity)==targets.end())targets.push_back(identity);
+        }
         result.vertices.push_back({va,{owner,reversed?end_key:start_key,{}}});
         result.vertices.push_back({vb,{owner,reversed?start_key:end_key,{}}});
         return mapped;
@@ -164,19 +172,13 @@ PrimitiveData make_wrapping_data(const WrappingRequest& request,const std::strin
             profiles.push_back(std::move(profile));
         }
     }
-    for(const auto& profile:profiles) {
+    for(const auto& profile:profiles)for(const auto& region:wrapping_source_regions(profile,request,chart,owner,prefix)) {
         std::vector<TopoDS_Wire> wires;std::vector<std::string> sources;
-        const auto source_wires=make_body_profiles(profile,request.normal);
-        for(const auto& wire:source_wires) {
-            if(wire.edges.size()!=wire.curve_ids.size()||(!wire.point_ids.empty()&&wire.point_ids.size()!=wire.edges.size()))
-                throw std::runtime_error("Wrap source ancestry is missing.");
+        for(const auto& wire:region) {
             BRepBuilderAPI_MakeWire mapped;
-            for(std::size_t i=0;i<wire.edges.size();++i) {
-                const auto key=prefix+":curve:"+field(wire.curve_ids[i]);sources.push_back(key);
-                const auto a=wire.point_ids.empty()?key+":seam":prefix+":point:"+field(wire.point_ids[i]);
-                const auto b=wire.point_ids.empty()?a:prefix+":point:"+field(i+1<wire.point_ids.size()?wire.point_ids[i+1]:
-                    !profile.open_profile_end_id.empty()?profile.open_profile_end_id:wire.point_ids.front());
-                mapped.Add(mapped_edge(wire.edges[i],key,a,b));
+            for(const auto& source:wire) {
+                sources.push_back(source.key);
+                mapped.Add(mapped_edge(source.shape,source.key,source.start,source.end));
             }
             if(!mapped.IsDone())throw std::runtime_error("Wrap curve construction failed.");
             wires.push_back(mapped.Wire());
@@ -198,7 +200,7 @@ PrimitiveData make_wrapping_data(const WrappingRequest& request,const std::strin
         if(!skin_surface)throw std::runtime_error("Wrapped region is not valid.");
         if(skin_surface->reversed!=analytic->reversed)skin.Reverse();
         BRepAlgoAPI_Cut outside;
-        NCollection_List<TopoDS_Shape> arguments,tools;arguments.Append(skin);tools.Append(target);
+        NCollection_List<TopoDS_Shape> arguments,tools;arguments.Append(skin);for(const auto& face:coverage)tools.Append(face);
         outside.SetArguments(arguments);outside.SetTools(tools);outside.SetNonDestructive(true);outside.SetFuzzyValue(tolerance);outside.Build();
         if(!outside.IsDone()||outside.HasErrors())throw std::runtime_error("Wrapped region is not valid.");
         GProp_GProps uncovered,boundary_length;BRepGProp::SurfaceProperties(outside.Shape(),uncovered);
@@ -213,12 +215,19 @@ PrimitiveData make_wrapping_data(const WrappingRequest& request,const std::strin
             thickness.side=request.inward?SurfaceThicknessSide::Second:SurfaceThicknessSide::First;
             thickness.tolerance=tolerance;
             auto solid=make_thickened_surface_data(thickness,owner,skin,{{skin,reference}},result.edges,result.vertices).operand;
-            builder.Add(compound,solid.shape);result.faces.insert(result.faces.end(),solid.faces.begin(),solid.faces.end());
-            result.edges.insert(result.edges.end(),solid.edges.begin(),solid.edges.end());
-            result.vertices.insert(result.vertices.end(),solid.vertices.begin(),solid.vertices.end());
+            if(material.shape.IsNull())material=std::move(solid);
+            else {
+                BRepAlgoAPI_Fuse join;set_boolean_inputs(join,material.shape,solid.shape);join.SetFuzzyValue(tolerance);join.Build();
+                if(!join.IsDone()||join.HasErrors()||!BRepCheck_Analyzer(join.Shape()).IsValid())throw std::runtime_error("Wrapped region is not valid.");
+                material.faces=propagate_topology(join,material.faces,solid.faces);
+                material.edges=propagate_topology(join,material.edges,solid.edges);
+                material.vertices=propagate_topology(join,material.vertices,solid.vertices);material.shape=join.Shape();
+            }
         }
     }
-    result.shape=compound;
+    }
+    if(request.output==WrappingResult::Relief&&!request.profiles.empty())result=std::move(material);else result.shape=compound;
+    if(result.shape.IsNull())throw std::runtime_error("Wrapped geometry extends outside the selected face.");
     if(!BRepCheck_Analyzer(result.shape).IsValid())throw std::runtime_error("Wrapped region is not valid.");
     return result;
 }

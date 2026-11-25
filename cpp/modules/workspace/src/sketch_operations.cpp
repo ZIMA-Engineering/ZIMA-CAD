@@ -4,6 +4,7 @@
 #include <zima/workspace/part_transactions.hpp>
 #include <zima/document/feature_sketches.hpp>
 #include <zima/document/general_surface.hpp>
+#include <zima/document/helical_geometry.hpp>
 #include <zima/document/bend.hpp>
 #include <algorithm>
 
@@ -18,6 +19,9 @@ template<class Document> void store_feature_sketch(Document& document,document::
         const auto start=std::ranges::find(document.sketches,container.bend.sketch_id,&sketcher::Sketch::id);
         if(start==document.sketches.end())throw std::invalid_argument("Bend start profile is missing.");
         document::accept_bend_sketch(container,*start,stage,std::move(sketch),document::sheet_metal_defaults(document));return;
+    }
+    if(container.feature_kind==document::FeatureKind::HelicalSweep&&stage==1) {
+        document::helical_geometry::accept_guide_sketch(container,sketch);return;
     }
     data=sketch.serialized();
 }

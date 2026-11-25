@@ -1,4 +1,7 @@
 {
+  "Relief direction": "Směr reliéfu",
+  "Along projection direction": "Ve směru promítnutí",
+  "Normal to target surface": "Kolmo k cílové ploše",
   "Invalid CAM clamping direction.": "Neplatný směr upnutí CAM.",
   "CAM clamping requires a planar contact region.": "Upnutí CAM vyžaduje rovinnou kontaktní oblast.",
   "Clamping Sketches": "Upínací skici",
@@ -3358,5 +3361,23 @@
   "The tool definition needs valid CAM dimensions, cutting and shank Body roles, feed and spindle speed.": "Definice nástroje vyžaduje platné rozměry CAM, role těles břitu a stopky, posuv a otáčky.",
   "The machine definition needs valid machining type, axes, travel, feed and spindle limits.": "Definice stroje vyžaduje platný typ obrábění, osy, pojezdy a limity posuvu a otáček.",
   "Export generic NC text…": "Exportovat obecný NC text…",
-  "The generic NC text could not be saved.": "Obecný NC text se nepodařilo uložit."
+  "The generic NC text could not be saved.": "Obecný NC text se nepodařilo uložit.",
+  "Chybějící bod vodicí skici": "Chybějící bod vodicí skici",
+  "Neplatná spline vodicí skici": "Neplatná spline vodicí skici",
+  "Neplatná výška nebo více než 1000 otáček": "Neplatná výška nebo více než 1000 otáček",
+  "Neurčitý směr Helical Sweepu": "Neurčitý směr Helical Sweepu",
+  "Počáteční bod musí ležet na kružnici": "Počáteční bod musí ležet na kružnici",
+  "Segmenty vodicí dráhy musí navazovat tečně": "Segmenty vodicí dráhy musí navazovat tečně",
+  "Stoupání musí být kladné": "Stoupání musí být kladné",
+  "Vodicí dráha musí postupovat ve výšce jedním směrem a zůstat mimo osu": "Vodicí dráha musí postupovat ve výšce jedním směrem a zůstat mimo osu",
+  "Vodicí dráha nesmí mít čistě radiální tečnu": "Vodicí dráha nesmí mít čistě radiální tečnu",
+  "Vyberte základní kružnici": "Vyberte základní kružnici",
+  "The first arc requires a valid plane normal.": "První oblouk vyžaduje platnou normálu roviny.",
+  "An arc endpoint must differ from its start and lie off the starting tangent.": "Koncový bod oblouku se musí lišit od počátečního bodu a nesmí ležet na počáteční tečně.",
+  "Curve type must be polyline, interpolating_spline or arc.": "Typ křivky musí být polyline, interpolating_spline nebo arc.",
+  "Arc directions follow the first plane normal and preceding arc tangent.": "Směr oblouků určuje normála první roviny a tečna předchozího oblouku.",
+  "Select a cylindrical, conical, spherical or planar face to wrap.": "Vyberte válcovou, kuželovou, kulovou nebo rovinnou plochu pro nabalení.",
+  "Wrap continuation requires connected cylindrical or planar faces with a straight common boundary.": "Navázání nabalení vyžaduje spojené válcové nebo rovinné plochy s přímou společnou hranicí.",
+  "Wrap continuations must belong to the same editable Body.": "Navazující plochy nabalení musí patřit do stejného upravitelného tělesa.",
+  "Select faces in continuation order. Connected parts of the same surface are included automatically. The Feature Origin anchors the wrap; on a sphere, distances from it are preserved and widths change.": "Plochy vybírejte v pořadí návaznosti. Navazující části stejného povrchu se zahrnou automaticky. Počátek prvku určuje umístění nabalení; na kouli se zachovávají vzdálenosti od něj a mění se šířky."
 }

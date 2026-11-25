@@ -1,4 +1,7 @@
 {
+  "Relief direction": "Направление рельефа",
+  "Along projection direction": "В направлении проекции",
+  "Normal to target surface": "По нормали к целевой поверхности",
   "Invalid CAM clamping direction.": "Недопустимое направление закрепления CAM.",
   "CAM clamping requires a planar contact region.": "Для закрепления CAM требуется плоская контактная область.",
   "Clamping Sketches": "Эскизы закрепления",
@@ -3358,5 +3361,23 @@
   "The tool definition needs valid CAM dimensions, cutting and shank Body roles, feed and spindle speed.": "Для определения инструмента нужны допустимые размеры CAM, роли тел режущей части и хвостовика, подача и частота вращения.",
   "The machine definition needs valid machining type, axes, travel, feed and spindle limits.": "Для определения станка нужны допустимые тип обработки, оси, ходы и пределы подачи и частоты вращения.",
   "Export generic NC text…": "Экспортировать общий текст УП…",
-  "The generic NC text could not be saved.": "Не удалось сохранить общий текст УП."
+  "The generic NC text could not be saved.": "Не удалось сохранить общий текст УП.",
+  "Chybějící bod vodicí skici": "Отсутствует точка направляющего эскиза.",
+  "Neplatná spline vodicí skici": "Недопустимый сплайн направляющего эскиза.",
+  "Neplatná výška nebo více než 1000 otáček": "Недопустимая высота или более 1000 витков.",
+  "Neurčitý směr Helical Sweepu": "Направление винтовой протяжки не определено.",
+  "Počáteční bod musí ležet na kružnici": "Начальная точка должна лежать на окружности.",
+  "Segmenty vodicí dráhy musí navazovat tečně": "Сегменты направляющей траектории должны сопрягаться по касательной.",
+  "Stoupání musí být kladné": "Шаг должен быть положительным.",
+  "Vodicí dráha musí postupovat ve výšce jedním směrem a zůstat mimo osu": "Направляющая траектория должна изменяться по высоте в одном направлении и не пересекать ось.",
+  "Vodicí dráha nesmí mít čistě radiální tečnu": "Направляющая траектория не должна иметь чисто радиальную касательную.",
+  "Vyberte základní kružnici": "Выберите базовую окружность.",
+  "The first arc requires a valid plane normal.": "Для первой дуги требуется допустимая нормаль плоскости.",
+  "An arc endpoint must differ from its start and lie off the starting tangent.": "Конечная точка дуги должна отличаться от начальной и не лежать на начальной касательной.",
+  "Curve type must be polyline, interpolating_spline or arc.": "Тип кривой должен быть polyline, interpolating_spline или arc.",
+  "Arc directions follow the first plane normal and preceding arc tangent.": "Направления дуг задаются нормалью первой плоскости и касательной предыдущей дуги.",
+  "Select a cylindrical, conical, spherical or planar face to wrap.": "Выберите цилиндрическую, коническую, сферическую или плоскую грань для обёртывания.",
+  "Wrap continuation requires connected cylindrical or planar faces with a straight common boundary.": "Продолжение обёртывания требует соединённых цилиндрических или плоских граней с прямой общей границей.",
+  "Wrap continuations must belong to the same editable Body.": "Грани продолжения обёртывания должны принадлежать одному редактируемому телу.",
+  "Select faces in continuation order. Connected parts of the same surface are included automatically. The Feature Origin anchors the wrap; on a sphere, distances from it are preserved and widths change.": "Выбирайте грани в порядке их продолжения. Смежные части одной поверхности включаются автоматически. Начало элемента задаёт привязку обёртывания; на сфере расстояния от него сохраняются, а ширина изменяется."
 }

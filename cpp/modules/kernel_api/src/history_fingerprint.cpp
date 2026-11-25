@@ -924,7 +924,9 @@ std::string encode_history_fingerprint(
                 for(auto p:{primitive.sketch_origin,primitive.sketch_normal,primitive.direction})
                     for(double v:{p.x,p.y,p.z})u64(number_bits(v));
                 u64(static_cast<unsigned>(primitive.output));u64(std::bit_cast<std::uint64_t>(primitive.tolerance));
-                if(primitive.output==ProjectionResult::Relief) {u64(number_bits(primitive.height));byte(primitive.inward);}
+                if(primitive.output==ProjectionResult::Relief) {
+                    u64(number_bits(primitive.height));byte(primitive.inward);u64(static_cast<unsigned>(primitive.relief_direction));
+                }
                 // Target rows are a set. Row order is not a modeling input.
                 std::vector<std::tuple<std::string,std::string,std::string>> targets;
                 for(const auto& r:primitive.targets)targets.emplace_back(r.owner_id,r.semantic_key,r.instance_path);
@@ -959,6 +961,7 @@ std::string encode_history_fingerprint(
                 u64(primitive.profiles.size());
                 for(const auto& profile:primitive.profiles)text(history_fingerprint({HistoryOperation{operation.owner_id,profile}},1));
                 text(primitive.sketch_id);reference(primitive.target);
+                  u64(primitive.continuations.size());for(const auto& target:primitive.continuations)reference(target);
                   u64(primitive.images.size());
                   for(const auto& image:primitive.images) {
                       reference(image.reference);text(image.data_base64);text(image.format);u64(number_bits(image.opacity));

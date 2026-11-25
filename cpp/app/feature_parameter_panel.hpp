@@ -47,6 +47,7 @@ public:
         : QWidget(parent), initial_(std::move(initial)) {
         content_=new QVBoxLayout(this);content_->setContentsMargins(0,0,0,0);
         type_=feature_type_control(this,initial_.type);
+        if(initial_.planar_surface())type_->setCurrentIndex(planar_surface_type_index);
         if(initial_.type==document::FeatureType::Wrapping&&initial_.wrapping.output==document::WrappingOutput::Relief)
             type_->setCurrentIndex(wrap_relief_type_index);
         if(initial_.type==document::FeatureType::Projection&&initial_.projection.output==document::ProjectionOutput::Relief)
@@ -215,6 +216,9 @@ public:
             initial_.result_type==document::ProfileResultType::Thin?2:0);
         connect(type_,&QComboBox::currentIndexChanged,this,[this]{
             changing_operation_=true;
+            if(initial_.planar_surface()&&type_->currentIndex()==feature_type_index(document::FeatureType::Modeling)&&
+                    sides_[0].mode->currentIndex()==0&&sides_[1].mode->currentIndex()==0)
+                sides_[0].mode->setCurrentIndex(1);
             for(int i=0;i<2;++i)refresh_side(i);
             refresh_type();changing_operation_=false;
         });
@@ -272,6 +276,10 @@ public:
         value.centroid_centerline=centroid_axis_->isChecked();
         value.individual_centroid_centerlines=individual_centroid_axes_->isChecked();
         for(int i=0;i<2;++i)value.sides[i]=capture_side(sides_[i],sides_[i].mode->currentIndex());
+        if(type_->currentIndex()==planar_surface_type_index) {
+            value.result_type=document::ProfileResultType::Surface;
+            for(auto& side:value.sides)side.operation=document::FeatureSideOperation::None;
+        }
         return value;
     }
     QComboBox* type_control() const { return type_; }
@@ -392,6 +400,7 @@ public:
             model->item(feature_type_index(document::FeatureType::Wrapping))->setEnabled(false);
             model->item(wrap_relief_type_index)->setEnabled(false);
             model->item(projection_relief_type_index)->setEnabled(false);
+            model->item(planar_surface_type_index)->setEnabled(false);
             model->item(static_cast<int>(document::FeatureType::Modeling))->setEnabled(initial_.type==document::FeatureType::Modeling);
         }
     }
@@ -514,7 +523,8 @@ private:
         const auto type=selected_type();
         if(type==document::FeatureType::Wrapping)wrapping_->set_relief_mode(type_->currentIndex()==wrap_relief_type_index);
         if(type==document::FeatureType::Projection)projection_->set_relief_mode(type_->currentIndex()==projection_relief_type_index);
-        const bool modeling=type==document::FeatureType::Modeling;
+        const bool surface=type_->currentIndex()==planar_surface_type_index;
+        const bool modeling=type==document::FeatureType::Modeling&&!surface;
         const bool axis=type==document::FeatureType::Axis;
         const bool lengths=modeling||type==document::FeatureType::Axis;
         // In extent-only hosts the type and authored-profile axis controls do
@@ -530,7 +540,7 @@ private:
         plane_rows_->setRowVisible(plane_selector_,!axis);
         plane_rows_->setRowVisible(axis_direction_selector_,axis);
         plane_rows_->setRowVisible(offset_,type!=document::FeatureType::Wrapping);
-        sketch_group_->setVisible(!extent_only_&&(modeling||type==document::FeatureType::Sketch||type==document::FeatureType::Projection||type==document::FeatureType::Wrapping));
+        sketch_group_->setVisible(!extent_only_&&(surface||modeling||type==document::FeatureType::Sketch||type==document::FeatureType::Projection||type==document::FeatureType::Wrapping));
         projection_->setVisible(!extent_only_&&type==document::FeatureType::Projection);
         wrapping_->setVisible(!extent_only_&&type==document::FeatureType::Wrapping);
         result_group_->setVisible(!extent_only_&&modeling);

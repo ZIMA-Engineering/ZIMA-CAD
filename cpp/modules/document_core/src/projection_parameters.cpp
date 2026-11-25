@@ -35,6 +35,7 @@ std::string output_name(ProjectionOutput value) {
 void validate_projection_parameters(const ProjectionParameters& p) {
     static_cast<void>(output_name(p.output));
     if(p.output==ProjectionOutput::Relief&&(!std::isfinite(p.height)||p.height<=0))invalid();
+    if(p.relief_direction!=ProjectionReliefDirection::Projection&&p.relief_direction!=ProjectionReliefDirection::SurfaceNormal)invalid();
     if(p.direction!=ProjectionDirection::SketchNormal&&p.direction!=ProjectionDirection::Reference)invalid();
     if(p.direction_reference.owner_id.empty()!=p.direction_reference.semantic_key.empty())invalid();
     std::set<std::tuple<std::string,std::string,std::string>> seen;
@@ -72,7 +73,10 @@ nlohmann::json serialize_projection_parameters(const ProjectionParameters& p) {
     nlohmann::json result={{"output",output_name(p.output)},{"targets",std::move(targets)},
         {"direction",p.direction==ProjectionDirection::SketchNormal?"sketch_normal":"reference"},
         {"direction_reference",reference(p.direction_reference)},{"reverse",p.reverse},{"regions",std::move(regions)}};
-    if(p.output==ProjectionOutput::Relief)result["height"]=p.height;
+    if(p.output==ProjectionOutput::Relief) {
+        result["height"]=p.height;
+        result["relief_direction"]=p.relief_direction==ProjectionReliefDirection::Projection?"projection":"surface_normal";
+    }
     return result;
 }
 
@@ -83,7 +87,12 @@ ProjectionParameters load_projection_parameters(const nlohmann::json& value) {
         if(output=="curves")p.output=ProjectionOutput::Curves;
         else if(output=="split")p.output=ProjectionOutput::Split;
         else if(output=="surface")p.output=ProjectionOutput::Surface;
-        else if(output=="relief") {p.output=ProjectionOutput::Relief;p.height=value.at("height").get<double>();}
+        else if(output=="relief") {
+            p.output=ProjectionOutput::Relief;p.height=value.at("height").get<double>();
+            const auto relief_direction=value.value("relief_direction",std::string("surface_normal"));
+            if(relief_direction=="projection")p.relief_direction=ProjectionReliefDirection::Projection;
+            else if(relief_direction!="surface_normal")invalid();
+        }
         else invalid();
         const auto direction=value.at("direction").get<std::string>();
         if(direction=="sketch_normal")p.direction=ProjectionDirection::SketchNormal;

@@ -4,11 +4,14 @@
 #include <zima/workspace/history_policy.hpp>
 #include <zima/workspace/document_dependencies.hpp>
 #include <zima/workspace/model_calculation.hpp>
+#include <zima/workspace/modeling_confirmation.hpp>
 #include <zima/workspace/operation_input.hpp>
 #include <zima/kernel/occt_kernel.hpp>
 #include <zima/kernel/calculation_diagnostics.hpp>
 #include <zima/kernel/calculated_body_shape.hpp>
 #include <BRepCheck_Analyzer.hxx>
+#include <BRepClass3d_SolidClassifier.hxx>
+#include <TopExp_Explorer.hxx>
 #include <BRepGProp.hxx>
 #include <GProp_GProps.hxx>
 #include <BRepPrimAPI_MakeCone.hxx>
@@ -17,6 +20,7 @@
 #include <set>
 #include <algorithm>
 #include <cmath>
+#include <chrono>
 #include <cstdlib>
 #include <filesystem>
 #include <iostream>
@@ -27,7 +31,9 @@ void require(bool condition,const char* message){if(!condition)throw std::runtim
 #include "projection_external_contract.inc"
 #include "projection_relief_contract.inc"
 #include "projection_user_model_contract.inc"
+#include "relief_cylinder_junction_contract.inc"
 int main(){try {
+    if(std::getenv("ZIMA_VERIFY_RELIEF_JUNCTION")) {verify_relief_cylinder_junction();return 0;}
     if(const auto* path=std::getenv("ZIMA_VERIFY_PROJECTION_MODEL")) {
         verify_projection_user_model(std::filesystem::u8path(path));return 0;
     }

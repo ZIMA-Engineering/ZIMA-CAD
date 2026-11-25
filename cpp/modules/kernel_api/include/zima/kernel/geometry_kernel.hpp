@@ -79,6 +79,10 @@ struct FaceReference {
     // Exact contour/Wrap support. It does not opt an unsupported surface
     // into container placement, symbols or other modeling commands.
     std::shared_ptr<const SurfaceGeometry> contour_surface;
+    // Derived membership of connected same-support faces whose common display
+    // edge was suppressed. Not topology identity: original face references and
+    // actual bounded regions remain distinct. Shared by all triangle tags.
+    std::shared_ptr<const std::string> continuation_group;
 
     [[nodiscard]] bool valid() const {
         return !owner_id.empty() && !semantic_key.empty();
@@ -1217,6 +1221,7 @@ struct SurfaceTrimRequest {
 };
 
 enum class ProjectionResult { Curves, Split, Surface, Relief };
+enum class ProjectionReliefDirection { Projection, SurfaceNormal };
 struct ProjectionRegionIntent {
     FaceReference target;
     Vec3 seed;
@@ -1228,7 +1233,7 @@ struct ProjectionTargetSource {
 };
 struct ProjectionRequest {
     // Shared native planar profile curves and their authored point/curve IDs.
-    // Relief thickens selected projected regions along the material normal.
+    // Relief derives filled regions from the Sketch and uses its chosen depth direction.
     std::vector<ExtrusionRequest> profiles;
     std::vector<Vec3> display_points;
     std::string sketch_id;
@@ -1242,6 +1247,7 @@ struct ProjectionRequest {
     std::vector<ProjectionTargetSource> external_targets;
     std::vector<ProjectionRegionIntent> regions;
     ProjectionResult output{ProjectionResult::Curves};
+    ProjectionReliefDirection relief_direction{ProjectionReliefDirection::SurfaceNormal};
     double height{1};
     bool inward{};
     double tolerance{0.001};
@@ -1258,6 +1264,7 @@ struct WrappingRequest {
     std::vector<ViewerImage> images;
     std::string sketch_id;
     FaceReference target;
+    std::vector<FaceReference> continuations;
     std::shared_ptr<const OrderedUpToSource> external_target;
     Vec3 origin, x_axis{1,0,0}, y_axis{0,1,0}, normal{0,0,1};
     WrappingResult output{WrappingResult::Curves};

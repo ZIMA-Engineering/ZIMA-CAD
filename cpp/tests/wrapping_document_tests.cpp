@@ -31,7 +31,9 @@ void valid(const std::vector<kernel::BodyResult>& results) {
     for(const auto& result:results)for(const auto& [id,error]:result.calculation_errors)
         throw std::runtime_error(id+": "+error);
 }
+#include "wrapping_chain_document_contract.inc"
 int main(int argc,char** argv){try {
+    wrapping_chain_document_contract();
     for(bool internal:{false,true})
     for(const auto output:{document::WrappingOutput::Curves,document::WrappingOutput::Surface,document::WrappingOutput::Relief,document::WrappingOutput::Split})
     for(bool inward:{false,true}) {

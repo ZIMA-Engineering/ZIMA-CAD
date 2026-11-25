@@ -1,4 +1,4 @@
-# Wrap on cylindrical, conical and spherical faces
+# Wrap on analytic faces and ordered continuations
 
 Status: implemented with finite Windows verification. The user approved the
 native definition on 2026-11-24, including affected factory assets and start
@@ -23,11 +23,25 @@ The existing From target surface relief remains a separate, working operation.
   partitions the target face without changing material volume. Relief uses a
   signed normal **Correction / Korekce**: positive adds outward and negative
   removes inward, respecting the target solid’s material side.
-- Support a cylindrical, conical or spherical face. The placed Feature Origin
+- Support a cylindrical, conical, spherical or planar face. The placed Feature Origin
   defines the anchor; do not introduce a separate independently picked anchor.
   Signed Sketch coordinates wrap in both directions from that anchor;
   a centered inscription can extend equally to either side. Axial distances and
   circumferential arc lengths are preserved on the reference cylinder.
+- All Wrap outputs automatically include connected parts of the same supporting
+  surface and material side in the active Body. This includes a two-sided
+  Extrusion and a second coaxial Extrusion of the same radius. The combined
+  bounded coverage is checked exactly; historical untrimmed faces cannot fill
+  a missing area. Keep redundant authored target rows in the definition, but
+  calculate their shared support once, anchored by its first selected row.
+- Different supports are selected manually in continuation order. Cylindrical
+  and planar parts connected along a straight common boundary use a continuous
+  developed map: transfer the tangent frame across the boundary and preserve
+  the source distance. A top-view arc–arc–line profile therefore wraps across
+  both radii and the following flat. Partition the filled source regions at
+  each chart boundary and join relief tools before the Body Boolean. This
+  avoids a fabricated wall inside the relief. Cone and sphere wrapping retain
+  their own single-support maps; mixed transitions onto them are rejected.
 - Preserve the authored side and direction, including inner and outer faces and
   reversed cylinder axes. Kernel UV seams must not change the selected anchor.
   Support crossing a kernel UV seam. Validate overlaps and singularities in the
@@ -70,7 +84,8 @@ normal material offsets must remain consistent in preview and calculation.
 ## Native definition and ownership
 
 Extend the Feature type mapping with `wrapping`. Its definition stores the
-stable target face reference, direction choices, and normal height/depth for
+stable first target face reference, ordered continuation references, direction
+choices, and normal height/depth for
 material results. The existing Feature Origin supplies the anchor and tangent
 orientation. Reuse the existing
 owned Sketch identifier and shared placed-container state. Store explicit source
@@ -88,6 +103,10 @@ consumed without modification.
 
 Publish the rollback input once when opening Properties. The reference table
 uses the shared reference cell, separate inspection eye and compact controls.
+The optional ordering checkbox chooses one row for Up/Down movement. Reference
+entry and inspection do not change that choice. Removing a target deletes its
+list row; removing the first promotes the next target. Cancel discards the
+pending list and unchanged OK does not calculate or create an Undo transaction.
 Read target analytic parameters from the calculated reference packet for a
 lightweight cyan wire/image preview. Do not calculate bodies during picking,
 parameter preview, ordinary selection, tab changes or unchanged OK.

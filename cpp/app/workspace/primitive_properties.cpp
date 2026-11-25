@@ -46,16 +46,6 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
     if(feature_kind==zima::document::FeatureKind::SurfaceTrim){show_surface_trim_properties(container_id);return;}
     if(feature_kind==zima::document::FeatureKind::SurfaceIntersection){show_surface_intersection_properties(container_id);return;}
     if(feature_kind==zima::document::FeatureKind::GeneralSurface){show_sweep_properties(feature_kind,container_id);return;}
-    if(feature_kind==zima::document::FeatureKind::Feature) {
-        const auto* part=workspace_.open_part(workspace_.active_document_id());
-        const auto* feature=part?
-            part->session.document().find_container(container_id):nullptr;
-        if(feature&&feature->feature.planar_surface()) {
-            show_sketch_properties(feature->feature.sketch_id,
-                false,false,false,false,false,true);
-            return;
-        }
-    }
     if(feature_kind==zima::document::FeatureKind::DerivedCopy) {
         show_derived_copy_properties(container_id);return;
     }
@@ -332,8 +322,10 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
         initial.feature.type=*feature_preset;
         if(*feature_preset==zima::document::FeatureType::Wrapping&&wrap_relief_preset)
             initial.feature.wrapping.output=zima::document::WrappingOutput::Relief;
-        if(*feature_preset==zima::document::FeatureType::Projection&&projection_relief_preset)
+        if(*feature_preset==zima::document::FeatureType::Projection&&projection_relief_preset) {
             initial.feature.projection.output=zima::document::ProjectionOutput::Relief;
+            initial.feature.projection.relief_direction=zima::document::ProjectionReliefDirection::Projection;
+        }
         if(rotation_preset)for(auto& side:initial.feature.sides)
             side.operation=zima::document::FeatureSideOperation::Revolution;
         if(twist_preset) {
@@ -684,14 +676,16 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
         dialog->set_feature_name_provider([this,owner_id,initial,dialog](zima::document::FeatureType type) {
             const bool wrapping=type==zima::document::FeatureType::Wrapping;
             const bool projection=type==zima::document::FeatureType::Projection;
+            const bool surface=dialog->pending_value().feature.planar_surface();
             const bool relief=(wrapping&&dialog->pending_value().feature.wrapping.output==zima::document::WrappingOutput::Relief)||
                 (projection&&dialog->pending_value().feature.projection.output==zima::document::ProjectionOutput::Relief);
             const bool same_output=(!wrapping||relief==(initial.feature.wrapping.output==zima::document::WrappingOutput::Relief))&&
                 (!projection||relief==(initial.feature.projection.output==zima::document::ProjectionOutput::Relief));
-            if(type==initial.feature.type && same_output && initial.name==initial.feature.automatic_name)
+            if(type==initial.feature.type && same_output && surface==initial.feature.planar_surface() && initial.name==initial.feature.automatic_name)
                 return initial.name;
             const auto next_name=[&](const zima::document::PartDocument& document) {
-                return wrapping?document.next_numbered_name(tr(relief?"Wrap relief":"Wrap sketch").toStdString(),initial.id):
+                return surface?document.next_numbered_name(tr("Plocha").toStdString(),initial.id):
+                    wrapping?document.next_numbered_name(tr(relief?"Wrap relief":"Wrap sketch").toStdString(),initial.id):
                     projection?document.next_numbered_name(tr(relief?"Project relief":"Project sketch").toStdString(),initial.id):
                     next_feature_name(document,type,initial.id);
             };

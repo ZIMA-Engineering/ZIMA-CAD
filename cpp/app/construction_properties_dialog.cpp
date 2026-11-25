@@ -390,6 +390,7 @@ ConstructionPropertiesDialog::ConstructionPropertiesDialog(
         curve_type_->addItem(tr("Interpolační spline"),
             static_cast<int>(
                 zima::document::Curve3DType::InterpolatingSpline));
+        curve_type_->addItem(tr("Oblouk"),static_cast<int>(zima::document::Curve3DType::Arc));
         curve_type_->setCurrentIndex(curve_type_->findData(
             static_cast<int>(initial.curve_type)));
         curve_form->addRow(tr("Typ celé 3D křivky"), curve_type_);
@@ -501,6 +502,11 @@ ConstructionPropertiesDialog::ConstructionPropertiesDialog(
 
         if (curve_type_ != nullptr) connect(curve_type_,
             &QComboBox::currentIndexChanged, this, [this] {
+                if(curve_type_->currentData().toInt()==static_cast<int>(zima::document::Curve3DType::Arc)) {
+                    active_curve_axis_index_.reset();inspected_curve_axes_.clear();
+                    if(curve_axis_cycle_)curve_axis_cycle_();
+                    if(reference_highlights_changed_)reference_highlights_changed_();
+                }
                 refresh_curve_points();
                 notify_preview();
             });
@@ -745,6 +751,15 @@ void ConstructionPropertiesDialog::set_origin_selection_mode_callback(
     if (placement_) placement_->set_origin_selection_mode_callback(std::move(callback));
 }
 
+void ConstructionPropertiesDialog::changeEvent(QEvent* event) {
+    zima::ui::PropertiesSubWindow::changeEvent(event);
+    if(event->type()!=QEvent::LanguageChange||!curve_type_)return;
+    curve_type_->setItemText(curve_type_->findData(static_cast<int>(zima::document::Curve3DType::Polyline)),tr("Lomená čára"));
+    curve_type_->setItemText(curve_type_->findData(static_cast<int>(zima::document::Curve3DType::InterpolatingSpline)),tr("Interpolační spline"));
+    curve_type_->setItemText(curve_type_->findData(static_cast<int>(zima::document::Curve3DType::Arc)),tr("Oblouk"));
+    refresh_curve_points();
+}
+
 void ConstructionPropertiesDialog::set_origin_selection_mode_active(bool active) {
     if (placement_) placement_->set_origin_selection_mode_active(active);
 }
@@ -765,7 +780,8 @@ ConstructionPropertiesDialog::highlighted_reference_entries() const {
     for(std::size_t i=0;i<2;++i)if(axis_end_inspected_[i]&&axis_ends_[i].up_to&&!axis_ends_[i].target.owner_id.empty())result.push_back(axis_ends_[i].target);
     for(const auto& point:curve_points_) {
         if(inspected_curve_points_.contains(point.id))result.push_back({{},point.container_origin.id,"point"});
-        if(inspected_curve_axes_.contains(point.id)&&point.curve_tangent_enabled) {
+        if(inspected_curve_axes_.contains(point.id)&&point.curve_tangent_enabled&&
+           (!curve_type_||curve_type_->currentData().toInt()!=static_cast<int>(zima::document::Curve3DType::Arc))) {
             using Mode=zima::document::Curve3DTangentMode;
             const auto mode=point.curve_tangent;
             const char* axis=mode==Mode::PositiveX||mode==Mode::NegativeX?"x":mode==Mode::PositiveY||mode==Mode::NegativeY?"y":"z";
@@ -1396,6 +1412,7 @@ void ConstructionPropertiesDialog::refresh_curve_points() {
     };
     const bool polyline = curve_type_ && curve_type_->currentData().toInt() ==
         static_cast<int>(zima::document::Curve3DType::Polyline);
+    const bool arc=curve_type_&&curve_type_->currentData().toInt()==static_cast<int>(zima::document::Curve3DType::Arc);
     if(curve_rounding_)curve_rounding_->setEnabled(polyline);
     for (std::size_t index = 0; index < curve_points_.size(); ++index) {
         auto* ordering = new QCheckBox(curve_points_table_);
@@ -1431,10 +1448,10 @@ void ConstructionPropertiesDialog::refresh_curve_points() {
         // A native disabled combo may be translucent. Its underlying item is
         // state storage only; drawing both labels would superimpose text.
         axis_item->setText({});
-        axis_item->set_inspected(inspected_curve_axes_.contains(curve_points_[index].id)&&curve_points_[index].curve_tangent_enabled);
+        axis_item->set_inspected(!arc&&inspected_curve_axes_.contains(curve_points_[index].id)&&curve_points_[index].curve_tangent_enabled);
         for(const bool axis:{false,true}) {
             const auto id=curve_points_[index].id;
-            auto* eye=zima::ui::build_reference_inspection_button(!axis||curve_points_[index].curve_tangent_enabled,
+            auto* eye=zima::ui::build_reference_inspection_button(!axis||(!arc&&curve_points_[index].curve_tangent_enabled),
                 axis?axis_item->is_inspected():point_item->is_inspected(),[this,id,axis](bool checked){
                     auto& inspected=axis?inspected_curve_axes_:inspected_curve_points_;
                     if(checked)inspected.insert(id);else inspected.erase(id);
@@ -1443,9 +1460,9 @@ void ConstructionPropertiesDialog::refresh_curve_points() {
             curve_points_table_->setCellWidget(static_cast<int>(index),axis?8:7,zima::ui::centered_cell_widget(eye));
         }
         axis_item->set_active_input(
-            curve_points_[index].curve_tangent_enabled &&
+            !arc && curve_points_[index].curve_tangent_enabled &&
             active_curve_axis_index_ && *active_curve_axis_index_ == index);
-        if (!curve_points_[index].curve_tangent_enabled) {
+        if (arc || !curve_points_[index].curve_tangent_enabled) {
             axis_item->setFlags(axis_item->flags() & ~Qt::ItemIsEnabled);
             axis_item->setToolTip(tr(
                 "Směr je vypnutý; tečnu v tomto bodě určí interpolace automaticky."));
@@ -1459,7 +1476,7 @@ void ConstructionPropertiesDialog::refresh_curve_points() {
         using Mode=zima::document::Curve3DTangentMode;
         axis_choice->setCurrentIndex(mode==Mode::PositiveY||mode==Mode::NegativeY?1:
             mode==Mode::PositiveZ||mode==Mode::NegativeZ?2:0);
-        axis_choice->setEnabled(curve_points_[index].curve_tangent_enabled);
+        axis_choice->setEnabled(!arc&&curve_points_[index].curve_tangent_enabled);
         if(axis_item->is_inspected())axis_choice->setStyleSheet("QComboBox{background:#4DD811;color:#102027}");
         connect(axis_choice,&QComboBox::currentIndexChanged,this,[this,index](int axis){
             auto& mode=curve_points_[index].curve_tangent;
@@ -1478,7 +1495,7 @@ void ConstructionPropertiesDialog::refresh_curve_points() {
             curve_points_[index].curve_tangent == Curve3DTangentMode::NegativeZ;
         auto* flip = new QCheckBox(curve_points_table_);
         flip->setObjectName(QStringLiteral("curve3DFlip%1").arg(index));
-        flip->setEnabled(curve_points_[index].curve_tangent_enabled);
+        flip->setEnabled(!arc&&curve_points_[index].curve_tangent_enabled);
         flip->setChecked(negative);
         flip->setToolTip(tr("Obrátit znaménko vybrané osy + ↔ −"));
         connect(flip,&QCheckBox::toggled,this,
@@ -1516,11 +1533,16 @@ void ConstructionPropertiesDialog::refresh_curve_points() {
             QStringLiteral("curve3DDirectionEnabled%1").arg(index));
 
         direction_enabled->setCheckable(true);
+        direction_enabled->setEnabled(!arc);
         direction_enabled->setChecked(
             curve_points_[index].curve_tangent_enabled);
 
         direction_enabled->setToolTip(tr(
             "Zapnout nebo vypnout řízení tečny lokální osou bodu"));
+        if(arc) {
+            const auto notice=tr("Arc directions follow the first plane normal and preceding arc tangent.");
+            direction_enabled->setToolTip(notice);axis_choice->setToolTip(notice);flip->setToolTip(notice);
+        }
         connect(direction_enabled, &QCheckBox::toggled, this,
             [this, index](bool enabled) {
                 if (index >= curve_points_.size()) return;

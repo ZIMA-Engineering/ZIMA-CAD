@@ -165,6 +165,7 @@ public:
         highlighted_reference_entries() const;
 
 protected:
+    void changeEvent(QEvent* event) override;
     bool submit() override;
     void showEvent(QShowEvent* event) override;
 

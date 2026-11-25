@@ -28,15 +28,26 @@ kernel::ViewerMesh PartDocument::projection_preview_mesh(
         direction=axis->direction;
     }
     direction=placement_vec_normalized(direction);if(p.reverse)direction=placement_vec_scale(direction,-1);
+    std::vector<FaceReference> selected_faces;
+    for(const auto& target:p.targets)selected_faces.push_back(target.reference);
+    if(p.output==ProjectionOutput::Relief||p.output==ProjectionOutput::Curves)
+        selected_faces=continued_viewer_surfaces(input,selected_faces,precision_value(document_precision,"linear_tolerance",0.001),[&](const auto& face) {
+            if(!owners||!body)return true;
+            const auto* owner=owners->body_owner_for_object(face.owner_id);
+            return owner&&owner->scope.id==body->scope.id&&face.instance_path.empty();
+        });
     struct Triangle {Vec3 a,b,c;std::size_t target;std::shared_ptr<const SurfaceGeometry> surface;};std::vector<Triangle> triangles;
+    std::map<std::tuple<std::string,std::string,std::string>,std::shared_ptr<const SurfaceGeometry>> supports;
+    for(const auto& face:viewer_surface_references(input))
+        supports.emplace(std::tuple{face.owner_id,face.semantic_key,face.instance_path},face.surface?face.surface:face.contour_surface);
     for(std::size_t i=0;i<input.triangle_references.size();++i) {
-        const auto target=std::ranges::find_if(p.targets,[&](const auto& value){return value.reference==input.triangle_references[i];});
-        if(target==p.targets.end()||i*3+2>=input.triangles.size())continue;
+        const auto target=std::ranges::find(selected_faces,input.triangle_references[i]);
+        if(target==selected_faces.end()||i*3+2>=input.triangles.size())continue;
         const auto a=input.triangles[i*3],b=input.triangles[i*3+1],c=input.triangles[i*3+2];
         if(a>=input.vertices.size()||b>=input.vertices.size()||c>=input.vertices.size())continue;
         const auto& face=input.triangle_references[i];
         triangles.push_back({local(input.vertices[a]),local(input.vertices[b]),local(input.vertices[c]),
-            static_cast<std::size_t>(target-p.targets.begin()),face.surface?face.surface:face.contour_surface});
+            static_cast<std::size_t>(target-selected_faces.begin()),supports.at({face.owner_id,face.semantic_key,face.instance_path})});
     }
     // External packets are already expressed in the destination Body frame.
     for(std::size_t i=0;i<p.targets.size();++i)if(p.targets[i].external_source) {
@@ -88,7 +99,11 @@ kernel::ViewerMesh PartDocument::projection_preview_mesh(
     ViewerMesh result;
     const double depth=p.output==ProjectionOutput::Relief?
         (feature.combine_mode==CombineMode::Subtract?-1.:1.)*p.height:0;
-    const auto raised=[&](const Hit& hit){return placement_vec_add(hit.point,placement_vec_scale(hit.normal,depth));};
+    const auto raised=[&](const Hit& hit) {
+        const auto normal=p.relief_direction==ProjectionReliefDirection::Projection?
+            placement_vec_scale(direction,placement_vec_dot(direction,hit.normal)<0?-1.:1.):hit.normal;
+        return placement_vec_add(hit.point,placement_vec_scale(normal,depth));
+    };
     const auto span=[&](Vec3 a,Vec3 b,const char* role) {
         ViewerEdge edge;edge.reference={feature.id,role,{}};edge.points={a,b};
         edge.color=p.output==ProjectionOutput::Relief?"#00D1FF":"#FFFFFF";

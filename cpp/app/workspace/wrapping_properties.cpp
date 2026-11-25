@@ -53,7 +53,7 @@ void AssemblyWorkspaceWindow::install_wrapping_properties(PrimitivePropertiesDia
         for(const auto* faces:{&viewer_->mesh().triangle_references,&viewer_->mesh().original_references.triangle_references})
             for(const auto& face:*faces) {
                 const auto support=face.surface?face.surface:face.contour_surface;
-                if(support&&(support->kind==kernel::SurfaceGeometry::Kind::Cylinder||support->kind==kernel::SurfaceGeometry::Kind::Cone||support->kind==kernel::SurfaceGeometry::Kind::Sphere))
+                if(support&&(support->kind==kernel::SurfaceGeometry::Kind::Cylinder||support->kind==kernel::SurfaceGeometry::Kind::Cone||support->kind==kernel::SurfaceGeometry::Kind::Sphere||support->kind==kernel::SurfaceGeometry::Kind::Plane))
                     analytic_faces->emplace(face.owner_id,face.semantic_key,face.instance_path);
             }
         std::set<FaceKey> examined;

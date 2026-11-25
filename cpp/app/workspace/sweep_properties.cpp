@@ -318,7 +318,7 @@ void AssemblyWorkspaceWindow::show_sweep_properties(zima::document::FeatureKind 
             dialog->set_status(general?QString{}:transition?tr("Upravte obě skici a polohu druhého počátku. OK vytvoří plech."):c.feature_kind==document::FeatureKind::HelicalSweep && c.helical.curve_only
                     ? tr("Dráha připravena. OK vytvoří křivku.")
                     : tr("Dráha připravena. OK vytvoří těleso."));
-        }catch(const std::exception& e){dialog->set_status((transition||general)?tr(e.what()):QString::fromUtf8(e.what()));}
+        }catch(const std::exception& e){dialog->set_status((transition||general||c.feature_kind==document::FeatureKind::HelicalSweep)?tr(e.what()):QString::fromUtf8(e.what()));}
         auto sketches=(transition||general)?std::vector<zima::kernel::ViewerEdge>{}:planar?zima::document::PartDocument::sweep2d_sketch_edges(c):
             zima::document::PartDocument::helical_sketch_edges(c);
         edges.insert(edges.end(),std::make_move_iterator(sketches.begin()),std::make_move_iterator(sketches.end()));
@@ -383,6 +383,13 @@ void AssemblyWorkspaceWindow::show_sweep_properties(zima::document::FeatureKind 
                 else zima::document::PartDocument::reframe_helical_sketches(framed,stage);
                 dialog->pending=std::move(framed);
             } catch(const std::exception& error) {
+                if(!planar&&!transition&&!general&&stage==2&&
+                    zima::sketcher::Sketch::from_serialized(dialog->pending.helical.sketches[2]).plane_reference_owner_id!=dialog->pending.id+":helical:section") {
+                    // A new section has no last valid frame to retain. Opening
+                    // it at the default Origin would author the profile in an
+                    // unrelated plane. Existing resolved sections remain editable.
+                    dialog->set_status(QObject::tr(error.what()));return;
+                }
                 frame_warning=tr("Skica používá uloženou rovinu; závislost není dořešená: %1").arg(QObject::tr(error.what()));
             }
             zima::kernel::ViewerMesh profile_context;

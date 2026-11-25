@@ -1,5 +1,11 @@
 # Projection confirmation, relief presentation and FEM player
 
+Historical acceptance for release 2026112502. The retained-region requirement
+for Relief described below was subsequently removed at the user's request:
+the filled Sketch now determines its material region. See the current
+[relief contract](../design/PROJECTION_RELIEF.md). These historical measurements
+do not establish acceptance of the later cylinder-junction or direction changes.
+
 Date: 2026-11-25. Baseline: Windows release 2026112405, source
 `934979cb4f471f052494ddb01d8e811291b1cb80`. Shared C++ implementation,
 Windows x64 Release, MSVC, Qt 6.11.0 and OCCT 8.0.1. User documents were read

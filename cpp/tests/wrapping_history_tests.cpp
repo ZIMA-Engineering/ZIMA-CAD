@@ -1,6 +1,14 @@
 #include <zima/kernel/occt_kernel.hpp>
 #include <zima/kernel/calculated_body_shape.hpp>
 #include <zima/kernel/surface_wrap.hpp>
+#include <zima/kernel/viewer_wrap_charts.hpp>
+#include <BRepBuilderAPI_MakeEdge.hxx>
+#include <BRepBuilderAPI_MakeWire.hxx>
+#include <BRepBuilderAPI_MakeFace.hxx>
+#include <BRepPrimAPI_MakePrism.hxx>
+#include <BRepClass3d_SolidClassifier.hxx>
+#include <GC_MakeArcOfCircle.hxx>
+#include <cstdlib>
 #include <BRepPrimAPI_MakeCylinder.hxx>
 #include <BRepPrimAPI_MakeCone.hxx>
 #include <BRepPrimAPI_MakeSphere.hxx>
@@ -25,7 +33,10 @@ double precise_volume(const k::BodyResult& result) {
     BRepGProp::VolumeProperties(k::read_calculated_body_shape(result),properties,1e-12,true);
     return properties.Mass();
 }
+#include "wrapping_chain_contract.inc"
 int main(){try {
+    wrapping_chain_contract();
+    if(std::getenv("ZIMA_VERIFY_WRAP_CHAIN"))return 0;
     // Native circle Extrusion uses an indirect cylindrical support. A nonzero
     // azimuth and asymmetric profile expose a UV handedness/seam mismatch.
     {

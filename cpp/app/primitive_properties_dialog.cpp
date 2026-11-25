@@ -2629,8 +2629,7 @@ void PrimitivePropertiesDialog::notify_preview() {
     if(projection_region_required_ && feature_panel_) {
         const auto pending=feature_panel_->parameters();
         if(pending.type!=zima::document::FeatureType::Projection ||
-                (pending.projection.output!=zima::document::ProjectionOutput::Surface &&
-                 pending.projection.output!=zima::document::ProjectionOutput::Relief) ||
+                pending.projection.output!=zima::document::ProjectionOutput::Surface ||
                 !pending.projection.regions.empty()) {
             projection_region_required_=false;
             if(error_)error_->clear();
@@ -2908,8 +2907,7 @@ bool PrimitivePropertiesDialog::submit() {
     }
     if(result.feature_kind==zima::document::FeatureKind::Feature&&
             result.feature.type==zima::document::FeatureType::Projection&&
-            (result.feature.projection.output==zima::document::ProjectionOutput::Surface||
-             result.feature.projection.output==zima::document::ProjectionOutput::Relief)&&
+            result.feature.projection.output==zima::document::ProjectionOutput::Surface&&
             result.feature.projection.regions.empty()) {
         projection_region_required_=true;
         error_->setText(tr("Select a retained region on the target face before confirming the projection."));

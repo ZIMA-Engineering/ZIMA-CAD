@@ -299,8 +299,7 @@ void commit_profile(Workspace& live, const kernel::OcctKernel& kernel, const std
             commit_origin_display_only(live,id,value).has_value()) return;
     }
     if(feature&&value.feature.type==document::FeatureType::Projection&&
-            (value.feature.projection.output==document::ProjectionOutput::Surface||
-             value.feature.projection.output==document::ProjectionOutput::Relief)&&
+            value.feature.projection.output==document::ProjectionOutput::Surface&&
             value.feature.projection.regions.empty())
         throw ProfileOperationError("invalid_arguments",
             "Select a retained region on the target face before confirming the projection.");

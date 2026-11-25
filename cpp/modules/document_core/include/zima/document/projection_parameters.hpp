@@ -6,6 +6,7 @@ namespace zima::document {
 
 enum class ProjectionOutput { Curves, Split, Surface, Relief };
 enum class ProjectionDirection { SketchNormal, Reference };
+enum class ProjectionReliefDirection { Projection, SurfaceNormal };
 
 struct ProjectionRegion {
     kernel::FaceReference target;
@@ -27,7 +28,8 @@ struct ProjectionParameters {
     kernel::EdgeReference direction_reference;
     bool reverse{};
     std::vector<ProjectionRegion> regions;
-    double height{1}; // Positive normal height; the Feature owns the material sign.
+    double height{1}; // Positive depth; the Feature owns the material sign.
+    ProjectionReliefDirection relief_direction{ProjectionReliefDirection::SurfaceNormal};
     bool operator==(const ProjectionParameters&) const = default;
 };
 

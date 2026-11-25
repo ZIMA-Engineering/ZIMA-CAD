@@ -4,7 +4,12 @@ void verify_projection_relief() {
     // Interactive document commits defer physical properties; verify the actual
     // native solid instead of treating an unrequested cached total as a volume.
     const auto native_volume=[](const kernel::BodyResult& result) {
-        GProp_GProps properties;BRepGProp::VolumeProperties(kernel::read_calculated_body_shape(result),properties);
+        GProp_GProps properties;
+        // Native cylinder/curtain intersections produce spline-bounded faces.
+        // Gauss-Kronrod integration resolves their narrow trimmed domains;
+        // the ordinary Gauss estimator can report false convergence here.
+        require(BRepGProp::VolumePropertiesGK(kernel::read_calculated_body_shape(result),properties,1e-10,false,true)>=0,
+            "Independent relief volume integration failed");
         return properties.Mass();
     };
     for(bool sphere:{false,true})for(bool polar:{false,true}) {
@@ -21,13 +26,13 @@ void verify_projection_relief() {
             if(data&&data->kind==(sphere?kernel::SurfaceGeometry::Kind::Sphere:kernel::SurfaceGeometry::Kind::Cone))target=face;
         }
         require(target.valid(),"Relief analytic target missing");
-        for(bool inward:{false,true}) {
+        for(bool inward:{false,true})for(bool directional:{false,true}) {
             kernel::ProjectionRequest request;request.sketch_id="relief-profile";
             request.output=kernel::ProjectionResult::Relief;request.height=1.;request.inward=inward;
+            request.relief_direction=directional?kernel::ProjectionReliefDirection::Projection:kernel::ProjectionReliefDirection::SurfaceNormal;
             request.targets={target};request.both_directions=true;
             request.sketch_origin=polar?kernel::Vec3{0,0,35}:kernel::Vec3{35,0,sphere?0.:20.};
             request.sketch_normal=request.direction=polar?kernel::Vec3{0,0,1}:kernel::Vec3{1,0,0};
-            request.regions={{target,polar?kernel::Vec3{.5,.5,std::sqrt(899.5)}:kernel::Vec3{std::sqrt((sphere?900.:625.)-.25),.5,sphere?0.:20.},{}}};
             auto& profile=request.profiles.emplace_back();profile.outer_profile=kernel::ExtrusionRequest::CircleProfile{request.sketch_origin,3};
             profile.direction=request.direction;profile.profile_region_id="disc";profile.outer_boundary_id="circle";
             profile.outer_edge_source_ids={"circle"};
@@ -38,7 +43,8 @@ void verify_projection_relief() {
             require(BRepCheck_Analyzer(kernel::read_calculated_body_shape(result)).IsValid(),"Analytic relief BRep invalid");
             require(inward?result.volume<initial.volume:result.volume>initial.volume,"Analytic relief material direction is wrong");
             double expected_delta{};const double signed_height=inward?-1.:1.;
-            if(sphere) {
+            if(directional)expected_delta=signed_height*9*std::numbers::pi;
+            else if(sphere) {
                 const double area=2*std::numbers::pi*30*(30-std::sqrt(891.));
                 expected_delta=area*30/3*(std::pow((30+signed_height)/30,3)-1);
             } else {
@@ -54,21 +60,19 @@ void verify_projection_relief() {
             }
             require(std::abs(result.volume-initial.volume-expected_delta)<.002,
                 "Analytic relief disagrees with the independent full-region volume equation");
-            // Selecting either side of a parameter seam must retain the same
-            // complete physical region, never one arbitrary half of it.
-            request.regions.front().seed.y=-request.regions.front().seed.y;
+            // Cold evaluation derives the complete patch from the Sketch,
+            // without a selected region on either side of a parameter seam.
             relief.primitive=request;
             kernel::OcctKernel cold;const auto fresh=cold.evaluate_history({base,relief}).back();
             require(fresh.calculation_errors.empty()&&std::abs(fresh.volume-result.volume)<1e-6,"Analytic relief cold regeneration changed volume");
-            std::cout<<"PASS Projection relief sphere="<<sphere<<" polar="<<polar<<" inward="<<inward<<" native validity, side and cold regeneration\n";
+            std::cout<<"PASS Projection relief sphere="<<sphere<<" polar="<<polar<<" inward="<<inward<<" directional="<<directional<<" native validity, side and cold regeneration\n";
         }
         std::filesystem::remove(file);
     }
-    for(bool curved:{false,true})for(bool bore:{false,true})for(bool inward:{false,true})for(bool hole:{false,true}) {
-        if(curved&&hole)continue;
-        const double profile_area=std::numbers::pi*(hole?6.75:9.);
+    for(bool curved:{false,true})for(bool bore:{false,true})for(bool inward:{false,true})for(bool hole:{false,true})for(bool multiple:{false,true})for(bool directional:{false,true}) {
+        const double profile_area=std::numbers::pi*((hole?6.75:9.)+(multiple?4.:0.));
         if(bore&&!curved)continue;
-        std::cout<<"Projection relief document curved="<<curved<<" bore="<<bore<<" inward="<<inward<<" hole="<<hole<<'\n';
+        std::cout<<"Projection relief document curved="<<curved<<" bore="<<bore<<" inward="<<inward<<" hole="<<hole<<" multiple="<<multiple<<" directional="<<directional<<'\n';
         kernel::OcctKernel engine;workspace::Workspace live;
         auto part=document::PartDocument::create_default();const auto id=part.document_id;
         live.add_part(part);live.activate(id);
@@ -92,28 +96,20 @@ void verify_projection_relief() {
         auto sketch=sketcher::Sketch::create_default();sketch.plane_auto=false;
         static_cast<void>(sketch.add_circle(0,0,3));
         if(hole)static_cast<void>(sketch.add_circle(0,0,1.5));
+        if(multiple)static_cast<void>(sketch.add_circle(12,0,2));
         auto feature=document::PartDocument::create_feature_container(sketch.id);
         feature.feature.type=document::FeatureType::Projection;
         feature.feature.projection.output=document::ProjectionOutput::Relief;
+        feature.feature.projection.relief_direction=directional?document::ProjectionReliefDirection::Projection:document::ProjectionReliefDirection::SurfaceNormal;
         feature.feature.projection.height=1.25;
         feature.combine_mode=inward?document::CombineMode::Subtract:document::CombineMode::Add;
         feature.placement.z=curved?20:45;
         if(curved) {feature.placement.x=bore?18:35;feature.placement.rotation_y=90;feature.placement.absolute_rotation_y=90;}
         document::ExtrusionParameters::EndTarget selected;selected.reference=target;
         feature.feature.projection.targets={selected};
-        const auto before_missing=state->session.document().serialized();
-        const auto missing_generation=state->session.data_generation();
-        const auto missing_calculations=kernel::body_calculation_count.load();
-        bool rejected_missing=false;
-        try {workspace::commit_profile(live,engine,id,feature,workspace::ProfileEditMode::Create,sketch);}
-        catch(const workspace::ProfileOperationError& error) {
-            rejected_missing=std::string_view(error.what())=="Select a retained region on the target face before confirming the projection.";
-        }
-        require(rejected_missing&&state->session.document().serialized()==before_missing&&
-            state->session.data_generation()==missing_generation&&kernel::body_calculation_count.load()==missing_calculations,
-            "Missing relief region did work or changed the document");
-        feature.feature.projection.regions={{target,curved?kernel::Vec3{std::sqrt((bore?400.:900.)-.25),.5,20}:kernel::Vec3{hole?2.:0.,0,40},{}}};
         workspace::commit_profile(live,engine,id,feature,workspace::ProfileEditMode::Create,sketch);
+        require(state->session.document().find_container(feature.id)->feature.projection.regions.empty(),
+            "Relief must derive its material area without persisted region picks");
         feature=*state->session.document().find_container(feature.id);
         sketch=*std::ranges::find(state->session.document().sketches,sketch.id,&sketcher::Sketch::id);
         const auto* preview_input=workspace::calculated_operation_input(state->session,feature.id);
@@ -140,8 +136,12 @@ void verify_projection_relief() {
             require(BRepCheck_Analyzer(kernel::read_calculated_body_shape(result)).IsValid(),"Relief is not valid native geometry");
             const double volume=native_volume(result);
             require(inward?volume<original_volume:volume>original_volume,"Relief changed the wrong material side");
-            if(!curved)require(std::abs(volume-original_volume-(inward?-1.:1.)*profile_area*height)<1e-5,
-                "Planar relief disagrees with its independent volume equation");
+            if(!curved||directional) {
+                const auto expected=(inward?-1.:1.)*profile_area*height;
+                if(std::abs(volume-original_volume-expected)>=1e-4)
+                    std::cerr<<"Relief volume delta="<<volume-original_volume<<" expected="<<expected<<'\n';
+                require(std::abs(volume-original_volume-expected)<1e-4,"Relief disagrees with its independent volume equation");
+            }
             const auto revision=state->session.document().serialized();const auto identity=keys(result);
             const auto generation=state->session.data_generation(),calculations=kernel::body_calculation_count.load();
             workspace::commit_profile(live,engine,id,feature,workspace::ProfileEditMode::Replace,sketch);

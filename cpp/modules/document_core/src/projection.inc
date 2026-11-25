@@ -112,7 +112,7 @@ kernel::ProjectionRequest projection_request(const PartDocument& part,
         const HistoryContainer& container,double tolerance) {
     const auto& p=container.feature.projection;
     validate_feature_parameters(container.feature);
-    if((p.output==ProjectionOutput::Surface||p.output==ProjectionOutput::Relief)&&p.regions.empty())
+    if(p.output==ProjectionOutput::Surface&&p.regions.empty())
         throw std::runtime_error("Select a retained region on the target face before confirming the projection.");
     const auto source=std::ranges::find(part.sketches,container.feature.sketch_id,&sketcher::Sketch::id);
     if(source==part.sketches.end())throw std::runtime_error("Extrusion references a missing Sketch");
@@ -131,13 +131,17 @@ kernel::ProjectionRequest projection_request(const PartDocument& part,
         p.output==ProjectionOutput::Split?kernel::ProjectionResult::Split:
         p.output==ProjectionOutput::Surface?kernel::ProjectionResult::Surface:kernel::ProjectionResult::Relief;
     result.height=p.height;result.inward=container.combine_mode==CombineMode::Subtract;
+    result.relief_direction=p.relief_direction==ProjectionReliefDirection::Projection?
+        kernel::ProjectionReliefDirection::Projection:kernel::ProjectionReliefDirection::SurfaceNormal;
     if(result.output==kernel::ProjectionResult::Curves)
         for(const auto& point:evaluated.viewer_mesh(false).points)
             if(!point.construction&&point.always_visible&&point.reference.semantic_key.starts_with("point:"))
                 result.display_points.push_back(point.position);
-    // Project every authored curve independently. A projection source need not
-    // form the single wire required by a sweep; incidence stays in point IDs.
-    result.profiles=projection_sketch_profiles(evaluated);
+    // Relief consumes the ordinary filled Sketch profile, including holes and
+    // disconnected regions. Curve/surface projection keeps independent curves.
+    if(p.output==ProjectionOutput::Relief)
+        result.profiles.push_back(extrusion_request(evaluated,1.,ExtrusionDirection::Forward,true));
+    else result.profiles=projection_sketch_profiles(evaluated);
     result.direction=result.sketch_normal;
     if(p.direction==ProjectionDirection::Reference) {
         const auto& ref=p.direction_reference;
@@ -171,7 +175,7 @@ kernel::ProjectionRequest projection_request(const PartDocument& part,
             throw std::runtime_error("Projection target must be a preceding bounded face in the active Body.");
         result.targets.push_back(target.reference);
     }
-    if(result.output==kernel::ProjectionResult::Surface||result.output==kernel::ProjectionResult::Relief)for(const auto& region:p.regions) {
+    if(result.output==kernel::ProjectionResult::Surface)for(const auto& region:p.regions) {
         auto seed=region.seed;
         if(const auto* target=part.find_container(region.target.owner_id);target&&region.target.instance_path.empty()) {
             const auto& placement=target->placement;

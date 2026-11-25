@@ -39,6 +39,25 @@ void verify(const kernel::OcctKernel& kernel, fs::path directory, bool assembly)
         require(objects()==before && revision()==before_revision && !host.change(),"Rejected curve operation partly committed");
     };
     const auto count=run("construction.list").at("total").get<std::size_t>();
+    {
+        const auto arc_id=run("construction.create",{{"kind","curve3d"},{"name","Arc contract"},{"curve_type","arc"},
+            {"points",{point(0,0,0),point(10,0,10),point(20,10,10)}}}).at("construction").get<std::string>();
+        const auto arc=objects().back();const auto endpoint=arc.curve_points[1].id;
+        require(get(arc_id).at("curve_type")=="arc","Arc CLI type was not exposed");
+        reject("construction.set",{{"construction",endpoint},{"tangent","+x"}},"parameter_not_editable");
+        reject("construction.set",{{"construction",endpoint},{"tangent_enabled",true}},"parameter_not_editable");
+        for(double x:{12.,8.,10.}) {
+            set(endpoint,{{"values",{{"x",x}}}});
+            const auto route=document::curve3d_route(objects().back());
+            near(route.segments.front().end.x,x);
+            require(objects().back().curve_points[1].id==endpoint&&route.segments.front().arc_midpoint.has_value(),"Arc endpoint edit lost identity or exact arc");
+        }
+        run("undo");run("redo");run("save");
+        const auto reloaded=assembly?assembly::AssemblyDocument::load(directory/(name+".asmz")).constructions:
+            document::PartDocument::load(directory/(name+".prtz")).constructions;
+        require(reloaded.back()==objects().back(),"Arc native persistence lost point IDs or normal");
+        run("construction.delete",{{"construction",arc_id}});
+    }
     auto middle=point(10,0); middle["radius_mm"]=2;
     const auto made=run("construction.create",{{"kind","curve3d"},{"name","Dráha žluťoučká"},
         {"curve_type","polyline"},{"rounding_enabled",true},

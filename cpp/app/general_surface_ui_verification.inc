@@ -17,10 +17,7 @@ int verify_general_surface_ui(QApplication& application,AssemblyWorkspaceWindow&
             if(position<1)continue;
             const auto fillet=window.findChild<QAction*>("filletAction");
             const auto chamfer=window.findChild<QAction*>("chamferAction");
-            const auto planar=window.findChild<QAction*>("planarSurfaceAction");
-            const auto planar_position=actions.indexOf(planar);
-            grouped=planar&&planar_position>0&&actions[planar_position-1]->isSeparator()&&
-                planar_position<position&&fillet&&chamfer&&
+            grouped=actions[position-1]->isSeparator()&&fillet&&chamfer&&
                 actions.indexOf(fillet)>position&&actions.indexOf(chamfer)>actions.indexOf(fillet);
             if(grouped)break;
         }

@@ -66,6 +66,7 @@ struct HistoryDependencyCollector {
             use(root,feature.feature.sketch_id);
               if(feature.feature.type==document::FeatureType::Wrapping) {
                   if(feature.feature.wrapping.target)reference(root,feature.feature.wrapping.target->reference);
+                  for(const auto& target:feature.feature.wrapping.continuations)reference(root,target.reference);
                   break;
               }
             if(feature.feature.type==document::FeatureType::Projection) {

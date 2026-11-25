@@ -1,4 +1,7 @@
 {
+  "Relief direction": "Reliefrichtung",
+  "Along projection direction": "In Projektionsrichtung",
+  "Normal to target surface": "Senkrecht zur Zielfläche",
   "Invalid CAM clamping direction.": "Ungültige CAM-Spannrichtung.",
   "CAM clamping requires a planar contact region.": "CAM-Spannung erfordert einen ebenen Kontaktbereich.",
   "Clamping Sketches": "Spannskizzen",
@@ -3358,5 +3361,23 @@
   "The tool definition needs valid CAM dimensions, cutting and shank Body roles, feed and spindle speed.": "Die Werkzeugdefinition benötigt gültige CAM-Maße, Körperrollen für Schneide und Schaft, Vorschub und Drehzahl.",
   "The machine definition needs valid machining type, axes, travel, feed and spindle limits.": "Die Maschinendefinition benötigt eine gültige Bearbeitungsart, Achsen, Verfahrwege sowie Vorschub- und Drehzahlgrenzen.",
   "Export generic NC text…": "Generischen NC-Text exportieren…",
-  "The generic NC text could not be saved.": "Der generische NC-Text konnte nicht gespeichert werden."
+  "The generic NC text could not be saved.": "Der generische NC-Text konnte nicht gespeichert werden.",
+  "Chybějící bod vodicí skici": "Ein Punkt der Führungsskizze fehlt.",
+  "Neplatná spline vodicí skici": "Der Spline der Führungsskizze ist ungültig.",
+  "Neplatná výška nebo více než 1000 otáček": "Die Höhe ist ungültig oder überschreitet 1000 Windungen.",
+  "Neurčitý směr Helical Sweepu": "Die Richtung des Helix-Sweeps ist unbestimmt.",
+  "Počáteční bod musí ležet na kružnici": "Der Anfangspunkt muss auf dem Kreis liegen.",
+  "Segmenty vodicí dráhy musí navazovat tečně": "Die Segmente des Führungspfads müssen tangential anschließen.",
+  "Stoupání musí být kladné": "Die Steigung muss positiv sein.",
+  "Vodicí dráha musí postupovat ve výšce jedním směrem a zůstat mimo osu": "Der Führungspfad muss in einer Höhenrichtung verlaufen und außerhalb der Achse bleiben.",
+  "Vodicí dráha nesmí mít čistě radiální tečnu": "Der Führungspfad darf keine rein radiale Tangente haben.",
+  "Vyberte základní kružnici": "Wählen Sie den Grundkreis aus.",
+  "The first arc requires a valid plane normal.": "Der erste Bogen benötigt eine gültige Ebenennormale.",
+  "An arc endpoint must differ from its start and lie off the starting tangent.": "Der Endpunkt eines Bogens muss vom Startpunkt verschieden sein und darf nicht auf der Starttangente liegen.",
+  "Curve type must be polyline, interpolating_spline or arc.": "Der Kurventyp muss polyline, interpolating_spline oder arc sein.",
+  "Arc directions follow the first plane normal and preceding arc tangent.": "Die Bogenrichtungen folgen der Normalen der ersten Ebene und der Tangente des vorherigen Bogens.",
+  "Select a cylindrical, conical, spherical or planar face to wrap.": "Wählen Sie eine zylindrische, konische, kugelförmige oder ebene Fläche zum Umwickeln.",
+  "Wrap continuation requires connected cylindrical or planar faces with a straight common boundary.": "Die Fortsetzung der Umwicklung erfordert verbundene zylindrische oder ebene Flächen mit einer geraden gemeinsamen Grenze.",
+  "Wrap continuations must belong to the same editable Body.": "Fortsetzungsflächen der Umwicklung müssen zum selben bearbeitbaren Körper gehören.",
+  "Select faces in continuation order. Connected parts of the same surface are included automatically. The Feature Origin anchors the wrap; on a sphere, distances from it are preserved and widths change.": "Wählen Sie die Flächen in der Reihenfolge ihrer Fortsetzung. Angrenzende Teile derselben Oberfläche werden automatisch einbezogen. Der Elementursprung verankert die Umwicklung; auf einer Kugel bleiben die Abstände davon erhalten, während sich die Breiten ändern."
 }

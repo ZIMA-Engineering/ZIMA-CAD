@@ -136,7 +136,9 @@ history_boundary_reference_demands(
         // empty/non-trajectory packet when resolving a downstream Point.
         if(path.empty())if(const auto* feature=document.find_container(owner);
                 feature&&feature->feature_kind==document::FeatureKind::HelicalSweep&&
-                (key=="placement-route:3d"||key.starts_with("curve:segment:helical:")))continue;
+                (key=="placement-route:3d"||key.starts_with("curve:segment:helical:")||
+                 key.starts_with("sweep:path-point:")||key.starts_with("helical:axis-point:")||
+                 key.starts_with("helical:rotation-axis:")))continue;
         const auto alias=graph.owners.find(owner);
         if(alias==graph.owners.end()||
            !operation_by_owner.contains(alias->second))continue;
@@ -848,6 +850,23 @@ static PlacementHistoryReferenceViews placement_history_reference_views(
                         document::PlacementReferenceGeometryIndex(native,native_requests).select(native_requests));
                 }
         }
+        {
+            // A Helical cap and its native path/axis share a feature owner.
+            // Selecting an exact material boundary must retain the authored
+            // references too, including a Curve Point attached to that cap's
+            // centerline endpoint. They come from ZIMA data, not solid topology.
+            const document::PlacementReferenceGeometryIndex existing(view.geometry);
+            for(const auto& [owner,path]:view.owners)if(path.empty())
+                if(const auto* source=document.find_container(owner);source&&
+                    source->feature_kind==document::FeatureKind::HelicalSweep&&
+                    source->helical.reference_valid&&native_source_available(*source)) {
+                    auto native=document::PartDocument::helical_curve_geometry(*source).original_references;
+                    const auto present=[&](const auto& value){return existing.contains(
+                        document::ConstructionReference{value.reference.instance_path,value.reference.owner_id,value.reference.semantic_key});};
+                    std::erase_if(native.edges,present);std::erase_if(native.points,present);std::erase_if(native.axes,present);
+                    append_reference_geometry(view.geometry,native);
+                }
+        }
         if(const auto* body=document.body_history.owner(consumer)) {
             kernel::ViewerMesh placed;
             placed.original_references=std::move(view.geometry);
@@ -976,6 +995,7 @@ calculate_part_reference_state(
             if(auto* feature=document.find_container(region.owner_id);feature&&
                     feature->feature_kind==document::FeatureKind::Feature&&
                     feature->feature.type==document::FeatureType::Projection&&
+                    feature->feature.projection.output==document::ProjectionOutput::Surface&&
                     !boundary.calculation_errors.contains(feature->id)&&
                     region.intent_index<feature->feature.projection.regions.size())
                 feature->feature.projection.regions[region.intent_index].boundary_key=region.boundary_key;

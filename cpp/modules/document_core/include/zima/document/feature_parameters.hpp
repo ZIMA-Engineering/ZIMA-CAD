@@ -137,7 +137,10 @@ void visit_feature_targets(Feature& feature,Visitor visitor) {
     for(auto& side:feature.sides)for(auto& target:side.targets)visitor(target);
     if(feature.type==FeatureType::Projection)
         for(auto& target:feature.projection.targets)visitor(target);
-    if(feature.type==FeatureType::Wrapping&&feature.wrapping.target)visitor(*feature.wrapping.target);
+    if(feature.type==FeatureType::Wrapping) {
+        if(feature.wrapping.target)visitor(*feature.wrapping.target);
+        for(auto& target:feature.wrapping.continuations)visitor(target);
+    }
 }
 
 } // namespace zima::document

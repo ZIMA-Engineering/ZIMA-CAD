@@ -153,7 +153,7 @@ Json details(const Source& source, const Item& item, std::size_t limit) {
         result["entity_origin_mm"] = vec(value.entity_origin);
     }
     if (value.kind == document::ConstructionKind::Curve3D) {
-        result["curve_type"] = value.curve_type == document::Curve3DType::Polyline ? "polyline" : "interpolating_spline";
+        result["curve_type"] = document::curve3d_type_key(value.curve_type);
         result["rounding_enabled"] = value.curve_rounding_enabled;
         auto children = Json::array();
         for (std::size_t i = 0; i < std::min(limit, value.curve_points.size()); ++i)

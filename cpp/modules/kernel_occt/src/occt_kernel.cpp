@@ -1,5 +1,9 @@
 #include <IntCurvesFace_ShapeIntersector.hxx>
 #include <zima/kernel/surface_wrap.hpp>
+#include <zima/kernel/surface_wrap_chain.hpp>
+#include <zima/kernel/viewer_wrap_charts.hpp>
+#include <zima/kernel/wrapped_chart_image.hpp>
+#include <zima/kernel/surface_continuation.hpp>
 #include <zima/kernel/wrapped_image.hpp>
 #include <AdvApprox_ApproxAFunction.hxx>
 #include <AdvApprox_EvaluatorFunction.hxx>
@@ -205,6 +209,8 @@
 #include <GeomConvert_SurfToAnaSurf.hxx>
 #include <GeomAdaptor_Surface.hxx>
 #include <GeomAPI_ProjectPointOnSurf.hxx>
+#include <BOPTools_AlgoTools3D.hxx>
+#include <IntTools_Context.hxx>
 #include <GeomAPI_IntCS.hxx>
 #include <Geom_Circle.hxx>
 #include <GeomLProp_SLProps.hxx>
@@ -377,6 +383,7 @@ std::vector<FaceReference> extrusion_references(const std::vector<HistoryOperati
             result.insert(result.end(),projection->targets.begin(),projection->targets.end());
         } else if(const auto* wrap=std::get_if<WrappingRequest>(&operation.primitive)) {
             result.push_back(wrap->target);
+            result.insert(result.end(),wrap->continuations.begin(),wrap->continuations.end());
         } else if(const auto* trim=std::get_if<SurfaceTrimRequest>(&operation.primitive)) {
             result.push_back(trim->target);
             for(const auto& tool:trim->tools)if(tool.face)result.push_back({tool.reference.owner_id,tool.reference.semantic_key,{}});
@@ -6341,7 +6348,10 @@ std::vector<OwnedVertex> complete_shell_vertices(const TopoDS_Shape& shape,
 #include "loft_geometry.inc"
 #include "surface_intersection_geometry.inc"
 #include "surface_trim_geometry.inc"
+#include "surface_continuation.inc"
 #include "projection_geometry.inc"
+#include "wrapping_charts.inc"
+#include "wrapping_source_regions.inc"
 #include "wrapping_geometry.inc"
 #include "sheet_form_geometry.inc"
 
@@ -7177,10 +7187,43 @@ BodyResult make_result(
         }
         return support_surfaces[static_cast<std::size_t>(index-1)];
     };
+    // Hidden coplanar/co-cylindrical joins must remain available to previews.
+    // Persist their connected support membership without adding display edges
+    // or substituting historical, untrimmed faces for current bounded faces.
+    NCollection_IndexedMap<TopoDS_Shape,TopTools_ShapeMapHasher> continuation_faces;
+    std::vector<FaceReference> continuation_references;
+    std::vector<std::pair<std::size_t,std::size_t>> continuation_links;
+    for(const auto& hidden:hidden_display_edges) {
+        const auto edge_index=edge_faces.FindIndex(hidden);if(!edge_index)continue;
+        std::vector<std::size_t> adjacent;
+        for(NCollection_List<TopoDS_Shape>::Iterator it(edge_faces.FindFromIndex(edge_index));it.More();it.Next()) {
+            const auto face=TopoDS::Face(it.Value());const auto reference=feature_side_reference(face,nullptr);
+            if(!reference.valid())continue;
+            const auto index=static_cast<std::size_t>(continuation_faces.Add(face)-1);
+            if(index==continuation_references.size()) {
+                auto entry=reference;entry.surface=support_surface_for(face);continuation_references.push_back(std::move(entry));
+            }
+            if(std::ranges::find(adjacent,index)==adjacent.end())adjacent.push_back(index);
+        }
+        if(adjacent.size()==2)continuation_links.emplace_back(adjacent[0],adjacent[1]);
+    }
+    std::vector<std::shared_ptr<const std::string>> continuation_groups(continuation_references.size());
+    for(std::size_t i=0;i<continuation_references.size();++i)if(!continuation_groups[i]) {
+        const auto component=surface_continuation_indices(continuation_references,continuation_links,
+            {continuation_references[i]},Precision::Confusion());
+        if(component.size()<2)continue;
+        std::set<std::string> parents;
+        for(const auto member:component)parents.insert(encoded_topology_reference(continuation_references[member]));
+        const auto group=std::make_shared<const std::string>(compact_topology_token(encoded_topology_reference_set(parents)));
+        for(const auto member:component)continuation_groups[member]=group;
+    }
     double face_measurement_seconds=0.;
     for (TopExp_Explorer explorer(shape, TopAbs_FACE); explorer.More(); explorer.Next()) {
         const TopoDS_Face face = TopoDS::Face(explorer.Current());
         FaceReference reference = feature_side_reference(face,nullptr);
+        reference.continuation_group.reset();
+        if(const auto index=continuation_faces.FindIndex(face);index>0)
+            reference.continuation_group=continuation_groups[static_cast<std::size_t>(index-1)];
         const std::vector<FaceReference>* merged_side_aliases{};
         if(reference.valid()&&!face_references->reference_for(face).valid())
             merged_side_aliases=&guide_aliases.at(
@@ -12379,7 +12422,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                 }
             if(!operations[matching_prefix].suppressed)if(const auto* projection=std::get_if<ProjectionRequest>(&operations[matching_prefix].primitive)) {
                 const auto& refs=previous_boundaries.back().mesh.original_references.triangle_references;
-                if((projection->output==ProjectionResult::Surface||projection->output==ProjectionResult::Relief)&&std::ranges::any_of(projection->regions,[&](const auto& region) {
+                if(projection->output==ProjectionResult::Surface&&std::ranges::any_of(projection->regions,[&](const auto& region) {
                     return !region.expected_region_key.empty()&&!std::ranges::any_of(refs,[&](const auto& face) {
                         return face.owner_id==operations[matching_prefix].owner_id&&face.semantic_key==region.expected_region_key;
                     });
@@ -12983,6 +13026,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
         };
         std::vector<BodySnapshot> measurement_sources;
         std::map<std::size_t,std::vector<ViewerImage>> wrapped_images;
+        std::map<std::size_t,std::vector<WrapChart>> wrapped_charts;
         if(!boundaries.empty())measurement_sources=boundaries.back().measurement_sources.get();
         for (std::size_t operation_index = reusable_prefix;
              operation_index < operations.size(); ++operation_index) {
@@ -13018,7 +13062,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                 const auto bind_target_side=[&](auto& bindings,const TopoDS_Shape& shape) {
                     NCollection_IndexedMap<TopoDS_Shape,TopTools_ShapeMapHasher> actual;
                     TopExp::MapShapes(shape,TopAbs_FACE,actual);
-                    for(auto& face:bindings)if(same_face_identity(face.reference,request.target)) {
+                    for(auto& face:bindings)if(same_face_identity(face.reference,request.target)||std::ranges::find(request.continuations,face.reference)!=request.continuations.end()) {
                         const auto index=actual.FindIndex(face.shape);
                         if(!index)throw std::runtime_error("Wrap target is unavailable.");
                         // An ancestry binding can retain a generating face's
@@ -13027,6 +13071,17 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                     }
                 };
                 bind_target_side(faces,result_shape);
+                {
+                    // Continuation is restricted to real faces of this current
+                    // Body, with its material orientation, never old supports.
+                    NCollection_IndexedMap<TopoDS_Shape,TopTools_ShapeMapHasher> actual;
+                    TopExp::MapShapes(result_shape,TopAbs_FACE,actual);
+                    std::erase_if(faces,[&](auto& face) {
+                        const auto index=actual.FindIndex(face.shape);
+                        if(!index)return true;
+                        face.shape=actual.FindKey(index);return false;
+                    });
+                }
                 if(const auto& external=request.external_target) {
                     if(request.output==WrappingResult::Relief||request.output==WrappingResult::Split)throw std::runtime_error("Wrap cannot change material on a read-only external face.");
                     auto source=native_face_source(external->body.get(),external->reference).geometry(*this);
@@ -14999,29 +15054,39 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
             }
             if(const auto* wrap=std::get_if<WrappingRequest>(&operation.primitive);wrap&&!operation.suppressed&&!wrap->images.empty()) {
                 const auto faces=wrapping_faces(*wrap);
-                const auto target=std::ranges::find_if(faces,[&](const auto& face){return same_face_identity(face.reference,wrap->target);});
-                if(target==faces.end())throw std::runtime_error("Wrap target is unavailable.");
-                const auto support=analytic_surface(TopoDS::Face(target->shape));
-                if(!support)throw std::runtime_error("Select a cylindrical, conical or spherical face to wrap.");
-                const SurfaceWrap map(*support,wrap->origin,wrap->x_axis,wrap->y_axis,wrap->reverse_u,wrap->reverse_v);
-                const auto mesh=make_operation_result(target->shape,{*target},{},{},false,false,false,{},false).mesh;
+                auto charts=native_wrap_charts(*wrap,faces);
+                TopoDS_Compound domain;BRep_Builder domain_builder;domain_builder.MakeCompound(domain);
+                std::vector<OwnedFace> selected;
+                for(const auto& chart:charts)for(const auto& reference:chart.coverage)
+                    for(const auto& face:faces)if(same_face_identity(face.reference,reference)&&
+                            std::ranges::none_of(selected,[&](const auto& current){return current.shape.IsSame(face.shape);})) {
+                        domain_builder.Add(domain,face.shape);selected.push_back(face);
+                    }
+                const auto mesh=make_operation_result(domain,selected,{},{},true,false,false,{},false).mesh;
                 for(const auto& source:wrap->images) {
-                    auto image=wrapped_image(source,*wrap,map,mesh);image.reference.owner_id=operation.owner_id;
+                    auto image=wrapped_chart_image(source,*wrap,charts,mesh);image.reference.owner_id=operation.owner_id;
                     wrapped_images[operation_index].push_back(std::move(image));
                 }
+                wrapped_charts[operation_index]=std::move(charts);
             }
             if(const auto* wrap=std::get_if<WrappingRequest>(&operation.primitive);wrap&&wrap->output==WrappingResult::Split) {
                 auto request=*wrap;request.output=WrappingResult::Curves;
                 const auto targets=wrapping_faces(request);
-                auto curves=make_wrapping_data(request,operation.owner_id,targets);
+                std::map<std::string,std::vector<std::string>> edge_targets;
+                auto curves=make_wrapping_data(request,operation.owner_id,targets,&edge_targets);
                 std::vector<detail::ProjectionTarget> selected;
-                for(const auto& face:targets)if(same_face_identity(face.reference,request.target))
-                    selected.push_back({TopoDS::Face(face.shape),encoded_topology_reference(face.reference)});
+                for(const auto& chart:native_wrap_charts(request,targets))for(const auto& reference:chart.coverage)
+                    for(const auto& face:targets)if(same_face_identity(face.reference,reference)&&
+                            std::ranges::none_of(selected,[&](const auto& item){return item.face.IsSame(face.shape);}))
+                        selected.push_back({TopoDS::Face(face.shape),encoded_topology_reference(face.reference)});
                 detail::DirectionalProjection tools;
                 for(const auto& edge:curves.edges) {
                     detail::ProjectedCurve tool;tool.edge=TopoDS::Edge(edge.shape);
                     tool.source_key=tool.semantic_key=edge.reference.semantic_key;
-                    for(const auto& target:selected)tool.target_keys.push_back(target.target_key);
+                    // Each curve belongs to its developed chart. Assigning a
+                    // cylinder curve to a later plane invents an off-surface
+                    // planar pcurve and invalidates the native split.
+                    tool.target_keys=edge_targets.at(edge.reference.semantic_key);
                     tools.curves.push_back(std::move(tool));
                 }
                 // The shared partition stage changes only face boundaries.
@@ -18634,7 +18699,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
         std::map<std::string,std::shared_ptr<const ViewerReferenceGeometry>> solid_state_views;
         std::string solid_display_state;
         std::vector<HistoryOperation> calculated_form_history;
-        struct ActiveDecal {std::size_t index;std::vector<ViewerImage> images;SurfaceGeometry support;};
+        struct ActiveDecal {std::size_t index;std::vector<ViewerImage> images;std::vector<WrapChart> charts;};
         std::vector<ActiveDecal> active_decals;
         for (std::size_t index=0;index<boundaries.size();++index) {
             auto& boundary=boundaries[index];
@@ -18644,11 +18709,12 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                     ActiveDecal decal{index};
                     if(const auto found=wrapped_images.find(index);found!=wrapped_images.end())decal.images=found->second;
                     else for(const auto& image:boundary.mesh.images)if(image.reference.owner_id==operations[index].owner_id)decal.images.push_back(image);
-                    auto support=wrap->target.surface?wrap->target.surface:wrap->target.contour_surface;
-                    const auto find_support=[&](const auto& faces){for(const auto& face:faces)if(wrapped_image_face_matches(wrap->target,face)){support=face.surface?face.surface:face.contour_surface;if(support)return;}};
-                    if(!support&&index>0)find_support(boundaries[index-1].mesh.triangle_references);
-                    if(!support)find_support(boundary.mesh.original_references.triangle_references);
-                    if(support){decal.support=*support;active_decals.push_back(std::move(decal));}
+                    if(const auto found=wrapped_charts.find(index);found!=wrapped_charts.end())decal.charts=found->second;
+                    else if(!wrap->external_target&&index>0) {
+                        std::vector<FaceReference> selected{wrap->target};selected.insert(selected.end(),wrap->continuations.begin(),wrap->continuations.end());
+                        decal.charts=viewer_wrap_charts(boundaries[index-1].mesh,selected,wrap->origin,wrap->x_axis,wrap->y_axis,wrap->reverse_u,wrap->reverse_v,wrap->tolerance,[](Vec3 point){return point;});
+                    }
+                    active_decals.push_back(std::move(decal));
                 }
             }
             for(const auto& decal:active_decals) {
@@ -18657,17 +18723,8 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                 if(index==decal.index||wrap.external_target) {
                     boundary.mesh.images.insert(boundary.mesh.images.end(),decal.images.begin(),decal.images.end());continue;
                 }
-                ViewerMesh target;
-                for(std::size_t face=0;face<boundary.mesh.triangle_references.size();++face)
-                    if(wrapped_image_face_matches(boundary.mesh.triangle_references[face],wrap.target))
-                        for(std::size_t corner=0;corner<3;++corner) {
-                            target.triangles.push_back(static_cast<std::uint32_t>(target.vertices.size()));
-                            target.vertices.push_back(boundary.mesh.vertices.at(boundary.mesh.triangles.at(face*3+corner)));
-                        }
-                if(target.triangles.empty())continue;
-                const SurfaceWrap map(decal.support,wrap.origin,wrap.x_axis,wrap.y_axis,wrap.reverse_u,wrap.reverse_v);
                 for(const auto& source:wrap.images) {
-                    auto image=wrapped_image(source,wrap,map,target,true);image.reference.owner_id=operation.owner_id;
+                    auto image=wrapped_chart_image(source,wrap,decal.charts,boundary.mesh,true);image.reference.owner_id=operation.owner_id;
                     if(!image.surface_vertices.empty())boundary.mesh.images.push_back(std::move(image));
                 }
             }

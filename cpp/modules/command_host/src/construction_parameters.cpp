@@ -90,9 +90,9 @@ void apply_construction_properties(Object& value, const Json& args, const kernel
     }
     if (field("curve_type", document::ConstructionKind::Curve3D)) {
         const auto type = args.at("curve_type").get<std::string>();
-        if (type != "polyline" && type != "interpolating_spline")
-            throw ConstructionParameterError("invalid_arguments", "Curve type must be polyline or interpolating_spline.");
-        value.curve_type = type == "polyline" ? document::Curve3DType::Polyline : document::Curve3DType::InterpolatingSpline;
+        if (type != "polyline" && type != "interpolating_spline" && type != "arc")
+            throw ConstructionParameterError("invalid_arguments", "Curve type must be polyline, interpolating_spline or arc.");
+        value.curve_type = document::curve3d_type_from_key(type);
     }
     if (field("rounding_enabled", document::ConstructionKind::Curve3D)) {
         if (value.curve_type != document::Curve3DType::Polyline)
@@ -112,6 +112,8 @@ void apply_construction_properties(Object& value, const Json& args, const kernel
         value.curve_radius = number("radius_mm", "radius", 0, 1000000000);
     }
     if (args.contains("tangent")) {
+        if(parent->curve_type==document::Curve3DType::Arc)
+            throw ConstructionParameterError("parameter_not_editable", "Arc directions follow the first plane normal and preceding arc tangent.");
         using Mode = document::Curve3DTangentMode;
         const auto mode = args.at("tangent").get<std::string>();
         const auto modes = {Mode::Automatic, Mode::PositiveX, Mode::NegativeX, Mode::PositiveY,
@@ -122,6 +124,8 @@ void apply_construction_properties(Object& value, const Json& args, const kernel
         value.curve_tangent_enabled = *selected != Mode::Automatic;
     }
     if (args.contains("tangent_enabled")) {
+        if(parent->curve_type==document::Curve3DType::Arc)
+            throw ConstructionParameterError("parameter_not_editable", "Arc directions follow the first plane normal and preceding arc tangent.");
         value.curve_tangent_enabled = args.at("tangent_enabled").get<bool>();
         if (value.curve_tangent_enabled && value.curve_tangent == document::Curve3DTangentMode::Automatic)
             value.curve_tangent = document::Curve3DTangentMode::PositiveX;

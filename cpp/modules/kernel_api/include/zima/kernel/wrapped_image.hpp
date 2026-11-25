@@ -6,12 +6,12 @@ namespace zima::kernel {
 // holes. It shares their depth and never covers a missing portion of the face.
 // Only texture coordinates need subdivision; native geometry remains unchanged.
 inline ViewerImage wrapped_image(const ViewerImage& source,const WrappingRequest& request,
-        const SurfaceWrap& map,const ViewerMesh& target,bool allow_empty=false) {
+        const SurfaceWrap& map,const ViewerMesh& target,bool allow_empty=false,bool bounded_chart=false) {
     using namespace wrap_detail;
     ViewerImage result=source;result.surface_vertices.clear();result.surface_uv.clear();
     const auto local=[&](Vec3 p){p=sub(p,request.origin);return std::array{dot(p,request.x_axis),dot(p,request.y_axis)};};
     const auto a=local(source.corners[0]),b=local(source.corners[1]),d=local(source.corners[3]);
-    map.validate_image_domain({a,b,local(source.corners[2]),d});
+    if(!bounded_chart)map.validate_image_domain({a,b,local(source.corners[2]),d});
     const double ux=b[0]-a[0],uy=b[1]-a[1],vx=d[0]-a[0],vy=d[1]-a[1],det=ux*vy-uy*vx;
     if(!std::isfinite(det)||std::abs(det)<1e-20)throw std::runtime_error("Invalid wrapped image mesh.");
     const double center_u=a[0]+(ux+vx)*.5,center_v=a[1]+(uy+vy)*.5;
@@ -19,7 +19,8 @@ inline ViewerImage wrapped_image(const ViewerImage& source,const WrappingRequest
     const double image_radius=.5*std::hypot(std::hypot(ux,uy),std::hypot(vx,vy));
     for(auto& corner:result.corners){const auto p=local(corner);corner=map.point(p[0],p[1]);}
     const auto uv=[&](Vec3 p) {
-        const auto [u,v]=map.source_coordinates(p,center_u,center_v);
+        const auto reference=bounded_chart?map.source_anchor():std::pair{center_u,center_v};
+        const auto [u,v]=map.source_coordinates(p,reference.first,reference.second);
         return std::array{((u-a[0])*vy-(v-a[1])*vx)/det,(ux*(v-a[1])-uy*(u-a[0]))/det};
     };
     struct Vertex {Vec3 point;std::array<double,2> uv;};

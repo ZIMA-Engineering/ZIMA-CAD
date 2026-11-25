@@ -1,4 +1,7 @@
 {
+  "Relief direction": "Relief direction",
+  "Along projection direction": "Along projection direction",
+  "Normal to target surface": "Normal to target surface",
   "Invalid CAM clamping direction.": "Invalid CAM clamping direction.",
   "CAM clamping requires a planar contact region.": "CAM clamping requires a planar contact region.",
   "Clamping Sketches": "Clamping Sketches",
@@ -3358,5 +3361,23 @@
   "The tool definition needs valid CAM dimensions, cutting and shank Body roles, feed and spindle speed.": "The tool definition needs valid CAM dimensions, cutting and shank Body roles, feed and spindle speed.",
   "The machine definition needs valid machining type, axes, travel, feed and spindle limits.": "The machine definition needs valid machining type, axes, travel, feed and spindle limits.",
   "Export generic NC text…": "Export generic NC text…",
-  "The generic NC text could not be saved.": "The generic NC text could not be saved."
+  "The generic NC text could not be saved.": "The generic NC text could not be saved.",
+  "Chybějící bod vodicí skici": "A guide Sketch point is missing.",
+  "Neplatná spline vodicí skici": "The guide Sketch spline is invalid.",
+  "Neplatná výška nebo více než 1000 otáček": "The height is invalid or exceeds 1,000 turns.",
+  "Neurčitý směr Helical Sweepu": "The helical sweep direction is undefined.",
+  "Počáteční bod musí ležet na kružnici": "The initial point must lie on the circle.",
+  "Segmenty vodicí dráhy musí navazovat tečně": "Guide path segments must join tangentially.",
+  "Stoupání musí být kladné": "Pitch must be positive.",
+  "Vodicí dráha musí postupovat ve výšce jedním směrem a zůstat mimo osu": "The guide path must progress in one height direction and stay clear of the axis.",
+  "Vodicí dráha nesmí mít čistě radiální tečnu": "The guide path must not have a purely radial tangent.",
+  "Vyberte základní kružnici": "Select the base circle.",
+  "The first arc requires a valid plane normal.": "The first arc requires a valid plane normal.",
+  "An arc endpoint must differ from its start and lie off the starting tangent.": "An arc endpoint must differ from its start and lie off the starting tangent.",
+  "Curve type must be polyline, interpolating_spline or arc.": "Curve type must be polyline, interpolating_spline or arc.",
+  "Arc directions follow the first plane normal and preceding arc tangent.": "Arc directions follow the first plane normal and preceding arc tangent.",
+  "Select a cylindrical, conical, spherical or planar face to wrap.": "Select a cylindrical, conical, spherical or planar face to wrap.",
+  "Wrap continuation requires connected cylindrical or planar faces with a straight common boundary.": "Wrap continuation requires connected cylindrical or planar faces with a straight common boundary.",
+  "Wrap continuations must belong to the same editable Body.": "Wrap continuations must belong to the same editable Body.",
+  "Select faces in continuation order. Connected parts of the same surface are included automatically. The Feature Origin anchors the wrap; on a sphere, distances from it are preserved and widths change.": "Select faces in continuation order. Connected parts of the same surface are included automatically. The Feature Origin anchors the wrap; on a sphere, distances from it are preserved and widths change."
 }

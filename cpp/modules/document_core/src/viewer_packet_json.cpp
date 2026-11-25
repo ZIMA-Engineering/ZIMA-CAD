@@ -182,6 +182,8 @@ void load_sheet_face(zima::kernel::FaceReference& face,const nlohmann::json& val
     face.sheet_role=static_cast<zima::kernel::SheetFaceRole>(role);face.sheet_thickness=thickness;
     face.sheet_owner=value.at("sheet_owner");
     face.display_owner_id=value.value("display_owner",std::string{});
+    if(value.contains("continuation_group"))
+        face.continuation_group=std::make_shared<const std::string>(value.at("continuation_group").get<std::string>());
 }
 nlohmann::json sheet_edge_json(const zima::kernel::ViewerEdge& edge) {
     if(zima::kernel::sheet_edge_role(edge)==zima::kernel::SheetEdgeRole::Unknown)return nullptr;
@@ -377,6 +379,7 @@ nlohmann::json serialize_reference_geometry(
             references.back()["sheet_role"]=static_cast<int>(reference.sheet_role);
             references.back()["sheet_thickness"]=reference.sheet_thickness;
             references.back()["sheet_owner"]=reference.sheet_owner;
+            if(reference.continuation_group)references.back()["continuation_group"]=*reference.continuation_group;
             if (reference.surface) references.back()["surface"]=serialize_surface(*reference.surface);
             if (reference.contour_surface) references.back()["contour_surface"]=serialize_surface(*reference.contour_surface);
             if (reference.measured_area) references.back()["measured_area"]=*reference.measured_area;
@@ -679,6 +682,7 @@ nlohmann::json serialize_body_result(const zima::kernel::BodyResult& result, boo
             {"sheet_thickness", reference.sheet_thickness},
             {"sheet_owner", reference.sheet_owner},
             {"display_owner", reference.display_owner_id}});
+        if(reference.continuation_group)face_references.back()["continuation_group"]=*reference.continuation_group;
     };
     const auto same_face_reference=[](const auto& left,const auto& right) {
         return left.owner_id==right.owner_id&&left.semantic_key==right.semantic_key&&
@@ -687,7 +691,9 @@ nlohmann::json serialize_body_result(const zima::kernel::BodyResult& result, boo
             left.sheet_role==right.sheet_role&&
             left.sheet_thickness==right.sheet_thickness&&
             left.sheet_owner==right.sheet_owner&&
-            left.display_owner_id==right.display_owner_id;
+            left.display_owner_id==right.display_owner_id&&
+            (left.continuation_group==right.continuation_group||
+                (left.continuation_group&&right.continuation_group&&*left.continuation_group==*right.continuation_group));
     };
     const bool has_triangle_tags = std::ranges::any_of(
         result.mesh.triangle_references,

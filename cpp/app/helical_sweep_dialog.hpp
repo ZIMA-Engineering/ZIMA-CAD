@@ -4,6 +4,7 @@
 #include "work_plane_selection.hpp"
 #include "profile_plane_controls.hpp"
 #include <zima/document/part_document.hpp>
+#include <zima/document/helical_geometry.hpp>
 #include "sweep_placement_dialog.hpp"
 #include <QComboBox>
 #include <QDoubleSpinBox>
@@ -126,7 +127,11 @@ public:
         status_=new QLabel(this);status_->setWordWrap(true);form->addRow(status_);content_layout()->addLayout(form);install_operation_buttons();update_thin();refresh_choices();
     }
     void set_status(const QString& text){status_->setText(text);}
-    void set_sketch(unsigned stage,const sketcher::Sketch& sketch){pending.helical.sketches.at(stage)=sketch.serialized();if(stage==0)refresh_choices();notify();}
+    void set_sketch(unsigned stage,const sketcher::Sketch& sketch){
+        if(stage==1)document::helical_geometry::accept_guide_sketch(pending,sketch);
+        else pending.helical.sketches.at(stage)=sketch.serialized();
+        if(stage==0)refresh_choices();notify();
+    }
     void refresh_choices(){
         const QSignalBlocker a(circle_),b(point_);circle_->clear();point_->clear();
         circle_->addItem(tr("Vyberte kružnici"),QString());point_->addItem(tr("Vyberte bod"),QString());

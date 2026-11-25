@@ -13,22 +13,30 @@ const char* output_name(WrappingOutput value){switch(value){case WrappingOutput:
 void validate_wrapping_parameters(const WrappingParameters& p) {
     static_cast<void>(output_name(p.output));
     if(!std::isfinite(p.height)||p.height<=0)invalid();
-    if(p.target) {
-        const auto& t=*p.target;
+    if(!p.target&&!p.continuations.empty())invalid();
+    const auto check=[](const auto& t) {
         if(t.kind!=EndTargetKind::Face||!t.reference.valid()||!finite(t.fallback_origin)||
                 !finite(t.fallback_normal)||t.fallback_triangles.size()%3)invalid();
         for(const auto& point:t.fallback_triangles)if(!finite(point))invalid();
-    }
+    };
+    if(p.target)check(*p.target);
+    for(const auto& target:p.continuations)check(target);
 }
 nlohmann::json serialize_wrapping_parameters(const WrappingParameters& p) {
     validate_wrapping_parameters(p);
     nlohmann::json result={{"output",output_name(p.output)},{"height",p.height},{"reverse_u",p.reverse_u},{"reverse_v",p.reverse_v}};
-    if(p.target) {
-        const auto& t=*p.target;auto triangles=nlohmann::json::array();
+    const auto serialize=[](const auto& t) {
+        auto triangles=nlohmann::json::array();
         for(const auto& point:t.fallback_triangles)triangles.push_back(vector(point));
-        result["target"]={{"owner",t.reference.owner_id},{"key",t.reference.semantic_key},{"instance_path",t.reference.instance_path},
+        nlohmann::json value={{"owner",t.reference.owner_id},{"key",t.reference.semantic_key},{"instance_path",t.reference.instance_path},
             {"label",t.label},{"origin",vector(t.fallback_origin)},{"normal",vector(t.fallback_normal)},{"triangles",std::move(triangles)}};
-        if(t.external_source)result["target"]["external_source"]=serialize_external_profile_target(*t.external_source);
+        if(t.external_source)value["external_source"]=serialize_external_profile_target(*t.external_source);
+        return value;
+    };
+    if(p.target)result["target"]=serialize(*p.target);
+    if(!p.continuations.empty()) {
+        result["continuations"]=nlohmann::json::array();
+        for(const auto& target:p.continuations)result["continuations"].push_back(serialize(target));
     }
     return result;
 }
@@ -40,13 +48,19 @@ WrappingParameters load_wrapping_parameters(const nlohmann::json& value) {
         else if(output=="relief")p.output=WrappingOutput::Relief;
         else if(output=="split")p.output=WrappingOutput::Split;else invalid();
         p.height=value.at("height");p.reverse_u=value.at("reverse_u");p.reverse_v=value.at("reverse_v");
-        if(value.contains("target")) {
-            const auto& t=value.at("target");p.target.emplace();auto& target=*p.target;
-            target.reference={t.at("owner").get<std::string>(),t.at("key").get<std::string>(),t.at("instance_path").get<std::string>()};
+        const auto load=[](const auto& t) {
+            ExtrusionParameters::EndTarget target;
+            target.reference={t.at("owner").template get<std::string>(),t.at("key").template get<std::string>(),t.at("instance_path").template get<std::string>()};
             target.label=t.at("label");target.fallback_origin=vector(t.at("origin"));target.fallback_normal=vector(t.at("normal"));
             if(!t.at("triangles").is_array())invalid();
             for(const auto& point:t.at("triangles"))target.fallback_triangles.push_back(vector(point));
             if(t.contains("external_source"))target.external_source=load_external_profile_target(t.at("external_source"));
+            return target;
+        };
+        if(value.contains("target"))p.target=load(value.at("target"));
+        if(value.contains("continuations")) {
+            if(!value.at("continuations").is_array())invalid();
+            for(const auto& target:value.at("continuations"))p.continuations.push_back(load(target));
         }
         validate_wrapping_parameters(p);return p;
     }catch(const nlohmann::json::exception&){invalid();}

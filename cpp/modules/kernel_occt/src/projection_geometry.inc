@@ -18,6 +18,57 @@ void distinguish_partition_sides(std::vector<OwnedFace>& faces,const std::vector
         throw std::runtime_error("Projection curve ancestry is ambiguous.");
 }
 
+PrimitiveData directional_relief(const TopoDS_Face& face,const FaceReference& parent,
+        const std::vector<OwnedEdge>& source_edges,const std::vector<OwnedVertex>& source_vertices,
+        const gp_Dir& direction,const ProjectionRequest& request,const std::string& owner) {
+    Handle(IntTools_Context) context=new IntTools_Context;
+    gp_Pnt point;gp_Pnt2d uv;
+    if(BOPTools_AlgoTools3D::PointInFace(face,point,uv,context)!=0)
+        throw std::runtime_error("Projection face partition failed.");
+    gp_Vec du,dv;BRepAdaptor_Surface(face).D1(uv.X(),uv.Y(),point,du,dv);
+    auto normal=du.Crossed(dv);if(face.Orientation()==TopAbs_REVERSED)normal.Reverse();
+    const double dot=normal.Dot(gp_Vec(direction));
+    if(normal.SquareMagnitude()<=Precision::SquareConfusion()||std::abs(dot)<=normal.Magnitude()*Precision::Angular())
+        throw std::runtime_error("Projection does not completely define a partition.");
+    const double signed_depth=request.height*(request.inward?-1.:1.)*(dot<0?-1.:1.);
+    BRepPrimAPI_MakePrism prism(face,gp_Vec(direction)*signed_depth,true,false);
+    prism.Build();
+    if(!prism.IsDone()||prism.Shape().ShapeType()!=TopAbs_SOLID)
+        throw std::runtime_error("Surface thickening could not create a valid solid.");
+    auto solid=TopoDS::Solid(prism.Shape());
+    if(!BRepLib::OrientClosedSolid(solid)||!BRepCheck_Analyzer(solid).IsValid()||!BRepAlgoAPI_Check(solid,false,true).IsValid())
+        throw std::runtime_error("Surface thickening could not create a valid solid.");
+    BRep_Builder builder;TopoDS_Solid forward;builder.MakeSolid(forward);
+    for(TopoDS_Iterator child(solid);child.More();child.Next())builder.Add(forward,child.Value());
+    PrimitiveData result;result.shape=forward;
+    const auto key=[](std::string_view role,const auto& reference) {
+        return "projection:linear:"+std::string(role)+":from:"+encoded_topology_reference(reference);
+    };
+    result.faces.push_back({prism.FirstShape(),{owner,key("cap:start",parent),{}}});
+    result.faces.push_back({prism.LastShape(),{owner,key("cap:end",parent),{}}});
+    NCollection_IndexedMap<TopoDS_Shape,TopTools_ShapeMapHasher> members;TopExp::MapShapes(face,members);
+    for(const auto& edge:source_edges)if(members.Contains(edge.shape)) {
+        for(const auto& wall:prism.Generated(edge.shape))if(wall.ShapeType()==TopAbs_FACE)
+            result.faces.push_back({wall,{owner,key("wall",edge.reference),{}}});
+        for(bool end:{false,true}) {
+            const auto rim=end?prism.LastShape(edge.shape):prism.FirstShape(edge.shape);
+            if(!rim.IsNull())result.edges.push_back({rim,{owner,key(end?"rim:end":"rim:start",edge.reference),{}}});
+        }
+    }
+    for(const auto& vertex:source_vertices)if(members.Contains(vertex.shape)) {
+        for(const auto& edge:prism.Generated(vertex.shape))if(edge.ShapeType()==TopAbs_EDGE)
+            result.edges.push_back({edge,{owner,key("longitudinal",vertex.reference),{}}});
+        for(bool end:{false,true}) {
+            const auto point=end?prism.LastShape(vertex.shape):prism.FirstShape(vertex.shape);
+            if(!point.IsNull())result.vertices.push_back({point,{owner,key(end?"point:end":"point:start",vertex.reference),{}}});
+        }
+    }
+    require_complete_unique_shell_topology(result.shape,TopAbs_FACE,result.faces,"faces");
+    require_complete_unique_shell_topology(result.shape,TopAbs_EDGE,result.edges,"edges");
+    require_complete_unique_shell_topology(result.shape,TopAbs_VERTEX,result.vertices,"vertices");
+    return result;
+}
+
 // Shared exact stage for all Projection outputs. This runs only during an
 // explicit history calculation and consumes the actual bounded input faces.
 PrimitiveData make_projection_data(const ProjectionRequest& request,const std::string& owner,
@@ -31,11 +82,14 @@ PrimitiveData make_projection_data(const ProjectionRequest& request,const std::s
         throw std::invalid_argument("Projection requires source curves, target faces and a positive tolerance.");
     if(request.output==ProjectionResult::Relief&&(!std::isfinite(request.height)||request.height<=0))
         throw std::invalid_argument("Surface thickness must be positive.");
-    if((request.output==ProjectionResult::Surface||request.output==ProjectionResult::Relief)&&request.regions.empty())
+    if(request.output==ProjectionResult::Surface&&request.regions.empty())
         throw std::invalid_argument("Select a retained region on the target face before confirming the projection.");
     const auto field=[](const std::string& value){return std::to_string(value.size())+":"+value;};
     std::vector<detail::ProjectionTarget> targets;
-    for(const auto& selected:request.targets) {
+    const auto selected_faces=(request.output==ProjectionResult::Relief||request.output==ProjectionResult::Curves)?
+        continued_native_surfaces(input_faces,request.targets,request.tolerance):request.targets;
+    for(const auto& selected:selected_faces) {
+        if(std::ranges::any_of(targets,[&](const auto& target){return target.target_key==encoded_topology_reference(selected);}))continue;
         const OwnedFace* found=nullptr;
         for(const auto& face:available_faces)if(same_face_identity(face.reference,selected)) {
             if(found&&!found->shape.IsSame(face.shape))throw std::runtime_error("Projection curve ancestry is ambiguous.");
@@ -64,8 +118,15 @@ PrimitiveData make_projection_data(const ProjectionRequest& request,const std::s
         targets.push_back(std::move(target));
     }
     std::vector<detail::ProjectionCurve> sources;
+    std::vector<TopoDS_Face> footprints;
     const auto append_profile=[&](const ExtrusionRequest& profile) {
-        for(const auto& wire:make_body_profiles(profile,request.sketch_normal)) {
+        const auto wires=make_body_profiles(profile,request.sketch_normal);
+        if(request.output==ProjectionResult::Relief) {
+            std::vector<TopoDS_Wire> loops;
+            for(const auto& wire:wires)loops.push_back(wire.wire);
+            footprints.push_back(TopoDS::Face(profile_base(loops,false)));
+        }
+        for(const auto& wire:wires) {
             if(wire.edges.size()!=wire.curve_ids.size()||(!wire.point_ids.empty()&&wire.point_ids.size()!=wire.edges.size()))
                 throw std::runtime_error("Projection source ancestry is missing.");
             const auto point_key=[&](const std::string& id){return id.empty()?std::string{}:
@@ -154,13 +215,65 @@ PrimitiveData make_projection_data(const ProjectionRequest& request,const std::s
     vertices=complete_boolean_vertices(partition.shape,faces,edges,vertices,owner,"projection");
     faces=complete_boolean_faces(partition.shape,faces,edges,vertices,owner,"projection",operations);
     distinguish_partition_sides(faces,edges);
-    edges=complete_boolean_edges(partition.shape,faces,edges,owner,"projection",{},vertices);
+    // Several arcs of an existing circular junction can have the same adjacent
+    // faces. Their endpoints must also retain the authored Sketch curves which
+    // cut that junction; face ancestry alone cannot distinguish those arcs.
+    std::vector<OwnedFace> boundary_supports;
+    for(const auto& curve:propagate_topology(partition.history,curves.edges))
+        boundary_supports.push_back({curve.shape,{curve.reference.owner_id,curve.reference.semantic_key,curve.reference.instance_path}});
+    edges=complete_boolean_edges(partition.shape,faces,edges,owner,"projection",boundary_supports,vertices);
     if(request.output==ProjectionResult::Split) {
         PrimitiveData result;result.shape=partition.shape;result.faces=std::move(faces);
         result.edges=std::move(edges);result.vertices=std::move(vertices);return result;
     }
     std::vector<OwnedFace> retained;
-    for(std::size_t intent_index=0;intent_index<request.regions.size();++intent_index) {
+    if(request.output==ProjectionResult::Relief) {
+        // The partition already contains exact projected Sketch boundaries.
+        // Classify its native patches against the filled source profile; a
+        // user-picked seed must never choose the complement or omit a patch.
+        Handle(IntTools_Context) context=new IntTools_Context;
+        std::vector<std::unique_ptr<IntCurvesFace_ShapeIntersector>> rays;
+        for(const auto& target:targets) {
+            auto ray=std::make_unique<IntCurvesFace_ShapeIntersector>();
+            ray->Load(target.face,request.tolerance);rays.push_back(std::move(ray));
+        }
+        const auto normal=sketch.Axis().Direction();
+        const double denominator=direction.Dot(normal);
+        if(std::abs(denominator)<Precision::Angular())
+            throw std::runtime_error("Projection does not completely define a partition.");
+        for(const auto& region:partition.regions) {
+            gp_Pnt point;gp_Pnt2d uv;
+            if(BOPTools_AlgoTools3D::PointInFace(region.face,point,uv,context)!=0)
+                throw std::runtime_error("Projection face partition failed.");
+            const double depth=gp_Vec(sketch.Location(),point).Dot(gp_Vec(normal))/denominator;
+            const auto source=point.Translated(-depth*gp_Vec(direction));
+            if(std::ranges::none_of(footprints,[&](const auto& footprint) {
+                return BRepClass_FaceClassifier(footprint,source,request.tolerance).State()==TopAbs_IN;
+            }))continue;
+            // A periodic support also has a far side with the same planar
+            // footprint. Preserve the nearest-hit contract of the projection.
+            double nearest=std::numeric_limits<double>::infinity(),nearest_depth{};
+            bool ambiguous=false;
+            for(const auto& ray:rays) {
+                ray->Perform(gp_Lin(source,direction),request.both_directions?-Precision::Infinite():-request.tolerance,Precision::Infinite());
+                if(!ray->IsDone())continue;
+                for(int i=1;i<=ray->NbPnt();++i) {
+                    const double candidate=ray->WParameter(i),distance=std::abs(candidate);
+                    if(distance<nearest-request.tolerance){nearest=distance;nearest_depth=candidate;ambiguous=false;}
+                    else if(std::abs(distance-nearest)<=request.tolerance&&std::abs(candidate-nearest_depth)>request.tolerance)ambiguous=true;
+                }
+            }
+            if(ambiguous)throw std::runtime_error("Projection curve ancestry is ambiguous.");
+            if(!std::isfinite(nearest)||std::abs(nearest_depth-depth)>request.tolerance)continue;
+            const auto named=std::ranges::find_if(faces,[&](const auto& face){return face.shape.IsSame(region.face);});
+            const auto target=std::ranges::find_if(targets,[&](const auto& value){return value.target_key==region.target_key;});
+            if(named==faces.end()||target==targets.end())throw std::runtime_error("Projection boundary ancestry is missing.");
+            auto selected=*named;selected.shape.Orientation(target->face.Orientation());
+            resolved_regions.push_back({owner,retained.size(),selected.reference.semantic_key});
+            retained.push_back(std::move(selected));
+        }
+        if(retained.empty())throw std::runtime_error("Projection face partition failed.");
+    } else for(std::size_t intent_index=0;intent_index<request.regions.size();++intent_index) {
         const auto& intent=request.regions[intent_index];
         const auto target=std::ranges::find_if(targets,[&](const auto& value){return value.target_key==encoded_topology_reference(intent.target);});
         if(target==targets.end())throw std::runtime_error("Projection source ancestry is missing.");
@@ -195,8 +308,8 @@ PrimitiveData make_projection_data(const ProjectionRequest& request,const std::s
     }
     PrimitiveData result;TopoDS_Compound combined;builder.MakeCompound(combined);
     if(request.output==ProjectionResult::Relief) {
-        // Retain the selected native region for guard validation on unchanged
-        // and cold cache reuse. Only explicit calculation prepares this packet.
+        // Publish exact derived regions for downstream references. They are
+        // not additional display surfaces or user-selected material regions.
         TopoDS_Compound regions;builder.MakeCompound(regions);
         for(auto& face:retained) {face.reference.owner_id=owner;face.reference.instance_path.clear();face.reference.surface_result=true;builder.Add(regions,face.shape);}
         retained_geometry.shape=regions;retained_geometry.faces=retained;
@@ -233,13 +346,25 @@ PrimitiveData make_projection_data(const ProjectionRequest& request,const std::s
             SurfaceThickenRequest thickness;thickness.face=face.reference;
             thickness.thickness=request.height;thickness.tolerance=request.tolerance;
             thickness.side=request.inward?SurfaceThicknessSide::Second:SurfaceThicknessSide::First;
-            auto solid=make_thickened_surface_data(thickness,owner,skin.Shape(),{{skin.Shape(),face.reference}},local_edges,local_vertices).operand;
-            builder.Add(combined,solid.shape);
-            result.faces.insert(result.faces.end(),solid.faces.begin(),solid.faces.end());
-            result.edges.insert(result.edges.end(),solid.edges.begin(),solid.edges.end());
-            result.vertices.insert(result.vertices.end(),solid.vertices.begin(),solid.vertices.end());
+            auto solid=request.relief_direction==ProjectionReliefDirection::Projection?
+                directional_relief(TopoDS::Face(skin.Shape()),face.reference,local_edges,local_vertices,direction,request,owner):
+                make_thickened_surface_data(thickness,owner,skin.Shape(),{{skin.Shape(),face.reference}},local_edges,local_vertices).operand;
+            if(result.shape.IsNull())result=std::move(solid);
+            else {
+                // Adjacent patches form one material tool. Passing touching
+                // solids as an un-unioned compound can leave their common wall
+                // in the final Body even though its total volume is correct.
+                BRepAlgoAPI_Fuse join;set_boolean_inputs(join,result.shape,solid.shape);
+                join.SetFuzzyValue(request.tolerance);join.Build();
+                if(!join.IsDone()||join.HasErrors()||!BRepCheck_Analyzer(join.Shape()).IsValid())
+                    throw std::runtime_error("Projection face partition failed.");
+                result.faces=propagate_topology(join,result.faces,solid.faces);
+                result.edges=propagate_topology(join,result.edges,solid.edges);
+                result.vertices=propagate_topology(join,result.vertices,solid.vertices);
+                result.shape=join.Shape();
+            }
         }
-        result.shape=combined;return result;
+        return result;
     }
     if(!input.IsNull())builder.Add(combined,input);
     result.faces=input_faces;result.edges=input_edges;result.vertices=input_vertices;

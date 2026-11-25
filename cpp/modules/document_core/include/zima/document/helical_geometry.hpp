@@ -124,6 +124,23 @@ inline std::vector<Curve> guide_curves(const sketcher::Sketch& source,P start,bo
 inline std::vector<Curve> guide_curves(const sketcher::Sketch& source,const std::string& start_id,bool require_origin=true) {
     return guide_curves(source,point(source,start_id),require_origin);
 }
+// Accept an explicit edit of the owned radial guide. Erasing and redrawing its
+// first curve can replace the private initial point; adopt the new native
+// endpoint only when the authored guide defines one unambiguous path from (0,0).
+// Evaluation itself must never repair a missing reference by coordinate lookup.
+inline void accept_guide_sketch(HistoryContainer& container,const sketcher::Sketch& guide) {
+    if(!guide.find_point(container.helical.guide_start_point_id)) {
+        try {
+            const auto curves=guide_curves(guide,P{0,0});
+            const auto& initial=curves.front().start_point_id;
+            if(guide.find_point(initial))container.helical.guide_start_point_id=initial;
+        } catch(const std::exception&) {
+            // Incomplete edits remain repairable. Keep their unresolved reference
+            // and the section's last valid frame until a valid guide is supplied.
+        }
+    }
+    container.helical.sketches[1]=guide.serialized();
+}
 struct Path {
     V origin,radial,axis,azimuth;
     double radius{},pitch{}; bool left{};

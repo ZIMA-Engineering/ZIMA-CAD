@@ -6,12 +6,18 @@ kernel::WrappingRequest wrapping_request(const PartDocument& part,
     if(source==part.sketches.end()||source->owner_container_id!=container.id||
             container.feature.profile_source!=ProfileSource::Internal)
         throw std::runtime_error("Wrap requires an owned planar Sketch.");
-    if(!p.target)throw std::runtime_error("Select a cylindrical, conical or spherical face to wrap.");
+    if(!p.target)throw std::runtime_error("Select a cylindrical, conical, spherical or planar face to wrap.");
     if(std::ranges::any_of(source->offsets,[](const auto& value){return value.broken;})||
        std::ranges::any_of(source->curve_trims,[](const auto& value){return value.broken;}))
         throw std::runtime_error("Sketch contains an unresolved offset or trim intersection");
     const auto& target=*p.target;
     kernel::WrappingRequest result;result.sketch_id=source->id;result.target=target.reference;
+    for(const auto& continuation:p.continuations) {
+        if(target.external_source||continuation.external_source||
+                !boundary_surface_support_allowed(part,container.id,continuation.reference))
+            throw std::runtime_error("Wrap continuations must belong to the same editable Body.");
+        result.continuations.push_back(continuation.reference);
+    }
     result.origin={container.placement.x,container.placement.y,container.placement.z};result.x_axis=source->resolved_x_axis;
     result.y_axis=source->resolved_y_axis;result.normal=source->normal();
     result.height=p.height;result.tolerance=tolerance;result.reverse_u=p.reverse_u;result.reverse_v=p.reverse_v;

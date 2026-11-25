@@ -22,10 +22,62 @@ static document::HistoryContainer fixture(double end_radius=10,bool rectangle=fa
     else static_cast<void>(section.add_circle(0,0,.5));
     c.helical.sketches[2]=section.serialized();return c;
 }
+static void verify_redrawn_guide_frames(){
+    using namespace document::helical_geometry;
+    for(const auto plane:{sketcher::SketchPlane::XY,sketcher::SketchPlane::XZ,sketcher::SketchPlane::YZ})
+    for(bool left:{false,true})for(double height:{12.5,-12.5}) {
+        auto c=fixture();c.helical.left_handed=left;
+        c.placement.x=12;c.placement.y=-3;c.placement.z=8;c.placement.rotation_y=25;c.placement.absolute_rotation_y=25;
+        auto base=sketcher::Sketch::from_serialized(c.helical.sketches[0]);
+        base.plane=plane;base.plane_offset=-3;base.circles.front().radius=83.191;
+        for(auto& point:base.points)if(point.id==c.helical.start_point_id)point.x=83.191;
+        c.helical.sketches[0]=base.serialized();
+        for(double pitch:{5.,7.,4.}) {
+            c.helical.pitch=pitch;
+            auto guide=sketcher::Sketch::from_serialized(c.helical.sketches[1]);
+            const auto removed=c.helical.guide_start_point_id;
+            guide.remove_geometry(guide.segments.front().id);
+            require(!guide.find_point(removed),"Redraw fixture retained the deleted guide endpoint");
+            const auto line=guide.add_segment(0,0,1,height);
+            const auto new_start=guide.segments.front().first_point_id;
+            auto unresolved=c;unresolved.helical.sketches[1]=guide.serialized();
+            bool rejected=false;try{document::PartDocument::reframe_helical_sketches(unresolved);}catch(const std::exception&){rejected=true;}
+            require(rejected,"Evaluation silently rebound a missing guide reference");
+            const auto authored=guide.serialized();accept_guide_sketch(c,guide);
+            require(c.helical.guide_start_point_id==new_start&&c.helical.sketches[1]==authored,
+                "Guide edit did not adopt the new native endpoint without changing authored geometry");
+            document::PartDocument::reframe_helical_sketches(c);
+            base=sketcher::Sketch::from_serialized(c.helical.sketches[0]);
+            const auto section=sketcher::Sketch::from_serialized(c.helical.sketches[2]);
+            const auto start=base.world_point(83.191,0);
+            const auto radial=unit(sub(start,base.world_point(0,0)));
+            const auto tangent=unit(add(radial,add(mul(base.resolved_normal,height),
+                mul(cross(base.resolved_normal,radial),(left?-1.:1.)*2*std::numbers::pi*83.191*height/pitch))));
+            require(norm(sub(section.resolved_origin,start))<1e-8&&dot(section.resolved_normal,tangent)>1-1e-8,
+                "Redrawn guide placed the section away from the path start or tangent");
+            require(std::abs(dot(section.resolved_x_axis,tangent))<1e-9&&
+                std::abs(dot(section.resolved_y_axis,tangent))<1e-9,"Section axes are not in its tangent-normal plane");
+            const auto valid_frame=c.helical.sketches[2];
+            auto incomplete=guide;incomplete.remove_geometry(line);accept_guide_sketch(c,incomplete);
+            try{document::PartDocument::reframe_helical_sketches(c);}catch(const std::exception&){}
+            require(c.helical.sketches[2]==valid_frame,"Missing guide reset the last valid section frame");
+            accept_guide_sketch(c,guide);document::PartDocument::reframe_helical_sketches(c);
+            require(c.helical.sketches[2]==valid_frame,"Repair changed the valid section frame");
+            auto part=document::PartDocument::create_default();part.history={c};
+            const auto file=std::filesystem::temp_directory_path()/("zima-helical-redraw-"+part.document_id+".prtz");
+            part.save(file);const auto reopened=document::PartDocument::load(file);std::filesystem::remove(file);
+            require(reopened.history.front().helical.guide_start_point_id==new_start&&
+                reopened.history.front().helical.sketches[2]==valid_frame,"Native reopen lost the adopted guide or section frame");
+        }
+    }
+    std::cout<<"Helical redrawn-guide frame matrix passed (36 edits, all base planes, winding/height signs, native reopen)\n";
+}
 int main(int argc,char** argv){try{
+    verify_redrawn_guide_frames();
     if((argc==4||argc==5)&&std::string_view(argv[1])=="--benchmark-native") {
         require(!std::filesystem::exists(std::filesystem::u8path(argv[3])),"Benchmark output must be a new file");
-        auto doc=document::PartDocument::load(std::filesystem::u8path(argv[2]));
+        std::vector<kernel::BodyResult> previous;
+        auto doc=document::PartDocument::load(std::filesystem::u8path(argv[2]),&previous);
         if(argc==5) {
             require(std::string_view(argv[4])=="helical-only","Unknown benchmark mode");
             std::vector<std::string> removed;
@@ -36,15 +88,27 @@ int main(int argc,char** argv){try{
         const auto start=std::chrono::steady_clock::now();
         const auto operations=doc.kernel_operations();
         const auto prepared=std::chrono::steady_clock::now();
-        kernel::OcctKernel measured;const auto bodies=measured.evaluate_history(operations);
+        kernel::OcctKernel measured;auto bodies=measured.evaluate_history(operations);
         const auto done=std::chrono::steady_clock::now();
+        require(!bodies.empty()&&bodies.back().has_solid(),"Native Helical model did not regenerate a solid");
+        measured.ensure_body_properties(bodies.back());
+        if(argc==4&&!previous.empty()) {
+            measured.ensure_body_properties(previous.back());
+            require(std::abs(bodies.back().volume-previous.back().volume)<std::max(1e-5,std::abs(previous.back().volume)*1e-6),
+                "Native model volume changed during Helical regeneration");
+        }
         std::cout<<"prepare_ms="<<std::chrono::duration<double,std::milli>(prepared-start).count()
             <<" kernel_ms="<<std::chrono::duration<double,std::milli>(done-prepared).count()<<std::endl;
-        doc.save(std::filesystem::u8path(argv[3]),bodies);return 0;
+        std::cout<<"volume="<<bodies.back().volume<<" native-cache comparison passed\n";
+        doc.save(std::filesystem::u8path(argv[3]),bodies);
+        const auto reopened=document::PartDocument::load(std::filesystem::u8path(argv[3]));
+        require(reopened.history==doc.history,"Native model history changed on reopening");return 0;
     }
     kernel::OcctKernel k;
     {
         auto empty=document::PartDocument::create_helical_sweep_container();
+        require(sketcher::Sketch::from_serialized(empty.helical.sketches[0]).plane==sketcher::SketchPlane::XY,
+            "New Helical base Sketch does not default to XY");
         const auto early=document::PartDocument::helical_axis_geometry(empty,true);
         require(early.axes.size()==1&&early.points.size()==2,"Incomplete Helical creation hides rotation axis");
         for(double height:{12.5,-12.5}) {

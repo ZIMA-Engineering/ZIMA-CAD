@@ -57,7 +57,21 @@ enum class HoleType { Plain, MetricThread, PipeThread, WhitworthThread };
 enum class ThreadStandard { Metric, Whitworth, Pipe };
 enum class ThreadSide { Automatic, Internal, External };
 enum class ConstructionKind { Point, Curve3D, Axis, Plane };
-enum class Curve3DType { Polyline, InterpolatingSpline };
+enum class Curve3DType { Polyline, InterpolatingSpline, Arc };
+inline const char* curve3d_type_key(Curve3DType type) {
+    switch(type) {
+        case Curve3DType::Polyline:return "polyline";
+        case Curve3DType::InterpolatingSpline:return "interpolating_spline";
+        case Curve3DType::Arc:return "arc";
+    }
+    throw std::runtime_error("Invalid 3D-Curve type");
+}
+inline Curve3DType curve3d_type_from_key(std::string_view key) {
+    if(key=="polyline")return Curve3DType::Polyline;
+    if(key=="interpolating_spline")return Curve3DType::InterpolatingSpline;
+    if(key=="arc")return Curve3DType::Arc;
+    throw std::runtime_error("Invalid 3D-Curve type");
+}
 enum class Curve3DTangentMode {
     Automatic,
     PositiveX,
@@ -192,6 +206,9 @@ struct ConstructionObject {
     bool curve_tangent_enabled{};
     // Curve switch and per-child-Point radius. Disabling does not erase radii.
     bool curve_rounding_enabled{};
+    // Arc chain: normal of the first entered plane in route-local coordinates.
+    // Retained on reference loss for display; it does not validate a broken input.
+    zima::kernel::Vec3 curve_start_normal{0,0,1};
     double curve_radius{};
     std::vector<ConstructionObject> curve_points;
     // Plane-kind containers only: persisted work-plane offset (mm). The JSON

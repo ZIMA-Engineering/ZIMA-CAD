@@ -1,5 +1,8 @@
 #include <zima/kernel/placement_route.hpp>
 #include <zima/kernel/surface_wrap.hpp>
+#include <zima/kernel/viewer_wrap_charts.hpp>
+#include <zima/kernel/wrapped_chart_image.hpp>
+#include <zima/kernel/surface_continuation.hpp>
 #include <zima/kernel/wrapped_image.hpp>
 #include <zima/document/trajectory_point_release.hpp>
 #include <zima/document/placement_reference_assignment.hpp>
@@ -4294,7 +4297,7 @@ std::optional<TrajectoryVec3> trajectory_normalized(
 
 std::vector<TrajectoryVec3> sample_arc_from_start(
     const TrajectoryVec3& start, const TrajectoryVec3& tangent,
-    const TrajectoryVec3& end) {
+    const TrajectoryVec3& end, zima::kernel::BSplineGeometry* exact = nullptr) {
     const auto chord = trajectory_subtract(end, start);
     const auto perpendicular = trajectory_subtract(
         chord, trajectory_scale(tangent, trajectory_dot(chord, tangent)));
@@ -4329,6 +4332,24 @@ std::vector<TrajectoryVec3> sample_arc_from_start(
     }
     result.front() = start;
     result.back() = end;
+    if(exact) {
+        // Positive-weight quadratic spans also represent semicircles and major
+        // arcs exactly. This reference geometry is independent of display sampling.
+        const int spans=static_cast<int>(std::ceil(angle/(std::numbers::pi/2)));
+        exact->degree=2;exact->poles.clear();exact->weights.clear();exact->knots={0,0,0};
+        const auto point=[&](double a,double factor) {
+            return trajectory_add(center,trajectory_scale(trajectory_add(
+                trajectory_scale(first,std::cos(a)),trajectory_scale(second,std::sin(a))),radius*factor));
+        };
+        exact->poles.push_back(start);exact->weights.push_back(1);
+        for(int span=0;span<spans;++span) {
+            const double a=angle*span/spans,b=angle*(span+1)/spans,weight=std::cos((b-a)/2);
+            exact->poles.push_back(point((a+b)/2,1/weight));exact->weights.push_back(weight);
+            exact->poles.push_back(span+1==spans?end:point(b,1));exact->weights.push_back(1);
+            exact->knots.insert(exact->knots.end(),span+1==spans?3:2,double(span+1)/spans);
+        }
+        exact->validate();
+    }
     return result;
 }
 
@@ -6653,7 +6674,13 @@ zima::kernel::ViewerMesh PartDocument::construction_viewer_mesh(
                 for(const auto& segment:route.segments){
                     std::vector<zima::kernel::Vec3> samples;
                     std::optional<zima::kernel::BSplineGeometry> exact;
-                    if(segment.arc_midpoint){
+                    if(segment.arc_midpoint&&object.curve_type==Curve3DType::Arc) {
+                        const auto index=static_cast<std::size_t>(&segment-route.segments.data());
+                        zima::kernel::BSplineGeometry curve;
+                        samples=sample_arc_from_start(segment.start,route.stations.at(index).tangent,segment.end,&curve);
+                        for(auto& pole:curve.poles)pole=world_point(pole);
+                        exact=std::move(curve);
+                    }else if(segment.arc_midpoint){
                         const auto station=std::ranges::find_if(route.stations,[&](const auto& value){
                             return value.incoming && segment.source_id=="curve:rounding:"+value.point_id;
                         });
@@ -7217,6 +7244,17 @@ void PartDocument::resolve_constructions(
         for (auto& point : curve.curve_points) {
             static_cast<void>(resolve_construction(point, geometry));
             valid = valid && point.reference_valid;
+            if(&point==&curve.curve_points.front()&&curve.curve_type==Curve3DType::Arc&&point.reference_valid) {
+                auto normal=rotated_vector({0,0,1},point.rotation);
+                for(const auto& ref:point.references) {
+                    if(ref.owner_id.empty()||ref.orientation_only||ref.use_axis||
+                            !construction_reference_is_planar_face(ref,geometry))continue;
+                    if(const auto plane=placement_reference_plane(ref,geometry,point.origin)) {
+                        normal=placement_vec_scale(plane->normal,ref.flip?-1.:1.);break;
+                    }
+                }
+                curve.curve_start_normal=placement_vec_normalized(normal);
+            }
             // Publish the complete freshly calculated local datum frame,
             // including its point, axes and planes, for following children.
             // A missing source retains the point's last valid stored frame.
@@ -9952,7 +9990,7 @@ HistoryContainer PartDocument::create_helical_sweep_container() {
     c.sweep_precision.default_tolerance=0.1;
     c.sweep3d={};
     for(unsigned i=0;i<3;++i){
-        auto s=zima::sketcher::Sketch::create_default();s.owner_container_id=c.id;s.plane=zima::sketcher::SketchPlane::XZ;s.refresh_default_frame();
+        auto s=zima::sketcher::Sketch::create_default();s.owner_container_id=c.id;s.plane=zima::sketcher::SketchPlane::XY;s.refresh_default_frame();
         s.name=i==0?"Základní kružnice":i==1?"Radiální dráha":"Průřez";
         if(i==1){c.helical.guide_start_point_id=s.add_point(0,0);s.set_point_fixed(c.helical.guide_start_point_id,true);}
         c.helical.sketches[i]=s.serialized();
@@ -10132,6 +10170,27 @@ zima::kernel::ViewerMesh PartDocument::helical_curve_geometry(const HistoryConta
         mesh.original_references.edges.push_back(std::move(edge));
         first=last;
     }
+    // The authored curve and the later material centerline expose the same
+    // semantic endpoints. Approximation samples never define these identities.
+    for(const bool start:{true,false}) {
+        const auto& segment=start?request.path_segments.front():request.path_segments.back();
+        zima::kernel::ViewerPoint point;
+        point.position=start?segment.start:segment.end;
+        point.reference={container.id,std::string("sweep:path-point:")+
+            (start?"start:from:":"end:from:")+segment.source_id,{}};
+        point.display_owner_id=container.id;
+        point.always_visible=true;
+        if(input.helical.curve_only)mesh.points.push_back(point);
+        mesh.original_references.points.push_back(std::move(point));
+    }
+    auto axis=helical_axis_geometry(container);
+    for(auto& point:axis.points)point.always_visible=true;
+    if(input.helical.curve_only) {
+        mesh.axes=axis.axes;
+        mesh.points.insert(mesh.points.end(),axis.points.begin(),axis.points.end());
+    }
+    mesh.original_references.axes=std::move(axis.axes);
+    mesh.original_references.points.insert(mesh.original_references.points.end(),axis.points.begin(),axis.points.end());
     return mesh;
 }
 
@@ -10210,6 +10269,31 @@ Curve3DRoute curve3d_route(const ConstructionObject& path) {
     Curve3DRoute result;
     const auto count = path.curve_points.size();
     if (count < 2) return result;
+    if(path.curve_type==Curve3DType::Arc) {
+        auto tangent=path.curve_start_normal;
+        const double magnitude=norm(tangent);
+        if(!std::isfinite(magnitude)||magnitude<1e-12)
+            throw std::runtime_error("The first arc requires a valid plane normal.");
+        tangent=scale(tangent,1/magnitude);
+        result.stations.push_back({path.curve_points.front().id,"1",path.curve_points.front().origin,tangent,false,true});
+        for(std::size_t i=1;i<count;++i) {
+            const auto start=path.curve_points[i-1].origin,end=path.curve_points[i].origin;
+            const auto chord=sub(end,start);const double distance=norm(chord),along=dot(chord,tangent);
+            const auto transverse=sub(chord,scale(tangent,along));const double across=norm(transverse);
+            if(!std::isfinite(distance)||distance<1e-9||across<=1e-12*distance)
+                throw std::runtime_error("An arc endpoint must differ from its start and lie off the starting tangent.");
+            const double radius=distance*distance/(2*across),angle=2*std::atan2(across,along);
+            const auto radial=scale(transverse,-1/across),center=sub(start,scale(radial,radius));
+            kernel::Sweep3DRequest::PathSegment segment;
+            segment.source_id="curve:segment:"+path.curve_points[i-1].id+":"+path.curve_points[i].id;
+            segment.start=start;segment.end=end;
+            segment.arc_midpoint=add(center,add(scale(radial,radius*std::cos(angle/2)),scale(tangent,radius*std::sin(angle/2))));
+            tangent=add(scale(radial,-std::sin(angle)),scale(tangent,std::cos(angle)));
+            result.segments.push_back(std::move(segment));
+            result.stations.push_back({path.curve_points[i].id,std::to_string(i+1)+".2",end,tangent,false,true});
+        }
+        return result;
+    }
     std::vector<V> directions(count-1), entry(count), exit(count), midpoint(count);
     std::vector<double> lengths(count-1), trim(count);
     for (std::size_t i = 0; i < count; ++i) {
@@ -13028,10 +13112,11 @@ std::vector<ConstructionObject> deserialize_construction_objects(
             object.curve_rounding_enabled = source.at("curve_rounding_enabled").get<bool>();
         }
         const auto curve_type = source.value("curve_type", "polyline");
-        object.curve_type = curve_type == "polyline" ? Curve3DType::Polyline
-            : curve_type == "interpolating_spline"
-                ? Curve3DType::InterpolatingSpline
-                : throw std::runtime_error("Invalid 3D-Curve type");
+        object.curve_type = curve3d_type_from_key(curve_type);
+        if(object.curve_type==Curve3DType::Arc) {
+            const auto& n=source.at("curve_start_normal");
+            object.curve_start_normal={n.at(0).get<double>(),n.at(1).get<double>(),n.at(2).get<double>()};
+        }
         object.curve_tangent = curve_tangent_from_key(
             source.value("curve_tangent", "automatic"));
         for (const auto& point :
@@ -13208,10 +13293,11 @@ std::string serialize_construction_objects(
             {"reference_valid", object.reference_valid},
             {"suppressed", object.suppressed},
             {"curve_rounding_enabled", object.curve_rounding_enabled},
-            {"curve_type", object.curve_type == Curve3DType::Polyline
-                ? "polyline" : "interpolating_spline"},
+            {"curve_type", curve3d_type_key(object.curve_type)},
             {"curve_tangent", curve_tangent_key(object.curve_tangent)},
             {"curve_points", std::move(curve_points)}});
+        if(object.curve_type==Curve3DType::Arc)serialized.back()["curve_start_normal"]=
+            {object.curve_start_normal.x,object.curve_start_normal.y,object.curve_start_normal.z};
     }
     return serialized.dump();
 }
@@ -13953,11 +14039,11 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
                 serialized_path.at("rotation_z").get<double>()};
             path.absolute_rotation = path.rotation;
             path.curve_rounding_enabled = serialized_path.at("curve_rounding_enabled").get<bool>();
-            path.curve_type = serialized_path.at("curve_type") == "polyline"
-                ? Curve3DType::Polyline
-                : serialized_path.at("curve_type") == "interpolating_spline"
-                    ? Curve3DType::InterpolatingSpline
-                    : throw std::runtime_error("Invalid Sweep/Loft path type");
+            path.curve_type = curve3d_type_from_key(serialized_path.at("curve_type").get<std::string>());
+            if(path.curve_type==Curve3DType::Arc) {
+                const auto& n=serialized_path.at("curve_start_normal");
+                path.curve_start_normal={n.at(0).get<double>(),n.at(1).get<double>(),n.at(2).get<double>()};
+            }
             if (path.id.empty() || path.name.empty() ||
                 !construction_ids.insert(path.id).second ||
                 path.entity_id != path.id + ":entity" ||
@@ -15323,9 +15409,10 @@ nlohmann::json PartDocument::serialized(
                 {"rotation_y", path.rotation.y},
                 {"rotation_z", path.rotation.z},
                 {"curve_rounding_enabled", path.curve_rounding_enabled},
-                {"curve_type", path.curve_type == Curve3DType::Polyline
-                    ? "polyline" : "interpolating_spline"},
+                {"curve_type", curve3d_type_key(path.curve_type)},
                 {"curve_points", std::move(curve_points)}};
+            if(path.curve_type==Curve3DType::Arc)serialized["path"]["curve_start_normal"]=
+                {path.curve_start_normal.x,path.curve_start_normal.y,path.curve_start_normal.z};
             serialized["profiles"] = nlohmann::json::array();
             for (const auto& profile : container.sweep3d.profiles) {
                 serialized["profiles"].push_back({

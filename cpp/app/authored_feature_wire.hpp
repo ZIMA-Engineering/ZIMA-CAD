@@ -107,15 +107,14 @@ inline std::vector<kernel::ViewerEdge> authored_feature_wire(
             // even when the intermediate input boundary has no display mesh.
             // Reuse that analytic metadata with the ordinary Wrap generator;
             // never calculate topology or highlight later Boolean fragments.
-            kernel::ViewerMesh support;
-            const auto retain_support=[&](const auto& faces) {
-                if(!support.triangle_references.empty()||!feature->feature.wrapping.target)return;
-                for(const auto& face:faces)if(kernel::wrapped_image_face_matches(feature->feature.wrapping.target->reference,face)&&
-                        (face.surface||face.contour_surface)) {support.triangle_references.push_back(face);break;}
+            kernel::ViewerMesh support=input_mesh;
+            const auto retain_support=[&](const auto& geometry) {
+                if(!support.triangles.empty())return;
+                support.vertices=geometry.vertices;support.triangles=geometry.triangles;
+                support.triangle_references=geometry.triangle_references;support.edges=geometry.edges;
             };
-            retain_support(input_mesh.triangle_references);retain_support(input_mesh.original_references.triangle_references);
-            if(!session.calculated_boundaries().empty())
-                retain_support(session.calculated_boundaries().back().mesh.original_references.triangle_references);
+            retain_support(input_mesh.original_references);
+            if(!session.calculated_boundaries().empty())retain_support(session.calculated_boundaries().back().mesh.original_references);
             wire.edges=doc.feature_preview_edges(*feature,support,&doc);return place(std::move(wire));
         }
         if(feature->feature.type==document::FeatureType::Projection) {

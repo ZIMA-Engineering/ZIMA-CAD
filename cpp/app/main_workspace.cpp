@@ -2586,7 +2586,7 @@ int verify_helical_sweep_command(QApplication& application,zima::app::AssemblyWo
     dialog->findChild<QDoubleSpinBox*>("sweepRotation1")->setValue(25);application.processEvents();
     if(!verify(dialog->pending.placement.x==12&&dialog->pending.placement.y==-3&&dialog->pending.placement.z==8&&std::abs(dialog->pending.placement.rotation_y-25)<1e-6&&placement_view->camera_state()==camera,"Sweep placement fields did not update or moved camera"))return 1;
     auto* base_plane=dialog->findChild<QComboBox*>("helicalBasePlane");
-    if(!verify(base_plane&&base_plane->currentText()=="XZ","Helical base plane default missing"))return 1;
+    if(!verify(base_plane&&base_plane->currentText()=="XY","Helical Sweep base plane must default to XY"))return 1;
     auto* plane_group=dialog->findChild<QGroupBox*>("helicalPlaneGroup");
     auto* sketch_group=dialog->findChild<QGroupBox*>("helicalSketchGroup");
     auto* offset=dialog->findChild<QDoubleSpinBox*>("helicalBaseOffset");
@@ -2618,7 +2618,17 @@ int verify_helical_sweep_command(QApplication& application,zima::app::AssemblyWo
     const auto without_start=placement_view->grabFramebuffer();
     if(!verify(!with_start.isNull()&&with_start!=without_start,"Incomplete Helical preview has no visible start marker"))return 1;
     dialog->changed();application.processEvents();
-    auto guide=zima::sketcher::Sketch::from_serialized(dialog->pending.helical.sketches[1]);static_cast<void>(guide.add_segment(0,0,-1,6));dialog->set_sketch(1,guide);
+    const auto draft_calls=zima::kernel::body_calculation_count.load();
+    dialog->findChild<QPushButton*>("helicalSketch2")->click();application.processEvents();
+    if(!verify(dialog->isVisible()&&!window.findChild<QAction*>("finishSketchAction")->isEnabled(),
+        "An unsolved new Helical section opened in the default plane"))return 1;
+    auto guide=zima::sketcher::Sketch::from_serialized(dialog->pending.helical.sketches[1]);
+    const auto removed_start=dialog->pending.helical.guide_start_point_id;
+    const auto removed_line=guide.add_segment(0,0,0,6);guide.remove_geometry(removed_line);
+    if(!verify(!guide.find_point(removed_start),"Helical redraw fixture did not remove its old initial point"))return 1;
+    static_cast<void>(guide.add_segment(0,0,-1,6));dialog->set_sketch(1,guide);
+    if(!verify(dialog->pending.helical.guide_start_point_id==guide.segments.front().first_point_id&&
+        dialog->pending.helical.guide_start_point_id!=removed_start,"Helical guide redraw retained a deleted initial point"))return 1;
     auto section=zima::sketcher::Sketch::from_serialized(dialog->pending.helical.sketches[2]);static_cast<void>(section.add_circle(0,0,.4));dialog->set_sketch(2,section);
     const auto check_axis_presentation=[&] {
         const auto saved_mesh=placement_view->mesh();const auto saved_camera=placement_view->camera_state();
@@ -2647,6 +2657,20 @@ int verify_helical_sweep_command(QApplication& application,zima::app::AssemblyWo
     for(unsigned stage=0;stage<3;++stage){
         dialog->findChild<QPushButton*>(QString("helicalSketch%1").arg(stage))->click();application.processEvents();
         if(!verify(!dialog->isVisible()&&finish&&finish->isEnabled(),"Helical owned Sketch did not enter Sketcher"))return 1;
+        if(stage==2) {
+            const auto framed=zima::sketcher::Sketch::from_serialized(dialog->pending.helical.sketches[2]);
+            const auto base_frame=zima::sketcher::Sketch::from_serialized(dialog->pending.helical.sketches[0]);
+            const auto* start=base_frame.find_point(dialog->pending.helical.start_point_id);
+            const auto origin=base_frame.world_point(start->x,start->y);
+            bool actual_profile=false;
+            for(const auto& edge:placement_view->mesh().edges)if(edge.reference.owner_id==framed.id&&edge.reference.semantic_key.starts_with("circle:")) {
+                actual_profile=true;
+                for(const auto& point:edge.points)if(!verify(std::abs(std::hypot(point.x-origin.x,point.y-origin.y,point.z-origin.z)-.4)<1e-7,
+                    "Helical section Sketch is drawn away from the path start"))return 1;
+            }
+            if(!verify(actual_profile&&zima::kernel::body_calculation_count.load()==draft_calls,
+                "Helical section is missing or draft entry calculated geometry"))return 1;
+        }
         QEventLoop sketch_animation;QTimer::singleShot(950,&sketch_animation,&QEventLoop::quit);sketch_animation.exec();
         if(!verify(!placement_view->mesh().triangles.empty(),"Helical Sketch lost preceding solid context"))return 1;
         const std::array<std::string,3> roles{"base:","radial:","section:"};
@@ -2796,6 +2820,8 @@ int verify_helical_sweep_command(QApplication& application,zima::app::AssemblyWo
     if(!verify(dialog && dialog->pending.helical.curve_only &&
                !dialog->findChild<QPushButton*>("helicalSketch2")->isVisible(),
                "Helical Curve command did not open the shared dialog without a profile"))return 1;
+    if(!verify(dialog->findChild<QComboBox*>("helicalBasePlane")->currentText()=="XY",
+               "Helical Curve base plane must default to XY"))return 1;
     dialog->buttons()->button(QDialogButtonBox::Cancel)->click();application.processEvents();
     QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
     item=nullptr;
@@ -2840,6 +2866,47 @@ int verify_helical_sweep_command(QApplication& application,zima::app::AssemblyWo
                zima::sketcher::Sketch::from_serialized(converted_feature->helical.sketches[2]).points.empty() &&
                !zima::document::PartDocument::helical_curve_geometry(*converted_feature).edges.empty(),
                "Converted Helical Curve did not reopen with its path and released profile"))return 1;
+    const auto curve_points=zima::document::PartDocument::helical_curve_geometry(*converted_feature).points;
+    if(!verify(curve_points.size()==4,"H-Curve path/rotation axis have no attachable endpoints"))return 1;
+    const auto point_calls=zima::kernel::body_calculation_count.load();
+    QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
+    action->trigger();application.processEvents();
+    dialog=dynamic_cast<zima::app::HelicalSweepDialog*>(window.findChild<QDialog*>("helicalSweepDialog"));
+    view->set_reference_visibility(zima::viewer::ReferenceVisibility::AxisPoints,true);
+    view->set_reference_visibility(zima::viewer::ReferenceVisibility::Axes,true);
+    std::vector<zima::kernel::Vec3> endpoint_positions;for(const auto& point:curve_points)endpoint_positions.push_back(point.position);
+    view->fit_points(endpoint_positions);
+    for(const auto& point:curve_points) {
+        dialog->request_placement(0);application.processEvents();
+        std::optional<QPointF> pixel;std::size_t selected_index{};
+        for(int y=3;y<view->height()&&!pixel;y+=3)for(int x=3;x<view->width();x+=3) {
+            const auto candidates=view->selection_candidates_at(QPointF(x,y));
+            for(std::size_t i=0;i<candidates.size();++i)if(candidates[i].owner_id==point.reference.owner_id&&
+                candidates[i].semantic_key==point.reference.semantic_key){pixel=QPointF(x,y);selected_index=i;break;}
+            if(pixel)break;
+        }
+        if(!verify(pixel.has_value(),"H-Curve endpoint missing from common reference picker"))return 1;
+        view->clear_selection();
+        QMouseEvent hover(QEvent::MouseMove,*pixel,*pixel,*pixel,Qt::NoButton,Qt::NoButton,Qt::NoModifier);QApplication::sendEvent(view,&hover);
+        for(std::size_t i=0;i<selected_index;++i) {
+            QMouseEvent press(QEvent::MouseButtonPress,*pixel,*pixel,*pixel,Qt::RightButton,Qt::RightButton,Qt::NoModifier);
+            QMouseEvent release(QEvent::MouseButtonRelease,*pixel,*pixel,*pixel,Qt::RightButton,Qt::NoButton,Qt::NoModifier);
+            QApplication::sendEvent(view,&press);QApplication::sendEvent(view,&release);
+        }
+        QMouseEvent press(QEvent::MouseButtonPress,*pixel,*pixel,*pixel,Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);
+        QMouseEvent release(QEvent::MouseButtonRelease,*pixel,*pixel,*pixel,Qt::LeftButton,Qt::NoButton,Qt::NoModifier);
+        QApplication::sendEvent(view,&press);QApplication::sendEvent(view,&release);application.processEvents();
+        if(dialog->pending.placement.references.empty()||dialog->pending.placement.references.front().semantic_key!=point.reference.semantic_key) {
+            const auto hovered=view->hovered_candidate();
+            std::cerr<<"Endpoint expected "<<point.reference.semantic_key<<" index "<<selected_index<<" hovered "<<(hovered?hovered->semantic_key:"none")<<'\n';
+            for(const auto& ref:dialog->pending.placement.references)std::cerr<<"Actual endpoint reference "<<ref.owner_id<<" / "<<ref.semantic_key<<'\n';
+        }
+        if(!verify(!dialog->pending.placement.references.empty()&&
+            dialog->pending.placement.references.front().semantic_key==point.reference.semantic_key,
+            "H-Curve endpoint click did not retain its exact identity"))return 1;
+    }
+    if(!verify(zima::kernel::body_calculation_count.load()==point_calls,"H-Curve endpoint selection calculated geometry"))return 1;
+    dialog->buttons()->button(QDialogButtonBox::Cancel)->click();application.processEvents();
     QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
     item=nullptr;
     for(QTreeWidgetItemIterator i(tree);*i;++i)
@@ -12266,6 +12333,7 @@ int verify_startup_contract(
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SHEET_CORNER_FILE")) return verify_sheet_corner_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_BOUNDARY_SURFACE_ONLY")) return zima::app::verify_boundary_surface_ui(application,window,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_PLANAR_SURFACE_ONLY")) return zima::app::verify_planar_surface_ui(application,window,test_directory);
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_CURVE_ARC_ONLY")) return zima::app::verify_curve_arc_ui(application,window,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SHEET_CUT_SKIN_ONLY")) return zima::app::verify_sheet_cut_skin_ui(application,window,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_LOFT_ONLY")) return zima::app::verify_loft_ui(application,window,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_GENERAL_SURFACE_ONLY")) return zima::app::verify_general_surface_ui(application,window,test_directory);

@@ -93,12 +93,21 @@ planes persist in original-reference geometry for later features. Side faces ref
 source profile curves; edges reference their source curves/points. Approximation sample
 indexes are not persistent topology identities.
 
+H-Curve exposes both path endpoints as reference Points with the existing
+`sweep:path-point:start:from:<guide-curve-id>` and `end:from:` identities.
+Conversion to H-Sweep retains those same references on its material centerline.
+Pitch, height and handedness edits move the Points without replacing their roles
+or source identities. This uses the existing native reference representation.
+The straight rotation axis and its two endpoint Points are likewise available
+in both modes, using the existing `helical:rotation-axis:from:<circle-id>` and
+`helical:axis-point:` identities. Axis endpoints are distinct from path endpoints.
+
 Placement/orientation uses ordinary container controls: three position references,
 FRONT/TOP, X/Y/Z, absolute rotations/corrections, orientation flip, and ORIGIN.
 View/Tree share picking. Creation arms the first position reference. Short MMB ends
 reference entry; double-click confirms the whole window.
 
-Base Sketch uses a container-local plane, default XZ / FRONT; stored Sketches retain
+New H-Curve and H-Sweep base Sketches use the container-local XY plane; stored Sketches retain
 their plane. Properties has no separate “Sketch Plane in Container” row. All three
 Sketches adopt the same placement, moving the entire winding together. Derived planes
 belong to the feature; there is no independent world base-plane reference. Shared
@@ -110,6 +119,14 @@ While Properties is open, all three source-Sketch wires remain beside the windin
 preview, even with incomplete/invalid paths. Derived planes update from available
 inputs; missing inputs retain the last solved Sketch frame. Display uses Sketch data
 without OCCT body calculation.
+
+Deleting and redrawing the radial guide can replace its private initial point.
+Accepting that explicit Sketch edit adopts the native endpoint of the unique
+open path starting at local `(0,0)`, without changing the authored geometry or
+constraints. Incomplete or ambiguous guides retain the unresolved reference;
+regeneration never silently replaces it by a coordinate match. A new section
+cannot enter Sketcher before its path-start frame is solved. An existing section
+remains repairable in its last valid frame after a guide dependency is lost.
 
 Entering any of the three Sketches frames that Sketch's finite geometry rather
 than the entire model. A small cross-section therefore remains readable beside

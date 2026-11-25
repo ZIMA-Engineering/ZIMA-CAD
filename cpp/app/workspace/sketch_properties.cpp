@@ -28,14 +28,13 @@ using namespace workspace_detail;
 
 void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_id,
         bool holes_mode, bool bend_mode, bool flat_mode,
-        bool sheet_profile_mode, bool line_bend_mode,
-        bool planar_surface_mode) {
+        bool sheet_profile_mode, bool line_bend_mode) {
     if (properties_dialog_ != nullptr) return;
     auto* part = workspace_.open_part(workspace_.active_document_id());
     auto* assembly = workspace_.open_assembly(workspace_.active_document_id());
     if (part == nullptr && assembly == nullptr) return;
     if ((holes_mode || bend_mode || flat_mode || sheet_profile_mode ||
-            line_bend_mode || planar_surface_mode) && !part)
+            line_bend_mode) && !part)
         return;
     const auto& sketches = part != nullptr
         ? part->session.document().sketches : assembly->session.document().sketches;
@@ -51,14 +50,10 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
         return;
     }
     if(edit_mode && !holes_mode && !bend_mode && !flat_mode &&
-       !sheet_profile_mode && !line_bend_mode && !planar_surface_mode) {
+       !sheet_profile_mode && !line_bend_mode) {
         const auto* owner=part ? part->session.document().find_container(found->owner_container_id)
             : assembly->session.document().find_sketch_container(found->owner_container_id);
         if(!owner && assembly)if(const auto* cut=assembly->session.document().find_cut(found->owner_container_id))owner=&cut->definition;
-        if(owner&&owner->feature_kind==zima::document::FeatureKind::Feature&&
-                owner->feature.planar_surface()) {
-            planar_surface_mode=true;
-        } else
         if(owner && (owner->feature_kind==zima::document::FeatureKind::Feature ||
             owner->feature_kind==zima::document::FeatureKind::Extrusion || owner->feature_kind==zima::document::FeatureKind::Revolution)) {
             const auto kind=owner->feature_kind;const auto id=owner->id;
@@ -91,34 +86,7 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
         sheet_profile_mode = sheet_profile_mode ||
             (owner && owner->feature_kind ==
                 zima::document::FeatureKind::SheetProfile);
-        planar_surface_mode=planar_surface_mode||
-            (owner&&owner->feature_kind==zima::document::FeatureKind::Feature&&
-             owner->feature.planar_surface());
-        if(planar_surface_mode) {
-            if(owner&&(owner->feature_kind!=zima::document::FeatureKind::Feature||
-                    !owner->feature.planar_surface()))return;
-            auto value=owner?*owner:*new_sketch_container;
-            if(!owner) {
-                value.feature_kind=zima::document::FeatureKind::Feature;
-                value.combine_mode=zima::document::CombineMode::Add;
-                value.name=part->session.document().next_numbered_name(
-                    tr("Planární plocha").toStdString(),value.id);
-                value.feature.automatic_name=value.name;
-                value.feature.type=zima::document::FeatureType::Modeling;
-                value.feature.sketch_id=initial.id;
-                value.feature.profile_source=
-                    zima::document::ProfileSource::Internal;
-                value.feature.result_type=
-                    zima::document::ProfileResultType::Surface;
-                value.feature.sides[0].operation=
-                    zima::document::FeatureSideOperation::None;
-                value.feature.sides[1].operation=
-                    zima::document::FeatureSideOperation::None;
-            }
-            initial.name=value.name;
-            sketch_feature=std::make_shared<
-                zima::document::HistoryContainer>(std::move(value));
-        } else if (holes_mode) {
+        if (holes_mode) {
             if (owner && owner->feature_kind != zima::document::FeatureKind::Sketch &&
                 owner->feature_kind != zima::document::FeatureKind::Holes) return;
             auto value = owner ? (owner->feature_kind == zima::document::FeatureKind::Holes ? *owner
@@ -261,16 +229,7 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
             if (sketch_feature) {
                 auto value = *sketch_feature;
                 value.name = committed.name; value.placement = std::move(committed_placement);
-                if(value.feature_kind==zima::document::FeatureKind::Feature&&
-                        value.feature.planar_surface()) {
-                    value.feature.profile_plane_offset=committed.plane_offset;
-                    workspace::commit_profile(workspace_,kernel_,owner_id,
-                        std::move(value),edit_mode?
-                            workspace::ProfileEditMode::Replace:
-                            workspace::ProfileEditMode::Create,
-                        std::move(committed),
-                        workspace::ProfileFailurePolicy::KeepDefinition);
-                } else if(value.feature_kind==zima::document::FeatureKind::Flat)
+                if(value.feature_kind==zima::document::FeatureKind::Flat)
                     static_cast<void>(workspace::commit_flat(workspace_,kernel_,owner_id,std::move(value),std::move(committed)));
                 else if(value.feature_kind==zima::document::FeatureKind::Bend)
                     static_cast<void>(workspace::commit_bend(workspace_,kernel_,owner_id,std::move(value),std::move(committed)));
@@ -406,10 +365,7 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
                 clear_selected_sketch_geometry(); viewer_->clear_selection(); tree_->clearSelection();
                 preserve_view_on_refresh_ = true; refresh_scene(); align_active_sketch_view();
             };
-        if(planar_surface_mode) {
-            dialog->set_planar_surface_mode(
-                [edit_owned_sketch]{edit_owned_sketch(std::nullopt);});
-        } else if(flat_mode) {
+        if(flat_mode) {
             dialog->set_flat_mode(sketch_feature->flat,zima::document::sheet_metal_defaults(part->session.document()),
                 sketch_feature->value_locks,[sketch_feature](auto p){sketch_feature->flat=std::move(p);},
                 [edit_owned_sketch]{edit_owned_sketch(std::nullopt);});

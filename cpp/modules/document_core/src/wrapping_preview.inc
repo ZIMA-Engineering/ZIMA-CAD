@@ -1,82 +1,107 @@
 kernel::ViewerMesh PartDocument::wrapping_preview_mesh(const HistoryContainer& feature,
         const kernel::ViewerMesh& input,const PartDocument* owners,bool images) const {
-    using namespace kernel;
+    using namespace kernel;using namespace kernel::wrap_detail;
     const auto sketch=std::ranges::find(sketches,feature.feature.sketch_id,&sketcher::Sketch::id);
     const auto& p=feature.feature.wrapping;
     if(sketch==sketches.end()||!p.target)return {};
-    std::optional<SurfaceGeometry> support;
-    const auto find=[&](const auto& faces) {
-        for(const auto& face:faces)if(wrapped_image_face_matches(p.target->reference,face)) {
-            const auto data=face.surface?face.surface:face.contour_surface;
-            if(data){support=*data;return;}
-        }
-    };
     const auto* body=owners?owners->body_owner_for_object(feature.id):nullptr;
     if(!body&&owners)body=owners->body_history.find(owners->body_history.active_body_id());
+    const auto rotation=placement_rotation_matrix_from_euler_degrees(body?body->scope.rotation_degrees():Vec3{});
+    const auto local=[&](Vec3 point){return body&&!p.target->external_source?placement_inverse_transform_point(rotation,body->scope.translation(),point):point;};
+    const Vec3 origin{feature.placement.x,feature.placement.y,feature.placement.z};
+    const auto x=sketch->resolved_x_axis,y=sketch->resolved_y_axis;
+    const double tolerance=precision_value(document_precision,"linear_tolerance",.001);
+    std::vector<FaceReference> selected{p.target->reference};for(const auto& face:p.continuations)selected.push_back(face.reference);
+    std::vector<WrapChart> charts;ViewerMesh external;
+    const ViewerMesh* domain=&input;
     if(p.target->external_source) {
         auto geometry=p.target->external_source->source_face->mesh.original_references;
         if(owners)geometry=owners->construction_reference_geometry_for(body?body->scope.id:feature.id,std::move(geometry));
-        find(geometry.triangle_references);
-    } else {
-        find(input.triangle_references);if(!support)find(input.original_references.triangle_references);
-    }
-    if(support&&body&&!p.target->external_source) {
-        const auto rotation=placement_rotation_matrix_from_euler_degrees(body->scope.rotation_degrees());
-        support->origin=placement_inverse_transform_point(rotation,body->scope.translation(),support->origin);
-        support->axis=placement_inverse_transform_direction(rotation,support->axis);
-        support->radial=placement_inverse_transform_direction(rotation,support->radial);
-    }
-    if(!support)throw std::runtime_error("Wrap target is unavailable.");
-    const Vec3 origin{feature.placement.x,feature.placement.y,feature.placement.z};
-    const auto x=sketch->resolved_x_axis,y=sketch->resolved_y_axis;
-    const SurfaceWrap map(*support,origin,x,y,p.reverse_u,p.reverse_v);
-    const auto mapped=[&](Vec3 point,double offset) {
-        const auto delta=wrap_detail::sub(point,origin);
-        return map.point(wrap_detail::dot(delta,x),wrap_detail::dot(delta,y),offset);
-    };
-    ViewerMesh result;const auto source=sketch->evaluated_profile_sketch().viewer_mesh(false);
-    const double depth=p.output==WrappingOutput::Relief?(feature.combine_mode==CombineMode::Subtract?-1.:1.)*
-        (support->reversed?-1.:1.)*p.height:0;
-    for(const auto& edge:source.edges)if(!edge.construction&&edge.points.size()>1) {
-        for(double offset:depth==0?std::vector<double>{0}:std::vector<double>{0,depth}) {
-            auto wrapped=edge;wrapped.points.clear();wrapped.exact_spline.reset();wrapped.annotation.reset();
-            wrapped.reference.owner_id=feature.id;wrapped.display_owner_id=feature.id;wrapped.overlay=true;
-            wrapped.reference.semantic_key="wrap:preview:"+edge.reference.semantic_key;
-            if(p.output==WrappingOutput::Relief)wrapped.color="#00D1FF";
-            const auto append=[&](auto&& self,Vec3 a,Vec3 b,Vec3 ma,Vec3 mb,unsigned level)->void {
-                const auto middle=wrap_detail::scale(wrap_detail::add(a,b),.5),mapped_middle=mapped(middle,offset);
-                const auto chord=wrap_detail::scale(wrap_detail::add(ma,mb),.5);
-                if(wrap_detail::length(wrap_detail::sub(mapped_middle,chord))>.02) {
-                    if(level==16)throw std::runtime_error("Wrap curve could not meet the model tolerance.");
-                    self(self,a,middle,ma,mapped_middle,level+1);self(self,middle,b,mapped_middle,mb,level+1);
-                } else wrapped.points.push_back(mb);
-            };
-            wrapped.points.push_back(mapped(edge.points.front(),offset));
-            for(std::size_t i=1;i<edge.points.size();++i)append(append,edge.points[i-1],edge.points[i],mapped(edge.points[i-1],offset),mapped(edge.points[i],offset),0);
-            result.edges.push_back(std::move(wrapped));
+        std::optional<SurfaceGeometry> support;
+        for(const auto& face:geometry.triangle_references)if(wrapped_image_face_matches(p.target->reference,face)) {
+            const auto data=face.surface?face.surface:face.contour_surface;if(data){support=*data;break;}
         }
-        if(depth!=0)for(const auto point:{edge.points.front(),edge.points.back()}) {
-            ViewerEdge wall;wall.points={mapped(point,0),mapped(point,depth)};wall.overlay=true;wall.display_owner_id=feature.id;wall.color="#00D1FF";result.edges.push_back(std::move(wall));
+        if(!support)throw std::runtime_error("Wrap target is unavailable.");
+        charts.push_back({*support,p.target->reference,{p.target->reference},SurfaceWrap(*support,origin,x,y,p.reverse_u,p.reverse_v),{}});
+        for(const auto point:p.target->fallback_triangles){external.triangles.push_back(static_cast<std::uint32_t>(external.vertices.size()));external.vertices.push_back(point);}
+        external.triangle_references.assign(external.triangles.size()/3,p.target->reference);domain=&external;
+    }else charts=viewer_wrap_charts(input,selected,origin,x,y,p.reverse_u,p.reverse_v,tolerance,local,[&](const auto& face) {
+        if(!owners||!body)return true;const auto* owner=owners->body_owner_for_object(face.owner_id);
+        return owner&&owner->scope.id==body->scope.id&&face.instance_path.empty();
+    });
+    ViewerMesh result;const auto source=sketch->evaluated_profile_sketch().viewer_mesh(false);
+    using UV=std::pair<double,double>;
+    const auto uv=[&](Vec3 point)->UV {const auto delta=sub(point,origin);return {dot(delta,x),dot(delta,y)};};
+    const auto cross2=[](UV a,UV b){return a.first*b.second-a.second*b.first;};
+    const auto sub2=[](UV a,UV b)->UV{return {a.first-b.first,a.second-b.second};};
+    for(const auto& chart:charts) {
+        const auto& map=chart.map;
+        std::vector<std::array<UV,3>> triangles;
+        for(std::size_t i=0;i<domain->triangle_references.size()&&i*3+2<domain->triangles.size();++i)if(std::ranges::find(chart.coverage,domain->triangle_references[i])!=chart.coverage.end()) {
+            std::array<UV,3> triangle;
+            const auto anchor=map.source_anchor();
+            triangle[0]=map.source_coordinates(local(domain->vertices.at(domain->triangles.at(i*3))),anchor.first,anchor.second);
+            for(std::size_t j=1;j<3;++j)triangle[j]=map.source_coordinates(local(domain->vertices.at(domain->triangles.at(i*3+j))),triangle[0].first,triangle[0].second);
+            if(std::abs(cross2(sub2(triangle[1],triangle[0]),sub2(triangle[2],triangle[0])))>1e-14)triangles.push_back(triangle);
+        }
+        const double depth=p.output==WrappingOutput::Relief?(feature.combine_mode==CombineMode::Subtract?-1.:1.)*(chart.surface.reversed?-1.:1.)*p.height:0;
+        const auto mapped=[&](Vec3 point,double offset){const auto [u,v]=uv(point);return map.point(u,v,offset);};
+        for(const auto& edge:source.edges)if(!edge.construction&&edge.points.size()>1)for(std::size_t segment=1;segment<edge.points.size();++segment) {
+            const auto a=edge.points[segment-1],b=edge.points[segment];const auto pa=uv(a),pb=uv(b),direction=sub2(pb,pa);
+            std::vector<std::pair<double,double>> intervals;
+            if(domain->triangles.empty())intervals.emplace_back(0,1);
+            for(const auto& triangle:triangles) {
+                double lo=0,hi=1;const double sign=cross2(sub2(triangle[1],triangle[0]),sub2(triangle[2],triangle[0]))<0?-1.:1.;
+                const auto clip=[&](double start,double slope) {
+                    if(std::abs(slope)<1e-14){if(start< -1e-9)hi=-1;return;}
+                    const double root=-start/slope;if(slope>0)lo=std::max(lo,root);else hi=std::min(hi,root);
+                };
+                for(std::size_t j=0;j<3;++j) {
+                    const auto side=sub2(triangle[(j+1)%3],triangle[j]);
+                    clip(sign*cross2(side,sub2(pa,triangle[j])),sign*cross2(side,direction));
+                }
+                for(const auto& limit:chart.limits)clip(limit.value(pa.first,pa.second),limit.u*direction.first+limit.v*direction.second);
+                if(hi>=lo&&hi>=0&&lo<=1)intervals.emplace_back(std::max(0.,lo),std::min(1.,hi));
+            }
+            std::ranges::sort(intervals);std::vector<std::pair<double,double>> merged;
+            for(const auto interval:intervals) {
+                if(!merged.empty()&&interval.first<=merged.back().second+1e-9)merged.back().second=std::max(merged.back().second,interval.second);
+                else merged.push_back(interval);
+            }
+            for(const auto [lo,hi]:merged) {
+                if(hi-lo<1e-12)continue;
+                const auto from=add(a,scale(sub(b,a),lo)),to=add(a,scale(sub(b,a),hi));
+                for(double offset:depth==0?std::vector<double>{0}:std::vector<double>{0,depth}) {
+                    auto wrapped=edge;wrapped.points.clear();wrapped.exact_spline.reset();wrapped.annotation.reset();
+                    wrapped.reference.owner_id=feature.id;wrapped.display_owner_id=feature.id;wrapped.overlay=true;
+                    wrapped.reference.semantic_key="wrap:preview:"+edge.reference.semantic_key;
+                    if(p.output==WrappingOutput::Relief)wrapped.color="#00D1FF";
+                    const auto append=[&](auto&& self,Vec3 a,Vec3 b,Vec3 ma,Vec3 mb,unsigned level)->void {
+                        const auto middle=scale(add(a,b),.5),mapped_middle=mapped(middle,offset),chord=scale(add(ma,mb),.5);
+                        if(length(sub(mapped_middle,chord))>.02) {
+                            if(level==16)throw std::runtime_error("Wrap curve could not meet the model tolerance.");
+                            self(self,a,middle,ma,mapped_middle,level+1);self(self,middle,b,mapped_middle,mb,level+1);
+                        }else wrapped.points.push_back(mb);
+                    };
+                    const auto first=mapped(from,offset),last=mapped(to,offset);wrapped.points.push_back(first);append(append,from,to,first,last,0);
+                    result.edges.push_back(std::move(wrapped));
+                }
+                if(depth!=0)for(const auto point:{from,to})if(point==edge.points.front()||point==edge.points.back()||lo>0||hi<1) {
+                    ViewerEdge wall;wall.points={mapped(point,0),mapped(point,depth)};wall.overlay=true;wall.display_owner_id=feature.id;wall.color="#00D1FF";result.edges.push_back(std::move(wall));
+                }
+            }
         }
     }
     if(images&&!source.images.empty()) {
         ViewerMesh target;
-        const auto local=[&](Vec3 point) {
-            if(!body||p.target->external_source)return point;
-            return placement_inverse_transform_point(placement_rotation_matrix_from_euler_degrees(body->scope.rotation_degrees()),body->scope.translation(),point);
-        };
-        for(std::size_t i=0;!p.target->external_source&&i<input.triangle_references.size();++i)if(input.triangle_references[i]==p.target->reference)
-            for(std::size_t corner=0;corner<3;++corner) {
-                target.triangles.push_back(static_cast<std::uint32_t>(target.vertices.size()));
-                target.vertices.push_back(local(input.vertices.at(input.triangles.at(i*3+corner))));
+        for(std::size_t i=0;i<domain->triangle_references.size();++i)
+            if(std::ranges::any_of(charts,[&](const auto& chart){return std::ranges::find(chart.coverage,domain->triangle_references[i])!=chart.coverage.end();})) {
+                target.triangle_references.push_back(domain->triangle_references[i]);
+                for(std::size_t corner=0;corner<3;++corner){target.triangles.push_back(static_cast<std::uint32_t>(target.vertices.size()));target.vertices.push_back(local(domain->vertices.at(domain->triangles.at(i*3+corner))));}
             }
-        if(p.target->external_source)for(const auto point:p.target->fallback_triangles) {
-            target.triangles.push_back(static_cast<std::uint32_t>(target.vertices.size()));target.vertices.push_back(point);
-        }
         WrappingRequest request;request.origin=origin;request.x_axis=x;request.y_axis=y;
         for(const auto& image:source.images) {
-            auto mapped=wrapped_image(image,request,map,target);mapped.reference.owner_id=feature.id;
-            result.images.push_back(std::move(mapped));
+            auto mapped=wrapped_chart_image(image,request,charts,target);mapped.reference.owner_id=feature.id;result.images.push_back(std::move(mapped));
         }
     }
     return result;

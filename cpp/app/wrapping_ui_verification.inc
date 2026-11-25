@@ -92,7 +92,8 @@ int verify_wrapping_ui(QApplication& application,AssemblyWorkspaceWindow& window
             live.add_part(part);live.activate(document_id);
             auto base_sketch=sketcher::Sketch::create_default();base_sketch.plane_auto=false;
             static_cast<void>(base_sketch.add_circle(0,0,30));
-            auto base=document::PartDocument::create_feature_container(base_sketch.id);base.feature.sides[0].length=40;base.placement.z=-20;
+            auto base=document::PartDocument::create_feature_container(base_sketch.id);base.feature.sides[0].length=20;
+            base.feature.sides[1].operation=document::FeatureSideOperation::Extrusion;base.feature.sides[1].length=20;
             workspace::commit_profile(live,engine,document_id,base,workspace::ProfileEditMode::Create,base_sketch);
             auto source=sketcher::Sketch::create_default();source.plane_auto=false;
             static_cast<void>(source.add_rectangle(-5,-4,5,4));
@@ -148,11 +149,23 @@ int verify_wrapping_ui(QApplication& application,AssemblyWorkspaceWindow& window
             check(panel->parameters().output==static_cast<document::WrappingOutput>(output),"Wrap type selected the wrong output mode");
             auto* target=editor()->findChild<QTableWidget*>("wrappingTarget");check(target,"Wrap target table is missing");
             for(auto* ancestor=target->parentWidget();ancestor;ancestor=ancestor->parentWidget())if(auto* scroll=qobject_cast<QScrollArea*>(ancestor))scroll->ensureWidgetVisible(target);
-            flush();click(target->viewport(),target->visualItemRect(target->item(0,2)).center());check(panel->active_pick(),"Wrap target field did not arm picking");
+            flush();click(target->viewport(),target->visualItemRect(target->item(0,3)).center());check(panel->active_pick(),"Wrap target field did not arm picking");
             const auto pick=[&] {
                 view->fit_all();flush();std::optional<QPointF> point;
-                for(int y=20;y<view->height()-20&&!point;y+=7)for(int x=20;x<view->width()-20&&!point;x+=7)
-                    for(const auto& candidate:view->selection_candidates_at(QPointF(x,y)))if(candidate.kind==viewer::CandidateKind::Face&&candidate.owner_id==base.id){point=QPointF(x,y);break;}
+                const auto cylinder=[&](const auto& candidate) {
+                    const kernel::FaceReference reference{candidate.owner_id,candidate.semantic_key,candidate.instance_path};
+                    for(const auto* faces:{&view->mesh().triangle_references,&view->mesh().original_references.triangle_references})
+                        for(const auto& face:*faces)if(kernel::wrapped_image_face_matches(reference,face)) {
+                            const auto support=face.surface?face.surface:face.contour_surface;
+                            if(support&&support->kind==kernel::SurfaceGeometry::Kind::Cylinder)return true;
+                        }
+                    return false;
+                };
+                for(int y=20;y<view->height()-20&&!point;y+=7)for(int x=20;x<view->width()-20&&!point;x+=7) {
+                    const auto candidates=view->selection_candidates_at(QPointF(x,y));
+                    const auto face=std::ranges::find_if(candidates,[](const auto& candidate){return candidate.kind==viewer::CandidateKind::Face;});
+                    if(face!=candidates.end()&&face->owner_id==base.id&&cylinder(*face))point=QPointF(x,y);
+                }
                 if(!point) {
                     window.grab().save(QString::fromStdWString((directory/"wrap-pick-failure.png").wstring()));
                     std::set<std::string> diagnostics;
@@ -164,8 +177,35 @@ int verify_wrapping_ui(QApplication& application,AssemblyWorkspaceWindow& window
                 QMouseEvent move(QEvent::MouseMove,*point,QPointF(view->mapToGlobal(point->toPoint())),Qt::NoButton,Qt::NoButton,Qt::NoModifier);QApplication::sendEvent(view,&move);flush();
                 click(view,*point);check(panel->parameters().target.has_value(),"Wrap face click did not retain the target");
             };
-            pick();target->cellWidget(0,3)->findChild<QToolButton*>()->click();flush();check(panel->inspected_faces().size()==1,"Wrap inspection failed");
-            target->cellWidget(0,1)->findChild<QPushButton*>()->click();flush();check(!panel->parameters().target&&panel->inspected_faces().empty()&&panel->active_pick(),"Wrap clear did not reset inspection and arm entry");pick();
+            pick();target->cellWidget(0,4)->findChild<QToolButton*>()->click();flush();check(panel->inspected_faces().size()==1,"Wrap inspection failed");
+            target->cellWidget(0,2)->findChild<QPushButton*>()->click();flush();check(!panel->parameters().target&&panel->inspected_faces().empty()&&panel->active_pick(),"Wrap clear did not reset inspection and arm entry");pick();
+            {
+                const auto first=*panel->parameters().target;
+                auto other=first;bool found=false;
+                for(const auto& face:view->mesh().original_references.triangle_references)if(face.owner_id==base.id&&(face.surface?face.surface:face.contour_surface)&&
+                    (face.surface?face.surface:face.contour_surface)->kind==kernel::SurfaceGeometry::Kind::Cylinder&&face!=first.reference){other.reference=face;found=true;break;}
+                check(found,"Two-sided cylinder has no second authored face");
+                click(target->viewport(),target->visualItemRect(target->item(1,3)).center());
+                check(panel->active_pick()&&panel->set_target(other),"Wrap continuation row did not accept another face");flush();
+                check(panel->parameters().continuations.size()==1&&target->rowCount()==3,"Wrap removed a redundant authored target");
+                auto* up=panel->findChild<QPushButton*>("wrappingTargetsUp");auto* down=panel->findChild<QPushButton*>("wrappingTargetsDown");
+                check(!up->isEnabled()&&!down->isEnabled(),"Wrap ordering acts without an explicit checkbox");
+                target->cellWidget(1,1)->findChild<QCheckBox*>()->click();flush();
+                target->cellWidget(0,4)->findChild<QToolButton*>()->click();flush();
+                check(up->isEnabled()&&!down->isEnabled()&&panel->inspected_faces().size()==1,"Inspection changed ordering selection");
+                up->click();flush();check(panel->parameters().target->reference==other.reference&&
+                    target->cellWidget(0,1)->findChild<QCheckBox*>()->isChecked()&&!up->isEnabled()&&down->isEnabled(),"Wrap reorder lost selected identity");
+                down->click();flush();check(panel->parameters().target->reference==first.reference&&
+                    panel->parameters().continuations.front().reference==other.reference,"Wrap target order did not restore");
+                panel->begin_entry(1);check(panel->set_target(other),"Wrap continuation replacement failed");flush();
+                check(panel->inspected_faces().size()==1,"Replacing another row cleared independent inspection");
+                target->cellWidget(1,2)->findChild<QPushButton*>()->click();flush();
+                check(panel->parameters().continuations.empty()&&panel->active_pick(),"Wrap removal failed to remove a list row");
+                check(panel->set_target(other),"Wrap could not reinsert a continuation");flush();
+                const auto retained=panel->parameters();const int row_height=target->rowHeight(0);
+                editor()->resize(editor()->width()+80,editor()->height()+70);flush();
+                check(panel->parameters()==retained&&target->rowHeight(0)==row_height,"Wrap resizing changed rows or parameters");
+            }
             check(!view->transient_edges().empty(),"Wrap has no live authored wire");
             check(kernel::body_calculation_count.load()==before,"Wrap picking or preview invoked OCCT");
             if(output==2) {
@@ -211,6 +251,7 @@ int verify_wrapping_ui(QApplication& application,AssemblyWorkspaceWindow& window
             window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
             std::vector<kernel::BodyResult> cached;const auto saved=document::PartDocument::load(file,&cached);
             check(saved.find_container(feature.id)->feature.type==document::FeatureType::Wrapping&&!cached.empty()&&cached.back().calculation_errors.empty(),"Saved Wrap definition or geometry is invalid");
+            check(saved.find_container(feature.id)->feature.wrapping.continuations.size()==1,"Saved Wrap lost the redundant authored target row");
             if(output==2)check(saved.find_container(feature.id)->combine_mode==document::CombineMode::Subtract,
                 "Negative correction did not persist its inward material operation");
             if(output==0)for(const auto& point:view->mesh().points)if(point.reference.owner_id==feature.id)
@@ -328,6 +369,7 @@ int verify_wrapping_ui(QApplication& application,AssemblyWorkspaceWindow& window
             broken.find_container(feature.id)->feature.wrapping.target=regenerated.find_container(feature.id)->feature.wrapping.target;
             const auto repaired=workspace::calculate_part_with_resolved_references(cold,broken);
             check(repaired.back().calculation_errors.empty()&&std::abs(repaired.back().volume-volume)<1e-6,"Replacing a lost Wrap target did not repair it");
+            if(output==2)verify_relief_failure_confirmation(application,window,row,editor,feature.id,"wrappingTarget",file);
             std::cout<<"Wrap GUI output "<<output<<": target picking, clear, inspection, no-OCCT preview, persistence, unchanged OK, Cancel, embedded image and Undo/Redo passed\n";
         }
         return 0;

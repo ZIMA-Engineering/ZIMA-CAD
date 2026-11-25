@@ -37,6 +37,13 @@ public:
         targets_=table("projectionTargets",tr("Cílové plochy"));layout->addWidget(targets_,1);
         regions_=table("projectionRegions",tr("Zachované oblasti"));layout->addWidget(regions_,1);
         details_=new QFormLayout;layout->addLayout(details_);
+        relief_direction_=new QComboBox(this);relief_direction_->setObjectName("projectionReliefDirection");
+        relief_direction_->addItems({tr("Along projection direction"),tr("Normal to target surface")});
+        relief_direction_->setCurrentIndex(static_cast<int>(pending_.relief_direction));
+        details_->addRow(tr("Relief direction"),relief_direction_);
+        connect(relief_direction_,&QComboBox::currentIndexChanged,this,[this](int value) {
+            pending_.relief_direction=static_cast<document::ProjectionReliefDirection>(value);notify();
+        });
         height_=new ui::UnitDoubleSpinBox(ui::InputQuantity::Length,this);height_->setObjectName("projectionHeight");
         height_->setRange(-1000000,1000000);height_->setValue(pending_.height);
         displayed_height_=height_->value();initial_height_=pending_.height;
@@ -54,7 +61,13 @@ public:
     }
     const document::ProjectionParameters& parameters()const{return pending_;}
     void set_relief_mode(bool relief) {
-        if(relief)pending_.output=document::ProjectionOutput::Relief;
+        if(relief) {
+            if(pending_.output!=document::ProjectionOutput::Relief) {
+                pending_.relief_direction=document::ProjectionReliefDirection::Projection;
+                const QSignalBlocker blocker(relief_direction_);relief_direction_->setCurrentIndex(0);
+            }
+            pending_.output=document::ProjectionOutput::Relief;
+        }
         else if(pending_.output==document::ProjectionOutput::Relief)pending_.output=document::ProjectionOutput::Curves;
         {const QSignalBlocker blocker(output_);output_->setCurrentIndex(relief?0:int(pending_.output));}
         refresh();
@@ -98,7 +111,8 @@ public:
         const auto previous=layout_state();
         const bool relief=pending_.output==document::ProjectionOutput::Relief;
         form_->setRowVisible(output_,!relief);details_->setRowVisible(height_,relief);
-        regions_->setVisible(pending_.output==document::ProjectionOutput::Surface||relief);
+        details_->setRowVisible(relief_direction_,relief);
+        regions_->setVisible(pending_.output==document::ProjectionOutput::Surface);
         fill(targets_,Pick::Target,static_cast<int>(pending_.targets.size())+1);
         fill(regions_,Pick::Region,static_cast<int>(pending_.regions.size())+1);
         if(previous!=layout_state()) {
@@ -113,6 +127,9 @@ protected:
         output_->setItemText(0,tr("Skica"));output_->setItemText(1,tr("Rozdělit"));output_->setItemText(2,tr("Plocha"));
         static_cast<QLabel*>(form_->labelForField(output_))->setText(tr("Výsledek"));
         static_cast<QLabel*>(details_->labelForField(height_))->setText(tr("Korekce"));
+        static_cast<QLabel*>(details_->labelForField(relief_direction_))->setText(tr("Relief direction"));
+        relief_direction_->setItemText(0,tr("Along projection direction"));
+        relief_direction_->setItemText(1,tr("Normal to target surface"));
         height_->setToolTip(tr("Positive correction adds material outward; negative correction removes material inward."));
         notice_->setText(tr("Promítá se kolmo ke skicové rovině na nejbližší vybranou plochu. Pořadí ploch výsledek nemění."));
         targets_->setHorizontalHeaderLabels({tr("Č."),{},tr("Cílové plochy"),{}});
@@ -183,7 +200,7 @@ private:
     }
     void notify(){if(changed)changed();}
     document::ProjectionParameters pending_;
-    QComboBox* output_{};
+    QComboBox *output_{},*relief_direction_{};
     QFormLayout* form_{};QLabel* notice_{};
     QFormLayout* details_{};ui::UnitDoubleSpinBox* height_{};double displayed_height_{},initial_height_{};
     QTableWidget *targets_{},*regions_{};

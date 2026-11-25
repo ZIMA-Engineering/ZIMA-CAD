@@ -9,6 +9,7 @@
 namespace zima::app {
 inline constexpr int projection_relief_type_index=6;
 inline constexpr int wrap_relief_type_index=8;
+inline constexpr int planar_surface_type_index=9;
 inline int feature_type_index(document::FeatureType type) {
     return type==document::FeatureType::Wrapping?7:static_cast<int>(type);
 }
@@ -32,9 +33,9 @@ public:
 protected:
     void changeEvent(QEvent* event)override {
         QComboBox::changeEvent(event);
-        if(event->type()==QEvent::LanguageChange&&count()==9) {
-            const char* keys[]={"Bod","Osa","Rovina","Skica","Tažení","Project sketch","Project relief","Wrap sketch","Wrap relief"};
-            for(int i=0;i<9;++i)setItemText(i,QObject::tr(keys[i]));
+        if(event->type()==QEvent::LanguageChange&&count()==10) {
+            const char* keys[]={"Bod","Osa","Rovina","Skica","Tažení","Project sketch","Project relief","Wrap sketch","Wrap relief","Plocha"};
+            for(int i=0;i<10;++i)setItemText(i,QObject::tr(keys[i]));
         }
     }
 };
@@ -55,6 +56,7 @@ inline QComboBox* feature_type_control(QWidget* parent,document::FeatureType typ
     add("projection",QObject::tr("Project relief"),document::FeatureType::Projection);
     add("wrap",QObject::tr("Wrap sketch"),document::FeatureType::Wrapping);
     add("wrap",QObject::tr("Wrap relief"),document::FeatureType::Wrapping);
+    add("boundary-surface",QObject::tr("Plocha"),document::FeatureType::Modeling);
     control->setCurrentIndex(feature_type_index(type));control->setEnabled(editable);
     return control;
 }

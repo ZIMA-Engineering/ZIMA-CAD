@@ -1,6 +1,7 @@
 #pragma once
 #include <zima/kernel/cylindrical_wrap.hpp>
 #include <zima/kernel/curved_wrap.hpp>
+#include <zima/kernel/planar_wrap.hpp>
 
 namespace zima::kernel {
 // The Feature's placed frame owns the anchor and rotation. A target's native
@@ -37,6 +38,8 @@ public:
         },map_);
     }
     [[nodiscard]] std::pair<double,double> canonical_coordinates(double u,double v)const{return coordinates(u,v);}
+    void set_source_anchor(double u,double v){source_u_=u;source_v_=v;}
+    [[nodiscard]] std::pair<double,double> source_anchor()const{return {source_u_,source_v_};}
     void validate_image_domain(const std::array<std::array<double,2>,4>& corners)const {
         std::array<std::pair<double,double>,4> points;
         for(std::size_t i=0;i<4;++i)points[i]=coordinates(corners[i][0],corners[i][1]);
@@ -48,7 +51,7 @@ public:
                 if(hi->first-lo->first>2*std::numbers::pi*map.radius())invalid();
             } else if constexpr(std::is_same_v<T,SphericalWrap>) {
                 for(const auto& [u,v]:points)if(std::hypot(u,v)>=std::numbers::pi*map.radius())invalid();
-            } else {
+            } else if constexpr(std::is_same_v<T,ConicalWrap>) {
                 double center_u=0,center_v=0;bool positive=false,negative=false;
                 for(auto& [u,v]:points){v+=map.slant_distance();center_u+=u/4;center_v+=v/4;}
                 for(std::size_t i=0;i<4;++i) {
@@ -74,13 +77,14 @@ public:
             if constexpr(std::is_same_v<std::decay_t<decltype(map)>,CylindricalWrap>){const auto p=map.coordinates(point,ra);return std::pair{p.x,p.y};}
             else return map.coordinates(point,ra,rb);
         },map_);
-        return {reverse_u_*(cosine_*a+sine_*b),reverse_v_*handedness_*(-sine_*a+cosine_*b)};
+        return {source_u_+reverse_u_*(cosine_*a+sine_*b),source_v_+reverse_v_*handedness_*(-sine_*a+cosine_*b)};
     }
 private:
-    using Map=std::variant<CylindricalWrap,ConicalWrap,SphericalWrap>;
+    using Map=std::variant<CylindricalWrap,ConicalWrap,SphericalWrap,PlanarWrap>;
     static Map make_map(const SurfaceGeometry& s,Vec3 origin,Vec3 x_axis,Vec3 y_axis) {
         using namespace wrap_detail;
         const auto x=unit(x_axis),y=unit(y_axis),n=unit(cross(x,y));
+        if(s.kind==SurfaceGeometry::Kind::Plane)return PlanarWrap(s,origin);
         if(s.kind==SurfaceGeometry::Kind::Sphere) {
             auto radial=sub(origin,s.origin);if(length(radial)<1e-12)radial=n;
             const auto direction=unit(radial);
@@ -102,10 +106,11 @@ private:
         return ConicalWrap(s,anchor);
     }
     std::pair<double,double> coordinates(double u,double v)const {
-        u*=reverse_u_;v*=reverse_v_*handedness_;
+        u=(u-source_u_)*reverse_u_;v=(v-source_v_)*reverse_v_*handedness_;
         return {cosine_*u-sine_*v,sine_*u+cosine_*v};
     }
     Map map_;
     double reverse_u_{1},reverse_v_{1},cosine_{1},sine_{},handedness_{1};
+    double source_u_{},source_v_{};
 };
 }
