@@ -485,7 +485,12 @@ assets, all 137 dependent Drawings and both Assembly start-template native
 round trips. The Drawing run used the promoted current Part assets. Actual GUI
 creation from mm/in start templates passes in all five languages. The 1,202
 verified file hashes and preceding verification hashes are recorded in
-`20261125-exact-surface-assets.json`; the packaged files must match them exactly.
+`20261125-exact-surface-assets.json`. The `after` hashes identify native-writer
+verification outputs; `committed_sha256` identifies exact committed/package bytes.
+Git normalizes CRLF to LF for 39 of these assets. Every committed Git blob was
+checked against its verified native output, permitting only that byte-level
+newline conversion; all other assets are byte-identical. Packaged source/runtime
+files must match `committed_sha256` exactly and pass the packaged native reader.
 All ten protected TOYOTA originals and backup hashes were rechecked unchanged.
 
 G92K1-100's saved old/new semantic reference comparison passes: all 6,341 face
