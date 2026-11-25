@@ -1,5 +1,17 @@
 # Application updates
 
+Signed Windows [2026112502](releases/2026112502.md#distribution-status) was
+published at `2026-11-25T01:40:59Z` from immutable source
+`c115552ef399d23fbe4d6c17b2451ea0c89fffae`. It avoids repeated Projection/Family calculations,
+reports missing retained regions immediately, corrects relief preview colors and
+Feature type order/icons, and provides a compact FEM player with Start/Pause/Stop.
+Candidate and signed smoke, 1,190 factory loads, twelve sheet-branch gates,
+twenty packaged GUI cases and all five catalogs pass. Public downloads,
+signature, safe extraction and updater trust/current status pass. The running
+development application and personal settings were preserved. Native Linux,
+the documented finite Wrap limits and CAM completion remain separate. See the
+[publication evidence](verification/20261125-windows-2502-publication.json).
+
 Signed Windows [2026112405](releases/2026112405.md#distribution-status) was
 published at `2026-11-24T23:13:06Z` from immutable source
 `934979cb4f471f052494ddb01d8e811291b1cb80`. It fixes native cylindrical Wrap placement, constrained

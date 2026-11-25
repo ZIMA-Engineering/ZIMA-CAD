@@ -96,7 +96,7 @@ serialization/reopening retained the definition and calculated shape.
 
 Four new text keys are translated in cs/en/de/fr/ru. Local source scanning also
 finds an unfinished, untracked CAM editor; it is excluded from this CAD release.
-The committed-source catalog/coverage gate must pass before publication.
+The committed-source catalog/coverage gate passed in all five languages.
 
 Visual acceptance rejected the unpublished 2501 candidate because the Stop SVG
 was missing from the Qt resource collection. Replacement 2502 includes that
@@ -112,3 +112,6 @@ publication are recorded separately in the release record.
 Disposable measurement logs and isolated model copies are under
 `build/projection-perf-20261125/`; GUI fixtures also use
 `build/wrap-20261124-fixes/`. Private user model content is not committed.
+
+Signed Windows 2026112502 passed its independent package and public-download
+gates; see [publication evidence](20261125-windows-2502-publication.json).
