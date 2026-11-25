@@ -2,6 +2,7 @@
 #include <zima/workspace/native_documents.hpp>
 #include <zima/kernel/occt_kernel.hpp>
 #include <zima/document/document_copy_json.hpp>
+#include <zima/document/viewer_packet_json.hpp>
 #include <filesystem>
 #include <fstream>
 #include <algorithm>
@@ -21,6 +22,44 @@ std::string bytes(const std::filesystem::path& path){std::ifstream in(zima::docu
 int main(){
     using namespace zima;using namespace zima::workspace;namespace fs=std::filesystem;
     try {
+        // Compact history boundaries have no native bindings or cumulative
+        // source geometry from which to reconstruct their analytic supports.
+        for(const auto kind:{kernel::SurfaceGeometry::Kind::Plane,kernel::SurfaceGeometry::Kind::Cylinder,
+                kernel::SurfaceGeometry::Kind::Cone,kernel::SurfaceGeometry::Kind::Sphere,
+                kernel::SurfaceGeometry::Kind::Torus}) {
+            kernel::BodyResult packet;
+            packet.mesh.vertices={{0,0,0},{1,0,0},{0,1,0}};
+            packet.mesh.triangles={0,1,2,0,2,1};
+            auto first=std::make_shared<kernel::SurfaceGeometry>();
+            first->kind=kind;first->origin={2,3,4};first->axis={0,1,0};first->radial={1,0,0};
+            first->radius=7;first->semi_angle=.2;first->axial_min=-5;first->axial_max=8;
+            if(kind==kernel::SurfaceGeometry::Kind::Torus) {
+                first->minor_radius=2;first->u_min=.1;first->u_max=6.;first->v_min=-1;first->v_max=1;
+            }
+            auto second=std::make_shared<kernel::SurfaceGeometry>(*first);second->reversed=true;second->origin.z=6;
+            kernel::FaceReference a{"feature","shared-face",{}},b=a;
+            if(kind==kernel::SurfaceGeometry::Kind::Torus){a.contour_surface=first;b.contour_surface=second;}
+            else {a.surface=first;b.surface=second;}
+            packet.mesh.triangle_references={a,b};
+            kernel::ViewerEdge edge;edge.reference={"feature","edge",{}};
+            edge.points={{0,0,0},{1,0,0}};edge.edge_treatment_side_references={a,b};
+            packet.mesh.edges.push_back(edge);
+            for(int repeat=0;repeat<3;++repeat) {
+                packet=document::load_body_result(document::serialize_body_result(packet));
+                require(packet.kernel_faces.empty()&&packet.mesh.original_references.triangle_references.empty(),
+                    "Compact support check accidentally acquired another source");
+                const auto support=[&](const auto& ref){return kind==kernel::SurfaceGeometry::Kind::Torus?ref.contour_surface:ref.surface;};
+                require(packet.mesh.triangle_references.size()==2,"Compact face runs collapsed distinct patches");
+                for(std::size_t i=0;i<2;++i) {
+                    const auto expected=i?second:first;
+                    const auto triangle=support(packet.mesh.triangle_references[i]);
+                    const auto side=support(packet.mesh.edges.front().edge_treatment_side_references[i]);
+                    require(triangle&&*triangle==*expected&&side&&*side==*expected,
+                        "Compact current face or edge lost its analytic support/side");
+                    require(packet.mesh.triangle_references[i]==a,"Compact support changed reference identity");
+                }
+            }
+        }
         {
             nlohmann::json copied={{"document_id","source"},{"links",nlohmann::json::array({
                 {{"source_path","external-reference:curve-id"}},

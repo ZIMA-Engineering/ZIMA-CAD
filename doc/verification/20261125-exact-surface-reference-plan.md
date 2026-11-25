@@ -480,17 +480,96 @@ All code changes in this checkpoint introduce no user-visible strings.
 
 ## Final local factory and protected-project checkpoint
 
-The latest analytic-patch writer passes all 1,063 tracked Part-based factory/test
+### Packaged cold-open gate, local correction verified
+
+The first `8990185` Windows candidate is not releasable. Its packaged GUI checks
+exposed a four-edge versus six-edge Fillet draft, an empty cold-open Wrap hover
+wire and a failed changed-OK placement in the user Projection fixture. Independent
+POKUS5 downstream regeneration, general-face Point, Surface and measurement
+checks pass. These are finite results; they do not waive the failed gates.
+
+Compact intermediate Body packets deliberately discard cumulative source meshes
+and native topology bindings. Their current triangle and treatment-side tags
+were persisting `exact_surface` but omitting the existing `surface` and
+`contour_surface` mathematical descriptors. Preserve those descriptors through
+the same writer/reader and distinguish their values in reference-run compaction.
+Keep the current boundary's geometry, identities and orientation; do not recover
+preview supports from a later final body or fit them to display triangles.
+Already persisted support data must also survive the existing optional binding
+reattachment. This corrects the approved mathematical-data persistence work;
+no new authored feature parameters or file extensions are introduced.
+
+The corrective native regression covers Plane, Cylinder, Cone, Sphere and Torus,
+distinct patches with the same reference identity, opposite sides, triangle
+tags and edge-side tags, and three consecutive packet round trips with no
+alternative reference source. Current factory assets and start templates must
+be recalculated, saved, reopened and verified again with this writer before
+packaging. User fixtures remain isolated copies. No new user-visible strings
+are introduced; five-language localization review remains a release gate.
+The corrective local native packet test passes. All three previously failed
+GUI cases now pass from freshly authored, cold-opened copies, as do oversized
+rollback/inspection and POKUS5 downstream regeneration. Unchanged Projection
+and relief OK retain the document state and calculation counter. Localization
+coverage passes; this correction adds no user-visible strings. The first
+corrective factory pass verifies all 1,063 Part-based assets. Final binary,
+dependent Drawing/template and packaged gates remain pending. Native Linux
+verification remains unavailable on this host.
+
+The broader edge-treatment native gate also exposed a pre-existing Sheet from
+Body failure on a two-sided source with an upper Fillet. The committed
+`8990185` implementation independently reproduces it. A clipped continuation
+polygon retained a collinear source subdivision at the original sketch plane;
+the Flat's full joining span therefore matched neither half-segment. Remove
+only forward collinear subdivisions within 1e-9 mm from the private clipped
+polygon before authoring its new Sketch. Source topology, side choices and
+bindings are unchanged. The full edge-treatment gate now passes, including
+eight two-sided/symmetric Sheet conversions, native cold regeneration, both
+caps, reversed routes, three radii, reference ownership and Undo/Redo. The
+final factory and mandatory sheet-branch runs use the combined implementation.
+
+The final combined implementation passes the five native packet, thin-wire,
+edge-wire, full edge-treatment and wrapping-history gates (48.72 s total),
+and all twelve mandatory sheet-branch gates, including their GUI interaction
+and Bend endpoint constraint checks (278.62 s total). The latter run overlapped
+factory verification and is not an isolated performance benchmark. Final
+Part-based factory calculation/save/reopen passes 1,063/1,063 assets.
+
+The dependent Drawing pass initially rejected two spring-washer reference
+Drawings. Their refreshed projected outlines changed a lower extent by
+0.0035168514 and 0.0030212920 model mm. The existing regeneration path retained
+the authored **8 mm paper clearance** by adjusting each external linear
+dimension's line offset by that amount. An independent projection/bounds
+calculation verifies both clearances to 1e-9 paper mm. No dimension value,
+reference or other authored layout field changed. The verification tool now
+compares these derived line offsets and presentations against a separate
+refresh from the source tree; it still compares every other authored field
+directly and requires complete repeated-regeneration and native-readback
+agreement. This changes the verification oracle, not product Drawing behavior.
+The Part writer and its already verified outputs are unchanged by this
+Drawing-only verification-tool correction. See the
+[independent clearance evidence](20261125-drawing-clearance.json).
+
+The final dependent Drawing pass is 137/137, both Assembly template native
+round trips pass, and actual new-document creation from mm/in templates passes
+in cs/en/de/fr/ru with active editing contexts and normal commands. Final
+native output and canonical Git blob hashes are recorded for all 1,202 assets.
+The current correction still requires a new committed Windows candidate and
+all packaged GUI, native, signing and public-download gates before publication.
+
+The preceding analytic-patch checkpoint passed all 1,063 tracked Part-based factory/test
 assets, all 137 dependent Drawings and both Assembly start-template native
 round trips. The Drawing run used the promoted current Part assets. Actual GUI
 creation from mm/in start templates passes in all five languages. The 1,202
 verified file hashes and preceding verification hashes are recorded in
 `20261125-exact-surface-assets.json`. The `after` hashes identify native-writer
-verification outputs; `committed_sha256` identifies exact committed/package bytes.
+verification outputs; `committed_sha256` identifies the canonical Git blob bytes.
 Git normalizes CRLF to LF for 39 of these assets. Every committed Git blob was
 checked against its verified native output, permitting only that byte-level
-newline conversion; all other assets are byte-identical. Packaged source/runtime
-files must match `committed_sha256` exactly and pass the packaged native reader.
+newline conversion; all other assets are byte-identical. Windows `git archive`
+exports these 39 text assets with CRLF under the current Git configuration.
+Packaged source/runtime files must match the native-writer `after` hash exactly;
+normalizing only the declared CRLF conversion must reproduce `committed_sha256`
+and the recorded Git blob ID. The packaged native reader must also pass.
 All ten protected TOYOTA originals and backup hashes were rechecked unchanged.
 
 G92K1-100's saved old/new semantic reference comparison passes: all 6,341 face

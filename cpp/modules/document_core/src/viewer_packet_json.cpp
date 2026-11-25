@@ -183,10 +183,21 @@ void load_sheet_face(zima::kernel::FaceReference& face,const nlohmann::json& val
     face.sheet_role=static_cast<zima::kernel::SheetFaceRole>(role);face.sheet_thickness=thickness;
     face.sheet_owner=value.at("sheet_owner");
     face.display_owner_id=value.value("display_owner",std::string{});
+    if(!face.surface&&value.contains("surface")&&!value.at("surface").is_null())
+        face.surface=std::make_shared<const kernel::SurfaceGeometry>(load_surface(value.at("surface")));
+    if(!face.contour_surface&&value.contains("contour_surface")&&!value.at("contour_surface").is_null())
+        face.contour_surface=std::make_shared<const kernel::SurfaceGeometry>(load_surface(value.at("contour_surface")));
     if(value.contains("exact_surface"))
         face.exact_surface=kernel::exact_surface_from_json(value.at("exact_surface"));
     if(value.contains("continuation_group"))
         face.continuation_group=std::make_shared<const std::string>(value.at("continuation_group").get<std::string>());
+}
+void save_analytic_supports(nlohmann::json& value,const zima::kernel::FaceReference& face) {
+    // Intermediate history packets deliberately omit cumulative reference
+    // geometry and native topology bindings. Their current tags must retain
+    // their own analytic mathematics, just like general exact surfaces.
+    if(face.surface)value["surface"]=serialize_surface(*face.surface);
+    if(face.contour_surface)value["contour_surface"]=serialize_surface(*face.contour_surface);
 }
 nlohmann::json sheet_edge_json(const zima::kernel::ViewerEdge& edge) {
     if(zima::kernel::sheet_edge_role(edge)==zima::kernel::SheetEdgeRole::Unknown)return nullptr;
@@ -196,6 +207,7 @@ nlohmann::json sheet_edge_json(const zima::kernel::ViewerEdge& edge) {
             {"sheet_role",static_cast<int>(r.sheet_role)},{"sheet_thickness",r.sheet_thickness},{"sheet_owner",r.sheet_owner},
             {"display_owner",r.display_owner_id}});
         if(r.exact_surface)sides.back()["exact_surface"]=kernel::exact_surface_json(*r.exact_surface);
+        save_analytic_supports(sides.back(),r);
     }
     for(const auto& r:edge.edge_treatment_endpoint_references)
         ends.push_back({{"owner",r.owner_id},{"key",r.semantic_key},{"instance_path",r.instance_path}});
@@ -708,10 +720,13 @@ nlohmann::json serialize_body_result(const zima::kernel::BodyResult& result, boo
             {"display_owner", reference.display_owner_id}});
         if(reference.continuation_group)face_references.back()["continuation_group"]=*reference.continuation_group;
         if(reference.exact_surface)face_references.back()["exact_surface"]=kernel::exact_surface_json(*reference.exact_surface);
+        save_analytic_supports(face_references.back(),reference);
     };
     const auto same_face_reference=[](const auto& left,const auto& right) {
+        const auto same_surface=[](const auto& a,const auto& b){return bool(a)==bool(b)&&(!a||*a==*b);};
         return left.owner_id==right.owner_id&&left.semantic_key==right.semantic_key&&
             left.instance_path==right.instance_path&&
+            same_surface(left.surface,right.surface)&&same_surface(left.contour_surface,right.contour_surface)&&
             kernel::same_exact_surface(left.exact_surface,right.exact_surface)&&
             left.surface_result==right.surface_result&&
             left.sheet_role==right.sheet_role&&
@@ -773,6 +788,7 @@ nlohmann::json serialize_body_result(const zima::kernel::BodyResult& result, boo
                 {"sheet_role",static_cast<int>(reference.sheet_role)},{"sheet_thickness",reference.sheet_thickness},{"sheet_owner",reference.sheet_owner},
                 {"display_owner",reference.display_owner_id}});
             if(reference.exact_surface)side_references.back()["exact_surface"]=kernel::exact_surface_json(*reference.exact_surface);
+            save_analytic_supports(side_references.back(),reference);
         }
         nlohmann::json endpoint_references = nlohmann::json::array();
         for (const auto& reference :
@@ -1297,9 +1313,10 @@ zima::kernel::BodyResult load_body_result(const nlohmann::json& source,
                     stored_string(row.at("key"),shared_strings),row.at("instance_path")};
                 if(!ref.valid()||value.locator.empty())throw std::runtime_error("Invalid native topology binding");
                 if constexpr(std::is_same_v<std::decay_t<decltype(ref)>,zima::kernel::FaceReference>) {
-                    ref.surface_result=row.at("surface_result");load_sheet_face(ref,row);
+                    ref.surface_result=row.at("surface_result");
                     if(const auto v=row.find("surface");v!=row.end())ref.surface=std::make_shared<zima::kernel::SurfaceGeometry>(load_surface(*v));
                     if(const auto v=row.find("contour_surface");v!=row.end())ref.contour_surface=std::make_shared<zima::kernel::SurfaceGeometry>(load_surface(*v));
+                    load_sheet_face(ref,row);
                     if(const auto v=row.find("measured_area");v!=row.end()){const double area=*v;require_finite(area,"measured area");ref.measured_area=area;}
                 } else if constexpr(std::is_same_v<std::decay_t<decltype(ref)>,zima::kernel::EdgeReference>) {
                     ref.display_owner_id=row.value("display_owner",std::string{});
@@ -1567,6 +1584,7 @@ zima::kernel::BodyResult load_body_result(const nlohmann::json& source,
         const auto attach=[&](auto& edges) {
             using Kind=zima::kernel::SurfaceGeometry::Kind;
             for(auto& edge:edges)for(auto& reference:edge.edge_treatment_side_references) {
+                if(reference.surface||reference.contour_surface)continue;
                 const auto found=supports.find({reference.owner_id,reference.semantic_key,reference.instance_path});
                 if(found==supports.end()||edge.points.empty())continue;
                 for(const auto& surface:found->second) {

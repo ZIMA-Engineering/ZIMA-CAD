@@ -1,0 +1,59 @@
+{
+  "passed": true,
+  "files": [
+    {
+      "path": "config/lib/03-ENGINEERING-TABLES/05-FASTENERS/06-WASHERS/03-SPRING/0000-index/SW-CSN021740-M08.0-REFERENCE.drwz",
+      "source_sha256": "90a49b31264c74c34dc83711ad8f08a294ca803d00ea1f764e071060aae93a9d",
+      "output_sha256": "0886c7557e4db5fceebb0f74f153c560c80615af0bc2516b68a408095c923cf9",
+      "clearance_checks": [
+        {
+          "dimension": "01a15245bd6373e3a3ec72e73907ba01",
+          "segment": "01a15245bd6373e3a3ec72e73907ba02",
+          "old_offset": -10.166666666666668,
+          "new_offset": -10.163149815268538,
+          "paper_clearance_mm": [
+            8.0,
+            8.000000000000007
+          ],
+          "projected_bounds": [
+            [
+              -6.1,
+              6.100000000000001
+            ],
+            [
+              -6.096483148601868,
+              6.100000000000001
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "path": "config/lib/03-ENGINEERING-TABLES/05-FASTENERS/06-WASHERS/03-SPRING/0000-index/SW-CSN021741-M08.0-REFERENCE.drwz",
+      "source_sha256": "e32688b333a493a4d57887c57181533680731bc931e4afe4139acc16f9e523b8",
+      "output_sha256": "249537182173a9291b683d5f336178855ba968fc2fb5ebfd190da1fb1986e38a",
+      "clearance_checks": [
+        {
+          "dimension": "01a15245f5837532b4bd36436907ef03",
+          "segment": "01a15245f5837532b4bd36436907ef04",
+          "old_offset": -11.83333333333333,
+          "new_offset": -11.830312041289734,
+          "paper_clearance_mm": [
+            7.9999999999999964,
+            7.9999999999999964
+          ],
+          "projected_bounds": [
+            [
+              -7.1,
+              7.100000000000002
+            ],
+            [
+              -7.096978707956403,
+              7.100000000000002
+            ]
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -2178,6 +2178,7 @@ int main(int argc,char** argv){try{
         auto scratch=output;scratch+=".verification.drwz";
         if(std::filesystem::exists(scratch))throw std::runtime_error("Drawing verification target must be unused");
         authored.save(scratch);const auto original_packet=packet(scratch);
+        source_baseline.save(scratch);const auto baseline_packet=packet(scratch);
         updated.save(output);const auto regenerated_packet=packet(output);
         std::filesystem::remove(scratch);
         const auto definition=[](nlohmann::json value) {
@@ -2193,7 +2194,24 @@ int main(int argc,char** argv){try{
                     view.erase(field);
             return value;
         };
-        if(!approximately_same_contract(definition(original_packet),definition(regenerated_packet)))
+        // Regeneration retains a dimension's paper clearance when the current
+        // projected outline changes. Compare that derived line offset and its
+        // presentation against an independent refresh from the source tree,
+        // while still checking every other authored dimension field directly.
+        const auto authored_definition=[&](const nlohmann::json& packet) {
+            auto value=definition(packet);
+            for(auto& sheet:value.at("sheets"))for(auto& dimension:sheet.at("dimensions")) {
+                const auto kind=dimension.at("kind").get<int>();
+                if(kind!=int(drawing::DrawingDimensionKind::Linear)&&kind!=int(drawing::DrawingDimensionKind::Chain))continue;
+                for(auto& segment:dimension.at("segments")) {
+                    segment.erase("last_presentation");
+                    segment.at("layout").erase("line_offset");
+                }
+            }
+            return value;
+        };
+        if(!approximately_same_contract(authored_definition(original_packet),authored_definition(regenerated_packet))||
+                !approximately_same_contract(definition(baseline_packet),definition(regenerated_packet)))
             throw std::runtime_error("Drawing regeneration changed authored views, dimensions or sheet content");
         std::size_t measured_views{},exact_patches{},additional_measurement_references{};
         for(const auto& sheet:updated.sheets)for(const auto& view:sheet.views) {
@@ -2260,7 +2278,8 @@ int main(int argc,char** argv){try{
             {"authored_history_unchanged",true},{"calculated_contracts_preserved",true},
             {"exact_surface_regeneration_repeatable",true},{"views",count},
             {"output_views",measured_views},{"exact_surface_triangles",exact_patches},
-            {"additional_measurement_references",additional_measurement_references}}.dump(2)<<'\n';
+            {"additional_measurement_references",additional_measurement_references},
+            {"dimension_clearance_source_refresh_matches",true}}.dump(2)<<'\n';
         return evidence?0:1;
     }
     if(argc==5&&std::string_view(argv[1])=="--rewrite-native-asset") {

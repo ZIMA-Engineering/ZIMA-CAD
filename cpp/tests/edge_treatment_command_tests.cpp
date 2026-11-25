@@ -157,6 +157,8 @@ void verify_two_sided_supports(const kernel::OcctKernel& engine) {
                         require(selected!=skin->mesh.triangle_references.end(),"Joined conversion wall is not selectable");
                         // The final cap radius is 0.75 mm. A 1 mm sheet is
                         // physically impossible there; exercise a 0.25 mm sheet.
+                        std::cout<<"Joined sheet conversion mode="<<mode<<" upper="<<upper
+                            <<" wall="<<converted_count<<std::endl;
                         const auto converted=workspace::prepare_sheet_from_body(reopened,cold,*selected,.25,engine);
                         require(converted.created.size()>3&&converted.skipped==0&&
                             converted.calculated.back().calculation_errors.empty(),"Joined wall conversion omitted a connected branch");
@@ -166,6 +168,7 @@ void verify_two_sided_supports(const kernel::OcctKernel& engine) {
                             (upper?"-upper-":"-lower-")+std::to_string(converted_count++)+".prtz");
                         converted.document.save(converted_file,converted.calculated);
                         auto restored=document::PartDocument::load(converted_file);
+                        std::cout<<"Joined sheet cold regeneration"<<std::endl;
                         const auto regenerated=workspace::calculate_part_with_resolved_references(engine,restored);
                         require(!regenerated.empty()&&regenerated.back().calculation_errors.empty(),
                             "Joined wall conversion did not survive native cold reopening");

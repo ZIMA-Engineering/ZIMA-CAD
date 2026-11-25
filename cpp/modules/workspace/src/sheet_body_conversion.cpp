@@ -1512,6 +1512,21 @@ void split_outline(sketcher::Sketch& sketch,const kernel::ViewerMesh& mesh,
     for(const auto point:polygon)
         if(clean.empty()||!same(clean.back(),point))clean.push_back(point);
     if(clean.size()>1&&same(clean.front(),clean.back()))clean.pop_back();
+    // A two-sided source can subdivide a straight border at its sketch plane.
+    // Clipping retains that redundant vertex, but the new Flat attaches to
+    // one complete Bend end. Remove only forward collinear subdivisions of
+    // this private polygon before authoring its native Sketch segments.
+    for(std::size_t index=0;clean.size()>3&&index<clean.size();) {
+        const auto& a=clean[(index+clean.size()-1)%clean.size()];
+        const auto& b=clean[index];const auto& c=clean[(index+1)%clean.size()];
+        const P ab{b[0]-a[0],b[1]-a[1]},bc{c[0]-b[0],c[1]-b[1]};
+        const double chord=std::hypot(c[0]-a[0],c[1]-a[1]);
+        if(chord>point_tolerance&&ab[0]*bc[0]+ab[1]*bc[1]>0&&
+                std::abs(ab[0]*bc[1]-ab[1]*bc[0])/chord<=1e-9) {
+            clean.erase(clean.begin()+static_cast<std::ptrdiff_t>(index));
+            index=0;
+        } else ++index;
+    }
     double area{};
     for(std::size_t index=0;index<clean.size();++index) {
         const auto& first=clean[index];
