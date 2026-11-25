@@ -72,23 +72,33 @@ int main()try {
     catch(const std::runtime_error&){cancelled=true;}
     check(cancelled&&session.revision()==revision,"Cancelled simulation committed partial material");
     edit=workspace::prepare_cam_edit(session.document(),first);body=*session.document().body_history.find(first);
-    body.cam->clamping_sketch_ids={test::rectangular_sketch_id(stock_feature)};
+    const auto clamp_sketch=test::rectangular_sketch_id(stock_feature);
+    body.cam->clampings={{"clamping","Clamping",clamp_sketch,clamp_sketch,false,true}};
     check(workspace::commit_cam(live,edit,body),"Clamping metadata setup failed");
     input=workspace::prepare_cam_calculation(live,part.document_id,first);
-    const auto clamping_revision=session.revision();bool unsupported=false,progress_started=false;
-    const std::string clamping_error="CAM clamping Sketch checks are not available yet. Use fixture Bodies for collision checking.";
-    try{static_cast<void>(workspace::calculate_cam(input,[&](auto,auto){progress_started=true;}));}
-    catch(const std::invalid_argument& error){unsupported=error.what()==clamping_error;}
-    check(unsupported&&!progress_started&&session.revision()==clamping_revision,"Unsupported Sketch clamping was silently ignored or committed");
+    const auto clamping_revision=session.revision();bool rejected=false;
+    const auto clamped=workspace::calculate_cam(input);volume(clamped,1000,200);
+    check(clamped.contacts.size()==1&&std::abs(clamped.contacts.front().remaining_mm2-200)<1e-6&&clamped.warnings.empty(),"Clamping contact area/frame is incorrect");
+    check(session.revision()==clamping_revision,"Clamping calculation committed a private draft");
     auto unchecked=*session.document().body_history.find(first)->cam->calculated;
-    unchecked.intent_key=input.intent_key;unchecked.sources=input.source_keys;unsupported=false;
+    unchecked.intent_key=input.intent_key;unchecked.sources=input.source_keys;
     try{static_cast<void>(workspace::publish_cam_calculation(live,input,unchecked));}
-    catch(const std::invalid_argument& error){unsupported=error.what()==clamping_error;}
-    check(unsupported&&session.revision()==clamping_revision,"Unchecked Sketch clamping result was published");
-    check(workspace::cam_result_state(session,first)==workspace::CamResultState::InvalidSource&&
-        workspace::cam_result_state(session,second)==workspace::CamResultState::InvalidSource,"Unchecked clamping entered chained stock");
+    catch(const std::exception&){rejected=true;}
+    check(rejected&&session.revision()==clamping_revision,"Unchecked Sketch clamping result was published");
+    check(workspace::cam_result_state(session,first)==workspace::CamResultState::Stale&&
+        workspace::cam_result_state(session,second)==workspace::CamResultState::Stale,"Unchecked clamping entered chained stock");
+    check(workspace::publish_cam_calculation(live,input,clamped),"Checked clamping failed publication");
+    session.document().save(file,session.calculated_boundaries());
+    const auto clamped_reopen=document::PartDocument::load(file);
+    check(*clamped_reopen.body_history.find(first)->cam==*session.document().body_history.find(first)->cam,"Clamping sides/report lost on reopen");
+    edit=workspace::prepare_cam_edit(session.document(),first);body=*session.document().body_history.find(first);body.cam->clampings.front().outward_positive=true;
+    check(workspace::commit_cam(live,edit,body),"Clamping side edit failed");
+    auto flipped=workspace::calculate_cam(workspace::prepare_cam_calculation(live,part.document_id,first));
+    check(std::ranges::any_of(flipped.collisions,[](const auto& c){return c.kind==cam::CollisionKind::CuttingClamping;}),"Reversed clamping side did not change collision result");
+    check(session.undo()&&!session.document().body_history.find(first)->cam->clampings.front().outward_positive,"Clamping side Undo failed");
+    check(session.redo()&&session.document().body_history.find(first)->cam->clampings.front().outward_positive,"Clamping side Redo failed");
     edit=workspace::prepare_cam_edit(session.document(),first);body=*session.document().body_history.find(first);body.cam->fixture_ids={stock};
-    body.cam->clamping_sketch_ids.clear();
+    body.cam->clampings.clear();
     check(workspace::commit_cam(live,edit,body),"Fixture setup failed");
     input=workspace::prepare_cam_calculation(live,part.document_id,first);result=workspace::calculate_cam(input);
     check(!result.collisions.empty(),"Exact fixture collision was missed");

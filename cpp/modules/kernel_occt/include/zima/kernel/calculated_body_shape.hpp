@@ -28,6 +28,9 @@ struct CalculatedBodyTopology {
 struct ProjectedMeshCurve {
     TopoDS_Shape edge,face;
 };
+// Materialize bounded authored planar regions with the ordinary exact profile
+// adapter, including holes. Calculation only; no source Body is required.
+[[nodiscard]] std::vector<TopoDS_Shape> authored_planar_regions(const ProjectionRequest&);
 
 // Exact authored geometry at its placed plane, wholly contained in the material.
 // Only explicit FEM validation/meshing materializes these private shapes.

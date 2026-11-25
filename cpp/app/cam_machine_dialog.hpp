@@ -8,6 +8,8 @@
 #include <QHeaderView>
 #include <QLabel>
 #include <QLineEdit>
+#include <QPushButton>
+#include <QSignalBlocker>
 #include <QSpinBox>
 #include <QTableWidget>
 #include <QVBoxLayout>
@@ -17,9 +19,12 @@
 namespace zima::app {
 class CamMachineDialog final : public ui::PropertiesSubWindow {
 public:
+    std::function<void()> import_machine;
     CamMachineDialog(cam::Machine value,std::function<void(cam::Machine)> commit,QWidget* parent)
         : PropertiesSubWindow(tr("CAM machine properties"),parent),pending_(std::move(value)),commit_(std::move(commit)) {
         setObjectName("camMachineDialog");setAttribute(Qt::WA_DeleteOnClose);
+        auto* library=new QPushButton(this);library->setObjectName("camImportMachine");content_layout()->addWidget(library,0,Qt::AlignLeft);
+        translate_.push_back([library]{library->setText(tr("Import from library…"));});connect(library,&QPushButton::clicked,this,[this]{if(import_machine)import_machine();});
         auto* form=new QFormLayout;content_layout()->addLayout(form);
         auto* name=new QLineEdit(QString::fromStdString(pending_.name),this);name->setObjectName("camMachineName");
         label(form,QT_TR_NOOP("Název"),name);connect(name,&QLineEdit::textChanged,this,[this](const auto& text){pending_.name=text.toStdString();clear_status();});
@@ -28,6 +33,8 @@ public:
         connect(kind_,&QComboBox::currentIndexChanged,this,[this](int i){pending_.kind=i==0?cam::MachineKind::Milling:cam::MachineKind::Turning;clear_status();});
         auto* axes=new QSpinBox(this);axes->setObjectName("camMachineAxes");axes->setRange(2,5);axes->setValue(int(pending_.axes));axes->setMaximumWidth(96);label(form,QT_TR_NOOP("Axis count"),axes);
         connect(axes,&QSpinBox::valueChanged,this,[this](int value){pending_.axes=unsigned(value);clear_status();});
+        auto* post=new QLineEdit(QString::fromStdString(pending_.postprocessor_id),this);post->setObjectName("camMachinePostprocessor");label(form,QT_TR_NOOP("Postprocessor identifier"),post);
+        connect(post,&QLineEdit::textChanged,this,[this](const QString& text){pending_.postprocessor_id=text.toStdString();clear_status();});
         auto* capability=new QLabel(this);capability->setObjectName("camMachineCapability");capability->setWordWrap(true);content_layout()->addWidget(capability);
         translate_.push_back([capability]{capability->setText(tr("Toolpath generation currently supports 3-axis milling."));});
         travel_=new QTableWidget(3,3,this);travel_->setObjectName("camMachineTravel");travel_->verticalHeader()->hide();
@@ -57,6 +64,17 @@ public:
         retranslate();set_initial_size({600,590});
     }
     const cam::Machine& pending_value()const{return pending_;}
+    void replace_machine(cam::Machine value){
+        cam::validate(value);pending_=std::move(value);
+        for(const auto& pair:std::array<std::pair<const char*,std::string>,2>{{{"camMachineName",pending_.name},{"camMachinePostprocessor",pending_.postprocessor_id}}}){
+            auto* field=findChild<QLineEdit*>(pair.first);const QSignalBlocker block(field);field->setText(QString::fromStdString(pair.second));}
+        {const QSignalBlocker block(kind_);kind_->setCurrentIndex(pending_.kind==cam::MachineKind::Milling?0:1);}
+        auto* axes=findChild<QSpinBox*>("camMachineAxes");{const QSignalBlocker block(axes);axes->setValue(int(pending_.axes));}
+        const std::array<std::pair<const char*,double>,9> values{{{"camMinimumX",pending_.minimum.x},{"camMinimumY",pending_.minimum.y},{"camMinimumZ",pending_.minimum.z},
+            {"camMaximumX",pending_.maximum.x},{"camMaximumY",pending_.maximum.y},{"camMaximumZ",pending_.maximum.z},{"camMaximumFeed",pending_.maximum_feed_mm_min},
+            {"camRapidFeed",pending_.rapid_mm_min},{"camMaximumSpindle",pending_.maximum_spindle_rpm}}};
+        for(const auto& [name,n]:values){auto* spin=findChild<QDoubleSpinBox*>(name);const QSignalBlocker block(spin);spin->setValue(n);}clear_status();
+    }
 protected:
     bool submit()override {
         if(QString::fromStdString(pending_.name).trimmed().isEmpty())return error(QT_TR_NOOP("Specify a nonempty object name."));

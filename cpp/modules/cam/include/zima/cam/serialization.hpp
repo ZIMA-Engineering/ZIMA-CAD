@@ -14,6 +14,10 @@ void to_json(nlohmann::json&,const Facing&);
 void from_json(const nlohmann::json&,Facing&);
 void to_json(nlohmann::json&,const Collision&);
 void from_json(const nlohmann::json&,Collision&);
+void to_json(nlohmann::json&,const ClampingWarning&);
+void from_json(const nlohmann::json&,ClampingWarning&);
+void to_json(nlohmann::json&,const ClampingContact&);
+void from_json(const nlohmann::json&,ClampingContact&);
 // Definition validation is independent of machine execution and permits a
 // missing tool reference to remain repairable. Compilation resolves it.
 void validate_program_definition(const Program&);

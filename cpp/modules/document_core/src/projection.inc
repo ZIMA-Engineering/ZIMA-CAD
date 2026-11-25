@@ -1,3 +1,25 @@
+kernel::ProjectionRequest cam_sketch_request(const sketcher::Sketch& source,const Placement& body,
+        const Placement& work,bool bounded_region) {
+    if(!body.reference_valid||!work.reference_valid||
+       std::ranges::any_of(source.external_references,[](const auto& r){return r.broken;}))
+        throw std::invalid_argument("CAM requires current, available inputs.");
+    auto sketch=source;
+    const auto body_rotation=placement_rotation_matrix_from_euler_degrees({body.rotation_x,body.rotation_y,body.rotation_z});
+    const auto work_rotation=placement_rotation_matrix_from_euler_degrees({work.rotation_x,work.rotation_y,work.rotation_z});
+    const auto vector=[&](auto value){return placement_inverse_transform_direction(work_rotation,placement_transform_direction(body_rotation,value));};
+    sketch.resolved_origin=placement_inverse_transform_point(work_rotation,{work.x,work.y,work.z},
+        placement_transform_point(body_rotation,{body.x,body.y,body.z},source.world_point(0,0)));
+    sketch.resolved_x_axis=vector(source.x_axis());sketch.resolved_y_axis=vector(source.y_axis());sketch.resolved_normal=vector(source.normal());
+    // This transient carrier consumes its derived frame even for standalone
+    // Sketches. It is never persisted or written back to the source document.
+    if(sketch.owner_container_id.empty()&&sketch.plane_reference_owner_id.empty())sketch.plane_reference_owner_id=source.id;
+    kernel::ProjectionRequest request;request.sketch_id=source.id;request.sketch_origin=sketch.world_point(0,0);request.sketch_normal=sketch.normal();
+    request.output=kernel::ProjectionResult::Surface;
+    if(bounded_region){auto profile=extrusion_request(sketch.evaluated_profile_sketch(),1.,ExtrusionDirection::Forward,true);
+        profile.surface_result=true;profile.planar_profile=true;request.profiles.push_back(std::move(profile));}
+    return request;
+}
+
 static std::vector<kernel::ExtrusionRequest> projection_sketch_profiles(const sketcher::Sketch& evaluated) {
     std::vector<kernel::ExtrusionRequest> profiles;
     const auto append=[&](const auto& curves) {

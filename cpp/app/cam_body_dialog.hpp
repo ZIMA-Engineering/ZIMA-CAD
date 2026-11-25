@@ -22,7 +22,7 @@
 namespace zima::app {
 class CamBodyDialog final : public ui::PropertiesSubWindow, public PlacementReferenceDialog {
 public:
-    std::function<void()> changed, edit_machine, begin_source_input;
+    std::function<void()> changed, edit_machine, edit_tools, edit_operations, edit_clampings, begin_source_input;
     CamBodyDialog(document::BodyHistory initial, std::function<void(document::BodyHistory)> commit, QWidget* parent)
         : PropertiesSubWindow(tr("CAM setup properties"),parent),pending_(std::move(initial)),commit_(std::move(commit)) {
         frame_valid_=pending_.cam->work_frame.reference_valid;
@@ -47,6 +47,15 @@ public:
         auto* machine_form=new QFormLayout;content_layout()->addLayout(machine_form);
         machine_=new QPushButton(this);machine_->setObjectName("camEditMachine");label(machine_form,QT_TR_NOOP("Machine"),machine_);
         connect(machine_,&QPushButton::clicked,this,[this]{if(edit_machine)edit_machine();});
+        auto* tools=new QPushButton(this);tools->setObjectName("camEditTools");
+        auto* operations=new QPushButton(this);operations->setObjectName("camEditOperations");
+        machine_form->addRow(tools,operations);
+        translate_.push_back([tools,operations]{tools->setText(tr("CAM tools"));operations->setText(tr("Machining operations"));});
+        connect(tools,&QPushButton::clicked,this,[this]{if(edit_tools)edit_tools();});
+        connect(operations,&QPushButton::clicked,this,[this]{if(edit_operations)edit_operations();});
+        auto* clampings=new QPushButton(this);clampings->setObjectName("camEditClampings");machine_form->addRow(clampings);
+        translate_.push_back([clampings]{clampings->setText(tr("Clamping Sketches"));});
+        connect(clampings,&QPushButton::clicked,this,[this]{if(edit_clampings)edit_clampings();});
         auto* origin=new QWidget(this);auto* xyz=new QHBoxLayout(origin);xyz->setContentsMargins(0,0,0,0);
         auto& point=pending_.cam->machine_work_origin;
         const std::array<double*,3> values{&point.x,&point.y,&point.z};
@@ -56,10 +65,6 @@ public:
         label(machine_form,QT_TR_NOOP("Work origin in machine coordinates"),origin);
         auto* help=new QLabel(this);help->setWordWrap(true);content_layout()->addWidget(help);
         translate_.push_back([help]{help->setText(tr("Select stock, target and fixture Bodies. The placement defines the machining work frame. Calculation is a separate action."));});
-        if(!pending_.cam->clamping_sketch_ids.empty()){
-            auto* warning=new QLabel(this);warning->setWordWrap(true);content_layout()->addWidget(warning);
-            translate_.push_back([warning]{warning->setText(tr("CAM clamping Sketch checks are not available yet. Use fixture Bodies for collision checking."));});
-        }
         status_=new QLabel(this);status_->setWordWrap(true);status_->setObjectName("camBodyStatus");content_layout()->addWidget(status_);
         retranslate();set_initial_size({760,850});
     }
@@ -87,6 +92,9 @@ public:
     bool active_input()const{return active_>=0;}
     std::set<std::string> inspected_sources()const{std::set<std::string> ids;for(const auto row:inspected_)if(const auto id=source_id(row);!id.empty())ids.insert(id);return ids;}
     void set_machine(cam::Machine value){pending_.cam->machine=std::move(value);refresh_machine();}
+    void set_tools(std::vector<cam::Tool> value){pending_.cam->tools=std::move(value);}
+    void set_operations(std::vector<document::CamOperation> value){pending_.cam->operations=std::move(value);}
+    void set_clampings(std::vector<document::CamClamping> value){pending_.cam->clampings=std::move(value);}
     void set_status(const QString& text){error_key_.clear();status_->setText(text);}
     void set_error(const char* key){error_key_=key;status_->setText(tr(key));}
     void set_forbidden_owner(std::function<bool(const std::string&)> f){forbidden_=std::move(f);}

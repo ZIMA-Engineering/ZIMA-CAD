@@ -19065,15 +19065,22 @@ std::vector<std::string> validate_projected_mesh_region(
     return project_calculated_mesh_region(native.shape,request,faces,surface_seeds,expected_region_keys).region_keys;
 }
 
+std::vector<TopoDS_Shape> authored_planar_regions(const ProjectionRequest& request) {
+    std::vector<TopoDS_Shape> result;
+    for(const auto& profile:request.profiles) {
+        const auto planar=make_planar_surface_data(profile,"authored-planar-region");
+        for(const auto& face:planar.faces)result.push_back(face.shape);
+    }
+    return result;
+}
+
 std::vector<TopoDS_Shape> planar_calculated_mesh_region(
         const TopoDS_Shape& body,const ProjectionRequest& request) {
     std::vector<TopoDS_Shape> result;
     const bool surface=request.output==ProjectionResult::Surface;
-    for(const auto& profile:request.profiles) {
-        if(surface) {
-            const auto planar=make_planar_surface_data(profile,"fem-planar-region");
-            for(const auto& face:planar.faces)result.push_back(face.shape);
-        }else for(const auto& wire:make_body_profiles(profile,request.sketch_normal))
+    if(surface)result=authored_planar_regions(request);
+    else for(const auto& profile:request.profiles) {
+        for(const auto& wire:make_body_profiles(profile,request.sketch_normal))
             result.insert(result.end(),wire.edges.begin(),wire.edges.end());
     }
     if(result.empty())throw std::invalid_argument("The FEM Sketch must contain region geometry.");

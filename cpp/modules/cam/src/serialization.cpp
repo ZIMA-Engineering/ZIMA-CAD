@@ -10,7 +10,8 @@ namespace {
 using Json=nlohmann::json;
 constexpr std::array<std::string_view,4> motion_names{"rapid","linear","arc-cw","arc-ccw"};
 constexpr std::array<std::string_view,5> block_names{"tool","spindle","feed","motion","stop"};
-constexpr std::array<std::string_view,5> collision_names{"rapid-stock","cutting-fixture","non-cutting-stock","non-cutting-fixture","target-gouge"};
+constexpr std::array<std::string_view,7> collision_names{"rapid-stock","cutting-fixture","non-cutting-stock","non-cutting-fixture","target-gouge","cutting-clamping","non-cutting-clamping"};
+constexpr std::array<std::string_view,2> warning_names{"below-jaw-top","contact-loss"};
 [[noreturn]] void invalid(){throw ProgramError(Error::InvalidProgram);}
 template<class E,std::size_t N> std::string name(E value,const std::array<std::string_view,N>& names) {
     const auto index=static_cast<std::size_t>(value);if(index>=N)invalid();return std::string(names[index]);
@@ -95,4 +96,18 @@ void from_json(const Json& j,Collision& value) {
     c.obstacle_id=j.at("obstacle");c.intersection_mm3=j.at("intersection_mm3");
     if(c.block_id.empty()||c.tool_id.empty()||!std::isfinite(c.intersection_mm3)||c.intersection_mm3<=0)invalid();value=std::move(c);
 }
+void to_json(Json& j,const ClampingWarning& w) {
+    j={{"kind",name(w.kind,warning_names)},{"operation",w.operation_id},{"block",w.block_id},{"tool",w.tool_id},{"clamping",w.clamping_id},
+       {"removed_mm3",w.removed_mm3},{"lost_contact_mm2",w.lost_contact_mm2},{"remaining_contact_mm2",w.remaining_contact_mm2}};
+}
+void from_json(const Json& j,ClampingWarning& w) {
+    w.kind=parse<ClampingWarningKind>(j.at("kind"),warning_names);w.operation_id=j.at("operation");w.block_id=j.at("block");w.tool_id=j.at("tool");w.clamping_id=j.at("clamping");
+    w.removed_mm3=j.at("removed_mm3");w.lost_contact_mm2=j.at("lost_contact_mm2");w.remaining_contact_mm2=j.at("remaining_contact_mm2");
+    if(w.operation_id.empty()||w.block_id.empty()||w.tool_id.empty()||w.clamping_id.empty())invalid();
+    for(double n:{w.removed_mm3,w.lost_contact_mm2,w.remaining_contact_mm2})if(!std::isfinite(n)||n<0)invalid();
+    if((w.kind==ClampingWarningKind::BelowJawTop&&w.removed_mm3<=0)||(w.kind==ClampingWarningKind::ContactLoss&&w.lost_contact_mm2<=0))invalid();
+}
+void to_json(Json& j,const ClampingContact& c){j={{"clamping",c.clamping_id},{"initial_mm2",c.initial_mm2},{"remaining_mm2",c.remaining_mm2}};}
+void from_json(const Json& j,ClampingContact& c){c.clamping_id=j.at("clamping");c.initial_mm2=j.at("initial_mm2");c.remaining_mm2=j.at("remaining_mm2");
+    if(c.clamping_id.empty()||!std::isfinite(c.initial_mm2)||!std::isfinite(c.remaining_mm2)||c.initial_mm2<0||c.remaining_mm2<0)invalid();}
 }

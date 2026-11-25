@@ -1,10 +1,11 @@
-# CAM Body design backlog
+# CAM Body design and implementation
 
 Status: agreed product direction; implementation requested after noncircular
 Offset tangency on 2026-11-23. On that date the user explicitly approved the first
 stage and native persistence scope below, including templates, affected factory
-assets and verification on backed-up protected-document copies. The published
-Render release does not implement CAM.
+assets and verification on backed-up protected-document copies. The first-stage
+authoring/calculation workflow is complete in the Windows 2026112503 source;
+its finite acceptance and remaining extensions are recorded below.
 
 ## Document and setup
 
@@ -67,14 +68,12 @@ source edits must retain orientation and invalidate dependent calculated reports
 Use bounding rejection and the existing exact swept solids/material differences;
 do not run a second independent sampled simulation for these checks.
 
-This is an agreed design requirement, not an implemented clamping certification.
-The current calculation checks explicit fixture solids; clamping Sketches are
-persisted and tracked as dependencies but do not yet generate exclusion volumes
-or grip warnings. Calculation/publication therefore rejects an authored clamping
-Sketch with an explicit diagnostic; an unchecked retained result cannot supply
-downstream stock. Fixture-only setups remain available. Replace this temporary
-unsupported-capability gate with the verified geometric checks, rather than
-merely removing it when the editor is connected.
+The first-stage calculation implements these geometric checks and retains their
+reports. The earlier unsupported-clamping gate has been replaced by verified
+exclusion volumes, jaw-top warnings and contact-area accounting. Publication
+rejects incomplete reports; collisions prevent downstream stock reuse. This is
+not a clamping-force certification. See the
+[2026-11-25 acceptance matrix](verification/20261125-cam-authoring-and-clamping.md).
 
 Reference: Autodesk's [project geometry documentation](https://help.autodesk.com/cloudhelp/2025/ENU/CAMTP-Help/files/CAMTP_Help_5_ManagingtheProjectGeometry_html.html)
 distinguishes stock removal from fixture collision testing against the complete
@@ -276,9 +275,11 @@ Global settings contain a CAM section with independent paths for machine,
 tool and workholding libraries. Generic native definitions and dedicated tool
 templates are authored and verified; see the
 [verification record](verification/20261124-cam-library-definitions.md).
-The planned library browser will allow nested directories and load items lazily.
-Selecting an item will copy the required definition into the native setup,
-without loading or depending on the complete library. This import UI is pending.
+The shared file chooser supports nested directories and lazy enumeration. Machine
+and tool import copy explicit parameters into the setup without loading or
+depending on the complete library. The initial tool adapter creates cylindrical
+envelopes from explicit CAM dimensions; arbitrary modeled-solid conversion and
+workholding-library placement/import remain separate extensions.
 
 Tools use ordinary Part modeling and Body ownership through the agreed `.toolz`
 extension and a dedicated start template. The cutting Body is yellow; the shank
@@ -295,4 +296,26 @@ upper jaw edges lie at Z=0. The opening parameter moves the second Sketch only;
 stable role identities must not depend on editable Sketch names. A 3D vise model
 is optional presentation. Whole-definition placement uses the existing shared
 reference contract; the machining work origin remains independently selectable.
-These definitions and their editors/import are not yet a completed library UI.
+The vise definition remains available for ordinary native editing. Automatic
+placement/import of that library definition into a CAM setup is not implemented;
+the setup accepts existing source-Part clamping Sketches and fixture Bodies.
+
+## First-stage workflow acceptance, 2026-11-25
+
+Tool/profile, operation/block and clamping editors now integrate with the setup
+draft. Explicit background calculation publishes exact remaining stock only for
+unchanged current inputs. Generic NC inspection, stepping, final-stock display,
+collision/grip reports and atomic text export use the actual compiled program.
+Unchanged confirmation and inspection do not regenerate CAD geometry.
+
+The approved nested CAM schema is 2; ordinary Part storage remains format 79.
+Start templates and protected copies were checked, and the factory inventory
+contains no CAM Body requiring conversion. Eleven native/UI test targets and
+275 actual GUI assertions pass. See the
+[verification record](verification/20261125-cam-authoring-and-clamping.md) and
+[Windows release status](releases/2026112503.md#distribution-status).
+
+The supported first stage is three-axis Facing and manual linear/XY circular
+motion. Controller postprocessing, pocket/contour operations, turning, rotary
+axes, workholding-library placement and arbitrary-solid tool conversion are not
+included. Native Linux execution remains unverified.

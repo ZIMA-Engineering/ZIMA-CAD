@@ -24,7 +24,10 @@ void identities(const std::vector<std::string>& values) {
 void intent_valid(const CamDefinition& d) {
     if(d.stock_id.empty()||d.target_id.empty()||!std::isfinite(d.tolerance_mm)||d.tolerance_mm<=0||!finite(d.machine_work_origin))invalid();
     if(d.display_units!=cam::Units::Millimetres&&d.display_units!=cam::Units::Inches)invalid();
-    frame(d.work_frame);cam::validate(d.machine);identities(d.fixture_ids);identities(d.clamping_sketch_ids);
+    frame(d.work_frame);cam::validate(d.machine);identities(d.fixture_ids);
+    std::set<std::string> clamping_ids;
+    for(const auto& c:d.clampings)if(c.id.empty()||c.name.empty()||c.contact_sketch_id.empty()||c.upper_sketch_id.empty()||
+        !clamping_ids.insert(c.id).second||std::ranges::find(d.fixture_ids,c.id)!=d.fixture_ids.end())invalid();
     std::set<std::string> tool_ids,operation_ids,block_ids;
     for(const auto& tool:d.tools){cam::validate(tool);if(!tool_ids.insert(tool.id).second)invalid();}
     for(const auto& operation:d.operations) {
@@ -41,10 +44,12 @@ void intent_valid(const CamDefinition& d) {
 }
 Json intent_json(const CamDefinition& d) {
     intent_valid(d);
-    Json j={{"stock",d.stock_id},{"target",d.target_id},{"fixtures",d.fixture_ids},{"clamping_sketches",d.clamping_sketch_ids},
+    Json j={{"schema",2},{"stock",d.stock_id},{"target",d.target_id},{"fixtures",d.fixture_ids},{"clampings",Json::array()},
         {"work_frame",d.work_frame},{"machine",d.machine},{"machine_work_origin",point(d.machine_work_origin)},
         {"tools",d.tools},{"operations",Json::array()},{"units",d.display_units==cam::Units::Millimetres?"mm":"in"},
         {"tolerance_mm",d.tolerance_mm}};
+    for(const auto& c:d.clampings)j["clampings"].push_back({{"id",c.id},{"name",c.name},{"contact_sketch",c.contact_sketch_id},
+        {"upper_sketch",c.upper_sketch_id},{"outward_positive",c.outward_positive},{"upper_positive",c.upper_positive}});
     for(const auto& operation:d.operations) {
         if(const auto* manual=std::get_if<CamManualOperation>(&operation))
             j["operations"].push_back({{"kind","manual"},{"id",manual->id},{"name",manual->name},{"program",manual->program}});
@@ -61,10 +66,18 @@ void result_valid(const CamCalculated& r,bool program_check=false) {
     for(const auto& [id,key]:r.sources)if(id.empty()||key.empty()||!ids.insert(id).second)invalid();
     if(!program_check)return;
     const auto compiled=cam::compile(r.program,r.machine,r.tools,r.machine_work_origin);
+    std::set<std::string> clampings;
+    for(const auto& c:r.contacts){static_cast<void>(Json(c).get<cam::ClampingContact>());if(!clampings.insert(c.clamping_id).second)invalid();}
+    for(const auto& w:r.warnings) {
+        static_cast<void>(Json(w).get<cam::ClampingWarning>());
+        if(!clampings.contains(w.clamping_id)||std::ranges::none_of(compiled.motions,[&](const auto& m){
+            return m.operation_id==w.operation_id&&m.block_id==w.block_id&&m.tool_id==w.tool_id;}))invalid();
+    }
     for(const auto& c:r.collisions) {
         if(!std::isfinite(c.intersection_mm3)||c.intersection_mm3<=0||
             std::ranges::none_of(compiled.motions,[&](const auto& m){return m.block_id==c.block_id&&m.tool_id==c.tool_id;}))invalid();
         static_cast<void>(Json(c));
+        if((c.kind==cam::CollisionKind::CuttingClamping||c.kind==cam::CollisionKind::NonCuttingClamping)&&!clampings.contains(c.obstacle_id))invalid();
     }
 }
 }
@@ -73,22 +86,28 @@ const std::string& cam_operation_name(const CamOperation& o){return std::visit([
 bool CamCalculated::operator==(const CamCalculated& other) const {
     return id==other.id&&intent_key==other.intent_key&&sources==other.sources&&program==other.program&&machine==other.machine&&
         machine_work_origin==other.machine_work_origin&&tools==other.tools&&work_frame==other.work_frame&&
-        remaining->source_fingerprint==other.remaining->source_fingerprint&&collisions==other.collisions&&
+        remaining->source_fingerprint==other.remaining->source_fingerprint&&collisions==other.collisions&&warnings==other.warnings&&contacts==other.contacts&&
         removed_mm3==other.removed_mm3&&missing_target_mm3==other.missing_target_mm3&&tolerance_mm==other.tolerance_mm;
 }
 bool CamDefinition::operator==(const CamDefinition& other) const {
-    return stock_id==other.stock_id&&target_id==other.target_id&&fixture_ids==other.fixture_ids&&clamping_sketch_ids==other.clamping_sketch_ids&&
+    return stock_id==other.stock_id&&target_id==other.target_id&&fixture_ids==other.fixture_ids&&clampings==other.clampings&&
         work_frame==other.work_frame&&machine==other.machine&&machine_work_origin==other.machine_work_origin&&tools==other.tools&&
         operations==other.operations&&display_units==other.display_units&&tolerance_mm==other.tolerance_mm&&
         (calculated==other.calculated||(calculated&&other.calculated&&*calculated==*other.calculated));
 }
 void validate_cam_definition(const CamDefinition& d){intent_valid(d);if(d.calculated)result_valid(*d.calculated);}
+std::vector<std::string> cam_clamping_sketch_ids(const CamDefinition& d) {
+    std::vector<std::string> result;
+    for(const auto& c:d.clampings)for(const auto& id:{c.contact_sketch_id,c.upper_sketch_id})
+        if(std::ranges::find(result,id)==result.end())result.push_back(id);
+    return result;
+}
 void validate_cam_calculated(const CamCalculated& r){result_valid(r,true);}
 std::string cam_intent_key(const CamDefinition& d) {
     const auto bytes=intent_json(d).dump();unsigned char digest[EVP_MAX_MD_SIZE];unsigned size{};
     if(EVP_Digest(bytes.data(),bytes.size(),digest,&size,EVP_sha256(),nullptr)!=1)
         throw std::runtime_error("CAM input fingerprint failed.");
-    constexpr char hex[]="0123456789abcdef";std::string key="cam-intent-v1:";
+    constexpr char hex[]="0123456789abcdef";std::string key="cam-intent-v2:";
     for(unsigned i=0;i<size;++i){key+=hex[digest[i]>>4];key+=hex[digest[i]&15];}return key;
 }
 bool cam_result_matches_definition(const CamDefinition& d) {
@@ -103,13 +122,16 @@ void to_json(Json& j,const CamDefinition& d) {
         const auto& r=*d.calculated;
         j["calculated"]={{"id",r.id},{"intent",r.intent_key},{"sources",r.sources},{"program",r.program},{"machine",r.machine},
             {"machine_work_origin",point(r.machine_work_origin)},{"tools",r.tools},{"work_frame",r.work_frame},
-            {"remaining",serialize_body_result(r.remaining)},{"collisions",r.collisions},{"removed_mm3",r.removed_mm3},
+            {"remaining",serialize_body_result(r.remaining)},{"collisions",r.collisions},{"warnings",r.warnings},{"contacts",r.contacts},{"removed_mm3",r.removed_mm3},
             {"missing_target_mm3",r.missing_target_mm3},{"tolerance_mm",r.tolerance_mm}};
     }
 }
 void from_json(const Json& j,CamDefinition& value) {
+    if(j.at("schema")!=2)invalid();
     CamDefinition d;d.stock_id=j.at("stock");d.target_id=j.at("target");d.fixture_ids=j.at("fixtures").get<std::vector<std::string>>();
-    d.clamping_sketch_ids=j.at("clamping_sketches").get<std::vector<std::string>>();d.work_frame=j.at("work_frame").get<Placement>();
+    if(!j.at("clampings").is_array())invalid();
+    for(const auto& c:j.at("clampings"))d.clampings.push_back({c.at("id"),c.at("name"),c.at("contact_sketch"),c.at("upper_sketch"),c.at("outward_positive"),c.at("upper_positive")});
+    d.work_frame=j.at("work_frame").get<Placement>();
     d.machine=j.at("machine").get<cam::Machine>();d.machine_work_origin=point(j.at("machine_work_origin"));d.tools=j.at("tools").get<std::vector<cam::Tool>>();
     const auto units=j.at("units").get<std::string>();if(units!="mm"&&units!="in")invalid();d.display_units=units=="mm"?cam::Units::Millimetres:cam::Units::Inches;
     d.tolerance_mm=j.at("tolerance_mm");if(!j.at("operations").is_array())invalid();
@@ -124,6 +146,7 @@ void from_json(const Json& j,CamDefinition& value) {
         r->machine=row.at("machine").get<cam::Machine>();r->machine_work_origin=point(row.at("machine_work_origin"));r->tools=row.at("tools").get<std::vector<cam::Tool>>();
         r->work_frame=row.at("work_frame").get<Placement>();r->remaining=load_body_result(row.at("remaining"));
         r->collisions=row.at("collisions").get<std::vector<cam::Collision>>();r->removed_mm3=row.at("removed_mm3");
+        r->warnings=row.at("warnings").get<std::vector<cam::ClampingWarning>>();r->contacts=row.at("contacts").get<std::vector<cam::ClampingContact>>();
         r->missing_target_mm3=row.at("missing_target_mm3");r->tolerance_mm=row.at("tolerance_mm");d.calculated=std::move(r);
     }
     validate_cam_definition(d);if(d.calculated)validate_cam_calculated(*d.calculated);value=std::move(d);

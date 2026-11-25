@@ -4,6 +4,8 @@
 #include "../../cam/src/native_simulation.hpp"
 #include <BRepBndLib.hxx>
 #include <Bnd_Box.hxx>
+#include <BRep_Builder.hxx>
+#include <TopoDS_Compound.hxx>
 #include <algorithm>
 #include <map>
 
@@ -50,11 +52,6 @@ cam::Program combined_program(const document::CamDefinition& definition,const ca
 document::CamCalculated calculate_cam(const CamCalculationInput& input,
         const std::function<void(std::size_t,std::size_t)>& progress) {
     const auto& d=input.definition;document::validate_cam_definition(d);
-    // Referenced Sketches already participate in persistence and invalidation,
-    // but their oriented exclusion/grip regions are not implemented yet. Never
-    // publish a seemingly checked setup by silently ignoring authored clamping.
-    if(!d.clamping_sketch_ids.empty())
-        throw std::invalid_argument("CAM clamping Sketch checks are not available yet. Use fixture Bodies for collision checking.");
     if(!d.work_frame.reference_valid||document::cam_intent_key(d)!=input.intent_key)
         throw cam::ProgramError(cam::Error::InvalidOperation);
     const kernel::KernelRigidPlacement frame{{d.work_frame.x,d.work_frame.y,d.work_frame.z},
@@ -70,12 +67,27 @@ document::CamCalculated calculate_cam(const CamCalculationInput& input,
     for(const auto& id:d.fixture_ids){obstacles.push_back({id,source(id)});obstacle_bounds.push_back(bounds(obstacles.back().shape));}
     auto program=combined_program(d,bounds(stock),bounds(target),obstacle_bounds);
     const auto compiled=cam::compile(program,d.machine,d.tools,d.machine_work_origin);
-    auto simulation=cam::native::simulate(compiled,d.tools,stock,target,obstacles,d.tolerance_mm,progress);
+    std::vector<cam::native::Clamping> clampings;
+    const auto sketch_request=[&](const std::string& id,bool region) {
+        const auto found=std::ranges::find_if(input.clamping_sketches,[&](const auto& s){return s.sketch.id==id;});
+        if(found==input.clamping_sketches.end())throw std::invalid_argument("CAM requires current, available inputs.");
+        return document::cam_sketch_request(found->sketch,found->body_frame,d.work_frame,region);
+    };
+    const auto oriented=[](kernel::Vec3 n,bool positive){return positive?n:kernel::Vec3{-n.x,-n.y,-n.z};};
+    for(const auto& c:d.clampings) {
+        const auto contact=sketch_request(c.contact_sketch_id,true),upper=sketch_request(c.upper_sketch_id,false);
+        const auto faces=kernel::authored_planar_regions(contact);
+        BRep_Builder builder;TopoDS_Compound region;builder.MakeCompound(region);for(const auto& face:faces)builder.Add(region,face);
+        clampings.push_back({c.id,region,contact.sketch_origin,oriented(contact.sketch_normal,c.outward_positive),
+            upper.sketch_origin,oriented(upper.sketch_normal,c.upper_positive)});
+    }
+    auto simulation=cam::native::simulate(compiled,d.tools,stock,target,obstacles,d.tolerance_mm,progress,clampings);
     document::CamCalculated result;result.id=kernel::make_stable_id();result.intent_key=input.intent_key;result.sources=input.source_keys;
     result.program=std::move(program);result.machine=d.machine;result.machine_work_origin=d.machine_work_origin;result.tools=d.tools;
     result.work_frame=d.work_frame;result.tolerance_mm=d.tolerance_mm;
     result.remaining=kernel::make_cam_remaining_result(simulation.remaining,frame,input.intent_key);
     result.collisions=std::move(simulation.collisions);result.removed_mm3=simulation.removed_mm3;result.missing_target_mm3=simulation.missing_target_mm3;
+    result.warnings=std::move(simulation.warnings);result.contacts=std::move(simulation.contacts);
     document::validate_cam_calculated(result);return result;
 }
 } // namespace zima::workspace

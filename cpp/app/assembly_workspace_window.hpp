@@ -443,6 +443,8 @@ private:
     QAction* create_cam_action_{};
     bool active_cam_body() const;
     void show_cam_body_properties(const std::string& id = {});
+    void calculate_cam_body();
+    void show_cam_nc();
     bool accept_cam_tree_reference(QTreeWidgetItem*);
     kernel::ViewerMesh cam_display_mesh() const;
     std::shared_ptr<kernel::ViewerMesh> cam_setup_input_;

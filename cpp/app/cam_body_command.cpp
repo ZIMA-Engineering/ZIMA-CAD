@@ -1,15 +1,32 @@
 #include "assembly_workspace_window.hpp"
 #include "cam_body_dialog.hpp"
 #include "cam_machine_dialog.hpp"
+#include "cam_tools_dialog.hpp"
+#include "cam_operations_dialog.hpp"
+#include "cam_calculation_dialog.hpp"
+#include "cam_nc_dialog.hpp"
+#include "cam_clamping_dialog.hpp"
+#include "file_dialog.hpp"
 #include "workspace/workspace_internal.hpp"
 #include <zima/workspace/cam_operations.hpp>
 #include <zima/workspace/calculated_body_source.hpp>
 #include <zima/document/placement_reference_geometry.hpp>
+#include <zima/document/cam_library.hpp>
 #include <zima/kernel/stable_id.hpp>
 #include <QScopedValueRollback>
+#include <QTabBar>
+#include <QSaveFile>
 
 namespace zima::app {
 using namespace workspace_detail;
+namespace {
+// These commands own the displayed input scene until their root dialog closes.
+// Child editors share that lifetime; they must not release its tab guard.
+void keep_cam_document(QTabBar* tabs,QDialog* root){
+    const bool enabled=tabs->isEnabled();tabs->setEnabled(false);
+    QObject::connect(root,&QDialog::finished,tabs,[tabs,enabled]{tabs->setEnabled(enabled);});
+}
+}
 bool AssemblyWorkspaceWindow::active_cam_body()const {
     const auto* part=workspace_.open_part(workspace_.active_document_id());
     const auto* body=part?part->session.document().body_history.find(part->session.document().body_history.active_body_id()):nullptr;
@@ -92,6 +109,7 @@ void AssemblyWorkspaceWindow::show_cam_body_properties(const std::string& id) {
         append_reference_geometry(mesh.original_references,primitive_reference_geometry_);return mesh;};
     auto shown=std::make_shared<std::set<std::string>>(shown_sources(*initial.cam));
     cam_setup_input_=std::make_shared<kernel::ViewerMesh>(build_input(*shown));
+    keep_cam_document(tabs_,dialog);
     properties_dialog_=dialog;primitive_reference_dialog_=dialog;primitive_parameter_owner_id_=initial.scope.id;construction_dimension_object_id_=initial.scope.id;body_dialog_step_id_=initial.scope.id;
     preserve_view_on_refresh_=true;refresh_scene();
     auto base=std::make_shared<kernel::ViewerMesh>(viewer_->mesh()),offered=std::make_shared<kernel::ViewerMesh>(*base);
@@ -141,8 +159,60 @@ void AssemblyWorkspaceWindow::show_cam_body_properties(const std::string& id) {
         set_local_origin_selection_mode(false);dialog->end_input();pending_primitive_reference_index_.reset();dialog->set_active_reference_index(std::nullopt);
         dialog->changed();dialog->hide();
         auto* machine=new CamMachineDialog(dialog->pending_value().cam->machine,[dialog](auto value){dialog->set_machine(std::move(value));},this);
+        machine->import_machine=[this,machine]{
+            const auto path=open_file(machine,tr("CAM machine library"),application_settings_.resolved_paths.value("CamMachines"),"*.prtz",application_settings_.qt_translations);if(path.isEmpty())return;
+            try{machine->replace_machine(document::cam_library_machine(document::PartDocument::load(std::filesystem::u8path(path.toStdString()))));}
+            catch(const std::exception& e){machine->show_submission_error(tr(e.what()));}
+        };
         properties_dialog_=machine;primitive_reference_dialog_=nullptr;
         connect(machine,&QDialog::finished,dialog,[this,dialog]{properties_dialog_=dialog;primitive_reference_dialog_=dialog;dialog->show();dialog->raise();dialog->changed();});machine->show();
+    };
+    const auto open_child=[this,dialog](ui::PropertiesSubWindow* child){
+        set_local_origin_selection_mode(false);dialog->end_input();pending_primitive_reference_index_.reset();dialog->set_active_reference_index(std::nullopt);
+        dialog->changed();dialog->hide();properties_dialog_=child;primitive_reference_dialog_=nullptr;
+        connect(child,&QDialog::finished,dialog,[this,dialog]{properties_dialog_=dialog;primitive_reference_dialog_=dialog;dialog->show();dialog->raise();dialog->changed();});child->show();
+    };
+    dialog->edit_tools=[this,dialog,open_child]{auto* child=new CamToolsDialog(*dialog->pending_value().cam,[dialog](auto value){dialog->set_tools(std::move(value));},this);
+        child->import_tool=[this,child]{
+            const auto path=open_file(child,tr("CAM tool library"),application_settings_.resolved_paths.value("CamTools"),"*.toolz",application_settings_.qt_translations);if(path.isEmpty())return;
+            try{child->append_tool(document::cam_library_tool(document::PartDocument::load(std::filesystem::u8path(path.toStdString()))));}
+            catch(const std::exception& e){child->show_submission_error(tr(e.what()));}
+        };open_child(child);};
+    dialog->edit_operations=[this,dialog,open_child]{open_child(new CamOperationsDialog(*dialog->pending_value().cam,[dialog](auto value){dialog->set_operations(std::move(value));},this));};
+    dialog->edit_clampings=[this,dialog,open_child,edit,base]{
+        const auto* part=workspace_.open_part(edit.document_id);if(!part)return;const auto& doc=part->session.document();
+        const auto candidates=workspace::cam_clamping_candidates(part->session,edit);
+        std::map<std::string,QString> labels;auto meshes=std::make_shared<std::map<std::string,kernel::ViewerMesh>>();
+        auto frames=std::make_shared<std::map<std::string,kernel::ProjectionRequest>>();auto offered=std::make_shared<kernel::ViewerMesh>(*base);
+        for(const auto& id:candidates){const auto& sketch=*std::ranges::find(doc.sketches,id,&sketcher::Sketch::id);const auto* body=doc.body_owner_for_object(id);
+            labels[id]=QString::fromStdString(body->name+" / "+sketch.name);auto mesh=doc.place_body_mesh(sketch.viewer_mesh(false),body->scope.id);
+            frames->emplace(id,document::cam_sketch_request(sketch,body->scope.placement,{},false));
+            for(auto edge:mesh.edges){edge.reference.owner_id=id;edge.display_owner_id=id;offered->original_references.edges.push_back(std::move(edge));}
+            meshes->emplace(id,std::move(mesh));}
+        auto* child=new CamClampingDialog(*dialog->pending_value().cam,std::move(labels),[dialog](auto value){dialog->set_clampings(std::move(value));},this);
+        auto armed=std::make_shared<std::optional<bool>>();
+        child->changed=[this,child,base,offered,meshes,frames,armed]{
+            const bool active=child->active_input();if(!armed->has_value()||**armed!=active){viewer_->set_mesh(active?*offered:*base);*armed=active;}
+            viewer_->set_original_container_selection(active);viewer_->set_selection_contract(active?std::vector{viewer::CandidateKind::Container}:std::vector<viewer::CandidateKind>{});
+            viewer_->set_candidate_filter([child](const auto& c){return c.instance_path.empty()&&child->accepts_source(c.owner_id);});tree_->setProperty("commandSelectionActive",active);
+            feature_reference_pick_=active?std::function<void(const viewer::ViewerCandidate&)>([child](const auto& c){child->set_source(c.owner_id);}):std::function<void(const viewer::ViewerCandidate&)>{};
+            feature_reference_end_=[child]{child->end_input();};
+            std::vector<kernel::ViewerEdge> wire;
+            if(active)for(const auto& entry:*meshes)for(auto edge:entry.second.edges){edge.overlay=true;edge.color="#FFFFFF";wire.push_back(std::move(edge));}
+            for(const auto& [id,positive]:child->inspections())if(meshes->contains(id)){
+                const auto& mesh=meshes->at(id);for(auto edge:mesh.edges){edge.overlay=true;edge.color="#00D1FF";wire.push_back(std::move(edge));}
+                const auto& frame=frames->at(id);auto n=frame.sketch_normal;if(!positive)n={-n.x,-n.y,-n.z};
+                const auto p=frame.sketch_origin;const auto length=std::max(1.,document::viewer_mesh_bounds_diagonal(mesh)*.25);
+                const kernel::Vec3 end{p.x+n.x*length,p.y+n.y*length,p.z+n.z*length};
+                kernel::Vec3 side=std::abs(n.z)<.9?kernel::Vec3{-n.y,n.x,0}:kernel::Vec3{0,-n.z,n.y};
+                const auto magnitude=std::sqrt(side.x*side.x+side.y*side.y+side.z*side.z);side={side.x/magnitude,side.y/magnitude,side.z/magnitude};
+                kernel::ViewerEdge arrow;arrow.overlay=true;arrow.color="#00D1FF";arrow.points={p,end};wire.push_back(arrow);
+                for(double sign:{-1.,1.}){arrow.points={end,{end.x-.2*length*n.x+sign*.1*length*side.x,end.y-.2*length*n.y+sign*.1*length*side.y,end.z-.2*length*n.z+sign*.1*length*side.z}};wire.push_back(arrow);}
+            }
+            viewer_->set_transient_edges(std::move(wire));
+        };
+        connect(child,&QDialog::finished,dialog,[this,base]{feature_reference_pick_={};feature_reference_end_={};viewer_->set_transient_edges({});viewer_->set_mesh(*base);viewer_->set_original_container_selection(false);tree_->setProperty("commandSelectionActive",false);});
+        open_child(child);child->changed();
     };
     connect(dialog,&QDialog::finished,this,[this]{
         set_local_origin_selection_mode(false);
@@ -155,9 +225,58 @@ void AssemblyWorkspaceWindow::show_cam_body_properties(const std::string& id) {
     bind_local_origin_selection(dialog);dialog->show();dialog->changed();if(id.empty())dialog->arm(0);
 }
 bool AssemblyWorkspaceWindow::accept_cam_tree_reference(QTreeWidgetItem* item){
+    if(auto* dialog=dynamic_cast<CamClampingDialog*>(properties_dialog_);item&&dialog&&dialog->active_input()){
+        if(item->data(0,Qt::UserRole+3).toString()!="part-sketch")return false;
+        return dialog->set_source(item->data(0,Qt::UserRole).toString().toStdString());
+    }
     auto* dialog=dynamic_cast<CamBodyDialog*>(properties_dialog_);if(!item||!dialog||!dialog->active_input()||!feature_reference_pick_)return false;
     const auto role=item->data(0,Qt::UserRole+3).toString();if(role!="part-body"&&role!="part-body-boolean")return false;
     viewer::ViewerCandidate candidate;candidate.kind=viewer::CandidateKind::Container;candidate.owner_id=item->data(0,Qt::UserRole).toString().toStdString();
     const auto pick=feature_reference_pick_;pick(candidate);return true;
+}
+void AssemblyWorkspaceWindow::calculate_cam_body(){
+    if(properties_dialog_||!active_cam_body()||workspace_.active_document_id()!=workspace_.displayed_document_id())return;
+    try{
+        const auto document_id=workspace_.active_document_id();const auto* part=workspace_.open_part(document_id);
+        const auto body_id=part->session.document().body_history.active_body_id();
+        const auto state=workspace::cam_result_state(part->session,body_id);
+        if(state==workspace::CamResultState::Current||state==workspace::CamResultState::Collision){show_cam_nc();return;}
+        auto input=std::make_shared<const workspace::CamCalculationInput>(workspace::prepare_cam_calculation(workspace_,document_id,body_id));
+        auto published=std::make_shared<bool>(false);
+        auto* dialog=new CamCalculationDialog(*input,[this,input,published](auto result){
+            if(!workspace::publish_cam_calculation(workspace_,*input,std::move(result)))throw std::runtime_error("CAM inputs changed. Repeat the calculation.");*published=true;
+        },this);keep_cam_document(tabs_,dialog);properties_dialog_=dialog;rebuild_application_toolbar();
+        connect(dialog,&QDialog::finished,this,[this,input,published]{properties_dialog_=nullptr;refresh_tabs();rebuild_application_toolbar();
+            const auto* part=workspace_.open_part(input->document_id);
+            if(*published&&workspace_.active_document_id()==input->document_id&&part&&part->session.document().body_history.active_body_id()==input->body_id)show_cam_nc();});
+        dialog->show();
+    }catch(const std::exception& e){state_->setText(tr(e.what()));}
+}
+void AssemblyWorkspaceWindow::show_cam_nc(){
+    if(properties_dialog_||!active_cam_body()||workspace_.active_document_id()!=workspace_.displayed_document_id())return;
+    try{
+        const auto document_id=workspace_.active_document_id();const auto* part=workspace_.open_part(document_id);const auto& doc=part->session.document();
+        const auto body_id=doc.body_history.active_body_id();const auto state=workspace::cam_result_state(part->session,body_id);
+        if(state!=workspace::CamResultState::Current&&state!=workspace::CamResultState::Collision){state_->setText(tr("Calculate CAM before inspecting the NC program."));return;}
+        const auto result=doc.body_history.find(body_id)->cam->calculated;
+        auto input=std::make_shared<kernel::ViewerMesh>(cam_display_mesh());auto remaining=std::make_shared<kernel::ViewerMesh>(result->remaining->mesh);
+        const auto& definition=*doc.body_history.find(body_id)->cam;
+        auto context=definition.fixture_ids;context.push_back(definition.target_id);
+        for(const auto& id:context)if(const auto* material=workspace::calculated_material_source(part->session,id))append_mesh(*remaining,(*material)->mesh);
+        auto carrier=std::make_shared<document::PartDocument>(document::PartDocument::create_default());document::BodyHistoryGraph graph;
+        const auto frame_id=graph.create_body("CAM presentation frame");auto frame=*graph.find(frame_id);frame.scope.placement=result->work_frame;graph.update_body(std::move(frame));carrier->set_body_history(std::move(graph));
+        auto shown=std::make_shared<std::optional<bool>>();
+        std::map<std::string,QString> clamping_names;for(const auto& c:definition.clampings)clamping_names[c.id]=QString::fromStdString(c.name);
+        auto* dialog=new CamNcDialog(result,[this,carrier,frame_id,input,remaining,shown](auto edges,bool show_remaining){
+            if(!shown->has_value()||**shown!=show_remaining){viewer_->set_mesh(show_remaining?*remaining:*input);*shown=show_remaining;update_viewer_body_colors();}
+            kernel::ViewerMesh overlay;overlay.edges=std::move(edges);viewer_->set_transient_edges(carrier->place_body_mesh(std::move(overlay),frame_id).edges);
+        },this,std::move(clamping_names));keep_cam_document(tabs_,dialog);properties_dialog_=dialog;rebuild_application_toolbar();
+        dialog->export_program=[this,dialog](const std::string& text){
+            const auto path=save_file(dialog,tr("Export generic NC text…"),QString::fromStdString(document::path_to_utf8(working_directory_/"program.nc.txt")),"*.txt","txt",application_settings_.qt_translations);if(path.isEmpty())return;
+            QSaveFile file(path);if(!file.open(QIODevice::WriteOnly)||file.write(text.data(),qint64(text.size()))!=qint64(text.size())||!file.commit())
+                dialog->show_submission_error(tr("The generic NC text could not be saved."));
+        };
+        connect(dialog,&QDialog::finished,this,[this]{properties_dialog_=nullptr;viewer_->set_transient_edges({});preserve_view_on_refresh_=true;refresh_scene();rebuild_application_toolbar();});dialog->show();
+    }catch(const std::exception& e){state_->setText(tr(e.what()));}
 }
 } // namespace zima::app

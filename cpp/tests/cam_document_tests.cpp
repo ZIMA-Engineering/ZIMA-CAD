@@ -1,5 +1,6 @@
 #include "profile_solid_fixture.hpp"
 #include <zima/document/document_session.hpp>
+#include <zima/document/cam_library.hpp>
 #include <zima/document/viewer_packet_json.hpp>
 #include <zima/kernel/occt_kernel.hpp>
 #include <zima/kernel/calculation_diagnostics.hpp>
@@ -29,12 +30,15 @@ document::BodyHistory setup(const std::string& stock,const std::string& target,c
 }
 void verify_definition() {
     auto d=*setup("stock","target").cam;
-    d.fixture_ids={"vise"};d.clamping_sketch_ids={"clamp"};d.display_units=cam::Units::Inches;
+    d.fixture_ids={"vise"};d.clampings={{"clamping","Clamping","contact","upper",false,true}};d.display_units=cam::Units::Inches;
     cam::Facing face;face.id="face";face.name="Face milling";face.tool_id="tool";
     face.step_down_mm=1;face.step_over_mm=2;face.clearance_mm=5;face.allowance_mm=.25;
     d.operations.push_back(face);
     const nlohmann::json encoded=d;
     check(encoded.get<document::CamDefinition>()==d,"CAM definition did not round trip");
+    auto old=encoded;old.erase("schema");rejects([&]{static_cast<void>(old.get<document::CamDefinition>());});
+    old=encoded;old["schema"]=1;rejects([&]{static_cast<void>(old.get<document::CamDefinition>());});
+    old=encoded;old["clampings"][0].erase("outward_positive");rejects([&]{static_cast<void>(old.get<document::CamDefinition>());});
     const auto key=document::cam_intent_key(d);
     check(document::cam_intent_key(encoded.get<document::CamDefinition>())==key,"CAM fingerprint changed on reopen");
     auto changed=d;changed.tools[0].cutting[0].radius_mm=2;
@@ -131,9 +135,25 @@ void verify_native() {
     check(std::filesystem::canonical(directory).parent_path()==parent,"Unexpected CAM test directory");
     std::filesystem::remove_all(directory);
 }
+void verify_library(){
+    const auto root=std::filesystem::path(__FILE__).parent_path().parent_path().parent_path()/"config/lib/CAM";
+    const auto count=kernel::body_calculation_count.load();
+    auto source=document::PartDocument::load(root/"Tools/Milling/End_mill_10.toolz");
+    auto tool=document::cam_library_tool(source);const auto again=document::cam_library_tool(source);
+    check(tool.id!=again.id&&tool.cutting==std::vector<cam::ToolStation>{{-22,5},{0,5}}&&tool.non_cutting==std::vector<cam::ToolStation>{{0,5},{50,5}},"Library tool identity or explicit profiles differ");
+    check(tool.feed_mm_min==2663&&tool.spindle_rpm==7767,"Library cutting preset was lost");
+    source.user_parameters["cam_diameter_mm"]="2 * 6";source.name="Authored variant";
+    tool=document::cam_library_tool(source);check(tool.name==source.name&&tool.cutting.front().radius_mm==6,"Explicit CAM arithmetic or authored name was lost");
+    source.user_parameters.erase("cam_feed_mm_min");rejects([&]{static_cast<void>(document::cam_library_tool(source));});
+    source=document::PartDocument::load(root/"Machines/Milling/Three_axis_mill.prtz");
+    auto machine=document::cam_library_machine(source);
+    check(machine.axes==3&&machine.maximum_feed_mm_min==10000&&machine.maximum_spindle_rpm==12000&&machine.rapid_mm_min==20000&&machine.postprocessor_id=="generic", "Machine library capabilities differ");
+    source.user_parameters["cam_machine_axes"]="3.5";rejects([&]{static_cast<void>(document::cam_library_machine(source));});
+    check(kernel::body_calculation_count.load()==count,"Library definition import regenerated geometry");
+}
 }
 int main()try {
-    verify_definition();verify_graph();verify_native();
+    verify_definition();verify_graph();verify_native();verify_library();
     std::cout<<"CAM document: "<<assertions<<" serialization, dependency, result, last-frame and Undo/Redo assertions passed\n";
     return 0;
 }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}

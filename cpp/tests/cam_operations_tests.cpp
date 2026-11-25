@@ -27,7 +27,12 @@ document::CamCalculated result(const workspace::CamCalculationInput& input,const
 int main()try {
     auto part=document::PartDocument::create_default();auto feature=test::rectangular_feature(part,{20,10,5});part.history={feature};
     document::BodyHistoryGraph graph;const auto stock=graph.create_body("Stock");
-    graph.insert({document::PartHistoryKind::Feature,feature.id});graph.activate({});part.set_body_history(graph);
+    graph.insert({document::PartHistoryKind::Feature,feature.id});
+    const auto holding=graph.create_body("Sketch-only workholding");
+    auto contact=sketcher::Sketch::create_default();static_cast<void>(contact.add_rectangle(-10,-5,10,5));
+    auto contact_owner=document::PartDocument::create_sketch_container();contact.owner_container_id=contact_owner.id;
+    part.sketches.push_back(contact);part.history.push_back(contact_owner);graph.insert({document::PartHistoryKind::Feature,contact_owner.id});
+    graph.activate({});part.set_body_history(graph);
     kernel::OcctKernel kernel;auto calculated=kernel.evaluate_history(part.kernel_operations());
     workspace::Workspace live;live.add_part(part,std::move(calculated));auto& session=live.open_part(part.document_id)->session;
     const auto count=kernel::body_calculation_count.load();const auto* boundaries=&session.calculated_boundaries();
@@ -84,18 +89,25 @@ int main()try {
     check(session.undo(),"Undo broken frame failed");
     // Clamping references are real preceding Sketches; missing references remain repairable.
     edit=workspace::prepare_cam_edit(session.document(),first);body=*session.document().body_history.find(first);
-    body.cam->clamping_sketch_ids={test::rectangular_sketch_id(feature)};
+    body.cam->clampings={{"clamping","Clamping",test::rectangular_sketch_id(feature),test::rectangular_sketch_id(feature),false,true}};
     check(workspace::commit_cam(live,edit,body),"Clamping Sketch selection failed");
     input=workspace::prepare_cam_calculation(live,part.document_id,first);
     check(input.clamping_sketches.size()==1&&input.source_keys.size()==2,"Clamping input was omitted");
-    bool unsupported=false;const auto clamping_revision=session.revision();
-    try{static_cast<void>(workspace::publish_cam_calculation(live,input,result(input,"clamped")));}
-    catch(const std::invalid_argument& error){unsupported=std::string(error.what())=="CAM clamping Sketch checks are not available yet. Use fixture Bodies for collision checking.";}
-    check(unsupported&&session.revision()==clamping_revision,"Unchecked clamping result was published");
+    const auto clamping_revision=session.revision();
+    rejects([&]{static_cast<void>(workspace::publish_cam_calculation(live,input,result(input,"clamped")));});
+    check(session.revision()==clamping_revision,"Unchecked clamping result changed the document");
     auto changed=session.document();changed.sketches.front().suppressed=true;session.commit_metadata(changed);
     check(workspace::cam_result_state(session,first)==workspace::CamResultState::SuppressedSource,"Suppressed clamping Sketch accepted");
     check(session.undo(),"Undo suppressed Sketch failed");
-    check(session.undo(),"Undo unsupported clamping selection failed");
+    check(session.undo(),"Undo clamping selection failed");
+    edit=workspace::prepare_cam_edit(session.document(),first);body=*session.document().body_history.find(first);
+    body.cam->clampings={{"clamping","Sketch-only contact",contact.id,contact.id,false,true}};
+    check(workspace::commit_cam(live,edit,body),"Sketch-only workholding was not accepted");
+    input=workspace::prepare_cam_calculation(live,part.document_id,first);
+    check(input.clamping_sketches.size()==1&&std::ranges::all_of(input.source_keys,[](const auto& key){return !key.second.empty();}),"Sketch-only workholding needs an invented solid or has an empty source key");
+    changed=session.document();auto rolled=changed.body_history;rolled.set_history_cursor(holding,0);changed.set_body_history(rolled);session.commit_metadata(changed);
+    check(workspace::cam_result_state(session,first)==workspace::CamResultState::InvalidSource,"Rolled-back clamping Sketch remained available");
+    check(session.undo()&&session.undo(),"Undo sketch-only clamping failed");
     // A metadata change alone invalidates an in-flight publication, including Undo/Redo generations.
     input=workspace::prepare_cam_calculation(live,part.document_id,first);r=result(input,"late");
     changed=session.document();auto altered=changed.body_history;auto renamed=*altered.find(first);renamed.name="Renamed";

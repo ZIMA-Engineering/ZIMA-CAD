@@ -313,6 +313,10 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
             auto* setup=new QAction(resource_icon("properties"),tr("CAM setup properties"),tools_toolbar_);setup->setObjectName("camBodyPropertiesAction");
             setup->setEnabled(!properties_dialog_&&workspace_.active_document_id()==workspace_.displayed_document_id());
             connect(setup,&QAction::triggered,this,[this]{const auto* part=workspace_.open_part(workspace_.active_document_id());if(part)show_cam_body_properties(part->session.document().body_history.active_body_id());});add_command(setup);
+            auto* calculate=new QAction(resource_icon("regenerate"),tr("Calculate CAM"),tools_toolbar_);calculate->setObjectName("camCalculateAction");calculate->setEnabled(setup->isEnabled());
+            connect(calculate,&QAction::triggered,this,&AssemblyWorkspaceWindow::calculate_cam_body);add_command(calculate);
+            auto* program=new QAction(resource_icon("properties"),tr("Generic NC program"),tools_toolbar_);program->setObjectName("camNcAction");program->setEnabled(setup->isEnabled());
+            connect(program,&QAction::triggered,this,&AssemblyWorkspaceWindow::show_cam_nc);add_command(program);
             return;
         }
         if(active_render_body()) {

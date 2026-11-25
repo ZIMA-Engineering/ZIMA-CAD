@@ -1,6 +1,11 @@
 #include "assembly_workspace_window.hpp"
 #include "cam_body_dialog.hpp"
 #include "cam_machine_dialog.hpp"
+#include "cam_tools_dialog.hpp"
+#include "cam_operations_dialog.hpp"
+#include "cam_nc_dialog.hpp"
+#include "cam_calculation_dialog.hpp"
+#include "cam_clamping_dialog.hpp"
 #include "global_settings_dialog.hpp"
 #include "../tests/profile_solid_fixture.hpp"
 #include <zima/workspace/cam_operations.hpp>
@@ -19,6 +24,11 @@
 #include <QSettings>
 #include <QTemporaryDir>
 #include <QToolButton>
+#include <QElapsedTimer>
+#include <QThread>
+#include <QFileDialog>
+#include <QFile>
+#include <QTimer>
 #include <QTreeWidget>
 #include <QTreeWidgetItemIterator>
 #include <iostream>
@@ -31,6 +41,17 @@ int verify_cam_body(QApplication& application,AssemblyWorkspaceWindow& window,co
         const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
         const auto click=[&](QWidget* widget,QPoint point){for(auto type:{QEvent::MouseButtonPress,QEvent::MouseButtonRelease}){
             QMouseEvent event(type,QPointF(point),QPointF(widget->mapToGlobal(point)),Qt::LeftButton,type==QEvent::MouseButtonPress?Qt::LeftButton:Qt::NoButton,Qt::NoModifier);QApplication::sendEvent(widget,&event);flush();}};
+        const auto choose_file=[&](QPushButton* trigger,const std::filesystem::path& file){
+            bool chosen=false,timed_out=false;QTimer choose;choose.setInterval(80);
+            QObject::connect(&choose,&QTimer::timeout,[&]{if(auto* d=qobject_cast<QFileDialog*>(QApplication::activeModalWidget())){
+                if(!chosen){d->setDirectory(QString::fromStdString(document::path_to_utf8(file.parent_path())));d->selectFile(QString::fromStdString(document::path_to_utf8(file.filename())));chosen=true;return;}
+                if(auto* name=d->findChild<QLineEdit*>("fileNameEdit"))name->setText(QString::fromStdString(document::path_to_utf8(file)));
+                QMetaObject::invokeMethod(d,"accept",Qt::DirectConnection);
+            }});
+            QTimer timeout;timeout.setSingleShot(true);QObject::connect(&timeout,&QTimer::timeout,[&]{timed_out=true;if(auto* d=qobject_cast<QDialog*>(QApplication::activeModalWidget()))d->reject();});
+            choose.start();timeout.start(10000);trigger->click();choose.stop();timeout.stop();flush();check(chosen&&!timed_out,"CAM library/export file chooser failed");
+        };
+        const auto library=std::filesystem::path(__FILE__).parent_path().parent_path().parent_path()/"config/lib/CAM";
         auto doc=document::PartDocument::create_default();auto stock_feature=test::rectangular_feature(doc,{20,10,6});
         auto target_feature=test::rectangular_feature(doc,{20,10,4});auto fixture_feature=test::rectangular_feature(doc,{30,14,2});doc.history={stock_feature,target_feature,fixture_feature};
         document::BodyHistoryGraph graph;const auto stock=graph.create_body("Authored stock");graph.insert({document::PartHistoryKind::Feature,stock_feature.id});
@@ -87,6 +108,8 @@ int verify_cam_body(QApplication& application,AssemblyWorkspaceWindow& window,co
         auto* origin=dialog->findChild<QPushButton*>("containerDefaultOriginButton");check(origin&&origin->isEnabled(),"CAM has no default Origin entry");origin->click();flush();
         check(document::placement_references_use_whole_origin(dialog->pending_value().cam->work_frame.references),"CAM whole-Origin placement failed");
         dialog->findChild<QPushButton*>("camEditMachine")->click();flush();auto* machine=dynamic_cast<CamMachineDialog*>(window.properties_dialog_);check(machine&&!dialog->isVisible(),"Machine did not open within CAM draft");
+        choose_file(machine->findChild<QPushButton*>("camImportMachine"),library/"Machines/Milling/Three_axis_mill.prtz");
+        check(machine->pending_value().maximum_spindle_rpm==12000&&machine->pending_value().postprocessor_id=="generic"&&session.revision()==revision,"Machine library import lost capabilities or committed the setup");
         machine->findChild<QDoubleSpinBox*>("camMaximumFeed")->setValue(2345.125);machine->buttons()->button(QDialogButtonBox::Ok)->click();flush();
         check(current()==dialog&&dialog->pending_value().cam->machine.maximum_feed_mm_min==2345.125&&session.revision()==revision,"Machine edit committed the parent or lost changes");
         dialog->findChild<QPushButton*>("camEditMachine")->click();flush();machine=dynamic_cast<CamMachineDialog*>(window.properties_dialog_);
@@ -143,6 +166,79 @@ int verify_cam_body(QApplication& application,AssemblyWorkspaceWindow& window,co
         apply_application_translations(application,window.application_settings_);apply_application_appearance(application,window.application_settings_);flush();
         check(window.grab().save(QString::fromStdString(document::path_to_utf8(directory/"cam-setup.png"))),"CAM capture failed");dialog->reject();flush();view->fit_all();flush();
         check(view->grabFramebuffer().save(QString::fromStdString(document::path_to_utf8(directory/"cam-stock-transparent.png"))),"CAM stock capture failed");
+        // Child editors belong to the parent draft. Cancelling the setup after
+        // child OK must discard those edits without a document transaction.
+        const auto editor_revision=session.revision();window.show_cam_body_properties(id);flush();dialog=current();
+        check(!window.tabs_->isEnabled(),"CAM draft allows its scene to move to another document");
+        dialog->findChild<QPushButton*>("camEditTools")->click();flush();
+        auto* tools=dynamic_cast<CamToolsDialog*>(window.properties_dialog_);check(tools,"CAM tool editor is not connected");
+        tools->findChild<QPushButton*>("camAddTool")->click();flush();
+        choose_file(tools->findChild<QPushButton*>("camImportTool"),library/"Tools/Milling/End_mill_10.toolz");
+        check(tools->pending_value().size()==2&&tools->pending_value()[1].feed_mm_min==2663&&tools->pending_value()[1].cutting.front().z_mm==-22,"Tool library import lost explicit dimensions or cutting conditions");
+        tools->buttons()->button(QDialogButtonBox::Ok)->click();flush();
+        check(session.revision()==editor_revision&&dialog->pending_value().cam->tools.size()==2,"Child tool OK committed the document");
+        dialog->reject();flush();check(session.revision()==editor_revision&&session.document().body_history.find(id)->cam->tools.empty(),"Parent Cancel published child tools");
+        check(window.tabs_->isEnabled(),"CAM Cancel did not release document tabs");
+        window.show_cam_body_properties(id);flush();dialog=current();
+        dialog->findChild<QPushButton*>("camEditClampings")->click();flush();auto* clamping=dynamic_cast<CamClampingDialog*>(window.properties_dialog_);
+        check(clamping,"Clamping editor is not connected");clamping->findChild<QPushButton*>("camAddClamping")->click();flush();
+        const auto sketch_id=test::rectangular_sketch_id(stock_feature);auto* sketch_row=row(sketch_id,"part-sketch");check(sketch_row,"Clamping Sketch is missing in Tree");
+        tree->expandAll();tree->scrollToItem(sketch_row);flush();click(tree->viewport(),tree->visualItemRect(sketch_row).center());
+        check(!clamping->active_input()&&clamping->pending_value()[0].contact_sketch_id==sketch_id,"Clamping Tree reference did not select contact Sketch");
+        clamping->arm(1);flush();click(tree->viewport(),tree->visualItemRect(sketch_row).center());
+        check(clamping->pending_value()[0].upper_sketch_id==sketch_id,"Clamping upper reference was not independent");
+        auto* clamp_table=clamping->findChild<QTableWidget*>("camClampingReferences");
+        check(!clamp_table->cellWidget(0,1)&&!clamp_table->cellWidget(1,1),"Required clamping references expose removal");
+        const auto clamp_scene=view->base_mesh_revision();clamp_table->cellWidget(0,5)->findChild<QToolButton*>()->click();flush();
+        check(!clamping->active_input()&&!view->transient_edges().empty()&&view->base_mesh_revision()==clamp_scene,"Clamping inspection armed entry or rebuilt base scene");
+        const auto before_arrow=view->transient_edges()[view->transient_edges().size()-3].points;
+        clamping->findChild<QComboBox*>("camClampingSide0")->setCurrentIndex(1);flush();
+        const auto after_arrow=view->transient_edges()[view->transient_edges().size()-3].points;
+        check(before_arrow[0]==after_arrow[0]&&before_arrow[1]!=after_arrow[1],"Clamping side did not reverse inspected normal");
+        for(const auto& edge:view->transient_edges())check(edge.color=="#00D1FF"&&edge.overlay,"Clamping inspection violates azure wire contract");
+        clamping->arm(0);view->fit_all();flush();std::optional<QPointF> clamp_hit;
+        for(int y=5;y<view->height()&&!clamp_hit;y+=6)for(int x=5;x<view->width()&&!clamp_hit;x+=6)
+            for(const auto& c:view->selection_candidates_at(QPointF(x,y)))if(c.owner_id==sketch_id){clamp_hit=QPointF(x,y);break;}
+        check(clamp_hit.has_value(),"Clamping Sketch is not available for View picking");
+        QMouseEvent clamp_move(QEvent::MouseMove,*clamp_hit,QPointF(view->mapToGlobal(clamp_hit->toPoint())),Qt::NoButton,Qt::NoButton,Qt::NoModifier);QApplication::sendEvent(view,&clamp_move);flush();
+        for(std::size_t i=0;i<view->selection_candidates_at(*clamp_hit).size();++i){if(view->offered_candidate()&&view->offered_candidate()->owner_id==sketch_id)break;
+            for(auto type:{QEvent::MouseButtonPress,QEvent::MouseButtonRelease}){QMouseEvent e(type,*clamp_hit,QPointF(view->mapToGlobal(clamp_hit->toPoint())),Qt::RightButton,type==QEvent::MouseButtonPress?Qt::RightButton:Qt::NoButton,Qt::NoModifier);QApplication::sendEvent(view,&e);flush();}}
+        click(view,clamp_hit->toPoint());flush();
+        check(!clamping->active_input()&&clamping->pending_value()[0].contact_sketch_id==sketch_id,"Clamping View click did not confirm the Sketch");
+        clamping->end_input();clamping->buttons()->button(QDialogButtonBox::Ok)->click();flush();
+        check(session.revision()==editor_revision&&dialog->pending_value().cam->clampings.size()==1,"Clamping child OK committed the setup");
+        dialog->findChild<QPushButton*>("camEditTools")->click();flush();tools=dynamic_cast<CamToolsDialog*>(window.properties_dialog_);
+        tools->findChild<QPushButton*>("camAddTool")->click();flush();tools->buttons()->button(QDialogButtonBox::Ok)->click();flush();
+        dialog->findChild<QPushButton*>("camEditOperations")->click();flush();auto* operations=dynamic_cast<CamOperationsDialog*>(window.properties_dialog_);check(operations,"CAM operation editor is not connected");
+        operations->findChild<QPushButton*>("camAddFacing")->click();flush();operations->findChild<QDoubleSpinBox*>("camFacingStepOver")->setValue(4);
+        operations->buttons()->button(QDialogButtonBox::Ok)->click();flush();check(session.revision()==editor_revision,"Child operation OK committed the document");
+        dialog->buttons()->button(QDialogButtonBox::Ok)->click();flush();check(session.revision()==editor_revision+1,"CAM draft did not commit exactly once");
+        const auto calculation_revision=session.revision();window.calculate_cam_body();flush();QElapsedTimer wait;wait.start();
+        while(dynamic_cast<CamCalculationDialog*>(window.properties_dialog_)&&wait.elapsed()<60000){flush();QThread::msleep(5);}
+        auto* nc=dynamic_cast<CamNcDialog*>(window.properties_dialog_);check(nc,"CAM calculation did not open its generic NC inspector");
+        check(!window.tabs_->isEnabled(),"NC inspector allows an overlay in another document");
+        // The rectangular fixtures are symmetric around Z=0: stock [-3,3],
+        // target [-2,2]. Facing removes the upper 20*10*1 layer only; the lower
+        // allowance intentionally remains for a second, turned-over setup.
+        const auto calculated=session.document().body_history.find(id)->cam->calculated;
+        if(calculated)std::cout<<"GUI CAM removed="<<calculated->removed_mm3<<" mm3; collisions="<<calculated->collisions.size()<<'\n';
+        check(calculated&&calculated->collisions.empty()&&std::abs(calculated->removed_mm3-200)<1e-3,"CAM GUI calculated incorrect remaining stock or collisions");
+        check(calculated->contacts.size()==1&&std::abs(calculated->contacts[0].remaining_mm2-200)<1e-6,"GUI clamping contact report differs from exact geometry");
+        check(session.revision()==calculation_revision+1,"CAM calculation did not publish exactly one transaction");
+        const auto inspection_revision=session.revision();const auto nc_count=kernel::body_calculation_count.load();
+        const auto exported=std::filesystem::absolute(directory/"verified-program.nc.txt");
+        choose_file(nc->findChild<QPushButton*>("camNcExport"),exported);QFile nc_file(QString::fromStdString(document::path_to_utf8(exported)));
+        check(nc_file.open(QIODevice::ReadOnly)&&nc_file.readAll().toStdString()==nc->program_text(),"Generic NC export differs from the calculated program");nc_file.close();
+        nc->findChild<QPushButton*>("camNcNext")->click();nc->findChild<QSlider*>("camNcFraction")->setValue(700);nc->findChild<QCheckBox*>("camNcRemaining")->setChecked(true);flush();
+        check(session.revision()==inspection_revision&&kernel::body_calculation_count.load()==nc_count,"NC stepping recalculated geometry or modified the document");
+        check(window.grab().save(QString::fromStdString(document::path_to_utf8(directory/"cam-nc-program.png"))),"CAM NC capture failed");nc->reject();flush();
+        window.calculate_cam_body();flush();check(dynamic_cast<CamNcDialog*>(window.properties_dialog_)&&session.revision()==inspection_revision,"Current CAM recalculated or made an Undo transaction");window.properties_dialog_->reject();flush();
+        const auto cancellation_input=workspace::prepare_cam_calculation(window.workspace_,doc.document_id,id);bool cancellation_published=false;
+        auto* cancelling=new CamCalculationDialog(cancellation_input,[&](auto){cancellation_published=true;},&window);
+        window.properties_dialog_=cancelling;QObject::connect(cancelling,&QDialog::finished,&window,[&]{window.properties_dialog_=nullptr;});cancelling->show();cancelling->reject();wait.restart();
+        while(window.properties_dialog_&&wait.elapsed()<60000){flush();QThread::msleep(5);}
+        check(!window.properties_dialog_&&!cancellation_published&&session.revision()==inspection_revision,"Cancelled CAM calculation published or did not close");
+        check(kernel::body_calculation_count.load()==count,"CAM calculation regenerated source CAD geometry");
         {
             const auto locale_directory=QString::fromStdString(document::path_to_utf8(
                 std::filesystem::path(__FILE__).parent_path().parent_path().parent_path()/"config/localization"));
@@ -162,6 +258,22 @@ int verify_cam_body(QApplication& application,AssemblyWorkspaceWindow& window,co
                 global.findChild<QLineEdit*>("globalPathCamTools")->setText("custom-tools");
                 global.buttons()->button(QDialogButtonBox::Ok)->click();flush();
                 check(global.settings().configured_paths.value("CamTools")=="custom-tools","CAM library path edit was lost");
+                auto definition=*session.document().body_history.find(id)->cam;
+                auto* translated_tools=new CamToolsDialog(definition,[](auto){},&window);translated_tools->show();flush();
+                check(translated_tools->findChild<QPushButton*>("camAddTool")->text()==settings.qt_translations.value("Add tool"),"Tool editor text did not follow language");translated_tools->reject();flush();
+                auto* translated_operations=new CamOperationsDialog(definition,[](auto){},&window);translated_operations->show();flush();
+                check(translated_operations->findChild<QPushButton*>("camAddFacing")->text()==settings.qt_translations.value("Add facing"),"Operation editor text did not follow language");translated_operations->reject();flush();
+                auto* translated_clamping=new CamClampingDialog(definition,{{sketch_id,"Authored contact"}},[](auto){},&window);translated_clamping->show();flush();
+                check(translated_clamping->findChild<QComboBox*>("camClampingSide0")->itemText(0)==settings.qt_translations.value("Positive normal"),"Clamping side text did not follow language");
+                check(translated_clamping->pending_value()==definition.clampings,"Language changed authored clamping data");translated_clamping->reject();flush();
+                auto reported=std::make_shared<document::CamCalculated>(*calculated);
+                const auto compiled=cam::compile(reported->program,reported->machine,reported->tools,reported->machine_work_origin);const auto& motion=compiled.motions.front();
+                reported->warnings.push_back({cam::ClampingWarningKind::ContactLoss,motion.operation_id,motion.block_id,motion.tool_id,definition.clampings.front().id,0,10,190});
+                auto* translated_nc=new CamNcDialog(reported,[](auto,bool){},&window);translated_nc->show();flush();
+                check(translated_nc->findChild<QPushButton*>("camNcNext")->text()==settings.qt_translations.value("Next motion"),"NC inspector text did not follow language");
+                auto* reports=translated_nc->findChild<QListWidget*>("camNcCollisions");reports->setCurrentRow(0);flush();
+                check(translated_nc->findChild<QListWidget*>("camNcLines")->currentItem()->data(Qt::UserRole).toString().toStdString()==motion.block_id,"Clamping warning selected the wrong NC block");
+                translated_nc->reject();flush();
             }
             apply_application_translations(application,window.application_settings_);
         }

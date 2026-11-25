@@ -19,7 +19,7 @@ std::string digest(const std::string& text) {
 struct Inputs {
     CamResultState state{CamResultState::Current};
     std::vector<std::pair<std::string,kernel::BodySnapshot>> material;
-    std::vector<sketcher::Sketch> sketches;
+    std::vector<CamSketchInput> sketches;
     std::vector<std::pair<std::string,std::string>> keys;
 };
 class InputReader {
@@ -35,7 +35,6 @@ public:
         auto status=inputs.state;const auto& d=*body->cam;
         if(status==CamResultState::Current) {
             if(!d.calculated)status=CamResultState::NotCalculated;
-            else if(!d.clamping_sketch_ids.empty())status=CamResultState::InvalidSource;
             else if(!document::cam_result_matches_definition(d)||d.calculated->sources!=inputs.keys)status=CamResultState::Stale;
             else if(document::cam_result_has_collisions(*d.calculated))status=CamResultState::Collision;
         }
@@ -81,7 +80,7 @@ public:
             if(const auto* branch=doc.body_owner_for_object(owner))add(branch->scope.id,false,false);
             else if(graph.find(owner)||graph.find_boolean(owner))add(owner,false,false);
         }
-        for(const auto& id:d.clamping_sketch_ids) {
+        for(const auto& id:document::cam_clamping_sketch_ids(d)) {
             if(result.state!=CamResultState::Current)break;
             const auto found=std::ranges::find(doc.sketches,id,&sketcher::Sketch::id);
             if(found==doc.sketches.end()){result.state=CamResultState::MissingSource;break;}
@@ -94,9 +93,27 @@ public:
             if(!owner->scope.placement.reference_valid||(feature&&!feature->placement.reference_valid)){
                 result.state=CamResultState::UnresolvedFrame;break;
             }
-            add(owner->scope.id,false,false);
+            const auto entry=std::ranges::find(owner->entries,found->owner_container_id.empty()?id:found->owner_container_id,&document::PartHistoryEntry::id);
+            if(entry==owner->entries.end()||std::size_t(entry-owner->entries.begin())>=owner->cursor){
+                result.state=CamResultState::InvalidSource;break;
+            }
+            // A workholding definition may consist only of its contact Sketches.
+            // It needs no invented solid. Existing calculated source errors still
+            // invalidate it; each exact Sketch/frame participates in the key.
+            if(!session.calculated_boundaries().empty()) {
+                const auto& outputs=session.calculated_boundaries().back().body_outputs;
+                if(const auto output=outputs.find(owner->scope.id);output!=outputs.end()) {
+                    if(!output->second->calculation_errors.empty()){result.state=CamResultState::InvalidSource;break;}
+                    if(!output->second->source_fingerprint.empty()&&included.insert(owner->scope.id).second)
+                        result.keys.emplace_back(owner->scope.id,output->second->source_fingerprint);
+                }
+            }
+            if(std::ranges::any_of(found->external_references,[](const auto& r){return r.broken;})||
+               doc.removed_reference_states.contains(found->owner_container_id)||doc.removed_reference_states.contains(id)){
+                result.state=CamResultState::InvalidSource;break;
+            }
             result.keys.emplace_back(id,digest(found->serialized()+nlohmann::json(owner->scope.placement).dump()));
-            result.sketches.push_back(*found);
+            result.sketches.push_back({*found,owner->scope.placement});
         }
         return result;
     }
@@ -141,6 +158,22 @@ kernel::ViewerReferenceGeometry cam_placement_geometry(const document::DocumentS
     }
     return geometry;
 }
+std::vector<std::string> cam_clamping_candidates(const document::DocumentSession& session,const BodyGraphEdit& edit) {
+    validate_body_graph_edit(session,edit);const auto& doc=session.document();const auto& graph=doc.body_history;
+    const auto own=std::ranges::find(graph.order(),edit.object_id);
+    const auto boundary=own==graph.order().end()?graph.insertion_cursor():std::size_t(own-graph.order().begin());
+    std::vector<std::string> result;
+    for(const auto& sketch:doc.sketches) {
+        const auto* owner=doc.body_owner_for_object(sketch.id);const auto* feature=doc.find_container(sketch.owner_container_id);
+        if(!owner||owner->kind()!=document::BodyKind::Material||owner->suppressed||sketch.suppressed||!owner->scope.placement.reference_valid||
+           (feature&&(feature->suppressed||!feature->placement.reference_valid))||
+           std::size_t(std::ranges::find(graph.order(),owner->scope.id)-graph.order().begin())>=boundary)continue;
+        const auto entry=std::ranges::find(owner->entries,sketch.owner_container_id.empty()?sketch.id:sketch.owner_container_id,&document::PartHistoryEntry::id);
+        if(entry==owner->entries.end()||std::size_t(entry-owner->entries.begin())>=owner->cursor)continue;
+        result.push_back(sketch.id);
+    }
+    return result;
+}
 bool commit_cam(Workspace& live,const BodyGraphEdit& edit,document::BodyHistory value) {
     auto* state=live.open_part(edit.document_id);if(!state)invalid();auto& session=state->session;
     validate_body_graph_edit(session,edit);
@@ -156,12 +189,10 @@ bool commit_cam(Workspace& live,const BodyGraphEdit& edit,document::BodyHistory 
     if((!initial||initial->cam->target_id!=value.cam->target_id)&&!accepts(materials,value.cam->target_id))invalid();
     for(const auto& id:value.cam->fixture_ids)
         if((!initial||!accepts(initial->cam->fixture_ids,id))&&!accepts(materials,id))invalid();
-    for(const auto& id:value.cam->clamping_sketch_ids) {
-        if(initial&&accepts(initial->cam->clamping_sketch_ids,id))continue;
-        const auto& doc=session.document();const auto found=std::ranges::find(doc.sketches,id,&sketcher::Sketch::id);
-        const auto* owner=doc.body_owner_for_object(id);
-        if(found==doc.sketches.end()||found->suppressed||!owner||!accepts(materials,owner->scope.id))invalid();
-        if(const auto* feature=doc.find_container(found->owner_container_id);feature&&feature->suppressed)invalid();
+    const auto sketches=cam_clamping_candidates(session,edit);
+    for(const auto& id:document::cam_clamping_sketch_ids(*value.cam)) {
+        if(initial&&accepts(document::cam_clamping_sketch_ids(*initial->cam),id))continue;
+        if(!accepts(sketches,id))invalid();
     }
     auto resolved=value.cam->work_frame;
     if(document::resolve_placement(resolved,cam_placement_geometry(session,edit)))value.cam->work_frame=std::move(resolved);
@@ -191,8 +222,9 @@ bool publish_cam_calculation(Workspace& live,const CamCalculationInput& input,do
             state->session.data_generation()!=input.generation)return false;
     auto current=prepare_cam_calculation(live,input.document_id,input.body_id);
     if(current.intent_key!=input.intent_key||current.source_keys!=input.source_keys)return false;
-    if(!current.definition.clamping_sketch_ids.empty())
-        throw std::invalid_argument("CAM clamping Sketch checks are not available yet. Use fixture Bodies for collision checking.");
+    if(result.contacts.size()!=current.definition.clampings.size())invalid();
+    for(std::size_t i=0;i<result.contacts.size();++i)
+        if(result.contacts[i].clamping_id!=current.definition.clampings[i].id)invalid();
     if(result.intent_key!=input.intent_key||result.sources!=input.source_keys||result.machine!=input.definition.machine||
        result.tools!=input.definition.tools||result.machine_work_origin!=input.definition.machine_work_origin||
        result.work_frame!=input.definition.work_frame||result.tolerance_mm!=input.definition.tolerance_mm)invalid();

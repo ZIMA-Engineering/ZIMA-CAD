@@ -11,6 +11,11 @@ struct CamManualOperation {
     bool operator==(const CamManualOperation&) const = default;
 };
 using CamOperation=std::variant<CamManualOperation,cam::Facing>;
+struct CamClamping {
+    std::string id,name,contact_sketch_id,upper_sketch_id;
+    bool outward_positive{true},upper_positive{true};
+    bool operator==(const CamClamping&) const = default;
+};
 [[nodiscard]] const std::string& cam_operation_id(const CamOperation&);
 [[nodiscard]] const std::string& cam_operation_name(const CamOperation&);
 
@@ -24,12 +29,15 @@ struct CamCalculated {
     Placement work_frame;
     kernel::BodySnapshot remaining;
     std::vector<cam::Collision> collisions;
+    std::vector<cam::ClampingWarning> warnings;
+    std::vector<cam::ClampingContact> contacts;
     double removed_mm3{},missing_target_mm3{},tolerance_mm{1e-7};
     bool operator==(const CamCalculated&) const;
 };
 struct CamDefinition {
     std::string stock_id,target_id;
-    std::vector<std::string> fixture_ids,clamping_sketch_ids;
+    std::vector<std::string> fixture_ids;
+    std::vector<CamClamping> clampings;
     Placement work_frame;
     cam::Machine machine;
     cam::Point machine_work_origin;
@@ -43,6 +51,7 @@ struct CamDefinition {
     bool operator==(const CamDefinition&) const;
 };
 void validate_cam_definition(const CamDefinition&);
+[[nodiscard]] std::vector<std::string> cam_clamping_sketch_ids(const CamDefinition&);
 // Full result validation belongs to native loading or explicit publication,
 // never repeated Body graph/Properties validation of an immutable result.
 void validate_cam_calculated(const CamCalculated&);

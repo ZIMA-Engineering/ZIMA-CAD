@@ -1258,6 +1258,11 @@ public:
             NativeCalculatedCacheReuse::ExactDefinition) const;
 };
 
+// Calculation-only adapter: preserve exact authored curves and compose the
+// resolved Sketch frame, owning Body and machining work frame. No solve/kernel.
+[[nodiscard]] kernel::ProjectionRequest cam_sketch_request(const sketcher::Sketch&,
+    const Placement& body_frame,const Placement& work_frame,bool bounded_region);
+
 // Bounding-box diagonal of a mesh's vertices/edges/points, matching Python's
 // `_scene_diagonal()`. Used to scale the Origin axes/planes proportionally
 // to the scene instead of using a fixed size. Origin geometry itself
