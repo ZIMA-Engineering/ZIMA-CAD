@@ -97,6 +97,13 @@ serialization/reopening retained the definition and calculated shape.
 Four new text keys are translated in cs/en/de/fr/ru. Local source scanning also
 finds an unfinished, untracked CAM editor; it is excluded from this CAD release.
 The committed-source catalog/coverage gate must pass before publication.
+
+Visual acceptance rejected the unpublished 2501 candidate because the Stop SVG
+was missing from the Qt resource collection. Replacement 2502 includes that
+resource and verifies opaque pixels in all three transport icons in both themes
+and all five languages. The export status reserves one fixed-height line instead
+of three; the complete final message remains available in its tooltip. This
+keeps controls stable without retaining a large blank message area.
 No native format, template contract or protected placement solver changes in
 this follow-up. Native Linux execution and the previously documented dedicated
 external/nested Wrap GUI matrix remain unverified. Package acceptance and public

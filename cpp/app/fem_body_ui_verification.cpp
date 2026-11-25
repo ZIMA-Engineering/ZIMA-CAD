@@ -872,6 +872,16 @@ int verify_fem_body(QApplication& application,AssemblyWorkspaceWindow& window,co
                         player_button->text()==localized.qt_translations.value("Start playback")&&
                         pause_button->text()==localized.qt_translations.value("Pause playback")&&
                         stop_button->text()==localized.qt_translations.value("Stop playback"),"Player transport controls did not translate");
+                    for(auto* transport:{player_button,pause_button,stop_button}) {
+                        const auto icon=transport->icon().pixmap(QSize(24,24)).toImage();
+                        unsigned visible{};
+                        for(int y=0;y<icon.height();++y)for(int x=0;x<icon.width();++x)
+                            visible+=icon.pixelColor(x,y).alpha()>128;
+                        check(visible>20,"Player transport icon is missing from application resources");
+                    }
+                    const auto* export_status=form->findChild<QLabel*>("femVideoStatus");
+                    check(export_status&&export_status->height()<=export_status->fontMetrics().lineSpacing()+6,
+                        "Player reserves unnecessary empty export status rows");
                     player_button->click();flush();
                     check(!player_button->isEnabled()&&pause_button->isEnabled(),"Player transport state did not become Running");
                     pause_button->click();flush();

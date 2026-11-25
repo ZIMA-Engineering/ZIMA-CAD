@@ -2,6 +2,7 @@
   <qresource prefix="/zima">
     <file alias="icons/media-play.svg">../../resources/icons/media-play.svg</file>
     <file alias="icons/media-pause.svg">../../resources/icons/media-pause.svg</file>
+    <file alias="icons/media-stop.svg">../../resources/icons/media-stop.svg</file>
     <file alias="icons/filter.svg">../../resources/icons/filter.svg</file>
     <file alias="icons/overview.svg">../../resources/icons/overview.svg</file>
     <file alias="icons/clean.svg">../../resources/icons/clean.svg</file>

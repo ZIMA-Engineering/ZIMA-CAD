@@ -210,11 +210,11 @@ public:
         explanation->setWordWrap(true);form->addRow(explanation);
         auto* save=new QPushButton(resource_icon("export"),tr("Save video"),this);save->setObjectName("femSaveVideo");
         content_layout()->addWidget(save);
-        status_=new QLabel(this);status_->setWordWrap(true);status_->setObjectName("femVideoStatus");
+        status_=new QLabel(this);status_->setObjectName("femVideoStatus");
         // Export progress and a long destination path must not resize the
         // player or move its controls while playback/settings are in use.
         status_->setSizePolicy(QSizePolicy::Ignored,QSizePolicy::Fixed);
-        status_->setFixedHeight(status_->fontMetrics().lineSpacing()*3+6);
+        status_->setFixedHeight(status_->fontMetrics().lineSpacing()+6);
         content_layout()->addWidget(status_);
         connect(save,&QPushButton::clicked,this,[this,save_video] {
             animation_.pause();
