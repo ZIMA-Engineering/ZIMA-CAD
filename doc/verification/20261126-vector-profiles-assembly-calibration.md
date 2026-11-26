@@ -101,6 +101,10 @@ These are finite suite durations, including automated screen search, not user
 operation benchmarks. The extended work-plane matrix has a 180 s test timeout.
 Helical Properties was also inspected in its captured image: the View field is
 readable without scrollbars and the original side-by-side Sketch layout remains.
+The final owned-Sketch follow-up also ends the internal work-plane entry state
+when Default Origin leaves the plane combo unchanged. Its Loft GUI regression
+passed in 43.02 s, including the explicit inactive command-state assertion.
+This follow-up changes no user-visible text.
 
 The user's `02.prtz` was read and regenerated to an isolated copy. Seven history
 boundaries reopen without errors; history and sketches are unchanged. Volume is

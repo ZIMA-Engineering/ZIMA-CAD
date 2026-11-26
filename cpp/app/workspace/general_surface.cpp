@@ -271,8 +271,10 @@ void AssemblyWorkspaceWindow::show_owned_sketch_properties(ui::PropertiesSubWind
         auto* plane_input=dialog->findChild<QTableWidget*>("featureProfilePlaneView");
         auto* plane_choice=dialog->findChild<QComboBox*>("featureProfilePlane");
         const auto end_plane_entry=[this,dialog,plane_input,local_pick] {
-            if(auto* item=dynamic_cast<ui::ReferenceCellItem*>(plane_input->item(0,1)))item->set_active_input(false);
-            plane_input->viewport()->update();
+            // Default Origin may end entry without changing the plane combo.
+            // Retire both its visual and command state before restoring picks.
+            if(auto* selector=dynamic_cast<WorkPlaneSelector*>(plane_input->parentWidget()))
+                selector->set_entry_active(false);
             feature_reference_end_={};feature_reference_pick_=local_pick;
             pending_primitive_reference_index_.reset();primitive_reference_auto_advance_=false;
             dialog->set_active_reference_index({});dialog->clear_reference_highlights();

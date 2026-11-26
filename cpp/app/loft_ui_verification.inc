@@ -214,6 +214,7 @@ int verify_loft_ui(QApplication& application,AssemblyWorkspaceWindow& window,con
             field(input,0,1);check(initial_child->pending_value().placement==inherited,"Arming View-plane entry changed inherited placement");
             initial_child->findChild<QPushButton*>("containerDefaultOriginButton")->click();flush();
             check(!dynamic_cast<ui::ReferenceCellItem*>(input->item(0,1))->is_active_input(),"Default Origin left View-plane entry active");
+            check(!dynamic_cast<WorkPlaneSelector*>(input->parentWidget())->entry_active,"Default Origin left the work-plane command armed");
             field(input,0,1);
             click(view,view->rect().center(),Qt::MiddleButton);
             check(initial_child->pending_value().placement==inherited,"Cancelling View-plane entry removed inherited placement");
