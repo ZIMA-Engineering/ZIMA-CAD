@@ -3339,6 +3339,8 @@ void contract(bool include_oblique_corners = true) {
 
 int main(int argc,char** argv) {
     try {
+        // Fresh committed-source stages have no pre-existing build directory.
+        std::filesystem::create_directories("build");
         if(argc==1){contract();return 0;}
         if (argc == 2 && std::string_view(argv[1]) == "--without-oblique-corners") {
             contract(false);

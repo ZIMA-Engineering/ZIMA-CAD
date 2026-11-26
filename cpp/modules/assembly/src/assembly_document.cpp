@@ -872,6 +872,16 @@ ComponentPlacement solve_placement(const PlacementSystem& system,const PartOccur
                     const auto next=step_pose(pose,direction,angle/angular,system.scale);
                     const double score=cost(placement_residuals(system,next));
                     if(score<best_cost-1e-14){best_cost=score;best=next;accepted=true;}
+                    // At an antiparallel normal, rotation about the global
+                    // origin can worsen a coincident point enough to hide the
+                    // angular improvement. Also explore around each authored
+                    // point contact, accepting only a lower full-system cost.
+                    for(const auto& equation:system.constraints)if(equation.kind==MateKind::PointCoincident) {
+                        auto pivoted=next;
+                        pivoted.position=subtract(equation.target_point,multiply(next.rotation,equation.point));
+                        const double pivot_cost=cost(placement_residuals(system,pivoted));
+                        if(pivot_cost<best_cost-1e-14){best_cost=pivot_cost;best=pivoted;accepted=true;}
+                    }
                 }
             }
             if(accepted){pose=best;damping=1e-6;}else break;

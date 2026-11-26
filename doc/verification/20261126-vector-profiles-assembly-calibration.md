@@ -137,3 +137,20 @@ The separate proposed Sketcher Take geometry command was explicitly deferred by
 the user and is outside this release. Work-plane fields remain plane selectors.
 
 A committed-source portable build, signed-package validation and GitHub publication are still required.
+
+## Committed-package gate follow-up
+
+The first clean candidate correctly stopped at two mandatory sheet gates. The
+Sheet Exchange test now creates its own disposable build parent in a fresh source
+stage. Transition end-profile and end-Origin datums publish analytic plane
+supports from their authored frames, including transformed origins and directions.
+The Assembly solver's existing angular-departure search also considers rotation
+about a coincident authored point; candidates still must reduce the complete
+constraint residual. This resolves the antiparallel point/plane stationary case
+without changing tolerances or accepting unsatisfied mates.
+
+Sheet Exchange passed in 55.43 s. The expanded Transition contract passed in
+44.57 s, covering repeated opposite/same normal choices with a fixed common point,
+plane invariance under corrupted display vertices, exact end-frame equations,
+native reopen and cold regeneration. Existing Assembly contracts passed in 0.93 s.
+These fixes add no user-visible text and no new serialized field or format.

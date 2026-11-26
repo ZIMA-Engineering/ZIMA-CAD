@@ -58,6 +58,15 @@ void check_material_preview(document::HistoryContainer feature) {
     using namespace kernel::sheet_material;
     document::reframe_sheet_transition(feature);
     const auto& p=feature.sheet_transition;
+    const auto datums=document::sheet_transition_end_references(feature);
+    for(std::size_t i=0;i<datums.triangle_references.size();++i) {
+        const auto plane=datums.triangle_references[i].contour_surface;
+        check(plane&&plane->kind==kernel::SurfaceGeometry::Kind::Plane,"Transition datum lacks its exact plane");
+        const auto a=datums.vertices[datums.triangles[i*3]],b=datums.vertices[datums.triangles[i*3+1]],c=datums.vertices[datums.triangles[i*3+2]];
+        check(std::abs(dot(sub(a,plane->origin),plane->axis))<1e-8&&std::abs(dot(sub(b,plane->origin),plane->axis))<1e-8&&std::abs(dot(sub(c,plane->origin),plane->axis))<1e-8,
+            "Transition datum plane did not follow its authored end frame");
+        check(dot(cross(sub(b,a),sub(c,a)),plane->axis)>0,"Transition datum plane changed its side");
+    }
     const auto material=[&] {
         const auto a=sketcher::Sketch::from_serialized(p.sketches[0]),b=sketcher::Sketch::from_serialized(p.sketches[1]);
         if(document::rectangular_sheet_transition(feature))
@@ -104,6 +113,14 @@ void check_assembly_datums(const kernel::BodyResult& body,const std::string& own
     for(const auto* key:{"axis:start","axis:end"})
         check(assembly.resolve_point(reference("fixed",assembly::MateReferenceKind::Point,key)).status==assembly::MateStatus::Valid,"Assembly cannot resolve transition endpoint");
     check(assembly.resolve_plane(reference("fixed",assembly::MateReferenceKind::Face,"plane:end")).status==assembly::MateStatus::Valid,"Assembly cannot resolve transition end plane");
+    const auto authored_plane=assembly.resolve_plane(reference("fixed",assembly::MateReferenceKind::Face,"plane:end")).plane;
+    auto damaged_display=body;
+    for(auto& vertex:damaged_display.mesh.original_references.vertices)vertex={1234,-5678,9012};
+    assembly.components[0].calculated_source=kernel::BodySnapshot(damaged_display);
+    const auto exact_plane=assembly.resolve_plane(reference("fixed",assembly::MateReferenceKind::Face,"plane:end"));
+    check(exact_plane.status==assembly::MateStatus::Valid&&exact_plane.plane.point==authored_plane.point&&exact_plane.plane.normal==authored_plane.normal,
+        "Transition plane mate depends on display vertices");
+    assembly.components[0].calculated_source=fixed.calculated_source;
     assembly.components[1].placement_references={
         {assembly::MateKind::PointCoincident,reference("moving",assembly::MateReferenceKind::Point,"axis:end"),reference("fixed",assembly::MateReferenceKind::Point,"axis:end")},
         {assembly::MateKind::PlaneCoincident,reference("moving",assembly::MateReferenceKind::Face,"plane:end"),reference("fixed",assembly::MateReferenceKind::Face,"plane:end")}};
@@ -112,11 +129,16 @@ void check_assembly_datums(const kernel::BodyResult& body,const std::string& own
     const auto fixed_point=assembly.resolve_point(reference("fixed",assembly::MateReferenceKind::Point,"axis:end")).point;
     const auto delta=kernel::sheet_material::sub(moving_point,fixed_point);
     check(std::hypot(delta.x,delta.y,delta.z)<1e-6,"Assembly did not mate transition end datums");
-    assembly.components[1].placement_references.back().flip=true;
-    assembly.calculate_placement_references();
-    const auto a=assembly.resolve_plane(reference("moving",assembly::MateReferenceKind::Face,"plane:end")).plane;
-    const auto b=assembly.resolve_plane(reference("fixed",assembly::MateReferenceKind::Face,"plane:end")).plane;
-    check(kernel::sheet_material::dot(a.normal,b.normal)<-1+1e-7,"End plane lost opposite-side choice at zero offset");
+    for(const bool flip:{true,false,true,false}) {
+        assembly.components[1].placement_references.back().flip=flip;
+        assembly.calculate_placement_references();
+        const auto a=assembly.resolve_plane(reference("moving",assembly::MateReferenceKind::Face,"plane:end")).plane;
+        const auto b=assembly.resolve_plane(reference("fixed",assembly::MateReferenceKind::Face,"plane:end")).plane;
+        check(std::abs(kernel::sheet_material::dot(a.normal,b.normal)-(flip?-1.:1.))<1e-7,"End plane lost its selected side at zero offset");
+        const auto contact=assembly.resolve_point(reference("moving",assembly::MateReferenceKind::Point,"axis:end")).point;
+        const auto error=kernel::sheet_material::sub(contact,fixed_point);
+        check(std::hypot(error.x,error.y,error.z)<1e-6,"Flipping the end plane moved its coincident endpoint");
+    }
 }
 }
 void check_inherited_transition_thickness() {

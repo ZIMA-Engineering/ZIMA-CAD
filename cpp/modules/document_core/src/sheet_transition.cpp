@@ -3,6 +3,7 @@
 #include <transition_sheet.hpp>
 #include <zima/document/container_origin_display.hpp>
 #include <algorithm>
+#include <map>
 namespace zima::document {
 namespace {
 using namespace kernel::sheet_material;
@@ -174,6 +175,18 @@ kernel::ViewerReferenceGeometry sheet_transition_end_references(const HistoryCon
     const auto s=sketcher::Sketch::from_serialized(*selected);
     const auto vector=[&](kernel::Vec3 p){return add(add(mul(s.resolved_x_axis,p.x),mul(s.resolved_y_axis,p.y)),mul(s.resolved_normal,p.z));};
     const auto point=[&](kernel::Vec3 p){return add(s.resolved_origin,vector(p));};
+    // Origin datum supports must follow the same authored frame as their wires.
+    std::map<const kernel::SurfaceGeometry*,std::shared_ptr<const kernel::SurfaceGeometry>> planes;
+    for(auto& reference:result.triangle_references)if(reference.contour_surface) {
+        const auto original=reference.contour_surface;
+        auto& placed=planes[original.get()];
+        if(!placed) {
+            auto plane=std::make_shared<kernel::SurfaceGeometry>(*original);
+            plane->origin=point(original->origin);plane->axis=vector(original->axis);plane->radial=vector(original->radial);
+            placed=std::move(plane);
+        }
+        reference.contour_surface=placed;
+    }
     for(auto& p:result.vertices)p=point(p);
     for(auto& e:result.edges)for(auto& p:e.points)p=point(p);
     for(auto& p:result.points)p.position=point(p.position);
@@ -194,7 +207,12 @@ kernel::ViewerReferenceGeometry sheet_transition_profile_plane(const HistoryCont
     for(const auto [x,y]:std::array<std::pair<double,double>,4>{{{-20,-20},{20,-20},{20,20},{-20,20}}})
         result.vertices.push_back(add(center,add(mul(sketch.resolved_x_axis,x),mul(sketch.resolved_y_axis,y))));
     result.triangles={0,1,2,0,2,3};
-    result.triangle_references.assign(2,{feature.id,"plane:end",{}});
+    kernel::FaceReference reference{feature.id,"plane:end",{}};
+    auto plane=std::make_shared<kernel::SurfaceGeometry>();
+    plane->kind=kernel::SurfaceGeometry::Kind::Plane;plane->origin=center;
+    plane->axis=sketch.resolved_normal;plane->radial=sketch.resolved_x_axis;
+    reference.contour_surface=std::move(plane);
+    result.triangle_references.assign(2,reference);
     return result;
 }
 std::array<kernel::ViewerPoint,2> sheet_transition_axis_points(const HistoryContainer& source,bool editing) {
