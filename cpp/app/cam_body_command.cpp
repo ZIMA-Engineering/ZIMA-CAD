@@ -178,7 +178,31 @@ void AssemblyWorkspaceWindow::show_cam_body_properties(const std::string& id) {
             try{child->append_tool(document::cam_library_tool(document::PartDocument::load(std::filesystem::u8path(path.toStdString()))));}
             catch(const std::exception& e){child->show_submission_error(tr(e.what()));}
         };open_child(child);};
-    dialog->edit_operations=[this,dialog,open_child]{open_child(new CamOperationsDialog(*dialog->pending_value().cam,[dialog](auto value){dialog->set_operations(std::move(value));},this));};
+    dialog->edit_operations=[this,dialog,open_child,edit,base]{
+        const auto* part=workspace_.open_part(edit.document_id);if(!part)return;const auto& doc=part->session.document();
+        std::map<std::string,QString> labels;auto meshes=std::make_shared<std::map<std::string,kernel::ViewerMesh>>();
+        auto offered=std::make_shared<kernel::ViewerMesh>(*base);
+        for(const auto& id:workspace::cam_clamping_candidates(part->session,edit)){
+            const auto& sketch=*std::ranges::find(doc.sketches,id,&sketcher::Sketch::id);const auto* body=doc.body_owner_for_object(id);
+            labels[id]=QString::fromStdString(body->name+" / "+sketch.name);auto mesh=doc.place_body_mesh(sketch.viewer_mesh(false),body->scope.id);
+            for(auto edge:mesh.edges){edge.reference.owner_id=id;edge.display_owner_id=id;offered->original_references.edges.push_back(std::move(edge));}
+            meshes->emplace(id,std::move(mesh));
+        }
+        auto* child=new CamOperationsDialog(*dialog->pending_value().cam,[dialog](auto value){dialog->set_operations(std::move(value));},this,std::move(labels));
+        auto armed=std::make_shared<std::optional<bool>>();
+        child->changed=[this,child,base,offered,meshes,armed]{
+            const bool active=child->active_input();if(!armed->has_value()||**armed!=active){viewer_->set_mesh(active?*offered:*base);*armed=active;}
+            viewer_->set_original_container_selection(active);viewer_->set_selection_contract(active?std::vector{viewer::CandidateKind::Container}:std::vector<viewer::CandidateKind>{});
+            viewer_->set_candidate_filter([child](const auto& c){return c.instance_path.empty()&&child->accepts_source(c.owner_id);});tree_->setProperty("commandSelectionActive",active);
+            feature_reference_pick_=active?std::function<void(const viewer::ViewerCandidate&)>([child](const auto& c){child->set_source(c.owner_id);}):std::function<void(const viewer::ViewerCandidate&)>{};
+            feature_reference_end_=[child]{child->end_input();};std::vector<kernel::ViewerEdge> wire;
+            if(active)for(const auto& entry:*meshes)for(auto edge:entry.second.edges){edge.overlay=true;edge.color="#FFFFFF";wire.push_back(std::move(edge));}
+            for(const auto& id:child->inspections())if(meshes->contains(id))for(auto edge:meshes->at(id).edges){edge.overlay=true;edge.color="#00D1FF";wire.push_back(std::move(edge));}
+            viewer_->set_transient_edges(std::move(wire));
+        };
+        connect(child,&QDialog::finished,dialog,[this,base]{feature_reference_pick_={};feature_reference_end_={};viewer_->set_transient_edges({});viewer_->set_mesh(*base);viewer_->set_original_container_selection(false);tree_->setProperty("commandSelectionActive",false);});
+        open_child(child);child->changed();
+    };
     dialog->edit_clampings=[this,dialog,open_child,edit,base]{
         const auto* part=workspace_.open_part(edit.document_id);if(!part)return;const auto& doc=part->session.document();
         const auto candidates=workspace::cam_clamping_candidates(part->session,edit);
@@ -225,6 +249,10 @@ void AssemblyWorkspaceWindow::show_cam_body_properties(const std::string& id) {
     bind_local_origin_selection(dialog);dialog->show();dialog->changed();if(id.empty())dialog->arm(0);
 }
 bool AssemblyWorkspaceWindow::accept_cam_tree_reference(QTreeWidgetItem* item){
+    if(auto* dialog=dynamic_cast<CamOperationsDialog*>(properties_dialog_);item&&dialog&&dialog->active_input()){
+        if(item->data(0,Qt::UserRole+3).toString()!="part-sketch")return false;
+        return dialog->set_source(item->data(0,Qt::UserRole).toString().toStdString());
+    }
     if(auto* dialog=dynamic_cast<CamClampingDialog*>(properties_dialog_);item&&dialog&&dialog->active_input()){
         if(item->data(0,Qt::UserRole+3).toString()!="part-sketch")return false;
         return dialog->set_source(item->data(0,Qt::UserRole).toString().toStdString());

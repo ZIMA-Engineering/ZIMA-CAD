@@ -88,6 +88,21 @@ void from_json(const Json& j,Facing& value) {
     Facing f;f.id=j.at("id");f.name=j.at("name");f.tool_id=j.at("tool");f.step_down_mm=j.at("step_down_mm");
     f.step_over_mm=j.at("step_over_mm");f.clearance_mm=j.at("clearance_mm");f.allowance_mm=j.at("allowance_mm");value=std::move(f);
 }
+void to_json(Json& j,const ProfileMilling& p) {
+    validate(p);j={{"id",p.id},{"name",p.name},{"tool",p.tool_id},{"sketch",p.sketch_id},
+        {"strategy",p.kind==ProfileMillingKind::Pocket?"pocket":"contour"},{"side",p.side==ContourSide::Inside?"inside":"outside"},
+        {"clockwise",p.clockwise},{"top_mm",p.top_mm},{"bottom_mm",p.bottom_mm},{"step_down_mm",p.step_down_mm},{"step_over_mm",p.step_over_mm},
+        {"clearance_mm",p.clearance_mm},{"radial_allowance_mm",p.radial_allowance_mm},{"axial_allowance_mm",p.axial_allowance_mm},{"path_tolerance_mm",p.path_tolerance_mm}};
+}
+void from_json(const Json& j,ProfileMilling& value) {
+    ProfileMilling p;p.id=j.at("id");p.name=j.at("name");p.tool_id=j.at("tool");p.sketch_id=j.at("sketch");
+    const auto strategy=j.at("strategy").get<std::string>(),side=j.at("side").get<std::string>();
+    if((strategy!="pocket"&&strategy!="contour")||(side!="inside"&&side!="outside"))invalid();
+    p.kind=strategy=="pocket"?ProfileMillingKind::Pocket:ProfileMillingKind::Contour;p.side=side=="inside"?ContourSide::Inside:ContourSide::Outside;
+    p.clockwise=j.at("clockwise");p.top_mm=j.at("top_mm");p.bottom_mm=j.at("bottom_mm");p.step_down_mm=j.at("step_down_mm");p.step_over_mm=j.at("step_over_mm");
+    p.clearance_mm=j.at("clearance_mm");p.radial_allowance_mm=j.at("radial_allowance_mm");p.axial_allowance_mm=j.at("axial_allowance_mm");p.path_tolerance_mm=j.at("path_tolerance_mm");
+    validate(p);value=std::move(p);
+}
 void to_json(Json& j,const Collision& c) {
     j={{"kind",name(c.kind,collision_names)},{"block",c.block_id},{"tool",c.tool_id},{"obstacle",c.obstacle_id},{"intersection_mm3",c.intersection_mm3}};
 }

@@ -80,7 +80,7 @@ public:
             if(const auto* branch=doc.body_owner_for_object(owner))add(branch->scope.id,false,false);
             else if(graph.find(owner)||graph.find_boolean(owner))add(owner,false,false);
         }
-        for(const auto& id:document::cam_clamping_sketch_ids(d)) {
+        for(const auto& id:document::cam_input_sketch_ids(d)) {
             if(result.state!=CamResultState::Current)break;
             const auto found=std::ranges::find(doc.sketches,id,&sketcher::Sketch::id);
             if(found==doc.sketches.end()){result.state=CamResultState::MissingSource;break;}
@@ -190,8 +190,8 @@ bool commit_cam(Workspace& live,const BodyGraphEdit& edit,document::BodyHistory 
     for(const auto& id:value.cam->fixture_ids)
         if((!initial||!accepts(initial->cam->fixture_ids,id))&&!accepts(materials,id))invalid();
     const auto sketches=cam_clamping_candidates(session,edit);
-    for(const auto& id:document::cam_clamping_sketch_ids(*value.cam)) {
-        if(initial&&accepts(document::cam_clamping_sketch_ids(*initial->cam),id))continue;
+    for(const auto& id:document::cam_input_sketch_ids(*value.cam)) {
+        if(initial&&accepts(document::cam_input_sketch_ids(*initial->cam),id))continue;
         if(!accepts(sketches,id))invalid();
     }
     auto resolved=value.cam->work_frame;

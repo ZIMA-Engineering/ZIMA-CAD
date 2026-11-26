@@ -10,7 +10,7 @@ struct CamManualOperation {
     cam::Program program;
     bool operator==(const CamManualOperation&) const = default;
 };
-using CamOperation=std::variant<CamManualOperation,cam::Facing>;
+using CamOperation=std::variant<CamManualOperation,cam::Facing,cam::ProfileMilling>;
 struct CamClamping {
     std::string id,name,contact_sketch_id,upper_sketch_id;
     bool outward_positive{true},upper_positive{true};
@@ -52,6 +52,7 @@ struct CamDefinition {
 };
 void validate_cam_definition(const CamDefinition&);
 [[nodiscard]] std::vector<std::string> cam_clamping_sketch_ids(const CamDefinition&);
+[[nodiscard]] std::vector<std::string> cam_input_sketch_ids(const CamDefinition&);
 // Full result validation belongs to native loading or explicit publication,
 // never repeated Body graph/Properties validation of an immutable result.
 void validate_cam_calculated(const CamCalculated&);

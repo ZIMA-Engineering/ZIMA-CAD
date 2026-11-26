@@ -1,0 +1,260 @@
+{
+  "date": "2026-11-26",
+  "platform": "Windows x64, native C++, Qt 6.11, OCCT 8.0.1",
+  "base_commit": "ff6090c96c3b268ee0670d6491570a401f2eb0ec",
+  "scope": "Approved three-axis profile pockets and contours, nested CAM schema 3; no release package publication",
+  "native_tests": [
+    {
+      "test": "cam_profile_milling",
+      "exit_code": 0,
+      "seconds": 0.303,
+      "binary_sha256": "d34c84e4ddf9c4e4ef94363f4dcb3c85371add014413e3f00f5af97ad18cc451",
+      "log_sha256": "7683245285445dd5d7222ecb1e1df3c2b5e0de9c22fc3b5c6c52200f7d1e56cd",
+      "result_summary": "CAM profile milling: 32264 analytic offsets, islands, concavity, depths, direction and rejection assertions passed"
+    },
+    {
+      "test": "cam_document",
+      "exit_code": 0,
+      "seconds": 0.2106,
+      "binary_sha256": "fa52d02ada1548783f13174ef231f402241baba13e74e4f6610e8694a4102b6b",
+      "log_sha256": "e36e1ae0a0d6850618fa0ee1f13a015290efcd15783a5e5cbd71981ea0fd4a74",
+      "result_summary": "CAM document: 59 serialization, dependency, result, last-frame and Undo/Redo assertions passed"
+    },
+    {
+      "test": "cam_operations",
+      "exit_code": 0,
+      "seconds": 0.1594,
+      "binary_sha256": "0b4bf1965754cf6907d57c9a882135743d3ed348bb54260cdbc3efcba825d4e9",
+      "log_sha256": "66dcd5a06c03498a1e0ef873abf22e2fb274879d3c08f2e232c2d9e5a2e7ac19",
+      "result_summary": "CAM operations: 52 lifecycle, source, chaining and publication assertions passed"
+    },
+    {
+      "test": "cam_calculation",
+      "exit_code": 0,
+      "seconds": 10.9779,
+      "binary_sha256": "99d66871d51ba67a773da57e86646e6d7a60fe630461f084dd1c93b27a234f90",
+      "log_sha256": "39f2c61f4ab0d69913256a8f05a09a3059a9a1319b627453079c1df3aba9bbf2",
+      "result_summary": "CAM calculation: 109 exact volume, frame, chaining, collision, persistence and publication assertions passed"
+    },
+    {
+      "test": "cam_program",
+      "exit_code": 0,
+      "seconds": 0.0599,
+      "binary_sha256": "eabee2815beff93a21a893a76ae0f53493c9953a79bd7a089d4506990147d110",
+      "log_sha256": "2c2cb406f91e11eaa26da52d68f4c816efc65de72abebd3cbf16bedfa0a0b0fe",
+      "result_summary": "CAM generic program: 77 checks passed"
+    },
+    {
+      "test": "cam_machine_dialog",
+      "exit_code": 0,
+      "seconds": 0.592,
+      "binary_sha256": "831ab6335e0a53b6d1205e796f3811359a3536dce71e3c35a119483d7712a150",
+      "log_sha256": "7b0ce738ba30e174e81fd7ecdea30e99aabdd6dc6367df018e30f026e2a2bc10",
+      "result_summary": "CAM machine dialog: 470 checks passed"
+    },
+    {
+      "test": "cam_sweep",
+      "exit_code": 0,
+      "seconds": 8.9074,
+      "binary_sha256": "8de1c016100fd4ded1e1eb5fedfcf4651e612c232facd723188440be281dd083",
+      "log_sha256": "7f91c8929a683638d1dcc3c6c2bc5d8b48688b1f82854f35ed388a8b09175368",
+      "result_summary": "CAM exact swept-volume checks passed"
+    },
+    {
+      "test": "cam_simulation",
+      "exit_code": 0,
+      "seconds": 2.7,
+      "binary_sha256": "0d14111a29f6b4354e90bb4f946e93cd4497bf8d7bc1ba729ea32fc801daa571",
+      "log_sha256": "19131756747c1621e51276cfe5780528d650bc07461115e7ed8c49613c299f50",
+      "result_summary": "CAM simulation: 37 checks passed"
+    },
+    {
+      "test": "cam_clamping",
+      "exit_code": 0,
+      "seconds": 1.276,
+      "binary_sha256": "7347b57d265b525d8cd1e5710dd14bbe0528e607da0d5aaabf362df854d3333d",
+      "log_sha256": "e72fb74fa55a7669235d0afc119a1c0db5b07f244e9fcc1baba3f89d847bea12",
+      "result_summary": "CAM clamping: 28 checks passed"
+    },
+    {
+      "test": "cam_editors",
+      "exit_code": 0,
+      "seconds": 0.3563,
+      "binary_sha256": "0988f9028bc5881fcda5d3b8e8e80bca0156079d9e8d1edd7e09ee31c7c22685",
+      "log_sha256": "0d9f236be3199116b5b04cea05fd7a48ce18f936249e566ef0b51bd9943cec2a",
+      "result_summary": "CAM editor checks: 73 passed"
+    }
+  ],
+  "gui_cases": [
+    {
+      "name": "templates-mm",
+      "exit_code": 0,
+      "seconds": 44.661,
+      "binary_sha256": "f5925cede828c90c666d6ef6bff3e7587022d96e6077b41a77924eef6aec6c6f",
+      "options": {
+        "ZIMA_VERIFY_CONSOLE_ONLY": "1",
+        "ZIMA_VERIFY_NEW_DOCUMENT_OPTIONS_ONLY": "1",
+        "ZIMA_VERIFY_NEW_DOCUMENT_LENGTH": "mm"
+      },
+      "directory": "build/cam-profile-20261126/gui/templates-mm-t_bznkfv",
+      "log_sha256": "69ebd01be3949866b32a6ef80cbc62a92b9c28038751ae319b7db30bc814e8df"
+    },
+    {
+      "name": "templates-in",
+      "exit_code": 0,
+      "seconds": 46.73,
+      "binary_sha256": "f5925cede828c90c666d6ef6bff3e7587022d96e6077b41a77924eef6aec6c6f",
+      "options": {
+        "ZIMA_VERIFY_CONSOLE_ONLY": "1",
+        "ZIMA_VERIFY_NEW_DOCUMENT_OPTIONS_ONLY": "1",
+        "ZIMA_VERIFY_NEW_DOCUMENT_LENGTH": "in"
+      },
+      "directory": "build/cam-profile-20261126/gui/templates-in-o7yh566p",
+      "log_sha256": "69ebd01be3949866b32a6ef80cbc62a92b9c28038751ae319b7db30bc814e8df"
+    },
+    {
+      "name": "cam",
+      "exit_code": 0,
+      "seconds": 10.793,
+      "binary_sha256": "419666d295674233d007e3f74f41711be1b0f2fbbab323381c81aaacff48a1c8",
+      "options": {
+        "ZIMA_VERIFY_CAM_BODY_ONLY": "1",
+        "ZIMA_VERIFY_CAM_TRACE": "1"
+      },
+      "directory": "build/cam-profile-20261126/gui/cam-26orc8f9",
+      "log_sha256": "fe374e73150a9a4ee00ba3d580ad5c7b0ccaae07c93f6425f731ffc91016fdec",
+      "checks": 313,
+      "screenshots": [
+        {
+          "name": "cam-profile-editor-dark.png",
+          "sha256": "01eb3d7feb5d1667ff536e565723bec76834f13053836dd0892ce8ea6cac8756"
+        },
+        {
+          "name": "cam-profile-editor-light.png",
+          "sha256": "7b05f9d2ab0440c9234ddd87405b89c7fa455f5cb612ebcba9f5a228e291d931"
+        },
+        {
+          "name": "cam-profile-pocket.png",
+          "sha256": "5aa492a88a9966f51df4eab084abb04783366b8618cacb93dacaa48da4e85e94"
+        }
+      ]
+    }
+  ],
+  "localization": {
+    "languages": [
+      "cs",
+      "en",
+      "de",
+      "fr",
+      "ru"
+    ],
+    "coverage_and_catalog_validation": "passed",
+    "log_sha256": "c6f66f64f7f2b95b8e34292f5f8f63d4c1e99acbe676f86af5b719cc4a5dace2"
+  },
+  "factory": {
+    "structural_inventory_count": 1190,
+    "affected_cam_documents": 0,
+    "inventory_sha256": "fbe5f23ea945340dd398a3393d73b8fef636b49c34bb602c32f5a51f1a03e95b",
+    "native_checks": {
+      "template_refresh": "passed",
+      "templates_before": {
+        "config\\templates\\START_PART_mm.prtz": "db4b2075aa8993488849871976ca0aa5ccac2f4f4cc4072a466716280d3f83bb",
+        "config\\templates\\START_PART_in.prtz": "1a688ed98ccf3c78da4c8282fb5f3f7422ff062850093094d9781a8af525fb21",
+        "config\\templates\\START_SKELETON_mm.prtz": "2391c98f907e1692e41a83516081adfeb37a632ef1013f20f72d216bce9c186b",
+        "config\\templates\\START_SKELETON_in.prtz": "9dab7299c35ccc18296309857625121a25fb7214127c5d61fdb6507f4069ac57",
+        "config\\templates\\START_ASSEMBLY_mm.asmz": "790a00447e252b964fa150738bb3997a56573bd45c5be4f2d91b91a474502c9b",
+        "config\\templates\\START_ASSEMBLY_in.asmz": "cd7f3cd59fe041e02be4fefe2e646fa98399ffb3f1638fd4375d0b7dae6ca917"
+      },
+      "templates_after": {
+        "config\\templates\\START_PART_mm.prtz": "db4b2075aa8993488849871976ca0aa5ccac2f4f4cc4072a466716280d3f83bb",
+        "config\\templates\\START_PART_in.prtz": "1a688ed98ccf3c78da4c8282fb5f3f7422ff062850093094d9781a8af525fb21",
+        "config\\templates\\START_SKELETON_mm.prtz": "2391c98f907e1692e41a83516081adfeb37a632ef1013f20f72d216bce9c186b",
+        "config\\templates\\START_SKELETON_in.prtz": "9dab7299c35ccc18296309857625121a25fb7214127c5d61fdb6507f4069ac57",
+        "config\\templates\\START_ASSEMBLY_mm.asmz": "790a00447e252b964fa150738bb3997a56573bd45c5be4f2d91b91a474502c9b",
+        "config\\templates\\START_ASSEMBLY_in.asmz": "cd7f3cd59fe041e02be4fefe2e646fa98399ffb3f1638fd4375d0b7dae6ca917"
+      },
+      "templates_byte_identical": true,
+      "native_loads": [
+        {
+          "path": "config\\templates\\START_PART_mm.prtz",
+          "sha256": "db4b2075aa8993488849871976ca0aa5ccac2f4f4cc4072a466716280d3f83bb",
+          "native_load": "passed",
+          "seconds": 0.172
+        },
+        {
+          "path": "config\\templates\\START_PART_in.prtz",
+          "sha256": "1a688ed98ccf3c78da4c8282fb5f3f7422ff062850093094d9781a8af525fb21",
+          "native_load": "passed",
+          "seconds": 0.151
+        },
+        {
+          "path": "config\\templates\\START_SKELETON_mm.prtz",
+          "sha256": "2391c98f907e1692e41a83516081adfeb37a632ef1013f20f72d216bce9c186b",
+          "native_load": "passed",
+          "seconds": 0.119
+        },
+        {
+          "path": "config\\templates\\START_SKELETON_in.prtz",
+          "sha256": "9dab7299c35ccc18296309857625121a25fb7214127c5d61fdb6507f4069ac57",
+          "native_load": "passed",
+          "seconds": 0.109
+        },
+        {
+          "path": "config\\templates\\START_ASSEMBLY_mm.asmz",
+          "sha256": "790a00447e252b964fa150738bb3997a56573bd45c5be4f2d91b91a474502c9b",
+          "native_load": "passed",
+          "seconds": 0.106
+        },
+        {
+          "path": "config\\templates\\START_ASSEMBLY_in.asmz",
+          "sha256": "cd7f3cd59fe041e02be4fefe2e646fa98399ffb3f1638fd4375d0b7dae6ca917",
+          "native_load": "passed",
+          "seconds": 0.108
+        },
+        {
+          "path": "config\\templates\\START_TOOL_mm.toolz",
+          "sha256": "0f5b066cc6f586334a7a512584969a172047077f179add9a171f5aee4567d834",
+          "native_load": "passed",
+          "seconds": 0.111
+        },
+        {
+          "path": "config\\templates\\START_TOOL_in.toolz",
+          "sha256": "9be676d4d30eb4213eb5e278f7212adebb9a6bf2475f99fc09aeae2392cd23e6",
+          "native_load": "passed",
+          "seconds": 0.116
+        },
+        {
+          "path": "config\\lib\\CAM\\Tools\\Milling\\End_mill_10.toolz",
+          "sha256": "e0db37c1eb594c851ccf1f463ce2f238210404e593eedfeee05257de04544623",
+          "native_load": "passed",
+          "seconds": 0.132
+        },
+        {
+          "path": "config\\lib\\CAM\\Machines\\Milling\\Three_axis_mill.prtz",
+          "sha256": "ac334718826d30d0a5af68c80185689fe1b061ee8cb971761958cbf29a9467a1",
+          "native_load": "passed",
+          "seconds": 0.12
+        },
+        {
+          "path": "config\\lib\\CAM\\Fixtures\\Vises\\Parallel_jaws.prtz",
+          "sha256": "0958f708b93ff28845364464475753801f797dc6ea8222542d418bc91f3bca50",
+          "native_load": "passed",
+          "seconds": 0.124
+        }
+      ]
+    }
+  },
+  "protected_project": {
+    "structural_native_document_count": 10,
+    "affected_cam_documents": 0,
+    "inventory_sha256": "caf6da55917edc15b54395000c99661d6a92581e65c436d72547a6844c601843",
+    "originals_written": false,
+    "new_native_regeneration_claimed": false
+  },
+  "limits": [
+    "Finite synthetic matrix, not exhaustive arbitrary geometry coverage",
+    "Native Linux execution unverified",
+    "No controller postprocessor or production machining verification",
+    "Accepted Windows 2026112504 archive remains unchanged"
+  ]
+}

@@ -34,10 +34,17 @@ void verify_definition() {
     cam::Facing face;face.id="face";face.name="Face milling";face.tool_id="tool";
     face.step_down_mm=1;face.step_over_mm=2;face.clearance_mm=5;face.allowance_mm=.25;
     d.operations.push_back(face);
+    cam::ProfileMilling pocket;pocket.id="pocket";pocket.name="Pocket";pocket.tool_id="tool";pocket.sketch_id="profile";
+    pocket.top_mm=3.123456789;pocket.bottom_mm=-2.123456789;pocket.radial_allowance_mm=.125;
+    d.operations.push_back(pocket);auto contour=pocket;contour.id="contour";contour.kind=cam::ProfileMillingKind::Contour;
+    contour.side=cam::ContourSide::Outside;contour.clockwise=true;d.operations.push_back(contour);
+    check(document::cam_input_sketch_ids(d)==std::vector<std::string>{"contact","upper","profile"},"Profile input IDs are not deduplicated");
     const nlohmann::json encoded=d;
+    check(encoded.at("schema")==3,"CAM schema was not advanced");
     check(encoded.get<document::CamDefinition>()==d,"CAM definition did not round trip");
     auto old=encoded;old.erase("schema");rejects([&]{static_cast<void>(old.get<document::CamDefinition>());});
     old=encoded;old["schema"]=1;rejects([&]{static_cast<void>(old.get<document::CamDefinition>());});
+    old=encoded;old["schema"]=2;rejects([&]{static_cast<void>(old.get<document::CamDefinition>());});
     old=encoded;old["clampings"][0].erase("outward_positive");rejects([&]{static_cast<void>(old.get<document::CamDefinition>());});
     const auto key=document::cam_intent_key(d);
     check(document::cam_intent_key(encoded.get<document::CamDefinition>())==key,"CAM fingerprint changed on reopen");
@@ -47,6 +54,10 @@ void verify_definition() {
     check(document::cam_intent_key(changed)!=key,"Operation order did not invalidate CAM intent");
     changed=d;changed.work_frame.x=7;
     check(document::cam_intent_key(changed)!=key,"Work frame did not invalidate CAM intent");
+    changed=d;std::get<cam::ProfileMilling>(changed.operations[2]).sketch_id="replacement";
+    check(document::cam_intent_key(changed)!=key,"Profile replacement did not invalidate CAM intent");
+    changed=d;std::get<cam::ProfileMilling>(changed.operations[3]).side=cam::ContourSide::Inside;
+    check(document::cam_intent_key(changed)!=key,"Contour side did not invalidate CAM intent");
     changed=d;changed.tolerance_mm=std::numeric_limits<double>::infinity();
     rejects([&]{document::validate_cam_definition(changed);});
     changed=d;changed.tools.push_back(changed.tools.front());rejects([&]{document::validate_cam_definition(changed);});

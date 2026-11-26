@@ -23,6 +23,7 @@ struct CamCalculationInput {
     // Material is in document coordinates. Calculation transforms private copies
     // into the work frame and publishes remaining material in document coordinates.
     std::vector<std::pair<std::string,kernel::BodySnapshot>> material;
+    // Exact deduplicated clamping and machining profile inputs.
     std::vector<CamSketchInput> clamping_sketches;
     std::vector<std::pair<std::string,std::string>> source_keys;
 };

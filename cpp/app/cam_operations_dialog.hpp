@@ -14,35 +14,51 @@
 #include <QPushButton>
 #include <QSignalBlocker>
 #include <QTableWidget>
+#include <QToolButton>
+#include <QTimer>
 #include <QVBoxLayout>
 #include <algorithm>
 #include <functional>
+#include <map>
 
 namespace zima::app {
 // All editors write this private definition. Picking an editable field and
 // selecting an item for ordering are deliberately independent actions.
 class CamOperationsDialog final : public ui::PropertiesSubWindow {
 public:
+    std::function<void()> changed;
     CamOperationsDialog(document::CamDefinition definition,
-        std::function<void(std::vector<document::CamOperation>)> commit,QWidget* parent)
-        : PropertiesSubWindow(tr("Machining operations"),parent),pending_(std::move(definition)),commit_(std::move(commit)) {
+        std::function<void(std::vector<document::CamOperation>)> commit,QWidget* parent,
+        std::map<std::string,QString> sources={})
+        : PropertiesSubWindow(tr("Machining operations"),parent),pending_(std::move(definition)),commit_(std::move(commit)),sources_(std::move(sources)) {
         setObjectName("camOperationsDialog");setAttribute(Qt::WA_DeleteOnClose);
         list_=table("camOperations",this);content_layout()->addWidget(list_);
-        connect(list_,&QTableWidget::cellClicked,this,[this](int row,int col){if(col==3){editing_=document::cam_operation_id(pending_.operations.at(row));editing_block_.clear();rebuild_editor();}});
+        connect(list_,&QTableWidget::cellClicked,this,[this](int row,int col){if(col==3){active_=inspected_=false;editing_=document::cam_operation_id(pending_.operations.at(row));editing_block_.clear();rebuild_editor();notify();}});
         auto* actions=new QHBoxLayout;content_layout()->addLayout(actions);
         facing_=new QPushButton(this);facing_->setObjectName("camAddFacing");actions->addWidget(facing_);
-        manual_=new QPushButton(this);manual_->setObjectName("camAddManual");actions->addWidget(manual_);actions->addStretch();
+        manual_=new QPushButton(this);manual_->setObjectName("camAddManual");actions->addWidget(manual_);
+        pocket_=new QPushButton(this);pocket_->setObjectName("camAddPocket");actions->addWidget(pocket_);
+        contour_=new QPushButton(this);contour_->setObjectName("camAddContour");actions->addWidget(contour_);actions->addStretch();
+        connect(pocket_,&QPushButton::clicked,this,[this]{add_profile(cam::ProfileMillingKind::Pocket);});
+        connect(contour_,&QPushButton::clicked,this,[this]{add_profile(cam::ProfileMillingKind::Contour);});
         up_=new QPushButton(ui::reference_arrow_icon(Qt::UpArrow),{},this);up_->setObjectName("camOperationUp");actions->addWidget(up_);
         down_=new QPushButton(ui::reference_arrow_icon(Qt::DownArrow),{},this);down_->setObjectName("camOperationDown");actions->addWidget(down_);
         connect(up_,&QPushButton::clicked,this,[this]{move_operation(-1);});connect(down_,&QPushButton::clicked,this,[this]{move_operation(1);});
         connect(facing_,&QPushButton::clicked,this,[this]{cam::Facing value;value.id=kernel::make_stable_id();value.name=tr("Facing").toStdString();
-            if(!pending_.tools.empty())value.tool_id=pending_.tools.front().id;editing_=value.id;pending_.operations.emplace_back(std::move(value));refresh();});
+            if(!pending_.tools.empty())value.tool_id=pending_.tools.front().id;active_=inspected_=false;editing_=value.id;pending_.operations.emplace_back(std::move(value));refresh();notify();});
         connect(manual_,&QPushButton::clicked,this,[this]{document::CamManualOperation value;value.id=kernel::make_stable_id();value.name=tr("Manual operation").toStdString();
-            value.program.display_units=pending_.display_units;editing_=value.id;pending_.operations.emplace_back(std::move(value));refresh();});
+            value.program.display_units=pending_.display_units;active_=inspected_=false;editing_=value.id;pending_.operations.emplace_back(std::move(value));refresh();notify();});
         status_=new QLabel(this);status_->setObjectName("camOperationsStatus");status_->setWordWrap(true);content_layout()->addWidget(status_);
         refresh();set_initial_size({780,0});
     }
     const auto& pending_value()const{return pending_.operations;}
+    bool active_input()const{return active_&&profile();}
+    bool accepts_source(const std::string& id)const{return active_input()&&sources_.contains(id);}
+    bool set_source(const std::string& id){auto* p=profile();if(!p||!accepts_source(id))return false;
+        p->sketch_id=id;active_=inspected_=false;clear_status();rebuild_editor();notify();return true;}
+    void arm_profile(){if(!profile())return;active_=true;rebuild_editor();notify();}
+    void end_input(){active_=inspected_=false;rebuild_editor();notify();}
+    std::vector<std::string> inspections()const{const auto* p=profile();return p&&inspected_?std::vector{p->sketch_id}:std::vector<std::string>{};}
 protected:
     bool submit()override {
         try{document::validate_cam_definition(pending_);commit_(pending_.operations);return true;}
@@ -52,8 +68,16 @@ protected:
 private:
     document::CamDefinition pending_;
     std::function<void(std::vector<document::CamOperation>)> commit_;
-    QTableWidget* list_{};QPushButton *facing_{},*manual_{},*up_{},*down_{};QLabel* status_{};QWidget* editor_{};
+    std::map<std::string,QString> sources_;bool active_{},inspected_{},profile_sized_{};
+    QTableWidget* list_{};QPushButton *facing_{},*manual_{},*pocket_{},*contour_{},*up_{},*down_{};QLabel* status_{};QWidget* editor_{};
     std::string ordered_,editing_,ordered_block_,editing_block_,error_;
+    void notify(){if(changed)changed();}
+    cam::ProfileMilling* profile(){const auto i=operation_index(editing_);return i<0?nullptr:std::get_if<cam::ProfileMilling>(&pending_.operations[i]);}
+    const cam::ProfileMilling* profile()const{return const_cast<CamOperationsDialog*>(this)->profile();}
+    void add_profile(cam::ProfileMillingKind kind){cam::ProfileMilling p;p.id=kernel::make_stable_id();p.kind=kind;
+        p.name=(kind==cam::ProfileMillingKind::Pocket?tr("Pocket"):tr("Contour")).toStdString();
+        if(!pending_.tools.empty()){p.tool_id=pending_.tools.front().id;p.step_over_mm=std::min(p.step_over_mm,pending_.tools.front().cutting.front().radius_mm);}
+        editing_=p.id;pending_.operations.emplace_back(std::move(p));active_=true;inspected_=false;clear_status();refresh();notify();}
     QTableWidget* table(const char* name,QWidget* parent) {
         auto* w=new QTableWidget(0,4,parent);w->setObjectName(name);w->verticalHeader()->hide();w->verticalHeader()->setDefaultSectionSize(32);
         w->setSelectionMode(QAbstractItemView::NoSelection);w->setEditTriggers(QAbstractItemView::NoEditTriggers);
@@ -76,7 +100,7 @@ private:
         for(int i=0;i<int(pending_.operations.size());++i){const auto id=document::cam_operation_id(pending_.operations[i]);
             row_controls(list_,i,id,ordered_,[this,id](bool on){ordered_=on?id:std::string{};refresh_list();},[this,id]{
                 const auto i=operation_index(id);if(i<0)return;pending_.operations.erase(pending_.operations.begin()+i);
-                if(editing_==id)editing_.clear();if(ordered_==id)ordered_.clear();refresh();},tr("Remove this machining operation."));
+                if(editing_==id){editing_.clear();active_=inspected_=false;}if(ordered_==id)ordered_.clear();refresh();notify();},tr("Remove this machining operation."));
             list_->setItem(i,3,new QTableWidgetItem(QString::fromStdString(document::cam_operation_name(pending_.operations[i]))));}
         list_->setFixedHeight(32*std::clamp(int(pending_.operations.size()),2,4)+list_->horizontalHeader()->height()+4);
         const auto selected=operation_index(ordered_);up_->setEnabled(selected>0);down_->setEnabled(selected>=0&&selected+1<int(pending_.operations.size()));
@@ -99,7 +123,7 @@ private:
         int at=combo->findData(QString::fromStdString(current));if(at<0&&!current.empty()){combo->addItem(QString::fromStdString(current),QString::fromStdString(current));at=combo->count()-1;}combo->setCurrentIndex(at);
         connect(combo,&QComboBox::currentIndexChanged,this,[this,combo,changed=std::move(changed)](int i){if(i>=0){changed(combo->itemData(i).toString().toStdString());clear_status();}});return combo;
     }
-    void refresh(){set_internal_title(tr("Machining operations"));facing_->setText(tr("Add facing"));manual_->setText(tr("Add manual operation"));up_->setText(tr("Nahoru"));down_->setText(tr("Dolů"));
+    void refresh(){set_internal_title(tr("Machining operations"));facing_->setText(tr("Add facing"));manual_->setText(tr("Add manual operation"));pocket_->setText(tr("Add pocket"));contour_->setText(tr("Add contour"));up_->setText(tr("Nahoru"));down_->setText(tr("Dolů"));
         refresh_list();rebuild_editor();if(!error_.empty())status_->setText(tr(error_.c_str()));}
     void rebuild_editor() {
         if(editor_){content_layout()->removeWidget(editor_);editor_->hide();editor_->deleteLater();editor_=nullptr;}
@@ -113,6 +137,14 @@ private:
             const char* names[]{"camFacingStepDown","camFacingStepOver","camFacingClearance","camFacingAllowance"};
             double cam::Facing::* members[]{&cam::Facing::step_down_mm,&cam::Facing::step_over_mm,&cam::Facing::clearance_mm,&cam::Facing::allowance_mm};
             for(int i=0;i<4;++i)form->addRow(tr(keys[i]),number(editor_,names[i],f->*members[i],i==3?0:.000001,1e9," mm",[this,at,member=members[i]](double n){std::get<cam::Facing>(pending_.operations[at]).*member=n;}));
+            return;
+        }
+        if(auto* p=std::get_if<cam::ProfileMilling>(&pending_.operations[at])){
+            profile_editor(form,at,*p);
+            // The empty operation list has a much smaller natural height.
+            // Fit the first profile editor using the shared window size hint,
+            // then preserve the user's subsequent resizing and scrolling.
+            if(!profile_sized_){profile_sized_=true;QTimer::singleShot(0,this,[this]{if(isVisible())resize(size().expandedTo(sizeHint()));});}
             return;
         }
         auto& manual=std::get<document::CamManualOperation>(pending_.operations[at]);
@@ -135,6 +167,28 @@ private:
             connect(button,&QPushButton::clicked,this,[this,at,direction]{auto& p=std::get<document::CamManualOperation>(pending_.operations[at]).program;const auto i=block_index(p,ordered_block_),j=i+direction;
                 if(i>=0&&j>=0&&j<int(p.blocks.size()))std::swap(p.blocks[i],p.blocks[j]);rebuild_editor();clear_status();});}
         const auto index=block_index(manual.program,editing_block_);if(index>=0)block_editor(layout,at,index);
+    }
+    void profile_editor(QFormLayout* form,int at,const cam::ProfileMilling& p){
+        auto* refs=new QTableWidget(1,4,editor_);refs->setObjectName("camProfileReference");refs->verticalHeader()->hide();refs->verticalHeader()->setDefaultSectionSize(32);
+        refs->setSelectionMode(QAbstractItemView::NoSelection);refs->setEditTriggers(QAbstractItemView::NoEditTriggers);ui::install_reference_cell_delegate(refs);
+        refs->setHorizontalHeaderLabels({"#",{},tr("Skica"),{}});for(int c:{0,1,3}){refs->setColumnWidth(c,32);refs->horizontalHeader()->setSectionResizeMode(c,QHeaderView::Fixed);}
+        refs->horizontalHeader()->setSectionResizeMode(2,QHeaderView::Stretch);refs->setItem(0,0,new QTableWidgetItem("1"));
+        if(p.sketch_id.empty()){auto* arrow=ui::build_reference_row_indicator([this]{arm_profile();});ui::set_reference_row_populated(arrow,false);refs->setCellWidget(0,1,arrow);}
+        auto* field=new ui::ReferenceCellItem;refs->setItem(0,2,field);const bool available=sources_.contains(p.sketch_id);
+        if(p.sketch_id.empty()){field->clear_reference();field->setText(tr("Vyberte…"));}else{field->set_reference(QString::fromStdString(p.sketch_id));field->setText(available?sources_.at(p.sketch_id):QString::fromStdString(p.sketch_id));field->set_missing(!available);}
+        field->set_active_input(active_);field->set_inspected(inspected_);connect(refs,&QTableWidget::cellClicked,this,[this](int,int col){if(col==2)arm_profile();});
+        refs->setCellWidget(0,3,ui::centered_cell_widget(ui::build_reference_inspection_button(available,inspected_,[this](bool on){inspected_=on;rebuild_editor();notify();})));
+        refs->setFixedHeight(32+refs->horizontalHeader()->height()+4);form->addRow(tr("Machining profile"),refs);
+        form->addRow(tr("Tool"),tools("camProfileTool",p.tool_id,[this,at](auto id){std::get<cam::ProfileMilling>(pending_.operations[at]).tool_id=std::move(id);}));
+        if(p.kind==cam::ProfileMillingKind::Contour){auto* side=new QComboBox(editor_);side->setObjectName("camContourSide");side->addItems({tr("Inside"),tr("Outside")});side->setCurrentIndex(p.side==cam::ContourSide::Inside?0:1);form->addRow(tr("Machining side"),side);
+            connect(side,&QComboBox::currentIndexChanged,this,[this,at](int i){std::get<cam::ProfileMilling>(pending_.operations[at]).side=i==0?cam::ContourSide::Inside:cam::ContourSide::Outside;clear_status();});}
+        const char* keys[]{QT_TR_NOOP("Top level"),QT_TR_NOOP("Bottom level"),QT_TR_NOOP("Step down"),QT_TR_NOOP("Step over"),QT_TR_NOOP("Clearance"),QT_TR_NOOP("Radial allowance"),QT_TR_NOOP("Axial allowance"),QT_TR_NOOP("Path tolerance")};
+        const char* names[]{"camProfileTop","camProfileBottom","camProfileStepDown","camProfileStepOver","camProfileClearance","camProfileRadialAllowance","camProfileAxialAllowance","camProfileTolerance"};
+        double cam::ProfileMilling::* members[]{&cam::ProfileMilling::top_mm,&cam::ProfileMilling::bottom_mm,&cam::ProfileMilling::step_down_mm,&cam::ProfileMilling::step_over_mm,&cam::ProfileMilling::clearance_mm,&cam::ProfileMilling::radial_allowance_mm,&cam::ProfileMilling::axial_allowance_mm,&cam::ProfileMilling::path_tolerance_mm};
+        for(int i=0;i<8;++i){if(i==3&&p.kind==cam::ProfileMillingKind::Contour)continue;
+            form->addRow(tr(keys[i]),number(editor_,names[i],p.*members[i],i<2?-1e9:i==5||i==6?0:.000001,1e9," mm",[this,at,member=members[i]](double n){std::get<cam::ProfileMilling>(pending_.operations[at]).*member=n;}));}
+        auto* clockwise=new QCheckBox(tr("Clockwise tool path"),editor_);clockwise->setObjectName("camProfileClockwise");clockwise->setChecked(p.clockwise);form->addRow(clockwise);
+        connect(clockwise,&QCheckBox::toggled,this,[this,at](bool on){std::get<cam::ProfileMilling>(pending_.operations[at]).clockwise=on;clear_status();});
     }
     static QString block_label(const cam::Block& b){switch(b.kind){case cam::BlockKind::Tool:return tr("Tool change");case cam::BlockKind::Spindle:return tr("Spindle speed");case cam::BlockKind::Feed:return tr("Cutting feed");case cam::BlockKind::Stop:return tr("Stop");case cam::BlockKind::Motion:
         switch(b.motion){case cam::MotionKind::Rapid:return tr("Rapid move");case cam::MotionKind::Linear:return tr("Linear cut");case cam::MotionKind::ArcClockwise:return tr("Clockwise XY arc");case cam::MotionKind::ArcCounterclockwise:return tr("Counterclockwise XY arc");}}return {};}

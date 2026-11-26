@@ -18,7 +18,8 @@ cam::Bounds bounds(const TopoDS_Shape& shape) {
         value.maximum.x,value.maximum.y,value.maximum.z);return value;
 }
 cam::Program combined_program(const document::CamDefinition& definition,const cam::Bounds& stock,
-        const cam::Bounds& target,const std::vector<cam::Bounds>& fixtures) {
+        const cam::Bounds& target,const std::vector<cam::Bounds>& fixtures,const std::vector<CamSketchInput>& sketches,
+        const std::function<void(std::size_t,std::size_t)>& progress) {
     cam::Program result;result.display_units=definition.display_units;cam::Point tip;bool started{};
     const auto transfer=[&](const std::string& operation,const std::string& role,cam::Point end) {
         if(end==tip)return;
@@ -32,17 +33,24 @@ cam::Program combined_program(const document::CamDefinition& definition,const ca
             const auto tool=std::ranges::find(definition.tools,facing->tool_id,&cam::Tool::id);
             if(tool==definition.tools.end())throw cam::ProgramError(cam::Error::UnknownTool,facing->id);
             part=cam::face_program(*facing,*tool,stock,target,fixtures);
+        }else if(const auto* profile=std::get_if<cam::ProfileMilling>(&operation)) {
+            const auto tool=std::ranges::find(definition.tools,profile->tool_id,&cam::Tool::id);
+            if(tool==definition.tools.end())throw cam::ProgramError(cam::Error::UnknownTool,profile->id);
+            const auto source=std::ranges::find_if(sketches,[&](const auto& s){return s.sketch.id==profile->sketch_id;});
+            if(source==sketches.end())throw cam::ProgramError(cam::Error::InvalidOperation,profile->id);
+            part=cam::profile_program(*profile,*tool,document::cam_sketch_request(source->sketch,source->body_frame,definition.work_frame,true),stock,target,fixtures,[&]{if(progress)progress(0,0);});
         }else part=std::get<document::CamManualOperation>(operation).program;
         if(part.blocks.empty())continue;
         if(!started){result.initial_tip=tip=part.initial_tip;started=true;}
         else if(tip!=part.initial_tip) {
-            if(!facing)throw cam::ProgramError(cam::Error::InvalidOperation,document::cam_operation_id(operation));
+            if(std::holds_alternative<document::CamManualOperation>(operation))throw cam::ProgramError(cam::Error::InvalidOperation,document::cam_operation_id(operation));
             // Preserve the previous tool during the explicit connection. The
             // complete transfer is simulated too; an obstacle cannot be skipped.
             const double clear=std::max(tip.z,part.initial_tip.z);
-            transfer(facing->id,"setup-retract",{tip.x,tip.y,clear});
-            transfer(facing->id,"setup-transfer",{part.initial_tip.x,part.initial_tip.y,clear});
-            transfer(facing->id,"setup-approach",part.initial_tip);
+            const auto& id=document::cam_operation_id(operation);
+            transfer(id,"setup-retract",{tip.x,tip.y,clear});
+            transfer(id,"setup-transfer",{part.initial_tip.x,part.initial_tip.y,clear});
+            transfer(id,"setup-approach",part.initial_tip);
         }
         for(const auto& block:part.blocks){result.blocks.push_back(block);if(block.kind==cam::BlockKind::Motion)tip=block.end;}
     }
@@ -65,7 +73,7 @@ document::CamCalculated calculate_cam(const CamCalculationInput& input,
     const auto& stock=source(d.stock_id);const auto& target=source(d.target_id);
     std::vector<cam::native::Obstacle> obstacles;std::vector<cam::Bounds> obstacle_bounds;
     for(const auto& id:d.fixture_ids){obstacles.push_back({id,source(id)});obstacle_bounds.push_back(bounds(obstacles.back().shape));}
-    auto program=combined_program(d,bounds(stock),bounds(target),obstacle_bounds);
+    auto program=combined_program(d,bounds(stock),bounds(target),obstacle_bounds,input.clamping_sketches,progress);
     const auto compiled=cam::compile(program,d.machine,d.tools,d.machine_work_origin);
     std::vector<cam::native::Clamping> clampings;
     const auto sketch_request=[&](const std::string& id,bool region) {

@@ -49,6 +49,8 @@ public:
             for(const auto& operation:operations_) {
                 if(const auto* facing=std::get_if<cam::Facing>(&operation);facing&&facing->tool_id==id)
                     return error(QT_TR_NOOP("This tool is used by a machining operation."));
+                if(const auto* profile=std::get_if<cam::ProfileMilling>(&operation);profile&&profile->tool_id==id)
+                    return error(QT_TR_NOOP("This tool is used by a machining operation."));
                 if(const auto* manual=std::get_if<document::CamManualOperation>(&operation))
                     for(const auto& block:manual->program.blocks)if(block.kind==cam::BlockKind::Tool&&block.tool_id==id)
                         return error(QT_TR_NOOP("This tool is used by a machining operation."));

@@ -319,3 +319,32 @@ The supported first stage is three-axis Facing and manual linear/XY circular
 motion. Controller postprocessing, pocket/contour operations, turning, rotary
 axes, workholding-library placement and arbitrary-solid tool conversion are not
 included. Native Linux execution remains unverified.
+
+## Profile milling stage, 2026-11-26
+
+Pocket and inside/outside contour operations reference preceding native Sketch
+regions. They accept islands and disconnected loops, explicit cutting direction,
+top/bottom levels, depth increments, radial/axial allowances and clearance.
+The approved nested CAM definition is now schema 3; the ordinary Part envelope
+remains format 79. There is no legacy CAM decoder or external required cache.
+
+Tool-centre paths come from native curve mathematics in the setup frame. Lines
+and circular arcs remain analytic; other supported native rational curves use
+an explicit conservative path tolerance. Offset intersections and material-side
+classification preserve holes and split inaccessible necks into separate paths.
+Exact-fitting slots retain a centre line and exact-fitting circular pockets
+retain their central plunge. A valid two-edge closed boundary is not confused
+with two coincident retraced edges.
+
+This stage requires a cylindrical flat cutting portion and a profile parallel
+to setup XY. It uses cutting plunges and clearance-height transfers. Explicit
+Calculate passes the complete generic program through the existing machine,
+exact material, target, fixture and clamping checks. Profile definitions and
+Body/work frames participate in freshness and publication checks. Opening,
+reference inspection, stepping and unchanged OK do not regenerate CAD geometry.
+
+See the [finite verification matrix](verification/20261126-cam-profile-milling.md)
+for tested cases and platform limits. Adaptive/ramped entry, controller
+postprocessing, turning, rotary axes, workholding-library placement and arbitrary
+solid tool conversion remain later stages. Windows 2026112504 predates this work;
+these changes do not replace its signed archive.

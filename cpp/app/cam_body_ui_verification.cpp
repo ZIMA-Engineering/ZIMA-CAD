@@ -57,7 +57,11 @@ int verify_cam_body(QApplication& application,AssemblyWorkspaceWindow& window,co
         document::BodyHistoryGraph graph;const auto stock=graph.create_body("Authored stock");graph.insert({document::PartHistoryKind::Feature,stock_feature.id});
         const auto target=graph.create_body("Authored target");graph.insert({document::PartHistoryKind::Feature,target_feature.id});
         const auto fixture=graph.create_body("Authored fixture");graph.insert({document::PartHistoryKind::Feature,fixture_feature.id});
-        auto fixture_body=*graph.find(fixture);fixture_body.scope.placement.z=-2;fixture_body.visible=false;graph.update_body(fixture_body);graph.activate({});doc.set_body_history(graph);
+        auto fixture_body=*graph.find(fixture);fixture_body.scope.placement.z=-2;fixture_body.visible=false;graph.update_body(fixture_body);
+        auto machining_sketch=sketcher::Sketch::create_default();static_cast<void>(machining_sketch.add_circle(0,0,3));
+        auto machining_owner=document::PartDocument::create_sketch_container();machining_sketch.owner_container_id=machining_owner.id;
+        doc.sketches.push_back(machining_sketch);doc.history.push_back(machining_owner);static_cast<void>(graph.create_body("Machining profiles"));graph.insert({document::PartHistoryKind::Feature,machining_owner.id});
+        graph.activate({});doc.set_body_history(graph);
         doc.appearance.bodies[stock]={"#B9C2CC",.55,0};doc.appearance.bodies[target]={"#D8483E",.55,0};doc.appearance.bodies[fixture]={"#667685",.55,0};
         kernel::OcctKernel kernel;const auto path=directory/"cam-setup-ui.prtz";doc.save(path,workspace::calculate_part_with_resolved_references(kernel,doc));
         window.resize(1600,1100);window.show();check(window.open_document_path(QString::fromStdString(document::path_to_utf8(path))),"CAM fixture did not open");flush();window.activate_body({});flush();
@@ -262,7 +266,11 @@ int verify_cam_body(QApplication& application,AssemblyWorkspaceWindow& window,co
                 auto* translated_tools=new CamToolsDialog(definition,[](auto){},&window);translated_tools->show();flush();
                 check(translated_tools->findChild<QPushButton*>("camAddTool")->text()==settings.qt_translations.value("Add tool"),"Tool editor text did not follow language");translated_tools->reject();flush();
                 auto* translated_operations=new CamOperationsDialog(definition,[](auto){},&window);translated_operations->show();flush();
-                check(translated_operations->findChild<QPushButton*>("camAddFacing")->text()==settings.qt_translations.value("Add facing"),"Operation editor text did not follow language");translated_operations->reject();flush();
+                check(translated_operations->findChild<QPushButton*>("camAddFacing")->text()==settings.qt_translations.value("Add facing"),"Operation editor text did not follow language");
+                check(translated_operations->findChild<QPushButton*>("camAddPocket")->text()==settings.qt_translations.value("Add pocket"),"Pocket action did not follow language");
+                translated_operations->findChild<QPushButton*>("camAddContour")->click();flush();
+                check(translated_operations->findChild<QComboBox*>("camContourSide")->itemText(1)==settings.qt_translations.value("Outside"),"Contour side did not follow language");
+                check(translated_operations->findChild<QCheckBox*>("camProfileClockwise")->text()==settings.qt_translations.value("Clockwise tool path"),"Profile direction did not follow language");translated_operations->reject();flush();
                 auto* translated_clamping=new CamClampingDialog(definition,{{sketch_id,"Authored contact"}},[](auto){},&window);translated_clamping->show();flush();
                 check(translated_clamping->findChild<QComboBox*>("camClampingSide0")->itemText(0)==settings.qt_translations.value("Positive normal"),"Clamping side text did not follow language");
                 check(translated_clamping->pending_value()==definition.clampings,"Language changed authored clamping data");translated_clamping->reject();flush();
@@ -277,6 +285,49 @@ int verify_cam_body(QApplication& application,AssemblyWorkspaceWindow& window,co
             }
             apply_application_translations(application,window.application_settings_);
         }
+        // Exercise native profile selection through actual Tree and View mouse
+        // events. Child edits remain private until the setup's own OK.
+        const auto profile_revision=session.revision();window.show_cam_body_properties(id);flush();dialog=current();
+        dialog->findChild<QPushButton*>("camEditTools")->click();flush();tools=dynamic_cast<CamToolsDialog*>(window.properties_dialog_);
+        for(const auto* field:{"camCuttingRadius0","camCuttingRadius1","camShankRadius0","camShankRadius1"})tools->findChild<QDoubleSpinBox*>(field)->setValue(1);
+        tools->buttons()->button(QDialogButtonBox::Ok)->click();flush();dialog->findChild<QPushButton*>("camEditOperations")->click();flush();
+        operations=dynamic_cast<CamOperationsDialog*>(window.properties_dialog_);check(operations,"Profile operation editor did not open");
+        click(operations->findChild<QPushButton*>("camAddPocket"),operations->findChild<QPushButton*>("camAddPocket")->rect().center());
+        auto* profile_row=row(machining_sketch.id,"part-sketch");check(profile_row,"Machining profile missing from Tree");tree->expandAll();tree->scrollToItem(profile_row);flush();
+        click(tree->viewport(),tree->visualItemRect(profile_row).center());
+        check(!operations->active_input()&&std::get<cam::ProfileMilling>(operations->pending_value().back()).sketch_id==machining_sketch.id,"Profile Tree click failed");
+        auto* profile_refs=operations->findChild<QTableWidget*>("camProfileReference");const auto profile_scene=view->base_mesh_revision();
+        profile_refs->cellWidget(0,3)->findChild<QToolButton*>()->click();flush();
+        check(!operations->active_input()&&!view->transient_edges().empty()&&view->base_mesh_revision()==profile_scene,"Profile inspection changed the base scene or armed selection");
+        for(const auto& edge:view->transient_edges())check(edge.color=="#00D1FF"&&edge.overlay,"Profile inspection did not use exact azure wire");
+        operations->arm_profile();flush();view->fit_all();flush();std::optional<QPointF> profile_hit;
+        for(int y=5;y<view->height()&&!profile_hit;y+=4)for(int x=5;x<view->width()&&!profile_hit;x+=4)
+            for(const auto& c:view->selection_candidates_at(QPointF(x,y)))if(c.owner_id==machining_sketch.id){profile_hit=QPointF(x,y);break;}
+        check(profile_hit.has_value(),"Machining Sketch unavailable in View");
+        QMouseEvent profile_move(QEvent::MouseMove,*profile_hit,QPointF(view->mapToGlobal(profile_hit->toPoint())),Qt::NoButton,Qt::NoButton,Qt::NoModifier);QApplication::sendEvent(view,&profile_move);flush();
+        for(std::size_t i=0;i<view->selection_candidates_at(*profile_hit).size();++i){if(view->offered_candidate()&&view->offered_candidate()->owner_id==machining_sketch.id)break;
+            for(auto type:{QEvent::MouseButtonPress,QEvent::MouseButtonRelease}){QMouseEvent e(type,*profile_hit,QPointF(view->mapToGlobal(profile_hit->toPoint())),Qt::RightButton,type==QEvent::MouseButtonPress?Qt::RightButton:Qt::NoButton,Qt::NoModifier);QApplication::sendEvent(view,&e);flush();}}
+        click(view,profile_hit->toPoint());check(!operations->active_input(),"Profile View replacement failed");
+        operations->findChild<QDoubleSpinBox*>("camProfileTop")->setValue(3);operations->findChild<QDoubleSpinBox*>("camProfileBottom")->setValue(2);
+        const auto profile_draft=operations->pending_value();
+        for(const auto* theme:{"light","dark","light"}){
+            auto settings=window.application_settings_;settings.theme=theme;apply_application_appearance(application,settings);flush();
+            check(operations->pending_value()==profile_draft&&session.revision()==profile_revision&&kernel::body_calculation_count.load()==count,"Profile theme change altered machining inputs");
+            check(!operations->findChild<QCheckBox*>("camProfileClockwise")->visibleRegion().isEmpty(),"Profile editor did not grow to show its machining fields");
+            check(operations->grab().save(QString::fromStdString(document::path_to_utf8(directory/(std::string("cam-profile-editor-")+theme+".png")))),"Profile editor capture failed");
+        }
+        apply_application_appearance(application,window.application_settings_);flush();
+        operations->findChild<QTableWidget*>("camOperations")->cellWidget(0,2)->findChild<QAbstractButton*>()->click();flush();
+        check(operations->pending_value().size()==1&&std::holds_alternative<cam::ProfileMilling>(operations->pending_value().front()),"Profile draft did not retain its operation");
+        operations->buttons()->button(QDialogButtonBox::Ok)->click();flush();check(session.revision()==profile_revision,"Profile child OK committed setup");
+        dialog->buttons()->button(QDialogButtonBox::Ok)->click();flush();check(session.revision()==profile_revision+1,"Profile setup did not commit once");
+        window.calculate_cam_body();flush();wait.restart();while(dynamic_cast<CamCalculationDialog*>(window.properties_dialog_)&&wait.elapsed()<60000){flush();QThread::msleep(5);}
+        nc=dynamic_cast<CamNcDialog*>(window.properties_dialog_);check(nc,"Profile calculation did not open NC inspector");
+        const auto profile_result=session.document().body_history.find(id)->cam->calculated;
+        check(profile_result&&profile_result->collisions.empty()&&std::abs(profile_result->removed_mm3-9*std::numbers::pi)<1e-6,"GUI profile pocket removed wrong volume");
+        const auto profile_inspection=session.revision();nc->findChild<QPushButton*>("camNcNext")->click();nc->findChild<QSlider*>("camNcFraction")->setValue(700);flush();
+        check(session.revision()==profile_inspection&&kernel::body_calculation_count.load()==count,"Profile NC inspection changed design geometry");
+        check(window.grab().save(QString::fromStdString(document::path_to_utf8(directory/"cam-profile-pocket.png"))),"Profile pocket capture failed");nc->reject();flush();
         // Use the actual GUI document factory and normal ownership/commands.
         // A .toolz file changes library selection, not the Part editing model.
         for(const auto* unit:{"mm","in"}) {

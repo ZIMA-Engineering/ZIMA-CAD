@@ -1,5 +1,6 @@
 #pragma once
 #include <zima/cam/facing.hpp>
+#include <zima/cam/profile_milling.hpp>
 #include <zima/cam/simulation.hpp>
 #include <nlohmann/json_fwd.hpp>
 
@@ -12,6 +13,8 @@ void to_json(nlohmann::json&,const Program&);
 void from_json(const nlohmann::json&,Program&);
 void to_json(nlohmann::json&,const Facing&);
 void from_json(const nlohmann::json&,Facing&);
+void to_json(nlohmann::json&,const ProfileMilling&);
+void from_json(const nlohmann::json&,ProfileMilling&);
 void to_json(nlohmann::json&,const Collision&);
 void from_json(const nlohmann::json&,Collision&);
 void to_json(nlohmann::json&,const ClampingWarning&);

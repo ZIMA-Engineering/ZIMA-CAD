@@ -10767,17 +10767,17 @@ void PartDocument::validate_body_ownership() const {
     if (!expected.empty()) throw std::invalid_argument("Every Part container must belong to a body");
     for(const auto& body:body_history.bodies())if(body.cam) {
         const auto boundary=std::ranges::find(body_history.order(),body.scope.id);
-        for(const auto& id:cam_clamping_sketch_ids(*body.cam)) {
+        for(const auto& id:cam_input_sketch_ids(*body.cam)) {
             const auto sketch=std::ranges::find(sketches,id,&zima::sketcher::Sketch::id);
             if(sketch==sketches.end()) {
                 if(find_container(id)||body_history.find(id)||body_history.find_boolean(id))
-                    throw std::invalid_argument("CAM clamping requires Sketch references.");
+                    throw std::invalid_argument("CAM requires Sketch references.");
                 continue; // Missing sources remain repairable in their authored setup.
             }
             const auto* owner=body_owner_for_object(id);
             if(!owner||owner->kind()!=BodyKind::Material||
                std::ranges::find(body_history.order(),owner->scope.id)>=boundary)
-                throw std::invalid_argument("CAM clamping Sketches must precede their setup.");
+                throw std::invalid_argument("CAM Sketches must precede their setup.");
         }
     }
     std::vector<PartHistoryEntry> projection;
